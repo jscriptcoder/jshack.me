@@ -35,7 +35,17 @@ export const echo: Command = {
     synopsis: 'echo [arg...]',
     description:
       'Output each argument to stdout, joined by single spaces, followed by a newline. Empty positionals (from quoted "") are preserved.',
-    examples: ['echo hello world', 'echo "hello world"', "echo 'with spaces'"],
+    arguments: [
+      {
+        name: 'arg',
+        description: 'Text to print; multiple arguments are joined by single spaces',
+      },
+    ],
+    examples: [
+      { command: 'echo hello world', description: 'Print two words separated by a space' },
+      { command: 'echo "hello world"', description: 'Print a single double-quoted argument' },
+      { command: "echo 'with spaces'", description: 'Print a single-quoted argument verbatim' },
+    ],
   },
   execute,
 };

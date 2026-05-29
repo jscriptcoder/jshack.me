@@ -76,7 +76,17 @@ export const cd: Command = {
     synopsis: 'cd [dir]',
     description:
       "Change the current shell working directory. With no argument, cd jumps to the session user's home directory (/root for root, /home/${user} otherwise).",
-    examples: ['cd /tmp', 'cd', 'cd ..'],
+    arguments: [
+      {
+        name: 'dir',
+        description: 'Directory to change into; defaults to the session user’s home',
+      },
+    ],
+    examples: [
+      { command: 'cd /tmp', description: 'Change to the /tmp directory' },
+      { command: 'cd', description: 'Return to your home directory' },
+      { command: 'cd ..', description: 'Move up to the parent directory' },
+    ],
   },
   execute,
 };

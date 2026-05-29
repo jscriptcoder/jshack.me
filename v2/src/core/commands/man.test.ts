@@ -27,9 +27,16 @@ describe('formatManPage', () => {
         category: 'general',
         description: 'Do the foo thing',
         manual: {
-          synopsis: 'foo [bar]',
+          synopsis: 'foo <target> [bar]',
           description: 'Foo frobnicates the bar.',
-          examples: ['foo', 'foo --bar'],
+          arguments: [
+            { name: 'target', description: 'What to frobnicate', required: true },
+            { name: 'bar', description: 'The bar to use' },
+          ],
+          examples: [
+            { command: 'foo /etc', description: 'Frobnicate /etc' },
+            { command: 'foo /etc --bar', description: 'Frobnicate /etc with the bar' },
+          ],
         },
       }),
     );
@@ -41,14 +48,28 @@ describe('formatManPage', () => {
       { kind: 'text', content: '    foo - Do the foo thing' },
       { kind: 'text', content: '' },
       { kind: 'text', content: 'SYNOPSIS' },
-      { kind: 'text', content: '    foo [bar]' },
+      { kind: 'text', content: '    foo <target> [bar]' },
       { kind: 'text', content: '' },
       { kind: 'text', content: 'DESCRIPTION' },
       { kind: 'text', content: '    Foo frobnicates the bar.' },
       { kind: 'text', content: '' },
+      // ARGUMENTS: each arg is name + (required|optional) marker, then its
+      // description indented one level deeper. No blank between args; one blank
+      // closes the whole section.
+      { kind: 'text', content: 'ARGUMENTS' },
+      { kind: 'text', content: '    target (required)' },
+      { kind: 'text', content: '        What to frobnicate' },
+      { kind: 'text', content: '    bar (optional)' },
+      { kind: 'text', content: '        The bar to use' },
+      { kind: 'text', content: '' },
+      // EXAMPLES: each example is the command, then its description indented one
+      // level deeper, then a trailing blank line — per example (legacy parity).
       { kind: 'text', content: 'EXAMPLES' },
-      { kind: 'text', content: '    foo' },
-      { kind: 'text', content: '    foo --bar' },
+      { kind: 'text', content: '    foo /etc' },
+      { kind: 'text', content: '        Frobnicate /etc' },
+      { kind: 'text', content: '' },
+      { kind: 'text', content: '    foo /etc --bar' },
+      { kind: 'text', content: '        Frobnicate /etc with the bar' },
       { kind: 'text', content: '' },
     ]);
   });
@@ -67,7 +88,7 @@ describe('formatManPage', () => {
     ]);
   });
 
-  it('omits the EXAMPLES section when the manual has no examples', () => {
+  it('omits ARGUMENTS and EXAMPLES for a synopsis/description-only manual', () => {
     const lines = formatManPage(
       buildCommand({
         name: 'foo',
@@ -76,8 +97,8 @@ describe('formatManPage', () => {
       }),
     );
 
-    // Exact layout proves SYNOPSIS/DESCRIPTION render but the EXAMPLES branch
-    // contributes nothing (no stray lines) when there are no examples.
+    // Exact layout proves SYNOPSIS/DESCRIPTION render but neither the ARGUMENTS
+    // nor the EXAMPLES branch contributes any stray lines when both are absent.
     expect(lines).toEqual([
       { kind: 'text', content: 'FOO(1)' },
       { kind: 'text', content: '' },
@@ -93,7 +114,22 @@ describe('formatManPage', () => {
     ]);
   });
 
-  it('also omits EXAMPLES for an explicitly empty examples array', () => {
+  it('omits the ARGUMENTS header for an explicitly empty arguments array', () => {
+    const contents = contentsOf(
+      formatManPage(
+        buildCommand({
+          name: 'foo',
+          category: 'general',
+          manual: { synopsis: 'foo', description: 'A foo.', arguments: [] },
+        }),
+      ),
+    );
+
+    expect(contents).toContain('DESCRIPTION');
+    expect(contents).not.toContain('ARGUMENTS');
+  });
+
+  it('omits the EXAMPLES header for an explicitly empty examples array', () => {
     const contents = contentsOf(
       formatManPage(
         buildCommand({
@@ -104,7 +140,28 @@ describe('formatManPage', () => {
       ),
     );
 
-    expect(contents).toContain('SYNOPSIS');
+    expect(contents).toContain('DESCRIPTION');
+    expect(contents).not.toContain('EXAMPLES');
+  });
+
+  it('renders an ARGUMENTS section even when there are no examples', () => {
+    const contents = contentsOf(
+      formatManPage(
+        buildCommand({
+          name: 'foo',
+          category: 'general',
+          manual: {
+            synopsis: 'foo <x>',
+            description: 'A foo.',
+            arguments: [{ name: 'x', description: 'the x', required: true }],
+          },
+        }),
+      ),
+    );
+
+    expect(contents).toContain('ARGUMENTS');
+    expect(contents).toContain('    x (required)');
+    expect(contents).toContain('        the x');
     expect(contents).not.toContain('EXAMPLES');
   });
 });
@@ -122,6 +179,13 @@ describe('man', () => {
     expect(contents).toContain('    ls - List directory contents');
     expect(contents).toContain('SYNOPSIS');
     expect(contents).toContain('    ls [-a] [-l] [path]');
+    // The richer manual: an ARGUMENTS section listing ls's flags/positional...
+    expect(contents).toContain('ARGUMENTS');
+    expect(contents).toContain('    -a (optional)');
+    expect(contents).toContain('    -l (optional)');
+    expect(contents).toContain('    path (optional)');
+    // ...and at least one example rendered with its description beneath it.
+    expect(contents).toContain('    ls -la sub');
   });
 
   it('errors with a usage message and exit 2 when no command name is given', async () => {

@@ -155,7 +155,26 @@ export const ls: Command = {
     synopsis: 'ls [-a] [-l] [path]',
     description:
       'List the contents of the named directory (or the current directory if no argument is given). With -a, hidden entries (names starting with `.`) plus the synthetic `.` and `..` are included. With -l, each row is rendered in long format: <type><perms9> <owner> <size> <name>. Flags can be stacked (-la == -l -a).',
-    examples: ['ls', 'ls -a', 'ls -l /etc', 'ls -la sub'],
+    arguments: [
+      {
+        name: '-a',
+        description: 'Include hidden entries (names starting with `.`) and the synthetic . and ..',
+      },
+      {
+        name: '-l',
+        description: 'Long format: <type><perms9> <owner> <size> <name>',
+      },
+      {
+        name: 'path',
+        description: 'Directory (or file) to list; defaults to the current directory',
+      },
+    ],
+    examples: [
+      { command: 'ls', description: 'List the current directory' },
+      { command: 'ls -a', description: 'List including hidden entries' },
+      { command: 'ls -l /etc', description: 'Long-format listing of /etc' },
+      { command: 'ls -la sub', description: 'Long format, including hidden entries, of sub' },
+    ],
   },
   execute,
 };

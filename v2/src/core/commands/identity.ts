@@ -36,7 +36,9 @@ export const identity: Command = {
     synopsis: 'identity',
     description:
       'Print your Ed25519 public key and a short fingerprint. The key is generated on first run and stored in browser localStorage; clear it via devtools to start a fresh identity.',
-    examples: ['identity'],
+    examples: [
+      { command: 'identity', description: 'Print your public key and fingerprint' },
+    ],
   },
   execute,
 };
