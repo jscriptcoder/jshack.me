@@ -26,6 +26,7 @@ import { commandEchoLine } from '../core/shell/prompt';
 import { buildCommandEnv } from './env';
 import { getPlayerIdentity } from './identity';
 import { createPatchApi, fetchOwnPatches, type PatchClientDeps } from '../adapters/patchApi';
+import { createSyncChannel } from '../adapters/crossTabSync';
 import { SEED_HOME, SEED_HOST, seedFs, seedSession } from './seed';
 
 const identity = getPlayerIdentity();
@@ -54,6 +55,17 @@ const refetchPatches = async (): Promise<void> => {
 // Hydrate the journal on boot so reload-durable writes show up immediately.
 void refetchPatches();
 
+// Cross-tab sync: a write in another tab of this browser (same identity, same
+// workstation) hints us to re-pull the journal, so our next command reflects it
+// without a reload. The BroadcastChannel spec never echoes our own writes back
+// to us, so this can't self-trigger. (Cross-browser via Realtime is a later plan.)
+const syncChannel = createSyncChannel();
+syncChannel.onMessage((message) => {
+  if (message.type === 'patches-changed' && message.machineId === session.machineId) {
+    void refetchPatches();
+  }
+});
+
 /** The real PatchApi, wrapped so a successful mutation reconciles the local
  *  journal with server truth before the call resolves. The command awaits the
  *  mutation, so the refetched patches are in place before the next line runs. */
@@ -62,7 +74,12 @@ const wrapWithRefetch = (inner: PatchApi): PatchApi => {
     <Args extends readonly unknown[]>(method: (...args: Args) => ReturnType<PatchApi['mkdir']>) =>
     async (...args: Args) => {
       const result = await method(...args);
-      if (result.ok) await refetchPatches();
+      if (result.ok) {
+        await refetchPatches();
+        // Tell other tabs to re-pull — only after our own journal reflects the
+        // server-persisted write, so a receiver's refetch sees the new truth.
+        syncChannel.broadcast({ type: 'patches-changed', machineId: session.machineId });
+      }
       return result;
     };
   return {
