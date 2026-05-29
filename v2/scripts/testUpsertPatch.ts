@@ -1,0 +1,98 @@
+// Wire-payload smoke for POST /api/patches (upsertPatch).
+//
+// Forges signed envelopes with core/signedRequest and hits a running
+// `vercel dev` (default localhost:3100), then verifies DB state with a
+// service_role client. This is the integration seam unit tests can't cover
+// (envelope → handler → Supabase → wire response). Self-cleaning.
+//
+// Usage (with v2 supabase + vercel dev running):
+//   SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... npx tsx scripts/testUpsertPatch.ts
+//
+// Exits 0 when all checks pass, 1 on failure, 2 on missing env.
+
+import { createClient } from '@supabase/supabase-js';
+import { signRequest } from '../src/core/signedRequest/sign';
+import { generateIdentity } from '../src/core/identity/identity';
+import { computeWorkstationId } from '../src/core/identity/workstation';
+
+const ENDPOINT = process.env.ENDPOINT ?? 'http://localhost:3100/api/patches';
+const url = process.env.SUPABASE_URL;
+const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!url || !serviceKey) {
+  console.error('Missing env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY');
+  process.exit(2);
+}
+
+const sr = createClient(url, serviceKey, { auth: { persistSession: false } });
+
+const results: { readonly pass: boolean }[] = [];
+const check = (name: string, pass: boolean, detail: string) => {
+  results.push({ pass });
+  console.log(`${pass ? 'PASS' : 'FAIL'}  ${name}  —  ${detail}`);
+};
+
+const post = async (envelope: unknown): Promise<{ status: number; body: unknown }> => {
+  const response = await fetch(ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(envelope),
+  });
+  const body = await response.json().catch(() => null);
+  return { status: response.status, body };
+};
+
+const errorOf = (body: unknown): string | undefined =>
+  typeof body === 'object' && body !== null ? (body as { error?: string }).error : undefined;
+
+const id = generateIdentity();
+const machine = computeWorkstationId('smoke', id.publicKeyHex);
+const path = '/home/smoke/probe.txt';
+
+// 1. Own-workstation write succeeds.
+const r1 = await post(signRequest(id, 'upsertPatch', { machine_id: machine, path, content: 'smoke-content', owner: 'smoke' }));
+check('own-workstation upsert → 200', r1.status === 200, `status=${r1.status} body=${JSON.stringify(r1.body)}`);
+
+// 2. Row persisted with the SERVER-stamped player_key + content.
+const persisted = await sr
+  .from('patches')
+  .select('content, player_key, owner')
+  .eq('player_key', id.publicKeyHex)
+  .eq('machine_id', machine)
+  .eq('path', path);
+check(
+  'row persisted with stamped player_key + content',
+  persisted.data?.length === 1 &&
+    persisted.data[0]?.content === 'smoke-content' &&
+    persisted.data[0]?.player_key === id.publicKeyHex,
+  `rows=${persisted.data?.length ?? 'undefined'}`,
+);
+
+// 3. A machine that isn't the caller's workstation is rejected.
+const r3 = await post(
+  signRequest(id, 'upsertPatch', {
+    machine_id: computeWorkstationId('victim', 'b'.repeat(64)),
+    path: '/x',
+    content: 'y',
+    owner: 'smoke',
+  }),
+);
+check('non-own machine → 403 no_session', r3.status === 403 && errorOf(r3.body) === 'no_session', `status=${r3.status} error=${errorOf(r3.body)}`);
+
+// 4. Tampered signature rejected.
+const env4 = signRequest(id, 'upsertPatch', { machine_id: machine, path, content: 'z', owner: 'smoke' });
+const r4 = await post({ ...env4, payload: `${env4.payload} ` });
+check('tampered signature → 401', r4.status === 401, `status=${r4.status} error=${errorOf(r4.body)}`);
+
+// 5. Client-supplied player_key rejected.
+const r5 = await post(
+  signRequest(id, 'upsertPatch', { machine_id: machine, path, content: 'z', owner: 'smoke', player_key: 'forged' }),
+);
+check('client player_key → 400 payload_invalid', r5.status === 400 && errorOf(r5.body) === 'payload_invalid', `status=${r5.status} error=${errorOf(r5.body)}`);
+
+// Cleanup.
+await sr.from('patches').delete().eq('player_key', id.publicKeyHex);
+
+const passed = results.filter((result) => result.pass).length;
+console.log(`\n${passed}/${results.length} checks passed`);
+process.exit(passed === results.length ? 0 : 1);

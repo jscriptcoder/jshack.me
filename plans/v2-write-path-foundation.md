@@ -63,9 +63,9 @@ these — which is exactly why it's the thinnest real first slice.
       replay (duplicate nonce), and timestamp skew. (Slice 2 ✅ — signedRequest core, mutation 98.67%.)
 - [x] The fresh v2 Supabase `patches` table denies anon/authenticated and permits
       only service_role (RLS verifier passes). (Slice 3 ✅ — 5/5 probes; v2 on 544xx ports.)
-- [ ] A signed `upsertPatch` for the caller's own workstation persists a `patches`
+- [x] A signed `upsertPatch` for the caller's own workstation persists a `patches`
       row with no session required (own-workstation L1 bypass), verified by a
-      wire-payload smoke test against `vercel:dev`.
+      wire-payload smoke test against `vercel:dev`. (Slice 4 ✅ — smoke 5/5; handler mutation 100%, workstation 95.83% w/ 1 equivalent.)
 - [ ] Creating a directory (`mkdir`) on the own workstation persists via the server
       and the new directory appears in `ls` **and survives a page reload** (fsView
       applies fetched patches over the base FS).
