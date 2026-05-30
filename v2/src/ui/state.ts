@@ -3,21 +3,25 @@
  * module-level signals over Context). The terminal is an app singleton, so
  * the scrollback + input + cwd + patch journal live here, not in a provider.
  *
- * `runInput` is the seam between the DOM and `core/`: it echoes the typed
- * line into the scrollback, materializes the current FS view by replaying the
+ * Boot lifecycle: signal DECLARATIONS are module-level (they need no config),
+ * but everything config-derived — identity, session, the patch API, cross-tab
+ * sync, the real cwd, and the boot journal hydration — is deferred into
+ * `startGame(config)`. This keeps importing `state.ts` side-effect-free: a new
+ * player's `GameConfig` does not exist at import time (it's typed at the intro
+ * screen), so building the session eagerly would crash. The boot gate
+ * (`main.tsx`) calls `startGame` once config exists; both the returning-player
+ * and just-submitted paths converge on it. See the intro-screen plan.
+ *
+ * `runInput` is the seam between the DOM and `core/`: it echoes the typed line
+ * into the scrollback, materializes the current FS view by replaying the
  * fetched patch journal over the seed base FS, builds a CommandEnv, runs the
  * line through `runCommandLine`, and mirrors the resulting lines back.
- *
- * Write path (server-authoritative): the injected `PatchApi` POSTs signed
- * envelopes to `/api/patches`. After a successful mutation we re-fetch the
- * journal so the next command's materialized view reflects server truth — the
- * await means a `mkdir` is durable and visible before the user's next line
- * runs. The journal is also hydrated once on boot, so a write survives reload.
  */
 
 import { createSignal } from 'solid-js';
 import { asAbsPath, type AbsPath } from '../core/types';
-import type { PatchApi, TerminalLine } from '../core/commands/types';
+import type { Identity, PatchApi, Session, TerminalLine } from '../core/commands/types';
+import type { GameConfig } from '../core/gameConfig/gameConfig';
 import type { Patch } from '../core/filesystem/applyPatches';
 import { applyPatches } from '../core/filesystem/applyPatches';
 import { createFsView } from '../core/filesystem/fsView';
@@ -29,24 +33,24 @@ import { commandEchoLine } from '../core/shell/prompt';
 import { buildCommandEnv } from './env';
 import { getPlayerIdentity } from './identity';
 import { createPatchApi, fetchOwnPatches, type PatchClientDeps } from '../adapters/patchApi';
-import { createSyncChannel } from '../adapters/crossTabSync';
+import { createSyncChannel, type SyncChannel } from '../adapters/crossTabSync';
 import { type HistoryNav, idleNav, navigateDown, navigateUp } from '../core/shell/commandHistory';
-import { SEED_HOME, SEED_HOST, seedFs, seedSession } from './seed';
+import { homePathFor, seedFs, seedSession } from './seed';
 
-const identity = getPlayerIdentity();
-const session = seedSession(identity);
-
-/** Shared config for both the write API and the journal read. */
-const patchClientDeps: PatchClientDeps = {
-  identity,
-  machineId: session.machineId,
-  owner: session.username,
-  tier: session.userType,
-};
+// ---- Config-derived game state, assigned once by `startGame`. ----
+// `let` (not top-level `const`) precisely because these can't be built at
+// import time — they need the player's typed config. Reading them before
+// `startGame` is a programming error the `started()` guard surfaces loudly.
+let identity: Identity | undefined;
+let session: Session | undefined;
+let config: GameConfig | undefined;
+let patchClientDeps: PatchClientDeps | undefined;
+let patchApi: PatchApi | undefined;
+let syncChannel: SyncChannel | undefined;
 
 const [scrollback, setScrollback] = createSignal<readonly TerminalLine[]>([]);
 const [input, setInput] = createSignal('');
-const [cwd, setCwd] = createSignal<AbsPath>(SEED_HOME);
+const [cwd, setCwd] = createSignal<AbsPath>(asAbsPath('/'));
 const [patches, setPatches] = createSignal<readonly Patch[]>([]);
 
 // Shell history: in-memory only (resets on reload, per legacy parity). The
@@ -55,6 +59,87 @@ const [commandHistory, setCommandHistory] = createSignal<readonly string[]>([]);
 const [historyNav, setHistoryNav] = createSignal<HistoryNav>(idleNav());
 
 export { cwd, input, scrollback, setInput };
+
+/** The active session, or a clear error if the game hasn't been started.
+ *  Internal accessor so the rest of the module reads a defined value. */
+const requireSession = (): Session => {
+  if (session === undefined) throw new Error('startGame must be called before using the terminal');
+  return session;
+};
+
+/** Reactive prompt host (machine name) + username for the UI. Read the typed
+ *  config; fall through to placeholders only before `startGame` (the boot gate
+ *  ensures that never happens in practice). */
+export const promptHost = (): string => config?.machineName ?? 'workstation';
+export const promptUsername = (): string => config?.username ?? 'user';
+
+/** Re-pull the own-workstation journal and replace the local view. */
+const refetchPatches = async (): Promise<void> => {
+  if (patchClientDeps === undefined) return;
+  setPatches(await fetchOwnPatches(patchClientDeps));
+};
+
+/** The real PatchApi, wrapped so a successful mutation reconciles the local
+ *  journal with server truth before the call resolves. The command awaits the
+ *  mutation, so the refetched patches are in place before the next line runs. */
+const wrapWithRefetch = (inner: PatchApi): PatchApi => {
+  const afterWrite =
+    <Args extends readonly unknown[]>(method: (...args: Args) => ReturnType<PatchApi['mkdir']>) =>
+    async (...args: Args) => {
+      const result = await method(...args);
+      if (result.ok) {
+        await refetchPatches();
+        // Tell other tabs to re-pull — only after our own journal reflects the
+        // server-persisted write, so a receiver's refetch sees the new truth.
+        syncChannel?.broadcast({ type: 'patches-changed', machineId: requireSession().machineId });
+      }
+      return result;
+    };
+  return {
+    write: afterWrite(inner.write),
+    remove: afterWrite(inner.remove),
+    mkdir: afterWrite(inner.mkdir),
+  };
+};
+
+/** Start (or restart) the game for a given config. Builds identity, session,
+ *  the patch API, and cross-tab sync; sets the cwd to the player's home; and
+ *  hydrates the patch journal so reload-durable writes show up immediately.
+ *  Idempotent enough for tests: a second call rebuilds cleanly. */
+export const startGame = (gameConfig: GameConfig): void => {
+  config = gameConfig;
+  identity = getPlayerIdentity();
+  session = seedSession(identity, gameConfig);
+
+  patchClientDeps = {
+    identity,
+    machineId: session.machineId,
+    owner: session.username,
+    tier: session.userType,
+  };
+  patchApi = wrapWithRefetch(createPatchApi(patchClientDeps));
+
+  setCwd(homePathFor(gameConfig.username));
+  setScrollback([]);
+  setPatches([]);
+  setCommandHistory([]);
+  setHistoryNav(idleNav());
+
+  // Cross-tab sync: a write in another tab of this browser (same identity, same
+  // workstation) hints us to re-pull the journal, so our next command reflects
+  // it without a reload. The BroadcastChannel spec never echoes our own writes
+  // back to us, so this can't self-trigger. (Cross-browser via Realtime later.)
+  syncChannel?.close();
+  syncChannel = createSyncChannel();
+  syncChannel.onMessage((message) => {
+    if (message.type === 'patches-changed' && message.machineId === session?.machineId) {
+      void refetchPatches();
+    }
+  });
+
+  // Hydrate the journal so reload-durable writes show up immediately.
+  void refetchPatches();
+};
 
 /** ArrowUp recall — recall an older command, capturing the live draft first. */
 export const historyUp = (): void => {
@@ -70,55 +155,11 @@ export const historyDown = (): void => {
   setInput(step.value);
 };
 
-/** Re-pull the own-workstation journal and replace the local view. */
-const refetchPatches = async (): Promise<void> => {
-  setPatches(await fetchOwnPatches(patchClientDeps));
-};
-
-// Hydrate the journal on boot so reload-durable writes show up immediately.
-void refetchPatches();
-
-// Cross-tab sync: a write in another tab of this browser (same identity, same
-// workstation) hints us to re-pull the journal, so our next command reflects it
-// without a reload. The BroadcastChannel spec never echoes our own writes back
-// to us, so this can't self-trigger. (Cross-browser via Realtime is a later plan.)
-const syncChannel = createSyncChannel();
-syncChannel.onMessage((message) => {
-  if (message.type === 'patches-changed' && message.machineId === session.machineId) {
-    void refetchPatches();
-  }
-});
-
-/** The real PatchApi, wrapped so a successful mutation reconciles the local
- *  journal with server truth before the call resolves. The command awaits the
- *  mutation, so the refetched patches are in place before the next line runs. */
-const wrapWithRefetch = (inner: PatchApi): PatchApi => {
-  const afterWrite =
-    <Args extends readonly unknown[]>(method: (...args: Args) => ReturnType<PatchApi['mkdir']>) =>
-    async (...args: Args) => {
-      const result = await method(...args);
-      if (result.ok) {
-        await refetchPatches();
-        // Tell other tabs to re-pull — only after our own journal reflects the
-        // server-persisted write, so a receiver's refetch sees the new truth.
-        syncChannel.broadcast({ type: 'patches-changed', machineId: session.machineId });
-      }
-      return result;
-    };
-  return {
-    write: afterWrite(inner.write),
-    remove: afterWrite(inner.remove),
-    mkdir: afterWrite(inner.mkdir),
-  };
-};
-
-const patchApi = wrapWithRefetch(createPatchApi(patchClientDeps));
-
 /** Clear the terminal. Doubles as the backing for a future `clear` command. */
 export const resetTerminal = (): void => {
   setScrollback([]);
   setInput('');
-  setCwd(SEED_HOME);
+  setCwd(config === undefined ? asAbsPath('/') : homePathFor(config.username));
   setCommandHistory([]);
   setHistoryNav(idleNav());
 };
@@ -128,8 +169,9 @@ export const resetTerminal = (): void => {
  *  reflects mkdir'd dirs and tier permissions. The `AbsPath` brand is applied
  *  here — the pure completer stays string-typed. */
 const buildCompleteAdapter = (): CompleteAdapter => {
-  const fsView = createFsView(applyPatches(seedFs(), patches()), {
-    userType: session.userType,
+  const activeSession = requireSession();
+  const fsView = createFsView(applyPatches(seedFs(requireConfig()), patches()), {
+    userType: activeSession.userType,
     cwd,
   });
   return {
@@ -142,6 +184,11 @@ const buildCompleteAdapter = (): CompleteAdapter => {
     isDirectory: (abs) => fsView.stat(asAbsPath(abs))?.kind === 'directory',
     resolvePath: (path) => resolveAbsPath(cwd(), path),
   };
+};
+
+const requireConfig = (): GameConfig => {
+  if (config === undefined) throw new Error('startGame must be called before using the terminal');
+  return config;
 };
 
 /** Tab-complete the token at `cursorPos`. Applies the replacement to the input
@@ -162,6 +209,10 @@ export const tabComplete = (cursorPos: number): number | null => {
 };
 
 export const runInput = async (): Promise<void> => {
+  const activeSession = requireSession();
+  const activePatchApi = patchApi;
+  if (activePatchApi === undefined) throw new Error('startGame must be called before runInput');
+
   const line = input();
   // Record real commands for ArrowUp/Down recall and snap the cursor back to
   // the live prompt; blank/whitespace lines never enter the recallable list.
@@ -171,20 +222,28 @@ export const runInput = async (): Promise<void> => {
 
   setScrollback((previous) => [
     ...previous,
-    commandEchoLine({ username: session.username, host: SEED_HOST, cwd: cwd() }, line),
+    commandEchoLine(
+      { username: activeSession.username, host: promptHost(), cwd: cwd() },
+      line,
+    ),
   ]);
 
   const env = buildCommandEnv({
-    identity,
-    session,
-    root: applyPatches(seedFs(), patches()),
+    identity: requireIdentity(),
+    session: activeSession,
+    root: applyPatches(seedFs(requireConfig()), patches()),
     cwd,
     onCwdChange: setCwd,
-    patches: patchApi,
+    patches: activePatchApi,
   });
 
   const result = await runCommandLine(env, line, commandRegistry);
   if (result.kind === 'sync') {
     setScrollback((previous) => [...previous, ...result.lines]);
   }
+};
+
+const requireIdentity = (): Identity => {
+  if (identity === undefined) throw new Error('startGame must be called before using the terminal');
+  return identity;
 };

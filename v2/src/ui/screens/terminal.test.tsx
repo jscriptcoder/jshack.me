@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { fireEvent, render, screen } from '@solidjs/testing-library';
 import { Terminal } from './terminal';
-import { resetTerminal } from '../state';
+import { startGame } from '../state';
+import { SEED_CONFIG } from '../seed';
 
-/** Fresh terminal state per test — the scrollback signal is a module
- *  singleton, so reset it rather than leaking output between tests. */
+/** Fresh terminal state per test — the module-singleton session + signals are
+ *  rebuilt by `startGame`, which also clears the scrollback, so this both
+ *  initialises the game and resets state between tests. */
 const renderTerminal = () => {
-  resetTerminal();
+  startGame(SEED_CONFIG);
   return render(() => <Terminal />);
 };
 

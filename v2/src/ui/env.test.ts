@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildCommandEnv } from './env';
-import { SEED_HOME, seedFs, seedSession } from './seed';
+import { homePathFor, SEED_CONFIG, seedFs, seedSession } from './seed';
 import { generateIdentity } from '../core/identity/identity';
 import { asAbsPath } from '../core/types';
 import type { PatchApi } from '../core/commands/types';
@@ -11,12 +11,14 @@ const noopPatches: PatchApi = {
   mkdir: async () => ({ ok: true }),
 };
 
+const seedHome = homePathFor(SEED_CONFIG.username);
+
 const seedEnv = (userType: 'guest' | 'user' | 'root' = 'user') =>
   buildCommandEnv({
     identity: generateIdentity(),
-    session: { ...seedSession(generateIdentity()), userType },
-    root: seedFs(),
-    cwd: () => SEED_HOME,
+    session: { ...seedSession(generateIdentity(), SEED_CONFIG), userType },
+    root: seedFs(SEED_CONFIG),
+    cwd: () => seedHome,
     onCwdChange: () => undefined,
     patches: noopPatches,
   });
@@ -38,17 +40,17 @@ describe('buildCommandEnv', () => {
   });
 
   it('exposes the provided session and working directory', () => {
-    const session = seedSession(generateIdentity());
+    const session = seedSession(generateIdentity(), SEED_CONFIG);
     const env = buildCommandEnv({
       identity: generateIdentity(),
       session,
-      root: seedFs(),
-      cwd: () => SEED_HOME,
+      root: seedFs(SEED_CONFIG),
+      cwd: () => seedHome,
       onCwdChange: () => undefined,
       patches: noopPatches,
     });
 
     expect(env.session).toBe(session);
-    expect(env.fs.cwd()).toBe(SEED_HOME);
+    expect(env.fs.cwd()).toBe(seedHome);
   });
 });
