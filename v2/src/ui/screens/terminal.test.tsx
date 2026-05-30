@@ -246,4 +246,77 @@ describe('Terminal', () => {
     fireEvent.keyDown(inputField(), { key: 'ArrowUp' });
     expect(inputField()).toHaveValue('pwd');
   });
+
+  describe('Tab completion', () => {
+    const typeInput = (value: string) => fireEvent.input(inputField(), { target: { value } });
+    const pressTab = () => fireEvent.keyDown(inputField(), { key: 'Tab' });
+
+    it('completes a unique command prefix and appends a space', () => {
+      renderTerminal();
+      typeInput('hel');
+      pressTab();
+
+      expect(inputField()).toHaveValue('help ');
+      // A unique completion must not also dump a candidate list into the scrollback.
+      expect(screen.queryByText('help')).not.toBeInTheDocument();
+    });
+
+    it('decorates a completed directory with a trailing slash', () => {
+      // Seed root has the `etc` directory; `/et` uniquely completes to it and
+      // gets a trailing slash (no space) so the user can keep typing a path.
+      renderTerminal();
+      typeInput('cd /et');
+      pressTab();
+
+      expect(inputField()).toHaveValue('cd /etc/');
+    });
+
+    it('lists candidates when several commands match the prefix', async () => {
+      renderTerminal();
+      typeInput('c'); // matches `cat` and `cd`
+      pressTab();
+
+      // Common prefix is just `c`, so the input is unchanged; the candidates
+      // are printed on one scrollback line.
+      expect(inputField()).toHaveValue('c');
+      expect(await screen.findByText('cat, cd')).toBeInTheDocument();
+    });
+
+    it('completes a path argument against the current filesystem', () => {
+      // Seed /etc has `motd` and `passwd`; `pa` uniquely completes to passwd.
+      renderTerminal();
+      typeInput('cat /etc/pa');
+      pressTab();
+
+      expect(inputField()).toHaveValue('cat /etc/passwd');
+    });
+
+    it('completes a unique flag from the command flag spec', () => {
+      // cat declares only `-n`.
+      renderTerminal();
+      typeInput('cat -');
+      pressTab();
+
+      expect(inputField()).toHaveValue('cat -n ');
+    });
+
+    it('lists flags when several match', async () => {
+      // ls declares `-a` and `-l`; common prefix is `-`, so the input is
+      // unchanged and both are listed.
+      renderTerminal();
+      typeInput('ls -');
+      pressTab();
+
+      expect(inputField()).toHaveValue('ls -');
+      expect(await screen.findByText('-a, -l')).toBeInTheDocument();
+    });
+
+    it('is a no-op when nothing matches', () => {
+      renderTerminal();
+      typeInput('zzz');
+      pressTab();
+
+      expect(inputField()).toHaveValue('zzz');
+    });
+  });
 });

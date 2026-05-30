@@ -3,7 +3,16 @@ import type { TerminalLine } from '../../core/commands/types';
 import { formatPrompt } from '../../core/shell/prompt';
 import { BANNER } from '../banner';
 import { SEED_HOST, SEED_USERNAME } from '../seed';
-import { cwd, historyDown, historyUp, input, runInput, scrollback, setInput } from '../state';
+import {
+  cwd,
+  historyDown,
+  historyUp,
+  input,
+  runInput,
+  scrollback,
+  setInput,
+  tabComplete,
+} from '../state';
 
 const LINE_BASE = 'whitespace-pre-wrap break-words';
 
@@ -20,6 +29,7 @@ const livePrompt = () => formatPrompt({ username: SEED_USERNAME, host: SEED_HOST
 
 export const Terminal = () => {
   let output: HTMLDivElement | undefined;
+  let inputEl: HTMLInputElement | undefined;
 
   // Keep the newest output in view as the scrollback grows.
   createEffect(() => {
@@ -41,6 +51,15 @@ export const Terminal = () => {
     if (event.key === 'ArrowDown') {
       event.preventDefault();
       historyDown();
+      return;
+    }
+    if (event.key === 'Tab') {
+      event.preventDefault();
+      const caret = tabComplete(inputEl?.selectionStart ?? input().length);
+      // The replacement is applied to the `input` signal; Solid flushes the
+      // controlled value at the end of this event, so reposition the caret in a
+      // microtask — by then the DOM value reflects the completion.
+      if (caret !== null) queueMicrotask(() => inputEl?.setSelectionRange(caret, caret));
     }
   };
 
@@ -60,6 +79,7 @@ export const Terminal = () => {
       <div class="flex items-baseline gap-2">
         <span class="whitespace-pre text-[var(--theme-text-bright)]">{livePrompt()}</span>
         <input
+          ref={inputEl}
           aria-label="terminal input"
           class="flex-1 border-none bg-transparent p-0 text-inherit caret-[var(--theme-caret)] outline-none [font:inherit]"
           autocomplete="off"

@@ -16,11 +16,14 @@
  */
 
 import { createSignal } from 'solid-js';
-import type { AbsPath } from '../core/types';
+import { asAbsPath, type AbsPath } from '../core/types';
 import type { PatchApi, TerminalLine } from '../core/commands/types';
 import type { Patch } from '../core/filesystem/applyPatches';
 import { applyPatches } from '../core/filesystem/applyPatches';
+import { createFsView } from '../core/filesystem/fsView';
+import { resolveAbsPath } from '../core/filesystem/path';
 import { commandRegistry } from '../core/commands/registry';
+import { complete, type CompleteAdapter } from '../core/shell/complete';
 import { runCommandLine } from '../core/shell/runLine';
 import { commandEchoLine } from '../core/shell/prompt';
 import { buildCommandEnv } from './env';
@@ -118,6 +121,44 @@ export const resetTerminal = (): void => {
   setCwd(SEED_HOME);
   setCommandHistory([]);
   setHistoryNav(idleNav());
+};
+
+/** Build a completion adapter over the current FS view + command registry.
+ *  Materializes the patched tree exactly as `runInput` does, so completion
+ *  reflects mkdir'd dirs and tier permissions. The `AbsPath` brand is applied
+ *  here — the pure completer stays string-typed. */
+const buildCompleteAdapter = (): CompleteAdapter => {
+  const fsView = createFsView(applyPatches(seedFs(), patches()), {
+    userType: session.userType,
+    cwd,
+  });
+  return {
+    commandNames: [...commandRegistry.keys()],
+    getCommand: (name) => commandRegistry.get(name),
+    listPath: (abs) => {
+      const result = fsView.list(asAbsPath(abs));
+      return result.ok ? result.entries : null;
+    },
+    isDirectory: (abs) => fsView.stat(asAbsPath(abs))?.kind === 'directory',
+    resolvePath: (path) => resolveAbsPath(cwd(), path),
+  };
+};
+
+/** Tab-complete the token at `cursorPos`. Applies the replacement to the input
+ *  signal and, when more than one candidate matches, prints the candidate list
+ *  to the scrollback. Returns the new caret index when the line changed (so the
+ *  UI can reposition the DOM caret), or null when nothing moved. */
+export const tabComplete = (cursorPos: number): number | null => {
+  const line = input();
+  const outcome = complete(line, cursorPos, buildCompleteAdapter());
+  if (outcome.matches.length === 0) return null;
+
+  const changed = outcome.replacement !== line;
+  if (changed) setInput(outcome.replacement);
+  if (outcome.matches.length > 1) {
+    setScrollback((previous) => [...previous, { kind: 'text', content: outcome.displayText }]);
+  }
+  return changed ? outcome.newCursorPosition : null;
 };
 
 export const runInput = async (): Promise<void> => {
