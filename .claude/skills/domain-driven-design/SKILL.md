@@ -11,14 +11,14 @@ For hexagonal architecture (ports and adapters), load the `hexagonal-architectur
 
 **Deep-dive resources** are in the `resources/` directory. Load them on demand:
 
-| Resource | Load when... |
-|----------|-------------|
-| `aggregate-design.md` | Designing or splitting aggregates, sizing questions, optimistic locking |
-| `domain-services.md` | Unsure if logic is a domain service vs use case, naming conventions |
-| `domain-events.md` | Cross-aggregate coordination, Decider pattern, event dispatch (outbox), process managers |
-| `bounded-contexts.md` | Drawing context boundaries, integrating with external systems (ACL), context mapping |
-| `error-modeling.md` | Deciding between result types and exceptions, error propagation |
-| `testing-by-layer.md` | Writing tests for DDD code, property-based testing for invariants |
+| Resource              | Load when...                                                                             |
+| --------------------- | ---------------------------------------------------------------------------------------- |
+| `aggregate-design.md` | Designing or splitting aggregates, sizing questions, optimistic locking                  |
+| `domain-services.md`  | Unsure if logic is a domain service vs use case, naming conventions                      |
+| `domain-events.md`    | Cross-aggregate coordination, Decider pattern, event dispatch (outbox), process managers |
+| `bounded-contexts.md` | Drawing context boundaries, integrating with external systems (ACL), context mapping     |
+| `error-modeling.md`   | Deciding between result types and exceptions, error propagation                          |
+| `testing-by-layer.md` | Writing tests for DDD code, property-based testing for invariants                        |
 
 For authoritative sources, see `../REFERENCES.md`.
 
@@ -29,12 +29,14 @@ For authoritative sources, see `../REFERENCES.md`.
 DDD adds value for **complex domains** with rich business rules. Not every project needs it.
 
 **Use DDD when:**
+
 - Domain has complex business rules and invariants
 - Multiple stakeholders with domain expertise
 - Business logic is the core differentiator
 - Terms have specific, important meanings
 
 **Don't use DDD when:**
+
 - Simple CRUD with no business rules
 - Technical/infrastructure-focused projects
 - No domain expert to consult
@@ -55,20 +57,20 @@ DDD adds value for **complex domains** with rich business rules. Not every proje
 
 This is the most common decision in DDD. When unsure, use this framework:
 
-| Question | If yes → | If no ↓ |
-|----------|----------|---------|
-| Does it enforce a business rule or compute a business value? | `domain/` (entity function, value object, or domain service) | ↓ |
-| Does it orchestrate multiple domain operations without owning logic? | Use case / application service | ↓ |
-| Does it format, transform, or prepare data for display? | `lib/` or inline in the view | ↓ |
-| Does it talk to an external system (DB, API, file system)? | Adapter (implements a port defined in domain) | ↓ |
-| Is it framework-specific glue (route handler, middleware)? | Delivery layer (`app/`) | — |
+| Question                                                             | If yes →                                                     | If no ↓ |
+| -------------------------------------------------------------------- | ------------------------------------------------------------ | ------- |
+| Does it enforce a business rule or compute a business value?         | `domain/` (entity function, value object, or domain service) | ↓       |
+| Does it orchestrate multiple domain operations without owning logic? | Use case / application service                               | ↓       |
+| Does it format, transform, or prepare data for display?              | `lib/` or inline in the view                                 | ↓       |
+| Does it talk to an external system (DB, API, file system)?           | Adapter (implements a port defined in domain)                | ↓       |
+| Is it framework-specific glue (route handler, middleware)?           | Delivery layer (`app/`)                                      | —       |
 
 **The purity test is necessary but not sufficient.** A pure function that formats a date for display does not belong in `domain/` just because it's pure. The question is always: "Is this a business rule?"
 
 ```typescript
 // ❌ Pure but NOT domain — formats for human display
 export const formatEventDate = (date: string | null) =>
-  date ? format(parseISO(date), "MMMM d, yyyy") : undefined;
+  date ? format(parseISO(date), 'MMMM d, yyyy') : undefined;
 // → Belongs in lib/format.ts
 
 // ✅ Pure AND domain — business rule that affects behavior
@@ -78,7 +80,7 @@ export const isPastEvent = (eventDate: string | null, now: Date) =>
 
 // ✅ Pure AND domain — business calculation
 export const calculateCommittedTotal = (items: readonly GiftItem[]) =>
-  items.filter(i => i.status !== "idea").reduce((sum, i) => sum + i.pricePence, 0);
+  items.filter((i) => i.status !== 'idea').reduce((sum, i) => sum + i.pricePence, 0);
 // → Belongs in domain/budget/
 ```
 
@@ -97,18 +99,18 @@ For projects with multiple bounded contexts, organize by context. The same term 
 ```markdown
 ## Gifting Context
 
-| Term | Definition | Examples |
-|------|-----------|----------|
-| Occasion | A gift-giving event (birthday, holiday) | "Mum's Birthday", "Christmas 2026" |
-| Gift Idea | A potential gift for an occasion | "Cookbook", "Scarf" |
-| Contribution | Money pledged toward a gift | "£25 from Dad" |
+| Term         | Definition                              | Examples                           |
+| ------------ | --------------------------------------- | ---------------------------------- |
+| Occasion     | A gift-giving event (birthday, holiday) | "Mum's Birthday", "Christmas 2026" |
+| Gift Idea    | A potential gift for an occasion        | "Cookbook", "Scarf"                |
+| Contribution | Money pledged toward a gift             | "£25 from Dad"                     |
 
 ## Notifications Context
 
-| Term | Definition | Examples |
-|------|-----------|----------|
-| Occasion | An upcoming event that may trigger reminders | (same events, different concern) |
-| Recipient | The person being gifted — target of reminder scheduling | "Mum" |
+| Term      | Definition                                              | Examples                         |
+| --------- | ------------------------------------------------------- | -------------------------------- |
+| Occasion  | An upcoming event that may trigger reminders            | (same events, different concern) |
+| Recipient | The person being gifted — target of reminder scheduling | "Mum"                            |
 ```
 
 ### Enforcement Rules
@@ -128,7 +130,7 @@ type GiftIdea = {
 };
 
 // ❌ Technical jargon
-type Item = { readonly id: string; readonly text: string; readonly parentId: string; };
+type Item = { readonly id: string; readonly text: string; readonly parentId: string };
 ```
 
 ---
@@ -242,7 +244,13 @@ Apply the same principle to entity lifecycles:
 type Order =
   | { readonly status: 'draft'; readonly items: ReadonlyArray<OrderItem> }
   | { readonly status: 'placed'; readonly items: ReadonlyArray<OrderItem>; readonly placedAt: Date }
-  | { readonly status: 'shipped'; readonly items: ReadonlyArray<OrderItem>; readonly placedAt: Date; readonly shippedAt: Date; readonly trackingNumber: string };
+  | {
+      readonly status: 'shipped';
+      readonly items: ReadonlyArray<OrderItem>;
+      readonly placedAt: Date;
+      readonly shippedAt: Date;
+      readonly trackingNumber: string;
+    };
 ```
 
 **Always handle all variants exhaustively.** The `never` type ensures the compiler catches unhandled states when you add a new variant:
@@ -250,10 +258,16 @@ type Order =
 ```typescript
 const describeOrder = (order: Order): string => {
   switch (order.status) {
-    case 'draft': return `Draft with ${order.items.length} items`;
-    case 'placed': return `Placed at ${order.placedAt.toISOString()}`;
-    case 'shipped': return `Shipped: ${order.trackingNumber}`;
-    default: { const _exhaustive: never = order; return _exhaustive; }
+    case 'draft':
+      return `Draft with ${order.items.length} items`;
+    case 'placed':
+      return `Placed at ${order.placedAt.toISOString()}`;
+    case 'shipped':
+      return `Shipped: ${order.trackingNumber}`;
+    default: {
+      const _exhaustive: never = order;
+      return _exhaustive;
+    }
   }
 };
 ```
@@ -283,7 +297,7 @@ const canPledge = (occasion: Occasion, contributor: Contributor, amount: Money):
 // Compose specifications for complex eligibility
 const isGiftReady = (occasion: Occasion): boolean =>
   occasion.totalPledged.amount >= occasion.budget.amount &&
-  occasion.giftIdeas.some(idea => idea.status === 'selected');
+  occasion.giftIdeas.some((idea) => idea.status === 'selected');
 ```
 
 Specifications are pure predicate functions — they return `boolean` and have no side effects. Use them in domain services, use cases, and query filters. Name them with `is`, `can`, or `has` prefixes.
@@ -293,11 +307,13 @@ Specifications are pure predicate functions — they return `boolean` and have n
 Domain events represent something meaningful that happened in the domain ("OrderPlaced", "ContributionPledged"). They coordinate side effects across aggregates and bounded contexts.
 
 **Domain events earn their complexity when:**
+
 - Side effects cross aggregate boundaries
 - Other bounded contexts need to react to changes
 - You need an audit trail or event-driven workflows
 
 **Don't add domain events when:**
+
 - All logic is within a single aggregate
 - Side effects are within the same transaction
 - Explicit return values from domain functions suffice
@@ -335,12 +351,12 @@ const pledgeContribution = (
 
 **Domain service vs use case (application service):**
 
-| | Domain Service | Use Case |
-|--|----------------|----------|
-| Contains business logic? | Yes | No — orchestration only |
-| Lives in | `domain/` | `domain/` — identifiable by taking ports as params |
-| Depends on | Domain types only | Repositories, ports, domain services |
-| Example | `pledgeContribution(occasion, contributor, amount)` | `handlePledge(repo, dto)` — loads, calls domain service, saves |
+|                          | Domain Service                                      | Use Case                                                       |
+| ------------------------ | --------------------------------------------------- | -------------------------------------------------------------- |
+| Contains business logic? | Yes                                                 | No — orchestration only                                        |
+| Lives in                 | `domain/`                                           | `domain/` — identifiable by taking ports as params             |
+| Depends on               | Domain types only                                   | Repositories, ports, domain services                           |
+| Example                  | `pledgeContribution(occasion, contributor, amount)` | `handlePledge(repo, dto)` — loads, calls domain service, saves |
 
 For detailed guidance, see `resources/domain-services.md`.
 
@@ -353,7 +369,10 @@ Use discriminated union result types for expected business outcomes. Reserve exc
 ```typescript
 type PledgeResult =
   | { readonly success: true; readonly occasion: Occasion; readonly contributor: Contributor }
-  | { readonly success: false; readonly reason: 'insufficient-balance' | 'funding-closed' | 'not-found' };
+  | {
+      readonly success: false;
+      readonly reason: 'insufficient-balance' | 'funding-closed' | 'not-found';
+    };
 ```
 
 **The test:** Could a user's action legitimately cause this outcome? If yes → result type. If no (it would mean a bug) → exception.
@@ -400,12 +419,12 @@ Test by calling use cases with driven ports replaced by in-memory **fakes** (not
 
 Domain unit tests **complement** use case tests for complex pure business rules. They don't replace them.
 
-| Priority | Boundary | What it proves |
-|----------|----------|----------------|
-| **Primary** | Use case (faked driven ports) | Feature works end-to-end within the hexagon |
-| **Complement** | Domain pure functions directly | Complex business rules in isolation |
-| **Secondary** | Driven adapters (real DB/MSW) | Adapter translates correctly |
-| **Verification** | E2E (full stack) | User experience works |
+| Priority         | Boundary                       | What it proves                              |
+| ---------------- | ------------------------------ | ------------------------------------------- |
+| **Primary**      | Use case (faked driven ports)  | Feature works end-to-end within the hexagon |
+| **Complement**   | Domain pure functions directly | Complex business rules in isolation         |
+| **Secondary**    | Driven adapters (real DB/MSW)  | Adapter translates correctly                |
+| **Verification** | E2E (full stack)               | User experience works                       |
 
 For detailed testing guidance, see `resources/testing-by-layer.md`. For a complete worked example showing one feature through every layer with tests, see the hexagonal-architecture skill's `resources/worked-example.md`.
 
@@ -459,6 +478,7 @@ Business logic in route handlers, database queries, or adapters. Keep it in `dom
 ### Over-Engineering
 
 Not every project needs aggregates, domain events, or bounded contexts. Start with:
+
 1. Ubiquitous language (glossary)
 2. Value objects and entities
 3. Add complexity only when the domain demands it

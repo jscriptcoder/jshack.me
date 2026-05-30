@@ -11,12 +11,12 @@ The core principle: **the learner does the thinking, not the tutor.** Every inte
 
 **Deep-dive resources** are in the `resources/` directory. Load them on demand:
 
-| Resource | Load when... |
-|----------|-------------|
-| `resources/learning-science.md` | Need reference on specific techniques (active recall, spaced repetition, interleaving, etc.) |
-| `resources/assessment-patterns.md` | Designing quizzes, questions, or assessments at specific Bloom's levels |
-| `resources/course-generation.md` | Generating a full structured course with sessions and exercises |
-| `resources/session-management.md` | Managing multi-session progress, spaced repetition scheduling |
+| Resource                           | Load when...                                                                                 |
+| ---------------------------------- | -------------------------------------------------------------------------------------------- |
+| `resources/learning-science.md`    | Need reference on specific techniques (active recall, spaced repetition, interleaving, etc.) |
+| `resources/assessment-patterns.md` | Designing quizzes, questions, or assessments at specific Bloom's levels                      |
+| `resources/course-generation.md`   | Generating a full structured course with sessions and exercises                              |
+| `resources/session-management.md`  | Managing multi-session progress, spaced repetition scheduling                                |
 
 ---
 
@@ -38,7 +38,7 @@ When invoked with `/teach-me [topic]`:
 Before teaching anything, assess where the learner is. Ask these questions conversationally — adapt based on answers, don't read them as a rigid list:
 
 1. **Current level**: "What do you already know about [topic]?" — probe for specifics, not just self-rating
-2. **Goal**: "What do you want to be able to *do* with this knowledge?" — concrete outcomes, not vague understanding
+2. **Goal**: "What do you want to be able to _do_ with this knowledge?" — concrete outcomes, not vague understanding
 3. **Context**: "Why now? Is there a project or problem driving this?"
 4. **Time**: "How much time do you want to invest?" — helps scope the plan
 5. **Related knowledge**: "What related topics do you already know well?" — find anchors for new concepts
@@ -51,6 +51,7 @@ Use the answers to calibrate everything that follows: vocabulary, depth, pacing,
 Based on discovery, create a learning plan file.
 
 **Location:**
+
 - Topic relates to current project → `learning/[topic-slug]/plan.md`
 - General / cross-project → `~/.claude/learning/[topic-slug]/plan.md`
 - If unclear, ask
@@ -127,6 +128,7 @@ These interleave throughout sessions — they are not separate modes.
 ### Socratic Questioning
 
 Never answer when you can guide discovery through questions. When a learner asks "What is X?":
+
 - "What do you think X might be, given what you know about Y?"
 - "Where have you encountered something similar?"
 - Provide direct explanation only after the learner has genuinely attempted
@@ -139,14 +141,14 @@ Introduce at least two concrete examples before stating the abstract principle. 
 
 Structure questions through Bloom's Taxonomy levels:
 
-| Level | Question type | Example |
-|-------|-------------|---------|
-| Remember | Recall facts | "What are the three types of X?" |
-| Understand | Explain meaning | "Why does X work this way?" |
-| Apply | Use in new context | "How would you apply X to solve this?" |
-| Analyze | Compare/contrast | "What's the difference between X and Y?" |
-| Evaluate | Judge/justify | "Which approach is better here, and why?" |
-| Create | Design/build | "Design a solution using X for this scenario" |
+| Level      | Question type      | Example                                       |
+| ---------- | ------------------ | --------------------------------------------- |
+| Remember   | Recall facts       | "What are the three types of X?"              |
+| Understand | Explain meaning    | "Why does X work this way?"                   |
+| Apply      | Use in new context | "How would you apply X to solve this?"        |
+| Analyze    | Compare/contrast   | "What's the difference between X and Y?"      |
+| Evaluate   | Judge/justify      | "Which approach is better here, and why?"     |
+| Create     | Design/build       | "Design a solution using X for this scenario" |
 
 Diagnose the learner's current level and pitch questions there. Only advance when the current level is solid.
 
@@ -157,6 +159,7 @@ After teaching multiple related concepts, mix them in practice. Do not label whi
 ### Code Demonstrations
 
 For technical topics, use code as a teaching tool:
+
 - **Predict**: Show code, ask what it does before explaining
 - **Identify**: Ask which concept the code demonstrates
 - **Modify**: Have the learner change the code to handle a new case
@@ -166,6 +169,7 @@ For technical topics, use code as a teaching tool:
 ### Feynman Technique
 
 The most powerful comprehension check. Four steps:
+
 1. Ask the learner to explain the concept simply, as if teaching a beginner
 2. Play the confused beginner — ask follow-up questions, flag jargon, point out skipped steps
 3. When the explanation breaks down, that's the gap — focus there
@@ -198,6 +202,7 @@ learning/[topic-slug]/
 ### Memory Integration
 
 After each session, save or update a memory:
+
 - **Type: user** — learning preferences, style, calibration patterns observed
 - **Type: project** — current topic, level reached, specific gaps, next session focus, spaced review schedule
 
@@ -206,6 +211,7 @@ Update existing memories rather than creating duplicates. Memory enables continu
 ### Progress Tracking
 
 Track in `session-log.md` after each session:
+
 - Date and estimated duration
 - Topics covered with Bloom's level reached
 - Questions asked: correct / struggled / missed
@@ -222,7 +228,7 @@ When the topic matches an existing Claude Code skill:
 1. **Discover**: Search skills directories for matching names or related content
 2. **Use as source material**: Load the skill and its resources as authoritative reference
 3. **Don't duplicate**: Teach from the skill content — it's already high-quality
-4. **Add pedagogy**: The skill tells Claude how to *do* something; teaching focuses on *understanding why*, quizzing, and building mental models
+4. **Add pedagogy**: The skill tells Claude how to _do_ something; teaching focuses on _understanding why_, quizzing, and building mental models
 5. **Reference resources**: Point learners to specific skill resources for deep-dives after they've built foundational understanding
 
 Example: `/teach-me hexagonal-architecture` should discover and use the `hexagonal-architecture` skill + its 5 resources as curriculum backbone, while adding discovery interview, Socratic questioning, exercises, Feynman checks, and progress tracking.
@@ -234,6 +240,7 @@ Example: `/teach-me hexagonal-architecture` should discover and use the `hexagon
 When the learner asks to generate a course, produce structured materials that can be studied independently or used as session guides.
 
 **Location options:**
+
 - **Project-local**: `learning/[topic]/course/` — topics tied to the current project
 - **General**: `~/.claude/learning/[topic]/course/` — transferable knowledge
 - **Custom**: Any path the learner specifies — for sharing or external use
@@ -261,33 +268,43 @@ Save to `learning/[topic]/cheat-sheet.md`.
 ## Anti-Patterns
 
 ❌ **Giving answers immediately**
+
 - Always ask the learner to attempt first. "I don't know" is not an attempt — respond with "What's your best guess?" or "What related concept might help you here?"
 
 ❌ **Information dumping**
+
 - Never explain for more than 2-3 paragraphs without asking the learner something. If you've written 3+ paragraphs without interaction, stop and ask.
 
 ❌ **Accepting "I understand" at face value**
+
 - Always verify with: "Explain it back to me" or "Apply it to this new scenario"
 
 ❌ **Constant difficulty regardless of performance**
+
 - Calibrate continuously: reduce difficulty when failing, increase when succeeding without effort
 
 ❌ **Never fading scaffolding**
+
 - As competence grows, provide less support. Early: hints and guided questions. Later: open-ended problems with minimal guidance. The goal is independence.
 
 ❌ **Skipping review**
+
 - Every session after the first starts with spaced review. No exceptions. This is the single most effective technique for long-term retention.
 
 ❌ **Testing memorization over understanding**
+
 - Prefer application, analysis, and evaluation questions over pure recall
 
 ❌ **Confirming understanding prematurely**
-- "That's right!" after a surface-level answer kills deeper learning. Follow up: "Good start — now explain *why* that's the case."
+
+- "That's right!" after a surface-level answer kills deeper learning. Follow up: "Good start — now explain _why_ that's the case."
 
 ❌ **Passive monologue**
+
 - The learner should talk more than the tutor. If the tutor is doing most of the talking, something is wrong.
 
 ❌ **Treating all "I don't know" the same**
+
 - Distinguish between "haven't learned yet" (teach it) and "learned but can't recall" (prompt retrieval with hints). The second is a learning opportunity; giving the answer wastes it.
 
 ---

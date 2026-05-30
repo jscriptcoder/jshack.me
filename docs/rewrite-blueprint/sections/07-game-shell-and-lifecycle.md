@@ -86,7 +86,7 @@ Menu buttons (NEW GAME, CONTINUE, START, BACK) have bordered styling with theme-
 1. **BIOS messages** — "Initializing system…", "Memory test… 4096 MB OK" (dim text)
 2. **Kernel load** — "Loading Linux 5.15.0…", "Loading initial ramdisk" (standard text)
 3. **Kernel boot logs** — Realistic kernel timestamps and subsystem init lines (dim text, scrolling)
-4. **systemd startup** — Service init messages with "[  OK  ]" prefixes:
+4. **systemd startup** — Service init messages with "[ OK ]" prefixes:
    - Journal Service
    - Local File Systems
    - Login Service
@@ -108,18 +108,19 @@ Each step has a `delay` property (milliseconds) that stagger the lines for reali
 
 ```typescript
 type Session = {
-  readonly username: string;        // Player-chosen, e.g., "jshacker"
-  readonly userType: UserType;      // 'root' | 'user' | 'guest'
-  readonly machine: string;         // IP or hostname, e.g., "192.168.1.75"
-  readonly hostname?: string;       // Display name for prompt, e.g., "dist-rtr"
-  readonly currentPath: string;     // Working directory, e.g., "/home/jshacker"
-  readonly theme: ThemeId;          // 'amber' | 'green' | 'cyan' | 'light'
+  readonly username: string; // Player-chosen, e.g., "jshacker"
+  readonly userType: UserType; // 'root' | 'user' | 'guest'
+  readonly machine: string; // IP or hostname, e.g., "192.168.1.75"
+  readonly hostname?: string; // Display name for prompt, e.g., "dist-rtr"
+  readonly currentPath: string; // Working directory, e.g., "/home/jshacker"
+  readonly theme: ThemeId; // 'amber' | 'green' | 'cyan' | 'light'
 };
 ```
 
 ### Default Session
 
 On app start (or new tab), the session initializes to:
+
 - `username` = player-chosen name from intro
 - `userType` = 'user'
 - `machine` = 'localhost'
@@ -275,6 +276,7 @@ The seed controls:
 3. **Localhost** — Generated via `generateLocalhost(gameState, hostname)`, which uses the game seed to derive guest account password and other deterministic content.
 
 The seed does NOT control:
+
 - Session state (current user, machine, path — these are transient per-tab)
 - Theme choice (persisted but player-controlled)
 - Filesystem patches (mutable via gameplay)
@@ -293,18 +295,19 @@ Static WiFi networks are defined in `src/network/wifiNetworks.ts`:
 
 ```typescript
 type WifiNetwork = {
-  readonly bssid: string;              // MAC address, e.g. "A4:CF:12:D3:8B:7A"
-  readonly essid: string;              // Network name
-  readonly power: number;              // Signal strength (-42 to -93)
-  readonly channel: number;            // WiFi channel (1–11)
+  readonly bssid: string; // MAC address, e.g. "A4:CF:12:D3:8B:7A"
+  readonly essid: string; // Network name
+  readonly power: number; // Signal strength (-42 to -93)
+  readonly channel: number; // WiFi channel (1–11)
   readonly encryption: 'WPA2' | 'WPA3' | 'WEP' | 'OPEN';
-  readonly crackable: boolean;          // Is the password discoverable?
-  readonly password?: string;           // (if crackable) Plaintext password from secrets
-  readonly tier?: WifiTier;             // 'crowded' | 'shared' | 'solo' (crackable only)
+  readonly crackable: boolean; // Is the password discoverable?
+  readonly password?: string; // (if crackable) Plaintext password from secrets
+  readonly tier?: WifiTier; // 'crowded' | 'shared' | 'solo' (crackable only)
 };
 ```
 
 Example network:
+
 ```javascript
 {
   bssid: 'A4:CF:12:D3:8B:7A',
@@ -411,12 +414,12 @@ Terminal colors are themeable via CSS custom properties. Player can switch theme
 
 ### Available Themes
 
-| ID      | Name           | Style                  |
-| ------- | -------------- | ---------------------- |
-| `amber` | Amber (default) | Classic amber CRT      |
-| `green` | Green Phosphor | Green-on-black terminal |
-| `cyan`  | Cyan           | Cyan/blue CRT          |
-| `light` | Light          | Dark on light bg       |
+| ID      | Name            | Style                   |
+| ------- | --------------- | ----------------------- |
+| `amber` | Amber (default) | Classic amber CRT       |
+| `green` | Green Phosphor  | Green-on-black terminal |
+| `cyan`  | Cyan            | Cyan/blue CRT           |
+| `light` | Light           | Dark on light bg        |
 
 ### Color Tokens (14)
 
@@ -505,6 +508,7 @@ Each context broadcasts only on locally-initiated changes (explicit method calls
 ### Tab Title Updates
 
 `SessionContext` updates `document.title` based on the current session mode:
+
 - `username@machine — JSHACK.ME` (normal)
 - `ftp> — JSHACK.ME` (FTP mode)
 - `nc shell — JSHACK.ME` (NC mode)
@@ -526,6 +530,7 @@ Three-layer persistence architecture ensures state survives page refresh:
 ### Layer 1: Storage API (`storage.ts`)
 
 Low-level adapter:
+
 - **IndexedDB** — Shared state: WiFi connection, mission seed, filesystem patches, bricked machines, theme
 - **sessionStorage** — Per-tab state: Session (user, machine, path, theme, SSH stack), FTP/NC/MySQL mode
 
@@ -550,18 +555,19 @@ Each context writes to storage on state changes:
 
 ### Storage Layout
 
-| State                           | Storage                         | Scope  |
-| ------------------------------- | ------------------------------- | ------ |
-| Session (user, machine, path, theme, stacks)  | sessionStorage            | Per-tab |
-| WiFi connected                  | IndexedDB                       | Shared |
-| Mission seed                    | IndexedDB                       | Shared |
-| Filesystem patches              | IndexedDB                       | Shared |
-| Bricked machines                | IndexedDB                       | Shared |
-| SSH keys (`~/.ssh_keys`)        | Filesystem patches (IndexedDB)  | Shared |
+| State                                        | Storage                        | Scope   |
+| -------------------------------------------- | ------------------------------ | ------- |
+| Session (user, machine, path, theme, stacks) | sessionStorage                 | Per-tab |
+| WiFi connected                               | IndexedDB                      | Shared  |
+| Mission seed                                 | IndexedDB                      | Shared  |
+| Filesystem patches                           | IndexedDB                      | Shared  |
+| Bricked machines                             | IndexedDB                      | Shared  |
+| SSH keys (`~/.ssh_keys`)                     | Filesystem patches (IndexedDB) | Shared  |
 
 ### Patch-Based Persistence
 
 Filesystem changes are stored as patches (diffs from base), not full snapshots. Each patch records:
+
 - Machine ID (localhost, home network IP, mission IP, etc.)
 - Path
 - New content (or `null` for deletion)
@@ -573,6 +579,7 @@ On init, patches are replayed in order via `applyPatches()`, reconstructing the 
 ### Mission Persistence
 
 Active mission seed is stored in IndexedDB. On reload:
+
 1. `useMissionState` reads the seed
 2. `generateMissionNetwork(seed)` deterministically regenerates the full network
 3. Cached mission patches are replayed on top
@@ -582,6 +589,7 @@ When a mission ends/transitions, mission patches are cleaned up.
 ### Permadeath Clears IndexedDB
 
 `reset("confirm")` calls `clearAllData()`, which deletes all IndexedDB stores. This:
+
 - Clears WiFi connection (forces re-crack)
 - Clears mission seed (mission lost)
 - Clears filesystem patches (localhost state reset, home networks reset)
@@ -614,6 +622,7 @@ When the player loses their workstation, they can either repair or start fresh.
 ### Identity Persistence
 
 The player's Ed25519 identity is stored in `localStorage.jshack.identity`, NOT in IndexedDB. Even a full reset doesn't wipe identity. This allows:
+
 - Same player reputation across resets (multiplayer messaging/darknet listings)
 - Predictable workstation ID (identity-derived suffix stays the same)
 - Cross-session key integrity (same keys for API requests)
@@ -685,6 +694,7 @@ SessionProvider
 ### 7.14.3 Mission Instances (Per-Acceptance, Permanent, Shareable)
 
 Each `accept(seed)` creates a new mission instance from the seed. The instance is:
+
 - **Persistent** — Persisted to IndexedDB (seed + patches)
 - **Per-acceptance** — Same seed accepted twice = two separate instances (not merged)
 - **Shareable** — On multiplayer LANs, the instance can be accessed/hacked by other players (future feature, blocked on `mission_instances` table)

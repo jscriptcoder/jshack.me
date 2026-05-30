@@ -97,10 +97,13 @@ Your reports must follow this structure:
 # Use Case Analysis Report
 
 ## Use Case Summary
+
 [Brief description of the use case in 2-3 sentences]
 
 ## Architecture Flow
+
 [Step-by-step trace through the system]
+
 1. Entry Point: [endpoint, route, handler]
 2. Middleware/Guards: [relevant middleware, guards, interceptors]
 3. Business Logic: [services, use cases, domain models]
@@ -110,15 +113,19 @@ Your reports must follow this structure:
 ## Data Access Patterns
 
 ### Database Patterns
+
 [Specific queries, tables, models, schemas, migrations involved]
 
 ### Caching Patterns
+
 [Cache usage, cache keys, TTL strategies, invalidation patterns]
 
 ### External Integration Patterns
+
 [How data flows to/from external services, APIs, message queues]
 
 ## Relevant Code Locations
+
 - Entry Points: [file paths to controllers, handlers, routes]
 - Business Logic: [file paths to services, use cases, domain models]
 - Abstractions: [file paths to interfaces, abstract classes]
@@ -127,17 +134,22 @@ Your reports must follow this structure:
 - Transformations: [file paths to mappers, DTOs, serializers]
 
 ## Current Implementation Status
+
 [What exists, what works, what's complete]
 
 ## Gaps and Missing Patterns
+
 [What's missing or incomplete]
 
 ## Recommendations
+
 [Specific suggestions for completing the data access patterns]
+
 1. [Recommendation with rationale]
 2. [Recommendation with rationale]
 
 ## Notes
+
 [Any additional context, edge cases, or considerations]
 ```
 

@@ -30,6 +30,7 @@ describe('pledge contribution', () => {
 ```
 
 This single test exercises:
+
 - The use case orchestration (loading, calling domain service, conditional save)
 - The domain service business rule (balance check)
 - The entity invariant (budget not exceeded)
@@ -41,20 +42,22 @@ Testing each of these in isolation would require 4 separate tests that individua
 
 Replace driven ports with **in-memory fakes** that maintain state — not mocks that verify call sequences.
 
-| Double | Purpose | Use for |
-|--------|---------|---------|
-| **Fake** | In-memory implementation with real logic | Repositories — stores/retrieves data in a Map |
-| **Stub** | Returns configured responses | Payment gateways — success/failure scenarios |
-| **Spy** | Records what happened for inspection | Email services — collect sent messages |
-| **Mock** | Avoid | Creates brittle tests coupled to implementation |
+| Double   | Purpose                                  | Use for                                         |
+| -------- | ---------------------------------------- | ----------------------------------------------- |
+| **Fake** | In-memory implementation with real logic | Repositories — stores/retrieves data in a Map   |
+| **Stub** | Returns configured responses             | Payment gateways — success/failure scenarios    |
+| **Spy**  | Records what happened for inspection     | Email services — collect sent messages          |
+| **Mock** | Avoid                                    | Creates brittle tests coupled to implementation |
 
 ```typescript
 // ✅ Fake — maintains state, implements the real interface
 const createFakeRepo = (initial: readonly User[] = []): UserRepository => {
-  const store = new Map(initial.map(u => [u.id, u]));
+  const store = new Map(initial.map((u) => [u.id, u]));
   return {
     findById: async (id) => store.get(id),
-    save: async (user) => { store.set(user.id, user); },
+    save: async (user) => {
+      store.set(user.id, user);
+    },
   };
 };
 
@@ -91,11 +94,13 @@ it('committed total includes only non-idea items', () => {
 These are fast, focused, and directly test business rules. They complement use case tests — they don't replace them.
 
 **When to test domain functions directly:**
+
 - Complex business rules with many edge cases (boundary conditions, state transitions)
 - Pure calculations that benefit from exhaustive input testing
 - Invariant enforcement where the rule itself is the primary concern
 
 **When to test through the use case instead:**
+
 - Simple logic that's already exercised by the use case test
 - Logic where the correctness depends on the orchestration context (order of operations matters)
 - Anything where testing directly would mean testing implementation rather than behavior
@@ -106,19 +111,21 @@ These are fast, focused, and directly test business rules. They complement use c
 import fc from 'fast-check';
 
 it('pledged amount never exceeds contributor balance', () => {
-  fc.assert(fc.property(
-    fc.integer({ min: 0, max: 10000 }),
-    fc.integer({ min: 0, max: 10000 }),
-    (balance, pledge) => {
-      const contributor = getTestContributor({ walletBalance: createMoney(balance, 'GBP') });
-      const occasion = getTestOccasion();
-      const result = pledgeContribution(occasion, contributor, createMoney(pledge, 'GBP'));
-      if (result.success) {
-        return result.contributor.walletBalance.amount >= 0;
-      }
-      return true; // rejected pledges are always valid
-    },
-  ));
+  fc.assert(
+    fc.property(
+      fc.integer({ min: 0, max: 10000 }),
+      fc.integer({ min: 0, max: 10000 }),
+      (balance, pledge) => {
+        const contributor = getTestContributor({ walletBalance: createMoney(balance, 'GBP') });
+        const occasion = getTestOccasion();
+        const result = pledgeContribution(occasion, contributor, createMoney(pledge, 'GBP'));
+        if (result.success) {
+          return result.contributor.walletBalance.amount >= 0;
+        }
+        return true; // rejected pledges are always valid
+      },
+    ),
+  );
 });
 ```
 
@@ -149,9 +156,9 @@ These are not a substitute for use case tests. Use case tests are fast and deter
 
 ## The Testing Strategy
 
-| Priority | Boundary | What it proves | Speed |
-|----------|----------|----------------|-------|
-| **Primary** | Use case (driving port + faked driven ports) | Feature works as a whole | Fast (in-memory) |
-| **Complement** | Domain pure functions directly | Complex business rules in isolation | Very fast |
-| **Secondary** | Driven adapters (real infrastructure) | Adapter translates correctly | Slower |
-| **Verification** | E2E (full stack) | User experience works | Slowest |
+| Priority         | Boundary                                     | What it proves                      | Speed            |
+| ---------------- | -------------------------------------------- | ----------------------------------- | ---------------- |
+| **Primary**      | Use case (driving port + faked driven ports) | Feature works as a whole            | Fast (in-memory) |
+| **Complement**   | Domain pure functions directly               | Complex business rules in isolation | Very fast        |
+| **Secondary**    | Driven adapters (real infrastructure)        | Adapter translates correctly        | Slower           |
+| **Verification** | E2E (full stack)                             | User experience works               | Slowest          |

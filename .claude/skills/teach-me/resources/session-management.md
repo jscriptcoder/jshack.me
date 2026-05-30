@@ -21,6 +21,7 @@ CHECK (in order):
 ### 2. Summarize Where We Left Off
 
 Tell the learner:
+
 - Last session date and what was covered
 - Current position in the learning plan
 - Any gaps flagged for review
@@ -33,6 +34,7 @@ Before new material, review items that are due. This is non-negotiable — space
 Pull review items from the session log's "Spaced review due" section. Ask 3-5 questions covering due items.
 
 **After review:**
+
 - Items answered correctly → extend interval (see schedule below)
 - Items answered incorrectly → reset to shortest interval
 - Update the session log
@@ -47,13 +49,13 @@ Proceed with the next unfinished session in the learning plan.
 
 ### Base Schedule
 
-| Review # | Interval | Notes |
-|----------|----------|-------|
-| 1st review | Next session | Always review new material in the immediately following session |
-| 2nd review | 2-3 sessions later | Begin spacing out |
-| 3rd review | 5-7 sessions later | Material should be solidifying |
-| 4th review | 10+ sessions later | Long-term retention check |
-| Graduated | No further review | Consistently correct with high confidence across 3+ reviews |
+| Review #   | Interval           | Notes                                                           |
+| ---------- | ------------------ | --------------------------------------------------------------- |
+| 1st review | Next session       | Always review new material in the immediately following session |
+| 2nd review | 2-3 sessions later | Begin spacing out                                               |
+| 3rd review | 5-7 sessions later | Material should be solidifying                                  |
+| 4th review | 10+ sessions later | Long-term retention check                                       |
+| Graduated  | No further review  | Consistently correct with high confidence across 3+ reviews     |
 
 ### Adjustment Rules
 
@@ -95,10 +97,12 @@ type: project
 **Current focus:** [what's being learned now]
 
 **Gaps identified:**
+
 - [Gap 1] — [Bloom's level where it breaks down]
 - [Gap 2] — [specific misconception or weakness]
 
 **Strengths:**
+
 - [Area 1] — solid through [Bloom's level]
 
 **Next session:** [topic of next session]
@@ -187,6 +191,7 @@ When the learner has completed all sessions in the plan:
 ### Final Assessment
 
 Run a comprehensive assessment covering all major topics:
+
 - 2-3 questions per session topic, at Apply level or higher
 - Include interleaved questions that require combining concepts
 - Include at least one Create-level question
@@ -194,6 +199,7 @@ Run a comprehensive assessment covering all major topics:
 ### Graduation Criteria
 
 The learner has graduated when they can:
+
 - Explain the core concepts without prompting (Feynman test)
 - Apply concepts to novel scenarios not covered in the course
 - Identify which concepts apply in ambiguous situations

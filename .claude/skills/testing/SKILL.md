@@ -28,6 +28,7 @@ Example ask-question prompt:
 ```markdown
 The discount rule uses `subtotal >= 100`, but current tests only cover `150`.
 Should the exact `100` boundary receive the discount?
+
 - Yes: add a boundary test for `100`
 - No: change/confirm the rule as `subtotal > 100`
 - Unspecified: document the behavior as intentionally not guaranteed
@@ -42,6 +43,7 @@ Do not ask when the gap is plainly a missing assertion, missing boundary, missin
 Never test implementation details. Test behavior through public APIs.
 
 **Why this matters:**
+
 - Tests remain valid when refactoring
 - Tests document intended behavior
 - Tests catch real bugs, not implementation changes
@@ -49,6 +51,7 @@ Never test implementation details. Test behavior through public APIs.
 ### Examples
 
 ❌ **WRONG - Testing implementation:**
+
 ```typescript
 // ❌ Testing HOW (implementation detail)
 it('should call validateAmount', () => {
@@ -71,6 +74,7 @@ it('should set isValidated flag', () => {
 ```
 
 ✅ **CORRECT - Testing behavior through public API:**
+
 ```typescript
 it('should reject negative amounts', () => {
   const payment = getMockPayment({ amount: -100 });
@@ -144,6 +148,7 @@ If code is inline in a function, it gets coverage through that function's behavi
 The anti-pattern is creating a 1:1 mapping between extracted helpers and test files (see "No 1:1 Mapping" below). The extracted helper is an implementation detail of its consumer. Test the consumer's behavior.
 
 ❌ **WRONG — Extracted single-use helper with its own test file:**
+
 ```typescript
 // prepare-participant-data.ts (new file, one caller)
 export const prepareParticipantData = (items: Item[]) => ({
@@ -156,12 +161,13 @@ it('filters claims', () => { ... });
 ```
 
 ✅ **CORRECT — Inline in the consuming function, tested through its behavior:**
+
 ```typescript
 // load-participant-view.ts
 export const loadParticipantView = async (db, eventId, userId) => {
   const items = await getItems(db, eventId);
-  const yourClaims = items.filter(i => i.isClaimed && i.isClaimedByCurrentUser);
-  const available = items.filter(i => !i.isClaimedByCurrentUser);
+  const yourClaims = items.filter((i) => i.isClaimed && i.isClaimedByCurrentUser);
+  const available = items.filter((i) => !i.isClaimedByCurrentUser);
   return { yourClaims, available };
 };
 
@@ -228,6 +234,7 @@ const getMockUser = (overrides?: Partial<User>): User => {
 ```
 
 **Why validate with schema?**
+
 - Ensures test data is valid according to production schema
 - Catches breaking changes early (schema changes fail tests)
 - Single source of truth (no schema redefinition)
@@ -251,9 +258,9 @@ const getMockItem = (overrides?: Partial<Item>): Item => {
 const getMockOrder = (overrides?: Partial<Order>): Order => {
   return OrderSchema.parse({
     id: 'order-1',
-    items: [getMockItem()],      // ✅ Compose factories
-    customer: getMockCustomer(),  // ✅ Compose factories
-    payment: getMockPayment(),    // ✅ Compose factories
+    items: [getMockItem()], // ✅ Compose factories
+    customer: getMockCustomer(), // ✅ Compose factories
+    payment: getMockPayment(), // ✅ Compose factories
     ...overrides,
   });
 };
@@ -261,10 +268,7 @@ const getMockOrder = (overrides?: Partial<Order>): Order => {
 // Usage - override nested objects
 it('calculates total with multiple items', () => {
   const order = getMockOrder({
-    items: [
-      getMockItem({ price: 100 }),
-      getMockItem({ price: 200 }),
-    ],
+    items: [getMockItem({ price: 100 }), getMockItem({ price: 200 })],
   });
   expect(calculateTotal(order)).toBe(300);
 });
@@ -273,6 +277,7 @@ it('calculates total with multiple items', () => {
 ### Anti-Patterns
 
 ❌ **WRONG: Using `let` and `beforeEach`**
+
 ```typescript
 let user: User;
 beforeEach(() => {
@@ -289,26 +294,29 @@ it('test 2', () => {
 ```
 
 ✅ **CORRECT: Factory per test**
+
 ```typescript
 it('test 1', () => {
-  const user = getMockUser({ name: 'Modified User' });  // Fresh state
+  const user = getMockUser({ name: 'Modified User' }); // Fresh state
   // ...
 });
 
 it('test 2', () => {
-  const user = getMockUser();  // Fresh state, not affected by test 1
-  expect(user.name).toBe('Test User');  // ✅ Passes
+  const user = getMockUser(); // Fresh state, not affected by test 1
+  expect(user.name).toBe('Test User'); // ✅ Passes
 });
 ```
 
 ❌ **WRONG: Incomplete objects**
+
 ```typescript
 const getMockUser = () => ({
-  id: 'user-123',  // Missing name, email, role!
+  id: 'user-123', // Missing name, email, role!
 });
 ```
 
 ✅ **CORRECT: Complete objects**
+
 ```typescript
 const getMockUser = (overrides?: Partial<User>): User => {
   return UserSchema.parse({
@@ -316,12 +324,13 @@ const getMockUser = (overrides?: Partial<User>): User => {
     name: 'Test User',
     email: 'test@example.com',
     role: 'user',
-    ...overrides,  // All required fields present
+    ...overrides, // All required fields present
   });
 };
 ```
 
 ❌ **WRONG: Redefining schemas in tests**
+
 ```typescript
 // ❌ Schema already defined in src/schemas/user.ts!
 const UserSchema = z.object({ ... });
@@ -329,6 +338,7 @@ const getMockUser = () => UserSchema.parse({ ... });
 ```
 
 ✅ **CORRECT: Import real schema**
+
 ```typescript
 import { UserSchema } from '@/schemas/user';
 
@@ -351,6 +361,7 @@ Watch for these patterns that give fake 100% coverage:
 ### Pattern 1: Mock the function being tested
 
 ❌ **WRONG** - Gives 100% coverage but tests nothing:
+
 ```typescript
 it('calls validator', () => {
   const spy = jest.spyOn(validator, 'validate');
@@ -360,6 +371,7 @@ it('calls validator', () => {
 ```
 
 ✅ **CORRECT** - Test actual behavior:
+
 ```typescript
 it('should reject invalid payment', () => {
   const payment = getMockPayment({ amount: -100 });
@@ -372,6 +384,7 @@ it('should reject invalid payment', () => {
 ### Pattern 2: Test only that function was called
 
 ❌ **WRONG** - No behavior validation:
+
 ```typescript
 it('processes payment', () => {
   const spy = jest.spyOn(processor, 'process');
@@ -381,6 +394,7 @@ it('processes payment', () => {
 ```
 
 ✅ **CORRECT** - Verify the outcome:
+
 ```typescript
 it('should process payment and return transaction ID', () => {
   const payment = getMockPayment();
@@ -393,6 +407,7 @@ it('should process payment and return transaction ID', () => {
 ### Pattern 3: Test trivial getters/setters
 
 ❌ **WRONG** - Testing implementation, not behavior:
+
 ```typescript
 it('sets amount', () => {
   payment.setAmount(100);
@@ -401,6 +416,7 @@ it('sets amount', () => {
 ```
 
 ✅ **CORRECT** - Test meaningful behavior:
+
 ```typescript
 it('should calculate total with tax', () => {
   const order = createOrder({ items: [item1, item2] });
@@ -412,6 +428,7 @@ it('should calculate total with tax', () => {
 ### Pattern 4: 100% line coverage, 0% branch coverage
 
 ❌ **WRONG** - Missing edge cases:
+
 ```typescript
 it('validates payment', () => {
   const result = validate(getMockPayment());
@@ -421,6 +438,7 @@ it('validates payment', () => {
 ```
 
 ✅ **CORRECT** - Test all branches:
+
 ```typescript
 describe('validate payment', () => {
   it('should reject negative amounts', () => {
@@ -452,6 +470,7 @@ describe('validate payment', () => {
 Don't create test files that mirror implementation files.
 
 ❌ **WRONG:**
+
 ```
 src/
   payment-validator.ts
@@ -464,6 +483,7 @@ tests/
 ```
 
 ✅ **CORRECT:**
+
 ```
 src/
   payment-validator.ts

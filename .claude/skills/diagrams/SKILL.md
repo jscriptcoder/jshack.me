@@ -13,18 +13,18 @@ Create professional diagrams and visualizations in Markdown documents. Choose th
 
 **What are you trying to create?**
 
-| Need | Tool | Code Fence | Reference |
-|------|------|-----------|-----------|
-| Flowchart, sequence diagram, state machine, class diagram, mindmap | **Mermaid** | ` ```mermaid ` | [mermaid.md](references/mermaid.md) |
-| Dependency tree, call graph, module relationships, complex directed graphs | **Graphviz** | ` ```dot ` | [graphviz.md](references/graphviz.md) |
-| Bar chart, line chart, scatter plot, heatmap, data-driven visualization | **Vega-Lite** | ` ```vega-lite ` | [vega.md](references/vega.md) |
-| UML diagrams with icons (9,500+ stencils) | **PlantUML** | ` ```plantuml ` | [plantuml.md](references/plantuml.md) |
-| Cloud architecture (AWS/Azure/GCP/K8s) | **PlantUML** | ` ```plantuml ` | [plantuml.md](references/plantuml.md) |
-| Network topology, security architecture | **PlantUML** | ` ```plantuml ` | [plantuml.md](references/plantuml.md) |
-| KPI cards, timelines, roadmaps, funnels, SWOT, org charts, pie/bar charts | **Infographic** | ` ```infographic ` | [infographic.md](references/infographic.md) |
-| Mind map, knowledge graph, spatial planning board | **JSON Canvas** | ` ```canvas ` | [canvas.md](references/canvas.md) |
-| Layered system architecture, microservices, enterprise diagrams | **Architecture** | Raw HTML | [architecture.md](references/architecture.md) |
-| Editorial info cards, data highlights, knowledge summaries | **Infocard** | Raw HTML | [infocard.md](references/infocard.md) |
+| Need                                                                       | Tool             | Code Fence         | Reference                                     |
+| -------------------------------------------------------------------------- | ---------------- | ------------------ | --------------------------------------------- |
+| Flowchart, sequence diagram, state machine, class diagram, mindmap         | **Mermaid**      | ` ```mermaid `     | [mermaid.md](references/mermaid.md)           |
+| Dependency tree, call graph, module relationships, complex directed graphs | **Graphviz**     | ` ```dot `         | [graphviz.md](references/graphviz.md)         |
+| Bar chart, line chart, scatter plot, heatmap, data-driven visualization    | **Vega-Lite**    | ` ```vega-lite `   | [vega.md](references/vega.md)                 |
+| UML diagrams with icons (9,500+ stencils)                                  | **PlantUML**     | ` ```plantuml `    | [plantuml.md](references/plantuml.md)         |
+| Cloud architecture (AWS/Azure/GCP/K8s)                                     | **PlantUML**     | ` ```plantuml `    | [plantuml.md](references/plantuml.md)         |
+| Network topology, security architecture                                    | **PlantUML**     | ` ```plantuml `    | [plantuml.md](references/plantuml.md)         |
+| KPI cards, timelines, roadmaps, funnels, SWOT, org charts, pie/bar charts  | **Infographic**  | ` ```infographic ` | [infographic.md](references/infographic.md)   |
+| Mind map, knowledge graph, spatial planning board                          | **JSON Canvas**  | ` ```canvas `      | [canvas.md](references/canvas.md)             |
+| Layered system architecture, microservices, enterprise diagrams            | **Architecture** | Raw HTML           | [architecture.md](references/architecture.md) |
+| Editorial info cards, data highlights, knowledge summaries                 | **Infocard**     | Raw HTML           | [infocard.md](references/infocard.md)         |
 
 ## Quick Selection Rules
 

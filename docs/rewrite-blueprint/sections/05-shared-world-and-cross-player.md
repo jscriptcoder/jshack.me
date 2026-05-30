@@ -35,8 +35,9 @@ Idempotency invariant: endpoint safe to call multiple times. Rejoining same WiFi
 ### 5.2.2 Slot allocation & density tiers
 
 Allocation is random within .10-.250, independent of density tier — tier only controls max_slots:
+
 - `solo` — 1 slot
-- `shared` — 3 slots  
+- `shared` — 3 slots
 - `crowded` — 8 slots
 
 Random flat distribution reveals nothing about occupancy or order.
@@ -44,6 +45,7 @@ Random flat distribution reveals nothing about occupancy or order.
 ### 5.2.3 Network generation from seed
 
 Every occupant sees same topology because all call `generateHomeNetwork` with same seed (home-PUBLIC_IP). Generator runs deterministically:
+
 - Difficulty: easy (1 layer, 2 machines) / medium (2 layers, 5-7) / hard (3 layers, 8-11)
 - Entry variant: ssh, ftp, nc, exploit, http, snmp (randomly per layer)
 - Port closures: approx 30% SSH, approx 30% FTP (independent rolls)
@@ -56,6 +58,7 @@ All occupants materialize same machines with same machine_ids, so cross-player p
 Every player's hostname is: workstationName-XXXXXXXX (8 hex chars of SHA256(ed25519:pubkey))
 
 The suffix is:
+
 - Stable per identity (same player, same suffix on every LAN)
 - Always applied (no occupancy signal leakage)
 - 8 hex = 32 bits (65k-player birthday-collision threshold)
@@ -66,6 +69,7 @@ Computed once at game start and threaded through SessionProvider, BootScreen, ge
 ### 5.2.5 WiFi strength & pool generation
 
 WiFi networks seeded per game (`generateWifiNetworks`):
+
 - 2-3 crackable: WPA2, strong signal (-35 to -65 dBm), tagged with WifiTier (solo/shared/crowded)
 - 3-5 noise: WPA3 / weak signal / hidden ESSID with clear diagnostics
 

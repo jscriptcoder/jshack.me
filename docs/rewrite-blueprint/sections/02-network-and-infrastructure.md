@@ -10,16 +10,17 @@ Represents a single network interface (lo, eth0, wlan0, etc.) on a machine:
 
 ```typescript
 type NetworkInterface = {
-  readonly name: string;              // "lo", "eth0", "wlan0", etc.
-  readonly flags: readonly string[];  // ["UP", "LOOPBACK", "RUNNING"]
-  readonly inet: string;              // IP address (e.g., "192.168.1.100")
-  readonly netmask: string;           // Netmask (e.g., "255.255.255.0")
-  readonly gateway: string;           // Gateway IP (e.g., "192.168.1.1")
-  readonly mac: string;               // MAC address (e.g., "02:42:ac:11:00:02")
+  readonly name: string; // "lo", "eth0", "wlan0", etc.
+  readonly flags: readonly string[]; // ["UP", "LOOPBACK", "RUNNING"]
+  readonly inet: string; // IP address (e.g., "192.168.1.100")
+  readonly netmask: string; // Netmask (e.g., "255.255.255.0")
+  readonly gateway: string; // Gateway IP (e.g., "192.168.1.1")
+  readonly mac: string; // MAC address (e.g., "02:42:ac:11:00:02")
 };
 ```
 
 **Localhost interfaces** (initial state):
+
 - `loopback` (lo): UP, LOOPBACK, RUNNING; 127.0.0.1/255.0.0.0
 - `wlan0`: DOWN; 0.0.0.0 with disconnected flags; becomes active when player connects to a WiFi network with dynamic IP from that subnet
 
@@ -31,20 +32,20 @@ A network service listening on a port. Includes version info for scanning/exploi
 
 ```typescript
 type Port = {
-  readonly port: number;              // 22, 80, 443, etc.
-  readonly service: string;           // "ssh", "http", "https", "mysql", "elite", etc.
-  readonly serviceVersion: string;    // "OpenSSH_7.4" (overlaid at runtime from dpkg/status)
-  readonly open: boolean;             // Port is listening
-  readonly protocol?: "tcp" | "udp";  // Defaults to "tcp"
-  readonly owner?: ServiceOwner;      // User who started the daemon (backdoors, apache2, nginx)
-  readonly forwarded?: boolean;       // True if added by NAT forwarding rules
+  readonly port: number; // 22, 80, 443, etc.
+  readonly service: string; // "ssh", "http", "https", "mysql", "elite", etc.
+  readonly serviceVersion: string; // "OpenSSH_7.4" (overlaid at runtime from dpkg/status)
+  readonly open: boolean; // Port is listening
+  readonly protocol?: 'tcp' | 'udp'; // Defaults to "tcp"
+  readonly owner?: ServiceOwner; // User who started the daemon (backdoors, apache2, nginx)
+  readonly forwarded?: boolean; // True if added by NAT forwarding rules
   readonly forcedEffect?: VulnerabilityEffect; // Overrides vulnerability's natural effect
 };
 
 type ServiceOwner = {
-  readonly username: string;          // User who started the service
-  readonly userType: "root" | "user" | "guest";
-  readonly homePath: string;          // Home directory (e.g., "/root", "/home/alice")
+  readonly username: string; // User who started the service
+  readonly userType: 'root' | 'user' | 'guest';
+  readonly homePath: string; // Home directory (e.g., "/root", "/home/alice")
 };
 ```
 
@@ -56,17 +57,17 @@ The public network view of a machine — what's visible to other machines on the
 
 ```typescript
 type RemoteMachine = {
-  readonly ip: string;                // "10.45.12.100"
-  readonly hostname: string;          // "webserver", "router", etc.
-  readonly ports: readonly Port[];    // Open and closed ports
-  readonly users: readonly RemoteUser[];  // User accounts (no password hashes)
-  readonly firmwareVendor?: string;   // Router-only: "Cisco IOS", "MikroTik", etc.
-  readonly firmwareVersion?: string;  // Router-only: overlaid from /var/lib/dpkg/status
+  readonly ip: string; // "10.45.12.100"
+  readonly hostname: string; // "webserver", "router", etc.
+  readonly ports: readonly Port[]; // Open and closed ports
+  readonly users: readonly RemoteUser[]; // User accounts (no password hashes)
+  readonly firmwareVendor?: string; // Router-only: "Cisco IOS", "MikroTik", etc.
+  readonly firmwareVersion?: string; // Router-only: overlaid from /var/lib/dpkg/status
 };
 
 type RemoteUser = {
   readonly username: string;
-  readonly userType: "root" | "user" | "guest";
+  readonly userType: 'root' | 'user' | 'guest';
 };
 ```
 
@@ -96,9 +97,9 @@ Simple A record for DNS lookups:
 
 ```typescript
 type DnsRecord = {
-  readonly domain: string;            // "webserver.corp.local"
-  readonly ip: string;                // "10.45.12.100"
-  readonly type: "A";                 // Only A records in Phase 3
+  readonly domain: string; // "webserver.corp.local"
+  readonly ip: string; // "10.45.12.100"
+  readonly type: 'A'; // Only A records in Phase 3
 };
 ```
 
@@ -118,12 +119,12 @@ Defined in `src/generation/types.ts` as `SubnetLayer`:
 
 ```typescript
 type SubnetLayer = {
-  readonly subnet: string;            // "10.45.12.0/24"
+  readonly subnet: string; // "10.45.12.0/24"
   readonly gateway: GeneratedMachine; // The .1 machine bridging to next layer
-  readonly gatewayType: GatewayType;  // "router" or "switch"
+  readonly gatewayType: GatewayType; // "router" or "switch"
   readonly entryVariant: EntryVariant; // "ssh", "ftp", "nc", "exploit", "http", "snmp"
   readonly machines: readonly GeneratedMachine[];
-  readonly isForwarded: boolean;      // NAT forwards entry ports to this layer
+  readonly isForwarded: boolean; // NAT forwards entry ports to this layer
 };
 ```
 
@@ -139,6 +140,7 @@ type SubnetLayer = {
 ### Gateway Roles & Addressing
 
 **Border Router** (`role: "router"`):
+
 - Has a public IP (allocated from `src/ipRegistry/`, kind=`mission_instance` for missions)
 - Has an internal IP in layer-0 subnet (e.g., 10.45.12.1)
 - Dual interfaces: `eth0` (public), `eth1` (layer-0 gateway)
@@ -147,10 +149,12 @@ type SubnetLayer = {
 - Ships users, filesystem, and can be hacked like any other machine
 
 **Inner Gateways** (layer-to-layer bridges):
+
 - **Router gateway** (`role: "router"`): NAT-capable with `/etc/iptables/rules.v4` and SNMP firewall OIDs
 - **Switch gateway** (`role: "switch"`): Layer-3 managed switch with `/etc/switch/acl.conf` ACL rules; no NAT, only ACL-based filtering (40% of inner gateways)
 
 Both gateway types are **dual-homed**:
+
 - `eth0`: IP in upstream subnet (e.g., 10.x.x.y)
 - `eth1`: IP in downstream subnet as `.1` (e.g., 10.y.y.1)
 
@@ -200,7 +204,7 @@ Parser: `src/network/ftpdStateParser.ts`. Extracts port from `vsftpd:port=N`.
 **Owner**: The user who started the listener; tier (`root`/`user`/`guest`) determines shell privileges
 **Open by default**: No; only when player runs `nc -l <port>` or exploit plants one
 
-Parser: `src/network/ncStateParser.ts`. Extracts port, username, userType, homePath. Scans /var/run for nc-*.pid files and parses each.
+Parser: `src/network/ncStateParser.ts`. Extracts port, username, userType, homePath. Scans /var/run for nc-\*.pid files and parses each.
 
 **Player control**: `nc("-l", port)` command writes `/var/run/nc-<port>.pid` with the invoking user's identity.
 
@@ -214,6 +218,7 @@ Parser: `src/network/ncStateParser.ts`. Extracts port, username, userType, homeP
 **Multi-line support**: Services sharing a pid file are grouped; one line per service
 
 **Supported services** (from `INFRA_PID_CONFIGS` in `src/generation/filesystem/infraPidFiles.ts`):
+
 - http, https, http-alt → nginx.pid → /usr/sbin/nginx → www-data
 - mysql → mysqld.pid → /usr/sbin/mysqld → mysql
 - postgresql → postgres.pid → /usr/sbin/postgres → postgres
@@ -254,6 +259,7 @@ Parser: `src/network/apache2StateParser.ts`. Validates all four fields required;
 
 **File**: `/etc/iptables/rules.v4` on router machines
 **Format**:
+
 ```
 # Comments and blank lines ignored
 forward <public_port> to <internal_ip>:<internal_port>
@@ -264,6 +270,7 @@ forward 8080 to 10.45.12.50:80
 Parser: `src/network/iptablesParser.ts`
 
 **Semantics**:
+
 - **Forwarded mode**: Rules pre-populated at generation; easy missions 70% chance, medium 50%
 - **Router-first mode**: File starts as empty template; player must edit with `nano`
 - **NAT resolution**: `resolveNat(publicIp, publicPort)` returns `{internalIp, internalPort}`
@@ -276,6 +283,7 @@ Implemented in `src/network/backdoorForwarding.ts`.
 
 **File**: `/etc/snmp/snmpd.conf` on router machines
 **Format**:
+
 ```
 firewallSSH permit    # Port 22 open
 firewallSSH deny      # Port 22 closed
@@ -291,6 +299,7 @@ Parser: `src/network/snmpFirewallParser.ts`. Maps firewallSSH→22, firewallHTTP
 
 **File**: `/etc/switch/acl.conf` on switch gateways
 **Format**:
+
 ```
 deny tcp any 10.45.2.0/24 port 22   # Block SSH to downstream subnet
 allow tcp any 10.45.2.0/24 port 80  # Allow HTTP
@@ -304,6 +313,7 @@ Parser: `src/network/aclParser.ts`. Last matching rule wins (like real ACLs).
 
 **File**: `/etc/snmp/snmpd.conf` on switch gateways
 **Format**:
+
 ```
 aclSSH allow    # Port 22 open to downstream
 aclSSH deny     # Port 22 closed to downstream
@@ -321,9 +331,9 @@ Parser: `src/network/snmpAclParser.ts`. Maps aclSSH→22, aclHTTP→80, aclFTP�
 
 ```typescript
 type DnsRecord = {
-  readonly domain: string;            // "webserver.corp.local"
-  readonly ip: string;                // "10.45.12.100"
-  readonly type: "A";
+  readonly domain: string; // "webserver.corp.local"
+  readonly ip: string; // "10.45.12.100"
+  readonly type: 'A';
 };
 ```
 
@@ -347,6 +357,7 @@ Defined in `src/logging/`.
 **Example**: `Mar 21 14:30:00 webserver sshd[1234]: Accepted password for admin from 10.0.1.100 port 45000 ssh2`
 
 Formatters (`src/logging/formatters.ts`):
+
 - `formatSyslogLine()` — generic syslog template
 - `formatSshAccepted()` — password auth success
 - `formatSshAcceptedKey()` — public-key auth success
@@ -420,6 +431,7 @@ Scan tools (nmap, gobuster) and brute-force tools (hydra) do **not** log one ent
 Public IPs are server-allocated per `src/ipRegistry/`. Clients sign requests with their identity key; server verifies signature and returns a unique public IP.
 
 **Kinds**:
+
 - `mission_instance` — per-mission border router (player-owned)
 - `home_network` — player's home LAN router (player-owned)
 - `pivot` — player-controlled relay machine (player-owned)
@@ -430,6 +442,7 @@ Public IPs are server-allocated per `src/ipRegistry/`. Clients sign requests wit
 ## 2.8 Initial Workstation Network Shape
 
 Localhost starts with:
+
 - **Hostname**: player-configured (e.g., "skylab")
 - **Users**: root (password from intro), current user (empty password), guest (seed-derived)
 - **Interfaces**: lo (127.0.0.1), wlan0 (DOWN, 0.0.0.0)
@@ -438,6 +451,7 @@ Localhost starts with:
 Generated via `generateLocalhost(gameState)` in `src/generation/generateLocalhost.ts`.
 
 **After connecting to WiFi**:
+
 - **wlan0**: UP with dynamic IP from home-network subnet (e.g., 10.45.12.100)
 - **Hostname**: suffixed with player identity hash (e.g., "skylab-9k3d")
 - **Reachable machines**: all layer-0 machines + border router public IP + border router internal IP
@@ -447,6 +461,7 @@ Generated via `generateLocalhost(gameState)` in `src/generation/generateLocalhos
 ## 2.9 Reconnaissance Behavior (nmap, ping, connect)
 
 ### nmap
+
 - **TCP scan** (`nmap <ip>` or `nmap -p <ports> <ip>`): Probes open ports on the target
 - **UDP scan** (`nmap -sU <ip>`): Probes UDP ports (discovers SNMP on 161)
 - **Version scan**: Automatic; versions overlaid from `/var/lib/dpkg/status`
@@ -454,11 +469,13 @@ Generated via `generateLocalhost(gameState)` in `src/generation/generateLocalhos
 - **NAT-aware**: When scanning a forwarded port, `resolveNat` translates public→internal and logs on the backend
 
 ### ping
+
 - **ICMP echo**: Checks machine reachability
 - **Response**: Target machine responds if reachable in the network config
 - **Logging**: Not logged
 
 ### connect (nc / SSH / FTP)
+
 - **Socket attempt**: Try to connect to IP:port
 - **Success**: Reach the target machine (either direct or through NAT)
 - **Logging**: Depends on the service (SSH logs to auth.log, FTP to vsftpd.log, nc to syslog)
@@ -476,13 +493,14 @@ Generated via `generateLocalhost(gameState)` in `src/generation/generateLocalhos
 
 ### Machine Pools (`src/generation/pools/machines.ts`)
 
-**Client handles**: 45 hardcoded choices for NPC usernames (xR0gu3x, cyph3rpunk, zer0day_, etc.)
+**Client handles**: 45 hardcoded choices for NPC usernames (xR0gu3x, cyph3rpunk, zer0day\_, etc.)
 
 **Role-specific usernames**: Pool of realistic usernames per machine role (www-data, webadmin, apache for webserver; dbadmin, postgres, mysql for database; etc.).
 
 ### Web Content Templates (`src/generation/pools/web.ts`)
 
 Realistic HTML templates for `/var/www/html/index.html`:
+
 - **Generic servers**: "Status OK", build version, admin links
 - **Router admin panels**: Cisco IOS, MikroTik, pfSense, OPNsense HTML login forms
 - **IoT devices**: GoAhead httpd, Hikvision IP camera, HVAC controller BMS, Sensor Hub
@@ -492,11 +510,13 @@ All use `{{hostname}}` and `{{timestamp}}` substitution.
 ### Vulnerability Pools (`src/generation/pools/vulnerabilities.ts`)
 
 **Hand-authored CVEs** (39 entries, `publishedAt=0`, always live):
+
 - Iconic exploits (Apache/2.4.49 CVE-2024-9001, vsftpd 2.3.4 smiley-face backdoor, etc.)
 - Diverse effects (shell_limited, shell_full, file_read, file_write, dir_list, password_reset, backdoor_port_open, script_exec)
 - Per-service distributions (SSH = universal hammer; FTP = read/write/backdoor; databases = password_reset/script_exec; web = script_exec)
 
 **Procedural CVEs** (walker-generated from `src/generation/timeline/walker.ts`):
+
 - ~43 CVEs per service per year (1 new CVE every ~13 hours across 15 services)
 - Procedural timelines for: HTTP, nginx, Apache, SSH, FTP, MySQL, PostgreSQL, Redis, MongoDB, DNS, SMTP, IMAP, MQTT, Modbus, VNC, OpenVPN
 - Router firmware timelines (Cisco IOS, MikroTik, DD-WRT, OpenWRT, pfSense, EdgeOS)
@@ -509,6 +529,7 @@ All use `{{hostname}}` and `{{timestamp}}` substitution.
 **File**: `/var/lib/dpkg/status` (RFC-822 format)
 
 **Example**:
+
 ```
 Package: nginx
 Status: install ok installed
@@ -526,4 +547,3 @@ Version: 2.4.1
 **Updates**: `setDpkgVersion(content, pkg, version)` modifies a single package in-place. Used by `apt upgrade` and `apt install pkg=version`.
 
 **Consumers**: `useNetworkCommands` applies the overlay to every machine read — nmap, msfconsole, and the exploit-logging callback all see overlay-aware versions transparently.
-

@@ -14,6 +14,7 @@ TDD is the fundamental practice. Every line of production code must be written i
 ## RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR Cycle
 
 ### RED: Write Failing Test First
+
 - NO production code until you have a failing test
 - Test describes desired behavior, not implementation
 - Test should fail for the right reason
@@ -21,21 +22,25 @@ TDD is the fundamental practice. Every line of production code must be written i
 - Add obvious missing cases immediately; use the harness's ask-question facility when the expected behavior is a product/domain judgment
 
 ### GREEN: Minimum Code to Pass
+
 - Write ONLY enough code to make the test pass
 - Resist adding functionality not demanded by a test
 
 ### MUTATE: Verify Test Effectiveness
+
 - Run `mutation-testing` skill against the changed code
 - Produce a mutation testing report (killed/survived/score)
 - This validates whether the RED-phase mutator scan caught the important gaps
 
 ### KILL MUTANTS: Address Surviving Mutants
+
 - Add or strengthen tests to kill surviving mutants
 - Fix obvious gaps directly
 - Ask the human with the harness's ask-question facility when a surviving mutant's value is ambiguous
 - All tests pass after fixes
 
 ### REFACTOR: Assess Improvements
+
 - Assess AFTER mutation testing confirms test strength
 - Load the `refactoring` skill before deciding what, if anything, to restructure
 - Commit before refactoring
@@ -50,6 +55,7 @@ TDD is the fundamental practice. Every line of production code must be written i
 Commit history should show clear RED → GREEN → MUTATE → KILL MUTANTS → REFACTOR progression.
 
 **Ideal progression:**
+
 ```
 commit abc123: test: add failing test for user authentication
 commit def456: feat: implement user authentication to pass test
@@ -62,18 +68,21 @@ commit jkl012: refactor: extract validation logic for clarity
 TDD evidence may not be linearly visible in commits in these cases:
 
 **1. Multi-Session Work**
+
 - Feature spans multiple development sessions
 - Work done with TDD in each session
 - Commits organized for PR clarity rather than strict TDD phases
 - **Evidence**: Tests exist, all passing, implementation matches test requirements
 
 **2. Context Continuation**
+
 - Resuming from previous work
 - Original RED phase done in previous session/commit
 - Current work continues from that point
 - **Evidence**: Reference to RED commit in PR description
 
 **3. Refactoring Commits**
+
 - Large refactors after GREEN + MUTATE + KILL MUTANTS
 - Multiple small refactors combined into single commit
 - All tests remained green throughout
@@ -110,11 +119,13 @@ Test Evidence:
 **Before approving any PR claiming "100% coverage":**
 
 1. Check out the branch
+
    ```bash
    git checkout feature-branch
    ```
 
 2. Run coverage verification:
+
    ```bash
    cd packages/core
    pnpm test:coverage
@@ -152,21 +163,27 @@ endpoints.ts   |     100 |      100 |     100 |     100 |
 Watch for these signs of incomplete coverage:
 
 ❌ **PR claims "100% coverage" but you haven't verified**
+
 - Never trust claims without running coverage yourself
 
 ❌ **Coverage summary shows <100% on any metric**
+
 ```
 All files      |   97.11 |    93.97 |   81.81 |   97.11 |
 ```
+
 - This is NOT 100% coverage (Functions: 81.81%, Lines: 97.11%)
 
 ❌ **"Uncovered Line #s" column shows line numbers**
+
 ```
 setup.ts       |   95.23 |      100 |      60 |   95.23 | 45-48, 52-55
 ```
+
 - Lines 45-48 and 52-55 are not covered
 
 ❌ **Coverage gaps without explicit exception documentation**
+
 - If coverage <100%, exception should be documented (see Exception Process below)
 
 ### When Coverage Drops, Ask
@@ -192,6 +209,7 @@ If 100% coverage cannot be achieved:
 **Step 1: Document in package README**
 
 Explain:
+
 - Current coverage metrics
 - WHY 100% cannot be achieved in this package
 - WHERE the missing coverage will come from (integration tests, E2E, etc.)
@@ -274,6 +292,7 @@ docs: update architecture documentation
 ```
 
 **Format:**
+
 - `feat:` - New feature
 - `fix:` - Bug fix
 - `refactor:` - Code change that neither fixes bug nor adds feature
@@ -323,12 +342,12 @@ REFACTOR: commit 6e5f4a3 (extract permission resolution logic)
 
 After mutation testing confirms test strength, classify any issues:
 
-| Priority | Action | Examples |
-|----------|--------|----------|
-| Critical | Fix now | Mutations, knowledge duplication, >3 levels nesting |
-| High | This session | Magic numbers, unclear names, >30 line functions |
-| Nice | Later | Minor naming, single-use helpers |
-| Skip | Don't change | Already clean code |
+| Priority | Action       | Examples                                            |
+| -------- | ------------ | --------------------------------------------------- |
+| Critical | Fix now      | Mutations, knowledge duplication, >3 levels nesting |
+| High     | This session | Magic numbers, unclear names, >30 line functions    |
+| Nice     | Later        | Minor naming, single-use helpers                    |
+| Skip     | Don't change | Already clean code                                  |
 
 For detailed refactoring methodology, load the `refactoring` skill.
 

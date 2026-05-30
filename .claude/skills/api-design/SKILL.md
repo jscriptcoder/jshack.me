@@ -56,18 +56,20 @@ Extend interfaces without breaking existing consumers:
 type CreateTaskInput = {
   readonly title: string;
   readonly description?: string;
-  readonly priority?: 'low' | 'medium' | 'high';  // Added later, optional
-  readonly labels?: ReadonlyArray<string>;           // Added later, optional
+  readonly priority?: 'low' | 'medium' | 'high'; // Added later, optional
+  readonly labels?: ReadonlyArray<string>; // Added later, optional
 };
 ```
 
 What breaks backward compatibility:
+
 - Removing fields
 - Changing field types
 - Making optional fields required
 - Changing enum values
 
 What preserves backward compatibility:
+
 - Adding new optional fields
 - Adding new enum values (if consumers handle unknown values)
 - Adding new endpoints
@@ -87,9 +89,9 @@ Pick one error strategy and use it everywhere. Don't mix patterns where some end
 ```typescript
 // Simpler shape — sufficient for internal APIs
 type ApiError = {
-  readonly error: string;                          // Machine-readable code (UPPER_SNAKE_CASE)
-  readonly message?: string;                       // Human-readable description
-  readonly fieldErrors?: Record<string, string>;   // For validation errors
+  readonly error: string; // Machine-readable code (UPPER_SNAKE_CASE)
+  readonly message?: string; // Human-readable description
+  readonly fieldErrors?: Record<string, string>; // For validation errors
 };
 ```
 
@@ -103,11 +105,11 @@ The standard format for machine-readable API errors for public APIs. Use `applic
 
 ```typescript
 type ProblemDetail = {
-  readonly type: string;       // URI identifying the error type (defaults to "about:blank")
-  readonly title: string;      // Human-readable summary — MUST NOT change between occurrences
-  readonly status: number;     // HTTP status code — MUST match the actual HTTP response status
-  readonly detail: string;     // Explanation specific to this occurrence — help the client fix it
-  readonly instance?: string;  // URI identifying this specific occurrence
+  readonly type: string; // URI identifying the error type (defaults to "about:blank")
+  readonly title: string; // Human-readable summary — MUST NOT change between occurrences
+  readonly status: number; // HTTP status code — MUST match the actual HTTP response status
+  readonly detail: string; // Explanation specific to this occurrence — help the client fix it
+  readonly instance?: string; // URI identifying this specific occurrence
 };
 ```
 
@@ -148,6 +150,7 @@ When `type` is a resolvable URI (http/https), it SHOULD point to human-readable 
 For multiple problems of **different types**, return the most relevant or urgent one — don't create batch problem types (they don't map well into HTTP semantics).
 
 **When NOT to use Problem Details:**
+
 - Generic problems expressed well by plain status codes (e.g., a simple 404 doesn't always need a body)
 - When your application already defines a more appropriate error format
 - As a debugging tool for internal implementation
@@ -155,6 +158,7 @@ For multiple problems of **different types**, return the most relevant or urgent
 Errors should be **actionable**: the consumer should know what went wrong, why, and what to do about it.
 
 **Security (RFC 9457 §5):** Error responses must help clients correct issues, not serve as debugging tools. Every field in a problem detail is a potential information leak:
+
 - **Never expose stack traces, internal paths, or server implementation details** — these are attack vectors
 - **Vet new problem types** for information that could compromise the system or user privacy
 - **Avoid linking to internal occurrence data** through the HTTP interface (e.g., don't link to internal log entries)
@@ -162,16 +166,16 @@ Errors should be **actionable**: the consumer should know what went wrong, why, 
 
 ### HTTP Status Code Mapping
 
-| Status | Meaning | When to use |
-|--------|---------|-------------|
-| 400 | Bad Request | Client sent malformed data |
-| 401 | Unauthorized | Not authenticated |
-| 403 | Forbidden | Authenticated but not authorized |
-| 404 | Not Found | Resource doesn't exist |
-| 409 | Conflict | Duplicate, version mismatch |
-| 422 | Unprocessable Entity | Validation failed (semantically invalid) |
-| 429 | Too Many Requests | Rate limit exceeded (include `Retry-After` header) |
-| 500 | Internal Server Error | Server error (never expose internal details) |
+| Status | Meaning               | When to use                                        |
+| ------ | --------------------- | -------------------------------------------------- |
+| 400    | Bad Request           | Client sent malformed data                         |
+| 401    | Unauthorized          | Not authenticated                                  |
+| 403    | Forbidden             | Authenticated but not authorized                   |
+| 404    | Not Found             | Resource doesn't exist                             |
+| 409    | Conflict              | Duplicate, version mismatch                        |
+| 422    | Unprocessable Entity  | Validation failed (semantically invalid)           |
+| 429    | Too Many Requests     | Rate limit exceeded (include `Retry-After` header) |
+| 500    | Internal Server Error | Server error (never expose internal details)       |
 
 ### Validation at API Boundaries
 
@@ -203,13 +207,13 @@ Network failures happen. Clients retry. Without idempotency, retries create dupl
 
 ### HTTP Method Idempotency
 
-| Method | Safe | Idempotent | Notes |
-|--------|------|------------|-------|
-| GET | Yes | Yes | No side effects |
-| PUT | No | Yes | Same request = same result |
-| DELETE | No | Yes | Deleting twice = same outcome |
-| POST | No | **No** | Needs explicit idempotency handling |
-| PATCH | No | Not guaranteed | Depends on implementation |
+| Method | Safe | Idempotent     | Notes                               |
+| ------ | ---- | -------------- | ----------------------------------- |
+| GET    | Yes  | Yes            | No side effects                     |
+| PUT    | No   | Yes            | Same request = same result          |
+| DELETE | No   | Yes            | Deleting twice = same outcome       |
+| POST   | No   | **No**         | Needs explicit idempotency handling |
+| PATCH  | No   | Not guaranteed | Depends on implementation           |
 
 ### Idempotency Keys for POST
 
@@ -243,6 +247,7 @@ app.post('/api/payments', async (req, res) => {
 ```
 
 Design principles:
+
 - Keys should be scoped to the API key / authenticated user
 - Keys should expire (24 hours is typical)
 - If parameters differ on retry with the same key, return an error
@@ -300,14 +305,15 @@ Content-Type: application/problem+json
 
 Assign explicit freshness lifetimes on responses. Don't rely on heuristic freshness.
 
-| Directive | Meaning | Common misconception |
-|-----------|---------|----------------------|
-| `Cache-Control: max-age=N` | Fresh for N seconds. Preferred over `Expires`. | -- |
-| `Cache-Control: no-cache` | May be stored, but must revalidate before every use. | Often confused with "don't cache" |
-| `Cache-Control: no-store` | Must NOT be stored at all. Use this to prevent caching. | -- |
-| `Cache-Control: must-revalidate` | Once stale, must revalidate. Cannot serve stale when disconnected. | -- |
+| Directive                        | Meaning                                                            | Common misconception              |
+| -------------------------------- | ------------------------------------------------------------------ | --------------------------------- |
+| `Cache-Control: max-age=N`       | Fresh for N seconds. Preferred over `Expires`.                     | --                                |
+| `Cache-Control: no-cache`        | May be stored, but must revalidate before every use.               | Often confused with "don't cache" |
+| `Cache-Control: no-store`        | Must NOT be stored at all. Use this to prevent caching.            | --                                |
+| `Cache-Control: must-revalidate` | Once stale, must revalidate. Cannot serve stale when disconnected. | --                                |
 
 Practical rules:
+
 - Even short freshness (e.g., `max-age=5`) enables reuse across multiple clients
 - Assign ETags for efficient revalidation without re-transferring the body
 - If a request header changes the response, use `Vary` on ALL responses from that resource (including the default)
@@ -319,14 +325,14 @@ See `resources/http-fundamentals.md` for full caching guidance including content
 
 ### Resource Naming
 
-| Pattern | Convention | Example |
-|---------|-----------|---------|
-| Endpoints | Plural nouns, no verbs | `GET /api/tasks`, `POST /api/tasks` |
-| Query params | camelCase | `?sortBy=createdAt&pageSize=20` |
-| Response fields | camelCase | `{ createdAt, updatedAt, taskId }` |
-| Boolean fields | is/has/can prefix | `isComplete`, `hasAttachments` |
-| Enum values | UPPER_SNAKE | `"IN_PROGRESS"`, `"COMPLETED"` |
-| Headers | No `X-` prefix (RFC 6648/BCP 178) | `Example-Request-Id` |
+| Pattern         | Convention                        | Example                             |
+| --------------- | --------------------------------- | ----------------------------------- |
+| Endpoints       | Plural nouns, no verbs            | `GET /api/tasks`, `POST /api/tasks` |
+| Query params    | camelCase                         | `?sortBy=createdAt&pageSize=20`     |
+| Response fields | camelCase                         | `{ createdAt, updatedAt, taskId }`  |
+| Boolean fields  | is/has/can prefix                 | `isComplete`, `hasAttachments`      |
+| Enum values     | UPPER_SNAKE                       | `"IN_PROGRESS"`, `"COMPLETED"`      |
+| Headers         | No `X-` prefix (RFC 6648/BCP 178) | `Example-Request-Id`                |
 
 ### Resource Design
 
@@ -395,17 +401,17 @@ type Task = {
 
 ## Common Rationalizations
 
-| Rationalization | Reality |
-|---|---|
-| "We'll document the API later" | The types ARE the documentation. Define them first. |
-| "We don't need pagination for now" | You will the moment someone has 100+ items. Add it from the start. |
-| "PATCH is complicated, let's just use PUT" | PUT requires the full object every time. PATCH is what clients actually want. |
-| "We'll version the API when we need to" | Breaking changes without versioning break consumers. Design for extension from the start. |
-| "Nobody uses that undocumented behavior" | Hyrum's Law: if it's observable, somebody depends on it. |
-| "Internal APIs don't need contracts" | Internal consumers are still consumers. Contracts prevent coupling and enable parallel work. |
-| "Retries are the client's problem" | Without idempotency, retries create duplicates. Design for at-least-once delivery. |
-| "We'll add rate limiting later" | By then, clients have built around unlimited access. Rate limits are part of the contract. |
-| "Error messages are just for debugging" | Errors are part of your API's developer experience. Make them actionable, not diagnostic. |
+| Rationalization                            | Reality                                                                                      |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| "We'll document the API later"             | The types ARE the documentation. Define them first.                                          |
+| "We don't need pagination for now"         | You will the moment someone has 100+ items. Add it from the start.                           |
+| "PATCH is complicated, let's just use PUT" | PUT requires the full object every time. PATCH is what clients actually want.                |
+| "We'll version the API when we need to"    | Breaking changes without versioning break consumers. Design for extension from the start.    |
+| "Nobody uses that undocumented behavior"   | Hyrum's Law: if it's observable, somebody depends on it.                                     |
+| "Internal APIs don't need contracts"       | Internal consumers are still consumers. Contracts prevent coupling and enable parallel work. |
+| "Retries are the client's problem"         | Without idempotency, retries create duplicates. Design for at-least-once delivery.           |
+| "We'll add rate limiting later"            | By then, clients have built around unlimited access. Rate limits are part of the contract.   |
+| "Error messages are just for debugging"    | Errors are part of your API's developer experience. Make them actionable, not diagnostic.    |
 
 ## Red Flags
 

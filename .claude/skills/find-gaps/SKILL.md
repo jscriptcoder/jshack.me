@@ -5,7 +5,7 @@ description: Adversarially review written stories, plans, acceptance criteria, s
 
 # Find Gaps
 
-Most shipped bugs and post-launch firedrills come from things that were never written down — not from things that were specified wrong. This skill systematically surfaces those absences *before* implementation, when fixing them is cheap.
+Most shipped bugs and post-launch firedrills come from things that were never written down — not from things that were specified wrong. This skill systematically surfaces those absences _before_ implementation, when fixing them is cheap.
 
 But finding gaps is only half the job. A list of open questions that nobody answers is just a todo list with extra steps. The real output of this skill is an **updated artifact** — a plan, AC set, or mock spec that now contains decisions it didn't contain before, made by the user, captured verbatim, and written back to the source of truth.
 
@@ -19,7 +19,7 @@ Use this skill when the user:
 - Is handing work to another team/engineer and wants a completeness pass
 - Is doing a pre-mortem
 
-Pair with `storyboard` when reviewing multiple mocks together — storyboard gives the single-page view, this skill finds what's *missing* across them.
+Pair with `storyboard` when reviewing multiple mocks together — storyboard gives the single-page view, this skill finds what's _missing_ across them.
 Pair with `story-splitting` when a story, plan, spec, or backlog item is too large, horizontal, component-split, or not yet expressed as independently valuable child stories.
 Pair with `characterisation-tests` when the "gap" is behavior of existing code that nobody wrote down.
 
@@ -27,12 +27,12 @@ Pair with `characterisation-tests` when the "gap" is behavior of existing code t
 
 `find-gaps` needs an artifact to inspect. It does not discover the whole decision tree from scratch and it does not split broad work into child stories.
 
-| Need | Use | Why |
-|------|-----|-----|
-| Pressure-test unresolved product or design decisions | `grill-me` | It interviews the decision tree and recommends answers |
-| Break broad work into independently valuable child stories | `story-splitting` | It creates product/backlog stories, not implementation tasks |
-| Tighten a written story, plan, AC set, or mock spec | `find-gaps` | It finds missing states, edge cases, roles, constraints, and unverifiable wording, then writes confirmed decisions back |
-| Sequence a selected child story into PR-sized work | `planning` | It owns implementation slices and the TDD execution plan |
+| Need                                                       | Use               | Why                                                                                                                     |
+| ---------------------------------------------------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Pressure-test unresolved product or design decisions       | `grill-me`        | It interviews the decision tree and recommends answers                                                                  |
+| Break broad work into independently valuable child stories | `story-splitting` | It creates product/backlog stories, not implementation tasks                                                            |
+| Tighten a written story, plan, AC set, or mock spec        | `find-gaps`       | It finds missing states, edge cases, roles, constraints, and unverifiable wording, then writes confirmed decisions back |
+| Sequence a selected child story into PR-sized work         | `planning`        | It owns implementation slices and the TDD execution plan                                                                |
 
 If the artifact is not yet written down, first use `grill-me` or `story-splitting`. If this review discovers the artifact is actually multiple stories tangled together, stop and route back to `story-splitting`. If the artifact is clear enough to implement, route forward to `planning`.
 
@@ -40,7 +40,7 @@ If the artifact is not yet written down, first use `grill-me` or `story-splittin
 
 **1. What isn't on the page is more dangerous than what is.** A plan that says nothing about errors doesn't handle them gracefully — it doesn't handle them at all. An acceptance criterion with no measurement isn't ambiguous — it's unverifiable. A mock with no empty state isn't flexible — it's broken the first time a new user opens it. Treat silence as a red flag, not a green light.
 
-**2. Every gap is a conversation, not a comment.** A static gap list is a report. This skill produces *decisions*, captured as updates to the artifact, made by the human who owns the work. The loop — ask, capture, write back, confirm — is the product.
+**2. Every gap is a conversation, not a comment.** A static gap list is a report. This skill produces _decisions_, captured as updates to the artifact, made by the human who owns the work. The loop — ask, capture, write back, confirm — is the product.
 
 ## How This Works
 
@@ -95,7 +95,7 @@ For each gap:
 2. **Ask the concrete question.** Never bundle unrelated questions. When the answer space is enumerable — failure strategies, severity classifications, state-variance scoping, parking decisions — ask via the `AskUserQuestion` tool with structured options rather than free text. See **Asking with Structure** below for the heuristic and worked examples.
 3. **If the answer is vague, ask the follow-up that makes it testable.** "The user sees an error" → "What message, and can they retry?" Follow-ups on microcopy stay free-text; follow-ups that narrow between a small set of behaviours become structured.
 4. **Convert the refined answer into an artifact update** using the patterns below.
-5. **Show the proposed update** verbatim, then offer *write as-is / edit inline / discard and redo* via `AskUserQuestion`. If you have two phrasings worth comparing, put them in option `preview` fields for side-by-side review.
+5. **Show the proposed update** verbatim, then offer _write as-is / edit inline / discard and redo_ via `AskUserQuestion`. If you have two phrasings worth comparing, put them in option `preview` fields for side-by-side review.
 6. **Write it** to the source of truth once confirmed.
 7. **Move on.** Don't linger.
 
@@ -133,7 +133,7 @@ Walk these end-to-end per artifact. Don't skip categories because "that probably
 
 ### Acceptance Criteria
 
-- **Measurability:** verifiable by a machine or a test? Vague-word hit list: *fast, intuitive, seamless, modern, clean, responsive, works well, just works, robust* — each needs a number or a concrete behaviour.
+- **Measurability:** verifiable by a machine or a test? Vague-word hit list: _fast, intuitive, seamless, modern, clean, responsive, works well, just works, robust_ — each needs a number or a concrete behaviour.
 - **Given / When / Then discipline:** every criterion has precondition, trigger, and observable outcome. Any missing → it's a wish.
 - **Negative paths:** for every happy path, the failure path (timeout, validation error, concurrent edit, permission denied, quota exceeded, offline, stale data).
 - **Input edge cases:** empty / null / missing optional; min / max / boundary; very long strings; non-ASCII, emoji, RTL, combining marks; duplicates, case variants, whitespace; numeric zero / negative / very large / currency precision.
@@ -172,7 +172,7 @@ Write **Given / When / Then** with a single observable outcome. Include actor, s
 - **Refined answer:** "'Card declined. Try another payment method.' — card field stays filled so they can edit digits, retry button always enabled."
 - **AC to add:**
 
-> **AC-14:** Given an authenticated buyer on the checkout screen, when the card provider returns a decline, then (a) the UI shows the message *"Card declined. Try another payment method."* in the card-field error slot, (b) the card field remains populated with the last-entered digits, (c) the retry button is enabled, and (d) a `payment.declined` event is emitted with the provider's decline reason code.
+> **AC-14:** Given an authenticated buyer on the checkout screen, when the card provider returns a decline, then (a) the UI shows the message _"Card declined. Try another payment method."_ in the card-field error slot, (b) the card field remains populated with the last-entered digits, (c) the retry button is enabled, and (d) a `payment.declined` event is emitted with the provider's decline reason code.
 
 **Test:** a QA engineer should be able to execute this criterion without asking a single follow-up question. If they'd need to ask, the criterion isn't finished — keep refining.
 
@@ -197,16 +197,17 @@ For every missed state, capture **name / trigger / visual / behaviour / exit** s
 - **State spec:**
 
 > **empty-first-use**
-> - *Trigger:* authenticated user, 0 contacts in account
-> - *Visual:* centred column; illustration (reuse `EmptyIllustration` from impeccable tokens); H2 "No contacts yet"; paragraph "Bring your network into the app."; two buttons — primary "Import CSV" (opens import sheet), secondary "Add manually" (opens add-contact form)
-> - *Behaviour:* buttons enabled on load, no other actions available
-> - *Exit:* any successful contact add or import → `populated` list state
+>
+> - _Trigger:_ authenticated user, 0 contacts in account
+> - _Visual:_ centred column; illustration (reuse `EmptyIllustration` from impeccable tokens); H2 "No contacts yet"; paragraph "Bring your network into the app."; two buttons — primary "Import CSV" (opens import sheet), secondary "Add manually" (opens add-contact form)
+> - _Behaviour:_ buttons enabled on load, no other actions available
+> - _Exit:_ any successful contact add or import → `populated` list state
 
 ## Working with the User
 
 **Ask only what the user can answer.** "What's the error-handling strategy?" is a design spike. "When the payment declines, what message should the user see?" is a decision.
 
-**One question per turn** — unless two are tightly coupled ("what's the error, and can the user retry from it?"). A structured `AskUserQuestion` call with 2–4 tightly-related sub-questions counts as one turn; batching *unrelated* gaps into a single call reverts to a gap dump. If you find yourself typing "Also," stop and pick the most important one.
+**One question per turn** — unless two are tightly coupled ("what's the error, and can the user retry from it?"). A structured `AskUserQuestion` call with 2–4 tightly-related sub-questions counts as one turn; batching _unrelated_ gaps into a single call reverts to a gap dump. If you find yourself typing "Also," stop and pick the most important one.
 
 **Mirror the user's vocabulary.** If they say "buyer," the AC says "buyer." Do not silently promote it to "user" or "customer." Domain language is a feature.
 
@@ -231,14 +232,14 @@ Every question you put to the user is either free-text or structured via the `As
 
 Use `AskUserQuestion` when the answer space is genuinely enumerable and recurs across projects:
 
-| Situation                  | Why a structured question helps                                                                       |
-| -------------------------- | ----------------------------------------------------------------------------------------------------- |
-| Failure strategy           | Retry / fail fast / queue / fail-over — each has a named trade-off worth surfacing                    |
-| Severity re-triage         | Blocker / Should / Nice — useful when your triage and the user's disagree                             |
-| State-variance scoping     | Which states matter for v1 — `multiSelect: true` fits perfectly                                       |
-| Parking decisions          | Park with owner / escalate now / keep working — closes the gap-handling loop                          |
-| Write-back confirmation    | Write as-is / edit inline / discard — classic 3-option close after you've drafted the update          |
-| Variant comparison         | Two G/W/T drafts or two state specs in `preview` fields — side-by-side review beats prose walkthrough |
+| Situation               | Why a structured question helps                                                                       |
+| ----------------------- | ----------------------------------------------------------------------------------------------------- |
+| Failure strategy        | Retry / fail fast / queue / fail-over — each has a named trade-off worth surfacing                    |
+| Severity re-triage      | Blocker / Should / Nice — useful when your triage and the user's disagree                             |
+| State-variance scoping  | Which states matter for v1 — `multiSelect: true` fits perfectly                                       |
+| Parking decisions       | Park with owner / escalate now / keep working — closes the gap-handling loop                          |
+| Write-back confirmation | Write as-is / edit inline / discard — classic 3-option close after you've drafted the update          |
+| Variant comparison      | Two G/W/T drafts or two state specs in `preview` fields — side-by-side review beats prose walkthrough |
 
 ### Bad fits
 
@@ -253,8 +254,8 @@ Don't force structure where it doesn't belong:
 
 - Batch **tightly-related** sub-questions in one call (up to 4). Batching unrelated gaps is a gap dump wearing a hat.
 - Option labels 1–5 words. Put the trade-off in the `description`.
-- If one option is the recommendation, put it first, add *"(Recommended)"* to the label, and name the reason in the description.
-- *"Other"* is added automatically — trust it. Don't add a synthetic "Custom…" option.
+- If one option is the recommendation, put it first, add _"(Recommended)"_ to the label, and name the reason in the description.
+- _"Other"_ is added automatically — trust it. Don't add a synthetic "Custom…" option.
 - Use `preview` only for comparable artifacts (AC drafts, state specs, code snippets). Simple preferences don't need side-by-side layout.
 
 ### Worked example — payment decline, structured
@@ -283,7 +284,7 @@ Q2 — header: "Telemetry"
       description: "Reduces data volume; only fine if decline rate isn't a tracked metric."
 ```
 
-After the user picks, draft the AC using the chosen options (plus any "Other" text verbatim for the user's own language). Then issue a second `AskUserQuestion` offering *write as-is / edit inline / discard* on the proposed G/W/T — with two drafts in `preview` fields if the scoping or event shape was worth comparing.
+After the user picks, draft the AC using the chosen options (plus any "Other" text verbatim for the user's own language). Then issue a second `AskUserQuestion` offering _write as-is / edit inline / discard_ on the proposed G/W/T — with two drafts in `preview` fields if the scoping or event shape was worth comparing.
 
 ---
 
@@ -333,8 +334,8 @@ The log goes in the PR description, release notes, or wherever the work is being
 
 ## Quick reference
 
-| Artifact              | Top-3 gaps to always check                                                             |
-| --------------------- | -------------------------------------------------------------------------------------- |
-| Plan                  | Out-of-scope not stated · No rollback path · No observability                          |
-| Acceptance criteria   | Unmeasurable words · Missing negative paths · No non-functional targets                |
-| Design mocks          | No loading/empty/error states · No long-text variance · No keyboard focus treatment    |
+| Artifact            | Top-3 gaps to always check                                                          |
+| ------------------- | ----------------------------------------------------------------------------------- |
+| Plan                | Out-of-scope not stated · No rollback path · No observability                       |
+| Acceptance criteria | Unmeasurable words · Missing negative paths · No non-functional targets             |
+| Design mocks        | No loading/empty/error states · No long-text variance · No keyboard focus treatment |

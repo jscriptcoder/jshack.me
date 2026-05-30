@@ -39,6 +39,7 @@ Return 404 (not 403) when a user doesn't have access — confirming an object ex
 Weak authentication mechanisms, missing rate limiting on auth endpoints, credential stuffing.
 
 Mitigations:
+
 - Rate limit authentication endpoints aggressively
 - Use strong password policies or passwordless auth
 - Implement account lockout after failed attempts
@@ -64,6 +65,7 @@ Schema validation at the boundary (see `typescript-strict` skill) prevents mass 
 Missing rate limits, no pagination limits, unbounded queries, expensive operations without throttling.
 
 Mitigations:
+
 - Rate limit all endpoints (see main skill: Rate Limiting section)
 - Set maximum page sizes on pagination
 - Limit query complexity (especially for GraphQL)
@@ -88,6 +90,7 @@ app.delete('/api/users/:id', requireAuth, requireAdmin, async (req, res) => { ..
 Automated abuse of legitimate flows: ticket scalping, coupon abuse, spam account creation.
 
 Mitigations:
+
 - Rate limit business-critical endpoints more aggressively
 - CAPTCHA for account creation and other abusable flows
 - Device fingerprinting for high-value operations
@@ -118,6 +121,7 @@ app.post('/api/webhooks', async (req, res) => {
 Missing security headers, verbose error messages in production, unnecessary HTTP methods enabled, CORS misconfiguration.
 
 Checklist:
+
 - Set `Content-Type: application/problem+json` on error responses (not `text/html`)
 - Disable stack traces in production error responses
 - Remove `X-Powered-By` and other server identification headers
@@ -129,6 +133,7 @@ Checklist:
 Forgotten old API versions still running, undocumented endpoints, debug endpoints left in production.
 
 Mitigations:
+
 - Maintain an API inventory (OpenAPI spec as source of truth)
 - Decommission old versions on schedule (see `resources/api-evolution.md`)
 - Review deployed endpoints regularly — remove anything not in the spec
@@ -167,6 +172,7 @@ Simple, good for server-to-server communication.
 Standard for delegated authorization. Use **Authorization Code flow with PKCE** for ALL client types (web apps, native apps, SPAs). The Implicit grant and Resource Owner Password Credentials grant are deprecated.
 
 Key rules:
+
 - PKCE with S256 is mandatory for public clients, recommended for confidential clients
 - Exact redirect URI matching only -- no patterns, no wildcards
 - Never pass tokens in URI query parameters
@@ -190,12 +196,12 @@ See `auth-security.md` for the full deep-dive on JWT security (RFC 8725 / BCP 22
 
 ### Decision Framework
 
-| Scenario | Pattern |
-|----------|---------|
-| Server-to-server, trusted environment | API keys |
-| User-facing app, delegated access | OAuth 2.0 + PKCE |
-| Microservices, stateless auth needed | JWT (short-lived) + refresh tokens |
-| Internal tools, SSO integration | OAuth 2.0 with your identity provider |
+| Scenario                              | Pattern                               |
+| ------------------------------------- | ------------------------------------- |
+| Server-to-server, trusted environment | API keys                              |
+| User-facing app, delegated access     | OAuth 2.0 + PKCE                      |
+| Microservices, stateless auth needed  | JWT (short-lived) + refresh tokens    |
+| Internal tools, SSO integration       | OAuth 2.0 with your identity provider |
 
 ## Browser Security Headers
 
@@ -208,6 +214,7 @@ Referrer-Policy: no-referrer
 ```
 
 Additional:
+
 - Use application-specific media types in `Content-Type` (e.g., `application/vnd.myapp+json`)
 - Set `HttpOnly` flag on cookies
 - Avoid compressing sensitive data (tokens, passwords) alongside attacker-controlled content -- compression oracles (CRIME/BREACH) allow secret recovery
@@ -217,6 +224,7 @@ See `http-fundamentals.md` for full HTTP protocol security guidance.
 ## Transport Security
 
 Use TLS for all API communication. Per RFC 9325 (BCP 195):
+
 - TLS 1.2 is the minimum acceptable version
 - TLS 1.3 is preferred
 - TLS 1.0 and TLS 1.1 are deprecated (RFC 8996 / BCP 195)

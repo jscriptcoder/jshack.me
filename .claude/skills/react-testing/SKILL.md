@@ -19,9 +19,9 @@ npm install -D vitest @vitest/browser-playwright vitest-browser-react @vitejs/pl
 
 ```typescript
 // vitest.config.ts
-import { defineConfig } from 'vitest/config'
-import { playwright } from '@vitest/browser-playwright'
-import react from '@vitejs/plugin-react'
+import { defineConfig } from 'vitest/config';
+import { playwright } from '@vitest/browser-playwright';
+import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
@@ -33,24 +33,25 @@ export default defineConfig({
       instances: [{ browser: 'chromium' }],
     },
   },
-})
+});
 ```
 
 ### Component Testing
 
 ```tsx
-import { render } from 'vitest-browser-react'
-import { expect, test } from 'vitest'
+import { render } from 'vitest-browser-react';
+import { expect, test } from 'vitest';
 
 test('should display user name when provided', async () => {
-  const screen = await render(<UserProfile name="Alice" email="alice@example.com" />)
+  const screen = await render(<UserProfile name="Alice" email="alice@example.com" />);
 
-  await expect.element(screen.getByText(/alice/i)).toBeVisible()
-  await expect.element(screen.getByText(/alice@example.com/i)).toBeVisible()
-})
+  await expect.element(screen.getByText(/alice/i)).toBeVisible();
+  await expect.element(screen.getByText(/alice@example.com/i)).toBeVisible();
+});
 ```
 
 **Key differences from `@testing-library/react`:**
+
 - `render()` is async — use `await`
 - Returns a `screen` scoped to the rendered component
 - Use `expect.element()` for auto-retrying assertions
@@ -61,16 +62,16 @@ test('should display user name when provided', async () => {
 
 ```tsx
 test('should call onSubmit when form submitted', async () => {
-  const handleSubmit = vi.fn()
-  const screen = await render(<LoginForm onSubmit={handleSubmit} />)
+  const handleSubmit = vi.fn();
+  const screen = await render(<LoginForm onSubmit={handleSubmit} />);
 
-  await screen.getByLabelText(/email/i).fill('test@example.com')
-  await screen.getByRole('button', { name: /submit/i }).click()
+  await screen.getByLabelText(/email/i).fill('test@example.com');
+  await screen.getByRole('button', { name: /submit/i }).click();
 
   expect(handleSubmit).toHaveBeenCalledWith({
     email: 'test@example.com',
-  })
-})
+  });
+});
 ```
 
 ### Testing Conditional Rendering
@@ -79,35 +80,35 @@ test('should call onSubmit when form submitted', async () => {
 test('should show error message when login fails', async () => {
   server.use(
     http.post('/api/login', () => {
-      return HttpResponse.json({ error: 'Invalid credentials' }, { status: 401 })
-    })
-  )
+      return HttpResponse.json({ error: 'Invalid credentials' }, { status: 401 });
+    }),
+  );
 
-  const screen = await render(<LoginForm />)
+  const screen = await render(<LoginForm />);
 
-  await screen.getByLabelText(/email/i).fill('wrong@example.com')
-  await screen.getByRole('button', { name: /submit/i }).click()
+  await screen.getByLabelText(/email/i).fill('wrong@example.com');
+  await screen.getByRole('button', { name: /submit/i }).click();
 
-  await expect.element(screen.getByText(/invalid credentials/i)).toBeVisible()
-})
+  await expect.element(screen.getByText(/invalid credentials/i)).toBeVisible();
+});
 ```
 
 ### Testing Hooks with renderHook
 
 ```tsx
-import { renderHook } from 'vitest-browser-react'
+import { renderHook } from 'vitest-browser-react';
 
 test('should toggle value', async () => {
-  const { result } = await renderHook(() => useToggle(false))
+  const { result } = await renderHook(() => useToggle(false));
 
-  expect(result.current.value).toBe(false)
+  expect(result.current.value).toBe(false);
 
   await act(() => {
-    result.current.toggle()
-  })
+    result.current.toggle();
+  });
 
-  expect(result.current.value).toBe(true)
-})
+  expect(result.current.value).toBe(true);
+});
 ```
 
 ### Testing Context Providers
@@ -117,20 +118,19 @@ test('should show user menu when authenticated', async () => {
   const screen = await render(
     <AuthProvider initialUser={{ name: 'Alice', role: 'admin' }}>
       <Dashboard />
-    </AuthProvider>
-  )
+    </AuthProvider>,
+  );
 
-  await expect.element(screen.getByRole('button', { name: /user menu/i })).toBeVisible()
-})
+  await expect.element(screen.getByRole('button', { name: /user menu/i })).toBeVisible();
+});
 ```
 
 For hooks that need context:
+
 ```tsx
 const { result } = await renderHook(() => useAuth(), {
-  wrapper: ({ children }) => (
-    <AuthProvider>{children}</AuthProvider>
-  ),
-})
+  wrapper: ({ children }) => <AuthProvider>{children}</AuthProvider>,
+});
 ```
 
 ---
@@ -192,7 +192,7 @@ it('should show error message when login fails', async () => {
   server.use(
     http.post('/api/login', () => {
       return HttpResponse.json({ error: 'Invalid credentials' }, { status: 401 });
-    })
+    }),
   );
 
   const user = userEvent.setup();
@@ -230,6 +230,7 @@ it('should toggle value', () => {
 ```
 
 **Pattern:**
+
 - `result.current` - Current return value of hook
 - `act()` - Wrap state updates
 - `rerender()` - Re-run hook with new props
@@ -238,10 +239,9 @@ it('should toggle value', () => {
 
 ```tsx
 it('should accept initial value', () => {
-  const { result, rerender } = renderHook(
-    ({ initialValue }) => useCounter(initialValue),
-    { initialProps: { initialValue: 10 } }
-  );
+  const { result, rerender } = renderHook(({ initialValue }) => useCounter(initialValue), {
+    initialProps: { initialValue: 10 },
+  });
 
   expect(result.current.count).toBe(10);
 
@@ -261,11 +261,7 @@ it('should accept initial value', () => {
 
 ```tsx
 const { result } = renderHook(() => useAuth(), {
-  wrapper: ({ children }) => (
-    <AuthProvider>
-      {children}
-    </AuthProvider>
-  ),
+  wrapper: ({ children }) => <AuthProvider>{children}</AuthProvider>,
 });
 
 expect(result.current.user).toBeNull();
@@ -283,9 +279,7 @@ expect(result.current.user).toEqual({ email: 'test@example.com' });
 const AllProviders = ({ children }) => (
   <AuthProvider>
     <ThemeProvider>
-      <RouterProvider>
-        {children}
-      </RouterProvider>
+      <RouterProvider>{children}</RouterProvider>
     </ThemeProvider>
   </AuthProvider>
 );
@@ -300,12 +294,7 @@ const { result } = renderHook(() => useMyHook(), {
 ```tsx
 // ✅ CORRECT - Wrap component in provider
 const renderWithAuth = (ui, { user = null, ...options } = {}) => {
-  return render(
-    <AuthProvider initialUser={user}>
-      {ui}
-    </AuthProvider>,
-    options
-  );
+  return render(<AuthProvider initialUser={user}>{ui}</AuthProvider>, options);
 };
 
 it('should show user menu when authenticated', () => {
@@ -384,6 +373,7 @@ it('should show validation errors for invalid input', async () => {
 ### 1. Unnecessary act() wrapping
 
 ❌ **WRONG - Manual act() everywhere**
+
 ```tsx
 act(() => {
   render(<MyComponent />);
@@ -395,18 +385,21 @@ await act(async () => {
 ```
 
 ✅ **CORRECT - RTL handles it**
+
 ```tsx
 render(<MyComponent />);
 await user.click(button);
 ```
 
 **Modern RTL auto-wraps:**
+
 - `render()`
 - `userEvent` methods
 - `fireEvent`
 - `waitFor`, `findBy`
 
 **When you DO need manual `act()`:**
+
 - Custom hook state updates (`renderHook`)
 - Direct state mutations (rare, usually bad practice)
 
@@ -415,6 +408,7 @@ await user.click(button);
 ### 2. Manual cleanup() calls
 
 ❌ **WRONG - Manual cleanup**
+
 ```tsx
 afterEach(() => {
   cleanup(); // Automatic since RTL 9!
@@ -422,6 +416,7 @@ afterEach(() => {
 ```
 
 ✅ **CORRECT - No cleanup needed**
+
 ```tsx
 // Cleanup happens automatically after each test
 ```
@@ -431,6 +426,7 @@ afterEach(() => {
 ### 3. beforeEach render pattern
 
 ❌ **WRONG - Shared render in beforeEach**
+
 ```tsx
 let button;
 beforeEach(() => {
@@ -444,6 +440,7 @@ it('test 1', () => {
 ```
 
 ✅ **CORRECT - Factory function per test**
+
 ```tsx
 const renderComponent = () => {
   render(<MyComponent />);
@@ -464,6 +461,7 @@ For factory patterns, see `testing` skill.
 ### 4. Testing component internals
 
 ❌ **WRONG - Accessing component internals**
+
 ```tsx
 const wrapper = shallow(<MyComponent />);
 expect(wrapper.state('isOpen')).toBe(true); // Internal state
@@ -471,6 +469,7 @@ expect(wrapper.instance().handleClick).toBeDefined(); // Internal method
 ```
 
 ✅ **CORRECT - Test rendered output**
+
 ```tsx
 render(<MyComponent />);
 expect(screen.getByRole('dialog')).toBeInTheDocument(); // What user sees
@@ -481,12 +480,14 @@ expect(screen.getByRole('dialog')).toBeInTheDocument(); // What user sees
 ### 5. Shallow rendering
 
 ❌ **WRONG - Shallow rendering**
+
 ```tsx
 const wrapper = shallow(<MyComponent />);
 // Child components not rendered - incomplete test
 ```
 
 ✅ **CORRECT - Full rendering**
+
 ```tsx
 render(<MyComponent />);
 // Full component tree rendered - realistic test
@@ -525,7 +526,7 @@ it('should catch errors with error boundary', () => {
   render(
     <ErrorBoundary fallback={<div>Something went wrong</div>}>
       <ThrowsError />
-    </ErrorBoundary>
+    </ErrorBoundary>,
   );
 
   expect(screen.getByText(/something went wrong/i)).toBeInTheDocument();
@@ -558,7 +559,7 @@ it('should show fallback then content', async () => {
   render(
     <Suspense fallback={<div>Loading...</div>}>
       <LazyComponent />
-    </Suspense>
+    </Suspense>,
   );
 
   // Initially fallback

@@ -35,16 +35,24 @@ const decide = (command: OrderCommand, state: OrderState, now: Date): readonly O
       if (state.status !== 'placed') return [];
       return [{ type: 'OrderShipped', trackingNumber: command.trackingNumber }];
     }
-    default: { const _: never = command; return _; }
+    default: {
+      const _: never = command;
+      return _;
+    }
   }
 };
 
 // 2. Evolve: state + event → new state (pure state transformation)
 const evolve = (state: OrderState, event: OrderEvent): OrderState => {
   switch (event.type) {
-    case 'OrderPlaced': return { ...state, status: 'placed', placedAt: event.placedAt };
-    case 'OrderShipped': return { ...state, status: 'shipped', trackingNumber: event.trackingNumber };
-    default: { const _: never = event; return _; }
+    case 'OrderPlaced':
+      return { ...state, status: 'placed', placedAt: event.placedAt };
+    case 'OrderShipped':
+      return { ...state, status: 'shipped', trackingNumber: event.trackingNumber };
+    default: {
+      const _: never = event;
+      return _;
+    }
   }
 };
 
@@ -53,6 +61,7 @@ const initialState: OrderState = { status: 'draft', items: [] };
 ```
 
 **Why Decider works for functional TypeScript:**
+
 - `decide` and `evolve` are pure functions — trivially testable
 - Events are immutable data — discriminated unions with exhaustive handling
 - The pattern separates "what should happen?" (decide) from "what does this mean for state?" (evolve)
@@ -83,12 +92,12 @@ The use case receives the result and decides what to do next. No event bus, no s
 
 ## Domain Events vs Integration Events
 
-| | Domain Event | Integration Event |
-|--|-------------|-------------------|
-| Scope | Within a bounded context | Across bounded contexts or services |
-| Delivery | In-process, possibly synchronous | Message bus, always asynchronous |
-| Payload | Domain types | Serializable DTOs (shared schema) |
-| Example | `OrderPlaced` triggers inventory check | `OrderPlaced` notifies shipping service |
+|          | Domain Event                           | Integration Event                       |
+| -------- | -------------------------------------- | --------------------------------------- |
+| Scope    | Within a bounded context               | Across bounded contexts or services     |
+| Delivery | In-process, possibly synchronous       | Message bus, always asynchronous        |
+| Payload  | Domain types                           | Serializable DTOs (shared schema)       |
+| Example  | `OrderPlaced` triggers inventory check | `OrderPlaced` notifies shipping service |
 
 ## Naming Conventions
 
@@ -165,12 +174,12 @@ Use when: events must not be lost, cross-service communication, audit requiremen
 
 ### When to Use Which
 
-| Mechanism | Reliability | Complexity | Use when |
-|-----------|------------|------------|----------|
-| Explicit returns (no events) | N/A | Lowest | Side effects within same aggregate |
-| In-process dispatch | At-most-once | Low | Non-critical notifications, same service |
-| Outbox pattern | At-least-once | Medium | Cross-service, must not lose events |
-| Full event sourcing | Complete history | High | Audit trail, temporal queries, replay |
+| Mechanism                    | Reliability      | Complexity | Use when                                 |
+| ---------------------------- | ---------------- | ---------- | ---------------------------------------- |
+| Explicit returns (no events) | N/A              | Lowest     | Side effects within same aggregate       |
+| In-process dispatch          | At-most-once     | Low        | Non-critical notifications, same service |
+| Outbox pattern               | At-least-once    | Medium     | Cross-service, must not lose events      |
+| Full event sourcing          | Complete history | High       | Audit trail, temporal queries, replay    |
 
 Start with explicit returns. Move to in-process dispatch when you need cross-aggregate coordination. Move to outbox when you need reliability. Move to event sourcing only when you need the event history itself.
 
@@ -190,7 +199,10 @@ type GiftPurchaseProcess =
 const advanceGiftPurchase = (
   state: GiftPurchaseProcess,
   event: GiftPurchaseEvent,
-): { readonly newState: GiftPurchaseProcess; readonly commands: readonly GiftPurchaseCommand[] } => {
+): {
+  readonly newState: GiftPurchaseProcess;
+  readonly commands: readonly GiftPurchaseCommand[];
+} => {
   switch (event.type) {
     case 'PaymentSucceeded':
       return {
@@ -209,7 +221,10 @@ const advanceGiftPurchase = (
         newState: { step: 'complete', trackingNumber: event.trackingNumber },
         commands: [],
       };
-    default: { const _: never = event; return _; }
+    default: {
+      const _: never = event;
+      return _;
+    }
   }
 };
 ```
@@ -217,11 +232,13 @@ const advanceGiftPurchase = (
 Process managers are pure functions — same Decider-like pattern (state + event → new state + commands). They coordinate; they don't own business rules. Test them the same way: pass events in, assert state and commands out.
 
 **Use process managers when:**
+
 - A workflow spans multiple aggregates and takes time (not a single request)
 - Failure at step N requires compensating actions for steps 1..N-1
 - The workflow has business-meaningful intermediate states
 
 **Don't use process managers when:**
+
 - The workflow completes in a single request (use a domain service)
 - There's no compensation needed (use simple event dispatch)
 
@@ -234,9 +251,7 @@ it('produces OrderPlaced event when placing a draft order', () => {
   const now = new Date('2026-03-20');
   const state: OrderState = { status: 'draft', items: [testItem] };
   const events = decide({ type: 'place' }, state, now);
-  expect(events).toEqual([
-    { type: 'OrderPlaced', items: [testItem], placedAt: now },
-  ]);
+  expect(events).toEqual([{ type: 'OrderPlaced', items: [testItem], placedAt: now }]);
 });
 
 it('produces no events when placing an already-placed order', () => {

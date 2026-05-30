@@ -7,6 +7,7 @@ This section documents the user-facing CLI layer of jshack.me: the terminal UI, 
 ### Core Components
 
 **Terminal.tsx** (src/components/Terminal/Terminal.tsx): main orchestrator
+
 - Manages input state: `input` (string), `asyncRunning` (bool), `editorState` (nano), `lynxState` (lynx)
 - Manages output: `lines` (array of OutputLine), auto-scroll on new output
 - Command execution pipeline: tokenize -> parse -> execute via `src/shell/`
@@ -17,6 +18,7 @@ This section documents the user-facing CLI layer of jshack.me: the terminal UI, 
 - Logging callbacks: `onSuAuth`, `onSshAuth`, `onFtpAuth` write to target machine log files
 
 **TerminalInput.tsx** (src/components/Terminal/TerminalInput.tsx): input line
+
 - Prompt: `user@machine>` (normal), hidden (password/username), `ftp>` (FTP), `$` (NC), `mysql>` (MySQL), `redis>` (Redis)
 - Rendering: prompt (dim), input (bright), cursor (theme caret color)
 - Password mode: `type="password"` input, masks with `*`
@@ -30,11 +32,13 @@ This section documents the user-facing CLI layer of jshack.me: the terminal UI, 
 - Text input: `isUserInput` ref tracks whether change is user-typed or programmatic
 
 **TerminalOutput.tsx** (src/components/Terminal/TerminalOutput.tsx): output rendering
+
 - Line types: `banner`, `command`, `result`, `error`, `author`
 - All colors use CSS custom properties (`var(--theme-*)`) for theme switching
 - Auto-scroll on new lines
 
 **NanoEditor.tsx** (src/components/Terminal/NanoEditor.tsx): text editor overlay
+
 - Layout: title bar, textarea, status bar, help bar
 - Title: `GNU nano 7.2 [filename] [Modified]`
 - Full-screen overlay: `fixed z-50`, dark background, theme colors
@@ -45,6 +49,7 @@ This section documents the user-facing CLI layer of jshack.me: the terminal UI, 
 - Status bar: cursor position, messages (auto-clear 3s)
 
 **LynxBrowser.tsx** (src/components/Terminal/LynxBrowser.tsx): text-mode browser overlay
+
 - Layout: title bar (page title + URL), scrollable body, status bar, help bar
 - Fetch lifecycle: injected `onFetch(url)` callback (wired to use same NAT/logging as `curl`)
 - HTML parsing: semantic markup via `renderHtml`, keeps multi-word link text atomic
@@ -62,6 +67,7 @@ Token = {word, value} | {pipe} | {redirect}
 ```
 
 Features:
+
 - Single quotes: 'literal' (no escaping)
 - Double quotes: "quoted" (supports `\"` and `\` escapes only)
 - Backslash escapes: outside quotes, `\<char>` becomes `<char>`
@@ -77,6 +83,7 @@ Pipeline = {stages: Stage[], redirect?: {path: string}}
 ```
 
 Features:
+
 - Extracts redirect (trailing `> <path>`) - only legal at end
 - Splits pipes, validates no empty groups
 - Builds stages: first word is command, rest are args
@@ -88,6 +95,7 @@ execute(pipeline, registry, options) -> unknown
 ```
 
 Flow:
+
 1. For each intermediate stage, run and collect output as string
 2. Async intermediate stages: collected synchronously (must complete immediately)
 3. Pass string output as stdin to next stage (via ShellContext)
@@ -96,7 +104,6 @@ Flow:
 6. Return final result or undefined (if redirect)
 
 Stdin passing: If command implements `fnShell(ctx, ...args)`, it receives stdin. Otherwise falls back to `fn(...args)`.
-
 
 ## 1.4 Scripting
 
@@ -108,6 +115,7 @@ Async mode: Uses AsyncFunction constructor, enables await
 Execution context: All commands + writeFile() helper
 
 writeFile(path, content): Write file with current user permissions
+
 - string: written as-is
 - string[]: joined with newline
 - Objects: pretty-printed JSON
@@ -142,6 +150,7 @@ Lynx Browser: lynx <url> - text browser with arrow key navigation
 classifyCursor: Determines if completion is for command, path, or flag
 
 Completion algorithm:
+
 - Commands: prefix match, longest common prefix, trailing space
 - Paths: split dir+prefix, list+filter, common prefix, trailing slash
 - Handles quotes and escapes

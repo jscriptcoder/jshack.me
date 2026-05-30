@@ -27,6 +27,7 @@ If any step has not been completed, run it now before creating the PR.
 Create a PR with:
 
 ### Summary
+
 - 1-3 bullet points describing the changes
 - Focus on WHAT changed and WHY
 - **Prefer small PRs** — if the change could be split into independently mergeable units, consider doing so

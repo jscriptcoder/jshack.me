@@ -632,4 +632,3 @@ data
     <div class="card-footer">Incident Retrospective IR-2026-047 · Engineering Blog · April 2026</div>
   </div>
 </div>
-

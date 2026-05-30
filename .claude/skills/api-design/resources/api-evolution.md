@@ -7,6 +7,7 @@ Deep-dive on versioning strategies, deprecation patterns, and safe API evolution
 > Be conservative in what you send, be liberal in what you accept.
 
 Applied to APIs:
+
 - **Servers**: Accept additional unknown fields gracefully — don't fail on extra input
 - **Clients**: Ignore unknown fields in responses — don't break on additions
 - **Both sides**: This enables additive evolution without breaking either side
@@ -55,7 +56,9 @@ GET /v2/tasks
 ```
 Accept: application/vnd.api.v3+json
 ```
+
 or
+
 ```
 API-Version: 2024-06-20
 ```
@@ -67,12 +70,12 @@ API-Version: 2024-06-20
 
 ### Decision Framework
 
-| Situation | Strategy |
-|-----------|----------|
-| Greenfield API, you control clients | Evolve — don't version |
-| Public API, diverse consumers | URL path versioning (pragmatic default) |
-| API with paying customers who can't break | Date-based pinning (Stripe model) |
-| Need versioning without changing URIs | Header versioning |
+| Situation                                 | Strategy                                |
+| ----------------------------------------- | --------------------------------------- |
+| Greenfield API, you control clients       | Evolve — don't version                  |
+| Public API, diverse consumers             | URL path versioning (pragmatic default) |
+| API with paying customers who can't break | Date-based pinning (Stripe model)       |
+| Need versioning without changing URIs     | Header versioning                       |
 
 ## Deprecation Signals
 
@@ -113,14 +116,18 @@ Adding new enum values is a subtle breaking change — consumers with exhaustive
 ```typescript
 // Consumer code — breaks when server adds "ARCHIVED" status
 switch (task.status) {
-  case 'PENDING': return handlePending(task);
-  case 'IN_PROGRESS': return handleInProgress(task);
-  case 'COMPLETED': return handleCompleted(task);
+  case 'PENDING':
+    return handlePending(task);
+  case 'IN_PROGRESS':
+    return handleInProgress(task);
+  case 'COMPLETED':
+    return handleCompleted(task);
   // No default — TypeScript exhaustive check fails at compile time
 }
 ```
 
 **Mitigation strategies:**
+
 - Document that enums may be extended — consumers should always handle unknown values
 - Use a default/fallback case in documentation and client SDKs
 - Consider using string types instead of strict enums for fields that will grow
@@ -133,6 +140,7 @@ switch (task.status) {
 **Why it matters for evolution:** Before making any change, you know exactly which consumers would break.
 
 Core concepts:
+
 - **Consumer test**: "I expect endpoint X to return fields A, B, C"
 - **Provider verification**: "Can I satisfy all my consumers' contracts?"
 - **Can-I-Deploy**: CLI tool that tells you if it's safe to deploy
@@ -142,6 +150,7 @@ This is particularly valuable for internal APIs where you can mandate that consu
 ## Summary
 
 The priority order for API evolution:
+
 1. **Design for evolution from day one** — additive changes, Postel's Law
 2. **Use standard deprecation signals** — Sunset and Deprecation headers
 3. **Version only when forced** — and prefer date-based pinning over URL versioning

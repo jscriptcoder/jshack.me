@@ -7,27 +7,34 @@ Create flowcharts, sequence diagrams, state machines, class diagrams, Gantt char
 ## Critical Syntax Rules
 
 ### Rule 1: List Syntax Conflicts
+
 ```
 [1.Item]      -- Remove space after period
 [① Item]      -- Use circled numbers ①②③④⑤⑥⑦⑧⑨⑩
 [(1) Item]    -- Use parentheses
 ```
+
 Never use `[1. Item]` (space after period) -- causes "Unsupported markdown: list" error.
 
 ### Rule 2: Subgraph Naming
+
 ```
 subgraph agent["AI Agent Core"]  -- ID with display name
 subgraph agent                   -- Simple ID only
 ```
+
 Never use `subgraph AI Agent Core` (space without quotes).
 
 ### Rule 3: Node References in Subgraphs
+
 Reference subgraph **ID**, not display name:
+
 ```
 Title --> agent    -- correct (uses ID)
 ```
 
 ### Rule 4: Special Characters in Node Text
+
 ```
 ["Text with spaces"]       -- Quotes for spaces
 Use #quot; instead of "    -- Avoid quotation marks
@@ -35,25 +42,27 @@ Use #lpar;#rpar; for ()    -- Avoid parentheses
 ```
 
 ### Rule 5: Use flowchart over graph
+
 ```
 flowchart TD  -- correct (supports subgraph directions, more features)
 ```
 
 ## Common Pitfalls
 
-| Issue | Solution |
-|-------|----------|
-| Diagram won't render | Check unmatched brackets, quotes |
-| List syntax error | `[1.Item]` not `[1. Item]` |
-| Subgraph reference fails | Use ID not display name |
-| Too crowded | Split into multiple diagrams |
-| Crossing connections | Use different layout direction or invisible edges `~~~` |
+| Issue                    | Solution                                                |
+| ------------------------ | ------------------------------------------------------- |
+| Diagram won't render     | Check unmatched brackets, quotes                        |
+| List syntax error        | `[1.Item]` not `[1. Item]`                              |
+| Subgraph reference fails | Use ID not display name                                 |
+| Too crowded              | Split into multiple diagrams                            |
+| Crossing connections     | Use different layout direction or invisible edges `~~~` |
 
 ---
 
 ## Sequence Diagram Syntax
 
 ### Messages
+
 ```
 ->>   Solid line with arrow
 -->>  Dashed line with arrow
@@ -62,6 +71,7 @@ flowchart TD  -- correct (supports subgraph directions, more features)
 ```
 
 ### Activation & Notes
+
 ```mermaid
 sequenceDiagram
     participant A
@@ -73,6 +83,7 @@ sequenceDiagram
 ```
 
 ### Loops & Conditions
+
 ```mermaid
 sequenceDiagram
     loop Every minute
@@ -93,6 +104,7 @@ sequenceDiagram
 ## Class Diagram Syntax
 
 ### Relationships
+
 ```
 <|--  Inheritance
 *--   Composition
@@ -104,6 +116,7 @@ o--   Aggregation
 ```
 
 ### Class Definition
+
 ```mermaid
 classDiagram
     class Animal {
@@ -122,6 +135,7 @@ classDiagram
 ## ER Diagram Syntax
 
 ### Cardinality
+
 ```
 ||--||  One to one
 ||--o{  One to many
@@ -130,6 +144,7 @@ classDiagram
 ```
 
 ### Example
+
 ```mermaid
 erDiagram
     CUSTOMER ||--o{ ORDER : places
@@ -189,12 +204,14 @@ kanban
 ## Layout & Styling
 
 ### Directions
+
 - `TB` / `TD` -- Top to Bottom (default)
 - `LR` -- Left to Right
 - `RL` -- Right to Left
 - `BT` -- Bottom to Top
 
 ### Node Styling
+
 ```mermaid
 flowchart TD
     A[Node A]
@@ -204,6 +221,7 @@ flowchart TD
 ```
 
 ### Class Definitions
+
 ```mermaid
 flowchart TD
     A:::success --> B:::warning
@@ -212,6 +230,7 @@ flowchart TD
 ```
 
 ### Subgraph Nesting & Direction
+
 ```mermaid
 flowchart LR
     subgraph sub["Vertical Inside"]

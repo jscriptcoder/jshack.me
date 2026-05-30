@@ -41,22 +41,23 @@ const addGiftIdea = (occasion: Occasion, idea: NewGiftIdea): AddGiftIdeaResult =
 The most common mistake is making aggregates too large. Include only what's needed to enforce a consistency rule.
 
 **Ask:** "Does modifying X require checking Y's state to maintain an invariant?"
+
 - If yes: X and Y belong in the same aggregate
 - If no: they're separate aggregates, referenced by ID
 
 ```typescript
 // ❌ TOO LARGE — User doesn't need to be in the Occasion aggregate
 type Occasion = {
-  readonly organizer: User;         // Embedded user — wrong!
-  readonly contributors: User[];    // Embedded users — wrong!
+  readonly organizer: User; // Embedded user — wrong!
+  readonly contributors: User[]; // Embedded users — wrong!
   readonly giftIdeas: GiftIdea[];
 };
 
 // ✅ RIGHT SIZE — only what's needed for consistency
 type Occasion = {
-  readonly organizerId: UserId;     // Reference by ID
-  readonly giftIdeas: ReadonlyArray<GiftIdea>;  // Owned — needed for budget invariant
-  readonly budget: Money;           // Owned — needed for budget invariant
+  readonly organizerId: UserId; // Reference by ID
+  readonly giftIdeas: ReadonlyArray<GiftIdea>; // Owned — needed for budget invariant
+  readonly budget: Money; // Owned — needed for budget invariant
 };
 ```
 
@@ -73,8 +74,8 @@ Don't modify multiple aggregates in a single write operation. If a business proc
 const handlePledge = async (repos, dto) => {
   const result = pledgeContribution(occasion, contributor, amount); // Domain service
   if (result.success) {
-    await repos.occasion.save(result.occasion);       // Transaction 1
-    await repos.contributor.save(result.contributor);  // Transaction 2
+    await repos.occasion.save(result.occasion); // Transaction 1
+    await repos.contributor.save(result.contributor); // Transaction 2
   }
 };
 ```
@@ -89,11 +90,13 @@ const handlePledge = async (repos, dto) => {
 ## When to Split vs Combine
 
 **Split when:**
+
 - Two things change for different reasons (different business rules)
 - Performance: loading the full aggregate is expensive but you usually only need a subset
 - Concurrency: multiple users modify different parts simultaneously
 
 **Combine when:**
+
 - An invariant spans both things (budget checking requires knowing all gift ideas)
 - They always change together
 - Splitting would require a complex coordination mechanism
@@ -107,7 +110,7 @@ When multiple users can modify the same aggregate concurrently, add a version fi
 ```typescript
 type Occasion = {
   readonly id: OccasionId;
-  readonly version: number;  // incremented on each save
+  readonly version: number; // incremented on each save
   readonly name: string;
   readonly budget: Money;
   readonly giftIdeas: ReadonlyArray<GiftIdea>;
@@ -128,11 +131,13 @@ save: async (occasion) => {
 If two users load version 3 and both try to save, the first succeeds (version becomes 4) and the second fails (version 3 no longer matches). The use case catches this and asks the user to retry.
 
 **When to add optimistic locking:**
+
 - Multiple users can edit the same aggregate
 - The aggregate is long-lived (not created and discarded in one request)
 - Concurrent modifications would violate invariants
 
 **When it's unnecessary:**
+
 - Single-user aggregates (e.g., user preferences)
 - Append-only aggregates (e.g., event logs)
 - Short-lived aggregates created and consumed in one request

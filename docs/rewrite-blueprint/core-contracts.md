@@ -129,14 +129,14 @@ export type Sha256Hex = string & { readonly __brand: 'Sha256Hex' };
 
 export type Identity = {
   readonly publicKeyHex: PlayerKeyHex;
-  readonly privateKeyHex: string;  // never logged, never serialized to disk in plaintext
+  readonly privateKeyHex: string; // never logged, never serialized to disk in plaintext
 };
 
 /** Generate a fresh Ed25519 keypair from a CSPRNG. */
 export const generateIdentity: () => Identity;
 
 /** Deterministic sign — same (key, msg) always produces the same signature. */
-export const sign: (identity: Identity, message: Uint8Array) => string;  // hex
+export const sign: (identity: Identity, message: Uint8Array) => string; // hex
 
 /** Verify a signature against a public key. */
 export const verify: (
@@ -160,10 +160,7 @@ export const deriveWorkstationSuffix: (playerKey: PlayerKeyHex) => string;
 
 /** Compute the canonical machine_id for a player's own workstation.
  *  This is THE storage key everywhere: patches, sessions, Realtime channel, occupant hostname. */
-export const computeWorkstationId: (
-  workstationName: string,
-  playerKey: PlayerKeyHex,
-) => MachineId;
+export const computeWorkstationId: (workstationName: string, playerKey: PlayerKeyHex) => MachineId;
 // internally: asMachineId(`${workstationName}-${deriveWorkstationSuffix(playerKey)}`)
 ```
 
@@ -174,7 +171,7 @@ export const computeWorkstationId: (
  *  Defends "what I own" — wallet defense is gameplay, identity defense is platform. */
 export type WalletKeypair = {
   readonly publicKeyHex: string;
-  readonly privateKeyPem: string;  // PEM format because cat-able by the player
+  readonly privateKeyPem: string; // PEM format because cat-able by the player
 };
 
 export const generateWallet: () => WalletKeypair;
@@ -190,15 +187,15 @@ export const generateWallet: () => WalletKeypair;
 /** Wire format for every authenticated API call. */
 export type SignedEnvelope = {
   readonly publicKey: PlayerKeyHex;
-  readonly payload: string;        // canonical JSON string (sign-the-literal-bytes rule)
-  readonly signature: string;      // hex
+  readonly payload: string; // canonical JSON string (sign-the-literal-bytes rule)
+  readonly signature: string; // hex
 };
 
 /** Internal payload schema — every action has the same outer shape. */
 export type SignedPayload<TAction extends string, TData> = {
   readonly action: TAction;
   readonly ts: EpochMs;
-  readonly nonce: string;          // 32 hex chars (128 bits)
+  readonly nonce: string; // 32 hex chars (128 bits)
   readonly data: TData;
 };
 
@@ -220,7 +217,11 @@ export type NonceStore = {
 };
 
 export type VerifyResult =
-  | { readonly ok: true; readonly publicKey: PlayerKeyHex; readonly payload: SignedPayload<string, unknown> }
+  | {
+      readonly ok: true;
+      readonly publicKey: PlayerKeyHex;
+      readonly payload: SignedPayload<string, unknown>;
+    }
   | { readonly ok: false; readonly error: VerifyError };
 
 export type VerifyError =
@@ -256,7 +257,7 @@ export const verifySignedRequest: (
 
 /** A server-authoritative session — represents a player's presence on a machine. */
 export type Session = {
-  readonly id: string;                    // server-assigned UUID
+  readonly id: string; // server-assigned UUID
   readonly playerKey: PlayerKeyHex;
   readonly machineId: MachineId;
   readonly username: string;
@@ -268,14 +269,14 @@ export type Session = {
 /** Every session kind, exhaustively. */
 export type SessionKind =
   // Interactive (push onto hop stack on the client)
-  | 'ssh'                     // login over ssh
-  | 'su'                      // local privilege change
-  | 'exploit'                 // CVE-granted full shell
+  | 'ssh' // login over ssh
+  | 'su' // local privilege change
+  | 'exploit' // CVE-granted full shell
   // One-shot effects (created on demand, not on the stack)
-  | 'effect_one_shot'         // file_read / dir_list result; tier from CVE
-  | 'effect_password_reset'   // root-tier read for /etc/passwd, regardless of CVE tier
+  | 'effect_one_shot' // file_read / dir_list result; tier from CVE
+  | 'effect_password_reset' // root-tier read for /etc/passwd, regardless of CVE tier
   // Backdoor / connection-only
-  | 'nc'                      // netcat shell (pidfile-tracked, restricted)
+  | 'nc' // netcat shell (pidfile-tracked, restricted)
   // Protocol-only (no shell, just authenticated connection)
   | 'ftp'
   | 'mysql'
@@ -291,7 +292,7 @@ export type HopChain = readonly Session[];
 // core/session/stack.ts
 
 export const pushSession: (chain: HopChain, session: Session) => HopChain;
-export const popSession: (chain: HopChain) => HopChain;  // returns same chain if empty
+export const popSession: (chain: HopChain) => HopChain; // returns same chain if empty
 export const canReturn: (chain: HopChain) => boolean;
 export const currentSession: (chain: HopChain) => Session | null;
 ```
@@ -318,7 +319,7 @@ export type FileNode = FileEntry | Directory;
 export type FileEntry = {
   readonly kind: 'file';
   readonly content: string;
-  readonly owner: string;                       // username for ls -l display
+  readonly owner: string; // username for ls -l display
   readonly perms: FilePermissions;
   readonly metadata?: FileMetadata;
 };
@@ -333,7 +334,7 @@ export type Directory = {
 export type FileMetadata = {
   readonly mtime?: EpochMs;
   readonly isExecutable?: boolean;
-  readonly libraryLinks?: readonly string[];   // for /bin/* — which /lib/* libs they link
+  readonly libraryLinks?: readonly string[]; // for /bin/* — which /lib/* libs they link
 };
 ```
 
@@ -345,14 +346,11 @@ export type WalkResult =
   | { readonly allowed: true }
   | { readonly allowed: false; readonly reason: WalkDenyReason };
 
-export type WalkDenyReason =
-  | 'parent_not_traversable'
-  | 'target_unreadable'
-  | 'target_unwritable';
+export type WalkDenyReason = 'parent_not_traversable' | 'target_unreadable' | 'target_unwritable';
 
 export const canRead: (
   userType: UserType,
-  target: FilePermissions | null,        // null = leaf-only fallback
+  target: FilePermissions | null, // null = leaf-only fallback
   parentChain: readonly FilePermissions[],
 ) => WalkResult;
 
@@ -379,18 +377,15 @@ export const walkPath: (
 export type Patch = {
   readonly machineId: MachineId;
   readonly path: AbsPath;
-  readonly content: string | null;         // null = file deletion
-  readonly perms?: FilePermissions;        // may be omitted on update-only
+  readonly content: string | null; // null = file deletion
+  readonly perms?: FilePermissions; // may be omitted on update-only
   readonly isNew?: boolean;
-  readonly originatorKey: PlayerKeyHex;    // server-stamped, NOT client-supplied
+  readonly originatorKey: PlayerKeyHex; // server-stamped, NOT client-supplied
   readonly ts: EpochMs;
 };
 
 /** Apply patches in order on top of a base FS. Last-write-wins per (machineId, path). */
-export const applyPatches: (
-  base: Directory,
-  patches: readonly Patch[],
-) => Directory;
+export const applyPatches: (base: Directory, patches: readonly Patch[]) => Directory;
 ```
 
 ```ts
@@ -401,7 +396,7 @@ export const applyPatches: (
 export const FS_PROJECTED_CONTENT_PATHS: readonly AbsPath[] = [
   '/etc/passwd',
   '/etc/vsftpd/virtual_users.conf',
-  '/var/run/nc-*.pid',          // glob — implementation expands
+  '/var/run/nc-*.pid', // glob — implementation expands
   // ... see Section 4.16
 ];
 
@@ -421,28 +416,37 @@ export type Machine = {
   readonly role: MachineRole;
   readonly interfaces: readonly Interface[];
   readonly ports: readonly Port[];
-  readonly users: readonly RemoteUser[];      // ← no passwordHash field; that's only in GeneratedUser
+  readonly users: readonly RemoteUser[]; // ← no passwordHash field; that's only in GeneratedUser
   readonly filesystem: Directory;
   readonly natRules?: readonly NatRule[];
   readonly firmware?: FirmwareInfo;
 };
 
 export type MachineRole =
-  | 'router' | 'gateway' | 'switch' | 'server' | 'database' | 'workstation'
-  | 'npc' | 'browser' | 'iot' | 'storage' | 'mail';
+  | 'router'
+  | 'gateway'
+  | 'switch'
+  | 'server'
+  | 'database'
+  | 'workstation'
+  | 'npc'
+  | 'browser'
+  | 'iot'
+  | 'storage'
+  | 'mail';
 
 export type Interface = {
-  readonly name: string;                       // 'eth0', 'wlan0', 'lo'
+  readonly name: string; // 'eth0', 'wlan0', 'lo'
   readonly ip: NetworkAddress;
-  readonly subnet: string;                     // CIDR
+  readonly subnet: string; // CIDR
 };
 
 export type Port = {
   readonly number: number;
   readonly protocol: 'tcp' | 'udp';
-  readonly service: string;                    // 'ssh', 'http', 'mysql', ...
-  readonly serviceVersion: string;             // 'OpenSSH_8.4p1', 'Apache/2.4.49', ...
-  readonly owner: ServiceOwner | null;         // see CVE section — null means msfconsole rejects
+  readonly service: string; // 'ssh', 'http', 'mysql', ...
+  readonly serviceVersion: string; // 'OpenSSH_8.4p1', 'Apache/2.4.49', ...
+  readonly owner: ServiceOwner | null; // see CVE section — null means msfconsole rejects
 };
 
 export type ServiceOwner = {
@@ -476,7 +480,7 @@ export type NatRule = {
 export type NatResolution = {
   readonly resolvedIp: NetworkAddress;
   readonly resolvedPort: number;
-  readonly chain: readonly NatRule[];          // for traceroute-style debugging
+  readonly chain: readonly NatRule[]; // for traceroute-style debugging
 };
 
 /** Resolve a public IP:port to a destination machine through the iptables chain. */
@@ -500,7 +504,7 @@ export type EffectKind =
   | { readonly kind: 'file_read'; readonly tier: UserType }
   | { readonly kind: 'dir_list'; readonly tier: UserType }
   | { readonly kind: 'file_write'; readonly tier: UserType }
-  | { readonly kind: 'password_reset' }       // always root-tier read of /etc/passwd
+  | { readonly kind: 'password_reset' } // always root-tier read of /etc/passwd
   | { readonly kind: 'backdoor_port_open'; readonly port: number; readonly tier: UserType }
   | { readonly kind: 'script_exec'; readonly tier: UserType };
 ```
@@ -509,12 +513,12 @@ export type EffectKind =
 // core/cve/types.ts
 
 export type CveTemplate = {
-  readonly id: string;                         // 'CVE-2024-9001'
+  readonly id: string; // 'CVE-2024-9001'
   readonly title: string;
-  readonly service: string;                    // 'ssh', 'http', ...
-  readonly serviceVersion: string;             // exact match required for resolver
+  readonly service: string; // 'ssh', 'http', ...
+  readonly serviceVersion: string; // exact match required for resolver
   readonly effect: EffectKind;
-  readonly publishedAt: GameTime;              // 0 for hand-authored day-0 CVEs
+  readonly publishedAt: GameTime; // 0 for hand-authored day-0 CVEs
   readonly source: 'layer1' | 'layer2';
 };
 
@@ -526,7 +530,7 @@ export type ExploitFailReason =
   | 'no_cve_for_version'
   | 'cve_not_yet_published'
   | 'port_not_open'
-  | 'service_not_exploitable';                 // port has no owner stamp
+  | 'service_not_exploitable'; // port has no owner stamp
 ```
 
 ```ts
@@ -540,10 +544,7 @@ export const findExploitableCve: (
 ) => ExploitResult;
 
 /** Layer 2 procedural generation — one CVE roughly every 13 hours of game time. */
-export const generateLayer2Cves: (
-  seed: string,
-  uptoGameTime: GameTime,
-) => readonly CveTemplate[];
+export const generateLayer2Cves: (seed: string, uptoGameTime: GameTime) => readonly CveTemplate[];
 ```
 
 ```ts
@@ -551,14 +552,20 @@ export const generateLayer2Cves: (
 
 /** The 8 shared libraries that back pre-installed commands. */
 export const LIBRARY_NAMES = [
-  'libpam', 'libcrypt', 'libsystemd', 'libreadline',
-  'libssl', 'libz', 'libxml2', 'libpcre',
+  'libpam',
+  'libcrypt',
+  'libsystemd',
+  'libreadline',
+  'libssl',
+  'libz',
+  'libxml2',
+  'libpcre',
 ] as const;
 export type LibraryName = (typeof LIBRARY_NAMES)[number];
 
 /** Resolve `msfconsole --local <command>` — find a CVE on a library the command links. */
 export const findLocalLibraryExploit: (
-  command: string,                              // 'su', 'ls', 'ps', ...
+  command: string, // 'su', 'ls', 'ps', ...
   filesystem: Directory,
   gameTime: GameTime,
 ) => ExploitResult;
@@ -577,10 +584,10 @@ export const META_PACKAGES: ReadonlyMap<string, readonly LibraryName[]>;
 export type Token =
   | { readonly kind: 'word'; readonly value: string }
   | { readonly kind: 'pipe' }
-  | { readonly kind: 'redirect_out' }                    // >
-  | { readonly kind: 'redirect_append' }                 // >>
-  | { readonly kind: 'string'; readonly value: string }  // quoted, single or double
-  | { readonly kind: 'flag'; readonly name: string };    // -v, --verbose
+  | { readonly kind: 'redirect_out' } // >
+  | { readonly kind: 'redirect_append' } // >>
+  | { readonly kind: 'string'; readonly value: string } // quoted, single or double
+  | { readonly kind: 'flag'; readonly name: string }; // -v, --verbose
 
 export const tokenize: (input: string) => readonly Token[];
 ```
@@ -595,7 +602,7 @@ export type ParsedCommand = {
 };
 
 export type Pipeline = {
-  readonly commands: readonly ParsedCommand[];           // ≥1
+  readonly commands: readonly ParsedCommand[]; // ≥1
   readonly redirect?: { readonly path: string; readonly append: boolean };
 };
 
@@ -606,7 +613,7 @@ export const parse: (tokens: readonly Token[]) => Pipeline;
 
 ## Commands — the boundary contract
 
-This is the most important file in `core/`. **Every command implements this signature, and the `CommandEnv` is the *only* thing the UI has to construct.**
+This is the most important file in `core/`. **Every command implements this signature, and the `CommandEnv` is the _only_ thing the UI has to construct.**
 
 ```ts
 // core/commands/types.ts
@@ -615,7 +622,11 @@ This is the most important file in `core/`. **Every command implements this sign
  *  all at once via array. Both shapes are equivalent — the UI handles both. */
 export type CommandResult =
   | { readonly kind: 'sync'; readonly lines: readonly TerminalLine[]; readonly exitCode: number }
-  | { readonly kind: 'async'; readonly lines: AsyncIterable<TerminalLine>; readonly exitCode: () => Promise<number> }
+  | {
+      readonly kind: 'async';
+      readonly lines: AsyncIterable<TerminalLine>;
+      readonly exitCode: () => Promise<number>;
+    }
   | { readonly kind: 'mode_change'; readonly mode: ModeChange };
 
 /** A line of terminal output. Discriminated for renderer dispatch. */
@@ -676,9 +687,13 @@ export type Command = {
   readonly name: string;
   readonly description: string;
   readonly manual?: ManualPage;
-  readonly tier: UserType;                     // minimum tier to invoke
-  readonly availability: AvailabilityRule;     // 'localhost-only' | 'any-machine' | { installed: 'pkg' }
-  readonly execute: (env: CommandEnv, args: readonly string[], flags: ReadonlyMap<string, string | true>) => Promise<CommandResult> | CommandResult;
+  readonly tier: UserType; // minimum tier to invoke
+  readonly availability: AvailabilityRule; // 'localhost-only' | 'any-machine' | { installed: 'pkg' }
+  readonly execute: (
+    env: CommandEnv,
+    args: readonly string[],
+    flags: ReadonlyMap<string, string | true>,
+  ) => Promise<CommandResult> | CommandResult;
 };
 
 export type AvailabilityRule =
@@ -724,8 +739,13 @@ export type RemoteApi = {
   readonly endSession: (sessionId: string) => Promise<void>;
   readonly exploitRead: (target: MachineId, path: AbsPath) => Promise<string | null | RemoteError>;
   readonly crackCredentials: (req: CrackRequest) => Promise<CrackResult | RemoteError>;
-  readonly getBaseFs: (target: MachineId, userType: UserType) => Promise<Directory | null | RemoteError>;
-  readonly listPatches: (machineIds: readonly MachineId[]) => Promise<readonly Patch[] | RemoteError>;
+  readonly getBaseFs: (
+    target: MachineId,
+    userType: UserType,
+  ) => Promise<Directory | null | RemoteError>;
+  readonly listPatches: (
+    machineIds: readonly MachineId[],
+  ) => Promise<readonly Patch[] | RemoteError>;
 };
 
 export type OutputSink = {
@@ -810,13 +830,13 @@ const [scrollback, setScrollback] = createStore<TerminalLine[]>([]);
 const [currentSession, setCurrentSession] = createSignal<Session>(/* ... */);
 
 async function runCommand(name: string, args: string[], flags: Map<string, string | true>) {
-  const env = buildCommandEnv({ session: currentSession(), /* ... */ });
+  const env = buildCommandEnv({ session: currentSession() /* ... */ });
   const result = await catCommand.execute(env, args, flags);
 
   if (result.kind === 'sync') {
-    setScrollback(prev => [...prev, ...result.lines]);
+    setScrollback((prev) => [...prev, ...result.lines]);
   } else if (result.kind === 'async') {
-    for await (const line of result.lines) setScrollback(prev => [...prev, line]);
+    for await (const line of result.lines) setScrollback((prev) => [...prev, line]);
   }
 }
 ```

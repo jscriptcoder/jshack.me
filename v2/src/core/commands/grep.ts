@@ -190,7 +190,11 @@ export const grep: Command = {
     description:
       'Search for lines matching a case-insensitive regex pattern. With a file target, prints matching lines verbatim. With a directory target, recursively walks the tree and prints `<filepath>:<line>` for each match, sorted by filepath. Binary files and permission-denied files/dirs are silently skipped during recursion. (Slice 3 will add stdin support.)',
     arguments: [
-      { name: 'pattern', description: 'Case-insensitive regular expression to match', required: true },
+      {
+        name: 'pattern',
+        description: 'Case-insensitive regular expression to match',
+        required: true,
+      },
       { name: 'path', description: 'File or directory to search', required: true },
       {
         name: '-l',

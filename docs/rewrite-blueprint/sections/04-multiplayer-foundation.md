@@ -67,9 +67,9 @@ Every authenticated POST to `/api/*` uses the same three-field envelope:
 
 ```ts
 type SignedEnvelope = {
-  readonly payload: string;     // JSON-stringified action object — the SIGNED BYTES
-  readonly publicKey: string;   // 64-char hex Ed25519 pubkey
-  readonly signature: string;   // 128-char hex Ed25519 signature over UTF-8 bytes of payload
+  readonly payload: string; // JSON-stringified action object — the SIGNED BYTES
+  readonly publicKey: string; // 64-char hex Ed25519 pubkey
+  readonly signature: string; // 128-char hex Ed25519 signature over UTF-8 bytes of payload
 };
 ```
 
@@ -101,14 +101,14 @@ Cheapest-checks-first to avoid hitting Upstash on garbage:
 
 Returns `{ ok: true, publicKey, payload }` on success, or `{ ok: false, reason }`:
 
-| Reason              | HTTP | Meaning                                            |
-| ------------------- | ---- | -------------------------------------------------- |
-| `envelope_invalid`  | 400  | Wrapper shape wrong (missing fields, bad hex)      |
-| `signature_invalid` | 401  | Ed verify returned false / malformed point         |
-| `payload_malformed` | 400  | Signed bytes weren't valid JSON                    |
-| `payload_invalid`   | 400  | JSON parsed but rejected by schema                 |
-| `timestamp_skew`    | 401  | `ts` outside the 120s window                       |
-| `replay`            | 401  | Nonce already seen within the window               |
+| Reason              | HTTP | Meaning                                       |
+| ------------------- | ---- | --------------------------------------------- |
+| `envelope_invalid`  | 400  | Wrapper shape wrong (missing fields, bad hex) |
+| `signature_invalid` | 401  | Ed verify returned false / malformed point    |
+| `payload_malformed` | 400  | Signed bytes weren't valid JSON               |
+| `payload_invalid`   | 400  | JSON parsed but rejected by schema            |
+| `timestamp_skew`    | 401  | `ts` outside the 120s window                  |
+| `replay`            | 401  | Nonce already seen within the window          |
 
 Auth-class problems get 401; structural problems get 400.
 
@@ -398,14 +398,17 @@ A session row = `(player_key, machine_id, credentials{username, userType}, kind)
 ### Ten kinds, three categories
 
 **Shell-class** (go on the SessionContext snapshot stack; rehydration filters to these for linear-chain reconstruction):
+
 - `ssh` — SSH login
 - `su` — user switch on same machine (parent_session_id = previous session; same machine_id)
 - `exploit` — post-exploit shell (`shell_full` CVE effect)
 
 **Protocol** (live in dedicated client-side state; pushed/ended on login/logout):
+
 - `ftp`, `mysql`, `redis`, `nc`
 
 **Transient one-shot** (pushed via `withTransientSession` for a single patch fire, then ended):
+
 - `scp`, `snmp`, `effect_one_shot`
 
 The L1 patch-validation gate doesn't care which kind — it only asks "does any active session row exist for `(player_key, machine_id)`?". `kind` matters at rehydration (SessionContext filters to `('ssh','su','exploit')` before reconstructing the linear chain — protocol sessions don't go on the stack).
@@ -439,13 +442,13 @@ A patch row encodes a single FS mutation in the canonical journal:
 
 ```ts
 type PatchRow = {
-  readonly player_key: string;      // server-stamped
+  readonly player_key: string; // server-stamped
   readonly machine_id: string;
   readonly path: string;
-  readonly content: string | null;  // null = base-fs deletion marker
+  readonly content: string | null; // null = base-fs deletion marker
   readonly owner: 'root' | 'user' | 'guest';
   readonly permissions?: FilePermissions;
-  readonly is_new?: boolean;        // true = file/dir created via patch
+  readonly is_new?: boolean; // true = file/dir created via patch
   readonly node_type?: 'file' | 'directory';
 };
 ```
@@ -469,11 +472,11 @@ Wrappers handle camelCase ↔ snake_case translation defensively — callers onl
 
 `broadcastAndRecordPatch` decides per case:
 
-| Case                              | Server calls                                       |
-| --------------------------------- | -------------------------------------------------- |
-| Write/create (`content !== null`) | `upsertPatch`                                      |
-| Delete isNew file                 | `removePatch`                                      |
-| Delete base-fs file               | `removePatch` THEN `upsertPatch` (null marker)     |
+| Case                              | Server calls                                   |
+| --------------------------------- | ---------------------------------------------- |
+| Write/create (`content !== null`) | `upsertPatch`                                  |
+| Delete isNew file                 | `removePatch`                                  |
+| Delete base-fs file               | `removePatch` THEN `upsertPatch` (null marker) |
 
 ### Last-write-wins ordering
 
@@ -545,12 +548,12 @@ fetchSessionCredentials(player_key, machine_id)
 
 Every successful patch dual-writes to `machine_filesystems` in the same Postgres transaction via the RPC. Base FS for shared networks is bulk-populated at provision time:
 
-| Network               | Coverage today                                                                       |
-| --------------------- | ------------------------------------------------------------------------------------ |
-| Workstation (own-box) | Bypassed for owner writes; full for non-owner access via `register-workstation` populate + backfill |
-| Home network LANs     | Full — populated at create time (Step 7 in `join-home-network`) + idempotent backfill |
+| Network               | Coverage today                                                                                                |
+| --------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Workstation (own-box) | Bypassed for owner writes; full for non-owner access via `register-workstation` populate + backfill           |
+| Home network LANs     | Full — populated at create time (Step 7 in `join-home-network`) + idempotent backfill                         |
 | World networks        | Full — populated via `scripts/backfillWorldNetworkBaseFs.ts` (re-run after each new themed-network migration) |
-| Mission machines      | Leaf-only — blocked on `mission_instances` (decided 2026-04-23)                      |
+| Mission machines      | Leaf-only — blocked on `mission_instances` (decided 2026-04-23)                                               |
 
 "Leaf-only" means only paths that have ever been patched have rows in `machine_filesystems`. L2 enforces forever on those; permissive on truly-untouched paths. As soon as anyone touches a path once, L2 takes over for it.
 
@@ -619,7 +622,7 @@ tier dispatch:
 
 ### Why a placeholder rootPassword
 
-The real `rootPassword` isn't persisted server-side (decision #2 in the L2 plan — minimal storage). `generateLocalhost` needs *some* string to hash for `/etc/passwd`'s placeholder; the sentinel value's md5 is `md5('GET_BASE_FS_SENTINEL')` which is useless for cracking. The **overlay** step then replaces `/etc/passwd` content with what's actually stored in `machine_filesystems.content` — so the FS A receives matches the FS the server's auth path validates against.
+The real `rootPassword` isn't persisted server-side (decision #2 in the L2 plan — minimal storage). `generateLocalhost` needs _some_ string to hash for `/etc/passwd`'s placeholder; the sentinel value's md5 is `md5('GET_BASE_FS_SENTINEL')` which is useless for cracking. The **overlay** step then replaces `/etc/passwd` content with what's actually stored in `machine_filesystems.content` — so the FS A receives matches the FS the server's auth path validates against.
 
 ### Non-workstation routing
 
@@ -816,14 +819,14 @@ L3 game-logic re-run is multi-month work (replicate CVE eligibility, port resolu
 
 ## 4.18 Threat model & layered defense (L1, L2, L3 boundary)
 
-| Layer       | What it checks                                                                                                                    | Status                                                                                                           |
-| ----------- | --------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| L0 (transport) | Ed25519 signature + replay window + nonce dedupe                                                                              | Shipped                                                                                                          |
-| L1          | Active session exists on `machine_id` for `player_key`                                                                            | Shipped (PR #78)                                                                                                 |
-| L2 (writes) | Session credentials have write permission on target path (walker against `machine_filesystems`)                                   | Shipped — full on home + world + own-workstations; leaf-only on missions                                         |
-| L2 (reads)  | Three-tier read filter on `listPatchesForMachines`: owner / session+walker / no-session+allowlist. Universal across machine types | Shipped                                                                                                          |
-| L2 (auth)   | Server-authoritative auth + userType derivation in `authCreateSession`; userType validation against `/etc/passwd` in `createSession` | Shipped (PR #122 + relaxation 2026-05-11)                                                                     |
-| L3 (game-logic) | Re-run CVE eligibility, port resolution, gameTime publication, wallet ownership, hop-chain validity server-side                | Post-launch — accepted scoped gaps documented (§4.17)                                                            |
+| Layer           | What it checks                                                                                                                       | Status                                                                   |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
+| L0 (transport)  | Ed25519 signature + replay window + nonce dedupe                                                                                     | Shipped                                                                  |
+| L1              | Active session exists on `machine_id` for `player_key`                                                                               | Shipped (PR #78)                                                         |
+| L2 (writes)     | Session credentials have write permission on target path (walker against `machine_filesystems`)                                      | Shipped — full on home + world + own-workstations; leaf-only on missions |
+| L2 (reads)      | Three-tier read filter on `listPatchesForMachines`: owner / session+walker / no-session+allowlist. Universal across machine types    | Shipped                                                                  |
+| L2 (auth)       | Server-authoritative auth + userType derivation in `authCreateSession`; userType validation against `/etc/passwd` in `createSession` | Shipped (PR #122 + relaxation 2026-05-11)                                |
+| L3 (game-logic) | Re-run CVE eligibility, port resolution, gameTime publication, wallet ownership, hop-chain validity server-side                      | Post-launch — accepted scoped gaps documented (§4.17)                    |
 
 ### Boundary
 
@@ -851,22 +854,22 @@ The security boundary is **`Vercel function + Supabase RLS + shared permission w
 
 Wire-payload smoke scripts that forge signed envelopes against a real `vercel:dev` server. Each verifies an integration seam unit tests can't cover (signed envelope → handler → SQL → wire response). All self-cleaning, idempotent — re-runnable.
 
-| Script                            | Purpose                                                                                          | Scenarios |
-| --------------------------------- | ------------------------------------------------------------------------------------------------ | --------- |
-| `testL2Bypass.ts`                 | Forge `upsertPatch` against a generic machine. Proves L2 fires on cross-player attempts.         | 3 (no_session 403 / guest permission_denied 403 / root 200) |
-| `testL2BypassWorkstation.ts`      | Same as above, scoped to a freshly-registered workstation. Closes the own-workstation chunk.     | 3         |
-| `testReadPathPrivacy.ts`          | Forge `listPatchesForMachines`. Three-tier filter on wire payload.                               | 3 (no-session / guest-session / owner) |
-| `testGetBaseFs.ts`                | Cross-player base-FS replication endpoint.                                                       | 7 (owner full / no_session null / guest filter / user with /etc/passwd overlay / root full / 400 unsupported / 404 missing) |
-| `testExploitRead.ts`              | Cross-player file_read / dir_list CVE-effect endpoint.                                            | 11 (owner content+entries / no_session 403 / tier-walked file_read+dir_list at guest/user/root / projected /etc/passwd / missing path null / file-as-directory null / 400 unsupported / 404 missing) |
-| `testCrackCredentials.ts`         | Batched hydra endpoint.                                                                          | 12 (ssh hit/miss / user_filter / ftp overlay precedence / /etc/passwd fallback / 400 unsupported / 404 missing / oversized / empty / non-hex / unsupported service / pre-auth no-session hit) |
-| `testCreateSessionUserType.ts`    | Server-side userType validation in createSession.                                                 | 4 (usertype_mismatch 400 / synthetic placeholder 200 / legitimate match 200 / mission stand-in no-op 200) |
-| `testRegisterWorkstation.ts`      | End-to-end `/api/register-workstation`.                                                          | 8 (fresh 201 / idempotent 200 / conflicting 409 / tampered signature 401 / missing seed 400 + DB-side row + machine_filesystems count + /etc/passwd presence) |
-| `testAmbientLogAllowlist.ts`      | L1 ambient-log-path allowlist on `upsertPatch`.                                                   | 14 (8 allowlisted log files → 200 bypass / 6 non-allowlisted /var/log/ paths → 403 no_session) |
-| `testLookupHomeNetwork.ts`        | `/api/lookup-home-network` for cross-LAN seed-regen resolver.                                     | Coverage of public_ip lookups |
-| `testServerAuth.ts`               | `authCreateSession` arms (ssh/scp/su/ftp/mysql/redis/snmp/nc).                                    | Per-kind credential matrix |
-| `verifyDualWrite.ts`              | L2 dual-write SQL functions (upsert/remove with own-workstation bypass).                          | DB-direct verification of dual_write flag + project_fs_content + own-bypass |
-| `verifyMachineFilesystemsRls.ts`  | RLS posture on `machine_filesystems` table.                                                      | 5 probes (anon INSERT 42501, anon SELECT empty, service_role INSERT ok, service_role SELECT ok, anon still empty post-write) |
-| `verifyWorkstationsRls.ts`        | RLS posture on `workstations` table (same shape).                                                | 5 probes |
+| Script                           | Purpose                                                                                      | Scenarios                                                                                                                                                                                            |
+| -------------------------------- | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `testL2Bypass.ts`                | Forge `upsertPatch` against a generic machine. Proves L2 fires on cross-player attempts.     | 3 (no_session 403 / guest permission_denied 403 / root 200)                                                                                                                                          |
+| `testL2BypassWorkstation.ts`     | Same as above, scoped to a freshly-registered workstation. Closes the own-workstation chunk. | 3                                                                                                                                                                                                    |
+| `testReadPathPrivacy.ts`         | Forge `listPatchesForMachines`. Three-tier filter on wire payload.                           | 3 (no-session / guest-session / owner)                                                                                                                                                               |
+| `testGetBaseFs.ts`               | Cross-player base-FS replication endpoint.                                                   | 7 (owner full / no_session null / guest filter / user with /etc/passwd overlay / root full / 400 unsupported / 404 missing)                                                                          |
+| `testExploitRead.ts`             | Cross-player file_read / dir_list CVE-effect endpoint.                                       | 11 (owner content+entries / no_session 403 / tier-walked file_read+dir_list at guest/user/root / projected /etc/passwd / missing path null / file-as-directory null / 400 unsupported / 404 missing) |
+| `testCrackCredentials.ts`        | Batched hydra endpoint.                                                                      | 12 (ssh hit/miss / user_filter / ftp overlay precedence / /etc/passwd fallback / 400 unsupported / 404 missing / oversized / empty / non-hex / unsupported service / pre-auth no-session hit)        |
+| `testCreateSessionUserType.ts`   | Server-side userType validation in createSession.                                            | 4 (usertype_mismatch 400 / synthetic placeholder 200 / legitimate match 200 / mission stand-in no-op 200)                                                                                            |
+| `testRegisterWorkstation.ts`     | End-to-end `/api/register-workstation`.                                                      | 8 (fresh 201 / idempotent 200 / conflicting 409 / tampered signature 401 / missing seed 400 + DB-side row + machine_filesystems count + /etc/passwd presence)                                        |
+| `testAmbientLogAllowlist.ts`     | L1 ambient-log-path allowlist on `upsertPatch`.                                              | 14 (8 allowlisted log files → 200 bypass / 6 non-allowlisted /var/log/ paths → 403 no_session)                                                                                                       |
+| `testLookupHomeNetwork.ts`       | `/api/lookup-home-network` for cross-LAN seed-regen resolver.                                | Coverage of public_ip lookups                                                                                                                                                                        |
+| `testServerAuth.ts`              | `authCreateSession` arms (ssh/scp/su/ftp/mysql/redis/snmp/nc).                               | Per-kind credential matrix                                                                                                                                                                           |
+| `verifyDualWrite.ts`             | L2 dual-write SQL functions (upsert/remove with own-workstation bypass).                     | DB-direct verification of dual_write flag + project_fs_content + own-bypass                                                                                                                          |
+| `verifyMachineFilesystemsRls.ts` | RLS posture on `machine_filesystems` table.                                                  | 5 probes (anon INSERT 42501, anon SELECT empty, service_role INSERT ok, service_role SELECT ok, anon still empty post-write)                                                                         |
+| `verifyWorkstationsRls.ts`       | RLS posture on `workstations` table (same shape).                                            | 5 probes                                                                                                                                                                                             |
 
 ### Prerequisites for smoke runs
 

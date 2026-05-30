@@ -7,13 +7,16 @@ This directory contains specifications for specialized Claude Code agents that w
 ### Development Process Agents
 
 #### `tdd-guardian`
+
 **Purpose**: Ensures strict Test-Driven Development compliance throughout the coding process.
 
 **Use proactively when**:
+
 - Planning to implement a new feature
 - About to write any production code
 
 **Use reactively when**:
+
 - Code has been written (verify TDD was followed)
 - Tests are green (assess refactoring opportunities)
 
@@ -22,13 +25,16 @@ This directory contains specifications for specialized Claude Code agents that w
 ---
 
 #### `ts-enforcer`
+
 **Purpose**: Enforces TypeScript strict mode and best practices.
 
 **Use proactively when**:
+
 - Defining new types or schemas
 - Planning TypeScript code structure
 
 **Use reactively when**:
+
 - Code written with potential type issues
 - Detecting mutations or `any` types
 - Reviewing TypeScript compliance
@@ -38,14 +44,17 @@ This directory contains specifications for specialized Claude Code agents that w
 ---
 
 #### `refactor-scan`
+
 **Purpose**: Assesses refactoring opportunities after mutation testing validates test strength (TDD's final step).
 
 **Use proactively when**:
+
 - Mutation testing is complete and surviving mutants addressed
 - Considering creating abstractions
 - Planning code improvements
 
 **Use reactively when**:
+
 - Noticing code duplication
 - Reviewing code quality
 - Evaluating semantic vs structural similarity
@@ -57,14 +66,17 @@ This directory contains specifications for specialized Claude Code agents that w
 ### Code Review Agents
 
 #### `pr-reviewer`
+
 **Purpose**: Reviews pull requests for TDD compliance, TypeScript strictness, testing quality, and functional patterns.
 
 **Use proactively when**:
+
 - About to review a PR
 - Creating a PR (self-review)
 - Want guided review process
 
 **Use reactively when**:
+
 - PR submitted for review
 - Need to analyze specific code changes
 - Evaluating merge readiness
@@ -72,6 +84,7 @@ This directory contains specifications for specialized Claude Code agents that w
 **Core responsibility**: Ensure PRs meet quality standards before merge.
 
 **Review categories**:
+
 1. TDD Compliance - Was test-first development followed?
 2. Testing Quality - Are tests behavior-focused?
 3. TypeScript Strictness - No `any`, proper types?
@@ -85,13 +98,16 @@ This directory contains specifications for specialized Claude Code agents that w
 ### Documentation & Knowledge Agents
 
 #### `docs-guardian`
+
 **Purpose**: Creates and maintains world-class permanent documentation.
 
 **Use proactively when**:
+
 - Creating new README, guides, or API docs
 - Planning user-facing documentation
 
 **Use reactively when**:
+
 - Reviewing existing documentation
 - Documentation needs improvement
 - Feature complete (update docs)
@@ -103,14 +119,17 @@ This directory contains specifications for specialized Claude Code agents that w
 ---
 
 #### `adr`
+
 **Purpose**: Documents significant architectural decisions with context and trade-offs.
 
 **Use proactively when**:
+
 - About to make significant architectural choice
 - Evaluating technology/library options
 - Planning foundational decisions
 
 **Use reactively when**:
+
 - Just made an architectural decision
 - Discovering undocumented architectural choice
 - Need to explain "why we did it this way"
@@ -118,6 +137,7 @@ This directory contains specifications for specialized Claude Code agents that w
 **Core responsibility**: Create Architecture Decision Records (ADRs) for significant decisions only.
 
 **When to use**:
+
 - ✅ Significant architectural choices with trade-offs
 - ✅ Technology selections with long-term impact
 - ✅ Pattern decisions affecting multiple modules
@@ -128,13 +148,16 @@ This directory contains specifications for specialized Claude Code agents that w
 ---
 
 #### `learn`
+
 **Purpose**: Captures learnings, gotchas, and patterns into CLAUDE.md.
 
 **Use proactively when**:
+
 - Discovering unexpected behavior
 - Making architectural decisions (rationale)
 
 **Use reactively when**:
+
 - Completing significant features
 - Fixing complex bugs
 - After any significant learning moment
@@ -148,9 +171,11 @@ This directory contains specifications for specialized Claude Code agents that w
 ### Compliance & Architecture Agents
 
 #### `twelve-factor-audit`
+
 **Purpose**: Audits Node.js/TypeScript codebases for 12-Factor App compliance.
 
 **Use when**:
+
 - Onboarding to an existing service project
 - Assessing deployment readiness
 - Reviewing infrastructure patterns before scaling
@@ -164,14 +189,17 @@ This directory contains specifications for specialized Claude Code agents that w
 ---
 
 #### `use-case-data-patterns`
+
 **Purpose**: Analyzes how user-facing use cases map to underlying data access patterns and architectural implementation.
 
 **Use proactively when**:
+
 - Implementing new features that interact with data
 - Designing API endpoints
 - Planning refactoring of data-heavy systems
 
 **Use reactively when**:
+
 - Understanding how a feature works end-to-end
 - Identifying gaps in data access patterns
 - Investigating architectural decisions
@@ -185,19 +213,23 @@ This directory contains specifications for specialized Claude Code agents that w
 ### Workflow & Planning Agents
 
 #### `progress-guardian`
+
 **Purpose**: Tracks progress through significant work using plan files in `plans/`.
 
 **Use proactively when**:
+
 - Starting significant multi-step work
 - Beginning feature requiring multiple PRs
 - Starting complex refactoring or investigation
 
 **Use reactively when**:
+
 - Completing a step (update plan progress)
 - Plan needs changing (propose changes, get approval)
 - Feature complete (merge learnings, delete plan file)
 
 **Core responsibility**:
+
 - Track progress through plan files in `plans/` directory
 - Enforce small increments, TDD, commit approval
 - Never modify plans without explicit user approval
@@ -291,18 +323,18 @@ progress-guardian (orchestrates)
 
 Quick decision table for all agents:
 
-| Question | Agent | Timing |
-|----------|-------|--------|
-| "How do I work with X?" | `learn` | After discovering patterns/gotchas |
-| "Why did we choose X?" | `adr` | When making/documenting architecture decisions |
-| "Is this type-safe?" | `ts-enforcer` | During development (proactive) |
-| "Is this PR ready?" | `pr-reviewer` | At review time (reactive) |
-| "Should I refactor this?" | `refactor-scan` | After MUTATE + KILL MUTANTS |
-| "Was TDD followed?" | `tdd-guardian` | During TDD cycle |
-| "Is this documented?" | `docs-guardian` | At feature completion |
-| "What data patterns exist?" | `use-case-data-patterns` | Before implementing features |
-| "Is this 12-factor compliant?" | `twelve-factor-audit` | When onboarding or assessing deployment readiness |
-| "Where am I in this work?" | `progress-guardian` | Throughout multi-step work |
+| Question                       | Agent                    | Timing                                            |
+| ------------------------------ | ------------------------ | ------------------------------------------------- |
+| "How do I work with X?"        | `learn`                  | After discovering patterns/gotchas                |
+| "Why did we choose X?"         | `adr`                    | When making/documenting architecture decisions    |
+| "Is this type-safe?"           | `ts-enforcer`            | During development (proactive)                    |
+| "Is this PR ready?"            | `pr-reviewer`            | At review time (reactive)                         |
+| "Should I refactor this?"      | `refactor-scan`          | After MUTATE + KILL MUTANTS                       |
+| "Was TDD followed?"            | `tdd-guardian`           | During TDD cycle                                  |
+| "Is this documented?"          | `docs-guardian`          | At feature completion                             |
+| "What data patterns exist?"    | `use-case-data-patterns` | Before implementing features                      |
+| "Is this 12-factor compliant?" | `twelve-factor-audit`    | When onboarding or assessing deployment readiness |
+| "Where am I in this work?"     | `progress-guardian`      | Throughout multi-step work                        |
 
 **Note:** `learn` and `adr` can both apply to the same decision — `learn` captures "how to use it" (→ CLAUDE.md), `adr` captures "why we chose it" (→ ADR doc).
 
@@ -310,43 +342,48 @@ Quick decision table for all agents:
 
 ### Documentation Types
 
-| Aspect | progress-guardian | adr | learn | docs-guardian |
-|--------|------------------|-----|-------|---------------|
-| **Lifespan** | Temporary (days/weeks) | Permanent | Permanent | Permanent |
-| **Audience** | Current developer | Future developers | AI assistant + developers | Users + developers |
-| **Purpose** | Track progress through plan | Explain "why" decisions | Explain "how" to work | Explain "what" and "how to use" |
-| **Content** | Plan file in `plans/` | Context, decision, consequences | Gotchas, patterns | Features, API, setup |
-| **Updates** | On approval (plan changes) | Once (rarely updated) | As learning occurs | When features change |
-| **Format** | Structured plan | Structured ADR format | Informal examples | Professional, polished |
-| **End of life** | **DELETED** when done | Lives forever | Lives forever | Lives forever |
+| Aspect          | progress-guardian           | adr                             | learn                     | docs-guardian                   |
+| --------------- | --------------------------- | ------------------------------- | ------------------------- | ------------------------------- |
+| **Lifespan**    | Temporary (days/weeks)      | Permanent                       | Permanent                 | Permanent                       |
+| **Audience**    | Current developer           | Future developers               | AI assistant + developers | Users + developers              |
+| **Purpose**     | Track progress through plan | Explain "why" decisions         | Explain "how" to work     | Explain "what" and "how to use" |
+| **Content**     | Plan file in `plans/`       | Context, decision, consequences | Gotchas, patterns         | Features, API, setup            |
+| **Updates**     | On approval (plan changes)  | Once (rarely updated)           | As learning occurs        | When features change            |
+| **Format**      | Structured plan             | Structured ADR format           | Informal examples         | Professional, polished          |
+| **End of life** | **DELETED** when done       | Lives forever                   | Lives forever             | Lives forever                   |
 
 ### When to Use Which Documentation Agent
 
 **Use `progress-guardian`** for:
+
 - "What am I working on right now?"
 - "What's the next step?"
 - "Where was I when I stopped yesterday?"
 - → Answer: Temporary plan file in `plans/` (deleted when done)
 
 **Use `adr`** for:
+
 - "Why did we choose technology X over Y?"
 - "What were the trade-offs in this architectural decision?"
 - "Why is the system designed this way?"
 - → Answer: Permanent ADR in `docs/adr/`
 
 **Use `learn`** for:
+
 - "What gotchas should I know about?"
 - "What patterns work well here?"
 - "How do I avoid this common mistake?"
 - → Answer: Permanent entry in `CLAUDE.md`
 
 **Use `docs-guardian`** for:
+
 - "How do I install this?"
 - "How do I use this API?"
 - "What features does this have?"
 - → Answer: Permanent `README.md`, guides, API docs
 
 **Use `use-case-data-patterns`** for:
+
 - "How does this feature work end-to-end?"
 - "What data patterns support this use case?"
 - "What's missing to implement this feature?"
@@ -356,13 +393,13 @@ Quick decision table for all agents:
 
 Commands complement agents by encoding common workflows into single invocations.
 
-| Command | Purpose | When to Use |
-|---------|---------|-------------|
-| `/setup` | Project onboarding — detect tech stack, create CLAUDE.md, hooks, commands, PR reviewer | Starting work on a new project (replaces `/init`) |
-| `/pr` | Create a pull request following standards | When ready to submit work |
-| `/plan` | Create a plan document on a branch with a PR — no code | When planning work before implementation |
-| `/continue` | Pull merged PR, create new branch, update plan | After a PR is merged and you want to continue |
-| `/generate-pr-review` | Generate project-specific PR review automation | One-time setup per project |
+| Command               | Purpose                                                                                | When to Use                                       |
+| --------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| `/setup`              | Project onboarding — detect tech stack, create CLAUDE.md, hooks, commands, PR reviewer | Starting work on a new project (replaces `/init`) |
+| `/pr`                 | Create a pull request following standards                                              | When ready to submit work                         |
+| `/plan`               | Create a plan document on a branch with a PR — no code                                 | When planning work before implementation          |
+| `/continue`           | Pull merged PR, create new branch, update plan                                         | After a PR is merged and you want to continue     |
+| `/generate-pr-review` | Generate project-specific PR review automation                                         | One-time setup per project                        |
 
 ## Using These Agents
 
@@ -373,6 +410,7 @@ These agent specifications are designed to be integrated into Claude Code. To us
 3. **Follow the agent's guidance** for your specific situation
 
 Each agent is designed to be:
+
 - **Proactive**: Used before work begins to guide best practices
 - **Reactive**: Used after work to verify compliance and improvements
 - **Autonomous**: Operates independently with clear responsibilities
@@ -413,6 +451,7 @@ These agents work together to create a comprehensive development workflow:
 - **Progress**: progress-guardian tracks work through plan files in `plans/`
 
 **Key workflow principles** (see `planning` skill for details):
+
 - All work in small, known-good increments
 - TDD non-negotiable (RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR)
 - Commit approval required before every commit

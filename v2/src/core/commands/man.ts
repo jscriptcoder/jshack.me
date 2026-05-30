@@ -17,13 +17,7 @@
  * registry (e.g. its own test).
  */
 
-import type {
-  Command,
-  CommandArgument,
-  CommandExample,
-  ManualPage,
-  TerminalLine,
-} from './types';
+import type { Command, CommandArgument, CommandExample, ManualPage, TerminalLine } from './types';
 
 const text = (content: string): TerminalLine => ({ kind: 'text', content });
 const error = (content: string): TerminalLine => ({ kind: 'error', content });

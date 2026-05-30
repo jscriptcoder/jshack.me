@@ -16,16 +16,16 @@ The goal: a Solid engineer (or future Claude session) can re-implement the whole
 
 Captured across multiple sections (Section 4 is the hub):
 
-| Layer | Where documented | What it protects |
-| ---- | ---------------- | ---------------- |
-| L0 — transport / envelope | §4.3 signed envelope + §4.3 replay protection | Forgery, replay, signature malleability |
-| L1 — session presence    | §4.8 + ambient-log allowlist                  | "Caller has no session on this machine"  |
-| L2 — write permission    | §4.9 walker + machine_filesystems projection  | Guest writing to root-owned paths        |
-| L2 — read privacy        | §4.10 three-tier read filter                  | No-session callers reading secrets       |
-| L2 — auth + userType     | §4.6 createSession + authCreateSession        | Forging "I am root" via envelope         |
+| Layer                      | Where documented                              | What it protects                             |
+| -------------------------- | --------------------------------------------- | -------------------------------------------- |
+| L0 — transport / envelope  | §4.3 signed envelope + §4.3 replay protection | Forgery, replay, signature malleability      |
+| L1 — session presence      | §4.8 + ambient-log allowlist                  | "Caller has no session on this machine"      |
+| L2 — write permission      | §4.9 walker + machine_filesystems projection  | Guest writing to root-owned paths            |
+| L2 — read privacy          | §4.10 three-tier read filter                  | No-session callers reading secrets           |
+| L2 — auth + userType       | §4.6 createSession + authCreateSession        | Forging "I am root" via envelope             |
 | L3 — game-logic (deferred) | §4.17 + §4.18 boundary table                  | Forge bypasses on exploitRead/password_reset |
-| RLS (Supabase)           | §4.4 per-table posture                        | Direct anon SELECT on sensitive tables   |
-| Anti-cheat (client)      | §6.11 build-time secrets encoding             | Flag/password search through JS bundle   |
+| RLS (Supabase)             | §4.4 per-table posture                        | Direct anon SELECT on sensitive tables       |
+| Anti-cheat (client)        | §6.11 build-time secrets encoding             | Flag/password search through JS bundle       |
 
 ## Sections
 
@@ -65,7 +65,6 @@ Captured across multiple sections (Section 4 is the hub):
 - **occupant** — a player who has joined a shared home network.
 - **seed-regen** — the cross-LAN resolution strategy: any foreign-IP access regenerates the entire foreign HomeNetwork client-side from its seed and slots it into the local network view.
 
-
 ---
 
 # 1. Terminal & Commands
@@ -77,6 +76,7 @@ This section documents the user-facing CLI layer of jshack.me: the terminal UI, 
 ### Core Components
 
 **Terminal.tsx** (src/components/Terminal/Terminal.tsx): main orchestrator
+
 - Manages input state: `input` (string), `asyncRunning` (bool), `editorState` (nano), `lynxState` (lynx)
 - Manages output: `lines` (array of OutputLine), auto-scroll on new output
 - Command execution pipeline: tokenize -> parse -> execute via `src/shell/`
@@ -87,6 +87,7 @@ This section documents the user-facing CLI layer of jshack.me: the terminal UI, 
 - Logging callbacks: `onSuAuth`, `onSshAuth`, `onFtpAuth` write to target machine log files
 
 **TerminalInput.tsx** (src/components/Terminal/TerminalInput.tsx): input line
+
 - Prompt: `user@machine>` (normal), hidden (password/username), `ftp>` (FTP), `$` (NC), `mysql>` (MySQL), `redis>` (Redis)
 - Rendering: prompt (dim), input (bright), cursor (theme caret color)
 - Password mode: `type="password"` input, masks with `*`
@@ -100,11 +101,13 @@ This section documents the user-facing CLI layer of jshack.me: the terminal UI, 
 - Text input: `isUserInput` ref tracks whether change is user-typed or programmatic
 
 **TerminalOutput.tsx** (src/components/Terminal/TerminalOutput.tsx): output rendering
+
 - Line types: `banner`, `command`, `result`, `error`, `author`
 - All colors use CSS custom properties (`var(--theme-*)`) for theme switching
 - Auto-scroll on new lines
 
 **NanoEditor.tsx** (src/components/Terminal/NanoEditor.tsx): text editor overlay
+
 - Layout: title bar, textarea, status bar, help bar
 - Title: `GNU nano 7.2 [filename] [Modified]`
 - Full-screen overlay: `fixed z-50`, dark background, theme colors
@@ -115,6 +118,7 @@ This section documents the user-facing CLI layer of jshack.me: the terminal UI, 
 - Status bar: cursor position, messages (auto-clear 3s)
 
 **LynxBrowser.tsx** (src/components/Terminal/LynxBrowser.tsx): text-mode browser overlay
+
 - Layout: title bar (page title + URL), scrollable body, status bar, help bar
 - Fetch lifecycle: injected `onFetch(url)` callback (wired to use same NAT/logging as `curl`)
 - HTML parsing: semantic markup via `renderHtml`, keeps multi-word link text atomic
@@ -132,6 +136,7 @@ Token = {word, value} | {pipe} | {redirect}
 ```
 
 Features:
+
 - Single quotes: 'literal' (no escaping)
 - Double quotes: "quoted" (supports `\"` and `\` escapes only)
 - Backslash escapes: outside quotes, `\<char>` becomes `<char>`
@@ -147,6 +152,7 @@ Pipeline = {stages: Stage[], redirect?: {path: string}}
 ```
 
 Features:
+
 - Extracts redirect (trailing `> <path>`) - only legal at end
 - Splits pipes, validates no empty groups
 - Builds stages: first word is command, rest are args
@@ -158,6 +164,7 @@ execute(pipeline, registry, options) -> unknown
 ```
 
 Flow:
+
 1. For each intermediate stage, run and collect output as string
 2. Async intermediate stages: collected synchronously (must complete immediately)
 3. Pass string output as stdin to next stage (via ShellContext)
@@ -166,7 +173,6 @@ Flow:
 6. Return final result or undefined (if redirect)
 
 Stdin passing: If command implements `fnShell(ctx, ...args)`, it receives stdin. Otherwise falls back to `fn(...args)`.
-
 
 ## 1.4 Scripting
 
@@ -178,6 +184,7 @@ Async mode: Uses AsyncFunction constructor, enables await
 Execution context: All commands + writeFile() helper
 
 writeFile(path, content): Write file with current user permissions
+
 - string: written as-is
 - string[]: joined with newline
 - Objects: pretty-printed JSON
@@ -212,6 +219,7 @@ Lynx Browser: lynx <url> - text browser with arrow key navigation
 classifyCursor: Determines if completion is for command, path, or flag
 
 Completion algorithm:
+
 - Commands: prefix match, longest common prefix, trailing space
 - Paths: split dir+prefix, list+filter, common prefix, trailing slash
 - Handles quotes and escapes
@@ -223,7 +231,6 @@ End of Section 1: Terminal & Commands
 Comprehensive catalog of every command, parser feature, UI component, and execution mode.
 For re-implementation, follow this structure and refer to file paths for original source.
 All behavior is deterministic and reproducible from this specification.
-
 
 ---
 
@@ -239,16 +246,17 @@ Represents a single network interface (lo, eth0, wlan0, etc.) on a machine:
 
 ```typescript
 type NetworkInterface = {
-  readonly name: string;              // "lo", "eth0", "wlan0", etc.
-  readonly flags: readonly string[];  // ["UP", "LOOPBACK", "RUNNING"]
-  readonly inet: string;              // IP address (e.g., "192.168.1.100")
-  readonly netmask: string;           // Netmask (e.g., "255.255.255.0")
-  readonly gateway: string;           // Gateway IP (e.g., "192.168.1.1")
-  readonly mac: string;               // MAC address (e.g., "02:42:ac:11:00:02")
+  readonly name: string; // "lo", "eth0", "wlan0", etc.
+  readonly flags: readonly string[]; // ["UP", "LOOPBACK", "RUNNING"]
+  readonly inet: string; // IP address (e.g., "192.168.1.100")
+  readonly netmask: string; // Netmask (e.g., "255.255.255.0")
+  readonly gateway: string; // Gateway IP (e.g., "192.168.1.1")
+  readonly mac: string; // MAC address (e.g., "02:42:ac:11:00:02")
 };
 ```
 
 **Localhost interfaces** (initial state):
+
 - `loopback` (lo): UP, LOOPBACK, RUNNING; 127.0.0.1/255.0.0.0
 - `wlan0`: DOWN; 0.0.0.0 with disconnected flags; becomes active when player connects to a WiFi network with dynamic IP from that subnet
 
@@ -260,20 +268,20 @@ A network service listening on a port. Includes version info for scanning/exploi
 
 ```typescript
 type Port = {
-  readonly port: number;              // 22, 80, 443, etc.
-  readonly service: string;           // "ssh", "http", "https", "mysql", "elite", etc.
-  readonly serviceVersion: string;    // "OpenSSH_7.4" (overlaid at runtime from dpkg/status)
-  readonly open: boolean;             // Port is listening
-  readonly protocol?: "tcp" | "udp";  // Defaults to "tcp"
-  readonly owner?: ServiceOwner;      // User who started the daemon (backdoors, apache2, nginx)
-  readonly forwarded?: boolean;       // True if added by NAT forwarding rules
+  readonly port: number; // 22, 80, 443, etc.
+  readonly service: string; // "ssh", "http", "https", "mysql", "elite", etc.
+  readonly serviceVersion: string; // "OpenSSH_7.4" (overlaid at runtime from dpkg/status)
+  readonly open: boolean; // Port is listening
+  readonly protocol?: 'tcp' | 'udp'; // Defaults to "tcp"
+  readonly owner?: ServiceOwner; // User who started the daemon (backdoors, apache2, nginx)
+  readonly forwarded?: boolean; // True if added by NAT forwarding rules
   readonly forcedEffect?: VulnerabilityEffect; // Overrides vulnerability's natural effect
 };
 
 type ServiceOwner = {
-  readonly username: string;          // User who started the service
-  readonly userType: "root" | "user" | "guest";
-  readonly homePath: string;          // Home directory (e.g., "/root", "/home/alice")
+  readonly username: string; // User who started the service
+  readonly userType: 'root' | 'user' | 'guest';
+  readonly homePath: string; // Home directory (e.g., "/root", "/home/alice")
 };
 ```
 
@@ -285,17 +293,17 @@ The public network view of a machine — what's visible to other machines on the
 
 ```typescript
 type RemoteMachine = {
-  readonly ip: string;                // "10.45.12.100"
-  readonly hostname: string;          // "webserver", "router", etc.
-  readonly ports: readonly Port[];    // Open and closed ports
-  readonly users: readonly RemoteUser[];  // User accounts (no password hashes)
-  readonly firmwareVendor?: string;   // Router-only: "Cisco IOS", "MikroTik", etc.
-  readonly firmwareVersion?: string;  // Router-only: overlaid from /var/lib/dpkg/status
+  readonly ip: string; // "10.45.12.100"
+  readonly hostname: string; // "webserver", "router", etc.
+  readonly ports: readonly Port[]; // Open and closed ports
+  readonly users: readonly RemoteUser[]; // User accounts (no password hashes)
+  readonly firmwareVendor?: string; // Router-only: "Cisco IOS", "MikroTik", etc.
+  readonly firmwareVersion?: string; // Router-only: overlaid from /var/lib/dpkg/status
 };
 
 type RemoteUser = {
   readonly username: string;
-  readonly userType: "root" | "user" | "guest";
+  readonly userType: 'root' | 'user' | 'guest';
 };
 ```
 
@@ -325,9 +333,9 @@ Simple A record for DNS lookups:
 
 ```typescript
 type DnsRecord = {
-  readonly domain: string;            // "webserver.corp.local"
-  readonly ip: string;                // "10.45.12.100"
-  readonly type: "A";                 // Only A records in Phase 3
+  readonly domain: string; // "webserver.corp.local"
+  readonly ip: string; // "10.45.12.100"
+  readonly type: 'A'; // Only A records in Phase 3
 };
 ```
 
@@ -347,12 +355,12 @@ Defined in `src/generation/types.ts` as `SubnetLayer`:
 
 ```typescript
 type SubnetLayer = {
-  readonly subnet: string;            // "10.45.12.0/24"
+  readonly subnet: string; // "10.45.12.0/24"
   readonly gateway: GeneratedMachine; // The .1 machine bridging to next layer
-  readonly gatewayType: GatewayType;  // "router" or "switch"
+  readonly gatewayType: GatewayType; // "router" or "switch"
   readonly entryVariant: EntryVariant; // "ssh", "ftp", "nc", "exploit", "http", "snmp"
   readonly machines: readonly GeneratedMachine[];
-  readonly isForwarded: boolean;      // NAT forwards entry ports to this layer
+  readonly isForwarded: boolean; // NAT forwards entry ports to this layer
 };
 ```
 
@@ -368,6 +376,7 @@ type SubnetLayer = {
 ### Gateway Roles & Addressing
 
 **Border Router** (`role: "router"`):
+
 - Has a public IP (allocated from `src/ipRegistry/`, kind=`mission_instance` for missions)
 - Has an internal IP in layer-0 subnet (e.g., 10.45.12.1)
 - Dual interfaces: `eth0` (public), `eth1` (layer-0 gateway)
@@ -376,10 +385,12 @@ type SubnetLayer = {
 - Ships users, filesystem, and can be hacked like any other machine
 
 **Inner Gateways** (layer-to-layer bridges):
+
 - **Router gateway** (`role: "router"`): NAT-capable with `/etc/iptables/rules.v4` and SNMP firewall OIDs
 - **Switch gateway** (`role: "switch"`): Layer-3 managed switch with `/etc/switch/acl.conf` ACL rules; no NAT, only ACL-based filtering (40% of inner gateways)
 
 Both gateway types are **dual-homed**:
+
 - `eth0`: IP in upstream subnet (e.g., 10.x.x.y)
 - `eth1`: IP in downstream subnet as `.1` (e.g., 10.y.y.1)
 
@@ -429,7 +440,7 @@ Parser: `src/network/ftpdStateParser.ts`. Extracts port from `vsftpd:port=N`.
 **Owner**: The user who started the listener; tier (`root`/`user`/`guest`) determines shell privileges
 **Open by default**: No; only when player runs `nc -l <port>` or exploit plants one
 
-Parser: `src/network/ncStateParser.ts`. Extracts port, username, userType, homePath. Scans /var/run for nc-*.pid files and parses each.
+Parser: `src/network/ncStateParser.ts`. Extracts port, username, userType, homePath. Scans /var/run for nc-\*.pid files and parses each.
 
 **Player control**: `nc("-l", port)` command writes `/var/run/nc-<port>.pid` with the invoking user's identity.
 
@@ -443,6 +454,7 @@ Parser: `src/network/ncStateParser.ts`. Extracts port, username, userType, homeP
 **Multi-line support**: Services sharing a pid file are grouped; one line per service
 
 **Supported services** (from `INFRA_PID_CONFIGS` in `src/generation/filesystem/infraPidFiles.ts`):
+
 - http, https, http-alt → nginx.pid → /usr/sbin/nginx → www-data
 - mysql → mysqld.pid → /usr/sbin/mysqld → mysql
 - postgresql → postgres.pid → /usr/sbin/postgres → postgres
@@ -483,6 +495,7 @@ Parser: `src/network/apache2StateParser.ts`. Validates all four fields required;
 
 **File**: `/etc/iptables/rules.v4` on router machines
 **Format**:
+
 ```
 # Comments and blank lines ignored
 forward <public_port> to <internal_ip>:<internal_port>
@@ -493,6 +506,7 @@ forward 8080 to 10.45.12.50:80
 Parser: `src/network/iptablesParser.ts`
 
 **Semantics**:
+
 - **Forwarded mode**: Rules pre-populated at generation; easy missions 70% chance, medium 50%
 - **Router-first mode**: File starts as empty template; player must edit with `nano`
 - **NAT resolution**: `resolveNat(publicIp, publicPort)` returns `{internalIp, internalPort}`
@@ -505,6 +519,7 @@ Implemented in `src/network/backdoorForwarding.ts`.
 
 **File**: `/etc/snmp/snmpd.conf` on router machines
 **Format**:
+
 ```
 firewallSSH permit    # Port 22 open
 firewallSSH deny      # Port 22 closed
@@ -520,6 +535,7 @@ Parser: `src/network/snmpFirewallParser.ts`. Maps firewallSSH→22, firewallHTTP
 
 **File**: `/etc/switch/acl.conf` on switch gateways
 **Format**:
+
 ```
 deny tcp any 10.45.2.0/24 port 22   # Block SSH to downstream subnet
 allow tcp any 10.45.2.0/24 port 80  # Allow HTTP
@@ -533,6 +549,7 @@ Parser: `src/network/aclParser.ts`. Last matching rule wins (like real ACLs).
 
 **File**: `/etc/snmp/snmpd.conf` on switch gateways
 **Format**:
+
 ```
 aclSSH allow    # Port 22 open to downstream
 aclSSH deny     # Port 22 closed to downstream
@@ -550,9 +567,9 @@ Parser: `src/network/snmpAclParser.ts`. Maps aclSSH→22, aclHTTP→80, aclFTP�
 
 ```typescript
 type DnsRecord = {
-  readonly domain: string;            // "webserver.corp.local"
-  readonly ip: string;                // "10.45.12.100"
-  readonly type: "A";
+  readonly domain: string; // "webserver.corp.local"
+  readonly ip: string; // "10.45.12.100"
+  readonly type: 'A';
 };
 ```
 
@@ -576,6 +593,7 @@ Defined in `src/logging/`.
 **Example**: `Mar 21 14:30:00 webserver sshd[1234]: Accepted password for admin from 10.0.1.100 port 45000 ssh2`
 
 Formatters (`src/logging/formatters.ts`):
+
 - `formatSyslogLine()` — generic syslog template
 - `formatSshAccepted()` — password auth success
 - `formatSshAcceptedKey()` — public-key auth success
@@ -649,6 +667,7 @@ Scan tools (nmap, gobuster) and brute-force tools (hydra) do **not** log one ent
 Public IPs are server-allocated per `src/ipRegistry/`. Clients sign requests with their identity key; server verifies signature and returns a unique public IP.
 
 **Kinds**:
+
 - `mission_instance` — per-mission border router (player-owned)
 - `home_network` — player's home LAN router (player-owned)
 - `pivot` — player-controlled relay machine (player-owned)
@@ -659,6 +678,7 @@ Public IPs are server-allocated per `src/ipRegistry/`. Clients sign requests wit
 ## 2.8 Initial Workstation Network Shape
 
 Localhost starts with:
+
 - **Hostname**: player-configured (e.g., "skylab")
 - **Users**: root (password from intro), current user (empty password), guest (seed-derived)
 - **Interfaces**: lo (127.0.0.1), wlan0 (DOWN, 0.0.0.0)
@@ -667,6 +687,7 @@ Localhost starts with:
 Generated via `generateLocalhost(gameState)` in `src/generation/generateLocalhost.ts`.
 
 **After connecting to WiFi**:
+
 - **wlan0**: UP with dynamic IP from home-network subnet (e.g., 10.45.12.100)
 - **Hostname**: suffixed with player identity hash (e.g., "skylab-9k3d")
 - **Reachable machines**: all layer-0 machines + border router public IP + border router internal IP
@@ -676,6 +697,7 @@ Generated via `generateLocalhost(gameState)` in `src/generation/generateLocalhos
 ## 2.9 Reconnaissance Behavior (nmap, ping, connect)
 
 ### nmap
+
 - **TCP scan** (`nmap <ip>` or `nmap -p <ports> <ip>`): Probes open ports on the target
 - **UDP scan** (`nmap -sU <ip>`): Probes UDP ports (discovers SNMP on 161)
 - **Version scan**: Automatic; versions overlaid from `/var/lib/dpkg/status`
@@ -683,11 +705,13 @@ Generated via `generateLocalhost(gameState)` in `src/generation/generateLocalhos
 - **NAT-aware**: When scanning a forwarded port, `resolveNat` translates public→internal and logs on the backend
 
 ### ping
+
 - **ICMP echo**: Checks machine reachability
 - **Response**: Target machine responds if reachable in the network config
 - **Logging**: Not logged
 
 ### connect (nc / SSH / FTP)
+
 - **Socket attempt**: Try to connect to IP:port
 - **Success**: Reach the target machine (either direct or through NAT)
 - **Logging**: Depends on the service (SSH logs to auth.log, FTP to vsftpd.log, nc to syslog)
@@ -705,13 +729,14 @@ Generated via `generateLocalhost(gameState)` in `src/generation/generateLocalhos
 
 ### Machine Pools (`src/generation/pools/machines.ts`)
 
-**Client handles**: 45 hardcoded choices for NPC usernames (xR0gu3x, cyph3rpunk, zer0day_, etc.)
+**Client handles**: 45 hardcoded choices for NPC usernames (xR0gu3x, cyph3rpunk, zer0day\_, etc.)
 
 **Role-specific usernames**: Pool of realistic usernames per machine role (www-data, webadmin, apache for webserver; dbadmin, postgres, mysql for database; etc.).
 
 ### Web Content Templates (`src/generation/pools/web.ts`)
 
 Realistic HTML templates for `/var/www/html/index.html`:
+
 - **Generic servers**: "Status OK", build version, admin links
 - **Router admin panels**: Cisco IOS, MikroTik, pfSense, OPNsense HTML login forms
 - **IoT devices**: GoAhead httpd, Hikvision IP camera, HVAC controller BMS, Sensor Hub
@@ -721,11 +746,13 @@ All use `{{hostname}}` and `{{timestamp}}` substitution.
 ### Vulnerability Pools (`src/generation/pools/vulnerabilities.ts`)
 
 **Hand-authored CVEs** (39 entries, `publishedAt=0`, always live):
+
 - Iconic exploits (Apache/2.4.49 CVE-2024-9001, vsftpd 2.3.4 smiley-face backdoor, etc.)
 - Diverse effects (shell_limited, shell_full, file_read, file_write, dir_list, password_reset, backdoor_port_open, script_exec)
 - Per-service distributions (SSH = universal hammer; FTP = read/write/backdoor; databases = password_reset/script_exec; web = script_exec)
 
 **Procedural CVEs** (walker-generated from `src/generation/timeline/walker.ts`):
+
 - ~43 CVEs per service per year (1 new CVE every ~13 hours across 15 services)
 - Procedural timelines for: HTTP, nginx, Apache, SSH, FTP, MySQL, PostgreSQL, Redis, MongoDB, DNS, SMTP, IMAP, MQTT, Modbus, VNC, OpenVPN
 - Router firmware timelines (Cisco IOS, MikroTik, DD-WRT, OpenWRT, pfSense, EdgeOS)
@@ -738,6 +765,7 @@ All use `{{hostname}}` and `{{timestamp}}` substitution.
 **File**: `/var/lib/dpkg/status` (RFC-822 format)
 
 **Example**:
+
 ```
 Package: nginx
 Status: install ok installed
@@ -755,8 +783,6 @@ Version: 2.4.1
 **Updates**: `setDpkgVersion(content, pkg, version)` modifies a single package in-place. Used by `apt upgrade` and `apt install pkg=version`.
 
 **Consumers**: `useNetworkCommands` applies the overlay to every machine read — nmap, msfconsole, and the exploit-logging callback all see overlay-aware versions transparently.
-
-
 
 ---
 
@@ -824,7 +850,7 @@ Every CVE resolves to one of eight distinct effects. These are not generic "RCE"
 
 **What it does**: Resets the password of a user at the specified tier to a new deterministic value derived from the CVE id (e.g., pwned-9042-user). The new password is output to the terminal in plaintext so the player can su or SSH with it. Invoked without a third argument (msfconsole <host> <port>).
 
-**Who can use it**: Any user triggers it. The tier selects *which* user's password to reset (the only user of that tier on the machine).
+**Who can use it**: Any user triggers it. The tier selects _which_ user's password to reset (the only user of that tier on the machine).
 
 **Restrictions & caveats**: /etc/passwd must exist and be readable as root (the read tier is hardcoded to root regardless of the effect's tier — the tier is the victim selector, not the attacker's privilege). If no user of the specified tier exists on the target, the exploit fails with "no <tier> user found." The new password is hashed as MD5 (matching /etc/passwd format) and written back to the file.
 
@@ -869,6 +895,7 @@ The procedural timeline is the engine of the treadmill. Across 15 actively runni
 buildTimelineFromTemplate walks a service's version starting tuple forward with weighted randomness: 80% patch bumps, 15% minor bumps, 5% major bumps. Between each version, the timeline randomizes a day-gap (3–14 game days). Each version also draws a separate patch delay (1–2 days), controlling when the fix becomes available.
 
 **Timing configuration (CVE_TIMING_CONFIG)**:
+
 - minSafeWindowDays: 3
 - maxSafeWindowDays: 14
 - minPatchDelayDays: 1
@@ -881,6 +908,7 @@ Cadence: With an average gap of ~8.5 days per CVE, each service produces ~43 CVE
 ## 3.5 Service Version + CVE Resolution (findExploitableCve)
 
 findExploitableCve(machine, port, gameTime) is the canonical exploit-resolution entry point:
+
 1. Service CVE lookup: Calls findVulnForService (Layer 1 hand-authored, Layer 2 procedural walker)
 2. Firmware CVE fallback (routers only): Calls findFirmwareCve
 3. forcedEffect override: Overrides natural effect or synthesizes a stub
@@ -946,7 +974,6 @@ When file_read or dir_list effects target a cross-player workstation, the read r
 ---
 
 **Summary**: The CVE and exploit system drives jshack.me's core gameplay loop. Hand-authored day-0 CVEs provide immediate variety; procedural timelines create relentless patch pressure; eight distinct effects force strategy adaptation; patch-delay window creates defense window encouraging creative thinking.
-
 
 ---
 
@@ -1019,9 +1046,9 @@ Every authenticated POST to `/api/*` uses the same three-field envelope:
 
 ```ts
 type SignedEnvelope = {
-  readonly payload: string;     // JSON-stringified action object — the SIGNED BYTES
-  readonly publicKey: string;   // 64-char hex Ed25519 pubkey
-  readonly signature: string;   // 128-char hex Ed25519 signature over UTF-8 bytes of payload
+  readonly payload: string; // JSON-stringified action object — the SIGNED BYTES
+  readonly publicKey: string; // 64-char hex Ed25519 pubkey
+  readonly signature: string; // 128-char hex Ed25519 signature over UTF-8 bytes of payload
 };
 ```
 
@@ -1053,14 +1080,14 @@ Cheapest-checks-first to avoid hitting Upstash on garbage:
 
 Returns `{ ok: true, publicKey, payload }` on success, or `{ ok: false, reason }`:
 
-| Reason              | HTTP | Meaning                                            |
-| ------------------- | ---- | -------------------------------------------------- |
-| `envelope_invalid`  | 400  | Wrapper shape wrong (missing fields, bad hex)      |
-| `signature_invalid` | 401  | Ed verify returned false / malformed point         |
-| `payload_malformed` | 400  | Signed bytes weren't valid JSON                    |
-| `payload_invalid`   | 400  | JSON parsed but rejected by schema                 |
-| `timestamp_skew`    | 401  | `ts` outside the 120s window                       |
-| `replay`            | 401  | Nonce already seen within the window               |
+| Reason              | HTTP | Meaning                                       |
+| ------------------- | ---- | --------------------------------------------- |
+| `envelope_invalid`  | 400  | Wrapper shape wrong (missing fields, bad hex) |
+| `signature_invalid` | 401  | Ed verify returned false / malformed point    |
+| `payload_malformed` | 400  | Signed bytes weren't valid JSON               |
+| `payload_invalid`   | 400  | JSON parsed but rejected by schema            |
+| `timestamp_skew`    | 401  | `ts` outside the 120s window                  |
+| `replay`            | 401  | Nonce already seen within the window          |
 
 Auth-class problems get 401; structural problems get 400.
 
@@ -1350,14 +1377,17 @@ A session row = `(player_key, machine_id, credentials{username, userType}, kind)
 ### Ten kinds, three categories
 
 **Shell-class** (go on the SessionContext snapshot stack; rehydration filters to these for linear-chain reconstruction):
+
 - `ssh` — SSH login
 - `su` — user switch on same machine (parent_session_id = previous session; same machine_id)
 - `exploit` — post-exploit shell (`shell_full` CVE effect)
 
 **Protocol** (live in dedicated client-side state; pushed/ended on login/logout):
+
 - `ftp`, `mysql`, `redis`, `nc`
 
 **Transient one-shot** (pushed via `withTransientSession` for a single patch fire, then ended):
+
 - `scp`, `snmp`, `effect_one_shot`
 
 The L1 patch-validation gate doesn't care which kind — it only asks "does any active session row exist for `(player_key, machine_id)`?". `kind` matters at rehydration (SessionContext filters to `('ssh','su','exploit')` before reconstructing the linear chain — protocol sessions don't go on the stack).
@@ -1391,13 +1421,13 @@ A patch row encodes a single FS mutation in the canonical journal:
 
 ```ts
 type PatchRow = {
-  readonly player_key: string;      // server-stamped
+  readonly player_key: string; // server-stamped
   readonly machine_id: string;
   readonly path: string;
-  readonly content: string | null;  // null = base-fs deletion marker
+  readonly content: string | null; // null = base-fs deletion marker
   readonly owner: 'root' | 'user' | 'guest';
   readonly permissions?: FilePermissions;
-  readonly is_new?: boolean;        // true = file/dir created via patch
+  readonly is_new?: boolean; // true = file/dir created via patch
   readonly node_type?: 'file' | 'directory';
 };
 ```
@@ -1421,11 +1451,11 @@ Wrappers handle camelCase ↔ snake_case translation defensively — callers onl
 
 `broadcastAndRecordPatch` decides per case:
 
-| Case                              | Server calls                                       |
-| --------------------------------- | -------------------------------------------------- |
-| Write/create (`content !== null`) | `upsertPatch`                                      |
-| Delete isNew file                 | `removePatch`                                      |
-| Delete base-fs file               | `removePatch` THEN `upsertPatch` (null marker)     |
+| Case                              | Server calls                                   |
+| --------------------------------- | ---------------------------------------------- |
+| Write/create (`content !== null`) | `upsertPatch`                                  |
+| Delete isNew file                 | `removePatch`                                  |
+| Delete base-fs file               | `removePatch` THEN `upsertPatch` (null marker) |
 
 ### Last-write-wins ordering
 
@@ -1497,12 +1527,12 @@ fetchSessionCredentials(player_key, machine_id)
 
 Every successful patch dual-writes to `machine_filesystems` in the same Postgres transaction via the RPC. Base FS for shared networks is bulk-populated at provision time:
 
-| Network               | Coverage today                                                                       |
-| --------------------- | ------------------------------------------------------------------------------------ |
-| Workstation (own-box) | Bypassed for owner writes; full for non-owner access via `register-workstation` populate + backfill |
-| Home network LANs     | Full — populated at create time (Step 7 in `join-home-network`) + idempotent backfill |
+| Network               | Coverage today                                                                                                |
+| --------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Workstation (own-box) | Bypassed for owner writes; full for non-owner access via `register-workstation` populate + backfill           |
+| Home network LANs     | Full — populated at create time (Step 7 in `join-home-network`) + idempotent backfill                         |
 | World networks        | Full — populated via `scripts/backfillWorldNetworkBaseFs.ts` (re-run after each new themed-network migration) |
-| Mission machines      | Leaf-only — blocked on `mission_instances` (decided 2026-04-23)                      |
+| Mission machines      | Leaf-only — blocked on `mission_instances` (decided 2026-04-23)                                               |
 
 "Leaf-only" means only paths that have ever been patched have rows in `machine_filesystems`. L2 enforces forever on those; permissive on truly-untouched paths. As soon as anyone touches a path once, L2 takes over for it.
 
@@ -1571,7 +1601,7 @@ tier dispatch:
 
 ### Why a placeholder rootPassword
 
-The real `rootPassword` isn't persisted server-side (decision #2 in the L2 plan — minimal storage). `generateLocalhost` needs *some* string to hash for `/etc/passwd`'s placeholder; the sentinel value's md5 is `md5('GET_BASE_FS_SENTINEL')` which is useless for cracking. The **overlay** step then replaces `/etc/passwd` content with what's actually stored in `machine_filesystems.content` — so the FS A receives matches the FS the server's auth path validates against.
+The real `rootPassword` isn't persisted server-side (decision #2 in the L2 plan — minimal storage). `generateLocalhost` needs _some_ string to hash for `/etc/passwd`'s placeholder; the sentinel value's md5 is `md5('GET_BASE_FS_SENTINEL')` which is useless for cracking. The **overlay** step then replaces `/etc/passwd` content with what's actually stored in `machine_filesystems.content` — so the FS A receives matches the FS the server's auth path validates against.
 
 ### Non-workstation routing
 
@@ -1768,14 +1798,14 @@ L3 game-logic re-run is multi-month work (replicate CVE eligibility, port resolu
 
 ## 4.18 Threat model & layered defense (L1, L2, L3 boundary)
 
-| Layer       | What it checks                                                                                                                    | Status                                                                                                           |
-| ----------- | --------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| L0 (transport) | Ed25519 signature + replay window + nonce dedupe                                                                              | Shipped                                                                                                          |
-| L1          | Active session exists on `machine_id` for `player_key`                                                                            | Shipped (PR #78)                                                                                                 |
-| L2 (writes) | Session credentials have write permission on target path (walker against `machine_filesystems`)                                   | Shipped — full on home + world + own-workstations; leaf-only on missions                                         |
-| L2 (reads)  | Three-tier read filter on `listPatchesForMachines`: owner / session+walker / no-session+allowlist. Universal across machine types | Shipped                                                                                                          |
-| L2 (auth)   | Server-authoritative auth + userType derivation in `authCreateSession`; userType validation against `/etc/passwd` in `createSession` | Shipped (PR #122 + relaxation 2026-05-11)                                                                     |
-| L3 (game-logic) | Re-run CVE eligibility, port resolution, gameTime publication, wallet ownership, hop-chain validity server-side                | Post-launch — accepted scoped gaps documented (§4.17)                                                            |
+| Layer           | What it checks                                                                                                                       | Status                                                                   |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
+| L0 (transport)  | Ed25519 signature + replay window + nonce dedupe                                                                                     | Shipped                                                                  |
+| L1              | Active session exists on `machine_id` for `player_key`                                                                               | Shipped (PR #78)                                                         |
+| L2 (writes)     | Session credentials have write permission on target path (walker against `machine_filesystems`)                                      | Shipped — full on home + world + own-workstations; leaf-only on missions |
+| L2 (reads)      | Three-tier read filter on `listPatchesForMachines`: owner / session+walker / no-session+allowlist. Universal across machine types    | Shipped                                                                  |
+| L2 (auth)       | Server-authoritative auth + userType derivation in `authCreateSession`; userType validation against `/etc/passwd` in `createSession` | Shipped (PR #122 + relaxation 2026-05-11)                                |
+| L3 (game-logic) | Re-run CVE eligibility, port resolution, gameTime publication, wallet ownership, hop-chain validity server-side                      | Post-launch — accepted scoped gaps documented (§4.17)                    |
 
 ### Boundary
 
@@ -1803,22 +1833,22 @@ The security boundary is **`Vercel function + Supabase RLS + shared permission w
 
 Wire-payload smoke scripts that forge signed envelopes against a real `vercel:dev` server. Each verifies an integration seam unit tests can't cover (signed envelope → handler → SQL → wire response). All self-cleaning, idempotent — re-runnable.
 
-| Script                            | Purpose                                                                                          | Scenarios |
-| --------------------------------- | ------------------------------------------------------------------------------------------------ | --------- |
-| `testL2Bypass.ts`                 | Forge `upsertPatch` against a generic machine. Proves L2 fires on cross-player attempts.         | 3 (no_session 403 / guest permission_denied 403 / root 200) |
-| `testL2BypassWorkstation.ts`      | Same as above, scoped to a freshly-registered workstation. Closes the own-workstation chunk.     | 3         |
-| `testReadPathPrivacy.ts`          | Forge `listPatchesForMachines`. Three-tier filter on wire payload.                               | 3 (no-session / guest-session / owner) |
-| `testGetBaseFs.ts`                | Cross-player base-FS replication endpoint.                                                       | 7 (owner full / no_session null / guest filter / user with /etc/passwd overlay / root full / 400 unsupported / 404 missing) |
-| `testExploitRead.ts`              | Cross-player file_read / dir_list CVE-effect endpoint.                                            | 11 (owner content+entries / no_session 403 / tier-walked file_read+dir_list at guest/user/root / projected /etc/passwd / missing path null / file-as-directory null / 400 unsupported / 404 missing) |
-| `testCrackCredentials.ts`         | Batched hydra endpoint.                                                                          | 12 (ssh hit/miss / user_filter / ftp overlay precedence / /etc/passwd fallback / 400 unsupported / 404 missing / oversized / empty / non-hex / unsupported service / pre-auth no-session hit) |
-| `testCreateSessionUserType.ts`    | Server-side userType validation in createSession.                                                 | 4 (usertype_mismatch 400 / synthetic placeholder 200 / legitimate match 200 / mission stand-in no-op 200) |
-| `testRegisterWorkstation.ts`      | End-to-end `/api/register-workstation`.                                                          | 8 (fresh 201 / idempotent 200 / conflicting 409 / tampered signature 401 / missing seed 400 + DB-side row + machine_filesystems count + /etc/passwd presence) |
-| `testAmbientLogAllowlist.ts`      | L1 ambient-log-path allowlist on `upsertPatch`.                                                   | 14 (8 allowlisted log files → 200 bypass / 6 non-allowlisted /var/log/ paths → 403 no_session) |
-| `testLookupHomeNetwork.ts`        | `/api/lookup-home-network` for cross-LAN seed-regen resolver.                                     | Coverage of public_ip lookups |
-| `testServerAuth.ts`               | `authCreateSession` arms (ssh/scp/su/ftp/mysql/redis/snmp/nc).                                    | Per-kind credential matrix |
-| `verifyDualWrite.ts`              | L2 dual-write SQL functions (upsert/remove with own-workstation bypass).                          | DB-direct verification of dual_write flag + project_fs_content + own-bypass |
-| `verifyMachineFilesystemsRls.ts`  | RLS posture on `machine_filesystems` table.                                                      | 5 probes (anon INSERT 42501, anon SELECT empty, service_role INSERT ok, service_role SELECT ok, anon still empty post-write) |
-| `verifyWorkstationsRls.ts`        | RLS posture on `workstations` table (same shape).                                                | 5 probes |
+| Script                           | Purpose                                                                                      | Scenarios                                                                                                                                                                                            |
+| -------------------------------- | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `testL2Bypass.ts`                | Forge `upsertPatch` against a generic machine. Proves L2 fires on cross-player attempts.     | 3 (no_session 403 / guest permission_denied 403 / root 200)                                                                                                                                          |
+| `testL2BypassWorkstation.ts`     | Same as above, scoped to a freshly-registered workstation. Closes the own-workstation chunk. | 3                                                                                                                                                                                                    |
+| `testReadPathPrivacy.ts`         | Forge `listPatchesForMachines`. Three-tier filter on wire payload.                           | 3 (no-session / guest-session / owner)                                                                                                                                                               |
+| `testGetBaseFs.ts`               | Cross-player base-FS replication endpoint.                                                   | 7 (owner full / no_session null / guest filter / user with /etc/passwd overlay / root full / 400 unsupported / 404 missing)                                                                          |
+| `testExploitRead.ts`             | Cross-player file_read / dir_list CVE-effect endpoint.                                       | 11 (owner content+entries / no_session 403 / tier-walked file_read+dir_list at guest/user/root / projected /etc/passwd / missing path null / file-as-directory null / 400 unsupported / 404 missing) |
+| `testCrackCredentials.ts`        | Batched hydra endpoint.                                                                      | 12 (ssh hit/miss / user_filter / ftp overlay precedence / /etc/passwd fallback / 400 unsupported / 404 missing / oversized / empty / non-hex / unsupported service / pre-auth no-session hit)        |
+| `testCreateSessionUserType.ts`   | Server-side userType validation in createSession.                                            | 4 (usertype_mismatch 400 / synthetic placeholder 200 / legitimate match 200 / mission stand-in no-op 200)                                                                                            |
+| `testRegisterWorkstation.ts`     | End-to-end `/api/register-workstation`.                                                      | 8 (fresh 201 / idempotent 200 / conflicting 409 / tampered signature 401 / missing seed 400 + DB-side row + machine_filesystems count + /etc/passwd presence)                                        |
+| `testAmbientLogAllowlist.ts`     | L1 ambient-log-path allowlist on `upsertPatch`.                                              | 14 (8 allowlisted log files → 200 bypass / 6 non-allowlisted /var/log/ paths → 403 no_session)                                                                                                       |
+| `testLookupHomeNetwork.ts`       | `/api/lookup-home-network` for cross-LAN seed-regen resolver.                                | Coverage of public_ip lookups                                                                                                                                                                        |
+| `testServerAuth.ts`              | `authCreateSession` arms (ssh/scp/su/ftp/mysql/redis/snmp/nc).                               | Per-kind credential matrix                                                                                                                                                                           |
+| `verifyDualWrite.ts`             | L2 dual-write SQL functions (upsert/remove with own-workstation bypass).                     | DB-direct verification of dual_write flag + project_fs_content + own-bypass                                                                                                                          |
+| `verifyMachineFilesystemsRls.ts` | RLS posture on `machine_filesystems` table.                                                  | 5 probes (anon INSERT 42501, anon SELECT empty, service_role INSERT ok, service_role SELECT ok, anon still empty post-write)                                                                         |
+| `verifyWorkstationsRls.ts`       | RLS posture on `workstations` table (same shape).                                            | 5 probes                                                                                                                                                                                             |
 
 ### Prerequisites for smoke runs
 
@@ -1830,7 +1860,6 @@ Wire-payload smoke scripts that forge signed envelopes against a real `vercel:de
 ### Why smoke matters more than unit tests for this layer
 
 Past Phase 4 effects shipped with green unit tests but multiple latent bugs that surfaced only in Phase 5 wire-payload testing. The rule (per `feedback_e2e_test_new_primitives`): unit tests prove layers in isolation; integration seams (effect → session → patch → L1 → DB) drift silently. Watch the network tab. Smoke first; then declare a chunk shipped.
-
 
 ---
 
@@ -1871,8 +1900,9 @@ Idempotency invariant: endpoint safe to call multiple times. Rejoining same WiFi
 ### 5.2.2 Slot allocation & density tiers
 
 Allocation is random within .10-.250, independent of density tier — tier only controls max_slots:
+
 - `solo` — 1 slot
-- `shared` — 3 slots  
+- `shared` — 3 slots
 - `crowded` — 8 slots
 
 Random flat distribution reveals nothing about occupancy or order.
@@ -1880,6 +1910,7 @@ Random flat distribution reveals nothing about occupancy or order.
 ### 5.2.3 Network generation from seed
 
 Every occupant sees same topology because all call `generateHomeNetwork` with same seed (home-PUBLIC_IP). Generator runs deterministically:
+
 - Difficulty: easy (1 layer, 2 machines) / medium (2 layers, 5-7) / hard (3 layers, 8-11)
 - Entry variant: ssh, ftp, nc, exploit, http, snmp (randomly per layer)
 - Port closures: approx 30% SSH, approx 30% FTP (independent rolls)
@@ -1892,6 +1923,7 @@ All occupants materialize same machines with same machine_ids, so cross-player p
 Every player's hostname is: workstationName-XXXXXXXX (8 hex chars of SHA256(ed25519:pubkey))
 
 The suffix is:
+
 - Stable per identity (same player, same suffix on every LAN)
 - Always applied (no occupancy signal leakage)
 - 8 hex = 32 bits (65k-player birthday-collision threshold)
@@ -1902,6 +1934,7 @@ Computed once at game start and threaded through SessionProvider, BootScreen, ge
 ### 5.2.5 WiFi strength & pool generation
 
 WiFi networks seeded per game (`generateWifiNetworks`):
+
 - 2-3 crackable: WPA2, strong signal (-35 to -65 dBm), tagged with WifiTier (solo/shared/crowded)
 - 3-5 noise: WPA3 / weak signal / hidden ESSID with clear diagnostics
 
@@ -2125,10 +2158,10 @@ Every file and directory in a virtual machine is a FileNode — an immutable tre
 type FileNode = {
   readonly name: string;
   readonly type: 'file' | 'directory';
-  readonly owner: UserType;  // 'root' | 'user' | 'guest'
+  readonly owner: UserType; // 'root' | 'user' | 'guest'
   readonly permissions: FilePermissions;
-  readonly content?: string;  // file content only
-  readonly children?: Readonly<Record<string, FileNode>>;  // subdirectories
+  readonly content?: string; // file content only
+  readonly children?: Readonly<Record<string, FileNode>>; // subdirectories
 };
 
 type FilePermissions = {
@@ -2146,7 +2179,8 @@ type FilePermissions = {
 
 ## 6.2 Permission Model & Tier Walker
 
-The permission system maps user types to command tiers. oot grants all access; user grants most access (home, most binaries, most networking); guest grants limited access (home, read-only in many places, no privilege escalation).
+The permission system maps user types to command tiers.
+oot grants all access; user grants most access (home, most binaries, most networking); guest grants limited access (home, read-only in many places, no privilege escalation).
 
 **Permission Walker** (src/filesystem/permissionWalker.ts) is a pure shared module imported by both client and server for identical allow/deny decisions:
 
@@ -2160,13 +2194,14 @@ checkPermission({
 ```
 
 Logic:
+
 1. If userType === 'root', allow unconditionally.
 2. For each parent in the chain (root-to-immediate-parent), check that the user has execute permission. Parent execution failure blocks traversal regardless of target.
 3. Check that the user appears in the target's mode-specific list.
 
 Three mode-locked wrappers (canRead, canWrite, canExecute) are provided for call-site clarity. The walker is deterministic — same inputs always produce identical results, enabling client-side patch filtering to agree with server-side L2 enforcement.
 
-**Default permissions for new files**: Files created via 
+**Default permissions for new files**: Files created via
 ano, createFile, or patches without explicit permissions default to execute: ['root'] only (matching Unix umask behavior where new files are not executable). Edits preserve existing permissions via FileSystemPatch.permissions. The chmod command adds execute permission.
 
 ## 6.3 /etc/passwd Canonical Format
@@ -2174,12 +2209,10 @@ ano, createFile, or patches without explicit permissions default to execute: ['r
 The /etc/passwd file is a canonical plaintext record of all users on a machine. It is generated by generatePasswdContent() from the UserConfig[] array passed to createFileSystem().
 
 **Format** (7 colon-delimited fields):
-`
-username:passwordHash:uid:gid:gecos:home:shell
+`username:passwordHash:uid:gid:gecos:home:shell
 root:5f4dcc3b5aa765d61d8327deb882cf99:0:0:root:/root:/bin/bash
 jsmith:2c26b46911185131006ba5d4b4970f1f:1000:1000:jsmith:/home/jsmith:/bin/bash
-guest:e99a18c428cb38d5f260853678922e03:1001:1001:guest:/home/guest:/bin/bash
-`
+guest:e99a18c428cb38d5f260853678922e03:1001:1001:guest:/home/guest:/bin/bash`
 
 - **username**: User identity (root, jsmith, guest).
 - **passwordHash**: MD5 hash of the plaintext password (MD5 per RFC 1321, used in this game for deterministic reproducibility).
@@ -2191,7 +2224,8 @@ guest:e99a18c428cb38d5f260853678922e03:1001:1001:guest:/home/guest:/bin/bash
 **Authentication parsing**: The su command and SSH login both read /etc/passwd (if readable by the user), then compare the plaintext password against the stored hash. Server-side login handlers strip the hash from response objects — only the filesystem persists it.
 
 **UserType derivation**: When a user logs in, their userType is determined by their username:
-- oot → 'root'
+
+- oot → 'root'
 - Anything else → 'user'
 - Special case: guest → 'guest' (if explicitly configured)
 
@@ -2206,6 +2240,7 @@ su [username] prompts for a password, reads /etc/passwd (if readable by the curr
 **On FTP-entry machines**: SSH passwords are non-wordlist (from MISSION_PASSWORDS pool), so hydra cracking fails. However, FTP virtual users (in /etc/vsftpd/virtual_users.conf) have passwords from the wordlist and can be cracked. Guest users are omitted on FTP-entry machines to prevent bypassing the FTP requirement.
 
 **Password pools**:
+
 - **MISSION_PASSWORDS** (120 entries) — non-crackable, reserved for root accounts and FTP-entry machines.
 - **WORDLIST_PASSWORDS** (60 entries) — crackable by hydra, used for regular user SSH passwords.
 - **GUEST_PASSWORDS** (20 entries) — always in hydra's wordlist, used for guest accounts.
@@ -2219,10 +2254,8 @@ FTP-entry networks force players to FTP first (guest SSH is omitted; root SSH is
 ### 6.4.3 ftp (FTP Virtual Users)
 
 FTP credentials are separate from system users. The /etc/vsftpd/virtual_users.conf file stores FTP-specific accounts in format:
-`
-username:md5hash
-username:md5hash
-`
+`username:md5hash
+username:md5hash`
 
 Passwords are drawn from WORDLIST_PASSWORDS (crackable), differing from system SSH passwords. FTP-entry machines always have virtual users; ~40% of other FTP-open machines get them for variety. Players can crack FTP via hydra, discover credentials in HTML content (curl), or find them in backup scripts / config files (privilege-escalation-required leaks).
 
@@ -2276,10 +2309,9 @@ const createPrng = (seed: string): Prng => {
 ```
 
 **PRNG API**:
-- 
-ext() — float in [0, 1)
-- 
-extInt(min, max) — integer in [min, max] inclusive
+
+- ext() — float in [0, 1)
+- extInt(min, max) — integer in [min, max] inclusive
 - pick(items) — random element from array
 - pickN(items, n) — Fisher-Yates partial shuffle, returns n random elements
 - shuffle(items) — full shuffle via pickN(items, items.length)
@@ -2289,6 +2321,7 @@ extInt(min, max) — integer in [min, max] inclusive
 ## 6.7 IP / Binary Generation
 
 **Public IP generation** (src/generation/ip.ts):
+
 ```typescript
 generatePublicIp(prng, usedIps?) → string
 ```
@@ -2296,11 +2329,13 @@ generatePublicIp(prng, usedIps?) → string
 Picks a realistic first octet from a pool of hosting/cloud prefixes (45, 51, 62, 78, 91, 103, etc.) and randomizes the remaining three octets. When usedIps is provided (a Set of already-allocated IPs), re-rolls until a unique IP is found (max 100 attempts).
 
 **Private subnet generation**:
+
 ```typescript
 generatePrivateSubnet(prng) → string
 ```
 
 Returns a prefix from RFC 1918 ranges:
+
 - 50% chance: 10.x.x
 - 30% chance: 172.{16-31}.x
 - 20% chance: 192.168.{2-254} (avoids 192.168.1.x, the localhost/gateway default)
@@ -2320,10 +2355,12 @@ Generates an ELF magic header (\x7fELF + noise), then for each line of content, 
 Each machine role (webserver, database, fileserver, workstation, mailserver, iot, dns, router, switch) has role-specific directory templates and config file pools:
 
 **Role-specific configs** (src/generation/pools/filesystem.ts):
+
 - Templates for service configurations (nginx, apache, mysql, postfix, bind, snmpd, etc.)
 - Placeholder vars: {{port}}, {{hostname}}, {{username}}, {{password}}, {{ip}}, {{subnet}}
 
 **Built-in directories** (all roles):
+
 - /root — root home directory with optional custom content
 - /home/{user} — per-user home directories with noise files and red herrings
 - /etc/passwd — auto-generated from user list
@@ -2336,10 +2373,12 @@ Each machine role (webserver, database, fileserver, workstation, mailserver, iot
 - /lib — shared libraries (loaded at day-zero version)
 
 **Extra directories** (merged via mergeFileNodeChildren()):
+
 - /srv, /opt, /var/www — role-specific content (web pages, databases, scripts, target files)
 - /usr/local — custom paths for binary-wrapped files or encryption keys
 
 **Credential leaks** (~30% per machine):
+
 - Same-machine: guest-readable files (backup scripts, deploy logs, .bash_history) containing non-root user credentials
 - Cross-machine: root/user-owned files (ansible inventories, .ssh/config) containing same-layer peer credentials (requires escalation to discover)
 - Web credential exposure: guest-readable files in /var/www/html/ containing same-machine credentials
@@ -2347,19 +2386,23 @@ Each machine role (webserver, database, fileserver, workstation, mailserver, iot
 ## 6.9 Generated Config Files (/etc/hosts, resolv.conf, network/interfaces, DNS zone)
 
 **DNS configuration** (generateDnsZoneContent(), generateDnsNamedConf()):
+
 - Zone file format (BIND-compatible) with SOA, NS, A records for all machines in the network
-- 
-amed.conf with zone file path and ACLs
+- amed.conf with zone file path and ACLs
 
 **SNMP configuration** (generateSnmpConfig(), generateBasicSnmpConfig()):
+
 - SNMP-variant machines: full community strings, system OIDs, leaked credentials, firewall OIDs, dual-homed subnet discovery (ifAddr.2)
-- Non-SNMP-variant machines: difficulty-based chance (easy 80%, medium 60%, hard 40%) of basic read-only SNMP (ocommunity public only)
+- Non-SNMP-variant machines: difficulty-based chance (easy 80%, medium 60%, hard 40%) of basic read-only SNMP (
+  ocommunity public only)
 
 **iptables rules** (generateIptablesContent()):
+
 - Router/gateway: forwarding or NAT rules (depending on network mode)
 - Format: /etc/iptables/rules.v4 (saved iptables rules)
 
 **ACL rules** (generateAclContent(), for managed switches):
+
 - Switch-role gateways: per-port ACL rules instead of NAT
 
 ## 6.10 Generation Pools Catalog
@@ -2367,53 +2410,64 @@ amed.conf with zone file path and ACLs
 Procedural generation pulls from static data pools organized by domain:
 
 ### Machines Pool
+
 - Usernames per role (webserver: www-data, webadmin; database: dbadmin, mysql; etc.)
 - Hostname templates (e.g., prod-db-{n}, web-{region}-{n})
 - Role-specific user counts and personality details
 
 ### Ports Pool
+
 - Port templates per entry variant (SSH port 22, FTP port 21, etc.)
 - Non-standard ports for backdoors (4444, 31337, 8888, 1337)
 - Port closures: ~30% of SSH/FTP ports close with NC backdoor fallbacks
 
 ### Vulnerabilities Pool
+
 - 39 hand-authored VulnerabilityTemplate entries (historical CVEs)
 - Fallback to procedural timeline walker for any service/version/gameTime combo not hand-authored
 - CVE coverage: SSH, FTP, HTTP, MySQL, Redis, SNMP, DNS, SMTP, MQTT, IoT, etc.
 
 ### Filesystem Configs Pool
+
 - Role-appropriate config templates (nginx.conf for webserver, my.cnf for database, etc.)
 - Credential leak templates (~30% placement), cross-machine credential leak templates (~30%), web credential templates
 - Noise files (readme, logs, backups) and red herrings (decoys, fake credentials)
 
 ### Web Content Pool
+
 - HTML, CSS, JavaScript templates per role
 - Thematic content (product pages, admin panels, status dashboards)
 
 ### Scripts Pool
+
 - script_fix: broken JavaScript with syntax/logic/corruption bugs
 - script_auto: automation scripts for local or remote API flavors
 - scriptFix templates: bug templates (missing semicolon, wrong operator, corrupted byte)
 
 ### Forensics Pool
+
 - Evidence templates (log entries with attacker handles, artifacts, timestamps)
 - Evidence pools split by attack chain stage (reconnaissance, lateral movement, exfiltration)
 
 ### Malware Pool
+
 - Malware templates per role (cryptominer, data exfiltrator, persistence backdoor)
 - Binary wrapping: ~25% wrapped in noise
 - Calling cards: PID files, beacon artifacts, log entries
 
 ### Database Pool
+
 - Table schema templates per role
 - Tamper/fix scenarios: rows to modify, column filters, old/new values
 - Sabotage targets: credential tables, audit logs, schema permissions
 
 ### Redis Pool
+
 - Key-value store templates (cache, session storage, feature flags)
 - Password-protected: ~35% of database machines
 
 ### Firmware/Library/Service Templates
+
 - Router firmware: Cisco, MikroTik, DD-WRT, OpenWRT, pfSense, EdgeOS (each with version timelines)
 - System libraries: libpam, libcrypt, libsystemd, libreadline, libssl, libz, libxml2, libpcre
 - Service versions: 20 services (Apache, nginx, MySQL, PostgreSQL, OpenSSH, etc.)
@@ -2423,18 +2477,19 @@ Procedural generation pulls from static data pools organized by domain:
 Sensitive strings (WiFi passwords, mission root passwords, SNMP community strings) are XOR+Base64 encoded at build time to prevent bundle inspection. The encode script (scripts/encode.ts) is auto-run by predev, prebuild, pretest hooks.
 
 **Encoding flow**:
+
 1. src/secrets/secrets.ts — plaintext key-value pairs (e.g., WIFI_PASSWORD, MISSION_PASSWORDS JSON array)
-2. 
-pm run encode — invokes scripts/encode.ts:
+2. pm run encode — invokes scripts/encode.ts:
    - Imports plaintext secrets
    - For each key-value pair: calls encodeContent(value) (XOR + Base64)
-   - Writes src/secrets/__encoded.ts (gitignored)
-3. App code imports from __encoded.ts, not the plaintext source
+   - Writes src/secrets/\_\_encoded.ts (gitignored)
+3. App code imports from \_\_encoded.ts, not the plaintext source
 4. Tests import from plaintext source directly (unaffected by encoding)
 
 **Verification**: grep -r "FLAG{" dist/ and grep -r "cr4ck3d_w1f1" dist/ after build should return zero matches. Mission flags are generated at runtime (not embedded in bundle), so only encoded secrets should be checked.
 
 **Current secrets**:
+
 - WIFI_PASSWORD — legacy static WiFi password
 - WIFI_PASSWORDS — JSON array of 40 passwords for seeded WiFi generation
 - MISSION_PASSWORDS — JSON array of 120 non-crackable passwords (reserved for root/FTP-entry)
@@ -2456,6 +2511,7 @@ decodeFileSystem(root: FileNode) → FileNode
 ```
 
 **XOR mechanics**:
+
 - Cycle the codec key (JSHACK_CTF) byte-by-byte across the plaintext
 - Base64 encode the XORed bytes
 - Reverse: Base64 decode, XOR again (XOR is self-inverse)
@@ -2467,19 +2523,21 @@ This is an anti-cheat measure to prevent bundle inspection (e.g., strings dist/b
 User-created/modified files are persisted as FileSystemPatch arrays in IndexedDB (database jshack-db, store ilesystem, key patches). On init, patches are replayed on top of the base filesystem. Only the diff is stored — clearing the database resets to factory state.
 
 **FileSystemPatch format**:
+
 ```typescript
 type FileSystemPatch = {
-  readonly machineId: string;  // machine IP or hostname
-  readonly path: string;       // /path/to/file
-  readonly content: string | null;  // null = deletion
+  readonly machineId: string; // machine IP or hostname
+  readonly path: string; // /path/to/file
+  readonly content: string | null; // null = deletion
   readonly owner: UserType;
-  readonly permissions?: FilePermissions;  // explicit permissions (preserve on edit)
-  readonly isNew?: true;  // hint for patch ordering
-  readonly nodeType?: 'file' | 'directory';  // empty dirs need explicit type
+  readonly permissions?: FilePermissions; // explicit permissions (preserve on edit)
+  readonly isNew?: true; // hint for patch ordering
+  readonly nodeType?: 'file' | 'directory'; // empty dirs need explicit type
 };
 ```
 
 **Persistence flow**:
+
 1. User creates/edits a file via writeFile(), createFile(), or patch mutation
 2. Client calls roadcastAndRecordPatch(), which:
    - Emits BroadcastChannel message for same-origin tabs
@@ -2491,11 +2549,13 @@ type FileSystemPatch = {
 6. On reload, patches are fetched from server and replayed on the base filesystem
 
 **Multi-tab coordination**:
+
 - BroadcastChannel sync (useFileSystemSync.ts): patches are broadcast to same-origin tabs
 - IndexedDB sharing: session storage per tab, filesystem patches shared globally
 - Debounced rehydration: after tab regains focus, fetch latest patches from server with exponential backoff
 
 **Mission patch lifecycle**:
+
 - On mission start, patches are generated and stored with the mission seed
 - On mission change/end, old patches are cleared, new patches loaded
 - Mission reload (same seed) replays the same patches on a regenerated base filesystem
@@ -2537,6 +2597,7 @@ The generation pipeline orchestrates filesystem creation for all machines in a m
 5. **Serialization** — strip hashes from users, encode filesystem content (optional), return to client
 
 **Critical load-bearing details**:
+
 - PRNG consumption is fixed per machine type — overriding a keyword (e.g., "easy" vs. derived difficulty) still consumes the PRNG call, maintaining sequence stability
 - Credential leaks always consume 2–3 PRNG calls, even if the roll says "skip" — ensures generation determinism
 - FTP-entry machines skip guest users and use non-wordlist SSH passwords — gameplay constraint
@@ -2636,7 +2697,7 @@ Menu buttons (NEW GAME, CONTINUE, START, BACK) have bordered styling with theme-
 1. **BIOS messages** — "Initializing system…", "Memory test… 4096 MB OK" (dim text)
 2. **Kernel load** — "Loading Linux 5.15.0…", "Loading initial ramdisk" (standard text)
 3. **Kernel boot logs** — Realistic kernel timestamps and subsystem init lines (dim text, scrolling)
-4. **systemd startup** — Service init messages with "[  OK  ]" prefixes:
+4. **systemd startup** — Service init messages with "[ OK ]" prefixes:
    - Journal Service
    - Local File Systems
    - Login Service
@@ -2658,18 +2719,19 @@ Each step has a `delay` property (milliseconds) that stagger the lines for reali
 
 ```typescript
 type Session = {
-  readonly username: string;        // Player-chosen, e.g., "jshacker"
-  readonly userType: UserType;      // 'root' | 'user' | 'guest'
-  readonly machine: string;         // IP or hostname, e.g., "192.168.1.75"
-  readonly hostname?: string;       // Display name for prompt, e.g., "dist-rtr"
-  readonly currentPath: string;     // Working directory, e.g., "/home/jshacker"
-  readonly theme: ThemeId;          // 'amber' | 'green' | 'cyan' | 'light'
+  readonly username: string; // Player-chosen, e.g., "jshacker"
+  readonly userType: UserType; // 'root' | 'user' | 'guest'
+  readonly machine: string; // IP or hostname, e.g., "192.168.1.75"
+  readonly hostname?: string; // Display name for prompt, e.g., "dist-rtr"
+  readonly currentPath: string; // Working directory, e.g., "/home/jshacker"
+  readonly theme: ThemeId; // 'amber' | 'green' | 'cyan' | 'light'
 };
 ```
 
 ### Default Session
 
 On app start (or new tab), the session initializes to:
+
 - `username` = player-chosen name from intro
 - `userType` = 'user'
 - `machine` = 'localhost'
@@ -2825,6 +2887,7 @@ The seed controls:
 3. **Localhost** — Generated via `generateLocalhost(gameState, hostname)`, which uses the game seed to derive guest account password and other deterministic content.
 
 The seed does NOT control:
+
 - Session state (current user, machine, path — these are transient per-tab)
 - Theme choice (persisted but player-controlled)
 - Filesystem patches (mutable via gameplay)
@@ -2843,18 +2906,19 @@ Static WiFi networks are defined in `src/network/wifiNetworks.ts`:
 
 ```typescript
 type WifiNetwork = {
-  readonly bssid: string;              // MAC address, e.g. "A4:CF:12:D3:8B:7A"
-  readonly essid: string;              // Network name
-  readonly power: number;              // Signal strength (-42 to -93)
-  readonly channel: number;            // WiFi channel (1–11)
+  readonly bssid: string; // MAC address, e.g. "A4:CF:12:D3:8B:7A"
+  readonly essid: string; // Network name
+  readonly power: number; // Signal strength (-42 to -93)
+  readonly channel: number; // WiFi channel (1–11)
   readonly encryption: 'WPA2' | 'WPA3' | 'WEP' | 'OPEN';
-  readonly crackable: boolean;          // Is the password discoverable?
-  readonly password?: string;           // (if crackable) Plaintext password from secrets
-  readonly tier?: WifiTier;             // 'crowded' | 'shared' | 'solo' (crackable only)
+  readonly crackable: boolean; // Is the password discoverable?
+  readonly password?: string; // (if crackable) Plaintext password from secrets
+  readonly tier?: WifiTier; // 'crowded' | 'shared' | 'solo' (crackable only)
 };
 ```
 
 Example network:
+
 ```javascript
 {
   bssid: 'A4:CF:12:D3:8B:7A',
@@ -2961,12 +3025,12 @@ Terminal colors are themeable via CSS custom properties. Player can switch theme
 
 ### Available Themes
 
-| ID      | Name           | Style                  |
-| ------- | -------------- | ---------------------- |
-| `amber` | Amber (default) | Classic amber CRT      |
-| `green` | Green Phosphor | Green-on-black terminal |
-| `cyan`  | Cyan           | Cyan/blue CRT          |
-| `light` | Light          | Dark on light bg       |
+| ID      | Name            | Style                   |
+| ------- | --------------- | ----------------------- |
+| `amber` | Amber (default) | Classic amber CRT       |
+| `green` | Green Phosphor  | Green-on-black terminal |
+| `cyan`  | Cyan            | Cyan/blue CRT           |
+| `light` | Light           | Dark on light bg        |
 
 ### Color Tokens (14)
 
@@ -3055,6 +3119,7 @@ Each context broadcasts only on locally-initiated changes (explicit method calls
 ### Tab Title Updates
 
 `SessionContext` updates `document.title` based on the current session mode:
+
 - `username@machine — JSHACK.ME` (normal)
 - `ftp> — JSHACK.ME` (FTP mode)
 - `nc shell — JSHACK.ME` (NC mode)
@@ -3076,6 +3141,7 @@ Three-layer persistence architecture ensures state survives page refresh:
 ### Layer 1: Storage API (`storage.ts`)
 
 Low-level adapter:
+
 - **IndexedDB** — Shared state: WiFi connection, mission seed, filesystem patches, bricked machines, theme
 - **sessionStorage** — Per-tab state: Session (user, machine, path, theme, SSH stack), FTP/NC/MySQL mode
 
@@ -3100,18 +3166,19 @@ Each context writes to storage on state changes:
 
 ### Storage Layout
 
-| State                           | Storage                         | Scope  |
-| ------------------------------- | ------------------------------- | ------ |
-| Session (user, machine, path, theme, stacks)  | sessionStorage            | Per-tab |
-| WiFi connected                  | IndexedDB                       | Shared |
-| Mission seed                    | IndexedDB                       | Shared |
-| Filesystem patches              | IndexedDB                       | Shared |
-| Bricked machines                | IndexedDB                       | Shared |
-| SSH keys (`~/.ssh_keys`)        | Filesystem patches (IndexedDB)  | Shared |
+| State                                        | Storage                        | Scope   |
+| -------------------------------------------- | ------------------------------ | ------- |
+| Session (user, machine, path, theme, stacks) | sessionStorage                 | Per-tab |
+| WiFi connected                               | IndexedDB                      | Shared  |
+| Mission seed                                 | IndexedDB                      | Shared  |
+| Filesystem patches                           | IndexedDB                      | Shared  |
+| Bricked machines                             | IndexedDB                      | Shared  |
+| SSH keys (`~/.ssh_keys`)                     | Filesystem patches (IndexedDB) | Shared  |
 
 ### Patch-Based Persistence
 
 Filesystem changes are stored as patches (diffs from base), not full snapshots. Each patch records:
+
 - Machine ID (localhost, home network IP, mission IP, etc.)
 - Path
 - New content (or `null` for deletion)
@@ -3123,6 +3190,7 @@ On init, patches are replayed in order via `applyPatches()`, reconstructing the 
 ### Mission Persistence
 
 Active mission seed is stored in IndexedDB. On reload:
+
 1. `useMissionState` reads the seed
 2. `generateMissionNetwork(seed)` deterministically regenerates the full network
 3. Cached mission patches are replayed on top
@@ -3132,6 +3200,7 @@ When a mission ends/transitions, mission patches are cleaned up.
 ### Permadeath Clears IndexedDB
 
 `reset("confirm")` calls `clearAllData()`, which deletes all IndexedDB stores. This:
+
 - Clears WiFi connection (forces re-crack)
 - Clears mission seed (mission lost)
 - Clears filesystem patches (localhost state reset, home networks reset)
@@ -3164,6 +3233,7 @@ When the player loses their workstation, they can either repair or start fresh.
 ### Identity Persistence
 
 The player's Ed25519 identity is stored in `localStorage.jshack.identity`, NOT in IndexedDB. Even a full reset doesn't wipe identity. This allows:
+
 - Same player reputation across resets (multiplayer messaging/darknet listings)
 - Predictable workstation ID (identity-derived suffix stays the same)
 - Cross-session key integrity (same keys for API requests)
@@ -3235,6 +3305,7 @@ SessionProvider
 ### 7.14.3 Mission Instances (Per-Acceptance, Permanent, Shareable)
 
 Each `accept(seed)` creates a new mission instance from the seed. The instance is:
+
 - **Persistent** — Persisted to IndexedDB (seed + patches)
 - **Per-acceptance** — Same seed accepted twice = two separate instances (not merged)
 - **Shareable** — On multiplayer LANs, the instance can be accessed/hacked by other players (future feature, blocked on `mission_instances` table)

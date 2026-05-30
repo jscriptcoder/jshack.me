@@ -16,16 +16,16 @@ The goal: a Solid engineer (or future Claude session) can re-implement the whole
 
 Captured across multiple sections (Section 4 is the hub):
 
-| Layer | Where documented | What it protects |
-| ---- | ---------------- | ---------------- |
-| L0 — transport / envelope | §4.3 signed envelope + §4.3 replay protection | Forgery, replay, signature malleability |
-| L1 — session presence    | §4.8 + ambient-log allowlist                  | "Caller has no session on this machine"  |
-| L2 — write permission    | §4.9 walker + machine_filesystems projection  | Guest writing to root-owned paths        |
-| L2 — read privacy        | §4.10 three-tier read filter                  | No-session callers reading secrets       |
-| L2 — auth + userType     | §4.6 createSession + authCreateSession        | Forging "I am root" via envelope         |
+| Layer                      | Where documented                              | What it protects                             |
+| -------------------------- | --------------------------------------------- | -------------------------------------------- |
+| L0 — transport / envelope  | §4.3 signed envelope + §4.3 replay protection | Forgery, replay, signature malleability      |
+| L1 — session presence      | §4.8 + ambient-log allowlist                  | "Caller has no session on this machine"      |
+| L2 — write permission      | §4.9 walker + machine_filesystems projection  | Guest writing to root-owned paths            |
+| L2 — read privacy          | §4.10 three-tier read filter                  | No-session callers reading secrets           |
+| L2 — auth + userType       | §4.6 createSession + authCreateSession        | Forging "I am root" via envelope             |
 | L3 — game-logic (deferred) | §4.17 + §4.18 boundary table                  | Forge bypasses on exploitRead/password_reset |
-| RLS (Supabase)           | §4.4 per-table posture                        | Direct anon SELECT on sensitive tables   |
-| Anti-cheat (client)      | §6.11 build-time secrets encoding             | Flag/password search through JS bundle   |
+| RLS (Supabase)             | §4.4 per-table posture                        | Direct anon SELECT on sensitive tables       |
+| Anti-cheat (client)        | §6.11 build-time secrets encoding             | Flag/password search through JS bundle       |
 
 ## Sections
 
