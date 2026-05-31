@@ -2,12 +2,13 @@ import { createEffect, For } from 'solid-js';
 import type { TerminalLine } from '../../core/commands/types';
 import { formatPrompt } from '../../core/shell/prompt';
 import { BANNER } from '../banner';
-import { SEED_HOST, SEED_USERNAME } from '../seed';
 import {
   cwd,
   historyDown,
   historyUp,
   input,
+  promptHost,
+  promptUsername,
   runInput,
   scrollback,
   setInput,
@@ -25,7 +26,8 @@ const LINE_COLOR: Record<TerminalLine['kind'], string> = {
 };
 
 /** Reactive prompt — re-evaluated by Solid each time `cwd()` changes. */
-const livePrompt = () => formatPrompt({ username: SEED_USERNAME, host: SEED_HOST, cwd: cwd() });
+const livePrompt = () =>
+  formatPrompt({ username: promptUsername(), host: promptHost(), cwd: cwd() });
 
 export const Terminal = () => {
   let output: HTMLDivElement | undefined;
