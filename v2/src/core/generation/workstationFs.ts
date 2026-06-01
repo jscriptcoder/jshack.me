@@ -11,14 +11,16 @@
  *   - `buildWorkstationBaseFs` is the thin player-specific composer that builds
  *     the `[root, player(empty hash), guest]` user list and assembles the tree.
  *
- * Skeleton is intentionally minimal: `/etc/passwd`, `/home/<username>`, `/root`,
- * `/tmp` and nothing else. `/bin` tools, `/lib`, logs, dotfiles land in later
- * slices when a command actually consumes them.
+ * Base skeleton: `/etc/passwd`, `/home/<username>`, `/root`, `/tmp`, and `/bin`
+ * (system-utility binary stubs that gate command execution — see `binaries.ts`).
+ * `/usr/bin` (pre-installed apt tools), `/lib` (shared libraries), logs, and
+ * dotfiles land in later slices when a command actually consumes them.
  */
 
 import type { GameConfig } from '../gameConfig/gameConfig';
 import type { Directory, FileEntry, FileNode, FilePermissions } from '../filesystem/types';
 import { createPrng } from './prng';
+import { createBinaryEntries, SYSTEM_UTILITY_NAMES } from './binaries';
 import { md5 } from './md5';
 
 // --- Permission boundaries (mirror the pre-generator ui/seed.ts) ---
@@ -145,6 +147,7 @@ export const buildWorkstationBaseFs = (seedPubkeyHex: string, config: GameConfig
 
   return dir(
     {
+      bin: dir(createBinaryEntries(SYSTEM_UTILITY_NAMES), TRAVERSABLE_DIR),
       etc: dir({ passwd: file(passwd, PASSWD_FILE) }, TRAVERSABLE_DIR),
       home: dir({ [config.username]: dir({}, HOME_DIR, config.username) }, TRAVERSABLE_DIR),
       root: dir({}, ROOT_DIR),

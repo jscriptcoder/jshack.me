@@ -3,6 +3,7 @@ import type { GameConfig } from '../gameConfig/gameConfig';
 import type { Directory, FileNode } from '../filesystem/types';
 import { canRead, canWrite } from '../filesystem/walker';
 import { buildWorkstationBaseFs } from './workstationFs';
+import { RESTRICTED_EXECUTE, SYSTEM_UTILITY_NAMES } from './binaries';
 import { md5 } from './md5';
 
 /**
@@ -78,14 +79,63 @@ describe('buildWorkstationBaseFs', () => {
     expect(guestHashA).not.toBe(guestHashB);
   });
 
-  it('contains exactly the minimal skeleton and nothing else', () => {
+  it('contains exactly the base skeleton and nothing else', () => {
     const fs = buildWorkstationBaseFs(SEED_A, getConfig());
-    expect([...fs.entries.keys()].sort()).toEqual(['etc', 'home', 'root', 'tmp']);
+    // Allow-list, deliberately explicit: `/bin` joins the skeleton in this
+    // slice (system-utility binaries); `/usr/bin` + `/lib` land in slices 2-3.
+    expect([...fs.entries.keys()].sort()).toEqual(['bin', 'etc', 'home', 'root', 'tmp']);
     expect([...dirAt(fs, 'etc').entries.keys()]).toEqual(['passwd']);
     expect([...dirAt(fs, 'home').entries.keys()]).toEqual(['alice']);
     expect(dirAt(fs, 'home', 'alice').entries.size).toBe(0);
     expect(dirAt(fs, 'root').entries.size).toBe(0);
     expect(dirAt(fs, 'tmp').entries.size).toBe(0);
+  });
+
+  describe('/bin system-utility binaries', () => {
+    const baseFs = (): Directory => buildWorkstationBaseFs(SEED_A, getConfig());
+
+    it('populates /bin with exactly the system-utility set', () => {
+      expect([...dirAt(baseFs(), 'bin').entries.keys()].sort()).toEqual(
+        [...SYSTEM_UTILITY_NAMES].sort(),
+      );
+    });
+
+    it('includes the binaries every currently-gated v2 command needs', () => {
+      // The gated v2 commands (cat/grep/ls/man/mkdir/rm/touch) plus the
+      // connectivity tools the arc depends on (ifconfig/nmcli) and apt itself.
+      const binKeys = [...dirAt(baseFs(), 'bin').entries.keys()];
+      const required = ['cat', 'grep', 'ls', 'man', 'mkdir', 'rm', 'touch', 'ifconfig', 'nmcli', 'apt'];
+      required.forEach((name) => expect(binKeys).toContain(name));
+    });
+
+    it('makes binaries root-owned and world-executable by default', () => {
+      const lsBin = dirAt(baseFs(), 'bin').entries.get('ls');
+      if (lsBin?.kind !== 'file') throw new Error('missing /bin/ls');
+      expect(lsBin.owner).toBe('root');
+      // A system binary is a real (non-empty) stub file — `ls -l /bin` shows a
+      // non-zero size, `cat`/`strings` show ELF-ish bytes.
+      expect(lsBin.content.length).toBeGreaterThan(0);
+      expect(lsBin.perms.execute).toEqual(['root', 'user', 'guest']);
+      // World-readable, root-only writable (you can't tamper with a system binary).
+      expect(lsBin.perms.read).toEqual(['root', 'user', 'guest']);
+      expect(lsBin.perms.write).toEqual(['root']);
+    });
+
+    it('restricts execute on RESTRICTED_EXECUTE binaries (reboot is root-only)', () => {
+      const rebootBin = dirAt(baseFs(), 'bin').entries.get('reboot');
+      if (rebootBin?.kind !== 'file') throw new Error('missing /bin/reboot');
+      expect(rebootBin.perms.execute).toEqual(RESTRICTED_EXECUTE.reboot);
+      expect(rebootBin.perms.execute).toEqual(['root']);
+    });
+
+    it('makes /bin world-traversable but root-write-only', () => {
+      const bin = dirAt(baseFs(), 'bin');
+      expect(bin.perms).toEqual({
+        read: ['root', 'user', 'guest'],
+        write: ['root'],
+        execute: ['root', 'user', 'guest'],
+      });
+    });
   });
 
   it('generates a well-formed /etc/passwd: 3 users, 7 colon-delimited fields each', () => {
