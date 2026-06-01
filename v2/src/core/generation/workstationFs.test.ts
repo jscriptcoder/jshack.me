@@ -3,7 +3,7 @@ import type { GameConfig } from '../gameConfig/gameConfig';
 import type { Directory, FileNode } from '../filesystem/types';
 import { canRead, canWrite } from '../filesystem/walker';
 import { buildWorkstationBaseFs } from './workstationFs';
-import { RESTRICTED_EXECUTE, SYSTEM_UTILITY_NAMES } from './binaries';
+import { LOCALHOST_PREINSTALLED_TOOLS, RESTRICTED_EXECUTE, SYSTEM_UTILITY_NAMES } from './binaries';
 import { md5 } from './md5';
 
 /**
@@ -81,9 +81,10 @@ describe('buildWorkstationBaseFs', () => {
 
   it('contains exactly the base skeleton and nothing else', () => {
     const fs = buildWorkstationBaseFs(SEED_A, getConfig());
-    // Allow-list, deliberately explicit: `/bin` joins the skeleton in this
-    // slice (system-utility binaries); `/usr/bin` + `/lib` land in slices 2-3.
-    expect([...fs.entries.keys()].sort()).toEqual(['bin', 'etc', 'home', 'root', 'tmp']);
+    // Allow-list, deliberately explicit: `/bin` (system utils) and `/usr`
+    // (pre-installed apt tools under /usr/bin) are part of the skeleton; `/lib`
+    // lands in slice 3.
+    expect([...fs.entries.keys()].sort()).toEqual(['bin', 'etc', 'home', 'root', 'tmp', 'usr']);
     expect([...dirAt(fs, 'etc').entries.keys()]).toEqual(['passwd']);
     expect([...dirAt(fs, 'home').entries.keys()]).toEqual(['alice']);
     expect(dirAt(fs, 'home', 'alice').entries.size).toBe(0);
@@ -135,6 +136,39 @@ describe('buildWorkstationBaseFs', () => {
         write: ['root'],
         execute: ['root', 'user', 'guest'],
       });
+    });
+  });
+
+  describe('/usr/bin pre-installed apt tools', () => {
+    const baseFs = (): Directory => buildWorkstationBaseFs(SEED_A, getConfig());
+
+    it('populates /usr/bin with exactly the localhost pre-installed tools', () => {
+      expect([...dirAt(baseFs(), 'usr', 'bin').entries.keys()].sort()).toEqual(
+        [...LOCALHOST_PREINSTALLED_TOOLS].sort(),
+      );
+    });
+
+    it('pre-installs the wifi-cracking tools airmon/airdump/aircrack', () => {
+      const keys = [...dirAt(baseFs(), 'usr', 'bin').entries.keys()];
+      ['airmon', 'airdump', 'aircrack'].forEach((name) => expect(keys).toContain(name));
+    });
+
+    it('does NOT pre-install node or gpg (apt-installable, not bundled on a fresh box)', () => {
+      const keys = [...dirAt(baseFs(), 'usr', 'bin').entries.keys()];
+      expect(keys).not.toContain('node');
+      expect(keys).not.toContain('gpg');
+    });
+
+    it('makes /usr/bin binaries root-owned, non-empty and world-executable', () => {
+      const aircrack = dirAt(baseFs(), 'usr', 'bin').entries.get('aircrack');
+      if (aircrack?.kind !== 'file') throw new Error('missing /usr/bin/aircrack');
+      expect(aircrack.owner).toBe('root');
+      expect(aircrack.content.length).toBeGreaterThan(0);
+      expect(aircrack.perms.execute).toEqual(['root', 'user', 'guest']);
+    });
+
+    it('places the apt tools under /usr/bin and nothing else under /usr', () => {
+      expect([...dirAt(baseFs(), 'usr').entries.keys()]).toEqual(['bin']);
     });
   });
 
