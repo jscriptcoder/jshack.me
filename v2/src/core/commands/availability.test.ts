@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { wrapWithBinaryCheck } from './availability';
+import { wrapWithLibraryCheck } from './libraryDeps';
 import { commandRegistry } from './registry';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 import { mockCommandEnv, mockFsViewFromTree } from '../../test/factories/commandEnv';
@@ -205,6 +206,8 @@ describe('commandRegistry gating (registry wiring)', () => {
       bin: buildDirectory({
         ls: buildFile('', { owner: 'root', perms: { execute: ['root', 'user', 'guest'] } }),
       }),
+      // ls also links libpcre (slice 3) — present so it isn't linker-gated here.
+      lib: buildDirectory({ 'libpcre.so': libFile() }),
       tmp: buildDirectory({ 'note.txt': buildFile('x', { owner: 'alice' }) }),
     });
     const env = mockCommandEnv({
@@ -308,5 +311,163 @@ describe('wrapWithBinaryCheck — /usr/bin resolution + apt-install hint (slice 
     const result = await wrapped.execute(env, [], NO_FLAGS);
 
     expect(errorLines(result)).toEqual(['bash: ls: command not found']);
+  });
+});
+
+/** A root-owned, non-executable shared-library stub file. */
+const libFile = () =>
+  buildFile('\x7fELF-lib', {
+    owner: 'root',
+    perms: { read: ['root', 'user', 'guest'], write: ['root'], execute: [] },
+  });
+
+/** Build a tree whose `/lib` holds the named `<lib>.so` stub files. */
+const treeWithLibs = (libNames: readonly string[]) =>
+  buildDirectory({
+    lib: buildDirectory(Object.fromEntries(libNames.map((name) => [`${name}.so`, libFile()]))),
+  });
+
+describe('wrapWithLibraryCheck — library dependency gating (slice 3)', () => {
+  it('runs a command when every linked library is present', async () => {
+    // ls links libpcre; with /lib/libpcre.so present it runs normally.
+    const wrapped = wrapWithLibraryCheck(echoArgsCommand('ls'));
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(treeWithLibs(['libpcre']), { userType: 'user' }),
+    });
+
+    const result = await wrapped.execute(env, ['x', 'y'], NO_FLAGS);
+
+    expect(textLines(result)).toEqual(['x,y']);
+    expect(result.kind === 'sync' && result.exitCode).toBe(0);
+  });
+
+  it('emits the canonical dynamic-linker error (exit 127) when a linked .so is missing', async () => {
+    const wrapped = wrapWithLibraryCheck(echoArgsCommand('ls'));
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(buildDirectory({ lib: buildDirectory({}) }), { userType: 'user' }),
+    });
+
+    const result = await wrapped.execute(env, [], NO_FLAGS);
+
+    expect(errorLines(result)).toEqual([
+      'ls: error while loading shared libraries: libpcre.so: cannot open shared object file: No such file or directory',
+    ]);
+    expect(result.kind === 'sync' && result.exitCode).toBe(127);
+  });
+
+  it('runs a command with no library dependencies regardless of /lib (opt-in check)', async () => {
+    // mkdir is NOT in the manifest — it must run even with /lib emptied.
+    const wrapped = wrapWithLibraryCheck(echoArgsCommand('mkdir'));
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(buildDirectory({ lib: buildDirectory({}) }), { userType: 'user' }),
+    });
+
+    const result = await wrapped.execute(env, ['newdir'], NO_FLAGS);
+
+    expect(textLines(result)).toEqual(['newdir']);
+    expect(result.kind === 'sync' && result.exitCode).toBe(0);
+  });
+
+  it('reports the FIRST missing library in dependency order (su → libpam before libcrypt)', async () => {
+    // su links [libpam, libcrypt]. With only libcrypt present, libpam is named.
+    const wrapped = wrapWithLibraryCheck(echoArgsCommand('su'));
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(treeWithLibs(['libcrypt']), { userType: 'user' }),
+    });
+
+    const result = await wrapped.execute(env, [], NO_FLAGS);
+
+    expect(errorLines(result)).toEqual([
+      'su: error while loading shared libraries: libpam.so: cannot open shared object file: No such file or directory',
+    ]);
+  });
+
+  it('checks every dependency, not just the first (su → libcrypt when libpam is present)', async () => {
+    const wrapped = wrapWithLibraryCheck(echoArgsCommand('su'));
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(treeWithLibs(['libpam']), { userType: 'user' }),
+    });
+
+    const result = await wrapped.execute(env, [], NO_FLAGS);
+
+    expect(errorLines(result)).toEqual([
+      'su: error while loading shared libraries: libcrypt.so: cannot open shared object file: No such file or directory',
+    ]);
+  });
+
+  it('treats a directory named like the .so as a missing library', async () => {
+    const wrapped = wrapWithLibraryCheck(echoArgsCommand('ls'));
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(
+        buildDirectory({ lib: buildDirectory({ 'libpcre.so': buildDirectory({}) }) }),
+        { userType: 'user' },
+      ),
+    });
+
+    const result = await wrapped.execute(env, [], NO_FLAGS);
+
+    expect(errorLines(result)).toEqual([
+      'ls: error while loading shared libraries: libpcre.so: cannot open shared object file: No such file or directory',
+    ]);
+  });
+});
+
+describe('commandRegistry — binary + library gating composed (slice 3)', () => {
+  it('reports the linker error when the binary is present but a linked library is missing', async () => {
+    const ls = commandRegistry.get('ls');
+    if (ls === undefined) throw new Error('ls not registered');
+    const tree = buildDirectory({
+      bin: buildDirectory({
+        ls: buildFile('', { owner: 'root', perms: { execute: ['root', 'user', 'guest'] } }),
+      }),
+      lib: buildDirectory({}), // /bin/ls present, libpcre.so missing
+      tmp: buildDirectory({}),
+    });
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(tree, { userType: 'user', cwd: asAbsPath('/tmp') }),
+    });
+
+    const result = await ls.execute(env, [], NO_FLAGS);
+
+    expect(errorLines(result)).toEqual([
+      'ls: error while loading shared libraries: libpcre.so: cannot open shared object file: No such file or directory',
+    ]);
+    expect(result.kind === 'sync' && result.exitCode).toBe(127);
+  });
+
+  it('prioritises command-not-found over the linker error when the binary is absent', async () => {
+    // Binary check is outermost: no /bin/ls AND no libpcre.so → not-found wins.
+    const ls = commandRegistry.get('ls');
+    if (ls === undefined) throw new Error('ls not registered');
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(buildDirectory({ lib: buildDirectory({}), tmp: buildDirectory({}) }), {
+        userType: 'user',
+        cwd: asAbsPath('/tmp'),
+      }),
+    });
+
+    const result = await ls.execute(env, [], NO_FLAGS);
+
+    expect(errorLines(result)).toEqual(['bash: ls: command not found']);
+  });
+
+  it('runs ls when both its binary and its libpcre library are present', async () => {
+    const ls = commandRegistry.get('ls');
+    if (ls === undefined) throw new Error('ls not registered');
+    const tree = buildDirectory({
+      bin: buildDirectory({
+        ls: buildFile('', { owner: 'root', perms: { execute: ['root', 'user', 'guest'] } }),
+      }),
+      lib: buildDirectory({ 'libpcre.so': libFile() }),
+      tmp: buildDirectory({ 'a.txt': buildFile('x', { owner: 'alice' }) }),
+    });
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(tree, { userType: 'user', cwd: asAbsPath('/tmp') }),
+    });
+
+    const result = await ls.execute(env, [], NO_FLAGS);
+
+    expect(textLines(result)).toEqual(['a.txt']);
+    expect(result.kind === 'sync' && result.exitCode).toBe(0);
   });
 });

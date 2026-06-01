@@ -25,6 +25,7 @@ import { pwd } from './pwd';
 import { rm } from './rm';
 import { touch } from './touch';
 import { isAlwaysAvailable, wrapWithBinaryCheck } from './availability';
+import { wrapWithLibraryCheck } from './libraryDeps';
 import type { Command } from './types';
 
 const builtins: readonly Command[] = [
@@ -42,11 +43,15 @@ const builtins: readonly Command[] = [
   touch,
 ];
 
-/** Gate a command behind its `/bin` binary unless it's a builtin/game command
- *  (no real binary). The wrapper preserves metadata and reads `env.fs` at run
+/** Gate a command behind its binary + linked libraries, unless it's a
+ *  builtin/game command (no real binary). The binary check is OUTERMOST so a
+ *  missing binary reports `command not found` before the library check can fire
+ *  its linker error. Both wrappers preserve metadata and read `env.fs` at run
  *  time, so the filesystem stays the source of truth for availability. */
 const gate = (command: Command): Command =>
-  isAlwaysAvailable(command.name) ? command : wrapWithBinaryCheck(command);
+  isAlwaysAvailable(command.name)
+    ? command
+    : wrapWithBinaryCheck(wrapWithLibraryCheck(command));
 
 export const commandRegistry: ReadonlyMap<string, Command> = new Map(
   builtins.map((command) => [command.name, gate(command)]),

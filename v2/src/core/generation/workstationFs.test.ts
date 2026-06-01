@@ -81,10 +81,17 @@ describe('buildWorkstationBaseFs', () => {
 
   it('contains exactly the base skeleton and nothing else', () => {
     const fs = buildWorkstationBaseFs(SEED_A, getConfig());
-    // Allow-list, deliberately explicit: `/bin` (system utils) and `/usr`
-    // (pre-installed apt tools under /usr/bin) are part of the skeleton; `/lib`
-    // lands in slice 3.
-    expect([...fs.entries.keys()].sort()).toEqual(['bin', 'etc', 'home', 'root', 'tmp', 'usr']);
+    // Allow-list, deliberately explicit: `/bin` (system utils), `/usr`
+    // (pre-installed apt tools under /usr/bin), and `/lib` (shared libraries).
+    expect([...fs.entries.keys()].sort()).toEqual([
+      'bin',
+      'etc',
+      'home',
+      'lib',
+      'root',
+      'tmp',
+      'usr',
+    ]);
     expect([...dirAt(fs, 'etc').entries.keys()]).toEqual(['passwd']);
     expect([...dirAt(fs, 'home').entries.keys()]).toEqual(['alice']);
     expect(dirAt(fs, 'home', 'alice').entries.size).toBe(0);
@@ -169,6 +176,49 @@ describe('buildWorkstationBaseFs', () => {
 
     it('places the apt tools under /usr/bin and nothing else under /usr', () => {
       expect([...dirAt(baseFs(), 'usr').entries.keys()]).toEqual(['bin']);
+    });
+  });
+
+  describe('/lib shared libraries', () => {
+    const baseFs = (): Directory => buildWorkstationBaseFs(SEED_A, getConfig());
+
+    it('populates /lib with exactly the 8 system-library .so files', () => {
+      // Hard-coded (NOT derived from SYSTEM_LIBRARIES) so a dropped, renamed, or
+      // typo'd library name is caught — a mangled .so would silently break the
+      // future commands that link it (ssh→libssl, apt→libz/libxml2, su→libpam).
+      expect([...dirAt(baseFs(), 'lib').entries.keys()].sort()).toEqual([
+        'libcrypt.so',
+        'libpam.so',
+        'libpcre.so',
+        'libreadline.so',
+        'libssl.so',
+        'libsystemd.so',
+        'libxml2.so',
+        'libz.so',
+      ]);
+    });
+
+    it('includes libpcre.so — the library ls/cat/grep/rm link against', () => {
+      expect(dirAt(baseFs(), 'lib').entries.has('libpcre.so')).toBe(true);
+    });
+
+    it('makes libraries root-owned, non-empty, world-readable and NOT executable as files', () => {
+      const libpcre = dirAt(baseFs(), 'lib').entries.get('libpcre.so');
+      if (libpcre?.kind !== 'file') throw new Error('missing /lib/libpcre.so');
+      expect(libpcre.owner).toBe('root');
+      expect(libpcre.content.length).toBeGreaterThan(0);
+      expect(libpcre.perms.read).toEqual(['root', 'user', 'guest']);
+      expect(libpcre.perms.write).toEqual(['root']);
+      // A .so is linked, never executed as a file — empty execute allowlist.
+      expect(libpcre.perms.execute).toEqual([]);
+    });
+
+    it('makes /lib world-traversable but root-write-only', () => {
+      expect(dirAt(baseFs(), 'lib').perms).toEqual({
+        read: ['root', 'user', 'guest'],
+        write: ['root'],
+        execute: ['root', 'user', 'guest'],
+      });
     });
   });
 
