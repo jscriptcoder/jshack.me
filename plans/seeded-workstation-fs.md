@@ -37,6 +37,19 @@ the own-workstation read path that already works.
    later slices when a command actually consumes them.
 6. **Seed namespace prefix**: `workstation-` (v2 has eliminated the legacy `localhost`
    literal — see migration `0002`/blueprint; use the workstation framing, not `localhost-`).
+7. **NPC-agnostic primitives** (forward-design for the epic): `buildWorkstationBaseFs` is the
+   *player-specific* composer ONLY. The reusable layer underneath it — `generatePasswd(users)`
+   and the skeleton assembler — MUST be parameterized purely by a `users[]` list + content
+   map, with **zero player-specific assumptions** (no hardcoded empty-hash "player user", no
+   identity-seed coupling). This mirrors legacy's proven split: `generateLocalhost.ts` (player)
+   and `users.ts` + `filesystem/generateFileSystems.ts` (NPC machines) are two distinct
+   composers that both funnel into one shared FS/passwd primitive (`createFileSystem`). Later
+   epic stories generate NPC workstations for home/themed/mission networks (role-based random
+   usernames, **crackable** wordlist passwords, no player account, no guest-by-default) via a
+   sibling `buildNpcWorkstationFs(seed, role)` that reuses these same primitives. Keeping the
+   primitives NPC-agnostic now is what makes that zero-rework. `buildWorkstationBaseFs` stays
+   the thin player composer that assembles the `[root, player(empty), guest]` list and calls
+   the shared primitives.
 
 ## Integration seam (CONFIRMED in code)
 
@@ -101,6 +114,9 @@ generation.
 **Path**: `core/generation` (PRNG port + `md5` port + `buildWorkstationBaseFs(seed, config)`
 + `generatePasswd(users)`) → emits the base `Directory` → existing `applyPatches` → `fsView`
 → `ls`/`cat`. `config` = the typed `{ machineName, username, rootPassword }` from Story 0.
+`generatePasswd(users)` + the skeleton assembler are **NPC-agnostic primitives** (decision 7):
+they take a `users[]` list + content map and know nothing about the player; only
+`buildWorkstationBaseFs` knows the player-specific `[root, player(empty), guest]` shape.
 Intentionally skipped: topology, remote machines, ports, auth, role templates, `/bin` tools.
 **Required implementation skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`
 (+ `typescript-strict` for the schema/types, `functional` for the pure builders).

@@ -170,7 +170,7 @@ export const resetTerminal = (): void => {
  *  here — the pure completer stays string-typed. */
 const buildCompleteAdapter = (): CompleteAdapter => {
   const activeSession = requireSession();
-  const fsView = createFsView(applyPatches(seedFs(requireConfig()), patches()), {
+  const fsView = createFsView(applyPatches(seedFs(requireConfig(), requireIdentity()), patches()), {
     userType: activeSession.userType,
     cwd,
   });
@@ -231,7 +231,7 @@ export const runInput = async (): Promise<void> => {
   const env = buildCommandEnv({
     identity: requireIdentity(),
     session: activeSession,
-    root: applyPatches(seedFs(requireConfig()), patches()),
+    root: applyPatches(seedFs(requireConfig(), requireIdentity()), patches()),
     cwd,
     onCwdChange: setCwd,
     patches: activePatchApi,
