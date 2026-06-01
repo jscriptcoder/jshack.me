@@ -17,7 +17,7 @@ const seedEnv = (userType: 'guest' | 'user' | 'root' = 'user') =>
   buildCommandEnv({
     identity: generateIdentity(),
     session: { ...seedSession(generateIdentity(), SEED_CONFIG), userType },
-    root: seedFs(SEED_CONFIG),
+    root: seedFs(SEED_CONFIG, generateIdentity()),
     cwd: () => seedHome,
     onCwdChange: () => undefined,
     patches: noopPatches,
@@ -44,7 +44,7 @@ describe('buildCommandEnv', () => {
     const env = buildCommandEnv({
       identity: generateIdentity(),
       session,
-      root: seedFs(SEED_CONFIG),
+      root: seedFs(SEED_CONFIG, generateIdentity()),
       cwd: () => seedHome,
       onCwdChange: () => undefined,
       patches: noopPatches,

@@ -36,7 +36,7 @@ describe('Terminal', () => {
     expect(
       await screen.findByText('alice@workstation:/home/alice$ cat /etc/passwd'),
     ).toBeInTheDocument();
-    expect(await screen.findByText(/alice:hunter2/)).toBeInTheDocument();
+    expect(await screen.findByText(/^alice::1000:1000:alice/)).toBeInTheDocument();
   });
 
   it('shows "command not found" for an unknown command', async () => {
@@ -49,7 +49,7 @@ describe('Terminal', () => {
   it('accumulates successive commands in the scrollback', async () => {
     renderTerminal();
     runCommand('cat /etc/passwd');
-    await screen.findByText(/alice:hunter2/);
+    await screen.findByText(/^alice::1000:1000:alice/);
     runCommand('frobnicate');
     await screen.findByText(/command not found/i);
 
@@ -58,13 +58,13 @@ describe('Terminal', () => {
   });
 
   it('numbers each line when -n is passed', async () => {
-    // /etc/passwd starts root:r00tpw on line 1, alice:hunter2 on line 2 —
-    // asserting BOTH catches "counter doesn't increment" mutants.
+    // /etc/passwd is root (md5'd hunter2) on line 1, alice (empty hash) on
+    // line 2 — asserting BOTH catches "counter doesn't increment" mutants.
     renderTerminal();
     runCommand('cat -n /etc/passwd');
 
-    expect(await screen.findByText(/^1 root:r00tpw/)).toBeInTheDocument();
-    expect(await screen.findByText(/^2 alice:hunter2/)).toBeInTheDocument();
+    expect(await screen.findByText(/^1 root:2ab96390/)).toBeInTheDocument();
+    expect(await screen.findByText(/^2 alice::1000/)).toBeInTheDocument();
   });
 
   it('shows an "unrecognized option" error for an unknown flag', async () => {
@@ -133,36 +133,37 @@ describe('Terminal', () => {
   });
 
   it('lists directory contents with `ls`', async () => {
-    // Seed FS: /etc contains `motd` and `passwd`. Both are world-readable
-    // ENTRIES of /etc (whose perms allow read); /etc/passwd's content
-    // is still gated separately. `ls` only needs to read the directory.
+    // Seed FS root is the generated minimal skeleton: etc, home, root, tmp.
+    // `ls` reads the directory and lists its entries.
     renderTerminal();
-    runCommand('ls /etc');
+    runCommand('ls /');
 
-    expect(await screen.findByText('motd')).toBeInTheDocument();
-    expect(await screen.findByText('passwd')).toBeInTheDocument();
+    expect(await screen.findByText('etc')).toBeInTheDocument();
+    expect(await screen.findByText('home')).toBeInTheDocument();
+    expect(await screen.findByText('root')).toBeInTheDocument();
+    expect(await screen.findByText('tmp')).toBeInTheDocument();
   });
 
   it('finds matching lines with `grep PATTERN file`', async () => {
-    // Seed FS: /etc/passwd contains alice's row. grep is case-insensitive
-    // by default; `Alice` matches the lowercase `alice` line.
+    // Seed FS: /etc/passwd contains alice's row (empty hash — the player can
+    // always exit() back). grep is case-insensitive; `Alice` matches `alice`.
     renderTerminal();
     runCommand('grep Alice /etc/passwd');
 
-    expect(await screen.findByText(/alice:hunter2/)).toBeInTheDocument();
+    expect(await screen.findByText(/^alice::1000:1000:alice:\/home\/alice/)).toBeInTheDocument();
   });
 
   it('`grep PATTERN /etc` recursively walks the directory and prefixes filepaths', async () => {
-    // Seed /etc has motd ("Welcome to JSHACK.ME...") and passwd. `Welcome`
-    // only appears in motd. The recursive walk emits `/etc/motd:<line>`.
+    // /etc/passwd is the only file in the minimal /etc. Its alice row matches,
+    // and the recursive walk emits `/etc/passwd:<line>`.
     renderTerminal();
-    runCommand('grep Welcome /etc');
+    runCommand('grep alice /etc');
 
-    expect(await screen.findByText(/^\/etc\/motd:Welcome to JSHACK\.ME/)).toBeInTheDocument();
+    expect(await screen.findByText(/^\/etc\/passwd:alice::1000/)).toBeInTheDocument();
   });
 
   it('`grep -l root /etc` emits matching filepaths only, no `:line` content', async () => {
-    // Seed /etc/passwd has the root:r00tpw row. -l mode emits just the
+    // Seed /etc/passwd has the root row. -l mode emits just the
     // filepath when the file matched — no `:` and no line content.
     renderTerminal();
     runCommand('grep -l root /etc');
@@ -177,8 +178,11 @@ describe('Terminal', () => {
     renderTerminal();
     runCommand('cat /etc/passwd | grep root');
 
-    expect(await screen.findByText(/root:r00tpw/)).toBeInTheDocument();
-    expect(screen.queryByText(/alice:hunter2/)).not.toBeInTheDocument();
+    // root password is md5('hunter2'); the player (alice) row has no 'root'.
+    expect(
+      await screen.findByText(/^root:2ab96390c7dbe3439de74d0c9b0b1767:0:0:root:\/root/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/^alice:/)).not.toBeInTheDocument();
   });
 
   it('`ls -la` (stacked) shows hidden entries in long format', async () => {
@@ -285,7 +289,7 @@ describe('Terminal', () => {
     });
 
     it('completes a path argument against the current filesystem', () => {
-      // Seed /etc has `motd` and `passwd`; `pa` uniquely completes to passwd.
+      // Seed /etc has `passwd`; `pa` uniquely completes to passwd.
       renderTerminal();
       typeInput('cat /etc/pa');
       pressTab();
