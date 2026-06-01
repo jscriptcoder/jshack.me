@@ -20,7 +20,7 @@
 import type { GameConfig } from '../gameConfig/gameConfig';
 import type { Directory, FileEntry, FileNode, FilePermissions } from '../filesystem/types';
 import { createPrng } from './prng';
-import { createBinaryEntries, SYSTEM_UTILITY_NAMES } from './binaries';
+import { createBinaryEntries, LOCALHOST_PREINSTALLED_TOOLS, SYSTEM_UTILITY_NAMES } from './binaries';
 import { md5 } from './md5';
 
 // --- Permission boundaries (mirror the pre-generator ui/seed.ts) ---
@@ -152,6 +152,10 @@ export const buildWorkstationBaseFs = (seedPubkeyHex: string, config: GameConfig
       home: dir({ [config.username]: dir({}, HOME_DIR, config.username) }, TRAVERSABLE_DIR),
       root: dir({}, ROOT_DIR),
       tmp: dir({}, TMP_DIR),
+      usr: dir(
+        { bin: dir(createBinaryEntries(LOCALHOST_PREINSTALLED_TOOLS), TRAVERSABLE_DIR) },
+        TRAVERSABLE_DIR,
+      ),
     },
     TRAVERSABLE_DIR,
   );

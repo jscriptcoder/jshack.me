@@ -23,34 +23,21 @@
 
 import { asAbsPath } from '../types';
 import type { UserType } from '../types';
-import type { Command, CommandResult } from './types';
+import type { FileNode } from '../filesystem/types';
+import type { Command, CommandEnv, CommandResult } from './types';
+import { packageForBinary } from './aptPackages';
 
-/** Shell builtins — always available, no binary needed. Ported from legacy
- *  `SHELL_BUILTINS` (superset of the commands v2 implements today). */
-const SHELL_BUILTINS: ReadonlySet<string> = new Set([
-  'cd',
-  'exit',
-  'clear',
-  'echo',
-  'pwd',
-  'help',
-  'whoami',
-  'bash',
-]);
+/** Shell builtins — always available, no binary needed. Listed to MATCH the
+ *  builtins v2 actually implements: adding a speculative entry for an
+ *  unimplemented command is dead data, and a forgotten one fails loudly
+ *  (`command not found`) the moment that command ships. Grow this as builtins
+ *  land (legacy also had exit/clear/whoami/bash). */
+const SHELL_BUILTINS: ReadonlySet<string> = new Set(['cd', 'echo', 'pwd', 'help']);
 
-/** Game-specific commands — always available, not real Linux tools. Ported
- *  from legacy `GAME_COMMANDS`. */
-const GAME_COMMANDS: ReadonlySet<string> = new Set([
-  'missions',
-  'accept',
-  'abort',
-  'mail',
-  'author',
-  'theme',
-  'reset',
-  'xterm',
-  'identity',
-]);
+/** Game-specific commands — always available, not real Linux tools. Same
+ *  match-what-exists rule (legacy also had missions/accept/abort/mail/author/
+ *  theme/reset/xterm — re-add each as it ships). */
+const GAME_COMMANDS: ReadonlySet<string> = new Set(['identity']);
 
 /** True for commands that need no binary (builtins + game commands); the
  *  registry leaves these unwrapped. */
@@ -63,21 +50,44 @@ const syncError = (content: string, exitCode: number): CommandResult => ({
   exitCode,
 });
 
+/** Directories searched for a command's binary, in order. System utilities live
+ *  in `/bin`; apt-installed tools land in `/usr/bin`. (`/usr/sbin` admin
+ *  binaries are deferred until an admin command needs them.) */
+const BINARY_SEARCH_PATH: readonly string[] = ['/bin', '/usr/bin'];
+
+/** First existing binary FILE for `name` across the search path, or null. */
+const resolveBinary = (env: CommandEnv, name: string): FileNode | null => {
+  for (const directory of BINARY_SEARCH_PATH) {
+    const node = env.fs.stat(asAbsPath(`${directory}/${name}`));
+    if (node !== null && node.kind === 'file') return node;
+  }
+  return null;
+};
+
+/** The not-found message, enriched with an `apt install` hint when `name` is a
+ *  known apt tool (a missing system util just reports plain not-found). */
+const notFoundMessage = (name: string): string => {
+  const pkg = packageForBinary(name);
+  return pkg === undefined
+    ? `bash: ${name}: command not found`
+    : `bash: ${name}: command not found. Install with: apt install ${pkg}`;
+};
+
 /**
- * Wrap a command so it gates on its `/bin` binary at execution time. Metadata
- * (name, category, tier, manual, …) is preserved untouched — only `execute` is
+ * Wrap a command so it gates on its binary at execution time. Metadata (name,
+ * category, tier, manual, …) is preserved untouched — only `execute` is
  * intercepted — so `help`/`man` and tab-completion still see the real command.
  *
  * The check is inlined (no intermediate `{found, permitted}` object) because
- * nothing else consumes that shape in v2 — resolving `/bin/<name>` and reading
- * its `perms.execute` is the whole gate. Root bypasses the execute allowlist.
+ * nothing else consumes that shape in v2 — resolving the binary and reading its
+ * `perms.execute` is the whole gate. Root bypasses the execute allowlist.
  */
 export const wrapWithBinaryCheck = (command: Command): Command => ({
   ...command,
   execute: async (env, args, flags): Promise<CommandResult> => {
-    const binary = env.fs.stat(asAbsPath(`/bin/${command.name}`));
-    if (binary === null || binary.kind !== 'file') {
-      return syncError(`bash: ${command.name}: command not found`, 127);
+    const binary = resolveBinary(env, command.name);
+    if (binary === null) {
+      return syncError(notFoundMessage(command.name), 127);
     }
     const tier: UserType = env.session.userType;
     if (tier !== 'root' && !binary.perms.execute.includes(tier)) {

@@ -158,19 +158,29 @@ describe('commandRegistry gating (registry wiring)', () => {
     expect(textLines(result)).toEqual(['hello']);
   });
 
-  it('runs an always-available game command (identity) with no /bin entry present', async () => {
-    const identity = commandRegistry.get('identity');
-    if (identity === undefined) throw new Error('identity not registered');
-    const env = mockCommandEnv({
-      fs: mockFsViewFromTree(buildDirectory({}), { userType: 'user' }),
-    });
+  // Every always-available command (builtins + game commands) must run with NO
+  // binary on the filesystem — that IS the "always available" contract. Driving
+  // each through the registry against an empty /bin kills the set-membership
+  // literals: drop one from the set and that command gets gated → not-found.
+  it.each(['cd', 'echo', 'pwd', 'help', 'identity'])(
+    'runs the always-available command %s with no binary on the filesystem',
+    async (name) => {
+      const command = commandRegistry.get(name);
+      if (command === undefined) throw new Error(`${name} not registered`);
+      const env = mockCommandEnv({
+        // A home dir so `cd` has somewhere valid to land; no /bin anywhere.
+        fs: mockFsViewFromTree(buildDirectory({ home: buildDirectory({ alice: buildDirectory({}) }) }), {
+          userType: 'user',
+          cwd: asAbsPath('/home/alice'),
+        }),
+      });
 
-    const result = await identity.execute(env, [], NO_FLAGS);
+      const result = await command.execute(env, [], NO_FLAGS);
 
-    // identity prints the player's public key; the point is it is NOT gated.
-    expect(errorLines(result)).not.toContain('bash: identity: command not found');
-    expect(result.kind === 'sync' && result.exitCode).toBe(0);
-  });
+      const hitGate = errorLines(result).some((line) => line.includes('command not found'));
+      expect(hitGate).toBe(false);
+    },
+  );
 
   it('gates ls behind /bin/ls — command-not-found when the binary is absent', async () => {
     const ls = commandRegistry.get('ls');
@@ -205,5 +215,98 @@ describe('commandRegistry gating (registry wiring)', () => {
 
     expect(textLines(result)).toEqual(['note.txt']);
     expect(result.kind === 'sync' && result.exitCode).toBe(0);
+  });
+});
+
+/** Build a tree whose `/usr/bin` holds one world-executable stub binary. */
+const treeWithUsrBinary = (name: string) =>
+  buildDirectory({
+    usr: buildDirectory({
+      bin: buildDirectory({
+        [name]: buildFile('', { owner: 'root', perms: { execute: ['root', 'user', 'guest'] } }),
+      }),
+    }),
+  });
+
+describe('wrapWithBinaryCheck — /usr/bin resolution + apt-install hint (slice 2)', () => {
+  it('resolves a binary from /usr/bin when it is not in /bin', async () => {
+    // aircrack is a pre-installed apt tool: it lives in /usr/bin, not /bin.
+    const wrapped = wrapWithBinaryCheck(echoArgsCommand('aircrack'));
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(treeWithUsrBinary('aircrack'), { userType: 'user' }),
+    });
+
+    const result = await wrapped.execute(env, ['-b', '00:11'], NO_FLAGS);
+
+    expect(textLines(result)).toEqual(['-b,00:11']);
+    expect(result.kind === 'sync' && result.exitCode).toBe(0);
+  });
+
+  // Every apt binary maps to the package name shown in the install hint. Driving
+  // each through the user-visible message kills every catalog string literal
+  // without exposing the internal map. The pairs ARE the spec (legacy parity).
+  const APT_HINT_PAIRS: readonly (readonly [string, string])[] = [
+    ['nmap', 'nmap'],
+    ['john', 'john'],
+    ['nc', 'netcat'],
+    ['ftp', 'ftp'],
+    ['msfconsole', 'metasploit'],
+    ['airmon', 'aircrack'],
+    ['airdump', 'aircrack'],
+    ['aircrack', 'aircrack'],
+    ['gpg', 'gpg'],
+    ['node', 'node'],
+    ['hydra', 'hydra'],
+    ['gobuster', 'gobuster'],
+    ['snmpwalk', 'snmp'],
+    ['snmpset', 'snmp'],
+    ['mysql', 'mysql'],
+    ['rediscli', 'redis-tools'],
+    ['lynx', 'lynx'],
+    ['apache2', 'apache2'],
+    ['nginx', 'nginx'],
+  ];
+
+  it.each(APT_HINT_PAIRS)(
+    'hints `apt install %s` when the apt tool resolving to it (%s) is missing',
+    async (binary, pkg) => {
+      const wrapped = wrapWithBinaryCheck(echoArgsCommand(binary));
+      const env = mockCommandEnv({
+        fs: mockFsViewFromTree(buildDirectory({}), { userType: 'user' }),
+      });
+
+      const result = await wrapped.execute(env, [], NO_FLAGS);
+
+      expect(errorLines(result)).toEqual([
+        `bash: ${binary}: command not found. Install with: apt install ${pkg}`,
+      ]);
+      expect(result.kind === 'sync' && result.exitCode).toBe(127);
+    },
+  );
+
+  it('uses the plain not-found message for a name with no apt package', async () => {
+    const wrapped = wrapWithBinaryCheck(echoArgsCommand('frobnicate'));
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(buildDirectory({}), { userType: 'user' }),
+    });
+
+    const result = await wrapped.execute(env, [], NO_FLAGS);
+
+    // No "Install with" suffix — frobnicate is not a known package.
+    expect(errorLines(result)).toEqual(['bash: frobnicate: command not found']);
+    expect(result.kind === 'sync' && result.exitCode).toBe(127);
+  });
+
+  it('does not append a hint for a system utility that lives in /bin (ls)', async () => {
+    // ls is a /bin system util, not an apt package — a missing /bin/ls is a
+    // broken system, not something `apt install` fixes.
+    const wrapped = wrapWithBinaryCheck(echoArgsCommand('ls'));
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(buildDirectory({}), { userType: 'user' }),
+    });
+
+    const result = await wrapped.execute(env, [], NO_FLAGS);
+
+    expect(errorLines(result)).toEqual(['bash: ls: command not found']);
   });
 });

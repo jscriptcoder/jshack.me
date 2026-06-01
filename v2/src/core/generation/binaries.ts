@@ -62,6 +62,17 @@ export const SYSTEM_UTILITY_NAMES = [
 ] as const;
 
 /**
+ * Apt tools PRE-INSTALLED in `/usr/bin` on every player workstation. The WiFi-
+ * cracking tools are bundled because the player needs them BEFORE they have any
+ * network access (no apt without internet, no internet without cracking WiFi).
+ *
+ * Deliberately NOT including `node` / `gpg`: a fresh box ships neither a JS
+ * runtime nor GPG, so they stay apt-installable (their hint still resolves via
+ * the package catalog). Don't "restore" them here.
+ */
+export const LOCALHOST_PREINSTALLED_TOOLS = ['airmon', 'airdump', 'aircrack'] as const;
+
+/**
  * Binaries whose execute permission is restricted to root. Everything else
  * defaults to world-executable. Of the `/bin` set, only `reboot` is restricted
  * (the others — gpg/sshd/vsftpd/systemctl — live in `/usr/bin` or `/usr/sbin`,
