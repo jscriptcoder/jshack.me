@@ -11,16 +11,18 @@
  *   - `buildWorkstationBaseFs` is the thin player-specific composer that builds
  *     the `[root, player(empty hash), guest]` user list and assembles the tree.
  *
- * Base skeleton: `/etc/passwd`, `/home/<username>`, `/root`, `/tmp`, and `/bin`
- * (system-utility binary stubs that gate command execution — see `binaries.ts`).
- * `/usr/bin` (pre-installed apt tools), `/lib` (shared libraries), logs, and
- * dotfiles land in later slices when a command actually consumes them.
+ * Base skeleton: `/etc/passwd`, `/home/<username>`, `/root`, `/tmp`, `/bin`
+ * (system-utility binary stubs — see `binaries.ts`), `/usr/bin` (pre-installed
+ * apt tools), and `/lib` (shared-library stubs that linked commands need — see
+ * `libraries.ts`). Together these gate command execution. Logs and dotfiles
+ * land in later slices when a command actually consumes them.
  */
 
 import type { GameConfig } from '../gameConfig/gameConfig';
 import type { Directory, FileEntry, FileNode, FilePermissions } from '../filesystem/types';
 import { createPrng } from './prng';
 import { createBinaryEntries, LOCALHOST_PREINSTALLED_TOOLS, SYSTEM_UTILITY_NAMES } from './binaries';
+import { createLibraryEntries, SYSTEM_LIBRARIES } from './libraries';
 import { md5 } from './md5';
 
 // --- Permission boundaries (mirror the pre-generator ui/seed.ts) ---
@@ -150,6 +152,7 @@ export const buildWorkstationBaseFs = (seedPubkeyHex: string, config: GameConfig
       bin: dir(createBinaryEntries(SYSTEM_UTILITY_NAMES), TRAVERSABLE_DIR),
       etc: dir({ passwd: file(passwd, PASSWD_FILE) }, TRAVERSABLE_DIR),
       home: dir({ [config.username]: dir({}, HOME_DIR, config.username) }, TRAVERSABLE_DIR),
+      lib: dir(createLibraryEntries(SYSTEM_LIBRARIES), TRAVERSABLE_DIR),
       root: dir({}, ROOT_DIR),
       tmp: dir({}, TMP_DIR),
       usr: dir(
