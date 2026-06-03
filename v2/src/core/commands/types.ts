@@ -23,6 +23,7 @@ import type {
 import type { Directory, FileNode } from '../filesystem/types';
 import type { WalkResult } from '../filesystem/walker';
 import type { NetworkInterface } from '../network/interfaces';
+import type { HomeNetworkAssignment } from '../network/homeNetwork';
 import type { WifiNetwork } from '../network/wifi';
 import type { FlagSpec } from '../shell/bindFlags';
 
@@ -182,6 +183,14 @@ export type LogApi = {
   readonly appendAccessLog: (target: MachineId, line: string) => Promise<void>;
 };
 
+/** Join a home network by ESSID, returning the LAN address the player was
+ *  issued. Local-deterministic today (seeded from identity), the documented
+ *  future server boundary (`/api/join-home-network`) — `Promise`-shaped so the
+ *  swap is the only change. `nmcli connect` awaits this, then assigns `wlan0`. */
+export type HomeNetworkApi = {
+  readonly join: (essid: string) => Promise<HomeNetworkAssignment>;
+};
+
 // ---- The boundary ----
 
 export type CommandEnv = {
@@ -198,6 +207,7 @@ export type CommandEnv = {
   readonly patches: PatchApi;
   readonly remote: RemoteApi;
   readonly log: LogApi;
+  readonly homeNetwork: HomeNetworkApi;
 
   /** Mutate the shell's cwd. UI layer owns the underlying signal; commands
    *  call this when they need to move (`cd`). FsView's `cwd()` reflects

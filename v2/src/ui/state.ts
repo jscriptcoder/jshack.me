@@ -43,6 +43,7 @@ import { createPatchApi, fetchOwnPatches, type PatchClientDeps } from '../adapte
 import { createSyncChannel, type SyncChannel } from '../adapters/crossTabSync';
 import { type HistoryNav, idleNav, navigateDown, navigateUp } from '../core/shell/commandHistory';
 import { homePathFor, seedFs, seedSession } from './seed';
+import { persistConnection, restoreConnection } from './connectionPersistence';
 
 // ---- Config-derived game state, assigned once by `startGame`. ----
 // `let` (not top-level `const`) precisely because these can't be built at
@@ -70,11 +71,14 @@ const [connectivity, setConnectivity] = createSignal<ConnectivityState>({
 const [wifiNetworks, setWifiNetworks] = createSignal<readonly WifiNetwork[]>([]);
 
 /** Replace one interface in the connectivity signal (read-modify-write of a
- *  single Map entry). Backs `env.setInterface`, which airmon/nmcli call. */
+ *  single Map entry). Backs `env.setInterface`, which airmon/nmcli call. A
+ *  `wlan0` change also mirrors its association to localStorage so an nmcli
+ *  connect/disconnect is durable across reloads (see `connectionPersistence`). */
 const setInterface = (name: string, iface: NetworkInterface): void => {
   setConnectivity((previous) => ({
     interfaces: new Map(previous.interfaces).set(name, iface),
   }));
+  if (name === 'wlan0') persistConnection(localStorage, iface);
 };
 
 // Shell history: in-memory only (resets on reload, per legacy parity). The
@@ -134,8 +138,13 @@ export const startGame = (gameConfig: GameConfig): void => {
   config = gameConfig;
   identity = getPlayerIdentity();
   session = seedSession(identity, gameConfig);
-  setConnectivity(buildColdStartConnectivity(identity.publicKeyHex));
-  setWifiNetworks(generateWifi(identity.publicKeyHex));
+  // Seed WiFi + connectivity, then rehydrate any persisted connection: a stored
+  // ESSID (from a prior nmcli connect) re-derives its address through the join
+  // seam so the player comes back online on reload without re-cracking.
+  const cold = buildColdStartConnectivity(identity.publicKeyHex);
+  const wifi = generateWifi(identity.publicKeyHex);
+  setWifiNetworks(wifi);
+  setConnectivity(restoreConnection(localStorage, cold, wifi, identity.publicKeyHex));
 
   patchClientDeps = {
     identity,

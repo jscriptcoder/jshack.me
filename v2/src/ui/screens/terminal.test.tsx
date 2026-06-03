@@ -3,11 +3,15 @@ import { fireEvent, render, screen } from '@solidjs/testing-library';
 import { Terminal } from './terminal';
 import { startGame } from '../state';
 import { SEED_CONFIG } from '../seed';
+import { CONNECTED_ESSID_KEY } from '../connectionPersistence';
 
 /** Fresh terminal state per test — the module-singleton session + signals are
  *  rebuilt by `startGame`, which also clears the scrollback, so this both
- *  initialises the game and resets state between tests. */
+ *  initialises the game and resets state between tests. Clearing the persisted
+ *  WiFi connection first guarantees each test starts OFFLINE, so a prior test's
+ *  nmcli connect can't leak an online wlan0 into the next. */
 const renderTerminal = () => {
+  localStorage.removeItem(CONNECTED_ESSID_KEY);
   startGame(SEED_CONFIG);
   return render(() => <Terminal />);
 };
@@ -229,6 +233,69 @@ describe('Terminal', () => {
     expect(await screen.findByText('^C')).toBeInTheDocument();
     expect(screen.queryByText(/KEY FOUND/)).not.toBeInTheDocument();
   });
+
+  it('cracks a WiFi AP, connects with nmcli, goes online, and stays online across a reload', async () => {
+    // The whole arc, end-to-end through the real UI seam: monitor → scan →
+    // crack (reveals the password) → nmcli connect (awaits the join seam, sets
+    // wlan0's IP) → online. Then a fresh startGame (a reload) must rehydrate the
+    // connection from the persisted ESSID alone. Drives the new wiring:
+    // env.homeNetwork.join, setInterface→persist, and startGame→restore.
+    renderTerminal();
+    runCommand('airmon start wlan0');
+    await screen.findByText((content) => content.includes('monitor mode enabled on wlan0'));
+
+    runCommand('airdump');
+    // A crackable AP is the only kind that is WPA2 AND strong (≥ -80) AND named
+    // — noise APs each fail one of those. There may be several, so take the first.
+    const crackableRow = /^([0-9A-F:]{17})\s+-\d+\s+\d+\s+WPA2\s+(.+)$/;
+    const isCrackable = (content: string): boolean => {
+      const match = crackableRow.exec(content.trim());
+      if (match === null) return false;
+      const power = Number(/\s(-\d+)\s/.exec(content.trim())?.[1]);
+      return match[2] !== '<hidden>' && power >= -80;
+    };
+    const rows = await screen.findAllByText((content) => isCrackable(content), {}, { timeout: 4000 });
+    const parsed = crackableRow.exec(rows[0]!.textContent!.trim())!;
+    const bssid = parsed[1]!.trim();
+    const essid = parsed[2]!.trim();
+
+    runCommand(`aircrack ${bssid}`);
+    const keyRow = await screen.findByText(
+      (content) => content.includes('KEY FOUND'),
+      {},
+      { timeout: 4000 },
+    );
+    const password = /KEY FOUND! \[ (.+) \]/.exec(keyRow.textContent!)![1]!.trim();
+
+    // Monitor mode and an association are mutually exclusive, so leave monitor
+    // mode before connecting (nmcli refuses otherwise).
+    runCommand('airmon stop wlan0');
+    await screen.findByText((content) => content.includes('monitor mode disabled on wlan0'));
+
+    runCommand(`nmcli connect ${essid} ${password}`);
+    const connectedRow = await screen.findByText(
+      (content) => content.includes(`Connected to ${essid} — assigned`),
+      {},
+      { timeout: 4000 },
+    );
+    const assignedIp = /assigned (192\.168\.\d+\.\d+)/.exec(connectedRow.textContent!)![1]!;
+
+    // Online proof: ifconfig now shows wlan0 carrying the assigned IP.
+    runCommand('ifconfig');
+    expect(
+      await screen.findByText((content) => content.includes(`inet ${assignedIp}`)),
+    ).toBeInTheDocument();
+
+    // Reload: a fresh startGame rebuilds connectivity from cold + the persisted
+    // ESSID. No re-crack — the IP is re-derived and the player is still online.
+    startGame(SEED_CONFIG);
+    runCommand('nmcli status');
+    expect(
+      await screen.findByText(`wlan0: connected to ${essid} (${assignedIp}/24)`),
+    ).toBeInTheDocument();
+    // The full arc runs real timers end-to-end (scan + crack + reload), so this
+    // one test needs headroom beyond the 5s default.
+  }, 15000);
 
   it('`ls -la` (stacked) shows hidden entries in long format', async () => {
     // End-to-end demo of the stacking infrastructure: `-la` is parsed as

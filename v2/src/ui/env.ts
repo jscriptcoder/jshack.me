@@ -26,6 +26,7 @@ import type { Directory } from '../core/filesystem/types';
 import type { WifiNetwork } from '../core/network/wifi';
 import { createFsView } from '../core/filesystem/fsView';
 import { isOnline, type ConnectivityState, type NetworkInterface } from '../core/network/interfaces';
+import { assignHomeNetwork } from '../core/network/homeNetwork';
 import { abortableSleep } from './sleep';
 
 export type BuildCommandEnvArgs = {
@@ -101,6 +102,10 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   patches: args.patches,
   remote: remoteStub(),
   log: logStub(),
+  // The home-network join is local-deterministic today (seeded from identity),
+  // the documented future server boundary — `Promise`-shaped so the swap to a
+  // real `/api/join-home-network` round-trip is the only change here.
+  homeNetwork: { join: (essid) => Promise.resolve(assignHomeNetwork(args.identity.publicKeyHex, essid)) },
   setCwd: args.onCwdChange,
   setInterface: args.onInterfaceChange,
   // The UI owns the run's signal; both the abort flag commands read and the
