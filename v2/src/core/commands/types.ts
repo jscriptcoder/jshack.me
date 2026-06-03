@@ -22,6 +22,7 @@ import type {
 } from '../types';
 import type { Directory, FileNode } from '../filesystem/types';
 import type { WalkResult } from '../filesystem/walker';
+import type { NetworkInterface } from '../network/interfaces';
 import type { FlagSpec } from '../shell/bindFlags';
 
 // ---- Identity & session (read-only snapshots in CommandEnv) ----
@@ -146,6 +147,12 @@ export type NetworkView = {
   readonly currentMachine: () => MachineId;
   readonly findMachineByAddress: (addr: NetworkAddress) => MachineId | null;
   readonly resolveDns: (hostname: string) => NetworkAddress | null;
+  /** The current machine's NICs, in stable order (lo, eth0, wlan0). Read by
+   *  `ifconfig`; mutated (later in the arc) via `env.setInterface`. */
+  readonly interfaces: () => readonly NetworkInterface[];
+  /** True when any non-loopback interface holds an IPv4 address. The arc's
+   *  milestone predicate — `apt`/`nmap` (downstream) gate on it. */
+  readonly isOnline: () => boolean;
 };
 
 export type OutputSink = {

@@ -30,6 +30,7 @@ import type {
 import { basename, dirname } from '../../core/filesystem/path';
 import { canWrite } from '../../core/filesystem/walker';
 import { createFsView } from '../../core/filesystem/fsView';
+import { isOnline, type ConnectivityState } from '../../core/network/interfaces';
 import { buildDirectory } from './filesystem';
 
 const NOT_IMPLEMENTED =
@@ -74,11 +75,22 @@ export const mockPatchApi = (): PatchApi => ({
   mkdir: NOT_IMPLEMENTED('patches.mkdir'),
 });
 
-export const mockNetworkView = (): NetworkView => ({
+export const mockNetworkView = (overrides: Partial<NetworkView> = {}): NetworkView => ({
   currentMachine: () => asMachineId('localhost'),
   findMachineByAddress: () => null,
   resolveDns: () => null,
+  interfaces: () => [],
+  isOnline: () => false,
+  ...overrides,
 });
+
+/** A NetworkView whose `interfaces()`/`isOnline()` reflect a real
+ *  `ConnectivityState` — so command tests drive the production read path. */
+export const mockNetworkViewFromConnectivity = (state: ConnectivityState): NetworkView =>
+  mockNetworkView({
+    interfaces: () => [...state.interfaces.values()],
+    isOnline: () => isOnline(state),
+  });
 
 export const mockRemoteApi = (): RemoteApi => ({
   listPatches: NOT_IMPLEMENTED('remote.listPatches'),
