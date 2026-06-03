@@ -3,6 +3,7 @@ import { buildCommandEnv } from './env';
 import { homePathFor, SEED_CONFIG, seedFs, seedSession } from './seed';
 import { generateIdentity } from '../core/identity/identity';
 import { asAbsPath } from '../core/types';
+import { buildColdStartConnectivity } from '../core/network/interfaces';
 import type { PatchApi } from '../core/commands/types';
 
 const noopPatches: PatchApi = {
@@ -12,6 +13,7 @@ const noopPatches: PatchApi = {
 };
 
 const seedHome = homePathFor(SEED_CONFIG.username);
+const seedConnectivity = () => buildColdStartConnectivity('a'.repeat(64));
 
 const seedEnv = (userType: 'guest' | 'user' | 'root' = 'user') =>
   buildCommandEnv({
@@ -21,6 +23,7 @@ const seedEnv = (userType: 'guest' | 'user' | 'root' = 'user') =>
     cwd: () => seedHome,
     onCwdChange: () => undefined,
     patches: noopPatches,
+    connectivity: seedConnectivity,
   });
 
 describe('buildCommandEnv', () => {
@@ -48,9 +51,16 @@ describe('buildCommandEnv', () => {
       cwd: () => seedHome,
       onCwdChange: () => undefined,
       patches: noopPatches,
+      connectivity: seedConnectivity,
     });
 
     expect(env.session).toBe(session);
     expect(env.fs.cwd()).toBe(seedHome);
+  });
+
+  it('exposes the connectivity reader as an offline network view at cold start', () => {
+    const env = seedEnv();
+    expect(env.network.interfaces().map((iface) => iface.name)).toEqual(['lo', 'eth0', 'wlan0']);
+    expect(env.network.isOnline()).toBe(false);
   });
 });

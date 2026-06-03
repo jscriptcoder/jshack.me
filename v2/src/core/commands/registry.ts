@@ -18,6 +18,7 @@ import { echo } from './echo';
 import { grep } from './grep';
 import { help } from './help';
 import { identity } from './identity';
+import { ifconfig } from './ifconfig';
 import { ls } from './ls';
 import { man } from './man';
 import { mkdir } from './mkdir';
@@ -35,6 +36,7 @@ const builtins: readonly Command[] = [
   grep,
   help,
   identity,
+  ifconfig,
   ls,
   man,
   mkdir,

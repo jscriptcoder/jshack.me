@@ -26,6 +26,10 @@ import type { Patch } from '../core/filesystem/applyPatches';
 import { applyPatches } from '../core/filesystem/applyPatches';
 import { createFsView } from '../core/filesystem/fsView';
 import { resolveAbsPath } from '../core/filesystem/path';
+import {
+  buildColdStartConnectivity,
+  type ConnectivityState,
+} from '../core/network/interfaces';
 import { commandRegistry } from '../core/commands/registry';
 import { complete, type CompleteAdapter } from '../core/shell/complete';
 import { runCommandLine } from '../core/shell/runLine';
@@ -52,6 +56,11 @@ const [scrollback, setScrollback] = createSignal<readonly TerminalLine[]>([]);
 const [input, setInput] = createSignal('');
 const [cwd, setCwd] = createSignal<AbsPath>(asAbsPath('/'));
 const [patches, setPatches] = createSignal<readonly Patch[]>([]);
+// The workstation's NICs. Seeded from identity at `startGame`; offline at cold
+// start (only `lo` has an address). Later arc slices mutate this via airmon/nmcli.
+const [connectivity, setConnectivity] = createSignal<ConnectivityState>({
+  interfaces: new Map(),
+});
 
 // Shell history: in-memory only (resets on reload, per legacy parity). The
 // nav cursor tracks where ArrowUp/Down recall sits plus the draft to restore.
@@ -110,6 +119,7 @@ export const startGame = (gameConfig: GameConfig): void => {
   config = gameConfig;
   identity = getPlayerIdentity();
   session = seedSession(identity, gameConfig);
+  setConnectivity(buildColdStartConnectivity(identity.publicKeyHex));
 
   patchClientDeps = {
     identity,
@@ -235,6 +245,7 @@ export const runInput = async (): Promise<void> => {
     cwd,
     onCwdChange: setCwd,
     patches: activePatchApi,
+    connectivity,
   });
 
   const result = await runCommandLine(env, line, commandRegistry);

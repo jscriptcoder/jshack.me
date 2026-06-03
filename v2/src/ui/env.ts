@@ -24,6 +24,7 @@ import type {
 } from '../core/commands/types';
 import type { Directory } from '../core/filesystem/types';
 import { createFsView } from '../core/filesystem/fsView';
+import { isOnline, type ConnectivityState } from '../core/network/interfaces';
 
 export type BuildCommandEnvArgs = {
   readonly identity: Identity;
@@ -38,16 +39,25 @@ export type BuildCommandEnvArgs = {
   /** The server-backed mutation API (write/remove/mkdir). Injected by the UI
    *  so `env.ts` stays free of the adapter + network concerns. */
   readonly patches: PatchApi;
+  /** Reader for the current machine's connectivity state — called whenever
+   *  `network.interfaces()`/`isOnline()` run, so the UI's connectivity signal
+   *  flows through without rebuilding the env per command. */
+  readonly connectivity: () => ConnectivityState;
 };
 
 const notWired = (method: string) => (): never => {
   throw new Error(`buildCommandEnv: ${method} is not wired in the terminal slice`);
 };
 
-const networkStub = (session: Session): NetworkView => ({
+const networkView = (
+  session: Session,
+  connectivity: () => ConnectivityState,
+): NetworkView => ({
   currentMachine: () => session.machineId,
   findMachineByAddress: () => null,
   resolveDns: () => null,
+  interfaces: () => [...connectivity().interfaces.values()],
+  isOnline: () => isOnline(connectivity()),
 });
 
 const outputStub = (): OutputSink => ({
@@ -70,7 +80,7 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   gameTime: () => asGameTime(0),
   now: () => asEpochMs(Date.now()),
   fs: createFsView(args.root, { userType: args.session.userType, cwd: args.cwd }),
-  network: networkStub(args.session),
+  network: networkView(args.session, args.connectivity),
   output: outputStub(),
   patches: args.patches,
   remote: remoteStub(),
