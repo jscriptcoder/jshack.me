@@ -29,6 +29,7 @@ import { resolveAbsPath } from '../core/filesystem/path';
 import {
   buildColdStartConnectivity,
   type ConnectivityState,
+  type NetworkInterface,
 } from '../core/network/interfaces';
 import { commandRegistry } from '../core/commands/registry';
 import { complete, type CompleteAdapter } from '../core/shell/complete';
@@ -61,6 +62,14 @@ const [patches, setPatches] = createSignal<readonly Patch[]>([]);
 const [connectivity, setConnectivity] = createSignal<ConnectivityState>({
   interfaces: new Map(),
 });
+
+/** Replace one interface in the connectivity signal (read-modify-write of a
+ *  single Map entry). Backs `env.setInterface`, which airmon/nmcli call. */
+const setInterface = (name: string, iface: NetworkInterface): void => {
+  setConnectivity((previous) => ({
+    interfaces: new Map(previous.interfaces).set(name, iface),
+  }));
+};
 
 // Shell history: in-memory only (resets on reload, per legacy parity). The
 // nav cursor tracks where ArrowUp/Down recall sits plus the draft to restore.
@@ -246,6 +255,7 @@ export const runInput = async (): Promise<void> => {
     onCwdChange: setCwd,
     patches: activePatchApi,
     connectivity,
+    onInterfaceChange: setInterface,
   });
 
   const result = await runCommandLine(env, line, commandRegistry);

@@ -3,7 +3,7 @@ import { buildCommandEnv } from './env';
 import { homePathFor, SEED_CONFIG, seedFs, seedSession } from './seed';
 import { generateIdentity } from '../core/identity/identity';
 import { asAbsPath } from '../core/types';
-import { buildColdStartConnectivity } from '../core/network/interfaces';
+import { buildColdStartConnectivity, type NetworkInterface } from '../core/network/interfaces';
 import type { PatchApi } from '../core/commands/types';
 
 const noopPatches: PatchApi = {
@@ -24,6 +24,7 @@ const seedEnv = (userType: 'guest' | 'user' | 'root' = 'user') =>
     onCwdChange: () => undefined,
     patches: noopPatches,
     connectivity: seedConnectivity,
+    onInterfaceChange: () => undefined,
   });
 
 describe('buildCommandEnv', () => {
@@ -52,6 +53,7 @@ describe('buildCommandEnv', () => {
       onCwdChange: () => undefined,
       patches: noopPatches,
       connectivity: seedConnectivity,
+      onInterfaceChange: () => undefined,
     });
 
     expect(env.session).toBe(session);
@@ -62,5 +64,25 @@ describe('buildCommandEnv', () => {
     const env = seedEnv();
     expect(env.network.interfaces().map((iface) => iface.name)).toEqual(['lo', 'eth0', 'wlan0']);
     expect(env.network.isOnline()).toBe(false);
+  });
+
+  it('routes setInterface through to the onInterfaceChange writer', () => {
+    const calls: Array<readonly [string, NetworkInterface]> = [];
+    const env = buildCommandEnv({
+      identity: generateIdentity(),
+      session: seedSession(generateIdentity(), SEED_CONFIG),
+      root: seedFs(SEED_CONFIG, generateIdentity()),
+      cwd: () => seedHome,
+      onCwdChange: () => undefined,
+      patches: noopPatches,
+      connectivity: seedConnectivity,
+      onInterfaceChange: (name, iface) => calls.push([name, iface]),
+    });
+
+    const wlan0 = seedConnectivity().interfaces.get('wlan0')!;
+    if (wlan0.kind !== 'wireless') throw new Error('unreachable');
+    env.setInterface('wlan0', { ...wlan0, monitorMode: true });
+
+    expect(calls).toEqual([['wlan0', { ...wlan0, monitorMode: true }]]);
   });
 });

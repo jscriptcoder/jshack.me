@@ -199,6 +199,14 @@ export type CommandEnv = {
    *  the new value on the next command's env. */
   readonly setCwd: (path: AbsPath) => void;
 
+  /** Replace one interface in the current machine's connectivity state
+   *  (read-modify-write of a single Map entry, mirrors `setCwd`). The UI owns
+   *  the signal; commands call this to mutate connectivity (airmon flips
+   *  `monitorMode`, nmcli sets `association`/`ipv4`). Policy lives in the
+   *  command — this seam is generic. `NetworkView`'s reads reflect the new
+   *  value on the next command's env. */
+  readonly setInterface: (name: string, iface: NetworkInterface) => void;
+
   /** Piped input from a previous command in the pipeline. */
   readonly stdin?: AsyncIterable<string>;
 
