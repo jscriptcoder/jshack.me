@@ -4,15 +4,18 @@
  * always yields the same sequence, which is what makes the world generator
  * reproducible from the Ed25519 identity pubkey.
  *
- * Only the methods Story 1 consumes are ported (`next`/`nextInt`/`pick`).
- * `pickN`/`shuffle` land when a later generator story first needs them — under
- * their own failing tests, per TDD.
+ * `pickN`/`shuffle` were added when `generateWifi` (the WiFi-scan generator)
+ * first needed selection-without-replacement and a deterministic reorder.
  */
 
 export type Prng = {
   readonly next: () => number;
   readonly nextInt: (min: number, max: number) => number;
   readonly pick: <T>(items: readonly T[]) => T;
+  /** `n` distinct items chosen without replacement (clamped to the pool size). */
+  readonly pickN: <T>(items: readonly T[], n: number) => readonly T[];
+  /** A full deterministic permutation of `items`. */
+  readonly shuffle: <T>(items: readonly T[]) => readonly T[];
 };
 
 // FNV-1a hash: converts a seed string to a 32-bit unsigned integer.
@@ -48,5 +51,19 @@ export const createPrng = (seed: string): Prng => {
     return items[nextInt(0, items.length - 1)] as T;
   };
 
-  return { next, nextInt, pick };
+  // Fisher-Yates partial shuffle: select `count` items by swapping each leading
+  // position with a random not-yet-selected position, then take the prefix.
+  const pickN = <T>(items: readonly T[], n: number): readonly T[] => {
+    const pool = [...items];
+    const count = Math.min(n, pool.length);
+    for (let i = 0; i < count; i++) {
+      const j = i + Math.floor(next() * (pool.length - i));
+      [pool[i], pool[j]] = [pool[j] as T, pool[i] as T];
+    }
+    return pool.slice(0, count);
+  };
+
+  const shuffle = <T>(items: readonly T[]): readonly T[] => pickN(items, items.length);
+
+  return { next, nextInt, pick, pickN, shuffle };
 };

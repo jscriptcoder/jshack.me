@@ -31,6 +31,8 @@ import {
   type ConnectivityState,
   type NetworkInterface,
 } from '../core/network/interfaces';
+import { generateWifi } from '../core/generation/generateWifi';
+import type { WifiNetwork } from '../core/network/wifi';
 import { commandRegistry } from '../core/commands/registry';
 import { complete, type CompleteAdapter } from '../core/shell/complete';
 import { runCommandLine } from '../core/shell/runLine';
@@ -62,6 +64,10 @@ const [patches, setPatches] = createSignal<readonly Patch[]>([]);
 const [connectivity, setConnectivity] = createSignal<ConnectivityState>({
   interfaces: new Map(),
 });
+// The WiFi access points in range. Seeded ONCE per identity at `startGame`
+// (deterministic, like the workstation FS); read by airdump/aircrack. Empty
+// until the game starts.
+const [wifiNetworks, setWifiNetworks] = createSignal<readonly WifiNetwork[]>([]);
 
 /** Replace one interface in the connectivity signal (read-modify-write of a
  *  single Map entry). Backs `env.setInterface`, which airmon/nmcli call. */
@@ -129,6 +135,7 @@ export const startGame = (gameConfig: GameConfig): void => {
   identity = getPlayerIdentity();
   session = seedSession(identity, gameConfig);
   setConnectivity(buildColdStartConnectivity(identity.publicKeyHex));
+  setWifiNetworks(generateWifi(identity.publicKeyHex));
 
   patchClientDeps = {
     identity,
@@ -256,11 +263,21 @@ export const runInput = async (): Promise<void> => {
     patches: activePatchApi,
     connectivity,
     onInterfaceChange: setInterface,
+    wifiNetworks,
   });
 
   const result = await runCommandLine(env, line, commandRegistry);
   if (result.kind === 'sync') {
     setScrollback((previous) => [...previous, ...result.lines]);
+    return;
+  }
+  // Streamed commands (airdump, later aircrack) append each line as it arrives,
+  // so the terminal fills live rather than all at once.
+  if (result.kind === 'async') {
+    for await (const streamed of result.lines) {
+      setScrollback((previous) => [...previous, streamed]);
+    }
+    await result.exitCode();
   }
 };
 

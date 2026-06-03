@@ -12,6 +12,7 @@
  * state; it only declares what commands exist.
  */
 
+import { airdump } from './airdump';
 import { airmon } from './airmon';
 import { cat } from './cat';
 import { cd } from './cd';
@@ -31,6 +32,7 @@ import { wrapWithLibraryCheck } from './libraryDeps';
 import type { Command } from './types';
 
 const builtins: readonly Command[] = [
+  airdump,
   airmon,
   cat,
   cd,

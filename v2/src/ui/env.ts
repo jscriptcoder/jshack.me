@@ -23,8 +23,10 @@ import type {
   Session,
 } from '../core/commands/types';
 import type { Directory } from '../core/filesystem/types';
+import type { WifiNetwork } from '../core/network/wifi';
 import { createFsView } from '../core/filesystem/fsView';
 import { isOnline, type ConnectivityState, type NetworkInterface } from '../core/network/interfaces';
+import { abortableSleep } from './sleep';
 
 export type BuildCommandEnvArgs = {
   readonly identity: Identity;
@@ -47,6 +49,10 @@ export type BuildCommandEnvArgs = {
    *  one interface. The UI owns the connectivity signal; `core/` only knows
    *  there's a setter. */
   readonly onInterfaceChange: (name: string, iface: NetworkInterface) => void;
+  /** Reader for the seeded WiFi access points in range — called whenever
+   *  `network.wifiNetworks()` runs (airdump/aircrack). Memoized once per
+   *  identity in `ui/state`. */
+  readonly wifiNetworks: () => readonly WifiNetwork[];
 };
 
 const notWired = (method: string) => (): never => {
@@ -56,12 +62,14 @@ const notWired = (method: string) => (): never => {
 const networkView = (
   session: Session,
   connectivity: () => ConnectivityState,
+  wifiNetworks: () => readonly WifiNetwork[],
 ): NetworkView => ({
   currentMachine: () => session.machineId,
   findMachineByAddress: () => null,
   resolveDns: () => null,
   interfaces: () => [...connectivity().interfaces.values()],
   isOnline: () => isOnline(connectivity()),
+  wifiNetworks,
 });
 
 const outputStub = (): OutputSink => ({
@@ -77,19 +85,26 @@ const logStub = (): LogApi => ({
   appendAccessLog: async () => undefined,
 });
 
-export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
-  identity: args.identity,
-  session: args.session,
-  hopChain: [],
-  gameTime: () => asGameTime(0),
-  now: () => asEpochMs(Date.now()),
-  fs: createFsView(args.root, { userType: args.session.userType, cwd: args.cwd }),
-  network: networkView(args.session, args.connectivity),
-  output: outputStub(),
-  patches: args.patches,
-  remote: remoteStub(),
-  log: logStub(),
-  setCwd: args.onCwdChange,
-  setInterface: args.onInterfaceChange,
-  signal: new AbortController().signal,
-});
+export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => {
+  // One controller per command run backs both `signal` and the abort-aware
+  // `sleep` — so a streamed command's pacing stops the instant the run aborts.
+  // (Live Ctrl-C wiring lands with aircrack; today nothing fires this.)
+  const controller = new AbortController();
+  return {
+    identity: args.identity,
+    session: args.session,
+    hopChain: [],
+    gameTime: () => asGameTime(0),
+    now: () => asEpochMs(Date.now()),
+    fs: createFsView(args.root, { userType: args.session.userType, cwd: args.cwd }),
+    network: networkView(args.session, args.connectivity, args.wifiNetworks),
+    output: outputStub(),
+    patches: args.patches,
+    remote: remoteStub(),
+    log: logStub(),
+    setCwd: args.onCwdChange,
+    setInterface: args.onInterfaceChange,
+    sleep: (ms) => abortableSleep(controller.signal, ms),
+    signal: controller.signal,
+  };
+};

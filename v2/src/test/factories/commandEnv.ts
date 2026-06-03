@@ -81,6 +81,7 @@ export const mockNetworkView = (overrides: Partial<NetworkView> = {}): NetworkVi
   resolveDns: () => null,
   interfaces: () => [],
   isOnline: () => false,
+  wifiNetworks: () => [],
   ...overrides,
 });
 
@@ -117,6 +118,7 @@ export const mockCommandEnv = (overrides: Partial<CommandEnv> = {}): CommandEnv 
   log: mockLogApi(),
   setCwd: () => undefined,
   setInterface: () => undefined,
+  sleep: () => Promise.resolve(),
   signal: new AbortController().signal,
   ...overrides,
 });

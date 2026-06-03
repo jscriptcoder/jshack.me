@@ -185,6 +185,27 @@ describe('Terminal', () => {
     expect(screen.queryByText(/^alice:/)).not.toBeInTheDocument();
   });
 
+  it('streams the airdump scan into the scrollback once monitor mode is on', async () => {
+    // End-to-end through the real UI seam: airmon flips monitor mode, then
+    // airdump returns an ASYNC result whose lines `runInput` must stream into
+    // the scrollback. Without the async branch the result is dropped and
+    // nothing appears — so the header + summary tail prove the wiring.
+    renderTerminal();
+    runCommand('airmon start wlan0');
+    await screen.findByText((content) => content.includes('monitor mode enabled on wlan0'));
+
+    runCommand('airdump');
+    expect(
+      await screen.findByText(
+        (content) => content.includes('BSSID') && content.includes('ESSID'),
+      ),
+    ).toBeInTheDocument();
+    // The scan paces rows with real timers, so allow it to drain to completion.
+    expect(
+      await screen.findByText(/^Scan complete — \d+ networks found$/, {}, { timeout: 4000 }),
+    ).toBeInTheDocument();
+  });
+
   it('`ls -la` (stacked) shows hidden entries in long format', async () => {
     // End-to-end demo of the stacking infrastructure: `-la` is parsed as
     // `-l -a` and ls renders both behaviors. /etc has perms (drwxrwxrwx

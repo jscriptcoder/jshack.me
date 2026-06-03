@@ -4,6 +4,7 @@ import { homePathFor, SEED_CONFIG, seedFs, seedSession } from './seed';
 import { generateIdentity } from '../core/identity/identity';
 import { asAbsPath } from '../core/types';
 import { buildColdStartConnectivity, type NetworkInterface } from '../core/network/interfaces';
+import { generateWifi } from '../core/generation/generateWifi';
 import type { PatchApi } from '../core/commands/types';
 
 const noopPatches: PatchApi = {
@@ -14,6 +15,7 @@ const noopPatches: PatchApi = {
 
 const seedHome = homePathFor(SEED_CONFIG.username);
 const seedConnectivity = () => buildColdStartConnectivity('a'.repeat(64));
+const seedWifi = () => generateWifi('a'.repeat(64));
 
 const seedEnv = (userType: 'guest' | 'user' | 'root' = 'user') =>
   buildCommandEnv({
@@ -25,6 +27,7 @@ const seedEnv = (userType: 'guest' | 'user' | 'root' = 'user') =>
     patches: noopPatches,
     connectivity: seedConnectivity,
     onInterfaceChange: () => undefined,
+    wifiNetworks: seedWifi,
   });
 
 describe('buildCommandEnv', () => {
@@ -54,6 +57,7 @@ describe('buildCommandEnv', () => {
       patches: noopPatches,
       connectivity: seedConnectivity,
       onInterfaceChange: () => undefined,
+      wifiNetworks: seedWifi,
     });
 
     expect(env.session).toBe(session);
@@ -64,6 +68,16 @@ describe('buildCommandEnv', () => {
     const env = seedEnv();
     expect(env.network.interfaces().map((iface) => iface.name)).toEqual(['lo', 'eth0', 'wlan0']);
     expect(env.network.isOnline()).toBe(false);
+  });
+
+  it('exposes the seeded WiFi networks through the network view', () => {
+    expect(seedEnv().network.wifiNetworks()).toEqual(seedWifi());
+  });
+
+  it('provides an abort-aware sleep that resolves when not aborted', async () => {
+    // A zero-delay sleep through the real seam should resolve, proving the
+    // env wires a working sleep rather than a stub.
+    await expect(seedEnv().sleep(0)).resolves.toBeUndefined();
   });
 
   it('routes setInterface through to the onInterfaceChange writer', () => {
@@ -77,6 +91,7 @@ describe('buildCommandEnv', () => {
       patches: noopPatches,
       connectivity: seedConnectivity,
       onInterfaceChange: (name, iface) => calls.push([name, iface]),
+      wifiNetworks: seedWifi,
     });
 
     const wlan0 = seedConnectivity().interfaces.get('wlan0')!;
