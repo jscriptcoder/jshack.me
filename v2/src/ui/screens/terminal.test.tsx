@@ -206,6 +206,30 @@ describe('Terminal', () => {
     ).toBeInTheDocument();
   });
 
+  it('Ctrl-C aborts a running aircrack before the key is revealed', async () => {
+    // End-to-end abort wiring: the keyhandler calls abortRunning(), which aborts
+    // the run's controller → rejects the in-flight env.sleep → runInput catches
+    // it, prints `^C`, and stops. The KEY FOUND reveal must never appear.
+    renderTerminal();
+    runCommand('airmon start wlan0');
+    await screen.findByText((content) => content.includes('monitor mode enabled on wlan0'));
+    runCommand('airdump');
+    const bssidRow = await screen.findByText(
+      (content) => /^[0-9A-F]{2}(:[0-9A-F]{2}){5}\s+-\d+/.test(content),
+      {},
+      { timeout: 4000 },
+    );
+    const bssid = bssidRow.textContent!.trim().split(/\s+/)[0]!;
+
+    runCommand(`aircrack ${bssid}`);
+    // Let the crack begin (the capture preamble streams before the first pause).
+    await screen.findByText((content) => content.includes('Opening capture file'));
+    fireEvent.keyDown(inputField(), { key: 'c', ctrlKey: true });
+
+    expect(await screen.findByText('^C')).toBeInTheDocument();
+    expect(screen.queryByText(/KEY FOUND/)).not.toBeInTheDocument();
+  });
+
   it('`ls -la` (stacked) shows hidden entries in long format', async () => {
     // End-to-end demo of the stacking infrastructure: `-la` is parsed as
     // `-l -a` and ls renders both behaviors. /etc has perms (drwxrwxrwx

@@ -53,6 +53,10 @@ export type BuildCommandEnvArgs = {
    *  `network.wifiNetworks()` runs (airdump/aircrack). Memoized once per
    *  identity in `ui/state`. */
   readonly wifiNetworks: () => readonly WifiNetwork[];
+  /** The run's abort signal, owned by the UI (`runInput` makes one per command
+   *  so Ctrl-C can abort it). Backs both `env.signal` and the abort-aware
+   *  `env.sleep`, so aborting stops a streamed command mid-flight. */
+  readonly signal: AbortSignal;
 };
 
 const notWired = (method: string) => (): never => {
@@ -85,26 +89,22 @@ const logStub = (): LogApi => ({
   appendAccessLog: async () => undefined,
 });
 
-export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => {
-  // One controller per command run backs both `signal` and the abort-aware
-  // `sleep` — so a streamed command's pacing stops the instant the run aborts.
-  // (Live Ctrl-C wiring lands with aircrack; today nothing fires this.)
-  const controller = new AbortController();
-  return {
-    identity: args.identity,
-    session: args.session,
-    hopChain: [],
-    gameTime: () => asGameTime(0),
-    now: () => asEpochMs(Date.now()),
-    fs: createFsView(args.root, { userType: args.session.userType, cwd: args.cwd }),
-    network: networkView(args.session, args.connectivity, args.wifiNetworks),
-    output: outputStub(),
-    patches: args.patches,
-    remote: remoteStub(),
-    log: logStub(),
-    setCwd: args.onCwdChange,
-    setInterface: args.onInterfaceChange,
-    sleep: (ms) => abortableSleep(controller.signal, ms),
-    signal: controller.signal,
-  };
-};
+export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
+  identity: args.identity,
+  session: args.session,
+  hopChain: [],
+  gameTime: () => asGameTime(0),
+  now: () => asEpochMs(Date.now()),
+  fs: createFsView(args.root, { userType: args.session.userType, cwd: args.cwd }),
+  network: networkView(args.session, args.connectivity, args.wifiNetworks),
+  output: outputStub(),
+  patches: args.patches,
+  remote: remoteStub(),
+  log: logStub(),
+  setCwd: args.onCwdChange,
+  setInterface: args.onInterfaceChange,
+  // The UI owns the run's signal; both the abort flag commands read and the
+  // pacing sleep observe it, so Ctrl-C stops a streamed command mid-flight.
+  sleep: (ms) => abortableSleep(args.signal, ms),
+  signal: args.signal,
+});
