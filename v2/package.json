@@ -1,15 +1,22 @@
 {
   "name": "jshack-me-v2",
   "private": true,
-  "version": "0.21.0",
+  "version": "0.22.0",
   "type": "module",
   "scripts": {
+    "encode": "tsx scripts/encode.ts",
+    "predev": "npm run encode",
     "dev": "vite",
+    "prebuild": "npm run encode",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "pretest": "npm run encode",
     "test": "vitest",
+    "pretest:run": "npm run encode",
     "test:run": "vitest run",
+    "pretest:coverage": "npm run encode",
     "test:coverage": "vitest run --coverage",
+    "pretest:mutation": "npm run encode",
     "test:mutation": "stryker run",
     "vercel:dev": "dotenv -e .env.development.local -- vercel dev --listen 3100"
   },
