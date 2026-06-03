@@ -28,6 +28,7 @@ const seedEnv = (userType: 'guest' | 'user' | 'root' = 'user') =>
     connectivity: seedConnectivity,
     onInterfaceChange: () => undefined,
     wifiNetworks: seedWifi,
+    signal: new AbortController().signal,
   });
 
 describe('buildCommandEnv', () => {
@@ -58,6 +59,7 @@ describe('buildCommandEnv', () => {
       connectivity: seedConnectivity,
       onInterfaceChange: () => undefined,
       wifiNetworks: seedWifi,
+      signal: new AbortController().signal,
     });
 
     expect(env.session).toBe(session);
@@ -80,6 +82,27 @@ describe('buildCommandEnv', () => {
     await expect(seedEnv().sleep(0)).resolves.toBeUndefined();
   });
 
+  it('wires the provided signal into env.signal and the sleep, so aborting rejects it', async () => {
+    const controller = new AbortController();
+    const env = buildCommandEnv({
+      identity: generateIdentity(),
+      session: seedSession(generateIdentity(), SEED_CONFIG),
+      root: seedFs(SEED_CONFIG, generateIdentity()),
+      cwd: () => seedHome,
+      onCwdChange: () => undefined,
+      patches: noopPatches,
+      connectivity: seedConnectivity,
+      onInterfaceChange: () => undefined,
+      wifiNetworks: seedWifi,
+      signal: controller.signal,
+    });
+
+    expect(env.signal).toBe(controller.signal);
+    const sleeping = env.sleep(10_000).catch((reason: unknown) => reason);
+    controller.abort();
+    expect(await sleeping).toBe(controller.signal.reason);
+  });
+
   it('routes setInterface through to the onInterfaceChange writer', () => {
     const calls: Array<readonly [string, NetworkInterface]> = [];
     const env = buildCommandEnv({
@@ -92,6 +115,7 @@ describe('buildCommandEnv', () => {
       connectivity: seedConnectivity,
       onInterfaceChange: (name, iface) => calls.push([name, iface]),
       wifiNetworks: seedWifi,
+      signal: new AbortController().signal,
     });
 
     const wlan0 = seedConnectivity().interfaces.get('wlan0')!;

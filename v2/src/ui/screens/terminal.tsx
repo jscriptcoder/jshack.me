@@ -3,6 +3,7 @@ import type { TerminalLine } from '../../core/commands/types';
 import { formatPrompt } from '../../core/shell/prompt';
 import { BANNER } from '../banner';
 import {
+  abortRunning,
   cwd,
   historyDown,
   historyUp,
@@ -43,6 +44,12 @@ export const Terminal = () => {
     if (event.key === 'Enter') {
       event.preventDefault();
       void runInput();
+      return;
+    }
+    // Ctrl-C interrupts a running command. Only swallow the keystroke when there
+    // was something to abort, so an idle Ctrl-C still copies any selection.
+    if (event.key === 'c' && event.ctrlKey) {
+      if (abortRunning()) event.preventDefault();
       return;
     }
     if (event.key === 'ArrowUp') {

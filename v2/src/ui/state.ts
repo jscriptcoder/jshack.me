@@ -234,6 +234,20 @@ export const tabComplete = (cursorPos: number): number | null => {
   return changed ? outcome.newCursorPosition : null;
 };
 
+// The in-flight command's abort controller, while a (typically streamed)
+// command is running. Ctrl-C aborts it via `abortRunning`; cleared when the
+// run finishes. Only one command runs at a time (the prompt blocks on it).
+let activeRun: AbortController | undefined;
+
+/** Abort the running command (Ctrl-C). Returns whether anything was aborted, so
+ *  the UI only swallows the keystroke when there was a command to interrupt
+ *  (otherwise Ctrl-C stays a normal copy). */
+export const abortRunning = (): boolean => {
+  if (activeRun === undefined) return false;
+  activeRun.abort();
+  return true;
+};
+
 export const runInput = async (): Promise<void> => {
   const activeSession = requireSession();
   const activePatchApi = patchApi;
@@ -254,6 +268,11 @@ export const runInput = async (): Promise<void> => {
     ),
   ]);
 
+  // Fresh abort controller per run — Ctrl-C aborts it, which rejects the
+  // command's `env.sleep` and unwinds a streamed command mid-flight.
+  const controller = new AbortController();
+  activeRun = controller;
+
   const env = buildCommandEnv({
     identity: requireIdentity(),
     session: activeSession,
@@ -264,20 +283,32 @@ export const runInput = async (): Promise<void> => {
     connectivity,
     onInterfaceChange: setInterface,
     wifiNetworks,
+    signal: controller.signal,
   });
 
-  const result = await runCommandLine(env, line, commandRegistry);
-  if (result.kind === 'sync') {
-    setScrollback((previous) => [...previous, ...result.lines]);
-    return;
-  }
-  // Streamed commands (airdump, later aircrack) append each line as it arrives,
-  // so the terminal fills live rather than all at once.
-  if (result.kind === 'async') {
-    for await (const streamed of result.lines) {
-      setScrollback((previous) => [...previous, streamed]);
+  try {
+    const result = await runCommandLine(env, line, commandRegistry);
+    if (result.kind === 'sync') {
+      setScrollback((previous) => [...previous, ...result.lines]);
+      return;
     }
-    await result.exitCode();
+    // Streamed commands (airdump, aircrack) append each line as it arrives, so
+    // the terminal fills live rather than all at once. A Ctrl-C abort rejects
+    // the in-flight `env.sleep`, which surfaces here — print a `^C` marker and
+    // stop, leaving the partial output. Any other error is a real fault.
+    if (result.kind === 'async') {
+      try {
+        for await (const streamed of result.lines) {
+          setScrollback((previous) => [...previous, streamed]);
+        }
+        await result.exitCode();
+      } catch (streamError) {
+        if (!controller.signal.aborted) throw streamError;
+        setScrollback((previous) => [...previous, { kind: 'text', content: '^C' }]);
+      }
+    }
+  } finally {
+    activeRun = undefined;
   }
 };
 
