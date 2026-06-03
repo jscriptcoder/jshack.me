@@ -4,6 +4,7 @@ import { homePathFor, SEED_CONFIG, seedFs, seedSession } from './seed';
 import { generateIdentity } from '../core/identity/identity';
 import { asAbsPath } from '../core/types';
 import { buildColdStartConnectivity, type NetworkInterface } from '../core/network/interfaces';
+import { assignHomeNetwork } from '../core/network/homeNetwork';
 import { generateWifi } from '../core/generation/generateWifi';
 import type { PatchApi } from '../core/commands/types';
 
@@ -74,6 +75,28 @@ describe('buildCommandEnv', () => {
 
   it('exposes the seeded WiFi networks through the network view', () => {
     expect(seedEnv().network.wifiNetworks()).toEqual(seedWifi());
+  });
+
+  it('wires homeNetwork.join to the identity-seeded assignment', async () => {
+    const identity = generateIdentity();
+    const env = buildCommandEnv({
+      identity,
+      session: seedSession(identity, SEED_CONFIG),
+      root: seedFs(SEED_CONFIG, identity),
+      cwd: () => seedHome,
+      onCwdChange: () => undefined,
+      patches: noopPatches,
+      connectivity: seedConnectivity,
+      onInterfaceChange: () => undefined,
+      wifiNetworks: seedWifi,
+      signal: new AbortController().signal,
+    });
+
+    // The seam resolves to exactly the deterministic core derivation for this
+    // identity — so a fresh connect and a reload rehydration agree on the IP.
+    await expect(env.homeNetwork.join('BEAN-THERE-WIFI')).resolves.toEqual(
+      assignHomeNetwork(identity.publicKeyHex, 'BEAN-THERE-WIFI'),
+    );
   });
 
   it('provides an abort-aware sleep that resolves when not aborted', async () => {

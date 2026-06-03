@@ -19,6 +19,7 @@ import {
 } from '../../core/types';
 import type {
   CommandEnv,
+  HomeNetworkApi,
   Identity,
   LogApi,
   NetworkView,
@@ -102,6 +103,13 @@ export const mockLogApi = (): LogApi => ({
   appendAccessLog: async () => undefined,
 });
 
+/** A home-network join that resolves to a fixed assignment. Command tests
+ *  override `join` to capture the requested ESSID or vary the address. */
+export const mockHomeNetwork = (overrides: Partial<HomeNetworkApi> = {}): HomeNetworkApi => ({
+  join: async () => ({ localIp: '192.168.0.2', hostname: 'test-host' }),
+  ...overrides,
+});
+
 // ---- The factory ----
 
 export const mockCommandEnv = (overrides: Partial<CommandEnv> = {}): CommandEnv => ({
@@ -116,6 +124,7 @@ export const mockCommandEnv = (overrides: Partial<CommandEnv> = {}): CommandEnv 
   patches: mockPatchApi(),
   remote: mockRemoteApi(),
   log: mockLogApi(),
+  homeNetwork: mockHomeNetwork(),
   setCwd: () => undefined,
   setInterface: () => undefined,
   sleep: () => Promise.resolve(),
