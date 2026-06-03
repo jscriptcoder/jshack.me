@@ -23,6 +23,7 @@ import type {
 import type { Directory, FileNode } from '../filesystem/types';
 import type { WalkResult } from '../filesystem/walker';
 import type { NetworkInterface } from '../network/interfaces';
+import type { WifiNetwork } from '../network/wifi';
 import type { FlagSpec } from '../shell/bindFlags';
 
 // ---- Identity & session (read-only snapshots in CommandEnv) ----
@@ -153,6 +154,10 @@ export type NetworkView = {
   /** True when any non-loopback interface holds an IPv4 address. The arc's
    *  milestone predicate — `apt`/`nmap` (downstream) gate on it. */
   readonly isOnline: () => boolean;
+  /** The WiFi access points in range — seeded once per identity in `ui/state`,
+   *  exposed read-only. `airdump` lists them (no password column); `aircrack`
+   *  is the only command that reveals a crackable AP's password. */
+  readonly wifiNetworks: () => readonly WifiNetwork[];
 };
 
 export type OutputSink = {
@@ -209,6 +214,12 @@ export type CommandEnv = {
 
   /** Piped input from a previous command in the pipeline. */
   readonly stdin?: AsyncIterable<string>;
+
+  /** Abort-aware delay for pacing streamed output (airdump's scan, aircrack's
+   *  crack). Rejects when `signal` fires so Ctrl-C stops a stream mid-flight.
+   *  The UI injects a real setTimeout-backed sleep; tests inject an instant one
+   *  so streamed commands assert without real waits. */
+  readonly sleep: (ms: number) => Promise<void>;
 
   readonly signal: AbortSignal;
 };
