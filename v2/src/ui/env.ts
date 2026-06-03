@@ -24,7 +24,7 @@ import type {
 } from '../core/commands/types';
 import type { Directory } from '../core/filesystem/types';
 import { createFsView } from '../core/filesystem/fsView';
-import { isOnline, type ConnectivityState } from '../core/network/interfaces';
+import { isOnline, type ConnectivityState, type NetworkInterface } from '../core/network/interfaces';
 
 export type BuildCommandEnvArgs = {
   readonly identity: Identity;
@@ -43,6 +43,10 @@ export type BuildCommandEnvArgs = {
    *  `network.interfaces()`/`isOnline()` run, so the UI's connectivity signal
    *  flows through without rebuilding the env per command. */
   readonly connectivity: () => ConnectivityState;
+  /** Writer — `airmon`/`nmcli` call this (via `env.setInterface`) to replace
+   *  one interface. The UI owns the connectivity signal; `core/` only knows
+   *  there's a setter. */
+  readonly onInterfaceChange: (name: string, iface: NetworkInterface) => void;
 };
 
 const notWired = (method: string) => (): never => {
@@ -86,5 +90,6 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   remote: remoteStub(),
   log: logStub(),
   setCwd: args.onCwdChange,
+  setInterface: args.onInterfaceChange,
   signal: new AbortController().signal,
 });
