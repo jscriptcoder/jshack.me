@@ -29,7 +29,21 @@ Reconciling the user's "start simple, no templates" framing with the legacy type
 | Gateway sub-kind  | `'router' \| 'switch'` (only matters at layer depth)          |
 | Topology          | 1–3 `/24` layers; `.1` = gateway; "see only your layer"       |
 | Per-machine FS    | Uniform minimal skeleton (`/etc/passwd`, `/home`, `/root`, `/tmp`, `/bin`) — NO role templates |
-| Addressing        | Private subnets (RFC 1918) + per-machine IPs                   |
+| Addressing        | Private subnets across the **full RFC 1918 space** (`10.x`, `172.16–31.x`, `192.168.x`) for variety — NOT `192.168` only + per-machine IPs |
+| Gateway interfaces | Every router/switch is **dual-homed**: the main router has a public IP + an internal `.1`; each internal router/switch carries one IP per adjacent layer (its `.1` on the downstream layer, a host IP on the upstream layer) |
+
+## Design notes from owner (2026-06-04) — fold into the relevant stories
+
+1. **Internal-IP variety (legacy parity).** Generated networks must draw subnets from the
+   whole RFC 1918 range like legacy `generatePrivateSubnet` (`10.x` / `172.16–31.x` /
+   `192.168.x`), not just `192.168.x`. **Conflict to resolve in Story 2**: the shipped
+   `assignHomeNetwork` (`core/network/homeNetwork.ts`) hard-codes `192.168.${subnet}.${host}`.
+   Widen it to the full RFC 1918 draw (no live players → free to reshape; update its golden test).
+2. **Dual-homed gateways.** Routers and switches have **two interfaces**. The main router:
+   one public-IP interface + one internal-LAN interface (`.1`). Internal routers/switches:
+   one IP per layer they bridge (gateway `.1` on the layer below, a member host IP on the
+   layer above). This is the shape Story 4's depth + visibility rule depends on; port the
+   legacy `topology.ts` dual-interface invariant faithfully.
 
 ### Explicitly OUT of this epic (later epics)
 
@@ -94,6 +108,21 @@ commands. Establishes the generator primitives every later story reuses.
 **Decided scope**: minimal skeleton only (NOT `/bin` tools, `/lib`, logs, dotfiles — those
 land when a command consumes them); real md5 hashes; include the guest row.
 
+### Story 1.5 — `apt install` actually installs a tool **(NEW — now precedes Story 2)**
+
+**Actor**: Player on their online workstation.
+**Trigger**: `apt install <pkg>` (e.g. `apt install nmap`).
+**Observable outcome**: A package's binary (or binaries) appear in `/usr/bin`, and a command that
+was previously `command not found` (with the install hint) now runs. `apt` reports the install.
+**Production path**: new `apt` command → consults `APT_PACKAGES` (`core/commands/aptPackages.ts`)
+→ writes the binary stub(s) to `/usr/bin` through the existing write/patch path → the existing
+binary-availability wrapper now resolves the command.
+**Smallest deployable value**: `apt install <known-pkg>` installs its binary; the gated command
+becomes runnable. (Scope of subcommands / online-gate / lib-deps decided in its own plan.)
+**Why now (DECIDED 2026-06-04)**: replaces the earlier "preinstall nmap in `/usr/bin`" hack.
+`apt install` is the real reachability mechanism and unblocks every gated tool, not just nmap.
+Decouples tool acquisition from the scan slice. Graduates to `plans/apt-install.md`.
+
 ### Story 2 — A reachable single-layer LAN you can scan
 
 **Actor**: Player on a connected LAN.
@@ -104,7 +133,8 @@ in the current layer — IP, hostname, kind (`machine`/`router`), with `.1` as t
 minimal addressing/"current layer" concept + the recon command rendering the layer.
 **Smallest deployable value**: One flat layer, host-discovery only (no ports). First time
 topology + addressing become real and observable.
-**Depends on**: Story 1 (PRNG + generator scaffolding).
+**Depends on**: Story 1 (PRNG + generator scaffolding) **and Story 1.5** (`apt install nmap`
+makes the recon tool reachable). Also resolves the RFC 1918 variety conflict (design note 1).
 
 ### Story 3 — Enter a generated machine and browse its base FS
 

@@ -15,6 +15,7 @@
 import { aircrack } from './aircrack';
 import { airdump } from './airdump';
 import { airmon } from './airmon';
+import { apt } from './apt';
 import { cat } from './cat';
 import { cd } from './cd';
 import { echo } from './echo';
@@ -37,6 +38,7 @@ const builtins: readonly Command[] = [
   aircrack,
   airdump,
   airmon,
+  apt,
   cat,
   cd,
   echo,

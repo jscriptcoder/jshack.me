@@ -20,7 +20,7 @@ import type {
   PlayerKeyHex,
   UserType,
 } from '../types';
-import type { Directory, FileNode } from '../filesystem/types';
+import type { Directory, FileNode, FilePermissions } from '../filesystem/types';
 import type { WalkResult } from '../filesystem/walker';
 import type { NetworkInterface } from '../network/interfaces';
 import type { HomeNetworkAssignment } from '../network/homeNetwork';
@@ -127,12 +127,16 @@ export type FsListResult =
  *  so the server stamps `is_new: true` and a later `remove` deletes the row
  *  rather than leaving a tombstone. Callers know this from the FS view: an
  *  absent target (`stat === null`) is new; an existing target is an overwrite,
- *  where omitting the flag preserves the row's stored `is_new`. */
+ *  where omitting the flag preserves the row's stored `is_new`.
+ *
+ *  `permissions` overrides the tier-derived default for the new node — used by
+ *  `apt install` to stamp a world-executable binary (the default file perms are
+ *  root-only-executable, which the user-tier player could never run). */
 export type PatchApi = {
   readonly write: (
     path: AbsPath,
     content: string,
-    options?: { readonly isNew?: boolean },
+    options?: { readonly isNew?: boolean; readonly permissions?: FilePermissions },
   ) => Promise<PatchResult>;
   readonly remove: (path: AbsPath) => Promise<PatchResult>;
   readonly mkdir: (path: AbsPath) => Promise<PatchResult>;

@@ -84,13 +84,17 @@ export const createPatchApi = (deps: PatchClientDeps): PatchApi => ({
   // `is_new` is stamped ONLY for a genuinely-new file; an overwrite omits it so
   // the server's upsert preserves whatever `is_new` the row already carries
   // (a base file stays `false`, a player-created file stays `true`).
-  write: (path: AbsPath, content: string, options?: { readonly isNew?: boolean }) =>
+  write: (
+    path: AbsPath,
+    content: string,
+    options?: { readonly isNew?: boolean; readonly permissions?: FilePermissions },
+  ) =>
     upsert(deps, {
       machine_id: deps.machineId,
       path,
       content,
       owner: deps.owner,
-      permissions: defaultFilePermissions(deps.tier),
+      permissions: options?.permissions ?? defaultFilePermissions(deps.tier),
       node_type: 'file',
       ...(options?.isNew ? { is_new: true } : {}),
     }),
