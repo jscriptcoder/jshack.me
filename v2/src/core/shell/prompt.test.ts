@@ -24,6 +24,15 @@ describe('formatPrompt', () => {
   it('uses the username and host verbatim (catches swapped field mutants)', () => {
     expect(formatPrompt({ username: 'root', host: 'gateway', cwd: '/' })).toBe('root@gateway:/$');
   });
+
+  it('ends the prompt with # for a root-tier session and $ otherwise', () => {
+    expect(
+      formatPrompt({ username: 'root', host: 'rig', cwd: '/root', userType: 'root' }),
+    ).toBe('root@rig:/root#');
+    expect(
+      formatPrompt({ username: 'neo', host: 'rig', cwd: '/home/neo', userType: 'user' }),
+    ).toBe('neo@rig:/home/neo$');
+  });
 });
 
 describe('commandEchoLine', () => {

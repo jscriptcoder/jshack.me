@@ -29,6 +29,7 @@ import { mkdir } from './mkdir';
 import { nmcli } from './nmcli';
 import { pwd } from './pwd';
 import { rm } from './rm';
+import { su } from './su';
 import { touch } from './touch';
 import { isAlwaysAvailable, wrapWithBinaryCheck } from './availability';
 import { wrapWithLibraryCheck } from './libraryDeps';
@@ -52,6 +53,7 @@ const builtins: readonly Command[] = [
   nmcli,
   pwd,
   rm,
+  su,
   touch,
 ];
 

@@ -29,6 +29,8 @@ const seedEnv = (userType: 'guest' | 'user' | 'root' = 'user') =>
     connectivity: seedConnectivity,
     onInterfaceChange: () => undefined,
     wifiNetworks: seedWifi,
+    prompt: async () => '',
+    onPushSession: () => undefined,
     signal: new AbortController().signal,
   });
 
@@ -60,6 +62,8 @@ describe('buildCommandEnv', () => {
       connectivity: seedConnectivity,
       onInterfaceChange: () => undefined,
       wifiNetworks: seedWifi,
+      prompt: async () => '',
+      onPushSession: () => undefined,
       signal: new AbortController().signal,
     });
 
@@ -89,6 +93,8 @@ describe('buildCommandEnv', () => {
       connectivity: seedConnectivity,
       onInterfaceChange: () => undefined,
       wifiNetworks: seedWifi,
+      prompt: async () => '',
+      onPushSession: () => undefined,
       signal: new AbortController().signal,
     });
 
@@ -117,6 +123,8 @@ describe('buildCommandEnv', () => {
       connectivity: seedConnectivity,
       onInterfaceChange: () => undefined,
       wifiNetworks: seedWifi,
+      prompt: async () => '',
+      onPushSession: () => undefined,
       signal: controller.signal,
     });
 
@@ -138,6 +146,8 @@ describe('buildCommandEnv', () => {
       connectivity: seedConnectivity,
       onInterfaceChange: (name, iface) => calls.push([name, iface]),
       wifiNetworks: seedWifi,
+      prompt: async () => '',
+      onPushSession: () => undefined,
       signal: new AbortController().signal,
     });
 

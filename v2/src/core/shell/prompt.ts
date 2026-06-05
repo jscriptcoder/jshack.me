@@ -6,15 +6,19 @@
  */
 
 import type { TerminalLine } from '../commands/types';
+import type { UserType } from '../types';
 
 export type PromptLocation = {
   readonly username: string;
   readonly host: string;
   readonly cwd: string;
+  /** Drives the trailing symbol: `#` for root, `$` otherwise. Optional so
+   *  existing callers default to `$`. */
+  readonly userType?: UserType;
 };
 
 export const formatPrompt = (location: PromptLocation): string =>
-  `${location.username}@${location.host}:${location.cwd}$`;
+  `${location.username}@${location.host}:${location.cwd}${location.userType === 'root' ? '#' : '$'}`;
 
 /** The scrollback line that echoes a typed command under its prompt. */
 export const commandEchoLine = (location: PromptLocation, command: string): TerminalLine => ({

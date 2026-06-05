@@ -226,6 +226,19 @@ export type CommandEnv = {
    *  value on the next command's env. */
   readonly setInterface: (name: string, iface: NetworkInterface) => void;
 
+  /** Request a single line of interactive input from the UI — the general
+   *  prompt primitive every credential command reuses (`su` now; ssh/scp/ftp/
+   *  mysql/redis later). `masked` hides the input (passwords). Promise-shaped so
+   *  a command awaits it inline and composes prompts sequentially (ftp's
+   *  username then password). Rejects if the run is aborted (Ctrl-C). */
+  readonly prompt: (opts: { readonly message: string; readonly masked: boolean }) => Promise<string>;
+
+  /** Elevate/switch the active session by pushing a new one onto the hop chain
+   *  (sibling to `setCwd`/`setInterface`). The UI owns the session stack and
+   *  reflects the new active session (prompt, tier) on the next command's env.
+   *  `su` pushes a root session; ssh/nc push remote sessions later. */
+  readonly pushSession: (session: Session) => void;
+
   /** Piped input from a previous command in the pipeline. */
   readonly stdin?: AsyncIterable<string>;
 

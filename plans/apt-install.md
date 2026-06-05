@@ -20,6 +20,17 @@ hack and unblocks every apt-gated tool (nmap next).
    libraries and write any that are missing).
 4. **Online gate**: **required** — offline `apt install`/`apt list` errors (`env.network.isOnline()`).
 
+## ⚠ Reachability dependency — `su` does not exist yet (found via live E2E 2026-06-05)
+
+The root gate is correct, but **v2 has no `su` command** and the player starts as `user`
+(`seed.ts`), with no elevation path. Verified in the running app (`localhost:3100`):
+`apt install nmap` → correct "are you root?" gate; `su` → `bash: su: command not found`.
+So `apt install`'s happy path is **unreachable by a real player until `su` ships**. The apt code
+is correct (unit + cross-layer integration tests prove the install→availability flip with a root
+session); the missing piece is the sibling `su` command. **Implement `su` before apt is "usable".**
+`su` is foundational anyway (legacy had it; `libraryDeps` already lists `su: ['libpam','libcrypt']`;
+`/bin/su` already exists in the base FS). Recommend a `su` slice/plan next.
+
 ## Context the plan rests on (verified)
 
 - **Write path**: mutation routes through `env.patches` (PatchApi), never `FsView` (read-only).
@@ -124,6 +135,33 @@ errors. Mutator watch: the `--installed` filter predicate, the flag parse.
 **MUTATE / KILL MUTANTS / REFACTOR**: per skills.
 **Done when**: criteria met, mutation report reviewed, human approves commit.
 
+### Slice 4: keyword tab-completion for apt's operation (`install` / `list`)
+
+**Value**: Player presses Tab on `apt <TAB>` and gets the operation keywords (`install`, `list`)
+completed — legacy parity. Today v2's completion treats arg0 after a command as a PATH, so
+`apt in<TAB>` wrongly looks for files; and `CommandArgument` has no `values` to declare the set.
+**Why after Slice 3 (DECIDED 2026-06-05)**: apt is v2's FIRST command with a fixed-value first
+positional — exactly the case `core/shell/complete.ts` deferred ("no v2 command has a fixed-value
+first positional yet"). Running this after `list` ships means keyword completion lands against the
+COMPLETE operation set (`install` + `list`) in one slice, not added twice.
+**Path**: re-add `values?: readonly string[]` to `CommandArgument` (`commands/types.ts`) — the field
+legacy used, dropped until a consumer existed; apt is that consumer → declare its `operation` arg
+`values: ['install', 'list']`. Extend `complete.ts`: classify the arg0-after-command position and a
+new `completeKeyword` that completes against the resolved command's first-argument `values` (via the
+existing `CompleteAdapter.getCommand`). Update the stale comments in `complete.ts` and `types.ts`.
+This is a shell-level capability any future fixed-value-positional command reuses (apt = first).
+**Required implementation skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
+**Acceptance criteria**: `apt <TAB>` → `install`, `list`; `apt in<TAB>` → `install ` (keyword, NOT a
+filesystem lookup); `apt install <TAB>` still completes packages/paths as before (arg1 unaffected);
+a command WITHOUT declared `values` is unchanged (no regression to path/flag completion).
+**Confirm before code.**
+**RED**: completion tests — arg0 keyword matches + common-prefix + single-match trailing space;
+no-`values` command still path-completes. Mutator watch: the arg0-position classification predicate,
+the `values` lookup, the prefix filter.
+**GREEN**: `values` field + apt declaration + `completeKeyword` path.
+**MUTATE / KILL MUTANTS / REFACTOR**: per skills.
+**Done when**: criteria met, mutation report reviewed, human approves commit.
+
 ## Pre-PR Quality Gate (each slice)
 
 1. Mutation testing (`mutation-testing`) — report reviewed.
@@ -134,4 +172,4 @@ errors. Mutator watch: the `--installed` filter predicate, the flag parse.
 
 ---
 
-_Delete this file when all three slices ship. The nmap scan (Story 2) consumes `apt install nmap`._
+_Delete this file when all four slices ship. The nmap scan (Story 2) consumes `apt install nmap`._

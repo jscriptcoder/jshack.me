@@ -58,6 +58,13 @@ export type BuildCommandEnvArgs = {
    *  so Ctrl-C can abort it). Backs both `env.signal` and the abort-aware
    *  `env.sleep`, so aborting stops a streamed command mid-flight. */
   readonly signal: AbortSignal;
+  /** The general interactive-input primitive — backs `env.prompt`. The UI shows
+   *  a (optionally masked) prompt and resolves with the submitted line, or
+   *  rejects on Ctrl-C. Reused by `su` now; ssh/scp/ftp/… later. */
+  readonly prompt: (opts: { readonly message: string; readonly masked: boolean }) => Promise<string>;
+  /** Writer — `su` (and later ssh/nc) call this (via `env.pushSession`) to push
+   *  a new active session onto the stack. The UI owns the session signal. */
+  readonly onPushSession: (session: Session) => void;
 };
 
 const notWired = (method: string) => (): never => {
@@ -108,6 +115,8 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   homeNetwork: { join: (essid) => Promise.resolve(assignHomeNetwork(args.identity.publicKeyHex, essid)) },
   setCwd: args.onCwdChange,
   setInterface: args.onInterfaceChange,
+  prompt: args.prompt,
+  pushSession: args.onPushSession,
   // The UI owns the run's signal; both the abort flag commands read and the
   // pacing sleep observe it, so Ctrl-C stops a streamed command mid-flight.
   sleep: (ms) => abortableSleep(args.signal, ms),

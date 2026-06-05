@@ -35,7 +35,7 @@ const WORLD_EXECUTABLE: FilePermissions = {
 type WriteCall = {
   readonly path: string;
   readonly content: string;
-  readonly options?: { readonly isNew?: boolean; readonly permissions?: FilePermissions };
+  readonly options?: { readonly isNew?: boolean; readonly permissions?: FilePermissions } | undefined;
 };
 
 type AptEnvOpts = {
@@ -85,6 +85,17 @@ describe('apt', () => {
       });
       expect(text).toContain('Setting up nmap');
       expect(exitCode).toBe(0);
+    });
+
+    it('installs binary content free of NUL bytes (Postgres TEXT cannot store them)', async () => {
+      // Regression guard: the patch store is a Postgres TEXT column, which
+      // rejects NUL (\u0000). A stub containing NUL fails the real write with a
+      // network_error even though unit tests with a mocked write pass.
+      const { env, writes } = aptEnv();
+
+      await apt.execute(env, ['install', 'nmap'], NO_FLAGS);
+
+      expect(writes[0].content).not.toContain('\u0000');
     });
 
     it('installs every binary a multi-binary package ships, in catalog order', async () => {

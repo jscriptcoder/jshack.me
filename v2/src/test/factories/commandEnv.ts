@@ -127,6 +127,8 @@ export const mockCommandEnv = (overrides: Partial<CommandEnv> = {}): CommandEnv 
   homeNetwork: mockHomeNetwork(),
   setCwd: () => undefined,
   setInterface: () => undefined,
+  prompt: NOT_IMPLEMENTED('prompt'),
+  pushSession: () => undefined,
   sleep: () => Promise.resolve(),
   signal: new AbortController().signal,
   ...overrides,

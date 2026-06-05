@@ -19,7 +19,7 @@
  */
 
 import { createSignal } from 'solid-js';
-import { asAbsPath, type AbsPath } from '../core/types';
+import { asAbsPath, type AbsPath, type UserType } from '../core/types';
 import type { Identity, PatchApi, Session, TerminalLine } from '../core/commands/types';
 import type { GameConfig } from '../core/gameConfig/gameConfig';
 import type { Patch } from '../core/filesystem/applyPatches';
@@ -50,11 +50,15 @@ import { persistConnection, restoreConnection } from './connectionPersistence';
 // import time — they need the player's typed config. Reading them before
 // `startGame` is a programming error the `started()` guard surfaces loudly.
 let identity: Identity | undefined;
-let session: Session | undefined;
 let config: GameConfig | undefined;
 let patchClientDeps: PatchClientDeps | undefined;
 let patchApi: PatchApi | undefined;
 let syncChannel: SyncChannel | undefined;
+
+// The session stack: the active session is the top. `su` pushes a root session;
+// a future `exit` pops. Reactive so the prompt (username + `$`/`#`) reflects the
+// active session immediately. Empty until `startGame` seeds the user session.
+const [sessionStack, setSessionStack] = createSignal<readonly Session[]>([]);
 
 const [scrollback, setScrollback] = createSignal<readonly TerminalLine[]>([]);
 const [input, setInput] = createSignal('');
@@ -88,18 +92,72 @@ const [historyNav, setHistoryNav] = createSignal<HistoryNav>(idleNav());
 
 export { cwd, input, scrollback, setInput };
 
+/** The active session (top of stack), or undefined before `startGame`. */
+const activeSession = (): Session | undefined => sessionStack().at(-1);
+
 /** The active session, or a clear error if the game hasn't been started.
  *  Internal accessor so the rest of the module reads a defined value. */
 const requireSession = (): Session => {
-  if (session === undefined) throw new Error('startGame must be called before using the terminal');
-  return session;
+  const active = activeSession();
+  if (active === undefined) throw new Error('startGame must be called before using the terminal');
+  return active;
+};
+
+/** Push a new active session (backs `env.pushSession`). `su` pushes root; the
+ *  prompt + tier reflect it on the next command because the stack is reactive. */
+const pushSession = (next: Session): void => {
+  setSessionStack((previous) => [...previous, next]);
+};
+
+// A pending interactive prompt (su's masked password; later ssh/ftp/…). While
+// set, the terminal masks input as needed and routes the next submitted line to
+// `resolve` instead of running a command; Ctrl-C `reject`s it.
+type PendingPrompt = {
+  readonly message: string;
+  readonly masked: boolean;
+  readonly resolve: (value: string) => void;
+  readonly reject: (reason?: unknown) => void;
+};
+const [pendingPrompt, setPendingPrompt] = createSignal<PendingPrompt | undefined>();
+
+export { pendingPrompt };
+
+/** Backs `env.prompt`: returns a promise resolved when the player submits the
+ *  next line (or rejected on Ctrl-C). */
+const requestPrompt = (opts: { readonly message: string; readonly masked: boolean }): Promise<string> =>
+  new Promise<string>((resolve, reject) => {
+    setPendingPrompt({ message: opts.message, masked: opts.masked, resolve, reject });
+  });
+
+/** Submit the pending prompt with the current input line (Enter while a prompt
+ *  is active). Echoes the prompt label (never the masked value) to scrollback. */
+export const submitPrompt = (): void => {
+  const pending = pendingPrompt();
+  if (pending === undefined) return;
+  const value = input();
+  setInput('');
+  setPendingPrompt(undefined);
+  setScrollback((previous) => [...previous, { kind: 'prompt', content: pending.message }]);
+  pending.resolve(value);
+};
+
+/** Cancel the pending prompt (Ctrl-C) — rejects so the awaiting command unwinds. */
+export const cancelPrompt = (): void => {
+  const pending = pendingPrompt();
+  if (pending === undefined) return;
+  setInput('');
+  setPendingPrompt(undefined);
+  pending.reject(new DOMException('prompt cancelled', 'AbortError'));
 };
 
 /** Reactive prompt host (machine name) + username for the UI. Read the typed
  *  config; fall through to placeholders only before `startGame` (the boot gate
  *  ensures that never happens in practice). */
 export const promptHost = (): string => config?.machineName ?? 'workstation';
-export const promptUsername = (): string => config?.username ?? 'user';
+export const promptUsername = (): string =>
+  activeSession()?.username ?? config?.username ?? 'user';
+/** Active tier — drives the prompt symbol (`#` for root after `su`, else `$`). */
+export const promptTier = (): UserType => activeSession()?.userType ?? 'user';
 
 /** Re-pull the own-workstation journal and replace the local view. */
 const refetchPatches = async (): Promise<void> => {
@@ -119,7 +177,12 @@ const wrapWithRefetch = (inner: PatchApi): PatchApi => {
         await refetchPatches();
         // Tell other tabs to re-pull — only after our own journal reflects the
         // server-persisted write, so a receiver's refetch sees the new truth.
-        syncChannel?.broadcast({ type: 'patches-changed', machineId: requireSession().machineId });
+        // The workstation id is constant, so read it from the (non-reactive)
+        // client deps rather than the reactive session.
+        const machineId = patchClientDeps?.machineId;
+        if (machineId !== undefined) {
+          syncChannel?.broadcast({ type: 'patches-changed', machineId });
+        }
       }
       return result;
     };
@@ -137,7 +200,8 @@ const wrapWithRefetch = (inner: PatchApi): PatchApi => {
 export const startGame = (gameConfig: GameConfig): void => {
   config = gameConfig;
   identity = getPlayerIdentity();
-  session = seedSession(identity, gameConfig);
+  const seed = seedSession(identity, gameConfig);
+  setSessionStack([seed]);
   // Seed WiFi + connectivity, then rehydrate any persisted connection: a stored
   // ESSID (from a prior nmcli connect) re-derives its address through the join
   // seam so the player comes back online on reload without re-cracking.
@@ -148,9 +212,9 @@ export const startGame = (gameConfig: GameConfig): void => {
 
   patchClientDeps = {
     identity,
-    machineId: session.machineId,
-    owner: session.username,
-    tier: session.userType,
+    machineId: seed.machineId,
+    owner: seed.username,
+    tier: seed.userType,
   };
   patchApi = wrapWithRefetch(createPatchApi(patchClientDeps));
 
@@ -167,7 +231,9 @@ export const startGame = (gameConfig: GameConfig): void => {
   syncChannel?.close();
   syncChannel = createSyncChannel();
   syncChannel.onMessage((message) => {
-    if (message.type === 'patches-changed' && message.machineId === session?.machineId) {
+    // The workstation id is constant (su changes tier, not machine), so compare
+    // against the seed session's id — no reactive read needed in this handler.
+    if (message.type === 'patches-changed' && message.machineId === seed.machineId) {
       void refetchPatches();
     }
   });
@@ -258,7 +324,7 @@ export const abortRunning = (): boolean => {
 };
 
 export const runInput = async (): Promise<void> => {
-  const activeSession = requireSession();
+  const currentSession = requireSession();
   const activePatchApi = patchApi;
   if (activePatchApi === undefined) throw new Error('startGame must be called before runInput');
 
@@ -272,7 +338,12 @@ export const runInput = async (): Promise<void> => {
   setScrollback((previous) => [
     ...previous,
     commandEchoLine(
-      { username: activeSession.username, host: promptHost(), cwd: cwd() },
+      {
+        username: currentSession.username,
+        host: promptHost(),
+        cwd: cwd(),
+        userType: currentSession.userType,
+      },
       line,
     ),
   ]);
@@ -284,7 +355,7 @@ export const runInput = async (): Promise<void> => {
 
   const env = buildCommandEnv({
     identity: requireIdentity(),
-    session: activeSession,
+    session: currentSession,
     root: applyPatches(seedFs(requireConfig(), requireIdentity()), patches()),
     cwd,
     onCwdChange: setCwd,
@@ -293,6 +364,8 @@ export const runInput = async (): Promise<void> => {
     onInterfaceChange: setInterface,
     wifiNetworks,
     signal: controller.signal,
+    prompt: requestPrompt,
+    onPushSession: pushSession,
   });
 
   try {
