@@ -4,15 +4,19 @@ import { formatPrompt } from '../../core/shell/prompt';
 import { BANNER } from '../banner';
 import {
   abortRunning,
+  cancelPrompt,
   cwd,
   historyDown,
   historyUp,
   input,
+  pendingPrompt,
   promptHost,
+  promptTier,
   promptUsername,
   runInput,
   scrollback,
   setInput,
+  submitPrompt,
   tabComplete,
 } from '../state';
 
@@ -26,9 +30,16 @@ const LINE_COLOR: Record<TerminalLine['kind'], string> = {
   prompt: 'text-[var(--theme-text-bright)]',
 };
 
-/** Reactive prompt — re-evaluated by Solid each time `cwd()` changes. */
+/** Reactive prompt — re-evaluated by Solid on cwd / session changes. Shows the
+ *  pending prompt's message (e.g. `Password:`) while one is active. */
 const livePrompt = () =>
-  formatPrompt({ username: promptUsername(), host: promptHost(), cwd: cwd() });
+  pendingPrompt()?.message ??
+  formatPrompt({
+    username: promptUsername(),
+    host: promptHost(),
+    cwd: cwd(),
+    userType: promptTier(),
+  });
 
 export const Terminal = () => {
   let output: HTMLDivElement | undefined;
@@ -43,13 +54,31 @@ export const Terminal = () => {
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === 'Enter') {
       event.preventDefault();
+      // A pending prompt (su password, …) consumes the line instead of running it.
+      if (pendingPrompt()) {
+        submitPrompt();
+        return;
+      }
       void runInput();
       return;
     }
-    // Ctrl-C interrupts a running command. Only swallow the keystroke when there
-    // was something to abort, so an idle Ctrl-C still copies any selection.
+    // Ctrl-C cancels a pending prompt, else interrupts a running command. Only
+    // swallow the keystroke when there was something to act on, so an idle
+    // Ctrl-C still copies any selection.
     if (event.key === 'c' && event.ctrlKey) {
+      if (pendingPrompt()) {
+        cancelPrompt();
+        event.preventDefault();
+        return;
+      }
       if (abortRunning()) event.preventDefault();
+      return;
+    }
+    // While a prompt is pending, history recall and tab-complete are disabled.
+    if (pendingPrompt()) {
+      if (event.key === 'ArrowUp' || event.key === 'ArrowDown' || event.key === 'Tab') {
+        event.preventDefault();
+      }
       return;
     }
     if (event.key === 'ArrowUp') {
@@ -90,6 +119,7 @@ export const Terminal = () => {
         <input
           ref={inputEl}
           aria-label="terminal input"
+          type={pendingPrompt()?.masked ? 'password' : 'text'}
           class="flex-1 border-none bg-transparent p-0 text-inherit caret-[var(--theme-caret)] outline-none [font:inherit]"
           autocomplete="off"
           autocapitalize="off"

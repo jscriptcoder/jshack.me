@@ -20,7 +20,7 @@ import type {
   PlayerKeyHex,
   UserType,
 } from '../types';
-import type { Directory, FileNode } from '../filesystem/types';
+import type { Directory, FileNode, FilePermissions } from '../filesystem/types';
 import type { WalkResult } from '../filesystem/walker';
 import type { NetworkInterface } from '../network/interfaces';
 import type { HomeNetworkAssignment } from '../network/homeNetwork';
@@ -127,12 +127,16 @@ export type FsListResult =
  *  so the server stamps `is_new: true` and a later `remove` deletes the row
  *  rather than leaving a tombstone. Callers know this from the FS view: an
  *  absent target (`stat === null`) is new; an existing target is an overwrite,
- *  where omitting the flag preserves the row's stored `is_new`. */
+ *  where omitting the flag preserves the row's stored `is_new`.
+ *
+ *  `permissions` overrides the tier-derived default for the new node — used by
+ *  `apt install` to stamp a world-executable binary (the default file perms are
+ *  root-only-executable, which the user-tier player could never run). */
 export type PatchApi = {
   readonly write: (
     path: AbsPath,
     content: string,
-    options?: { readonly isNew?: boolean },
+    options?: { readonly isNew?: boolean; readonly permissions?: FilePermissions },
   ) => Promise<PatchResult>;
   readonly remove: (path: AbsPath) => Promise<PatchResult>;
   readonly mkdir: (path: AbsPath) => Promise<PatchResult>;
@@ -221,6 +225,26 @@ export type CommandEnv = {
    *  command — this seam is generic. `NetworkView`'s reads reflect the new
    *  value on the next command's env. */
   readonly setInterface: (name: string, iface: NetworkInterface) => void;
+
+  /** Request a single line of interactive input from the UI — the general
+   *  prompt primitive every credential command reuses (`su` now; ssh/scp/ftp/
+   *  mysql/redis later). `masked` hides the input (passwords). Promise-shaped so
+   *  a command awaits it inline and composes prompts sequentially (ftp's
+   *  username then password). Rejects if the run is aborted (Ctrl-C). */
+  readonly prompt: (opts: { readonly message: string; readonly masked: boolean }) => Promise<string>;
+
+  /** Elevate/switch the active session by pushing a new one onto the hop chain
+   *  (sibling to `setCwd`/`setInterface`). The UI owns the session stack and
+   *  reflects the new active session (prompt, tier) on the next command's env.
+   *  `su` pushes a root session; ssh/nc push remote sessions later. */
+  readonly pushSession: (session: Session) => void;
+
+  /** Drop the active session, returning to the one beneath it on the hop chain
+   *  (the inverse of `pushSession`). The UI restores the previous tier/prompt
+   *  AND working directory. `exit` calls this only when `hopChain` is non-empty
+   *  (at the base login session there is nothing to return to). Later reused by
+   *  every "leave this hop" transition (ssh/nc session exits). */
+  readonly popSession: () => void;
 
   /** Piped input from a previous command in the pipeline. */
   readonly stdin?: AsyncIterable<string>;

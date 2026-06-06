@@ -119,6 +119,27 @@ describe('createPatchApi.write and remove', () => {
     expect(Object.keys(verified.payload as object)).not.toContain('is_new');
   });
 
+  it('write sends caller-provided permissions instead of the tier default', async () => {
+    // `apt install` installs world-executable binaries; the default file perms
+    // are root-only-executable, so the caller must be able to override them.
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+    const worldExecutable = {
+      read: ['root', 'user', 'guest'] as const,
+      write: ['root'] as const,
+      execute: ['root', 'user', 'guest'] as const,
+    };
+
+    await createPatchApi(deps).write(asAbsPath('/usr/bin/nmap'), 'stub', {
+      isNew: true,
+      permissions: worldExecutable,
+    });
+
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected verified envelope');
+    expect(verified.payload).toMatchObject({ permissions: worldExecutable });
+  });
+
   it('write stamps is_new: true for a genuinely-new file', async () => {
     const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true }));
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);

@@ -15,9 +15,11 @@
 import { aircrack } from './aircrack';
 import { airdump } from './airdump';
 import { airmon } from './airmon';
+import { apt } from './apt';
 import { cat } from './cat';
 import { cd } from './cd';
 import { echo } from './echo';
+import { exit } from './exit';
 import { grep } from './grep';
 import { help } from './help';
 import { identity } from './identity';
@@ -28,6 +30,7 @@ import { mkdir } from './mkdir';
 import { nmcli } from './nmcli';
 import { pwd } from './pwd';
 import { rm } from './rm';
+import { su } from './su';
 import { touch } from './touch';
 import { isAlwaysAvailable, wrapWithBinaryCheck } from './availability';
 import { wrapWithLibraryCheck } from './libraryDeps';
@@ -37,9 +40,11 @@ const builtins: readonly Command[] = [
   aircrack,
   airdump,
   airmon,
+  apt,
   cat,
   cd,
   echo,
+  exit,
   grep,
   help,
   identity,
@@ -50,6 +55,7 @@ const builtins: readonly Command[] = [
   nmcli,
   pwd,
   rm,
+  su,
   touch,
 ];
 

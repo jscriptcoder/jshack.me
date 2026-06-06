@@ -32,7 +32,7 @@ import { packageForBinary } from './aptPackages';
  *  unimplemented command is dead data, and a forgotten one fails loudly
  *  (`command not found`) the moment that command ships. Grow this as builtins
  *  land (legacy also had exit/clear/whoami/bash). */
-const SHELL_BUILTINS: ReadonlySet<string> = new Set(['cd', 'echo', 'pwd', 'help']);
+const SHELL_BUILTINS: ReadonlySet<string> = new Set(['cd', 'echo', 'exit', 'pwd', 'help']);
 
 /** Game-specific commands — always available, not real Linux tools. Same
  *  match-what-exists rule (legacy also had missions/accept/abort/mail/author/

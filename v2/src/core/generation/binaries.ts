@@ -20,10 +20,13 @@
 import type { UserType } from '../types';
 import type { FileNode, FilePermissions } from '../filesystem/types';
 
-/** Looks like an ELF header — what `cat`/`strings` would show. The content is
- *  never executed; presence + perms are all that gate dispatch. */
-export const BINARY_STUB =
-  '\x7fELF\x02\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00>\x00\x01\x00\x00\x00';
+/** Looks like an ELF header (magic `\x7fELF`) — what `cat`/`strings` would show.
+ *  The content is never executed; presence + perms are all that gate dispatch.
+ *  MUST be NUL-free: `apt install` persists this content to the patch store's
+ *  Postgres TEXT column, which rejects the NUL byte (U+0000) — a real ELF
+ *  header's padding NULs would fail the write with a network_error. The bytes
+ *  here are cosmetic, so a NUL-free ELF-ish prefix suffices. */
+export const BINARY_STUB = '\x7fELF\x02\x01\x01\x03\x3e\x01';
 
 /** Default execute set for a system binary — world-executable. */
 const WORLD_EXECUTABLE: readonly UserType[] = ['root', 'user', 'guest'];
