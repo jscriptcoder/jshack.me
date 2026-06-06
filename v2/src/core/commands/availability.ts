@@ -64,6 +64,13 @@ const resolveBinary = (env: CommandEnv, name: string): FileNode | null => {
   return null;
 };
 
+/** Whether a binary named `name` is present on the current machine (resolves in
+ *  `/bin` or `/usr/bin`). The single source of truth for "is this installed",
+ *  reused by `apt list --installed` so it agrees with what the binary-check
+ *  wrapper considers runnable. */
+export const binaryExists = (env: CommandEnv, name: string): boolean =>
+  resolveBinary(env, name) !== null;
+
 /** The not-found message, enriched with an `apt install` hint when `name` is a
  *  known apt tool (a missing system util just reports plain not-found). */
 const notFoundMessage = (name: string): string => {

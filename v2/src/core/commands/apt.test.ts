@@ -13,6 +13,7 @@ import {
 } from '../../test/factories/commandEnv';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 import { apt, installPackageLibraries } from './apt';
+import { APT_PACKAGES } from './aptPackages';
 
 /**
  * `apt install` is the reachability mechanism: as root + online, it writes a
@@ -326,5 +327,87 @@ describe('installPackageLibraries', () => {
 
     expect(result).toEqual({ ok: false, error: 'network_error' });
     expect(writes).toHaveLength(1);
+  });
+});
+
+/**
+ * `apt list` shows the installable catalog; `apt list --installed` (or `-i`)
+ * filters to packages whose binaries are already present on the machine. A
+ * package is "installed" when its first binary resolves in `/bin`/`/usr/bin`
+ * (the same resolver the binary-check wrapper uses). Online-gated, per the
+ * owner decision — offline it errors, like `apt install`.
+ */
+describe('apt list', () => {
+  /** An env whose `/usr/bin` already holds `installed` binaries; online by
+   *  default. Session is a plain user — `apt list` needs no root. */
+  const listEnv = (opts: { readonly installed?: readonly string[]; readonly online?: boolean } = {}) => {
+    const tree = buildDirectory({
+      bin: buildDirectory({}),
+      usr: buildDirectory({
+        bin: buildDirectory(
+          Object.fromEntries(
+            (opts.installed ?? []).map((bin) => [bin, buildFile(BINARY_STUB, { owner: 'root' })]),
+          ),
+        ),
+      }),
+    });
+    const env = mockCommandEnv({
+      session: mockSession({ userType: 'user' }),
+      network: mockNetworkView({ isOnline: () => opts.online ?? true }),
+      fs: mockFsViewFromTree(tree, { userType: 'user', cwd: () => asAbsPath('/') }),
+    });
+    return { env };
+  };
+
+  const installedFlags = new Map<string, string | true>([['--installed', true]]);
+  const iFlag = new Map<string, string | true>([['-i', true]]);
+
+  it('lists every catalog package, tagging the ones already installed', async () => {
+    const { env } = listEnv({ installed: ['nmap'] }); // nmap present, john absent
+
+    const { text, exitCode } = syncResult(await apt.execute(env, ['list'], NO_FLAGS));
+
+    expect(exitCode).toBe(0);
+    for (const pkg of APT_PACKAGES) expect(text).toContain(pkg.name);
+    expect(text).toContain('nmap [installed]');
+    expect(text).not.toContain('john [installed]');
+  });
+
+  it('with --installed, shows only the installed packages', async () => {
+    const { env } = listEnv({ installed: ['nmap'] });
+
+    const { text, exitCode } = syncResult(await apt.execute(env, ['list'], installedFlags));
+
+    expect(exitCode).toBe(0);
+    expect(text).toContain('nmap');
+    expect(text).not.toContain('john'); // not installed → excluded
+  });
+
+  it('treats -i as an alias for --installed', async () => {
+    const { env } = listEnv({ installed: ['nmap'] });
+
+    const { text } = syncResult(await apt.execute(env, ['list'], iFlag));
+
+    expect(text).toContain('nmap');
+    expect(text).not.toContain('john');
+  });
+
+  it('reflects filesystem state: with nothing installed, --installed lists no packages', async () => {
+    const { env } = listEnv({ installed: [] });
+
+    const { text, exitCode } = syncResult(await apt.execute(env, ['list'], installedFlags));
+
+    expect(exitCode).toBe(0);
+    for (const pkg of APT_PACKAGES) expect(text).not.toContain(pkg.name);
+  });
+
+  it('errors offline and lists nothing', async () => {
+    const { env } = listEnv({ online: false, installed: ['nmap'] });
+
+    const { text, exitCode } = syncResult(await apt.execute(env, ['list'], NO_FLAGS));
+
+    expect(exitCode).toBe(100);
+    expect(text).toContain('are you connected to a network');
+    expect(text).not.toContain('nmap');
   });
 });

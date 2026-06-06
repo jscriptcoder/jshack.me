@@ -25,8 +25,13 @@ import { LIBRARY_PERMS } from '../generation/libraries';
 import type { SystemLibrary } from '../generation/libraries';
 import { APT_PACKAGES } from './aptPackages';
 import { libraryDeps } from './libraryDeps';
+import { binaryExists } from './availability';
 
-const USAGE = ['apt: usage:', '  apt install <package>   Install a package'];
+const USAGE = [
+  'apt: usage:',
+  '  apt install <package>   Install a package',
+  '  apt list [--installed]  List packages (optionally only installed ones)',
+];
 
 /** Apt's exit code for a failed operation (permission, fetch, locate, …). */
 const APT_ERROR = 100;
@@ -56,6 +61,14 @@ const okResult = (lines: readonly string[]): CommandResult => ({
  *  so both write paths report the same shape. */
 const installFailure = (packageName: string, error: string): CommandResult =>
   errorResult([`E: Failed to install ${packageName} (${error})`]);
+
+/** The apt-style "no network" failure, shared by `install` and `list` (both are
+ *  online-gated). */
+const offlineError = (): CommandResult =>
+  errorResult([
+    "Err: http://deb.debian.org/debian Temporary failure resolving 'deb.debian.org'",
+    'E: Failed to fetch — are you connected to a network?',
+  ]);
 
 /** The binaries a package ships, or undefined if the package isn't in the
  *  catalog. A package whose `binaries` is omitted ships a single binary that
@@ -97,6 +110,28 @@ export const installPackageLibraries = async (
   return { ok: true };
 };
 
+/** A package is "installed" when its first binary is present on the machine —
+ *  the same proxy legacy used (a multi-binary package is judged by its lead
+ *  binary). */
+const packageInstalled = (env: CommandEnv, pkg: (typeof APT_PACKAGES)[number]): boolean =>
+  binaryExists(env, pkg.binaries?.[0] ?? pkg.name);
+
+const handleList = (
+  env: CommandEnv,
+  flags: ReadonlyMap<string, string | true>,
+): CommandResult => {
+  if (!env.network.isOnline()) {
+    return offlineError();
+  }
+  const installedOnly = flags.has('--installed') || flags.has('-i');
+  const rows = APT_PACKAGES.flatMap((pkg) => {
+    const installed = packageInstalled(env, pkg);
+    if (installedOnly && !installed) return [];
+    return [`  ${pkg.name}${installed ? ' [installed]' : ''}`];
+  });
+  return okResult(['Listing...', ...rows]);
+};
+
 const handleInstall = async (
   env: CommandEnv,
   packageName: string | undefined,
@@ -108,10 +143,7 @@ const handleInstall = async (
     ]);
   }
   if (!env.network.isOnline()) {
-    return errorResult([
-      "Err: http://deb.debian.org/debian Temporary failure resolving 'deb.debian.org'",
-      'E: Failed to fetch — are you connected to a network?',
-    ]);
+    return offlineError();
   }
   if (packageName === undefined) {
     return errorResult(['E: No package specified.', ...USAGE]);
@@ -146,13 +178,16 @@ const handleInstall = async (
   ]);
 };
 
-const execute: Command['execute'] = async (env, args) => {
+const execute: Command['execute'] = async (env, args, flags) => {
   const [subcommand, packageName] = args;
   if (subcommand === undefined) {
     return errorResult(USAGE);
   }
   if (subcommand === 'install') {
     return handleInstall(env, packageName);
+  }
+  if (subcommand === 'list') {
+    return handleList(env, flags);
   }
   return errorResult([`E: Invalid operation ${subcommand}`]);
 };
@@ -163,16 +198,18 @@ export const apt: Command = {
   category: 'network',
   tier: 'root',
   availability: { kind: 'localhost-only' },
+  flags: { '--installed': 'boolean', '-i': 'boolean' },
   manual: {
-    synopsis: 'apt install <package>',
+    synopsis: 'apt <install|list> [args]',
     description:
-      'Advanced Package Tool. "install" downloads a package and places its binaries in /usr/bin, making the tool available to run. Requires root (run "su" first) and a network connection.',
+      'Advanced Package Tool. "install" downloads a package and places its binaries in /usr/bin, making the tool available to run (requires root — run "su" first). "list" shows the installable catalog; "list --installed" shows only the packages already present. Both need a network connection.',
     arguments: [
-      { name: 'operation', description: 'Currently: "install"', required: true },
-      { name: 'package', description: 'The package to install (e.g. nmap)' },
+      { name: 'operation', description: '"install" or "list"', required: true },
+      { name: 'package', description: 'The package to install (for "install")' },
     ],
     examples: [
       { command: 'apt install nmap', description: 'Install the nmap network scanner' },
+      { command: 'apt list --installed', description: 'List the packages already installed' },
     ],
   },
   execute,
