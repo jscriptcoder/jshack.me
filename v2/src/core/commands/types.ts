@@ -239,6 +239,13 @@ export type CommandEnv = {
    *  `su` pushes a root session; ssh/nc push remote sessions later. */
   readonly pushSession: (session: Session) => void;
 
+  /** Drop the active session, returning to the one beneath it on the hop chain
+   *  (the inverse of `pushSession`). The UI restores the previous tier/prompt
+   *  AND working directory. `exit` calls this only when `hopChain` is non-empty
+   *  (at the base login session there is nothing to return to). Later reused by
+   *  every "leave this hop" transition (ssh/nc session exits). */
+  readonly popSession: () => void;
+
   /** Piped input from a previous command in the pipeline. */
   readonly stdin?: AsyncIterable<string>;
 

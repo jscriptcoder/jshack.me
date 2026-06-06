@@ -19,6 +19,7 @@ import { apt } from './apt';
 import { cat } from './cat';
 import { cd } from './cd';
 import { echo } from './echo';
+import { exit } from './exit';
 import { grep } from './grep';
 import { help } from './help';
 import { identity } from './identity';
@@ -43,6 +44,7 @@ const builtins: readonly Command[] = [
   cat,
   cd,
   echo,
+  exit,
   grep,
   help,
   identity,

@@ -56,9 +56,16 @@ let patchApi: PatchApi | undefined;
 let syncChannel: SyncChannel | undefined;
 
 // The session stack: the active session is the top. `su` pushes a root session;
-// a future `exit` pops. Reactive so the prompt (username + `$`/`#`) reflects the
-// active session immediately. Empty until `startGame` seeds the user session.
+// `exit` pops. Reactive so the prompt (username + `$`/`#`) reflects the active
+// session immediately. Empty until `startGame` seeds the user session.
 const [sessionStack, setSessionStack] = createSignal<readonly Session[]>([]);
+
+// The cwd to restore when each pushed session is popped — one entry per push
+// (the base login session has none). `pushSession` captures the current cwd
+// BEFORE the elevating command moves (su goes to /root), so `exit` returns the
+// player to exactly where they were, matching legacy ("restores working
+// directory"). Kept in lockstep with the non-base entries of `sessionStack`.
+const [returnCwdStack, setReturnCwdStack] = createSignal<readonly AbsPath[]>([]);
 
 const [scrollback, setScrollback] = createSignal<readonly TerminalLine[]>([]);
 const [input, setInput] = createSignal('');
@@ -104,9 +111,25 @@ const requireSession = (): Session => {
 };
 
 /** Push a new active session (backs `env.pushSession`). `su` pushes root; the
- *  prompt + tier reflect it on the next command because the stack is reactive. */
+ *  prompt + tier reflect it on the next command because the stack is reactive.
+ *  Captures the current cwd first so the matching `exit` can restore it. */
 const pushSession = (next: Session): void => {
+  setReturnCwdStack((previous) => [...previous, cwd()]);
   setSessionStack((previous) => [...previous, next]);
+};
+
+/** Pop the active session (backs `env.popSession`), returning to the one
+ *  beneath it and restoring the cwd captured at push time. A no-op at the base
+ *  session (nothing pushed) — `exit` already guards on `hopChain`, but the
+ *  guard here keeps the stacks consistent if ever called directly. */
+const popSession = (): void => {
+  if (returnCwdStack().length === 0) return;
+  setSessionStack((previous) => previous.slice(0, -1));
+  setReturnCwdStack((previous) => {
+    const restore = previous.at(-1);
+    if (restore !== undefined) setCwd(restore);
+    return previous.slice(0, -1);
+  });
 };
 
 // A pending interactive prompt (su's masked password; later ssh/ftp/…). While
@@ -202,6 +225,7 @@ export const startGame = (gameConfig: GameConfig): void => {
   identity = getPlayerIdentity();
   const seed = seedSession(identity, gameConfig);
   setSessionStack([seed]);
+  setReturnCwdStack([]);
   // Seed WiFi + connectivity, then rehydrate any persisted connection: a stored
   // ESSID (from a prior nmcli connect) re-derives its address through the join
   // seam so the player comes back online on reload without re-cracking.
@@ -366,6 +390,10 @@ export const runInput = async (): Promise<void> => {
     signal: controller.signal,
     prompt: requestPrompt,
     onPushSession: pushSession,
+    // The sessions below the active one — what `exit` consults to decide
+    // whether there's somewhere to drop back to (empty at the base shell).
+    hopChain: sessionStack().slice(0, -1),
+    onPopSession: popSession,
   });
 
   try {
