@@ -1,15 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { BINARY_STUB } from '../generation/binaries';
+import type { SystemLibrary } from '../generation/libraries';
 import type { FilePermissions } from '../filesystem/types';
-import type { UserType } from '../types';
+import { asAbsPath, type UserType } from '../types';
 import type { CommandResult, PatchResult } from './types';
 import {
   mockCommandEnv,
+  mockFsViewFromTree,
   mockNetworkView,
   mockPatchApi,
   mockSession,
 } from '../../test/factories/commandEnv';
-import { apt } from './apt';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem';
+import { apt, installPackageLibraries } from './apt';
 
 /**
  * `apt install` is the reachability mechanism: as root + online, it writes a
@@ -30,6 +33,15 @@ const WORLD_EXECUTABLE: FilePermissions = {
   read: ['root', 'user', 'guest'],
   write: ['root'],
   execute: ['root', 'user', 'guest'],
+};
+
+/** What `apt` must stamp on an installed library: world-readable, root-writable,
+ *  and NOT executable (a library is linked, never run) — distinct from a binary's
+ *  world-executable shape. */
+const LIBRARY_PERMS: FilePermissions = {
+  read: ['root', 'user', 'guest'],
+  write: ['root'],
+  execute: [],
 };
 
 type WriteCall = {
@@ -190,5 +202,129 @@ describe('apt', () => {
 
     expect(text).toContain('Invalid operation frobnicate');
     expect(exitCode).toBe(100);
+  });
+
+  it('writes no libraries for a real apt package (none map to a library today)', async () => {
+    // Drives the REAL libraryDeps via apt.execute: installing nmap writes its
+    // binary but no /lib/*.so — locking the wiring as a present-day no-op that
+    // goes live once lib-bearing tools + lib-incomplete machines land.
+    const { env, writes } = aptEnv();
+
+    await apt.execute(env, ['install', 'nmap'], NO_FLAGS);
+
+    expect(writes.filter((write) => write.path.startsWith('/lib/'))).toEqual([]);
+  });
+});
+
+/**
+ * `installPackageLibraries` is the lib-install mechanism `apt install` composes:
+ * it derives the libraries a package's binaries link (`libraryDeps`) and writes
+ * any whose `/lib/<lib>.so` is MISSING, leaving present ones untouched. No real
+ * apt package maps to a library yet, so the `deps` map is injected as a fixture
+ * — the only way to observe the write/skip/perms logic until lib-bearing tools
+ * and lib-incomplete remote machines exist.
+ */
+describe('installPackageLibraries', () => {
+  /** An env whose `/lib` already holds `presentLibs` (as `.so` files) and whose
+   *  `patches.write` is a spy; session is root, cwd `/`. */
+  const libEnv = (presentLibs: readonly string[] = []) => {
+    const writes: WriteCall[] = [];
+    const tree = buildDirectory({
+      lib: buildDirectory(
+        Object.fromEntries(
+          presentLibs.map((lib) => [`${lib}.so`, buildFile(BINARY_STUB, { owner: 'root' })]),
+        ),
+      ),
+    });
+    const env = mockCommandEnv({
+      session: mockSession({ userType: 'root' }),
+      fs: mockFsViewFromTree(tree, { userType: 'root', cwd: () => asAbsPath('/') }),
+      patches: {
+        ...mockPatchApi(),
+        write: async (path, content, options) => {
+          writes.push({ path, content, options });
+          return { ok: true };
+        },
+      },
+    });
+    return { env, writes };
+  };
+
+  const SSL_DEP: Readonly<Record<string, readonly SystemLibrary[]>> = { testtool: ['libssl'] };
+
+  it('writes a missing /lib/<lib>.so with library perms, marked new', async () => {
+    const { env, writes } = libEnv([]);
+
+    const result = await installPackageLibraries(env, ['testtool'], SSL_DEP);
+
+    expect(result).toEqual({ ok: true });
+    expect(writes).toEqual([
+      {
+        path: '/lib/libssl.so',
+        content: BINARY_STUB,
+        options: { isNew: true, permissions: LIBRARY_PERMS },
+      },
+    ]);
+  });
+
+  it('installs library content free of NUL bytes (Postgres TEXT cannot store them)', async () => {
+    const { env, writes } = libEnv([]);
+
+    await installPackageLibraries(env, ['testtool'], SSL_DEP);
+
+    expect(writes[0].content).not.toContain('\u0000');
+  });
+
+  it('leaves an already-present library untouched', async () => {
+    const { env, writes } = libEnv(['libssl']);
+
+    const result = await installPackageLibraries(env, ['testtool'], SSL_DEP);
+
+    expect(result).toEqual({ ok: true });
+    expect(writes).toEqual([]);
+  });
+
+  it('writes only the missing libraries of a multi-binary package, deduped', async () => {
+    const { env, writes } = libEnv(['libz']); // libz present, libssl missing
+
+    await installPackageLibraries(env, ['toolA', 'toolB'], {
+      toolA: ['libssl'],
+      toolB: ['libssl', 'libz'],
+    });
+
+    expect(writes.map((write) => write.path)).toEqual(['/lib/libssl.so']);
+  });
+
+  it('writes nothing for binaries that link no libraries', async () => {
+    const { env, writes } = libEnv([]);
+
+    const result = await installPackageLibraries(env, ['nodep'], { nodep: [] });
+
+    expect(result).toEqual({ ok: true });
+    expect(writes).toEqual([]);
+  });
+
+  it('propagates a write failure and stops at the first one', async () => {
+    const writes: WriteCall[] = [];
+    const tree = buildDirectory({ lib: buildDirectory({}) });
+    const env = mockCommandEnv({
+      session: mockSession({ userType: 'root' }),
+      fs: mockFsViewFromTree(tree, { userType: 'root', cwd: () => asAbsPath('/') }),
+      patches: {
+        ...mockPatchApi(),
+        write: async (path, content, options) => {
+          writes.push({ path, content, options });
+          return { ok: false, error: 'network_error' };
+        },
+      },
+    });
+
+    const result = await installPackageLibraries(env, ['toolA', 'toolB'], {
+      toolA: ['libssl'],
+      toolB: ['libz'],
+    });
+
+    expect(result).toEqual({ ok: false, error: 'network_error' });
+    expect(writes).toHaveLength(1);
   });
 });

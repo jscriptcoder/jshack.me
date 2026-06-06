@@ -66,8 +66,11 @@ session); the missing piece is the sibling `su` command. **Implement `su` before
 - [x] `apt install <unknown>` → apt-style "Unable to locate package <unknown>"; no write.
 - [x] Installed binaries are world-executable so the user-tier player can run them (folded-in
       `PatchApi.write` permissions override; binary stamped read+execute for all tiers, write root).
-- [ ] `apt install` of a package with lib deps writes the package's required `/lib/*.so` that are
+- [x] `apt install` of a package with lib deps writes the package's required `/lib/*.so` that are
       missing (proven on a lib-incomplete fixture); already-present libs are left untouched.
+      _(Slice 2 SHIPPED — `installPackageLibraries(env, binaries, deps=libraryDeps)`, deps injectable
+      for fixtures. No real apt tool maps to a lib yet, so it's a localhost no-op today; proven by 6
+      fixture tests + 5/5 hand-mutation kills. Reuses the Slice-1 patch-write seam, so no new E2E.)_
 - [ ] `apt list` shows installable packages; `apt list --installed` shows those whose binaries are
       present in `/bin`/`/usr/bin`.
 
