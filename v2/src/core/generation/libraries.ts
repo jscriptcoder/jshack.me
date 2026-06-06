@@ -43,8 +43,10 @@ export const SYSTEM_LIBRARIES: readonly SystemLibrary[] = [
 ];
 
 /** `/lib/*.so` perms: root-owned, world-readable, root-writable, and NOT
- *  executable as a file — a library is linked, never run directly. */
-const LIBRARY_PERMS: FilePermissions = {
+ *  executable as a file — a library is linked, never run directly. Exported so
+ *  `apt install` stamps installed libraries with the exact same shape (one
+ *  source of truth for the lib-perm knowledge). */
+export const LIBRARY_PERMS: FilePermissions = {
   read: ['root', 'user', 'guest'],
   write: ['root'],
   execute: [],

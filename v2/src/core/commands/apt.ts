@@ -19,9 +19,12 @@
 
 import { asAbsPath } from '../types';
 import type { FilePermissions } from '../filesystem/types';
-import type { Command, CommandEnv, CommandResult } from './types';
+import type { Command, CommandEnv, CommandResult, PatchResult } from './types';
 import { BINARY_STUB } from '../generation/binaries';
+import { LIBRARY_PERMS } from '../generation/libraries';
+import type { SystemLibrary } from '../generation/libraries';
 import { APT_PACKAGES } from './aptPackages';
+import { libraryDeps } from './libraryDeps';
 
 const USAGE = ['apt: usage:', '  apt install <package>   Install a package'];
 
@@ -49,6 +52,11 @@ const okResult = (lines: readonly string[]): CommandResult => ({
   exitCode: 0,
 });
 
+/** The apt-style failure for a rejected write during install (binary or lib),
+ *  so both write paths report the same shape. */
+const installFailure = (packageName: string, error: string): CommandResult =>
+  errorResult([`E: Failed to install ${packageName} (${error})`]);
+
 /** The binaries a package ships, or undefined if the package isn't in the
  *  catalog. A package whose `binaries` is omitted ships a single binary that
  *  matches its name. */
@@ -56,6 +64,37 @@ const binariesFor = (packageName: string): readonly string[] | undefined => {
   const pkg = APT_PACKAGES.find((candidate) => candidate.name === packageName);
   if (pkg === undefined) return undefined;
   return pkg.binaries ?? [pkg.name];
+};
+
+/**
+ * Install the shared libraries a package's binaries link (`libraryDeps`) that
+ * are MISSING on the current machine — each as a `/lib/<lib>.so` stub with
+ * library perms (linked, never executed). Present libraries are left untouched;
+ * the first write failure stops and is returned.
+ *
+ * `deps` defaults to the real `libraryDeps` and is injectable so the missing/
+ * present/perms logic is testable against a lib-incomplete fixture. No apt
+ * package's binaries map to a library yet, so this is a no-op against the real
+ * catalog today — it goes live once lib-bearing tools and lib-incomplete remote
+ * machines exist (installing a tool there fills in the libs it needs to link).
+ */
+export const installPackageLibraries = async (
+  env: CommandEnv,
+  binaries: readonly string[],
+  deps: Readonly<Record<string, readonly SystemLibrary[]>> = libraryDeps,
+): Promise<PatchResult> => {
+  const libraries = [...new Set(binaries.flatMap((binary) => deps[binary] ?? []))];
+  for (const lib of libraries) {
+    const path = asAbsPath(`/lib/${lib}.so`);
+    const existing = env.fs.stat(path);
+    if (existing !== null && existing.kind === 'file') continue;
+    const result = await env.patches.write(path, BINARY_STUB, {
+      isNew: true,
+      permissions: LIBRARY_PERMS,
+    });
+    if (!result.ok) return result;
+  }
+  return { ok: true };
 };
 
 const handleInstall = async (
@@ -89,8 +128,13 @@ const handleInstall = async (
       permissions: INSTALLED_BINARY_PERMS,
     });
     if (!result.ok) {
-      return errorResult([`E: Failed to install ${packageName} (${result.error})`]);
+      return installFailure(packageName, result.error);
     }
+  }
+
+  const libResult = await installPackageLibraries(env, binaries);
+  if (!libResult.ok) {
+    return installFailure(packageName, libResult.error);
   }
 
   return okResult([
