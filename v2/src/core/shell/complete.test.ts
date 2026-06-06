@@ -3,15 +3,33 @@ import { classifyCursor, complete, type CompleteAdapter } from './complete';
 import type { Command } from '../commands/types';
 import type { FlagSpec } from './bindFlags';
 
-/** Minimal v2 Command fixture. The completer only reads `command.flags`
- *  (via the adapter's getCommand), so that's the only meaningful field. */
-const makeCommand = (name: string, flags: FlagSpec = {}): Command => ({
+/** Minimal v2 Command fixture. The completer reads `command.flags` and, for
+ *  keyword completion, `command.manual.arguments[0].values` (via the adapter's
+ *  getCommand). `firstArgValues`, when given, declares the first positional's
+ *  fixed value set. */
+const makeCommand = (
+  name: string,
+  flags: FlagSpec = {},
+  firstArgValues?: readonly string[],
+): Command => ({
   name,
   description: '',
   category: 'general',
   tier: 'guest',
   availability: { kind: 'any-machine' },
   flags,
+  ...(firstArgValues === undefined
+    ? {}
+    : {
+        manual: {
+          synopsis: '',
+          description: '',
+          arguments: [
+            { name: 'operation', description: '', values: firstArgValues },
+            { name: 'package', description: '' },
+          ],
+        },
+      }),
   execute: async () => ({ kind: 'sync', lines: [], exitCode: 0 }),
 });
 
@@ -364,6 +382,74 @@ describe('complete', () => {
 
       expect(result.matches).toEqual(['out.txt']);
       expect(result.replacement).toBe('cat /x > /tmp/out.txt');
+    });
+  });
+
+  describe('keyword completion (fixed-value first positional)', () => {
+    // `apt` declares its first positional's values as install/list; the path
+    // adapter bits let the "second positional still path-completes" test work.
+    const adapter = makeAdapter({
+      commandNames: ['apt'],
+      getCommand: (name) =>
+        name === 'apt'
+          ? makeCommand('apt', { '--installed': 'boolean', '-i': 'boolean' }, ['install', 'list'])
+          : undefined,
+      listPath: (abs) => (abs === '/home/alice' ? ['report.txt'] : null),
+      resolvePath: (path) => (path === '.' ? '/home/alice' : path),
+    });
+
+    it('lists the operation keywords for a bare first positional', () => {
+      const result = complete('apt ', 4, adapter);
+
+      expect(result.kind).toBe('keyword');
+      expect(result.matches).toEqual(['install', 'list']);
+      expect(result.displayText).toBe('install, list');
+    });
+
+    it('completes a unique keyword and adds a trailing space (not a path lookup)', () => {
+      const result = complete('apt in', 6, adapter);
+
+      expect(result.kind).toBe('keyword');
+      expect(result.matches).toEqual(['install']);
+      expect(result.replacement).toBe('apt install ');
+      expect(result.newCursorPosition).toBe(12);
+      expect(result.addTrailingSpace).toBe(true);
+    });
+
+    it('completes the other keyword too', () => {
+      const result = complete('apt l', 5, adapter);
+
+      expect(result.matches).toEqual(['list']);
+      expect(result.replacement).toBe('apt list ');
+    });
+
+    it('returns no matches (keyword, not path) when no keyword matches the prefix', () => {
+      const result = complete('apt zzz', 7, adapter);
+
+      expect(result.kind).toBe('keyword');
+      expect(result.matches).toEqual([]);
+    });
+
+    it('leaves the SECOND positional to path completion (arg1 unaffected)', () => {
+      const result = complete('apt install re', 14, adapter);
+
+      expect(result.kind).toBe('path');
+      expect(result.matches).toEqual(['report.txt']);
+      expect(result.replacement).toBe('apt install report.txt');
+    });
+
+    it('a command without declared values still path-completes its first arg', () => {
+      const adapter2 = makeAdapter({
+        commandNames: ['cat'],
+        getCommand: () => makeCommand('cat'), // no firstArgValues → no keyword set
+        listPath: (abs) => (abs === '/home/alice' ? ['notes.txt'] : null),
+        resolvePath: (path) => (path === '.' ? '/home/alice' : path),
+      });
+
+      const result = complete('cat no', 6, adapter2);
+
+      expect(result.kind).toBe('path');
+      expect(result.matches).toEqual(['notes.txt']);
     });
   });
 
