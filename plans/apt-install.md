@@ -71,8 +71,12 @@ session); the missing piece is the sibling `su` command. **Implement `su` before
       _(Slice 2 SHIPPED — `installPackageLibraries(env, binaries, deps=libraryDeps)`, deps injectable
       for fixtures. No real apt tool maps to a lib yet, so it's a localhost no-op today; proven by 6
       fixture tests + 5/5 hand-mutation kills. Reuses the Slice-1 patch-write seam, so no new E2E.)_
-- [ ] `apt list` shows installable packages; `apt list --installed` shows those whose binaries are
-      present in `/bin`/`/usr/bin`.
+- [x] `apt list` shows installable packages; `apt list --installed` shows those whose binaries are
+      present in `/bin`/`/usr/bin`. _(Slice 3 SHIPPED — `handleList` renders the catalog with an
+      `[installed]` tag (first-binary proxy via `binaryExists`); `--installed`/`-i` filter; online-
+      gated (shared `offlineError`). Flags declared (`--installed`,`-i`) so `bindFlags` parses them.
+      5 unit tests + 5/5 hand-mutation kills; flag-binding seam E2E'd offline (`apt list --installed`
+      → fetch error, not `unrecognized option`).)_
 
 ## Slices
 
