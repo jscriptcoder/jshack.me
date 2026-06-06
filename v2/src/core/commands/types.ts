@@ -263,14 +263,15 @@ export type CommandEnv = {
 /** One positional or flag argument a command accepts, for the manual's
  *  ARGUMENTS section. `required` defaults to optional when omitted.
  *
- *  Legacy carried a `values?: readonly string[]` (the discrete valid values
- *  for an arg slot) used solely by tab-completion. It is intentionally NOT
- *  here yet — `man` never rendered it, so it would be an unconsumed field. It
- *  lands with the auto-completion feature, alongside the code that reads it. */
+ *  `values` is the discrete set this argument accepts (e.g. apt's `operation`
+ *  is `install | list`). Tab-completion reads it for a fixed-value FIRST
+ *  positional (`apt <TAB>` → install/list) via `arguments[0].values`; declare
+ *  the positionals in order so `arguments[0]` is the command's first one. */
 export type CommandArgument = {
   readonly name: string;
   readonly description: string;
   readonly required?: boolean;
+  readonly values?: readonly string[];
 };
 
 /** A usage example: the command line plus what it does. */

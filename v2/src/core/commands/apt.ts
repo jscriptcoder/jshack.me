@@ -204,7 +204,12 @@ export const apt: Command = {
     description:
       'Advanced Package Tool. "install" downloads a package and places its binaries in /usr/bin, making the tool available to run (requires root — run "su" first). "list" shows the installable catalog; "list --installed" shows only the packages already present. Both need a network connection.',
     arguments: [
-      { name: 'operation', description: '"install" or "list"', required: true },
+      {
+        name: 'operation',
+        description: '"install" or "list"',
+        required: true,
+        values: ['install', 'list'],
+      },
       { name: 'package', description: 'The package to install (for "install")' },
     ],
     examples: [

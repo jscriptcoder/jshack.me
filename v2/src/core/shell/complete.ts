@@ -13,13 +13,16 @@
  *
  * v2 differences from legacy: flag candidates come from `command.flags` (the
  * authoritative FlagSpec that `bindFlags`/`runLine` consume), not from manual
- * metadata; and keyword-at-arg0 completion (legacy's `values`) is not ported —
- * no v2 command has a fixed-value first positional yet.
+ * metadata. Keyword-at-arg0 completion (legacy's `values`) IS ported: when the
+ * cursor sits on a command's FIRST positional and that command declares
+ * `manual.arguments[0].values` (apt's `install | list`), those keywords are the
+ * candidates instead of filesystem paths. Commands without declared values keep
+ * the path behavior unchanged.
  */
 
 import type { Command } from '../commands/types';
 
-export type CompletionKind = 'command' | 'path' | 'flag';
+export type CompletionKind = 'command' | 'path' | 'flag' | 'keyword';
 
 export type CompleteAdapter = {
   readonly commandNames: readonly string[];
@@ -304,6 +307,54 @@ const completeFlag = (
   };
 };
 
+/** The fixed value set for the positional under the cursor, or undefined when
+ *  it isn't the FIRST positional or the command declares none. Keyword
+ *  completion applies only to a command's first positional (`apt <TAB>`), so
+ *  the token must be preceded by exactly the command word — no other completed
+ *  positionals. Returns the declared `arguments[0].values` (apt: install/list). */
+const keywordValuesAtCursor = (
+  input: string,
+  ctx: CursorContext,
+  adapter: CompleteAdapter,
+): readonly string[] | undefined => {
+  const pipeIdx = input.lastIndexOf('|', ctx.tokenStart - 1);
+  const stageStart = pipeIdx === -1 ? 0 : pipeIdx + 1;
+  const before = input.slice(stageStart, ctx.tokenStart).trim();
+  if (before === '') return undefined; // cursor is on the command name itself
+  const words = before.split(/\s+/);
+  if (words.length !== 1) return undefined; // not the FIRST positional
+  return adapter.getCommand(words[0])?.manual?.arguments?.[0]?.values;
+};
+
+const completeKeyword = (
+  input: string,
+  cursorPos: number,
+  ctx: CursorContext,
+  values: readonly string[],
+): CompletionOutcome => {
+  const matches = values
+    .filter((value) => value.startsWith(ctx.prefix))
+    .sort((a, b) => a.localeCompare(b));
+
+  if (matches.length === 0) return emptyOutcome(input, cursorPos, 'keyword');
+
+  const commonPrefix = longestCommonPrefix(matches);
+  const singleMatch = matches.length === 1;
+  const completedToken = singleMatch ? matches[0] : commonPrefix;
+  const trailing = singleMatch ? ' ' : '';
+  const { replacement, newCursorPosition } = buildReplacement(input, ctx, completedToken, trailing);
+
+  return {
+    kind: 'keyword',
+    matches,
+    commonPrefix,
+    replacement,
+    newCursorPosition,
+    displayText: matches.join(', '),
+    addTrailingSpace: singleMatch,
+  };
+};
+
 export const complete = (
   input: string,
   cursorPos: number,
@@ -311,9 +362,14 @@ export const complete = (
 ): CompletionOutcome => {
   const ctx = classifyCursor(input, cursorPos);
 
-  // `classifyCursor` only ever yields command / flag / path, so once the first
-  // two are handled, path is the remaining case.
   if (ctx.kind === 'command') return completeCommand(input, cursorPos, ctx, adapter);
   if (ctx.kind === 'flag') return completeFlag(input, cursorPos, ctx, adapter);
+
+  // A fixed-value first positional (apt's install/list) completes against those
+  // keywords, NOT the filesystem. Everything else (and every command without
+  // declared values) falls through to path completion, unchanged.
+  const keywordValues = keywordValuesAtCursor(input, ctx, adapter);
+  if (keywordValues !== undefined) return completeKeyword(input, cursorPos, ctx, keywordValues);
+
   return completePath(input, cursorPos, ctx, adapter);
 };
