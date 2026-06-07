@@ -112,6 +112,15 @@ filters.
 **MUTATE / KILL MUTANTS / REFACTOR**: per skills.
 **Done when**: all criteria met, mutation report reviewed, human approves commit.
 
+## Deliberately out of scope: scan logging
+
+nmap leaving a trace in the target's `/var/log/kern.log` (legacy parity, and the primary
+cross-player discovery mechanism) is **not** part of this plan. The hosts this plan scans are
+pure-generated placeholders with no `machine_id`, no server-side patch stream, and no remote write
+seam — there is nowhere to persist a trace and no second player who could read it. Logging +
+the `AMBIENT_LOG_FILES` L1/L2 bypass are specced in `plans/scan-logging-cross-player.md`, hard-blocked
+until scanned hosts become real, server-persisted machines. Deferred, not forgotten.
+
 ## Pre-PR Quality Gate (each slice)
 
 1. Mutation testing (`mutation-testing` skill) — report reviewed.
