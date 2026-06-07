@@ -46,8 +46,15 @@ import {
   type PatchClientDeps,
 } from '../adapters/patchApi';
 import { createSyncChannel, type SyncChannel } from '../adapters/crossTabSync';
+import {
+  createServerSession,
+  endServerSession,
+  listServerSessions,
+  type SessionsClientDeps,
+} from '../adapters/sessionsApi';
 import { type HistoryNav, idleNav, navigateDown, navigateUp } from '../core/shell/commandHistory';
 import { homePathFor, seedFs, seedSession } from './seed';
+import { rehydrateSessionStack } from './sessionRehydrate';
 import { persistConnection, restoreConnection } from './connectionPersistence';
 
 // ---- Config-derived game state, assigned once by `startGame`. ----
@@ -57,6 +64,7 @@ import { persistConnection, restoreConnection } from './connectionPersistence';
 let identity: Identity | undefined;
 let config: GameConfig | undefined;
 let patchClientDeps: PatchClientDeps | undefined;
+let sessionsClientDeps: SessionsClientDeps | undefined;
 let patchApi: PatchApi | undefined;
 let syncChannel: SyncChannel | undefined;
 
@@ -119,8 +127,17 @@ const requireSession = (): Session => {
  *  prompt + tier reflect it on the next command because the stack is reactive.
  *  Captures the current cwd first so the matching `exit` can restore it. */
 const pushSession = (next: Session): void => {
+  const parent = activeSession();
   setReturnCwdStack((previous) => [...previous, cwd()]);
   setSessionStack((previous) => [...previous, next]);
+  // Persist the pushed session so it survives a refresh. Fire-and-forget
+  // alongside the optimistic stack update — the adapter swallows errors, so a
+  // logging/network hiccup never breaks the switch. The base login session is
+  // seeded via `setSessionStack` in `startGame`, NOT through here, so it is
+  // never persisted (only elevations/hops are).
+  if (sessionsClientDeps !== undefined) {
+    void createServerSession(sessionsClientDeps, next, parent?.id ?? null);
+  }
 };
 
 /** Pop the active session (backs `env.popSession`), returning to the one
@@ -129,12 +146,19 @@ const pushSession = (next: Session): void => {
  *  guard here keeps the stacks consistent if ever called directly. */
 const popSession = (): void => {
   if (returnCwdStack().length === 0) return;
+  const ending = activeSession();
   setSessionStack((previous) => previous.slice(0, -1));
   setReturnCwdStack((previous) => {
     const restore = previous.at(-1);
     if (restore !== undefined) setCwd(restore);
     return previous.slice(0, -1);
   });
+  // End the popped session server-side so the de-elevation survives a refresh.
+  // Fire-and-forget alongside the optimistic pop; the base login session is
+  // guarded out above (empty returnCwdStack) and has no server row anyway.
+  if (sessionsClientDeps !== undefined && ending !== undefined) {
+    void endServerSession(sessionsClientDeps, ending.id);
+  }
 };
 
 // A pending interactive prompt (su's masked password; later ssh/ftp/…). While
@@ -191,6 +215,20 @@ export const promptTier = (): UserType => activeSession()?.userType ?? 'user';
 const refetchPatches = async (): Promise<void> => {
   if (patchClientDeps === undefined) return;
   setPatches(await fetchOwnPatches(patchClientDeps));
+};
+
+/** Rebuild the hop chain from the server's active sessions so a `su` elevation
+ *  survives a refresh. Replays the persisted (pushed) sessions onto the base
+ *  login `seed`. A no-rows result leaves the synchronous defaults (`[seed]`,
+ *  home cwd) untouched, so the common cold-boot path costs nothing extra. */
+const rehydrateSessions = async (seed: Session): Promise<void> => {
+  if (sessionsClientDeps === undefined) return;
+  const rows = await listServerSessions(sessionsClientDeps);
+  if (rows.length === 0) return;
+  const rebuilt = rehydrateSessionStack(seed, rows);
+  setSessionStack(rebuilt.sessionStack);
+  setReturnCwdStack(rebuilt.returnCwdStack);
+  setCwd(rebuilt.activeCwd);
 };
 
 /** The real PatchApi, wrapped so a successful mutation reconciles the local
@@ -261,6 +299,7 @@ export const startGame = (gameConfig: GameConfig): void => {
     owner: seed.username,
     tier: seed.userType,
   };
+  sessionsClientDeps = { identity, machineId: seed.machineId };
   patchApi = wrapWithRefetch(createPatchApi(patchClientDeps));
 
   setCwd(homePathFor(gameConfig.username));
@@ -285,6 +324,9 @@ export const startGame = (gameConfig: GameConfig): void => {
 
   // Hydrate the journal so reload-durable writes show up immediately.
   void refetchPatches();
+
+  // Rebuild the hop chain so a `su` elevation survives a refresh.
+  void rehydrateSessions(seed);
 };
 
 /** ArrowUp recall — recall an older command, capturing the live draft first. */
