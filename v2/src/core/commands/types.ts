@@ -182,8 +182,20 @@ export type RemoteListPatchesResult =
   | { readonly ok: true; readonly patches: readonly unknown[] }
   | { readonly ok: false; readonly error: 'network_error' | 'unauthorized' };
 
+/** The su user-switch event a command hands to `log.appendAuthLog`. Carries no
+ *  timestamp: the SERVER stamps the time (UTC) when it records the line, so a
+ *  crafted client request can't dictate game time. `machineId` selects the row;
+ *  `hostname` is the display name rendered into the syslog line. */
+export type AuthLogEvent = {
+  readonly machineId: MachineId;
+  readonly targetUser: string;
+  readonly fromUser: string;
+  readonly outcome: 'success' | 'failure';
+  readonly hostname: string;
+};
+
 export type LogApi = {
-  readonly appendAuthLog: (target: MachineId, line: string) => Promise<void>;
+  readonly appendAuthLog: (event: AuthLogEvent) => Promise<void>;
   readonly appendAccessLog: (target: MachineId, line: string) => Promise<void>;
 };
 

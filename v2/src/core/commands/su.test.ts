@@ -11,10 +11,9 @@ import {
   asEpochMs,
   asMachineId,
   asPlayerKeyHex,
-  type MachineId,
   type UserType,
 } from '../types';
-import type { CommandResult, Session } from './types';
+import type { AuthLogEvent, CommandResult, Session } from './types';
 import { su } from './su';
 
 /**
@@ -58,7 +57,7 @@ const suEnv = (opts: SuEnvOpts = {}) => {
   const pushed: Session[] = [];
   const cwds: string[] = [];
   const promptCalls: PromptCall[] = [];
-  const authLogs: { readonly target: MachineId; readonly line: string }[] = [];
+  const authLogs: AuthLogEvent[] = [];
 
   const tree = buildDirectory({
     etc: buildDirectory({
@@ -87,8 +86,8 @@ const suEnv = (opts: SuEnvOpts = {}) => {
     pushSession: (pushedSession) => pushed.push(pushedSession),
     setCwd: (path) => cwds.push(path),
     log: {
-      appendAuthLog: async (target, line) => {
-        authLogs.push({ target, line });
+      appendAuthLog: async (event) => {
+        authLogs.push(event);
       },
       appendAccessLog: async () => undefined,
     },
@@ -307,34 +306,39 @@ describe('su', () => {
   });
 
   describe('auth logging (/var/log/auth.log)', () => {
-    it('writes a "Successful su" syslog line to the local machine on a switch', async () => {
+    it('records a success event for the local machine on a switch (server stamps the line)', async () => {
       const { env, authLogs } = suEnv({ rootPassword: 'hunter2', typed: 'hunter2' });
 
       await su.execute(env, [], NO_FLAGS);
 
       expect(authLogs).toHaveLength(1);
-      expect(authLogs[0].target).toBe(MACHINE);
-      // Full syslog shape: `<host> su[<pid>]: Successful su for <target> by <from>`.
-      expect(authLogs[0].line).toContain('workstation su[');
-      expect(authLogs[0].line).toContain('Successful su for root by neo');
+      // The client sends only the EVENT — no timestamp/pid (the server stamps
+      // those from its own UTC clock). It carries who switched to whom + where.
+      expect(authLogs[0]).toEqual({
+        machineId: MACHINE,
+        targetUser: 'root',
+        fromUser: 'neo',
+        outcome: 'success',
+        hostname: 'workstation',
+      });
     });
 
-    it('writes a "FAILED su" line on a wrong password', async () => {
+    it('records a failure event on a wrong password', async () => {
       const { env, authLogs } = suEnv({ rootPassword: 'hunter2', typed: 'nope' });
 
       await su.execute(env, [], NO_FLAGS);
 
       expect(authLogs).toHaveLength(1);
-      expect(authLogs[0].line).toContain('FAILED su for root by neo');
+      expect(authLogs[0]).toMatchObject({ outcome: 'failure', targetUser: 'root', fromUser: 'neo' });
     });
 
-    it('logs successful no-prompt switches too (root → guest)', async () => {
+    it('records no-prompt switches too (root → guest)', async () => {
       const { env, authLogs } = suEnv({ callerType: 'root' });
 
       await su.execute(env, ['guest'], NO_FLAGS);
 
       expect(authLogs).toHaveLength(1);
-      expect(authLogs[0].line).toContain('Successful su for guest by neo');
+      expect(authLogs[0]).toMatchObject({ outcome: 'success', targetUser: 'guest', fromUser: 'neo' });
     });
 
     it('does not log when the target user does not exist', async () => {
@@ -363,8 +367,8 @@ describe('su', () => {
         },
         pushSession: () => undefined,
         log: {
-          appendAuthLog: async (target, line) => {
-            authLogs.push({ target, line });
+          appendAuthLog: async (event) => {
+            authLogs.push(event);
           },
           appendAccessLog: async () => undefined,
         },

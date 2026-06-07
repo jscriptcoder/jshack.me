@@ -20,7 +20,7 @@
 
 import { createSignal } from 'solid-js';
 import { asAbsPath, type AbsPath, type UserType } from '../core/types';
-import type { Identity, PatchApi, Session, TerminalLine } from '../core/commands/types';
+import type { Identity, LogApi, PatchApi, Session, TerminalLine } from '../core/commands/types';
 import type { GameConfig } from '../core/gameConfig/gameConfig';
 import type { Patch } from '../core/filesystem/applyPatches';
 import { applyPatches } from '../core/filesystem/applyPatches';
@@ -39,7 +39,12 @@ import { runCommandLine } from '../core/shell/runLine';
 import { commandEchoLine } from '../core/shell/prompt';
 import { buildCommandEnv } from './env';
 import { getPlayerIdentity } from './identity';
-import { createPatchApi, fetchOwnPatches, type PatchClientDeps } from '../adapters/patchApi';
+import {
+  createPatchApi,
+  fetchOwnPatches,
+  postAuthLog,
+  type PatchClientDeps,
+} from '../adapters/patchApi';
 import { createSyncChannel, type SyncChannel } from '../adapters/crossTabSync';
 import { type HistoryNav, idleNav, navigateDown, navigateUp } from '../core/shell/commandHistory';
 import { homePathFor, seedFs, seedSession } from './seed';
@@ -216,6 +221,22 @@ const wrapWithRefetch = (inner: PatchApi): PatchApi => {
   };
 };
 
+/** Backs `env.log.appendAuthLog`: posts the `su` event to the server (which
+ *  stamps the UTC timestamp + formats the syslog line — the client never
+ *  dictates game time), then reconciles the local journal and hints other tabs,
+ *  exactly like `wrapWithRefetch` does for a write, so an immediate
+ *  `cat /var/log/auth.log` reflects the new entry. */
+const log: LogApi = {
+  appendAuthLog: async (event) => {
+    if (patchClientDeps === undefined) return;
+    const result = await postAuthLog(patchClientDeps, event);
+    if (!result.ok) return;
+    await refetchPatches();
+    syncChannel?.broadcast({ type: 'patches-changed', machineId: patchClientDeps.machineId });
+  },
+  appendAccessLog: async () => undefined,
+};
+
 /** Start (or restart) the game for a given config. Builds identity, session,
  *  the patch API, and cross-tab sync; sets the cwd to the player's home; and
  *  hydrates the patch journal so reload-durable writes show up immediately.
@@ -385,6 +406,7 @@ export const runInput = async (): Promise<void> => {
     cwd,
     onCwdChange: setCwd,
     patches: activePatchApi,
+    log,
     connectivity,
     onInterfaceChange: setInterface,
     wifiNetworks,

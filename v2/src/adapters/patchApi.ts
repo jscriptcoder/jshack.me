@@ -21,7 +21,7 @@ import {
 } from '../core/filesystem/defaultPermissions';
 import type { Patch } from '../core/filesystem/applyPatches';
 import type { FilePermissions } from '../core/filesystem/types';
-import type { Identity, PatchApi, PatchResult } from '../core/commands/types';
+import type { AuthLogEvent, Identity, PatchApi, PatchResult } from '../core/commands/types';
 import type { AbsPath, MachineId, UserType } from '../core/types';
 
 const DEFAULT_ENDPOINT = '/api/patches';
@@ -126,6 +126,29 @@ export const createPatchApi = (deps: PatchClientDeps): PatchApi => ({
       node_type: 'directory',
     }),
 });
+
+/** Record an `su` user-switch to the caller's own `/var/log/auth.log`. Sends
+ *  only the EVENT — the server stamps the UTC timestamp and formats the line, so
+ *  the client never dictates game time. Returns the same `PatchResult` the UI
+ *  uses to decide whether to reconcile the local journal (refetch). */
+export const postAuthLog = async (
+  deps: PatchClientDeps,
+  event: AuthLogEvent,
+): Promise<PatchResult> => {
+  try {
+    return toPatchResult(
+      await post(deps, 'appendAuthLog', {
+        machine_id: event.machineId,
+        target_user: event.targetUser,
+        from_user: event.fromUser,
+        outcome: event.outcome,
+        hostname: event.hostname,
+      }),
+    );
+  } catch {
+    return { ok: false, error: 'network_error' };
+  }
+};
 
 const rowToPatch = (row: ServerPatchRow): Patch => ({
   path: row.path,

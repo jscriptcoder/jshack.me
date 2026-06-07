@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { createPatchApi, fetchOwnPatches, type PatchClientDeps } from './patchApi';
+import { createPatchApi, fetchOwnPatches, postAuthLog, type PatchClientDeps } from './patchApi';
 import { generateIdentity } from '../core/identity/identity';
 import { computeWorkstationId } from '../core/identity/workstation';
 import { verifySignedRequest } from '../core/signedRequest/verify';
@@ -181,6 +181,56 @@ describe('createPatchApi.write and remove', () => {
         }) as unknown as typeof fetch,
       ),
     ).remove(asAbsPath('/home/alice/notes.txt'));
+
+    expect(forbidden).toEqual({ ok: false, error: 'no_session' });
+    expect(offline).toEqual({ ok: false, error: 'network_error' });
+  });
+});
+
+describe('postAuthLog', () => {
+  const event = (machineId: string) => ({
+    machineId: asMachineId(machineId),
+    targetUser: 'root',
+    fromUser: 'neo',
+    outcome: 'success' as const,
+    hostname: 'rig',
+  });
+
+  it('signs an appendAuthLog request carrying the event fields and no client time', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    const result = await postAuthLog(deps, event(deps.machineId));
+
+    expect(result).toEqual({ ok: true });
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected verified envelope');
+    expect(verified.payload).toMatchObject({
+      action: 'appendAuthLog',
+      machine_id: deps.machineId,
+      target_user: 'root',
+      from_user: 'neo',
+      outcome: 'success',
+      hostname: 'rig',
+    });
+    // The client must NOT send a timestamp/pid — the server owns the clock.
+    expect(Object.keys(verified.payload as object)).not.toContain('time');
+    expect(Object.keys(verified.payload as object)).not.toContain('pid');
+  });
+
+  it('maps a 403 to no_session and a thrown fetch to network_error', async () => {
+    const forbidden = await postAuthLog(
+      makeDeps(vi.fn(async () => jsonResponse(403, { error: 'no_session' })) as unknown as typeof fetch),
+      event(computeWorkstationId('skylab', 'a'.repeat(64))),
+    );
+    const offline = await postAuthLog(
+      makeDeps(
+        vi.fn(async () => {
+          throw new Error('offline');
+        }) as unknown as typeof fetch,
+      ),
+      event(computeWorkstationId('skylab', 'a'.repeat(64))),
+    );
 
     expect(forbidden).toEqual({ ok: false, error: 'no_session' });
     expect(offline).toEqual({ ok: false, error: 'network_error' });

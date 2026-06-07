@@ -3,6 +3,10 @@ import { createClient } from '@supabase/supabase-js';
 import { handleUpsertPatch, type PatchRow } from '../src/core/patches/upsertPatch';
 import { handleListPatches, type ListPatchesQuery } from '../src/core/patches/listPatches';
 import { handleRemovePatch, type PatchTreeQuery } from '../src/core/patches/removePatch';
+import {
+  handleAppendAuthLog,
+  type AuthLogContentQuery,
+} from '../src/core/patches/appendAuthLog';
 import type { NonceStore } from '../src/core/signedRequest/nonceStore';
 
 // Vercel adapter for POST /api/patches.
@@ -113,6 +117,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       nonceStore: noopNonceStore,
       findPatch,
       deletePatchTree,
+      upsertPatch,
+    });
+    res.status(status).json(body);
+    return;
+  }
+
+  if (actionOf(req.body) === 'appendAuthLog') {
+    // The server reads the current auth.log content (own-workstation, scoped to
+    // the verified player_key) so the append is a read-modify-write the SERVER
+    // performs — the client never supplies content or time.
+    const readAuthLog = async ({ player_key, machine_id, path }: AuthLogContentQuery) => {
+      const { data, error } = await supabase
+        .from('patches')
+        .select('content')
+        .eq('player_key', player_key)
+        .eq('machine_id', machine_id)
+        .eq('path', path)
+        .maybeSingle();
+      if (error) console.error('[patches] auth-log read error:', error);
+      return { data, error };
+    };
+    const { status, body } = await handleAppendAuthLog(req.body, {
+      nonceStore: noopNonceStore,
+      now: () => Date.now(),
+      readAuthLog,
       upsertPatch,
     });
     res.status(status).json(body);
