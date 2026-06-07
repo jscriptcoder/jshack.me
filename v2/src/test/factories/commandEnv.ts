@@ -12,7 +12,6 @@
 
 import {
   asEpochMs,
-  asGameTime,
   asMachineId,
   asNetworkAddress,
   asPlayerKeyHex,
@@ -117,7 +116,6 @@ export const mockCommandEnv = (overrides: Partial<CommandEnv> = {}): CommandEnv 
   session: mockSession(),
   hopChain: [],
   hostname: 'workstation',
-  gameTime: () => asGameTime(0),
   now: () => asEpochMs(0),
   fs: mockFsViewFromTree(buildDirectory({})),
   network: mockNetworkView(),

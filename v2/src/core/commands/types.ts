@@ -14,7 +14,6 @@
 import type {
   AbsPath,
   EpochMs,
-  GameTime,
   MachineId,
   NetworkAddress,
   PlayerKeyHex,
@@ -220,7 +219,10 @@ export type CommandEnv = {
    *  now; `uname`/other loggers (ssh/ftp) later. */
   readonly hostname: string;
 
-  readonly gameTime: () => GameTime;
+  /** The local host wall clock (epoch-ms) — for ephemeral, non-authoritative
+   *  values like session ids. This is NOT game time: the authoritative clock is
+   *  server-side (it stamps `/var/log/auth.log`, and later CVE eligibility), so
+   *  commands never read a client-computed game time. */
   readonly now: () => EpochMs;
 
   readonly fs: FsView;
