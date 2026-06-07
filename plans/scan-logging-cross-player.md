@@ -128,8 +128,16 @@ yet (`assignHomeNetwork` issues only a `localIp`). Resolution:
 - **Shippable early / independently.** Unlike the rest of this plan, this piece is pure model with a
   golden test and **no cross-player dependency** — it can land ahead of the parked logging work
   (e.g. folded into the connectivity arc) without waiting on the Prerequisite. It is the one slice
-  here that is not blocked. The `assignHomeNetwork` golden test
-  (`core/network/homeNetwork.test.ts:24`) must be updated to include the new `publicIp` field.
+  here that is not blocked. **SHIPPED — PR #210 (`f6c5d62`, v0.34.0).**
+- **Server allocation, when it lands, folds into `/api/join-home-network` — do NOT port legacy's
+  standalone `allocate-ip`. (Decision 2026-06-07.)** Legacy needed a separate signed `allocate-ip`
+  endpoint (random roll + `public_ips` Supabase table + collision-retry + Upstash rate-limit/nonce)
+  only because multiplayer was bolted onto a single-player base. v2 is multiplayer-first: the join
+  endpoint is the boundary, so it should **allocate-on-first-join, persist the network's `publicIp`,
+  and return the stored value to later occupants** (collision-retry there, reusing the already-ported
+  `generatePublicIp` — that is when the dropped `usedIps` loop returns). Until a cross-player consumer
+  needs globally-unique, addressable IPs, the deterministic ESSID seed is sufficient and the
+  `Promise`-shaped `env.homeNetwork.join` seam absorbs the swap with zero rework.
 
 ## Acceptance Criteria
 
