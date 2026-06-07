@@ -1,11 +1,16 @@
 /**
  * nmap — host discovery on the connected LAN (generator epic, Story 2).
  *
- * Online on a home network, `nmap <subnet>` streams the hosts on the player's
- * LAN — the gateway at `.1` plus the player's own host (Slice 1; sibling hosts
- * land in Slice 2). Offline it errors and lists nothing. The tool itself is NOT
- * preinstalled: the registry's binary gate reports `command not found` with an
- * `apt install nmap` hint until `/usr/bin/nmap` exists.
+ * Online on a home network, `nmap <target>` scans the player's LAN. The target
+ * matches the legacy interface (`feedback_v2_match_legacy_command_interface`):
+ * either a single IP (`x.y.z.w`) or a host range (`x.y.z.A-B`). A range streams
+ * the discovery table for the hosts whose last octet falls inside it; a single
+ * IP reports whether that one host is up. Offline it errors and lists nothing.
+ * The tool itself is NOT preinstalled: the registry's binary gate reports
+ * `command not found` with an `apt install nmap` hint until `/usr/bin/nmap` exists.
+ *
+ * Only the player's own subnet is scannable — a target on a different subnet is
+ * out of range (foreign-subnet scanning is deferred to the multi-layer story).
  *
  * The streamed-row pacing reuses the abort-aware `env.sleep` seam (airdump
  * family) so the scan feels live and cancels on Ctrl-C.
@@ -26,6 +31,59 @@ const text = (content: string): TerminalLine => ({ kind: 'text', content });
  *  no associated wlan0 (no ESSID ⇒ no subnet to derive). */
 const UNREACHABLE = 'nmap: network is unreachable — connect to a network first';
 
+const USAGE = 'nmap: usage: nmap <target> (e.g. 192.168.1.5 or 192.168.1.1-254)';
+
+/** A target on a subnet other than the player's own LAN. */
+const outOfRange = (target: string, subnet: string): string =>
+  `nmap: ${target}: out of range — you can only scan your own network (${subnet}.0/24)`;
+
+/** Highest scannable host octet (.255 is the broadcast address). */
+const MAX_OCTET = 254;
+
+type ScanTarget =
+  | { readonly kind: 'single'; readonly octet: number }
+  | { readonly kind: 'range'; readonly start: number; readonly end: number };
+
+type ParseResult =
+  | { readonly ok: true; readonly target: ScanTarget }
+  | { readonly ok: false; readonly reason: 'usage' | 'foreign' };
+
+const RANGE_PATTERN = /^(\d{1,3}\.\d{1,3}\.\d{1,3})\.(\d{1,3})-(\d{1,3})$/;
+const SINGLE_PATTERN = /^(\d{1,3}\.\d{1,3}\.\d{1,3})\.(\d{1,3})$/;
+
+const parseTarget = (target: string, subnet: string): ParseResult => {
+  const rangeMatch = target.match(RANGE_PATTERN);
+  if (rangeMatch) {
+    const [, base, startStr, endStr] = rangeMatch;
+    const start = Number(startStr);
+    const end = Number(endStr);
+    // A start above MAX_OCTET needs no separate check: it always implies either
+    // end > MAX_OCTET (when end >= start) or an inverted range (start > end).
+    if (end > MAX_OCTET || start > end) {
+      return { ok: false, reason: 'usage' };
+    }
+    if (base !== subnet) {
+      return { ok: false, reason: 'foreign' };
+    }
+    return { ok: true, target: { kind: 'range', start, end } };
+  }
+
+  const singleMatch = target.match(SINGLE_PATTERN);
+  if (singleMatch) {
+    const [, base, octetStr] = singleMatch;
+    const octet = Number(octetStr);
+    if (octet > MAX_OCTET) {
+      return { ok: false, reason: 'usage' };
+    }
+    if (base !== subnet) {
+      return { ok: false, reason: 'foreign' };
+    }
+    return { ok: true, target: { kind: 'single', octet } };
+  }
+
+  return { ok: false, reason: 'usage' };
+};
+
 const padRight = (value: string, length: number): string =>
   value.length >= length ? value : value + ' '.repeat(length - value.length);
 
@@ -37,24 +95,56 @@ const HEADER = [padRight('IP', IP_WIDTH), padRight('HOSTNAME', HOSTNAME_WIDTH), 
 const formatRow = (host: HomeLan['hosts'][number]): string =>
   [padRight(host.ip, IP_WIDTH), padRight(host.hostname, HOSTNAME_WIDTH), host.kind].join('');
 
+const lastOctet = (host: HomeLan['hosts'][number]): number => Number(host.ip.split('.')[3]);
+
 /** Per-row pause so the host list populates live rather than all at once. */
 const SCAN_DELAY_MS = 200;
 
-async function* scan(env: CommandEnv, lan: HomeLan): AsyncIterable<TerminalLine> {
-  yield text(`Starting Nmap scan — ${lan.subnet}.0/24`);
+async function* scanRange(
+  env: CommandEnv,
+  lan: HomeLan,
+  rawTarget: string,
+  start: number,
+  end: number,
+): AsyncIterable<TerminalLine> {
+  yield text(`Starting Nmap scan — ${rawTarget}`);
   yield text('');
   yield text(HEADER);
-  for (const host of lan.hosts) {
+  const hosts = lan.hosts.filter((host) => lastOctet(host) >= start && lastOctet(host) <= end);
+  for (const host of hosts) {
     await env.sleep(SCAN_DELAY_MS);
     yield text(formatRow(host));
   }
   yield text('');
-  yield text(`Nmap done — ${lan.hosts.length} hosts up`);
+  yield text(`Nmap done — ${hosts.length} hosts up`);
+}
+
+async function* scanSingle(
+  env: CommandEnv,
+  lan: HomeLan,
+  rawTarget: string,
+  octet: number,
+): AsyncIterable<TerminalLine> {
+  yield text(`Starting Nmap scan — ${rawTarget}`);
+  yield text('');
+  await env.sleep(SCAN_DELAY_MS);
+  const host = lan.hosts.find((candidate) => lastOctet(candidate) === octet);
+  if (host === undefined) {
+    yield text('Host seems down.');
+    yield text('');
+    yield text('Nmap done — 0 hosts up');
+    return;
+  }
+  yield text(`Nmap scan report for ${host.hostname} (${host.ip})`);
+  yield text('Host is up.');
+  yield text('');
+  yield text('Nmap done — 1 host up');
 }
 
 const execute: Command['execute'] = async (env, args) => {
-  if (args.length === 0) {
-    return error('nmap: usage: nmap <subnet>');
+  const rawTarget = args[0];
+  if (rawTarget === undefined) {
+    return error(USAGE);
   }
   if (!env.network.isOnline()) {
     return error(UNREACHABLE);
@@ -66,7 +156,16 @@ const execute: Command['execute'] = async (env, args) => {
   }
 
   const lan = generateHomeLan(env.identity.publicKeyHex, wlan0.association.essid);
-  return { kind: 'async', lines: scan(env, lan), exitCode: async () => 0 };
+  const parsed = parseTarget(rawTarget, lan.subnet);
+  if (!parsed.ok) {
+    return error(parsed.reason === 'usage' ? USAGE : outOfRange(rawTarget, lan.subnet));
+  }
+
+  const lines =
+    parsed.target.kind === 'range'
+      ? scanRange(env, lan, rawTarget, parsed.target.start, parsed.target.end)
+      : scanSingle(env, lan, rawTarget, parsed.target.octet);
+  return { kind: 'async', lines, exitCode: async () => 0 };
 };
 
 export const nmap: Command = {
@@ -76,11 +175,20 @@ export const nmap: Command = {
   tier: 'guest',
   availability: { kind: 'installed-package', packageName: 'nmap' },
   manual: {
-    synopsis: 'nmap <subnet>',
+    synopsis: 'nmap <target>',
     description:
-      'Network exploration tool. Performs host discovery on the given subnet, listing the hosts that are up with their IP, hostname, and kind. Requires a network connection; install with "apt install nmap".',
-    arguments: [{ name: 'subnet', description: 'The subnet to scan, e.g. 192.168.1.0/24', required: true }],
-    examples: [{ command: 'nmap 192.168.1.0/24', description: 'Discover hosts on the LAN' }],
+      'Network exploration tool. Discovers hosts on your network, listing the ones that are up with their IP, hostname, and kind. Scan a single host (e.g. "192.168.1.5") or a range of hosts (e.g. "192.168.1.1-254"). Only your own network is reachable. Requires a network connection; install with "apt install nmap".',
+    arguments: [
+      {
+        name: 'target',
+        description: 'An IP address or range to scan, e.g. 192.168.1.5 or 192.168.1.1-254',
+        required: true,
+      },
+    ],
+    examples: [
+      { command: 'nmap 192.168.1.5', description: 'Scan a single host' },
+      { command: 'nmap 192.168.1.1-254', description: 'Discover hosts in an IP range' },
+    ],
   },
   execute,
 };
