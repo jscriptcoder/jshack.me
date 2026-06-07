@@ -1,7 +1,7 @@
 {
   "name": "jshack-me-v2",
   "private": true,
-  "version": "0.40.0",
+  "version": "0.40.1",
   "type": "module",
   "scripts": {
     "encode": "tsx scripts/encode.ts",

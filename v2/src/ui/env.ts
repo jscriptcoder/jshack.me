@@ -11,7 +11,7 @@
  * would hide missing wiring.
  */
 
-import { asEpochMs, asGameTime, type AbsPath } from '../core/types';
+import { asEpochMs, type AbsPath } from '../core/types';
 import type {
   CommandEnv,
   HopChain,
@@ -113,7 +113,6 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   session: args.session,
   hopChain: args.hopChain,
   hostname: args.hostname ?? 'workstation',
-  gameTime: () => asGameTime(0),
   now: () => asEpochMs(Date.now()),
   fs: createFsView(args.root, { userType: args.session.userType, cwd: args.cwd }),
   network: networkView(args.session, args.connectivity, args.wifiNetworks),

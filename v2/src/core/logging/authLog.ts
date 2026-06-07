@@ -7,8 +7,9 @@
  * <target> by <from>` on a wrong password — the exact strings the defender
  * reads back via `cat /var/log/auth.log`, matched by the legacy E2E.
  *
- * Pure: the timestamp is supplied by the caller (from `env.gameTime()`), never
- * read from the clock here, so the rendered line is deterministic and testable.
+ * Pure: the timestamp is supplied by the caller (the server's UTC clock, via
+ * `handleAppendAuthLog`), never read from the clock here, so the rendered line
+ * is deterministic and testable.
  * Kept framework-agnostic (core/) — the syslog format is reused by future
  * loggers (ssh/ftp/scp) with a different `service` tag.
  */
@@ -46,7 +47,7 @@ const MONTHS = [
 ] as const;
 
 type SyslogLineOptions = {
-  /** Epoch-ms of the universe clock (`env.gameTime()`). */
+  /** Epoch-ms of the universe clock — the server's UTC time at append. */
   readonly time: GameTime;
   readonly hostname: string;
   readonly service: string;
