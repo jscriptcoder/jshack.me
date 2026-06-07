@@ -66,7 +66,8 @@ LAN, every reload. First time topology + addressing become real and observable.
 - [ ] The scan lists additional generated hosts, each with a unique last octet (never `.1`, never
       the player's octet), an IP, a hostname, and a kind (`machine`/`router`).
 - [ ] Same identity + ESSID ⇒ byte-identical host list across reloads (determinism).
-- [ ] `nmap` is runnable from cold start (preinstalled), and `help`/`man` list it under `network`.
+- [ ] `nmap` becomes runnable only **after `apt install nmap`** (availability `installed-package:nmap`);
+      before install it errors with the `command not found` + install hint. `help`/`man` list it under `network`.
 
 ## Slices
 
@@ -86,7 +87,8 @@ returns at minimum the gateway (`.1`, router) + the player's host → async-stre
 `--tree`, scanning arbitrary/foreign subnets.
 **Required implementation skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
 **Acceptance criteria**: offline → error + no hosts; online → gateway `.1` (router) and own host
-rendered; command registered + preinstalled + categorised `network`. **Confirm before code.**
+rendered; command registered + gated by `installed-package:nmap` (runs only post-`apt install nmap`)
++ categorised `network`. **Confirm before code.**
 **RED**: unit test on `generateHomeLan` (gateway at `.1`, includes self, deterministic) +
 command test asserting offline-error vs online gateway/self rendering. Mutator watch:
 off-by-one on the `.1` gateway octet, boundary on the online predicate, swapped error/normal exit.
@@ -105,6 +107,18 @@ kinds → `nmap` renders the full sorted list. Skipped: multi-layer depth (Story
 **Required implementation skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
 **Acceptance criteria**: N hosts with unique octets, no collisions with `.1`/self; stable hostnames;
 identical list across reloads for same identity+ESSID. **Confirm before code.**
+
+**Scan-argument syntax (deferred from Slice 1 — owner decision 2026-06-07).** Slice 1 shipped the
+`<subnet>` positional as **required-but-decorative**: its value is not parsed, the LAN is derived from
+the connected interface, and the banner prints `x.y.z.0/24`. Slice 2 makes the argument **meaningful**
+by adopting legacy nmap's **range syntax** (`feedback_v2_match_legacy_command_interface`): accept
+`x.y.z.A-B` (e.g. `192.168.1.1-254`, `192.168.1.20-80`) — **not** CIDR `x.y.z.0/24` — parse + validate
+it (A ≤ B, octets ≤ 254; malformed → usage error), **filter** the rendered hosts to those whose last
+octet ∈ [A,B], and echo the range in the banner + manual examples. Foreign-subnet scanning (typed
+`x.y.z` ≠ the current LAN) stays deferred (Story 4-adjacent); for now a non-matching network errors or
+is treated as out-of-scope. _Why deferred_: range filtering is only observable once the LAN is
+populated (this slice), and Slice 2 already rewrites `generateHomeLan` + the nmap renderer — no live
+players, so reshaping the arg now is free.
 **RED**: determinism/uniqueness tests (no duplicate octets, never `.1`/self, count within range,
 golden host list for a fixed seed). Mutator watch: octet-uniqueness loop, count bounds, exclusion
 filters.

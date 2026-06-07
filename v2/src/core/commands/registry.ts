@@ -27,6 +27,7 @@ import { ifconfig } from './ifconfig';
 import { ls } from './ls';
 import { man } from './man';
 import { mkdir } from './mkdir';
+import { nmap } from './nmap';
 import { nmcli } from './nmcli';
 import { pwd } from './pwd';
 import { rm } from './rm';
@@ -52,6 +53,7 @@ const builtins: readonly Command[] = [
   ls,
   man,
   mkdir,
+  nmap,
   nmcli,
   pwd,
   rm,
