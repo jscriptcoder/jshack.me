@@ -24,6 +24,7 @@ import { createPrng } from './prng';
 import { createBinaryEntries, LOCALHOST_PREINSTALLED_TOOLS, SYSTEM_UTILITY_NAMES } from './binaries';
 import { createLibraryEntries, SYSTEM_LIBRARIES } from './libraries';
 import { md5 } from './md5';
+import { AUTH_LOG_PERMISSIONS } from '../logging/authLog';
 
 // --- Permission boundaries (mirror the pre-generator ui/seed.ts) ---
 
@@ -46,11 +47,6 @@ const TMP_DIR: FilePermissions = {
   write: ['root', 'user', 'guest'],
   execute: ['root', 'user', 'guest'],
 };
-/** `/var/log/auth.log` etc.: world-READABLE (the defender can `cat` the log) but
- *  only root WRITES — su's append models a setuid-root syslog write, not a
- *  player-tier write, so the file is never world-writable. */
-const LOG_FILE: FilePermissions = { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] };
-
 const file = (content: string, perms: FilePermissions, owner = 'root'): FileEntry => ({
   kind: 'file',
   content,
@@ -166,7 +162,10 @@ export const buildWorkstationBaseFs = (seedPubkeyHex: string, config: GameConfig
       // `/var/log/auth.log` exists empty from boot so `su` appends to a real
       // file (and `cat` works before the first switch). Logs land here as
       // commands consume them — this slice adds auth.log for su.
-      var: dir({ log: dir({ 'auth.log': file('', LOG_FILE) }, TRAVERSABLE_DIR) }, TRAVERSABLE_DIR),
+      var: dir(
+        { log: dir({ 'auth.log': file('', AUTH_LOG_PERMISSIONS) }, TRAVERSABLE_DIR) },
+        TRAVERSABLE_DIR,
+      ),
     },
     TRAVERSABLE_DIR,
   );

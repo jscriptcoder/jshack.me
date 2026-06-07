@@ -13,7 +13,22 @@
  * loggers (ssh/ftp/scp) with a different `service` tag.
  */
 
-import type { GameTime } from '../types';
+import { asAbsPath, type AbsPath, type GameTime } from '../types';
+import type { FilePermissions } from '../filesystem/types';
+
+/** The canonical `/var/log/auth.log` storage identity — single source of truth
+ *  shared by the boot seed (`generation/workstationFs`) and the server-side
+ *  appender (`patches/appendAuthLog`), so the seeded file and every appended
+ *  patch agree on path, owner, and perms. World-READABLE (the defender can
+ *  `cat` it) but root-only WRITE: `su`'s append models a setuid-root syslog
+ *  write, never a player-tier one. */
+export const AUTH_LOG_PATH: AbsPath = asAbsPath('/var/log/auth.log');
+export const AUTH_LOG_OWNER = 'root';
+export const AUTH_LOG_PERMISSIONS: FilePermissions = {
+  read: ['root', 'user', 'guest'],
+  write: ['root'],
+  execute: ['root'],
+};
 
 const MONTHS = [
   'Jan',
