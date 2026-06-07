@@ -9,6 +9,7 @@ import {
   mockNetworkViewFromConnectivity,
 } from '../../test/factories/commandEnv';
 import { assignHomeNetwork } from '../network/homeNetwork';
+import { generateHomeLan } from '../generation/generateHomeLan';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
 import { asPlayerKeyHex } from '../types';
 
@@ -122,8 +123,9 @@ describe('nmap', () => {
     // The player's own host (assignHomeNetwork golden for this identity+ESSID).
     expect(text).toContain('192.168.188.154');
     expect(text).toContain('iphone-154');
-    // Both hosts reported up (gateway + self).
-    expect(text).toContain('2 hosts up');
+    // The summary reports every generated host as up.
+    const lan = generateHomeLan(PUBKEY, 'BEAN-THERE-WIFI');
+    expect(text).toContain(`${lan.hosts.length} hosts up`);
   });
 
   it('renders the scanned /24 subnet in the banner', async () => {
