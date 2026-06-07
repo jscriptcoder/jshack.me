@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { createServerSession, listServerSessions, type SessionsClientDeps } from './sessionsApi';
+import {
+  createServerSession,
+  endServerSession,
+  listServerSessions,
+  type SessionsClientDeps,
+} from './sessionsApi';
 import { generateIdentity } from '../core/identity/identity';
 import { computeWorkstationId } from '../core/identity/workstation';
 import { verifySignedRequest } from '../core/signedRequest/verify';
@@ -116,6 +121,55 @@ describe('createServerSession', () => {
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
 
     expect(await createServerSession(deps, sessionFor(deps), null)).toEqual({
+      ok: false,
+      error: 'network_error',
+    });
+  });
+});
+
+describe('endServerSession', () => {
+  it('POSTs a signed endSession envelope carrying the session_id', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    const result = await endServerSession(deps, 'su-root-1700000000000');
+
+    expect(result).toEqual({ ok: true });
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected a verified envelope');
+    expect(verified.payload).toMatchObject({
+      action: 'endSession',
+      session_id: 'su-root-1700000000000',
+    });
+  });
+
+  it('maps a 403 to a no_session result', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(403, { error: 'no_session' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await endServerSession(deps, 'su-root-1700000000000')).toEqual({
+      ok: false,
+      error: 'no_session',
+    });
+  });
+
+  it('maps a non-ok non-403 response to network_error', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(500, { error: 'update_failed' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await endServerSession(deps, 'su-root-1700000000000')).toEqual({
+      ok: false,
+      error: 'network_error',
+    });
+  });
+
+  it('maps a thrown fetch (offline) to network_error', async () => {
+    const fetchSpy = vi.fn(async () => {
+      throw new Error('offline');
+    });
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await endServerSession(deps, 'su-root-1700000000000')).toEqual({
       ok: false,
       error: 'network_error',
     });

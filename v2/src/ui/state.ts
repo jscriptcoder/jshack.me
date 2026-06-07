@@ -48,6 +48,7 @@ import {
 import { createSyncChannel, type SyncChannel } from '../adapters/crossTabSync';
 import {
   createServerSession,
+  endServerSession,
   listServerSessions,
   type SessionsClientDeps,
 } from '../adapters/sessionsApi';
@@ -145,12 +146,19 @@ const pushSession = (next: Session): void => {
  *  guard here keeps the stacks consistent if ever called directly. */
 const popSession = (): void => {
   if (returnCwdStack().length === 0) return;
+  const ending = activeSession();
   setSessionStack((previous) => previous.slice(0, -1));
   setReturnCwdStack((previous) => {
     const restore = previous.at(-1);
     if (restore !== undefined) setCwd(restore);
     return previous.slice(0, -1);
   });
+  // End the popped session server-side so the de-elevation survives a refresh.
+  // Fire-and-forget alongside the optimistic pop; the base login session is
+  // guarded out above (empty returnCwdStack) and has no server row anyway.
+  if (sessionsClientDeps !== undefined && ending !== undefined) {
+    void endServerSession(sessionsClientDeps, ending.id);
+  }
 };
 
 // A pending interactive prompt (su's masked password; later ssh/ftp/…). While

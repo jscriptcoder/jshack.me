@@ -6,6 +6,7 @@ import {
   type ListSessionsQuery,
   type SessionSummary,
 } from '../src/core/sessions/listSessions';
+import { handleEndSession, type EndSessionParams } from '../src/core/sessions/endSession';
 import type { NonceStore } from '../src/core/signedRequest/nonceStore';
 
 // Vercel adapter for POST /api/sessions.
@@ -66,6 +67,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { status, body } = await handleListSessions(req.body, {
       nonceStore: noopNonceStore,
       listSessions,
+    });
+    res.status(status).json(body);
+    return;
+  }
+
+  if (actionOf(req.body) === 'endSession') {
+    // Scope the update to the verified player_key so a caller can only end
+    // their OWN sessions; a non-owned session_id matches zero rows (no-op).
+    const endSession = async ({ session_id, player_key }: EndSessionParams) => {
+      const { error } = await supabase
+        .from('sessions')
+        .update({ ended_at: new Date().toISOString(), end_reason: 'user_exit' })
+        .eq('session_id', session_id)
+        .eq('player_key', player_key);
+      if (error) console.error('[sessions] end error:', error);
+      return { error };
+    };
+    const { status, body } = await handleEndSession(req.body, {
+      nonceStore: noopNonceStore,
+      endSession,
     });
     res.status(status).json(body);
     return;

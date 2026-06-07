@@ -73,6 +73,20 @@ export const createServerSession = async (
   }
 };
 
+/** Mark a pushed session ended (the player `exit`ed it) so it no longer
+ *  rehydrates. Fire-and-forget at the call site; the server scopes the update
+ *  to the verified player_key, so naming a session_id you don't own is a no-op. */
+export const endServerSession = async (
+  deps: SessionsClientDeps,
+  sessionId: string,
+): Promise<PatchResult> => {
+  try {
+    return toResult(await post(deps, 'endSession', { session_id: sessionId }));
+  } catch {
+    return { ok: false, error: 'network_error' };
+  }
+};
+
 const summaryToSession = (deps: SessionsClientDeps, row: SessionSummary): Session => ({
   id: row.session_id,
   playerKey: asPlayerKeyHex(deps.identity.publicKeyHex),
