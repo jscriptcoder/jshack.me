@@ -71,12 +71,18 @@ describe('createServerSession', () => {
 
     const verified = await verifyPayload(sentEnvelope(fetchSpy));
     if (!verified.ok) throw new Error('expected a verified envelope');
-    expect((verified.payload as { parent_session_id: unknown }).parent_session_id).toBeNull();
+    expect((verified.payload as Record<string, unknown>).parent_session_id).toBeNull();
   });
 
   it('posts to /api/sessions by default when no endpoint is configured', async () => {
     const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true }));
-    const deps = makeDeps(fetchSpy as unknown as typeof fetch, { endpoint: undefined });
+    const identity = generateIdentity();
+    // Built without `endpoint` so the adapter falls back to its DEFAULT_ENDPOINT.
+    const deps: SessionsClientDeps = {
+      identity,
+      machineId: asMachineId(computeWorkstationId('skylab', identity.publicKeyHex)),
+      fetchImpl: fetchSpy as unknown as typeof fetch,
+    };
 
     await createServerSession(deps, sessionFor(deps), null);
 
