@@ -55,7 +55,7 @@ createSession(req): Promise<Session | CreateSessionError>;
 - No shared `RemoteError` union; that would be the lowest common denominator and lose specificity.
 - Network-layer errors (transport failures, JSON parse errors) wrap as `{ kind: 'network_error' }` in every endpoint's union.
 
-## D6. gameTime model
+## D6. gameTime model _(Superseded by D13)_
 
 **Server-stamped + client-cached, with client-computed fallback.**
 
@@ -64,6 +64,8 @@ createSession(req): Promise<Session | CreateSessionError>;
 - `env.gameTime()` returns the cached value synchronously (CVE eligibility checks need sync access).
 - Fallback to client-computed `Date.now() - startedAt` when no server response has been seen (cold start, offline, single-player).
 - This is **day-1 anti-cheat**: CVE eligibility checks always run against server time once a session has touched any API.
+
+> **Superseded.** The client-computed fallback and the `env.gameTime()` seam were removed in PRs #216–#217. See D13 for the implemented model.
 
 ## D7. Pools file layout
 
@@ -163,6 +165,63 @@ The smoke script is not optional — without it, the endpoint is not "shipped." 
 ### Don't pre-port the catalog
 
 The 20 legacy scripts stay useful as a **menu of what kinds of scripts to write**, not as files to copy. Pre-porting them would produce 20 broken files (legacy imports) that rot waiting for v2's API to catch up. Each one gets rewritten when its corresponding v2 feature lands.
+
+## D13. Game time is a server-side authority; the client never computes it
+
+**Status:** Accepted — implemented in PRs #216 (server-stamped auth.log) and #217 (removed client `gameTime()` seam). Supersedes D6.
+
+**Date:** 2026-06-07
+
+### Context
+
+v2 is multiplayer-first and server-authoritative. The highest-stakes consumer of game time is **CVE eligibility**: services and libraries age into exploitability as game time advances, and players must `apt upgrade` to stay patched (the defense treadmill). If a client could assert its own timestamp, it could unlock not-yet-published CVEs ahead of schedule or feign a patched era to dodge attacks. Game time must therefore be unforgeable.
+
+Game time tracks real-world wall-clock elapsed time anchored at a shared universe launch epoch. The server's UTC clock IS game time — there is no separate simulation clock to drift. Postgres `created_at TIMESTAMPTZ DEFAULT NOW()` and the syslog formatter (`getUTC*`) are already UTC.
+
+D6 proposed a "server-stamped + client-computed fallback" model. That fallback was never implemented and would contradict the security requirement: any client-supplied timestamp is a forgery vector.
+
+### Decision — two tiers of time
+
+**1. Authoritative game time — server-only.**
+
+When the server processes a game action (exploit attempt, patch validation), it reads its own UTC clock and decides CVE eligibility (`cve.publishedAt <= now()`). The client supplies no timestamp. There is nothing to forge. This tier is designed-for but lands with the CVE system (not yet built); every time-dependent game decision must route through this server-side path.
+
+**2. Display time — server-sourced.**
+
+Timestamps in game log files (auth.log, future syslog) and a future `date` command are sourced from the server's UTC clock. The `su` command sends the switch event to `/api/patches` (`appendAuthLog` action); the server reads the current log, formats the syslog line using its own UTC clock via the shared `core/logging/authLog` formatter, appends, and upserts. The client renders what the server wrote.
+
+**What was removed:**
+
+- `CommandEnv.gameTime()` — deleted entirely. A client-callable game-clock seam contradicts this decision.
+- The D6 client-computed fallback (`Date.now() - startedAt`) — never wired; removed with the seam.
+
+**What remains:**
+
+- `CommandEnv.now()` — kept for ephemeral, non-authoritative values (session ID generation). It is explicitly NOT game time and must not be used for game decisions.
+- The `GameTime` brand type and `asGameTime` helper — retained for the server-side formatter to produce typed values.
+
+### Consequences
+
+**Positive**
+
+- Unforgeable game time for the security-critical CVE-eligibility path; cannot be cheated by a crafted request or a drifted/spoofed client clock.
+- Single seam to harden further: the server already stamps patch rows and now formats auth.log lines. When the CVE system lands, it slots into the same server-side path.
+- `CommandEnv` surface shrinks by one method; tests no longer need to stub `gameTime`.
+
+**Negative**
+
+- Display timestamps require a server round-trip. Acceptable: auth.log is written via the patch path anyway; no extra round-trip in practice.
+- A future `date` command and any other game-time display must source the server clock — `Date.now()` is forbidden for game-visible output.
+
+**Boundary (deferred)**
+
+The authoritative CVE-gating tier is designed-for but not yet built. It ships with the CVE system. Until then, no client or server path performs CVE eligibility checks, so the enforcement gap is benign.
+
+### Related decisions
+
+- D6 — superseded by this decision.
+- D5 — error encoding per-endpoint; applies to any future time-stamped endpoint.
+- D8 — `mockCommandEnv` no longer includes `gameTime`; the factory stays minimal.
 
 ---
 
