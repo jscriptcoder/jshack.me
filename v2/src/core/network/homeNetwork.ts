@@ -18,10 +18,15 @@
  */
 
 import { createPrng } from '../generation/prng';
+import { generatePublicIp } from '../generation/ip';
 import type { Ipv4 } from './interfaces';
 
 export type HomeNetworkAssignment = {
   readonly localIp: Ipv4;
+  /** The home router's WAN/public IP — shared by every occupant of the AP,
+   *  so it is seeded by ESSID alone (the future `/api/join-home-network`
+   *  allocates it authoritatively). Source IP for off-network traffic. */
+  readonly publicIp: Ipv4;
   readonly hostname: string;
 };
 
@@ -38,5 +43,9 @@ export const assignHomeNetwork = (seedPubkeyHex: string, essid: string): HomeNet
   const host = prng.nextInt(2, 254);
   const device = prng.pick(DEVICE_TYPES);
 
-  return { localIp: `192.168.${subnet}.${host}`, hostname: `${device}-${host}` };
+  // The public IP is seeded by ESSID ALONE (not the player's pubkey): the WAN
+  // address belongs to the router, so all occupants of the same AP share it.
+  const publicIp = generatePublicIp(createPrng(`home-public-${essid}`));
+
+  return { localIp: `192.168.${subnet}.${host}`, publicIp, hostname: `${device}-${host}` };
 };

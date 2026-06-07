@@ -21,7 +21,11 @@ describe('assignHomeNetwork', () => {
     // Determinism is the load-bearing property: rehydration re-derives this.
     expect(second).toEqual(first);
     // Golden lock — pins the seed string, the octet ranges, and the draw order.
-    expect(first).toEqual({ localIp: '192.168.188.154', hostname: 'iphone-154' });
+    expect(first).toEqual({
+      localIp: '192.168.188.154',
+      publicIp: '51.130.158.42',
+      hostname: 'iphone-154',
+    });
   });
 
   it('places the host on a 192.168.0.0/16 private network', () => {
@@ -51,6 +55,34 @@ describe('assignHomeNetwork', () => {
     const bob = assignHomeNetwork('b'.repeat(64), 'BEAN-THERE-WIFI');
 
     expect(bob).not.toEqual(alice);
+  });
+
+  it('issues the SAME public IP to different identities on the same ESSID', () => {
+    const alice = assignHomeNetwork('a'.repeat(64), 'BEAN-THERE-WIFI');
+    const bob = assignHomeNetwork('b'.repeat(64), 'BEAN-THERE-WIFI');
+
+    // The WAN IP belongs to the router/network, not the player — every occupant
+    // of the same AP shares it (seeded by ESSID alone). This is the forward-
+    // correct seam for cross-player: occupants agree on the public IP with no
+    // migration when the server-authoritative join lands.
+    expect(bob.publicIp).toBe(alice.publicIp);
+    // ...while their LAN addresses still differ (per-player DHCP draw).
+    expect(bob.localIp).not.toBe(alice.localIp);
+  });
+
+  it('issues a different public IP per ESSID (different routers)', () => {
+    const bean = assignHomeNetwork(PUBKEY, 'BEAN-THERE-WIFI');
+    const grad = assignHomeNetwork(PUBKEY, 'GRAD-STUDENT-WIFI');
+
+    expect(grad.publicIp).not.toBe(bean.publicIp);
+  });
+
+  it('places the public IP on a routable (non-RFC1918) address', () => {
+    const { publicIp } = assignHomeNetwork(PUBKEY, 'BEAN-THERE-WIFI');
+    const firstOctet = Number(publicIp.split('.')[0]);
+
+    // Never a private/loopback leading octet — the router faces the open net.
+    expect([10, 127, 172, 192]).not.toContain(firstOctet);
   });
 
   it('names the hostname after the assigned host octet', () => {
