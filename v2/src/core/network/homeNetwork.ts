@@ -33,7 +33,14 @@ export type HomeNetworkAssignment = {
 /** DHCP-style client names — the assigned hostname is one of these plus the
  *  host octet. Flavour only (not shown in `nmcli` output yet), but pinned by
  *  the seam's golden test. */
-const DEVICE_TYPES = ['desktop', 'laptop', 'android', 'iphone', 'tablet', 'workstation'] as const;
+export const DEVICE_TYPES = [
+  'desktop',
+  'laptop',
+  'android',
+  'iphone',
+  'tablet',
+  'workstation',
+] as const;
 
 export const assignHomeNetwork = (seedPubkeyHex: string, essid: string): HomeNetworkAssignment => {
   const prng = createPrng(`home-${seedPubkeyHex}-${essid}`);
