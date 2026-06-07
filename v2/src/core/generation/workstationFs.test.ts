@@ -91,12 +91,40 @@ describe('buildWorkstationBaseFs', () => {
       'root',
       'tmp',
       'usr',
+      'var',
     ]);
     expect([...dirAt(fs, 'etc').entries.keys()]).toEqual(['passwd']);
     expect([...dirAt(fs, 'home').entries.keys()]).toEqual(['alice']);
     expect(dirAt(fs, 'home', 'alice').entries.size).toBe(0);
     expect(dirAt(fs, 'root').entries.size).toBe(0);
     expect(dirAt(fs, 'tmp').entries.size).toBe(0);
+    expect([...dirAt(fs, 'var', 'log').entries.keys()]).toEqual(['auth.log']);
+  });
+
+  describe('/var/log/auth.log', () => {
+    const authLog = (): FileNode => {
+      const node = dirAt(buildWorkstationBaseFs(SEED_A, getConfig()), 'var', 'log').entries.get(
+        'auth.log',
+      );
+      if (node?.kind !== 'file') throw new Error('missing /var/log/auth.log file');
+      return node;
+    };
+
+    it('starts empty (no entries until a command logs)', () => {
+      const node = authLog();
+      if (node.kind !== 'file') throw new Error('expected file');
+      expect(node.content).toBe('');
+    });
+
+    it('is root-owned, world-readable, and NOT world-writable (a real privilege boundary)', () => {
+      const node = authLog();
+      if (node.kind !== 'file') throw new Error('expected file');
+      // World-readable so the defender can `cat` it; only root writes it (su's
+      // system-tier append models a setuid-root syslog write).
+      expect(node.owner).toBe('root');
+      expect(node.perms.read).toEqual(['root', 'user', 'guest']);
+      expect(node.perms.write).toEqual(['root']);
+    });
   });
 
   describe('/bin system-utility binaries', () => {

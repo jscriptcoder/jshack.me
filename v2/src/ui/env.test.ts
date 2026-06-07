@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { buildCommandEnv } from './env';
 import { homePathFor, SEED_CONFIG, seedFs, seedSession } from './seed';
 import { generateIdentity } from '../core/identity/identity';
-import { asAbsPath } from '../core/types';
+import { asAbsPath, asMachineId, type AbsPath } from '../core/types';
 import { buildColdStartConnectivity, type NetworkInterface } from '../core/network/interfaces';
 import { assignHomeNetwork } from '../core/network/homeNetwork';
 import { generateWifi } from '../core/generation/generateWifi';
+import { buildDirectory, buildFile } from '../test/factories/filesystem';
+import type { Directory } from '../core/filesystem/types';
 import type { PatchApi } from '../core/commands/types';
 
 const noopPatches: PatchApi = {
@@ -166,5 +168,68 @@ describe('buildCommandEnv', () => {
     env.setInterface('wlan0', { ...wlan0, monitorMode: true });
 
     expect(calls).toEqual([['wlan0', { ...wlan0, monitorMode: true }]]);
+  });
+});
+
+describe('buildCommandEnv — log.appendAuthLog', () => {
+  type Write = { readonly path: AbsPath; readonly content: string };
+
+  /** Build an env over `root` with a `patches.write` spy, so we can assert the
+   *  append's read-modify-write content. */
+  const envWithRoot = (root: Directory) => {
+    const writes: Write[] = [];
+    const patches: PatchApi = {
+      write: async (path, content) => {
+        writes.push({ path, content });
+        return { ok: true };
+      },
+      remove: async () => ({ ok: true }),
+      mkdir: async () => ({ ok: true }),
+    };
+    const env = buildCommandEnv({
+      identity: generateIdentity(),
+      session: seedSession(generateIdentity(), SEED_CONFIG),
+      root,
+      cwd: () => seedHome,
+      onCwdChange: () => undefined,
+      patches,
+      connectivity: seedConnectivity,
+      onInterfaceChange: () => undefined,
+      wifiNetworks: seedWifi,
+      prompt: async () => '',
+      onPushSession: () => undefined,
+      hopChain: [],
+      onPopSession: () => undefined,
+      signal: new AbortController().signal,
+    });
+    return { env, writes };
+  };
+
+  it('appends a newline-terminated line to the seeded (empty) /var/log/auth.log', async () => {
+    const { env, writes } = envWithRoot(seedFs(SEED_CONFIG, generateIdentity()));
+
+    await env.log.appendAuthLog(asMachineId('any'), 'Jun  7 14:32:01 workstation su[42]: hello');
+
+    expect(writes).toHaveLength(1);
+    expect(writes[0].path).toBe('/var/log/auth.log');
+    expect(writes[0].content).toBe('Jun  7 14:32:01 workstation su[42]: hello\n');
+  });
+
+  it('preserves existing log content (append, not overwrite)', async () => {
+    const root = buildDirectory({
+      var: buildDirectory({
+        log: buildDirectory({
+          'auth.log': buildFile('OLD LINE\n', {
+            owner: 'root',
+            perms: { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] },
+          }),
+        }),
+      }),
+    });
+    const { env, writes } = envWithRoot(root);
+
+    await env.log.appendAuthLog(asMachineId('any'), 'NEW LINE');
+
+    expect(writes[0].content).toBe('OLD LINE\nNEW LINE\n');
   });
 });

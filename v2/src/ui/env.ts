@@ -11,7 +11,7 @@
  * would hide missing wiring.
  */
 
-import { asEpochMs, asGameTime, type AbsPath } from '../core/types';
+import { asAbsPath, asEpochMs, asGameTime, type AbsPath } from '../core/types';
 import type {
   CommandEnv,
   HopChain,
@@ -33,6 +33,10 @@ import { abortableSleep } from './sleep';
 export type BuildCommandEnvArgs = {
   readonly identity: Identity;
   readonly session: Session;
+  /** The machine's short hostname (the player's `GameConfig.machineName`).
+   *  Optional here for terse test setups — defaults to `workstation` (the seed
+   *  config's name); the UI always passes the real `promptHost()`. */
+  readonly hostname?: string;
   readonly root: Directory;
   /** Reader function — called every time `fs.cwd()` runs. Lets the UI's cwd
    *  signal flow through without rebuilding the env per command. */
@@ -101,8 +105,21 @@ const outputStub = (): OutputSink => ({
 
 const remoteStub = (): RemoteApi => ({ listPatches: notWired('remote.listPatches') });
 
-const logStub = (): LogApi => ({
-  appendAuthLog: async () => undefined,
+const AUTH_LOG_PATH = asAbsPath('/var/log/auth.log');
+
+/** The auth-log writer. Appends to `/var/log/auth.log` as the SYSTEM (root):
+ *  it reads the current content at root tier and writes via `patches` DIRECTLY
+ *  — never through the caller's tier-gated `fs.canWrite` — so a guest's `su`
+ *  still records, mirroring a setuid-root syslog write. Read-modify-write in one
+ *  patch keeps the append atomic from the journal's view. `auth.log` is seeded
+ *  empty at boot, so this is always an overwrite of an existing base file (no
+ *  `isNew`). `appendAccessLog` lands when a command needs the access log. */
+const logApi = (root: Directory, patches: PatchApi): LogApi => ({
+  appendAuthLog: async (_target, line) => {
+    const current = createFsView(root, { userType: 'root' }).read(AUTH_LOG_PATH);
+    const existing = current.ok ? current.content : '';
+    await patches.write(AUTH_LOG_PATH, `${existing}${line}\n`);
+  },
   appendAccessLog: async () => undefined,
 });
 
@@ -110,6 +127,7 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   identity: args.identity,
   session: args.session,
   hopChain: args.hopChain,
+  hostname: args.hostname ?? 'workstation',
   gameTime: () => asGameTime(0),
   now: () => asEpochMs(Date.now()),
   fs: createFsView(args.root, { userType: args.session.userType, cwd: args.cwd }),
@@ -117,7 +135,7 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   output: outputStub(),
   patches: args.patches,
   remote: remoteStub(),
-  log: logStub(),
+  log: logApi(args.root, args.patches),
   // The home-network join is local-deterministic today (seeded from identity),
   // the documented future server boundary — `Promise`-shaped so the swap to a
   // real `/api/join-home-network` round-trip is the only change here.
