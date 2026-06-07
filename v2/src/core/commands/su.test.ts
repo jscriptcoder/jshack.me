@@ -6,7 +6,14 @@ import {
   mockFsViewFromTree,
   mockSession,
 } from '../../test/factories/commandEnv';
-import { asAbsPath, asEpochMs, asMachineId, asPlayerKeyHex, type UserType } from '../types';
+import {
+  asAbsPath,
+  asEpochMs,
+  asMachineId,
+  asPlayerKeyHex,
+  type MachineId,
+  type UserType,
+} from '../types';
 import type { CommandResult, Session } from './types';
 import { su } from './su';
 
@@ -51,6 +58,7 @@ const suEnv = (opts: SuEnvOpts = {}) => {
   const pushed: Session[] = [];
   const cwds: string[] = [];
   const promptCalls: PromptCall[] = [];
+  const authLogs: { readonly target: MachineId; readonly line: string }[] = [];
 
   const tree = buildDirectory({
     etc: buildDirectory({
@@ -78,9 +86,15 @@ const suEnv = (opts: SuEnvOpts = {}) => {
     },
     pushSession: (pushedSession) => pushed.push(pushedSession),
     setCwd: (path) => cwds.push(path),
+    log: {
+      appendAuthLog: async (target, line) => {
+        authLogs.push({ target, line });
+      },
+      appendAccessLog: async () => undefined,
+    },
   });
 
-  return { env, pushed, cwds, promptCalls };
+  return { env, pushed, cwds, promptCalls, authLogs };
 };
 
 const syncResult = (
@@ -290,5 +304,75 @@ describe('su', () => {
 
     expect(text).toContain('su: user root does not exist');
     expect(exitCode).toBe(1);
+  });
+
+  describe('auth logging (/var/log/auth.log)', () => {
+    it('writes a "Successful su" syslog line to the local machine on a switch', async () => {
+      const { env, authLogs } = suEnv({ rootPassword: 'hunter2', typed: 'hunter2' });
+
+      await su.execute(env, [], NO_FLAGS);
+
+      expect(authLogs).toHaveLength(1);
+      expect(authLogs[0].target).toBe(MACHINE);
+      // Full syslog shape: `<host> su[<pid>]: Successful su for <target> by <from>`.
+      expect(authLogs[0].line).toContain('workstation su[');
+      expect(authLogs[0].line).toContain('Successful su for root by neo');
+    });
+
+    it('writes a "FAILED su" line on a wrong password', async () => {
+      const { env, authLogs } = suEnv({ rootPassword: 'hunter2', typed: 'nope' });
+
+      await su.execute(env, [], NO_FLAGS);
+
+      expect(authLogs).toHaveLength(1);
+      expect(authLogs[0].line).toContain('FAILED su for root by neo');
+    });
+
+    it('logs successful no-prompt switches too (root → guest)', async () => {
+      const { env, authLogs } = suEnv({ callerType: 'root' });
+
+      await su.execute(env, ['guest'], NO_FLAGS);
+
+      expect(authLogs).toHaveLength(1);
+      expect(authLogs[0].line).toContain('Successful su for guest by neo');
+    });
+
+    it('does not log when the target user does not exist', async () => {
+      const { env, authLogs } = suEnv();
+
+      await su.execute(env, ['nobody'], NO_FLAGS);
+
+      expect(authLogs).toEqual([]);
+    });
+
+    it('does not log when the prompt is cancelled (Ctrl-C)', async () => {
+      const { authLogs } = suEnv();
+      const tree = buildDirectory({
+        etc: buildDirectory({
+          passwd: buildFile(`root:${md5('toor')}:0:0:root:/root:/bin/bash\n`, {
+            owner: 'root',
+            perms: { read: ['root', 'user'] },
+          }),
+        }),
+      });
+      const env = mockCommandEnv({
+        session: mockSession({ machineId: MACHINE, playerKey: PUBKEY, userType: 'user' }),
+        fs: mockFsViewFromTree(tree, { userType: 'user', cwd: () => asAbsPath('/') }),
+        prompt: async () => {
+          throw new DOMException('aborted', 'AbortError');
+        },
+        pushSession: () => undefined,
+        log: {
+          appendAuthLog: async (target, line) => {
+            authLogs.push({ target, line });
+          },
+          appendAccessLog: async () => undefined,
+        },
+      });
+
+      await su.execute(env, [], NO_FLAGS);
+
+      expect(authLogs).toEqual([]);
+    });
   });
 });

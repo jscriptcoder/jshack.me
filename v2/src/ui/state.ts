@@ -380,6 +380,7 @@ export const runInput = async (): Promise<void> => {
   const env = buildCommandEnv({
     identity: requireIdentity(),
     session: currentSession,
+    hostname: promptHost(),
     root: applyPatches(seedFs(requireConfig(), requireIdentity()), patches()),
     cwd,
     onCwdChange: setCwd,

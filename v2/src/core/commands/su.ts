@@ -25,6 +25,7 @@
 
 import { asAbsPath, type AbsPath, type UserType } from '../types';
 import { md5 } from '../generation/md5';
+import { derivePid, formatSuAuthLine } from '../logging/authLog';
 import type { Command, CommandEnv, CommandResult, Session } from './types';
 
 const PASSWD_PATH = asAbsPath('/etc/passwd');
@@ -72,6 +73,33 @@ const targetFrom = (passwd: string, username: string): TargetUser | null => {
   return { username, passwordHash, userType, home };
 };
 
+/** Append a syslog line to the local `/var/log/auth.log` for this switch —
+ *  like real Linux / legacy `su`. AWAITED: the log write reconciles the local
+ *  journal before resolving (see `wrapWithRefetch`), so an immediate
+ *  `cat /var/log/auth.log` after the switch already shows the entry. Errors are
+ *  swallowed — a logging hiccup must never break the switch itself. The
+ *  `appendAuthLog` seam writes as the system (root), so even a guest's switch is
+ *  recorded despite auth.log being root-owned. */
+const logSwitch = async (
+  env: CommandEnv,
+  target: TargetUser,
+  outcome: 'success' | 'failure',
+): Promise<void> => {
+  const line = formatSuAuthLine({
+    outcome,
+    targetUser: target.username,
+    fromUser: env.session.username,
+    hostname: env.hostname,
+    time: env.gameTime(),
+    pid: derivePid(env.now()),
+  });
+  try {
+    await env.log.appendAuthLog(env.session.machineId, line);
+  } catch {
+    // best-effort: the switch has already happened; logging must not fail it.
+  }
+};
+
 const sessionFor = (env: CommandEnv, target: TargetUser): Session => ({
   id: `su-${target.username}-${env.now()}`,
   playerKey: env.session.playerKey,
@@ -98,11 +126,15 @@ const execute: Command['execute'] = async (env, args) => {
     } catch {
       return { kind: 'sync', lines: [], exitCode: 130 };
     }
-    if (md5(typed) !== target.passwordHash) return failure();
+    if (md5(typed) !== target.passwordHash) {
+      await logSwitch(env, target, 'failure');
+      return failure();
+    }
   }
 
   env.pushSession(sessionFor(env, target));
   env.setCwd(target.home);
+  await logSwitch(env, target, 'success');
   return { kind: 'sync', lines: [], exitCode: 0 };
 };
 

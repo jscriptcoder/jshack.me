@@ -202,6 +202,12 @@ export type CommandEnv = {
   readonly session: Session;
   readonly hopChain: HopChain;
 
+  /** The current machine's short hostname (the `workstation` in the prompt),
+   *  sourced from the player's `GameConfig.machineName`. Read by commands that
+   *  render machine-identifying output — `su`'s `/var/log/auth.log` syslog line
+   *  now; `uname`/other loggers (ssh/ftp) later. */
+  readonly hostname: string;
+
   readonly gameTime: () => GameTime;
   readonly now: () => EpochMs;
 
