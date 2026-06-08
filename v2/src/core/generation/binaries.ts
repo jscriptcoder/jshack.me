@@ -76,10 +76,21 @@ export const SYSTEM_UTILITY_NAMES = [
 export const LOCALHOST_PREINSTALLED_TOOLS = ['airmon', 'airdump', 'aircrack'] as const;
 
 /**
+ * System daemons PRE-INSTALLED in `/usr/sbin` on every machine. These are the
+ * admin binaries you run to bring a service UP (root-only at runtime). `sshd`
+ * opens the SSH port; like the `ssh` client (in `/bin`), the daemon ships
+ * everywhere, so the per-host generator (Slice 2) plants this same set on
+ * generated machines. World-executable stubs — the daemon self-gates root.
+ */
+export const SYSTEM_DAEMON_NAMES = ['sshd'] as const;
+
+/**
  * Binaries whose execute permission is restricted to root. Everything else
  * defaults to world-executable. Of the `/bin` set, only `reboot` is restricted
- * (the others — gpg/sshd/vsftpd/systemctl — live in `/usr/bin` or `/usr/sbin`,
- * deferred to later slices).
+ * (the other admin daemons — gpg/vsftpd/systemctl — live in `/usr/bin` or
+ * `/usr/sbin`, deferred to later slices). `sshd` is world-executable: a real
+ * `/usr/sbin/sshd` is 755 and refuses non-root at RUNTIME, which the command
+ * models with its own root check.
  */
 export const RESTRICTED_EXECUTE: Readonly<Record<string, readonly UserType[]>> = {
   reboot: ['root'],

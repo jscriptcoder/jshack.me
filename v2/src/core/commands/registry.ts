@@ -31,6 +31,7 @@ import { nmap } from './nmap';
 import { nmcli } from './nmcli';
 import { pwd } from './pwd';
 import { rm } from './rm';
+import { sshd } from './sshd';
 import { su } from './su';
 import { touch } from './touch';
 import { isAlwaysAvailable, wrapWithBinaryCheck } from './availability';
@@ -57,6 +58,7 @@ const builtins: readonly Command[] = [
   nmcli,
   pwd,
   rm,
+  sshd,
   su,
   touch,
 ];

@@ -231,6 +231,16 @@ const treeWithUsrBinary = (name: string) =>
     }),
   });
 
+/** Build a tree whose `/usr/sbin` holds one world-executable stub binary. */
+const treeWithSbinBinary = (name: string) =>
+  buildDirectory({
+    usr: buildDirectory({
+      sbin: buildDirectory({
+        [name]: buildFile('', { owner: 'root', perms: { execute: ['root', 'user', 'guest'] } }),
+      }),
+    }),
+  });
+
 describe('wrapWithBinaryCheck — /usr/bin resolution + apt-install hint (slice 2)', () => {
   it('resolves a binary from /usr/bin when it is not in /bin', async () => {
     // aircrack is a pre-installed apt tool: it lives in /usr/bin, not /bin.
@@ -242,6 +252,20 @@ describe('wrapWithBinaryCheck — /usr/bin resolution + apt-install hint (slice 
     const result = await wrapped.execute(env, ['-b', '00:11'], NO_FLAGS);
 
     expect(textLines(result)).toEqual(['-b,00:11']);
+    expect(result.kind === 'sync' && result.exitCode).toBe(0);
+  });
+
+  it('resolves an admin daemon from /usr/sbin (sshd) when it is in neither /bin nor /usr/bin', async () => {
+    // sshd is a system daemon: it lives in /usr/sbin only. Proves the search
+    // path reaches /usr/sbin — without it, sshd would report command-not-found.
+    const wrapped = wrapWithBinaryCheck(echoArgsCommand('sshd'));
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(treeWithSbinBinary('sshd'), { userType: 'user' }),
+    });
+
+    const result = await wrapped.execute(env, ['2222'], NO_FLAGS);
+
+    expect(textLines(result)).toEqual(['2222']);
     expect(result.kind === 'sync' && result.exitCode).toBe(0);
   });
 

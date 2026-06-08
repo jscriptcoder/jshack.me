@@ -21,7 +21,12 @@
 import type { GameConfig } from '../gameConfig/gameConfig';
 import type { Directory, FileEntry, FileNode, FilePermissions } from '../filesystem/types';
 import { createPrng } from './prng';
-import { createBinaryEntries, LOCALHOST_PREINSTALLED_TOOLS, SYSTEM_UTILITY_NAMES } from './binaries';
+import {
+  createBinaryEntries,
+  LOCALHOST_PREINSTALLED_TOOLS,
+  SYSTEM_DAEMON_NAMES,
+  SYSTEM_UTILITY_NAMES,
+} from './binaries';
 import { createLibraryEntries, SYSTEM_LIBRARIES } from './libraries';
 import { md5 } from './md5';
 import { AUTH_LOG_PERMISSIONS } from '../logging/authLog';
@@ -156,14 +161,22 @@ export const buildWorkstationBaseFs = (seedPubkeyHex: string, config: GameConfig
       root: dir({}, ROOT_DIR),
       tmp: dir({}, TMP_DIR),
       usr: dir(
-        { bin: dir(createBinaryEntries(LOCALHOST_PREINSTALLED_TOOLS), TRAVERSABLE_DIR) },
+        {
+          bin: dir(createBinaryEntries(LOCALHOST_PREINSTALLED_TOOLS), TRAVERSABLE_DIR),
+          // Admin daemons (`sshd`) — pre-installed everywhere, like the ssh client.
+          sbin: dir(createBinaryEntries(SYSTEM_DAEMON_NAMES), TRAVERSABLE_DIR),
+        },
         TRAVERSABLE_DIR,
       ),
       // `/var/log/auth.log` exists empty from boot so `su` appends to a real
-      // file (and `cat` works before the first switch). Logs land here as
-      // commands consume them — this slice adds auth.log for su.
+      // file (and `cat` works before the first switch). `/var/run` exists empty
+      // so `sshd` can drop its pidfile there. Both land here as commands consume
+      // them — this slice adds /var/run for sshd.
       var: dir(
-        { log: dir({ 'auth.log': file('', AUTH_LOG_PERMISSIONS) }, TRAVERSABLE_DIR) },
+        {
+          log: dir({ 'auth.log': file('', AUTH_LOG_PERMISSIONS) }, TRAVERSABLE_DIR),
+          run: dir({}, TRAVERSABLE_DIR),
+        },
         TRAVERSABLE_DIR,
       ),
     },

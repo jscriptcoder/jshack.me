@@ -3,7 +3,12 @@ import type { GameConfig } from '../gameConfig/gameConfig';
 import type { Directory, FileNode } from '../filesystem/types';
 import { canRead, canWrite } from '../filesystem/walker';
 import { buildWorkstationBaseFs } from './workstationFs';
-import { LOCALHOST_PREINSTALLED_TOOLS, RESTRICTED_EXECUTE, SYSTEM_UTILITY_NAMES } from './binaries';
+import {
+  LOCALHOST_PREINSTALLED_TOOLS,
+  RESTRICTED_EXECUTE,
+  SYSTEM_DAEMON_NAMES,
+  SYSTEM_UTILITY_NAMES,
+} from './binaries';
 import { md5 } from './md5';
 
 /**
@@ -98,7 +103,9 @@ describe('buildWorkstationBaseFs', () => {
     expect(dirAt(fs, 'home', 'alice').entries.size).toBe(0);
     expect(dirAt(fs, 'root').entries.size).toBe(0);
     expect(dirAt(fs, 'tmp').entries.size).toBe(0);
+    expect([...dirAt(fs, 'var').entries.keys()].sort()).toEqual(['log', 'run']);
     expect([...dirAt(fs, 'var', 'log').entries.keys()]).toEqual(['auth.log']);
+    expect(dirAt(fs, 'var', 'run').entries.size).toBe(0);
   });
 
   describe('/var/log/auth.log', () => {
@@ -202,8 +209,44 @@ describe('buildWorkstationBaseFs', () => {
       expect(aircrack.perms.execute).toEqual(['root', 'user', 'guest']);
     });
 
-    it('places the apt tools under /usr/bin and nothing else under /usr', () => {
-      expect([...dirAt(baseFs(), 'usr').entries.keys()]).toEqual(['bin']);
+    it('places the apt tools under /usr/bin, alongside the /usr/sbin daemons', () => {
+      expect([...dirAt(baseFs(), 'usr').entries.keys()].sort()).toEqual(['bin', 'sbin']);
+    });
+  });
+
+  describe('/usr/sbin admin daemons', () => {
+    const baseFs = (): Directory => buildWorkstationBaseFs(SEED_A, getConfig());
+
+    it('pre-installs exactly the system-daemon set (sshd) in /usr/sbin', () => {
+      expect([...dirAt(baseFs(), 'usr', 'sbin').entries.keys()].sort()).toEqual(
+        [...SYSTEM_DAEMON_NAMES].sort(),
+      );
+    });
+
+    it('ships sshd so `sshd` is runnable from a fresh box (no apt install needed)', () => {
+      expect(dirAt(baseFs(), 'usr', 'sbin').entries.has('sshd')).toBe(true);
+    });
+
+    it('makes sshd root-owned, non-empty and world-executable (anyone may run it; it self-gates root)', () => {
+      const sshdBin = dirAt(baseFs(), 'usr', 'sbin').entries.get('sshd');
+      if (sshdBin?.kind !== 'file') throw new Error('missing /usr/sbin/sshd');
+      expect(sshdBin.owner).toBe('root');
+      expect(sshdBin.content.length).toBeGreaterThan(0);
+      expect(sshdBin.perms.execute).toEqual(['root', 'user', 'guest']);
+    });
+  });
+
+  describe('/var/run service pidfile directory', () => {
+    it('exists empty so sshd can drop its pidfile, world-readable and root-writable', () => {
+      const run = dirAt(buildWorkstationBaseFs(SEED_A, getConfig()), 'var', 'run');
+      // Empty at boot (no service running yet); root writes the pidfile (sshd
+      // runs as root), every tier can read/traverse so nmap/ps can see the port.
+      expect(run.entries.size).toBe(0);
+      expect(run.perms).toEqual({
+        read: ['root', 'user', 'guest'],
+        write: ['root'],
+        execute: ['root', 'user', 'guest'],
+      });
     });
   });
 
