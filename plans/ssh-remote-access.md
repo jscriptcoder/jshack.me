@@ -141,20 +141,52 @@ remote hosts (Slice 2), auth (Slice 3), stop/restart/status subcommands, other s
 
 ### Slice 2 — Generator plants sshd on remote hosts; `nmap <remote>` shows open ports
 
-**Value**: Recon becomes real — scanning the LAN reveals which hosts run ssh, deterministically.
-**Path**: per-host base-FS generator (`buildRemoteHostFs(seed, host)`, sibling of
-`buildWorkstationBaseFs`) plants `/var/run/sshd.pid` on a seeded ~40% of hosts → generalise nmap's
-"host → FS → pidfiles" reader (built in Slice 1 for self) to dispatch remote hosts to their
-generated FS → `nmap <remote-ip>` / range prints their open ports. Absorbs generator **Story 3**'s
-per-machine base-FS generation. Still no auth, no connect.
-**Sketch** (graduate to full TDD spec when reached): adds the `placement` column to the service
-catalog (its first consumer). One generator loop over `SERVICE_CATALOG` plants each service whose
-deterministic per-`(host, service)` draw falls under its `placement` (same identity+ESSID+octet ⇒
-same set every reload); the pidfile is materialised in the generated per-host FS; nmap reads it
-identically to the self case. Decisions to pin then: **guarantee ≥1 ssh host per LAN** (so recon
-never dead-ends) vs pure probability; whether the player's own host counts as "running sshd" only
-after Slice 1's command; port distribution (all :22 vs occasional non-standard).
-**Depends on**: Slice 1 (pidfile parser + nmap port rendering).
+**Value**: Recon becomes real — a single-IP scan of a generated LAN host reveals whether it runs
+ssh (and on what port), deterministically from the seed.
+**Path**: a pure per-host FS generator (`buildRemoteHostFs(pubkey, essid, host)`) plants
+`/var/run/sshd.pid` on the seeded subset of hosts that roll ssh → nmap's pidfile reader is
+generalised from `env.fs` (self) to read a `Directory` tree, so a single-IP scan dispatches the
+self host to `env.fs.root()` and any other host to its generated FS → `nmap <remote-ip>` prints its
+open ports (`22/tcp open ssh`). Range scans stay host-discovery only (no per-host port columns),
+consistent with Slice 1. Still no auth, no connect, no browsable FS.
+
+**Decisions (locked this session):**
+- **Pure probability** — each non-self host independently rolls ssh at `placement` (~0.4). No
+  ≥1-per-LAN guarantee; a LAN may have zero ssh hosts (a valid outcome).
+- **Mostly :22, occasionally non-standard** — an ssh host listens on `defaultPort` (22) unless a
+  seeded `altPortChance` roll picks from `altPorts` (e.g. 2222/8022).
+- **Pidfile-only per-host FS** — `buildRemoteHostFs` emits only `/var/run/<pidfile>` for now; the
+  full skeleton (`/etc/passwd` users, `/home`, …) lands in Slice 3 when ssh's browse+auth consume it.
+
+**Catalog columns added (their first consumer is this slice):** `placement: number`,
+`altPorts: readonly number[]`, `altPortChance: number` on `ServiceSpec`. ssh:
+`placement 0.4, altPorts [2222, 8022], altPortChance 0.2`.
+
+**Self vs remote dispatch:** the player's OWN host is identified by `host.ip === wlan0.ipv4`; its
+ports come from the LIVE `env.fs` (so a runtime `sshd` shows up). All other hosts are read from
+`buildRemoteHostFs(...)`. The generator is pure and never sees the self host — nmap's dispatch
+routes it. (Note: this supersedes Slice 1's "self-only guard" nmap test, where a sibling showed no
+ports; siblings now show their OWN generated ports — that test is reworked here.)
+
+**Required implementation skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
+**Acceptance criteria** (confirm before code):
+  - `buildRemoteHostFs` is deterministic: same `(pubkey, essid, host)` ⇒ byte-identical `Directory`.
+  - A host that rolls ssh gets `/var/run/sshd.pid` = `sshd:port=<N>` (root-owned); one that doesn't
+    gets an empty `/var/run`.
+  - Over a deterministic host sample the ssh fraction is ≈`placement` (a band that brackets 0.4 and
+    excludes 0.3/0.5/0/1 — kills the placement literal + the threshold operator).
+  - Most ssh hosts are on :22; a seeded minority on an alt port (golden host on 2222 or 8022).
+  - `nmap <remote-ip>` of an ssh host prints its `PORT/STATE/SERVICE` row; of a non-ssh host prints
+    no ports; the self host still reads from the live `env.fs`.
+**RED**: (a) generator unit — determinism, ssh-host pidfile shape, non-ssh empty, distribution band,
+  alt-port golden. (b) nmap behaviour — single-IP scan of a generated ssh host shows its port; of a
+  non-ssh host shows none; self still live.
+**GREEN**: catalog columns; `core/generation/remoteHostFs.ts` (`hostServices` per-`(host,service)`
+  draw + port pick; `buildRemoteHostFs` → `Directory`); refactor nmap's reader to
+  `readVarRunServices(root: Directory)` + a `resolveHostFs(host)` dispatch in `execute`.
+**MUTATE / KILL / REFACTOR / Done when**: as Slice 1 — 100% or documented equivalents, full suite +
+  lint + build green, live agent-browser (`nmap <ssh-host>` → port; `nmap <non-ssh>` → none), commit.
+**Depends on**: Slice 1.
 
 ### Slice 3 — `ssh user@host` connects and drops you into the remote FS
 

@@ -11,7 +11,9 @@ import {
 } from '../../test/factories/commandEnv';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 import { assignHomeNetwork } from '../network/homeNetwork';
-import { generateHomeLan } from '../generation/generateHomeLan';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
+import { buildRemoteHostFs } from '../generation/remoteHostFs';
+import type { Directory } from '../filesystem/types';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
 import { asPlayerKeyHex } from '../types';
 
@@ -358,17 +360,47 @@ describe('nmap — self-host open ports (slice 1)', () => {
     expect(text).not.toContain('22/tcp');
   });
 
-  it('does NOT attribute the own machine’s ports to a different host (self-only guard)', async () => {
-    // env.fs is the workstation's FS; scanning a sibling host (.25) must not leak
-    // the workstation's running services onto it.
+  /** The ssh port the GENERATOR gives `host`, or null when it runs no ssh. Lets
+   *  the dispatch tests find a deterministic remote ssh / non-ssh host. */
+  const generatedSshdPort = (host: LanHost): number | null => {
+    const fs: Directory = buildRemoteHostFs(PUBKEY, 'BEAN-THERE-WIFI', host);
+    const varDir = fs.entries.get('var');
+    const runDir = varDir?.kind === 'directory' ? varDir.entries.get('run') : undefined;
+    const node = runDir?.kind === 'directory' ? runDir.entries.get('sshd.pid') : undefined;
+    return node?.kind === 'file' ? Number(node.content.split('=')[1]) : null;
+  };
+
+  const remoteHosts = (): readonly LanHost[] =>
+    generateHomeLan(PUBKEY, 'BEAN-THERE-WIFI').hosts.filter((host) => host.ip !== SELF_IP);
+
+  it('shows a remote host’s OWN generated ssh port, not the workstation’s', async () => {
+    const sshHost = remoteHosts().find((host) => generatedSshdPort(host) !== null);
+    if (sshHost === undefined) throw new Error('expected a generated ssh host on the LAN');
+    const port = generatedSshdPort(sshHost);
+
+    // The workstation runs sshd on a DISTINCT port (:9999); scanning the remote
+    // must show the REMOTE's port (from its generated FS), never the workstation's.
+    const env = envWithVarRun({ 'sshd.pid': 'sshd:port=9999' });
+
+    const { text } = await drain(await nmap.execute(env, [sshHost.ip], new Map()));
+
+    expect(text).toContain(`${port}/tcp`);
+    expect(text).toContain('ssh');
+    expect(text).not.toContain('9999/tcp');
+  });
+
+  it('shows no ports for a remote host the generator gives no service', async () => {
+    const bareHost = remoteHosts().find((host) => generatedSshdPort(host) === null);
+    if (bareHost === undefined) throw new Error('expected a generated non-ssh host on the LAN');
+
+    // The workstation itself IS running sshd — proving its services are not
+    // attributed to a different host.
     const env = envWithVarRun({ 'sshd.pid': 'sshd:port=22' });
 
-    const { text } = await drain(await nmap.execute(env, ['192.168.188.25'], new Map()));
+    const { text } = await drain(await nmap.execute(env, [bareHost.ip], new Map()));
 
     expect(text).toContain('Host is up.');
-    expect(text).toContain('desktop-25');
     expect(text).not.toContain('PORT');
-    expect(text).not.toContain('22/tcp');
   });
 
   it('falls back to the service default port when the pidfile content is malformed', async () => {
@@ -420,5 +452,25 @@ describe('nmap — self-host open ports (slice 1)', () => {
 
     expect(text).toContain('Host is up.');
     expect(text).not.toContain('PORT');
+  });
+
+  it('reads no ports from a malformed /var tree (var or run not a directory, or run missing)', async () => {
+    const trees: readonly Directory[] = [
+      buildDirectory({ var: buildFile('not a dir') }), // /var is a file
+      buildDirectory({ var: buildDirectory({}) }), // /var dir, no /var/run
+      buildDirectory({ var: buildDirectory({ run: buildFile('not a dir') }) }), // /var/run is a file
+    ];
+    for (const tree of trees) {
+      const env = mockCommandEnv({
+        identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+        network: mockNetworkViewFromConnectivity(onlineConnectivity('BEAN-THERE-WIFI')),
+        fs: mockFsViewFromTree(tree, { userType: 'user' }),
+      });
+
+      const { text } = await drain(await nmap.execute(env, [SELF_IP], new Map()));
+
+      expect(text).toContain('Host is up.');
+      expect(text).not.toContain('PORT');
+    }
   });
 });
