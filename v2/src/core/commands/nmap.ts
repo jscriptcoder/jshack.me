@@ -16,11 +16,11 @@
  * family) so the scan feels live and cancels on Ctrl-C.
  */
 
-import { asAbsPath } from '../types';
 import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
+import type { Directory } from '../filesystem/types';
 import { generateHomeLan, type HomeLan } from '../generation/generateHomeLan';
-import type { Ipv4 } from '../network/interfaces';
-import { parsePidfilePort, serviceByPidfileName, VAR_RUN } from '../services/pidfile';
+import { buildRemoteHostFs } from '../generation/remoteHostFs';
+import { parsePidfilePort, serviceByPidfileName } from '../services/pidfile';
 
 const error = (message: string): CommandResult => ({
   kind: 'sync',
@@ -103,22 +103,22 @@ const lastOctet = (host: HomeLan['hosts'][number]): number => Number(host.ip.spl
 /** Per-row pause so the host list populates live rather than all at once. */
 const SCAN_DELAY_MS = 200;
 
-/** Open ports on the CURRENT machine, read from its `/var/run/*.pid` files (the
- *  source of truth for running services). Only meaningful for the player's OWN
- *  host — `env.fs` is always the current machine, so a remote host's ports come
- *  later (Slice 2) from its generated FS, never from here. Unknown or non-file
+/** Open ports a host's filesystem advertises, read from its `/var/run/*.pid`
+ *  files (the source of truth for running services). The tree is the live
+ *  `env.fs` for the player's own host, or a deterministic generated FS for a
+ *  remote host — `readVarRunServices` doesn't care which. Unknown or non-file
  *  `/var/run` entries are skipped. (Ordering is trivial with one service today;
  *  a deterministic sort lands when the catalog grows past one.) */
-const openServices = (
-  env: CommandEnv,
+const readVarRunServices = (
+  root: Directory,
 ): readonly { readonly port: number; readonly service: string }[] => {
-  const listing = env.fs.list(asAbsPath(VAR_RUN));
-  if (!listing.ok) return [];
-  return listing.entries.flatMap((name) => {
+  const varDir = root.entries.get('var');
+  if (varDir === undefined || varDir.kind !== 'directory') return [];
+  const runDir = varDir.entries.get('run');
+  if (runDir === undefined || runDir.kind !== 'directory') return [];
+  return [...runDir.entries].flatMap(([name, node]) => {
     const spec = serviceByPidfileName(name);
-    if (spec === undefined) return [];
-    const node = env.fs.stat(asAbsPath(`${VAR_RUN}/${name}`));
-    if (node === null || node.kind !== 'file') return [];
+    if (spec === undefined || node.kind !== 'file') return [];
     return [{ port: parsePidfilePort(node.content) ?? spec.defaultPort, service: spec.service }];
   });
 };
@@ -154,7 +154,7 @@ async function* scanSingle(
   lan: HomeLan,
   rawTarget: string,
   octet: number,
-  selfIp: Ipv4 | null,
+  resolveHostFs: (host: HomeLan['hosts'][number]) => Directory,
 ): AsyncIterable<TerminalLine> {
   yield text(`Starting Nmap scan — ${rawTarget}`);
   yield text('');
@@ -168,10 +168,9 @@ async function* scanSingle(
   }
   yield text(`Nmap scan report for ${host.hostname} (${host.ip})`);
   yield text('Host is up.');
-  // The player's own host advertises its open ports, read from its live
-  // `/var/run` pidfiles. Other hosts get port detail in a later slice (from
-  // their generated FS) — until then a single-IP scan of them is up/down only.
-  const ports = host.ip === selfIp ? openServices(env) : [];
+  // Ports come from the host's filesystem: the live env.fs for the player's own
+  // host, the deterministic generated FS for any other host.
+  const ports = readVarRunServices(resolveHostFs(host));
   if (ports.length > 0) {
     yield text('');
     yield text(PORT_HEADER);
@@ -195,16 +194,25 @@ const execute: Command['execute'] = async (env, args) => {
     return error(UNREACHABLE);
   }
 
-  const lan = generateHomeLan(env.identity.publicKeyHex, wlan0.association.essid);
+  const essid = wlan0.association.essid;
+  const lan = generateHomeLan(env.identity.publicKeyHex, essid);
   const parsed = parseTarget(rawTarget, lan.subnet);
   if (!parsed.ok) {
     return error(parsed.reason === 'usage' ? USAGE : outOfRange(rawTarget, lan.subnet));
   }
 
+  // The player's own host reads its LIVE filesystem (so a runtime `sshd` shows
+  // up); every other host reads its deterministic generated FS.
+  const selfIp = wlan0.ipv4;
+  const resolveHostFs = (host: HomeLan['hosts'][number]): Directory =>
+    host.ip === selfIp
+      ? env.fs.root()
+      : buildRemoteHostFs(env.identity.publicKeyHex, essid, host);
+
   const lines =
     parsed.target.kind === 'range'
       ? scanRange(env, lan, rawTarget, parsed.target.start, parsed.target.end)
-      : scanSingle(env, lan, rawTarget, parsed.target.octet, wlan0.ipv4);
+      : scanSingle(env, lan, rawTarget, parsed.target.octet, resolveHostFs);
   return { kind: 'async', lines, exitCode: async () => 0 };
 };
 

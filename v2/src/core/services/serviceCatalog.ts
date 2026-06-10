@@ -8,10 +8,11 @@
  * description, many consumers.
  *
  * Discipline (don't gold-plate): ROWS arrive when a service ships; COLUMNS arrive
- * when a slice consumes them. Slice 1 carries only what the `sshd` writer + the
- * pidfile parser need. The generator's `placement` weight (deterministic ~N% of
- * hosts) is added in Slice 2, its first consumer; CVE/version columns come with
- * the epic that needs them — never speculatively.
+ * when a slice consumes them. Slice 1 carried only what the `sshd` writer + the
+ * pidfile parser need. Slice 2 adds the GENERATION knobs — `placement` and the
+ * port spread (`altPorts`/`altPortChance`), consumed by the per-host FS
+ * generator. CVE/version columns come with the epic that needs them — never
+ * speculatively.
  */
 
 export type ServiceSpec = {
@@ -24,8 +25,25 @@ export type ServiceSpec = {
   readonly defaultPort: number;
   /** The account the daemon runs as — the pidfile's owner. */
   readonly runUser: string;
+  /** Slice 2 (generation): the fraction of NON-self hosts that run this service.
+   *  Each host rolls independently — no per-LAN guarantee. */
+  readonly placement: number;
+  /** Slice 2 (generation): non-standard ports the service sometimes listens on.
+   *  Empty ⇒ always `defaultPort`. */
+  readonly altPorts: readonly number[];
+  /** Slice 2 (generation): the chance a generated host uses an `altPorts` entry
+   *  instead of `defaultPort`. */
+  readonly altPortChance: number;
 };
 
 export const SERVICE_CATALOG = {
-  ssh: { service: 'ssh', pidfile: 'sshd.pid', defaultPort: 22, runUser: 'root' },
+  ssh: {
+    service: 'ssh',
+    pidfile: 'sshd.pid',
+    defaultPort: 22,
+    runUser: 'root',
+    placement: 0.4,
+    altPorts: [2222, 8022],
+    altPortChance: 0.2,
+  },
 } as const satisfies Record<string, ServiceSpec>;
