@@ -17,8 +17,9 @@
  * Linux tools — they have no binary and are always available, so the registry
  * skips wrapping them (`isAlwaysAvailable`).
  *
- * Deferred to later slices: `/usr/bin` + `/usr/sbin` resolution, the
- * `apt install <pkg>` install hint, and the `/lib/*.so` library check.
+ * The search path now spans `/bin` (system utils), `/usr/bin` (apt tools), and
+ * `/usr/sbin` (admin daemons like `sshd`); the apt-install hint and the
+ * `/lib/*.so` library check are wired (slices 2–3).
  */
 
 import { asAbsPath } from '../types';
@@ -51,9 +52,9 @@ const syncError = (content: string, exitCode: number): CommandResult => ({
 });
 
 /** Directories searched for a command's binary, in order. System utilities live
- *  in `/bin`; apt-installed tools land in `/usr/bin`. (`/usr/sbin` admin
- *  binaries are deferred until an admin command needs them.) */
-const BINARY_SEARCH_PATH: readonly string[] = ['/bin', '/usr/bin'];
+ *  in `/bin`; apt-installed tools land in `/usr/bin`; admin daemons (`sshd`)
+ *  live in `/usr/sbin`. */
+const BINARY_SEARCH_PATH: readonly string[] = ['/bin', '/usr/bin', '/usr/sbin'];
 
 /** First existing binary FILE for `name` across the search path, or null. */
 const resolveBinary = (env: CommandEnv, name: string): FileNode | null => {
