@@ -16,10 +16,10 @@
  *     `/bin`+`/usr/bin`+`/usr/sbin`+`/lib` so the commands the player runs after
  *     `ssh` actually resolve, and an empty `/var/log/auth.log` for the login line.
  *
- * It deliberately mirrors `buildWorkstationBaseFs`'s skeleton (the shared
- * `generatePasswd` primitive, the same permission boundaries) — the difference is
- * who the accounts are. (The shared FS-building constants are duplicated here for
- * now; a `baseFs` extraction is the refactor once both consumers are green.)
+ * It deliberately mirrors `buildWorkstationBaseFs`'s skeleton — both compose the
+ * shared box-FS toolkit in `baseFs.ts` (permission boundaries, node constructors,
+ * `generatePasswd`), so the privilege model can't drift between the two boxes. The
+ * only difference is who the accounts are.
  */
 
 import { createPrng } from './prng';
@@ -32,59 +32,28 @@ import {
   SYSTEM_UTILITY_NAMES,
 } from './binaries';
 import { createLibraryEntries, SYSTEM_LIBRARIES } from './libraries';
-import { generatePasswd } from './workstationFs';
+import {
+  dir,
+  file,
+  generatePasswd,
+  HOME_DIR,
+  PASSWD_FILE,
+  ROOT_DIR,
+  SHELL,
+  TMP_DIR,
+  TRAVERSABLE_DIR,
+} from './baseFs';
 import { md5 } from './md5';
 import { AUTH_LOG_PERMISSIONS } from '../logging/authLog';
-import type { Directory, FileEntry, FileNode, FilePermissions } from '../filesystem/types';
+import type { Directory, FileEntry, FilePermissions } from '../filesystem/types';
 import type { LanHost } from './generateHomeLan';
 
-// --- Permission boundaries (mirror buildWorkstationBaseFs) ---
-
-const TRAVERSABLE_DIR: FilePermissions = {
-  read: ['root', 'user', 'guest'],
-  write: ['root'],
-  execute: ['root', 'user', 'guest'],
-};
-/** `/etc/passwd`: root + user read only — passwords live inline (no /etc/shadow),
- *  so leaking passwd is a real privilege boundary; guest must not read it. */
-const PASSWD_FILE: FilePermissions = { read: ['root', 'user'], write: ['root'], execute: ['root'] };
-const HOME_DIR: FilePermissions = {
-  read: ['root', 'user'],
-  write: ['root', 'user'],
-  execute: ['root', 'user'],
-};
-const ROOT_DIR: FilePermissions = { read: ['root'], write: ['root'], execute: ['root'] };
-const TMP_DIR: FilePermissions = {
-  read: ['root', 'user', 'guest'],
-  write: ['root', 'user', 'guest'],
-  execute: ['root', 'user', 'guest'],
-};
 /** A pidfile: world-readable, root-writable, never executed. */
 const PIDFILE_PERMS: FilePermissions = { read: ['root', 'user', 'guest'], write: ['root'], execute: [] };
-
-const file = (content: string, perms: FilePermissions, owner = 'root'): FileEntry => ({
-  kind: 'file',
-  content,
-  owner,
-  perms,
-});
-
-const dir = (
-  entries: Readonly<Record<string, FileNode>>,
-  perms: FilePermissions,
-  owner = 'root',
-): Directory => ({
-  kind: 'directory',
-  owner,
-  perms,
-  entries: new Map(Object.entries(entries)),
-});
 
 const pidfile = (content: string, owner: string): FileEntry => file(content, PIDFILE_PERMS, owner);
 
 // --- NPC account content (seeded; cracking these is a later epic) ---
-
-const SHELL = '/bin/bash';
 
 /** Common service-account names an NPC box's non-root user is drawn from. */
 const HOST_USERNAMES: readonly string[] = [
