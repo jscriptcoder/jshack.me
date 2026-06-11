@@ -57,12 +57,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   });
 
   if (actionOf(req.body) === 'listSessions') {
-    const listSessions = async ({ player_key, machine_id }: ListSessionsQuery) => {
+    // No machine filter: the hop chain spans machines (su rows carry the own
+    // workstation id, ssh rows the remote host's), and player_key scoping is
+    // the boundary — handleListSessions stamps it from the verified pubkey.
+    const listSessions = async ({ player_key }: ListSessionsQuery) => {
       const { data, error } = await supabase
         .from('sessions')
         .select('session_id, machine_id, credentials, parent_session_id, source_ip, kind, created_at')
         .eq('player_key', player_key)
-        .eq('machine_id', machine_id)
         .is('ended_at', null)
         .order('created_at', { ascending: true });
       if (error) console.error('[sessions] list error:', error);

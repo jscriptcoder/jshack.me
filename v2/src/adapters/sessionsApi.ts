@@ -7,8 +7,10 @@
  * hop chain on boot. Both speak the same signed envelope as `patchApi`, with
  * signing encapsulated by `signRequest`.
  *
- * Scope is the player's own workstation (su is same-machine): both calls send
- * `deps.machineId`. Cross-machine `ssh` listing/creation is a later epic.
+ * `createServerSession` is own-workstation scoped (su is same-machine) and
+ * sends `deps.machineId`; `listServerSessions` sends NO machine filter — the
+ * hop chain spans machines (ssh hops carry the remote host's id), and the
+ * server scopes the read by the verified player_key alone.
  *
  * `fetchImpl` is injected so tests drive the wire shape without a network.
  */
@@ -145,7 +147,7 @@ export const listServerSessions = async (
   deps: SessionsClientDeps,
 ): Promise<readonly Session[]> => {
   try {
-    const response = await post(deps, 'listSessions', { machine_id: deps.machineId });
+    const response = await post(deps, 'listSessions', {});
     if (!response.ok) return [];
     const body: unknown = await response.json();
     const rows = (body as { sessions?: readonly SessionSummary[] } | null)?.sessions ?? [];
