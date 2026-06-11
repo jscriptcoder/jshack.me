@@ -2,6 +2,10 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 import { handleCreateSession, type SessionRow } from '../src/core/sessions/createSession';
 import {
+  handleAuthCreateSession,
+  type AuthSessionRow,
+} from '../src/core/sessions/authCreateSession';
+import {
   handleListSessions,
   type ListSessionsQuery,
   type SessionSummary,
@@ -87,6 +91,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { status, body } = await handleEndSession(req.body, {
       nonceStore: noopNonceStore,
       endSession,
+    });
+    res.status(status).json(body);
+    return;
+  }
+
+  if (actionOf(req.body) === 'authCreateSession') {
+    // Cross-machine ssh session: the handler regenerates the remote FS and
+    // validates the password server-side before this insert ever runs.
+    const insertSession = async (row: AuthSessionRow) => {
+      const { error } = await supabase.from('sessions').insert(row);
+      if (error) console.error('[sessions] auth insert error:', error);
+      return { error };
+    };
+    const { status, body } = await handleAuthCreateSession(req.body, {
+      nonceStore: noopNonceStore,
+      insertSession,
     });
     res.status(status).json(body);
     return;

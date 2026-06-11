@@ -87,8 +87,14 @@ later for L1/L2 (the server cannot invert the coordinate-derived `machine_id` su
   then walk perms) vs a legacy-style **`machine_filesystems` projection** (dual-write). Regeneration
   is more v2-idiomatic (no projection table) but must apply prior patches over a regenerated base
   server-side. Decide when PR 3e starts.
-- **Exact new `sessions` columns** for regeneration (`essid`, `target_ip`) — confirm names/migration
-  at PR 3b.
+- ~~**Exact new `sessions` columns** for regeneration~~ — RESOLVED (PR 3b): the migration adds **only
+  `essid`**. `target_ip` is redundant — the server recovers the host from `(essid, machine_id)` via
+  `hostForMachineId` (the coordinate suffix can't be inverted to an IP, but a LAN regeneration +
+  suffix match finds it). `source_ip` already existed on the table.
+- ~~Distinct "unknown user" message~~ — RESOLVED (PR 3b): ssh auth failures COLLAPSE to one 401
+  `invalid_credentials` (unknown-user and wrong-password indistinguishable — real ssh / no
+  enumeration). The client shows a generic "Permission denied". `su` keeps its distinct messages
+  (different real-tool behaviour).
 - Multi-LAN hops (ssh from inside one host to another subnet), saved-key/fingerprint auth, `scp`,
   cross-player reachability — all later epics.
 
@@ -134,20 +140,22 @@ suffix. No command/server change.
 **Tests**: determinism; passwd shape/accounts/perms; home/root/tmp presence + perms; machine_id
 namespace distinct from workstation; reverse-resolver round-trips and returns null off-LAN.
 
-#### PR 3b — `authCreateSession` server action + player_key-scoped listing
-**Value**: the server can mint a validated ssh session on a foreign host, and the hop chain lists
-across machines.
-**Scope**: new `authCreateSession` action on `/api/sessions` + `core/sessions/authCreateSession.ts`:
-verify envelope → `buildRemoteHostFs(verifiedPubkey, essid, ip)` → `deriveUserType(passwd, username)`
-(401 unknown) → `md5(password)===hash` (401 bad) → server-derive `machine_id` → insert row with
-`kind:'ssh'`, server-derived `userType`, `source_ip`, `parent_session_id`, and the regeneration key
-(`essid`, `target_ip`). Migration for the new columns. Plain `createSession` schema: explicit
-`use_authcreatesession` reject for `kind:'ssh'`. `handleListSessions`: drop the `machine_id` filter +
-own-workstation gate (scope by player_key); `api/sessions.ts` query `.eq('player_key').is('ended_at',
-null)`. Adapter: `authCreateServerSession(...)`.
-**Tests**: handler — happy insert (row shape, server-derived userType), 401 bad password, 401 unknown
-user, envelope-reject, ssh→createSession reject; listSessions returns cross-machine chain; adapter
-wire shape.
+#### PR 3b — `authCreateSession` server action ✅ (PR #N, v0.45.0)
+**Value**: the server can mint a *validated* ssh session on a foreign host.
+**Scope (as shipped)**: new `authCreateSession` action on `/api/sessions` + `core/sessions/authCreateSession.ts`:
+verify envelope → resolve the target on the caller's regenerated LAN (404 `host_unreachable` if the IP
+is not a real host) → `buildRemoteHostFs(verifiedPubkey, essid, host)` → read `/etc/passwd`,
+server-derive `userType` → `md5(password)===hash` → insert row with `kind:'ssh'`, server-derived
+`userType`, `source_ip`, `parent_session_id`, `essid`. Migration adds **only `essid`** (see resolved
+decision). The own-workstation gate does NOT apply (foreign host); the passwd check IS the gate.
+**Tests**: handler — happy insert (exact row shape, server-derived userType for root/user/guest),
+401 bad password, 401 unknown user (same code — no enumeration), 404 host_unreachable, 400 on
+missing-field/forged-player_key, 401 tampered signature, 500 insert fail.
+**Resequenced out of 3b** (each moves to its consumer): the client `authCreateServerSession` *adapter*
+→ **PR 3c** (the `ssh` command consumes it); the `listSessions` player_key-scoping → **PR 3d** (the
+rehydrate consumes it). The plain-`createSession` `use_authcreatesession` reject was dropped as
+unneeded — its `kind: z.literal('su')` schema already rejects `'ssh'`, and our client never routes
+ssh through it.
 
 #### PR 3c — the `ssh` command + client wiring (the headline) — READ-ONLY remote
 **Value**: `ssh user@host` connects, authenticates, and drops you into the remote FS to browse.
@@ -155,10 +163,12 @@ wire shape.
 (+ optional port), check the host's `sshd.pid` (port open? else "connection refused"), connect
 animation via `env.sleep`, masked `env.prompt` for the password, call `authCreateServerSession`; on
 200 `pushSession` the server-returned session (server-derived userType) and `setCwd` to the remote
-home. Client: `env.fs` `root` dispatches on active `session.machineId` — own → patched workstation FS
-(today); remote → `buildRemoteHostFs` for the host resolved via `hostForMachineId`. Guard
-`pushSession`'s `createServerSession` so it does NOT fire for ssh (the ssh command already created
-the row via authCreateSession). Remote is READ-ONLY this PR (writes deferred to 3e).
+home. **Adds the `authCreateServerSession` adapter** (signs + posts the authCreateSession action,
+returns `{ ok, userType }` | error — resequenced here from 3b). Client: `env.fs` `root` dispatches on
+active `session.machineId` — own → patched workstation FS (today); remote → `buildRemoteHostFs` for the
+host resolved via `hostForMachineId`. Guard `pushSession`'s `createServerSession` so it does NOT fire
+for ssh (the ssh command already created the row via authCreateSession). Remote is READ-ONLY this PR
+(writes deferred to 3e).
 **Tests**: command — refused when no pidfile, prompt+auth happy path pushes session + lands home,
 401 surfaces "Permission denied" (no push); env.fs resolves remote tree for an active remote session.
 **Live**: `su root`→`sshd` on a known remote (or generated), `ssh root@<host>`, type the seed-known
@@ -166,10 +176,12 @@ password, `ls`/`cat` the remote tree.
 
 #### PR 3d — failures + `exit` + refresh survival
 **Value**: every failure is realistic and pushes no session; leaving and reloading behave.
-**Scope**: bad password / unknown user (fall out of 3b's 401), connection refused (no pidfile), host
-down (not in LAN) — each a faithful message. `exit` pops + `endServerSession`. `sessionRehydrate`
-reconstructs remote hops (player_key-scoped list now includes them); env.fs-on-boot resolves the
-remote tree; restore cwd (lossy, like su). source_ip in the auth.log line via the resolve rule.
+**Scope**: bad password / unknown user (collapse to one faithful "Permission denied" message — server
+returns the same 401 either way), connection refused (no pidfile), host down (not in LAN) — each a
+faithful message. **Adds the `listSessions` player_key-scoping** (drop the `.eq(machine_id)` filter +
+own-workstation gate so the cross-machine chain rehydrates — resequenced here from 3b). `exit` pops +
+`endServerSession`. `sessionRehydrate` reconstructs remote hops; env.fs-on-boot resolves the remote
+tree; restore cwd (lossy, like su). source_ip in the auth.log line via the resolve rule.
 **Tests**: each failure message + no-push; rehydrate rebuilds an ssh hop and lands in the remote home.
 **Live**: failure messages; ssh in, refresh, still on the remote host.
 
