@@ -20,10 +20,20 @@
 
 import { createSignal } from 'solid-js';
 import { asAbsPath, type AbsPath, type UserType } from '../core/types';
-import type { Identity, LogApi, PatchApi, Session, TerminalLine } from '../core/commands/types';
+import type {
+  Identity,
+  LogApi,
+  PatchApi,
+  RemoteAuthParams,
+  RemoteAuthResult,
+  Session,
+  TerminalLine,
+} from '../core/commands/types';
 import type { GameConfig } from '../core/gameConfig/gameConfig';
+import type { Directory } from '../core/filesystem/types';
 import type { Patch } from '../core/filesystem/applyPatches';
 import { applyPatches } from '../core/filesystem/applyPatches';
+import { resolveActiveRoot } from './activeRoot';
 import { createFsView } from '../core/filesystem/fsView';
 import { resolveAbsPath } from '../core/filesystem/path';
 import {
@@ -39,6 +49,7 @@ import { runCommandLine } from '../core/shell/runLine';
 import { commandEchoLine } from '../core/shell/prompt';
 import { buildCommandEnv } from './env';
 import { getPlayerIdentity } from './identity';
+import { parseWorkstationId } from '../core/identity/workstation';
 import {
   createPatchApi,
   fetchOwnPatches,
@@ -47,6 +58,7 @@ import {
 } from '../adapters/patchApi';
 import { createSyncChannel, type SyncChannel } from '../adapters/crossTabSync';
 import {
+  authCreateServerSession,
   createServerSession,
   endServerSession,
   listServerSessions,
@@ -134,11 +146,52 @@ const pushSession = (next: Session): void => {
   // alongside the optimistic stack update — the adapter swallows errors, so a
   // logging/network hiccup never breaks the switch. The base login session is
   // seeded via `setSessionStack` in `startGame`, NOT through here, so it is
-  // never persisted (only elevations/hops are).
-  if (sessionsClientDeps !== undefined) {
+  // never persisted (only elevations/hops are). `ssh` is skipped: it already
+  // created its server row via the authCreateSession round-trip (it MUST validate
+  // the password before pushing), so re-creating it here would be a duplicate.
+  if (sessionsClientDeps !== undefined && next.kind !== 'ssh') {
     void createServerSession(sessionsClientDeps, next, parent?.id ?? null);
   }
 };
+
+/** The ESSID of the currently-associated wlan0, or null when not on a network.
+ *  Lets the FS dispatch regenerate the LAN a remote ssh session lives on. */
+const currentEssid = (): string | null => {
+  const wlan0 = connectivity().interfaces.get('wlan0');
+  return wlan0 !== undefined && wlan0.kind === 'wireless' && wlan0.association !== null
+    ? wlan0.association.essid
+    : null;
+};
+
+/** The player's own workstation id — the base (bottom) session's machine, stable
+ *  across `su`/`ssh` hops. The FS dispatch compares the active session against it
+ *  to decide own-tree vs remote-tree. */
+const ownWorkstationId = (): string => {
+  const base = sessionStack()[0];
+  if (base === undefined) throw new Error('ownWorkstationId read before startGame seeded the stack');
+  return base.machineId;
+};
+
+/** The own (patched) workstation tree — the seed base FS with the journal replayed. */
+const ownRoot = (): Directory => applyPatches(seedFs(requireConfig(), requireIdentity()), patches());
+
+/** The filesystem tree the ACTIVE session operates on: own workstation, or the
+ *  generated tree of the remote host an ssh hop landed on. */
+const activeRoot = (): Directory =>
+  resolveActiveRoot({
+    session: requireSession(),
+    ownWorkstationId: ownWorkstationId(),
+    publicKeyHex: requireIdentity().publicKeyHex,
+    essid: currentEssid(),
+    ownRoot: ownRoot(),
+  });
+
+/** Authenticate an ssh login server-side (backs `env.ssh.authenticate`). Degrades
+ *  to a network error before `startGame` wires the sessions client. */
+const sshAuthenticate = (params: RemoteAuthParams): Promise<RemoteAuthResult> =>
+  sessionsClientDeps === undefined
+    ? Promise.resolve({ ok: false, error: 'network_error' })
+    : authCreateServerSession(sessionsClientDeps, params);
 
 /** Pop the active session (backs `env.popSession`), returning to the one
  *  beneath it and restoring the cwd captured at push time. A no-op at the base
@@ -202,10 +255,13 @@ export const cancelPrompt = (): void => {
   pending.reject(new DOMException('prompt cancelled', 'AbortError'));
 };
 
-/** Reactive prompt host (machine name) + username for the UI. Read the typed
- *  config; fall through to placeholders only before `startGame` (the boot gate
- *  ensures that never happens in practice). */
-export const promptHost = (): string => config?.machineName ?? 'workstation';
+/** Reactive prompt host (machine name) + username for the UI. The host reflects
+ *  the ACTIVE session's machine: your own box for the base/`su` sessions, the
+ *  remote host's name after an `ssh` hop — both recovered from the session's
+ *  `machine_id` (`name-suffix`). Falls back to the typed config before
+ *  `startGame` (the boot gate ensures that never happens in practice). */
+export const promptHost = (): string =>
+  parseWorkstationId(activeSession()?.machineId ?? '')?.name ?? config?.machineName ?? 'workstation';
 export const promptUsername = (): string =>
   activeSession()?.username ?? config?.username ?? 'user';
 /** Active tier — drives the prompt symbol (`#` for root after `su`, else `$`). */
@@ -358,7 +414,7 @@ export const resetTerminal = (): void => {
  *  here — the pure completer stays string-typed. */
 const buildCompleteAdapter = (): CompleteAdapter => {
   const activeSession = requireSession();
-  const fsView = createFsView(applyPatches(seedFs(requireConfig(), requireIdentity()), patches()), {
+  const fsView = createFsView(activeRoot(), {
     userType: activeSession.userType,
     cwd,
   });
@@ -444,7 +500,7 @@ export const runInput = async (): Promise<void> => {
     identity: requireIdentity(),
     session: currentSession,
     hostname: promptHost(),
-    root: applyPatches(seedFs(requireConfig(), requireIdentity()), patches()),
+    root: activeRoot(),
     cwd,
     onCwdChange: setCwd,
     patches: activePatchApi,
@@ -455,6 +511,7 @@ export const runInput = async (): Promise<void> => {
     signal: controller.signal,
     prompt: requestPrompt,
     onPushSession: pushSession,
+    onSshAuthenticate: sshAuthenticate,
     // The sessions below the active one — what `exit` consults to decide
     // whether there's somewhere to drop back to (empty at the base shell).
     hopChain: sessionStack().slice(0, -1),

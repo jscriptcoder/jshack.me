@@ -26,6 +26,7 @@ import type {
   PatchApi,
   RemoteApi,
   Session,
+  SshApi,
 } from '../../core/commands/types';
 import { basename, dirname } from '../../core/filesystem/path';
 import { canWrite } from '../../core/filesystem/walker';
@@ -109,6 +110,13 @@ export const mockHomeNetwork = (overrides: Partial<HomeNetworkApi> = {}): HomeNe
   ...overrides,
 });
 
+/** A remote-login seam whose `authenticate` throws unless a test overrides it —
+ *  `ssh` tests inject a stub returning a controlled `RemoteAuthResult`. */
+export const mockSshApi = (overrides: Partial<SshApi> = {}): SshApi => ({
+  authenticate: NOT_IMPLEMENTED('ssh.authenticate'),
+  ...overrides,
+});
+
 // ---- The factory ----
 
 export const mockCommandEnv = (overrides: Partial<CommandEnv> = {}): CommandEnv => ({
@@ -124,6 +132,7 @@ export const mockCommandEnv = (overrides: Partial<CommandEnv> = {}): CommandEnv 
   remote: mockRemoteApi(),
   log: mockLogApi(),
   homeNetwork: mockHomeNetwork(),
+  ssh: mockSshApi(),
   setCwd: () => undefined,
   setInterface: () => undefined,
   prompt: NOT_IMPLEMENTED('prompt'),

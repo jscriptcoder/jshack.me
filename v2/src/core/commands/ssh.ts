@@ -1,0 +1,173 @@
+/**
+ * ssh — log into a generated remote LAN host (ssh epic, PR 3c).
+ *
+ * `ssh [-p port] user@host` connects to a host on the player's connected LAN,
+ * authenticates the password SERVER-side via the `env.ssh.authenticate` seam (the
+ * server regenerates the host's `/etc/passwd` and validates), and on success
+ * pushes the remote session onto the hop chain + moves into the remote home. The
+ * prompt then reflects the remote box; `ls`/`cat` browse its tree.
+ *
+ * Reachability is checked LOCALLY from the deterministic generated FS before any
+ * password is asked: a target that isn't a host on your LAN is "No route to
+ * host"; a host whose `sshd` isn't running on the requested port (default 22,
+ * `-p` overrides) is "Connection refused". Only a reachable host prompts. Auth
+ * failures (bad password / unknown user collapse to "Permission denied") push no
+ * session. The client never claims a tier — the userType comes back server-derived.
+ */
+
+import { asAbsPath, asMachineId, type UserType } from '../types';
+import { generateHomeLan } from '../generation/generateHomeLan';
+import { buildRemoteHostFs } from '../generation/remoteHostFs';
+import { hostMachineId } from '../generation/remoteHostId';
+import { parsePidfilePort } from '../services/pidfile';
+import type { Command, CommandResult, Session } from './types';
+import type { Directory } from '../filesystem/types';
+
+const DEFAULT_PORT = 22;
+const SSHD_PIDFILE = 'sshd.pid';
+const USAGE = 'usage: ssh [-p port] user@host';
+
+const errorResult = (content: string, exitCode = 255): CommandResult => ({
+  kind: 'sync',
+  lines: [{ kind: 'error', content }],
+  exitCode,
+});
+
+const connectError = (host: string, port: number, reason: string): CommandResult =>
+  errorResult(`ssh: connect to host ${host} port ${port}: ${reason}`);
+
+/** Split `user@host` into its parts, or null if it isn't that shape (empty user
+ *  or empty host both reject). */
+const parseTarget = (raw: string): { readonly user: string; readonly host: string } | null => {
+  const at = raw.indexOf('@');
+  if (at <= 0 || at === raw.length - 1) return null;
+  return { user: raw.slice(0, at), host: raw.slice(at + 1) };
+};
+
+/** `-p <port>` (default 22); a non-numeric/missing/valueless flag falls back to the
+ *  default. `raw` is `true` for a bare `-p` and `undefined` when absent — both
+ *  non-strings, so one `typeof` guard covers them. */
+const parsePort = (raw: string | true | undefined): number => {
+  if (typeof raw !== 'string') return DEFAULT_PORT;
+  const port = Number(raw);
+  return Number.isInteger(port) && port > 0 ? port : DEFAULT_PORT;
+};
+
+/** The port a host's `sshd` listens on (from `/var/run/sshd.pid`), or null when no
+ *  ssh service is running there. */
+const sshPortOf = (fs: Directory): number | null => {
+  const varDir = fs.entries.get('var');
+  if (varDir === undefined || varDir.kind !== 'directory') return null;
+  const run = varDir.entries.get('run');
+  if (run === undefined || run.kind !== 'directory') return null;
+  const pid = run.entries.get(SSHD_PIDFILE);
+  return pid !== undefined && pid.kind === 'file' ? parsePidfilePort(pid.content) : null;
+};
+
+const homeFor = (username: string, userType: UserType): string =>
+  userType === 'root' ? '/root' : `/home/${username}`;
+
+const execute: Command['execute'] = async (env, args, flags) => {
+  const rawTarget = args[0];
+  if (rawTarget === undefined) return errorResult(USAGE);
+  const target = parseTarget(rawTarget);
+  if (target === null) return errorResult(USAGE);
+  const port = parsePort(flags.get('p'));
+
+  const wlan0 = env.network.interfaces().find((iface) => iface.name === 'wlan0');
+  if (
+    !env.network.isOnline() ||
+    wlan0 === undefined ||
+    wlan0.kind !== 'wireless' ||
+    wlan0.association === null
+  ) {
+    return connectError(target.host, port, 'Network is unreachable');
+  }
+  const essid = wlan0.association.essid;
+  const sourceIp = wlan0.ipv4;
+
+  // Reachability is resolved from the deterministic generated world — no prompt
+  // for a host that is down or not listening on the asked port.
+  const host = generateHomeLan(env.identity.publicKeyHex, essid).hosts.find(
+    (candidate) => candidate.ip === target.host,
+  );
+  if (host === undefined) {
+    return connectError(target.host, port, 'No route to host');
+  }
+  // A host not running ssh has a null port, which is `!== port` too — so the one
+  // check covers both "no ssh service" and "listening on a different port".
+  const runningPort = sshPortOf(buildRemoteHostFs(env.identity.publicKeyHex, essid, host));
+  if (runningPort !== port) {
+    return connectError(target.host, port, 'Connection refused');
+  }
+
+  let password: string;
+  try {
+    password = await env.prompt({
+      message: `${target.user}@${target.host}'s password: `,
+      masked: true,
+    });
+  } catch {
+    return { kind: 'sync', lines: [], exitCode: 130 };
+  }
+
+  const sessionId = `ssh-${target.user}-${env.now()}`;
+  const result = await env.ssh.authenticate({
+    sessionId,
+    essid,
+    targetIp: target.host,
+    username: target.user,
+    password,
+    parentSessionId: env.session.id,
+    sourceIp,
+  });
+  if (!result.ok) {
+    if (result.error === 'invalid_credentials') return errorResult('Permission denied (password).');
+    if (result.error === 'host_unreachable') {
+      return connectError(target.host, port, 'Connection refused');
+    }
+    return connectError(target.host, port, 'Network error');
+  }
+
+  const session: Session = {
+    id: sessionId,
+    playerKey: env.session.playerKey,
+    machineId: asMachineId(hostMachineId(host, essid)),
+    username: target.user,
+    userType: result.userType,
+    kind: 'ssh',
+    createdAt: env.now(),
+  };
+  env.pushSession(session);
+  env.setCwd(asAbsPath(homeFor(target.user, result.userType)));
+  return { kind: 'sync', lines: [], exitCode: 0 };
+};
+
+export const ssh: Command = {
+  name: 'ssh',
+  description: 'Log into a remote machine over SSH',
+  category: 'network',
+  tier: 'guest',
+  availability: { kind: 'localhost-only' },
+  flags: { p: 'string' },
+  manual: {
+    synopsis: 'ssh [-p port] user@host',
+    description:
+      'Open a login session on a remote host on your network. Connects to the host, ' +
+      'prompts for the account password, and on success drops you into that machine ' +
+      'with the account’s privileges and home directory. Use "-p" to connect to an ssh ' +
+      'service on a non-standard port (default 22). Use "exit" to drop back to your own machine.',
+    arguments: [
+      {
+        name: 'user@host',
+        description: 'The account and host IP to log in as, e.g. root@192.168.1.5',
+        required: true,
+      },
+    ],
+    examples: [
+      { command: 'ssh root@192.168.1.5', description: 'Log into 192.168.1.5 as root' },
+      { command: 'ssh -p 2222 admin@192.168.1.9', description: 'Connect to ssh on port 2222' },
+    ],
+  },
+  execute,
+};

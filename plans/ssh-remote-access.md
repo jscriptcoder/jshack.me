@@ -157,8 +157,16 @@ rehydrate consumes it). The plain-`createSession` `use_authcreatesession` reject
 unneeded — its `kind: z.literal('su')` schema already rejects `'ssh'`, and our client never routes
 ssh through it.
 
-#### PR 3c — the `ssh` command + client wiring (the headline) — READ-ONLY remote
+#### PR 3c — the `ssh` command + client wiring (the headline) ✅ (PR #N, v0.46.0) — READ-ONLY remote
 **Value**: `ssh user@host` connects, authenticates, and drops you into the remote FS to browse.
+**Shipped extras** (the live E2E surfaced them): the `ssh` command supports `-p <port>`; reachability
+(host on LAN? sshd on that port?) is checked LOCALLY from the generated FS before prompting; the seam
+is `env.ssh.authenticate` (commands stay adapter-free); the FS dispatch is the pure, tested
+`resolveActiveRoot`; and **`promptHost` now reflects the active session's machine** (own box vs the
+remote host's name, both parsed from the session `machine_id`) — the E2E caught that the prompt still
+showed `skylab` after an ssh hop. Live-verified end to end: connect → `ssh root@<host>` → password →
+`root@<remotehost>:/root#` → `cat /etc/passwd` shows the REMOTE host's accounts → `exit` pops back;
+a wrong password → `Permission denied (password).`, no session.
 **Scope**: `core/commands/ssh.ts` (pre-installed `/bin/ssh` stub already exists) — parse `user@host`
 (+ optional port), check the host's `sshd.pid` (port open? else "connection refused"), connect
 animation via `env.sleep`, masked `env.prompt` for the password, call `authCreateServerSession`; on

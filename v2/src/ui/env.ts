@@ -22,6 +22,7 @@ import type {
   PatchApi,
   RemoteApi,
   Session,
+  SshApi,
 } from '../core/commands/types';
 import type { Directory } from '../core/filesystem/types';
 import type { WifiNetwork } from '../core/network/wifi';
@@ -81,6 +82,10 @@ export type BuildCommandEnvArgs = {
    *  session and return to the one beneath it. The UI restores the previous
    *  tier/prompt and working directory. */
   readonly onPopSession: () => void;
+  /** The remote-login seam — backs `env.ssh.authenticate`. The UI wires it to the
+   *  `authCreateServerSession` adapter (signed `authCreateSession` round-trip).
+   *  Optional here for terse test setups; the UI always passes the real one. */
+  readonly onSshAuthenticate?: SshApi['authenticate'];
 };
 
 const notWired = (method: string) => (): never => {
@@ -124,6 +129,7 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   // the documented future server boundary — `Promise`-shaped so the swap to a
   // real `/api/join-home-network` round-trip is the only change here.
   homeNetwork: { join: (essid) => Promise.resolve(assignHomeNetwork(args.identity.publicKeyHex, essid)) },
+  ssh: { authenticate: args.onSshAuthenticate ?? notWired('ssh.authenticate') },
   setCwd: args.onCwdChange,
   setInterface: args.onInterfaceChange,
   prompt: args.prompt,
