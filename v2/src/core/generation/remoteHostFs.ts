@@ -1,49 +1,87 @@
 /**
  * buildRemoteHostFs — the pure per-host filesystem generator for the LAN's NPC
- * machines (ssh epic, Slice 2). Deterministic from the identity pubkey + ESSID +
- * the host, so the same world re-rolls identically every scan.
+ * machines (ssh epic). Deterministic from the identity pubkey + ESSID + the host,
+ * so the same world re-rolls identically every scan, and a host you ssh into is
+ * the same operable box every reload.
  *
- * It plants `/var/run/<pidfile>` for the services a host runs — the SAME
- * byte-shape the `sshd` command writes (via `formatPidfileContent`), so every
- * reader (`nmap` now; `ssh`/`ps` later) parses one format regardless of who
- * produced the file. Which services a host runs, and on what port, is decided by
- * the service catalog's generation knobs (`placement` / `altPorts` /
- * `altPortChance`) — one declarative table, tweaked in one place.
+ * Two layers ride on the same deterministic seed:
+ *   - `/var/run/<pidfile>` for the services a host runs (Slice 2) — the SAME
+ *     byte-shape the `sshd` command writes (via `formatPidfileContent`), so every
+ *     reader (`nmap`; later `ssh`/`ps`) parses one format. Which services, on what
+ *     port, is the service catalog's generation knobs (`placement`/`altPorts`/
+ *     `altPortChance`).
+ *   - the full base skeleton (Slice 3) — a real, operable Linux box: `/etc/passwd`
+ *     (root + a seeded NPC user + guest, EVERY account password-protected, unlike
+ *     your own box where your user has none), `/home/<user>`, `/root`, `/tmp`, plus
+ *     `/bin`+`/usr/bin`+`/usr/sbin`+`/lib` so the commands the player runs after
+ *     `ssh` actually resolve, and an empty `/var/log/auth.log` for the login line.
  *
- * Slice 2 emits ONLY `/var/run` (the minimum nmap reads). The rest of the base
- * skeleton (`/etc/passwd` users, `/home`, …) lands in Slice 3, when ssh's
- * browse + auth consume it — this builder grows there, callers unchanged.
+ * It deliberately mirrors `buildWorkstationBaseFs`'s skeleton — both compose the
+ * shared box-FS toolkit in `baseFs.ts` (permission boundaries, node constructors,
+ * `generatePasswd`), so the privilege model can't drift between the two boxes. The
+ * only difference is who the accounts are.
  */
 
 import { createPrng } from './prng';
 import { SERVICE_CATALOG, type ServiceSpec } from '../services/serviceCatalog';
 import { formatPidfileContent } from '../services/pidfile';
-import type { Directory, FileEntry, FileNode, FilePermissions } from '../filesystem/types';
+import {
+  createBinaryEntries,
+  LOCALHOST_PREINSTALLED_TOOLS,
+  SYSTEM_DAEMON_NAMES,
+  SYSTEM_UTILITY_NAMES,
+} from './binaries';
+import { createLibraryEntries, SYSTEM_LIBRARIES } from './libraries';
+import {
+  dir,
+  file,
+  generatePasswd,
+  HOME_DIR,
+  PASSWD_FILE,
+  ROOT_DIR,
+  SHELL,
+  TMP_DIR,
+  TRAVERSABLE_DIR,
+} from './baseFs';
+import { md5 } from './md5';
+import { AUTH_LOG_PERMISSIONS } from '../logging/authLog';
+import type { Directory, FileEntry, FilePermissions } from '../filesystem/types';
 import type { LanHost } from './generateHomeLan';
 
-/** `/var` and `/var/run`: world-readable + traversable, root-writable — so every
- *  tier can scan the ports while only root (a daemon) writes a pidfile. */
-const VAR_DIR_PERMS: FilePermissions = {
-  read: ['root', 'user', 'guest'],
-  write: ['root'],
-  execute: ['root', 'user', 'guest'],
-};
 /** A pidfile: world-readable, root-writable, never executed. */
 const PIDFILE_PERMS: FilePermissions = { read: ['root', 'user', 'guest'], write: ['root'], execute: [] };
 
-const dir = (entries: Readonly<Record<string, FileNode>>): Directory => ({
-  kind: 'directory',
-  owner: 'root',
-  perms: VAR_DIR_PERMS,
-  entries: new Map(Object.entries(entries)),
-});
+const pidfile = (content: string, owner: string): FileEntry => file(content, PIDFILE_PERMS, owner);
 
-const pidfile = (content: string, owner: string): FileEntry => ({
-  kind: 'file',
-  content,
-  owner,
-  perms: PIDFILE_PERMS,
-});
+// --- NPC account content (seeded; cracking these is a later epic) ---
+
+/** Common service-account names an NPC box's non-root user is drawn from. */
+const HOST_USERNAMES: readonly string[] = [
+  'admin',
+  'ubuntu',
+  'pi',
+  'deploy',
+  'dev',
+  'operator',
+  'support',
+  'backup',
+];
+
+/** Weak passwords the seeded PRNG picks from for each NPC account — just data,
+ *  mirroring the workstation guest-password pool (a later hydra/wordlist epic is
+ *  how a player would actually obtain one). */
+const WEAK_PASSWORDS: readonly string[] = [
+  'guest',
+  'password',
+  'letmein',
+  'changeme',
+  'welcome1',
+  'qwerty123',
+  'trustno1',
+  'sunshine',
+  'admin123',
+  'root1234',
+];
 
 export type HostService = { readonly spec: ServiceSpec; readonly port: number };
 
@@ -69,19 +107,78 @@ export const hostServices = (
   });
 
 /**
- * The generated base filesystem for `host` — a `Directory` whose `/var/run`
- * holds one pidfile per running service. A host running nothing still gets an
- * empty `/var/run` (where a pidfile would land, and what nmap reads).
+ * The generated base filesystem for `host` — a full operable Linux box, seeded
+ * deterministically from `(pubkey, essid, host.ip)`. `/var/run` holds one pidfile
+ * per running service (empty when the host runs none); the rest is the skeleton
+ * `ssh`'s auth (reads `/etc/passwd`) and browse (`ls`/`cat` over the tree) consume.
  */
 export const buildRemoteHostFs = (
   seedPubkeyHex: string,
   essid: string,
   host: LanHost,
 ): Directory => {
+  const prng = createPrng(`host-fs-${seedPubkeyHex}-${essid}-${host.ip}`);
+  const username = prng.pick(HOST_USERNAMES);
+  const passwd = generatePasswd([
+    {
+      username: 'root',
+      passwordHash: md5(prng.pick(WEAK_PASSWORDS)),
+      uid: 0,
+      gid: 0,
+      gecos: 'root',
+      home: '/root',
+      shell: SHELL,
+    },
+    {
+      username,
+      passwordHash: md5(prng.pick(WEAK_PASSWORDS)),
+      uid: 1000,
+      gid: 1000,
+      gecos: username,
+      home: `/home/${username}`,
+      shell: SHELL,
+    },
+    {
+      username: 'guest',
+      passwordHash: md5(prng.pick(WEAK_PASSWORDS)),
+      uid: 1001,
+      gid: 1001,
+      gecos: 'guest',
+      home: '/home/guest',
+      shell: SHELL,
+    },
+  ]);
+
   const pidfiles = Object.fromEntries(
     hostServices(seedPubkeyHex, essid, host).map(
-      ({ spec, port }) => [spec.pidfile, pidfile(formatPidfileContent(spec, port), spec.runUser)] as const,
+      ({ spec, port }) =>
+        [spec.pidfile, pidfile(formatPidfileContent(spec, port), spec.runUser)] as const,
     ),
   );
-  return dir({ var: dir({ run: dir(pidfiles) }) });
+
+  return dir(
+    {
+      bin: dir(createBinaryEntries(SYSTEM_UTILITY_NAMES), TRAVERSABLE_DIR),
+      etc: dir({ passwd: file(passwd, PASSWD_FILE) }, TRAVERSABLE_DIR),
+      home: dir({ [username]: dir({}, HOME_DIR, username) }, TRAVERSABLE_DIR),
+      lib: dir(createLibraryEntries(SYSTEM_LIBRARIES), TRAVERSABLE_DIR),
+      root: dir({}, ROOT_DIR),
+      tmp: dir({}, TMP_DIR),
+      usr: dir(
+        {
+          bin: dir(createBinaryEntries(LOCALHOST_PREINSTALLED_TOOLS), TRAVERSABLE_DIR),
+          sbin: dir(createBinaryEntries(SYSTEM_DAEMON_NAMES), TRAVERSABLE_DIR),
+        },
+        TRAVERSABLE_DIR,
+      ),
+      var: dir(
+        {
+          log: dir({ 'auth.log': file('', AUTH_LOG_PERMISSIONS) }, TRAVERSABLE_DIR),
+          run: dir(pidfiles, TRAVERSABLE_DIR),
+        },
+        TRAVERSABLE_DIR,
+      ),
+    },
+    TRAVERSABLE_DIR,
+  );
 };
