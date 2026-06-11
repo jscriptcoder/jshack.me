@@ -31,29 +31,37 @@ const makeDeps = (over: Partial<ListSessionsDeps> = {}) => {
   return { deps, listSessions };
 };
 
-const ownQuery = (publicKeyHex: string) => ({
-  machine_id: computeWorkstationId('skylab', publicKeyHex),
-});
-
 describe('handleListSessions', () => {
-  it('returns the active rows scoped to the verified player_key + own machine', async () => {
+  it('returns the player’s active rows across ALL machines, scoped by the verified player_key alone', async () => {
     const id = generateIdentity();
-    const machineId = computeWorkstationId('skylab', id.publicKeyHex);
-    const rows = [aRow({ machine_id: machineId })];
-    const envelope = signRequest(id, 'listSessions', ownQuery(id.publicKeyHex));
+    // A hop chain spanning machines: an su elevation on the own workstation AND
+    // an ssh hop onto a remote LAN host — both must come back, or a refresh
+    // silently drops the cross-machine part of the chain.
+    const rows = [
+      aRow({ machine_id: computeWorkstationId('skylab', id.publicKeyHex) }),
+      aRow({
+        session_id: 'ssh-root-1700000000100',
+        machine_id: 'darkstar-12345678',
+        kind: 'ssh',
+        source_ip: '192.168.50.7',
+        created_at: '2026-06-07T14:33:01.000Z',
+      }),
+    ];
+    const envelope = signRequest(id, 'listSessions', {});
     const { deps, listSessions } = makeDeps();
     listSessions.mockResolvedValue({ data: rows, error: null });
 
     const result = await handleListSessions(envelope, deps);
 
     expect(result).toEqual({ status: 200, body: { sessions: rows } });
-    // The query is scoped to the VERIFIED pubkey, never a client claim.
-    expect(listSessions).toHaveBeenCalledWith({ player_key: id.publicKeyHex, machine_id: machineId });
+    // The query is scoped to the VERIFIED pubkey, never a client claim — and to
+    // NOTHING else: player_key alone IS the boundary (no machine filter).
+    expect(listSessions).toHaveBeenCalledWith({ player_key: id.publicKeyHex });
   });
 
   it('returns an empty list (not null) when the player has no active sessions', async () => {
     const id = generateIdentity();
-    const envelope = signRequest(id, 'listSessions', ownQuery(id.publicKeyHex));
+    const envelope = signRequest(id, 'listSessions', {});
     const { deps } = makeDeps({ listSessions: async () => ({ data: null, error: null }) });
 
     const result = await handleListSessions(envelope, deps);
@@ -61,22 +69,9 @@ describe('handleListSessions', () => {
     expect(result).toEqual({ status: 200, body: { sessions: [] } });
   });
 
-  it('rejects a read of a machine that is not the caller’s workstation with 403 and never queries', async () => {
+  it('rejects a client-supplied player_key with 400 and never queries', async () => {
     const id = generateIdentity();
-    const envelope = signRequest(id, 'listSessions', {
-      machine_id: computeWorkstationId('victim', 'b'.repeat(64)),
-    });
-    const { deps, listSessions } = makeDeps();
-
-    const result = await handleListSessions(envelope, deps);
-
-    expect(result).toEqual({ status: 403, body: { error: 'no_session' } });
-    expect(listSessions).not.toHaveBeenCalled();
-  });
-
-  it('rejects a payload missing machine_id with 400 payload_invalid and never queries', async () => {
-    const id = generateIdentity();
-    const envelope = signRequest(id, 'listSessions', {});
+    const envelope = signRequest(id, 'listSessions', { player_key: 'forged-key' });
     const { deps, listSessions } = makeDeps();
 
     const result = await handleListSessions(envelope, deps);
@@ -85,12 +80,11 @@ describe('handleListSessions', () => {
     expect(listSessions).not.toHaveBeenCalled();
   });
 
-  it('rejects a client-supplied player_key with 400 and never queries', async () => {
+  it('rejects an envelope signed for a different action with 400 and never queries', async () => {
     const id = generateIdentity();
-    const envelope = signRequest(id, 'listSessions', {
-      ...ownQuery(id.publicKeyHex),
-      player_key: 'forged-key',
-    });
+    // A validly-signed envelope for ANOTHER action must not double as a
+    // listSessions read — the action literal binds the signature to one intent.
+    const envelope = signRequest(id, 'endSession', { session_id: 'su-root-1' });
     const { deps, listSessions } = makeDeps();
 
     const result = await handleListSessions(envelope, deps);
@@ -101,7 +95,7 @@ describe('handleListSessions', () => {
 
   it('rejects a tampered signature with 401 and never queries', async () => {
     const id = generateIdentity();
-    const envelope = signRequest(id, 'listSessions', ownQuery(id.publicKeyHex));
+    const envelope = signRequest(id, 'listSessions', {});
     const { deps, listSessions } = makeDeps();
 
     const result = await handleListSessions({ ...envelope, payload: `${envelope.payload} ` }, deps);
@@ -112,7 +106,7 @@ describe('handleListSessions', () => {
 
   it('returns 500 when the query fails', async () => {
     const id = generateIdentity();
-    const envelope = signRequest(id, 'listSessions', ownQuery(id.publicKeyHex));
+    const envelope = signRequest(id, 'listSessions', {});
     const { deps } = makeDeps({ listSessions: async () => ({ data: null, error: { message: 'db down' } }) });
 
     const result = await handleListSessions(envelope, deps);

@@ -56,7 +56,10 @@ describe('createServerSession', () => {
     const result = await createServerSession(deps, sessionFor(deps), 'seed-session');
 
     expect(result).toEqual({ ok: true });
-    expect(fetchSpy).toHaveBeenCalledWith(ENDPOINT, expect.objectContaining({ method: 'POST' }));
+    expect(fetchSpy).toHaveBeenCalledWith(
+      ENDPOINT,
+      expect.objectContaining({ method: 'POST', headers: { 'Content-Type': 'application/json' } }),
+    );
     const verified = await verifyPayload(sentEnvelope(fetchSpy));
     if (!verified.ok) throw new Error('expected a verified envelope');
     expect(verified.payload).toMatchObject({
@@ -277,7 +280,7 @@ describe('endServerSession', () => {
 });
 
 describe('listServerSessions', () => {
-  it('POSTs a signed listSessions envelope and maps rows to Sessions', async () => {
+  it('POSTs a signed listSessions envelope (no machine scope) and maps rows to Sessions', async () => {
     const summary = {
       session_id: 'su-root-1700000000000',
       machine_id: 'skylab-deadbeef',
@@ -294,7 +297,10 @@ describe('listServerSessions', () => {
 
     const verified = await verifyPayload(sentEnvelope(fetchSpy));
     if (!verified.ok) throw new Error('expected a verified envelope');
-    expect(verified.payload).toMatchObject({ action: 'listSessions', machine_id: deps.machineId });
+    expect(verified.payload).toMatchObject({ action: 'listSessions' });
+    // The hop chain spans machines (su on the own box + ssh hops), so the read
+    // is scoped by player_key alone — the client sends no machine filter.
+    expect(verified.payload).not.toHaveProperty('machine_id');
 
     expect(sessions).toEqual([
       {

@@ -65,4 +65,42 @@ describe('rehydrateSessionStack', () => {
     // guest pops to alice's home; root pops to guest's home.
     expect(result.returnCwdStack).toEqual(['/home/alice', '/home/guest']);
   });
+
+  it('rebuilds an ssh hop above an su elevation, landing in the remote root home', () => {
+    const root = session({ id: 'su-root-1', username: 'root', userType: 'root', createdAt: asEpochMs(10) });
+    // The ssh hop lives on a DIFFERENT machine — the remote host's coordinate id.
+    const remote = session({
+      id: 'ssh-root-1',
+      machineId: asMachineId('darkstar-12345678'),
+      username: 'root',
+      userType: 'root',
+      kind: 'ssh',
+      createdAt: asEpochMs(20),
+    });
+
+    const result = rehydrateSessionStack(seed, [remote, root]);
+
+    expect(result.sessionStack).toEqual([seed, root, remote]);
+    // exit from the remote pops back to root's home ON THE OWN BOX (lossy, like su);
+    // exit from root pops back to alice's home.
+    expect(result.returnCwdStack).toEqual(['/home/alice', '/root']);
+    expect(result.activeCwd).toBe('/root');
+  });
+
+  it('lands a non-root ssh hop in /home/<user> on the remote machine', () => {
+    const remote = session({
+      id: 'ssh-admin-1',
+      machineId: asMachineId('darkstar-12345678'),
+      username: 'admin',
+      userType: 'user',
+      kind: 'ssh',
+      createdAt: asEpochMs(10),
+    });
+
+    const result = rehydrateSessionStack(seed, [remote]);
+
+    expect(result.sessionStack).toEqual([seed, remote]);
+    expect(result.returnCwdStack).toEqual(['/home/alice']);
+    expect(result.activeCwd).toBe('/home/admin');
+  });
 });

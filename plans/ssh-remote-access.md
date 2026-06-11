@@ -184,14 +184,17 @@ password, `ls`/`cat` the remote tree.
 
 #### PR 3d — failures + `exit` + refresh survival
 **Value**: every failure is realistic and pushes no session; leaving and reloading behave.
-**Scope**: bad password / unknown user (collapse to one faithful "Permission denied" message — server
-returns the same 401 either way), connection refused (no pidfile), host down (not in LAN) — each a
-faithful message. **Adds the `listSessions` player_key-scoping** (drop the `.eq(machine_id)` filter +
-own-workstation gate so the cross-machine chain rehydrates — resequenced here from 3b). `exit` pops +
-`endServerSession`. `sessionRehydrate` reconstructs remote hops; env.fs-on-boot resolves the remote
-tree; restore cwd (lossy, like su). source_ip in the auth.log line via the resolve rule.
-**Tests**: each failure message + no-push; rehydrate rebuilds an ssh hop and lands in the remote home.
-**Live**: failure messages; ssh in, refresh, still on the remote host.
+**Scope (re-checked at start, 2026-06-11)**: the failure messages AND `exit`+`endServerSession`
+turned out to ship in 3c/#218 (all tested). What remains: **the `listSessions` player_key-scoping**
+(drop the `.eq(machine_id)` filter + own-workstation gate so the cross-machine chain rehydrates —
+resequenced here from 3b; without it an ssh row is NEVER returned and a refresh silently drops the
+hop) + ssh-chain rehydrate coverage (`rehydrateSessionStack` is already kind-agnostic — pin it with
+behavior tests). The **ssh auth.log line moved to 3e** (decision below): it lands on the REMOTE
+host's auth.log, unobservable until 3e's remote patch read path; `source_ip` itself already ships
+on the session row (3c).
+**Tests**: listSessions returns the whole cross-machine chain scoped by player_key alone (no 403
+gate, no machine_id in payload/query); rehydrate rebuilds an ssh hop and lands in the remote home.
+**Live**: ssh in, refresh, still on the remote host; `exit` pops back; failure messages spot-check.
 
 #### PR 3e — writable remote FS (L1 + L2)
 **Value**: operate the remote host — write files at the tier your login grants.
@@ -201,6 +204,9 @@ tree; restore cwd (lossy, like su). source_ip in the auth.log line via the resol
 `canWrite(session.userType, perms)`). Client: patches target the active `session.machineId`; ambient
 log paths (`/var/log/auth.log` etc.) bypass L1/L2 (recon side-effects). Port the permission walker
 (`canWrite`) + active-session adapter.
+Also lands here (moved from 3d, decided 2026-06-11): the **ssh auth.log line** on the REMOTE host
+(`sshd: Accepted/Failed password for <user> from <source_ip>`) — it needs this PR's remote patch
+read path to be observable, so it ships with its consumer.
 **Tests**: write to remote as root (allowed), as user/guest per perms (allowed/denied), without a
 session (403 no_session); ambient-log bypass; L2 perm matrix.
 **Live**: `ssh root@host` then `echo pwned > /tmp/x` + `cat` it back; a user-tier login denied on a
