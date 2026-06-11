@@ -206,6 +206,41 @@ export type HomeNetworkApi = {
   readonly join: (essid: string) => Promise<HomeNetworkAssignment>;
 };
 
+/** What the `ssh` command hands to `env.ssh.authenticate` to validate a remote
+ *  login. The server regenerates the target's FS from these (the verified pubkey
+ *  is added server-side) and validates the password against its `/etc/passwd`. */
+export type RemoteAuthParams = {
+  /** The client-minted id for the session this login will create. */
+  readonly sessionId: string;
+  readonly essid: string;
+  readonly targetIp: string;
+  readonly username: string;
+  readonly password: string;
+  /** The session beneath this hop (the box you ssh FROM), or null at the base. */
+  readonly parentSessionId: string | null;
+  /** The IP the connection originates from (the player's wlan0 IP), or null. */
+  readonly sourceIp: string | null;
+};
+
+/** The outcome of a server-side ssh authentication. On success the userType is
+ *  SERVER-derived from the remote `/etc/passwd` (never a client claim). 401-class
+ *  `invalid_credentials` covers both bad password and unknown user (no
+ *  enumeration); `host_unreachable` is a target that is not a real host. */
+export type RemoteAuthResult =
+  | { readonly ok: true; readonly userType: UserType }
+  | {
+      readonly ok: false;
+      readonly error: 'invalid_credentials' | 'host_unreachable' | 'network_error';
+    };
+
+/** The remote-login seam — backed by the signed `authCreateSession` endpoint. The
+ *  UI wires this to the `authCreateServerSession` adapter; `core/` stays
+ *  adapter-free. `ssh` (and later `scp`) authenticate through it before pushing a
+ *  session. */
+export type SshApi = {
+  readonly authenticate: (params: RemoteAuthParams) => Promise<RemoteAuthResult>;
+};
+
 // ---- The boundary ----
 
 export type CommandEnv = {
@@ -232,6 +267,7 @@ export type CommandEnv = {
   readonly remote: RemoteApi;
   readonly log: LogApi;
   readonly homeNetwork: HomeNetworkApi;
+  readonly ssh: SshApi;
 
   /** Mutate the shell's cwd. UI layer owns the underlying signal; commands
    *  call this when they need to move (`cd`). FsView's `cwd()` reflects

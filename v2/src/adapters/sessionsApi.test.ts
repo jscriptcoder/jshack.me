@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import {
+  authCreateServerSession,
   createServerSession,
   endServerSession,
   listServerSessions,
@@ -121,6 +122,105 @@ describe('createServerSession', () => {
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
 
     expect(await createServerSession(deps, sessionFor(deps), null)).toEqual({
+      ok: false,
+      error: 'network_error',
+    });
+  });
+});
+
+describe('authCreateServerSession', () => {
+  const params = {
+    sessionId: 'ssh-root-1700000000000',
+    essid: 'BEAN-THERE-WIFI',
+    targetIp: '192.168.50.108',
+    username: 'root',
+    password: 'hunter2',
+    parentSessionId: 'su-root-1',
+    sourceIp: '192.168.50.23',
+  };
+
+  it('POSTs a signed authCreateSession envelope and returns the server-derived userType', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, userType: 'root' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    const result = await authCreateServerSession(deps, params);
+
+    expect(result).toEqual({ ok: true, userType: 'root' });
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected a verified envelope');
+    expect(verified.payload).toMatchObject({
+      action: 'authCreateSession',
+      session_id: 'ssh-root-1700000000000',
+      essid: 'BEAN-THERE-WIFI',
+      target_ip: '192.168.50.108',
+      username: 'root',
+      password: 'hunter2',
+      parent_session_id: 'su-root-1',
+      source_ip: '192.168.50.23',
+    });
+  });
+
+  it('passes through a non-root userType (user)', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, userType: 'user' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await authCreateServerSession(deps, params)).toEqual({ ok: true, userType: 'user' });
+  });
+
+  it('passes through the guest userType', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, userType: 'guest' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await authCreateServerSession(deps, params)).toEqual({ ok: true, userType: 'guest' });
+  });
+
+  it('maps a 401 to invalid_credentials (bad password or unknown user)', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(401, { error: 'invalid_credentials' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await authCreateServerSession(deps, params)).toEqual({
+      ok: false,
+      error: 'invalid_credentials',
+    });
+  });
+
+  it('maps a 404 to host_unreachable', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(404, { error: 'host_unreachable' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await authCreateServerSession(deps, params)).toEqual({
+      ok: false,
+      error: 'host_unreachable',
+    });
+  });
+
+  it('maps any other non-ok status to network_error', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(500, { error: 'insert_failed' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await authCreateServerSession(deps, params)).toEqual({
+      ok: false,
+      error: 'network_error',
+    });
+  });
+
+  it('maps a 200 with a missing/garbage userType to network_error (never trusts a malformed ok)', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, userType: 'superuser' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await authCreateServerSession(deps, params)).toEqual({
+      ok: false,
+      error: 'network_error',
+    });
+  });
+
+  it('maps a thrown fetch (offline) to network_error', async () => {
+    const fetchSpy = vi.fn(async () => {
+      throw new Error('offline');
+    });
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await authCreateServerSession(deps, params)).toEqual({
       ok: false,
       error: 'network_error',
     });

@@ -14,8 +14,14 @@
  */
 
 import { signRequest } from '../core/signedRequest/sign';
-import { asEpochMs, asMachineId, asPlayerKeyHex, type MachineId } from '../core/types';
-import type { Identity, PatchResult, Session } from '../core/commands/types';
+import { asEpochMs, asMachineId, asPlayerKeyHex, type MachineId, type UserType } from '../core/types';
+import type {
+  Identity,
+  PatchResult,
+  RemoteAuthParams,
+  RemoteAuthResult,
+  Session,
+} from '../core/commands/types';
 import type { SessionSummary } from '../core/sessions/listSessions';
 
 const DEFAULT_ENDPOINT = '/api/sessions';
@@ -68,6 +74,42 @@ export const createServerSession = async (
         parent_session_id: parentSessionId,
       }),
     );
+  } catch {
+    return { ok: false, error: 'network_error' };
+  }
+};
+
+const isUserType = (value: unknown): value is UserType =>
+  value === 'root' || value === 'user' || value === 'guest';
+
+/** Authenticate an ssh login server-side: the server regenerates the remote host's
+ *  filesystem, validates the password against its `/etc/passwd`, and on success
+ *  persists the `kind:'ssh'` session row and returns the server-derived userType.
+ *  401 → bad password OR unknown user (indistinguishable); 404 → the IP is not a
+ *  reachable host. A 200 whose body lacks a valid userType is treated as a
+ *  malformed response, never a successful login. */
+export const authCreateServerSession = async (
+  deps: SessionsClientDeps,
+  params: RemoteAuthParams,
+): Promise<RemoteAuthResult> => {
+  try {
+    const response = await post(deps, 'authCreateSession', {
+      session_id: params.sessionId,
+      essid: params.essid,
+      target_ip: params.targetIp,
+      username: params.username,
+      password: params.password,
+      parent_session_id: params.parentSessionId,
+      source_ip: params.sourceIp,
+    });
+    if (response.ok) {
+      const body: unknown = await response.json();
+      const userType = (body as { userType?: unknown } | null)?.userType;
+      return isUserType(userType) ? { ok: true, userType } : { ok: false, error: 'network_error' };
+    }
+    if (response.status === 401) return { ok: false, error: 'invalid_credentials' };
+    if (response.status === 404) return { ok: false, error: 'host_unreachable' };
+    return { ok: false, error: 'network_error' };
   } catch {
     return { ok: false, error: 'network_error' };
   }
