@@ -69,8 +69,10 @@ const HOST_USERNAMES: readonly string[] = [
 
 /** Weak passwords the seeded PRNG picks from for each NPC account — just data,
  *  mirroring the workstation guest-password pool (a later hydra/wordlist epic is
- *  how a player would actually obtain one). */
-const WEAK_PASSWORDS: readonly string[] = [
+ *  how a player would actually obtain one). Exported so credential-validating code
+ *  (and its tests) can recover a host's plaintext password by matching md5 hashes
+ *  against this known pool. */
+export const WEAK_PASSWORDS: readonly string[] = [
   'guest',
   'password',
   'letmein',
