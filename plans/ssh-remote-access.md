@@ -1,7 +1,7 @@
 # Plan: Remote access via SSH
 
-**Status**: Active — Slices 1–2 SHIPPED. Slice 3 (the headline) re-specified this session into a
-dependency-ordered PR sequence after a grill round; decisions locked below.
+**Status**: Active — Slices 1–2 SHIPPED. Slice 3 PRs 3a–3c SHIPPED (#221, #222, #223). NEXT: PR 3d
+(failures + `exit` + refresh survival), then 3e (writable remote).
 **Type**: New epic on top of the pidfile "running services" primitive. Absorbs generator-epic
 **Story 3** (enter a generated machine + browse its FS), and — per the locked decisions — the
 cross-machine **session-auth** and **writable-remote (L1+L2)** spine of the multiplayer model.
@@ -102,8 +102,8 @@ later for L1/L2 (the server cannot invert the coordinate-derived `machine_id` su
 - [x] Root `sshd` writes `/var/run/sshd.pid`; the open port is observable. (Slice 1)
 - [x] `nmap` reports `22/tcp open ssh` for a host with the pidfile; the generator plants it
       deterministically on a seeded subset. (Slices 1–2)
-- [ ] `ssh user@host` against a host running sshd validates the password **server-side** against
-      that machine's `/etc/passwd` and, on success, lands the player in the remote FS.
+- [x] `ssh user@host` against a host running sshd validates the password **server-side** against
+      that machine's `/etc/passwd` and, on success, lands the player in the remote FS. (PR 3c)
 - [ ] Auth/connection failures (bad password, unknown user, port closed, host down) are reported
       with realistic messages and push no session.
 - [ ] An `ssh` hop survives a browser refresh via the `sessions` rehydrate path (player_key-scoped,
@@ -128,7 +128,7 @@ Re-specified into five dependency-ordered PRs. PRs 3a–3b are foundation (gener
 tested in isolation); 3c is the UI-observable headline; 3d closes failures + refresh; 3e adds
 writable-remote.
 
-#### PR 3a — Remote host grows a full base FS + machine_id identity
+#### PR 3a — Remote host grows a full base FS + machine_id identity ✅ (PR #221, v0.44.0)
 **Value**: an NPC host is a real machine — `/etc/passwd` (root+user+guest, seeded weak passwords via
 `generatePasswd`), `/home/<user>`, `/root`, `/tmp` with faithful perms — and has a stable
 `machine_id`. Foundation for auth (3b) and browse (3c).
@@ -140,7 +140,7 @@ suffix. No command/server change.
 **Tests**: determinism; passwd shape/accounts/perms; home/root/tmp presence + perms; machine_id
 namespace distinct from workstation; reverse-resolver round-trips and returns null off-LAN.
 
-#### PR 3b — `authCreateSession` server action ✅ (PR #N, v0.45.0)
+#### PR 3b — `authCreateSession` server action ✅ (PR #222, v0.45.0)
 **Value**: the server can mint a *validated* ssh session on a foreign host.
 **Scope (as shipped)**: new `authCreateSession` action on `/api/sessions` + `core/sessions/authCreateSession.ts`:
 verify envelope → resolve the target on the caller's regenerated LAN (404 `host_unreachable` if the IP
@@ -157,7 +157,7 @@ rehydrate consumes it). The plain-`createSession` `use_authcreatesession` reject
 unneeded — its `kind: z.literal('su')` schema already rejects `'ssh'`, and our client never routes
 ssh through it.
 
-#### PR 3c — the `ssh` command + client wiring (the headline) ✅ (PR #N, v0.46.0) — READ-ONLY remote
+#### PR 3c — the `ssh` command + client wiring (the headline) ✅ (PR #223, v0.46.0) — READ-ONLY remote
 **Value**: `ssh user@host` connects, authenticates, and drops you into the remote FS to browse.
 **Shipped extras** (the live E2E surfaced them): the `ssh` command supports `-p <port>`; reachability
 (host on LAN? sshd on that port?) is checked LOCALLY from the generated FS before prompting; the seam
