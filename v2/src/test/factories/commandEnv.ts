@@ -25,6 +25,7 @@ import type {
   OutputSink,
   PatchApi,
   RemoteApi,
+  ScanApi,
   Session,
   SshApi,
 } from '../../core/commands/types';
@@ -117,6 +118,14 @@ export const mockSshApi = (overrides: Partial<SshApi> = {}): SshApi => ({
   ...overrides,
 });
 
+/** A scan-logging seam that no-ops by default (logging is best-effort and
+ *  fire-and-forget, so it must not throw the way a load-bearing seam does);
+ *  `nmap` tests override `record` with a spy to capture the recorded scan. */
+export const mockScanApi = (overrides: Partial<ScanApi> = {}): ScanApi => ({
+  record: async () => undefined,
+  ...overrides,
+});
+
 // ---- The factory ----
 
 export const mockCommandEnv = (overrides: Partial<CommandEnv> = {}): CommandEnv => ({
@@ -133,6 +142,7 @@ export const mockCommandEnv = (overrides: Partial<CommandEnv> = {}): CommandEnv 
   log: mockLogApi(),
   homeNetwork: mockHomeNetwork(),
   ssh: mockSshApi(),
+  scan: mockScanApi(),
   setCwd: () => undefined,
   setInterface: () => undefined,
   prompt: NOT_IMPLEMENTED('prompt'),

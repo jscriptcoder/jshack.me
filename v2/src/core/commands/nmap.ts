@@ -129,6 +129,18 @@ const execute: Command['execute'] = async (env, args) => {
   }
   const hosts = hostsInScanTarget(lan, parsed.target);
 
+  // Leave a trace: record the scan server-side (the server resolves the touched
+  // hosts and writes each one's /var/log/kern.log itself). Fire-and-forget so the
+  // real round-trip runs alongside the streamed display rather than delaying it,
+  // and so a logging failure — or an unwired seam — never breaks the scan.
+  try {
+    void env.scan
+      .record({ essid, target: rawTarget, sourceIp: wlan0.ipv4 })
+      .catch(() => undefined);
+  } catch {
+    // best-effort: logging must not surface to the scan.
+  }
+
   // The player's own host reads its LIVE filesystem (so a runtime `sshd` shows
   // up); every other host reads its deterministic generated FS.
   const selfIp = wlan0.ipv4;

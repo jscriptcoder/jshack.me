@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { createPatchApi, fetchOwnPatches, postAuthLog, type PatchClientDeps } from './patchApi';
+import {
+  createPatchApi,
+  fetchOwnPatches,
+  postAuthLog,
+  recordScan,
+  type PatchClientDeps,
+} from './patchApi';
 import { generateIdentity } from '../core/identity/identity';
 import { computeWorkstationId } from '../core/identity/workstation';
 import { verifySignedRequest } from '../core/signedRequest/verify';
@@ -234,6 +240,40 @@ describe('postAuthLog', () => {
 
     expect(forbidden).toEqual({ ok: false, error: 'no_session' });
     expect(offline).toEqual({ ok: false, error: 'network_error' });
+  });
+});
+
+describe('recordScan', () => {
+  it('signs an nmapScan request carrying the essid, target, and source ip', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, hostsLogged: 2 }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    await recordScan(deps, {
+      essid: 'BEAN-THERE-WIFI',
+      target: '192.168.1.1-254',
+      sourceIp: '192.168.1.50',
+    });
+
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected verified envelope');
+    expect(verified.payload).toMatchObject({
+      action: 'nmapScan',
+      essid: 'BEAN-THERE-WIFI',
+      target: '192.168.1.1-254',
+      source_ip: '192.168.1.50',
+    });
+  });
+
+  it('swallows a thrown fetch — best-effort logging never throws', async () => {
+    const deps = makeDeps(
+      vi.fn(async () => {
+        throw new Error('offline');
+      }) as unknown as typeof fetch,
+    );
+
+    await expect(
+      recordScan(deps, { essid: 'E', target: '192.168.1.1', sourceIp: null }),
+    ).resolves.toBeUndefined();
   });
 });
 

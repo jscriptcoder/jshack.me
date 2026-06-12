@@ -26,6 +26,7 @@ import type {
   PatchApi,
   RemoteAuthParams,
   RemoteAuthResult,
+  ScanRecordParams,
   Session,
   TerminalLine,
 } from '../core/commands/types';
@@ -53,6 +54,7 @@ import {
   createPatchApi,
   fetchOwnPatches,
   postAuthLog,
+  recordScan,
   type PatchClientDeps,
 } from '../adapters/patchApi';
 import { createSyncChannel, type SyncChannel } from '../adapters/crossTabSync';
@@ -194,6 +196,11 @@ const sshAuthenticate = (params: RemoteAuthParams): Promise<RemoteAuthResult> =>
   sessionsClientDeps === undefined
     ? Promise.resolve({ ok: false, error: 'network_error' })
     : authCreateServerSession(sessionsClientDeps, params);
+
+/** Record an nmap scan server-side (backs `env.scan.record`). Best-effort and a
+ *  no-op until `startGame` wires the patch client; the scan stands regardless. */
+const recordScanFn = (params: ScanRecordParams): Promise<void> =>
+  patchClientDeps === undefined ? Promise.resolve() : recordScan(patchClientDeps, params);
 
 /** Pop the active session (backs `env.popSession`), returning to the one
  *  beneath it and restoring the cwd captured at push time. A no-op at the base
@@ -545,6 +552,7 @@ export const runInput = async (): Promise<void> => {
     prompt: requestPrompt,
     onPushSession: pushSession,
     onSshAuthenticate: sshAuthenticate,
+    onScanRecord: recordScanFn,
     // The sessions below the active one — what `exit` consults to decide
     // whether there's somewhere to drop back to (empty at the base shell).
     hopChain: sessionStack().slice(0, -1),

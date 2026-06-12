@@ -241,6 +241,25 @@ export type SshApi = {
   readonly authenticate: (params: RemoteAuthParams) => Promise<RemoteAuthResult>;
 };
 
+/** What `nmap` hands to the scan action so the server can record the scan on each
+ *  host it touched. The server regenerates the LAN + hosts from the verified
+ *  pubkey + essid and writes `/var/log/kern.log` itself — the client never names a
+ *  path or content. */
+export type ScanRecordParams = {
+  readonly essid: string;
+  /** The raw nmap target — a single IP (`x.y.z.w`) or a range (`x.y.z.A-B`). */
+  readonly target: string;
+  /** The IP the scan originates from (the player's wlan0 LAN IP), or null. */
+  readonly sourceIp: string | null;
+};
+
+/** The scan-logging seam — backed by the signed `nmapScan` endpoint. The UI wires
+ *  it to the `recordScan` adapter; `core/` stays adapter-free. Fire-and-forget by
+ *  contract: logging a scan must never block or break the scan itself. */
+export type ScanApi = {
+  readonly record: (params: ScanRecordParams) => Promise<void>;
+};
+
 // ---- The boundary ----
 
 export type CommandEnv = {
@@ -268,6 +287,7 @@ export type CommandEnv = {
   readonly log: LogApi;
   readonly homeNetwork: HomeNetworkApi;
   readonly ssh: SshApi;
+  readonly scan: ScanApi;
 
   /** Mutate the shell's cwd. UI layer owns the underlying signal; commands
    *  call this when they need to move (`cd`). FsView's `cwd()` reflects

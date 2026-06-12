@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { nmap } from './nmap';
 import { commandRegistry } from './registry';
 import type { CommandResult } from './types';
@@ -472,5 +472,75 @@ describe('nmap — self-host open ports (slice 1)', () => {
       expect(text).toContain('Host is up.');
       expect(text).not.toContain('PORT');
     }
+  });
+});
+
+/**
+ * A scan leaves a trace: nmap fires the server-internal scan-logging action
+ * (`env.scan.record`) for any real online scan, handing it the essid, the raw
+ * target, and the LAN source IP. The server resolves the touched hosts and writes
+ * each one's /var/log/kern.log itself. No scan happened ⇒ no record (offline,
+ * foreign subnet, or unparseable target).
+ */
+describe('nmap — scan logging (3a)', () => {
+  const ESSID = 'BEAN-THERE-WIFI';
+  const subnet = generateHomeLan(PUBKEY, ESSID).subnet;
+
+  const envWithScan = (record: () => Promise<void>) =>
+    mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+      scan: { record },
+    });
+
+  it('records a range scan with the essid, raw target, and LAN source IP', async () => {
+    const record = vi.fn(async () => undefined);
+    const target = `${subnet}.1-254`;
+
+    await drain(await nmap.execute(envWithScan(record), [target], new Map()));
+
+    expect(record).toHaveBeenCalledWith({
+      essid: ESSID,
+      target,
+      sourceIp: assignHomeNetwork(PUBKEY, ESSID).localIp,
+    });
+  });
+
+  it('records a single-IP scan too (the raw target is passed through)', async () => {
+    const record = vi.fn(async () => undefined);
+    const target = `${subnet}.5`;
+
+    await drain(await nmap.execute(envWithScan(record), [target], new Map()));
+
+    expect(record).toHaveBeenCalledWith({
+      essid: ESSID,
+      target,
+      sourceIp: assignHomeNetwork(PUBKEY, ESSID).localIp,
+    });
+  });
+
+  it('does not record when offline (no scan happened)', async () => {
+    const record = vi.fn(async () => undefined);
+    const conn = onlineConnectivity(ESSID);
+    const env = mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkView({
+        isOnline: () => false,
+        interfaces: () => [...conn.interfaces.values()],
+      }),
+      scan: { record },
+    });
+
+    await nmap.execute(env, [`${subnet}.1-254`], new Map());
+
+    expect(record).not.toHaveBeenCalled();
+  });
+
+  it('does not record a foreign-subnet target (out of range, no scan)', async () => {
+    const record = vi.fn(async () => undefined);
+
+    await nmap.execute(envWithScan(record), ['10.0.0.1-254'], new Map());
+
+    expect(record).not.toHaveBeenCalled();
   });
 });

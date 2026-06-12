@@ -21,7 +21,13 @@ import {
 } from '../core/filesystem/defaultPermissions';
 import type { Patch } from '../core/filesystem/applyPatches';
 import type { FilePermissions } from '../core/filesystem/types';
-import type { AuthLogEvent, Identity, PatchApi, PatchResult } from '../core/commands/types';
+import type {
+  AuthLogEvent,
+  Identity,
+  PatchApi,
+  PatchResult,
+  ScanRecordParams,
+} from '../core/commands/types';
 import type { AbsPath, MachineId, UserType } from '../core/types';
 
 const DEFAULT_ENDPOINT = '/api/patches';
@@ -147,6 +153,22 @@ export const postAuthLog = async (
     );
   } catch {
     return { ok: false, error: 'network_error' };
+  }
+};
+
+/** Fire the server-internal scan log: the server resolves the scanned hosts from
+ *  the (verified pubkey, essid, target) and writes each one's `/var/log/kern.log`
+ *  itself — the client only names what it scanned. Best-effort + fire-and-forget:
+ *  a failure resolves silently so logging never breaks (or delays) the scan. */
+export const recordScan = async (deps: PatchClientDeps, params: ScanRecordParams): Promise<void> => {
+  try {
+    await post(deps, 'nmapScan', {
+      essid: params.essid,
+      target: params.target,
+      source_ip: params.sourceIp,
+    });
+  } catch {
+    // best-effort: a logging failure must not surface to the scan.
   }
 };
 
