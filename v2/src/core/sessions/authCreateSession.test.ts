@@ -11,7 +11,8 @@ import { buildRemoteHostFs, WEAK_PASSWORDS } from '../generation/remoteHostFs';
 import { hostMachineId } from '../generation/remoteHostId';
 import { md5 } from '../generation/md5';
 import { asGameTime } from '../types';
-import { AUTH_LOG_PATH, derivePid, formatSshdAuthLine } from '../logging/authLog';
+import { AUTH_LOG_PATH, formatSshdAuthLine } from '../logging/authLog';
+import { derivePid } from '../logging/syslog';
 import type {
   MachineLogReadQuery,
   MachineLogReadResult,

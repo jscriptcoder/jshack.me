@@ -1,21 +1,21 @@
 /**
- * Auth-log line formatting — the syslog-style `/var/log/auth.log` entry that
- * `su` writes on a user switch. Ported from legacy `src/logging/formatters.ts`.
+ * Auth-log line formatting — the syslog-style `/var/log/auth.log` entries that
+ * `su` (user switch) and `sshd` (login attempt) write. Ported from legacy
+ * `src/logging/formatters.ts`.
  *
- * Format: `MMM DD HH:MM:SS <hostname> su[<pid>]: <message>` (UTC), with the
- * message `Successful su for <target> by <from>` on a switch and `FAILED su for
- * <target> by <from>` on a wrong password — the exact strings the defender
- * reads back via `cat /var/log/auth.log`, matched by the legacy E2E.
+ * Format: `MMM DD HH:MM:SS <hostname> <service>[<pid>]: <message>` (UTC) — e.g.
+ * `Successful su for <target> by <from>` / `FAILED su for …` and `Accepted
+ * password for <user> from <ip>` / `Failed password …` — the exact strings the
+ * defender reads back via `cat /var/log/auth.log`, matched by the legacy E2E.
  *
- * Pure: the timestamp is supplied by the caller (the server's UTC clock, via
- * `handleAppendAuthLog`), never read from the clock here, so the rendered line
- * is deterministic and testable.
- * Kept framework-agnostic (core/) — the syslog format is reused by future
- * loggers (ssh/ftp/scp) with a different `service` tag.
+ * The syslog line shape itself lives in `./syslog` (shared with kern.log and
+ * future service logs); this module owns only the auth.log identity + messages.
  */
 
-import { asAbsPath, type AbsPath, type GameTime } from '../types';
+import { asAbsPath, type AbsPath } from '../types';
 import type { FilePermissions } from '../filesystem/types';
+import { formatSyslogLine } from './syslog';
+import type { GameTime } from '../types';
 
 /** The canonical `/var/log/auth.log` storage identity — single source of truth
  *  shared by the boot seed (`generation/workstationFs`) and the server-side
@@ -29,42 +29,6 @@ export const AUTH_LOG_PERMISSIONS: FilePermissions = {
   read: ['root', 'user', 'guest'],
   write: ['root'],
   execute: ['root'],
-};
-
-const MONTHS = [
-  'Jan',
-  'Feb',
-  'Mar',
-  'Apr',
-  'May',
-  'Jun',
-  'Jul',
-  'Aug',
-  'Sep',
-  'Oct',
-  'Nov',
-  'Dec',
-] as const;
-
-type SyslogLineOptions = {
-  /** Epoch-ms of the universe clock — the server's UTC time at append. */
-  readonly time: GameTime;
-  readonly hostname: string;
-  readonly service: string;
-  readonly pid: number;
-  readonly message: string;
-};
-
-/** Format a syslog header + message: `MMM DD HH:MM:SS hostname service[pid]: message`.
- *  Day is space-padded to width 2; time fields zero-padded; all UTC. */
-const formatSyslogLine = ({ time, hostname, service, pid, message }: SyslogLineOptions): string => {
-  const date = new Date(time);
-  const month = MONTHS[date.getUTCMonth()];
-  const day = date.getUTCDate().toString().padStart(2, ' ');
-  const hours = date.getUTCHours().toString().padStart(2, '0');
-  const minutes = date.getUTCMinutes().toString().padStart(2, '0');
-  const seconds = date.getUTCSeconds().toString().padStart(2, '0');
-  return `${month} ${day} ${hours}:${minutes}:${seconds} ${hostname} ${service}[${pid}]: ${message}`;
 };
 
 export type SuAuthEvent = {
@@ -115,8 +79,3 @@ export const formatSshdAuthLine = (event: SshdAuthEvent): string =>
         ? `Accepted password for ${event.user} from ${event.fromIp}`
         : `Failed password for ${event.user} from ${event.fromIp}`,
   });
-
-/** Derive a plausible, deterministic process id (1000–9999) from a numeric seed
- *  (typically `env.now()`). There is no real process model — the pid is cosmetic
- *  syslog realism, so a stable hash of the seed is enough. */
-export const derivePid = (seed: number): number => 1000 + (Math.abs(Math.trunc(seed)) % 9000);
