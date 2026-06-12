@@ -217,9 +217,10 @@ yet (`assignHomeNetwork` issues only a `localIp`). Resolution:
 Every slice follows RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR. No production code without a failing
 test. Load `tdd`, `testing`, `mutation-testing`, `refactoring` before code. Run `npm run lint` in
 `v2/` (no Prettier — `project_v2_no_prettier_format_gate`). Bump version (`package.json` +
-`package-lock.json`) after each slice. **Slices A (SHIPPED) + 1 (pure formatter/source-IP) are NOT
-cross-player-blocked and can land now; Slice 2 is likely DELETED; Slice 3 (the server-internal write +
-cross-player read) is blocked on Prerequisite #1's shared-machine record.**
+`package-lock.json`) after each slice. **Slices A (SHIPPED #210) + 1 (SHIPPED v0.51.0 — pure
+formatter/source-IP) are done; Slice 2 is DELETED (server-internal write obsoletes the allowlist);
+Slice 3 (the server-internal write + cross-player read) is blocked on Prerequisite #1's shared-machine
+record.**
 
 ### Slice 0 (gate): confirm the prerequisite is met
 
@@ -244,18 +245,23 @@ contract), distinct across ESSIDs; update the existing golden test. Mutator watc
 `pick`, each octet bound, the seed string (`home-public-` vs `home-`).
 **GREEN**: the generator + assignment extension. **MUTATE / KILL / REFACTOR**: per skills.
 
-### Slice 1: pure log formatting + source-IP resolution (no I/O) — NOT cross-player-blocked
+### Slice 1: pure log formatting + source-IP resolution (no I/O) — ✅ SHIPPED (v0.51.0)
 
 **Value**: the formatter + source-IP rules exist and are proven in isolation — the deterministic core,
 portable from legacy with zero infra. **Shippable ahead of the cross-player block** (like Slice A).
-**Path**: add `formatNmapScanAggregate` **beside the existing** `formatSyslogLine`/`formatSuAuthLine`/
-`formatSshdAuthLine` in `v2/src/core/logging/authLog.ts` (reuse `formatSyslogLine`; only the `kernel:
-[iptables] Port scan ...` message + `kernel` service tag differ). Port `resolveLogSourceIP` into
-`core/logging/`. No env, no patches.
-**RED**: golden line for a fixed date/host/source/ports; source-IP table (same-`/24` → LAN; diff →
-public; remote session → session IP; no-home → LAN fallback). Mutator watch: subnet-prefix slice
-length, the `sessionMachine !== own` branch, the `??` fallback.
-**GREEN**: the two pure functions. **MUTATE / KILL / REFACTOR**: per skills.
+**SHIPPED**: the logging module was restructured by **destination concern** rather than dumping the
+nmap formatter into `authLog.ts` (kern.log ≠ auth.log; "syslog" is the *format*, not a file):
+- `core/logging/syslog.ts` — shared syslog FORMAT primitives (`formatSyslogTimestamp`,
+  `formatSyslogLine`, `derivePid`); auth.log + kern.log + future service logs all compose these.
+- `core/logging/authLog.ts` — auth.log concern only (su/sshd formatters + `AUTH_LOG_*`).
+- `core/logging/kernLog.ts` — `formatNmapScanAggregate` (`kernel: [iptables] Port scan …`, no `[pid]`).
+- `core/logging/sourceIp.ts` — `resolveLogSourceIP` (options-object signature per CLAUDE.md;
+  same-`/24` leaks LAN IP, off-network NATs to public IP, no-home → LAN fallback).
+Mutation: all four modules **100%** (killed a real `join('.')→join('')` subnet-matching survivor with
+an octet-boundary test). No E2E — pure functions, no live caller until Slice 3 wires nmap.
+_Real-Linux note_: an nmap scan only logs if the target firewall has an iptables `LOG` rule; that line
+is a kernel-facility message → lands in `/var/log/kern.log` (and `/var/log/syslog` on Debian default).
+kern.log is the kernel-specific home — matches legacy + owner confirmation.
 
 ### Slice 2: ~~server-side `AMBIENT_LOG_FILES` allowlist bypass~~ — LIKELY DROP (confirm)
 

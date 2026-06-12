@@ -26,9 +26,9 @@ import {
   AUTH_LOG_OWNER,
   AUTH_LOG_PATH,
   AUTH_LOG_PERMISSIONS,
-  derivePid,
   formatSuAuthLine,
 } from '../logging/authLog';
+import { derivePid } from '../logging/syslog';
 import type { NonceStore } from '../signedRequest/nonceStore';
 import type { PatchRow } from './upsertPatch';
 
