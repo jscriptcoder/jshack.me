@@ -72,7 +72,7 @@ const execute: Command['execute'] = async (env, args, flags) => {
   if (rawTarget === undefined) return errorResult(USAGE);
   const target = parseTarget(rawTarget);
   if (target === null) return errorResult(USAGE);
-  const port = parsePort(flags.get('p'));
+  const port = parsePort(flags.get('-p'));
 
   const wlan0 = env.network.interfaces().find((iface) => iface.name === 'wlan0');
   if (
@@ -149,7 +149,7 @@ export const ssh: Command = {
   category: 'network',
   tier: 'guest',
   availability: { kind: 'localhost-only' },
-  flags: { p: 'string' },
+  flags: { '-p': 'string' },
   manual: {
     synopsis: 'ssh [-p port] user@host',
     description:

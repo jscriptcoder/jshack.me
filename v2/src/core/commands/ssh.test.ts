@@ -12,6 +12,7 @@ import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
 import { hostMachineId } from '../generation/remoteHostId';
 import { parsePidfilePort } from '../services/pidfile';
+import { bindFlags } from '../shell/bindFlags';
 import { assignHomeNetwork } from '../network/homeNetwork';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
 import { asEpochMs, asMachineId, asPlayerKeyHex } from '../types';
@@ -165,10 +166,35 @@ describe('ssh', () => {
     expect(prompt).not.toHaveBeenCalled();
   });
 
+  // These two drive `-p` through the SHELL's real flag parser (`bindFlags` with
+  // the command's own spec), the way the terminal does — the hand-built flag
+  // maps below bypass it, so they can't catch a spec-key / read-key drift.
+  it('parses -p through the shell flag parser (the spec key matches the dash form)', async () => {
+    const { sshHost } = pickHosts();
+    const bound = bindFlags([`root@${sshHost.ip}`, '-p', '22'], ssh.flags ?? {});
+    expect(bound.ok).toBe(true);
+    if (!bound.ok) throw new Error(bound.error);
+    const result = sync(await ssh.execute(sshEnv(), bound.positional, bound.flags));
+    // Port 22 matches the :22 host → it connects (the read key lines up too).
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('honours a shell-parsed -p 2222 against a :22 host (refused — not silently port 22)', async () => {
+    const { sshHost } = pickHosts();
+    const bound = bindFlags([`root@${sshHost.ip}`, '-p', '2222'], ssh.flags ?? {});
+    expect(bound.ok).toBe(true);
+    if (!bound.ok) throw new Error(bound.error);
+    const result = sync(await ssh.execute(sshEnv(), bound.positional, bound.flags));
+    // If execute read the wrong flag key it would default to :22 and CONNECT;
+    // the refusal proves the parsed :2222 actually reached the port check.
+    expect(result.exitCode).toBe(255);
+    expect(result.lines[0]?.content).toContain('Connection refused');
+  });
+
   it('honours -p: a host whose sshd is on :22 refuses a connection to :2222', async () => {
     const { sshHost } = pickHosts();
     const result = sync(
-      await ssh.execute(sshEnv(), [`root@${sshHost.ip}`], new Map([['p', '2222']])),
+      await ssh.execute(sshEnv(), [`root@${sshHost.ip}`], new Map([['-p', '2222']])),
     );
     expect(result.exitCode).toBe(255);
     expect(result.lines[0]?.content).toContain('Connection refused');
@@ -177,7 +203,7 @@ describe('ssh', () => {
   it('falls back to port 22 for a non-numeric -p (connects to a :22 host)', async () => {
     const { sshHost } = pickHosts();
     const result = sync(
-      await ssh.execute(sshEnv(), [`root@${sshHost.ip}`], new Map([['p', 'abc']])),
+      await ssh.execute(sshEnv(), [`root@${sshHost.ip}`], new Map([['-p', 'abc']])),
     );
     expect(result.exitCode).toBe(0);
   });
@@ -185,7 +211,7 @@ describe('ssh', () => {
   it('falls back to port 22 for a non-positive -p (connects to a :22 host)', async () => {
     const { sshHost } = pickHosts();
     const result = sync(
-      await ssh.execute(sshEnv(), [`root@${sshHost.ip}`], new Map([['p', '0']])),
+      await ssh.execute(sshEnv(), [`root@${sshHost.ip}`], new Map([['-p', '0']])),
     );
     expect(result.exitCode).toBe(0);
   });
@@ -194,7 +220,7 @@ describe('ssh', () => {
     const { sshHost } = pickHosts();
     // A bare `-p` surfaces as `true` in the flag map; it must not become port 1.
     const result = sync(
-      await ssh.execute(sshEnv(), [`root@${sshHost.ip}`], new Map([['p', true]])),
+      await ssh.execute(sshEnv(), [`root@${sshHost.ip}`], new Map([['-p', true]])),
     );
     expect(result.exitCode).toBe(0);
   });
