@@ -18,8 +18,9 @@
 
 import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
 import type { Directory } from '../filesystem/types';
-import { generateHomeLan, type HomeLan } from '../generation/generateHomeLan';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
+import { parseScanTarget, hostsInScanTarget } from '../network/scanTarget';
 import { readOpenPorts, type OpenPort } from '../services/pidfile';
 
 const error = (message: string): CommandResult => ({
@@ -40,53 +41,6 @@ const USAGE = 'nmap: usage: nmap <target> (e.g. 192.168.1.5 or 192.168.1.1-254)'
 const outOfRange = (target: string, subnet: string): string =>
   `nmap: ${target}: out of range — you can only scan your own network (${subnet}.0/24)`;
 
-/** Highest scannable host octet (.255 is the broadcast address). */
-const MAX_OCTET = 254;
-
-type ScanTarget =
-  | { readonly kind: 'single'; readonly octet: number }
-  | { readonly kind: 'range'; readonly start: number; readonly end: number };
-
-type ParseResult =
-  | { readonly ok: true; readonly target: ScanTarget }
-  | { readonly ok: false; readonly reason: 'usage' | 'foreign' };
-
-const RANGE_PATTERN = /^(\d{1,3}\.\d{1,3}\.\d{1,3})\.(\d{1,3})-(\d{1,3})$/;
-const SINGLE_PATTERN = /^(\d{1,3}\.\d{1,3}\.\d{1,3})\.(\d{1,3})$/;
-
-const parseTarget = (target: string, subnet: string): ParseResult => {
-  const rangeMatch = target.match(RANGE_PATTERN);
-  if (rangeMatch) {
-    const [, base, startStr, endStr] = rangeMatch;
-    const start = Number(startStr);
-    const end = Number(endStr);
-    // A start above MAX_OCTET needs no separate check: it always implies either
-    // end > MAX_OCTET (when end >= start) or an inverted range (start > end).
-    if (end > MAX_OCTET || start > end) {
-      return { ok: false, reason: 'usage' };
-    }
-    if (base !== subnet) {
-      return { ok: false, reason: 'foreign' };
-    }
-    return { ok: true, target: { kind: 'range', start, end } };
-  }
-
-  const singleMatch = target.match(SINGLE_PATTERN);
-  if (singleMatch) {
-    const [, base, octetStr] = singleMatch;
-    const octet = Number(octetStr);
-    if (octet > MAX_OCTET) {
-      return { ok: false, reason: 'usage' };
-    }
-    if (base !== subnet) {
-      return { ok: false, reason: 'foreign' };
-    }
-    return { ok: true, target: { kind: 'single', octet } };
-  }
-
-  return { ok: false, reason: 'usage' };
-};
-
 const padRight = (value: string, length: number): string =>
   value.length >= length ? value : value + ' '.repeat(length - value.length);
 
@@ -95,10 +49,8 @@ const HOSTNAME_WIDTH = 18;
 
 const HEADER = [padRight('IP', IP_WIDTH), padRight('HOSTNAME', HOSTNAME_WIDTH), 'KIND'].join('');
 
-const formatRow = (host: HomeLan['hosts'][number]): string =>
+const formatRow = (host: LanHost): string =>
   [padRight(host.ip, IP_WIDTH), padRight(host.hostname, HOSTNAME_WIDTH), host.kind].join('');
-
-const lastOctet = (host: HomeLan['hosts'][number]): number => Number(host.ip.split('.')[3]);
 
 /** Per-row pause so the host list populates live rather than all at once. */
 const SCAN_DELAY_MS = 200;
@@ -112,15 +64,12 @@ const formatPortLine = (entry: OpenPort): string =>
 
 async function* scanRange(
   env: CommandEnv,
-  lan: HomeLan,
   rawTarget: string,
-  start: number,
-  end: number,
+  hosts: readonly LanHost[],
 ): AsyncIterable<TerminalLine> {
   yield text(`Starting Nmap scan — ${rawTarget}`);
   yield text('');
   yield text(HEADER);
-  const hosts = lan.hosts.filter((host) => lastOctet(host) >= start && lastOctet(host) <= end);
   for (const host of hosts) {
     await env.sleep(SCAN_DELAY_MS);
     yield text(formatRow(host));
@@ -131,15 +80,13 @@ async function* scanRange(
 
 async function* scanSingle(
   env: CommandEnv,
-  lan: HomeLan,
   rawTarget: string,
-  octet: number,
-  resolveHostFs: (host: HomeLan['hosts'][number]) => Directory,
+  host: LanHost | undefined,
+  resolveHostFs: (host: LanHost) => Directory,
 ): AsyncIterable<TerminalLine> {
   yield text(`Starting Nmap scan — ${rawTarget}`);
   yield text('');
   await env.sleep(SCAN_DELAY_MS);
-  const host = lan.hosts.find((candidate) => lastOctet(candidate) === octet);
   if (host === undefined) {
     yield text('Host seems down.');
     yield text('');
@@ -176,23 +123,24 @@ const execute: Command['execute'] = async (env, args) => {
 
   const essid = wlan0.association.essid;
   const lan = generateHomeLan(env.identity.publicKeyHex, essid);
-  const parsed = parseTarget(rawTarget, lan.subnet);
+  const parsed = parseScanTarget(rawTarget, lan.subnet);
   if (!parsed.ok) {
     return error(parsed.reason === 'usage' ? USAGE : outOfRange(rawTarget, lan.subnet));
   }
+  const hosts = hostsInScanTarget(lan, parsed.target);
 
   // The player's own host reads its LIVE filesystem (so a runtime `sshd` shows
   // up); every other host reads its deterministic generated FS.
   const selfIp = wlan0.ipv4;
-  const resolveHostFs = (host: HomeLan['hosts'][number]): Directory =>
+  const resolveHostFs = (host: LanHost): Directory =>
     host.ip === selfIp
       ? env.fs.root()
       : buildRemoteHostFs(env.identity.publicKeyHex, essid, host);
 
   const lines =
     parsed.target.kind === 'range'
-      ? scanRange(env, lan, rawTarget, parsed.target.start, parsed.target.end)
-      : scanSingle(env, lan, rawTarget, parsed.target.octet, resolveHostFs);
+      ? scanRange(env, rawTarget, hosts)
+      : scanSingle(env, rawTarget, hosts[0], resolveHostFs);
   return { kind: 'async', lines, exitCode: async () => 0 };
 };
 
