@@ -41,6 +41,7 @@ import {
 } from './baseFs';
 import { md5 } from './md5';
 import { AUTH_LOG_PERMISSIONS } from '../logging/authLog';
+import { KERN_LOG_PERMISSIONS } from '../logging/kernLog';
 
 // --- Player workstation composer ---
 
@@ -113,12 +114,18 @@ export const buildWorkstationBaseFs = (seedPubkeyHex: string, config: GameConfig
         TRAVERSABLE_DIR,
       ),
       // `/var/log/auth.log` exists empty from boot so `su` appends to a real
-      // file (and `cat` works before the first switch). `/var/run` exists empty
-      // so `sshd` can drop its pidfile there. Both land here as commands consume
-      // them — this slice adds /var/run for sshd.
+      // file (and `cat` works before the first switch); `/var/log/kern.log` the
+      // same for an inbound scan's iptables line. `/var/run` exists empty so
+      // `sshd` can drop its pidfile there.
       var: dir(
         {
-          log: dir({ 'auth.log': file('', AUTH_LOG_PERMISSIONS) }, TRAVERSABLE_DIR),
+          log: dir(
+            {
+              'auth.log': file('', AUTH_LOG_PERMISSIONS),
+              'kern.log': file('', KERN_LOG_PERMISSIONS),
+            },
+            TRAVERSABLE_DIR,
+          ),
           run: dir({}, TRAVERSABLE_DIR),
         },
         TRAVERSABLE_DIR,

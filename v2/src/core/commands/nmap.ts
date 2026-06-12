@@ -20,7 +20,7 @@ import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
 import type { Directory } from '../filesystem/types';
 import { generateHomeLan, type HomeLan } from '../generation/generateHomeLan';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
-import { parsePidfilePort, serviceByPidfileName } from '../services/pidfile';
+import { readOpenPorts, type OpenPort } from '../services/pidfile';
 
 const error = (message: string): CommandResult => ({
   kind: 'sync',
@@ -103,31 +103,11 @@ const lastOctet = (host: HomeLan['hosts'][number]): number => Number(host.ip.spl
 /** Per-row pause so the host list populates live rather than all at once. */
 const SCAN_DELAY_MS = 200;
 
-/** Open ports a host's filesystem advertises, read from its `/var/run/*.pid`
- *  files (the source of truth for running services). The tree is the live
- *  `env.fs` for the player's own host, or a deterministic generated FS for a
- *  remote host — `readVarRunServices` doesn't care which. Unknown or non-file
- *  `/var/run` entries are skipped. (Ordering is trivial with one service today;
- *  a deterministic sort lands when the catalog grows past one.) */
-const readVarRunServices = (
-  root: Directory,
-): readonly { readonly port: number; readonly service: string }[] => {
-  const varDir = root.entries.get('var');
-  if (varDir === undefined || varDir.kind !== 'directory') return [];
-  const runDir = varDir.entries.get('run');
-  if (runDir === undefined || runDir.kind !== 'directory') return [];
-  return [...runDir.entries].flatMap(([name, node]) => {
-    const spec = serviceByPidfileName(name);
-    if (spec === undefined || node.kind !== 'file') return [];
-    return [{ port: parsePidfilePort(node.content) ?? spec.defaultPort, service: spec.service }];
-  });
-};
-
 const PORT_COL = 9;
 const STATE_COL = 6;
 const PORT_HEADER = [padRight('PORT', PORT_COL), padRight('STATE', STATE_COL), 'SERVICE'].join('');
 
-const formatPortLine = (entry: { readonly port: number; readonly service: string }): string =>
+const formatPortLine = (entry: OpenPort): string =>
   [padRight(`${entry.port}/tcp`, PORT_COL), padRight('open', STATE_COL), entry.service].join('');
 
 async function* scanRange(
@@ -170,7 +150,7 @@ async function* scanSingle(
   yield text('Host is up.');
   // Ports come from the host's filesystem: the live env.fs for the player's own
   // host, the deterministic generated FS for any other host.
-  const ports = readVarRunServices(resolveHostFs(host));
+  const ports = readOpenPorts(resolveHostFs(host));
   if (ports.length > 0) {
     yield text('');
     yield text(PORT_HEADER);
