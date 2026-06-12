@@ -302,34 +302,54 @@ server-internal. This builds the **entire server-action + write seam**; 3b later
 **Why unblocked**: writing to the scanner's own per-viewer copy needs no shared-machine record — the
 SSH epic already proved this exact pattern against generated hosts (3e writable remote FS + 3g auth.log).
 
-**Path** (3g-shaped, not legacy `LogApi`):
+**Per-host logging (confirmed with owner 2026-06-12):** a real scan touches **every host it reaches**,
+and each host's firewall records the probe independently — so the write is **one aggregate line PER
+scanned host**, to that host's own `/var/log/kern.log`, NOT one global line for the sweep. Single scan →
+1 host → 1 line; range `1-254` → one line on each host the scan resolves as up. ("Aggregate" = per host,
+all of that host's ports collapsed into one line — never one line per probed port.)
 
-- **nmap gains a server action.** Today nmap is pure client-side `generateHomeLan` (no round-trip), so
-  there is no handler to do a server-internal write. Add a scan action (e.g. on `/api/...`) that
-  verifies the signed envelope, resolves the target host on the caller's own LAN, returns its ports,
-  AND — server-internal — calls
-  `appendMachineLog({readLog, upsertPatch}, {playerKey, machineId, path: /var/log/kern.log, owner:'root',
-permissions: kern.log perms}, formatNmapScanAggregate(...))` **once per sweep**, best-effort. The api
-  glue mirrors `api/sessions.ts`' authCreateSession `readAuthLog`/`upsertPatch` wiring.
-  - **Real-latency note** (`feedback_real_latency_over_fake_delays`): the scan now has a real
-    round-trip; reconcile with the existing client-side abort-aware `env.sleep` row pacing — don't stack
-    fake delay on top of the real request.
-- **kern.log storage identity.** Add `KERN_LOG_PATH`/`KERN_LOG_OWNER`/`KERN_LOG_PERMISSIONS` beside the
-  `AUTH_LOG_*` set (single source of truth shared by the host-FS seed + the appender), so the seeded
-  file and every appended patch agree. World-readable, root-write (iptables LOG is a kernel write).
-- **Source IP + NAT destination.** Resolve the source IP via `resolveLogSourceIP` (Slice 1) using the
-  connected network's `publicIp` (Slice A); NAT-resolve the destination so the line lands where the host
-  actually lives (legacy parity).
-- **Offline guard.** No connected LAN → no scan → no write (the existing nmap `UNREACHABLE` path).
+- **Which hosts log**: **every host that's up** in the generated LAN within the target range, even a host
+  with zero open ports (real iptables logs the probe regardless). Nonexistent IPs have no machine record
+  → nothing is written there.
+- **Ports in each line**: **that host's own open ports**, read from its `/var/run/*.pid` files (the same
+  source the single-IP scan display already uses). `(N hits)` = number of open ports. A service-less host
+  renders cleanly with **0 hits** (formatter must handle the empty-port list — a newly reachable case;
+  Slice 1 only tested non-empty).
+- **Source IP**: nmap today only scans the **own subnet**, so the source is always the **LAN IP**. Route
+  it through `resolveLogSourceIP` (Slice 1) for forward-correctness + a live caller, but only the LAN
+  branch is exercised now; the public-IP/NAT branch lights up with **foreign-subnet scanning** (deferred,
+  multi-layer story). No destination NAT needed yet (own subnet ⇒ no NAT).
 
-**RED**: handler test — online scan of a reachable target appends **exactly one** kern.log line
-(server-internal); unreachable/out-of-range target → no line; offline → no scan → no line. The **same
-identity** re-reading the host sees its own line. Mutator watch: one-line-per-sweep (not per-probe),
-the online guard, the target-resolution, the per-viewer keying.
-**GREEN**: the scan server action + `appendMachineLog` call + nmap client wiring.
+**Path** (3g-shaped, not legacy `LogApi`) — sub-PR'd like the SSH epic's 3a–3g:
+
+- **3a-1 (pure foundations, no infra — start here):** `KERN_LOG_PATH`/`KERN_LOG_OWNER`/
+  `KERN_LOG_PERMISSIONS` beside the `AUTH_LOG_*` set (world-readable, root-write); `formatNmapScanAggregate`
+  handles the **empty-port** case cleanly; seed an empty `kern.log` into `remoteHostFs` (and
+  `workstationFs`) next to the seeded `auth.log`; **extract the `/var/run` open-ports reader** (today the
+  private `readVarRunServices` in `nmap.ts`) into a shared module so the command display + the server
+  handler share one source of truth (DRY = knowledge).
+- **3a-2 (core handler):** `handleNmapScan(body, deps)` mirroring `handleAuthCreateSession` — verify the
+  signed envelope, resolve the LAN (`generateHomeLan`), select the up hosts in the target (single/range),
+  and for **each** compute open ports + call `appendMachineLog({readLog, upsertPatch}, {playerKey,
+machineId: hostMachineId(host, essid), path: KERN_LOG_PATH, owner, permissions},
+formatNmapScanAggregate(...))`, best-effort. Server-stamped timestamp/pid (unforgeable clock). Return
+  the per-host scan results. Unit-tested with mocked deps (style: `authCreateSession.test.ts`).
+- **3a-3 (api handler):** `api/...` Vercel function — supabase `readLog`/`upsertPatch` deps + dispatch,
+  mirroring `api/sessions.ts`' authCreateSession wiring.
+- **3a-4 (client wiring + E2E):** env seam + adapter (signed request, style: `adapters/sessionsApi.ts`);
+  nmap command calls the server action and reconciles the real round-trip with the existing abort-aware
+  `env.sleep` row pacing (`feedback_real_latency_over_fake_delays` — don't stack fake delay on real).
+- **Offline guard** (already present): no connected LAN → no scan → no write (`UNREACHABLE`).
+
+**RED**: handler test — online range scan appends **exactly one** kern.log line **per up host** (server-
+internal), each carrying that host's own ports + the resolved source IP; a host with no open ports still
+gets a 0-hit line; nonexistent IPs in the range get nothing; offline → no scan → no line. The **same
+identity** re-reading a host sees its own line. Mutator watch: one-line-per-HOST (not per-probe, not
+one-per-sweep), the up-host filter, the open-ports read, the per-viewer keying.
+**GREEN**: the foundations → handler → api → client wiring, per sub-PR.
 **MUTATE / KILL / REFACTOR**: per skills.
 **Live E2E** (`feedback_e2e_test_new_primitives`): crack → connect → online → `nmap` a generated host →
-`ssh` in (same identity) → `cat /var/log/kern.log` shows the scan line with the resolved source IP.
+`ssh` in (same identity) → `cat /var/log/kern.log` shows the scan line with the LAN source IP.
 Watch the network tab — the integration seam (scan action → `appendMachineLog` → patch → DB → read-back)
 is exactly where legacy drifted.
 
