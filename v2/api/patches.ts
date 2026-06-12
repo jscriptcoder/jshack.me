@@ -11,6 +11,9 @@ import type {
   ActiveSessionQuery,
   FindActiveSessionResult,
 } from '../src/core/patches/authorizeMachineAccess';
+import type { ListMachinePatchesResult } from '../src/core/patches/remoteWritePermission';
+import type { Patch } from '../src/core/filesystem/applyPatches';
+import type { FilePermissions } from '../src/core/filesystem/types';
 import type { NonceStore } from '../src/core/signedRequest/nonceStore';
 import type { UserType } from '../src/core/types';
 
@@ -21,15 +24,15 @@ import type { UserType } from '../src/core/types';
 // raw action is safe. All three share the L1 gate (`authorizeMachineAccess` via
 // `findActiveSession`): the caller's OWN workstation (suffix match) OR an active
 // ssh session on the target machine; else 403 no_session.
-//   - upsertPatch: L1-gated write (server-stamped player_key)
+//   - upsertPatch: L1-gated write (server-stamped player_key) + L2 on remote
+//     writes (tier-based perms, regenerated host FS via `listMachinePatches`)
 //   - listPatches: L1-gated read of the patch journal (reload-durability, and
-//     the read-back of a remote ssh write)
-//   - removePatch: L1-gated delete — drops an is_new row + descendants, or
-//     tombstones a base node (server decides from the table)
+//     the read-back of a remote ssh write) — reads are L1-only, no L2
+//   - removePatch: L1-gated delete + L2 (unlinking needs write perm) — drops an
+//     is_new row + descendants, or tombstones a base node
 //
-// L2 (tier-based perms on a remote write) and the cross-player three-tier read
-// filter are later plans; today an authenticated remote session may write/read
-// at any tier.
+// The cross-player three-tier READ filter is still a later plan; remote reads
+// remain L1-only (any active-session tier may read).
 //
 // Replay protection uses a noop nonce store locally (Upstash wiring lands when
 // cross-player flows need it). Acceptable for local dev — same posture as
@@ -99,6 +102,40 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return { data: { userType: row.credentials.userType, essid: row.essid }, error };
   };
 
+  // L2's regeneration key: a remote machine's patch journal, mapped to the
+  // `Patch` shape so the handler can replay it over the regenerated base FS and
+  // walk the resulting perms. (Only consulted for REMOTE writes — own-box bypasses.)
+  const listMachinePatches = async ({
+    player_key,
+    machine_id,
+  }: {
+    readonly player_key: string;
+    readonly machine_id: string;
+  }): Promise<ListMachinePatchesResult> => {
+    const { data, error } = await supabase
+      .from('patches')
+      .select('path, content, owner, permissions, node_type')
+      .eq('player_key', player_key)
+      .eq('machine_id', machine_id);
+    if (error) console.error('[patches] machine-patches lookup error:', error);
+    if (data === null) return { data: null, error };
+    const rows = data as readonly {
+      path: string;
+      content: string | null;
+      owner: string;
+      permissions: FilePermissions | null;
+      node_type: 'file' | 'directory' | null;
+    }[];
+    const patches: readonly Patch[] = rows.map((row) => ({
+      path: row.path,
+      content: row.content,
+      owner: row.owner,
+      ...(row.permissions ? { permissions: row.permissions } : {}),
+      ...(row.node_type ? { nodeType: row.node_type } : {}),
+    }));
+    return { data: patches, error };
+  };
+
   if (actionOf(req.body) === 'listPatches') {
     const listPatches = async ({ player_key, machine_id }: ListPatchesQuery) => {
       const { data, error } = await supabase
@@ -149,6 +186,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { status, body } = await handleRemovePatch(req.body, {
       nonceStore: noopNonceStore,
       findActiveSession,
+      listMachinePatches,
       findPatch,
       deletePatchTree,
       upsertPatch,
@@ -185,6 +223,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { status, body } = await handleUpsertPatch(req.body, {
     nonceStore: noopNonceStore,
     findActiveSession,
+    listMachinePatches,
     upsertPatch,
   });
   res.status(status).json(body);

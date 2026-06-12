@@ -25,6 +25,7 @@ import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { authorizeMachineAccess, type FindActiveSession } from './authorizeMachineAccess';
+import { enforceRemoteWriteL2, type ListMachinePatches } from './remoteWritePermission';
 import type { NonceStore } from '../signedRequest/nonceStore';
 import type { PatchRow } from './upsertPatch';
 
@@ -42,6 +43,7 @@ export type FindPatchResult = {
 export type RemovePatchDeps = {
   readonly nonceStore: NonceStore;
   readonly findActiveSession: FindActiveSession;
+  readonly listMachinePatches: ListMachinePatches;
   /** Look up the row at the exact path (to read its `is_new` flag). */
   readonly findPatch: (query: PatchTreeQuery) => Promise<FindPatchResult>;
   /** Delete the row at `path` AND every row beneath it (`path/...`). */
@@ -81,6 +83,19 @@ export const handleRemovePatch = async (
   const access = await authorizeMachineAccess(publicKey, payload.machine_id, deps.findActiveSession);
   if (!access.ok) {
     return { status: access.status, body: { error: access.error } };
+  }
+
+  // L2: removing (unlinking) a node on a remote host needs write permission at
+  // the login's tier, same as a write (own-box bypasses — session is null).
+  const denial = await enforceRemoteWriteL2({
+    publicKey,
+    machineId: payload.machine_id,
+    path: payload.path,
+    session: access.session,
+    listMachinePatches: deps.listMachinePatches,
+  });
+  if (denial) {
+    return { status: denial.status, body: { error: denial.error } };
   }
 
   const query: PatchTreeQuery = {

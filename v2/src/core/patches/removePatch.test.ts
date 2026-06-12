@@ -4,13 +4,31 @@ import type {
   ActiveSessionQuery,
   FindActiveSessionResult,
 } from './authorizeMachineAccess';
+import type { ListMachinePatchesResult } from './remoteWritePermission';
 import type { PatchRow } from './upsertPatch';
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
 import { computeWorkstationId } from '../identity/workstation';
+import { generateHomeLan } from '../generation/generateHomeLan';
+import { hostMachineId } from '../generation/remoteHostId';
+import type { UserType } from '../types';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
 const freshStore: NonceStore = async () => ({ fresh: true });
+const ESSID = 'BEAN-THERE-WIFI';
+
+/** A REAL remote host on the signer's LAN — so L2 regeneration resolves the same
+ *  FS the perms are walked over. Returns the coordinate machine_id + essid. */
+const remoteTarget = (publicKeyHex: string) => {
+  const host = generateHomeLan(publicKeyHex, ESSID).hosts.filter((candidate) => candidate.kind === 'machine').at(-1);
+  if (host === undefined) throw new Error('no machine host on LAN');
+  return { machineId: hostMachineId(host, ESSID), essid: ESSID };
+};
+
+const remoteSession = (userType: UserType): FindActiveSessionResult => ({
+  data: { userType, essid: ESSID },
+  error: null,
+});
 
 const found = (is_new: boolean): FindPatchResult => ({ data: { is_new }, error: null });
 
@@ -24,6 +42,7 @@ const makeDeps = (
     readonly deleteError?: unknown;
     readonly upsertError?: unknown;
     readonly activeSession?: FindActiveSessionResult;
+    readonly machinePatches?: ListMachinePatchesResult;
   } = {},
 ) => {
   const findPatch = vi.fn<RemovePatchDeps['findPatch']>(
@@ -40,14 +59,19 @@ const makeDeps = (
   const findActiveSession = vi.fn<(query: ActiveSessionQuery) => Promise<FindActiveSessionResult>>(
     async () => over.activeSession ?? { data: null, error: null },
   );
+  // Default: the remote machine has no prior patches (its base FS).
+  const listMachinePatches = vi.fn<() => Promise<ListMachinePatchesResult>>(
+    async () => over.machinePatches ?? { data: [], error: null },
+  );
   const deps: RemovePatchDeps = {
     nonceStore: over.nonceStore ?? freshStore,
     findActiveSession,
+    listMachinePatches,
     findPatch,
     deletePatchTree,
     upsertPatch,
   };
-  return { deps, findPatch, deletePatchTree, upsertPatch, findActiveSession };
+  return { deps, findPatch, deletePatchTree, upsertPatch, findActiveSession, listMachinePatches };
 };
 
 /** Fields for a removal on the signer's OWN workstation. */
@@ -132,17 +156,17 @@ describe('handleRemovePatch', () => {
     expect(deletePatchTree).not.toHaveBeenCalled();
   });
 
-  it('removes a node on a foreign machine when an active ssh session exists there', async () => {
+  it('removes a node on a foreign machine when a root ssh session exists there', async () => {
     const id = generateIdentity();
-    const foreign = 'darkstar-12345678';
+    const { machineId } = remoteTarget(id.publicKeyHex);
     const envelope = signRequest(id, 'removePatch', {
-      machine_id: foreign,
-      path: '/tmp/pwned',
+      machine_id: machineId,
+      path: '/etc/passwd',
       owner: 'root',
     });
     const { deps, deletePatchTree } = makeDeps({
-      findResult: found(true),
-      activeSession: { data: { userType: 'root', essid: 'VANDELAY' }, error: null },
+      findResult: found(false),
+      activeSession: remoteSession('root'),
     });
 
     const result = await handleRemovePatch(envelope, deps);
@@ -150,20 +174,61 @@ describe('handleRemovePatch', () => {
     expect(result).toEqual({ status: 200, body: { ok: true } });
     expect(deletePatchTree).toHaveBeenCalledWith({
       player_key: id.publicKeyHex,
-      machine_id: foreign,
-      path: '/tmp/pwned',
+      machine_id: machineId,
+      path: '/etc/passwd',
     });
+  });
+
+  it('rejects a user ssh session removing a root-owned file on a foreign machine (403, L2)', async () => {
+    const id = generateIdentity();
+    const { machineId } = remoteTarget(id.publicKeyHex);
+    const envelope = signRequest(id, 'removePatch', {
+      machine_id: machineId,
+      path: '/etc/passwd',
+      owner: 'user',
+    });
+    const { deps, findPatch, deletePatchTree } = makeDeps({
+      activeSession: remoteSession('user'),
+    });
+
+    const result = await handleRemovePatch(envelope, deps);
+
+    expect(result).toEqual({ status: 403, body: { error: 'permission_denied' } });
+    // L2 denies BEFORE the find/delete work runs.
+    expect(findPatch).not.toHaveBeenCalled();
+    expect(deletePatchTree).not.toHaveBeenCalled();
+  });
+
+  it('returns 500 when the prior-patch fetch for the L2 check fails', async () => {
+    const id = generateIdentity();
+    const { machineId } = remoteTarget(id.publicKeyHex);
+    const envelope = signRequest(id, 'removePatch', {
+      machine_id: machineId,
+      path: '/etc/passwd',
+      owner: 'user',
+    });
+    const { deps, deletePatchTree } = makeDeps({
+      activeSession: remoteSession('user'),
+      machinePatches: { data: null, error: { message: 'db down' } },
+    });
+
+    const result = await handleRemovePatch(envelope, deps);
+
+    expect(result).toEqual({ status: 500, body: { error: 'permission_check_failed' } });
+    expect(deletePatchTree).not.toHaveBeenCalled();
   });
 
   it('does not consult the sessions table for an own-workstation removal (L1 bypass)', async () => {
     const id = generateIdentity();
     const envelope = signRequest(id, 'removePatch', ownFields(id.publicKeyHex));
-    const { deps, findActiveSession } = makeDeps({ findResult: found(true) });
+    const { deps, findActiveSession, listMachinePatches } = makeDeps({ findResult: found(true) });
 
     const result = await handleRemovePatch(envelope, deps);
 
     expect(result.status).toBe(200);
     expect(findActiveSession).not.toHaveBeenCalled();
+    // Own-box removals bypass L2 too — no regeneration journal fetch.
+    expect(listMachinePatches).not.toHaveBeenCalled();
   });
 
   it('returns 500 when the active-session lookup fails (not a false 403)', async () => {
