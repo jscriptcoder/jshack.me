@@ -1,8 +1,58 @@
 # Epic Story-Split: Machine / Network Generator (v2)
 
-**Status**: Proposed split — awaiting sequencing confirmation
-**Type**: Epic decomposition (not yet a PR plan). The first child story graduates to its
-own `plans/<slice>.md` once this sequencing is approved.
+**Status**: **Mostly SHIPPED — Stories 0, 1, 1.5, 2, 3 done; only Story 4 (multi-layer depth) remains as
+generator work.** A new prerequisite surfaced downstream (see "Progress" below): the **cross-player
+SHARED machine record**, which is what `plans/scan-logging-cross-player.md` Slice 3b (and the broader
+cross-player read-path) is blocked on. (updated 2026-06-13.)
+**Type**: Epic decomposition. Shipped child stories went out as their own PRs; remaining work
+(Story 4, and the cross-player shared record) graduates to its own `plans/<slice>.md` when started.
+
+## Progress (updated 2026-06-13) — read first
+
+The stories below were authored 2026-06-04. Most have since SHIPPED, and the SSH epic (PRs #219–#228,
+separate plan) built on this epic's generators and went beyond the original "read-only, no auth" scope.
+Current state of each story:
+
+- **Story 0** (intro screen / typed `gameConfig`) — ✅ SHIPPED (PR #195, v0.17.0).
+- **Story 1** (seeded own-workstation base FS) — ✅ SHIPPED (PR #196, v0.18.0). Primitives live in
+  `core/generation/` (`prng.ts`, `md5.ts`, `workstationFs.ts`, `generatePasswd`).
+- **Story 1.5** (`apt install` installs a tool) — ✅ SHIPPED (`apt install nmap` works; binary/availability
+  /library model also shipped, v0.21.0).
+- **Story 2** (reachable single-layer LAN you can scan) — ✅ SHIPPED (`nmap` host-discovery, PRs #211/#212/
+  #213, v0.37.0). `core/generation/generateHomeLan.ts` + `core/commands/nmap.ts`. The RFC-1918 variety
+  conflict (design note 1) is **NOT yet resolved** — `assignHomeNetwork`/`generateHomeLan` still hard-code
+  `192.168.x`; widen it when Story 4 (or a dedicated slice) needs the variety.
+- **Story 3** (enter a generated machine + browse its FS) — ✅ SHIPPED, via the **SSH epic** (not a
+  read-only connect): `ssh user@host` into a generated host + `ls`/`cat`/write its FS, tier-gated. Built on
+  `core/generation/remoteHostFs.ts` + `core/generation/remoteHostId.ts` (`hostMachineId`/`hostForMachineId`).
+  The SSH epic also added auth (ssh/su), a server `sessions` table, and a writable remote patch path —
+  originally "OUT of this epic" but now shipped.
+- **Story 4** (multi-layer depth: 2–3 layers, inner gateways, `switch` sub-kind, "see only your layer")
+  — 🚧 **NOT shipped — the main remaining GENERATOR story.** Port the legacy `topology.ts` dual-homed
+  gateway invariant (design note 2) + the layer-visibility rule. Resolve the RFC-1918 variety conflict
+  here. Graduate to `plans/<slice>.md` when started.
+
+### Cross-player shared machine record (NEW prerequisite — surfaced by the SSH + scan-logging epics)
+
+Generated hosts today persist **per-viewer**: each host has a coordinate-derived `machine_id`
+(`remoteHostId`), and its FS patches (ssh writes, su/ssh `auth.log`, and now nmap `kern.log`) are stored
+in the `patches` table keyed by **the requesting `player_key`**. So a trace/write one identity makes is
+**invisible to another identity** — every viewer regenerates the host under their own key.
+
+A **cross-player SHARED machine record** (one generated host readable/writable by multiple identities) is
+the missing piece that unblocks:
+
+- `plans/scan-logging-cross-player.md` **Slice 3b** — a _different_ identity reading a scan's `kern.log`
+  trace, and scanning real player workstations. (3a shipped the per-viewer write; 3b is just a
+  re-key/re-read onto the shared record.)
+- The legacy three-tier cross-player **read filter** (`listPatchesForMachines`) — the path by which a
+  second player reads another's machine.
+
+This is a **server / multiplayer-persistence** concern (how a generated host becomes a shared, server-
+authoritative row), distinct from this epic's original "client-side, pure generation" scope — but it is
+the natural next step for the generated world and the gate for all cross-player gameplay. **Decide when
+starting next-phase work: does the shared-machine record become a new Story in this epic, or its own
+epic/plan?** Either way it is the prerequisite to register for downstream cross-player slices.
 
 > The `story-splitting` skill is not installed in this environment. This split was authored
 > manually following the `planning` skill's vertical-slice rules: every child story delivers
@@ -22,14 +72,14 @@ Reconciling the user's "start simple, no templates" framing with the legacy type
 (`docs/rewrite-blueprint/sections/02` + `06`) and the existing v2 FS machinery
 (`FileNode` / `applyPatches` / `fsView`):
 
-| Concept           | This epic                                                       |
-| ----------------- | -------------------------------------------------------------- |
-| Determinism       | Seeded PRNG (Mulberry32 + FNV-1a), ported verbatim from legacy |
-| Machine kind      | `'machine' \| 'router'`                                        |
-| Gateway sub-kind  | `'router' \| 'switch'` (only matters at layer depth)          |
-| Topology          | 1–3 `/24` layers; `.1` = gateway; "see only your layer"       |
-| Per-machine FS    | Uniform minimal skeleton (`/etc/passwd`, `/home`, `/root`, `/tmp`, `/bin`) — NO role templates |
-| Addressing        | Private subnets across the **full RFC 1918 space** (`10.x`, `172.16–31.x`, `192.168.x`) for variety — NOT `192.168` only + per-machine IPs |
+| Concept            | This epic                                                                                                                                                                                                                    |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Determinism        | Seeded PRNG (Mulberry32 + FNV-1a), ported verbatim from legacy                                                                                                                                                               |
+| Machine kind       | `'machine' \| 'router'`                                                                                                                                                                                                      |
+| Gateway sub-kind   | `'router' \| 'switch'` (only matters at layer depth)                                                                                                                                                                         |
+| Topology           | 1–3 `/24` layers; `.1` = gateway; "see only your layer"                                                                                                                                                                      |
+| Per-machine FS     | Uniform minimal skeleton (`/etc/passwd`, `/home`, `/root`, `/tmp`, `/bin`) — NO role templates                                                                                                                               |
+| Addressing         | Private subnets across the **full RFC 1918 space** (`10.x`, `172.16–31.x`, `192.168.x`) for variety — NOT `192.168` only + per-machine IPs                                                                                   |
 | Gateway interfaces | Every router/switch is **dual-homed**: the main router has a public IP + an internal `.1`; each internal router/switch carries one IP per adjacent layer (its `.1` on the downstream layer, a host IP on the upstream layer) |
 
 ## Design notes from owner (2026-06-04) — fold into the relevant stories
@@ -57,7 +107,7 @@ data the existing read path consumes.
 
 - `prng.ts` — Mulberry32 + FNV-1a. Pure. **Port verbatim.**
 - The `SubnetLayer` shape and `.1`-gateway / layer-visibility invariants from legacy
-  `src/generation/topology.ts` — port the *shape*, simplified to 2 kinds.
+  `src/generation/topology.ts` — port the _shape_, simplified to 2 kinds.
 - v2 already has `FileNode`/`Directory`, `applyPatches`, `fsView` — the generator emits a
   base `Directory` per machine and the existing patch-replay + permission walker ride on top.
 
@@ -73,7 +123,7 @@ split as legacy, where `rootPassword` → `md5()` and only the `guest` password 
 
 ## Child Stories (ordered, each vertical + observable)
 
-### Story 0 — Intro screen: name your workstation **(now FIRST — prerequisite)**
+### Story 0 — Intro screen: name your workstation — ✅ SHIPPED (PR #195)
 
 **Actor**: New player, first launch.
 **Trigger**: App boot with no persisted game-config.
@@ -90,7 +140,7 @@ silently auto-created). Story 1 consumes these typed values, so they must exist 
 Building it inside Story 1 would make a multi-concern PR (the planning skill warns against
 bundling UI + generator).
 
-### Story 1 — Seeded own-workstation base filesystem **(walking skeleton)**
+### Story 1 — Seeded own-workstation base filesystem — ✅ SHIPPED (PR #196)
 
 **Actor**: Player, on their own workstation.
 **Trigger**: Game loads / `ls`, `cat` against the workstation FS.
@@ -108,7 +158,7 @@ commands. Establishes the generator primitives every later story reuses.
 **Decided scope**: minimal skeleton only (NOT `/bin` tools, `/lib`, logs, dotfiles — those
 land when a command consumes them); real md5 hashes; include the guest row.
 
-### Story 1.5 — `apt install` actually installs a tool **(NEW — now precedes Story 2)**
+### Story 1.5 — `apt install` actually installs a tool — ✅ SHIPPED
 
 **Actor**: Player on their online workstation.
 **Trigger**: `apt install <pkg>` (e.g. `apt install nmap`).
@@ -123,7 +173,7 @@ becomes runnable. (Scope of subcommands / online-gate / lib-deps decided in its 
 `apt install` is the real reachability mechanism and unblocks every gated tool, not just nmap.
 Decouples tool acquisition from the scan slice. Graduates to `plans/apt-install.md`.
 
-### Story 2 — A reachable single-layer LAN you can scan
+### Story 2 — A reachable single-layer LAN you can scan — ✅ SHIPPED (PRs #211–#213)
 
 **Actor**: Player on a connected LAN.
 **Trigger**: a recon command (legacy parity: `nmap <subnet>` host-discovery, e.g. `-sn`).
@@ -136,7 +186,7 @@ topology + addressing become real and observable.
 **Depends on**: Story 1 (PRNG + generator scaffolding) **and Story 1.5** (`apt install nmap`
 makes the recon tool reachable). Also resolves the RFC 1918 variety conflict (design note 1).
 
-### Story 3 — Enter a generated machine and browse its base FS
+### Story 3 — Enter a generated machine and browse its base FS — ✅ SHIPPED (via the SSH epic, #219–#228)
 
 **Actor**: Player who scanned the LAN.
 **Trigger**: a connect path to a scanned IP (command TBD in that story's plan).
@@ -148,7 +198,7 @@ retarget the existing `FsView`/`cwd` to the remote machine's tree.
 Proves per-machine base-FS generation end-to-end and reuses `FsView`.
 **Depends on**: Stories 1 + 2.
 
-### Story 4 — Multi-layer depth (2–3 layers, inner gateways, switch sub-kind)
+### Story 4 — Multi-layer depth (2–3 layers, inner gateways, switch sub-kind) — 🚧 REMAINING
 
 **Actor**: Player pivoting inward.
 **Trigger**: scanning from a deeper position after entering a gateway.
@@ -172,5 +222,7 @@ case is proven. Each story is one PR; stories 2–4 each graduate to their own
 
 ---
 
-_Delete this file when the epic's stories are all planned + shipped (or fold remaining
-stories into their own plan files)._
+_Stories 0–3 + 1.5 are SHIPPED (see "Progress" at top). Remaining before this file can be deleted:
+**Story 4** (multi-layer depth) and a decision on the **cross-player shared machine record** (its own
+Story here or a new epic) — the latter is the prerequisite for `scan-logging-cross-player.md` Slice 3b
+and the cross-player read-path. Fold each remaining piece into its own `plans/<slice>.md` when started._

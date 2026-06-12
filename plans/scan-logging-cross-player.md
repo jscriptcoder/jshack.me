@@ -1,24 +1,29 @@
 # Plan: scan/connection logging — leaving traces on target machines (cross-player)
 
-**Branch**: `feat/v2-scan-logging` (per-slice branches below)
-**Status**: In progress — **Slice 3 RE-SLICED into 3a (UNBLOCKED) + 3b (blocked)** (updated 2026-06-12,
-post-SSH-epic). The SSH epic (PRs #221–#228) built three of the four prerequisites: the **remote write
-seam**, the **server L1 gate** (`authorizeMachineAccess`), and the **server L2 walker**
-(`enforceRemoteWriteL2`) all now exist, and PR #228 shipped **`appendMachineLog`** — the exact "system
-writes a line to a machine's log file" primitive this plan needs.
-**Key reframing (2026-06-12):** the per-viewer write is at **exact parity with the already-shipped SSH
-auth.log** (#228 also writes scoped to `(player_key, machine_id)` — self-readable, not yet cross-player).
-So the scan log can ship the same way **now**: **Slice 3a** writes the kern.log line on the scanned
-NPC/generated host per-viewer (self-observable: scan → break in as the same identity → `cat kern.log`
-shows your own scan), which is **unblocked and builds the entire server-action + write seam**. The ONE
-remaining hard block is **cross-player shared machine persistence** (the _different-identity_ read +
-scanning real player workstations): that is **Slice 3b**, and it needs the shared, server-persisted
-machine record from `network-generator-epic`. 3b is then only a re-key/re-read of 3a's write — the write
-call, formatter, source-IP, and NAT logic all carry over.
-**Mechanism reshaped — see "Post-SSH-epic mechanism update" below: the 3g server-internal write
-OBSOLETES the `AMBIENT_LOG_FILES` allowlist (Slice 2, DELETED).**
-**Parent epic**: `plans/network-generator-epic.md` (cross-player read/write path) — slots in once
-generated LAN hosts have DB-backed, _cross-player-shared_ patch streams.
+**Status**: **Slices A + 1 + 3a SHIPPED; only Slice 3b remains (BLOCKED on cross-player shared machine
+record).** (updated 2026-06-13.)
+
+- **Slice A** — public/NAT IP model — ✅ SHIPPED (PR #210, v0.34.0).
+- **Slice 1** — pure `formatNmapScanAggregate` + `resolveLogSourceIP` (+ `syslog`/`authLog`/`kernLog`
+  module split) — ✅ SHIPPED (PR #230, v0.51.0).
+- **Slice 2** — `AMBIENT_LOG_FILES` allowlist bypass — ❌ DELETED (the server-internal write hardcodes
+  the path → nothing to forge → no allowlist needed; see "Post-SSH-epic mechanism update").
+- **Slice 3a** — per-viewer server-internal kern.log write, wired to a server-side nmap scan — ✅ SHIPPED
+  (PR #231, v0.54.0, sub-PRs 3a-1…3a-4). `nmap` fires a signed `nmapScan` round-trip; the server resolves
+  the scanned hosts and writes one aggregate kern.log line **per host** via `appendMachineLog`, scoped
+  per-viewer `(player_key, machine_id)` — self-observable, exact parity with the shipped ssh auth.log.
+  Live-E2E'd through the UI: `nmap` → `POST /api/patches 200` → per-host kern.log rows in Supabase (self
+  host skipped, LAN source IP, `none (0 hits)` empty-port rendering, append-not-clobber).
+- **Slice 3b** — cross-player read (a _different_ identity reads the trace) + scanning real player
+  workstations — 🚧 **BLOCKED**. It is only a **re-key/re-read of 3a's write** (the write call, formatter,
+  source-IP, NAT logic all carry over) onto a **cross-player SHARED machine record**. That shared record
+  does not exist yet: generated hosts persist **per-viewer** today (`remoteHostId` machine_id + `patches`
+  keyed by the requesting `player_key`). See `plans/network-generator-epic.md` → "Cross-player shared
+  machine record" — that is the prerequisite, and it is a server/multiplayer concern, NOT this plan.
+
+**Mechanism**: the write is SERVER-INTERNAL via `appendMachineLog` (the 3g ssh-auth.log pattern), NOT a
+client `LogApi` — the server hardcodes the path + stamps time, so there's nothing for a forged envelope
+to plant (see "Post-SSH-epic mechanism update" below).
 
 ## Why this matters
 
@@ -293,7 +298,15 @@ exact-match `Set` + upsert-only bypass + `scripts/testAmbientLogAllowlist.ts` wi
 genuinely client-driven log write is ever added (none planned). If kept, the constraints below are
 load-bearing — see "Legacy reference".
 
-### Slice 3a: per-viewer server-internal kern.log write, wired to a server-side nmap scan — NOT BLOCKED
+### Slice 3a: per-viewer server-internal kern.log write, wired to a server-side nmap scan — ✅ SHIPPED (PR #231, v0.54.0)
+
+**Shipped as sub-PRs 3a-1…3a-4** on `feat/v2-scan-logging-3a`: `core/logging/kernLog.ts`
+(`KERN_LOG_*` + empty-port `none (0 hits)`), `core/services/pidfile.ts` `readOpenPorts`, kern.log
+seeded into `remoteHostFs`/`workstationFs`, `core/network/scanTarget.ts` (`parseScanTarget`/
+`hostsInScanTarget`, shared with the nmap command), `core/scan/nmapScan.ts` (`handleNmapScan`),
+`api/patches.ts` `nmapScan` branch, `adapters/patchApi.ts` `recordScan`, `ScanApi` seam on `CommandEnv`,
+`nmap.ts` fires `env.scan.record`. Live-E2E verified against real Supabase. The original walking-skeleton
+notes below are kept for reference.
 
 **Value**: end-to-end self-observable trace — `nmap <target>` against a generated host leaves a
 persisted line in that host's `/var/log/kern.log`, which the **same identity** reads after breaking in.
@@ -396,10 +409,9 @@ keying, the workstation-as-target resolution.
 
 ---
 
-_Delete this file when all slices ship. Note (updated 2026-06-12): the WRITE mechanism exists
-(`appendMachineLog`, server-internal); Slices A + 1 shipped. **Slice 3 is split: 3a (per-viewer write,
-self-observable, parity with the shipped SSH auth.log) is UNBLOCKED — build it next**; 3b (the
-different-identity / cross-player read + scanning player workstations) stays parked until generated hosts
-have a shared, server-persisted machine record (network-generator-epic), at which point it is just a
-re-key/re-read of 3a's write. Do not gate 3a on the shared record — it writes to the scanner's own
-per-viewer copy, exactly like SSH does today._
+_Delete this file when all slices ship. Status (updated 2026-06-13): Slices **A + 1 + 3a SHIPPED**
+(PRs #210, #230, #231). **Only Slice 3b remains, and it is BLOCKED** on a cross-player SHARED machine
+record (generated hosts persist per-viewer today). When that prerequisite lands, 3b is a small
+re-key/re-read of 3a's write — see the Slice 3b section + the status header. The prerequisite is tracked
+in `plans/network-generator-epic.md` ("Cross-player shared machine record"); do not delete THIS file
+until 3b ships._
