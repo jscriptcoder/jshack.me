@@ -6,21 +6,24 @@ import { hostMachineId } from '../core/generation/remoteHostId';
 import { computeWorkstationId } from '../core/identity/workstation';
 import { asEpochMs, asMachineId, asPlayerKeyHex } from '../core/types';
 import { buildDirectory } from '../test/factories/filesystem';
+import type { Patch } from '../core/filesystem/applyPatches';
+import type { Directory, FileEntry, FileNode } from '../core/filesystem/types';
 import type { Session } from '../core/commands/types';
 
 /**
- * `resolveActiveRoot` picks the filesystem the active session operates on: your
- * own (patched) workstation tree when the session is on your box, or the
- * deterministically-generated tree of the remote host you've ssh'd into. The
- * remote host is recovered from its coordinate `machine_id` by regenerating the
- * current LAN — so a session that only carries a `machine_id` still resolves to
- * the right tree on the live path AND on a refresh rebuild.
+ * `resolveActiveRoot` picks the filesystem the active session operates on — your
+ * own workstation tree when the session is on your box, or the
+ * deterministically-generated tree of the remote host you've ssh'd into — and
+ * replays the active machine's patch journal over whichever base it picks, so a
+ * write (own OR remote) materializes. The remote host is recovered from its
+ * coordinate `machine_id` by regenerating the current LAN, so a session that
+ * only carries a `machine_id` still resolves on the live path AND on a refresh.
  */
 
 const PUBKEY = 'a'.repeat(64);
 const ESSID = 'BEAN-THERE-WIFI';
 const OWN_ID = computeWorkstationId('skylab', PUBKEY);
-const ownRoot = buildDirectory({});
+const ownBaseFs = buildDirectory({});
 
 const session = (machineId: string, kind: Session['kind'] = 'su'): Session => ({
   id: 'sess-1',
@@ -37,13 +40,38 @@ const args = (over: Partial<Parameters<typeof resolveActiveRoot>[0]>) => ({
   ownWorkstationId: OWN_ID,
   publicKeyHex: PUBKEY,
   essid: ESSID as string | null,
-  ownRoot,
+  ownBaseFs,
+  patches: [] as readonly Patch[],
   ...over,
 });
 
+const fileAt = (root: Directory, segments: readonly string[]): FileEntry | undefined => {
+  let current: FileNode | undefined = root;
+  for (const segment of segments) {
+    if (current === undefined || current.kind !== 'directory') return undefined;
+    current = current.entries.get(segment);
+  }
+  return current !== undefined && current.kind === 'file' ? current : undefined;
+};
+
+const writePatch = (path: string, content: string): Patch => ({
+  path,
+  content,
+  owner: 'root',
+  permissions: { read: ['root'], write: ['root'], execute: ['root', 'user', 'guest'] },
+});
+
 describe('resolveActiveRoot', () => {
-  it('returns the own workstation tree for a session on your own box', () => {
-    expect(resolveActiveRoot(args({ session: session(OWN_ID) }))).toBe(ownRoot);
+  it('returns the own workstation base for a session on your own box (no patches)', () => {
+    expect(resolveActiveRoot(args({ session: session(OWN_ID) }))).toBe(ownBaseFs);
+  });
+
+  it('replays the active journal over the own base for a session on your own box', () => {
+    const root = resolveActiveRoot(
+      args({ session: session(OWN_ID), patches: [writePatch('/home/note.txt', 'mine')] }),
+    );
+
+    expect(fileAt(root, ['home', 'note.txt'])?.content).toBe('mine');
   });
 
   it('returns the remote host tree for an ssh session, recovered from its machine_id', () => {
@@ -53,15 +81,30 @@ describe('resolveActiveRoot', () => {
     const root = resolveActiveRoot(args({ session: session(machineId, 'ssh') }));
 
     expect(root).toEqual(buildRemoteHostFs(PUBKEY, ESSID, host));
-    expect(root).not.toBe(ownRoot);
+    expect(root).not.toBe(ownBaseFs);
   });
 
-  it('falls back to the own tree when there is no network to resolve a remote against', () => {
+  it('replays the active journal over the REMOTE base for an ssh session (write observability)', () => {
+    const host = generateHomeLan(PUBKEY, ESSID).hosts.at(-1)!;
+    const machineId = hostMachineId(host, ESSID);
+
+    const root = resolveActiveRoot(
+      args({ session: session(machineId, 'ssh'), patches: [writePatch('/tmp/pwned', 'owned')] }),
+    );
+
+    // The remote write is visible — and it landed on the REMOTE tree, not the own one.
+    expect(fileAt(root, ['tmp', 'pwned'])?.content).toBe('owned');
+    expect(fileAt(ownBaseFs, ['tmp', 'pwned'])).toBeUndefined();
+  });
+
+  it('falls back to the own base when there is no network to resolve a remote against', () => {
     const machineId = hostMachineId(generateHomeLan(PUBKEY, ESSID).hosts.at(-1)!, ESSID);
-    expect(resolveActiveRoot(args({ session: session(machineId, 'ssh'), essid: null }))).toBe(ownRoot);
+    expect(resolveActiveRoot(args({ session: session(machineId, 'ssh'), essid: null }))).toBe(
+      ownBaseFs,
+    );
   });
 
-  it('falls back to the own tree when the machine_id matches no host on the current LAN', () => {
-    expect(resolveActiveRoot(args({ session: session('ghost-00000000', 'ssh') }))).toBe(ownRoot);
+  it('falls back to the own base when the machine_id matches no host on the current LAN', () => {
+    expect(resolveActiveRoot(args({ session: session('ghost-00000000', 'ssh') }))).toBe(ownBaseFs);
   });
 });

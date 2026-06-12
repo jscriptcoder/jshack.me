@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { handleListPatches, type ListPatchesDeps, type PatchRow } from './listPatches';
+import type { ActiveSessionQuery, FindActiveSessionResult } from './authorizeMachineAccess';
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
 import { computeWorkstationId } from '../identity/workstation';
@@ -24,8 +25,13 @@ const makeDeps = (over: Partial<ListPatchesDeps> = {}) => {
     data: [sampleRow()],
     error: null,
   }));
-  const deps: ListPatchesDeps = { nonceStore: freshStore, listPatches, ...over };
-  return { deps, listPatches };
+  // Default: no active session on the queried machine; foreign-machine reads
+  // override to simulate an ssh hop being present.
+  const findActiveSession = vi.fn<(query: ActiveSessionQuery) => Promise<FindActiveSessionResult>>(
+    async () => ({ data: null, error: null }),
+  );
+  const deps: ListPatchesDeps = { nonceStore: freshStore, listPatches, findActiveSession, ...over };
+  return { deps, listPatches, findActiveSession };
 };
 
 describe('handleListPatches', () => {
@@ -68,16 +74,56 @@ describe('handleListPatches', () => {
     expect(result).toEqual({ status: 200, body: { ok: true, patches: [] } });
   });
 
-  it('rejects a read for a machine that is not the caller’s workstation with 403 no_session', async () => {
+  it('rejects a read for a foreign machine when the caller has no active session there (403 no_session)', async () => {
     const id = generateIdentity();
     const { deps, listPatches } = makeDeps();
     const envelope = signRequest(id, 'listPatches', {
-      machine_id: computeWorkstationId('victim', 'b'.repeat(64)),
+      machine_id: 'darkstar-12345678',
     });
 
     const result = await handleListPatches(envelope, deps);
 
     expect(result).toEqual({ status: 403, body: { error: 'no_session' } });
+    expect(listPatches).not.toHaveBeenCalled();
+  });
+
+  it('returns a foreign machine’s patches when an active ssh session exists there', async () => {
+    const id = generateIdentity();
+    const foreign = 'darkstar-12345678';
+    const rows = [sampleRow({ player_key: id.publicKeyHex, machine_id: foreign, path: '/tmp/pwned' })];
+    const { deps } = makeDeps({
+      listPatches: async () => ({ data: rows, error: null }),
+      findActiveSession: async () => ({ data: { userType: 'root', essid: 'VANDELAY' }, error: null }),
+    });
+    const envelope = signRequest(id, 'listPatches', { machine_id: foreign });
+
+    const result = await handleListPatches(envelope, deps);
+
+    expect(result).toEqual({ status: 200, body: { ok: true, patches: rows } });
+  });
+
+  it('does not consult the sessions table for an own-workstation read (L1 bypass)', async () => {
+    const id = generateIdentity();
+    const machine = computeWorkstationId('skylab', id.publicKeyHex);
+    const { deps, findActiveSession } = makeDeps();
+    const envelope = signRequest(id, 'listPatches', { machine_id: machine });
+
+    const result = await handleListPatches(envelope, deps);
+
+    expect(result.status).toBe(200);
+    expect(findActiveSession).not.toHaveBeenCalled();
+  });
+
+  it('returns 500 when the active-session lookup fails (not a false 403)', async () => {
+    const id = generateIdentity();
+    const { deps, listPatches } = makeDeps({
+      findActiveSession: async () => ({ data: null, error: { message: 'db down' } }),
+    });
+    const envelope = signRequest(id, 'listPatches', { machine_id: 'darkstar-12345678' });
+
+    const result = await handleListPatches(envelope, deps);
+
+    expect(result).toEqual({ status: 500, body: { error: 'session_lookup_failed' } });
     expect(listPatches).not.toHaveBeenCalled();
   });
 

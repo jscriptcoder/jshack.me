@@ -32,7 +32,6 @@ import type {
 import type { GameConfig } from '../core/gameConfig/gameConfig';
 import type { Directory } from '../core/filesystem/types';
 import type { Patch } from '../core/filesystem/applyPatches';
-import { applyPatches } from '../core/filesystem/applyPatches';
 import { resolveActiveRoot } from './activeRoot';
 import { createFsView } from '../core/filesystem/fsView';
 import { resolveAbsPath } from '../core/filesystem/path';
@@ -152,6 +151,9 @@ const pushSession = (next: Session): void => {
   if (sessionsClientDeps !== undefined && next.kind !== 'ssh') {
     void createServerSession(sessionsClientDeps, next, parent?.id ?? null);
   }
+  // Re-point the patch client at the now-active machine. An ssh hop swaps the
+  // journal to the remote host; an su (same machine) just re-stamps owner/tier.
+  rebindPatchClient();
 };
 
 /** The ESSID of the currently-associated wlan0, or null when not on a network.
@@ -172,18 +174,18 @@ const ownWorkstationId = (): string => {
   return base.machineId;
 };
 
-/** The own (patched) workstation tree — the seed base FS with the journal replayed. */
-const ownRoot = (): Directory => applyPatches(seedFs(requireConfig(), requireIdentity()), patches());
-
 /** The filesystem tree the ACTIVE session operates on: own workstation, or the
- *  generated tree of the remote host an ssh hop landed on. */
+ *  generated tree of the remote host an ssh hop landed on — in both cases with
+ *  the active machine's journal (`patches()`, which follows the active session)
+ *  replayed over the base, so own AND remote writes are visible. */
 const activeRoot = (): Directory =>
   resolveActiveRoot({
     session: requireSession(),
     ownWorkstationId: ownWorkstationId(),
     publicKeyHex: requireIdentity().publicKeyHex,
     essid: currentEssid(),
-    ownRoot: ownRoot(),
+    ownBaseFs: seedFs(requireConfig(), requireIdentity()),
+    patches: patches(),
   });
 
 /** Authenticate an ssh login server-side (backs `env.ssh.authenticate`). Degrades
@@ -212,6 +214,9 @@ const popSession = (): void => {
   if (sessionsClientDeps !== undefined && ending !== undefined) {
     void endServerSession(sessionsClientDeps, ending.id);
   }
+  // Re-point the patch client at the machine we dropped back to (swaps the
+  // journal back to the own box when leaving a remote ssh host).
+  rebindPatchClient();
 };
 
 // A pending interactive prompt (su's masked password; later ssh/ftp/…). While
@@ -285,6 +290,9 @@ const rehydrateSessions = async (seed: Session): Promise<void> => {
   setSessionStack(rebuilt.sessionStack);
   setReturnCwdStack(rebuilt.returnCwdStack);
   setCwd(rebuilt.activeCwd);
+  // The rebuilt stack may land on a remote ssh hop — re-point the patch client at
+  // it so the remote host's journal (and writable tree) come back on refresh.
+  rebindPatchClient();
 };
 
 /** The real PatchApi, wrapped so a successful mutation reconciles the local
@@ -313,6 +321,31 @@ const wrapWithRefetch = (inner: PatchApi): PatchApi => {
     remove: afterWrite(inner.remove),
     mkdir: afterWrite(inner.mkdir),
   };
+};
+
+/** Re-point the patch client at the ACTIVE session's machine, so writes/reads
+ *  target wherever the player currently stands (own box, or a remote ssh host),
+ *  and stamp new nodes with the active session's owner + tier. When the active
+ *  MACHINE changes (an ssh hop, or the `exit` back), swap the journal: clear it
+ *  and re-pull the new machine's patches so `patches()` — and thus `activeRoot`
+ *  — reflects the host you're on. A same-machine change (`su` flips the tier but
+ *  not the machine) keeps the journal in place, so it costs no refetch/flicker. */
+const rebindPatchClient = (): void => {
+  if (identity === undefined) return;
+  const active = activeSession();
+  if (active === undefined) return;
+  const machineChanged = patchClientDeps?.machineId !== active.machineId;
+  patchClientDeps = {
+    identity,
+    machineId: active.machineId,
+    owner: active.username,
+    tier: active.userType,
+  };
+  patchApi = wrapWithRefetch(createPatchApi(patchClientDeps));
+  if (machineChanged) {
+    setPatches([]);
+    void refetchPatches();
+  }
 };
 
 /** Backs `env.log.appendAuthLog`: posts the `su` event to the server (which
