@@ -22,12 +22,26 @@
 import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { generateHomeLan } from '../generation/generateHomeLan';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
 import { hostMachineId } from '../generation/remoteHostId';
 import { md5 } from '../generation/md5';
+import {
+  AUTH_LOG_OWNER,
+  AUTH_LOG_PATH,
+  AUTH_LOG_PERMISSIONS,
+  derivePid,
+  formatSshdAuthLine,
+} from '../logging/authLog';
+import {
+  appendMachineLog,
+  type MachineLogReadQuery,
+  type MachineLogReadResult,
+} from '../patches/appendMachineLog';
+import { userTypeFromPasswdFields } from '../generation/passwdTier';
+import { asGameTime, type UserType } from '../types';
+import type { PatchRow } from '../patches/upsertPatch';
 import type { NonceStore } from '../signedRequest/nonceStore';
-import type { UserType } from '../types';
 import type { Directory } from '../filesystem/types';
 
 export type AuthSessionRow = {
@@ -43,7 +57,14 @@ export type AuthSessionRow = {
 
 export type AuthCreateSessionDeps = {
   readonly nonceStore: NonceStore;
+  /** The server's wall clock, epoch-ms (UTC) — stamps the auth.log line. */
+  readonly now: () => number;
   readonly insertSession: (row: AuthSessionRow) => Promise<{ readonly error: unknown }>;
+  /** Read the current content of a log file on a (player_key, machine_id) — the
+   *  read half of the system-written auth.log line. */
+  readonly readAuthLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
+  /** Write a patch (here: the appended auth.log line on the remote host). */
+  readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
 };
 
 export type HandlerResponse = {
@@ -67,11 +88,6 @@ const authCreateSessionSchema = z
   })
   .refine((payload) => !('player_key' in payload));
 
-/** The account tier from a passwd row, mirroring `su` and the generators: uid 0 →
- *  root, the literal `guest` account → guest, everyone else → user. */
-const userTypeFromRow = (fields: readonly string[]): UserType =>
-  Number(fields[2]) === 0 ? 'root' : fields[0] === 'guest' ? 'guest' : 'user';
-
 /** The `{ hash, userType }` for `username` on a host's regenerated FS, or null
  *  when the account does not exist. Row shape: `name:hash:uid:gid:gecos:home:shell`. */
 const accountIn = (
@@ -87,7 +103,46 @@ const accountIn = (
     .map((line) => line.split(':'))
     .find((row) => row[0] === username);
   if (fields === undefined) return null;
-  return { hash: fields[1] ?? '', userType: userTypeFromRow(fields) };
+  return { hash: fields[1] ?? '', userType: userTypeFromPasswdFields(fields) };
+};
+
+type SshAttempt = {
+  readonly publicKey: string;
+  readonly machineId: string;
+  readonly host: LanHost;
+  readonly username: string;
+  readonly fromIp: string;
+  readonly outcome: 'success' | 'failure';
+};
+
+/** Stamp the attempt onto the REMOTE host's `/var/log/auth.log` via the shared
+ *  system-log primitive — the same seam nmap/ftp/nc/mysqld/redis will reuse.
+ *  Best-effort: a logging failure must never break (or fabricate) the auth. */
+const logSshAttempt = async (deps: AuthCreateSessionDeps, attempt: SshAttempt): Promise<void> => {
+  const stamp = deps.now();
+  const line = formatSshdAuthLine({
+    outcome: attempt.outcome,
+    user: attempt.username,
+    fromIp: attempt.fromIp,
+    hostname: attempt.host.hostname,
+    time: asGameTime(stamp),
+    pid: derivePid(stamp),
+  });
+  try {
+    await appendMachineLog(
+      { readLog: deps.readAuthLog, upsertPatch: deps.upsertPatch },
+      {
+        playerKey: attempt.publicKey,
+        machineId: attempt.machineId,
+        path: AUTH_LOG_PATH,
+        owner: AUTH_LOG_OWNER,
+        permissions: AUTH_LOG_PERMISSIONS,
+      },
+      line,
+    );
+  } catch {
+    // best-effort: the auth result stands regardless of a logging failure.
+  }
 };
 
 export const handleAuthCreateSession = async (
@@ -113,15 +168,30 @@ export const handleAuthCreateSession = async (
 
   // Validate the credential against the host's real /etc/passwd. Unknown user and
   // bad password are indistinguishable in the response.
+  const machineId = hostMachineId(host, payload.essid);
   const account = accountIn(buildRemoteHostFs(publicKey, payload.essid, host), payload.username);
-  if (account === null || md5(payload.password) !== account.hash) {
+  const passwordOk = account !== null && md5(payload.password) === account.hash;
+
+  // The host is resolved by now, so the attempt CAN be logged — sshd records both
+  // accepted and rejected logins. (A 404 host_unreachable above logs nothing —
+  // there is no machine to log on.)
+  await logSshAttempt(deps, {
+    publicKey,
+    machineId,
+    host,
+    username: payload.username,
+    fromIp: payload.source_ip ?? 'unknown',
+    outcome: passwordOk ? 'success' : 'failure',
+  });
+
+  if (account === null || !passwordOk) {
     return { status: 401, body: { error: 'invalid_credentials' } };
   }
 
   const { error } = await deps.insertSession({
     session_id: payload.session_id,
     player_key: publicKey,
-    machine_id: hostMachineId(host, payload.essid),
+    machine_id: machineId,
     credentials: { username: payload.username, userType: account.userType },
     parent_session_id: payload.parent_session_id ?? null,
     source_ip: payload.source_ip ?? null,

@@ -11,6 +11,8 @@ import {
   type SessionSummary,
 } from '../src/core/sessions/listSessions';
 import { handleEndSession, type EndSessionParams } from '../src/core/sessions/endSession';
+import type { MachineLogReadQuery } from '../src/core/patches/appendMachineLog';
+import type { PatchRow } from '../src/core/patches/upsertPatch';
 import type { NonceStore } from '../src/core/signedRequest/nonceStore';
 
 // Vercel adapter for POST /api/sessions.
@@ -106,9 +108,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (error) console.error('[sessions] auth insert error:', error);
       return { error };
     };
+    // The system-written sshd auth.log line on the REMOTE host: read the current
+    // content + upsert the appended line (read-modify-write, bypassing L1/L2 —
+    // the service logs it, not the player). Same `patches`-table shapes as the su
+    // appender in /api/patches.
+    const readAuthLog = async ({ player_key, machine_id, path }: MachineLogReadQuery) => {
+      const { data, error } = await supabase
+        .from('patches')
+        .select('content')
+        .eq('player_key', player_key)
+        .eq('machine_id', machine_id)
+        .eq('path', path)
+        .maybeSingle();
+      if (error) console.error('[sessions] ssh auth-log read error:', error);
+      return { data, error };
+    };
+    const upsertPatch = async (row: PatchRow) => {
+      const { error } = await supabase.from('patches').upsert(row);
+      if (error) console.error('[sessions] ssh auth-log upsert error:', error);
+      return { error };
+    };
     const { status, body } = await handleAuthCreateSession(req.body, {
       nonceStore: noopNonceStore,
+      now: () => Date.now(),
       insertSession,
+      readAuthLog,
+      upsertPatch,
     });
     res.status(status).json(body);
     return;

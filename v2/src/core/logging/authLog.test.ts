@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { asGameTime } from '../types';
-import { derivePid, formatSuAuthLine } from './authLog';
+import { derivePid, formatSshdAuthLine, formatSuAuthLine } from './authLog';
 
 /**
  * Auth-log line formatting — the syslog-style `/var/log/auth.log` entry `su`
@@ -67,6 +67,51 @@ describe('formatSuAuthLine', () => {
     });
 
     expect(line).toContain('Successful su for alice by guest');
+  });
+});
+
+describe('formatSshdAuthLine', () => {
+  it('renders a successful ssh login as an sshd Accepted line', () => {
+    const line = formatSshdAuthLine({
+      outcome: 'success',
+      user: 'root',
+      fromIp: '192.168.1.50',
+      hostname: 'fileserver-7',
+      time: JUN_7,
+      pid: 4242,
+    });
+
+    expect(line).toBe(
+      'Jun  7 14:32:01 fileserver-7 sshd[4242]: Accepted password for root from 192.168.1.50',
+    );
+  });
+
+  it('renders a rejected ssh login as an sshd Failed line', () => {
+    const line = formatSshdAuthLine({
+      outcome: 'failure',
+      user: 'admin',
+      fromIp: '10.0.0.5',
+      hostname: 'fileserver-7',
+      time: JUN_7,
+      pid: 4242,
+    });
+
+    expect(line).toBe(
+      'Jun  7 14:32:01 fileserver-7 sshd[4242]: Failed password for admin from 10.0.0.5',
+    );
+  });
+
+  it('carries the actual user and source ip into the message', () => {
+    const line = formatSshdAuthLine({
+      outcome: 'success',
+      user: 'alice',
+      fromIp: '172.16.4.9',
+      hostname: 'box',
+      time: JUN_7,
+      pid: 100,
+    });
+
+    expect(line).toContain('Accepted password for alice from 172.16.4.9');
   });
 });
 
