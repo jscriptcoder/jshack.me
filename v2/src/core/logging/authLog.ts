@@ -89,6 +89,33 @@ export const formatSuAuthLine = (event: SuAuthEvent): string =>
         : `FAILED su for ${event.targetUser} by ${event.fromUser}`,
   });
 
+export type SshdAuthEvent = {
+  readonly outcome: 'success' | 'failure';
+  readonly user: string;
+  /** The client's source address (the player's LAN IP for a same-LAN ssh). */
+  readonly fromIp: string;
+  readonly hostname: string;
+  readonly time: GameTime;
+  readonly pid: number;
+};
+
+/** Render an ssh login attempt as the REMOTE host's `/var/log/auth.log` line —
+ *  `Accepted password for <user> from <ip>` on success, `Failed password …` on a
+ *  rejected credential (real sshd logs both). Same syslog core as `su`; the
+ *  `sshd` service tag is the only structural difference, so future service
+ *  loggers (ftp/nc/mysql/redis) follow this exact shape. */
+export const formatSshdAuthLine = (event: SshdAuthEvent): string =>
+  formatSyslogLine({
+    time: event.time,
+    hostname: event.hostname,
+    service: 'sshd',
+    pid: event.pid,
+    message:
+      event.outcome === 'success'
+        ? `Accepted password for ${event.user} from ${event.fromIp}`
+        : `Failed password for ${event.user} from ${event.fromIp}`,
+  });
+
 /** Derive a plausible, deterministic process id (1000–9999) from a numeric seed
  *  (typically `env.now()`). There is no real process model — the pid is cosmetic
  *  syslog realism, so a stable hash of the seed is enough. */

@@ -25,6 +25,7 @@
 
 import { asAbsPath, type AbsPath, type UserType } from '../types';
 import { md5 } from '../generation/md5';
+import { userTypeFromPasswdFields } from '../generation/passwdTier';
 import type { Command, CommandEnv, CommandResult, Session } from './types';
 
 const PASSWD_PATH = asAbsPath('/etc/passwd');
@@ -66,8 +67,7 @@ const targetFrom = (passwd: string, username: string): TargetUser | null => {
   if (row === undefined) return null;
   const fields = row.split(':');
   const passwordHash = fields[1] ?? '';
-  const userType: UserType =
-    Number(fields[2]) === 0 ? 'root' : username === 'guest' ? 'guest' : 'user';
+  const userType: UserType = userTypeFromPasswdFields(fields);
   const home = userType === 'root' ? ROOT_HOME : asAbsPath(`/home/${username}`);
   return { username, passwordHash, userType, home };
 };

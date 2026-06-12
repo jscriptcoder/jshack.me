@@ -10,6 +10,13 @@ import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { buildRemoteHostFs, WEAK_PASSWORDS } from '../generation/remoteHostFs';
 import { hostMachineId } from '../generation/remoteHostId';
 import { md5 } from '../generation/md5';
+import { asGameTime } from '../types';
+import { AUTH_LOG_PATH, derivePid, formatSshdAuthLine } from '../logging/authLog';
+import type {
+  MachineLogReadQuery,
+  MachineLogReadResult,
+} from '../patches/appendMachineLog';
+import type { PatchRow } from '../patches/upsertPatch';
 import type { Directory } from '../filesystem/types';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
@@ -26,14 +33,46 @@ import type { NonceStore } from '../signedRequest/nonceStore';
 
 const freshStore: NonceStore = async () => ({ fresh: true });
 const ESSID = 'BEAN-THERE-WIFI';
+// 2026-06-07 14:32:01 UTC — the server clock the auth.log line is stamped with.
+const FIXED_NOW = Date.UTC(2026, 5, 7, 14, 32, 1);
 
 const makeDeps = (over: Partial<AuthCreateSessionDeps> = {}) => {
   const insertSession = vi.fn<(row: AuthSessionRow) => Promise<{ error: unknown }>>(async () => ({
     error: null,
   }));
-  const deps: AuthCreateSessionDeps = { nonceStore: freshStore, insertSession, ...over };
-  return { deps, insertSession };
+  const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async () => ({
+    error: null,
+  }));
+  const readAuthLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
+    async () => ({ data: null, error: null }),
+  );
+  const deps: AuthCreateSessionDeps = {
+    nonceStore: freshStore,
+    now: () => FIXED_NOW,
+    insertSession,
+    readAuthLog,
+    upsertPatch,
+    ...over,
+  };
+  return { deps, insertSession, upsertPatch, readAuthLog };
 };
+
+/** The sshd auth.log line the server is expected to stamp for an attempt at
+ *  `FIXED_NOW`, given the host + outcome + source ip in the test payloads. */
+const expectedSshdLine = (
+  host: LanHost,
+  outcome: 'success' | 'failure',
+  user: string,
+  fromIp = '192.168.1.50',
+): string =>
+  formatSshdAuthLine({
+    outcome,
+    user,
+    fromIp,
+    hostname: host.hostname,
+    time: asGameTime(FIXED_NOW),
+    pid: derivePid(FIXED_NOW),
+  });
 
 /** A real machine host on the signer's deterministic LAN to ssh into. */
 const targetHostFor = (pubkey: string): LanHost => {
@@ -259,5 +298,145 @@ describe('handleAuthCreateSession', () => {
     const result = await handleAuthCreateSession(validEnvelope(id, host, 'root'), deps);
 
     expect(result).toEqual({ status: 500, body: { error: 'insert_failed' } });
+  });
+
+  it('lands an sshd "Accepted password" line on the REMOTE host\'s auth.log on success', async () => {
+    const id = generateIdentity();
+    const host = targetHostFor(id.publicKeyHex);
+    const { deps, upsertPatch } = makeDeps();
+
+    await handleAuthCreateSession(validEnvelope(id, host, 'root'), deps);
+
+    // The line is system-written, scoped to the attacker's (player_key, remote
+    // machine_id), under /var/log/auth.log with root-owner/root-write perms.
+    expect(upsertPatch.mock.calls[0]![0]).toEqual({
+      player_key: id.publicKeyHex,
+      machine_id: hostMachineId(host, ESSID),
+      path: AUTH_LOG_PATH,
+      content: `${expectedSshdLine(host, 'success', 'root')}\n`,
+      owner: 'root',
+      permissions: { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] },
+      node_type: 'file',
+    });
+  });
+
+  it('lands an sshd "Failed password" line on the remote auth.log for a wrong password', async () => {
+    const id = generateIdentity();
+    const host = targetHostFor(id.publicKeyHex);
+    const envelope = signRequest(
+      id,
+      'authCreateSession',
+      basePayload({ target_ip: host.ip, username: 'root', password: 'not-the-password' }),
+    );
+    const { deps, upsertPatch, insertSession } = makeDeps();
+
+    const result = await handleAuthCreateSession(envelope, deps);
+
+    expect(result.status).toBe(401);
+    expect(insertSession).not.toHaveBeenCalled();
+    expect(upsertPatch.mock.calls[0]![0].content).toBe(
+      `${expectedSshdLine(host, 'failure', 'root')}\n`,
+    );
+  });
+
+  it('appends the line after the existing auth.log content (read-modify-write)', async () => {
+    const id = generateIdentity();
+    const host = targetHostFor(id.publicKeyHex);
+    const { deps, upsertPatch } = makeDeps({
+      readAuthLog: async () => ({ data: { content: 'PRIOR LINE\n' }, error: null }),
+    });
+
+    await handleAuthCreateSession(validEnvelope(id, host, 'root'), deps);
+
+    expect(upsertPatch.mock.calls[0]![0].content).toBe(
+      `PRIOR LINE\n${expectedSshdLine(host, 'success', 'root')}\n`,
+    );
+  });
+
+  it('reads and writes the auth.log on the remote machine, not the attacker workstation', async () => {
+    const id = generateIdentity();
+    const host = targetHostFor(id.publicKeyHex);
+    const { deps, readAuthLog } = makeDeps();
+
+    await handleAuthCreateSession(validEnvelope(id, host, 'root'), deps);
+
+    expect(readAuthLog.mock.calls[0]![0]).toEqual({
+      player_key: id.publicKeyHex,
+      machine_id: hostMachineId(host, ESSID),
+      path: AUTH_LOG_PATH,
+    });
+  });
+
+  it('carries the caller source_ip into the auth.log line', async () => {
+    const id = generateIdentity();
+    const host = targetHostFor(id.publicKeyHex);
+    const { deps, upsertPatch } = makeDeps();
+
+    await handleAuthCreateSession(
+      validEnvelope(id, host, 'root', { source_ip: '10.9.8.7' }),
+      deps,
+    );
+
+    expect(upsertPatch.mock.calls[0]![0].content).toContain('from 10.9.8.7');
+  });
+
+  it('logs "from unknown" when no source_ip is supplied', async () => {
+    const id = generateIdentity();
+    const host = targetHostFor(id.publicKeyHex);
+    const fs = buildRemoteHostFs(id.publicKeyHex, ESSID, host);
+    const { source_ip: _drop, ...noSource } = basePayload({
+      target_ip: host.ip,
+      username: 'root',
+      password: passwordFor(fs, 'root'),
+    });
+    const { deps, upsertPatch } = makeDeps();
+
+    await handleAuthCreateSession(signRequest(id, 'authCreateSession', noSource), deps);
+
+    expect(upsertPatch.mock.calls[0]![0].content).toContain('from unknown');
+  });
+
+  it('does not append a line when the auth.log read fails (read-modify-write bails)', async () => {
+    const id = generateIdentity();
+    const host = targetHostFor(id.publicKeyHex);
+    const { deps, upsertPatch } = makeDeps({
+      readAuthLog: async () => ({ data: null, error: { message: 'read failed' } }),
+    });
+
+    const result = await handleAuthCreateSession(validEnvelope(id, host, 'root'), deps);
+
+    // The auth itself still succeeds — logging is best-effort — but the broken
+    // read must not let the append clobber the log with a contentless write.
+    expect(result.status).toBe(200);
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('writes no auth.log line when the target host is unreachable (nothing to log on)', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(
+      id,
+      'authCreateSession',
+      basePayload({ target_ip: '10.255.255.254', username: 'root', password: 'x' }),
+    );
+    const { deps, upsertPatch } = makeDeps();
+
+    await handleAuthCreateSession(envelope, deps);
+
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('does not let a logging failure break (or fabricate) a successful auth', async () => {
+    const id = generateIdentity();
+    const host = targetHostFor(id.publicKeyHex);
+    const { deps, insertSession } = makeDeps({
+      upsertPatch: async () => {
+        throw new Error('log write exploded');
+      },
+    });
+
+    const result = await handleAuthCreateSession(validEnvelope(id, host, 'root'), deps);
+
+    expect(result).toEqual({ status: 200, body: { ok: true, userType: 'root' } });
+    expect(insertSession).toHaveBeenCalledTimes(1);
   });
 });
