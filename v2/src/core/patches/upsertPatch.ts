@@ -3,17 +3,16 @@
  * Supabase). The api/ glue injects a real Supabase-backed `upsertPatch` and a
  * nonce store; tests inject mocks.
  *
- * Flow: verify the signed envelope → confirm the target is the caller's OWN
- * workstation (server-side suffix match; sessions for other machines are a
- * later plan) → server-stamp player_key from the VERIFIED pubkey (never a
- * client claim) → upsert. The payload schema rejects a client-supplied
- * player_key outright.
+ * Flow: verify the signed envelope → L1-authorize the target machine (own
+ * workstation by suffix match, OR an active ssh session there) → server-stamp
+ * player_key from the VERIFIED pubkey (never a client claim) → upsert. The
+ * payload schema rejects a client-supplied player_key outright.
  */
 
 import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { isOwnWorkstation } from '../identity/workstation';
+import { authorizeMachineAccess, type FindActiveSession } from './authorizeMachineAccess';
 import type { NonceStore } from '../signedRequest/nonceStore';
 import type { UserType } from '../types';
 
@@ -36,6 +35,7 @@ export type PatchRow = {
 
 export type UpsertPatchDeps = {
   readonly nonceStore: NonceStore;
+  readonly findActiveSession: FindActiveSession;
   readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
 };
 
@@ -78,8 +78,9 @@ export const handleUpsertPatch = async (
   }
 
   const { publicKey, payload } = verified;
-  if (!isOwnWorkstation(payload.machine_id, publicKey)) {
-    return { status: 403, body: { error: 'no_session' } };
+  const access = await authorizeMachineAccess(publicKey, payload.machine_id, deps.findActiveSession);
+  if (!access.ok) {
+    return { status: access.status, body: { error: access.error } };
   }
 
   const { error } = await deps.upsertPatch({

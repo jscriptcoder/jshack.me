@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { handleRemovePatch, type FindPatchResult, type RemovePatchDeps } from './removePatch';
+import type {
+  ActiveSessionQuery,
+  FindActiveSessionResult,
+} from './authorizeMachineAccess';
 import type { PatchRow } from './upsertPatch';
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
@@ -19,6 +23,7 @@ const makeDeps = (
     readonly findResult?: FindPatchResult;
     readonly deleteError?: unknown;
     readonly upsertError?: unknown;
+    readonly activeSession?: FindActiveSessionResult;
   } = {},
 ) => {
   const findPatch = vi.fn<RemovePatchDeps['findPatch']>(
@@ -30,13 +35,19 @@ const makeDeps = (
   const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async () => ({
     error: over.upsertError ?? null,
   }));
+  // Default: no active session on the queried machine; foreign-machine removals
+  // override to simulate an ssh hop being present.
+  const findActiveSession = vi.fn<(query: ActiveSessionQuery) => Promise<FindActiveSessionResult>>(
+    async () => over.activeSession ?? { data: null, error: null },
+  );
   const deps: RemovePatchDeps = {
     nonceStore: over.nonceStore ?? freshStore,
+    findActiveSession,
     findPatch,
     deletePatchTree,
     upsertPatch,
   };
-  return { deps, findPatch, deletePatchTree, upsertPatch };
+  return { deps, findPatch, deletePatchTree, upsertPatch, findActiveSession };
 };
 
 /** Fields for a removal on the signer's OWN workstation. */
@@ -105,10 +116,10 @@ describe('handleRemovePatch', () => {
     expect(upsertPatch.mock.calls[0]![0].player_key).toBe(id.publicKeyHex);
   });
 
-  it('rejects a removal targeting a machine that is not the caller’s workstation with 403', async () => {
+  it('rejects a removal on a foreign machine when the caller has no active session there (403)', async () => {
     const id = generateIdentity();
     const envelope = signRequest(id, 'removePatch', {
-      machine_id: computeWorkstationId('victim', 'b'.repeat(64)),
+      machine_id: 'darkstar-12345678',
       path: '/x',
       owner: 'alice',
     });
@@ -119,6 +130,57 @@ describe('handleRemovePatch', () => {
     expect(result).toEqual({ status: 403, body: { error: 'no_session' } });
     expect(findPatch).not.toHaveBeenCalled();
     expect(deletePatchTree).not.toHaveBeenCalled();
+  });
+
+  it('removes a node on a foreign machine when an active ssh session exists there', async () => {
+    const id = generateIdentity();
+    const foreign = 'darkstar-12345678';
+    const envelope = signRequest(id, 'removePatch', {
+      machine_id: foreign,
+      path: '/tmp/pwned',
+      owner: 'root',
+    });
+    const { deps, deletePatchTree } = makeDeps({
+      findResult: found(true),
+      activeSession: { data: { userType: 'root', essid: 'VANDELAY' }, error: null },
+    });
+
+    const result = await handleRemovePatch(envelope, deps);
+
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    expect(deletePatchTree).toHaveBeenCalledWith({
+      player_key: id.publicKeyHex,
+      machine_id: foreign,
+      path: '/tmp/pwned',
+    });
+  });
+
+  it('does not consult the sessions table for an own-workstation removal (L1 bypass)', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'removePatch', ownFields(id.publicKeyHex));
+    const { deps, findActiveSession } = makeDeps({ findResult: found(true) });
+
+    const result = await handleRemovePatch(envelope, deps);
+
+    expect(result.status).toBe(200);
+    expect(findActiveSession).not.toHaveBeenCalled();
+  });
+
+  it('returns 500 when the active-session lookup fails (not a false 403)', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'removePatch', {
+      machine_id: 'darkstar-12345678',
+      path: '/x',
+      owner: 'alice',
+    });
+    const { deps, findPatch } = makeDeps({
+      activeSession: { data: null, error: { message: 'db down' } },
+    });
+
+    const result = await handleRemovePatch(envelope, deps);
+
+    expect(result).toEqual({ status: 500, body: { error: 'session_lookup_failed' } });
+    expect(findPatch).not.toHaveBeenCalled();
   });
 
   it('rejects a tampered signature with 401 and never touches the table', async () => {

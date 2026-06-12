@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { handleUpsertPatch, type PatchRow, type UpsertPatchDeps } from './upsertPatch';
+import type {
+  ActiveSessionQuery,
+  FindActiveSessionResult,
+} from './authorizeMachineAccess';
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
 import { computeWorkstationId } from '../identity/workstation';
@@ -11,8 +15,13 @@ const makeDeps = (over: Partial<UpsertPatchDeps> = {}) => {
   const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async () => ({
     error: null,
   }));
-  const deps: UpsertPatchDeps = { nonceStore: freshStore, upsertPatch, ...over };
-  return { deps, upsertPatch };
+  // Default: no active session on the queried machine. Foreign-machine tests
+  // override this to simulate an ssh session being present.
+  const findActiveSession = vi.fn<(query: ActiveSessionQuery) => Promise<FindActiveSessionResult>>(
+    async () => ({ data: null, error: null }),
+  );
+  const deps: UpsertPatchDeps = { nonceStore: freshStore, upsertPatch, findActiveSession, ...over };
+  return { deps, upsertPatch, findActiveSession };
 };
 
 // Fields for a write to the signer's OWN workstation.
@@ -41,19 +50,78 @@ describe('handleUpsertPatch', () => {
     expect(row.owner).toBe('alice');
   });
 
-  it('rejects a write to a machine that is not the caller’s workstation with 403 no_session', async () => {
+  it('rejects a write to a foreign machine when the caller has no active session there (403 no_session)', async () => {
     const id = generateIdentity();
+    const foreign = 'darkstar-12345678';
     const envelope = signRequest(id, 'upsertPatch', {
-      machine_id: computeWorkstationId('victim', 'b'.repeat(64)),
+      machine_id: foreign,
       path: '/x',
       content: 'y',
       owner: 'alice',
     });
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, upsertPatch, findActiveSession } = makeDeps();
 
     const result = await handleUpsertPatch(envelope, deps);
 
     expect(result).toEqual({ status: 403, body: { error: 'no_session' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+    // The L1 gate consults the sessions table scoped to the VERIFIED pubkey and
+    // the target machine — never a client claim.
+    expect(findActiveSession).toHaveBeenCalledWith({
+      player_key: id.publicKeyHex,
+      machine_id: foreign,
+    });
+  });
+
+  it('permits a write to a foreign machine when an active ssh session exists there', async () => {
+    const id = generateIdentity();
+    const foreign = 'darkstar-12345678';
+    const envelope = signRequest(id, 'upsertPatch', {
+      machine_id: foreign,
+      path: '/tmp/pwned',
+      content: 'owned',
+      owner: 'root',
+    });
+    const { deps, upsertPatch } = makeDeps({
+      findActiveSession: async () => ({ data: { userType: 'root', essid: 'VANDELAY' }, error: null }),
+    });
+
+    const result = await handleUpsertPatch(envelope, deps);
+
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    const row = upsertPatch.mock.calls[0]![0];
+    expect(row.player_key).toBe(id.publicKeyHex);
+    expect(row.machine_id).toBe(foreign);
+    expect(row.path).toBe('/tmp/pwned');
+  });
+
+  it('does not consult the sessions table for an own-workstation write (L1 bypass)', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'upsertPatch', ownFields(id.publicKeyHex));
+    const { deps, upsertPatch, findActiveSession } = makeDeps();
+
+    const result = await handleUpsertPatch(envelope, deps);
+
+    expect(result.status).toBe(200);
+    expect(upsertPatch).toHaveBeenCalledTimes(1);
+    expect(findActiveSession).not.toHaveBeenCalled();
+  });
+
+  it('returns 500 when the active-session lookup fails (not a false 403)', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'upsertPatch', {
+      machine_id: 'darkstar-12345678',
+      path: '/x',
+      content: 'y',
+      owner: 'alice',
+    });
+    const { deps, upsertPatch } = makeDeps({
+      findActiveSession: async () => ({ data: null, error: { message: 'db down' } }),
+    });
+
+    const result = await handleUpsertPatch(envelope, deps);
+
+    expect(result).toEqual({ status: 500, body: { error: 'session_lookup_failed' } });
     expect(upsertPatch).not.toHaveBeenCalled();
   });
 

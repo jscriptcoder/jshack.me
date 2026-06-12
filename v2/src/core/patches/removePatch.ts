@@ -17,14 +17,14 @@
  * Descendant cleanup is unconditional — a file has none, and a recursively
  * removed directory must not leave orphaned child patches behind. `player_key`
  * is server-stamped from the VERIFIED pubkey (never a client claim); the schema
- * rejects a client-supplied player_key outright. Own-workstation only (suffix
- * match) — sessions for other machines are a later plan.
+ * rejects a client-supplied player_key outright. L1-gated like the write path:
+ * own workstation (suffix match) OR an active ssh session on the target.
  */
 
 import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { isOwnWorkstation } from '../identity/workstation';
+import { authorizeMachineAccess, type FindActiveSession } from './authorizeMachineAccess';
 import type { NonceStore } from '../signedRequest/nonceStore';
 import type { PatchRow } from './upsertPatch';
 
@@ -41,6 +41,7 @@ export type FindPatchResult = {
 
 export type RemovePatchDeps = {
   readonly nonceStore: NonceStore;
+  readonly findActiveSession: FindActiveSession;
   /** Look up the row at the exact path (to read its `is_new` flag). */
   readonly findPatch: (query: PatchTreeQuery) => Promise<FindPatchResult>;
   /** Delete the row at `path` AND every row beneath it (`path/...`). */
@@ -77,8 +78,9 @@ export const handleRemovePatch = async (
   }
 
   const { publicKey, payload } = verified;
-  if (!isOwnWorkstation(payload.machine_id, publicKey)) {
-    return { status: 403, body: { error: 'no_session' } };
+  const access = await authorizeMachineAccess(publicKey, payload.machine_id, deps.findActiveSession);
+  if (!access.ok) {
+    return { status: access.status, body: { error: access.error } };
   }
 
   const query: PatchTreeQuery = {

@@ -1,7 +1,8 @@
 # Plan: Remote access via SSH
 
-**Status**: Active — Slices 1–2 SHIPPED. Slice 3 PRs 3a–3c SHIPPED (#221, #222, #223). NEXT: PR 3d
-(failures + `exit` + refresh survival), then 3e (writable remote).
+**Status**: Active — Slices 1–2 SHIPPED. Slice 3 PRs 3a–3d SHIPPED (#221, #222, #223, #224). NEXT:
+PR 3e (writable remote — **L1 gate + remote-patch observability**), then 3f (**L2 perm matrix** +
+remote auth.log line). 3e/3f are the split of the original single "3e".
 **Type**: New epic on top of the pidfile "running services" primitive. Absorbs generator-epic
 **Story 3** (enter a generated machine + browse its FS), and — per the locked decisions — the
 cross-machine **session-auth** and **writable-remote (L1+L2)** spine of the multiplayer model.
@@ -83,10 +84,13 @@ later for L1/L2 (the server cannot invert the coordinate-derived `machine_id` su
   own-workstation-only today). Sequenced LAST (PR 3e) so the read-path headline ships first.
 
 ### Open decisions still parked (settle at the PR that needs them — they don't block earlier PRs)
-- **PR 3e L2 strategy**: server-side **regeneration** (`applyPatches(buildRemoteHostFs(...), priorPatches)`
-  then walk perms) vs a legacy-style **`machine_filesystems` projection** (dual-write). Regeneration
-  is more v2-idiomatic (no projection table) but must apply prior patches over a regenerated base
-  server-side. Decide when PR 3e starts.
+- ~~**PR 3e/3f L2 strategy**~~ — RESOLVED (2026-06-12, at 3e start): server-side **regeneration**.
+  L2 (in 3f) reconstructs perms in the handler: `hostForMachineId(pubkey, essid, machine_id)` →
+  `buildRemoteHostFs` → `applyPatches(base, priorPatches)` → walk to the path →
+  `canWrite(session.userType, targetPerms, parentChain)`. NO projection table (the legacy
+  `machine_filesystems` dual-write is the thing v2 deliberately diverged from); `essid` already rides
+  on the session row (PR 3b), so the host is recoverable server-side. Same regenerate-FS pattern
+  `authCreateSession` already uses.
 - ~~**Exact new `sessions` columns** for regeneration~~ — RESOLVED (PR 3b): the migration adds **only
   `essid`**. `target_ip` is redundant — the server recovers the host from `(essid, machine_id)` via
   `hostForMachineId` (the coordinate suffix can't be inverted to an IP, but a LAN regeneration +
@@ -108,8 +112,12 @@ later for L1/L2 (the server cannot invert the coordinate-derived `machine_id` su
       with realistic messages and push no session.
 - [ ] An `ssh` hop survives a browser refresh via the `sessions` rehydrate path (player_key-scoped,
       remote-FS resolved on boot).
-- [ ] A user operating a remote host writes files there only at the tier their login grants
-      (root anywhere; user/guest per the file's perms); a write without a valid session is refused.
+- [ ] (3e) A player ssh'd into a remote host can write+read files there and they survive a refresh
+      (write/read gated by an active `sessions` row for `(player_key, machine_id)`); a write with no
+      session is refused (403 `no_session`).
+- [ ] (3f) Those writes are further constrained to the tier the login grants — root anywhere;
+      user/guest only where the file's perms allow — and the ssh login lands a line on the remote
+      host's `/var/log/auth.log`.
 
 ---
 
@@ -124,9 +132,9 @@ REFACTOR; load `tdd`/`testing`/`mutation-testing`/`refactoring` before code; `np
 
 ### Slice 3 — `ssh user@host`: connect, server-auth, land, operate
 
-Re-specified into five dependency-ordered PRs. PRs 3a–3b are foundation (generator + server, unit-
+Re-specified into six dependency-ordered PRs. PRs 3a–3b are foundation (generator + server, unit-
 tested in isolation); 3c is the UI-observable headline; 3d closes failures + refresh; 3e adds
-writable-remote.
+writable-remote (L1 + observability); 3f adds the L2 perm matrix + remote auth.log.
 
 #### PR 3a — Remote host grows a full base FS + machine_id identity ✅ (PR #221, v0.44.0)
 **Value**: an NPC host is a real machine — `/etc/passwd` (root+user+guest, seeded weak passwords via
@@ -196,21 +204,44 @@ on the session row (3c).
 gate, no machine_id in payload/query); rehydrate rebuilds an ssh hop and lands in the remote home.
 **Live**: ssh in, refresh, still on the remote host; `exit` pops back; failure messages spot-check.
 
-#### PR 3e — writable remote FS (L1 + L2)
-**Value**: operate the remote host — write files at the tier your login grants.
-**Scope**: replace `handleUpsertPatch`/`handleRemovePatch`'s `isOwnWorkstation` gate with **L1**
-(own-workstation bypass; else require an active `sessions` row for `(player_key, machine_id)`) + **L2**
-(reconstruct the path's perms — see the parked regeneration-vs-projection decision — and
-`canWrite(session.userType, perms)`). Client: patches target the active `session.machineId`; ambient
-log paths (`/var/log/auth.log` etc.) bypass L1/L2 (recon side-effects). Port the permission walker
-(`canWrite`) + active-session adapter.
-Also lands here (moved from 3d, decided 2026-06-11): the **ssh auth.log line** on the REMOTE host
-(`sshd: Accepted/Failed password for <user> from <source_ip>`) — it needs this PR's remote patch
-read path to be observable, so it ships with its consumer.
-**Tests**: write to remote as root (allowed), as user/guest per perms (allowed/denied), without a
-session (403 no_session); ambient-log bypass; L2 perm matrix.
-**Live**: `ssh root@host` then `echo pwned > /tmp/x` + `cat` it back; a user-tier login denied on a
-root-only path.
+#### PR 3e — writable remote FS, part 1: L1 gate + remote-patch observability
+**Value**: a player ssh'd into a remote host can write to it AND see the write (`cat` it back, survive
+a refresh) — gated by an active session, no tier enforcement yet (any authenticated tier; 3f adds L2).
+**Scope (re-scoped at 3e start, 2026-06-12 — the real surface is bigger than "swap the gate")**:
+- **Server L1**: replace the `isOwnWorkstation` → 403 gate in `handleUpsertPatch`,
+  `handleRemovePatch`, AND `handleListPatches` with a shared L1 check — own-workstation bypass (as
+  today) OR an active `sessions` row exists for `(player_key, machine_id)`; else 403 `no_session`.
+  New dep: `findActiveSession(player_key, machine_id)` (api/patches glue queries the `sessions`
+  table). listPatches MUST get the gate too, or the client can't read remote patches back.
+- **Client observability**: the patch API must target the **active** session's machine, not the
+  baked-in own-workstation id (`patchApi.ts` `machineId` becomes a resolver / the deps follow the
+  active session). `patches()` generalizes from "own journal" to "active machine's journal":
+  refetch on session push (ssh hop) + pop + after each write. `resolveActiveRoot` replays
+  `patches()` over the remote base too (`applyPatches(buildRemoteHostFs(...), patches())`), so a
+  remote write materializes. Cross-tab broadcast keyed to the active machine.
+**Tests**: handler — upsert/list/remove allowed with an active remote session, 403 with none, own
+bypass unchanged; client — patch API targets the active machine; resolveActiveRoot replays remote
+patches; refetch fires on push/pop.
+**Live**: `su root`→`sshd`→`ssh root@<host>`→`echo pwned > /tmp/x`→`cat /tmp/x` shows it→refresh→
+still there→`exit`→back on own box; a write attempt with no session (forged machine_id) → refused.
+
+#### PR 3f — writable remote FS, part 2: L2 perm matrix + remote auth.log
+**Value**: remote writes are constrained to the tier your login grants; the ssh login is logged.
+**Scope**: add **L2** to the (already L1-gated) `handleUpsertPatch`/`handleRemovePatch` — reconstruct
+the target path's perms server-side via **regeneration** (resolved decision):
+`hostForMachineId(verifiedPubkey, session.essid, machine_id)` → `buildRemoteHostFs` →
+`applyPatches(base, priorPatches fetched in-handler)` → walk to the path collecting target perms +
+parent chain → `canWrite(session.userType, targetPerms, parentChain)`; deny → 403. `findActiveSession`
+grows to return `{ userType, essid }`. Own-workstation still bypasses L2 (client enforces own-box L2).
+Ambient log paths (`/var/log/auth.log` etc.) bypass L1/L2 (recon side-effects). Collapse the
+`userTypeFromRow` rule-of-three (`authCreateSession.ts` + `su.ts` + here).
+Also lands here (moved from 3d): the **ssh auth.log line** on the REMOTE host
+(`sshd: Accepted/Failed password for <user> from <source_ip>`) — needs the remote patch read path
+(3e) to be observable, so it ships with its consumer.
+**Tests**: write to remote as root (allowed anywhere), as user/guest per perms (allowed/denied),
+parent-not-traversable deny; ambient-log bypass; auth.log line lands on the remote host.
+**Live**: `ssh root@host` then `echo pwned > /tmp/x` allowed; a user/guest-tier login denied on a
+root-only path; `cat /var/log/auth.log` on the remote shows the Accepted line.
 
 ---
 
