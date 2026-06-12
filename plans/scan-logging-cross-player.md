@@ -1,18 +1,24 @@
 # Plan: scan/connection logging — leaving traces on target machines (cross-player)
 
 **Branch**: `feat/v2-scan-logging` (per-slice branches below)
-**Status**: Proposed — **STILL BLOCKED, but the block narrowed** (updated 2026-06-12, post-SSH-epic).
-The SSH epic (PRs #221–#228) built three of the four prerequisites: the **remote write seam**, the
-**server L1 gate** (`authorizeMachineAccess`), and the **server L2 walker** (`enforceRemoteWriteL2`)
-all now exist, and PR #228 shipped **`appendMachineLog`** — the exact "system writes a line to a
-machine's log file" primitive this plan needs. The ONE remaining hard block is **cross-player shared
-machine persistence**: 3g's log lands in the *attacker's own per-viewer copy* of the host (scoped to
-`(attacker_player_key, machine_id)`), so a *different* identity cannot yet read the trace. That shared
-machine record is `network-generator-epic` work. Do **not** start the cross-player slices until it holds.
-**Mechanism reshaped — see "Post-SSH-epic mechanism update" below: the 3g server-internal write almost
-certainly OBSOLETES the `AMBIENT_LOG_FILES` allowlist (Slice 2).**
+**Status**: In progress — **Slice 3 RE-SLICED into 3a (UNBLOCKED) + 3b (blocked)** (updated 2026-06-12,
+post-SSH-epic). The SSH epic (PRs #221–#228) built three of the four prerequisites: the **remote write
+seam**, the **server L1 gate** (`authorizeMachineAccess`), and the **server L2 walker**
+(`enforceRemoteWriteL2`) all now exist, and PR #228 shipped **`appendMachineLog`** — the exact "system
+writes a line to a machine's log file" primitive this plan needs.
+**Key reframing (2026-06-12):** the per-viewer write is at **exact parity with the already-shipped SSH
+auth.log** (#228 also writes scoped to `(player_key, machine_id)` — self-readable, not yet cross-player).
+So the scan log can ship the same way **now**: **Slice 3a** writes the kern.log line on the scanned
+NPC/generated host per-viewer (self-observable: scan → break in as the same identity → `cat kern.log`
+shows your own scan), which is **unblocked and builds the entire server-action + write seam**. The ONE
+remaining hard block is **cross-player shared machine persistence** (the _different-identity_ read +
+scanning real player workstations): that is **Slice 3b**, and it needs the shared, server-persisted
+machine record from `network-generator-epic`. 3b is then only a re-key/re-read of 3a's write — the write
+call, formatter, source-IP, and NAT logic all carry over.
+**Mechanism reshaped — see "Post-SSH-epic mechanism update" below: the 3g server-internal write
+OBSOLETES the `AMBIENT_LOG_FILES` allowlist (Slice 2, DELETED).**
 **Parent epic**: `plans/network-generator-epic.md` (cross-player read/write path) — slots in once
-generated LAN hosts have DB-backed, *cross-player-shared* patch streams.
+generated LAN hosts have DB-backed, _cross-player-shared_ patch streams.
 
 ## Why this matters
 
@@ -39,10 +45,10 @@ each item:
    `/var/log/auth.log` there). **STILL MISSING (the hard block): a CROSS-PLAYER SHARED machine record.**
    Each viewer regenerates the host's FS and patches under THEIR OWN `player_key`, so a trace one player
    writes is invisible to another. `findMachineByAddress`/`resolveDns` in `v2/src/ui/env.ts` may still
-   need wiring for an *unowned* target. → `network-generator-epic`.
+   need wiring for an _unowned_ target. → `network-generator-epic`.
 2. **A remote write seam** exists. ✅ **MET (SSH epic).** The full remote write path landed (3e/3f),
    and 3g shipped **`appendMachineLog`** (`core/patches/appendMachineLog.ts`) — the read-modify-write of
-   a log file on a target machine, *as the system*. This is the seam (see the mechanism update below);
+   a log file on a target machine, _as the system_. This is the seam (see the mechanism update below);
    the legacy `LogApi`/target-aware-`PatchApi` framing is superseded.
 3. **Server L1 exists to make an exception _for_.** ✅ **MET (PR #225).**
    `core/patches/authorizeMachineAccess.ts` — own-workstation bypass OR an active `sessions` row for
@@ -53,8 +59,9 @@ each item:
    projection). A bypass would now skip both L1 and L2 — but see below: the 3g pattern doesn't need a
    bypass at all.
 
-If you find yourself wanting to log to a host that has no CROSS-PLAYER-SHARED machine record, STOP —
-the write mechanism exists (#2–#4), but the trace is only per-viewer until #1's shared half lands.
+Per-viewer logging (the scanner reads their own trace) needs only #2–#4, all MET — that is **Slice 3a**,
+buildable now. The STOP rule applies only to **Slice 3b**: if you need a _different_ identity to read
+the trace (cross-player), do not proceed until #1's shared machine record lands.
 
 ## Post-SSH-epic mechanism update (2026-06-12) — READ BEFORE the legacy reference
 
@@ -62,8 +69,8 @@ PR #228 (ssh auth.log) established the v2 pattern for "a service records a login
 just touched", and it diverges from legacy in a way that **simplifies this plan**:
 
 - **Write via `appendMachineLog`** (`core/patches/appendMachineLog.ts`), NOT a client `LogApi` through
-  the normal patch stream. It is a fire-and-forget read-modify-write of a target log file *as the
-  system* (`{readLog, upsertPatch}` deps + `{playerKey, machineId, path, owner, permissions}` target).
+  the normal patch stream. It is a fire-and-forget read-modify-write of a target log file _as the
+  system_ (`{readLog, upsertPatch}` deps + `{playerKey, machineId, path, owner, permissions}` target).
   Built to be reused by exactly these callers (nmap-scan/ftp/nc/mysqld/redis) — **only the formatter and
   the target path differ.** For nmap that is `formatNmapScanAggregate` + `/var/log/kern.log` (kern.log
   confirmed by the owner: legacy-faithful + realistic).
@@ -72,21 +79,24 @@ just touched", and it diverges from legacy in a way that **simplifies this plan*
   resolved/authorized the target, writes the log line itself. **The client never supplies the path or
   content.**
 - **⇒ The `AMBIENT_LOG_FILES` allowlist (Slice 2) is almost certainly OBSOLETE.** The allowlist existed
-  only because legacy logging was *client-driven*: the client told the server "append <line> to
+  only because legacy logging was _client-driven_: the client told the server "append <line> to
   </var/log/...> on target X", so the server needed an exact-match Set to stop a forged envelope from
   planting `/var/log/payload.sh`. In the 3g model the **server hardcodes the path** (kern.log) — there
   is nothing to forge, so there is no allowlist to protect and no L1/L2 bypass to grant. This is
   strictly simpler and more secure. **CONFIRM at Slice 2: drop the allowlist entirely** unless a
   genuinely client-driven log write survives (none is currently planned).
 - **Structural implication: nmap must gain a SERVER round-trip.** Today nmap is pure client-side
-  generation (`generateHomeLan`), so there is no handler in which to do the server-internal write. The
-  cross-player slice therefore turns the scan into a server action (resolve the SHARED target → return
-  ports → write the kern.log line via `appendMachineLog`), the same shape as `authCreateSession`. This
-  also aligns with #1: reading a *shared* host's ports is a server read anyway.
-- **What already exists in v2** (do not re-port): the syslog core `formatSyslogLine` +
-  `formatSuAuthLine`/`formatSshdAuthLine` (`core/logging/authLog.ts`) — add `formatNmapScanAggregate`
-  beside them; the source-IP/public-IP model (Slice A, **SHIPPED #210**); the L1/L2 server gates.
-- **The cross-player gap is unchanged by 3g.** `appendMachineLog` writes under the *caller's* player_key
+  generation (`generateHomeLan`), so there is no handler in which to do the server-internal write.
+  **Slice 3a** turns the scan into a server action (resolve the target → return ports → write the
+  kern.log line via `appendMachineLog`), the same shape as `authCreateSession`. **Slice 3b** later
+  re-points target resolution + the row key at the _shared_ machine record (reading a shared host's
+  ports is a server read anyway) — but the server action itself is built in 3a.
+- **What already exists in v2** (do not re-port): the syslog core `formatSyslogLine` (`core/logging/
+syslog.ts`); `formatNmapScanAggregate` (`core/logging/kernLog.ts`) + `resolveLogSourceIP`
+  (`core/logging/sourceIp.ts`), both **SHIPPED in Slice 1 (v0.51.0)**; the source-IP/public-IP model
+  (Slice A, **SHIPPED #210**); the L1/L2 server gates. 3a only needs the server action + `KERN_LOG_*`
+  storage identity + wiring.
+- **The cross-player gap is unchanged by 3g.** `appendMachineLog` writes under the _caller's_ player_key
   view. Making the trace readable by another identity still needs the shared-machine record (#1). The
   primitive is already shaped for it (target is `(playerKey, machineId)`; a shared model swaps how the
   row is keyed/read, not the write call).
@@ -130,8 +140,9 @@ Full module: `src/logging/` (legacy, frozen). The shape to carry over:
   nmap's server action calls it with `formatNmapScanAggregate(...)` + the kern.log target. (The old
   `LogApi` stub in `v2/src/core/commands/types.ts`/`env.ts` is superseded by the server-internal model
   — a client-side `LogApi` is no longer the seam; remove or leave the dead stub.)
-- The syslog formatters (`core/logging/authLog.ts`: `formatSyslogLine` + `formatSuAuthLine` +
-  `formatSshdAuthLine`) — add `formatNmapScanAggregate` here.
+- The syslog formatters (`core/logging/syslog.ts`: `formatSyslogLine`/`formatSyslogTimestamp`;
+  `core/logging/kernLog.ts`: `formatNmapScanAggregate`; `core/logging/sourceIp.ts`:
+  `resolveLogSourceIP`) — all **SHIPPED in Slice 1 (v0.51.0)**; 3a just calls them.
 - The server L1/L2 gates already exist (`authorizeMachineAccess.ts`, `remoteWritePermission.ts`) — the
   server-internal write doesn't pass through them, so no bypass/allowlist is needed (see mechanism
   update). The remaining surface is the **shared cross-player machine record** (network-generator-epic).
@@ -198,19 +209,27 @@ yet (`assignHomeNetwork` issues only a `localIp`). Resolution:
 
 ## Acceptance Criteria
 
-- [ ] An online player runs `nmap <subnet>` against a **real, server-persisted** target host →
-      a single aggregate line lands in that target's `/var/log/kern.log`, persisted server-side.
-- [ ] A different identity that can read that target (owner, or post-breakin session) sees the
-      scanner's line via `cat /var/log/kern.log` — i.e. the trace is genuinely cross-player observable.
-- [ ] The source IP follows the realism rule: same-`/24` scan logs the attacker's **LAN IP**;
+Tagged by the slice that satisfies each: **[3a]** passes once the per-viewer write ships (unblocked);
+**[3b]** stays unchecked until the shared-machine record lands. Shipping 3a WITHOUT 3b is expected — do
+not read "scan logging shipped" as "cross-player log discovery works"; the headline PvP payoff is 3b.
+
+- [ ] **[3a]** An online player runs `nmap <target>` against a real generated host → a single aggregate
+      line lands in that host's `/var/log/kern.log`, persisted server-side.
+- [ ] **[3a]** The **same identity** that scanned then reads the host (post-breakin session via ssh)
+      sees its **own** scan line via `cat /var/log/kern.log` — self-observable, parity with SSH auth.log.
+- [ ] **[3a]** The source IP follows the realism rule: same-`/24` scan logs the attacker's **LAN IP**;
       off-network scan logs the **home-router public IP**.
+- [ ] **[3a]** Scanning while offline writes **no** log (no target, no trace).
+- [ ] **[3b]** A **different identity** that can read that target (owner, or post-breakin session) sees
+      the scanner's line — i.e. the trace is genuinely **cross-player observable** (the headline payoff).
+- [ ] **[3b]** Scanning a real **player workstation** (not just an NPC host) leaves the same trace,
+      readable by that workstation's owner.
 - [ ] ~~A forged signed envelope with no session can upsert to an allowlisted log path~~ — **N/A under
       the server-internal write** (the client never supplies a log path, so there is no allowlist to
       test). Reinstate only if a client-driven log write is added.
-- [ ] `removePatch` on a log file with no session is rejected — covering tracks needs a real session.
-      (Unchanged: the server-internal *write* bypasses nothing, but *deleting* a line is still a normal
+- [ ] **[3a]** `removePatch` on a log file with no session is rejected — covering tracks needs a real
+      session. (The server-internal _write_ bypasses nothing, but _deleting_ a line is still a normal
       session-gated remove — the legacy asymmetry holds.)
-- [ ] Scanning while offline writes **no** log (no target, no trace).
 
 ## Slices
 
@@ -219,8 +238,9 @@ test. Load `tdd`, `testing`, `mutation-testing`, `refactoring` before code. Run 
 `v2/` (no Prettier — `project_v2_no_prettier_format_gate`). Bump version (`package.json` +
 `package-lock.json`) after each slice. **Slices A (SHIPPED #210) + 1 (SHIPPED v0.51.0 — pure
 formatter/source-IP) are done; Slice 2 is DELETED (server-internal write obsoletes the allowlist);
-Slice 3 (the server-internal write + cross-player read) is blocked on Prerequisite #1's shared-machine
-record.**
+Slice 3 is split — 3a (per-viewer server-internal write, self-observable, parity with SSH auth.log) is
+UNBLOCKED and buildable now; 3b (cross-player read via the shared machine record + scanning player
+workstations) is blocked on Prerequisite #1.**
 
 ### Slice 0 (gate): confirm the prerequisite is met
 
@@ -250,48 +270,105 @@ contract), distinct across ESSIDs; update the existing golden test. Mutator watc
 **Value**: the formatter + source-IP rules exist and are proven in isolation — the deterministic core,
 portable from legacy with zero infra. **Shippable ahead of the cross-player block** (like Slice A).
 **SHIPPED**: the logging module was restructured by **destination concern** rather than dumping the
-nmap formatter into `authLog.ts` (kern.log ≠ auth.log; "syslog" is the *format*, not a file):
+nmap formatter into `authLog.ts` (kern.log ≠ auth.log; "syslog" is the _format_, not a file):
+
 - `core/logging/syslog.ts` — shared syslog FORMAT primitives (`formatSyslogTimestamp`,
   `formatSyslogLine`, `derivePid`); auth.log + kern.log + future service logs all compose these.
 - `core/logging/authLog.ts` — auth.log concern only (su/sshd formatters + `AUTH_LOG_*`).
 - `core/logging/kernLog.ts` — `formatNmapScanAggregate` (`kernel: [iptables] Port scan …`, no `[pid]`).
 - `core/logging/sourceIp.ts` — `resolveLogSourceIP` (options-object signature per CLAUDE.md;
   same-`/24` leaks LAN IP, off-network NATs to public IP, no-home → LAN fallback).
-Mutation: all four modules **100%** (killed a real `join('.')→join('')` subnet-matching survivor with
-an octet-boundary test). No E2E — pure functions, no live caller until Slice 3 wires nmap.
-_Real-Linux note_: an nmap scan only logs if the target firewall has an iptables `LOG` rule; that line
-is a kernel-facility message → lands in `/var/log/kern.log` (and `/var/log/syslog` on Debian default).
-kern.log is the kernel-specific home — matches legacy + owner confirmation.
+  Mutation: all four modules **100%** (killed a real `join('.')→join('')` subnet-matching survivor with
+  an octet-boundary test). No E2E — pure functions, no live caller until Slice 3 wires nmap.
+  _Real-Linux note_: an nmap scan only logs if the target firewall has an iptables `LOG` rule; that line
+  is a kernel-facility message → lands in `/var/log/kern.log` (and `/var/log/syslog` on Debian default).
+  kern.log is the kernel-specific home — matches legacy + owner confirmation.
 
 ### Slice 2: ~~server-side `AMBIENT_LOG_FILES` allowlist bypass~~ — LIKELY DROP (confirm)
 
 **Superseded by the server-internal write (see mechanism update).** Because the scan action writes
-kern.log itself (client never supplies the path), there is no session-less *client* write to allow, so
+kern.log itself (client never supplies the path), there is no session-less _client_ write to allow, so
 no allowlist and no L1/L2 bypass. **Default plan: DELETE this slice.** Re-introduce the legacy
 exact-match `Set` + upsert-only bypass + `scripts/testAmbientLogAllowlist.ts` wire-test ONLY if a
 genuinely client-driven log write is ever added (none planned). If kept, the constraints below are
 load-bearing — see "Legacy reference".
 
-### Slice 3: server-internal kern.log write, wired to a server-side nmap scan (CROSS-PLAYER-BLOCKED)
+### Slice 3a: per-viewer server-internal kern.log write, wired to a server-side nmap scan — NOT BLOCKED
 
-**Value**: end-to-end — `nmap <subnet>` against a real host leaves a persisted, cross-player-readable
-trace in that host's `/var/log/kern.log`. **Blocked on Prerequisite #1's shared-machine record.**
-**Path** (3g-shaped, not legacy `LogApi`): turn the scan into a **server action** (e.g. on `/api/...`)
-that verifies the envelope, resolves the SHARED target host, returns its ports, AND — server-internal —
-calls `appendMachineLog({readLog, upsertPatch}, {playerKey/SHARED-key, machineId, path:/var/log/kern.log,
-owner:'root', permissions: kern.log perms}, formatNmapScanAggregate(...))` once per sweep, best-effort.
-The api glue mirrors `api/sessions.ts`' authCreateSession readAuthLog/upsertPatch wiring. Resolve the
-source IP (Slice 1 / Slice A `publicIp`) and NAT-resolve the destination so the line lands where the
-host actually lives (legacy parity). **Key open question (depends on #1): is the kern.log row keyed by
-the SHARED machine (readable by all occupants) or per-viewer?** It MUST be the shared keying for the
-cross-player acceptance criteria to pass — that is precisely the network-generator-epic dependency.
-**RED**: handler test — online scan of a real target appends exactly one kern.log line (server-internal,
-both reachable + unreachable cases); offline → no scan → no line. A second identity reading the SHARED
-target sees the line. Mutator watch: one-line-per-sweep (not per-probe), the online guard, the
-target-resolution, the shared-vs-own keying.
-**GREEN**: the scan server action + `appendMachineLog` call + nmap client wiring. **MUTATE / KILL /
-REFACTOR**. **Live E2E**: crack → connect → online → `nmap` a real shared host → (break in as another
-identity) → `cat /var/log/kern.log` shows the scan line with the attacker's resolved source IP.
+**Value**: end-to-end self-observable trace — `nmap <target>` against a generated host leaves a
+persisted line in that host's `/var/log/kern.log`, which the **same identity** reads after breaking in.
+**Exact parity with the SSH auth.log write (#228)**: per-viewer, scoped to `(player_key, machine_id)`,
+server-internal. This builds the **entire server-action + write seam**; 3b later only re-keys the row.
+**Why unblocked**: writing to the scanner's own per-viewer copy needs no shared-machine record — the
+SSH epic already proved this exact pattern against generated hosts (3e writable remote FS + 3g auth.log).
+
+**Per-host logging (confirmed with owner 2026-06-12):** a real scan touches **every host it reaches**,
+and each host's firewall records the probe independently — so the write is **one aggregate line PER
+scanned host**, to that host's own `/var/log/kern.log`, NOT one global line for the sweep. Single scan →
+1 host → 1 line; range `1-254` → one line on each host the scan resolves as up. ("Aggregate" = per host,
+all of that host's ports collapsed into one line — never one line per probed port.)
+
+- **Which hosts log**: **every host that's up** in the generated LAN within the target range, even a host
+  with zero open ports (real iptables logs the probe regardless). Nonexistent IPs have no machine record
+  → nothing is written there.
+- **Ports in each line**: **that host's own open ports**, read from its `/var/run/*.pid` files (the same
+  source the single-IP scan display already uses). `(N hits)` = number of open ports. A service-less host
+  renders cleanly with **0 hits** (formatter must handle the empty-port list — a newly reachable case;
+  Slice 1 only tested non-empty).
+- **Source IP**: nmap today only scans the **own subnet**, so the source is always the **LAN IP**. Route
+  it through `resolveLogSourceIP` (Slice 1) for forward-correctness + a live caller, but only the LAN
+  branch is exercised now; the public-IP/NAT branch lights up with **foreign-subnet scanning** (deferred,
+  multi-layer story). No destination NAT needed yet (own subnet ⇒ no NAT).
+
+**Path** (3g-shaped, not legacy `LogApi`) — sub-PR'd like the SSH epic's 3a–3g:
+
+- **3a-1 (pure foundations, no infra — start here):** `KERN_LOG_PATH`/`KERN_LOG_OWNER`/
+  `KERN_LOG_PERMISSIONS` beside the `AUTH_LOG_*` set (world-readable, root-write); `formatNmapScanAggregate`
+  handles the **empty-port** case cleanly; seed an empty `kern.log` into `remoteHostFs` (and
+  `workstationFs`) next to the seeded `auth.log`; **extract the `/var/run` open-ports reader** (today the
+  private `readVarRunServices` in `nmap.ts`) into a shared module so the command display + the server
+  handler share one source of truth (DRY = knowledge).
+- **3a-2 (core handler):** `handleNmapScan(body, deps)` mirroring `handleAuthCreateSession` — verify the
+  signed envelope, resolve the LAN (`generateHomeLan`), select the up hosts in the target (single/range),
+  and for **each** compute open ports + call `appendMachineLog({readLog, upsertPatch}, {playerKey,
+machineId: hostMachineId(host, essid), path: KERN_LOG_PATH, owner, permissions},
+formatNmapScanAggregate(...))`, best-effort. Server-stamped timestamp/pid (unforgeable clock). Return
+  the per-host scan results. Unit-tested with mocked deps (style: `authCreateSession.test.ts`).
+- **3a-3 (api handler):** `api/...` Vercel function — supabase `readLog`/`upsertPatch` deps + dispatch,
+  mirroring `api/sessions.ts`' authCreateSession wiring.
+- **3a-4 (client wiring + E2E):** env seam + adapter (signed request, style: `adapters/sessionsApi.ts`);
+  nmap command calls the server action and reconciles the real round-trip with the existing abort-aware
+  `env.sleep` row pacing (`feedback_real_latency_over_fake_delays` — don't stack fake delay on real).
+- **Offline guard** (already present): no connected LAN → no scan → no write (`UNREACHABLE`).
+
+**RED**: handler test — online range scan appends **exactly one** kern.log line **per up host** (server-
+internal), each carrying that host's own ports + the resolved source IP; a host with no open ports still
+gets a 0-hit line; nonexistent IPs in the range get nothing; offline → no scan → no line. The **same
+identity** re-reading a host sees its own line. Mutator watch: one-line-per-HOST (not per-probe, not
+one-per-sweep), the up-host filter, the open-ports read, the per-viewer keying.
+**GREEN**: the foundations → handler → api → client wiring, per sub-PR.
+**MUTATE / KILL / REFACTOR**: per skills.
+**Live E2E** (`feedback_e2e_test_new_primitives`): crack → connect → online → `nmap` a generated host →
+`ssh` in (same identity) → `cat /var/log/kern.log` shows the scan line with the LAN source IP.
+Watch the network tab — the integration seam (scan action → `appendMachineLog` → patch → DB → read-back)
+is exactly where legacy drifted.
+
+### Slice 3b: cross-player read — shared-machine keying + scanning player workstations (CROSS-PLAYER-BLOCKED)
+
+**Value**: the headline payoff — a **different identity** that can read the target sees the scanner's
+line, and you can leave a trace by scanning a real **player workstation**, not just an NPC host.
+**Blocked on Prerequisite #1's shared, server-persisted machine record (`network-generator-epic`).**
+**Path**: re-key 3a's write from the per-viewer `(player_key, machine_id)` row to the **shared machine
+record** so all occupants/owners read the same kern.log; extend target resolution so a player workstation
+is a valid scan target. **Everything else carries over from 3a unchanged** — the write call, the
+formatter, the source-IP resolution, the NAT destination, the offline guard. This is the re-key/re-read
+swap the per-viewer seam was built to absorb.
+**RED**: handler test — a **second identity** reading the shared target sees the first identity's scan
+line; scanning a player workstation lands a line its owner reads. Mutator watch: the shared-vs-per-viewer
+keying, the workstation-as-target resolution.
+**GREEN**: the shared-keying swap + workstation target resolution. **MUTATE / KILL / REFACTOR**.
+**Live E2E**: crack → connect → online → `nmap` a shared host → break in **as another identity** →
+`cat /var/log/kern.log` shows the attacker's scan line with the resolved source IP.
 
 ## Pre-PR Quality Gate (each slice)
 
@@ -313,12 +390,16 @@ identity) → `cat /var/log/kern.log` shows the scan line with the attacker's re
   three-tier `listPatchesForMachines`) is the path by which a second player reads the trace. Confirm
   sequencing — logging-write (this plan) likely lands just after the cross-player read path.
 - **Replay/nonce**: legacy used Upstash; v2's nonce store is a no-op locally
-  (`patches.ts` `noopNonceStore`). Allowlisted session-less writes are the highest-value forgery
-  target — confirm the real nonce store lands with, or before, this plan.
+  (`patches.ts` `noopNonceStore`). The allowlist forgery target is gone (server-internal write, no
+  client-supplied path), so the residual concern is only replaying a signed scan envelope — low value
+  (re-logs your own scan). Still confirm the real nonce store lands with the broader cross-player work.
 
 ---
 
-_Delete this file when all slices ship. Note (updated 2026-06-12): the WRITE mechanism now exists
-(`appendMachineLog`, server-internal) and Slices A+1 are unblocked — but the CROSS-PLAYER trace (Slice 3)
-stays parked until generated hosts have a shared, server-persisted machine record (network-generator-epic).
-Do not implement Slice 3 against per-viewer placeholder hosts._
+_Delete this file when all slices ship. Note (updated 2026-06-12): the WRITE mechanism exists
+(`appendMachineLog`, server-internal); Slices A + 1 shipped. **Slice 3 is split: 3a (per-viewer write,
+self-observable, parity with the shipped SSH auth.log) is UNBLOCKED — build it next**; 3b (the
+different-identity / cross-player read + scanning player workstations) stays parked until generated hosts
+have a shared, server-persisted machine record (network-generator-epic), at which point it is just a
+re-key/re-read of 3a's write. Do not gate 3a on the shared record — it writes to the scanner's own
+per-viewer copy, exactly like SSH does today._

@@ -7,6 +7,8 @@ import {
   handleAppendAuthLog,
   type AuthLogContentQuery,
 } from '../src/core/patches/appendAuthLog';
+import { handleNmapScan } from '../src/core/scan/nmapScan';
+import type { MachineLogReadQuery } from '../src/core/patches/appendMachineLog';
 import type {
   ActiveSessionQuery,
   FindActiveSessionResult,
@@ -214,6 +216,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
       readAuthLog,
+      upsertPatch,
+    });
+    res.status(status).json(body);
+    return;
+  }
+
+  if (actionOf(req.body) === 'nmapScan') {
+    // A scan records ONE iptables kern.log line per scanned host, server-internal
+    // (the handler resolves the hosts + stamps time/ports; the client never names
+    // a path or content). Same read-modify-write `patches`-table shapes as the su
+    // and ssh auth.log appenders above.
+    const readLog = async ({ player_key, machine_id, path }: MachineLogReadQuery) => {
+      const { data, error } = await supabase
+        .from('patches')
+        .select('content')
+        .eq('player_key', player_key)
+        .eq('machine_id', machine_id)
+        .eq('path', path)
+        .maybeSingle();
+      if (error) console.error('[patches] kern-log read error:', error);
+      return { data, error };
+    };
+    const { status, body } = await handleNmapScan(req.body, {
+      nonceStore: noopNonceStore,
+      now: () => Date.now(),
+      readLog,
       upsertPatch,
     });
     res.status(status).json(body);

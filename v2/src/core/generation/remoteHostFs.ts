@@ -45,6 +45,7 @@ import {
 } from './baseFs';
 import { md5 } from './md5';
 import { AUTH_LOG_PERMISSIONS } from '../logging/authLog';
+import { KERN_LOG_PERMISSIONS } from '../logging/kernLog';
 import type { Directory, FileEntry, FilePermissions } from '../filesystem/types';
 import type { LanHost } from './generateHomeLan';
 
@@ -175,7 +176,13 @@ export const buildRemoteHostFs = (
       ),
       var: dir(
         {
-          log: dir({ 'auth.log': file('', AUTH_LOG_PERMISSIONS) }, TRAVERSABLE_DIR),
+          log: dir(
+            {
+              'auth.log': file('', AUTH_LOG_PERMISSIONS),
+              'kern.log': file('', KERN_LOG_PERMISSIONS),
+            },
+            TRAVERSABLE_DIR,
+          ),
           run: dir(pidfiles, TRAVERSABLE_DIR),
         },
         TRAVERSABLE_DIR,

@@ -190,6 +190,15 @@ describe('buildRemoteHostFs', () => {
       expect(node.content).toBe('');
     });
 
+    it('plants /var/log/kern.log empty, root-owned and world-readable (the scan line appends there)', () => {
+      const node = dirAt(fs(), 'var', 'log').entries.get('kern.log');
+      if (node?.kind !== 'file') throw new Error('missing /var/log/kern.log');
+      expect(node.content).toBe('');
+      expect(node.owner).toBe('root');
+      expect(node.perms.read).toEqual(['root', 'user', 'guest']);
+      expect(node.perms.write).toEqual(['root']);
+    });
+
     it('keeps /var/run as the service pidfile dir (Slice 2 behaviour untouched)', () => {
       expect(dirAt(fs(), 'var', 'run').kind).toBe('directory');
     });

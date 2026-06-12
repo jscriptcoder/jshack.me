@@ -11,6 +11,7 @@
  */
 
 import { asAbsPath, type AbsPath } from '../types';
+import type { Directory } from '../filesystem/types';
 import { SERVICE_CATALOG, type ServiceSpec } from './serviceCatalog';
 
 /** The directory holding every running service's pidfile. */
@@ -41,3 +42,24 @@ export const parsePidfilePort = (content: string): number | null => {
  *  entry without re-deriving the mapping. */
 export const serviceByPidfileName = (name: string): ServiceSpec | undefined =>
   Object.values(SERVICE_CATALOG).find((spec) => spec.pidfile === name);
+
+export type OpenPort = { readonly port: number; readonly service: string };
+
+/** The open ports a machine advertises, read from its `/var/run/*.pid` files
+ *  (the source of truth for running services). The tree is the live `env.fs` for
+ *  the player's own host or a deterministic generated FS for a remote host —
+ *  this reader doesn't care which. Unknown or non-file `/var/run` entries are
+ *  skipped; a pidfile with malformed content falls back to the service's default
+ *  port. Shared by every reader (the `nmap` display + the server scan action) so
+ *  the ports a scan SHOWS and the ports it LOGS can never drift. */
+export const readOpenPorts = (root: Directory): readonly OpenPort[] => {
+  const varDir = root.entries.get('var');
+  if (varDir === undefined || varDir.kind !== 'directory') return [];
+  const runDir = varDir.entries.get('run');
+  if (runDir === undefined || runDir.kind !== 'directory') return [];
+  return [...runDir.entries].flatMap(([name, node]) => {
+    const spec = serviceByPidfileName(name);
+    if (spec === undefined || node.kind !== 'file') return [];
+    return [{ port: parsePidfilePort(node.content) ?? spec.defaultPort, service: spec.service }];
+  });
+};

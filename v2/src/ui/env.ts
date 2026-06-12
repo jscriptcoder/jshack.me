@@ -21,6 +21,7 @@ import type {
   OutputSink,
   PatchApi,
   RemoteApi,
+  ScanApi,
   Session,
   SshApi,
 } from '../core/commands/types';
@@ -86,6 +87,10 @@ export type BuildCommandEnvArgs = {
    *  `authCreateServerSession` adapter (signed `authCreateSession` round-trip).
    *  Optional here for terse test setups; the UI always passes the real one. */
   readonly onSshAuthenticate?: SshApi['authenticate'];
+  /** The scan-logging seam — backs `env.scan.record`. The UI wires it to the
+   *  `recordScan` adapter (signed `nmapScan` round-trip). Optional here for terse
+   *  test setups; the UI always passes the real one. */
+  readonly onScanRecord?: ScanApi['record'];
 };
 
 const notWired = (method: string) => (): never => {
@@ -130,6 +135,7 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   // real `/api/join-home-network` round-trip is the only change here.
   homeNetwork: { join: (essid) => Promise.resolve(assignHomeNetwork(args.identity.publicKeyHex, essid)) },
   ssh: { authenticate: args.onSshAuthenticate ?? notWired('ssh.authenticate') },
+  scan: { record: args.onScanRecord ?? notWired('scan.record') },
   setCwd: args.onCwdChange,
   setInterface: args.onInterfaceChange,
   prompt: args.prompt,

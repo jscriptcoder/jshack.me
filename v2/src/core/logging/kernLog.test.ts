@@ -50,4 +50,19 @@ describe('formatNmapScanAggregate', () => {
 
     expect(line).toContain('probed ports 21,22,80,3306 (4 hits)');
   });
+
+  it('renders a host with no open ports as a clean 0-hit line (no dangling list)', () => {
+    // A scanned host that runs no services still records the probe (real iptables
+    // logs it), so an empty port list must read cleanly, not "probed ports  (0 hits)".
+    const line = formatNmapScanAggregate({
+      time: JUN_7,
+      hostname: 'idle-host',
+      sourceIp: '192.168.1.50',
+      probedPorts: [],
+    });
+
+    expect(line).toBe(
+      'Jun  7 14:32:01 idle-host kernel: [iptables] Port scan from 192.168.1.50 — probed ports none (0 hits)',
+    );
+  });
 });

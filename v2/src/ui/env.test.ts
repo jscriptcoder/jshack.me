@@ -6,7 +6,7 @@ import { asAbsPath } from '../core/types';
 import { buildColdStartConnectivity, type NetworkInterface } from '../core/network/interfaces';
 import { assignHomeNetwork } from '../core/network/homeNetwork';
 import { generateWifi } from '../core/generation/generateWifi';
-import type { LogApi, PatchApi } from '../core/commands/types';
+import type { LogApi, PatchApi, ScanRecordParams } from '../core/commands/types';
 
 const noopPatches: PatchApi = {
   write: async () => ({ ok: true }),
@@ -180,5 +180,33 @@ describe('buildCommandEnv', () => {
 
   it('exposes the injected log API', () => {
     expect(seedEnv().log).toBe(noopLog);
+  });
+
+  it('routes scan.record through the injected onScanRecord seam', async () => {
+    const recorded: ScanRecordParams[] = [];
+    const env = buildCommandEnv({
+      identity: generateIdentity(),
+      session: seedSession(generateIdentity(), SEED_CONFIG),
+      root: seedFs(SEED_CONFIG, generateIdentity()),
+      cwd: () => seedHome,
+      onCwdChange: () => undefined,
+      patches: noopPatches,
+      log: noopLog,
+      connectivity: seedConnectivity,
+      onInterfaceChange: () => undefined,
+      wifiNetworks: seedWifi,
+      prompt: async () => '',
+      onPushSession: () => undefined,
+      hopChain: [],
+      onPopSession: () => undefined,
+      signal: new AbortController().signal,
+      onScanRecord: async (params) => {
+        recorded.push(params);
+      },
+    });
+
+    await env.scan.record({ essid: 'E', target: '192.168.1.1-254', sourceIp: '192.168.1.50' });
+
+    expect(recorded).toEqual([{ essid: 'E', target: '192.168.1.1-254', sourceIp: '192.168.1.50' }]);
   });
 });

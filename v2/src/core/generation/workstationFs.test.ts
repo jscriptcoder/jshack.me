@@ -104,7 +104,7 @@ describe('buildWorkstationBaseFs', () => {
     expect(dirAt(fs, 'root').entries.size).toBe(0);
     expect(dirAt(fs, 'tmp').entries.size).toBe(0);
     expect([...dirAt(fs, 'var').entries.keys()].sort()).toEqual(['log', 'run']);
-    expect([...dirAt(fs, 'var', 'log').entries.keys()]).toEqual(['auth.log']);
+    expect([...dirAt(fs, 'var', 'log').entries.keys()].sort()).toEqual(['auth.log', 'kern.log']);
     expect(dirAt(fs, 'var', 'run').entries.size).toBe(0);
   });
 
@@ -128,6 +128,27 @@ describe('buildWorkstationBaseFs', () => {
       if (node.kind !== 'file') throw new Error('expected file');
       // World-readable so the defender can `cat` it; only root writes it (su's
       // system-tier append models a setuid-root syslog write).
+      expect(node.owner).toBe('root');
+      expect(node.perms.read).toEqual(['root', 'user', 'guest']);
+      expect(node.perms.write).toEqual(['root']);
+    });
+  });
+
+  describe('/var/log/kern.log', () => {
+    const kernLog = (): FileNode => {
+      const node = dirAt(buildWorkstationBaseFs(SEED_A, getConfig()), 'var', 'log').entries.get(
+        'kern.log',
+      );
+      if (node?.kind !== 'file') throw new Error('missing /var/log/kern.log file');
+      return node;
+    };
+
+    it('starts empty (no entries until a scan logs)', () => {
+      expect(kernLog().content).toBe('');
+    });
+
+    it('is root-owned, world-readable, and NOT world-writable (iptables LOG is a kernel write)', () => {
+      const node = kernLog();
       expect(node.owner).toBe('root');
       expect(node.perms.read).toEqual(['root', 'user', 'guest']);
       expect(node.perms.write).toEqual(['root']);
