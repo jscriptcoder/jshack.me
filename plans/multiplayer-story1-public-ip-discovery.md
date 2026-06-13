@@ -1,8 +1,36 @@
 # Plan: Story 1 — Cross-player public-IP discovery (walking skeleton)
 
 **Branch**: feat/v2-crossplayer-public-ip-discovery
-**Status**: Active — schema-flip timing RESOLVED (deferred to Story 3, 2026-06-13). Two slices: 1a, 1b.
+**Status**: Slice 1a SHIPPED (PR #234). Slice 1b NEXT. Schema-flip timing RESOLVED (deferred to Story 3).
 **Parent epic**: `plans/multiplayer-crossplayer-epic.md` (Story 1)
+
+## Resume point (slice 1b) — read this first
+
+**Slice 1a is DONE and on PR #234** (branch `feat/v2-crossplayer-public-ip-discovery`, commits
+`bbbe7b9`→`a972e40`). It shipped: `core/network/registerNetwork.ts`, `core/scan/resolvePublicScan.ts`,
+`nmap` public-IP routing + `isPublicIp` (`core/generation/ip.ts`), `core/commands/types.ts`
+`ScanApi.resolvePublic` + `PublicScanResolution`, `adapters/networkApi.ts`, `api/network.ts`,
+`supabase/migrations/20260613000000_network_registry.sql`, and the `env.ts`/`ui/state.ts` wiring.
+Verified end-to-end via `agent-browser` (crack→connect writes the registry row; `nmap <registered IP>`
+→ host up; unregistered → host down; a fresh identity resolves the registered IP → `found:true`).
+
+**Slice 1b is a pure EXTENSION of the found branch — no schema change, no PK flip.** The exact seam:
+- `resolvePublicScan` (`core/scan/resolvePublicScan.ts`) currently returns `{ found }`. 1b extends the
+  found branch to also return the resolved machine's open ports. The `RegistryLookup` it already
+  receives carries `owner_key` + `workstation_machine_id` — exactly the keys to read A's ports.
+- Ports come ONLY from A's `/var/run/*.pid` **patch rows** (the base workstation FS ships `/var/run`
+  empty — `workstationFs.ts`). So `api/network.ts` adds an owner-scoped read:
+  `patches WHERE machine_id = workstation_machine_id AND player_key = owner_key AND path LIKE '/var/run/%'`
+  (mirror `listMachinePatches` in `api/patches.ts`, scoped to `owner_key`), then `readOpenPorts`
+  (`core/services/pidfile.ts`) over a minimal tree → `{ port, service }[]`.
+- Extend `PublicScanResolution` with `ports`; `resolvePublic` adapter (`adapters/networkApi.ts`) parses
+  them; `nmap`'s `scanPublic` (`core/commands/nmap.ts`) renders the existing `PORT/STATE/SERVICE` table.
+- E2E proof: A `su`→`sshd 2222` (writes `/var/run/sshd.pid` patch); B `nmap <A public IP>` shows
+  `2222/tcp open ssh` — a non-default port proves it's A's REAL pidfile, not a hardcoded 22 or a regen.
+
+Start 1b by branching off the 1a branch (stack) or off `main` after #234 merges — owner to decide.
+Local Supabase already has the `network_registry` migration applied; v2 E2E uses `agent-browser`
+(no Playwright). Keep the Stryker-vs-dev-server rule: stop `:3100` before mutation runs.
 
 ## Goal
 
