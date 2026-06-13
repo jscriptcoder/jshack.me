@@ -79,7 +79,14 @@ describe('joinHomeNetwork', () => {
 
   it('posts to /api/network by default when no endpoint is configured', async () => {
     const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true }));
-    const deps = makeDeps(fetchSpy as unknown as typeof fetch, { endpoint: undefined });
+    const identity = generateIdentity();
+    // `endpoint` OMITTED (not undefined) so the adapter falls back to its default —
+    // exactOptionalPropertyTypes forbids an explicit `endpoint: undefined`.
+    const deps: NetworkClientDeps = {
+      identity,
+      machineId: asMachineId(computeWorkstationId('skylab', identity.publicKeyHex)),
+      fetchImpl: fetchSpy as unknown as typeof fetch,
+    };
 
     await joinHomeNetwork(deps, ESSID);
 

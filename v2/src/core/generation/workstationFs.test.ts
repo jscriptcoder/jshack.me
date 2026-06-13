@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { GameConfig } from '../gameConfig/gameConfig';
-import type { Directory, FileNode } from '../filesystem/types';
+import type { Directory, FileEntry, FileNode } from '../filesystem/types';
 import { canRead, canWrite } from '../filesystem/walker';
 import { buildWorkstationBaseFs } from './workstationFs';
 import {
@@ -135,7 +135,7 @@ describe('buildWorkstationBaseFs', () => {
   });
 
   describe('/var/log/kern.log', () => {
-    const kernLog = (): FileNode => {
+    const kernLog = (): FileEntry => {
       const node = dirAt(buildWorkstationBaseFs(SEED_A, getConfig()), 'var', 'log').entries.get(
         'kern.log',
       );
