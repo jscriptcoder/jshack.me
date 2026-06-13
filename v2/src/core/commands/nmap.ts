@@ -20,6 +20,7 @@ import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
 import type { Directory } from '../filesystem/types';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
+import { isPublicIp } from '../generation/ip';
 import { parseScanTarget, hostsInScanTarget } from '../network/scanTarget';
 import { readOpenPorts, type OpenPort } from '../services/pidfile';
 
@@ -107,6 +108,25 @@ async function* scanSingle(
   yield text('Nmap done — 1 host up');
 }
 
+/** A public-IP scan is a CROSS-PLAYER target: it resolves server-side against the
+ *  public-IP registry rather than the player's own LAN. The round-trip itself is
+ *  the latency, so there is no per-row `env.sleep` pacing here. */
+async function* scanPublic(env: CommandEnv, target: string): AsyncIterable<TerminalLine> {
+  yield text(`Starting Nmap scan — ${target}`);
+  yield text('');
+  const { found } = await env.scan.resolvePublic(target);
+  if (!found) {
+    yield text('Host seems down.');
+    yield text('');
+    yield text('Nmap done — 0 hosts up');
+    return;
+  }
+  yield text(`Nmap scan report for ${target}`);
+  yield text('Host is up.');
+  yield text('');
+  yield text('Nmap done — 1 host up');
+}
+
 const execute: Command['execute'] = async (env, args) => {
   const rawTarget = args[0];
   if (rawTarget === undefined) {
@@ -119,6 +139,14 @@ const execute: Command['execute'] = async (env, args) => {
   const wlan0 = env.network.interfaces().find((iface) => iface.name === 'wlan0');
   if (wlan0 === undefined || wlan0.kind !== 'wireless' || wlan0.association === null) {
     return error(UNREACHABLE);
+  }
+
+  // A public IP is another player's network — resolve it server-side against the
+  // public-IP registry instead of scanning our own LAN. Only a single public IP
+  // routes here; a range or a private/own-subnet address falls through to the LAN
+  // path below (which scans it or reports it out of range).
+  if (isPublicIp(rawTarget)) {
+    return { kind: 'async', lines: scanPublic(env, rawTarget), exitCode: async () => 0 };
   }
 
   const essid = wlan0.association.essid;

@@ -24,6 +24,7 @@ import type {
   Identity,
   LogApi,
   PatchApi,
+  PublicScanResolution,
   RemoteAuthParams,
   RemoteAuthResult,
   ScanRecordParams,
@@ -65,6 +66,8 @@ import {
   listServerSessions,
   type SessionsClientDeps,
 } from '../adapters/sessionsApi';
+import { joinHomeNetwork, resolvePublic, type NetworkClientDeps } from '../adapters/networkApi';
+import { assignHomeNetwork, type HomeNetworkAssignment } from '../core/network/homeNetwork';
 import { type HistoryNav, idleNav, navigateDown, navigateUp } from '../core/shell/commandHistory';
 import { homePathFor, seedFs, seedSession } from './seed';
 import { rehydrateSessionStack } from './sessionRehydrate';
@@ -78,6 +81,10 @@ let identity: Identity | undefined;
 let config: GameConfig | undefined;
 let patchClientDeps: PatchClientDeps | undefined;
 let sessionsClientDeps: SessionsClientDeps | undefined;
+// Pinned to the player's OWN workstation (set once in startGame, never re-pointed
+// on an ssh hop): `join` registers the own workstation, and `resolvePublic` signs
+// with the constant player identity.
+let networkClientDeps: NetworkClientDeps | undefined;
 let patchApi: PatchApi | undefined;
 let syncChannel: SyncChannel | undefined;
 
@@ -201,6 +208,19 @@ const sshAuthenticate = (params: RemoteAuthParams): Promise<RemoteAuthResult> =>
  *  no-op until `startGame` wires the patch client; the scan stands regardless. */
 const recordScanFn = (params: ScanRecordParams): Promise<void> =>
   patchClientDeps === undefined ? Promise.resolve() : recordScan(patchClientDeps, params);
+
+/** Resolve an `nmap <public IP>` cross-player (backs `env.scan.resolvePublic`).
+ *  Host-down until `startGame` wires the network client — degrade rather than crash. */
+const resolvePublicFn = (target: string): Promise<PublicScanResolution> =>
+  networkClientDeps === undefined ? Promise.resolve({ found: false }) : resolvePublic(networkClientDeps, target);
+
+/** Join a home network (backs `env.homeNetwork.join`): register it server-side so
+ *  other identities can resolve it, then return the assignment. Falls back to the
+ *  pure local-deterministic assignment before the network client is wired. */
+const joinHomeNetworkFn = (essid: string): Promise<HomeNetworkAssignment> =>
+  networkClientDeps === undefined
+    ? Promise.resolve(assignHomeNetwork(requireIdentity().publicKeyHex, essid))
+    : joinHomeNetwork(networkClientDeps, essid);
 
 /** Pop the active session (backs `env.popSession`), returning to the one
  *  beneath it and restoring the cwd captured at push time. A no-op at the base
@@ -396,6 +416,7 @@ export const startGame = (gameConfig: GameConfig): void => {
     tier: seed.userType,
   };
   sessionsClientDeps = { identity, machineId: seed.machineId };
+  networkClientDeps = { identity, machineId: seed.machineId };
   patchApi = wrapWithRefetch(createPatchApi(patchClientDeps));
 
   setCwd(homePathFor(gameConfig.username));
@@ -553,6 +574,8 @@ export const runInput = async (): Promise<void> => {
     onPushSession: pushSession,
     onSshAuthenticate: sshAuthenticate,
     onScanRecord: recordScanFn,
+    onScanResolvePublic: resolvePublicFn,
+    onHomeNetworkJoin: joinHomeNetworkFn,
     // The sessions below the active one — what `exit` consults to decide
     // whether there's somewhere to drop back to (empty at the base shell).
     hopChain: sessionStack().slice(0, -1),

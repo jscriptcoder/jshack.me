@@ -253,11 +253,21 @@ export type ScanRecordParams = {
   readonly sourceIp: string | null;
 };
 
-/** The scan-logging seam — backed by the signed `nmapScan` endpoint. The UI wires
- *  it to the `recordScan` adapter; `core/` stays adapter-free. Fire-and-forget by
- *  contract: logging a scan must never block or break the scan itself. */
+/** The server-resolved result of scanning a public IP (Story 1, slice 1a). Slice
+ *  1b extends this with the resolved machine's open ports. */
+export type PublicScanResolution = {
+  readonly found: boolean;
+};
+
+/** The scan seam. `record` is the fire-and-forget own-LAN scan logger (signed
+ *  `nmapScan` endpoint). `resolvePublic` is the cross-player resolution of a
+ *  public-IP scan against ANOTHER identity's registered network (signed
+ *  `resolvePublicScan` endpoint) — unlike `record` it is load-bearing: its result
+ *  drives the scan output. The UI wires both to adapters; `core/` stays
+ *  adapter-free. */
 export type ScanApi = {
   readonly record: (params: ScanRecordParams) => Promise<void>;
+  readonly resolvePublic: (target: string) => Promise<PublicScanResolution>;
 };
 
 // ---- The boundary ----

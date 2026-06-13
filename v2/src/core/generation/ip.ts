@@ -24,3 +24,16 @@ export const generatePublicIp = (prng: Prng): string => {
   const fourth = prng.nextInt(2, 254);
   return `${first}.${second}.${third}.${fourth}`;
 };
+
+const SINGLE_IP = /^(\d{1,3})\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
+
+/** Whether `target` is a single public IP the game could have generated — a
+ *  `x.y.z.w` whose first octet is one of the routable prefixes. Used by `nmap` to
+ *  route a public-IP target to cross-player server resolution instead of the
+ *  player's own LAN; a range, a private/own-subnet address, or any other shape is
+ *  not a cross-player target. Consistent-by-construction with `generatePublicIp`
+ *  (same prefix pool), so every registered public IP classifies true. */
+export const isPublicIp = (target: string): boolean => {
+  const match = target.match(SINGLE_IP);
+  return match !== null && publicFirstOctets.includes(Number(match[1]));
+};
