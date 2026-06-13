@@ -14,6 +14,7 @@
 import { asEpochMs, type AbsPath } from '../core/types';
 import type {
   CommandEnv,
+  HomeNetworkApi,
   HopChain,
   Identity,
   LogApi,
@@ -95,6 +96,11 @@ export type BuildCommandEnvArgs = {
    *  The UI wires it to the `resolvePublicScan` adapter (signed round-trip).
    *  Optional here for terse test setups; the UI always passes the real one. */
   readonly onScanResolvePublic?: ScanApi['resolvePublic'];
+  /** The home-network join seam — backs `env.homeNetwork.join`. The UI wires it to
+   *  the `joinHomeNetwork` adapter (registers the network server-side, returns the
+   *  local assignment). Optional here: when absent, join falls back to the pure
+   *  local-deterministic assignment (terse test setups + pre-server callers). */
+  readonly onHomeNetworkJoin?: HomeNetworkApi['join'];
 };
 
 const notWired = (method: string) => (): never => {
@@ -134,10 +140,15 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   patches: args.patches,
   remote: remoteStub(),
   log: args.log,
-  // The home-network join is local-deterministic today (seeded from identity),
-  // the documented future server boundary — `Promise`-shaped so the swap to a
-  // real `/api/join-home-network` round-trip is the only change here.
-  homeNetwork: { join: (essid) => Promise.resolve(assignHomeNetwork(args.identity.publicKeyHex, essid)) },
+  // The home-network join: the UI wires `onHomeNetworkJoin` to the `joinHomeNetwork`
+  // adapter (registers the network server-side so other identities can resolve it,
+  // then returns the assignment). Absent it, join is the pure local-deterministic
+  // assignment — `Promise`-shaped so the seam is identical either way.
+  homeNetwork: {
+    join:
+      args.onHomeNetworkJoin ??
+      ((essid) => Promise.resolve(assignHomeNetwork(args.identity.publicKeyHex, essid))),
+  },
   ssh: { authenticate: args.onSshAuthenticate ?? notWired('ssh.authenticate') },
   scan: {
     record: args.onScanRecord ?? notWired('scan.record'),
