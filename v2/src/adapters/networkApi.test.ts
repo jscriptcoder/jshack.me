@@ -94,28 +94,40 @@ describe('resolvePublic', () => {
 
     const result = await resolvePublic(deps, '203.0.113.7');
 
-    expect(result).toEqual({ found: true });
+    expect(result).toEqual({ found: true, ports: [] });
     const verified = await verifyPayload(sentEnvelope(fetchSpy));
     if (!verified.ok) throw new Error('expected verified envelope');
     expect(verified.payload).toMatchObject({ action: 'resolvePublicScan', target: '203.0.113.7' });
   });
 
-  it('reports the host not found when the server resolves no registry row', async () => {
+  it("parses the open ports the server resolved from the owner's record", async () => {
+    const ports = [
+      { port: 2222, service: 'ssh' },
+      { port: 80, service: 'http' },
+    ];
     const deps = makeDeps(
-      vi.fn(async () => jsonResponse(200, { ok: true, found: false })) as unknown as typeof fetch,
+      vi.fn(async () => jsonResponse(200, { ok: true, found: true, ports })) as unknown as typeof fetch,
     );
 
-    expect(await resolvePublic(deps, '203.0.113.7')).toEqual({ found: false });
+    expect(await resolvePublic(deps, '203.0.113.7')).toEqual({ found: true, ports });
+  });
+
+  it('reports the host not found when the server resolves no registry row', async () => {
+    const deps = makeDeps(
+      vi.fn(async () => jsonResponse(200, { ok: true, found: false, ports: [] })) as unknown as typeof fetch,
+    );
+
+    expect(await resolvePublic(deps, '203.0.113.7')).toEqual({ found: false, ports: [] });
   });
 
   it('treats a non-ok response as host down even when its body claims found', async () => {
     // Adversarial body: a 500 must short-circuit to host-down BEFORE the body is
     // read, so a `found: true` payload on an error status is never trusted.
     const deps = makeDeps(
-      vi.fn(async () => jsonResponse(500, { found: true })) as unknown as typeof fetch,
+      vi.fn(async () => jsonResponse(500, { found: true, ports: [{ port: 22, service: 'ssh' }] })) as unknown as typeof fetch,
     );
 
-    expect(await resolvePublic(deps, '203.0.113.7')).toEqual({ found: false });
+    expect(await resolvePublic(deps, '203.0.113.7')).toEqual({ found: false, ports: [] });
   });
 
   it('treats a null / malformed JSON body as host down', async () => {
@@ -123,7 +135,7 @@ describe('resolvePublic', () => {
       vi.fn(async () => jsonResponse(200, null)) as unknown as typeof fetch,
     );
 
-    expect(await resolvePublic(deps, '203.0.113.7')).toEqual({ found: false });
+    expect(await resolvePublic(deps, '203.0.113.7')).toEqual({ found: false, ports: [] });
   });
 
   it('treats a thrown fetch (offline) as host down', async () => {
@@ -133,6 +145,6 @@ describe('resolvePublic', () => {
       }) as unknown as typeof fetch,
     );
 
-    expect(await resolvePublic(deps, '203.0.113.7')).toEqual({ found: false });
+    expect(await resolvePublic(deps, '203.0.113.7')).toEqual({ found: false, ports: [] });
   });
 });

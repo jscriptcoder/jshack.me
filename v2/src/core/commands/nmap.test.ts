@@ -565,7 +565,7 @@ describe('nmap — cross-player public-IP scan (slice 1a)', () => {
     });
 
   it('resolves a public IP server-side and reports the host up when found', async () => {
-    const resolvePublic = vi.fn(async () => ({ found: true }));
+    const resolvePublic = vi.fn(async () => ({ found: true, ports: [] }));
 
     const { text, exitCode } = await drain(
       await nmap.execute(envWithResolve(resolvePublic), [PUBLIC_IP], new Map()),
@@ -587,8 +587,36 @@ describe('nmap — cross-player public-IP scan (slice 1a)', () => {
     );
   });
 
+  it("renders the owner's resolved open ports as the PORT/STATE/SERVICE table", async () => {
+    // A non-default port proves the table reflects the OWNER's real pidfile record
+    // resolved server-side, not a hardcoded 22 or a local regeneration.
+    const resolvePublic = vi.fn(async () => ({
+      found: true,
+      ports: [{ port: 2222, service: 'ssh' }],
+    }));
+
+    const { text, exitCode } = await drain(
+      await nmap.execute(envWithResolve(resolvePublic), [PUBLIC_IP], new Map()),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(text).toBe(
+      [
+        'Starting Nmap scan — 203.0.113.7',
+        '',
+        'Nmap scan report for 203.0.113.7',
+        'Host is up.',
+        '',
+        'PORT     STATE SERVICE',
+        '2222/tcp open  ssh',
+        '',
+        'Nmap done — 1 host up',
+      ].join('\n'),
+    );
+  });
+
   it('reports the host down when the public IP is not registered', async () => {
-    const resolvePublic = vi.fn(async () => ({ found: false }));
+    const resolvePublic = vi.fn(async () => ({ found: false, ports: [] }));
 
     const { text, exitCode } = await drain(
       await nmap.execute(envWithResolve(resolvePublic), [PUBLIC_IP], new Map()),
@@ -609,7 +637,7 @@ describe('nmap — cross-player public-IP scan (slice 1a)', () => {
 
   it('does not fire the own-LAN scan logger for a public-IP scan', async () => {
     const record = vi.fn(async () => undefined);
-    const resolvePublic = vi.fn(async () => ({ found: true }));
+    const resolvePublic = vi.fn(async () => ({ found: true, ports: [] }));
     const env = mockCommandEnv({
       identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
       network: mockNetworkViewFromConnectivity(onlineConnectivity('BEAN-THERE-WIFI')),
@@ -622,7 +650,7 @@ describe('nmap — cross-player public-IP scan (slice 1a)', () => {
   });
 
   it('does not resolve a public IP while offline (the online gate still applies)', async () => {
-    const resolvePublic = vi.fn(async () => ({ found: true }));
+    const resolvePublic = vi.fn(async () => ({ found: true, ports: [] }));
     const conn = onlineConnectivity('BEAN-THERE-WIFI');
     const env = mockCommandEnv({
       identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
@@ -638,7 +666,7 @@ describe('nmap — cross-player public-IP scan (slice 1a)', () => {
   });
 
   it('treats a public-prefixed RANGE as a normal (out-of-range) LAN target, not a cross-player scan', async () => {
-    const resolvePublic = vi.fn(async () => ({ found: true }));
+    const resolvePublic = vi.fn(async () => ({ found: true, ports: [] }));
 
     const result = await nmap.execute(envWithResolve(resolvePublic), ['203.0.113.1-254'], new Map());
     if (result.kind !== 'sync') throw new Error('expected sync result');

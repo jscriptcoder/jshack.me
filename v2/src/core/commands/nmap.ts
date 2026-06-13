@@ -114,7 +114,7 @@ async function* scanSingle(
 async function* scanPublic(env: CommandEnv, target: string): AsyncIterable<TerminalLine> {
   yield text(`Starting Nmap scan — ${target}`);
   yield text('');
-  const { found } = await env.scan.resolvePublic(target);
+  const { found, ports } = await env.scan.resolvePublic(target);
   if (!found) {
     yield text('Host seems down.');
     yield text('');
@@ -123,6 +123,13 @@ async function* scanPublic(env: CommandEnv, target: string): AsyncIterable<Termi
   }
   yield text(`Nmap scan report for ${target}`);
   yield text('Host is up.');
+  // The resolved ports are the OWNER's real running services (read server-side from
+  // their /var/run record) — rendered with the same table as an own-LAN scan.
+  if (ports.length > 0) {
+    yield text('');
+    yield text(PORT_HEADER);
+    for (const port of ports) yield text(formatPortLine(port));
+  }
   yield text('');
   yield text('Nmap done — 1 host up');
 }
