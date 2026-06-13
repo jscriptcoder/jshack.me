@@ -20,6 +20,7 @@ import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import type { NonceStore } from '../signedRequest/nonceStore';
+import { readOpenPortsFromPidfiles } from '../services/pidfile';
 
 /** The registry row fields resolution needs: which machine the public IP maps to
  *  (degenerate NAT → the workstation) and whose record to read (the owner). */
@@ -28,11 +29,25 @@ export type RegistryLookup = {
   readonly owner_key: string;
 };
 
+/** One of the resolved machine's `/var/run/*.pid` patch rows — the persisted form
+ *  of a running service. `readOpenPortsFromPidfiles` turns these into open ports. */
+export type RunFileRow = {
+  readonly path: string;
+  readonly content: string;
+};
+
 export type ResolvePublicScanDeps = {
   readonly nonceStore: NonceStore;
   readonly findRegistryByPublicIp: (
     publicIp: string,
   ) => Promise<{ readonly data: RegistryLookup | null; readonly error: unknown }>;
+  /** Read the OWNER's `/var/run/*.pid` rows on the resolved workstation. Scoped to
+   *  the registry's `owner_key` + `workstation_machine_id` so a cross-player scan
+   *  reads the owner's real services, never the caller's own rows. */
+  readonly findRunFiles: (query: {
+    readonly machine_id: string;
+    readonly owner_key: string;
+  }) => Promise<{ readonly data: readonly RunFileRow[] | null; readonly error: unknown }>;
 };
 
 export type HandlerResponse = {
@@ -64,5 +79,20 @@ export const handleResolvePublicScan = async (
   if (error) {
     return { status: 500, body: { error: 'registry_lookup_failed' } };
   }
-  return { status: 200, body: { ok: true, found: data !== null } };
+  if (data === null) {
+    return { status: 200, body: { ok: true, found: false, ports: [] } };
+  }
+
+  // Found: read the OWNER's running services off the resolved workstation and
+  // report their real ports. Scoped to the registry's owner so the caller sees the
+  // owner's record, not its own per-viewer rows.
+  const runFiles = await deps.findRunFiles({
+    machine_id: data.workstation_machine_id,
+    owner_key: data.owner_key,
+  });
+  if (runFiles.error) {
+    return { status: 500, body: { error: 'ports_lookup_failed' } };
+  }
+  const ports = readOpenPortsFromPidfiles(runFiles.data ?? []);
+  return { status: 200, body: { ok: true, found: true, ports } };
 };

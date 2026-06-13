@@ -7,6 +7,7 @@ import {
 import {
   handleResolvePublicScan,
   type RegistryLookup,
+  type RunFileRow,
 } from '../src/core/scan/resolvePublicScan';
 import type { NonceStore } from '../src/core/signedRequest/nonceStore';
 
@@ -18,7 +19,8 @@ import type { NonceStore } from '../src/core/signedRequest/nonceStore';
 //   - registerNetwork: upsert the caller's network on join (owner_key + public_ip
 //     server-stamped; one row per public IP)
 //   - resolvePublicScan: resolve a DIFFERENT identity's nmap of a public IP to the
-//     registered machine (existence today; slice 1b adds open ports)
+//     registered machine — host up/down + the owner's real open ports (read from
+//     the owner's /var/run/*.pid patch rows)
 //
 // Logic lives in typechecked core/ handlers; this file stays a thin Supabase
 // adapter (api/* is not typechecked locally — project_v2_api_not_typechecked_locally).
@@ -69,9 +71,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (error) console.error('[network] registry lookup error:', error);
       return { data: data as RegistryLookup | null, error };
     };
+    // The resolved machine's open ports come from the OWNER's `/var/run/*.pid`
+    // patch rows — scoped to the registry's owner_key (the patches table's
+    // player_key) + machine_id, so a cross-player scan reads the owner's real
+    // services, never the caller's own per-viewer rows.
+    const findRunFiles = async ({
+      machine_id,
+      owner_key,
+    }: {
+      machine_id: string;
+      owner_key: string;
+    }) => {
+      const { data, error } = await supabase
+        .from('patches')
+        .select('path, content')
+        .eq('player_key', owner_key)
+        .eq('machine_id', machine_id)
+        .like('path', '/var/run/%');
+      if (error) console.error('[network] run-files lookup error:', error);
+      return { data: data as readonly RunFileRow[] | null, error };
+    };
     const { status, body } = await handleResolvePublicScan(req.body, {
       nonceStore: noopNonceStore,
       findRegistryByPublicIp,
+      findRunFiles,
     });
     res.status(status).json(body);
     return;
