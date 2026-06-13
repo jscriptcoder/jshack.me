@@ -1,13 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import { nmap } from './nmap';
 import { commandRegistry } from './registry';
-import type { CommandResult } from './types';
+import type { CommandResult, ScanApi } from './types';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
   mockIdentity,
   mockNetworkView,
   mockNetworkViewFromConnectivity,
+  mockScanApi,
 } from '../../test/factories/commandEnv';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 import { assignHomeNetwork } from '../network/homeNetwork';
@@ -490,7 +491,7 @@ describe('nmap — scan logging (3a)', () => {
     mockCommandEnv({
       identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
       network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
-      scan: { record },
+      scan: mockScanApi({ record }),
     });
 
   it('records a range scan with the essid, raw target, and LAN source IP', async () => {
@@ -528,7 +529,7 @@ describe('nmap — scan logging (3a)', () => {
         isOnline: () => false,
         interfaces: () => [...conn.interfaces.values()],
       }),
-      scan: { record },
+      scan: mockScanApi({ record }),
     });
 
     await nmap.execute(env, [`${subnet}.1-254`], new Map());
@@ -542,5 +543,108 @@ describe('nmap — scan logging (3a)', () => {
     await nmap.execute(envWithScan(record), ['10.0.0.1-254'], new Map());
 
     expect(record).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A public IP is a CROSS-PLAYER target (Story 1, slice 1a): rather than scanning
+ * the player's own LAN, `nmap <public IP>` resolves the target server-side against
+ * the public-IP registry (another identity's registered network) via
+ * `env.scan.resolvePublic`. The real round-trip IS the latency, so there is no
+ * fake per-row pacing. A public-prefixed RANGE is not a cross-player scan — only a
+ * single public IP routes to the resolver; everything else stays the LAN path.
+ */
+describe('nmap — cross-player public-IP scan (slice 1a)', () => {
+  const PUBLIC_IP = '203.0.113.7';
+
+  const envWithResolve = (resolvePublic: ScanApi['resolvePublic']) =>
+    mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkViewFromConnectivity(onlineConnectivity('BEAN-THERE-WIFI')),
+      scan: mockScanApi({ resolvePublic }),
+    });
+
+  it('resolves a public IP server-side and reports the host up when found', async () => {
+    const resolvePublic = vi.fn(async () => ({ found: true }));
+
+    const { text, exitCode } = await drain(
+      await nmap.execute(envWithResolve(resolvePublic), [PUBLIC_IP], new Map()),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(resolvePublic).toHaveBeenCalledWith(PUBLIC_IP);
+    // Exact output (the public-IP scan is fully deterministic — no host list), so
+    // the report lines AND their blank-line spacing are both pinned.
+    expect(text).toBe(
+      [
+        'Starting Nmap scan — 203.0.113.7',
+        '',
+        'Nmap scan report for 203.0.113.7',
+        'Host is up.',
+        '',
+        'Nmap done — 1 host up',
+      ].join('\n'),
+    );
+  });
+
+  it('reports the host down when the public IP is not registered', async () => {
+    const resolvePublic = vi.fn(async () => ({ found: false }));
+
+    const { text, exitCode } = await drain(
+      await nmap.execute(envWithResolve(resolvePublic), [PUBLIC_IP], new Map()),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(text).toBe(
+      [
+        'Starting Nmap scan — 203.0.113.7',
+        '',
+        'Host seems down.',
+        '',
+        'Nmap done — 0 hosts up',
+      ].join('\n'),
+    );
+    expect(text).not.toContain('Host is up.');
+  });
+
+  it('does not fire the own-LAN scan logger for a public-IP scan', async () => {
+    const record = vi.fn(async () => undefined);
+    const resolvePublic = vi.fn(async () => ({ found: true }));
+    const env = mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkViewFromConnectivity(onlineConnectivity('BEAN-THERE-WIFI')),
+      scan: mockScanApi({ record, resolvePublic }),
+    });
+
+    await drain(await nmap.execute(env, [PUBLIC_IP], new Map()));
+
+    expect(record).not.toHaveBeenCalled();
+  });
+
+  it('does not resolve a public IP while offline (the online gate still applies)', async () => {
+    const resolvePublic = vi.fn(async () => ({ found: true }));
+    const conn = onlineConnectivity('BEAN-THERE-WIFI');
+    const env = mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkView({ isOnline: () => false, interfaces: () => [...conn.interfaces.values()] }),
+      scan: mockScanApi({ resolvePublic }),
+    });
+
+    const result = await nmap.execute(env, [PUBLIC_IP], new Map());
+    if (result.kind !== 'sync') throw new Error('expected sync result');
+
+    expect(result.exitCode).toBe(1);
+    expect(resolvePublic).not.toHaveBeenCalled();
+  });
+
+  it('treats a public-prefixed RANGE as a normal (out-of-range) LAN target, not a cross-player scan', async () => {
+    const resolvePublic = vi.fn(async () => ({ found: true }));
+
+    const result = await nmap.execute(envWithResolve(resolvePublic), ['203.0.113.1-254'], new Map());
+    if (result.kind !== 'sync') throw new Error('expected sync result');
+
+    expect(result.exitCode).toBe(1);
+    expect(result.lines[0]?.content.toLowerCase()).toContain('out of range');
+    expect(resolvePublic).not.toHaveBeenCalled();
   });
 });

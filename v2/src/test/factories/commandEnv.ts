@@ -118,11 +118,14 @@ export const mockSshApi = (overrides: Partial<SshApi> = {}): SshApi => ({
   ...overrides,
 });
 
-/** A scan-logging seam that no-ops by default (logging is best-effort and
- *  fire-and-forget, so it must not throw the way a load-bearing seam does);
- *  `nmap` tests override `record` with a spy to capture the recorded scan. */
+/** A scan seam whose `record` no-ops by default (logging is best-effort and
+ *  fire-and-forget, so it must not throw the way a load-bearing seam does) and
+ *  whose `resolvePublic` throws unless overridden (it is load-bearing — its result
+ *  drives scan output). `nmap` tests override `record` to capture a recorded scan,
+ *  or `resolvePublic` to stub a cross-player resolution. */
 export const mockScanApi = (overrides: Partial<ScanApi> = {}): ScanApi => ({
   record: async () => undefined,
+  resolvePublic: NOT_IMPLEMENTED('scan.resolvePublic'),
   ...overrides,
 });
 

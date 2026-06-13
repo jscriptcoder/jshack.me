@@ -91,6 +91,10 @@ export type BuildCommandEnvArgs = {
    *  `recordScan` adapter (signed `nmapScan` round-trip). Optional here for terse
    *  test setups; the UI always passes the real one. */
   readonly onScanRecord?: ScanApi['record'];
+  /** The cross-player public-IP resolution seam — backs `env.scan.resolvePublic`.
+   *  The UI wires it to the `resolvePublicScan` adapter (signed round-trip).
+   *  Optional here for terse test setups; the UI always passes the real one. */
+  readonly onScanResolvePublic?: ScanApi['resolvePublic'];
 };
 
 const notWired = (method: string) => (): never => {
@@ -135,7 +139,10 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   // real `/api/join-home-network` round-trip is the only change here.
   homeNetwork: { join: (essid) => Promise.resolve(assignHomeNetwork(args.identity.publicKeyHex, essid)) },
   ssh: { authenticate: args.onSshAuthenticate ?? notWired('ssh.authenticate') },
-  scan: { record: args.onScanRecord ?? notWired('scan.record') },
+  scan: {
+    record: args.onScanRecord ?? notWired('scan.record'),
+    resolvePublic: args.onScanResolvePublic ?? notWired('scan.resolvePublic'),
+  },
   setCwd: args.onCwdChange,
   setInterface: args.onInterfaceChange,
   prompt: args.prompt,
