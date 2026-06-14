@@ -1,9 +1,59 @@
 # Plan: Story 2 — B reads A's filesystem over the public path (cross-player READ)
 
 **Branch**: feat/v2-crossplayer-read (per-slice branches below)
-**Status**: Active
+**Status**: **2a ✅ MERGED (#237) · 2b ✅ MERGED (#238, `bbc6e47`, v0.57.0) · 2c ✅ DONE (branch `feat/v2-crossplayer-read-2c`, v0.58.0 — PR open) · NEXT: Slice 2d**
 **Parent epic**: `plans/multiplayer-crossplayer-epic.md` (Story 2 row)
 **Authored**: 2026-06-14 (via `planning`, after grounding the v2 read path)
+
+> **RESUME POINTER (post-compaction).** 2a + 2b + **2c** shipped. The cross-player READ is
+> live end to end: `ssh guest@<A.publicIp>` → `guest@skylab` → `ls /srv`/`cat /srv/loot.txt`
+> show A's REAL server-served files (tier-2 walker-filtered); `cat /etc/passwd`, `cat`
+> user-only files, `ls /root` all return "No such file" (pruned server-side). E2E'd both
+> ways: scripted wire smoke (`scripts/testCrossPlayerRead.ts`, 6/6 — wire omits secret /
+> root-hash / passwd / `/root`) + agent-browser two-identity UI. **NEXT = Slice 2d**
+> (tier 3 no-session allowlist + tier 1 owner-unfiltered + own-box regression guard).
+>
+> **2c shipped (commits on `feat/v2-crossplayer-read-2c`, v0.58.0):** pure
+> `core/patches/readFilter.ts` (`filterTreeForRead` — 100% mut) + `core/filesystem/treeCodec.ts`
+> (Map↔JSON wire codec — 100% mut) + `core/network/resolveCrossPlayerFs.ts` (handler:
+> registry reverse-lookup → session-tier gate → owner-scoped patches → regen → filter →
+> serialize — 100% mut) + `isCrossPlayerHop` (`ui/activeRoot.ts`) + `resolveCrossPlayerFs`
+> adapter (100% mut) + `ui/state.ts` `servedRoot` signal/`refreshServedRoot` + `api/network.ts`
+> route + migration `20260614120000_network_registry_machine_id_idx.sql`. **2d builds on
+> `readFilter.ts` (add the allowlist matcher + tier-1 owner bypass + tier dispatch in the
+> handler) — see Slice 2d below.**
+>
+> Key seams 2a/2b built that 2c used (kept for 2d context):
+>
+> - `core/sessions/authCreateSessionPublic.ts` inserts B's `sessions` row keyed
+>   `(player_key=B, machine_id=A.workstation_machine_id, kind:'ssh')` — **this is the exact row
+>   2c's tier-2 lookup keys off** (`findActiveSession({player_key:B, machine_id:A's id})`).
+> - `core/generation/workstationFs.ts` `buildWorkstationBaseFsFromIdentity({ownerKeyHex,
+username, rootPasswordHash})` — the server-side box reconstructor 2c reuses to materialize
+>   A's tree before filtering. guest pw is owner-key-seeded (`workstationGuestPassword`).
+> - `network_registry` carries `owner_key` + `workstation_username`/`workstation_root_hash`
+>   (2a) — 2c reverse-looks-up by `workstation_machine_id` (B holds A's id from the 2b session)
+>   to get `owner_key` + config. **Add a query/index on `workstation_machine_id`** (PK is
+>   `public_ip`), OR thread A's public IP through the hop. Decide in 2c.
+> - Story 1b's `core/services/pidfile.ts` `readOpenPortsFromPidfiles` + `api/network.ts`
+>   owner-scoped `/var/run/%` read = the pattern for owner-scoped patch reads.
+>
+> **2c open confirms RESOLVED by 2b grounding:**
+>
+> - `/etc/passwd` is **NOT world-readable** in this game — `read: ['root','user']`
+>   (`workstationFs.test.ts:412`). So a **guest** session in 2c must NOT see passwd hashes; tier-3
+>   (no session) drops it via default-deny. Pin both in 2c/2d tests.
+> - `createSession` reuse: RESOLVED — 2b's `authCreateSessionPublic` already writes the ssh
+>   `sessions` row (no separate createSession needed for the cross-player hop).
+> - `GameConfig` server-side: RESOLVED — only `owner_key`+`username`+`root_hash` needed; the
+>   FS reconstructor ignores `machineName` (it's only in the `machine_id` for the prompt).
+> - **Still OPEN for 2c:** verify `core/filesystem/walker.ts` exposes `canRead` (the existing
+>   `workstationFs.test.ts` imports `canRead` from it, so it DOES — confirm signature). The read
+>   filter walks `canRead` (file r-bit) + parent `x`-traverse at `session.userType`.
+> - **The READ data-source gap 2c closes:** today B's client assembles a remote FS via
+>   `ui/activeRoot.ts` (`buildRemoteHostFs(B.pubkey,...)` + B's own patches) — WRONG for A's
+>   box (B lacks A's seed; `listPatches` is caller-scoped). 2c must SERVER-serve A's filtered
+>   tree (decision D1) for a cross-player hop; wire `activeRoot`/`ui/state.ts` to use it.
 
 ## Goal
 
@@ -93,7 +143,7 @@ run Stryker with the dev server up). Squash-merge per slice; bump version on fea
 
 ---
 
-### Slice 2a: Join persists A's workstation identity server-side (enabler)
+### Slice 2a: Join persists A's workstation identity server-side (enabler) — ✅ SHIPPED & MERGED (#237)
 
 **Value**: The server gains the inputs (A's `username`/`machineName`/`root-hash`) it needs to
 reconstruct A's box for any cross-player reader. Unblocks 2b's auth and 2c's read. Independently
@@ -126,7 +176,7 @@ human approves commit.
 
 ---
 
-### Slice 2b: B logs into A's box over the public IP (session on A's REAL record)
+### Slice 2b: B logs into A's box over the public IP (session on A's REAL record) — ✅ SHIPPED & MERGED (#238)
 
 **Value**: First cross-player REACH + AUTH — B gets a real session on A's actual workstation
 record, the foundation every later read/write/brick stands on.
@@ -165,7 +215,7 @@ human approves commit.
 
 ---
 
-### Slice 2c: B reads A's REAL files through the server-materialized 3-tier filter (tier 2)
+### Slice 2c: B reads A's REAL files through the server-materialized 3-tier filter (tier 2) — ✅ SHIPPED (v0.58.0)
 
 **Value**: The headline cross-player READ — B sees A's actual persisted files, permission-filtered
 at B's (guest) tier. This is the security-load-bearing core of Story 2.
