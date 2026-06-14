@@ -13,13 +13,17 @@ import { generateIdentity } from '../identity/identity';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
 /**
- * `handleResolveCrossPlayerFs` is the cross-player READ (Story 2, slice 2c, tier 2):
+ * `handleResolveCrossPlayerFs` is the cross-player READ (Story 2, slices 2c+2d):
  * one identity (B) holding an active session on ANOTHER identity's (A's) workstation
  * fetches A's filesystem SERVER-side. The server rebuilds A's box from the persisted
- * identity, replays A's OWN patch journal over it, and prunes the tree to B's
- * server-derived tier BEFORE it leaves — the wire is the threat surface, so a
- * forbidden path must never appear in the response. Tier 1 (owner) + tier 3
- * (no-session allowlist) land in slice 2d.
+ * identity, replays A's OWN patch journal over it, and prunes the tree to the
+ * caller's server-derived TIER BEFORE it leaves — the wire is the threat surface, so
+ * a forbidden path must never appear in the response. Three tiers:
+ *   - tier 1 (owner): caller's pubkey == owner_key -> the FULL tree (ownership
+ *     trumps any session; the session table is not even consulted);
+ *   - tier 2 (active session): pruned by the permission walker at the session tier;
+ *   - tier 3 (no session): only the externally-observable allowlist (pidfiles,
+ *     /var/www, NAT rules, ...) — everything else default-denies.
  */
 
 const freshStore: NonceStore = async () => ({ fresh: true });
@@ -171,14 +175,59 @@ describe('handleResolveCrossPlayerFs', () => {
     });
   });
 
-  it('denies a caller with no active session on the target (tier 2 gate), without reading patches', async () => {
+  it('serves ONLY the externally-observable allowlist to a no-session caller (tier 3)', async () => {
     const id = generateIdentity();
-    const { deps, findPatches } = makeDeps({ session: async () => ({ data: null, error: null }) });
+    const { deps, findPatches } = makeDeps({
+      session: async () => ({ data: null, error: null }),
+      patches: async () => ({
+        data: [
+          { path: '/var/run/sshd.pid', content: '4131', owner: 'root', permissions: worldReadable, node_type: 'file' },
+          { path: '/srv/secret.txt', content: 'TOP_SECRET', owner: 'root', permissions: userOnly, node_type: 'file' },
+        ],
+        error: null,
+      }),
+    });
 
     const result = await handleResolveCrossPlayerFs(envelope(id), deps);
+    const tree = treeOf(result);
 
-    expect(result).toEqual({ status: 403, body: { error: 'no_session' } });
-    expect(findPatches).not.toHaveBeenCalled();
+    expect(result.status).toBe(200);
+    // The pidfile leaks (port liveness is externally observable)...
+    expect(get(tree, 'var', 'run', 'sshd.pid')?.kind).toBe('file');
+    // ...but nothing off the allowlist — not the secret, not passwd's inline hashes.
+    expect(get(tree, 'srv', 'secret.txt')).toBeUndefined();
+    expect(get(tree, 'etc', 'passwd')).toBeUndefined();
+    expect(JSON.stringify(result.body)).not.toContain('TOP_SECRET');
+    expect(JSON.stringify(result.body)).not.toContain(REGISTERED.workstation_root_hash);
+    // Tier 3 still reads the OWNER's patches (pidfiles live there), owner-scoped.
+    expect(findPatches).toHaveBeenCalledWith({ player_key: OWNER_KEY, machine_id: MACHINE_ID });
+  });
+
+  it('returns the FULL unfiltered tree to the owner, never consulting the session table (tier 1)', async () => {
+    const id = generateIdentity();
+    const rootOnly = { read: ['root'], write: ['root'], execute: ['root'] } as const;
+    const { deps, findActiveSession } = makeDeps({
+      // The caller IS the owner: registry.owner_key == the verified caller pubkey.
+      registry: async () => ({ data: { ...REGISTERED, owner_key: id.publicKeyHex }, error: null }),
+      patches: async () => ({
+        data: [
+          { path: '/root/.wallet', content: 'PRIVKEY', owner: 'root', permissions: rootOnly, node_type: 'file' },
+          { path: '/srv/secret.txt', content: 'TOP_SECRET', owner: 'root', permissions: userOnly, node_type: 'file' },
+        ],
+        error: null,
+      }),
+    });
+
+    const result = await handleResolveCrossPlayerFs(envelope(id), deps);
+    const tree = treeOf(result);
+
+    expect(result.status).toBe(200);
+    // Ownership trumps any session tier — even root-only and user-only files appear.
+    expect(get(tree, 'root', '.wallet')?.kind).toBe('file');
+    expect(get(tree, 'srv', 'secret.txt')?.kind).toBe('file');
+    expect(get(tree, 'etc', 'passwd')?.kind).toBe('file');
+    // The owner bypass short-circuits before the session lookup runs.
+    expect(findActiveSession).not.toHaveBeenCalled();
   });
 
   it('reports an unregistered machine as unreachable, without checking the session', async () => {

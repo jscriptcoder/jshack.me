@@ -1,10 +1,11 @@
-// Wire-payload smoke for POST /api/network (resolveCrossPlayerFs) — Story 2, slice 2c.
+// Wire-payload smoke for POST /api/network (resolveCrossPlayerFs) — Story 2, 2c+2d.
 //
-// The cross-player READ is the security-load-bearing path: B, holding an active
-// session on A's workstation, fetches A's filesystem SERVER-side, pruned to B's tier.
-// The wire IS the threat surface, so this forges signed envelopes against a running
-// `vercel dev` and asserts the RESPONSE BODY never contains a path B's tier may not
-// read — passwd hashes, /root, user-only files — regardless of UI rendering.
+// The cross-player READ is the security-load-bearing path: a caller fetches A's
+// filesystem SERVER-side, pruned to the caller's TIER. The wire IS the threat
+// surface, so this forges signed envelopes against a running `vercel dev` and
+// asserts the RESPONSE BODY never contains a path the tier may not read. Covers all
+// three tiers: owner (full), active guest session (walker filter), no session
+// (externally-observable allowlist only).
 //
 // Seeds A's registry row + patches (guest-readable loot, a user-only secret, the
 // sshd pidfile) and B's guest session directly via service_role, then drives the
@@ -130,12 +131,42 @@ check(
   `secret=${wire1.includes('TOP_SECRET')} hash=${wire1.includes(ROOT_HASH)} passwd=${tree1 ? get(tree1, 'etc', 'passwd') !== undefined : 'n/a'}`,
 );
 
-// 3. A caller with NO session on A's box is denied (tier-2 gate; tier-3 is 2d).
+// 3. Tier 3 — a caller with NO session on A's box sees ONLY the externally-
+// observable allowlist: the sshd pidfile leaks (port liveness), but the guest-
+// readable loot, the user-only secret, /etc/passwd and /root all default-deny.
 const r3 = await post(signRequest(carol, 'resolveCrossPlayerFs', { machine_id: A_MACHINE }));
+const tree3 = r3.status === 200 ? deserializeTree((r3.body as { tree: SerializedDirectory }).tree) : null;
+const wire3 = JSON.stringify(r3.body);
+const pid3 = tree3 ? get(tree3, 'var', 'run', 'sshd.pid') : undefined;
 check(
-  'no-session caller → 403 no_session',
-  r3.status === 403 && errorOf(r3.body) === 'no_session',
-  `status=${r3.status} error=${errorOf(r3.body)}`,
+  'tier 3 (no session) → 200 allowlist-only: pidfile leaks, everything else default-denies',
+  r3.status === 200 &&
+    pid3?.kind === 'file' &&
+    tree3 !== null &&
+    get(tree3, 'srv', 'loot.txt') === undefined &&
+    get(tree3, 'srv', 'secret.txt') === undefined &&
+    get(tree3, 'etc', 'passwd') === undefined &&
+    get(tree3, 'root') === undefined &&
+    !wire3.includes('OWNED_BY_A') &&
+    !wire3.includes('TOP_SECRET') &&
+    !wire3.includes(ROOT_HASH),
+  `status=${r3.status} pid=${pid3?.kind === 'file' ? 'present' : 'absent'} loot=${tree3 ? get(tree3, 'srv', 'loot.txt') !== undefined : 'n/a'} secret=${wire3.includes('TOP_SECRET')}`,
+);
+
+// 3b. Tier 1 — the OWNER (A) reads its own box in full: even the user-only secret
+// and /etc/passwd (with A's real root hash) are returned. Ownership trumps tier.
+const r3b = await post(signRequest(alice, 'resolveCrossPlayerFs', { machine_id: A_MACHINE }));
+const tree3b = r3b.status === 200 ? deserializeTree((r3b.body as { tree: SerializedDirectory }).tree) : null;
+const secret3b = tree3b ? get(tree3b, 'srv', 'secret.txt') : undefined;
+const passwd3b = tree3b ? get(tree3b, 'etc', 'passwd') : undefined;
+check(
+  'tier 1 (owner) → 200 FULL tree: user-only secret + /etc/passwd present',
+  r3b.status === 200 &&
+    secret3b?.kind === 'file' &&
+    secret3b.content === 'TOP_SECRET' &&
+    passwd3b?.kind === 'file' &&
+    passwd3b.content.includes(ROOT_HASH),
+  `status=${r3b.status} secret=${secret3b?.kind === 'file' ? 'present' : 'absent'} passwd=${passwd3b?.kind === 'file' ? 'present' : 'absent'}`,
 );
 
 // 4. An unregistered machine → 404 host_unreachable.
