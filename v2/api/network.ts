@@ -9,6 +9,13 @@ import {
   type RegistryLookup,
   type RunFileRow,
 } from '../src/core/scan/resolvePublicScan';
+import {
+  handleResolveCrossPlayerFs,
+  type ActiveSession,
+  type OwnerPatchRow,
+  type RegistryWorkstation,
+} from '../src/core/network/resolveCrossPlayerFs';
+import type { UserType } from '../src/core/types';
 import type { NonceStore } from '../src/core/signedRequest/nonceStore';
 
 // Vercel adapter for POST /api/network — the cross-player public-IP registry.
@@ -95,6 +102,69 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       nonceStore: noopNonceStore,
       findRegistryByPublicIp,
       findRunFiles,
+    });
+    res.status(status).json(body);
+    return;
+  }
+
+  if (actionOf(req.body) === 'resolveCrossPlayerFs') {
+    // Cross-player READ (slice 2c): the caller (B) holds an active session on
+    // ANOTHER identity's (A's) workstation and fetches A's filtered FS. Reverse-
+    // look-up the registry by the workstation's machine id (B holds it from the 2b
+    // login; the registry PK is public_ip, so this rides the machine_id index).
+    const findRegistryByMachineId = async (machineId: string) => {
+      const { data, error } = await supabase
+        .from('network_registry')
+        .select('owner_key, workstation_username, workstation_root_hash')
+        .eq('workstation_machine_id', machineId)
+        .maybeSingle();
+      if (error) console.error('[network] registry reverse-lookup error:', error);
+      return { data: data as RegistryWorkstation | null, error };
+    };
+    // The caller's active (un-ended) session on the target — the SERVER source of the
+    // read tier, scoped to the verified player_key the handler supplies.
+    const findActiveSession = async ({
+      player_key,
+      machine_id,
+    }: {
+      player_key: string;
+      machine_id: string;
+    }) => {
+      const { data, error } = await supabase
+        .from('sessions')
+        .select('credentials')
+        .eq('player_key', player_key)
+        .eq('machine_id', machine_id)
+        .is('ended_at', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) console.error('[network] session lookup error:', error);
+      const session = data as { credentials: { userType: UserType } } | null;
+      return { data: session === null ? null : ({ userType: session.credentials.userType } as ActiveSession), error };
+    };
+    // The OWNER's patch rows on the target (scoped to owner_key, never the caller's),
+    // replayed over the regenerated baseline to materialize A's real box.
+    const findPatches = async ({
+      player_key,
+      machine_id,
+    }: {
+      player_key: string;
+      machine_id: string;
+    }) => {
+      const { data, error } = await supabase
+        .from('patches')
+        .select('path, content, owner, permissions, node_type')
+        .eq('player_key', player_key)
+        .eq('machine_id', machine_id);
+      if (error) console.error('[network] owner patches lookup error:', error);
+      return { data: data as readonly OwnerPatchRow[] | null, error };
+    };
+    const { status, body } = await handleResolveCrossPlayerFs(req.body, {
+      nonceStore: noopNonceStore,
+      findRegistryByMachineId,
+      findActiveSession,
+      findPatches,
     });
     res.status(status).json(body);
     return;

@@ -36,7 +36,7 @@ import type {
 import type { GameConfig } from '../core/gameConfig/gameConfig';
 import type { Directory } from '../core/filesystem/types';
 import type { Patch } from '../core/filesystem/applyPatches';
-import { resolveActiveRoot } from './activeRoot';
+import { isCrossPlayerHop, resolveActiveRoot } from './activeRoot';
 import { createFsView } from '../core/filesystem/fsView';
 import { resolveAbsPath } from '../core/filesystem/path';
 import {
@@ -69,7 +69,12 @@ import {
   listServerSessions,
   type SessionsClientDeps,
 } from '../adapters/sessionsApi';
-import { joinHomeNetwork, resolvePublic, type NetworkClientDeps } from '../adapters/networkApi';
+import {
+  joinHomeNetwork,
+  resolveCrossPlayerFs,
+  resolvePublic,
+  type NetworkClientDeps,
+} from '../adapters/networkApi';
 import { assignHomeNetwork, type HomeNetworkAssignment } from '../core/network/homeNetwork';
 import { type HistoryNav, idleNav, navigateDown, navigateUp } from '../core/shell/commandHistory';
 import { homePathFor, seedFs, seedSession } from './seed';
@@ -107,6 +112,25 @@ const [scrollback, setScrollback] = createSignal<readonly TerminalLine[]>([]);
 const [input, setInput] = createSignal('');
 const [cwd, setCwd] = createSignal<AbsPath>(asAbsPath('/'));
 const [patches, setPatches] = createSignal<readonly Patch[]>([]);
+// The SERVER-served filesystem of ANOTHER player's box, fetched for a cross-player
+// ssh hop (Story 2): B can't regenerate A's box (D1), so its tree comes from the
+// server already pruned to B's tier. Tagged with the machine it belongs to so
+// `activeRoot` only serves it for the matching active session; null on the own box.
+const [servedRoot, setServedRoot] = createSignal<{
+  readonly machineId: string;
+  readonly tree: Directory;
+} | null>(null);
+
+// Placeholder root for a cross-player hop whose served tree is still in flight — an
+// empty, world-traversable directory. Showing this (rather than falling through to
+// `resolveActiveRoot`, which would pick OUR own box) guarantees a cross-player hop
+// never flashes the attacker's own filesystem.
+const CROSS_PLAYER_LOADING_ROOT: Directory = {
+  kind: 'directory',
+  owner: 'root',
+  perms: { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root', 'user', 'guest'] },
+  entries: new Map(),
+};
 // The workstation's NICs. Seeded from identity at `startGame`; offline at cold
 // start (only `lo` has an address). Later arc slices mutate this via airmon/nmcli.
 const [connectivity, setConnectivity] = createSignal<ConnectivityState>({
@@ -190,15 +214,24 @@ const ownWorkstationId = (): string => {
  *  generated tree of the remote host an ssh hop landed on — in both cases with
  *  the active machine's journal (`patches()`, which follows the active session)
  *  replayed over the base, so own AND remote writes are visible. */
-const activeRoot = (): Directory =>
-  resolveActiveRoot({
-    session: requireSession(),
+const activeRoot = (): Directory => {
+  const session = requireSession();
+  const served = servedRoot();
+  if (served !== null && served.machineId === session.machineId) return served.tree;
+  // A cross-player hop is SERVER-served; until its tree arrives show an empty root,
+  // never our own box (which is what `resolveActiveRoot` would otherwise fall to).
+  if (isCrossPlayerHop(session, ownWorkstationId(), currentEssid(), requireIdentity().publicKeyHex)) {
+    return CROSS_PLAYER_LOADING_ROOT;
+  }
+  return resolveActiveRoot({
+    session,
     ownWorkstationId: ownWorkstationId(),
     publicKeyHex: requireIdentity().publicKeyHex,
     essid: currentEssid(),
     ownBaseFs: seedFs(requireConfig(), requireIdentity()),
     patches: patches(),
   });
+};
 
 /** Authenticate an ssh login server-side (backs `env.ssh.authenticate`). Degrades
  *  to a network error before `startGame` wires the sessions client. */
@@ -385,6 +418,33 @@ const rebindPatchClient = (): void => {
     setPatches([]);
     void refetchPatches();
   }
+  // Fetch (or clear) the cross-player served tree for whatever machine we now stand
+  // on — a no-op fetch for the own box / a local-LAN hop (self-guarded).
+  void refreshServedRoot();
+};
+
+/** Fetch — or clear — the SERVER-served filesystem for the active session. For a
+ *  cross-player ssh hop, B can't rebuild A's box locally, so the server returns it
+ *  pre-filtered to B's tier (D1); for the own box or a local-LAN hop there's nothing
+ *  to serve, so it clears to null. Fire-and-forget from `rebindPatchClient`; any
+ *  failure clears to null and `activeRoot` shows an empty root, never B's own files.
+ *  A late result is dropped if the player has since hopped to another machine. */
+const refreshServedRoot = async (): Promise<void> => {
+  const active = activeSession();
+  const deps = networkClientDeps;
+  const id = identity;
+  if (
+    active === undefined ||
+    deps === undefined ||
+    id === undefined ||
+    !isCrossPlayerHop(active, ownWorkstationId(), currentEssid(), id.publicKeyHex)
+  ) {
+    setServedRoot(null);
+    return;
+  }
+  const tree = await resolveCrossPlayerFs(deps, active.machineId);
+  if (activeSession()?.machineId !== active.machineId) return;
+  setServedRoot(tree === null ? null : { machineId: active.machineId, tree });
 };
 
 /** Backs `env.log.appendAuthLog`: posts the `su` event to the server (which

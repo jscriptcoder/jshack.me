@@ -47,3 +47,22 @@ export const resolveActiveRoot = (args: {
   readonly ownBaseFs: Directory;
   readonly patches: readonly Patch[];
 }): Directory => applyPatches(baseFsFor(args), args.patches);
+
+/**
+ * Whether the active session is a CROSS-PLAYER hop (Story 2): an ssh session on a
+ * machine that is neither your own workstation nor a host on your current LAN. The
+ * only way to hold an ssh session on such a machine is a public-IP login into
+ * another identity's box — so this is the signal to fetch that box's SERVER-served
+ * tree (decision D1) instead of letting `resolveActiveRoot` wrongly fall back to
+ * your OWN base. Offline (no essid) can't resolve a LAN, so it isn't a hop.
+ */
+export const isCrossPlayerHop = (
+  session: Session,
+  ownWorkstationId: string,
+  essid: string | null,
+  publicKeyHex: string,
+): boolean =>
+  session.kind === 'ssh' &&
+  session.machineId !== ownWorkstationId &&
+  essid !== null &&
+  hostForMachineId(publicKeyHex, essid, session.machineId) === null;

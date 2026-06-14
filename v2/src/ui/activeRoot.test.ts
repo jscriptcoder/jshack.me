@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveActiveRoot } from './activeRoot';
+import { isCrossPlayerHop, resolveActiveRoot } from './activeRoot';
 import { generateHomeLan } from '../core/generation/generateHomeLan';
 import { buildRemoteHostFs } from '../core/generation/remoteHostFs';
 import { hostMachineId } from '../core/generation/remoteHostId';
@@ -106,5 +106,32 @@ describe('resolveActiveRoot', () => {
 
   it('falls back to the own base when the machine_id matches no host on the current LAN', () => {
     expect(resolveActiveRoot(args({ session: session('ghost-00000000', 'ssh') }))).toBe(ownBaseFs);
+  });
+});
+
+describe('isCrossPlayerHop', () => {
+  // A foreign workstation id (another identity's box) — never a host on B's own LAN.
+  const FOREIGN_ID = computeWorkstationId('skylab', 'b'.repeat(64));
+
+  it('is true for an ssh session on a machine that is not on your LAN', () => {
+    expect(isCrossPlayerHop(session(FOREIGN_ID, 'ssh'), OWN_ID, ESSID, PUBKEY)).toBe(true);
+  });
+
+  it('is false for an ssh session on a host that IS on your own LAN', () => {
+    const host = generateHomeLan(PUBKEY, ESSID).hosts.at(-1)!;
+    const lanHopId = hostMachineId(host, ESSID);
+    expect(isCrossPlayerHop(session(lanHopId, 'ssh'), OWN_ID, ESSID, PUBKEY)).toBe(false);
+  });
+
+  it('is false for a session on your own workstation', () => {
+    expect(isCrossPlayerHop(session(OWN_ID, 'ssh'), OWN_ID, ESSID, PUBKEY)).toBe(false);
+  });
+
+  it('is false for a non-ssh session (su) even on a foreign machine', () => {
+    expect(isCrossPlayerHop(session(FOREIGN_ID, 'su'), OWN_ID, ESSID, PUBKEY)).toBe(false);
+  });
+
+  it('is false when offline (no essid to resolve a LAN against)', () => {
+    expect(isCrossPlayerHop(session(FOREIGN_ID, 'ssh'), OWN_ID, null, PUBKEY)).toBe(false);
   });
 });
