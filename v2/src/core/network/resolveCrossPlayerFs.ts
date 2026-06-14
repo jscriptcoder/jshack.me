@@ -1,23 +1,26 @@
 /**
- * handleResolveCrossPlayerFs — the cross-player READ (Story 2, slice 2c, tier 2).
+ * handleResolveCrossPlayerFs — the cross-player READ (Story 2, slices 2c+2d).
  *
- * One identity (B) holding an active session on ANOTHER identity's (A's) workstation
- * fetches A's filesystem. Where `resolvePublicScan` reads only A's open ports (the
- * `/var/run` allowlist), this serves A's whole readable tree. D1 forces it
- * server-side: B has neither A's seed nor A's patch rows, so the server is the only
- * party that can materialize A's box.
+ * One identity (the caller) fetches ANOTHER identity's (A's) workstation filesystem.
+ * Where `resolvePublicScan` reads only A's open ports (the `/var/run` allowlist),
+ * this serves A's readable tree. D1 forces it server-side: the caller has neither
+ * A's seed nor A's patch rows, so the server is the only party that can materialize
+ * A's box.
  *
- * Flow: verify B's envelope → reverse-look-up the registry by `workstation_machine_id`
- * (B holds A's id from the 2b login) for A's persisted identity → require B to hold an
- * active session on that machine (the TIER comes from the SERVER session, never the
- * client — tier 1 owner + tier 3 no-session allowlist are slice 2d) → rebuild A's
+ * Flow: verify the envelope → reverse-look-up the registry by `workstation_machine_id`
+ * (the caller holds A's id from the 2b login) for A's persisted identity → rebuild A's
  * baseline from the identity (shared generator, decision D6) + replay A's OWN patch
  * rows (scoped to `owner_key`, never the caller's per-viewer rows) → prune to the
- * caller's tier with the shared read walker → ship the serialized tree.
+ * caller's TIER → ship the serialized tree. The tier is SERVER-derived, never a
+ * client claim:
+ *   - tier 1 (owner): caller's verified pubkey == owner_key → the FULL tree
+ *     (ownership trumps any session; the session table is not consulted);
+ *   - tier 2 (active session): pruned by the shared read walker at the session tier;
+ *   - tier 3 (no session): pruned to the externally-observable allowlist only.
  *
  * The pruned tree is what crosses the wire: a path the tier may not read is dropped
  * BEFORE the response leaves (`project_read_path_privacy_gap` — the wire is the
- * threat surface), so neither A's passwd hashes nor any non-readable file can leak.
+ * threat surface), so neither A's passwd hashes nor any non-observable file can leak.
  */
 
 import { z } from 'zod';
@@ -25,9 +28,9 @@ import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { buildWorkstationBaseFsFromIdentity } from '../generation/workstationFs';
 import { applyPatches, type Patch } from '../filesystem/applyPatches';
-import { filterTreeForRead } from '../patches/readFilter';
+import { filterTreeForRead, filterTreeToAllowlist } from '../patches/readFilter';
 import { serializeTree } from '../filesystem/treeCodec';
-import type { FilePermissions } from '../filesystem/types';
+import type { Directory, FilePermissions } from '../filesystem/types';
 import type { UserType } from '../types';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
@@ -93,6 +96,20 @@ const rowToPatch = (row: OwnerPatchRow): Patch => ({
   ...(row.node_type ? { nodeType: row.node_type } : {}),
 });
 
+/** Rebuild A's REAL box: the shared generator's baseline (decision D6) with A's
+ *  OWN persisted patch journal replayed over it. */
+const materialize = (
+  registry: RegistryWorkstation,
+  patches: readonly OwnerPatchRow[] | null,
+): Directory => {
+  const base = buildWorkstationBaseFsFromIdentity({
+    ownerKeyHex: registry.owner_key,
+    username: registry.workstation_username,
+    rootPasswordHash: registry.workstation_root_hash,
+  });
+  return applyPatches(base, (patches ?? []).map(rowToPatch));
+};
+
 export const handleResolveCrossPlayerFs = async (
   body: unknown,
   deps: ResolveCrossPlayerFsDeps,
@@ -113,15 +130,15 @@ export const handleResolveCrossPlayerFs = async (
     return { status: 404, body: { error: 'host_unreachable' } };
   }
 
-  const session = await deps.findActiveSession({
-    player_key: publicKey,
-    machine_id: payload.machine_id,
-  });
-  if (session.error) {
+  // Tier 1 — the owner reads its own box in full; ownership trumps any session tier,
+  // so we never consult the session table for the owner.
+  const isOwner = publicKey === registry.data.owner_key;
+
+  const session = isOwner
+    ? null
+    : await deps.findActiveSession({ player_key: publicKey, machine_id: payload.machine_id });
+  if (session !== null && session.error) {
     return { status: 500, body: { error: 'session_lookup_failed' } };
-  }
-  if (session.data === null) {
-    return { status: 403, body: { error: 'no_session' } };
   }
 
   const patches = await deps.findPatches({
@@ -132,12 +149,14 @@ export const handleResolveCrossPlayerFs = async (
     return { status: 500, body: { error: 'patches_lookup_failed' } };
   }
 
-  const base = buildWorkstationBaseFsFromIdentity({
-    ownerKeyHex: registry.data.owner_key,
-    username: registry.data.workstation_username,
-    rootPasswordHash: registry.data.workstation_root_hash,
-  });
-  const tree = applyPatches(base, (patches.data ?? []).map(rowToPatch));
-  const filtered = filterTreeForRead(tree, session.data.userType);
+  const tree = materialize(registry.data, patches.data);
+  // Tier dispatch: owner → full tree; active session → walker at the session tier;
+  // no session → externally-observable allowlist only.
+  const activeSession = session?.data ?? null;
+  const filtered = isOwner
+    ? tree
+    : activeSession === null
+      ? filterTreeToAllowlist(tree)
+      : filterTreeForRead(tree, activeSession.userType);
   return { status: 200, body: { ok: true, tree: serializeTree(filtered) } };
 };

@@ -9,7 +9,12 @@ import {
   TMP_DIR,
   TRAVERSABLE_DIR,
 } from '../generation/baseFs';
-import { filterTreeForRead } from './readFilter';
+import {
+  EXTERNALLY_OBSERVABLE_ALLOWLIST,
+  filterTreeForRead,
+  filterTreeToAllowlist,
+} from './readFilter';
+import { serializeTree } from '../filesystem/treeCodec';
 
 /**
  * The cross-player READ filter (Story 2, slice 2c — tier 2). Given a fully
@@ -158,5 +163,240 @@ describe('filterTreeForRead', () => {
     filterTreeForRead(tree, 'guest');
 
     expect(tree.entries.get('secret')?.kind).toBe('file');
+  });
+});
+
+/**
+ * `filterTreeToAllowlist` is the no-session tier (Story 2, slice 2d — tier 3): a
+ * caller who resolved A's box but never authenticated sees ONLY the externally-
+ * observable allowlist (files whose content leaks via simulated network protocols —
+ * pidfiles → open ports, /var/www → curl, NAT rules, service-version manifest).
+ * Everything else default-denies, including /etc/passwd's inline hashes, /root, and
+ * home dotfiles. Path-based (not permission-based): the wire IS the threat surface,
+ * so a forbidden path must never appear in the returned tree.
+ */
+describe('filterTreeToAllowlist', () => {
+  it('keeps an allowlisted pidfile and drops a non-allowlisted sibling (default-deny)', () => {
+    const tree = dir(
+      {
+        var: dir(
+          { run: dir({ 'sshd.pid': worldFile('4131'), 'notes.txt': worldFile('scratch') }, TRAVERSABLE_DIR) },
+          TRAVERSABLE_DIR,
+        ),
+      },
+      TRAVERSABLE_DIR,
+    );
+
+    const filtered = filterTreeToAllowlist(tree);
+
+    expect(get(filtered, 'var', 'run', 'sshd.pid')?.kind).toBe('file');
+    expect(get(filtered, 'var', 'run', 'notes.txt')).toBeUndefined();
+  });
+
+  it('drops /etc/passwd, /root and home dotfiles for a no-session reader', () => {
+    const tree = dir(
+      {
+        etc: dir({ passwd: file('root:x:0:0:...:hash', PASSWD_FILE) }, TRAVERSABLE_DIR),
+        root: dir({ '.wallet': worldFile('PRIVATE_KEY') }, ROOT_DIR),
+        home: dir({ alice: dir({ '.bashrc': worldFile('export X=1') }, HOME_DIR) }, TRAVERSABLE_DIR),
+      },
+      TRAVERSABLE_DIR,
+    );
+
+    const filtered = filterTreeToAllowlist(tree);
+
+    expect(get(filtered, 'etc', 'passwd')).toBeUndefined();
+    // /etc has no surviving child → the whole dir is pruned, not just the file.
+    expect(get(filtered, 'etc')).toBeUndefined();
+    expect(get(filtered, 'root')).toBeUndefined();
+    expect(get(filtered, 'home')).toBeUndefined();
+    // Belt-and-braces: no secret content anywhere in the returned tree.
+    expect(JSON.stringify(serializeTree(filtered))).not.toContain('PRIVATE_KEY');
+    expect(JSON.stringify(serializeTree(filtered))).not.toContain('hash');
+  });
+
+  it('treats * as segment-bound — a .pid under a deeper subdir is not observable', () => {
+    const tree = dir(
+      {
+        var: dir(
+          {
+            run: dir(
+              {
+                'real.pid': worldFile('100'),
+                sub: dir({ 'deep.pid': worldFile('200') }, TRAVERSABLE_DIR),
+              },
+              TRAVERSABLE_DIR,
+            ),
+          },
+          TRAVERSABLE_DIR,
+        ),
+      },
+      TRAVERSABLE_DIR,
+    );
+
+    const filtered = filterTreeToAllowlist(tree);
+
+    expect(get(filtered, 'var', 'run', 'real.pid')?.kind).toBe('file');
+    // `/var/run/*.pid` matches one segment only — `sub/deep.pid` is two, so the
+    // subdir has no surviving child and is pruned whole.
+    expect(get(filtered, 'var', 'run', 'sub')).toBeUndefined();
+  });
+
+  it('anchors each segment — superstrings of an allowlisted name are not observable', () => {
+    const tree = dir(
+      {
+        etc: dir(
+          {
+            iptables: dir(
+              {
+                'rules.v4': worldFile('-A FORWARD'),
+                'xrules.v4': worldFile('prefix attack'),
+                'rules.v4.bak': worldFile('suffix attack'),
+              },
+              TRAVERSABLE_DIR,
+            ),
+          },
+          TRAVERSABLE_DIR,
+        ),
+      },
+      TRAVERSABLE_DIR,
+    );
+
+    const filtered = filterTreeToAllowlist(tree);
+
+    expect(get(filtered, 'etc', 'iptables', 'rules.v4')?.kind).toBe('file');
+    expect(get(filtered, 'etc', 'iptables', 'xrules.v4')).toBeUndefined();
+    expect(get(filtered, 'etc', 'iptables', 'rules.v4.bak')).toBeUndefined();
+  });
+
+  it('does not observe a path nested BELOW an exact allowlist entry', () => {
+    // `/var/lib/dpkg/status` is an exact (non-glob) entry — a file one level deeper
+    // (status treated as a dir) must NOT inherit observability. Pins exact-length
+    // matching: an exact pattern matches its own depth only, never a longer path.
+    const tree = dir(
+      {
+        var: dir(
+          {
+            lib: dir(
+              { dpkg: dir({ status: dir({ leak: worldFile('SECRET') }, TRAVERSABLE_DIR) }, TRAVERSABLE_DIR) },
+              TRAVERSABLE_DIR,
+            ),
+          },
+          TRAVERSABLE_DIR,
+        ),
+      },
+      TRAVERSABLE_DIR,
+    );
+
+    const filtered = filterTreeToAllowlist(tree);
+
+    expect(get(filtered, 'var', 'lib', 'dpkg', 'status', 'leak')).toBeUndefined();
+    // The whole branch is pruned — no surviving child anywhere under /var/lib.
+    expect(get(filtered, 'var')).toBeUndefined();
+  });
+
+  it('treats ** as recursive — /var/www content at any depth is observable', () => {
+    const tree = dir(
+      {
+        var: dir(
+          {
+            www: dir(
+              {
+                'index.html': worldFile('<h1>A</h1>'),
+                assets: dir({ 'app.js': worldFile('console.log(1)') }, TRAVERSABLE_DIR),
+              },
+              TRAVERSABLE_DIR,
+            ),
+          },
+          TRAVERSABLE_DIR,
+        ),
+      },
+      TRAVERSABLE_DIR,
+    );
+
+    const filtered = filterTreeToAllowlist(tree);
+
+    expect(get(filtered, 'var', 'www', 'index.html')?.kind).toBe('file');
+    expect(get(filtered, 'var', 'www', 'assets', 'app.js')?.kind).toBe('file');
+  });
+
+  it('keeps directory shells only on the path to a surviving file; prunes empty dirs', () => {
+    const tree = dir(
+      {
+        var: dir(
+          {
+            run: dir({ 'sshd.pid': worldFile('1') }, TRAVERSABLE_DIR),
+            log: dir({ syslog: worldFile('boot') }, TRAVERSABLE_DIR),
+          },
+          TRAVERSABLE_DIR,
+        ),
+        tmp: dir({}, TMP_DIR),
+      },
+      TRAVERSABLE_DIR,
+    );
+
+    const filtered = filterTreeToAllowlist(tree);
+
+    // /var survives because /var/run/sshd.pid does; /var/log has no observable
+    // child and is pruned; the empty /tmp is pruned.
+    expect(get(filtered, 'var')?.kind).toBe('directory');
+    expect(get(filtered, 'var', 'run', 'sshd.pid')?.kind).toBe('file');
+    expect(get(filtered, 'var', 'log')).toBeUndefined();
+    expect(get(filtered, 'tmp')).toBeUndefined();
+  });
+
+  it('observes every allowlist member (one representative file per pattern survives)', () => {
+    const tree = dir(
+      {
+        var: dir(
+          {
+            run: dir({ 'sshd.pid': worldFile('1') }, TRAVERSABLE_DIR),
+            www: dir({ 'index.html': worldFile('page') }, TRAVERSABLE_DIR),
+            lib: dir({ dpkg: dir({ status: worldFile('Package: nginx') }, TRAVERSABLE_DIR) }, TRAVERSABLE_DIR),
+          },
+          TRAVERSABLE_DIR,
+        ),
+        etc: dir(
+          {
+            iptables: dir({ 'rules.v4': worldFile('rules') }, TRAVERSABLE_DIR),
+            snmp: dir({ 'snmpd.conf': worldFile('community') }, TRAVERSABLE_DIR),
+            switch: dir({ 'acl.conf': worldFile('deny') }, TRAVERSABLE_DIR),
+          },
+          TRAVERSABLE_DIR,
+        ),
+      },
+      TRAVERSABLE_DIR,
+    );
+
+    const filtered = filterTreeToAllowlist(tree);
+
+    expect(get(filtered, 'var', 'run', 'sshd.pid')?.kind).toBe('file');
+    expect(get(filtered, 'var', 'www', 'index.html')?.kind).toBe('file');
+    expect(get(filtered, 'var', 'lib', 'dpkg', 'status')?.kind).toBe('file');
+    expect(get(filtered, 'etc', 'iptables', 'rules.v4')?.kind).toBe('file');
+    expect(get(filtered, 'etc', 'snmp', 'snmpd.conf')?.kind).toBe('file');
+    expect(get(filtered, 'etc', 'switch', 'acl.conf')?.kind).toBe('file');
+  });
+
+  it('pins the externally-observable allowlist exactly (security tripwire)', () => {
+    // TRIPWIRE: adding a path here widens what an UNAUTHENTICATED reader can see.
+    // /var/lib/dpkg/status leaks the full package list (fine while CVEs are
+    // port-bound); narrow it to running-service entries if off-port CVEs land.
+    expect(EXTERNALLY_OBSERVABLE_ALLOWLIST).toEqual([
+      '/var/run/*.pid',
+      '/etc/iptables/rules.v4',
+      '/etc/snmp/snmpd.conf',
+      '/etc/switch/acl.conf',
+      '/var/www/**',
+      '/var/lib/dpkg/status',
+    ]);
+  });
+
+  it('does not mutate the input tree', () => {
+    const tree = dir({ etc: dir({ passwd: file('hash', PASSWD_FILE) }, TRAVERSABLE_DIR) }, TRAVERSABLE_DIR);
+
+    filterTreeToAllowlist(tree);
+
+    expect(get(tree, 'etc', 'passwd')?.kind).toBe('file');
   });
 });

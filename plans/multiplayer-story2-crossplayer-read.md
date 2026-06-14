@@ -1,7 +1,7 @@
 # Plan: Story 2 — B reads A's filesystem over the public path (cross-player READ)
 
 **Branch**: feat/v2-crossplayer-read (per-slice branches below)
-**Status**: **2a ✅ MERGED (#237) · 2b ✅ MERGED (#238, `bbc6e47`, v0.57.0) · 2c ✅ DONE (branch `feat/v2-crossplayer-read-2c`, v0.58.0 — PR open) · NEXT: Slice 2d**
+**Status**: **2a ✅ MERGED (#237) · 2b ✅ MERGED (#238, `bbc6e47`, v0.57.0) · 2c ✅ MERGED (#239, `1e92503`, v0.58.0) · 2d ✅ IMPLEMENTED (branch `feat/v2-crossplayer-read-2d`, v0.59.0 — PR open). STORY 2 FEATURE-COMPLETE pending 2d merge → then delete this plan + mark epic Story 2 ✅, Next = Story 3 (first cross-player WRITE + `patches` PK flip).**
 **Parent epic**: `plans/multiplayer-crossplayer-epic.md` (Story 2 row)
 **Authored**: 2026-06-14 (via `planning`, after grounding the v2 read path)
 
@@ -13,7 +13,7 @@
 > root-hash / passwd / `/root`) + agent-browser two-identity UI. **NEXT = Slice 2d**
 > (tier 3 no-session allowlist + tier 1 owner-unfiltered + own-box regression guard).
 >
-> **2c shipped (commits on `feat/v2-crossplayer-read-2c`, v0.58.0):** pure
+> **2c ✅ MERGED (#239, `1e92503`, v0.58.0):** pure
 > `core/patches/readFilter.ts` (`filterTreeForRead` — 100% mut) + `core/filesystem/treeCodec.ts`
 > (Map↔JSON wire codec — 100% mut) + `core/network/resolveCrossPlayerFs.ts` (handler:
 > registry reverse-lookup → session-tier gate → owner-scoped patches → regen → filter →
@@ -251,7 +251,21 @@ denied, scripted wire check confirms no forbidden path leaks, human approves com
 
 ---
 
-### Slice 2d: No-session allowlist (tier 3) + owner (tier 1) — complete the 3-tier filter
+### Slice 2d: No-session allowlist (tier 3) + owner (tier 1) — complete the 3-tier filter — ✅ IMPLEMENTED (v0.59.0, PR open)
+
+> **2d SHIPPED on branch `feat/v2-crossplayer-read-2d` (v0.59.0).** Pure
+> `core/patches/readFilter.ts` gains `EXTERNALLY_OBSERVABLE_ALLOWLIST` (6 entries +
+> dpkg/status off-port-CVE tripwire) + `filterTreeToAllowlist` (segment glob: `*`
+> segment-bound/anchored, terminal `**` recursive; keep file iff path matches, keep
+> dir iff it has a surviving child, empty dirs pruned) — 79 killed / 6 documented-
+> equivalent (symmetric empty-segment normalization + redundant length guard). The
+> handler `resolveCrossPlayerFs.ts` now dispatches: **tier 1** owner (pubkey ==
+> owner_key → full tree, session lookup skipped) / **tier 2** session (walker) /
+> **tier 3** no-session (allowlist, replacing the old 403) — 63/63 mut (100%). No
+> client change (own-box path untouched; tiers 1/3 are wire-only). E2E: live wire
+> check `scripts/testCrossPlayerRead.ts` 7/7 across all 3 tiers (tier 3 allowlist-only
+> with even guest-readable non-observable files denied; tier 1 full; no forbidden
+> content on the wire). 1277/1277 vitest, lint + build green.
 
 **Value**: Closes the filter's other two tiers so the cross-player read boundary is whole and
 matches the legacy model; protects A's secrets from un-authenticated readers.
