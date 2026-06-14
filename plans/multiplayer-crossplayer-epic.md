@@ -1,8 +1,21 @@
 # Epic Story-Split: Multiplayer / Cross-player (v2)
 
-**Status**: NOT STARTED — story-split authored 2026-06-13. Consolidates the remaining work from two
-now-retired plans (`network-generator-epic.md` Story 4; `scan-logging-cross-player.md` Slice 3b) into one
-epic. Each child story below graduates to its own `plans/<slice>.md` (via the `planning` skill) when started.
+**Status**: **Story 1 SHIPPED & MERGED** (slice 1a #234 `df95ad6`; slice 1b #235 `ff5342a`, v0.55.0) —
+the cross-player public-IP loop is live: crack → connect (register) → `nmap <public IP>` → another
+player's REAL open ports, resolved server-side against the registry. **Story 2 is NEXT.** Story-split
+authored 2026-06-13. Consolidates the remaining work from two now-retired plans
+(`network-generator-epic.md` Story 4; `scan-logging-cross-player.md` Slice 3b) into one epic. Each child
+story below graduates to its own `plans/<slice>.md` (via the `planning` skill) when started.
+
+> **Story 1 outcome (2026-06-14).** Shipped as **1a + 1b** (no 1c). **KEY DECISION: the `patches` PK flip
+> was DEFERRED to Story 3** — Story 1/2 resolve the owner's EXISTING per-viewer rows via
+> `(machine_id, player_key = owner_key)` from the new `network_registry`, so NO schema change was needed.
+> Dropping `player_key` from the PK is only required for cross-player WRITES (Story 3). New code:
+> `core/network/registerNetwork.ts`, `core/scan/resolvePublicScan.ts` (+ `findRunFiles` →
+> `readOpenPortsFromPidfiles`), `nmap` public-IP routing/render, `adapters/networkApi.ts`,
+> `api/network.ts`, migration `20260613000000_network_registry.sql`. Degenerate NAT stored as a VALUE
+> (`router_machine_id = workstation`, `forward_table=[{publicPort:'*', → workstation}]`) — Story 5 swaps
+> the value, not the shape.
 
 > **Provenance.** This file supersedes and replaces `plans/network-generator-epic.md` and
 > `plans/scan-logging-cross-player.md`, both of which were ~95% SHIPPED and converged on a single missing
@@ -94,7 +107,7 @@ the exact seam Story 5 swaps for real iptables rules with **no rework of the reg
 
 | # | Slice (actor + action + scope) | Value | Includes | Defers | Acceptance examples | Release |
 |---|---|---|---|---|---|---|
-| 1 | **Cross-player public-IP discovery** of a shared workstation record (walking skeleton) | First cross-player observable; burns down registry + shared-record + server-resolution risk | Join → register `(publicIp → network → workstation machine_id)` server-side; flip workstation patches to a shared `machine_id` row; `nmap <public IP>` resolves server-side to the workstation's open ports (degenerate NAT) | Selective iptables, multiple internal machines, multi-layer, break-in, read filter, FS write, trace | Two identities A,B; A joins net + has sshd up; **B** runs `nmap <A.publicIp>` → sees port 22 (resolved from A's real record, not a B-side regen); B scans an unregistered IP → no host | Internal-only / flag — observable, not yet a full loop |
+| 1 ✅ **DONE** (#234+#235) | **Cross-player public-IP discovery** of a shared workstation record (walking skeleton) | First cross-player observable; burns down registry + server-resolution risk | Join → register `(publicIp → network → workstation machine_id)` server-side; `nmap <public IP>` resolves server-side to the workstation's REAL open ports (read from the owner's existing `/var/run/*.pid` rows via the registry's `owner_key`; degenerate NAT). **No schema flip — deferred to Story 3.** | Selective iptables, multiple internal machines, multi-layer, break-in, read filter, FS write, trace | Two identities A,B; A joins net + has sshd up; **B** runs `nmap <A.publicIp>` → sees the real port (E2E proved `2222/tcp` from A's `sshd 2222`); B scans an unregistered IP → no host | ✅ Shipped (internal-only — not yet a full loop) |
 | 2 | **B reads A's filesystem** over the public path (the 3-tier read filter) | Cross-player READ — B sees A's *real* files, not a per-viewer regen | `ssh user@<A.publicIp>` (creds in hand) → session on A's shared record → `ls`/`cat` A's actual persisted files via owner/session+walker/allowlist read filter | Writing, root, bricking, trace | B `ssh`es in, `cat`s a file **A created**; an identity with no session/allowlist hit → `403 no_session`; A still reads its own box unchanged | Shippable |
 | 3 | **B modifies A's filesystem** | The "make changes" half of the vision | B (session on A's box) create/edit/delete a file → persists to A's shared record → A and other authorized viewers see it; L1 (session) + L2 (walker) server-enforced against the shared record | Root escalation, bricking, trace | B writes `/home/A/pwned.txt`; A reloads and sees it; B writes a path L2 forbids at B's tier → rejected | Shippable |
 | 4 | **B escalates to root → bricks A's machine** | The dramatic payoff — persistent cross-player damage | Root escalation via **`su` with the obtained root password** (no privesc-CVE primitive needed — see Parking Lot) → a destructive/bricking action persists to A's shared record; A's box is observably damaged next load | — | B `su`s to root with A's password, performs the brick action; A's machine is broken on next load; B without root cannot | Shippable (bricking is gameplay-renewable) |
@@ -104,10 +117,10 @@ the exact seam Story 5 swaps for real iptables rules with **no rework of the reg
 
 ## Parking lot
 
-- **Story 1 is the largest child** — it bundles registry write-on-join + shared-record schema flip +
-  server-side nmap resolution. That is intentional (it's the irreducible skeleton) but `planning` MUST
-  sub-slice it into PRs (e.g. 1a register-on-join; 1b shared-record read path; 1c nmap public-IP server
-  resolution). Watch for it ballooning.
+- **Story 1 ✅ DONE** — shipped as **1a** (register-on-join + `nmap <public IP>` host up/down, #234) +
+  **1b** (the resolved machine's REAL open ports from the owner's `/var/run/*.pid` rows, #235). **No 1c:
+  the schema flip was deferred to Story 3** (grounding showed Story 1/2 only READ the owner's existing
+  per-viewer rows via the registry's `owner_key`, needing no flip). The sub-slicing concern is resolved.
 - **Story 4 privesc vector — RESOLVED (2026-06-13).** No privesc-CVE primitive is needed to build or test
   the brick payoff: escalation is **`su` with the root password the attacker has obtained**. For the
   epic's testability the dev authors both identities and knows both root passwords, so Story 4 is testable
@@ -121,9 +134,10 @@ the exact seam Story 5 swaps for real iptables rules with **no rework of the reg
 - **Story 7 (same-wifi)** is genuinely part of the owner's stated vision but deferred by decision #2. Keep
   it visible — it mostly reuses Story 1's shared record + occupancy registry, minus NAT.
 - **`owner_key` / provenance schema** — the exact `patches` schema change (drop `player_key` from the PK,
-  add `owner_key`, keep `player_key` as a provenance column) is the central migration. No live players →
-  free to reshape (`feedback_no_backward_compat`), but this rule sunsets at multiplayer announce. Decide
-  the column shape when planning Story 1.
+  add `owner_key`, keep `player_key` as a provenance column) is the central migration. **DEFERRED to
+  Story 3** (its first cross-player WRITE is what forces it; Stories 1–2 only read the owner's existing
+  rows via the registry's `owner_key`). No live players → free to reshape (`feedback_no_backward_compat`),
+  but this rule sunsets at multiplayer announce. Decide the column shape when planning Story 3.
 - **Replay/nonce store** — `api/patches.ts` uses a `noopNonceStore` locally. The real nonce/rate-limit
   store should land with cross-player writes (Story 3) — confirm.
 
@@ -152,7 +166,9 @@ the exact seam Story 5 swaps for real iptables rules with **no rework of the reg
 - **The read filter (Story 2) is security-load-bearing, not gold-plating** — the ship-first stance trims
   L2/isolation gold-plating, but owner/session/allowlist tiering is the *core* cross-player boundary.
 - **Don't relabel the schema flip as its own story.** It has no observable behavior alone — it rides
-  inside Story 1. (No "build the shared-record table" component story.)
+  inside the first story that needs it. **UPDATE (2026-06-14): that is Story 3** (the first cross-player
+  WRITE), NOT Story 1 — Stories 1–2 only READ the owner's existing rows, so the flip wasn't needed yet.
+  (Still no "build the shared-record table" component story.)
 - **Story 1 service assumption — CONFIRMED (2026-06-13).** A player workstation can run **sshd** (open
   port 22), so `nmap <public IP>` returns a non-empty result. The only genuinely new mechanism the whole
   epic still needs is **iptables port-forwarding** (router → internal machine, Story 5) — every other tool
@@ -161,8 +177,12 @@ the exact seam Story 5 swaps for real iptables rules with **no rework of the reg
 
 ## Next step
 
-Load `planning` for **Story 1** to turn it into PR-sized implementation slices (likely 1a/1b/1c per the
-parking lot). Every implementation slice runs the full RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR cycle —
-load `tdd`, `testing`, `mutation-testing`, `refactoring` before code. Optionally run `find-gaps` on this
-split first to harden acceptance examples (esp. the Story 4 privesc vector and the Story 1 service
-assumption). No production code until Story 1's plan exists.
+**Story 1 ✅ COMPLETE** (#234 + #235). **NEXT: Story 2 — B reads A's filesystem over the public path
+(the 3-tier read filter).** Load `planning` for Story 2 to turn it into PR-sized slices: `ssh
+user@<A.publicIp>` (creds in hand) → session on A's record → `ls`/`cat` A's REAL persisted files via the
+owner / active-session + permission-walker / no-session + allowlist read filter (port legacy
+`listPatchesForMachines`, memory `project_read_path_privacy_gap`). Reuses Story 1's `network_registry`
+resolution + the shipped ssh/sessions/L1 stack; still NO `patches` PK flip (that's Story 3). Every
+implementation slice runs the full RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR cycle — load `tdd`, `testing`,
+`mutation-testing`, `refactoring` before code. Optionally run `find-gaps` on Story 2 first to harden the
+read-filter acceptance examples. No production code until Story 2's plan exists.
