@@ -66,12 +66,13 @@ export const resolvePublic = async (
 ): Promise<PublicScanResolution> => {
   try {
     const response = await post(deps, 'resolvePublicScan', { target });
-    if (!response.ok) return { found: false };
+    if (!response.ok) return { found: false, ports: [] };
     // A null / malformed body throws on the property access and is caught below
     // (→ host down), so no optional-chaining guard is needed here.
     const body: unknown = await response.json();
-    return { found: (body as { found?: boolean }).found === true };
+    const resolved = body as Partial<PublicScanResolution>;
+    return { found: resolved.found === true, ports: resolved.ports ?? [] };
   } catch {
-    return { found: false };
+    return { found: false, ports: [] };
   }
 };

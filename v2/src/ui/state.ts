@@ -212,7 +212,9 @@ const recordScanFn = (params: ScanRecordParams): Promise<void> =>
 /** Resolve an `nmap <public IP>` cross-player (backs `env.scan.resolvePublic`).
  *  Host-down until `startGame` wires the network client — degrade rather than crash. */
 const resolvePublicFn = (target: string): Promise<PublicScanResolution> =>
-  networkClientDeps === undefined ? Promise.resolve({ found: false }) : resolvePublic(networkClientDeps, target);
+  networkClientDeps === undefined
+    ? Promise.resolve({ found: false, ports: [] })
+    : resolvePublic(networkClientDeps, target);
 
 /** Join a home network (backs `env.homeNetwork.join`): register it server-side so
  *  other identities can resolve it, then return the assignment. Falls back to the

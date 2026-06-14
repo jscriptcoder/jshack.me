@@ -63,6 +63,17 @@ const PORT_HEADER = [padRight('PORT', PORT_COL), padRight('STATE', STATE_COL), '
 const formatPortLine = (entry: OpenPort): string =>
   [padRight(`${entry.port}/tcp`, PORT_COL), padRight('open', STATE_COL), entry.service].join('');
 
+/** The PORT/STATE/SERVICE table for a host's open ports, preceded by a blank line —
+ *  or nothing at all when the host runs no services. Shared by every host report
+ *  (the own-LAN single scan and the cross-player public-IP scan) so the two render
+ *  identically and can never drift. */
+function* portTableLines(ports: readonly OpenPort[]): Iterable<TerminalLine> {
+  if (ports.length === 0) return;
+  yield text('');
+  yield text(PORT_HEADER);
+  for (const port of ports) yield text(formatPortLine(port));
+}
+
 async function* scanRange(
   env: CommandEnv,
   rawTarget: string,
@@ -98,12 +109,7 @@ async function* scanSingle(
   yield text('Host is up.');
   // Ports come from the host's filesystem: the live env.fs for the player's own
   // host, the deterministic generated FS for any other host.
-  const ports = readOpenPorts(resolveHostFs(host));
-  if (ports.length > 0) {
-    yield text('');
-    yield text(PORT_HEADER);
-    for (const port of ports) yield text(formatPortLine(port));
-  }
+  yield* portTableLines(readOpenPorts(resolveHostFs(host)));
   yield text('');
   yield text('Nmap done — 1 host up');
 }
@@ -114,7 +120,7 @@ async function* scanSingle(
 async function* scanPublic(env: CommandEnv, target: string): AsyncIterable<TerminalLine> {
   yield text(`Starting Nmap scan — ${target}`);
   yield text('');
-  const { found } = await env.scan.resolvePublic(target);
+  const { found, ports } = await env.scan.resolvePublic(target);
   if (!found) {
     yield text('Host seems down.');
     yield text('');
@@ -123,6 +129,9 @@ async function* scanPublic(env: CommandEnv, target: string): AsyncIterable<Termi
   }
   yield text(`Nmap scan report for ${target}`);
   yield text('Host is up.');
+  // The resolved ports are the OWNER's real running services (read server-side from
+  // their /var/run record) — rendered with the same table as an own-LAN scan.
+  yield* portTableLines(ports);
   yield text('');
   yield text('Nmap done — 1 host up');
 }

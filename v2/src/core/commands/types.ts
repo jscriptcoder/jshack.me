@@ -24,6 +24,7 @@ import type { WalkResult } from '../filesystem/walker';
 import type { NetworkInterface } from '../network/interfaces';
 import type { HomeNetworkAssignment } from '../network/homeNetwork';
 import type { WifiNetwork } from '../network/wifi';
+import type { OpenPort } from '../services/pidfile';
 import type { FlagSpec } from '../shell/bindFlags';
 
 // ---- Identity & session (read-only snapshots in CommandEnv) ----
@@ -253,10 +254,13 @@ export type ScanRecordParams = {
   readonly sourceIp: string | null;
 };
 
-/** The server-resolved result of scanning a public IP (Story 1, slice 1a). Slice
- *  1b extends this with the resolved machine's open ports. */
+/** The server-resolved result of scanning a public IP (Story 1). `found` is host
+ *  up/down; `ports` are the resolved machine's REAL open ports, read server-side
+ *  from the owner's `/var/run/*.pid` record (empty when the host is down or runs
+ *  no services). */
 export type PublicScanResolution = {
   readonly found: boolean;
+  readonly ports: readonly OpenPort[];
 };
 
 /** The scan seam. `record` is the fire-and-forget own-LAN scan logger (signed
