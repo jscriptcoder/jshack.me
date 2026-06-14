@@ -33,7 +33,12 @@ export type ForwardRule = {
   readonly targetMachineId: string;
 };
 
-/** A row in the public-IP registry: `public_ip → network/router/machines`. */
+/** A row in the public-IP registry: `public_ip → network/router/machines`. The
+ *  `workstation_*` identity fields (Story 2) let the server RECONSTRUCT the owner's
+ *  box for a cross-player reader: `username`/`machine_name` are player-chosen;
+ *  `root_hash` is `md5(rootPassword)` (the client hashes — the server never sees
+ *  plaintext). The guest password is pubkey-seeded, so it is recomputed from
+ *  `owner_key` and not stored. */
 export type NetworkRegistryRow = {
   readonly public_ip: string;
   readonly owner_key: string;
@@ -41,6 +46,9 @@ export type NetworkRegistryRow = {
   readonly router_machine_id: string;
   readonly forward_table: readonly ForwardRule[];
   readonly essid: string;
+  readonly workstation_username: string;
+  readonly workstation_machine_name: string;
+  readonly workstation_root_hash: string;
 };
 
 export type RegisterNetworkDeps = {
@@ -61,6 +69,9 @@ const registerNetworkSchema = z
     action: z.literal('registerNetwork'),
     essid: z.string().min(1),
     workstation_machine_id: z.string().min(1),
+    workstation_username: z.string().min(1),
+    workstation_machine_name: z.string().min(1),
+    workstation_root_hash: z.string().min(1),
   })
   .refine((payload) => !('player_key' in payload) && !('public_ip' in payload));
 
@@ -86,6 +97,9 @@ export const handleRegisterNetwork = async (
     router_machine_id: payload.workstation_machine_id,
     forward_table: [{ publicPort: '*', targetMachineId: payload.workstation_machine_id }],
     essid: payload.essid,
+    workstation_username: payload.workstation_username,
+    workstation_machine_name: payload.workstation_machine_name,
+    workstation_root_hash: payload.workstation_root_hash,
   };
 
   const { error } = await deps.upsertRegistry(row);

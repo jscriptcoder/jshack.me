@@ -5,6 +5,7 @@ import { generateIdentity } from '../core/identity/identity';
 import { computeWorkstationId } from '../core/identity/workstation';
 import { verifySignedRequest } from '../core/signedRequest/verify';
 import { assignHomeNetwork } from '../core/network/homeNetwork';
+import { md5 } from '../core/generation/md5';
 import { asMachineId } from '../core/types';
 
 /**
@@ -22,11 +23,14 @@ const ESSID = 'BEAN-THERE-WIFI';
 const jsonResponse = (status: number, body: unknown): Response =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
+const GAME_CONFIG = { machineName: 'skylab', username: 'neo', rootPassword: 'matrix1999' };
+
 const makeDeps = (fetchImpl: typeof fetch, over: Partial<NetworkClientDeps> = {}): NetworkClientDeps => {
   const identity = generateIdentity();
   return {
     identity,
     machineId: asMachineId(computeWorkstationId('skylab', identity.publicKeyHex)),
+    gameConfig: GAME_CONFIG,
     endpoint: ENDPOINT,
     fetchImpl,
     ...over,
@@ -85,12 +89,31 @@ describe('joinHomeNetwork', () => {
     const deps: NetworkClientDeps = {
       identity,
       machineId: asMachineId(computeWorkstationId('skylab', identity.publicKeyHex)),
+      gameConfig: GAME_CONFIG,
       fetchImpl: fetchSpy as unknown as typeof fetch,
     };
 
     await joinHomeNetwork(deps, ESSID);
 
     expect(fetchSpy).toHaveBeenCalledWith('/api/network', expect.objectContaining({ method: 'POST' }));
+  });
+
+  it('carries the workstation identity (hashed root password, never plaintext) in the register payload', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch, {
+      gameConfig: { machineName: 'nebuchadnezzar', username: 'trinity', rootPassword: 'zion-secret' },
+    });
+
+    await joinHomeNetwork(deps, ESSID);
+
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected verified envelope');
+    expect(verified.payload).toMatchObject({
+      workstation_username: 'trinity',
+      workstation_machine_name: 'nebuchadnezzar',
+      workstation_root_hash: md5('zion-secret'),
+    });
+    expect(JSON.stringify(verified.payload)).not.toContain('zion-secret');
   });
 });
 
