@@ -15,10 +15,12 @@
  *     so the base node stays hidden after the journal replays.
  *
  * Descendant cleanup is unconditional — a file has none, and a recursively
- * removed directory must not leave orphaned child patches behind. `player_key`
- * is server-stamped from the VERIFIED pubkey (never a client claim); the schema
- * rejects a client-supplied player_key outright. L1-gated like the write path:
- * own workstation (suffix match) OR an active ssh session on the target.
+ * removed directory must not leave orphaned child patches behind. The row's
+ * `writer_key` is server-stamped from the VERIFIED pubkey (never a client
+ * claim); the schema rejects a client-supplied player_key/writer_key outright.
+ * The find/delete/tombstone all key on the caller's own `(machine_id, path,
+ * writer_key)` row in the shared journal. L1-gated like the write path: own
+ * workstation (suffix match) OR an active ssh session on the target.
  */
 
 import { z } from 'zod';
@@ -30,7 +32,7 @@ import type { NonceStore } from '../signedRequest/nonceStore';
 import type { PatchRow } from './upsertPatch';
 
 export type PatchTreeQuery = {
-  readonly player_key: string;
+  readonly writer_key: string;
   readonly machine_id: string;
   readonly path: string;
 };
@@ -64,7 +66,7 @@ const removePatchSchema = z
     path: z.string().min(1),
     owner: z.string().min(1),
   })
-  .refine((payload) => !('player_key' in payload));
+  .refine((payload) => !('player_key' in payload) && !('writer_key' in payload));
 
 const failed: HandlerResponse = { status: 500, body: { error: 'remove_failed' } };
 
@@ -99,7 +101,7 @@ export const handleRemovePatch = async (
   }
 
   const query: PatchTreeQuery = {
-    player_key: publicKey,
+    writer_key: publicKey,
     machine_id: payload.machine_id,
     path: payload.path,
   };
@@ -114,7 +116,7 @@ export const handleRemovePatch = async (
   // tombstone so the base FS stays hidden on replay.
   if (!lookup.data?.is_new) {
     const { error: upsertError } = await deps.upsertPatch({
-      player_key: publicKey,
+      writer_key: publicKey,
       machine_id: payload.machine_id,
       path: payload.path,
       content: null,

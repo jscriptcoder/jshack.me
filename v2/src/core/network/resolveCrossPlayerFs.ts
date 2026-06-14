@@ -28,6 +28,7 @@ import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { buildWorkstationBaseFsFromIdentity } from '../generation/workstationFs';
 import { applyPatches, type Patch } from '../filesystem/applyPatches';
+import { orderPatchesForReplay } from '../patches/orderPatchesForReplay';
 import { filterTreeForRead, filterTreeToAllowlist } from '../patches/readFilter';
 import { serializeTree } from '../filesystem/treeCodec';
 import type { Directory, FilePermissions } from '../filesystem/types';
@@ -43,14 +44,18 @@ export type RegistryWorkstation = {
   readonly workstation_root_hash: string;
 };
 
-/** One of the owner's persisted patch rows on the target machine — the same shape
- *  `/api/patches` reads, mapped into a client `Patch` for replay. */
+/** One of the machine's persisted patch rows on the target — the same shape
+ *  `/api/patches` reads, mapped into a client `Patch` for replay. After the
+ *  shared-journal flip these are the MACHINE's rows (every writer's), carrying
+ *  the SERVER `updated_at` + `writer_key` so they replay in chronological order. */
 export type OwnerPatchRow = {
   readonly path: string;
   readonly content: string | null;
   readonly owner: string;
   readonly permissions: FilePermissions | null;
   readonly node_type: 'file' | 'directory' | null;
+  readonly updated_at: string;
+  readonly writer_key: string;
 };
 
 /** The caller's active session on the target — the SERVER-authoritative tier the
@@ -66,10 +71,11 @@ export type ResolveCrossPlayerFsDeps = {
     readonly player_key: string;
     readonly machine_id: string;
   }) => Promise<{ readonly data: ActiveSession | null; readonly error: unknown }>;
-  /** The OWNER's patch rows on the target. Scoped to `owner_key` + `machine_id` so
-   *  the read serves the owner's REAL box, never the caller's per-viewer rows. */
+  /** The machine's patch rows on the target. Scoped to `machine_id` only — after
+   *  the shared-journal flip the machine OWNS its journal (the workstation id
+   *  already encodes the owner), so this serves the real box including every
+   *  writer's rows, never the caller's separate per-viewer rows. */
   readonly findPatches: (query: {
-    readonly player_key: string;
     readonly machine_id: string;
   }) => Promise<{ readonly data: readonly OwnerPatchRow[] | null; readonly error: unknown }>;
 };
@@ -96,8 +102,9 @@ const rowToPatch = (row: OwnerPatchRow): Patch => ({
   ...(row.node_type ? { nodeType: row.node_type } : {}),
 });
 
-/** Rebuild A's REAL box: the shared generator's baseline (decision D6) with A's
- *  OWN persisted patch journal replayed over it. */
+/** Rebuild A's REAL box: the shared generator's baseline (decision D6) with the
+ *  machine's persisted patch journal replayed over it — every writer's rows,
+ *  ordered chronologically (D1–D3) so the latest write to each path wins. */
 const materialize = (
   registry: RegistryWorkstation,
   patches: readonly OwnerPatchRow[] | null,
@@ -107,7 +114,7 @@ const materialize = (
     username: registry.workstation_username,
     rootPasswordHash: registry.workstation_root_hash,
   });
-  return applyPatches(base, (patches ?? []).map(rowToPatch));
+  return applyPatches(base, orderPatchesForReplay(patches ?? []).map(rowToPatch));
 };
 
 export const handleResolveCrossPlayerFs = async (
@@ -142,7 +149,6 @@ export const handleResolveCrossPlayerFs = async (
   }
 
   const patches = await deps.findPatches({
-    player_key: registry.data.owner_key,
     machine_id: payload.machine_id,
   });
   if (patches.error) {

@@ -11,10 +11,11 @@
  * relies on (services age into vulnerability by SERVER time, not client claims).
  *
  * Flow mirrors `handleUpsertPatch`: verify the signed envelope → confirm the
- * target is the caller's OWN workstation → server-stamp player_key from the
- * VERIFIED pubkey → read-modify-write the auth.log row. The payload schema
- * rejects a client-supplied player_key outright; any client `time`/`pid` field
- * is simply never read.
+ * target is the caller's OWN workstation → server-stamp writer_key from the
+ * VERIFIED pubkey → read-modify-write the auth.log row (keyed on the owner's own
+ * `(machine_id, AUTH_LOG_PATH, writer_key)` in the shared journal). The payload
+ * schema rejects a client-supplied player_key/writer_key outright; any client
+ * `time`/`pid` field is simply never read.
  */
 
 import { z } from 'zod';
@@ -33,7 +34,7 @@ import type { NonceStore } from '../signedRequest/nonceStore';
 import type { PatchRow } from './upsertPatch';
 
 export type AuthLogContentQuery = {
-  readonly player_key: string;
+  readonly writer_key: string;
   readonly machine_id: string;
   readonly path: string;
 };
@@ -55,8 +56,8 @@ export type HandlerResponse = {
 };
 
 // Loose so the always-present envelope fields (action/ts/nonce) pass through;
-// the refine rejects a client-supplied player_key (the server stamps it). Any
-// client `time`/`pid` is ignored — the server clock is authoritative.
+// the refine rejects a client-supplied player_key/writer_key (the server stamps
+// the writer). Any client `time`/`pid` is ignored — the server clock is authoritative.
 const appendAuthLogSchema = z
   .looseObject({
     action: z.literal('appendAuthLog'),
@@ -66,7 +67,7 @@ const appendAuthLogSchema = z
     outcome: z.enum(['success', 'failure']),
     hostname: z.string().min(1),
   })
-  .refine((payload) => !('player_key' in payload));
+  .refine((payload) => !('player_key' in payload) && !('writer_key' in payload));
 
 export const handleAppendAuthLog = async (
   body: unknown,
@@ -85,7 +86,7 @@ export const handleAppendAuthLog = async (
   }
 
   const existing = await deps.readAuthLog({
-    player_key: publicKey,
+    writer_key: publicKey,
     machine_id: payload.machine_id,
     path: AUTH_LOG_PATH,
   });
@@ -105,7 +106,7 @@ export const handleAppendAuthLog = async (
   });
 
   const { error } = await deps.upsertPatch({
-    player_key: publicKey,
+    writer_key: publicKey,
     machine_id: payload.machine_id,
     path: AUTH_LOG_PATH,
     content: `${current}${line}\n`,

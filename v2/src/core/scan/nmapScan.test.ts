@@ -19,9 +19,9 @@ import type { NonceStore } from '../signedRequest/nonceStore';
  * and — server-internal — appends ONE aggregate `/var/log/kern.log` line to EACH
  * scanned host (the SSH-epic `appendMachineLog` pattern). Per-host, never per
  * probe; every up host except the player's own workstation (which is keyed by a
- * different machine_id); the line lists that host's own open ports. Per-viewer
- * for now (scoped to the caller's player_key) — Slice 3b re-keys it to a shared
- * machine record so a different identity can read it.
+ * different machine_id); the line lists that host's own open ports. The line lands
+ * on the host's shared journal keyed by the caller's writer_key + machine_id; the
+ * cross-player trace READ (a different identity reading it) is a later story.
  */
 
 const freshStore: NonceStore = async () => ({ fresh: true });
@@ -102,7 +102,7 @@ describe('handleNmapScan', () => {
     expect(upsertPatch).toHaveBeenCalledTimes(logged.length);
     logged.forEach((host, index) => {
       expect(upsertPatch.mock.calls[index]![0]).toEqual({
-        player_key: id.publicKeyHex,
+        writer_key: id.publicKeyHex,
         machine_id: hostMachineId(host, ESSID),
         path: '/var/log/kern.log',
         content: `${expectedKernLine(id.publicKeyHex, host)}\n`,

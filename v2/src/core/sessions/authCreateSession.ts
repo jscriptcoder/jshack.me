@@ -59,8 +59,9 @@ export type AuthCreateSessionDeps = {
   /** The server's wall clock, epoch-ms (UTC) — stamps the auth.log line. */
   readonly now: () => number;
   readonly insertSession: (row: AuthSessionRow) => Promise<{ readonly error: unknown }>;
-  /** Read the current content of a log file on a (player_key, machine_id) — the
-   *  read half of the system-written auth.log line. */
+  /** Read the current content of a log file on the host's shared journal, keyed
+   *  `(machine_id, path, writer_key)` — the read half of the system-written
+   *  auth.log line. */
   readonly readAuthLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
   /** Write a patch (here: the appended auth.log line on the remote host). */
   readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
@@ -113,7 +114,7 @@ const logSshAttempt = async (deps: AuthCreateSessionDeps, attempt: SshAttempt): 
     await appendMachineLog(
       { readLog: deps.readAuthLog, upsertPatch: deps.upsertPatch },
       {
-        playerKey: attempt.publicKey,
+        writerKey: attempt.publicKey,
         machineId: attempt.machineId,
         path: AUTH_LOG_PATH,
         owner: AUTH_LOG_OWNER,

@@ -62,7 +62,7 @@ const ownFields = (publicKeyHex: string) => ({
 });
 
 describe('handleUpsertPatch', () => {
-  it('persists an own-workstation write and server-stamps the verified player_key', async () => {
+  it('persists an own-workstation write and server-stamps the verified writer_key', async () => {
     const id = generateIdentity();
     const envelope = signRequest(id, 'upsertPatch', ownFields(id.publicKeyHex));
     const { deps, upsertPatch } = makeDeps();
@@ -72,7 +72,7 @@ describe('handleUpsertPatch', () => {
     expect(result).toEqual({ status: 200, body: { ok: true } });
     expect(upsertPatch).toHaveBeenCalledTimes(1);
     const row = upsertPatch.mock.calls[0]![0];
-    expect(row.player_key).toBe(id.publicKeyHex);
+    expect(row.writer_key).toBe(id.publicKeyHex);
     expect(row.machine_id).toBe(computeWorkstationId('skylab', id.publicKeyHex));
     expect(row.path).toBe('/home/alice/notes.txt');
     expect(row.content).toBe('hello');
@@ -117,7 +117,7 @@ describe('handleUpsertPatch', () => {
 
     expect(result).toEqual({ status: 200, body: { ok: true } });
     const row = upsertPatch.mock.calls[0]![0];
-    expect(row.player_key).toBe(id.publicKeyHex);
+    expect(row.writer_key).toBe(id.publicKeyHex);
     expect(row.machine_id).toBe(machineId);
     expect(row.path).toBe('/etc/secret');
   });
@@ -141,12 +141,9 @@ describe('handleUpsertPatch', () => {
 
     expect(result).toEqual({ status: 403, body: { error: 'permission_denied' } });
     expect(upsertPatch).not.toHaveBeenCalled();
-    // L2 regenerates the host from THIS machine's journal, scoped to the verified
-    // pubkey + the target machine.
-    expect(listMachinePatches).toHaveBeenCalledWith({
-      player_key: id.publicKeyHex,
-      machine_id: machineId,
-    });
+    // L2 regenerates the host from the MACHINE's shared journal (every writer's
+    // rows) — keyed on machine_id only after the PK flip.
+    expect(listMachinePatches).toHaveBeenCalledWith({ machine_id: machineId });
   });
 
   it('treats a null prior-patch journal as an empty one (root write over the base FS proceeds)', async () => {
@@ -364,6 +361,20 @@ describe('handleUpsertPatch', () => {
     const envelope = signRequest(id, 'upsertPatch', {
       ...ownFields(id.publicKeyHex),
       player_key: 'forged-key',
+    });
+    const { deps, upsertPatch } = makeDeps();
+
+    const result = await handleUpsertPatch(envelope, deps);
+
+    expect(result).toEqual({ status: 400, body: { error: 'payload_invalid' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('rejects a client-supplied writer_key (forged provenance) with 400 and never writes', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'upsertPatch', {
+      ...ownFields(id.publicKeyHex),
+      writer_key: 'forged-provenance',
     });
     const { deps, upsertPatch } = makeDeps();
 

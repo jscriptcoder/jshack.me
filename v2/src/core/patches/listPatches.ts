@@ -6,23 +6,27 @@
  *
  * L1-gated, same as the write path: the caller may read a machine's journal
  * when it is their OWN workstation (suffix match) OR they hold an active ssh
- * session there — otherwise 403 `no_session`. The query is always scoped to the
- * VERIFIED pubkey's rows, so a forged player_key in the payload would change
- * nothing (no player_key refine). The cross-player three-tier read filter
- * (listPatchesForMachines) is still a later plan.
+ * session there — otherwise 403 `no_session`. The query is scoped to the
+ * MACHINE (the shared journal — Story 3 PK flip), not to a writer, so every
+ * writer's rows on that machine come back; the handler sorts them into
+ * chronological replay order before returning (D3 — order in core, not SQL).
  */
 
 import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { authorizeMachineAccess, type FindActiveSession } from './authorizeMachineAccess';
+import { orderPatchesForReplay } from './orderPatchesForReplay';
 import type { NonceStore } from '../signedRequest/nonceStore';
 import type { PatchRow } from './upsertPatch';
 
 export type { PatchRow } from './upsertPatch';
 
+/** A persisted patch row: the write shape plus the SERVER-stamped `updated_at`
+ *  the chronological replay order is derived from. */
+export type PersistedPatchRow = PatchRow & { readonly updated_at: string };
+
 export type ListPatchesQuery = {
-  readonly player_key: string;
   readonly machine_id: string;
 };
 
@@ -31,7 +35,7 @@ export type ListPatchesDeps = {
   readonly findActiveSession: FindActiveSession;
   readonly listPatches: (
     query: ListPatchesQuery,
-  ) => Promise<{ readonly data: readonly PatchRow[] | null; readonly error: unknown }>;
+  ) => Promise<{ readonly data: readonly PersistedPatchRow[] | null; readonly error: unknown }>;
 };
 
 export type HandlerResponse = {
@@ -62,12 +66,11 @@ export const handleListPatches = async (
   }
 
   const { data, error } = await deps.listPatches({
-    player_key: publicKey,
     machine_id: payload.machine_id,
   });
   if (error) {
     return { status: 500, body: { error: 'list_failed' } };
   }
 
-  return { status: 200, body: { ok: true, patches: data ?? [] } };
+  return { status: 200, body: { ok: true, patches: orderPatchesForReplay(data ?? []) } };
 };

@@ -50,7 +50,8 @@ export type NmapScanDeps = {
   readonly nonceStore: NonceStore;
   /** The server's wall clock, epoch-ms (UTC) — stamps the kern.log line. */
   readonly now: () => number;
-  /** Read the current content of a log file on a (player_key, machine_id). */
+  /** Read the current content of a log file on this machine's shared journal,
+   *  keyed `(machine_id, path, writer_key)`. */
   readonly readLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
   /** Write a patch (here: the appended kern.log line on the scanned host). */
   readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
@@ -98,7 +99,7 @@ const logHostScan = async (
     await appendMachineLog(
       { readLog: deps.readLog, upsertPatch: deps.upsertPatch },
       {
-        playerKey: context.publicKey,
+        writerKey: context.publicKey,
         machineId: hostMachineId(host, context.essid),
         path: KERN_LOG_PATH,
         owner: KERN_LOG_OWNER,

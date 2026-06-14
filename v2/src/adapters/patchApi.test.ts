@@ -281,7 +281,7 @@ describe('fetchOwnPatches', () => {
   it('signs a listPatches request and maps server rows to client Patches', async () => {
     const rows = [
       {
-        player_key: 'x',
+        writer_key: 'x',
         machine_id: 'm',
         path: '/home/alice/proj',
         content: null,
@@ -289,15 +289,17 @@ describe('fetchOwnPatches', () => {
         permissions: { read: ['root', 'user'], write: ['root', 'user'], execute: ['root'] },
         is_new: true,
         node_type: 'directory',
+        updated_at: '2026-06-14T12:00:00.000000+00:00',
       },
       {
-        player_key: 'x',
+        writer_key: 'x',
         machine_id: 'm',
         path: '/home/alice/notes.txt',
         content: 'hi',
         owner: 'alice',
         permissions: null,
         node_type: 'file',
+        updated_at: '2026-06-14T12:00:01.000000+00:00',
       },
     ];
     const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, patches: rows }));
