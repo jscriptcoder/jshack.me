@@ -19,8 +19,9 @@ import { asAbsPath, asMachineId, type UserType } from '../types';
 import { generateHomeLan } from '../generation/generateHomeLan';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
 import { hostMachineId } from '../generation/remoteHostId';
+import { isPublicIp } from '../generation/ip';
 import { parsePidfilePort } from '../services/pidfile';
-import type { Command, CommandResult, Session } from './types';
+import type { Command, CommandEnv, CommandResult, Session } from './types';
 import type { Directory } from '../filesystem/types';
 
 const DEFAULT_PORT = 22;
@@ -67,6 +68,66 @@ const sshPortOf = (fs: Directory): number | null => {
 const homeFor = (username: string, userType: UserType): string =>
   userType === 'root' ? '/root' : `/home/${username}`;
 
+/** Cross-player login to a PUBLIC IP (Story 2): the target isn't on the player's
+ *  own LAN, so reachability comes from the registry via `env.scan.resolvePublic`
+ *  (host up? ssh on the asked port?) and auth from `env.ssh.authenticatePublic`,
+ *  which lands the session on the OWNER's real workstation id — whose name drives
+ *  the prompt hostname. */
+const executePublicLogin = async (
+  env: CommandEnv,
+  target: { readonly user: string; readonly host: string },
+  port: number,
+  sourceIp: string | null,
+): Promise<CommandResult> => {
+  const resolution = await env.scan.resolvePublic(target.host);
+  if (!resolution.found) {
+    return connectError(target.host, port, 'No route to host');
+  }
+  if (!resolution.ports.some((open) => open.port === port && open.service === 'ssh')) {
+    return connectError(target.host, port, 'Connection refused');
+  }
+
+  let password: string;
+  try {
+    password = await env.prompt({
+      message: `${target.user}@${target.host}'s password: `,
+      masked: true,
+    });
+  } catch {
+    return { kind: 'sync', lines: [], exitCode: 130 };
+  }
+
+  const sessionId = `ssh-${target.user}-${env.now()}`;
+  const result = await env.ssh.authenticatePublic({
+    sessionId,
+    target: target.host,
+    username: target.user,
+    password,
+    parentSessionId: env.session.id,
+    sourceIp,
+  });
+  if (!result.ok) {
+    if (result.error === 'invalid_credentials') return errorResult('Permission denied (password).');
+    if (result.error === 'host_unreachable') {
+      return connectError(target.host, port, 'Connection refused');
+    }
+    return connectError(target.host, port, 'Network error');
+  }
+
+  const session: Session = {
+    id: sessionId,
+    playerKey: env.session.playerKey,
+    machineId: asMachineId(result.machineId),
+    username: target.user,
+    userType: result.userType,
+    kind: 'ssh',
+    createdAt: env.now(),
+  };
+  env.pushSession(session);
+  env.setCwd(asAbsPath(homeFor(target.user, result.userType)));
+  return { kind: 'sync', lines: [], exitCode: 0 };
+};
+
 const execute: Command['execute'] = async (env, args, flags) => {
   const rawTarget = args[0];
   if (rawTarget === undefined) return errorResult(USAGE);
@@ -85,6 +146,12 @@ const execute: Command['execute'] = async (env, args, flags) => {
   }
   const essid = wlan0.association.essid;
   const sourceIp = wlan0.ipv4;
+
+  // A public IP isn't on the player's own LAN — route it cross-player (registry
+  // resolution + cross-player auth) instead of the deterministic own-LAN path.
+  if (isPublicIp(target.host)) {
+    return executePublicLogin(env, target, port, sourceIp);
+  }
 
   // Reachability is resolved from the deterministic generated world — no prompt
   // for a host that is down or not listening on the asked port.

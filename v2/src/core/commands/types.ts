@@ -234,12 +234,37 @@ export type RemoteAuthResult =
       readonly error: 'invalid_credentials' | 'host_unreachable' | 'network_error';
     };
 
-/** The remote-login seam — backed by the signed `authCreateSession` endpoint. The
- *  UI wires this to the `authCreateServerSession` adapter; `core/` stays
- *  adapter-free. `ssh` (and later `scp`) authenticate through it before pushing a
- *  session. */
+/** What `ssh` hands to `env.ssh.authenticatePublic` to log into ANOTHER player's
+ *  workstation by its PUBLIC IP (Story 2). The server resolves the registry, rebuilds
+ *  the owner's box, and validates against its real `/etc/passwd`. Unlike the LAN
+ *  path there is no `essid` — the target is resolved server-side from the public IP. */
+export type PublicAuthParams = {
+  readonly sessionId: string;
+  /** The target PUBLIC IP (resolved server-side via the registry). */
+  readonly target: string;
+  readonly username: string;
+  readonly password: string;
+  readonly parentSessionId: string | null;
+  readonly sourceIp: string | null;
+};
+
+/** The outcome of a cross-player ssh authentication. On success `machineId` is the
+ *  OWNER's REAL workstation id (the session target; its name drives the prompt
+ *  hostname) and `userType` is server-derived. Errors mirror `RemoteAuthResult`. */
+export type PublicAuthResult =
+  | { readonly ok: true; readonly userType: UserType; readonly machineId: string }
+  | {
+      readonly ok: false;
+      readonly error: 'invalid_credentials' | 'host_unreachable' | 'network_error';
+    };
+
+/** The remote-login seam — backed by the signed `authCreateSession` (own-LAN) and
+ *  `authCreateSessionPublic` (cross-player public IP) endpoints. The UI wires these
+ *  to the `sessionsApi` adapters; `core/` stays adapter-free. `ssh` authenticates
+ *  through one or the other before pushing a session. */
 export type SshApi = {
   readonly authenticate: (params: RemoteAuthParams) => Promise<RemoteAuthResult>;
+  readonly authenticatePublic: (params: PublicAuthParams) => Promise<PublicAuthResult>;
 };
 
 /** What `nmap` hands to the scan action so the server can record the scan on each

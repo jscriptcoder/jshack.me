@@ -24,6 +24,8 @@ import type {
   Identity,
   LogApi,
   PatchApi,
+  PublicAuthParams,
+  PublicAuthResult,
   PublicScanResolution,
   RemoteAuthParams,
   RemoteAuthResult,
@@ -61,6 +63,7 @@ import {
 import { createSyncChannel, type SyncChannel } from '../adapters/crossTabSync';
 import {
   authCreateServerSession,
+  authCreateServerSessionPublic,
   createServerSession,
   endServerSession,
   listServerSessions,
@@ -203,6 +206,13 @@ const sshAuthenticate = (params: RemoteAuthParams): Promise<RemoteAuthResult> =>
   sessionsClientDeps === undefined
     ? Promise.resolve({ ok: false, error: 'network_error' })
     : authCreateServerSession(sessionsClientDeps, params);
+
+/** Authenticate a CROSS-PLAYER ssh login server-side (backs `env.ssh.authenticatePublic`).
+ *  Degrades to a network error before `startGame` wires the sessions client. */
+const sshAuthenticatePublic = (params: PublicAuthParams): Promise<PublicAuthResult> =>
+  sessionsClientDeps === undefined
+    ? Promise.resolve({ ok: false, error: 'network_error' })
+    : authCreateServerSessionPublic(sessionsClientDeps, params);
 
 /** Record an nmap scan server-side (backs `env.scan.record`). Best-effort and a
  *  no-op until `startGame` wires the patch client; the scan stands regardless. */
@@ -575,6 +585,7 @@ export const runInput = async (): Promise<void> => {
     prompt: requestPrompt,
     onPushSession: pushSession,
     onSshAuthenticate: sshAuthenticate,
+    onSshAuthenticatePublic: sshAuthenticatePublic,
     onScanRecord: recordScanFn,
     onScanResolvePublic: resolvePublicFn,
     onHomeNetworkJoin: joinHomeNetworkFn,
