@@ -5,6 +5,7 @@ import {
   mockIdentity,
   mockNetworkView,
   mockNetworkViewFromConnectivity,
+  mockScanApi,
   mockSession,
   mockSshApi,
 } from '../../test/factories/commandEnv';
@@ -17,7 +18,15 @@ import { assignHomeNetwork } from '../network/homeNetwork';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
 import { asEpochMs, asMachineId, asPlayerKeyHex } from '../types';
 import type { Directory } from '../filesystem/types';
-import type { CommandResult, RemoteAuthParams, RemoteAuthResult, Session } from './types';
+import type {
+  CommandResult,
+  PublicAuthParams,
+  PublicAuthResult,
+  PublicScanResolution,
+  RemoteAuthParams,
+  RemoteAuthResult,
+  Session,
+} from './types';
 
 /**
  * `ssh user@host` — connect to a generated LAN host, authenticate the password
@@ -339,6 +348,272 @@ describe('ssh', () => {
       await ssh.execute(
         sshEnv({ prompt: async () => Promise.reject(new Error('aborted')), onPush }),
         [`root@${sshHost.ip}`],
+        new Map(),
+      ),
+    );
+    expect(result.exitCode).toBe(130);
+    expect(result.lines).toEqual([]);
+    expect(onPush).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * `ssh <user>@<public IP>` (Story 2, slice 2b) — cross-player login. A public IP
+ * isn't on the player's own LAN, so it routes server-side: reachability comes from
+ * `env.scan.resolvePublic` (Story 1b's registry resolution, reused) and auth from
+ * `env.ssh.authenticatePublic`, which lands a session on the OWNER's REAL
+ * workstation id (the name in that id drives the prompt hostname). The own-LAN path
+ * is untouched.
+ */
+const PUBLIC_IP = '203.0.113.7';
+const A_MACHINE_ID = 'skylab-deadbeef';
+
+type PublicEnvOver = {
+  readonly resolvePublic?: (target: string) => Promise<PublicScanResolution>;
+  readonly authenticatePublic?: (params: PublicAuthParams) => Promise<PublicAuthResult>;
+  readonly prompt?: () => Promise<string>;
+  readonly onPush?: (session: Session) => void;
+  readonly onCwd?: (path: string) => void;
+};
+
+const sshPublicEnv = (over: PublicEnvOver = {}) =>
+  mockCommandEnv({
+    identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+    network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+    session: mockSession({ id: 'su-root-1', machineId: asMachineId('bstation-cafef00d'), userType: 'root' }),
+    now: () => asEpochMs(NOW),
+    prompt: over.prompt ?? (async () => 'guestpw'),
+    scan: mockScanApi({
+      resolvePublic:
+        over.resolvePublic ?? (async () => ({ found: true, ports: [{ port: 22, service: 'ssh' }] })),
+    }),
+    ssh: mockSshApi({
+      authenticatePublic:
+        over.authenticatePublic ??
+        (async () => ({ ok: true, userType: 'guest', machineId: A_MACHINE_ID })),
+    }),
+    pushSession: over.onPush ?? (() => undefined),
+    setCwd: over.onCwd ?? (() => undefined),
+  });
+
+describe('ssh to a public IP (cross-player)', () => {
+  it('resolves the public IP, authenticates cross-player, and pushes a session on the owner real machine id', async () => {
+    const authenticatePublic = vi.fn<(params: PublicAuthParams) => Promise<PublicAuthResult>>(
+      async () => ({ ok: true, userType: 'guest', machineId: A_MACHINE_ID }),
+    );
+    const onPush = vi.fn<(session: Session) => void>();
+    const onCwd = vi.fn<(path: string) => void>();
+
+    const result = sync(
+      await ssh.execute(
+        sshPublicEnv({ authenticatePublic, onPush, onCwd }),
+        [`guest@${PUBLIC_IP}`],
+        new Map(),
+      ),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.lines).toEqual([]);
+    expect(authenticatePublic.mock.calls[0]![0]).toEqual({
+      sessionId: 'ssh-guest-1700000000000',
+      target: PUBLIC_IP,
+      username: 'guest',
+      password: 'guestpw',
+      parentSessionId: 'su-root-1',
+      sourceIp: selfIp,
+    });
+    // Session lands on the OWNER's real workstation id — its name drives the prompt.
+    expect(onPush.mock.calls[0]![0]).toEqual({
+      id: 'ssh-guest-1700000000000',
+      playerKey: PUBKEY,
+      machineId: A_MACHINE_ID,
+      username: 'guest',
+      userType: 'guest',
+      kind: 'ssh',
+      createdAt: NOW,
+    });
+    expect(onCwd).toHaveBeenCalledWith('/home/guest');
+  });
+
+  it('routes a public IP through resolvePublic (the registry), not the own-LAN host path', async () => {
+    const resolvePublic = vi.fn(async () => ({
+      found: true,
+      ports: [{ port: 22, service: 'ssh' }],
+    }));
+    await ssh.execute(sshPublicEnv({ resolvePublic }), [`guest@${PUBLIC_IP}`], new Map());
+    expect(resolvePublic).toHaveBeenCalledWith(PUBLIC_IP);
+  });
+
+  it('reports No route to host for an unregistered public IP — without prompting', async () => {
+    const prompt = vi.fn(async () => 'guestpw');
+    const result = sync(
+      await ssh.execute(
+        sshPublicEnv({ resolvePublic: async () => ({ found: false, ports: [] }), prompt }),
+        [`guest@${PUBLIC_IP}`],
+        new Map(),
+      ),
+    );
+    expect(result.exitCode).toBe(255);
+    expect(result.lines[0]?.content).toContain('No route to host');
+    expect(prompt).not.toHaveBeenCalled();
+  });
+
+  it('reports Connection refused when the owner box runs no ssh on the asked port — without prompting', async () => {
+    const prompt = vi.fn(async () => 'guestpw');
+    const result = sync(
+      await ssh.execute(
+        sshPublicEnv({
+          resolvePublic: async () => ({ found: true, ports: [{ port: 80, service: 'http' }] }),
+          prompt,
+        }),
+        [`guest@${PUBLIC_IP}`],
+        new Map(),
+      ),
+    );
+    expect(result.exitCode).toBe(255);
+    expect(result.lines[0]?.content).toContain('Connection refused');
+    expect(prompt).not.toHaveBeenCalled();
+  });
+
+  it('refuses when the asked port is open but the service is not ssh — without prompting', async () => {
+    const prompt = vi.fn(async () => 'guestpw');
+    const result = sync(
+      await ssh.execute(
+        sshPublicEnv({
+          // Port 22 is open but serving http, not ssh — only an ssh service connects.
+          resolvePublic: async () => ({ found: true, ports: [{ port: 22, service: 'http' }] }),
+          prompt,
+        }),
+        [`guest@${PUBLIC_IP}`],
+        new Map(),
+      ),
+    );
+    expect(result.exitCode).toBe(255);
+    expect(result.lines[0]?.content).toContain('Connection refused');
+    expect(prompt).not.toHaveBeenCalled();
+  });
+
+  it('prompts (masked) for the account password before cross-player auth', async () => {
+    const prompt = vi.fn(async () => 'guestpw');
+    await ssh.execute(sshPublicEnv({ prompt }), [`guest@${PUBLIC_IP}`], new Map());
+    expect(prompt).toHaveBeenCalledWith({
+      message: `guest@${PUBLIC_IP}'s password: `,
+      masked: true,
+    });
+  });
+
+  it('connects to ssh even when the owner box also exposes other (non-ssh) ports', async () => {
+    const authenticatePublic = vi.fn<(params: PublicAuthParams) => Promise<PublicAuthResult>>(
+      async () => ({ ok: true, userType: 'guest', machineId: A_MACHINE_ID }),
+    );
+    const result = sync(
+      await ssh.execute(
+        sshPublicEnv({
+          // A real box runs more than ssh — the asked ssh port must connect even
+          // alongside an http port (matches ANY ssh port, not requires ALL ssh).
+          resolvePublic: async () => ({
+            found: true,
+            ports: [
+              { port: 80, service: 'http' },
+              { port: 22, service: 'ssh' },
+            ],
+          }),
+          authenticatePublic,
+        }),
+        [`guest@${PUBLIC_IP}`],
+        new Map(),
+      ),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(authenticatePublic).toHaveBeenCalled();
+  });
+
+  it('honours -p against the resolved ports (ssh on :2222 connects with -p 2222)', async () => {
+    const authenticatePublic = vi.fn<(params: PublicAuthParams) => Promise<PublicAuthResult>>(
+      async () => ({ ok: true, userType: 'guest', machineId: A_MACHINE_ID }),
+    );
+    const bound = bindFlags([`guest@${PUBLIC_IP}`, '-p', '2222'], ssh.flags ?? {});
+    if (!bound.ok) throw new Error(bound.error);
+    const result = sync(
+      await ssh.execute(
+        sshPublicEnv({
+          resolvePublic: async () => ({ found: true, ports: [{ port: 2222, service: 'ssh' }] }),
+          authenticatePublic,
+        }),
+        bound.positional,
+        bound.flags,
+      ),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(authenticatePublic).toHaveBeenCalled();
+  });
+
+  it('refuses the default :22 when the owner ssh is only on :2222', async () => {
+    const result = sync(
+      await ssh.execute(
+        sshPublicEnv({
+          resolvePublic: async () => ({ found: true, ports: [{ port: 2222, service: 'ssh' }] }),
+        }),
+        [`guest@${PUBLIC_IP}`],
+        new Map(),
+      ),
+    );
+    expect(result.exitCode).toBe(255);
+    expect(result.lines[0]?.content).toContain('Connection refused');
+  });
+
+  it('reports Permission denied and pushes no session on bad cross-player credentials', async () => {
+    const onPush = vi.fn<(session: Session) => void>();
+    const result = sync(
+      await ssh.execute(
+        sshPublicEnv({
+          authenticatePublic: async () => ({ ok: false, error: 'invalid_credentials' }),
+          onPush,
+        }),
+        [`guest@${PUBLIC_IP}`],
+        new Map(),
+      ),
+    );
+    expect(result.exitCode).toBe(255);
+    expect(result.lines.some((line) => line.content.includes('Permission denied'))).toBe(true);
+    expect(onPush).not.toHaveBeenCalled();
+  });
+
+  it('reports Connection refused when cross-player auth says host_unreachable', async () => {
+    const result = sync(
+      await ssh.execute(
+        sshPublicEnv({ authenticatePublic: async () => ({ ok: false, error: 'host_unreachable' }) }),
+        [`guest@${PUBLIC_IP}`],
+        new Map(),
+      ),
+    );
+    expect(result.exitCode).toBe(255);
+    expect(result.lines[0]?.content).toContain('Connection refused');
+  });
+
+  it('reports a network error from the cross-player auth round-trip and pushes no session', async () => {
+    const onPush = vi.fn<(session: Session) => void>();
+    const result = sync(
+      await ssh.execute(
+        sshPublicEnv({
+          authenticatePublic: async () => ({ ok: false, error: 'network_error' }),
+          onPush,
+        }),
+        [`guest@${PUBLIC_IP}`],
+        new Map(),
+      ),
+    );
+    expect(result.exitCode).toBe(255);
+    expect(result.lines[0]?.content).toContain('Network error');
+    expect(onPush).not.toHaveBeenCalled();
+  });
+
+  it('exits 130 and pushes no session when the cross-player password prompt is cancelled', async () => {
+    const onPush = vi.fn<(session: Session) => void>();
+    const result = sync(
+      await ssh.execute(
+        sshPublicEnv({ prompt: async () => Promise.reject(new Error('aborted')), onPush }),
+        [`guest@${PUBLIC_IP}`],
         new Map(),
       ),
     );

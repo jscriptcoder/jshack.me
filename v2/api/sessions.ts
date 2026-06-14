@@ -6,6 +6,10 @@ import {
   type AuthSessionRow,
 } from '../src/core/sessions/authCreateSession';
 import {
+  handleAuthCreateSessionPublic,
+  type RegistryWorkstation,
+} from '../src/core/sessions/authCreateSessionPublic';
+import {
   handleListSessions,
   type ListSessionsQuery,
   type SessionSummary,
@@ -134,6 +138,34 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       insertSession,
       readAuthLog,
       upsertPatch,
+    });
+    res.status(status).json(body);
+    return;
+  }
+
+  if (actionOf(req.body) === 'authCreateSessionPublic') {
+    // Cross-PLAYER ssh login: resolve the target PUBLIC IP in the registry, then the
+    // handler rebuilds the owner's workstation from the persisted identity and
+    // validates the password before this insert runs. No write to the owner's box —
+    // the auth.log trace on a foreign workstation is a later story (Story 6).
+    const findRegistryByPublicIp = async (publicIp: string) => {
+      const { data, error } = await supabase
+        .from('network_registry')
+        .select('owner_key, workstation_machine_id, essid, workstation_username, workstation_root_hash')
+        .eq('public_ip', publicIp)
+        .maybeSingle();
+      if (error) console.error('[sessions] registry lookup error:', error);
+      return { data: data as RegistryWorkstation | null, error };
+    };
+    const insertSessionPublic = async (row: AuthSessionRow) => {
+      const { error } = await supabase.from('sessions').insert(row);
+      if (error) console.error('[sessions] public auth insert error:', error);
+      return { error };
+    };
+    const { status, body } = await handleAuthCreateSessionPublic(req.body, {
+      nonceStore: noopNonceStore,
+      findRegistryByPublicIp,
+      insertSession: insertSessionPublic,
     });
     res.status(status).json(body);
     return;

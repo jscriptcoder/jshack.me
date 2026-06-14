@@ -38,11 +38,10 @@ import {
   type MachineLogReadQuery,
   type MachineLogReadResult,
 } from '../patches/appendMachineLog';
-import { userTypeFromPasswdFields } from '../generation/passwdTier';
+import { accountIn } from './passwdAccount';
 import { asGameTime, type UserType } from '../types';
 import type { PatchRow } from '../patches/upsertPatch';
 import type { NonceStore } from '../signedRequest/nonceStore';
-import type { Directory } from '../filesystem/types';
 
 export type AuthSessionRow = {
   readonly session_id: string;
@@ -87,24 +86,6 @@ const authCreateSessionSchema = z
     source_ip: z.string().min(1).nullable().optional(),
   })
   .refine((payload) => !('player_key' in payload));
-
-/** The `{ hash, userType }` for `username` on a host's regenerated FS, or null
- *  when the account does not exist. Row shape: `name:hash:uid:gid:gecos:home:shell`. */
-const accountIn = (
-  fs: Directory,
-  username: string,
-): { readonly hash: string; readonly userType: UserType } | null => {
-  const etc = fs.entries.get('etc');
-  if (etc === undefined || etc.kind !== 'directory') return null;
-  const passwd = etc.entries.get('passwd');
-  if (passwd === undefined || passwd.kind !== 'file') return null;
-  const fields = passwd.content
-    .split('\n')
-    .map((line) => line.split(':'))
-    .find((row) => row[0] === username);
-  if (fields === undefined) return null;
-  return { hash: fields[1] ?? '', userType: userTypeFromPasswdFields(fields) };
-};
 
 type SshAttempt = {
   readonly publicKey: string;

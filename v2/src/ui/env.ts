@@ -88,6 +88,10 @@ export type BuildCommandEnvArgs = {
    *  `authCreateServerSession` adapter (signed `authCreateSession` round-trip).
    *  Optional here for terse test setups; the UI always passes the real one. */
   readonly onSshAuthenticate?: SshApi['authenticate'];
+  /** The cross-player remote-login seam — backs `env.ssh.authenticatePublic`. The UI
+   *  wires it to the `authCreateServerSessionPublic` adapter (signed
+   *  `authCreateSessionPublic` round-trip). Optional here for terse test setups. */
+  readonly onSshAuthenticatePublic?: SshApi['authenticatePublic'];
   /** The scan-logging seam — backs `env.scan.record`. The UI wires it to the
    *  `recordScan` adapter (signed `nmapScan` round-trip). Optional here for terse
    *  test setups; the UI always passes the real one. */
@@ -149,7 +153,10 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
       args.onHomeNetworkJoin ??
       ((essid) => Promise.resolve(assignHomeNetwork(args.identity.publicKeyHex, essid))),
   },
-  ssh: { authenticate: args.onSshAuthenticate ?? notWired('ssh.authenticate') },
+  ssh: {
+    authenticate: args.onSshAuthenticate ?? notWired('ssh.authenticate'),
+    authenticatePublic: args.onSshAuthenticatePublic ?? notWired('ssh.authenticatePublic'),
+  },
   scan: {
     record: args.onScanRecord ?? notWired('scan.record'),
     resolvePublic: args.onScanResolvePublic ?? notWired('scan.resolvePublic'),

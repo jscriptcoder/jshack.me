@@ -115,6 +115,7 @@ export const mockHomeNetwork = (overrides: Partial<HomeNetworkApi> = {}): HomeNe
  *  `ssh` tests inject a stub returning a controlled `RemoteAuthResult`. */
 export const mockSshApi = (overrides: Partial<SshApi> = {}): SshApi => ({
   authenticate: NOT_IMPLEMENTED('ssh.authenticate'),
+  authenticatePublic: NOT_IMPLEMENTED('ssh.authenticatePublic'),
   ...overrides,
 });
 

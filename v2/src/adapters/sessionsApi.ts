@@ -20,6 +20,8 @@ import { asEpochMs, asMachineId, asPlayerKeyHex, type MachineId, type UserType }
 import type {
   Identity,
   PatchResult,
+  PublicAuthParams,
+  PublicAuthResult,
   RemoteAuthParams,
   RemoteAuthResult,
   Session,
@@ -108,6 +110,42 @@ export const authCreateServerSession = async (
       const body: unknown = await response.json();
       const userType = (body as { userType?: unknown } | null)?.userType;
       return isUserType(userType) ? { ok: true, userType } : { ok: false, error: 'network_error' };
+    }
+    if (response.status === 401) return { ok: false, error: 'invalid_credentials' };
+    if (response.status === 404) return { ok: false, error: 'host_unreachable' };
+    return { ok: false, error: 'network_error' };
+  } catch {
+    return { ok: false, error: 'network_error' };
+  }
+};
+
+/** Authenticate a CROSS-PLAYER ssh login server-side (Story 2): the server resolves
+ *  the target PUBLIC IP in the registry, rebuilds the owner's workstation, validates
+ *  the password against its `/etc/passwd`, and on success persists the `kind:'ssh'`
+ *  session on the owner's REAL machine id (returned as `machineId` for the prompt
+ *  + the hop chain). 401 → bad password/unknown user; 404 → the IP isn't registered.
+ *  A 200 missing a valid userType OR machine_id is treated as malformed, never a
+ *  login (we must never land a session with no target id). */
+export const authCreateServerSessionPublic = async (
+  deps: SessionsClientDeps,
+  params: PublicAuthParams,
+): Promise<PublicAuthResult> => {
+  try {
+    const response = await post(deps, 'authCreateSessionPublic', {
+      session_id: params.sessionId,
+      target: params.target,
+      username: params.username,
+      password: params.password,
+      parent_session_id: params.parentSessionId,
+      source_ip: params.sourceIp,
+    });
+    if (response.ok) {
+      const body: unknown = await response.json();
+      const userType = (body as { userType?: unknown } | null)?.userType;
+      const machineId = (body as { machine_id?: unknown } | null)?.machine_id;
+      return isUserType(userType) && typeof machineId === 'string'
+        ? { ok: true, userType, machineId }
+        : { ok: false, error: 'network_error' };
     }
     if (response.status === 401) return { ok: false, error: 'invalid_credentials' };
     if (response.status === 404) return { ok: false, error: 'host_unreachable' };

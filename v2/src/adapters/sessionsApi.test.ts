@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import {
   authCreateServerSession,
+  authCreateServerSessionPublic,
   createServerSession,
   endServerSession,
   listServerSessions,
@@ -224,6 +225,105 @@ describe('authCreateServerSession', () => {
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
 
     expect(await authCreateServerSession(deps, params)).toEqual({
+      ok: false,
+      error: 'network_error',
+    });
+  });
+});
+
+describe('authCreateServerSessionPublic', () => {
+  const params = {
+    sessionId: 'ssh-guest-1700000000000',
+    target: '203.0.113.7',
+    username: 'guest',
+    password: 'guestpw',
+    parentSessionId: 'su-root-1',
+    sourceIp: '192.168.50.23',
+  };
+
+  it('POSTs a signed authCreateSessionPublic envelope and returns the userType + owner machine id', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, { ok: true, userType: 'guest', machine_id: 'skylab-deadbeef' }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    const result = await authCreateServerSessionPublic(deps, params);
+
+    expect(result).toEqual({ ok: true, userType: 'guest', machineId: 'skylab-deadbeef' });
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected a verified envelope');
+    expect(verified.payload).toMatchObject({
+      action: 'authCreateSessionPublic',
+      session_id: 'ssh-guest-1700000000000',
+      target: '203.0.113.7',
+      username: 'guest',
+      password: 'guestpw',
+      parent_session_id: 'su-root-1',
+      source_ip: '192.168.50.23',
+    });
+    // The target is a public IP resolved server-side — no own-machine scope is sent.
+    expect(verified.payload).not.toHaveProperty('machine_id');
+  });
+
+  it('maps a 401 to invalid_credentials', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(401, { error: 'invalid_credentials' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await authCreateServerSessionPublic(deps, params)).toEqual({
+      ok: false,
+      error: 'invalid_credentials',
+    });
+  });
+
+  it('maps a 404 to host_unreachable', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(404, { error: 'host_unreachable' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await authCreateServerSessionPublic(deps, params)).toEqual({
+      ok: false,
+      error: 'host_unreachable',
+    });
+  });
+
+  it('maps any other non-ok status to network_error', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(500, { error: 'insert_failed' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await authCreateServerSessionPublic(deps, params)).toEqual({
+      ok: false,
+      error: 'network_error',
+    });
+  });
+
+  it('maps a 200 with a garbage userType to network_error', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, { ok: true, userType: 'superuser', machine_id: 'skylab-deadbeef' }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await authCreateServerSessionPublic(deps, params)).toEqual({
+      ok: false,
+      error: 'network_error',
+    });
+  });
+
+  it('maps a 200 with a missing machine_id to network_error (never lands a session with no target id)', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, userType: 'guest' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await authCreateServerSessionPublic(deps, params)).toEqual({
+      ok: false,
+      error: 'network_error',
+    });
+  });
+
+  it('maps a thrown fetch (offline) to network_error', async () => {
+    const fetchSpy = vi.fn(async () => {
+      throw new Error('offline');
+    });
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await authCreateServerSessionPublic(deps, params)).toEqual({
       ok: false,
       error: 'network_error',
     });
