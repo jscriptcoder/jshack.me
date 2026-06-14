@@ -27,7 +27,6 @@ export type ListMachinePatchesResult = {
 };
 
 export type ListMachinePatches = (query: {
-  readonly player_key: string;
   readonly machine_id: string;
 }) => Promise<ListMachinePatchesResult>;
 
@@ -70,7 +69,6 @@ export const enforceRemoteWriteL2 = async (args: {
   if (args.session === null) return null;
 
   const prior = await args.listMachinePatches({
-    player_key: args.publicKey,
     machine_id: args.machineId,
   });
   if (prior.error) return { status: 500, error: 'permission_check_failed' };

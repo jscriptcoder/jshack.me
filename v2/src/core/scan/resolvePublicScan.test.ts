@@ -15,15 +15,14 @@ import type { NonceStore } from '../signedRequest/nonceStore';
  * verifies the caller's envelope and looks the target public IP up in the registry
  * written on join. Slice 1a reported existence (host up/down); slice 1b reads the
  * resolved machine's REAL open ports from its persisted `/var/run/*.pid` patch rows
- * — scoped to the registry's owner — so a cross-player scan shows the ports the
- * owner actually started, never a regeneration.
+ * — scoped to the resolved machine's shared journal — so a cross-player scan shows
+ * the ports the owner actually started, never a regeneration.
  */
 
 const freshStore: NonceStore = async () => ({ fresh: true });
 const TARGET = '203.0.113.7';
 const REGISTERED: RegistryLookup = {
   workstation_machine_id: 'skylab-deadbeef',
-  owner_key: 'a'.repeat(64),
 };
 
 type LookupResult = { data: RegistryLookup | null; error: unknown };
@@ -34,8 +33,7 @@ const makeDeps = (
   runFiles: () => Promise<RunFilesResult> = async () => ({ data: [], error: null }),
 ) => {
   const findRegistryByPublicIp = vi.fn<(publicIp: string) => Promise<LookupResult>>(lookup);
-  const findRunFiles =
-    vi.fn<(query: { machine_id: string; owner_key: string }) => Promise<RunFilesResult>>(runFiles);
+  const findRunFiles = vi.fn<(query: { machine_id: string }) => Promise<RunFilesResult>>(runFiles);
   const deps: ResolvePublicScanDeps = {
     nonceStore: freshStore,
     findRegistryByPublicIp,
@@ -72,7 +70,7 @@ describe('handleResolvePublicScan', () => {
     expect(findRunFiles).not.toHaveBeenCalled();
   });
 
-  it("reads the resolved machine's open ports from its /var/run pidfile rows, scoped to the owner", async () => {
+  it("reads the resolved machine's open ports from its /var/run pidfile rows, scoped to the machine", async () => {
     const id = generateIdentity();
     const { deps, findRunFiles } = makeDeps(
       async () => ({ data: REGISTERED, error: null }),
@@ -85,11 +83,10 @@ describe('handleResolvePublicScan', () => {
       status: 200,
       body: { ok: true, found: true, ports: [{ port: 22, service: 'ssh' }] },
     });
-    // The ports come from the OWNER's rows on the resolved workstation, never the
-    // caller's — so the scope must carry the registry's owner_key + machine_id.
+    // The ports come from the resolved workstation's shared journal, never the
+    // caller's — so the scope is the workstation's machine_id (owner-unique).
     expect(findRunFiles).toHaveBeenCalledWith({
       machine_id: REGISTERED.workstation_machine_id,
-      owner_key: REGISTERED.owner_key,
     });
   });
 

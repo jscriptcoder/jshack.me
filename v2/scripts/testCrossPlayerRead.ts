@@ -88,12 +88,13 @@ await sr.from('network_registry').insert({
   workstation_root_hash: ROOT_HASH,
 });
 
-// Seed A's owner-scoped patches: guest-readable loot, user-only secret, sshd pidfile.
-await sr.from('patches').delete().eq('player_key', alice.publicKeyHex).eq('machine_id', A_MACHINE);
+// Seed A's machine-scoped patches (shared journal): guest-readable loot, user-only
+// secret, sshd pidfile — all written by A (writer_key = owner).
+await sr.from('patches').delete().eq('machine_id', A_MACHINE);
 await sr.from('patches').insert([
-  { player_key: alice.publicKeyHex, machine_id: A_MACHINE, path: '/srv/loot.txt', content: 'OWNED_BY_A', owner: 'root', permissions: worldReadable, node_type: 'file' },
-  { player_key: alice.publicKeyHex, machine_id: A_MACHINE, path: '/srv/secret.txt', content: 'TOP_SECRET', owner: 'root', permissions: userOnly, node_type: 'file' },
-  { player_key: alice.publicKeyHex, machine_id: A_MACHINE, path: '/var/run/sshd.pid', content: 'sshd:port=22', owner: 'root', permissions: worldReadable, node_type: 'file' },
+  { writer_key: alice.publicKeyHex, machine_id: A_MACHINE, path: '/srv/loot.txt', content: 'OWNED_BY_A', owner: 'root', permissions: worldReadable, node_type: 'file' },
+  { writer_key: alice.publicKeyHex, machine_id: A_MACHINE, path: '/srv/secret.txt', content: 'TOP_SECRET', owner: 'root', permissions: userOnly, node_type: 'file' },
+  { writer_key: alice.publicKeyHex, machine_id: A_MACHINE, path: '/var/run/sshd.pid', content: 'sshd:port=22', owner: 'root', permissions: worldReadable, node_type: 'file' },
 ]);
 
 // Seed B's active guest session on A's workstation (as 2b's login would write it).
@@ -196,7 +197,7 @@ check(
 
 // Cleanup.
 await sr.from('network_registry').delete().eq('public_ip', A_PUBLIC_IP);
-await sr.from('patches').delete().eq('player_key', alice.publicKeyHex);
+await sr.from('patches').delete().eq('machine_id', A_MACHINE);
 await sr.from('sessions').delete().eq('player_key', bob.publicKeyHex);
 
 const passed = results.filter((result) => result.pass).length;

@@ -5,8 +5,13 @@
  *
  * Flow: verify the signed envelope → L1-authorize the target machine (own
  * workstation by suffix match, OR an active ssh session there) → server-stamp
- * player_key from the VERIFIED pubkey (never a client claim) → upsert. The
- * payload schema rejects a client-supplied player_key outright.
+ * writer_key from the VERIFIED pubkey (never a client claim) → upsert. The
+ * payload schema rejects a client-supplied player_key/writer_key outright.
+ *
+ * Shared journal (Story 3): a row is keyed `(machine_id, path, writer_key)`, so
+ * `writer_key` is the PROVENANCE of this row (who wrote it) — multiple writers'
+ * edits to one file coexist and replay chronologically. The own-box read keys on
+ * `machine_id` (the machine owns the journal), not on the writer.
  */
 
 import { z } from 'zod';
@@ -24,7 +29,9 @@ export type FilePermissionsRow = {
 };
 
 export type PatchRow = {
-  readonly player_key: string;
+  /** Provenance: the player who wrote this row (PK component with machine_id +
+   *  path). Server-stamped from the verified pubkey, never a client claim. */
+  readonly writer_key: string;
   readonly machine_id: string;
   readonly path: string;
   readonly content: string | null;
@@ -47,7 +54,8 @@ export type HandlerResponse = {
 };
 
 // Loose so the always-present envelope fields (action/ts/nonce) pass through;
-// the refine rejects a client-supplied player_key (the server stamps it).
+// the refine rejects a client-supplied player_key/writer_key (the server stamps
+// the writer from the verified pubkey).
 const userTypeSchema = z.enum(['root', 'user', 'guest']);
 const permissionsSchema = z.object({
   read: z.array(userTypeSchema),
@@ -66,7 +74,7 @@ const upsertPatchSchema = z
     is_new: z.boolean().optional(),
     node_type: z.enum(['file', 'directory']).optional(),
   })
-  .refine((payload) => !('player_key' in payload));
+  .refine((payload) => !('player_key' in payload) && !('writer_key' in payload));
 
 export const handleUpsertPatch = async (
   body: unknown,
@@ -99,7 +107,7 @@ export const handleUpsertPatch = async (
   }
 
   const { error } = await deps.upsertPatch({
-    player_key: publicKey,
+    writer_key: publicKey,
     machine_id: payload.machine_id,
     path: payload.path,
     content: payload.content,

@@ -72,27 +72,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const findRegistryByPublicIp = async (publicIp: string) => {
       const { data, error } = await supabase
         .from('network_registry')
-        .select('workstation_machine_id, owner_key')
+        .select('workstation_machine_id')
         .eq('public_ip', publicIp)
         .maybeSingle();
       if (error) console.error('[network] registry lookup error:', error);
       return { data: data as RegistryLookup | null, error };
     };
-    // The resolved machine's open ports come from the OWNER's `/var/run/*.pid`
-    // patch rows — scoped to the registry's owner_key (the patches table's
-    // player_key) + machine_id, so a cross-player scan reads the owner's real
-    // services, never the caller's own per-viewer rows.
-    const findRunFiles = async ({
-      machine_id,
-      owner_key,
-    }: {
-      machine_id: string;
-      owner_key: string;
-    }) => {
+    // The resolved machine's open ports come from its `/var/run/*.pid` patch rows
+    // on the shared journal — scoped to machine_id (owner-unique by construction),
+    // so a cross-player scan reads the owner's real services, never the caller's
+    // own per-viewer rows.
+    const findRunFiles = async ({ machine_id }: { machine_id: string }) => {
       const { data, error } = await supabase
         .from('patches')
         .select('path, content')
-        .eq('player_key', owner_key)
         .eq('machine_id', machine_id)
         .like('path', '/var/run/%');
       if (error) console.error('[network] run-files lookup error:', error);
@@ -143,20 +136,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const session = data as { credentials: { userType: UserType } } | null;
       return { data: session === null ? null : ({ userType: session.credentials.userType } as ActiveSession), error };
     };
-    // The OWNER's patch rows on the target (scoped to owner_key, never the caller's),
-    // replayed over the regenerated baseline to materialize A's real box.
-    const findPatches = async ({
-      player_key,
-      machine_id,
-    }: {
-      player_key: string;
-      machine_id: string;
-    }) => {
+    // The machine's patch rows on the target (the shared journal — every writer's
+    // rows, scoped to machine_id), with the SERVER updated_at + writer_key so the
+    // handler replays them chronologically over the regenerated baseline to
+    // materialize A's real box.
+    const findPatches = async ({ machine_id }: { machine_id: string }) => {
       const { data, error } = await supabase
         .from('patches')
-        .select('path, content, owner, permissions, node_type')
-        .eq('player_key', player_key)
-        .eq('machine_id', machine_id);
+        .select('path, content, owner, permissions, node_type, updated_at, writer_key')
+        .eq('machine_id', machine_id)
+        .order('updated_at', { ascending: true })
+        .order('writer_key', { ascending: true });
       if (error) console.error('[network] owner patches lookup error:', error);
       return { data: data as readonly OwnerPatchRow[] | null, error };
     };

@@ -39,9 +39,23 @@ const REGISTERED: RegistryWorkstation = {
 // the tier filter must keep the first for a guest reader and drop the second.
 const worldReadable = { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] } as const;
 const userOnly = { read: ['root', 'user'], write: ['root'], execute: ['root'] } as const;
+
+/** A persisted row on the machine's shared journal. Carries the SERVER
+ *  `updated_at` + `writer_key` the chronological replay depends on. */
+const ownerRow = (over: Partial<OwnerPatchRow> = {}): OwnerPatchRow => ({
+  path: '/srv/file.txt',
+  content: 'data',
+  owner: 'root',
+  permissions: worldReadable,
+  node_type: 'file',
+  updated_at: '2026-06-14T12:00:00.000000+00:00',
+  writer_key: OWNER_KEY,
+  ...over,
+});
+
 const OWNER_PATCHES: readonly OwnerPatchRow[] = [
-  { path: '/srv/loot.txt', content: 'OWNED_BY_A', owner: 'root', permissions: worldReadable, node_type: 'file' },
-  { path: '/srv/secret.txt', content: 'TOP_SECRET', owner: 'root', permissions: userOnly, node_type: 'file' },
+  ownerRow({ path: '/srv/loot.txt', content: 'OWNED_BY_A', permissions: worldReadable }),
+  ownerRow({ path: '/srv/secret.txt', content: 'TOP_SECRET', permissions: userOnly }),
 ];
 
 type RegistryResult = { data: RegistryWorkstation | null; error: unknown };
@@ -59,9 +73,9 @@ const makeDeps = (over: {
   const findActiveSession = vi.fn<
     (query: { player_key: string; machine_id: string }) => Promise<SessionResult>
   >(over.session ?? (async () => ({ data: { userType: 'guest' }, error: null })));
-  const findPatches = vi.fn<
-    (query: { player_key: string; machine_id: string }) => Promise<PatchesResult>
-  >(over.patches ?? (async () => ({ data: OWNER_PATCHES, error: null })));
+  const findPatches = vi.fn<(query: { machine_id: string }) => Promise<PatchesResult>>(
+    over.patches ?? (async () => ({ data: OWNER_PATCHES, error: null })),
+  );
   const deps: ResolveCrossPlayerFsDeps = {
     nonceStore: freshStore,
     findRegistryByMachineId,
@@ -142,7 +156,7 @@ describe('handleResolveCrossPlayerFs', () => {
     } as const;
     const { deps } = makeDeps({
       patches: async () => ({
-        data: [{ path: '/srv/loot', content: null, owner: 'root', permissions: worldDir, node_type: 'directory' }],
+        data: [ownerRow({ path: '/srv/loot', content: null, permissions: worldDir, node_type: 'directory' })],
         error: null,
       }),
     });
@@ -154,13 +168,44 @@ describe('handleResolveCrossPlayerFs', () => {
     expect(get(treeOf(result), 'srv', 'loot')?.kind).toBe('directory');
   });
 
-  it('reads the OWNER’s patch rows, scoped to owner_key + machine_id (never the caller’s)', async () => {
+  it('reads the machine’s shared-journal rows, scoped to machine_id (never the caller’s)', async () => {
     const id = generateIdentity();
     const { deps, findPatches } = makeDeps();
 
     await handleResolveCrossPlayerFs(envelope(id), deps);
 
-    expect(findPatches).toHaveBeenCalledWith({ player_key: OWNER_KEY, machine_id: MACHINE_ID });
+    expect(findPatches).toHaveBeenCalledWith({ machine_id: MACHINE_ID });
+  });
+
+  it('combines multiple writers’ rows for one path chronologically (latest server write wins)', async () => {
+    const id = generateIdentity();
+    const path = '/srv/loot.txt';
+    // Two writers edited A's file; the server returns them out of order.
+    const { deps } = makeDeps({
+      patches: async () => ({
+        data: [
+          ownerRow({
+            path,
+            content: 'NEWER_BY_B',
+            writer_key: 'b'.repeat(64),
+            updated_at: '2026-06-14T13:00:00.000000+00:00',
+          }),
+          ownerRow({
+            path,
+            content: 'OLDER_BY_A',
+            writer_key: OWNER_KEY,
+            updated_at: '2026-06-14T12:00:00.000000+00:00',
+          }),
+        ],
+        error: null,
+      }),
+    });
+
+    const result = await handleResolveCrossPlayerFs(envelope(id), deps);
+    const loot = get(treeOf(result), 'srv', 'loot.txt');
+
+    // Replayed oldest-first → the later (B's) write is the materialized content.
+    expect(loot?.kind === 'file' ? loot.content : null).toBe('NEWER_BY_B');
   });
 
   it('looks the caller’s session up under the VERIFIED pubkey + target machine', async () => {
@@ -181,8 +226,8 @@ describe('handleResolveCrossPlayerFs', () => {
       session: async () => ({ data: null, error: null }),
       patches: async () => ({
         data: [
-          { path: '/var/run/sshd.pid', content: '4131', owner: 'root', permissions: worldReadable, node_type: 'file' },
-          { path: '/srv/secret.txt', content: 'TOP_SECRET', owner: 'root', permissions: userOnly, node_type: 'file' },
+          ownerRow({ path: '/var/run/sshd.pid', content: '4131', permissions: worldReadable }),
+          ownerRow({ path: '/srv/secret.txt', content: 'TOP_SECRET', permissions: userOnly }),
         ],
         error: null,
       }),
@@ -199,8 +244,8 @@ describe('handleResolveCrossPlayerFs', () => {
     expect(get(tree, 'etc', 'passwd')).toBeUndefined();
     expect(JSON.stringify(result.body)).not.toContain('TOP_SECRET');
     expect(JSON.stringify(result.body)).not.toContain(REGISTERED.workstation_root_hash);
-    // Tier 3 still reads the OWNER's patches (pidfiles live there), owner-scoped.
-    expect(findPatches).toHaveBeenCalledWith({ player_key: OWNER_KEY, machine_id: MACHINE_ID });
+    // Tier 3 still reads the machine's shared journal (pidfiles live there).
+    expect(findPatches).toHaveBeenCalledWith({ machine_id: MACHINE_ID });
   });
 
   it('returns the FULL unfiltered tree to the owner, never consulting the session table (tier 1)', async () => {
@@ -211,8 +256,8 @@ describe('handleResolveCrossPlayerFs', () => {
       registry: async () => ({ data: { ...REGISTERED, owner_key: id.publicKeyHex }, error: null }),
       patches: async () => ({
         data: [
-          { path: '/root/.wallet', content: 'PRIVKEY', owner: 'root', permissions: rootOnly, node_type: 'file' },
-          { path: '/srv/secret.txt', content: 'TOP_SECRET', owner: 'root', permissions: userOnly, node_type: 'file' },
+          ownerRow({ path: '/root/.wallet', content: 'PRIVKEY', permissions: rootOnly }),
+          ownerRow({ path: '/srv/secret.txt', content: 'TOP_SECRET', permissions: userOnly }),
         ],
         error: null,
       }),

@@ -26,10 +26,10 @@ import type { UserType } from '../src/core/types';
 // raw action is safe. All three share the L1 gate (`authorizeMachineAccess` via
 // `findActiveSession`): the caller's OWN workstation (suffix match) OR an active
 // ssh session on the target machine; else 403 no_session.
-//   - upsertPatch: L1-gated write (server-stamped player_key) + L2 on remote
+//   - upsertPatch: L1-gated write (server-stamped writer_key) + L2 on remote
 //     writes (tier-based perms, regenerated host FS via `listMachinePatches`)
-//   - listPatches: L1-gated read of the patch journal (reload-durability, and
-//     the read-back of a remote ssh write) — reads are L1-only, no L2
+//   - listPatches: L1-gated read of the shared journal (reload-durability, and
+//     the read-back of a remote ssh write) — machine-scoped, L1-only, no L2
 //   - removePatch: L1-gated delete + L2 (unlinking needs write perm) — drops an
 //     is_new row + descendants, or tombstones a base node
 //
@@ -72,11 +72,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   });
 
   const upsertPatch = async (row: PatchRow) => {
-    // .upsert resolves the (player_key, machine_id, path) PK conflict as an
-    // update — write-overwrites-content semantics for `>`. Columns omitted from
-    // the row (e.g. is_new on an overwrite) are NOT in the ON CONFLICT SET, so
-    // the stored value is preserved.
-    const { error } = await supabase.from('patches').upsert(row);
+    // .upsert resolves the (machine_id, path, writer_key) PK conflict as an
+    // update — write-overwrites-content for a writer's own row. Columns omitted
+    // from the row (e.g. is_new on an overwrite, and ALWAYS updated_at) are NOT in
+    // the ON CONFLICT SET, so the stored value is preserved — and the BEFORE
+    // UPDATE trigger re-stamps updated_at = now() so the replay order can't be
+    // forged by the client.
+    const { error } = await supabase
+      .from('patches')
+      .upsert(row, { onConflict: 'machine_id,path,writer_key' });
     if (error) console.error('[patches] upsert error:', error);
     return { error };
   };
@@ -104,21 +108,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return { data: { userType: row.credentials.userType, essid: row.essid }, error };
   };
 
-  // L2's regeneration key: a remote machine's patch journal, mapped to the
-  // `Patch` shape so the handler can replay it over the regenerated base FS and
-  // walk the resulting perms. (Only consulted for REMOTE writes — own-box bypasses.)
+  // L2's regeneration key: a remote machine's patch journal (the shared journal —
+  // every writer's rows, keyed by machine_id), mapped to the `Patch` shape so the
+  // handler can replay it over the regenerated base FS and walk the resulting
+  // perms. Ordered chronologically here so the mapped `Patch[]` (which drops the
+  // sort keys) replays last-write-wins. (Only consulted for REMOTE writes.)
   const listMachinePatches = async ({
-    player_key,
     machine_id,
   }: {
-    readonly player_key: string;
     readonly machine_id: string;
   }): Promise<ListMachinePatchesResult> => {
     const { data, error } = await supabase
       .from('patches')
       .select('path, content, owner, permissions, node_type')
-      .eq('player_key', player_key)
-      .eq('machine_id', machine_id);
+      .eq('machine_id', machine_id)
+      .order('updated_at', { ascending: true })
+      .order('writer_key', { ascending: true });
     if (error) console.error('[patches] machine-patches lookup error:', error);
     if (data === null) return { data: null, error };
     const rows = data as readonly {
@@ -139,12 +144,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   };
 
   if (actionOf(req.body) === 'listPatches') {
-    const listPatches = async ({ player_key, machine_id }: ListPatchesQuery) => {
+    const listPatches = async ({ machine_id }: ListPatchesQuery) => {
       const { data, error } = await supabase
         .from('patches')
         .select('*')
-        .eq('player_key', player_key)
-        .eq('machine_id', machine_id);
+        .eq('machine_id', machine_id)
+        .order('updated_at', { ascending: true })
+        .order('writer_key', { ascending: true });
       if (error) console.error('[patches] list error:', error);
       return { data, error };
     };
@@ -158,11 +164,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (actionOf(req.body) === 'removePatch') {
-    const findPatch = async ({ player_key, machine_id, path }: PatchTreeQuery) => {
+    const findPatch = async ({ writer_key, machine_id, path }: PatchTreeQuery) => {
       const { data, error } = await supabase
         .from('patches')
         .select('is_new')
-        .eq('player_key', player_key)
+        .eq('writer_key', writer_key)
         .eq('machine_id', machine_id)
         .eq('path', path)
         .maybeSingle();
@@ -171,10 +177,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     };
     // Two scoped deletes (the row, then its descendants) rather than a single
     // `.or(...)` — a PostgREST `.or` filter would mis-parse a path containing a
-    // comma, and the LIKE wildcard differs between the two filter dialects.
-    const deletePatchTree = async ({ player_key, machine_id, path }: PatchTreeQuery) => {
+    // comma, and the LIKE wildcard differs between the two filter dialects. Keyed
+    // to the caller's own writer_key row (own-box single-writer; Slice 4 reworks
+    // cross-player rm to tombstone-always).
+    const deletePatchTree = async ({ writer_key, machine_id, path }: PatchTreeQuery) => {
       const base = () =>
-        supabase.from('patches').delete().eq('player_key', player_key).eq('machine_id', machine_id);
+        supabase.from('patches').delete().eq('writer_key', writer_key).eq('machine_id', machine_id);
       const exact = await base().eq('path', path);
       if (exact.error) {
         console.error('[patches] delete error:', exact.error);
@@ -198,14 +206,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (actionOf(req.body) === 'appendAuthLog') {
-    // The server reads the current auth.log content (own-workstation, scoped to
-    // the verified player_key) so the append is a read-modify-write the SERVER
-    // performs — the client never supplies content or time.
-    const readAuthLog = async ({ player_key, machine_id, path }: AuthLogContentQuery) => {
+    // The server reads the current auth.log content (own-workstation, the owner's
+    // own writer_key row) so the append is a read-modify-write the SERVER performs
+    // — the client never supplies content or time.
+    const readAuthLog = async ({ writer_key, machine_id, path }: AuthLogContentQuery) => {
       const { data, error } = await supabase
         .from('patches')
         .select('content')
-        .eq('player_key', player_key)
+        .eq('writer_key', writer_key)
         .eq('machine_id', machine_id)
         .eq('path', path)
         .maybeSingle();
@@ -227,11 +235,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // (the handler resolves the hosts + stamps time/ports; the client never names
     // a path or content). Same read-modify-write `patches`-table shapes as the su
     // and ssh auth.log appenders above.
-    const readLog = async ({ player_key, machine_id, path }: MachineLogReadQuery) => {
+    const readLog = async ({ writer_key, machine_id, path }: MachineLogReadQuery) => {
       const { data, error } = await supabase
         .from('patches')
         .select('content')
-        .eq('player_key', player_key)
+        .eq('writer_key', writer_key)
         .eq('machine_id', machine_id)
         .eq('path', path)
         .maybeSingle();

@@ -47,7 +47,7 @@ const PUBLIC_IP = assignHomeNetwork(alice.publicKeyHex, ESSID).publicIp;
 const GUEST_PW = workstationGuestPassword(alice.publicKeyHex);
 
 if (process.argv[2] === 'clean') {
-  await sr.from('patches').delete().eq('player_key', alice.publicKeyHex);
+  await sr.from('patches').delete().eq('machine_id', A_MACHINE);
   await sr.from('network_registry').delete().eq('public_ip', PUBLIC_IP);
   console.log('cleaned A’s registry row + patches');
   process.exit(0);
@@ -69,14 +69,15 @@ const registerRes = await fetch(ENDPOINT, {
 });
 console.log(`registerNetwork → ${registerRes.status}`);
 
-// Seed A's owner-scoped patches: guest-readable loot, user-only secret, sshd pidfile.
+// Seed A's machine-scoped patches (shared journal): guest-readable loot, user-only
+// secret, sshd pidfile — all written by A (writer_key = owner).
 const worldReadable = { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] };
 const userOnly = { read: ['root', 'user'], write: ['root'], execute: ['root'] };
-await sr.from('patches').delete().eq('player_key', alice.publicKeyHex).eq('machine_id', A_MACHINE);
+await sr.from('patches').delete().eq('machine_id', A_MACHINE);
 await sr.from('patches').insert([
-  { player_key: alice.publicKeyHex, machine_id: A_MACHINE, path: '/srv/loot.txt', content: 'OWNED_BY_A', owner: 'root', permissions: worldReadable, node_type: 'file' },
-  { player_key: alice.publicKeyHex, machine_id: A_MACHINE, path: '/srv/secret.txt', content: 'TOP_SECRET', owner: 'root', permissions: userOnly, node_type: 'file' },
-  { player_key: alice.publicKeyHex, machine_id: A_MACHINE, path: '/var/run/sshd.pid', content: 'sshd:port=22', owner: 'root', permissions: worldReadable, node_type: 'file' },
+  { writer_key: alice.publicKeyHex, machine_id: A_MACHINE, path: '/srv/loot.txt', content: 'OWNED_BY_A', owner: 'root', permissions: worldReadable, node_type: 'file' },
+  { writer_key: alice.publicKeyHex, machine_id: A_MACHINE, path: '/srv/secret.txt', content: 'TOP_SECRET', owner: 'root', permissions: userOnly, node_type: 'file' },
+  { writer_key: alice.publicKeyHex, machine_id: A_MACHINE, path: '/var/run/sshd.pid', content: 'sshd:port=22', owner: 'root', permissions: worldReadable, node_type: 'file' },
 ]);
 
 console.log('\n=== B should type in the browser ===');

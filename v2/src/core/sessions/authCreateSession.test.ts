@@ -308,10 +308,11 @@ describe('handleAuthCreateSession', () => {
 
     await handleAuthCreateSession(validEnvelope(id, host, 'root'), deps);
 
-    // The line is system-written, scoped to the attacker's (player_key, remote
-    // machine_id), under /var/log/auth.log with root-owner/root-write perms.
+    // The line is system-written to the remote host's shared journal, keyed by
+    // the attacker's writer_key + the remote machine_id, under /var/log/auth.log
+    // with root-owner/root-write perms.
     expect(upsertPatch.mock.calls[0]![0]).toEqual({
-      player_key: id.publicKeyHex,
+      writer_key: id.publicKeyHex,
       machine_id: hostMachineId(host, ESSID),
       path: AUTH_LOG_PATH,
       content: `${expectedSshdLine(host, 'success', 'root')}\n`,
@@ -362,7 +363,7 @@ describe('handleAuthCreateSession', () => {
     await handleAuthCreateSession(validEnvelope(id, host, 'root'), deps);
 
     expect(readAuthLog.mock.calls[0]![0]).toEqual({
-      player_key: id.publicKeyHex,
+      writer_key: id.publicKeyHex,
       machine_id: hostMachineId(host, ESSID),
       path: AUTH_LOG_PATH,
     });

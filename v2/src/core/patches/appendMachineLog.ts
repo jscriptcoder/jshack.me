@@ -20,7 +20,7 @@ import type { FilePermissions } from '../filesystem/types';
 import type { PatchRow } from './upsertPatch';
 
 export type MachineLogReadQuery = {
-  readonly player_key: string;
+  readonly writer_key: string;
   readonly machine_id: string;
   readonly path: string;
 };
@@ -36,8 +36,10 @@ export type AppendMachineLogDeps = {
 };
 
 export type MachineLogTarget = {
-  /** The viewer whose regenerated copy of the machine the line lands on. */
-  readonly playerKey: string;
+  /** Provenance of the log line: the acting player (the one whose action — scan,
+   *  login — the system recorded). The row keys on `(machineId, path, writerKey)`
+   *  in the shared journal. */
+  readonly writerKey: string;
   readonly machineId: string;
   readonly path: AbsPath;
   readonly owner: string;
@@ -50,7 +52,7 @@ export const appendMachineLog = async (
   line: string,
 ): Promise<void> => {
   const existing = await deps.readLog({
-    player_key: target.playerKey,
+    writer_key: target.writerKey,
     machine_id: target.machineId,
     path: target.path,
   });
@@ -58,7 +60,7 @@ export const appendMachineLog = async (
 
   const current = existing.data?.content ?? '';
   await deps.upsertPatch({
-    player_key: target.playerKey,
+    writer_key: target.writerKey,
     machine_id: target.machineId,
     path: target.path,
     content: `${current}${line}\n`,

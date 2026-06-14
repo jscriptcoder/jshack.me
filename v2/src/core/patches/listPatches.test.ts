@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { handleListPatches, type ListPatchesDeps, type PatchRow } from './listPatches';
+import { handleListPatches, type ListPatchesDeps, type PersistedPatchRow } from './listPatches';
 import type { ActiveSessionQuery, FindActiveSessionResult } from './authorizeMachineAccess';
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
@@ -8,8 +8,8 @@ import type { NonceStore } from '../signedRequest/nonceStore';
 
 const freshStore: NonceStore = async () => ({ fresh: true });
 
-const sampleRow = (over: Partial<PatchRow> = {}): PatchRow => ({
-  player_key: 'a'.repeat(64),
+const sampleRow = (over: Partial<PersistedPatchRow> = {}): PersistedPatchRow => ({
+  writer_key: 'a'.repeat(64),
   machine_id: 'skylab-deadbeef',
   path: '/home/alice/proj',
   content: null,
@@ -17,6 +17,7 @@ const sampleRow = (over: Partial<PatchRow> = {}): PatchRow => ({
   permissions: { read: ['root', 'user', 'guest'], write: ['root', 'user'], execute: ['root'] },
   is_new: true,
   node_type: 'directory',
+  updated_at: '2026-06-14T12:00:00.000000+00:00',
   ...over,
 });
 
@@ -35,10 +36,10 @@ const makeDeps = (over: Partial<ListPatchesDeps> = {}) => {
 };
 
 describe('handleListPatches', () => {
-  it('returns the caller’s own-workstation patches, querying by the verified player_key', async () => {
+  it('returns the machine’s patches, querying the shared journal by machine_id', async () => {
     const id = generateIdentity();
     const machine = computeWorkstationId('skylab', id.publicKeyHex);
-    const rows = [sampleRow({ player_key: id.publicKeyHex, machine_id: machine })];
+    const rows = [sampleRow({ writer_key: id.publicKeyHex, machine_id: machine })];
     const listPatches = vi.fn<ListPatchesDeps['listPatches']>(async () => ({
       data: rows,
       error: null,
@@ -49,7 +50,38 @@ describe('handleListPatches', () => {
     const result = await handleListPatches(envelope, deps);
 
     expect(result).toEqual({ status: 200, body: { ok: true, patches: rows } });
-    expect(listPatches).toHaveBeenCalledWith({ player_key: id.publicKeyHex, machine_id: machine });
+    expect(listPatches).toHaveBeenCalledWith({ machine_id: machine });
+  });
+
+  it('returns the machine’s rows in chronological replay order (oldest first, latest wins)', async () => {
+    const id = generateIdentity();
+    const machine = computeWorkstationId('skylab', id.publicKeyHex);
+    const path = '/tmp/shared';
+    // Two writers edited the same path; the server handed them back out of order.
+    const newer = sampleRow({
+      writer_key: 'b'.repeat(64),
+      machine_id: machine,
+      path,
+      content: 'newer',
+      updated_at: '2026-06-14T13:00:00.000000+00:00',
+    });
+    const older = sampleRow({
+      writer_key: id.publicKeyHex,
+      machine_id: machine,
+      path,
+      content: 'older',
+      updated_at: '2026-06-14T12:00:00.000000+00:00',
+    });
+    const { deps } = makeDeps({ listPatches: async () => ({ data: [newer, older], error: null }) });
+    const envelope = signRequest(id, 'listPatches', { machine_id: machine });
+
+    const result = await handleListPatches(envelope, deps);
+
+    // Replayed oldest-first so applyPatches' last-write-wins lands the newer edit.
+    expect((result.body.patches as readonly PersistedPatchRow[]).map((row) => row.content)).toEqual([
+      'older',
+      'newer',
+    ]);
   });
 
   it('returns an empty list when the caller has no patches yet', async () => {
@@ -90,7 +122,7 @@ describe('handleListPatches', () => {
   it('returns a foreign machine’s patches when an active ssh session exists there', async () => {
     const id = generateIdentity();
     const foreign = 'darkstar-12345678';
-    const rows = [sampleRow({ player_key: id.publicKeyHex, machine_id: foreign, path: '/tmp/pwned' })];
+    const rows = [sampleRow({ writer_key: id.publicKeyHex, machine_id: foreign, path: '/tmp/pwned' })];
     const { deps } = makeDeps({
       listPatches: async () => ({ data: rows, error: null }),
       findActiveSession: async () => ({ data: { userType: 'root', essid: 'VANDELAY' }, error: null }),

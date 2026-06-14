@@ -115,7 +115,7 @@ describe('handleAppendAuthLog', () => {
     await handleAppendAuthLog(envelope, deps);
 
     const row = upsertPatch.mock.calls[0]![0];
-    expect(row.player_key).toBe(id.publicKeyHex);
+    expect(row.writer_key).toBe(id.publicKeyHex);
     expect(row.machine_id).toBe(computeWorkstationId('skylab', id.publicKeyHex));
     expect(row.path).toBe(AUTH_LOG_PATH);
     expect(row.owner).toBe(AUTH_LOG_OWNER);
@@ -126,7 +126,7 @@ describe('handleAppendAuthLog', () => {
     expect(Object.keys(row)).not.toContain('is_new');
   });
 
-  it('reads the current content scoped to the verified player_key + auth.log path', async () => {
+  it('reads the current content scoped to the verified writer_key + auth.log path', async () => {
     const id = generateIdentity();
     const envelope = signRequest(id, 'appendAuthLog', ownEvent(id.publicKeyHex));
     const { deps, readAuthLog } = makeDeps();
@@ -134,7 +134,7 @@ describe('handleAppendAuthLog', () => {
     await handleAppendAuthLog(envelope, deps);
 
     expect(readAuthLog).toHaveBeenCalledWith({
-      player_key: id.publicKeyHex,
+      writer_key: id.publicKeyHex,
       machine_id: computeWorkstationId('skylab', id.publicKeyHex),
       path: AUTH_LOG_PATH,
     });
@@ -162,6 +162,20 @@ describe('handleAppendAuthLog', () => {
     const envelope = signRequest(id, 'appendAuthLog', {
       ...ownEvent(id.publicKeyHex),
       player_key: 'forged-key',
+    });
+    const { deps, upsertPatch } = makeDeps();
+
+    const result = await handleAppendAuthLog(envelope, deps);
+
+    expect(result).toEqual({ status: 400, body: { error: 'payload_invalid' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('rejects a client-supplied writer_key (forged provenance) with 400 and never writes', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'appendAuthLog', {
+      ...ownEvent(id.publicKeyHex),
+      writer_key: 'forged-provenance',
     });
     const { deps, upsertPatch } = makeDeps();
 

@@ -93,7 +93,7 @@ describe('handleRemovePatch', () => {
 
     expect(result).toEqual({ status: 200, body: { ok: true } });
     expect(findPatch).toHaveBeenCalledWith({
-      player_key: id.publicKeyHex,
+      writer_key: id.publicKeyHex,
       machine_id: computeWorkstationId('skylab', id.publicKeyHex),
       path: '/home/alice/notes.txt',
     });
@@ -130,14 +130,14 @@ describe('handleRemovePatch', () => {
     expect(upsertPatch).toHaveBeenCalledTimes(1);
   });
 
-  it('server-stamps the verified player_key on the deletion marker', async () => {
+  it('server-stamps the verified writer_key on the deletion marker', async () => {
     const id = generateIdentity();
     const envelope = signRequest(id, 'removePatch', ownFields(id.publicKeyHex));
     const { deps, upsertPatch } = makeDeps({ findResult: found(false) });
 
     await handleRemovePatch(envelope, deps);
 
-    expect(upsertPatch.mock.calls[0]![0].player_key).toBe(id.publicKeyHex);
+    expect(upsertPatch.mock.calls[0]![0].writer_key).toBe(id.publicKeyHex);
   });
 
   it('rejects a removal on a foreign machine when the caller has no active session there (403)', async () => {
@@ -173,7 +173,7 @@ describe('handleRemovePatch', () => {
 
     expect(result).toEqual({ status: 200, body: { ok: true } });
     expect(deletePatchTree).toHaveBeenCalledWith({
-      player_key: id.publicKeyHex,
+      writer_key: id.publicKeyHex,
       machine_id: machineId,
       path: '/etc/passwd',
     });
@@ -291,6 +291,20 @@ describe('handleRemovePatch', () => {
     const envelope = signRequest(id, 'removePatch', {
       ...ownFields(id.publicKeyHex),
       player_key: 'forged-key',
+    });
+    const { deps, deletePatchTree } = makeDeps();
+
+    const result = await handleRemovePatch(envelope, deps);
+
+    expect(result).toEqual({ status: 400, body: { error: 'payload_invalid' } });
+    expect(deletePatchTree).not.toHaveBeenCalled();
+  });
+
+  it('rejects a client-supplied writer_key (forged provenance) with 400 and never touches the table', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'removePatch', {
+      ...ownFields(id.publicKeyHex),
+      writer_key: 'forged-provenance',
     });
     const { deps, deletePatchTree } = makeDeps();
 
