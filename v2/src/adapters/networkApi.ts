@@ -19,8 +19,10 @@
 import { signRequest } from '../core/signedRequest/sign';
 import { assignHomeNetwork } from '../core/network/homeNetwork';
 import { workstationIdentityFields } from '../core/network/workstationIdentity';
+import { deserializeTree, type SerializedDirectory } from '../core/filesystem/treeCodec';
 import type { HomeNetworkAssignment } from '../core/network/homeNetwork';
 import type { GameConfig } from '../core/gameConfig/gameConfig';
+import type { Directory } from '../core/filesystem/types';
 import type { Identity, PublicScanResolution } from '../core/commands/types';
 import type { MachineId } from '../core/types';
 
@@ -84,5 +86,31 @@ export const resolvePublic = async (
     return { found: resolved.found === true, ports: resolved.ports ?? [] };
   } catch {
     return { found: false, ports: [] };
+  }
+};
+
+/**
+ * Fetch another identity's SERVER-served, tier-filtered filesystem for a
+ * cross-player ssh hop (Story 2, slice 2c). Returns the materialized `Directory`
+ * the server pruned to the caller's tier, or `null` on any non-ok / malformed /
+ * thrown response so the caller can fall back rather than crash. The owner's box
+ * can't be regenerated client-side (D1), so this is the only correct source for a
+ * cross-player hop's `ls`/`cat`.
+ */
+export const resolveCrossPlayerFs = async (
+  deps: NetworkClientDeps,
+  machineId: string,
+): Promise<Directory | null> => {
+  try {
+    const response = await post(deps, 'resolveCrossPlayerFs', { machine_id: machineId });
+    if (!response.ok) return null;
+    const body: unknown = await response.json();
+    const resolved = body as { readonly ok?: boolean; readonly tree?: unknown };
+    if (resolved.ok !== true) return null;
+    // A missing or malformed tree throws inside deserializeTree and is caught below
+    // (→ null, caller falls back), so every bad-tree shape funnels through one path.
+    return deserializeTree(resolved.tree as SerializedDirectory);
+  } catch {
+    return null;
   }
 };

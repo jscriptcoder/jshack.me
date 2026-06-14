@@ -1,11 +1,18 @@
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { joinHomeNetwork, resolvePublic, type NetworkClientDeps } from './networkApi';
+import {
+  joinHomeNetwork,
+  resolveCrossPlayerFs,
+  resolvePublic,
+  type NetworkClientDeps,
+} from './networkApi';
 import { generateIdentity } from '../core/identity/identity';
 import { computeWorkstationId } from '../core/identity/workstation';
 import { verifySignedRequest } from '../core/signedRequest/verify';
 import { assignHomeNetwork } from '../core/network/homeNetwork';
 import { md5 } from '../core/generation/md5';
+import { serializeTree } from '../core/filesystem/treeCodec';
+import { dir, file, TRAVERSABLE_DIR } from '../core/generation/baseFs';
 import { asMachineId } from '../core/types';
 
 /**
@@ -176,5 +183,74 @@ describe('resolvePublic', () => {
     );
 
     expect(await resolvePublic(deps, '203.0.113.7')).toEqual({ found: false, ports: [] });
+  });
+});
+
+describe('resolveCrossPlayerFs', () => {
+  const A_TREE = dir({ srv: dir({ 'loot.txt': file('OWNED_BY_A', TRAVERSABLE_DIR) }, TRAVERSABLE_DIR) }, TRAVERSABLE_DIR);
+  const MACHINE_ID = 'skylab-deadbeef';
+
+  it('signs a resolveCrossPlayerFs request and deserializes the served tree', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, tree: serializeTree(A_TREE) }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    const result = await resolveCrossPlayerFs(deps, MACHINE_ID);
+
+    expect(result).toEqual(A_TREE);
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected verified envelope');
+    expect(verified.payload).toMatchObject({ action: 'resolveCrossPlayerFs', machine_id: MACHINE_ID });
+  });
+
+  it('returns null on a non-ok response (so the caller can fall back)', async () => {
+    const deps = makeDeps(
+      vi.fn(async () => jsonResponse(403, { error: 'no_session' })) as unknown as typeof fetch,
+    );
+
+    expect(await resolveCrossPlayerFs(deps, MACHINE_ID)).toBeNull();
+  });
+
+  it('returns null on a non-ok response even when its body carries a valid tree', async () => {
+    // Adversarial: a 500 must short-circuit BEFORE the body is trusted, so a forged
+    // {ok:true, tree} on an error status is never deserialized into a usable FS.
+    const deps = makeDeps(
+      vi.fn(async () => jsonResponse(500, { ok: true, tree: serializeTree(A_TREE) })) as unknown as typeof fetch,
+    );
+
+    expect(await resolveCrossPlayerFs(deps, MACHINE_ID)).toBeNull();
+  });
+
+  it('returns null when the body does not confirm ok', async () => {
+    const deps = makeDeps(
+      vi.fn(async () => jsonResponse(200, { ok: false, tree: serializeTree(A_TREE) })) as unknown as typeof fetch,
+    );
+
+    expect(await resolveCrossPlayerFs(deps, MACHINE_ID)).toBeNull();
+  });
+
+  it('returns null when the response omits the tree', async () => {
+    const deps = makeDeps(
+      vi.fn(async () => jsonResponse(200, { ok: true })) as unknown as typeof fetch,
+    );
+
+    expect(await resolveCrossPlayerFs(deps, MACHINE_ID)).toBeNull();
+  });
+
+  it('returns null on a malformed tree rather than throwing', async () => {
+    const deps = makeDeps(
+      vi.fn(async () => jsonResponse(200, { ok: true, tree: 42 })) as unknown as typeof fetch,
+    );
+
+    expect(await resolveCrossPlayerFs(deps, MACHINE_ID)).toBeNull();
+  });
+
+  it('returns null on a thrown fetch (offline)', async () => {
+    const deps = makeDeps(
+      vi.fn(async () => {
+        throw new Error('offline');
+      }) as unknown as typeof fetch,
+    );
+
+    expect(await resolveCrossPlayerFs(deps, MACHINE_ID)).toBeNull();
   });
 });
