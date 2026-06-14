@@ -64,18 +64,18 @@ check(
   `status=${r1.status} body=${JSON.stringify(r1.body)}`,
 );
 
-// 2. Row persisted with the SERVER-stamped player_key + content.
+// 2. Row persisted with the SERVER-stamped writer_key + content.
 const persisted = await sr
   .from('patches')
-  .select('content, player_key, owner')
-  .eq('player_key', id.publicKeyHex)
+  .select('content, writer_key, owner')
+  .eq('writer_key', id.publicKeyHex)
   .eq('machine_id', machine)
   .eq('path', path);
 check(
-  'row persisted with stamped player_key + content',
+  'row persisted with stamped writer_key + content',
   persisted.data?.length === 1 &&
     persisted.data[0]?.content === 'smoke-content' &&
-    persisted.data[0]?.player_key === id.publicKeyHex,
+    persisted.data[0]?.writer_key === id.publicKeyHex,
   `rows=${persisted.data?.length ?? 'undefined'}`,
 );
 
@@ -145,7 +145,7 @@ const r6 = await post(
 const dirRow = await sr
   .from('patches')
   .select('content, node_type, permissions, is_new')
-  .eq('player_key', id.publicKeyHex)
+  .eq('writer_key', id.publicKeyHex)
   .eq('machine_id', machine)
   .eq('path', dirPath);
 check(
@@ -199,7 +199,7 @@ const r9 = await post(
 const afterNewDelete = await sr
   .from('patches')
   .select('path')
-  .eq('player_key', id.publicKeyHex)
+  .eq('writer_key', id.publicKeyHex)
   .eq('machine_id', machine)
   .eq('path', newFile);
 check(
@@ -232,7 +232,7 @@ const r10 = await post(
 const afterDirDelete = await sr
   .from('patches')
   .select('path')
-  .eq('player_key', id.publicKeyHex)
+  .eq('writer_key', id.publicKeyHex)
   .eq('machine_id', machine)
   .like('path', `${newDir}%`);
 check(
@@ -257,7 +257,7 @@ const r11 = await post(
 const tombstone = await sr
   .from('patches')
   .select('content')
-  .eq('player_key', id.publicKeyHex)
+  .eq('writer_key', id.publicKeyHex)
   .eq('machine_id', machine)
   .eq('path', baseFile);
 check(
@@ -281,7 +281,7 @@ check(
 );
 
 // Cleanup.
-await sr.from('patches').delete().eq('player_key', id.publicKeyHex);
+await sr.from('patches').delete().eq('writer_key', id.publicKeyHex);
 
 const passed = results.filter((result) => result.pass).length;
 console.log(`\n${passed}/${results.length} checks passed`);

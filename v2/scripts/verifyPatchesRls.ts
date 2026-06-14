@@ -27,7 +27,7 @@ const anon = createClient(url, anonKey, { auth: { persistSession: false } });
 const sr = createClient(url, serviceKey, { auth: { persistSession: false } });
 
 const probe = {
-  player_key: 'rls-probe-pubkey',
+  writer_key: 'rls-probe-pubkey',
   machine_id: 'rls-probe-machine',
   path: '/rls/probe.txt',
   content: 'probe',
@@ -61,7 +61,7 @@ const s1 = await sr.from('patches').insert(probe);
 check('service_role INSERT succeeds', s1.error === null, `error=${s1.error?.message ?? 'null'}`);
 
 // 4. service_role SELECT sees the row.
-const s2 = await sr.from('patches').select('*').eq('player_key', probe.player_key);
+const s2 = await sr.from('patches').select('*').eq('writer_key', probe.writer_key);
 check(
   'service_role SELECT sees the row',
   s2.error === null && s2.data?.length === 1 && s2.data[0]?.path === probe.path,
@@ -77,7 +77,7 @@ check(
 );
 
 // Cleanup.
-await sr.from('patches').delete().eq('player_key', probe.player_key);
+await sr.from('patches').delete().eq('writer_key', probe.writer_key);
 
 const passed = results.filter((result) => result.pass).length;
 console.log(`\n${passed}/${results.length} checks passed`);
