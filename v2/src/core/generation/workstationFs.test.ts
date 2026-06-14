@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest';
 import type { GameConfig } from '../gameConfig/gameConfig';
 import type { Directory, FileEntry, FileNode } from '../filesystem/types';
 import { canRead, canWrite } from '../filesystem/walker';
-import { buildWorkstationBaseFs } from './workstationFs';
+import {
+  buildWorkstationBaseFs,
+  buildWorkstationBaseFsFromIdentity,
+  workstationGuestPassword,
+} from './workstationFs';
 import {
   LOCALHOST_PREINSTALLED_TOOLS,
   RESTRICTED_EXECUTE,
@@ -429,5 +433,58 @@ describe('buildWorkstationBaseFs', () => {
         execute: ['root', 'user', 'guest'],
       });
     });
+  });
+});
+
+/**
+ * Cross-player reconstruction (Story 2): a DIFFERENT identity's server-side read
+ * of A's box rebuilds it from the registry-persisted identity (owner_key +
+ * username + md5(rootPassword)) — A's plaintext config never leaves A's browser.
+ * The reconstructed box must be byte-identical to the one A sees, or a cross-player
+ * read would diverge from reality.
+ */
+describe('buildWorkstationBaseFsFromIdentity (server reconstruction)', () => {
+  it('reconstructs the byte-identical box the owner sees, from owner_key + username + root-hash', () => {
+    const config = getConfig({ username: 'neo', rootPassword: 'matrix1999' });
+    const reconstructed = buildWorkstationBaseFsFromIdentity({
+      ownerKeyHex: SEED_A,
+      username: config.username,
+      rootPasswordHash: md5(config.rootPassword),
+    });
+
+    expect(reconstructed).toEqual(buildWorkstationBaseFs(SEED_A, config));
+  });
+
+  it('uses the given root-hash verbatim — the server stores md5(rootPassword) and never re-hashes', () => {
+    const fs = buildWorkstationBaseFsFromIdentity({
+      ownerKeyHex: SEED_A,
+      username: 'neo',
+      rootPasswordHash: 'deadbeefdeadbeefdeadbeefdeadbeef',
+    });
+
+    expect(passwdRow(fs, 'root')[1]).toBe('deadbeefdeadbeefdeadbeefdeadbeef');
+  });
+
+  it('seeds the guest hash from owner_key alone (recoverable server-side, no config needed)', () => {
+    const fs = buildWorkstationBaseFsFromIdentity({
+      ownerKeyHex: SEED_B,
+      username: 'neo',
+      rootPasswordHash: md5('whatever'),
+    });
+
+    expect(passwdRow(fs, 'guest')[1]).toBe(
+      passwdRow(buildWorkstationBaseFs(SEED_B, getConfig()), 'guest')[1],
+    );
+  });
+});
+
+describe('workstationGuestPassword', () => {
+  it('recovers the guest plaintext that md5-hashes to the box guest line (the cross-player auth credential)', () => {
+    const fs = buildWorkstationBaseFs(SEED_A, getConfig());
+    expect(md5(workstationGuestPassword(SEED_A))).toBe(passwdRow(fs, 'guest')[1]);
+  });
+
+  it('is owner-key specific — different identities get different guest passwords', () => {
+    expect(workstationGuestPassword(SEED_A)).not.toBe(workstationGuestPassword(SEED_B));
   });
 });

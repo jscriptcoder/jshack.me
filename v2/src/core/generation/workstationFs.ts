@@ -58,18 +58,30 @@ const GUEST_PASSWORDS: readonly string[] = [
   'sunshine',
 ];
 
-/**
- * Build the player's own-workstation base filesystem, seeded by their Ed25519
- * identity pubkey (decision 1: `createPrng('workstation-' + pubkey)`).
- */
-export const buildWorkstationBaseFs = (seedPubkeyHex: string, config: GameConfig): Directory => {
-  const prng = createPrng(`workstation-${seedPubkeyHex}`);
-  const guestPassword = prng.pick(GUEST_PASSWORDS);
+/** The guest account's plaintext password — seeded from the owner's pubkey ALONE
+ *  (the `workstation-` namespace). Owner-key-only so the SERVER can recover it for
+ *  a cross-player auth (Story 2) without the owner's config, and a future cracker
+ *  can match it against GUEST_PASSWORDS. */
+export const workstationGuestPassword = (ownerKeyHex: string): string =>
+  createPrng(`workstation-${ownerKeyHex}`).pick(GUEST_PASSWORDS);
 
+/**
+ * Build the player's own-workstation base filesystem from the IDENTITY the server
+ * can RECONSTRUCT cross-player: the owner's pubkey (guest-password + world seed),
+ * the chosen `username`, and the root password ALREADY HASHED
+ * (`md5(rootPassword)`). Both the client (own box — hashes its own plaintext) and
+ * the server (cross-player read — holds the stored hash) build through this one
+ * function, so A's box can't drift between what A sees and what an attacker reads.
+ */
+export const buildWorkstationBaseFsFromIdentity = (identity: {
+  readonly ownerKeyHex: string;
+  readonly username: string;
+  readonly rootPasswordHash: string;
+}): Directory => {
   const passwd = generatePasswd([
     {
       username: 'root',
-      passwordHash: md5(config.rootPassword),
+      passwordHash: identity.rootPasswordHash,
       uid: 0,
       gid: 0,
       gecos: 'root',
@@ -77,18 +89,19 @@ export const buildWorkstationBaseFs = (seedPubkeyHex: string, config: GameConfig
       shell: SHELL,
     },
     {
-      // No password for the player's own user — they can always exit() back.
-      username: config.username,
+      // No password for the player's own user — they can always exit() back. An
+      // empty hash is also unauthenticatable cross-player (md5(x) is never '').
+      username: identity.username,
       passwordHash: '',
       uid: 1000,
       gid: 1000,
-      gecos: config.username,
-      home: `/home/${config.username}`,
+      gecos: identity.username,
+      home: `/home/${identity.username}`,
       shell: SHELL,
     },
     {
       username: 'guest',
-      passwordHash: md5(guestPassword),
+      passwordHash: md5(workstationGuestPassword(identity.ownerKeyHex)),
       uid: 1001,
       gid: 1001,
       gecos: 'guest',
@@ -101,7 +114,7 @@ export const buildWorkstationBaseFs = (seedPubkeyHex: string, config: GameConfig
     {
       bin: dir(createBinaryEntries(SYSTEM_UTILITY_NAMES), TRAVERSABLE_DIR),
       etc: dir({ passwd: file(passwd, PASSWD_FILE) }, TRAVERSABLE_DIR),
-      home: dir({ [config.username]: dir({}, HOME_DIR, config.username) }, TRAVERSABLE_DIR),
+      home: dir({ [identity.username]: dir({}, HOME_DIR, identity.username) }, TRAVERSABLE_DIR),
       lib: dir(createLibraryEntries(SYSTEM_LIBRARIES), TRAVERSABLE_DIR),
       root: dir({}, ROOT_DIR),
       tmp: dir({}, TMP_DIR),
@@ -134,3 +147,16 @@ export const buildWorkstationBaseFs = (seedPubkeyHex: string, config: GameConfig
     TRAVERSABLE_DIR,
   );
 };
+
+/**
+ * Build the player's own-workstation base filesystem, seeded by their Ed25519
+ * identity pubkey (decision 1: `createPrng('workstation-' + pubkey)`). Thin
+ * wrapper that hashes the config's plaintext root password and delegates to
+ * `buildWorkstationBaseFsFromIdentity` — the shared generator.
+ */
+export const buildWorkstationBaseFs = (seedPubkeyHex: string, config: GameConfig): Directory =>
+  buildWorkstationBaseFsFromIdentity({
+    ownerKeyHex: seedPubkeyHex,
+    username: config.username,
+    rootPasswordHash: md5(config.rootPassword),
+  });
