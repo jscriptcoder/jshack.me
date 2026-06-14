@@ -418,7 +418,7 @@ export const startGame = (gameConfig: GameConfig): void => {
     tier: seed.userType,
   };
   sessionsClientDeps = { identity, machineId: seed.machineId };
-  networkClientDeps = { identity, machineId: seed.machineId };
+  networkClientDeps = { identity, machineId: seed.machineId, gameConfig };
   patchApi = wrapWithRefetch(createPatchApi(patchClientDeps));
 
   setCwd(homePathFor(gameConfig.username));

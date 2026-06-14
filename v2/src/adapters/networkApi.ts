@@ -18,7 +18,9 @@
 
 import { signRequest } from '../core/signedRequest/sign';
 import { assignHomeNetwork } from '../core/network/homeNetwork';
+import { workstationIdentityFields } from '../core/network/workstationIdentity';
 import type { HomeNetworkAssignment } from '../core/network/homeNetwork';
+import type { GameConfig } from '../core/gameConfig/gameConfig';
 import type { Identity, PublicScanResolution } from '../core/commands/types';
 import type { MachineId } from '../core/types';
 
@@ -29,6 +31,10 @@ export type NetworkClientDeps = {
   /** The player's own workstation id — registered as the machine the public IP
    *  forwards to (degenerate NAT). */
   readonly machineId: MachineId;
+  /** The player's chosen workstation identity — shipped on join (hashed root
+   *  password, never plaintext) so the server can reconstruct the box for a
+   *  cross-player reader. */
+  readonly gameConfig: GameConfig;
   readonly endpoint?: string;
   readonly fetchImpl?: typeof fetch;
 };
@@ -52,7 +58,11 @@ export const joinHomeNetwork = async (
   essid: string,
 ): Promise<HomeNetworkAssignment> => {
   try {
-    await post(deps, 'registerNetwork', { essid, workstation_machine_id: deps.machineId });
+    await post(deps, 'registerNetwork', {
+      essid,
+      workstation_machine_id: deps.machineId,
+      ...workstationIdentityFields(deps.gameConfig),
+    });
   } catch {
     // best-effort: registration enables cross-player discovery, but a failure must
     // not stop the player connecting (the LAN address is local-deterministic).

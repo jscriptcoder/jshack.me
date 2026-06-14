@@ -23,6 +23,12 @@ import type { NonceStore } from '../signedRequest/nonceStore';
 const freshStore: NonceStore = async () => ({ fresh: true });
 const ESSID = 'BEAN-THERE-WIFI';
 const WORKSTATION_ID = 'skylab-deadbeef';
+// The player-private workstation identity the server persists so a cross-player
+// reader can reconstruct the box (Story 2). The root value is already an md5 HASH
+// — the client hashes it; the server stores it opaquely, never seeing plaintext.
+const USERNAME = 'neo';
+const MACHINE_NAME = 'skylab';
+const ROOT_HASH = 'd41d8cd98f00b204e9800998ecf8427e';
 
 const makeDeps = (over: Partial<RegisterNetworkDeps> = {}) => {
   const upsertRegistry = vi.fn<(row: NetworkRegistryRow) => Promise<{ error: unknown }>>(
@@ -39,6 +45,9 @@ const envelope = (
   signRequest(id, 'registerNetwork', {
     essid: ESSID,
     workstation_machine_id: WORKSTATION_ID,
+    workstation_username: USERNAME,
+    workstation_machine_name: MACHINE_NAME,
+    workstation_root_hash: ROOT_HASH,
     ...over,
   });
 
@@ -59,7 +68,65 @@ describe('handleRegisterNetwork', () => {
       router_machine_id: WORKSTATION_ID,
       forward_table: [{ publicPort: '*', targetMachineId: WORKSTATION_ID }],
       essid: ESSID,
+      workstation_username: USERNAME,
+      workstation_machine_name: MACHINE_NAME,
+      workstation_root_hash: ROOT_HASH,
     });
+  });
+
+  it('persists the workstation identity (username/machineName/root-hash) so a cross-player reader can reconstruct the box', async () => {
+    const id = generateIdentity();
+    const { deps, upsertRegistry } = makeDeps();
+
+    await handleRegisterNetwork(
+      envelope(id, {
+        workstation_username: 'trinity',
+        workstation_machine_name: 'nebuchadnezzar',
+        workstation_root_hash: 'a'.repeat(32),
+      }),
+      deps,
+    );
+
+    const row = upsertRegistry.mock.calls[0]![0];
+    expect(row.workstation_username).toBe('trinity');
+    expect(row.workstation_machine_name).toBe('nebuchadnezzar');
+    expect(row.workstation_root_hash).toBe('a'.repeat(32));
+  });
+
+  it('rejects an envelope missing the workstation_username without writing', async () => {
+    const id = generateIdentity();
+    const { deps, upsertRegistry } = makeDeps();
+
+    const result = await handleRegisterNetwork(
+      signRequest(id, 'registerNetwork', {
+        essid: ESSID,
+        workstation_machine_id: WORKSTATION_ID,
+        workstation_machine_name: MACHINE_NAME,
+        workstation_root_hash: ROOT_HASH,
+      }),
+      deps,
+    );
+
+    expect(result.status).toBe(400);
+    expect(upsertRegistry).not.toHaveBeenCalled();
+  });
+
+  it('rejects an envelope missing the workstation_root_hash without writing', async () => {
+    const id = generateIdentity();
+    const { deps, upsertRegistry } = makeDeps();
+
+    const result = await handleRegisterNetwork(
+      signRequest(id, 'registerNetwork', {
+        essid: ESSID,
+        workstation_machine_id: WORKSTATION_ID,
+        workstation_username: USERNAME,
+        workstation_machine_name: MACHINE_NAME,
+      }),
+      deps,
+    );
+
+    expect(result.status).toBe(400);
+    expect(upsertRegistry).not.toHaveBeenCalled();
   });
 
   it('derives the public IP from the ESSID alone — two identities on the same AP register the same public IP but their own owner_key', async () => {
