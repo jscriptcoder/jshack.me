@@ -1,7 +1,9 @@
 # Plan: Story 1 — Cross-player public-IP discovery (walking skeleton)
 
-**Branch**: feat/v2-crossplayer-public-ip-discovery
-**Status**: Slice 1a SHIPPED (PR #234). Slice 1b NEXT. Schema-flip timing RESOLVED (deferred to Story 3).
+**Branch**: feat/v2-crossplayer-public-ip-discovery (1a, #234) → feat/v2-crossplayer-real-ports (1b)
+**Status**: Slice 1a SHIPPED (PR #234). Slice 1b IMPLEMENTED on `feat/v2-crossplayer-real-ports`
+(commits b5a515e/75f6151/e6ace15/be5b20c) — PR pending. **Story 1 COMPLETE** once 1b merges.
+Schema-flip timing RESOLVED (deferred to Story 3).
 **Parent epic**: `plans/multiplayer-crossplayer-epic.md` (Story 1)
 
 ## Resume point (slice 1b) — read this first
@@ -104,22 +106,27 @@ registry for now; `patches` is untouched.
   `owner_key`. (A forged machine_id only registers a row pointing at patches that aren't yours —
   self-defeating, harmless.)
 
-## Acceptance Criteria (Story 1 overall)
+## Acceptance Criteria (Story 1 overall) — ALL MET ✅
 
-- [ ] After A runs `nmcli connect`, a server-side registry row exists keyed by A's public IP,
-      carrying `owner_key` (A's verified pubkey) and A's workstation machine_id (verified end to end,
-      two identities).
-- [ ] A **different** identity B running `nmap <A's public IP>` reports the host **up** (resolved
-      server-side from the registry, NOT a B-side regeneration).
-- [ ] B running `nmap <an unregistered public IP>` reports the host **down** / no host.
-- [ ] After A does `su` → `sshd`, B's `nmap <A's public IP>` lists `22/tcp open ssh`; before A starts
-      sshd, B's scan shows the host up with **no** open ports.
-- [ ] A's own-subnet `nmap` (existing behavior) is unchanged.
-- [ ] The resolver response exposes only what B's client renders (host up/down, hostname, ports) —
-      no `owner_key`/internal fields leak (memory `feedback_minimize_api_projections`).
-- [ ] The degenerate NAT is stored as a value, not a shape: the registry row carries
-      `{ routerMachineId, forwardTable }` from the start, `forwardTable` = "all → workstation" — so
-      Story 5 swaps the value with no schema rework (epic Warning).
+- [x] After A runs `nmcli connect`, a server-side registry row exists keyed by A's public IP,
+      carrying `owner_key` (A's verified pubkey) and A's workstation machine_id. *(1a; re-verified in
+      1b E2E: BEAN-THERE-WIFI → `51.130.158.42`, owner `1f8128f7…`, workstation `skylab-cd0af571`.)*
+- [x] A **different** identity B running `nmap <A's public IP>` reports the host **up** (resolved
+      server-side from the registry, NOT a B-side regeneration). *(1b cross-identity check: attacker
+      `d2dc3237…` → `{found:true}`.)*
+- [x] B running `nmap <an unregistered public IP>` reports the host **down** / no host. *(1b: a fresh
+      identity scanning `45.13.13.13` → `{found:false, ports:[]}`.)*
+- [x] After A does `su` → `sshd`, the scan lists the ssh port; before A starts sshd, the scan shows
+      the host up with **no** open ports. *(1b UI E2E: before → "Host is up." no table; after
+      `sshd 2222` → `2222/tcp open ssh`. The non-default port proves a REAL pidfile read, not a
+      hardcoded 22; cross-identity check returns the same `2222`.)*
+- [x] A's own-subnet `nmap` (existing behavior) is unchanged. *(43 nmap unit tests incl. own-LAN
+      green; the shared `portTableLines` refactor keeps both paths identical.)*
+- [x] The resolver response exposes only what the client renders (host up/down, ports) — no
+      `owner_key`/internal fields leak. *(Wire body is exactly `{ok, found, ports}`.)*
+- [x] The degenerate NAT is stored as a value, not a shape: the registry row carries
+      `{ router_machine_id, forward_table }`, `forward_table` = "all → workstation". *(Verified in the
+      registry row: `router_machine_id = workstation`, `forward_table=[{publicPort:"*", → workstation}]`.)*
 
 ## Testing approach (per CLAUDE.md + `feedback_e2e_test_new_primitives`)
 
