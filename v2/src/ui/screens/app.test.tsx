@@ -4,10 +4,11 @@ import { App } from './app';
 import { GAMECONFIG_STORAGE_KEY, serializeGameConfig } from '../../core/gameConfig/gameConfig';
 
 /**
- * The boot gate sequences three states: intro (no config) -> boot animation
- * (just-submitted, new player) -> terminal. A returning player (config already
- * stored) skips both intro and boot and lands on the terminal. Storage is
- * injected so each test drives a clean boot; fake timers drive the animation.
+ * The boot gate sequences three states: intro (no config) -> boot animation ->
+ * terminal. A returning player (config already stored) skips the intro but STILL
+ * runs the boot screen — it is the brick detector now. Storage is injected so
+ * each test drives a clean boot; fake timers drive the (async) animation, so the
+ * clock is advanced with the async variant.
  */
 
 const fakeStorage = (initial?: Record<string, string>): Storage => {
@@ -49,23 +50,23 @@ describe('App boot gate', () => {
     expect(screen.queryByRole('textbox', { name: /terminal input/i })).not.toBeInTheDocument();
   });
 
-  it('plays the boot animation after the intro, before showing the terminal', () => {
+  it('plays the boot animation after the intro, before showing the terminal', async () => {
     render(() => <App storage={fakeStorage()} />);
 
     completeIntro('neo', 'skylab');
     // Advance far enough for the login line to reveal, but short of the
     // post-sequence handoff — so the boot is still on screen, not the terminal.
-    vi.advanceTimersByTime(3300);
+    await vi.advanceTimersByTimeAsync(3300);
 
     expect(screen.getByText(/skylab login: neo/)).toBeInTheDocument();
     expect(screen.queryByRole('textbox', { name: /terminal input/i })).not.toBeInTheDocument();
   });
 
-  it('reaches the terminal with the typed prompt once the boot completes', () => {
+  it('reaches the terminal with the typed prompt once the boot completes', async () => {
     render(() => <App storage={fakeStorage()} />);
 
     completeIntro('neo', 'skylab');
-    vi.advanceTimersByTime(10_000);
+    await vi.advanceTimersByTimeAsync(10_000);
 
     expect(screen.getByRole('textbox', { name: /terminal input/i })).toBeInTheDocument();
     // The prompt reflects the typed config, not the old alice@workstation default.
@@ -81,7 +82,7 @@ describe('App boot gate', () => {
     expect(storage.getItem(GAMECONFIG_STORAGE_KEY)).not.toBeNull();
   });
 
-  it('skips both intro and boot, landing on the terminal for a returning player', () => {
+  it('skips the intro but still boots, reaching the terminal for a returning player', async () => {
     const storage = fakeStorage({
       [GAMECONFIG_STORAGE_KEY]: serializeGameConfig({
         machineName: 'oldbox',
@@ -91,8 +92,17 @@ describe('App boot gate', () => {
     });
     render(() => <App storage={storage} />);
 
+    // The intro is skipped (no menu), but the boot screen runs first — it is the
+    // brick check now, so a returning player can't bypass it.
     expect(screen.queryByRole('button', { name: /new game/i })).not.toBeInTheDocument();
-    expect(screen.queryByText(/login:/)).not.toBeInTheDocument();
+
+    // Part-way through, the boot is on screen (its login line), not the terminal.
+    await vi.advanceTimersByTimeAsync(3300);
+    expect(screen.getByText(/oldbox login: trinity/)).toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: /terminal input/i })).not.toBeInTheDocument();
+
+    // A healthy box (no boot-file tombstone) boots through to the terminal.
+    await vi.advanceTimersByTimeAsync(10_000);
     expect(screen.getByText('trinity@oldbox:/home/trinity$')).toBeInTheDocument();
   });
 });

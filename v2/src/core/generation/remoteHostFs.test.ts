@@ -162,6 +162,7 @@ describe('buildRemoteHostFs', () => {
       // must be a real, operable Linux box (browse + run commands on it).
       expect([...fs().entries.keys()].sort()).toEqual([
         'bin',
+        'boot',
         'etc',
         'home',
         'lib',
@@ -170,6 +171,20 @@ describe('buildRemoteHostFs', () => {
         'usr',
         'var',
       ]);
+    });
+
+    it('ships /boot/{vmlinuz,initrd.img} root-owned and root-write-only (a brickable box like any other)', () => {
+      const boot = dirAt(fs(), 'boot');
+      expect([...boot.entries.keys()].sort()).toEqual(['initrd.img', 'vmlinuz']);
+      const vmlinuz = boot.entries.get('vmlinuz');
+      if (vmlinuz?.kind !== 'file') throw new Error('missing /boot/vmlinuz');
+      expect(vmlinuz.owner).toBe('root');
+      expect(vmlinuz.content.length).toBeGreaterThan(0);
+      expect(vmlinuz.perms).toEqual({
+        read: ['root', 'user', 'guest'],
+        write: ['root'],
+        execute: ['root'],
+      });
     });
 
     it('is operable: /bin has ls + cat (world-executable) so a logged-in user can browse', () => {

@@ -1,8 +1,11 @@
 /**
  * Boot gate — sequences the three first-class screens and wires the new-game
  * flow: intro → boot animation → terminal. A returning player (config already
- * persisted) skips both intro and boot and lands straight on the terminal,
- * matching legacy (the boot animation plays only for a fresh start).
+ * persisted) skips the intro but STILL runs the boot screen on every entry —
+ * the boot is now the brick detector (it checks the own-box FS via `canBoot`),
+ * so a box whose `/boot` was deleted halts at a kernel panic instead of reaching
+ * the terminal. A fresh start runs the same boot against a pristine (bootable)
+ * seed FS.
  *
  * D2: plain `<Show>`s (no Router). `storage` is injected so the flow is testable
  * without touching the real `localStorage`; production passes the global in
@@ -18,7 +21,7 @@ import {
   getStoredGameConfig,
   storeGameConfig,
 } from '../../core/gameConfig/gameConfig';
-import { startGame } from '../state';
+import { resolveBootCheck, startGame } from '../state';
 import { Intro } from './intro';
 import { BootScreen } from './boot';
 import { Terminal } from './terminal';
@@ -36,9 +39,10 @@ export const App = (props: AppProps) => {
   // eslint-disable-next-line solid/reactivity -- static injected dependency, read once at boot
   const storage = props.storage;
   const existing = getStoredGameConfig(storage);
-  // A returning player skips intro + boot; only a fresh start plays the boot.
+  // A returning player skips the intro but STILL boots — the boot screen checks
+  // whether the box can come up (brick detection), so it can't be skipped.
   if (existing !== null) startGame(existing);
-  const [phase, setPhase] = createSignal<Phase>(existing !== null ? 'terminal' : 'intro');
+  const [phase, setPhase] = createSignal<Phase>(existing !== null ? 'booting' : 'intro');
   const [config, setConfig] = createSignal<GameConfig | null>(existing);
 
   const handleSubmit = (submitted: GameConfig) => {
@@ -58,6 +62,7 @@ export const App = (props: AppProps) => {
           <BootScreen
             machineName={active().machineName}
             username={active().username}
+            resolveBoot={resolveBootCheck}
             onComplete={() => setPhase('terminal')}
           />
         )}

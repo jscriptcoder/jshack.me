@@ -29,6 +29,7 @@ import {
 } from './binaries';
 import { createLibraryEntries, SYSTEM_LIBRARIES } from './libraries';
 import {
+  bootDir,
   dir,
   file,
   generatePasswd,
@@ -113,6 +114,7 @@ export const buildWorkstationBaseFsFromIdentity = (identity: {
   return dir(
     {
       bin: dir(createBinaryEntries(SYSTEM_UTILITY_NAMES), TRAVERSABLE_DIR),
+      boot: bootDir(),
       etc: dir({ passwd: file(passwd, PASSWD_FILE) }, TRAVERSABLE_DIR),
       home: dir({ [identity.username]: dir({}, HOME_DIR, identity.username) }, TRAVERSABLE_DIR),
       lib: dir(createLibraryEntries(SYSTEM_LIBRARIES), TRAVERSABLE_DIR),

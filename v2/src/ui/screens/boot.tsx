@@ -1,18 +1,32 @@
 /**
- * Boot screen — a fake kernel-boot animation shown once, right after the intro
- * form is submitted, before the terminal appears. Pure cosmetic flavour (ported
- * from the legacy BootScreen): BIOS + Linux log lines cascade in on timers, then
- * `onComplete` hands off to the terminal.
+ * Boot screen — a kernel-boot animation that doubles as the brick detector.
  *
- * D2: minimal Solid — `onMount` schedules the cascade, `onCleanup` clears the
- * timers if the component unmounts early, a single signal holds revealed lines.
+ * It plays a fake BIOS/GRUB cascade, then at the kernel-load step consults
+ * `resolveBoot` — the OWN machine's filesystem (base + replayed journal) run
+ * through `canBoot`. A bootable box finishes the sequence and hands off to the
+ * terminal via `onComplete`. A box missing a `/boot` kernel image HALTS on a
+ * GRUB error / kernel panic and NEVER calls `onComplete`: the brick is
+ * permanent (the tombstone lives on the shared journal), so there is no terminal
+ * and no recovery. The decision lives in `canBoot`; this component only renders
+ * the outcome.
+ *
+ * D2: minimal Solid — `onMount` drives an async line cascade (`wait` overlaps the
+ * `resolveBoot` fetch with the animation), `onCleanup` cancels it if the
+ * component unmounts early, a single signal holds revealed lines.
  */
 
 import { createSignal, For, onCleanup, onMount } from 'solid-js';
+import type { BootCheck, BootFile } from '../../core/boot/bootFiles';
 
 export type BootScreenProps = {
   readonly machineName: string;
   readonly username: string;
+  /** Resolve whether THIS machine can boot — the own-box FS (base + replayed
+   *  journal) checked by `canBoot`. Started at mount so the fetch overlaps the
+   *  animation; consulted once the early sequence has played. */
+  readonly resolveBoot: () => Promise<BootCheck>;
+  /** Called once when the boot succeeds and hands off to the terminal. A bricked
+   *  box (a missing boot file) never calls this — it halts on the panic screen. */
   readonly onComplete: () => void;
 };
 
@@ -24,10 +38,17 @@ type BootLine = {
   readonly color?: string;
 };
 
-const buildBootSequence = (machineName: string, username: string): readonly BootLine[] => [
+/** Always-played pre-kernel cascade (BIOS POST). The boot-file check happens
+ *  AFTER this, at the point GRUB would hand control to the kernel. */
+const EARLY_SEQUENCE: readonly BootLine[] = [
   { text: 'BIOS: Initializing system...', delay: 200 },
   { text: 'BIOS: Memory test... 4096 MB OK', delay: 150 },
   { text: '', delay: 100 },
+];
+
+/** The successful boot tail: kernel + initrd load, kernel log, systemd units,
+ *  then the auto-login line. Played only when both boot files are present. */
+const successTail = (machineName: string, username: string): readonly BootLine[] => [
   { text: 'Loading Linux 5.15.0-91-generic ...', delay: 300, color: 'var(--theme-text)' },
   { text: 'Loading initial ramdisk ...', delay: 250, color: 'var(--theme-text)' },
   { text: '', delay: 100 },
@@ -67,6 +88,27 @@ const buildBootSequence = (machineName: string, username: string): readonly Boot
   { text: '', delay: 200 },
 ];
 
+/** The brick tail: a missing kernel image halts the box. `vmlinuz` gone → GRUB
+ *  can't load a kernel at all; `initrd.img` gone → the kernel loads but can't
+ *  mount the root fs. Copy ported verbatim from the legacy `reboot` command. */
+const panicTail = (missing: BootFile): readonly BootLine[] =>
+  missing === 'vmlinuz'
+    ? [
+        { text: '', delay: 200 },
+        { text: "error: file '/boot/vmlinuz' not found.", delay: 200 },
+        { text: 'GRUB error: no loaded kernel.', delay: 150 },
+        { text: '', delay: 100 },
+        { text: 'System halted.', delay: 150 },
+      ]
+    : [
+        { text: 'Loading Linux 5.15.0-91-generic ...', delay: 300, color: 'var(--theme-text)' },
+        { text: '', delay: 200 },
+        { text: "error: file '/boot/initrd.img' not found.", delay: 200 },
+        { text: 'Kernel panic - not syncing: VFS: Unable to mount root fs', delay: 150 },
+        { text: '', delay: 100 },
+        { text: 'System halted.', delay: 150 },
+      ];
+
 /** Pause after the final line before handing off, so the login line lingers. */
 const HANDOFF_DELAY_MS = 400;
 
@@ -75,24 +117,53 @@ export const BootScreen = (props: BootScreenProps) => {
   let container: HTMLDivElement | undefined;
 
   onMount(() => {
-    const sequence = buildBootSequence(props.machineName, props.username);
+    let cancelled = false;
     const timers: ReturnType<typeof setTimeout>[] = [];
-    let elapsed = 0;
 
-    sequence.forEach((line, index) => {
-      elapsed += line.delay;
-      timers.push(
-        setTimeout(() => {
-          setLines((previous) => [...previous, line]);
-          if (container) container.scrollTop = container.scrollHeight;
-        }, elapsed),
-      );
-      if (index === sequence.length - 1) {
-        timers.push(setTimeout(() => props.onComplete(), elapsed + HANDOFF_DELAY_MS));
+    const wait = (ms: number): Promise<void> =>
+      new Promise((resolve) => timers.push(setTimeout(resolve, ms)));
+
+    const reveal = (line: BootLine): void => {
+      setLines((previous) => [...previous, line]);
+      if (container) container.scrollTop = container.scrollHeight;
+    };
+
+    /** Reveal a sequence line-by-line. Returns false if cancelled mid-play. */
+    const play = async (sequence: readonly BootLine[]): Promise<boolean> => {
+      for (const line of sequence) {
+        await wait(line.delay);
+        if (cancelled) return false;
+        reveal(line);
       }
-    });
+      return true;
+    };
 
-    onCleanup(() => timers.forEach((timer) => clearTimeout(timer)));
+    const run = async (): Promise<void> => {
+      // Kick off the boot-file resolution immediately so it overlaps the BIOS
+      // cascade, then await it at the kernel-load step.
+      const checking = props.resolveBoot();
+      if (!(await play(EARLY_SEQUENCE))) return;
+
+      const result = await checking;
+      if (cancelled) return;
+
+      if (!result.ok) {
+        await play(panicTail(result.missing));
+        return; // bricked — halt, never hand off to the terminal.
+      }
+
+      if (!(await play(successTail(props.machineName, props.username)))) return;
+      await wait(HANDOFF_DELAY_MS);
+      if (cancelled) return;
+      props.onComplete();
+    };
+
+    void run();
+
+    onCleanup(() => {
+      cancelled = true;
+      timers.forEach((timer) => clearTimeout(timer));
+    });
   });
 
   return (
@@ -102,7 +173,7 @@ export const BootScreen = (props: BootScreenProps) => {
     >
       <For each={lines()}>
         {(line) => (
-          <div style={line.color ? { color: line.color } : undefined}>{line.text || ' '}</div>
+          <div style={line.color ? { color: line.color } : undefined}>{line.text || ' '}</div>
         )}
       </For>
     </div>

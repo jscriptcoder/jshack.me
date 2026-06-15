@@ -36,7 +36,8 @@ import type {
 } from '../core/commands/types';
 import type { GameConfig } from '../core/gameConfig/gameConfig';
 import type { Directory } from '../core/filesystem/types';
-import type { Patch } from '../core/filesystem/applyPatches';
+import { applyPatches, type Patch } from '../core/filesystem/applyPatches';
+import { canBoot, type BootCheck } from '../core/boot/bootFiles';
 import { isCrossPlayerHop, resolveActiveRoot } from './activeRoot';
 import { createFsView } from '../core/filesystem/fsView';
 import { resolveAbsPath } from '../core/filesystem/path';
@@ -481,6 +482,28 @@ const log: LogApi = {
     syncChannel?.broadcast({ type: 'patches-changed', machineId: patchClientDeps.machineId });
   },
   appendAccessLog: async () => undefined,
+};
+
+/** Whether the player's OWN workstation can boot — the brick check the boot
+ *  screen runs on every entry. Resolves the own-box FS independent of any
+ *  rehydrated hop session: the base seed with the OWN machine's shared journal
+ *  (every writer's patches, including a cross-player attacker's `/boot`
+ *  tombstone) replayed over it, then `canBoot`. Pinned to the base (own-box)
+ *  session — "the box you're sitting at is always your workstation", never the
+ *  remote you may be ssh'd into. Degrades to bootable before `startGame` wires
+ *  identity/config (the boot gate guarantees that never happens in practice) and
+ *  on any fetch failure (`fetchOwnPatches` returns []), so a transient error
+ *  never bricks a healthy box — only a real tombstone in the journal does. */
+export const resolveBootCheck = async (): Promise<BootCheck> => {
+  const base = sessionStack()[0];
+  if (base === undefined || identity === undefined || config === undefined) return { ok: true };
+  const ownPatches = await fetchOwnPatches({
+    identity,
+    machineId: base.machineId,
+    owner: base.username,
+    tier: base.userType,
+  });
+  return canBoot(applyPatches(seedFs(config, identity), ownPatches));
 };
 
 /** Start (or restart) the game for a given config. Builds identity, session,
