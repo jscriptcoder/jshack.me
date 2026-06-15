@@ -44,6 +44,14 @@ export const TMP_DIR: FilePermissions = {
   write: ['root', 'user', 'guest'],
   execute: ['root', 'user', 'guest'],
 };
+/** `/boot/{vmlinuz,initrd.img}`: world-readable, root-only write, root-only
+ *  execute. Only root can delete a boot file — and that deletion IS the brick
+ *  (the box can't come up without it; see `core/boot/bootFiles.ts`). */
+export const BOOT_FILE: FilePermissions = {
+  read: ['root', 'user', 'guest'],
+  write: ['root'],
+  execute: ['root'],
+};
 
 // --- Node constructors ---
 
@@ -64,6 +72,23 @@ export const dir = (
   perms,
   entries: new Map(Object.entries(entries)),
 });
+
+// --- /boot ---
+
+/** The `/boot` directory every box ships with: the kernel (`vmlinuz`) and
+ *  initial ramdisk (`initrd.img`) whose presence `canBoot` checks at boot. Built
+ *  once here and composed by BOTH box generators, so the boot contract can't
+ *  drift between the player's workstation and an NPC host. Root-owned and
+ *  root-write, so only a root `rm` (an own self-brick, or a cross-player attacker
+ *  who has `su`'d to root) can delete a file — and that deletion bricks the box. */
+export const bootDir = (): Directory =>
+  dir(
+    {
+      vmlinuz: file('bzImage, version 5.15.0-91-generic', BOOT_FILE),
+      'initrd.img': file('initramfs image, version 5.15.0-91-generic', BOOT_FILE),
+    },
+    TRAVERSABLE_DIR,
+  );
 
 // --- /etc/passwd ---
 

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * Regression guard for the module-top-level init bug (see intro-screen plan).
@@ -97,5 +97,56 @@ describe('runInput command serialization', () => {
     expect(text).toContain('second');
 
     vi.unstubAllGlobals();
+  });
+});
+
+/**
+ * The boot screen asks `resolveBootCheck` whether the player's OWN box can come
+ * up. It must resolve the own-workstation FS — base seed + the replayed shared
+ * journal (which carries every writer's patches, including a cross-player
+ * attacker's `/boot` tombstone) — and run it through `canBoot`. This is the seam
+ * that turns a journalled `rm /boot/vmlinuz` into a permanent brick on next load.
+ */
+describe('resolveBootCheck', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const startWithJournal = async (patches: readonly unknown[]) => {
+    vi.resetModules();
+    const store = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => store.set(key, value),
+      removeItem: (key: string) => store.delete(key),
+    });
+    // Every signed call (listPatches / listSessions) gets the same journal back;
+    // no `sessions`, so the hop chain stays at the base own-box session.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ patches, sessions: [] }) })),
+    );
+    const state = await import('./state');
+    state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
+    return state;
+  };
+
+  it('reports the box bootable when the journal has no boot-file tombstone', async () => {
+    const state = await startWithJournal([]);
+
+    await expect(state.resolveBootCheck()).resolves.toEqual({ ok: true });
+  });
+
+  it('reports the box bricked when the shared journal tombstones /boot/vmlinuz', async () => {
+    const state = await startWithJournal([{ path: '/boot/vmlinuz', content: null, owner: 'root' }]);
+
+    await expect(state.resolveBootCheck()).resolves.toEqual({ ok: false, missing: 'vmlinuz' });
+  });
+
+  it('degrades to bootable before the game has started (no session/identity/config yet)', async () => {
+    // Defensive: the boot gate always calls startGame first, but if the check
+    // ever runs cold it must not crash (no own box to fetch) — it boots.
+    vi.resetModules();
+    const state = await import('./state');
+
+    await expect(state.resolveBootCheck()).resolves.toEqual({ ok: true });
   });
 });

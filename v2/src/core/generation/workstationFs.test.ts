@@ -94,6 +94,7 @@ describe('buildWorkstationBaseFs', () => {
     // (pre-installed apt tools under /usr/bin), and `/lib` (shared libraries).
     expect([...fs.entries.keys()].sort()).toEqual([
       'bin',
+      'boot',
       'etc',
       'home',
       'lib',
@@ -102,6 +103,7 @@ describe('buildWorkstationBaseFs', () => {
       'usr',
       'var',
     ]);
+    expect([...dirAt(fs, 'boot').entries.keys()].sort()).toEqual(['initrd.img', 'vmlinuz']);
     expect([...dirAt(fs, 'etc').entries.keys()]).toEqual(['passwd']);
     expect([...dirAt(fs, 'home').entries.keys()]).toEqual(['alice']);
     expect(dirAt(fs, 'home', 'alice').entries.size).toBe(0);
@@ -272,6 +274,49 @@ describe('buildWorkstationBaseFs', () => {
         write: ['root'],
         execute: ['root', 'user', 'guest'],
       });
+    });
+  });
+
+  describe('/boot kernel images (the brick surface)', () => {
+    const baseFs = (): Directory => buildWorkstationBaseFs(SEED_A, getConfig());
+
+    it('ships both /boot/vmlinuz and /boot/initrd.img as non-empty, root-owned files', () => {
+      const boot = dirAt(baseFs(), 'boot');
+      ['vmlinuz', 'initrd.img'].forEach((name) => {
+        const node = boot.entries.get(name);
+        if (node?.kind !== 'file') throw new Error(`missing /boot/${name}`);
+        expect(node.owner).toBe('root');
+        expect(node.content.length).toBeGreaterThan(0);
+      });
+    });
+
+    it('makes the boot files world-readable but root-write-only, so only root can delete them', () => {
+      const vmlinuz = dirAt(baseFs(), 'boot').entries.get('vmlinuz');
+      if (vmlinuz?.kind !== 'file') throw new Error('missing /boot/vmlinuz');
+      expect(vmlinuz.perms).toEqual({
+        read: ['root', 'user', 'guest'],
+        write: ['root'],
+        execute: ['root'],
+      });
+    });
+
+    it('makes /boot world-traversable but root-write-only', () => {
+      expect(dirAt(baseFs(), 'boot').perms).toEqual({
+        read: ['root', 'user', 'guest'],
+        write: ['root'],
+        execute: ['root', 'user', 'guest'],
+      });
+    });
+
+    it('lets only root remove a boot file — guest/user are denied (the brick needs root)', () => {
+      const fs = baseFs();
+      const chain = [fs.perms, dirAt(fs, 'boot').perms];
+      const vmlinuz = dirAt(fs, 'boot').entries.get('vmlinuz');
+      if (vmlinuz?.kind !== 'file') throw new Error('missing /boot/vmlinuz');
+
+      expect(canWrite('root', vmlinuz.perms, chain).allowed).toBe(true);
+      expect(canWrite('user', vmlinuz.perms, chain).allowed).toBe(false);
+      expect(canWrite('guest', vmlinuz.perms, chain).allowed).toBe(false);
     });
   });
 
