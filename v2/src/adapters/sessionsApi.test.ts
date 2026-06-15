@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   authCreateServerSession,
   authCreateServerSessionPublic,
+  authElevateServerSession,
   createServerSession,
   endServerSession,
   listServerSessions,
@@ -324,6 +325,96 @@ describe('authCreateServerSessionPublic', () => {
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
 
     expect(await authCreateServerSessionPublic(deps, params)).toEqual({
+      ok: false,
+      error: 'network_error',
+    });
+  });
+});
+
+describe('authElevateServerSession', () => {
+  const params = {
+    sessionId: 'su-root-1700000000000',
+    machineId: 'skylab-deadbeef',
+    username: 'root',
+    password: 'matrix1999',
+    parentSessionId: 'ssh-guest-1',
+    sourceIp: '192.168.50.23',
+  };
+
+  it('POSTs a signed suElevate envelope and returns the server-derived userType', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, userType: 'root' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    const result = await authElevateServerSession(deps, params);
+
+    expect(result).toEqual({ ok: true, userType: 'root' });
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected a verified envelope');
+    expect(verified.payload).toMatchObject({
+      action: 'suElevate',
+      session_id: 'su-root-1700000000000',
+      machine_id: 'skylab-deadbeef',
+      username: 'root',
+      password: 'matrix1999',
+      parent_session_id: 'ssh-guest-1',
+      source_ip: '192.168.50.23',
+    });
+  });
+
+  it('passes through the guest userType', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, userType: 'guest' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await authElevateServerSession(deps, params)).toEqual({ ok: true, userType: 'guest' });
+  });
+
+  it('maps a 401 to invalid_credentials (bad password or unknown user)', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(401, { error: 'invalid_credentials' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await authElevateServerSession(deps, params)).toEqual({
+      ok: false,
+      error: 'invalid_credentials',
+    });
+  });
+
+  it('maps a 404 to host_unreachable', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(404, { error: 'host_unreachable' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await authElevateServerSession(deps, params)).toEqual({
+      ok: false,
+      error: 'host_unreachable',
+    });
+  });
+
+  it('maps any other non-ok status to network_error', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(500, { error: 'insert_failed' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await authElevateServerSession(deps, params)).toEqual({
+      ok: false,
+      error: 'network_error',
+    });
+  });
+
+  it('maps a 200 with a missing/garbage userType to network_error (never trusts a malformed ok)', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, userType: 'superuser' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await authElevateServerSession(deps, params)).toEqual({
+      ok: false,
+      error: 'network_error',
+    });
+  });
+
+  it('maps a thrown fetch (offline) to network_error', async () => {
+    const fetchSpy = vi.fn(async () => {
+      throw new Error('offline');
+    });
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await authElevateServerSession(deps, params)).toEqual({
       ok: false,
       error: 'network_error',
     });

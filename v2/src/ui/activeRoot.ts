@@ -22,6 +22,7 @@
 
 import { buildRemoteHostFs } from '../core/generation/remoteHostFs';
 import { hostForMachineId } from '../core/generation/remoteHostId';
+import { isCrossPlayerWorkstation } from '../core/network/crossPlayerHop';
 import { applyPatches, type Patch } from '../core/filesystem/applyPatches';
 import type { Directory } from '../core/filesystem/types';
 import type { Session } from '../core/commands/types';
@@ -54,15 +55,14 @@ export const resolveActiveRoot = (args: {
  * only way to hold an ssh session on such a machine is a public-IP login into
  * another identity's box — so this is the signal to fetch that box's SERVER-served
  * tree (decision D1) instead of letting `resolveActiveRoot` wrongly fall back to
- * your OWN base. Offline (no essid) can't resolve a LAN, so it isn't a hop.
+ * your OWN base. The machine-level test is the shared `isCrossPlayerWorkstation`;
+ * the ssh-kind requirement is this dispatch's own (only an ssh hop has a served
+ * tree to fetch).
  */
 export const isCrossPlayerHop = (
   session: Session,
-  ownWorkstationId: string,
   essid: string | null,
   publicKeyHex: string,
 ): boolean =>
   session.kind === 'ssh' &&
-  session.machineId !== ownWorkstationId &&
-  essid !== null &&
-  hostForMachineId(publicKeyHex, essid, session.machineId) === null;
+  isCrossPlayerWorkstation({ machineId: session.machineId, publicKeyHex, essid });

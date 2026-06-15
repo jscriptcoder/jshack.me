@@ -31,6 +31,7 @@ import type {
   RemoteAuthResult,
   ScanRecordParams,
   Session,
+  SuElevateParams,
   TerminalLine,
 } from '../core/commands/types';
 import type { GameConfig } from '../core/gameConfig/gameConfig';
@@ -52,7 +53,7 @@ import { runCommandLine } from '../core/shell/runLine';
 import { commandEchoLine } from '../core/shell/prompt';
 import { buildCommandEnv } from './env';
 import { getPlayerIdentity } from './identity';
-import { parseWorkstationId } from '../core/identity/workstation';
+import { isOwnWorkstation, parseWorkstationId } from '../core/identity/workstation';
 import {
   createPatchApi,
   fetchOwnPatches,
@@ -64,6 +65,7 @@ import { createSyncChannel, type SyncChannel } from '../adapters/crossTabSync';
 import {
   authCreateServerSession,
   authCreateServerSessionPublic,
+  authElevateServerSession,
   createServerSession,
   endServerSession,
   listServerSessions,
@@ -177,14 +179,19 @@ const pushSession = (next: Session): void => {
   const parent = activeSession();
   setReturnCwdStack((previous) => [...previous, cwd()]);
   setSessionStack((previous) => [...previous, next]);
-  // Persist the pushed session so it survives a refresh. Fire-and-forget
-  // alongside the optimistic stack update — the adapter swallows errors, so a
-  // logging/network hiccup never breaks the switch. The base login session is
-  // seeded via `setSessionStack` in `startGame`, NOT through here, so it is
-  // never persisted (only elevations/hops are). `ssh` is skipped: it already
-  // created its server row via the authCreateSession round-trip (it MUST validate
-  // the password before pushing), so re-creating it here would be a duplicate.
-  if (sessionsClientDeps !== undefined && next.kind !== 'ssh') {
+  // Persist the pushed session so it survives a refresh. Fire-and-forget alongside
+  // the optimistic stack update — the adapter swallows errors, so a network hiccup
+  // never breaks the switch. ONLY own-workstation sessions are created here: a
+  // foreign-machine session (an `ssh` hop, or a cross-player `su` elevation) is
+  // already created server-side by its OWN auth round-trip (authCreateSession /
+  // suElevate), which MUST validate the credential before the row exists — creating
+  // it again here would just 403 against the own-workstation gate. The base login
+  // session is seeded directly in `startGame`, never through here.
+  if (
+    sessionsClientDeps !== undefined &&
+    identity !== undefined &&
+    isOwnWorkstation(next.machineId, identity.publicKeyHex)
+  ) {
     void createServerSession(sessionsClientDeps, next, parent?.id ?? null);
   }
   // Re-point the patch client at the now-active machine. An ssh hop swaps the
@@ -220,7 +227,7 @@ const activeRoot = (): Directory => {
   if (served !== null && served.machineId === session.machineId) return served.tree;
   // A cross-player hop is SERVER-served; until its tree arrives show an empty root,
   // never our own box (which is what `resolveActiveRoot` would otherwise fall to).
-  if (isCrossPlayerHop(session, ownWorkstationId(), currentEssid(), requireIdentity().publicKeyHex)) {
+  if (isCrossPlayerHop(session, currentEssid(), requireIdentity().publicKeyHex)) {
     return CROSS_PLAYER_LOADING_ROOT;
   }
   return resolveActiveRoot({
@@ -246,6 +253,14 @@ const sshAuthenticatePublic = (params: PublicAuthParams): Promise<PublicAuthResu
   sessionsClientDeps === undefined
     ? Promise.resolve({ ok: false, error: 'network_error' })
     : authCreateServerSessionPublic(sessionsClientDeps, params);
+
+/** Elevate a session on another player's box to root server-side (backs
+ *  `env.su.elevate`). Degrades to a network error before `startGame` wires the
+ *  sessions client. */
+const suElevate = (params: SuElevateParams): Promise<RemoteAuthResult> =>
+  sessionsClientDeps === undefined
+    ? Promise.resolve({ ok: false, error: 'network_error' })
+    : authElevateServerSession(sessionsClientDeps, params);
 
 /** Record an nmap scan server-side (backs `env.scan.record`). Best-effort and a
  *  no-op until `startGame` wires the patch client; the scan stands regardless. */
@@ -442,7 +457,7 @@ const refreshServedRoot = async (): Promise<void> => {
     active === undefined ||
     deps === undefined ||
     id === undefined ||
-    !isCrossPlayerHop(active, ownWorkstationId(), currentEssid(), id.publicKeyHex)
+    !isCrossPlayerHop(active, currentEssid(), id.publicKeyHex)
   ) {
     setServedRoot(null);
     return;
@@ -670,6 +685,7 @@ const executeLine = async (line: string): Promise<void> => {
     onPushSession: pushSession,
     onSshAuthenticate: sshAuthenticate,
     onSshAuthenticatePublic: sshAuthenticatePublic,
+    onSuElevate: suElevate,
     onScanRecord: recordScanFn,
     onScanResolvePublic: resolvePublicFn,
     onHomeNetworkJoin: joinHomeNetworkFn,

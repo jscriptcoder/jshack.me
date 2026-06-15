@@ -25,6 +25,7 @@ import type {
   RemoteAuthParams,
   RemoteAuthResult,
   Session,
+  SuElevateParams,
 } from '../core/commands/types';
 import type { SessionSummary } from '../core/sessions/listSessions';
 
@@ -146,6 +147,38 @@ export const authCreateServerSessionPublic = async (
       return isUserType(userType) && typeof machineId === 'string'
         ? { ok: true, userType, machineId }
         : { ok: false, error: 'network_error' };
+    }
+    if (response.status === 401) return { ok: false, error: 'invalid_credentials' };
+    if (response.status === 404) return { ok: false, error: 'host_unreachable' };
+    return { ok: false, error: 'network_error' };
+  } catch {
+    return { ok: false, error: 'network_error' };
+  }
+};
+
+/** Elevate a session B ALREADY holds on a registered FOREIGN workstation to root
+ *  (Story 4): the server resolves the box by its `machine_id`, rebuilds the owner's
+ *  tree, validates the password against its `/etc/passwd`, and on success persists a
+ *  root-tier `kind:'su'` row and returns the server-derived userType. 401 → bad
+ *  password/unknown user; 404 → the machine isn't registered. A 200 missing a valid
+ *  userType is treated as malformed, never a successful elevation. */
+export const authElevateServerSession = async (
+  deps: SessionsClientDeps,
+  params: SuElevateParams,
+): Promise<RemoteAuthResult> => {
+  try {
+    const response = await post(deps, 'suElevate', {
+      session_id: params.sessionId,
+      machine_id: params.machineId,
+      username: params.username,
+      password: params.password,
+      parent_session_id: params.parentSessionId,
+      source_ip: params.sourceIp,
+    });
+    if (response.ok) {
+      const body: unknown = await response.json();
+      const userType = (body as { userType?: unknown } | null)?.userType;
+      return isUserType(userType) ? { ok: true, userType } : { ok: false, error: 'network_error' };
     }
     if (response.status === 401) return { ok: false, error: 'invalid_credentials' };
     if (response.status === 404) return { ok: false, error: 'host_unreachable' };

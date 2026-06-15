@@ -4,16 +4,21 @@ import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
+  mockIdentity,
+  mockNetworkView,
   mockSession,
 } from '../../test/factories/commandEnv';
+import { computeWorkstationId } from '../identity/workstation';
+import type { WirelessInterface } from '../network/interfaces';
 import {
   asAbsPath,
   asEpochMs,
   asMachineId,
   asPlayerKeyHex,
+  type MachineId,
   type UserType,
 } from '../types';
-import type { AuthLogEvent, CommandResult, Session } from './types';
+import type { AuthLogEvent, CommandResult, RemoteAuthResult, Session, SuElevateParams } from './types';
 import { su } from './su';
 
 /**
@@ -303,6 +308,165 @@ describe('su', () => {
 
     expect(text).toContain('su: user root does not exist');
     expect(exitCode).toBe(1);
+  });
+
+  describe('cross-player elevation (on another player’s registered box)', () => {
+    // The player's own identity is pubkey 'a'…; this box is a DIFFERENT identity's
+    // workstation (suffix from 'b'…), so it is foreign — never a host on B's LAN.
+    const FOREIGN_MACHINE = asMachineId(computeWorkstationId('skylab', 'b'.repeat(64)));
+    const ESSID = 'BEAN-THERE-WIFI';
+
+    const onlineWlan0 = (essid: string | null): WirelessInterface => ({
+      kind: 'wireless',
+      name: 'wlan0',
+      mac: '02:00:00:00:00:01',
+      up: true,
+      monitorMode: false,
+      association: essid === null ? null : { essid, bssid: '00:11:22:33:44:55' },
+      ipv4: essid === null ? null : '192.168.1.5',
+    });
+
+    const crossPlayerEnv = (
+      opts: {
+        readonly typed?: string;
+        readonly elevateResult?: RemoteAuthResult;
+        readonly machineId?: MachineId;
+        readonly cancel?: boolean;
+      } = {},
+    ) => {
+      const pushed: Session[] = [];
+      const cwds: string[] = [];
+      const promptCalls: PromptCall[] = [];
+      const authLogs: AuthLogEvent[] = [];
+      const elevateCalls: SuElevateParams[] = [];
+
+      const env = mockCommandEnv({
+        identity: mockIdentity({ publicKeyHex: PUBKEY }),
+        session: mockSession({
+          id: 'ssh-guest-seed',
+          machineId: opts.machineId ?? FOREIGN_MACHINE,
+          playerKey: PUBKEY,
+          username: 'guest',
+          userType: 'guest',
+          kind: 'ssh',
+        }),
+        network: mockNetworkView({ interfaces: () => [onlineWlan0(ESSID)], isOnline: () => true }),
+        now: () => asEpochMs(123),
+        prompt: async (promptOpts) => {
+          promptCalls.push(promptOpts);
+          if (opts.cancel) throw new DOMException('aborted', 'AbortError');
+          return opts.typed ?? '';
+        },
+        pushSession: (pushedSession) => pushed.push(pushedSession),
+        setCwd: (path) => cwds.push(path),
+        su: {
+          elevate: async (params) => {
+            elevateCalls.push(params);
+            return opts.elevateResult ?? { ok: true, userType: 'root' };
+          },
+        },
+        log: {
+          appendAuthLog: async (event) => {
+            authLogs.push(event);
+          },
+          appendAccessLog: async () => undefined,
+        },
+      });
+
+      return { env, pushed, cwds, promptCalls, authLogs, elevateCalls };
+    };
+
+    it('prompts then elevates server-side, pushing the SERVER-derived root session (never reads the local passwd)', async () => {
+      const { env, pushed, cwds, promptCalls, elevateCalls } = crossPlayerEnv({ typed: 'matrix1999' });
+
+      const { exitCode, text, lineCount } = syncResult(await su.execute(env, ['root'], NO_FLAGS));
+
+      expect(promptCalls).toHaveLength(1);
+      expect(promptCalls[0].masked).toBe(true);
+      expect(promptCalls[0].message.toLowerCase()).toContain('password');
+      expect(elevateCalls).toHaveLength(1);
+      expect(elevateCalls[0]).toMatchObject({
+        sessionId: 'su-root-123',
+        machineId: FOREIGN_MACHINE,
+        username: 'root',
+        password: 'matrix1999',
+        parentSessionId: 'ssh-guest-seed',
+      });
+      expect(pushed).toHaveLength(1);
+      expect(pushed[0]).toMatchObject({
+        id: 'su-root-123',
+        username: 'root',
+        userType: 'root',
+        kind: 'su',
+        machineId: FOREIGN_MACHINE,
+        playerKey: PUBKEY,
+      });
+      expect(cwds).toEqual(['/root']);
+      expect(exitCode).toBe(0);
+      // su is silent on success — assert the output is genuinely empty (not just
+      // that its joined text is blank), so an injected line can't slip through.
+      expect(text).toBe('');
+      expect(lineCount).toBe(0);
+    });
+
+    it('uses the SERVER-derived userType for the pushed session (not assumed root)', async () => {
+      const { env, pushed, cwds } = crossPlayerEnv({
+        typed: 'guestpw',
+        elevateResult: { ok: true, userType: 'guest' },
+      });
+
+      await su.execute(env, ['guest'], NO_FLAGS);
+
+      expect(pushed[0]).toMatchObject({ username: 'guest', userType: 'guest' });
+      expect(cwds).toEqual(['/home/guest']);
+    });
+
+    it('reports su: Authentication failure and does not switch when the server rejects the credential', async () => {
+      const { env, pushed, cwds } = crossPlayerEnv({
+        typed: 'wrongpw',
+        elevateResult: { ok: false, error: 'invalid_credentials' },
+      });
+
+      const { exitCode, text } = syncResult(await su.execute(env, ['root'], NO_FLAGS));
+
+      expect(text).toContain('su: Authentication failure');
+      expect(exitCode).toBe(1);
+      expect(pushed).toEqual([]);
+      expect(cwds).toEqual([]);
+    });
+
+    it('does not write to the foreign box’s auth.log (cross-player trace deferred to Story 6)', async () => {
+      const { env, authLogs, elevateCalls } = crossPlayerEnv({ typed: 'matrix1999' });
+
+      await su.execute(env, ['root'], NO_FLAGS);
+
+      expect(elevateCalls).toHaveLength(1);
+      expect(authLogs).toEqual([]);
+    });
+
+    it('does not elevate or switch when the password prompt is cancelled (Ctrl-C)', async () => {
+      const { env, pushed, elevateCalls } = crossPlayerEnv({ cancel: true });
+
+      const { exitCode, lineCount } = syncResult(await su.execute(env, ['root'], NO_FLAGS));
+
+      expect(exitCode).toBe(130);
+      expect(lineCount).toBe(0);
+      expect(elevateCalls).toEqual([]);
+      expect(pushed).toEqual([]);
+    });
+
+    it('stays LOCAL (never calls the server) on your OWN workstation even when online', async () => {
+      // Own box: same identity-derived suffix. Online, but not foreign → the local
+      // passwd path runs (empty tree here ⇒ "does not exist"), and elevate is untouched.
+      const ownId = asMachineId(computeWorkstationId('rig', PUBKEY));
+      const { env, elevateCalls } = crossPlayerEnv({ machineId: ownId });
+
+      const { exitCode, text } = syncResult(await su.execute(env, ['root'], NO_FLAGS));
+
+      expect(elevateCalls).toEqual([]);
+      expect(text).toContain('does not exist');
+      expect(exitCode).toBe(1);
+    });
   });
 
   describe('auth logging (/var/log/auth.log)', () => {
