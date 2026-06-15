@@ -1,6 +1,6 @@
 # jshack-me v2
 
-Solid.js rewrite of jshack.me. Built from the spec in `../docs/rewrite-blueprint/`.
+Solid.js rewrite of jshack.me. Built from the spec in `./docs/rewrite-blueprint/`.
 
 This is a skeleton. No game features yet — just a working Solid + Vite + Vitest + ESLint + Prettier toolchain.
 
@@ -20,7 +20,7 @@ v2/
   eslint.config.js
 ```
 
-See `../docs/rewrite-blueprint/decisions.md` for locked architectural decisions.
+See `./docs/rewrite-blueprint/decisions.md` for locked architectural decisions.
 
 ## Commands
 
