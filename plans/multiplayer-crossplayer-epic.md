@@ -1,6 +1,6 @@
 # Epic Story-Split: Multiplayer / Cross-player (v2)
 
-**Status**: **Stories 1 + 2 + 3 SHIPPED & MERGED.** Story 1 (1a #234 `df95ad6`; 1b #235 `ff5342a`, v0.55.0) —
+**Status**: **Stories 1 + 2 + 3 + 4 SHIPPED & MERGED.** Story 1 (1a #234 `df95ad6`; 1b #235 `ff5342a`, v0.55.0) —
 the cross-player public-IP loop is live: crack → connect (register) → `nmap <public IP>` → another
 player's REAL open ports, resolved server-side against the registry. **Story 2 (2a #237 · 2b #238
 `bbc6e47` v0.57.0 · 2c #239 `1e92503` v0.58.0 · 2d #240 `82a48f9` v0.59.0)** — B `ssh guest@<A.publicIp>`
@@ -10,7 +10,11 @@ WRITE + the `patches` PK flip): Slice 1 PK flip #242 v0.60.0 · Slice 2 first gu
 Slice 3 write boundary #244 v0.62.0 · Slice 4 cross-player `rm` tombstone-always v0.63.0** — B can
 create/edit/delete on A's box, persisted to the shared **chronological** journal (server-stamped
 `writer_key` + `updated_at`), L1 (session) + L2 (walker at the login tier against A's owner-materialized
-tree) server-enforced. **Story 4 is NEXT** (root escalation via the obtained password → brick). Story-split
+tree) server-enforced. **Story 4 (su-to-root via the obtained password → permanent `/boot` brick →
+bricked box dark to others): Slice 1 su-elevation #249 v0.64.0 · Slice 2 `/boot`+boot-screen brick #250
+v0.65.0 · Slice 3 `reboot` #251 v0.66.0 · Slice 4 bricked-box-dark v0.67.0** — B `su root` on A → `rm
+/boot/vmlinuz` → A is permanently unbootable (journal-derived, no recovery), dark to scans + ssh for
+everyone. **Story 5 is NEXT** (real iptables NAT / multi-layer). Story-split
 authored 2026-06-13. Consolidates the remaining work from two now-retired plans
 (`network-generator-epic.md` Story 4; `scan-logging-cross-player.md` Slice 3b) into one epic. Each child
 story below graduates to its own `plans/<slice>.md` (via the `planning` skill) when started.
@@ -185,20 +189,21 @@ forwardTable }` from the start; degenerate `forwardTable` = "all → workstation
 
 ## Next step
 
-**Stories 1 + 2 + 3 ✅ COMPLETE.** Story 1 (#234 + #235); Story 2 (#237–#240, v0.59.0) — read loop;
-Story 3 (#242 Slice 1 PK flip · #243 Slice 2 first guest write · #244 Slice 3 write boundary · Slice 4
-cross-player `rm` tombstone-always, v0.63.0) — write loop live: `crack → connect → nmap → ssh
-guest@<A.publicIp> → create/edit/rm` on A's box, persisted to the shared **chronological** journal
-(`patches` PK `(machine_id,path,writer_key)`, server-stamped `writer_key` + `updated_at`,
-`core/patches/orderPatchesForReplay.ts` + `remoteWritePermission.ts` D6 owner-materialized L2 +
-tombstone-always `removePatch.ts`).
+**Stories 1 + 2 + 3 + 4 ✅ COMPLETE.** Story 1 (#234 + #235); Story 2 (#237–#240, v0.59.0) — read loop;
+Story 3 (#242–#245, v0.63.0) — write loop; **Story 4 (#249–Slice-4, v0.67.0) — the brick payoff:**
+`crack → connect → nmap → ssh guest@<A.publicIp> → su root → rm /boot/vmlinuz → reboot`, after which A
+is **permanently bricked** (a `/boot` tombstone on the shared journal — `core/boot/bootFiles.ts`
+`canBoot`, journal-derived, no recovery) and goes **dark to everyone**: `resolvePublicScan` → host-down,
+`authCreateSessionPublic` → `404 host_unreachable` (both materialize A via
+`core/network/materializeWorkstationFs.ts` then `canBoot` before any port/password work). su-elevation is
+server-authoritative (`core/sessions/authElevateSession.ts`); the boot screen
+(`ui/screens/boot.tsx`) + `reboot` (`core/commands/reboot.ts`) detect/trigger it. As-built reference:
+`v2/docs/cross-player-architecture.md` §7.
 
-**NEXT: Story 4 — B escalates to root → bricks A's machine** (the dramatic payoff). Root escalation via
-**`su` with the obtained root password** (no privesc-CVE primitive needed — see Parking Lot: "Story 4
-privesc vector RESOLVED") → a destructive/bricking action persists to A's shared record; A's box is
-observably damaged next load. The writable cross-player stack (Story 3) + the persisted
-`workstation_root_hash` (registry) + server-authoritative `su` (shipped, v0.38.0) are the pieces it
-composes. Load `planning` for Story 4 → PR-sized slices; run `grill-me`/`find-gaps` first to nail what
-"brick" means observably (what's destroyed, how A perceives it, how it's gameplay-renewable per
-`feedback_shared_world_mutation_fine`). Every slice runs full RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR
-(`tdd`, `testing`, `mutation-testing`, `refactoring`). No production code until Story 4's plan exists.
+**NEXT: Story 5 — real iptables NAT / multi-layer depth** (replaces the degenerate
+`router_machine_id = workstation` + wildcard `forward_table` shape Story 1 stored as a deliberate seam;
+folds in the retired `network-generator-epic.md` Story 4 — multi-layer depth + dual-homed gateways).
+**Model `scanResult(address, vantage)` as a clean total function — each interface its own endpoint, NOT a
+merged view** (legacy dual-homed-router scar, `project_dual_homed_router_scan_discrepancy`). Load
+`planning` for Story 5 → PR-sized slices; run `grill-me`/`find-gaps` first. Every slice runs full
+RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR (`tdd`, `testing`, `mutation-testing`, `refactoring`).

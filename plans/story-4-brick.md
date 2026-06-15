@@ -54,7 +54,7 @@ Epic: `plans/multiplayer-crossplayer-epic.md` (Story 4). As-built model: `v2/doc
 - [x] If a required boot file is missing in the replayed FS, the boot halts on a GRUB/kernel-panic screen and the terminal never appears (permanent — no recovery action). _(Slice 2)_
 - [x] B (root on A) deletes `/boot/vmlinuz`; on A's next load A's box is bricked. _(Slice 2)_
 - [x] `reboot` (root-only) forces a cold boot: on a box with a missing boot file it shows the panic and the box is bricked; on an intact box it boots successfully. _(Slice 3 ✅)_
-- [ ] After A is bricked, B (or a third identity) scanning A's public IP sees the host down, and `ssh` to A is refused.
+- [x] After A is bricked, B (or a third identity) scanning A's public IP sees the host down, and `ssh` to A is refused. _(Slice 4 ✅)_
 
 ## Slices
 
@@ -143,7 +143,9 @@ _Verified: full suite (1358) + lint + tsc green; reboot.ts 83.87% mutation (surv
 
 ---
 
-### Slice 4: a bricked box goes dark to other players
+### Slice 4: a bricked box goes dark to other players — ✅ COMPLETE
+
+_On `feat/v2-bricked-dark` (v0.67.0; commits `6c99315` refactor + `f0d9b8c` feat + `896bcd7` fix): both cross-player server gates now materialize the target (shared `core/network/materializeWorkstationFs.ts` — extracted from `resolveCrossPlayerFs`'s `materialize`, the registry-rebuild + chronological journal replay the read path uses) and ask `canBoot` before doing their work. `resolvePublicScan` → host-down (`{ found: false, ports: [] }`, short-circuiting before the `/var/run` pidfile read); `authCreateSessionPublic` → `404 host_unreachable` before password validation, no session inserted. A healthy box is unchanged. Adapters (`api/network.ts`, `api/sessions.ts`) gained the full-journal `findPatches` read + the scan registry now projects the owner identity. **Drive-by fix** (`896bcd7`): the same-LAN ssh `auth.log` `readAuthLog` (api/sessions.ts) was querying the dropped `patches.player_key` column — re-pointed to `writer_key` (silently broken since the Story-3 flip; api/ isn't in the local tsconfig so only the IDE caught it). Verified: 100% mutation on `resolvePublicScan.ts` + `materializeWorkstationFs.ts`; `authCreateSessionPublic.ts` boot-check mutants all killed (lone survivor = the pre-existing `account === null` type-narrowing guard). **Live wire E2E** (`scripts/testBrickedDark.ts`, 6/6 against real `vercel dev` endpoints): healthy A answers scan+ssh; bricked A → scan host-down + ssh `404` even with a correct root password + no session inserted. That E2E caught a real seam bug (the `node_type` NOT NULL constraint on tombstone seeds) the unit tests couldn't._
 
 **Value**: Coherence + the persistent attacker/3rd-party confirmation — a box that can't boot stops answering the network, so B (or a defender) sees A drop off scans and connections.
 **Path**: `core/scan/resolvePublicScan.ts` and `core/sessions/authCreateSessionPublic.ts` check the target's boot files (materialize A's tree as the read path does, run `canBoot`) → if it can't boot, the scan returns **host down / no open ports** and the public `ssh` auth returns **host_unreachable**, regardless of pidfiles still present in the journal.
