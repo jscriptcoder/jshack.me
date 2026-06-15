@@ -27,6 +27,7 @@
  */
 
 import { canBoot, type BootCheck, type BootFile } from '../boot/bootFiles';
+import { BOOT_FAILURE } from '../boot/bootMessages';
 import type { Command, CommandEnv, TerminalLine } from './types';
 
 const text = (content: string): TerminalLine => ({ kind: 'text', content });
@@ -51,13 +52,13 @@ const SUCCESS_TAIL: readonly string[] = [
  *  two brick renderings can never drift. */
 const panicTail = (missing: BootFile): readonly string[] =>
   missing === 'vmlinuz'
-    ? ['', "error: file '/boot/vmlinuz' not found.", 'GRUB error: no loaded kernel.', '', 'System halted.']
+    ? ['', BOOT_FAILURE.vmlinuzNotFound, BOOT_FAILURE.grubNoKernel, '', BOOT_FAILURE.systemHalted]
     : [
         'Loading vmlinuz...',
-        "error: file '/boot/initrd.img' not found.",
-        'Kernel panic - not syncing: VFS: Unable to mount root fs',
+        BOOT_FAILURE.initrdNotFound,
+        BOOT_FAILURE.kernelPanic,
         '',
-        'System halted.',
+        BOOT_FAILURE.systemHalted,
       ];
 
 /** Disconnect the player from the machine just rebooted: pop every session that

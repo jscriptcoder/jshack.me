@@ -17,6 +17,7 @@
 
 import { createSignal, For, onCleanup, onMount } from 'solid-js';
 import type { BootCheck, BootFile } from '../../core/boot/bootFiles';
+import { BOOT_FAILURE } from '../../core/boot/bootMessages';
 
 export type BootScreenProps = {
   readonly machineName: string;
@@ -95,18 +96,18 @@ const panicTail = (missing: BootFile): readonly BootLine[] =>
   missing === 'vmlinuz'
     ? [
         { text: '', delay: 200 },
-        { text: "error: file '/boot/vmlinuz' not found.", delay: 200 },
-        { text: 'GRUB error: no loaded kernel.', delay: 150 },
+        { text: BOOT_FAILURE.vmlinuzNotFound, delay: 200 },
+        { text: BOOT_FAILURE.grubNoKernel, delay: 150 },
         { text: '', delay: 100 },
-        { text: 'System halted.', delay: 150 },
+        { text: BOOT_FAILURE.systemHalted, delay: 150 },
       ]
     : [
         { text: 'Loading Linux 5.15.0-91-generic ...', delay: 300, color: 'var(--theme-text)' },
         { text: '', delay: 200 },
-        { text: "error: file '/boot/initrd.img' not found.", delay: 200 },
-        { text: 'Kernel panic - not syncing: VFS: Unable to mount root fs', delay: 150 },
+        { text: BOOT_FAILURE.initrdNotFound, delay: 200 },
+        { text: BOOT_FAILURE.kernelPanic, delay: 150 },
         { text: '', delay: 100 },
-        { text: 'System halted.', delay: 150 },
+        { text: BOOT_FAILURE.systemHalted, delay: 150 },
       ];
 
 /** Pause after the final line before handing off, so the login line lingers. */
