@@ -3,7 +3,7 @@
 How one player (B) scans, enters, reads, and modifies another player's (A's) machine.
 This is the core of v2's multiplayer. It covers the shipped model — Stories 1–3 of the
 multiplayer/cross-player epic. Design intent lives in
-`docs/rewrite-blueprint/sections/05-shared-world-and-cross-player.md`; the in-flight epic
+`v2/docs/rewrite-blueprint/sections/05-shared-world-and-cross-player.md`; the in-flight epic
 (remaining Stories 4–7) lives in `plans/multiplayer-crossplayer-epic.md` while active.
 
 ## The gate this design crosses
