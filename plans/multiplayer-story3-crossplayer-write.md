@@ -1,15 +1,13 @@
 # Plan: Story 3 — B modifies A's filesystem (cross-player WRITE + the shared-journal PK flip)
 
 **Branch**: feat/v2-crossplayer-write (per-slice branches below)
-**Status**: **Active — Slice 1 ✅ SHIPPED (#242, `d45e98d`, v0.60.0); Slice 2 IMPLEMENTED on
-`feat/v2-crossplayer-write-2` (v0.61.0, awaiting commit→PR→merge); NEXT: Slice 3**
+**Status**: **Active — Slice 1 ✅ (#242, v0.60.0), Slice 2 ✅ (#243, `7d1cfbb`, v0.61.0), Slice 3 ✅ (v0.62.0); NEXT: Slice 4**
 **Parent epic**: `plans/multiplayer-crossplayer-epic.md` (Story 3 row)
 **Authored**: 2026-06-14 (via `planning`, after grounding the v2 read+write paths)
 
 > **RESUME POINTER (post-compaction — read this first).** Story 2 (cross-player READ) shipped
 > (#237–#240). **Slice 1 (PK flip) ✅ MERGED** (#242, `d45e98d`, v0.60.0). **Slice 2 (first
-> cross-player guest WRITE) IMPLEMENTED** on branch `feat/v2-crossplayer-write-2` (v0.61.0,
-> awaiting commit→PR→merge): L2 (`remoteWritePermission.ts`) gained the **owner-materialized
+> cross-player guest WRITE) ✅ MERGED** (#243, `7d1cfbb`, v0.61.0): L2 (`remoteWritePermission.ts`) gained the **owner-materialized
 > registry branch (D6)** — `enforceRemoteWriteL2` now resolves the target FS as (1) an NPC host
 > on the caller's LAN (`hostForMachineId`, pure), else (2) a registered foreign workstation via
 > the new `findRegistryByMachineId` dep → `buildRegisteredWorkstationFs` (exported helper, also
@@ -23,16 +21,28 @@
 > E2E DEFERRED by owner choice** (the one untested line is the client `refreshServedRoot` glue —
 > this project verifies `state.ts` reactive glue via agent-browser, not vitest).
 >
-> **NEXT = Slice 3 (cross-player write permission BOUNDARY).** Note Slice 2 already landed the
-> deny GATE (the walker `canWrite` runs at the session tier on A's owner-materialized tree, and
-> a guest-denied-on-`/etc/passwd` case is already tested + wire-proven). Slice 3 EXPANDS the
-> boundary coverage: parent-dir traversal denials, `/home/<A>` denials, the **divergence proof**
-> (a path writable on the CALLER's own box but NOT on A's is still denied → proves it
-> materializes A's tree, not the caller's), and "wire leaks nothing on deny / no row written"
-> across path types. Mostly additional tests over the existing branch; little/no new production
-> code expected. Load `tdd`/`testing`/`mutation-testing`/`refactoring`; branch
-> `feat/v2-crossplayer-write-3`; bump v0.61.0 → 0.62.0. Decisions D1–D8, the call-site map, the
-> **Grounding reference**, and the **Commands & infra** block remain valid below.
+> **Slice 3 (cross-player write permission BOUNDARY) ✅ DONE** (branch `feat/v2-crossplayer-write-3`,
+> v0.62.0). It turned out NOT to be tests-only: tracing the walker surfaced a **real privilege
+> gap** — `createFsView.canWrite(fullPath)` for a NON-existent leaf hit the null-target
+> leaf-fallback and PERMITTED the write, so the server L2 let a guest CREATE files in any
+> restricted-but-empty dir on A's box (`/root/x`, `/home/<A>/x`). Fix (owner-approved, shared
+> `fsView.ts` so client+server stay drift-free): `walk` now also returns the **containing
+> directory**, and `checkWrite` gates a CREATE by the container's write+execute (Unix: adding an
+> entry needs write on the DIR) instead of the leaf-fallback; a deeper-missing path has no
+> container → denied. Existing nodes (overwrite) unchanged. Client commands (`touch`/`rm`/
+> `mkdir`/`runLine`) already passed the parent dir to `canWrite`, so only the server path was
+> exposed; full suite (1302) flipped nothing. New tests: 4 `fsView.test.ts` create cases + 3
+> `upsertPatch.test.ts` cross-player cases (guest denied `/root/implant` + `/home/<A>/secret` w/
+> no-leak body assertion; **divergence proof** = a user-tier session CAN create under A's
+> `/home/<A>` which exists only because A's REGISTRY tree is walked, not the caller's). 100% mut
+> on `fsView.ts` (101 killed + 1 timeout, 0 survived); wire check extended w/ checks 7–8 (env not
+> run locally — supabase CLI absent; same glue as Slice 2's wire-proven `/etc/passwd` deny).
+> agent-browser E2E DEFERRED by owner (consistent w/ Slice 2).
+>
+> **NEXT = Slice 4 (cross-player `rm` — tombstone on the shared journal).** Load
+> `tdd`/`testing`/`mutation-testing`/`refactoring`; branch `feat/v2-crossplayer-write-4`; bump
+> v0.62.0 → 0.63.0. Decisions D1–D8, the call-site map, the **Grounding reference**, and the
+> **Commands & infra** block remain valid below.
 
 ## Goal
 
@@ -61,8 +71,8 @@ record so all viewers + the owner see them. (This is the gap Story 2 explicitly 
 ## Key design decisions (LOCKED — owner-confirmed 2026-06-14)
 
 - **D1 — Shared, chronologically-ordered journal. New `patches` PK = `(machine_id, path,
-  writer_key)`.** Multiple writers' edits to the same file **coexist** (one row per
-  *(file, writer)*); materialization replays ALL rows for a machine in **chronological
+writer_key)`.** Multiple writers' edits to the same file **coexist** (one row per
+  _(file, writer)_); materialization replays ALL rows for a machine in **chronological
   order** so later writes win and everyone sees everyone's changes, attributed. `writer_key`
   = the player who wrote that row (provenance), server-stamped from the verified envelope.
   Bounded (one row per writer per file; a re-edit upserts that writer's row and re-stamps
@@ -83,7 +93,7 @@ record so all viewers + the owner see them. (This is the gap Story 2 explicitly 
   construction (`hostMachineId(host, essid)` over a per-viewer-generated host). So
   `(machine_id, …)` is a sound shared key: it does NOT merge per-viewer NPC boxes, and no
   separate `owner_key` column is needed in the row. The existing `owner` column stays (that's
-  the in-game *file* owner for `ls -l` — a different thing from `writer_key`).
+  the in-game _file_ owner for `ls -l` — a different thing from `writer_key`).
 - **D5 — Destructive migration.** Drop + recreate `patches` with the new PK + `writer_key`.
   No live players (`feedback_no_backward_compat`); old per-viewer rows would collide under the
   new key anyway. Zero-risk pre-launch. (Rule sunsets at multiplayer announce.)
@@ -242,7 +252,7 @@ unblocks Slices 2-4 and is independently verifiable (this is a legitimate horizo
 per the planning rules: it names the slice it unlocks, leaves the app deployable, and has
 observable verification).
 **Actor / trigger / outcome**: existing actors (own-box editor, NPC-LAN operator, cross-player
-reader) — their flows are byte-for-byte unchanged; the new *capability* is that the machine's
+reader) — their flows are byte-for-byte unchanged; the new _capability_ is that the machine's
 journal now combines multiple writers' rows chronologically.
 **Path**: destructive migration (drop+recreate `patches`, PK `(machine_id, path, writer_key)` +
 `writer_key` column + `updated_at` bump trigger) → re-key ALL reads to machine_id-scope and sort
@@ -277,7 +287,7 @@ Story-2 7/7), human approves commit.
 
 ---
 
-### Slice 2: First cross-player guest WRITE — B writes A's box, A sees it (walking skeleton) — ✅ IMPLEMENTED (v0.61.0, awaiting merge)
+### Slice 2: First cross-player guest WRITE — B writes A's box, A sees it (walking skeleton) — ✅ SHIPPED (#243, v0.61.0)
 
 > Done: L2 registry-fallback branch (D6) in `remoteWritePermission.ts` (`enforceRemoteWriteL2`
 > NPC→registry→fail-closed; new `findRegistryByMachineId` dep + `RegistryWorkstation`/
@@ -328,7 +338,15 @@ it), human approves commit.
 
 ---
 
-### Slice 3: Cross-player write permission boundary — guest denied off the guest-writable set
+### Slice 3: Cross-player write permission boundary — guest denied off the guest-writable set ✅ SHIPPED (v0.62.0)
+
+> **Shipped (v0.62.0).** Closed a real privilege gap, not just added tests: the shared
+> `createFsView.canWrite` permitted CREATING a file in any restricted-but-empty dir (leaf-fallback
+> on a null target), so the server L2 let a guest plant `/root/x` / `/home/<A>/x` on A's box. Fix
+> in `fsView.ts` (`walk` returns the containing dir; `checkWrite` gates a create by the
+> container's write+execute). Client+server stay drift-free (one walker). 7 new tests (4 fsView +
+> 3 handler incl. the divergence proof + no-leak body); 100% mut on `fsView.ts`; wire check
+> extended (checks 7–8). agent-browser E2E deferred by owner.
 
 **Value**: Closes the write boundary so a guest can't scribble anywhere on A's box — the
 permission half of cross-player write, enforced server-side against A's REAL tree.

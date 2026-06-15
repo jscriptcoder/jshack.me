@@ -22,23 +22,34 @@ type Resolved = {
   /** Perms of each ancestor directory (excluding the target) — the parent
    *  chain the walker checks for traversability. */
   readonly parents: readonly FilePermissions[];
+  /** When `node` is null because the FINAL segment is absent, the directory the
+   *  entry would be created IN (its container) — so a create can be gated by the
+   *  container's write+execute, not permitted by the null-target leaf-fallback.
+   *  Null when the node exists or a deeper ancestor is missing (no container to
+   *  create in). */
+  readonly container: FilePermissions | null;
 };
 
 const segmentsOf = (path: AbsPath): readonly string[] =>
   path.split('/').filter((segment) => segment !== '');
 
 /** Walk `segments` from `node`, accumulating each traversed directory's perms
- *  into `parents`. A single pass yields both the leaf and its parent chain. */
+ *  into `parents`. A single pass yields the leaf, its parent chain, and — when
+ *  the leaf is absent — the directory it would be created in. */
 const walk = (
   node: FileNode,
   segments: readonly string[],
   parents: readonly FilePermissions[],
 ): Resolved => {
   const [head, ...rest] = segments;
-  if (head === undefined) return { node, parents };
-  if (node.kind !== 'directory') return { node: null, parents };
+  if (head === undefined) return { node, parents, container: null };
+  if (node.kind !== 'directory') return { node: null, parents, container: null };
   const next = node.entries.get(head);
-  if (next === undefined) return { node: null, parents };
+  if (next === undefined) {
+    // The walk stops here. If `head` was the FINAL segment, `node` is the
+    // directory a create would target; a deeper miss has no direct container.
+    return { node: null, parents, container: rest.length === 0 ? node.perms : null };
+  }
   return walk(next, rest, [...parents, node.perms]);
 };
 
@@ -85,8 +96,16 @@ export const createFsView = (
   };
 
   const checkWrite = (path: AbsPath): WalkResult => {
-    const { node, parents } = resolve(path);
-    return canWrite(userType, node === null ? null : node.perms, parents);
+    const { node, parents, container } = resolve(path);
+    // Overwriting an existing node: write on the node itself + traversable
+    // ancestors (Unix: modifying a file needs write on the FILE).
+    if (node !== null) return canWrite(userType, node.perms, parents);
+    // Creating a new entry: write + execute on the CONTAINING dir (Unix: adding
+    // an entry needs write on the DIR). Pass the container as both the target
+    // (its write bit) and the deepest parent (its execute bit). A deeper-missing
+    // path has no container → there is nowhere to create it.
+    if (container === null) return { allowed: false, reason: 'parent_not_traversable' };
+    return canWrite(userType, container, [...parents, container]);
   };
 
   return {

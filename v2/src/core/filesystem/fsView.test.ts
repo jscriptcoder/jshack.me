@@ -144,6 +144,47 @@ describe('createFsView', () => {
     });
   });
 
+  // ---- Creating a NEW entry is gated by the CONTAINING directory ----
+  // Unix semantics: creating a file in dir D needs write + execute on D (not on
+  // the not-yet-existing leaf). The leaf-fallback must NOT let a tier scribble a
+  // new file into a directory it cannot write.
+
+  it('permits creating a new file in a directory the tier can write', () => {
+    // /home/alice is user-writable + traversable → a new child is allowed.
+    expect(userView().canWrite(asAbsPath('/home/alice/new.txt'))).toEqual({ allowed: true });
+  });
+
+  it('denies creating a new file in a directory the tier cannot write', () => {
+    // /vault is world-traversable but root-write-only → creating a new entry in
+    // it is denied by the CONTAINER's write bit, not permitted by leaf-fallback.
+    expect(userView().canWrite(asAbsPath('/vault/implant.txt'))).toEqual({
+      allowed: false,
+      reason: 'target_unwritable',
+    });
+  });
+
+  it('denies creating a new file under a directory the tier cannot traverse', () => {
+    const lockedTree = buildDirectory({
+      locked: buildDirectory({}, { owner: 'root', perms: { execute: ['root'] } }),
+    });
+    const fs = createFsView(lockedTree, { userType: 'user', cwd: asAbsPath('/') });
+
+    // /locked is not executable by user → cannot even reach inside to create.
+    expect(fs.canWrite(asAbsPath('/locked/implant.txt'))).toEqual({
+      allowed: false,
+      reason: 'parent_not_traversable',
+    });
+  });
+
+  it('denies creating a new file when the containing directory does not exist', () => {
+    // /home/bob is absent → there is no directory to create the entry in. A
+    // deeper-missing path must not slip through the leaf-fallback either.
+    expect(userView().canWrite(asAbsPath('/home/bob/implant.txt'))).toEqual({
+      allowed: false,
+      reason: 'parent_not_traversable',
+    });
+  });
+
   it('exposes the configured working directory', () => {
     const fs = createFsView(tree(), { userType: 'user', cwd: asAbsPath('/home/alice') });
     expect(fs.cwd()).toBe('/home/alice');

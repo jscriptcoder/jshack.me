@@ -417,6 +417,79 @@ describe('handleUpsertPatch', () => {
     expect(upsertPatch.mock.calls[0]![0].writer_key).toBe(visitor.publicKeyHex);
   });
 
+  it('denies a guest cross-player session creating a file UNDER a root-only dir on a foreign workstation (parent not traversable)', async () => {
+    const visitor = generateIdentity();
+    const { machineId, registry } = registeredWorkstation();
+    const envelope = signRequest(visitor, 'upsertPatch', {
+      machine_id: machineId,
+      path: '/root/implant',
+      content: 'persistence',
+      owner: 'guest',
+    });
+    const { deps, upsertPatch } = makeDeps({
+      findActiveSession: remoteSession('guest'),
+      findRegistryByMachineId: async () => ({ data: registry, error: null }),
+    });
+
+    const result = await handleUpsertPatch(envelope, deps);
+
+    // /root is root-only execute on A's tree — a guest can't traverse in to
+    // CREATE there. (A distinct walker branch from /etc/passwd's unwritable leaf:
+    // the deny comes from the CONTAINING dir, closing the create-anywhere gap.)
+    expect(result).toEqual({ status: 403, body: { error: 'permission_denied' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+    // The wire leaks nothing about the denied path beyond the error — no path
+    // echo, no walker reason, no tree content.
+    expect(Object.keys(result.body)).toEqual(['error']);
+  });
+
+  it("denies a guest cross-player session creating a file inside A's OWN home dir", async () => {
+    const visitor = generateIdentity();
+    const { machineId, registry } = registeredWorkstation();
+    const envelope = signRequest(visitor, 'upsertPatch', {
+      machine_id: machineId,
+      path: `/home/${registry.workstation_username}/secret`,
+      content: 'in your home',
+      owner: 'guest',
+    });
+    const { deps, upsertPatch } = makeDeps({
+      findActiveSession: remoteSession('guest'),
+      findRegistryByMachineId: async () => ({ data: registry, error: null }),
+    });
+
+    const result = await handleUpsertPatch(envelope, deps);
+
+    // /home/alice is HOME_DIR (guest excluded from execute + write) → a guest
+    // can't create inside the owner's home.
+    expect(result).toEqual({ status: 403, body: { error: 'permission_denied' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it("walks A's REGISTRY-built tree, not a caller regeneration: a session may create under A's home dir (which exists only because the tree is A's)", async () => {
+    const visitor = generateIdentity();
+    const { machineId, registry } = registeredWorkstation();
+    const envelope = signRequest(visitor, 'upsertPatch', {
+      machine_id: machineId,
+      path: `/home/${registry.workstation_username}/notes.txt`,
+      content: 'created under A home',
+      owner: 'user',
+    });
+    const { deps, upsertPatch } = makeDeps({
+      findActiveSession: remoteSession('user'),
+      findRegistryByMachineId: async () => ({ data: registry, error: null }),
+    });
+
+    const result = await handleUpsertPatch(envelope, deps);
+
+    // `/home/alice` exists ONLY because the tree is materialized from A's REGISTRY
+    // identity (username 'alice'). A user-tier session can create inside it
+    // (HOME_DIR is user-writable). Had L2 regenerated from the CALLER's identity,
+    // `/home/alice` wouldn't exist and the create would be DENIED (no container) —
+    // so an ALLOW here proves A's tree is walked, not the caller's.
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    expect(upsertPatch.mock.calls[0]![0].path).toBe(`/home/${registry.workstation_username}/notes.txt`);
+  });
+
   it('returns 500 when the registry reverse-lookup fails (not a false allow or deny)', async () => {
     const id = generateIdentity();
     const envelope = signRequest(id, 'upsertPatch', {
