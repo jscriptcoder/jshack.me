@@ -33,8 +33,8 @@ import type { UserType } from '../src/core/types';
 //     writes (tier-based perms, regenerated host FS via `listMachinePatches`)
 //   - listPatches: L1-gated read of the shared journal (reload-durability, and
 //     the read-back of a remote ssh write) — machine-scoped, L1-only, no L2
-//   - removePatch: L1-gated delete + L2 (unlinking needs write perm) — drops an
-//     is_new row + descendants, or tombstones a base node
+//   - removePatch: L1-gated delete + L2 (unlinking needs write perm) — clears the
+//     caller's row + descendants, then tombstones the path (tombstone-always)
 //
 // The cross-player three-tier READ filter is still a later plan; remote reads
 // remain L1-only (any active-session tier may read).
@@ -181,22 +181,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (actionOf(req.body) === 'removePatch') {
-    const findPatch = async ({ writer_key, machine_id, path }: PatchTreeQuery) => {
-      const { data, error } = await supabase
-        .from('patches')
-        .select('is_new')
-        .eq('writer_key', writer_key)
-        .eq('machine_id', machine_id)
-        .eq('path', path)
-        .maybeSingle();
-      if (error) console.error('[patches] find error:', error);
-      return { data, error };
-    };
     // Two scoped deletes (the row, then its descendants) rather than a single
     // `.or(...)` — a PostgREST `.or` filter would mis-parse a path containing a
     // comma, and the LIKE wildcard differs between the two filter dialects. Keyed
-    // to the caller's own writer_key row (own-box single-writer; Slice 4 reworks
-    // cross-player rm to tombstone-always).
+    // to the caller's own writer_key row; the handler then upserts a content:null
+    // tombstone at the path (tombstone-always on the shared journal).
     const deletePatchTree = async ({ writer_key, machine_id, path }: PatchTreeQuery) => {
       const base = () =>
         supabase.from('patches').delete().eq('writer_key', writer_key).eq('machine_id', machine_id);
@@ -215,7 +204,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findActiveSession,
       listMachinePatches,
       findRegistryByMachineId,
-      findPatch,
       deletePatchTree,
       upsertPatch,
     });

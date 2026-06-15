@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { handleRemovePatch, type FindPatchResult, type RemovePatchDeps } from './removePatch';
+import { handleRemovePatch, type RemovePatchDeps } from './removePatch';
 import type {
   ActiveSessionQuery,
   FindActiveSessionResult,
@@ -7,6 +7,7 @@ import type {
 import type {
   FindRegistryByMachineId,
   ListMachinePatchesResult,
+  RegistryWorkstation,
 } from './remoteWritePermission';
 import type { PatchRow } from './upsertPatch';
 import { signRequest } from '../signedRequest/sign';
@@ -14,6 +15,7 @@ import { generateIdentity } from '../identity/identity';
 import { computeWorkstationId } from '../identity/workstation';
 import { generateHomeLan } from '../generation/generateHomeLan';
 import { hostMachineId } from '../generation/remoteHostId';
+import { md5 } from '../generation/md5';
 import type { UserType } from '../types';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
@@ -33,7 +35,22 @@ const remoteSession = (userType: UserType): FindActiveSessionResult => ({
   error: null,
 });
 
-const found = (is_new: boolean): FindPatchResult => ({ data: { is_new }, error: null });
+/** A registered FOREIGN player workstation (A's box): A's identity → A's
+ *  workstation machine_id, plus the registry row the L2 reverse-lookup returns so
+ *  a cross-player rm walks A's tree rebuilt from the OWNER's identity (D6). Its
+ *  machine_id is an `ed25519:`-suffixed workstation id, so it never matches an NPC
+ *  host on the caller's LAN — `hostForMachineId` misses and L2 falls to the
+ *  registry. */
+const registeredWorkstation = () => {
+  const owner = generateIdentity();
+  const machineId = computeWorkstationId('skylab', owner.publicKeyHex);
+  const registry: RegistryWorkstation = {
+    owner_key: owner.publicKeyHex,
+    workstation_username: 'alice',
+    workstation_root_hash: md5('hunter2'),
+  };
+  return { owner, machineId, registry };
+};
 
 /** Keeps the spies (so call-arg assertions work) while letting each test set the
  *  values they return — overriding the spies directly would orphan the ones we
@@ -41,16 +58,13 @@ const found = (is_new: boolean): FindPatchResult => ({ data: { is_new }, error: 
 const makeDeps = (
   over: {
     readonly nonceStore?: NonceStore;
-    readonly findResult?: FindPatchResult;
     readonly deleteError?: unknown;
     readonly upsertError?: unknown;
     readonly activeSession?: FindActiveSessionResult;
     readonly machinePatches?: ListMachinePatchesResult;
+    readonly registry?: RegistryWorkstation | null;
   } = {},
 ) => {
-  const findPatch = vi.fn<RemovePatchDeps['findPatch']>(
-    async () => over.findResult ?? { data: null, error: null },
-  );
   const deletePatchTree = vi.fn<RemovePatchDeps['deletePatchTree']>(async () => ({
     error: over.deleteError ?? null,
   }));
@@ -66,10 +80,10 @@ const makeDeps = (
   const listMachinePatches = vi.fn<() => Promise<ListMachinePatchesResult>>(
     async () => over.machinePatches ?? { data: [], error: null },
   );
-  // Default: not a registered foreign workstation. Cross-player rm (tombstone) is
-  // Slice 4; no removal test exercises the registry branch yet.
+  // Default: not a registered foreign workstation (an NPC host or unknown id);
+  // cross-player rm tests override this with A's registry row.
   const findRegistryByMachineId = vi.fn<FindRegistryByMachineId>(async () => ({
-    data: null,
+    data: over.registry ?? null,
     error: null,
   }));
   const deps: RemovePatchDeps = {
@@ -77,13 +91,11 @@ const makeDeps = (
     findActiveSession,
     listMachinePatches,
     findRegistryByMachineId,
-    findPatch,
     deletePatchTree,
     upsertPatch,
   };
   return {
     deps,
-    findPatch,
     deletePatchTree,
     upsertPatch,
     findActiveSession,
@@ -100,62 +112,33 @@ const ownFields = (publicKeyHex: string) => ({
 });
 
 describe('handleRemovePatch', () => {
-  it('deletes the row + descendants and records NO tombstone for an is_new node', async () => {
+  it('clears the caller’s row + descendants and tombstones the path on an own-box rm', async () => {
     const id = generateIdentity();
     const envelope = signRequest(id, 'removePatch', ownFields(id.publicKeyHex));
-    const { deps, findPatch, deletePatchTree, upsertPatch } = makeDeps({
-      findResult: found(true),
-    });
+    const { deps, deletePatchTree, upsertPatch } = makeDeps();
 
     const result = await handleRemovePatch(envelope, deps);
 
     expect(result).toEqual({ status: 200, body: { ok: true } });
-    expect(findPatch).toHaveBeenCalledWith({
+    // The caller's own (machine_id, path, writer_key) row + every descendant row
+    // are deleted first (so a stale child can't resurrect part of the subtree)...
+    expect(deletePatchTree).toHaveBeenCalledTimes(1);
+    expect(deletePatchTree).toHaveBeenCalledWith({
       writer_key: id.publicKeyHex,
       machine_id: computeWorkstationId('skylab', id.publicKeyHex),
       path: '/home/alice/notes.txt',
     });
-    expect(deletePatchTree).toHaveBeenCalledTimes(1);
-    expect(upsertPatch).not.toHaveBeenCalled();
-  });
-
-  it('deletes descendants and records a null deletion marker for a base/modified file', async () => {
-    const id = generateIdentity();
-    const envelope = signRequest(id, 'removePatch', ownFields(id.publicKeyHex));
-    const { deps, deletePatchTree, upsertPatch } = makeDeps({ findResult: found(false) });
-
-    const result = await handleRemovePatch(envelope, deps);
-
-    expect(result).toEqual({ status: 200, body: { ok: true } });
-    expect(deletePatchTree).toHaveBeenCalledTimes(1);
+    // ...then a content:null tombstone is ALWAYS recorded — a timestamped deletion
+    // event keyed to the verified writer_key (never a client claim) — so a
+    // concurrent writer's row for the path can't keep the file alive on replay.
     expect(upsertPatch).toHaveBeenCalledTimes(1);
     const row = upsertPatch.mock.calls[0]![0];
     expect(row.content).toBeNull();
     expect(row.is_new).toBe(false);
+    expect(row.writer_key).toBe(id.publicKeyHex);
+    expect(row.machine_id).toBe(computeWorkstationId('skylab', id.publicKeyHex));
     expect(row.path).toBe('/home/alice/notes.txt');
     expect(row.owner).toBe('alice');
-  });
-
-  it('records a null deletion marker when no patch row exists (pure base file)', async () => {
-    const id = generateIdentity();
-    const envelope = signRequest(id, 'removePatch', ownFields(id.publicKeyHex));
-    const { deps, deletePatchTree, upsertPatch } = makeDeps(); // findPatch defaults to { data: null }
-
-    const result = await handleRemovePatch(envelope, deps);
-
-    expect(result.status).toBe(200);
-    expect(deletePatchTree).toHaveBeenCalledTimes(1);
-    expect(upsertPatch).toHaveBeenCalledTimes(1);
-  });
-
-  it('server-stamps the verified writer_key on the deletion marker', async () => {
-    const id = generateIdentity();
-    const envelope = signRequest(id, 'removePatch', ownFields(id.publicKeyHex));
-    const { deps, upsertPatch } = makeDeps({ findResult: found(false) });
-
-    await handleRemovePatch(envelope, deps);
-
-    expect(upsertPatch.mock.calls[0]![0].writer_key).toBe(id.publicKeyHex);
   });
 
   it('rejects a removal on a foreign machine when the caller has no active session there (403)', async () => {
@@ -165,12 +148,11 @@ describe('handleRemovePatch', () => {
       path: '/x',
       owner: 'alice',
     });
-    const { deps, findPatch, deletePatchTree } = makeDeps();
+    const { deps, deletePatchTree } = makeDeps();
 
     const result = await handleRemovePatch(envelope, deps);
 
     expect(result).toEqual({ status: 403, body: { error: 'no_session' } });
-    expect(findPatch).not.toHaveBeenCalled();
     expect(deletePatchTree).not.toHaveBeenCalled();
   });
 
@@ -183,7 +165,6 @@ describe('handleRemovePatch', () => {
       owner: 'root',
     });
     const { deps, deletePatchTree } = makeDeps({
-      findResult: found(false),
       activeSession: remoteSession('root'),
     });
 
@@ -205,15 +186,14 @@ describe('handleRemovePatch', () => {
       path: '/etc/passwd',
       owner: 'user',
     });
-    const { deps, findPatch, deletePatchTree } = makeDeps({
+    const { deps, deletePatchTree } = makeDeps({
       activeSession: remoteSession('user'),
     });
 
     const result = await handleRemovePatch(envelope, deps);
 
     expect(result).toEqual({ status: 403, body: { error: 'permission_denied' } });
-    // L2 denies BEFORE the find/delete work runs.
-    expect(findPatch).not.toHaveBeenCalled();
+    // L2 denies BEFORE the delete/tombstone work runs.
     expect(deletePatchTree).not.toHaveBeenCalled();
   });
 
@@ -239,7 +219,7 @@ describe('handleRemovePatch', () => {
   it('does not consult the sessions table for an own-workstation removal (L1 bypass)', async () => {
     const id = generateIdentity();
     const envelope = signRequest(id, 'removePatch', ownFields(id.publicKeyHex));
-    const { deps, findActiveSession, listMachinePatches } = makeDeps({ findResult: found(true) });
+    const { deps, findActiveSession, listMachinePatches } = makeDeps();
 
     const result = await handleRemovePatch(envelope, deps);
 
@@ -256,14 +236,14 @@ describe('handleRemovePatch', () => {
       path: '/x',
       owner: 'alice',
     });
-    const { deps, findPatch } = makeDeps({
+    const { deps, deletePatchTree } = makeDeps({
       activeSession: { data: null, error: { message: 'db down' } },
     });
 
     const result = await handleRemovePatch(envelope, deps);
 
     expect(result).toEqual({ status: 500, body: { error: 'session_lookup_failed' } });
-    expect(findPatch).not.toHaveBeenCalled();
+    expect(deletePatchTree).not.toHaveBeenCalled();
   });
 
   it('rejects a tampered signature with 401 and never touches the table', async () => {
@@ -295,12 +275,11 @@ describe('handleRemovePatch', () => {
       machine_id: computeWorkstationId('skylab', id.publicKeyHex),
       owner: 'alice',
     });
-    const { deps, findPatch, deletePatchTree } = makeDeps();
+    const { deps, deletePatchTree } = makeDeps();
 
     const result = await handleRemovePatch(envelope, deps);
 
     expect(result).toEqual({ status: 400, body: { error: 'payload_invalid' } });
-    expect(findPatch).not.toHaveBeenCalled();
     expect(deletePatchTree).not.toHaveBeenCalled();
   });
 
@@ -332,19 +311,6 @@ describe('handleRemovePatch', () => {
     expect(deletePatchTree).not.toHaveBeenCalled();
   });
 
-  it('returns 500 when the lookup reports an error and never deletes', async () => {
-    const id = generateIdentity();
-    const envelope = signRequest(id, 'removePatch', ownFields(id.publicKeyHex));
-    const { deps, deletePatchTree } = makeDeps({
-      findResult: { data: null, error: { message: 'db down' } },
-    });
-
-    const result = await handleRemovePatch(envelope, deps);
-
-    expect(result).toEqual({ status: 500, body: { error: 'remove_failed' } });
-    expect(deletePatchTree).not.toHaveBeenCalled();
-  });
-
   it('returns 500 when the delete reports an error', async () => {
     const id = generateIdentity();
     const envelope = signRequest(id, 'removePatch', ownFields(id.publicKeyHex));
@@ -358,13 +324,68 @@ describe('handleRemovePatch', () => {
   it('returns 500 when the marker upsert reports an error', async () => {
     const id = generateIdentity();
     const envelope = signRequest(id, 'removePatch', ownFields(id.publicKeyHex));
-    const { deps } = makeDeps({
-      findResult: found(false),
-      upsertError: { message: 'db down' },
-    });
+    const { deps } = makeDeps({ upsertError: { message: 'db down' } });
 
     const result = await handleRemovePatch(envelope, deps);
 
     expect(result).toEqual({ status: 500, body: { error: 'remove_failed' } });
+  });
+
+  // ---- Cross-player rm: B deletes on A's REGISTERED workstation (decision D6). ----
+
+  it('tombstones a guest-writable file on a foreign player workstation (resolved via the registry)', async () => {
+    const visitor = generateIdentity();
+    const { machineId, registry } = registeredWorkstation();
+    const envelope = signRequest(visitor, 'removePatch', {
+      machine_id: machineId,
+      path: '/tmp/pwned',
+      owner: 'guest',
+    });
+    const { deps, deletePatchTree, upsertPatch, findRegistryByMachineId, findActiveSession } =
+      makeDeps({ activeSession: remoteSession('guest'), registry });
+
+    const result = await handleRemovePatch(envelope, deps);
+
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    // The descendant clear + tombstone are keyed to the VISITOR's writer_key on A's
+    // machine — the deletion lands on A's shared journal, attributed to B.
+    const query = { writer_key: visitor.publicKeyHex, machine_id: machineId, path: '/tmp/pwned' };
+    expect(deletePatchTree).toHaveBeenCalledWith(query);
+    const row = upsertPatch.mock.calls[0]![0];
+    expect(row.content).toBeNull();
+    expect(row.writer_key).toBe(visitor.publicKeyHex);
+    expect(row.machine_id).toBe(machineId);
+    expect(row.path).toBe('/tmp/pwned');
+    // The foreign workstation is resolved via the registry reverse-lookup, and the
+    // tier comes from the visitor's SERVER session — never a client claim.
+    expect(findRegistryByMachineId).toHaveBeenCalledWith(machineId);
+    expect(findActiveSession).toHaveBeenCalledWith({
+      player_key: visitor.publicKeyHex,
+      machine_id: machineId,
+    });
+  });
+
+  it('denies a guest cross-player rm of a root-owned file on a foreign workstation (403, no tombstone)', async () => {
+    const visitor = generateIdentity();
+    const { machineId, registry } = registeredWorkstation();
+    const envelope = signRequest(visitor, 'removePatch', {
+      machine_id: machineId,
+      path: '/etc/passwd',
+      owner: 'root',
+    });
+    const { deps, deletePatchTree, upsertPatch } = makeDeps({
+      activeSession: remoteSession('guest'),
+      registry,
+    });
+
+    const result = await handleRemovePatch(envelope, deps);
+
+    // /etc/passwd is not guest-writable on A's registry-built tree → L2 denies the
+    // unlink before any delete/tombstone runs; nothing lands on A's journal.
+    expect(result).toEqual({ status: 403, body: { error: 'permission_denied' } });
+    expect(deletePatchTree).not.toHaveBeenCalled();
+    expect(upsertPatch).not.toHaveBeenCalled();
+    // The wire leaks nothing about the denied path beyond the error.
+    expect(Object.keys(result.body)).toEqual(['error']);
   });
 });

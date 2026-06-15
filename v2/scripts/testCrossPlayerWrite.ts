@@ -248,6 +248,73 @@ check(
   `status=${w8.status} error=${errorOf(w8.body)} rows=${rows8?.length ?? 0}`,
 );
 
+// 9. Cross-player rm (Slice 4): B (guest) deletes /tmp/pwned on A's box → 200, and
+//    the row flips to a content:null TOMBSTONE keyed (A_machine, path, writer_key=B)
+//    — tombstone-always, not a hard delete (so a concurrent writer can't keep it alive).
+const rm9 = await post(
+  PATCHES,
+  signRequest(bob, 'removePatch', { machine_id: A_MACHINE, path: PWNED, owner: 'guest' }),
+);
+const { data: rows9 } = await sr
+  .from('patches')
+  .select('writer_key, content')
+  .eq('machine_id', A_MACHINE)
+  .eq('path', PWNED);
+const bTomb = (rows9 ?? []).find((row) => row.writer_key === bob.publicKeyHex);
+check(
+  'B (guest) rm /tmp/pwned on A’s box → 200, row is a content:null tombstone (writer=B)',
+  rm9.status === 200 && rows9?.length === 1 && bTomb?.content === null,
+  `status=${rm9.status} rows=${rows9?.length} content=${bTomb ? String(bTomb.content) : '-'}`,
+);
+
+// 10. A's box now materializes /tmp/pwned as GONE (B's cross-player read agrees).
+const r10 = await post(NETWORK, signRequest(bob, 'resolveCrossPlayerFs', { machine_id: A_MACHINE }));
+const tree10 = r10.status === 200 ? deserializeTree((r10.body as { tree: SerializedDirectory }).tree) : null;
+check(
+  'after B’s rm, /tmp/pwned is gone from A’s materialized box',
+  r10.status === 200 && (tree10 ? get(tree10, 'tmp', 'pwned') : undefined) === undefined,
+  `status=${r10.status} node=${tree10 && get(tree10, 'tmp', 'pwned') ? 'present' : 'absent'}`,
+);
+
+// 11. Chronological delete-then-recreate: A (owner) re-creates /tmp/pwned with a LATER
+//     server timestamp → it wins over B's earlier tombstone (the file reappears).
+const w11 = await post(
+  PATCHES,
+  signRequest(alice, 'upsertPatch', {
+    machine_id: A_MACHINE,
+    path: PWNED,
+    content: 'recreated by A',
+    owner: 'alice',
+    permissions: worldFile,
+    is_new: true,
+    node_type: 'file',
+  }),
+);
+const r11 = await post(NETWORK, signRequest(bob, 'resolveCrossPlayerFs', { machine_id: A_MACHINE }));
+const tree11 = r11.status === 200 ? deserializeTree((r11.body as { tree: SerializedDirectory }).tree) : null;
+const pwned11 = tree11 ? get(tree11, 'tmp', 'pwned') : undefined;
+check(
+  'A re-creates /tmp/pwned (later ts) → wins over B’s tombstone (file reappears)',
+  w11.status === 200 && pwned11?.kind === 'file' && pwned11.content === 'recreated by A',
+  `write=${w11.status} content=${pwned11?.kind === 'file' ? pwned11.content : 'absent'}`,
+);
+
+// 12. Boundary: B (guest) rm of a root-owned path → 403 permission_denied, no tombstone.
+const rm12 = await post(
+  PATCHES,
+  signRequest(bob, 'removePatch', { machine_id: A_MACHINE, path: '/etc/passwd', owner: 'root' }),
+);
+const { data: rows12 } = await sr
+  .from('patches')
+  .select('writer_key')
+  .eq('machine_id', A_MACHINE)
+  .eq('path', '/etc/passwd');
+check(
+  'B (guest) denied rm /etc/passwd on A’s box → 403, no tombstone',
+  rm12.status === 403 && errorOf(rm12.body) === 'permission_denied' && (rows12?.length ?? 0) === 0,
+  `status=${rm12.status} error=${errorOf(rm12.body)} rows=${rows12?.length ?? 0}`,
+);
+
 // Cleanup.
 await sr.from('network_registry').delete().eq('public_ip', A_PUBLIC_IP);
 await sr.from('patches').delete().eq('machine_id', A_MACHINE);

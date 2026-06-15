@@ -208,6 +208,34 @@ describe('handleResolveCrossPlayerFs', () => {
     expect(loot?.kind === 'file' ? loot.content : null).toBe('NEWER_BY_B');
   });
 
+  it('replays delete-then-recreate chronologically: a later owner write wins over an earlier tombstone, and vice-versa', async () => {
+    const id = generateIdentity();
+    const path = '/srv/loot.txt';
+    const writeRow = (updated_at: string): OwnerPatchRow =>
+      ownerRow({ path, content: 'REBORN', permissions: worldReadable, writer_key: OWNER_KEY, updated_at });
+    // A visitor's rm lands a content:null tombstone (the Slice-4 cross-player delete).
+    const tombRow = (updated_at: string): OwnerPatchRow =>
+      ownerRow({ path, content: null, writer_key: 'b'.repeat(64), updated_at });
+    const T1 = '2026-06-14T12:00:00.000000+00:00';
+    const T2 = '2026-06-14T13:00:00.000000+00:00';
+
+    // tombstone@T1, owner re-create@T2 → recreate wins → file present.
+    const present = await handleResolveCrossPlayerFs(
+      envelope(id),
+      makeDeps({ patches: async () => ({ data: [tombRow(T1), writeRow(T2)], error: null }) }).deps,
+    );
+    const reborn = get(treeOf(present), 'srv', 'loot.txt');
+    expect(reborn?.kind === 'file' ? reborn.content : null).toBe('REBORN');
+
+    // owner write@T1, tombstone@T2 → delete wins → file gone (the rows are passed in
+    // the SAME array order, so only the server `updated_at` flips the verdict).
+    const gone = await handleResolveCrossPlayerFs(
+      envelope(id),
+      makeDeps({ patches: async () => ({ data: [writeRow(T1), tombRow(T2)], error: null }) }).deps,
+    );
+    expect(get(treeOf(gone), 'srv', 'loot.txt')).toBeUndefined();
+  });
+
   it('looks the caller’s session up under the VERIFIED pubkey + target machine', async () => {
     const id = generateIdentity();
     const { deps, findActiveSession } = makeDeps();
