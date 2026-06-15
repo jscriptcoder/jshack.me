@@ -1,12 +1,16 @@
 # Epic Story-Split: Multiplayer / Cross-player (v2)
 
-**Status**: **Stories 1 + 2 SHIPPED & MERGED.** Story 1 (1a #234 `df95ad6`; 1b #235 `ff5342a`, v0.55.0) —
+**Status**: **Stories 1 + 2 + 3 SHIPPED & MERGED.** Story 1 (1a #234 `df95ad6`; 1b #235 `ff5342a`, v0.55.0) —
 the cross-player public-IP loop is live: crack → connect (register) → `nmap <public IP>` → another
 player's REAL open ports, resolved server-side against the registry. **Story 2 (2a #237 · 2b #238
 `bbc6e47` v0.57.0 · 2c #239 `1e92503` v0.58.0 · 2d #240 `82a48f9` v0.59.0)** — B `ssh guest@<A.publicIp>`
 → session on A's REAL record → `ls`/`cat` A's actual files, SERVER-materialized + pruned by the 3-tier
-read filter (owner full / session walker / no-session externally-observable allowlist). **Story 3 is
-NEXT** (first cross-player WRITE + the deferred `patches` PK flip). Story-split
+read filter (owner full / session walker / no-session externally-observable allowlist). **Story 3 (cross-player
+WRITE + the `patches` PK flip): Slice 1 PK flip #242 v0.60.0 · Slice 2 first guest write #243 v0.61.0 ·
+Slice 3 write boundary #244 v0.62.0 · Slice 4 cross-player `rm` tombstone-always v0.63.0** — B can
+create/edit/delete on A's box, persisted to the shared **chronological** journal (server-stamped
+`writer_key` + `updated_at`), L1 (session) + L2 (walker at the login tier against A's owner-materialized
+tree) server-enforced. **Story 4 is NEXT** (root escalation via the obtained password → brick). Story-split
 authored 2026-06-13. Consolidates the remaining work from two now-retired plans
 (`network-generator-epic.md` Story 4; `scan-logging-cross-player.md` Slice 3b) into one epic. Each child
 story below graduates to its own `plans/<slice>.md` (via the `planning` skill) when started.
@@ -48,16 +52,16 @@ story below graduates to its own `plans/<slice>.md` (via the `planning` skill) w
 Three coupled changes flip v2 from single-player-shaped to multiplayer:
 
 1. **Shared machine record** — a machine's patches become a globally-shared `machine_id` row (keyed by
-   `machine_id`, not `(player_key, machine_id)`). `player_key` demotes from *identity* to *provenance*
+   `machine_id`, not `(player_key, machine_id)`). `player_key` demotes from _identity_ to _provenance_
    ("who wrote this line"). An `owner_key` marks the player who owns the box (system/NPC = null).
 2. **Public-IP registry** — `public IP → network → router → machines`, server-persisted and queryable, so
-   a *different* identity's scan of a public IP resolves to real machines server-side (today
+   a _different_ identity's scan of a public IP resolves to real machines server-side (today
    `generatePublicIp` is deterministic but not registered or queryable by anyone but the owner).
 3. **3-tier cross-player read filter** (port legacy `listPatchesForMachines`) — owner / active-session +
    permission-walker / no-session + allowlist. The path by which B reads A's box safely.
 
 **Owner security stance (memory `feedback_multiplayer_ship_first`)**: ship-first — L1 + targeted L3
-(gameTime / wallet / hop-chain) is enough to launch. The read filter and L1/L2 here are *core*, not
+(gameTime / wallet / hop-chain) is enough to launch. The read filter and L1/L2 here are _core_, not
 gold-plating; do NOT gold-plate shared-world isolation (bricking/defacement is gameplay-renewable —
 `feedback_shared_world_mutation_fine`).
 
@@ -85,7 +89,7 @@ gold-plating; do NOT gold-plate shared-world isolation (bricking/defacement is g
 ## Locked owner decisions (2026-06-13)
 
 1. **Walking skeleton = player-workstation sharing first** (not the NPC-host trace read). The first
-   shared record is the player's *own* workstation — the most concrete "another player's machine."
+   shared record is the player's _own_ workstation — the most concrete "another player's machine."
 2. **Public-IP + router NAT FIRST** (not same-wifi-LAN first). The headline build target is
    `scan public IP → router forwards ports → internal machine`. Same-ESSID shared-LAN occupancy is a
    deliberate follow-up (**Story 7**), even though it's part of the stated vision.
@@ -99,7 +103,7 @@ gold-plating; do NOT gold-plate shared-world isolation (bricking/defacement is g
 > under your network's public IP; another player's `nmap <your public IP>` resolves it server-side and
 > returns its open ports.
 
-**Why this first**: it is the irreducible cross-player whole. You cannot observe *any* cross-player
+**Why this first**: it is the irreducible cross-player whole. You cannot observe _any_ cross-player
 behavior without (a) the shared machine record, (b) the public-IP registry, and (c) server-side
 resolution of one identity's scan against another's machine. It burns down all three architecture risks
 at once behind the thinnest observable behavior, and it is demonstrable with two browsers. NAT is
@@ -109,15 +113,15 @@ the exact seam Story 5 swaps for real iptables rules with **no rework of the reg
 
 ## Split candidates (ordered, each vertical + observable)
 
-| # | Slice (actor + action + scope) | Value | Includes | Defers | Acceptance examples | Release |
-|---|---|---|---|---|---|---|
-| 1 ✅ **DONE** (#234+#235) | **Cross-player public-IP discovery** of a shared workstation record (walking skeleton) | First cross-player observable; burns down registry + server-resolution risk | Join → register `(publicIp → network → workstation machine_id)` server-side; `nmap <public IP>` resolves server-side to the workstation's REAL open ports (read from the owner's existing `/var/run/*.pid` rows via the registry's `owner_key`; degenerate NAT). **No schema flip — deferred to Story 3.** | Selective iptables, multiple internal machines, multi-layer, break-in, read filter, FS write, trace | Two identities A,B; A joins net + has sshd up; **B** runs `nmap <A.publicIp>` → sees the real port (E2E proved `2222/tcp` from A's `sshd 2222`); B scans an unregistered IP → no host | ✅ Shipped (internal-only — not yet a full loop) |
-| 2 ✅ **DONE** (#237+#238+#239+#240) | **B reads A's filesystem** over the public path (the 3-tier read filter) | Cross-player READ — B sees A's *real* files, not a per-viewer regen | 2a join persists A's workstation identity; 2b `ssh guest@<A.publicIp>` → session on A's REAL record; 2c server-materializes A's tree + tier-2 walker filter; 2d tier-1 owner (full) + tier-3 no-session externally-observable allowlist. SERVER-served (D1) — the wire is pruned to the caller's tier before it leaves. **No schema flip — deferred to Story 3.** | Writing, root, bricking, trace | B `ssh`es in, `cat`s a file **A created**; guest can't read `/root`/passwd hashes; no-session → allowlist only; owner reads its own box full + unchanged | ✅ Shipped (read loop live: `crack → connect → nmap → ssh → ls/cat`) |
-| 3 | **B modifies A's filesystem** | The "make changes" half of the vision | B (session on A's box) create/edit/delete a file → persists to A's shared record → A and other authorized viewers see it; L1 (session) + L2 (walker) server-enforced against the shared record | Root escalation, bricking, trace | B writes `/home/A/pwned.txt`; A reloads and sees it; B writes a path L2 forbids at B's tier → rejected | Shippable |
-| 4 | **B escalates to root → bricks A's machine** | The dramatic payoff — persistent cross-player damage | Root escalation via **`su` with the obtained root password** (no privesc-CVE primitive needed — see Parking Lot) → a destructive/bricking action persists to A's shared record; A's box is observably damaged next load | — | B `su`s to root with A's password, performs the brick action; A's machine is broken on next load; B without root cannot | Shippable (bricking is gameplay-renewable) |
-| 5 | **Real router NAT / iptables port forwarding** (selective + multi-target + multi-layer) | The owner's explicit iptables ask; "scan public IP uncovers *forwarded* ports → internal machines" becomes real & selective | Replace degenerate NAT: router is the public-IP-bearing machine; PREROUTING DNAT maps specific public ports → specific internal machines; scanning shows only forwarded ports; connecting hits the mapped internal box. **Each dual-homed interface is its own addressable endpoint with its own port view** — `scanResult(address, vantage)` is a clean total function, NEVER a merged view (see Warnings: dual-homed scar). **Absorbs network-generator Story 4** (2–3 layers, dual-homed gateways, `switch` sub-kind, "see only your layer", RFC-1918 subnet variety) | — | `nmap <publicIp>` shows the router's own ports **+** the forwarded ports; `nmap <router .1>` from inside the LAN shows the router's own ports **only**, NOT the forwarded ones (PREROUTING doesn't apply LAN-internal); `ssh <publicIp>:<fwd port>` lands on the mapped internal machine, not the router; scanning from inside a layer sees only that layer + its gateway | Shippable |
-| 6 | **Cross-player scan/connection trace** (scan-logging Slice 3b) | Emergent PvP discovery — defender reads logs, sees attacker IP | Re-key the shipped **3a** per-viewer kern.log/auth.log write onto the **shared** record; scanning/connecting a real player workstation leaves a trace its owner (or a 3rd player) reads | New formatters (all shipped in 3a) | B scans A → A `cat /var/log/kern.log` sees B's source IP; a 3rd identity who breaks into A also reads it | Shippable |
-| 7 | **Same-wifi shared-LAN occupancy** (deferred branch of the vision) | The "two players on the same wifi" scenario — same `/24`, no NAT, LAN IPs | Two identities who crack the same AP (ESSID) land on the same `/24`; `nmap` of the LAN shows the other's workstation as an occupant; same-LAN source-IP realism (LAN IP, not NAT) | — | A,B both crack ESSID X → both on `192.168.x.*`; B `nmap`s the LAN, sees A's workstation; B connects over the LAN IP | Shippable |
+| #                                     | Slice (actor + action + scope)                                                          | Value                                                                                                                       | Includes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Defers                                                                                              | Acceptance examples                                                                                                                                                                                                                                                                                                                                                       | Release                                                                       |
+| ------------------------------------- | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| 1 ✅ **DONE** (#234+#235)             | **Cross-player public-IP discovery** of a shared workstation record (walking skeleton)  | First cross-player observable; burns down registry + server-resolution risk                                                 | Join → register `(publicIp → network → workstation machine_id)` server-side; `nmap <public IP>` resolves server-side to the workstation's REAL open ports (read from the owner's existing `/var/run/*.pid` rows via the registry's `owner_key`; degenerate NAT). **No schema flip — deferred to Story 3.**                                                                                                                                                                                                                                                               | Selective iptables, multiple internal machines, multi-layer, break-in, read filter, FS write, trace | Two identities A,B; A joins net + has sshd up; **B** runs `nmap <A.publicIp>` → sees the real port (E2E proved `2222/tcp` from A's `sshd 2222`); B scans an unregistered IP → no host                                                                                                                                                                                     | ✅ Shipped (internal-only — not yet a full loop)                              |
+| 2 ✅ **DONE** (#237+#238+#239+#240)   | **B reads A's filesystem** over the public path (the 3-tier read filter)                | Cross-player READ — B sees A's _real_ files, not a per-viewer regen                                                         | 2a join persists A's workstation identity; 2b `ssh guest@<A.publicIp>` → session on A's REAL record; 2c server-materializes A's tree + tier-2 walker filter; 2d tier-1 owner (full) + tier-3 no-session externally-observable allowlist. SERVER-served (D1) — the wire is pruned to the caller's tier before it leaves. **No schema flip — deferred to Story 3.**                                                                                                                                                                                                        | Writing, root, bricking, trace                                                                      | B `ssh`es in, `cat`s a file **A created**; guest can't read `/root`/passwd hashes; no-session → allowlist only; owner reads its own box full + unchanged                                                                                                                                                                                                                  | ✅ Shipped (read loop live: `crack → connect → nmap → ssh → ls/cat`)          |
+| 3 ✅ **DONE** (#242+#243+#244+Slice4) | **B modifies A's filesystem**                                                           | The "make changes" half of the vision                                                                                       | Slice 1 flipped `patches` to a shared chronological journal (PK `(machine_id,path,writer_key)`, server `updated_at`); Slices 2–4 added the cross-player L2 (owner-materialized registry branch, D6), the write **boundary** (creates gated by the containing dir), and **tombstone-always** `rm` (a delete is a timestamped event, so delete-then-recreate replays chronologically). L1 (session) + L2 (walker at the login tier) server-enforced.                                                                                                                       | Root escalation, bricking, trace                                                                    | B writes `/tmp/pwned` on A → A sees it; B denied off the guest-writable set; B `rm`s → A sees gone; A re-creates → wins                                                                                                                                                                                                                                                   | ✅ Shipped (write loop live: `crack → connect → nmap → ssh → create/edit/rm`) |
+| 4                                     | **B escalates to root → bricks A's machine**                                            | The dramatic payoff — persistent cross-player damage                                                                        | Root escalation via **`su` with the obtained root password** (no privesc-CVE primitive needed — see Parking Lot) → a destructive/bricking action persists to A's shared record; A's box is observably damaged next load                                                                                                                                                                                                                                                                                                                                                  | —                                                                                                   | B `su`s to root with A's password, performs the brick action; A's machine is broken on next load; B without root cannot                                                                                                                                                                                                                                                   | Shippable (bricking is gameplay-renewable)                                    |
+| 5                                     | **Real router NAT / iptables port forwarding** (selective + multi-target + multi-layer) | The owner's explicit iptables ask; "scan public IP uncovers _forwarded_ ports → internal machines" becomes real & selective | Replace degenerate NAT: router is the public-IP-bearing machine; PREROUTING DNAT maps specific public ports → specific internal machines; scanning shows only forwarded ports; connecting hits the mapped internal box. **Each dual-homed interface is its own addressable endpoint with its own port view** — `scanResult(address, vantage)` is a clean total function, NEVER a merged view (see Warnings: dual-homed scar). **Absorbs network-generator Story 4** (2–3 layers, dual-homed gateways, `switch` sub-kind, "see only your layer", RFC-1918 subnet variety) | —                                                                                                   | `nmap <publicIp>` shows the router's own ports **+** the forwarded ports; `nmap <router .1>` from inside the LAN shows the router's own ports **only**, NOT the forwarded ones (PREROUTING doesn't apply LAN-internal); `ssh <publicIp>:<fwd port>` lands on the mapped internal machine, not the router; scanning from inside a layer sees only that layer + its gateway | Shippable                                                                     |
+| 6                                     | **Cross-player scan/connection trace** (scan-logging Slice 3b)                          | Emergent PvP discovery — defender reads logs, sees attacker IP                                                              | Re-key the shipped **3a** per-viewer kern.log/auth.log write onto the **shared** record; scanning/connecting a real player workstation leaves a trace its owner (or a 3rd player) reads                                                                                                                                                                                                                                                                                                                                                                                  | New formatters (all shipped in 3a)                                                                  | B scans A → A `cat /var/log/kern.log` sees B's source IP; a 3rd identity who breaks into A also reads it                                                                                                                                                                                                                                                                  | Shippable                                                                     |
+| 7                                     | **Same-wifi shared-LAN occupancy** (deferred branch of the vision)                      | The "two players on the same wifi" scenario — same `/24`, no NAT, LAN IPs                                                   | Two identities who crack the same AP (ESSID) land on the same `/24`; `nmap` of the LAN shows the other's workstation as an occupant; same-LAN source-IP realism (LAN IP, not NAT)                                                                                                                                                                                                                                                                                                                                                                                        | —                                                                                                   | A,B both crack ESSID X → both on `192.168.x.*`; B `nmap`s the LAN, sees A's workstation; B connects over the LAN IP                                                                                                                                                                                                                                                       | Shippable                                                                     |
 
 ## Parking lot
 
@@ -128,7 +132,7 @@ the exact seam Story 5 swaps for real iptables rules with **no rework of the reg
 - **Story 4 privesc vector — RESOLVED (2026-06-13).** No privesc-CVE primitive is needed to build or test
   the brick payoff: escalation is **`su` with the root password the attacker has obtained**. For the
   epic's testability the dev authors both identities and knows both root passwords, so Story 4 is testable
-  with shipped `su` alone. The *realistic* gameplay question of how an attacker obtains another player's
+  with shipped `su` alone. The _realistic_ gameplay question of how an attacker obtains another player's
   root creds (hydra / leaked creds / library-CVE → `msfconsole --local`, memory
   `project_v2_library_cve_privesc`) is a **separate, parked gameplay concern** — it does NOT block this
   epic. Story 4 just assumes creds-in-hand.
@@ -148,7 +152,7 @@ the exact seam Story 5 swaps for real iptables rules with **no rework of the reg
 ## Warnings
 
 - **Story 1 must not bake in a NAT shape Story 5 tears out.** Store `publicIp → { routerMachineId,
-  forwardTable }` from the start; degenerate `forwardTable` = "all → workstation" is just a value, not a
+forwardTable }` from the start; degenerate `forwardTable` = "all → workstation" is just a value, not a
   different schema.
 - **⚠️ DUAL-HOMED ROUTER SCAR (owner-flagged legacy trap — design around it in Story 5).** A router is
   dual-homed: WAN/public IP + internal `.1`. In legacy, scanning the **public IP** (NAT-forwarded ports)
@@ -168,7 +172,7 @@ the exact seam Story 5 swaps for real iptables rules with **no rework of the reg
   `project_dual_homed_router_scan_discrepancy` (+ `project_router_lan_side_forward_visibility`,
   `project_multi_target_nat`).
 - **The read filter (Story 2) is security-load-bearing, not gold-plating** — the ship-first stance trims
-  L2/isolation gold-plating, but owner/session/allowlist tiering is the *core* cross-player boundary.
+  L2/isolation gold-plating, but owner/session/allowlist tiering is the _core_ cross-player boundary.
 - **Don't relabel the schema flip as its own story.** It has no observable behavior alone — it rides
   inside the first story that needs it. **UPDATE (2026-06-14): that is Story 3** (the first cross-player
   WRITE), NOT Story 1 — Stories 1–2 only READ the owner's existing rows, so the flip wasn't needed yet.
@@ -181,18 +185,20 @@ the exact seam Story 5 swaps for real iptables rules with **no rework of the reg
 
 ## Next step
 
-**Stories 1 + 2 ✅ COMPLETE.** Story 1 (#234 + #235); Story 2 (#237 + #238 + #239 + #240, v0.59.0) —
-read loop live: `crack → connect → nmap → ssh guest@<A.publicIp> → ls/cat` A's REAL files, SERVER-
-materialized + 3-tier filtered (owner full / session walker / no-session externally-observable allowlist;
-`core/patches/readFilter.ts`, `core/network/resolveCrossPlayerFs.ts`, `core/filesystem/treeCodec.ts`).
+**Stories 1 + 2 + 3 ✅ COMPLETE.** Story 1 (#234 + #235); Story 2 (#237–#240, v0.59.0) — read loop;
+Story 3 (#242 Slice 1 PK flip · #243 Slice 2 first guest write · #244 Slice 3 write boundary · Slice 4
+cross-player `rm` tombstone-always, v0.63.0) — write loop live: `crack → connect → nmap → ssh
+guest@<A.publicIp> → create/edit/rm` on A's box, persisted to the shared **chronological** journal
+(`patches` PK `(machine_id,path,writer_key)`, server-stamped `writer_key` + `updated_at`,
+`core/patches/orderPatchesForReplay.ts` + `remoteWritePermission.ts` D6 owner-materialized L2 +
+tombstone-always `removePatch.ts`).
 
-**NEXT: Story 3 — B *modifies* A's filesystem (first cross-player WRITE).** This is what FORCES the
-deferred `patches` PK flip: today every identity's rows are keyed `(player_key, machine_id, path)` =
-per-viewer; a cross-player write must land on A's SHARED record, so `machine_id` becomes the shared key
-with `owner_key` + `player_key`-as-provenance (decide the exact column shape when planning — see the
-schema-flip notes above + memory `project_workstation_id_model`). L1 (session) + L2 (walker) server-
-enforced against the shared record; reuses the shipped writable-remote-FS stack (SSH epic) re-keyed onto
-the registry record. Load `planning` for Story 3 → PR-sized slices; run `grill-me`/`find-gaps` first to
-nail the PK shape + migration (no live players, but this rule sunsets at multiplayer announce — get the
-column shape right). Every slice runs full RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR (`tdd`, `testing`,
-`mutation-testing`, `refactoring`). No production code until Story 3's plan exists.
+**NEXT: Story 4 — B escalates to root → bricks A's machine** (the dramatic payoff). Root escalation via
+**`su` with the obtained root password** (no privesc-CVE primitive needed — see Parking Lot: "Story 4
+privesc vector RESOLVED") → a destructive/bricking action persists to A's shared record; A's box is
+observably damaged next load. The writable cross-player stack (Story 3) + the persisted
+`workstation_root_hash` (registry) + server-authoritative `su` (shipped, v0.38.0) are the pieces it
+composes. Load `planning` for Story 4 → PR-sized slices; run `grill-me`/`find-gaps` first to nail what
+"brick" means observably (what's destroyed, how A perceives it, how it's gameplay-renewable per
+`feedback_shared_world_mutation_fine`). Every slice runs full RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR
+(`tdd`, `testing`, `mutation-testing`, `refactoring`). No production code until Story 4's plan exists.

@@ -3,24 +3,28 @@
  * Supabase). The api/ glue injects Supabase-backed lookups/deletes; tests
  * inject mocks.
  *
- * Deletion is server-authoritative: the `patches` table is the source of truth
- * for whether a node is player-created (`is_new`) or a base-FS node, so the
- * client just asks to remove a path and the server decides how:
+ * Deletion is server-authoritative and TOMBSTONE-ALWAYS on the shared journal:
+ * the client just asks to remove a path, and the server, for every removal:
  *
- *   - The node has an `is_new` patch row → DELETE the row + every descendant
- *     row. The base FS never had this node, so a tombstone would be pointless
- *     cruft; replaying an empty journal already omits it.
- *   - Otherwise (a base-FS file, a modified-base file, or no row at all) →
- *     DELETE any descendant rows, then UPSERT a `content: null` deletion marker
- *     so the base node stays hidden after the journal replays.
+ *   1. DELETEs the caller's own row at the path + every descendant row (so a
+ *      recursively removed directory leaves no orphaned child patches, and a
+ *      stale child row can't resurrect part of the subtree on replay).
+ *   2. UPSERTs a `content: null` deletion marker at the path — a timestamped
+ *      deletion EVENT keyed to the caller's `(machine_id, path, writer_key)`.
  *
- * Descendant cleanup is unconditional — a file has none, and a recursively
- * removed directory must not leave orphaned child patches behind. The row's
- * `writer_key` is server-stamped from the VERIFIED pubkey (never a client
+ * Why tombstone even a player-created node (rather than a bare hard-delete): on
+ * the shared journal one path can carry rows from MULTIPLE writers. Hard-deleting
+ * only the caller's row would let a concurrent writer's row keep the file alive
+ * after replay — the deletion would silently fail. A tombstone is a write that
+ * wins chronologically (server-stamped `updated_at`), so a later owner re-create
+ * still wins over it, and an earlier concurrent write loses to it. The row is
+ * bounded: one per (machine_id, path, writer_key), so the marker is the writer's
+ * single row flipping to null, not unbounded cruft.
+ *
+ * The `writer_key` is server-stamped from the VERIFIED pubkey (never a client
  * claim); the schema rejects a client-supplied player_key/writer_key outright.
- * The find/delete/tombstone all key on the caller's own `(machine_id, path,
- * writer_key)` row in the shared journal. L1-gated like the write path: own
- * workstation (suffix match) OR an active ssh session on the target.
+ * L1-gated like the write path: own workstation (suffix match) OR an active ssh
+ * session on the target; L2 (cross-player) requires write perm at the login tier.
  */
 
 import { z } from 'zod';
@@ -41,11 +45,6 @@ export type PatchTreeQuery = {
   readonly path: string;
 };
 
-export type FindPatchResult = {
-  readonly data: { readonly is_new: boolean } | null;
-  readonly error: unknown;
-};
-
 export type RemovePatchDeps = {
   readonly nonceStore: NonceStore;
   readonly findActiveSession: FindActiveSession;
@@ -53,11 +52,9 @@ export type RemovePatchDeps = {
   /** Reverse-look-up a registered foreign workstation by its machine_id — shared
    *  with the write path's L2 cross-player branch (D6). */
   readonly findRegistryByMachineId: FindRegistryByMachineId;
-  /** Look up the row at the exact path (to read its `is_new` flag). */
-  readonly findPatch: (query: PatchTreeQuery) => Promise<FindPatchResult>;
   /** Delete the row at `path` AND every row beneath it (`path/...`). */
   readonly deletePatchTree: (query: PatchTreeQuery) => Promise<{ readonly error: unknown }>;
-  /** Record the `content: null` deletion marker for a base/modified node. */
+  /** Record the `content: null` deletion marker (the tombstone). */
   readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
 };
 
@@ -114,25 +111,24 @@ export const handleRemovePatch = async (
     path: payload.path,
   };
 
-  const lookup = await deps.findPatch(query);
-  if (lookup.error) return failed;
-
   const { error: deleteError } = await deps.deletePatchTree(query);
   if (deleteError) return failed;
 
-  // A player-created node leaves nothing behind; a base/modified node needs a
-  // tombstone so the base FS stays hidden on replay.
-  if (!lookup.data?.is_new) {
-    const { error: upsertError } = await deps.upsertPatch({
-      writer_key: publicKey,
-      machine_id: payload.machine_id,
-      path: payload.path,
-      content: null,
-      owner: payload.owner,
-      is_new: false,
-    });
-    if (upsertError) return failed;
-  }
+  // Tombstone-always: a delete records a content:null marker (a timestamped
+  // deletion EVENT) regardless of whether the caller's row was player-created.
+  // On the shared journal a bare hard-delete would lose that event, so a
+  // CONCURRENT writer's row for the same path could keep the file alive after
+  // replay. The marker is keyed to the caller's own (machine_id, path,
+  // writer_key) row; descendant rows were already cleared above.
+  const { error: upsertError } = await deps.upsertPatch({
+    writer_key: publicKey,
+    machine_id: payload.machine_id,
+    path: payload.path,
+    content: null,
+    owner: payload.owner,
+    is_new: false,
+  });
+  if (upsertError) return failed;
 
   return { status: 200, body: { ok: true } };
 };
