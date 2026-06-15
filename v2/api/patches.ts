@@ -13,7 +13,10 @@ import type {
   ActiveSessionQuery,
   FindActiveSessionResult,
 } from '../src/core/patches/authorizeMachineAccess';
-import type { ListMachinePatchesResult } from '../src/core/patches/remoteWritePermission';
+import type {
+  ListMachinePatchesResult,
+  RegistryWorkstation,
+} from '../src/core/patches/remoteWritePermission';
 import type { Patch } from '../src/core/filesystem/applyPatches';
 import type { FilePermissions } from '../src/core/filesystem/types';
 import type { NonceStore } from '../src/core/signedRequest/nonceStore';
@@ -143,6 +146,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return { data: patches, error };
   };
 
+  // L2's cross-player branch (D6): reverse-look-up a registered FOREIGN workstation
+  // by its machine_id so the handler can rebuild the OWNER's tree (the same identity
+  // the cross-player READ uses) and walk it at the session tier. Returns null for an
+  // NPC host / unknown id — L2 then resolves via the caller's own LAN or fails closed.
+  const findRegistryByMachineId = async (machineId: string) => {
+    const { data, error } = await supabase
+      .from('network_registry')
+      .select('owner_key, workstation_username, workstation_root_hash')
+      .eq('workstation_machine_id', machineId)
+      .maybeSingle();
+    if (error) console.error('[patches] registry reverse-lookup error:', error);
+    return { data: data as RegistryWorkstation | null, error };
+  };
+
   if (actionOf(req.body) === 'listPatches') {
     const listPatches = async ({ machine_id }: ListPatchesQuery) => {
       const { data, error } = await supabase
@@ -197,6 +214,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       nonceStore: noopNonceStore,
       findActiveSession,
       listMachinePatches,
+      findRegistryByMachineId,
       findPatch,
       deletePatchTree,
       upsertPatch,
@@ -260,6 +278,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     nonceStore: noopNonceStore,
     findActiveSession,
     listMachinePatches,
+    findRegistryByMachineId,
     upsertPatch,
   });
   res.status(status).json(body);

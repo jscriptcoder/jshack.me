@@ -27,7 +27,11 @@ import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { authorizeMachineAccess, type FindActiveSession } from './authorizeMachineAccess';
-import { enforceRemoteWriteL2, type ListMachinePatches } from './remoteWritePermission';
+import {
+  enforceRemoteWriteL2,
+  type FindRegistryByMachineId,
+  type ListMachinePatches,
+} from './remoteWritePermission';
 import type { NonceStore } from '../signedRequest/nonceStore';
 import type { PatchRow } from './upsertPatch';
 
@@ -46,6 +50,9 @@ export type RemovePatchDeps = {
   readonly nonceStore: NonceStore;
   readonly findActiveSession: FindActiveSession;
   readonly listMachinePatches: ListMachinePatches;
+  /** Reverse-look-up a registered foreign workstation by its machine_id — shared
+   *  with the write path's L2 cross-player branch (D6). */
+  readonly findRegistryByMachineId: FindRegistryByMachineId;
   /** Look up the row at the exact path (to read its `is_new` flag). */
   readonly findPatch: (query: PatchTreeQuery) => Promise<FindPatchResult>;
   /** Delete the row at `path` AND every row beneath it (`path/...`). */
@@ -95,6 +102,7 @@ export const handleRemovePatch = async (
     path: payload.path,
     session: access.session,
     listMachinePatches: deps.listMachinePatches,
+    findRegistryByMachineId: deps.findRegistryByMachineId,
   });
   if (denial) {
     return { status: denial.status, body: { error: denial.error } };

@@ -26,9 +26,9 @@
 import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { buildWorkstationBaseFsFromIdentity } from '../generation/workstationFs';
 import { applyPatches, type Patch } from '../filesystem/applyPatches';
 import { orderPatchesForReplay } from '../patches/orderPatchesForReplay';
+import { buildRegisteredWorkstationFs } from '../patches/remoteWritePermission';
 import { filterTreeForRead, filterTreeToAllowlist } from '../patches/readFilter';
 import { serializeTree } from '../filesystem/treeCodec';
 import type { Directory, FilePermissions } from '../filesystem/types';
@@ -108,14 +108,11 @@ const rowToPatch = (row: OwnerPatchRow): Patch => ({
 const materialize = (
   registry: RegistryWorkstation,
   patches: readonly OwnerPatchRow[] | null,
-): Directory => {
-  const base = buildWorkstationBaseFsFromIdentity({
-    ownerKeyHex: registry.owner_key,
-    username: registry.workstation_username,
-    rootPasswordHash: registry.workstation_root_hash,
-  });
-  return applyPatches(base, orderPatchesForReplay(patches ?? []).map(rowToPatch));
-};
+): Directory =>
+  applyPatches(
+    buildRegisteredWorkstationFs(registry),
+    orderPatchesForReplay(patches ?? []).map(rowToPatch),
+  );
 
 export const handleResolveCrossPlayerFs = async (
   body: unknown,

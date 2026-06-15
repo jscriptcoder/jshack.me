@@ -4,7 +4,10 @@ import type {
   ActiveSessionQuery,
   FindActiveSessionResult,
 } from './authorizeMachineAccess';
-import type { ListMachinePatchesResult } from './remoteWritePermission';
+import type {
+  FindRegistryByMachineId,
+  ListMachinePatchesResult,
+} from './remoteWritePermission';
 import type { PatchRow } from './upsertPatch';
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
@@ -63,15 +66,30 @@ const makeDeps = (
   const listMachinePatches = vi.fn<() => Promise<ListMachinePatchesResult>>(
     async () => over.machinePatches ?? { data: [], error: null },
   );
+  // Default: not a registered foreign workstation. Cross-player rm (tombstone) is
+  // Slice 4; no removal test exercises the registry branch yet.
+  const findRegistryByMachineId = vi.fn<FindRegistryByMachineId>(async () => ({
+    data: null,
+    error: null,
+  }));
   const deps: RemovePatchDeps = {
     nonceStore: over.nonceStore ?? freshStore,
     findActiveSession,
     listMachinePatches,
+    findRegistryByMachineId,
     findPatch,
     deletePatchTree,
     upsertPatch,
   };
-  return { deps, findPatch, deletePatchTree, upsertPatch, findActiveSession, listMachinePatches };
+  return {
+    deps,
+    findPatch,
+    deletePatchTree,
+    upsertPatch,
+    findActiveSession,
+    listMachinePatches,
+    findRegistryByMachineId,
+  };
 };
 
 /** Fields for a removal on the signer's OWN workstation. */

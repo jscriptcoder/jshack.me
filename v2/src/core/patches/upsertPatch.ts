@@ -18,7 +18,11 @@ import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { authorizeMachineAccess, type FindActiveSession } from './authorizeMachineAccess';
-import { enforceRemoteWriteL2, type ListMachinePatches } from './remoteWritePermission';
+import {
+  enforceRemoteWriteL2,
+  type FindRegistryByMachineId,
+  type ListMachinePatches,
+} from './remoteWritePermission';
 import type { NonceStore } from '../signedRequest/nonceStore';
 import type { UserType } from '../types';
 
@@ -45,6 +49,9 @@ export type UpsertPatchDeps = {
   readonly nonceStore: NonceStore;
   readonly findActiveSession: FindActiveSession;
   readonly listMachinePatches: ListMachinePatches;
+  /** Reverse-look-up a registered foreign workstation by its machine_id — the L2
+   *  cross-player branch (D6) rebuilds the owner's tree from this. */
+  readonly findRegistryByMachineId: FindRegistryByMachineId;
   readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
 };
 
@@ -101,6 +108,7 @@ export const handleUpsertPatch = async (
     path: payload.path,
     session: access.session,
     listMachinePatches: deps.listMachinePatches,
+    findRegistryByMachineId: deps.findRegistryByMachineId,
   });
   if (denial) {
     return { status: denial.status, body: { error: denial.error } };
