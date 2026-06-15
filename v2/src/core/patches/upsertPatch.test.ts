@@ -4,12 +4,17 @@ import type {
   ActiveSessionQuery,
   FindActiveSessionResult,
 } from './authorizeMachineAccess';
-import type { ListMachinePatchesResult } from './remoteWritePermission';
+import type {
+  FindRegistryByMachineId,
+  ListMachinePatchesResult,
+  RegistryWorkstation,
+} from './remoteWritePermission';
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
 import { computeWorkstationId } from '../identity/workstation';
 import { generateHomeLan } from '../generation/generateHomeLan';
 import { hostMachineId } from '../generation/remoteHostId';
+import { md5 } from '../generation/md5';
 import type { UserType } from '../types';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
@@ -28,6 +33,23 @@ const remoteTarget = (publicKeyHex: string) => {
 const remoteSession = (userType: UserType, essid = ESSID) =>
   async (): Promise<FindActiveSessionResult> => ({ data: { userType, essid }, error: null });
 
+/** A registered FOREIGN player workstation (A's box): A's identity → A's
+ *  workstation machine_id, plus the registry row the L2 reverse-lookup returns so
+ *  the cross-player write rebuilds A's tree from the OWNER's identity (decision D6).
+ *  Its machine_id is an `ed25519:`-suffixed workstation id, so it never matches an
+ *  NPC host on the caller's LAN — `hostForMachineId` misses and L2 falls to the
+ *  registry. */
+const registeredWorkstation = () => {
+  const owner = generateIdentity();
+  const machineId = computeWorkstationId('skylab', owner.publicKeyHex);
+  const registry: RegistryWorkstation = {
+    owner_key: owner.publicKeyHex,
+    workstation_username: 'alice',
+    workstation_root_hash: md5('hunter2'),
+  };
+  return { owner, machineId, registry };
+};
+
 const makeDeps = (over: Partial<UpsertPatchDeps> = {}) => {
   const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async () => ({
     error: null,
@@ -43,14 +65,21 @@ const makeDeps = (over: Partial<UpsertPatchDeps> = {}) => {
     data: [],
     error: null,
   }));
+  // Default: the target is NOT a registered foreign workstation (an NPC host or an
+  // unknown id). Cross-player-write tests override this with A's registry row.
+  const findRegistryByMachineId = vi.fn<FindRegistryByMachineId>(async () => ({
+    data: null,
+    error: null,
+  }));
   const deps: UpsertPatchDeps = {
     nonceStore: freshStore,
     upsertPatch,
     findActiveSession,
     listMachinePatches,
+    findRegistryByMachineId,
     ...over,
   };
-  return { deps, upsertPatch, findActiveSession, listMachinePatches };
+  return { deps, upsertPatch, findActiveSession, listMachinePatches, findRegistryByMachineId };
 };
 
 // Fields for a write to the signer's OWN workstation.
@@ -263,20 +292,147 @@ describe('handleUpsertPatch', () => {
     expect(upsertPatch).not.toHaveBeenCalled();
   });
 
-  it('rejects the write when the host no longer resolves on the LAN (can’t verify perms → 403)', async () => {
+  it('denies the write when the target resolves as neither an NPC host nor a registered workstation (fail closed)', async () => {
     const id = generateIdentity();
-    // A coordinate machine_id that no host on the regenerated LAN matches.
+    // A coordinate machine_id that no host on the regenerated LAN matches, and the
+    // registry (default) returns null too — so neither resolution recovers a tree.
     const envelope = signRequest(id, 'upsertPatch', {
       machine_id: 'ghost-00000000',
       path: '/tmp/x',
       content: 'y',
       owner: 'user',
     });
-    const { deps, upsertPatch } = makeDeps({ findActiveSession: remoteSession('user') });
+    const { deps, upsertPatch, findRegistryByMachineId } = makeDeps({
+      findActiveSession: remoteSession('user'),
+    });
 
     const result = await handleUpsertPatch(envelope, deps);
 
     expect(result).toEqual({ status: 403, body: { error: 'permission_denied' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+    // The registry fallback IS attempted before failing closed — proving an NPC miss
+    // doesn't short-circuit the cross-player branch.
+    expect(findRegistryByMachineId).toHaveBeenCalledWith('ghost-00000000');
+  });
+
+  // ---- Cross-player WRITE: B writes A's REGISTERED workstation (decision D6). ----
+
+  it('permits a guest cross-player session to write /tmp on a foreign player workstation (resolved via the registry)', async () => {
+    const visitor = generateIdentity();
+    const { machineId, registry } = registeredWorkstation();
+    const envelope = signRequest(visitor, 'upsertPatch', {
+      machine_id: machineId,
+      path: '/tmp/pwned',
+      content: 'owned by a visitor',
+      owner: 'guest',
+    });
+    // Explicit spies for the overridden deps so the call-arg assertions hit the
+    // functions actually wired into `deps` (an `over` replaces the default spy).
+    const findActiveSession = vi.fn(remoteSession('guest'));
+    const findRegistryByMachineId = vi.fn<FindRegistryByMachineId>(async () => ({
+      data: registry,
+      error: null,
+    }));
+    const { deps, upsertPatch } = makeDeps({ findActiveSession, findRegistryByMachineId });
+
+    const result = await handleUpsertPatch(envelope, deps);
+
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    const row = upsertPatch.mock.calls[0]![0];
+    expect(row.writer_key).toBe(visitor.publicKeyHex);
+    expect(row.machine_id).toBe(machineId);
+    expect(row.path).toBe('/tmp/pwned');
+    // The foreign workstation is resolved via the registry reverse-lookup...
+    expect(findRegistryByMachineId).toHaveBeenCalledWith(machineId);
+    // ...and the tier is taken from the visitor's SERVER session, scoped to the
+    // verified pubkey + target machine — never a client claim.
+    expect(findActiveSession).toHaveBeenCalledWith({
+      player_key: visitor.publicKeyHex,
+      machine_id: machineId,
+    });
+  });
+
+  it('does not consult the registry for an NPC-host write (resolved on the caller’s own LAN)', async () => {
+    const id = generateIdentity();
+    const { machineId } = remoteTarget(id.publicKeyHex);
+    const envelope = signRequest(id, 'upsertPatch', {
+      machine_id: machineId,
+      path: '/tmp/scratch',
+      content: 'mine',
+      owner: 'user',
+    });
+    const { deps, upsertPatch, findRegistryByMachineId } = makeDeps({
+      findActiveSession: remoteSession('user'),
+    });
+
+    const result = await handleUpsertPatch(envelope, deps);
+
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    expect(upsertPatch).toHaveBeenCalledTimes(1);
+    // An NPC host resolves on the caller's own LAN — the registry is never consulted.
+    expect(findRegistryByMachineId).not.toHaveBeenCalled();
+  });
+
+  it('denies a guest cross-player session writing a root-owned path on a foreign workstation (walked against A’s tree)', async () => {
+    const visitor = generateIdentity();
+    const { machineId, registry } = registeredWorkstation();
+    const envelope = signRequest(visitor, 'upsertPatch', {
+      machine_id: machineId,
+      path: '/etc/passwd',
+      content: 'guest::0:0::/root:/bin/bash',
+      owner: 'guest',
+    });
+    const { deps, upsertPatch } = makeDeps({
+      findActiveSession: remoteSession('guest'),
+      findRegistryByMachineId: async () => ({ data: registry, error: null }),
+    });
+
+    const result = await handleUpsertPatch(envelope, deps);
+
+    // The registry-resolved tree is walked at the GUEST tier — /etc/passwd is not
+    // guest-writable, so the gate denies (kills a mutant that skips the walk).
+    expect(result).toEqual({ status: 403, body: { error: 'permission_denied' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('walks the registry-resolved tree at the SESSION tier, not a hardcoded guest (a root session may write /etc)', async () => {
+    const visitor = generateIdentity();
+    const { machineId, registry } = registeredWorkstation();
+    const envelope = signRequest(visitor, 'upsertPatch', {
+      machine_id: machineId,
+      path: '/etc/passwd',
+      content: 'rewritten by root',
+      owner: 'root',
+    });
+    const { deps, upsertPatch } = makeDeps({
+      findActiveSession: remoteSession('root'),
+      findRegistryByMachineId: async () => ({ data: registry, error: null }),
+    });
+
+    const result = await handleUpsertPatch(envelope, deps);
+
+    // Same path, different session tier → different verdict: proves the tier flows
+    // from the session row (kills a mutant hardcoding 'guest').
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    expect(upsertPatch.mock.calls[0]![0].writer_key).toBe(visitor.publicKeyHex);
+  });
+
+  it('returns 500 when the registry reverse-lookup fails (not a false allow or deny)', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'upsertPatch', {
+      machine_id: 'darkstar-12345678',
+      path: '/tmp/x',
+      content: 'y',
+      owner: 'guest',
+    });
+    const { deps, upsertPatch } = makeDeps({
+      findActiveSession: remoteSession('guest'),
+      findRegistryByMachineId: async () => ({ data: null, error: { message: 'db down' } }),
+    });
+
+    const result = await handleUpsertPatch(envelope, deps);
+
+    expect(result).toEqual({ status: 500, body: { error: 'permission_check_failed' } });
     expect(upsertPatch).not.toHaveBeenCalled();
   });
 

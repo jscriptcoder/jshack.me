@@ -1,19 +1,38 @@
 # Plan: Story 3 — B modifies A's filesystem (cross-player WRITE + the shared-journal PK flip)
 
 **Branch**: feat/v2-crossplayer-write (per-slice branches below)
-**Status**: **Active — NEXT: Slice 1 (the PK flip enabler)**
+**Status**: **Active — Slice 1 ✅ SHIPPED (#242, `d45e98d`, v0.60.0); Slice 2 IMPLEMENTED on
+`feat/v2-crossplayer-write-2` (v0.61.0, awaiting commit→PR→merge); NEXT: Slice 3**
 **Parent epic**: `plans/multiplayer-crossplayer-epic.md` (Story 3 row)
 **Authored**: 2026-06-14 (via `planning`, after grounding the v2 read+write paths)
 
-> **RESUME POINTER (post-compaction — read this first).** Story 2 (cross-player READ) is
-> SHIPPED & MERGED (#237–#240, v0.59.0); main is clean. This plan is APPROVED. **NEXT =
-> Slice 1 (the PK flip enabler)** — start by loading `tdd`, `testing`, `mutation-testing`,
-> `refactoring`, then present Slice 1's acceptance criteria for the CONFIRM gate, then RED.
-> Everything needed to implement Slice 1 cold is in this file: the locked decisions (D1–D8),
-> the call-site map, the **Grounding reference** (exact current schema + function signatures +
-> file:line), and the **Commands & infra** block below. No re-exploration required. Version is
-> 0.59.0 → bump to **0.60.0** on Slice 1 (feature). Per-slice branch: `feat/v2-crossplayer-write-1`.
-> Do NOT write production code until Slice 1's acceptance criteria are human-approved.
+> **RESUME POINTER (post-compaction — read this first).** Story 2 (cross-player READ) shipped
+> (#237–#240). **Slice 1 (PK flip) ✅ MERGED** (#242, `d45e98d`, v0.60.0). **Slice 2 (first
+> cross-player guest WRITE) IMPLEMENTED** on branch `feat/v2-crossplayer-write-2` (v0.61.0,
+> awaiting commit→PR→merge): L2 (`remoteWritePermission.ts`) gained the **owner-materialized
+> registry branch (D6)** — `enforceRemoteWriteL2` now resolves the target FS as (1) an NPC host
+> on the caller's LAN (`hostForMachineId`, pure), else (2) a registered foreign workstation via
+> the new `findRegistryByMachineId` dep → `buildRegisteredWorkstationFs` (exported helper, also
+> adopted by `resolveCrossPlayerFs.materialize` for D6 single-source), else (3) fail closed →
+> `permission_denied`; then `createFsView(tree,{userType:session.userType}).canWrite`. Dep
+> threaded through `upsertPatch`+`removePatch`+`api/patches.ts`. Client: `wrapWithRefetch`
+> (`ui/state.ts`) now calls `refreshServedRoot()` after a successful write so B's cross-player
+> view shows its own change (self-guards: no-op on own box). 100% mut on new core
+> (`remoteWritePermission` 40/40, read handler 62/62); suite 1295 green; **6/6 live wire**
+> (`scripts/testCrossPlayerWrite.ts`) + read 7/7 + journal 4/4. **agent-browser two-identity UI
+> E2E DEFERRED by owner choice** (the one untested line is the client `refreshServedRoot` glue —
+> this project verifies `state.ts` reactive glue via agent-browser, not vitest).
+>
+> **NEXT = Slice 3 (cross-player write permission BOUNDARY).** Note Slice 2 already landed the
+> deny GATE (the walker `canWrite` runs at the session tier on A's owner-materialized tree, and
+> a guest-denied-on-`/etc/passwd` case is already tested + wire-proven). Slice 3 EXPANDS the
+> boundary coverage: parent-dir traversal denials, `/home/<A>` denials, the **divergence proof**
+> (a path writable on the CALLER's own box but NOT on A's is still denied → proves it
+> materializes A's tree, not the caller's), and "wire leaks nothing on deny / no row written"
+> across path types. Mostly additional tests over the existing branch; little/no new production
+> code expected. Load `tdd`/`testing`/`mutation-testing`/`refactoring`; branch
+> `feat/v2-crossplayer-write-3`; bump v0.61.0 → 0.62.0. Decisions D1–D8, the call-site map, the
+> **Grounding reference**, and the **Commands & infra** block remain valid below.
 
 ## Goal
 
@@ -209,7 +228,13 @@ feature slices.
 
 ---
 
-### Slice 1: Flip `patches` to the shared chronological journal (enabler)
+### Slice 1: Flip `patches` to the shared chronological journal (enabler) — ✅ SHIPPED (#242, v0.60.0)
+
+> Done: `orderPatchesForReplay` (100% mut); all patches-table handlers + api glue re-keyed to
+> `writer_key`/machine-scope; migration `20260614130000_patches_shared_journal.sql` (PK trio +
+> `BEFORE UPDATE` trigger). 1289 suite green, 100% mut on changed pure code, 28/28 live wire
+> checks (`testSharedJournal` 4/4, `testUpsertPatch` 12/12, `testCrossPlayerRead` 7/7,
+> `verifyPatchesRls` 5/5). Cross-player writes remain L2-denied (Slice 2 lifts that).
 
 **Value**: Establishes the shared-journal storage model that every cross-player write depends
 on, WITHOUT changing any observable behavior — a clean migration + mechanical re-key that
@@ -252,7 +277,19 @@ Story-2 7/7), human approves commit.
 
 ---
 
-### Slice 2: First cross-player guest WRITE — B writes A's box, A sees it (walking skeleton)
+### Slice 2: First cross-player guest WRITE — B writes A's box, A sees it (walking skeleton) — ✅ IMPLEMENTED (v0.61.0, awaiting merge)
+
+> Done: L2 registry-fallback branch (D6) in `remoteWritePermission.ts` (`enforceRemoteWriteL2`
+> NPC→registry→fail-closed; new `findRegistryByMachineId` dep + `RegistryWorkstation`/
+> `FindRegistryByMachineId` types + exported `buildRegisteredWorkstationFs`); dep threaded
+> through `upsertPatch`+`removePatch`+`api/patches.ts`; `resolveCrossPlayerFs.materialize`
+> refactored to reuse `buildRegisteredWorkstationFs` (D6 single-source); client
+> `wrapWithRefetch`→`refreshServedRoot()` after write (`ui/state.ts`). 100% mut
+> (`remoteWritePermission` 40/40, read 62/62); 1295 suite green; tsc+lint clean; **6/6 live wire**
+> (`scripts/testCrossPlayerWrite.ts`) + read 7/7 + journal 4/4. agent-browser two-identity UI
+> E2E DEFERRED by owner choice (only the client `refreshServedRoot` glue line is unverified —
+> that layer is agent-browser-verified in this project, not vitest). Slice 3 lifts the full
+> deny-boundary coverage.
 
 **Value**: The headline new behavior — the first time one player's change to another player's
 machine actually persists and is seen. Proves the shared-journal write path end to end.

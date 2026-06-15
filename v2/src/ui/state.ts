@@ -377,6 +377,11 @@ const wrapWithRefetch = (inner: PatchApi): PatchApi => {
       const result = await method(...args);
       if (result.ok) {
         await refetchPatches();
+        // A cross-player hop renders from the SERVER-served tree, not the local
+        // journal, so re-pull it after a successful write or the writer wouldn't see
+        // its own change until a hop/reload. Self-guards: a no-op clear (no network)
+        // on the own box / a local-LAN hop where the journal already drives the view.
+        await refreshServedRoot();
         // Tell other tabs to re-pull — only after our own journal reflects the
         // server-persisted write, so a receiver's refetch sees the new truth.
         // The workstation id is constant, so read it from the (non-reactive)
