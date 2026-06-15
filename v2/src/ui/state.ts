@@ -604,17 +604,36 @@ export const abortRunning = (): boolean => {
   return true;
 };
 
-export const runInput = async (): Promise<void> => {
-  const currentSession = requireSession();
-  const activePatchApi = patchApi;
-  if (activePatchApi === undefined) throw new Error('startGame must be called before runInput');
+/** Serializes command execution: a shell runs ONE command at a time. Each
+ *  submission chains after the previous so a fast-typed (or programmatic) second
+ *  command runs only AFTER the first fully completes — including its async server
+ *  refresh — instead of snapshotting a stale FS view mid-refresh (the
+ *  `root: activeRoot()` env is a point-in-time snapshot). Errors are isolated so
+ *  one failed command can't poison the chain. Interactive prompts (su/ssh
+ *  password) resolve through `submitPrompt`, never here, so they stay responsive
+ *  while a command runs. */
+let commandChain: Promise<void> = Promise.resolve();
 
+export const runInput = (): Promise<void> => {
+  // Capture + clear the input at SUBMIT time so the box frees up immediately and
+  // a typed-ahead line is queued (not lost); the echo + run happen in chain order.
   const line = input();
-  // Record real commands for ArrowUp/Down recall and snap the cursor back to
-  // the live prompt; blank/whitespace lines never enter the recallable list.
   if (line.trim()) setCommandHistory((previous) => [...previous, line]);
   setHistoryNav(idleNav());
   setInput('');
+  const run = commandChain.then(() => executeLine(line));
+  // The sequencing chain swallows errors so the NEXT queued command still runs;
+  // the returned promise still reflects THIS command's outcome for callers.
+  commandChain = run.catch(() => undefined);
+  return run;
+};
+
+const executeLine = async (line: string): Promise<void> => {
+  // Session + patch client are read at EXECUTION time (chain order), so a queued
+  // command sees the state left by the one before it (e.g. an `ssh` hop's session).
+  const currentSession = requireSession();
+  const activePatchApi = patchApi;
+  if (activePatchApi === undefined) throw new Error('startGame must be called before runInput');
 
   setScrollback((previous) => [
     ...previous,

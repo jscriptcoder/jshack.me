@@ -212,17 +212,18 @@ describe('Terminal', () => {
 
   it('Ctrl-C aborts a running aircrack before the key is revealed', async () => {
     // End-to-end abort wiring: the keyhandler calls abortRunning(), which aborts
-    // the run's controller → rejects the in-flight env.sleep → runInput catches
+    // the run's controller → rejects the in-flight env.sleep → the run catches
     // it, prints `^C`, and stops. The KEY FOUND reveal must never appear.
+    // The shell runs ONE command at a time, so let the streaming scan finish
+    // before the crack takes the foreground (it would otherwise queue behind it).
     renderTerminal();
     runCommand('airmon start wlan0');
     await screen.findByText((content) => content.includes('monitor mode enabled on wlan0'));
     runCommand('airdump');
-    const bssidRow = await screen.findByText(
-      (content) => /^[0-9A-F]{2}(:[0-9A-F]{2}){5}\s+-\d+/.test(content),
-      {},
-      { timeout: 4000 },
-    );
+    await screen.findByText((content) => content.includes('Scan complete'), {}, { timeout: 8000 });
+    const bssidRow = screen.getAllByText((content) =>
+      /^[0-9A-F]{2}(:[0-9A-F]{2}){5}\s+-\d+/.test(content),
+    )[0]!;
     const bssid = bssidRow.textContent!.trim().split(/\s+/)[0]!;
 
     runCommand(`aircrack ${bssid}`);
