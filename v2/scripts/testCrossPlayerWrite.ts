@@ -198,6 +198,56 @@ check(
   `status=${w6.status} error=${errorOf(w6.body)} rows=${rows6?.length ?? 0}`,
 );
 
+// 7. Boundary (create gap): B (guest) creating a NEW file under root-only /root →
+//    403, NO row. The CONTAINING dir gates the create, closing the
+//    create-anywhere gap (a guest can't plant a file in a dir it can't write).
+const w7 = await post(
+  PATCHES,
+  signRequest(bob, 'upsertPatch', {
+    machine_id: A_MACHINE,
+    path: '/root/implant',
+    content: 'persistence',
+    owner: 'guest',
+    is_new: true,
+    node_type: 'file',
+  }),
+);
+const { data: rows7 } = await sr
+  .from('patches')
+  .select('writer_key')
+  .eq('machine_id', A_MACHINE)
+  .eq('path', '/root/implant');
+check(
+  'B (guest) denied creating /root/implant on A’s box → 403, no row',
+  w7.status === 403 && errorOf(w7.body) === 'permission_denied' && (rows7?.length ?? 0) === 0,
+  `status=${w7.status} error=${errorOf(w7.body)} rows=${rows7?.length ?? 0}`,
+);
+
+// 8. Boundary (create gap): B (guest) creating a NEW file inside A's OWN home dir →
+//    403, NO row (HOME_DIR excludes guest from write + traverse).
+const homeSecret = '/home/alice/secret';
+const w8 = await post(
+  PATCHES,
+  signRequest(bob, 'upsertPatch', {
+    machine_id: A_MACHINE,
+    path: homeSecret,
+    content: 'in your home',
+    owner: 'guest',
+    is_new: true,
+    node_type: 'file',
+  }),
+);
+const { data: rows8 } = await sr
+  .from('patches')
+  .select('writer_key')
+  .eq('machine_id', A_MACHINE)
+  .eq('path', homeSecret);
+check(
+  'B (guest) denied creating /home/alice/secret on A’s box → 403, no row',
+  w8.status === 403 && errorOf(w8.body) === 'permission_denied' && (rows8?.length ?? 0) === 0,
+  `status=${w8.status} error=${errorOf(w8.body)} rows=${rows8?.length ?? 0}`,
+);
+
 // Cleanup.
 await sr.from('network_registry').delete().eq('public_ip', A_PUBLIC_IP);
 await sr.from('patches').delete().eq('machine_id', A_MACHINE);
