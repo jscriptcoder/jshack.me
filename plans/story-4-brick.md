@@ -53,7 +53,7 @@ Epic: `plans/multiplayer-crossplayer-epic.md` (Story 4). As-built model: `v2/doc
 - [x] On a returning player's app entry, the boot screen checks the replayed FS; with both boot files present it reaches the terminal. _(Slice 2)_
 - [x] If a required boot file is missing in the replayed FS, the boot halts on a GRUB/kernel-panic screen and the terminal never appears (permanent — no recovery action). _(Slice 2)_
 - [x] B (root on A) deletes `/boot/vmlinuz`; on A's next load A's box is bricked. _(Slice 2)_
-- [ ] `reboot` (root-only) forces a cold boot: on a box with a missing boot file it shows the panic and the box is bricked; on an intact box it boots successfully.
+- [x] `reboot` (root-only) forces a cold boot: on a box with a missing boot file it shows the panic and the box is bricked; on an intact box it boots successfully. _(Slice 3 ✅)_
 - [ ] After A is bricked, B (or a third identity) scanning A's public IP sees the host down, and `ssh` to A is refused.
 
 ## Slices
@@ -115,7 +115,13 @@ _Shipped on `feat/v2-boot-brick` (v0.65.0): `core/boot/bootFiles.ts` (pure `canB
 
 ---
 
-### Slice 3: `reboot` forces a cold boot (the in-game brick trigger)
+### Slice 3: `reboot` forces a cold boot (the in-game brick trigger) — ✅ COMPLETE
+
+_On `feat/v2-reboot` (v0.66.0; commits `51e9395` feat + `3376c9c` refactor + `acecb2b` fix): `core/commands/reboot.ts` — a streamed command (shutdown → BIOS → boot result) that decides via `canBoot(env.fs.root())` (the current machine: own box, or A's server-served tree on a cross-player hop), then DISCONNECTS from the rebooted machine (pops every session on it, never the base login). Root-only is enforced by the existing binary gate (`/bin/reboot` execute:['root'], proven in `availability.test.ts`) — no internal tier check (dead in prod), matching legacy. Registered in `core/commands/registry.ts` (auto-gated; reboot links libsystemd). Refactor: shared brick copy extracted to `core/boot/bootMessages.ts` (`BOOT_FAILURE`), consumed by both reboot.ts and boot.tsx — one source of truth, no drift._
+
+_**Prereq fix (`acecb2b`)**: `env.fs.root()` only reflected A for an `ssh` session — `isCrossPlayerHop` required `kind:'ssh'`, so a `su` elevation cleared A's served tree and reads fell back to B's OWN box (a latent Story-2 bug: `ls`/`cat` as root-on-A showed your own box). Relaxed `isCrossPlayerHop` to treat `ssh` AND `su` as cross-player hops (service kinds excluded). No server change — `findActiveSession` already returns the top-of-stack su row, so `resolveCrossPlayerFs` serves A's full tree at root._
+
+_Verified: full suite (1358) + lint + tsc green; reboot.ts 83.87% mutation (survivors are animation flavor / manual copy / shared text() kind — accepted cosmetic), activeRoot.ts isCrossPlayerHop change 100% killed; BOOT_FAILURE values pinned by reboot exact-tail `toEqual` + boot `getByText`. **Live two-identity E2E PASSED** (agent-browser): B rehydrated root@skylab → `ls /boot` shows A's real tree (proves the su-tree fix) → `rm /boot/vmlinuz` → `reboot` showed A's GRUB "no loaded kernel" panic (A's actual state) and dropped B back to mallory@bob-rig (both A sessions popped). Seeded data cleaned; 0 leftovers._
 
 **Value**: The attacker (and owner) get the deliberate "delete **and** reboot" verb — force the brick now and see it happen, instead of waiting for the victim's next login; also the realistic way to reboot your own box.
 **Path**: NEW `core/commands/reboot.ts` (root-only, current machine). Own box: animate shutdown + BIOS, then `canBoot(env.fs.root())` → success lines or panic lines, then re-enter the boot flow (a real cold boot). Cross-player (B root on A): the command materializes A's `/boot` server-side (same registry rebuild + journal replay the read path uses) to decide success vs which-file-missing, animates the panic, and forces the trigger. Persists nothing new — the `rm` tombstone is the state.
