@@ -47,8 +47,8 @@ Epic: `plans/multiplayer-crossplayer-epic.md` (Story 4). As-built model: `v2/doc
 
 ## Acceptance Criteria (story-level)
 
-- [ ] B, ssh'd into A as guest, can `su` to root with A's root password (server-validated); a wrong password returns `su: Authentication failure` and leaves B as guest.
-- [ ] As root on A, B can write a root-owned path that guest was denied (proves root-tier authorization is server-enforced, not a client claim).
+- [x] B, ssh'd into A as guest, can `su` to root with A's root password (server-validated); a wrong password returns `su: Authentication failure` and leaves B as guest. _(Slice 1)_
+- [x] As root on A, B can write a root-owned path that guest was denied (proves root-tier authorization is server-enforced, not a client claim). _(Slice 1)_
 - [ ] Every generated machine FS contains `/boot/vmlinuz` and `/boot/initrd.img` (root-owned, root-write).
 - [ ] On a returning player's app entry, the boot screen checks the replayed FS; with both boot files present it reaches the terminal.
 - [ ] If a required boot file is missing in the replayed FS, the boot halts on a GRUB/kernel-panic screen and the terminal never appears (permanent — no recovery action).
@@ -62,7 +62,9 @@ Every slice follows RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR. No production code w
 
 ---
 
-### Slice 1: B can `su` to root on A's box with A's root password, server-validated
+### Slice 1: B can `su` to root on A's box with A's root password, server-validated — ✅ COMPLETE
+
+_Shipped on `feat/v2-su-elevation`: `core/sessions/authElevateSession.ts` (suElevate handler), `adapters/sessionsApi.ts` (`authElevateServerSession` + `SuElevateParams`/`SuApi`), `core/network/crossPlayerHop.ts` (shared `isCrossPlayerWorkstation`), `core/commands/su.ts` cross-player branch, `ui/state.ts`/`ui/env.ts` wiring, `api/sessions.ts` route. Verified: 100% mutation on new pure code; `scripts/testCrossPlayerSuElevate.ts` 7/7; full two-identity browser E2E (crack→connect→nmap→ssh→guest-denied→su root→root write). Auth.log trace deferred to Story 6._
 
 **Value**: Attacker B gains a server-authoritative root session on victim A's registered workstation — the enabling spine; without it every brick write is denied at L2.
 **Path**: B (already ssh'd into A as guest) runs `su` → client cross-player branch posts a signed `suElevate` to `/api/sessions` → server resolves A via `findRegistryByMachineId(currentMachineId)`, validates `md5(typed) === workstation_root_hash`, inserts a `kind:'su'` row `{player_key:B, machine_id:A, credentials:{username:'root',userType:'root'}, parent_session_id: the guest ssh row}` → L1 now returns that row (latest) → L2 runs at `root`. Observable through a subsequent write to a root-owned path.
