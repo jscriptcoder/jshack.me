@@ -9,6 +9,8 @@
     "dev": "vite",
     "prebuild": "npm run encode",
     "build": "tsc -b && vite build",
+    "pretypecheck": "npm run encode",
+    "typecheck": "tsc -b",
     "lint": "eslint .",
     "pretest": "npm run encode",
     "test": "vitest",

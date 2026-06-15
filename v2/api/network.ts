@@ -29,8 +29,10 @@ import type { NonceStore } from '../src/core/signedRequest/nonceStore';
 //     registered machine — host up/down + the owner's real open ports (read from
 //     the owner's /var/run/*.pid patch rows)
 //
-// Logic lives in typechecked core/ handlers; this file stays a thin Supabase
-// adapter (api/* is not typechecked locally — project_v2_api_not_typechecked_locally).
+// Logic lives in core/ handlers (unit + mutation tested); this file stays a thin
+// Supabase adapter. It's typechecked via tsconfig.node.json (`npm run typecheck`),
+// but its runtime correctness (column names, constraints) is only proven by the
+// wire-check scripts against a live endpoint.
 //
 // Replay protection uses a noop nonce store locally (Upstash wiring lands with
 // cross-player writes, Story 3). Same posture as /api/patches and /api/sessions.

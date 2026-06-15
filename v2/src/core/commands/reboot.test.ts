@@ -4,8 +4,8 @@ import { mockCommandEnv, mockFsViewFromTree, mockSession } from '../../test/fact
 import { commandRegistry } from './registry';
 import { createBinaryEntries } from '../generation/binaries';
 import { asAbsPath, asMachineId, type MachineId } from '../types';
-import type { CommandResult, FileNode, HopChain, Session } from './types';
-import type { Directory } from '../filesystem/types';
+import type { CommandResult, HopChain, Session } from './types';
+import type { Directory, FileNode } from '../filesystem/types';
 import { reboot } from './reboot';
 
 /**
