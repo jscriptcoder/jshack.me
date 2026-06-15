@@ -49,10 +49,10 @@ Epic: `plans/multiplayer-crossplayer-epic.md` (Story 4). As-built model: `v2/doc
 
 - [x] B, ssh'd into A as guest, can `su` to root with A's root password (server-validated); a wrong password returns `su: Authentication failure` and leaves B as guest. _(Slice 1)_
 - [x] As root on A, B can write a root-owned path that guest was denied (proves root-tier authorization is server-enforced, not a client claim). _(Slice 1)_
-- [ ] Every generated machine FS contains `/boot/vmlinuz` and `/boot/initrd.img` (root-owned, root-write).
-- [ ] On a returning player's app entry, the boot screen checks the replayed FS; with both boot files present it reaches the terminal.
-- [ ] If a required boot file is missing in the replayed FS, the boot halts on a GRUB/kernel-panic screen and the terminal never appears (permanent — no recovery action).
-- [ ] B (root on A) deletes `/boot/vmlinuz`; on A's next load A's box is bricked.
+- [x] Every generated machine FS contains `/boot/vmlinuz` and `/boot/initrd.img` (root-owned, root-write). _(Slice 2)_
+- [x] On a returning player's app entry, the boot screen checks the replayed FS; with both boot files present it reaches the terminal. _(Slice 2)_
+- [x] If a required boot file is missing in the replayed FS, the boot halts on a GRUB/kernel-panic screen and the terminal never appears (permanent — no recovery action). _(Slice 2)_
+- [x] B (root on A) deletes `/boot/vmlinuz`; on A's next load A's box is bricked. _(Slice 2)_
 - [ ] `reboot` (root-only) forces a cold boot: on a box with a missing boot file it shows the panic and the box is bricked; on an intact box it boots successfully.
 - [ ] After A is bricked, B (or a third identity) scanning A's public IP sees the host down, and `ssh` to A is refused.
 
@@ -87,7 +87,9 @@ _Shipped on `feat/v2-su-elevation`: `core/sessions/authElevateSession.ts` (suEle
 
 ---
 
-### Slice 2 (walking skeleton): a machine with a missing `/boot` file fails to boot
+### Slice 2 (walking skeleton): a machine with a missing `/boot` file fails to boot — ✅ COMPLETE
+
+_Shipped on `feat/v2-boot-brick` (v0.65.0): `core/boot/bootFiles.ts` (pure `canBoot`, 100% mut), `core/generation/baseFs.ts` (shared `bootDir()` + `BOOT_FILE`, composed by both generators, 100% mut), `ui/screens/boot.tsx` (async cascade branches on `resolveBoot` → success handoff or GRUB/kernel-panic halt, ported legacy copy), `ui/state.ts` `resolveBootCheck()` (own-box base + own shared journal → `canBoot`, independent of hop session), `ui/screens/app.tsx` (returning players boot every entry). Verified: full v2 suite (1346) + lint + tsc green; resolveBootCheck mutation survivors are type-narrowing-guard equivalents. E2E (agent-browser): own-box self-brick organic through the UI (su root → rm /boot/vmlinuz → reload → permanent panic, no terminal, across two reloads); cross-player brick (B = distinct identity, root on A via a rehydrated cross-player su session, `rm /boot/vmlinuz` on A → A reloads → panic) — precondition (registry + B sessions) seeded as the wire-check does, the rm + A-reload→panic driven fully through the UI._
 
 **Value**: A (owner) and B (attacker) both get the core payoff — a box whose boot file is gone halts at a kernel panic on next load, with no terminal, permanently.
 **Path**: `core/generation/baseFs.ts` gains `/boot/{vmlinuz,initrd.img}` (root-owned, root-write) so every generator emits it → on app entry for a returning player, `app.tsx`/`state.ts` resolve the FS (`fetchOwnPatches` + replay), then `boot.tsx` calls the shared `canBoot(root)` → present → terminal; missing → render GRUB/kernel-panic lines and halt (no terminal mount). Cross-player: B (root on A, from Slice 1) `rm /boot/vmlinuz` (shipped tombstone path) → A's next load replays the tombstone → `canBoot` fails → A bricked.
