@@ -9,6 +9,7 @@ import { workstationGuestPassword } from '../generation/workstationFs';
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
 import { md5 } from '../generation/md5';
+import type { OwnerPatchRow } from '../network/materializeWorkstationFs';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
 /**
@@ -35,16 +36,36 @@ const REGISTRY: RegistryWorkstation = {
 };
 const GUEST_PW = workstationGuestPassword(OWNER.publicKeyHex);
 
+/** A root `rm /boot/vmlinuz` on the shared journal — replayed, it deletes the
+ *  kernel so `canBoot` reports the box bricked (unreachable to logins). */
+const bootTombstone: OwnerPatchRow = {
+  path: '/boot/vmlinuz',
+  content: null,
+  owner: 'root',
+  permissions: null,
+  node_type: null,
+  updated_at: '2026-06-16T00:00:00.000Z',
+  writer_key: OWNER.publicKeyHex,
+};
+
 type LookupResult = { data: RegistryWorkstation | null; error: unknown };
+type PatchesResult = { data: readonly OwnerPatchRow[] | null; error: unknown };
 
 const makeDeps = (
   lookup: () => Promise<LookupResult> = async () => ({ data: REGISTRY, error: null }),
   insert: () => Promise<{ error: unknown }> = async () => ({ error: null }),
+  patches: () => Promise<PatchesResult> = async () => ({ data: [], error: null }),
 ) => {
   const findRegistryByPublicIp = vi.fn<(publicIp: string) => Promise<LookupResult>>(lookup);
+  const findPatches = vi.fn<(query: { machine_id: string }) => Promise<PatchesResult>>(patches);
   const insertSession = vi.fn<(row: AuthSessionRow) => Promise<{ error: unknown }>>(insert);
-  const deps: AuthCreateSessionPublicDeps = { nonceStore: freshStore, findRegistryByPublicIp, insertSession };
-  return { deps, findRegistryByPublicIp, insertSession };
+  const deps: AuthCreateSessionPublicDeps = {
+    nonceStore: freshStore,
+    findRegistryByPublicIp,
+    findPatches,
+    insertSession,
+  };
+  return { deps, findRegistryByPublicIp, findPatches, insertSession };
 };
 
 const envelope = (id: ReturnType<typeof generateIdentity>, fields: Record<string, unknown>) =>
@@ -150,6 +171,42 @@ describe('handleAuthCreateSessionPublic', () => {
     );
 
     expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+
+  it('refuses login to a bricked machine (a /boot tombstone) as host_unreachable, before the password is checked and without inserting', async () => {
+    const attacker = generateIdentity();
+    const { deps, findPatches, insertSession } = makeDeps(
+      async () => ({ data: REGISTRY, error: null }),
+      undefined,
+      async () => ({ data: [bootTombstone], error: null }),
+    );
+
+    // A CORRECT root password — the brick must win regardless, proving the boot
+    // check short-circuits before (and independent of) password validation.
+    const result = await handleAuthCreateSessionPublic(
+      envelope(attacker, { username: 'root', password: 'matrix1999' }),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    expect(findPatches).toHaveBeenCalledWith({ machine_id: 'skylab-deadbeef' });
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+
+  it('reports a server error when the boot-state patch lookup fails, without inserting', async () => {
+    const attacker = generateIdentity();
+    const { deps, insertSession } = makeDeps(undefined, undefined, async () => ({
+      data: null,
+      error: new Error('db down'),
+    }));
+
+    const result = await handleAuthCreateSessionPublic(
+      envelope(attacker, { username: 'guest', password: GUEST_PW }),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 500, body: { error: 'patches_lookup_failed' } });
     expect(insertSession).not.toHaveBeenCalled();
   });
 

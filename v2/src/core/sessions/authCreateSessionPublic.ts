@@ -20,6 +20,8 @@ import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { buildWorkstationBaseFsFromIdentity } from '../generation/workstationFs';
 import { md5 } from '../generation/md5';
 import { accountIn } from './passwdAccount';
+import { materializeWorkstationFs, type OwnerPatchRow } from '../network/materializeWorkstationFs';
+import { canBoot } from '../boot/bootFiles';
 import type { AuthSessionRow, HandlerResponse } from './authCreateSession';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
@@ -40,6 +42,13 @@ export type AuthCreateSessionPublicDeps = {
   readonly findRegistryByPublicIp: (
     publicIp: string,
   ) => Promise<{ readonly data: RegistryWorkstation | null; readonly error: unknown }>;
+  /** The target's FULL patch journal (scoped to `machine_id`, server order) so the
+   *  gate can replay it over the regenerated base and ask `canBoot`: a bricked box
+   *  (a `/boot` tombstone) is unreachable, so the login is refused before the
+   *  password is ever checked. */
+  readonly findPatches: (query: {
+    readonly machine_id: string;
+  }) => Promise<{ readonly data: readonly OwnerPatchRow[] | null; readonly error: unknown }>;
   readonly insertSession: (row: AuthSessionRow) => Promise<{ readonly error: unknown }>;
 };
 
@@ -75,6 +84,18 @@ export const handleAuthCreateSessionPublic = async (
     return { status: 500, body: { error: 'registry_lookup_failed' } };
   }
   if (data === null) {
+    return { status: 404, body: { error: 'host_unreachable' } };
+  }
+
+  // A bricked box is off the network: replay the machine's journal over its
+  // regenerated base and ask `canBoot`. A root `rm /boot/vmlinuz` (tombstone) makes
+  // it unbootable, so the login is refused as host_unreachable BEFORE the password
+  // is checked — a dead box can't be logged into no matter the credentials.
+  const patches = await deps.findPatches({ machine_id: data.workstation_machine_id });
+  if (patches.error) {
+    return { status: 500, body: { error: 'patches_lookup_failed' } };
+  }
+  if (!canBoot(materializeWorkstationFs(data, patches.data)).ok) {
     return { status: 404, body: { error: 'host_unreachable' } };
   }
 

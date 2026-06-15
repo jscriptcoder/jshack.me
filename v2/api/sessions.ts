@@ -9,6 +9,7 @@ import {
   handleAuthCreateSessionPublic,
   type RegistryWorkstation,
 } from '../src/core/sessions/authCreateSessionPublic';
+import type { OwnerPatchRow } from '../src/core/network/materializeWorkstationFs';
 import {
   handleAuthElevateSession,
   type SuSessionRow,
@@ -166,9 +167,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (error) console.error('[sessions] public auth insert error:', error);
       return { error };
     };
+    // The target's FULL journal (scoped to machine_id, server order) so the gate can
+    // materialize A's box and refuse a login to a bricked (dark) machine before the
+    // password is ever checked.
+    const findPatches = async ({ machine_id }: { machine_id: string }) => {
+      const { data, error } = await supabase
+        .from('patches')
+        .select('path, content, owner, permissions, node_type, updated_at, writer_key')
+        .eq('machine_id', machine_id)
+        .order('updated_at', { ascending: true })
+        .order('writer_key', { ascending: true });
+      if (error) console.error('[sessions] public auth boot-state lookup error:', error);
+      return { data: data as readonly OwnerPatchRow[] | null, error };
+    };
     const { status, body } = await handleAuthCreateSessionPublic(req.body, {
       nonceStore: noopNonceStore,
       findRegistryByPublicIp,
+      findPatches,
       insertSession: insertSessionPublic,
     });
     res.status(status).json(body);

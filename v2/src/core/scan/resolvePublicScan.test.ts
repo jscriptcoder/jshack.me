@@ -7,6 +7,8 @@ import {
 } from './resolvePublicScan';
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
+import { md5 } from '../generation/md5';
+import type { OwnerPatchRow } from '../network/materializeWorkstationFs';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
 /**
@@ -21,25 +23,47 @@ import type { NonceStore } from '../signedRequest/nonceStore';
 
 const freshStore: NonceStore = async () => ({ fresh: true });
 const TARGET = '203.0.113.7';
+// A real identity so the regenerated base FS carries a populated `/boot` (present →
+// bootable by default); the boot-state check replays the journal over this base.
+const OWNER = generateIdentity();
 const REGISTERED: RegistryLookup = {
   workstation_machine_id: 'skylab-deadbeef',
+  owner_key: OWNER.publicKeyHex,
+  workstation_username: 'neo',
+  workstation_root_hash: md5('matrix1999'),
+};
+
+/** A root `rm /boot/vmlinuz` on the shared journal — replayed, it deletes the
+ *  kernel so `canBoot` reports the box bricked (dark to scanners). */
+const bootTombstone: OwnerPatchRow = {
+  path: '/boot/vmlinuz',
+  content: null,
+  owner: 'root',
+  permissions: null,
+  node_type: null,
+  updated_at: '2026-06-16T00:00:00.000Z',
+  writer_key: OWNER.publicKeyHex,
 };
 
 type LookupResult = { data: RegistryLookup | null; error: unknown };
 type RunFilesResult = { data: readonly RunFileRow[] | null; error: unknown };
+type PatchesResult = { data: readonly OwnerPatchRow[] | null; error: unknown };
 
 const makeDeps = (
   lookup: () => Promise<LookupResult> = async () => ({ data: null, error: null }),
   runFiles: () => Promise<RunFilesResult> = async () => ({ data: [], error: null }),
+  patches: () => Promise<PatchesResult> = async () => ({ data: [], error: null }),
 ) => {
   const findRegistryByPublicIp = vi.fn<(publicIp: string) => Promise<LookupResult>>(lookup);
   const findRunFiles = vi.fn<(query: { machine_id: string }) => Promise<RunFilesResult>>(runFiles);
+  const findPatches = vi.fn<(query: { machine_id: string }) => Promise<PatchesResult>>(patches);
   const deps: ResolvePublicScanDeps = {
     nonceStore: freshStore,
     findRegistryByPublicIp,
     findRunFiles,
+    findPatches,
   };
-  return { deps, findRegistryByPublicIp, findRunFiles };
+  return { deps, findRegistryByPublicIp, findRunFiles, findPatches };
 };
 
 const envelope = (
@@ -59,14 +83,49 @@ describe('handleResolvePublicScan', () => {
     expect(findRegistryByPublicIp).toHaveBeenCalledWith(TARGET);
   });
 
+  it('reports a bricked machine (a /boot tombstone on its journal) as host down, with no ports', async () => {
+    const id = generateIdentity();
+    const { deps, findRunFiles, findPatches } = makeDeps(
+      async () => ({ data: REGISTERED, error: null }),
+      // The owner still has sshd running — but a bricked box must go dark anyway.
+      async () => ({ data: [{ path: '/var/run/sshd.pid', content: 'sshd:port=22' }], error: null }),
+      async () => ({ data: [bootTombstone], error: null }),
+    );
+
+    const result = await handleResolvePublicScan(envelope(id, TARGET), deps);
+
+    // Host-down shape — indistinguishable from an unregistered IP (the client maps
+    // `found: false` to "Host seems down"); the lingering pidfile is not reported.
+    expect(result).toEqual({ status: 200, body: { ok: true, found: false, ports: [] } });
+    // The boot state is read from the resolved machine's own journal...
+    expect(findPatches).toHaveBeenCalledWith({ machine_id: REGISTERED.workstation_machine_id });
+    // ...and the brick short-circuits before the ports are ever read.
+    expect(findRunFiles).not.toHaveBeenCalled();
+  });
+
+  it('reports a server error when the boot-state patch lookup fails, without reading ports', async () => {
+    const id = generateIdentity();
+    const { deps, findRunFiles } = makeDeps(
+      async () => ({ data: REGISTERED, error: null }),
+      async () => ({ data: [], error: null }),
+      async () => ({ data: null, error: new Error('db down') }),
+    );
+
+    const result = await handleResolvePublicScan(envelope(id, TARGET), deps);
+
+    expect(result).toEqual({ status: 500, body: { error: 'patches_lookup_failed' } });
+    expect(findRunFiles).not.toHaveBeenCalled();
+  });
+
   it('reports an unregistered public IP as not found, with no ports', async () => {
     const id = generateIdentity();
-    const { deps, findRunFiles } = makeDeps(async () => ({ data: null, error: null }));
+    const { deps, findRunFiles, findPatches } = makeDeps(async () => ({ data: null, error: null }));
 
     const result = await handleResolvePublicScan(envelope(id, '203.0.113.99'), deps);
 
     expect(result).toEqual({ status: 200, body: { ok: true, found: false, ports: [] } });
-    // No registry row → no machine to read ports from; the run-files read is skipped.
+    // No registry row → no machine to check or read ports from; both reads skipped.
+    expect(findPatches).not.toHaveBeenCalled();
     expect(findRunFiles).not.toHaveBeenCalled();
   });
 
