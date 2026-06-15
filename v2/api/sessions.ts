@@ -9,6 +9,7 @@ import {
   handleAuthCreateSessionPublic,
   type RegistryWorkstation,
 } from '../src/core/sessions/authCreateSessionPublic';
+import type { OwnerPatchRow } from '../src/core/network/materializeWorkstationFs';
 import {
   handleAuthElevateSession,
   type SuSessionRow,
@@ -120,11 +121,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // content + upsert the appended line (read-modify-write, bypassing L1/L2 —
     // the service logs it, not the player). Same `patches`-table shapes as the su
     // appender in /api/patches.
-    const readAuthLog = async ({ player_key, machine_id, path }: MachineLogReadQuery) => {
+    const readAuthLog = async ({ writer_key, machine_id, path }: MachineLogReadQuery) => {
       const { data, error } = await supabase
         .from('patches')
         .select('content')
-        .eq('player_key', player_key)
+        .eq('writer_key', writer_key)
         .eq('machine_id', machine_id)
         .eq('path', path)
         .maybeSingle();
@@ -166,9 +167,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (error) console.error('[sessions] public auth insert error:', error);
       return { error };
     };
+    // The target's FULL journal (scoped to machine_id, server order) so the gate can
+    // materialize A's box and refuse a login to a bricked (dark) machine before the
+    // password is ever checked.
+    const findPatches = async ({ machine_id }: { machine_id: string }) => {
+      const { data, error } = await supabase
+        .from('patches')
+        .select('path, content, owner, permissions, node_type, updated_at, writer_key')
+        .eq('machine_id', machine_id)
+        .order('updated_at', { ascending: true })
+        .order('writer_key', { ascending: true });
+      if (error) console.error('[sessions] public auth boot-state lookup error:', error);
+      return { data: data as readonly OwnerPatchRow[] | null, error };
+    };
     const { status, body } = await handleAuthCreateSessionPublic(req.body, {
       nonceStore: noopNonceStore,
       findRegistryByPublicIp,
+      findPatches,
       insertSession: insertSessionPublic,
     });
     res.status(status).json(body);

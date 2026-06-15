@@ -26,14 +26,13 @@
 import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { applyPatches, type Patch } from '../filesystem/applyPatches';
-import { orderPatchesForReplay } from '../patches/orderPatchesForReplay';
-import { buildRegisteredWorkstationFs } from '../patches/remoteWritePermission';
+import { materializeWorkstationFs, type OwnerPatchRow } from './materializeWorkstationFs';
 import { filterTreeForRead, filterTreeToAllowlist } from '../patches/readFilter';
 import { serializeTree } from '../filesystem/treeCodec';
-import type { Directory, FilePermissions } from '../filesystem/types';
 import type { UserType } from '../types';
 import type { NonceStore } from '../signedRequest/nonceStore';
+
+export type { OwnerPatchRow } from './materializeWorkstationFs';
 
 /** The registry fields needed to reconstruct the owner's box (decision D2): whose
  *  box it is (guest-password + world seed) and the player-chosen identity the FS
@@ -42,20 +41,6 @@ export type RegistryWorkstation = {
   readonly owner_key: string;
   readonly workstation_username: string;
   readonly workstation_root_hash: string;
-};
-
-/** One of the machine's persisted patch rows on the target — the same shape
- *  `/api/patches` reads, mapped into a client `Patch` for replay. After the
- *  shared-journal flip these are the MACHINE's rows (every writer's), carrying
- *  the SERVER `updated_at` + `writer_key` so they replay in chronological order. */
-export type OwnerPatchRow = {
-  readonly path: string;
-  readonly content: string | null;
-  readonly owner: string;
-  readonly permissions: FilePermissions | null;
-  readonly node_type: 'file' | 'directory' | null;
-  readonly updated_at: string;
-  readonly writer_key: string;
 };
 
 /** The caller's active session on the target — the SERVER-authoritative tier the
@@ -93,26 +78,6 @@ const resolveCrossPlayerFsSchema = z
     machine_id: z.string().min(1),
   })
   .refine((payload) => !('player_key' in payload));
-
-const rowToPatch = (row: OwnerPatchRow): Patch => ({
-  path: row.path,
-  content: row.content,
-  owner: row.owner,
-  ...(row.permissions ? { permissions: row.permissions } : {}),
-  ...(row.node_type ? { nodeType: row.node_type } : {}),
-});
-
-/** Rebuild A's REAL box: the shared generator's baseline (decision D6) with the
- *  machine's persisted patch journal replayed over it — every writer's rows,
- *  ordered chronologically (D1–D3) so the latest write to each path wins. */
-const materialize = (
-  registry: RegistryWorkstation,
-  patches: readonly OwnerPatchRow[] | null,
-): Directory =>
-  applyPatches(
-    buildRegisteredWorkstationFs(registry),
-    orderPatchesForReplay(patches ?? []).map(rowToPatch),
-  );
 
 export const handleResolveCrossPlayerFs = async (
   body: unknown,
@@ -152,7 +117,7 @@ export const handleResolveCrossPlayerFs = async (
     return { status: 500, body: { error: 'patches_lookup_failed' } };
   }
 
-  const tree = materialize(registry.data, patches.data);
+  const tree = materializeWorkstationFs(registry.data, patches.data);
   // Tier dispatch: owner → full tree; active session → walker at the session tier;
   // no session → externally-observable allowlist only.
   const activeSession = session?.data ?? null;

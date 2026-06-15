@@ -147,6 +147,41 @@ stringifies to `{}` without it).
   command execution — it caused a stale-FS-view race (a read issued during a write's refresh
   saw the pre-write tree).
 
+## 7. Root escalation & bricking (Story 4)
+
+With A's root password in hand (player-chosen at A's setup, validated server-side), B can
+escalate on A's box and permanently brick it.
+
+- **Cross-player `su` elevation** (`core/sessions/authElevateSession.ts`): B (already ssh'd into A
+  as guest) runs `su`; on a foreign hop the client posts a signed `suElevate`. The server resolves
+  A by `machine_id` → rebuilds A's box → checks `md5(typed) === workstation_root_hash` → inserts a
+  root-tier `kind:'su'` session row. No L1 change: `findActiveSession` returns the top-of-stack
+  row, so the su row (latest) makes B's later writes authorize at **root**. The client routes to
+  the server ONLY on a cross-player hop (`isCrossPlayerWorkstation`); own-box / NPC `su` stays
+  local (its `/etc/passwd` is readable). Routing is in `su.ts` via `env.su.elevate`.
+- **The brick = a root `rm` of a `/boot` kernel image.** `/boot/{vmlinuz,initrd.img}` live in the
+  shared base FS (`core/generation/baseFs.ts` `bootDir()`), root-owned / root-write. A root
+  `rm /boot/vmlinuz` records a `content:null` tombstone on the shared journal; replayed, the file
+  is gone. The brick state IS the tombstone — pure-derived, no marker / no schema, cross-player by
+  construction, **permanent** (append-only journal; renewal = a new identity only).
+- **`canBoot` is the single authority** (`core/boot/bootFiles.ts`): both kernel images present →
+  boots; else `{ missing: 'vmlinuz' | 'initrd.img' }` (vmlinuz checked first — GRUB load order →
+  the correct panic copy). Pure over an already-resolved tree, so client and server agree.
+- **Detection on every app entry:** the boot screen (`ui/screens/boot.tsx`) runs for every
+  returning player, resolves the OWN box (base + own journal, **hop-independent** — it checks YOUR
+  box, not the remote you're standing on), and consults `canBoot`. Missing → GRUB / kernel-panic,
+  **halt, no terminal, no recovery**. `reboot` (`core/commands/reboot.ts`, root-only via the binary
+  gate) is the in-game trigger: it forces a cold boot of the current machine (own box via `env.fs`,
+  cross-player via the server-served tree) and then disconnects from the rebooted box.
+- **A bricked box goes dark to others:** the two cross-player server gates materialize the target
+  (the same registry-rebuild + journal replay the read path uses —
+  `core/network/materializeWorkstationFs.ts`) and ask `canBoot` BEFORE doing their work.
+  `resolvePublicScan` → host-down / no ports (even with lingering `/var/run` pidfiles);
+  `authCreateSessionPublic` → `404 host_unreachable` before the password is checked, no session
+  inserted. A dead box can't be scanned or logged into no matter the credentials.
+
+su / brick auth.log traces on the foreign box are a cross-player WRITE, deferred to Story 6.
+
 ## Invariants (the load-bearing rules)
 
 - `writer_key` / identity is **always** the server-verified pubkey, never a client claim.
@@ -160,17 +195,22 @@ stringifies to `{}` without it).
   `/etc/passwd`; there is no `/etc/shadow` in this game.
 - Deletes are tombstones, not hard deletes (chronological correctness on a shared journal).
 - The terminal runs commands serially.
+- `canBoot` over the replayed tree is the single brick authority, shared client + server.
+- A bricked box (a `/boot` tombstone) is unreachable: scan host-down + public ssh `404`, gated
+  before any port read or password check — independent of credentials or lingering pidfiles.
 
 ## Status & roadmap
 
 Shipped: **Story 1** (public-IP discovery), **Story 2** (cross-player read + 3-tier filter),
 **Story 3** (cross-player write: shared-journal PK flip, L2 owner-materialized branch, write
-boundary, tombstone-always `rm`). Live loop: `crack → connect → nmap <public IP> → ssh
-guest@<public IP> → ls/cat/create/edit/rm`.
+boundary, tombstone-always `rm`), **Story 4** (su-to-root via the obtained password → permanent
+`/boot` brick → bricked box dark to others). Live loop: `crack → connect → nmap <public IP> → ssh
+guest@<public IP> → su root → rm /boot/vmlinuz → reboot`, after which A is bricked and drops off
+scans / refuses logins for everyone.
 
-Next: **Story 4** (su-to-root via the obtained password → brick), **Story 5** (real iptables
-NAT / multi-layer), **Story 6** (cross-player scan/connection trace on the shared record),
-**Story 7** (same-wifi shared-LAN occupancy). See `plans/multiplayer-crossplayer-epic.md`.
+Next: **Story 5** (real iptables NAT / multi-layer), **Story 6** (cross-player scan/connection +
+su/brick auth.log trace on the shared record), **Story 7** (same-wifi shared-LAN occupancy). See
+`plans/multiplayer-crossplayer-epic.md`.
 
 **Known accepted gap (deferred to an L3 smart-server):** a client with a valid keypair can
 mint an `effect_one_shot`/root session via `createSession` and call the read/reset effects
@@ -188,8 +228,13 @@ mitigation is a server-side game-logic re-run.
 | L2 walker + registry  | `core/patches/remoteWritePermission.ts`                           |
 | Read filter (3-tier)  | `core/patches/readFilter.ts`                                      |
 | Cross-player read     | `core/network/resolveCrossPlayerFs.ts`                            |
+| Shared materialize    | `core/network/materializeWorkstationFs.ts`                        |
 | Registry write        | `core/network/registerNetwork.ts`                                 |
 | Public scan resolve   | `core/scan/resolvePublicScan.ts`                                  |
+| su elevation (server) | `core/sessions/authElevateSession.ts`                             |
+| Public ssh gate       | `core/sessions/authCreateSessionPublic.ts`                        |
+| Brick authority       | `core/boot/bootFiles.ts` (`canBoot`)                              |
+| reboot (cold boot)    | `core/commands/reboot.ts`                                         |
 | Shared FS walker      | `core/filesystem/fsView.ts`                                       |
 | Journal fold          | `core/filesystem/applyPatches.ts`                                 |
 | Wire codec            | `core/filesystem/treeCodec.ts`                                    |

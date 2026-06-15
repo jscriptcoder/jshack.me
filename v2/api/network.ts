@@ -69,10 +69,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (actionOf(req.body) === 'resolvePublicScan') {
     // Resolve the TARGET public IP (another identity's network) — no caller
     // scoping: any authenticated player may scan any public IP, like the internet.
+    // The owner identity fields rebuild the box's base FS for the boot-state check
+    // (a bricked box goes dark), the same way the cross-player read materializes it.
     const findRegistryByPublicIp = async (publicIp: string) => {
       const { data, error } = await supabase
         .from('network_registry')
-        .select('workstation_machine_id')
+        .select('workstation_machine_id, owner_key, workstation_username, workstation_root_hash')
         .eq('public_ip', publicIp)
         .maybeSingle();
       if (error) console.error('[network] registry lookup error:', error);
@@ -91,10 +93,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (error) console.error('[network] run-files lookup error:', error);
       return { data: data as readonly RunFileRow[] | null, error };
     };
+    // The resolved machine's FULL journal (scoped to machine_id, server order) so
+    // the handler can replay it over the regenerated base and ask `canBoot` — a
+    // `/boot` tombstone makes the box dark to scanners.
+    const findPatches = async ({ machine_id }: { machine_id: string }) => {
+      const { data, error } = await supabase
+        .from('patches')
+        .select('path, content, owner, permissions, node_type, updated_at, writer_key')
+        .eq('machine_id', machine_id)
+        .order('updated_at', { ascending: true })
+        .order('writer_key', { ascending: true });
+      if (error) console.error('[network] scan boot-state lookup error:', error);
+      return { data: data as readonly OwnerPatchRow[] | null, error };
+    };
     const { status, body } = await handleResolvePublicScan(req.body, {
       nonceStore: noopNonceStore,
       findRegistryByPublicIp,
       findRunFiles,
+      findPatches,
     });
     res.status(status).json(body);
     return;
