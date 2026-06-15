@@ -6,8 +6,8 @@
  * session on such a machine is a public-IP login into another identity's box.
  *
  * This is the shared core of two callers that must agree:
- *   - `ui/activeRoot`'s `isCrossPlayerHop` adds the ssh-kind requirement (a hop's
- *     served tree is fetched only for an ssh session), then this.
+ *   - `ui/activeRoot`'s `isCrossPlayerHop` adds the shell-kind requirement (a hop's
+ *     served tree is fetched for an `ssh` hop or a `su` elevation on it), then this.
  *   - `su`'s routing: it doesn't care about the current session's kind, only
  *     whether the box it runs on is foreign (→ server-authoritative elevation) or
  *     own/NPC (→ local passwd read). Keeping the definition in one place stops the

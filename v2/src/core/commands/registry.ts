@@ -30,6 +30,7 @@ import { mkdir } from './mkdir';
 import { nmap } from './nmap';
 import { nmcli } from './nmcli';
 import { pwd } from './pwd';
+import { reboot } from './reboot';
 import { rm } from './rm';
 import { ssh } from './ssh';
 import { sshd } from './sshd';
@@ -58,6 +59,7 @@ const builtins: readonly Command[] = [
   nmap,
   nmcli,
   pwd,
+  reboot,
   rm,
   ssh,
   sshd,

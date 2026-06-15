@@ -123,12 +123,25 @@ describe('isCrossPlayerHop', () => {
     expect(isCrossPlayerHop(session(lanHopId, 'ssh'), ESSID, PUBKEY)).toBe(false);
   });
 
-  it('is false for a session on your own workstation', () => {
+  it('is false for an ssh session on your own workstation', () => {
     expect(isCrossPlayerHop(session(OWN_ID, 'ssh'), ESSID, PUBKEY)).toBe(false);
   });
 
-  it('is false for a non-ssh session (su) even on a foreign machine', () => {
-    expect(isCrossPlayerHop(session(FOREIGN_ID, 'su'), ESSID, PUBKEY)).toBe(false);
+  it('is true for a su session on a foreign machine (an elevation keeps the box you ssh’d into)', () => {
+    // su-elevating on a cross-player box leaves you ON that box — its served tree
+    // (now at the root tier) must stay, or reads/`reboot` would wrongly fall back
+    // to your own box. The earlier ssh-only rule predated cross-player `su`.
+    expect(isCrossPlayerHop(session(FOREIGN_ID, 'su'), ESSID, PUBKEY)).toBe(true);
+  });
+
+  it('is false for a su session on your own workstation (still local)', () => {
+    expect(isCrossPlayerHop(session(OWN_ID, 'su'), ESSID, PUBKEY)).toBe(false);
+  });
+
+  it('is false for a non-shell session kind (nc) even on a foreign machine', () => {
+    // Only an interactive FS shell (ssh / su) has a served tree to fetch; a service
+    // session (nc/mysql/…) does not, so it is not a cross-player hop.
+    expect(isCrossPlayerHop(session(FOREIGN_ID, 'nc'), ESSID, PUBKEY)).toBe(false);
   });
 
   it('is false when offline (no essid to resolve a LAN against)', () => {

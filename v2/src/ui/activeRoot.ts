@@ -50,19 +50,23 @@ export const resolveActiveRoot = (args: {
 }): Directory => applyPatches(baseFsFor(args), args.patches);
 
 /**
- * Whether the active session is a CROSS-PLAYER hop (Story 2): an ssh session on a
- * machine that is neither your own workstation nor a host on your current LAN. The
- * only way to hold an ssh session on such a machine is a public-IP login into
+ * Whether the active session is a CROSS-PLAYER hop (Story 2): an interactive shell
+ * session on a machine that is neither your own workstation nor a host on your
+ * current LAN. The only way to hold such a session is a public-IP login into
  * another identity's box — so this is the signal to fetch that box's SERVER-served
  * tree (decision D1) instead of letting `resolveActiveRoot` wrongly fall back to
  * your OWN base. The machine-level test is the shared `isCrossPlayerWorkstation`;
- * the ssh-kind requirement is this dispatch's own (only an ssh hop has a served
- * tree to fetch).
+ * the shell-kind requirement is this dispatch's own.
+ *
+ * Both `ssh` (the original hop) and `su` (an elevation ON that same foreign box)
+ * count: a su keeps you standing on the box you ssh'd into — its tree, now served
+ * at the elevated tier — so `reboot`/`ls`/`cat` as root read A, not your own box
+ * (Story 4). Service sessions (nc/mysql/…) have no served tree and are excluded.
  */
 export const isCrossPlayerHop = (
   session: Session,
   essid: string | null,
   publicKeyHex: string,
 ): boolean =>
-  session.kind === 'ssh' &&
+  (session.kind === 'ssh' || session.kind === 'su') &&
   isCrossPlayerWorkstation({ machineId: session.machineId, publicKeyHex, essid });
