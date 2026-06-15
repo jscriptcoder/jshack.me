@@ -121,11 +121,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // content + upsert the appended line (read-modify-write, bypassing L1/L2 —
     // the service logs it, not the player). Same `patches`-table shapes as the su
     // appender in /api/patches.
-    const readAuthLog = async ({ player_key, machine_id, path }: MachineLogReadQuery) => {
+    const readAuthLog = async ({ writer_key, machine_id, path }: MachineLogReadQuery) => {
       const { data, error } = await supabase
         .from('patches')
         .select('content')
-        .eq('player_key', player_key)
+        .eq('writer_key', writer_key)
         .eq('machine_id', machine_id)
         .eq('path', path)
         .maybeSingle();
