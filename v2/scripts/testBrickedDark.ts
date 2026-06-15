@@ -4,10 +4,11 @@
 // journal replay) and refuse to answer once A's /boot kernel is gone:
 //   - POST /api/network  (resolvePublicScan)        → host-down / no ports
 //   - POST /api/sessions (authCreateSessionPublic)   → 404 host_unreachable
-// api/* is not typechecked locally, so this drives the REAL endpoints against a
-// running `vercel dev`, first proving a HEALTHY A answers (control), then planting
-// a /boot/vmlinuz tombstone and proving A drops off scans + refuses logins even
-// with a CORRECT password. Self-cleaning.
+// api/ runtime correctness (column names, constraints, real signed envelopes)
+// isn't covered by typecheck or unit tests, so this drives the REAL endpoints
+// against a running `vercel dev`, first proving a HEALTHY A answers (control), then
+// planting a /boot/vmlinuz tombstone and proving A drops off scans + refuses logins
+// even with a CORRECT password. Self-cleaning.
 //
 // Usage (with v2 supabase + vercel dev running):
 //   SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... npx tsx scripts/testBrickedDark.ts
