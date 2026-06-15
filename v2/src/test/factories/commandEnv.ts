@@ -28,6 +28,7 @@ import type {
   ScanApi,
   Session,
   SshApi,
+  SuApi,
 } from '../../core/commands/types';
 import { basename, dirname } from '../../core/filesystem/path';
 import { canWrite } from '../../core/filesystem/walker';
@@ -119,6 +120,15 @@ export const mockSshApi = (overrides: Partial<SshApi> = {}): SshApi => ({
   ...overrides,
 });
 
+/** A su-elevation seam whose `elevate` throws unless a test overrides it — `su`'s
+ *  cross-player tests inject a stub returning a controlled `RemoteAuthResult`. Local
+ *  `su` (own box / NPC hop) never touches it, so a throwing default keeps an
+ *  accidental dependency loud. */
+export const mockSuApi = (overrides: Partial<SuApi> = {}): SuApi => ({
+  elevate: NOT_IMPLEMENTED('su.elevate'),
+  ...overrides,
+});
+
 /** A scan seam whose `record` no-ops by default (logging is best-effort and
  *  fire-and-forget, so it must not throw the way a load-bearing seam does) and
  *  whose `resolvePublic` throws unless overridden (it is load-bearing — its result
@@ -146,6 +156,7 @@ export const mockCommandEnv = (overrides: Partial<CommandEnv> = {}): CommandEnv 
   log: mockLogApi(),
   homeNetwork: mockHomeNetwork(),
   ssh: mockSshApi(),
+  su: mockSuApi(),
   scan: mockScanApi(),
   setCwd: () => undefined,
   setInterface: () => undefined,

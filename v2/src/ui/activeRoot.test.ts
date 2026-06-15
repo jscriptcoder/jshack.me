@@ -114,24 +114,24 @@ describe('isCrossPlayerHop', () => {
   const FOREIGN_ID = computeWorkstationId('skylab', 'b'.repeat(64));
 
   it('is true for an ssh session on a machine that is not on your LAN', () => {
-    expect(isCrossPlayerHop(session(FOREIGN_ID, 'ssh'), OWN_ID, ESSID, PUBKEY)).toBe(true);
+    expect(isCrossPlayerHop(session(FOREIGN_ID, 'ssh'), ESSID, PUBKEY)).toBe(true);
   });
 
   it('is false for an ssh session on a host that IS on your own LAN', () => {
     const host = generateHomeLan(PUBKEY, ESSID).hosts.at(-1)!;
     const lanHopId = hostMachineId(host, ESSID);
-    expect(isCrossPlayerHop(session(lanHopId, 'ssh'), OWN_ID, ESSID, PUBKEY)).toBe(false);
+    expect(isCrossPlayerHop(session(lanHopId, 'ssh'), ESSID, PUBKEY)).toBe(false);
   });
 
   it('is false for a session on your own workstation', () => {
-    expect(isCrossPlayerHop(session(OWN_ID, 'ssh'), OWN_ID, ESSID, PUBKEY)).toBe(false);
+    expect(isCrossPlayerHop(session(OWN_ID, 'ssh'), ESSID, PUBKEY)).toBe(false);
   });
 
   it('is false for a non-ssh session (su) even on a foreign machine', () => {
-    expect(isCrossPlayerHop(session(FOREIGN_ID, 'su'), OWN_ID, ESSID, PUBKEY)).toBe(false);
+    expect(isCrossPlayerHop(session(FOREIGN_ID, 'su'), ESSID, PUBKEY)).toBe(false);
   });
 
   it('is false when offline (no essid to resolve a LAN against)', () => {
-    expect(isCrossPlayerHop(session(FOREIGN_ID, 'ssh'), OWN_ID, null, PUBKEY)).toBe(false);
+    expect(isCrossPlayerHop(session(FOREIGN_ID, 'ssh'), null, PUBKEY)).toBe(false);
   });
 });

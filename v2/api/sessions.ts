@@ -10,6 +10,10 @@ import {
   type RegistryWorkstation,
 } from '../src/core/sessions/authCreateSessionPublic';
 import {
+  handleAuthElevateSession,
+  type SuSessionRow,
+} from '../src/core/sessions/authElevateSession';
+import {
   handleListSessions,
   type ListSessionsQuery,
   type SessionSummary,
@@ -166,6 +170,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       nonceStore: noopNonceStore,
       findRegistryByPublicIp,
       insertSession: insertSessionPublic,
+    });
+    res.status(status).json(body);
+    return;
+  }
+
+  if (actionOf(req.body) === 'suElevate') {
+    // Cross-PLAYER su-to-root: B (already ssh'd into A) escalates. Resolve A's
+    // registered workstation by the machine_id B is standing on, then the handler
+    // rebuilds A's box from the persisted identity and validates the typed password
+    // before this insert runs (a root-tier `kind:'su'` row that makes B's later
+    // writes authorize at root). No write to A's box — the su auth.log trace is
+    // Story 6.
+    const findRegistryByMachineId = async (machineId: string) => {
+      const { data, error } = await supabase
+        .from('network_registry')
+        .select('owner_key, workstation_machine_id, essid, workstation_username, workstation_root_hash')
+        .eq('workstation_machine_id', machineId)
+        .maybeSingle();
+      if (error) console.error('[sessions] su-elevate registry lookup error:', error);
+      return { data: data as RegistryWorkstation | null, error };
+    };
+    const insertSuSession = async (row: SuSessionRow) => {
+      const { error } = await supabase.from('sessions').insert(row);
+      if (error) console.error('[sessions] su-elevate insert error:', error);
+      return { error };
+    };
+    const { status, body } = await handleAuthElevateSession(req.body, {
+      nonceStore: noopNonceStore,
+      findRegistryByMachineId,
+      insertSession: insertSuSession,
     });
     res.status(status).json(body);
     return;

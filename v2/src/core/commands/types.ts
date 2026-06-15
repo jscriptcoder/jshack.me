@@ -267,6 +267,30 @@ export type SshApi = {
   readonly authenticatePublic: (params: PublicAuthParams) => Promise<PublicAuthResult>;
 };
 
+/** What `su` hands to `env.su.elevate` to escalate a session it ALREADY holds on a
+ *  registered FOREIGN workstation (Story 4): the server resolves the box by its
+ *  `machineId`, rebuilds the owner's tree, validates the typed password against its
+ *  real `/etc/passwd`, and inserts a root-tier `kind:'su'` session — so B's later
+ *  writes authorize at root (L2 reads the active session row's tier). Unlike ssh
+ *  there's no host to resolve: B is already on the box. */
+export type SuElevateParams = {
+  readonly sessionId: string;
+  /** The machine B is currently on (the foreign workstation's real id). */
+  readonly machineId: string;
+  readonly username: string;
+  readonly password: string;
+  readonly parentSessionId: string | null;
+  readonly sourceIp: string | null;
+};
+
+/** The cross-player `su`-elevation seam — backed by the signed `suElevate` endpoint.
+ *  On success the userType is SERVER-derived from the foreign box's `/etc/passwd`
+ *  (never a client claim); errors mirror `RemoteAuthResult`. The UI wires it to the
+ *  `authElevateServerSession` adapter; `core/` stays adapter-free. */
+export type SuApi = {
+  readonly elevate: (params: SuElevateParams) => Promise<RemoteAuthResult>;
+};
+
 /** What `nmap` hands to the scan action so the server can record the scan on each
  *  host it touched. The server regenerates the LAN + hosts from the verified
  *  pubkey + essid and writes `/var/log/kern.log` itself — the client never names a
@@ -326,6 +350,7 @@ export type CommandEnv = {
   readonly log: LogApi;
   readonly homeNetwork: HomeNetworkApi;
   readonly ssh: SshApi;
+  readonly su: SuApi;
   readonly scan: ScanApi;
 
   /** Mutate the shell's cwd. UI layer owns the underlying signal; commands

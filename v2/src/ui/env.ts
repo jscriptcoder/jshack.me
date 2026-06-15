@@ -25,6 +25,7 @@ import type {
   ScanApi,
   Session,
   SshApi,
+  SuApi,
 } from '../core/commands/types';
 import type { Directory } from '../core/filesystem/types';
 import type { WifiNetwork } from '../core/network/wifi';
@@ -92,6 +93,11 @@ export type BuildCommandEnvArgs = {
    *  wires it to the `authCreateServerSessionPublic` adapter (signed
    *  `authCreateSessionPublic` round-trip). Optional here for terse test setups. */
   readonly onSshAuthenticatePublic?: SshApi['authenticatePublic'];
+  /** The cross-player `su`-elevation seam — backs `env.su.elevate`. The UI wires it
+   *  to the `authElevateServerSession` adapter (signed `suElevate` round-trip).
+   *  Optional here: only a cross-player hop's `su` calls it, so own-box/test setups
+   *  leave it unwired (a foreign-box `su` without it surfaces the missing wiring). */
+  readonly onSuElevate?: SuApi['elevate'];
   /** The scan-logging seam — backs `env.scan.record`. The UI wires it to the
    *  `recordScan` adapter (signed `nmapScan` round-trip). Optional here for terse
    *  test setups; the UI always passes the real one. */
@@ -156,6 +162,9 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   ssh: {
     authenticate: args.onSshAuthenticate ?? notWired('ssh.authenticate'),
     authenticatePublic: args.onSshAuthenticatePublic ?? notWired('ssh.authenticatePublic'),
+  },
+  su: {
+    elevate: args.onSuElevate ?? notWired('su.elevate'),
   },
   scan: {
     record: args.onScanRecord ?? notWired('scan.record'),
