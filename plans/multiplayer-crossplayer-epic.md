@@ -317,7 +317,8 @@ choices (grilled one-by-one, each grounded in code). Feed straight into `plannin
    discrete, wire-checked migration step. **No new columns**: the router's admin pw and `.1` LAN IP are
    both recomputable server-side from `owner_key`+`essid`.
 7. **Slice spine for `planning`** (each vertical + observable; walking skeleton FIRST):
-   - **5.1.1 (walking skeleton)** — B's `nmap <A.publicIp>` resolves the REAL router and shows its own
+   - **5.1.1 (walking skeleton)** ✅ **SHIPPED** as **5.1.1a** (pure primitives, #258 `33e7444`) + **5.1.1b**
+     (scan flip, #259 `f9c52ea`) — B's `nmap <A.publicIp>` resolves the REAL router and shows its own
      `:22` (seeded sshd pidfile); default `rules.v4` empty ⇒ the workstation is **dark behind NAT**.
      Exercises `computeRouterId` + `buildRouterBaseFsFromIdentity` + seeded pidfile + real
      `router_machine_id` + `resolvePublicScan` materializing the ROUTER + `scanResult` external-branch with
@@ -334,8 +335,10 @@ choices (grilled one-by-one, each grounded in code). Feed straight into `plannin
 
 ## Next step
 
-**5.0 (`nano`) ✅ SHIPPED. 5.1 ✅ GRILLED (2026-06-17) — decisions above.** Next: load `planning` to turn the
-**5.1 slice spine** (5.1.1 → 5.1.4) into a `plans/story-5_1-*.md` file with PR-sized slices + acceptance
-criteria. Every slice runs full RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR (`tdd`, `testing`,
+**5.0 (`nano`) ✅ SHIPPED. 5.1 PLANNED (`plans/story-5_1-router-nat.md`) + IN FLIGHT — 5.1.1a ✅ (#258,
+`33e7444`) + 5.1.1b ✅ (#259, `f9c52ea`) shipped & merged.** Next: **5.1.2** — ssh routes by DESTINATION
+PORT (`ssh root@<A.publicIp>` :22 → the router, validated against its seeded admin pw; `-p 2222` → the
+workstation forward) via a new `machineServing(addr, port)`. Every slice runs full
+RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR (`tdd`, `testing`,
 `mutation-testing`, `refactoring`). Model `scanResult(address, vantage)` as a clean total function — each
 interface its own endpoint, NEVER a merged view (`project_dual_homed_router_scan_discrepancy`).

@@ -1,7 +1,7 @@
 # Plan: Story 5.1 — Router as a real machine + player-controlled NAT
 
 **Branch**: feat/story-5_1-router-nat (one branch per slice/PR below)
-**Status**: Active
+**Status**: Active — 5.1.1a ✅ (#258, `33e7444`) + 5.1.1b ✅ (#259, `f9c52ea`) shipped; next **5.1.2**.
 
 > Parent: `plans/multiplayer-crossplayer-epic.md` — Story 5 (cross-player home NAT only). The 11 locked
 > SCOPE decisions live in §"Story 5 — resolved scope & decisions"; the 7 IMPLEMENTATION decisions this
@@ -21,9 +21,9 @@ Behaviour-driven, tested at the lowest level that gives confidence: vitest units
 generators/parsers/`scanResult`, vitest integration (stubbed `fetch`/deps) for the handler flips, and one
 reshaped **agent-browser E2E** for the full cross-player loop (browser-only; per `feedback_e2e_scope`).
 
-- [ ] A fresh box's public IP resolves to the **router** on `nmap`: `nmap <A.publicIp>` (by any other
+- [x] A fresh box's public IP resolves to the **router** on `nmap`: `nmap <A.publicIp>` (by any other
       identity) shows the router's own `:22` and nothing else — the workstation is dark behind NAT (no
-      default forward).
+      default forward). _(5.1.1b, #259 — unit + 6/6 live wire-check)_
 - [ ] `ssh root@<A.publicIp>` lands on the **router** (validated against its seeded admin password);
       `ssh …@<A.publicIp> -p <port>` routes by destination port through the parsed forward table.
 - [ ] With no forward configured, `ssh …@<A.publicIp> -p 2222` is `host_unreachable` (opt-in default).
@@ -43,7 +43,7 @@ needs a wire-check, not just typecheck (`project_v2_api_not_typechecked_locally`
 
 ---
 
-### Slice 5.1.1a: Pure router primitives (foundations that unlock the flip)
+### Slice 5.1.1a: Pure router primitives (foundations that unlock the flip) — ✅ DONE (PR #258, squash `33e7444`)
 
 **Value**: Developer/internal — the framework-agnostic building blocks the scan flip (5.1.1b) consumes.
 A **justified horizontal exception** (planning skill): every primitive is independently unit-testable
@@ -86,7 +86,7 @@ accept only documented equivalents (e.g. manual-example metadata strings).
 
 ---
 
-### Slice 5.1.1b: Scan flip — `nmap <A.publicIp>` resolves the real router (WALKING SKELETON)
+### Slice 5.1.1b: Scan flip — `nmap <A.publicIp>` resolves the real router (WALKING SKELETON) — ✅ DONE (PR #259, squash `f9c52ea`)
 
 **Value**: An attacking player (B) scanning A's public IP — the headline cross-player observable. Proves the
 router is a real machine on the public IP end-to-end through the signed wire.
