@@ -29,15 +29,21 @@ game a file editor.
 - **UI mode signal** — a module-level `editorMode` signal in `ui/state.ts`
   (`{ path: AbsPath; content: string } | null`). `executeLine` gains a `mode_change` branch that, for
   `mode.kind === 'nano'`, sets it. (Other `ModeChange` kinds stay no-ops — out of scope.)
-- **Editor screen** `ui/screens/nano.tsx` — a Solid component rendered when `editorMode()` is set
-  (an overlay/peer that takes precedence over the `App` phase `Switch`). Backs the live buffer with a
-  native `<textarea>` (cursor/multiline/selection for free); only the **Ctrl-O** (write out) and
-  **Ctrl-X** (exit) chords are custom. nano chrome: a title bar with the path + a footer with the
-  shortcuts, matching legacy.
+- **Editor screen** `ui/screens/nano.tsx` — a Solid component the **`Terminal` screen** renders via
+  `<Show when={editorMode()} fallback={…terminal body…}><Nano …/></Show>`, so the editor replaces the
+  prompt+scrollback while editing (the terminal input leaves the DOM → AC c) and the module-level
+  signals persist underneath. Backs the live buffer with a native `<textarea>` (cursor/multiline/
+  selection for free); only the **Ctrl-O** (write out) and **Ctrl-X** (exit) chords are custom. nano
+  chrome: a title bar with the path + a footer with the shortcuts + a status line, matching legacy.
+  Takes `onSave`/`onExit` as PROPS (not direct imports) so it is unit-testable with fakes; `Terminal`
+  wires `onSave={saveEditor}` and `onExit={() => setEditorMode(null)}`.
 - **Save seam** `saveEditor(content)` exposed from `ui/state.ts` — resolves `isNew` from the live FS
   view (`stat === null`, exactly like `validateRedirectTarget`, runLine.ts:142) and calls the
   module-level `patchApi.write(path, content, { isNew })`. Reuses `wrapWithRefetch` so an immediate
   `cat` reflects the save; permission/`no_session` errors surface as a `PatchResult` the editor shows.
+  NOTE: the write hits the real server (`createPatchApi → fetch /api/patches`); jsdom has no server,
+  so the full save→persist→`cat` loop is the agent-browser E2E (below), while jsdom tests assert the
+  seam (that a write was issued with the right `isNew`) via the `fetch`-stub capture pattern.
 - **Exit** — clears `editorMode` → back to the terminal screen.
 
 ## Decisions (locked 2026-06-16)
@@ -57,27 +63,43 @@ game a file editor.
   between open and save still stamps correctly.
 - **Save chord = Ctrl-O; exit = Ctrl-X** (legacy nano). The modified-buffer "Save modified buffer?"
   prompt on Ctrl-X is **deferred to slice 3** (ship-first: Ctrl-X exits, Ctrl-O saves).
+- **Test infra (CORRECTED 2026-06-17 against the real v2 setup)** — v2 has NO Vitest Browser Mode and
+  NO Playwright. UI is tested with `@solidjs/testing-library` + jsdom + `fireEvent` (the
+  `terminal.test.tsx` convention); E2E is `agent-browser` against the live `npm run dev` server. The
+  save→persist→`cat` loop needs a real server, so it lives ONLY in the agent-browser E2E; jsdom tests
+  cover the command/state/component seams with `fetch`/`localStorage` stubs.
+- **Editor placement = Terminal-level overlay** — `Terminal` renders `<Show when={editorMode()}>` over
+  its body (NOT an App-level branch). Keeps the existing `renderTerminal()` test style, hides the
+  prompt while editing, avoids an App unmount/remount.
+- **`nano` read branches** — readable → editor w/ content; `not_found` → editor w/ empty buffer;
+  `is_directory` → `nano: <path>: Is a directory` (exit 1, NO editor); `permission_denied` →
+  `nano: <path>: Permission denied` (exit 1, NO editor); missing operand → `nano: missing file
+operand` (exit 1). Only `ok`/`not_found` enter the editor.
 
 ## Acceptance Criteria (whole story)
 
-- [ ] `nano <existing-file>` opens a full-screen editor showing the file's content; the terminal
+- [x] `nano <existing-file>` opens a full-screen editor showing the file's content; the terminal
       prompt is not visible while editing; **Ctrl-X** returns to the terminal.
-- [ ] Editing the buffer and pressing **Ctrl-O** writes it back to the file; a subsequent
-      `cat <file>` shows the new content.
-- [ ] `nano <new-path>` (parent dir exists + writable) opens an empty buffer; **Ctrl-O** creates the
-      file; `ls`/`cat` then show it.
-- [ ] `nano <directory>` errors (`nano: <path>: Is a directory`) and does NOT enter the editor.
+- [x] Editing the buffer and pressing **Ctrl-O** writes it back to the file; a subsequent
+      `cat <file>` shows the new content. _(agent-browser E2E: edited `/home/neo/notes-e2e.txt`,
+      `cat` reflected it through the real `/api/patches` + Supabase round-trip.)_
+- [x] `nano <new-path>` (parent dir exists + writable) opens an empty buffer; **Ctrl-O** creates the
+      file; `ls`/`cat` then show it. _(E2E created the file from a `not_found` buffer with `is_new=true`.)_
+- [x] `nano <directory>` errors (`nano: <path>: Is a directory`) and does NOT enter the editor.
+      _(Also: `permission_denied` read → error, no editor.)_
 - [ ] A save the session's tier may not perform surfaces an in-editor error (nano status line) and
-      does NOT corrupt or partially write; the file is unchanged.
-- [ ] No regression: existing terminal flows (commands, prompts, Ctrl-C, redirect) behave unchanged
-      when not in editor mode.
+      does NOT corrupt or partially write; the file is unchanged. **← only remaining AC** (the
+      `saveEditor`/`PatchResult` plumbing exists; the editor just needs to RENDER a failed save).
+- [x] No regression: existing terminal flows (commands, prompts, Ctrl-C, redirect) behave unchanged
+      when not in editor mode. _(Full suite: 1376/1376 green.)_
 
 ## Slices
 
 Every slice follows RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR. No production code without a failing test.
 Read `.claude/CLAUDE.md` + the `testing` rules before each slice. UI interaction is tested with
-**Vitest Browser Mode** (the project default); a **single Playwright E2E** covers the full
-keyboard/focus flow through the real terminal (per `feedback_e2e_scope` / `feedback_e2e_test_new_primitives`
+**`@solidjs/testing-library` + jsdom + `fireEvent`** (the actual v2 convention — see `terminal.test.tsx`;
+v2 has NO Browser Mode/Playwright); a **single `agent-browser` E2E** covers the full save→persist→`cat`
+loop against the live `npm run dev` server (per `feedback_e2e_scope` / `feedback_e2e_test_new_primitives`
 — E2E the new primitive end-to-end, don't duplicate unit coverage there). v2 gates: `npm run lint`
 (no Prettier) + `npm run typecheck` (`tsc -b`).
 
@@ -109,22 +131,24 @@ sets `editorMode` → `App` renders `<Nano>` (title bar + content in a `<textare
 
 **RED**:
 
-- `nano.test.ts` (vitest): existing file → `mode_change` whose `content` equals the read content;
-  `not_found` → `mode_change` with `content === ''`; directory → `error` result, NOT a `mode_change`;
-  no arg → usage `error`. (Mutator targets: the read-result branch conditionals — kill "not_found
-  returns error" vs "returns empty" swaps, and the `is_directory` guard.)
-- `state.test.ts`: a `nano` `mode_change` from `executeLine` sets `editorMode` (non-nano kind does
-  not); `saveEditor` resolves `isNew=false` for an existing path, calls `patchApi.write(path, content)`,
-  and triggers the refetch on `ok`. (Mutator: the `stat === null` boolean; success-vs-failure branch.)
-- `nano.browser.test.tsx` (Vitest Browser Mode): given `editorMode` set, the screen shows path +
-  content; typing updates the buffer; Ctrl-O invokes `saveEditor` with the edited content and renders
-  the wrote-status while staying open; Ctrl-X clears `editorMode`.
-- **E2E (Playwright)** `nano.e2e`: full real flow — existing file → `nano f` → edit → Ctrl-O → Ctrl-X
-  → `cat f` shows the edit. (The one integration-seam test.)
+- `nano.test.ts` (vitest, pure core): readable file → `mode_change` whose `content` equals the read
+  content; `not_found` → `mode_change` with `content === ''`; directory → `error` result (NOT a
+  `mode_change`); permission-denied → `error` result; no arg → usage `error`. (Mutator targets: the
+  read-result branch conditionals — kill "not_found returns error" vs "returns empty" swaps, and the
+  `is_directory`/`permission_denied` guards.)
+- `state.test.ts` (jsdom, the `startTestGame` `fetch`/`localStorage`-stub pattern): a `nano`
+  `mode_change` from `executeLine`/`runInput` sets `editorMode` (non-nano kind does not); `saveEditor`
+  issues a write with `isNew=false` for an existing path and `isNew=true` for an absent one (asserted
+  via the captured `fetch` write request). (Mutator: the `stat === null` boolean.)
+- `nano.test.tsx` (jsdom, `@solidjs/testing-library`): given a `mode`, the `<Nano>` component shows
+  path + content; typing updates the buffer; Ctrl-O calls the `onSave` prop with the edited content and
+  renders the wrote-status while staying mounted; Ctrl-X calls the `onExit` prop.
+- **agent-browser E2E**: full real flow against `npm run dev` — readable file → `nano f` → edit →
+  Ctrl-O → Ctrl-X → `cat f` shows the edit. (The one integration-seam test; needs the real server.)
 
 **GREEN**: minimal `nano.ts`; the `editorMode` signal + `executeLine` `mode_change` branch;
 `saveEditor` in `state.ts`; the `<Nano>` component (title + `<textarea>` + footer + status line) wired
-into `App` via `<Show when={editorMode()}>`; Ctrl-O + Ctrl-X handlers.
+into `Terminal` via `<Show when={editorMode()}>`; Ctrl-O + Ctrl-X handlers.
 **MUTATE**: run `mutation-testing` on `nano.ts` + the new state seams (`editorMode` dispatch,
 `saveEditor`).
 **KILL MUTANTS**: read-result kinds, mode-change dispatch, `isNew` resolution, success/failure status,
@@ -178,9 +202,9 @@ open vs exiting.)
 
 ## Open questions / notes
 
-- **Editor placement** — overlay inside `Terminal` vs a new branch in `App`'s `Switch`. Recommend an
-  `App`-level `<Show when={editorMode()}>` taking precedence over the phase `Switch`, so `Terminal`
-  stays focused. Decide in slice 1.
+- **Editor placement — RESOLVED (Terminal-level)**: `Terminal` renders `<Show when={editorMode()}>`
+  over its body (not an `App` branch), so the existing `renderTerminal()` test style applies and the
+  prompt leaves the DOM while editing.
 - **`binaries.ts` / `libraryDeps.ts` already reference `nano`** (grep hits) — since nano is
   preinstalled (`any-machine`), confirm in slice 1 that no `apt`/binary-gate wiring is needed (or align
   the binary list with the always-present decision).
@@ -203,9 +227,19 @@ open vs exiting.)
   `plans/multiplayer-crossplayer-epic.md` → "Story 5 — resolved scope & decisions".
 - **Key gap nano fills**: `executeLine` (`ui/state.ts`) currently DROPS `mode_change` results; there is
   no editor UI. `ModeChange.nano = { path, content }` already exists in `core/commands/types.ts`.
-- **Next action**: start **Slice 1** — load `tdd` + `testing` + `front-end-testing` +
-  `mutation-testing`, present Slice 1's acceptance criteria for confirmation, then write the RED test.
-  No production code has been written yet (plan-only so far).
+- **Build status (2026-06-17)**: the **complete nano editor is implemented + E2E-verified** in one
+  coherent PR (effectively slices 1+2 + the read-error guards from slice 3). New files
+  `core/commands/nano.ts` (+test), `ui/screens/nano.tsx` (+test); edits to `ui/state.ts`
+  (`editorMode` signal, `mode_change` branch in `executeLine`, `saveEditor`), `ui/screens/terminal.tsx`
+  (the `<Show>` overlay), `core/commands/registry.ts` (register nano). Gates: typecheck + lint clean;
+  full suite 1376/1376; `nano.ts` mutation 93.44% (only the 4 manual-example string survivors, accepted
+  as metadata per project rules); live agent-browser E2E proved the full
+  `nano → edit → Ctrl-O → Ctrl-X → cat` round-trip (create + overwrite + rm-delete) against
+  `vercel dev` + Supabase.
+- **REMAINING (one small follow-up slice)**: render a FAILED save in the editor status line (the last
+  unchecked AC) + the optional "Save modified buffer?" Ctrl-X prompt. `saveEditor` already returns the
+  `PatchResult`; `Nano` currently shows the wrote-status only on `result.ok` (a denied save shows
+  nothing). Then delete this file and return to the epic for Story 5.1.
 
 ---
 

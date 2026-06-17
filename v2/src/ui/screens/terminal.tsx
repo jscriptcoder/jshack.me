@@ -1,4 +1,4 @@
-import { createEffect, For } from 'solid-js';
+import { createEffect, For, Show } from 'solid-js';
 import type { TerminalLine } from '../../core/commands/types';
 import { formatPrompt } from '../../core/shell/prompt';
 import { BANNER } from '../banner';
@@ -6,6 +6,7 @@ import {
   abortRunning,
   cancelPrompt,
   cwd,
+  editorMode,
   historyDown,
   historyUp,
   input,
@@ -14,11 +15,14 @@ import {
   promptTier,
   promptUsername,
   runInput,
+  saveEditor,
   scrollback,
+  setEditorMode,
   setInput,
   submitPrompt,
   tabComplete,
 } from '../state';
+import { Nano } from './nano';
 
 const LINE_BASE = 'whitespace-pre-wrap break-words';
 
@@ -102,33 +106,47 @@ export const Terminal = () => {
   };
 
   return (
-    <main class="flex h-full flex-col p-4 font-mono text-sm leading-relaxed">
-      <div ref={output} class="flex-1 overflow-y-auto">
-        <pre
-          data-testid="terminal-banner"
-          class="whitespace-pre leading-none text-[var(--theme-text-bright)]"
-        >
-          {BANNER}
-        </pre>
-        <For each={scrollback()}>
-          {(line) => <div class={`${LINE_BASE} ${LINE_COLOR[line.kind]}`}>{line.content}</div>}
-        </For>
-      </div>
-      <div class="flex items-baseline gap-2">
-        <span class="whitespace-pre text-[var(--theme-text-bright)]">{livePrompt()}</span>
-        <input
-          ref={inputEl}
-          aria-label="terminal input"
-          type={pendingPrompt()?.masked ? 'password' : 'text'}
-          class="flex-1 border-none bg-transparent p-0 text-inherit caret-[var(--theme-caret)] outline-none [font:inherit]"
-          autocomplete="off"
-          autocapitalize="off"
-          spellcheck={false}
-          value={input()}
-          onInput={(event) => setInput(event.currentTarget.value)}
-          onKeyDown={onKeyDown}
+    <Show
+      when={editorMode()}
+      fallback={
+        <main class="flex h-full flex-col p-4 font-mono text-sm leading-relaxed">
+          <div ref={output} class="flex-1 overflow-y-auto">
+            <pre
+              data-testid="terminal-banner"
+              class="whitespace-pre leading-none text-[var(--theme-text-bright)]"
+            >
+              {BANNER}
+            </pre>
+            <For each={scrollback()}>
+              {(line) => <div class={`${LINE_BASE} ${LINE_COLOR[line.kind]}`}>{line.content}</div>}
+            </For>
+          </div>
+          <div class="flex items-baseline gap-2">
+            <span class="whitespace-pre text-[var(--theme-text-bright)]">{livePrompt()}</span>
+            <input
+              ref={inputEl}
+              aria-label="terminal input"
+              type={pendingPrompt()?.masked ? 'password' : 'text'}
+              class="flex-1 border-none bg-transparent p-0 text-inherit caret-[var(--theme-caret)] outline-none [font:inherit]"
+              autocomplete="off"
+              autocapitalize="off"
+              spellcheck={false}
+              value={input()}
+              onInput={(event) => setInput(event.currentTarget.value)}
+              onKeyDown={onKeyDown}
+            />
+          </div>
+        </main>
+      }
+    >
+      {(mode) => (
+        <Nano
+          path={mode().path}
+          content={mode().content}
+          onSave={saveEditor}
+          onExit={() => setEditorMode(null)}
         />
-      </div>
-    </main>
+      )}
+    </Show>
   );
 };

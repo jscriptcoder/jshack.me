@@ -26,6 +26,7 @@ import type {
   PatchApi,
   PublicAuthParams,
   PublicAuthResult,
+  PatchResult,
   PublicScanResolution,
   RemoteAuthParams,
   RemoteAuthResult,
@@ -160,7 +161,16 @@ const setInterface = (name: string, iface: NetworkInterface): void => {
 const [commandHistory, setCommandHistory] = createSignal<readonly string[]>([]);
 const [historyNav, setHistoryNav] = createSignal<HistoryNav>(idleNav());
 
-export { cwd, input, scrollback, setInput };
+// The file currently open in the full-screen `nano` editor, or null in normal
+// command mode. Set by `executeLine` on a `nano` `mode_change`; cleared by the
+// editor's Ctrl-X exit. Module-level so the `Terminal` screen swaps to the
+// editor overlay reactively.
+const [editorMode, setEditorMode] = createSignal<{
+  readonly path: AbsPath;
+  readonly content: string;
+} | null>(null);
+
+export { cwd, editorMode, input, scrollback, setEditorMode, setInput };
 
 /** The active session (top of stack), or undefined before `startGame`. */
 const activeSession = (): Session | undefined => sessionStack().at(-1);
@@ -484,6 +494,23 @@ const log: LogApi = {
   appendAccessLog: async () => undefined,
 };
 
+/** Persist the editor buffer to the file currently open in `nano`. Resolves
+ *  `isNew` from the live FS view (an absent target is a brand-new file, exactly
+ *  like the `>` redirect path) and writes through the ACTIVE machine's patch API
+ *  (wrapped with refetch, so an immediate `cat` reflects the save). Returns the
+ *  `PatchResult` so the editor can surface a denied/failed save. A null editor or
+ *  un-started game degrades to a `no_session` result rather than throwing. */
+export const saveEditor = async (content: string): Promise<PatchResult> => {
+  const mode = editorMode();
+  const activePatchApi = patchApi;
+  if (mode === null || activePatchApi === undefined) {
+    return { ok: false, error: 'no_session' };
+  }
+  const fsView = createFsView(activeRoot(), { userType: requireSession().userType, cwd });
+  const isNew = fsView.stat(mode.path) === null;
+  return activePatchApi.write(mode.path, content, { isNew });
+};
+
 /** Whether the player's OWN workstation can boot — the brick check the boot
  *  screen runs on every entry. Resolves the own-box FS independent of any
  *  rehydrated hop session: the base seed with the OWN machine's shared journal
@@ -722,6 +749,16 @@ const executeLine = async (line: string): Promise<void> => {
     const result = await runCommandLine(env, line, commandRegistry);
     if (result.kind === 'sync') {
       setScrollback((previous) => [...previous, ...result.lines]);
+      return;
+    }
+    if (result.kind === 'mode_change') {
+      // The terminal previously dropped mode_change results entirely; nano is the
+      // first consumer. Only nano is implemented — other kinds (lynx/nc/…) stay
+      // no-ops until their screens land. The `=== 'nano'` narrow is load-bearing
+      // (it types `mode.path`/`.content`), so a flipped guard fails to compile.
+      if (result.mode.kind === 'nano') {
+        setEditorMode({ path: result.mode.path, content: result.mode.content });
+      }
       return;
     }
     // Streamed commands (airdump, aircrack) append each line as it arrives, so
