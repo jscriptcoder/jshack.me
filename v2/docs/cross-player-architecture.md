@@ -103,20 +103,37 @@ RLS denies anon/authenticated entirely; only the service-role function touches t
   `internalIp` to A's one workstation behind NAT (its deterministic LAN IP via
   `assignHomeNetwork(owner_key, essid)`), materializes it (`materializeWorkstationFs`), and reads
   its open ports — so a forward (mapped to its public port) is shown **iff** the target port is up
-  (a fresh ws has an empty `/var/run` → dark until A starts `sshd`). The handler parses `rules.v4`
+  (a fresh ws has an empty `/var/run` → dark until A starts `sshd`). Since 5.1.3c this port reader
+  is a thin wrapper over `buildWorkstationResolver` (returning the materialized `Directory | null`),
+  the SAME internalIp→ws lookup the forwarded-port login reuses for passwd + liveness — one
+  materialization, two readers, never a drift between what a scan shows and what a login checks. The handler parses `rules.v4`
   only to gate the prefetch: a fresh box (no forward) skips the second journal read entirely; the
   `RegistryLookup` projection gained the workstation fields (machine id, essid, identity) for this.
 - **Login (Story 5.1.2 — routes by destination port):** `ssh [-p port] <user>@<A's public IP>`
   takes the cross-player branch in `core/commands/ssh.ts` (`executePublicLogin`): reachability
   via `resolvePublic`, then `authenticatePublic` carries the **destination port** (default 22).
   Server-side, `authCreateSessionPublic` (`core/sessions/authCreateSessionPublic.ts`)
-  materializes A's **router**, boot-gates it, and consults `machineServing`: a router-own port
-  (`:22`) → validate against the router's seeded admin password and land the session on
-  **`router_machine_id`**; a forwarded port → the internal host (Story 5.1.3); neither →
-  `404 host_unreachable` (so an unforwarded `-p 2222` is refused before any password check —
-  the opt-in default). The registry projection here is the minimal `{ owner_key,
-  router_machine_id, essid }`; the workstation-fields projection (`RegistryWorkstation`) now
-  lives with its sole consumer, `authElevateSession.ts`. The client never claims a tier.
+  materializes A's **router**, boot-gates it, and consults `machineServing` to resolve the
+  destination port to an auth target via one `resolveAuthTarget` (the router and forward arms
+  share a single `{ fs, machineId }` → passwd-check → insert tail): a router-own port (`:22`) →
+  validate against the router's seeded admin password and land the session on
+  **`router_machine_id`**; a **forwarded port (Story 5.1.3c)** → the workstation behind the
+  router (below); neither → `404 host_unreachable` (so an unforwarded `-p 2222` is refused before
+  any password check — the opt-in default). The registry projection here now carries the
+  workstation fields too (`{ owner_key, router_machine_id, essid, workstation_machine_id,
+  workstation_username, workstation_root_hash }`) — a structural superset of the scan path's
+  `WorkstationTarget`. The client never claims a tier.
+- **Forwarded-port login (Story 5.1.3c):** when `machineServing` returns a `forward`,
+  `resolveAuthTarget` fetches the **workstation** journal (the existing `findPatches` dep, scoped
+  to `workstation_machine_id`) and resolves the forward's `internalIp` → A's one workstation via
+  the shared `buildWorkstationResolver` (`core/scan/workstationPortResolver.ts`, returning the
+  materialized `Directory | null` — the SAME lookup the scan's port resolver wraps). A forward
+  that reaches no host, or whose internal port isn't being served (a dark DNAT target — `sshd`
+  down, or on a different port), → `404 host_unreachable` before any password check. Otherwise the
+  password is validated against the **workstation's** `/etc/passwd` (a weak `guest` account exists)
+  and the session lands on **`workstation_machine_id`**. The router's boot/dark gate stays upstream
+  on the public IP. Confirmed live end-to-end: B's `ssh guest@<A.publicIp> -p 2222` → `guest@<A's
+  ws>` → `su root` → reads A's `/etc/passwd` (tier-gated cross-player read).
 - **Own-LAN router login (Story 5.1.3a):** A's own `ssh root@<subnet>.1` (the `.1` gateway,
   `kind:'router'`) takes the own-LAN branch of `ssh.ts`, but reachability and the hop's machine id
   come from the router (`buildRouterBaseFs` / `computeRouterId`), not a regenerated sibling.
@@ -125,7 +142,7 @@ RLS denies anon/authenticated entirely; only the service-role function touches t
   against its root-only `/etc/passwd`, and lands the session on **`router_machine_id`**. A then
   `nano`-edits `/etc/iptables/rules.v4`, persisting to the shared router journal (§4). B **seeing**
   the forward is shipped (5.1.3b — `resolveTargetPorts`, above); B **using** it (`-p 2222` →
-  workstation auth) is 5.1.3c.
+  workstation auth) is shipped too (5.1.3c — forwarded-port login, above).
 - **Guest password:** `workstationGuestPassword(ownerKeyHex)` — a deterministic pick from a
   weak-password list, seeded from the owner's pubkey alone (`core/generation/workstationFs.ts`),
   so the server can recover it for cross-player auth and a future cracker can match it. The
@@ -263,10 +280,13 @@ scans / refuses logins for everyone.
 
 **Story 5** (cross-player home NAT) in flight: `nano` (5.0), the router as a real journal-backed
 machine + public-IP scan/login routed through it (5.1.1a/b, 5.1.2), A's own-LAN `ssh root@.1`
-+ `nano /etc/iptables/rules.v4` persisting to the shared router journal (5.1.3a), and B's scan now
-reflecting A's forward (5.1.3b — `resolveTargetPorts` wired + liveness-gated) are shipped. Next:
-**5.1.3c** (B's `-p 2222` → workstation auth + restored loop E2E, where 5.1.3b/c get their live
-agent-browser confirm), then **5.1.4** (dual-homed `.1` sameLAN view). Then **Story 6**
++ `nano /etc/iptables/rules.v4` persisting to the shared router journal (5.1.3a), B's scan
+reflecting A's forward (5.1.3b — `resolveTargetPorts` wired + liveness-gated), and B's `-p 2222` →
+**workstation** auth (5.1.3c — forward→ws via `resolveAuthTarget` + the shared
+`buildWorkstationResolver`) are all shipped — **5.1.3 is complete**, and the full decision-8
+cross-player loop is confirmed live (agent-browser vs `vercel dev`+Supabase: B cross-network
+`nmap` → `:22`+`:2222`, `ssh guest -p 2222` → A's ws, `su root` → A's `/etc/passwd`). Next:
+**5.1.4** (dual-homed `.1` sameLAN view) closes Story 5.1. Then **Story 6**
 (cross-player scan/connection + su/brick auth.log trace on the shared record), **Story 7**
 (same-wifi shared-LAN occupancy). See `plans/multiplayer-crossplayer-epic.md`.
 
@@ -289,7 +309,7 @@ mitigation is a server-side game-logic re-run.
 | Shared materialize    | `core/network/materializeWorkstationFs.ts`                        |
 | Registry write        | `core/network/registerNetwork.ts`                                 |
 | Public scan resolve   | `core/scan/resolvePublicScan.ts`                                  |
-| Forward liveness gate | `core/scan/workstationPortResolver.ts`                            |
+| Forward→ws resolve     | `core/scan/workstationPortResolver.ts` (`buildWorkstationResolver` + port wrapper) |
 | su elevation (server) | `core/sessions/authElevateSession.ts`                             |
 | Public ssh gate       | `core/sessions/authCreateSessionPublic.ts`                        |
 | Brick authority       | `core/boot/bootFiles.ts` (`canBoot`)                              |
