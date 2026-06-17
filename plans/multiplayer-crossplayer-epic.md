@@ -337,8 +337,10 @@ choices (grilled one-by-one, each grounded in code). Feed straight into `plannin
        cross-player tree), and `nano /etc/iptables/rules.v4` persists to the **shared router journal** through
        L1 (session-gated, no own-box bypass) + L2 (own-router walker). No api/DB change. agent-browser
        confirm deferred to 5.1.3 close.
-     - **5.1.3b** — B's external scan reflects the forward: wire `resolveTargetPorts` for real (materialize
-       A's workstation, liveness-gate). `nmap <A.publicIp>` shows `:2222` iff ws `:22` up.
+     - **5.1.3b** ✅ **SHIPPED** (#265 `47d45b9`) — B's external scan reflects the forward: pure
+       `buildWorkstationPortResolver` wires `resolveTargetPorts` for real (materialize A's workstation,
+       liveness-gate; handler gate-fetches the ws journal only when `rules.v4` has a forward). `nmap
+       <A.publicIp>` shows `:2222` iff ws `:22` up. Live confirm deferred to 5.1.3 close.
      - **5.1.3c** — B's `ssh guest@<A.publicIp> -p 2222` lands on the **workstation** (forward→ws auth in
        `authCreateSessionPublic`); **restores** the Story 2–4 agent-browser E2E.
    - **5.1.4** — the dual-homed `.1` **sameLAN** client view: `nmap <subnet>.1` shows the router's own
@@ -347,15 +349,18 @@ choices (grilled one-by-one, each grounded in code). Feed straight into `plannin
 ## Next step
 
 **5.0 (`nano`) ✅ SHIPPED. 5.1 PLANNED (`plans/story-5_1-router-nat.md`) + IN FLIGHT — 5.1.1a ✅ (#258,
-`33e7444`) + 5.1.1b ✅ (#259, `f9c52ea`) + 5.1.2 ✅ (#261, `6d742ee`) + 5.1.3a ✅ (#263, `3d33021`) shipped &
-merged.** 5.1.3 is split into 5.1.3a/b/c (own journal-backed router = a new machine category). 5.1.3a landed
-A's own-LAN `ssh root@<subnet>.1` → journal-backed router (root session on `computeRouterId`) + `nano
-/etc/iptables/rules.v4` persisting to the shared router journal (L1 session-gate + L2 own-router walker), via
-the new `isOwnRouter` recognizer and the shared `buildRouterBaseFs` composer. Next: **5.1.3b** — B's external
-scan reflects A's forward: wire `resolveTargetPorts` for real (materialize A's workstation, liveness-gate), so
-`nmap <A.publicIp>` shows `:2222` **iff** A's ws `:22` is up. Then **5.1.3c** — B's `ssh guest@<A.publicIp>
--p 2222` lands on the **workstation** (forward→ws auth in `authCreateSessionPublic`) and **restores** the
-reshaped Story 2–4 agent-browser E2E with the front step (A starts ws `sshd` + forwards `2222→ws:22`). Every
-slice runs full RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR (`tdd`, `testing`, `mutation-testing`, `refactoring`).
+`33e7444`) + 5.1.1b ✅ (#259, `f9c52ea`) + 5.1.2 ✅ (#261, `6d742ee`) + 5.1.3a ✅ (#263, `3d33021`) + 5.1.3b ✅
+(#265, `47d45b9`) shipped & merged.** 5.1.3 is split into 5.1.3a/b/c (own journal-backed router = a new
+machine category). 5.1.3a landed A's own-LAN `ssh root@<subnet>.1` → journal-backed router (root session on
+`computeRouterId`) + `nano /etc/iptables/rules.v4` persisting to the shared router journal (L1 session-gate +
+L2 own-router walker), via the new `isOwnRouter` recognizer and the shared `buildRouterBaseFs` composer.
+5.1.3b wired `resolveTargetPorts` for real (pure `buildWorkstationPortResolver` materializes A's one
+workstation behind NAT + liveness-gates it; the handler gate-fetches the ws journal only when `rules.v4` has a
+forward), so B's `nmap <A.publicIp>` shows `:2222` **iff** A's ws `:22` is up. Next: **5.1.3c** — B's `ssh
+guest@<A.publicIp> -p 2222` lands on the **workstation** (forward→ws auth in `authCreateSessionPublic`,
+reusing 5.1.3b's internalIp→ws materialization) and **restores** the reshaped Story 2–4 agent-browser E2E
+with the front step (A starts ws `sshd` + forwards `2222→ws:22`) — where the live confirm for both 5.1.3b and
+5.1.3c happens. Every slice runs full RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR (`tdd`, `testing`,
+`mutation-testing`, `refactoring`).
 Model `scanResult(address, vantage)` as a clean total function — each interface its own endpoint, NEVER a
 merged view (`project_dual_homed_router_scan_discrepancy`).

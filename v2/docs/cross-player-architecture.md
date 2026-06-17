@@ -92,13 +92,20 @@ RLS denies anon/authenticated entirely; only the service-role function touches t
 
 ## 3. Reachability & cross-player login
 
-- **Scan (Story 5.1.1b):** `nmap <A's public IP>` from B routes to a signed `resolvePublicScan`
+- **Scan (Story 5.1.1b + 5.1.3b):** `nmap <A's public IP>` from B routes to a signed `resolvePublicScan`
   (`core/scan/resolvePublicScan.ts`). The server resolves the public IP to A's **router**
   (`router_machine_id`), materializes it (seeded base + journal replay —
   `core/network/materializeRouterFs.ts`), checks `canBoot` (a bricked router takes the whole
   IP dark), and returns its open ports via `scanResult` (external vantage): the router's own
   seeded `sshd:22` plus any live forwards. The workstation is dark behind NAT until A opts a
-  forward in (Story 5.1.3).
+  forward in. **5.1.3b** wires `scanResult`'s injected `resolveTargetPorts`: the pure
+  `core/scan/workstationPortResolver.ts` `buildWorkstationPortResolver` maps a forward's
+  `internalIp` to A's one workstation behind NAT (its deterministic LAN IP via
+  `assignHomeNetwork(owner_key, essid)`), materializes it (`materializeWorkstationFs`), and reads
+  its open ports — so a forward (mapped to its public port) is shown **iff** the target port is up
+  (a fresh ws has an empty `/var/run` → dark until A starts `sshd`). The handler parses `rules.v4`
+  only to gate the prefetch: a fresh box (no forward) skips the second journal read entirely; the
+  `RegistryLookup` projection gained the workstation fields (machine id, essid, identity) for this.
 - **Login (Story 5.1.2 — routes by destination port):** `ssh [-p port] <user>@<A's public IP>`
   takes the cross-player branch in `core/commands/ssh.ts` (`executePublicLogin`): reachability
   via `resolvePublic`, then `authenticatePublic` carries the **destination port** (default 22).
@@ -116,8 +123,9 @@ RLS denies anon/authenticated entirely; only the service-role function touches t
   `authCreateSession` (`core/sessions/authCreateSession.ts`) branches on `host.kind === 'router'`:
   it builds the router FS from the caller's own (verified) key, validates the seeded admin password
   against its root-only `/etc/passwd`, and lands the session on **`router_machine_id`**. A then
-  `nano`-edits `/etc/iptables/rules.v4`, persisting to the shared router journal (§4). B seeing
-  (`resolveTargetPorts`) and using (`-p 2222` → workstation) the forward is 5.1.3b/c.
+  `nano`-edits `/etc/iptables/rules.v4`, persisting to the shared router journal (§4). B **seeing**
+  the forward is shipped (5.1.3b — `resolveTargetPorts`, above); B **using** it (`-p 2222` →
+  workstation auth) is 5.1.3c.
 - **Guest password:** `workstationGuestPassword(ownerKeyHex)` — a deterministic pick from a
   weak-password list, seeded from the owner's pubkey alone (`core/generation/workstationFs.ts`),
   so the server can recover it for cross-player auth and a future cracker can match it. The
@@ -254,10 +262,11 @@ guest@<public IP> → su root → rm /boot/vmlinuz → reboot`, after which A is
 scans / refuses logins for everyone.
 
 **Story 5** (cross-player home NAT) in flight: `nano` (5.0), the router as a real journal-backed
-machine + public-IP scan/login routed through it (5.1.1a/b, 5.1.2), and A's own-LAN `ssh root@.1`
-+ `nano /etc/iptables/rules.v4` persisting to the shared router journal (5.1.3a) are shipped. Next:
-**5.1.3b** (B's scan reflects the forward — wire `resolveTargetPorts`), **5.1.3c** (B's `-p 2222` →
-workstation + restored loop E2E), then **5.1.4** (dual-homed `.1` sameLAN view). Then **Story 6**
+machine + public-IP scan/login routed through it (5.1.1a/b, 5.1.2), A's own-LAN `ssh root@.1`
++ `nano /etc/iptables/rules.v4` persisting to the shared router journal (5.1.3a), and B's scan now
+reflecting A's forward (5.1.3b — `resolveTargetPorts` wired + liveness-gated) are shipped. Next:
+**5.1.3c** (B's `-p 2222` → workstation auth + restored loop E2E, where 5.1.3b/c get their live
+agent-browser confirm), then **5.1.4** (dual-homed `.1` sameLAN view). Then **Story 6**
 (cross-player scan/connection + su/brick auth.log trace on the shared record), **Story 7**
 (same-wifi shared-LAN occupancy). See `plans/multiplayer-crossplayer-epic.md`.
 
@@ -280,6 +289,7 @@ mitigation is a server-side game-logic re-run.
 | Shared materialize    | `core/network/materializeWorkstationFs.ts`                        |
 | Registry write        | `core/network/registerNetwork.ts`                                 |
 | Public scan resolve   | `core/scan/resolvePublicScan.ts`                                  |
+| Forward liveness gate | `core/scan/workstationPortResolver.ts`                            |
 | su elevation (server) | `core/sessions/authElevateSession.ts`                             |
 | Public ssh gate       | `core/sessions/authCreateSessionPublic.ts`                        |
 | Brick authority       | `core/boot/bootFiles.ts` (`canBoot`)                              |

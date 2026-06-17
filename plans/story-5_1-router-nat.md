@@ -1,7 +1,7 @@
 # Plan: Story 5.1 — Router as a real machine + player-controlled NAT
 
 **Branch**: feat/story-5_1-router-nat (one branch per slice/PR below)
-**Status**: Active — 5.1.1a ✅ (#258, `33e7444`) + 5.1.1b ✅ (#259, `f9c52ea`) + 5.1.2 ✅ (#261, `6d742ee`) shipped. 5.1.3 split into **5.1.3a/b/c** (A's own journal-backed router is a NEW machine category, distinct from own-workstation / regenerated-sibling / cross-player-foreign); **5.1.3a ✅ (#263, `3d33021`)** shipped; next **5.1.3b**.
+**Status**: Active — 5.1.1a ✅ (#258, `33e7444`) + 5.1.1b ✅ (#259, `f9c52ea`) + 5.1.2 ✅ (#261, `6d742ee`) shipped. 5.1.3 split into **5.1.3a/b/c** (A's own journal-backed router is a NEW machine category, distinct from own-workstation / regenerated-sibling / cross-player-foreign); **5.1.3a ✅ (#263, `3d33021`)** + **5.1.3b ✅ (#265, `47d45b9`)** shipped; next **5.1.3c**.
 
 > Parent: `plans/multiplayer-crossplayer-epic.md` — Story 5 (cross-player home NAT only). The 11 locked
 > SCOPE decisions live in §"Story 5 — resolved scope & decisions"; the 7 IMPLEMENTATION decisions this
@@ -32,8 +32,9 @@ reshaped **agent-browser E2E** for the full cross-player loop (browser-only; per
 - [x] A configures a forward by `ssh root@<subnet>.1` → `nano /etc/iptables/rules.v4` → add
       `forward 2222 to <ws.lanIp>:22` → save; the edit persists to the shared journal.
       _(5.1.3a, #263 — unit; agent-browser confirm deferred to 5.1.3 close)_
-- [ ] After A's edit, B's `nmap <A.publicIp>` shows `:2222` **iff** A's workstation `sshd` is up _(scan, 5.1.3b)_,
-      and `ssh guest@<A.publicIp> -p 2222` lands on the **workstation** _(ssh, 5.1.3c)_.
+- [ ] After A's edit, B's `nmap <A.publicIp>` shows `:2222` **iff** A's workstation `sshd` is up
+      _(scan ✅ 5.1.3b, #265 — unit + mutation; live confirm deferred to 5.1.3c)_, and
+      `ssh guest@<A.publicIp> -p 2222` lands on the **workstation** _(ssh → 5.1.3c)_.
 - [ ] `nmap <subnet>.1` from inside the LAN shows the router's own `:22` but **NOT** the forwards (the
       dual-homed `.1`-vs-public invariant — never a merged view).
 
@@ -215,7 +216,7 @@ rules.v4` → save → re-open shows the line) confirmed against `vercel dev`+Su
 
 ---
 
-### Slice 5.1.3b: B's external scan reflects A's forward (`resolveTargetPorts` wired for real)
+### Slice 5.1.3b: B's external scan reflects A's forward (`resolveTargetPorts` wired for real) — ✅ DONE (PR #265, squash `47d45b9`)
 
 **Value**: An attacking player (B) — `nmap <A.publicIp>` now reveals a forwarded port, the recon step before
 using it. Wires the `resolveTargetPorts` seam `scanResult` already consumes (stubbed `() => []` since 5.1.1b).
