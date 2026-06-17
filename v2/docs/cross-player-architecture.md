@@ -76,6 +76,11 @@ RLS denies anon/authenticated entirely; only the service-role function touches t
   source of truth. `scanResult({ vantage, … })` (`core/scan/scanResult.ts`) is the one total
   function feeding both scan paths (external = own ports ∪ live forwards; sameLAN = own only —
   never a merged view). The old degenerate `forward_table` column is dropped.
+  `machineServing({ routerFs, port })` (`core/network/machineServing.ts`, Story 5.1.2) is the
+  routing counterpart — given the materialized router and a destination port it returns the
+  served machine: a router own port → `router`; a parsed forward → `forward{internalIp,
+  internalPort}`; else `none` (router-own wins a same-port tie). It shares `readRulesV4` with
+  `scanResult` (both lifted into `iptablesRules.ts`).
 
 ## 3. Reachability & cross-player login
 
@@ -86,12 +91,17 @@ RLS denies anon/authenticated entirely; only the service-role function touches t
   IP dark), and returns its open ports via `scanResult` (external vantage): the router's own
   seeded `sshd:22` plus any live forwards. The workstation is dark behind NAT until A opts a
   forward in (Story 5.1.3).
-- **Login:** `ssh <user>@<A's public IP>` takes the cross-player branch in
-  `core/commands/ssh.ts` (`executePublicLogin`): reachability via `resolvePublic`, password
-  via `authenticatePublic` (the server regenerates A's `/etc/passwd` and validates), landing
-  a session on A's **real `workstation_machine_id`** at the server-derived `userType`. (Story
-  5.1.2 will route this by destination port so port 22 lands on the router.) The client never
-  claims a tier.
+- **Login (Story 5.1.2 — routes by destination port):** `ssh [-p port] <user>@<A's public IP>`
+  takes the cross-player branch in `core/commands/ssh.ts` (`executePublicLogin`): reachability
+  via `resolvePublic`, then `authenticatePublic` carries the **destination port** (default 22).
+  Server-side, `authCreateSessionPublic` (`core/sessions/authCreateSessionPublic.ts`)
+  materializes A's **router**, boot-gates it, and consults `machineServing`: a router-own port
+  (`:22`) → validate against the router's seeded admin password and land the session on
+  **`router_machine_id`**; a forwarded port → the internal host (Story 5.1.3); neither →
+  `404 host_unreachable` (so an unforwarded `-p 2222` is refused before any password check —
+  the opt-in default). The registry projection here is the minimal `{ owner_key,
+  router_machine_id, essid }`; the workstation-fields projection (`RegistryWorkstation`) now
+  lives with its sole consumer, `authElevateSession.ts`. The client never claims a tier.
 - **Guest password:** `workstationGuestPassword(ownerKeyHex)` — a deterministic pick from a
   weak-password list, seeded from the owner's pubkey alone (`core/generation/workstationFs.ts`),
   so the server can recover it for cross-player auth and a future cracker can match it. The
@@ -181,12 +191,14 @@ escalate on A's box and permanently brick it.
   **halt, no terminal, no recovery**. `reboot` (`core/commands/reboot.ts`, root-only via the binary
   gate) is the in-game trigger: it forces a cold boot of the current machine (own box via `env.fs`,
   cross-player via the server-served tree) and then disconnects from the rebooted box.
-- **A bricked box goes dark to others:** the two cross-player server gates materialize the target
-  (the same registry-rebuild + journal replay the read path uses —
-  `core/network/materializeWorkstationFs.ts`) and ask `canBoot` BEFORE doing their work.
-  `resolvePublicScan` → host-down / no ports (even with lingering `/var/run` pidfiles);
-  `authCreateSessionPublic` → `404 host_unreachable` before the password is checked, no session
-  inserted. A dead box can't be scanned or logged into no matter the credentials.
+- **A bricked box goes dark to others:** the two public-IP server gates materialize the target and
+  ask `canBoot` BEFORE doing their work (same registry-rebuild + journal replay the read path uses).
+  Post-5.1.1b/5.1.2 both gates key on the **router** (`core/network/materializeRouterFs.ts`) — it
+  is the public face — so bricking the router alone takes the whole public IP dark: `resolvePublicScan`
+  → host-down / no ports (even with lingering `/var/run` pidfiles); `authCreateSessionPublic` →
+  `404 host_unreachable` before the password is checked, no session inserted. (Cross-player `su`,
+  `authElevateSession`, still rebuilds the **workstation** B stands on via `materializeWorkstationFs`.)
+  A dead box can't be scanned or logged into no matter the credentials.
 
 su / brick auth.log traces on the foreign box are a cross-player WRITE, deferred to Story 6.
 

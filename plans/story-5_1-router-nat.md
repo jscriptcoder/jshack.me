@@ -1,7 +1,7 @@
 # Plan: Story 5.1 — Router as a real machine + player-controlled NAT
 
 **Branch**: feat/story-5_1-router-nat (one branch per slice/PR below)
-**Status**: Active — 5.1.1a ✅ (#258, `33e7444`) + 5.1.1b ✅ (#259, `f9c52ea`) shipped; next **5.1.2**.
+**Status**: Active — 5.1.1a ✅ (#258, `33e7444`) + 5.1.1b ✅ (#259, `f9c52ea`) + 5.1.2 ✅ (#261, `6d742ee`) shipped; next **5.1.3**.
 
 > Parent: `plans/multiplayer-crossplayer-epic.md` — Story 5 (cross-player home NAT only). The 11 locked
 > SCOPE decisions live in §"Story 5 — resolved scope & decisions"; the 7 IMPLEMENTATION decisions this
@@ -26,7 +26,9 @@ reshaped **agent-browser E2E** for the full cross-player loop (browser-only; per
       default forward). _(5.1.1b, #259 — unit + 6/6 live wire-check)_
 - [ ] `ssh root@<A.publicIp>` lands on the **router** (validated against its seeded admin password);
       `ssh …@<A.publicIp> -p <port>` routes by destination port through the parsed forward table.
-- [ ] With no forward configured, `ssh …@<A.publicIp> -p 2222` is `host_unreachable` (opt-in default).
+      _(router login ✅ 5.1.2, #261 — unit + 6/6 live wire-check; `-p` forward → workstation routing in 5.1.3)_
+- [x] With no forward configured, `ssh …@<A.publicIp> -p 2222` is `host_unreachable` (opt-in default).
+      _(5.1.2, #261 — unit + live wire-check)_
 - [ ] A configures a forward by `ssh root@<subnet>.1` → `nano /etc/iptables/rules.v4` → add
       `forward 2222 to <ws.lanIp>:22` → save; the edit persists to the shared journal.
 - [ ] After A's edit, B's `nmap <A.publicIp>` shows `:2222` **iff** A's workstation `sshd` is up, and
@@ -127,7 +129,7 @@ identity + ordered journal replay) into one `materializeMachineFs` taking the ba
 
 ---
 
-### Slice 5.1.2: ssh routes by destination port (`:22` → router)
+### Slice 5.1.2: ssh routes by destination port (`:22` → router) — ✅ DONE (PR #261, squash `6d742ee`)
 
 **Value**: An attacking player — `ssh root@<A.publicIp>` now reaches the router itself (root via the
 recovered seeded admin pw), the foothold 5.2's router attack builds on.
