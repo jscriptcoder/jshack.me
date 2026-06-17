@@ -14,8 +14,9 @@ tree) server-enforced. **Story 4 (su-to-root via the obtained password → perma
 bricked box dark to others): Slice 1 su-elevation #249 v0.64.0 · Slice 2 `/boot`+boot-screen brick #250
 v0.65.0 · Slice 3 `reboot` #251 v0.66.0 · Slice 4 bricked-box-dark v0.67.0** — B `su root` on A → `rm
 /boot/vmlinuz` → A is permanently unbootable (journal-derived, no recovery), dark to scans + ssh for
-everyone. **Story 5 is NEXT** (real iptables NAT — **SCOPED 2026-06-16 via grill-me to cross-player home NAT
-only; multi-layer → new Story 5b; see "Story 5 — resolved scope & decisions" below**). Story-split
+everyone. **Story 5 IN PROGRESS** (real iptables NAT — **SCOPED 2026-06-16 via grill-me to cross-player home NAT
+only; multi-layer → new Story 5b; see "Story 5 — resolved scope & decisions" below**). **5.0 `nano` ✅ SHIPPED
+(PR #256, 2026-06-17); NEXT = 5.1 (router as a real machine + player NAT).** Story-split
 authored 2026-06-13. Consolidates the remaining work from two now-retired plans
 (`network-generator-epic.md` Story 4; `scan-logging-cross-player.md` Slice 3b) into one epic. Each child
 story below graduates to its own `plans/<slice>.md` (via the `planning` skill) when started.
@@ -257,9 +258,10 @@ directly on `workstation_machine_id`. Story 5 makes all three real.
 
 ### Child-story split (each vertical + cross-player observable; planned via `planning`)
 
-- **5.0 — `nano`** _(prerequisite primitive)_ — the command + a full-screen editor screen that handles
-  `mode_change: { kind:'nano', path, content }` + save-back to the FS + tests. Net-new in v2; unblocks
-  ALL file editing.
+- **5.0 — `nano`** ✅ **SHIPPED (PR #256, squash `e6bbc59`, 2026-06-17)** — the command +
+  `ui/screens/nano.tsx` editor screen handling `mode_change: { kind:'nano', path, content }`, save-back
+  via `saveEditor` (FS-view `isNew`), Terminal `<Show>` overlay, denied-save status, full tests +
+  live agent-browser E2E. Net-new in v2; unblocks ALL file editing (incl. `nano rules.v4` in 5.1).
 - **5.1 — Router as a real machine + player-controlled NAT** _(the meat)_ — router becomes a distinct
   journal-backed registered machine (own `machine_id`, base FS incl. `/etc/iptables/rules.v4`, seeded
   root pw, sshd:22); the shared `scanResult(address, vantage)` total function consumes the parsed
@@ -277,7 +279,7 @@ directly on `workstation_machine_id`. Story 5 makes all three real.
 
 ## Next step
 
-Load `planning` to turn **5.0 (`nano`)** into a PR-sized plan first (the unblocking prerequisite), then
-**5.1**. Every slice runs full RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR (`tdd`, `testing`,
+**5.0 (`nano`) ✅ SHIPPED.** Next: load `grill-me` then `planning` to turn **5.1 (router as a real machine +
+player NAT)** into PR-sized sub-slices. Every slice runs full RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR (`tdd`, `testing`,
 `mutation-testing`, `refactoring`). Model `scanResult(address, vantage)` as a clean total function — each
 interface its own endpoint, NEVER a merged view (`project_dual_homed_router_scan_discrepancy`).
