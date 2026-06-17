@@ -324,8 +324,11 @@ choices (grilled one-by-one, each grounded in code). Feed straight into `plannin
      `router_machine_id` + `resolvePublicScan` materializing the ROUTER + `scanResult` external-branch with
      empty forwards. (Interim: ssh still lands on the ws until 5.1.2 — automated suite stays green; the
      full agent-browser E2E is reshaped at the end per decision 8.)
-   - **5.1.2** — ssh routes by **destination port**: `ssh root@A.publicIp` (:22) → router;
-     `ssh …@A.publicIp -p 2222` → workstation via the forward (`machineServing(addr, port)`).
+   - **5.1.2** ✅ **SHIPPED** (#261 `6d742ee`) — ssh routes by **destination port** via the new pure
+     `machineServing({ routerFs, port })`: `ssh root@A.publicIp` (:22) → the router (validated against its
+     seeded admin pw, session on `router_machine_id`); an unforwarded `-p 2222` → `host_unreachable` (opt-in
+     default). The `-p 2222` → **workstation** half (forward → internal host auth) lands in 5.1.3 with the
+     forward itself. (6/6 live wire-check; `RegistryWorkstation` relocated to `authElevateSession`.)
    - **5.1.3** — A `ssh root@<subnet>.1` + `nano rules.v4` adds the opt-in `2222 → ws:22`, persisted to the
      **shared journal**, reflected cross-player (B's external scan AND `ssh -p 2222` now see it). The FIRST
      own-LAN-but-journal-backed machine — A's own-LAN `ssh root@.1` must route to the journal-backed flow,
@@ -336,9 +339,13 @@ choices (grilled one-by-one, each grounded in code). Feed straight into `plannin
 ## Next step
 
 **5.0 (`nano`) ✅ SHIPPED. 5.1 PLANNED (`plans/story-5_1-router-nat.md`) + IN FLIGHT — 5.1.1a ✅ (#258,
-`33e7444`) + 5.1.1b ✅ (#259, `f9c52ea`) shipped & merged.** Next: **5.1.2** — ssh routes by DESTINATION
-PORT (`ssh root@<A.publicIp>` :22 → the router, validated against its seeded admin pw; `-p 2222` → the
-workstation forward) via a new `machineServing(addr, port)`. Every slice runs full
+`33e7444`) + 5.1.1b ✅ (#259, `f9c52ea`) + 5.1.2 ✅ (#261, `6d742ee`) shipped & merged.** Next: **5.1.3** —
+A `ssh root@<subnet>.1` + `nano /etc/iptables/rules.v4` adds the opt-in `forward 2222 → ws:22`, persisted
+to the **shared journal** and reflected cross-player (B's external scan AND `ssh -p 2222` now see it). The
+FIRST own-LAN-but-journal-backed machine — A's own-LAN `ssh root@.1` must route to the journal-backed flow,
+NOT a regenerated sibling (`hostForMachineId`). This also wires `resolveTargetPorts` for real (materialize
+the workstation, liveness-gate the forward) and **restores** the reshaped Story 2–4 agent-browser E2E with
+the front step (A starts ws `sshd` + forwards `2222→ws:22`). Every slice runs full
 RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR (`tdd`, `testing`,
 `mutation-testing`, `refactoring`). Model `scanResult(address, vantage)` as a clean total function — each
 interface its own endpoint, NEVER a merged view (`project_dual_homed_router_scan_discrepancy`).
