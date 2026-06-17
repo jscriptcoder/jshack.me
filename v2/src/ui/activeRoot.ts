@@ -22,7 +22,9 @@
 
 import { buildRemoteHostFs } from '../core/generation/remoteHostFs';
 import { hostForMachineId } from '../core/generation/remoteHostId';
+import { buildRouterBaseFs } from '../core/generation/routerFs';
 import { isCrossPlayerWorkstation } from '../core/network/crossPlayerHop';
+import { isOwnRouter } from '../core/identity/router';
 import { applyPatches, type Patch } from '../core/filesystem/applyPatches';
 import type { Directory } from '../core/filesystem/types';
 import type { Session } from '../core/commands/types';
@@ -35,6 +37,13 @@ const baseFsFor = (args: {
   readonly ownBaseFs: Directory;
 }): Directory => {
   if (args.session.machineId === args.ownWorkstationId) return args.ownBaseFs;
+  // The player's OWN router (a `ssh root@<subnet>.1` hop) is a journal-backed
+  // machine, not a regenerated LAN sibling: rebuild its seeded base from the
+  // player's own key — the same tree the server materializes — so the locally
+  // replayed router journal (e.g. a `nano rules.v4` edit) lands on it.
+  if (isOwnRouter(args.session.machineId, args.publicKeyHex)) {
+    return buildRouterBaseFs(args.publicKeyHex);
+  }
   if (args.essid === null) return args.ownBaseFs;
   const host = hostForMachineId(args.publicKeyHex, args.essid, args.session.machineId);
   return host === null ? args.ownBaseFs : buildRemoteHostFs(args.publicKeyHex, args.essid, host);

@@ -12,6 +12,7 @@
 
 import type { Directory, FileNode, FilePermissions } from '../filesystem/types';
 import { createPrng } from './prng';
+import { md5 } from './md5';
 import {
   createBinaryEntries,
   LOCALHOST_PREINSTALLED_TOOLS,
@@ -159,3 +160,17 @@ export const buildRouterBaseFsFromIdentity = (identity: {
     TRAVERSABLE_DIR,
   );
 };
+
+/**
+ * Build the router's base FS from the OWNER KEY alone — the one place the
+ * owner-key→secret derivation (admin password hash + sshd presence) lives, so
+ * every path that needs a player's router tree agrees byte-for-byte: the public
+ * scan/auth (`materializeRouterFs`), the client's own-router FS view, and the
+ * server-side L2 walker for an own-router write. Callers replay the router's
+ * journal over this base separately.
+ */
+export const buildRouterBaseFs = (ownerKeyHex: string): Directory =>
+  buildRouterBaseFsFromIdentity({
+    adminPwHash: md5(seedRouterAdminPw(ownerKeyHex)),
+    hasSsh: seedRouterHasSsh(ownerKeyHex),
+  });

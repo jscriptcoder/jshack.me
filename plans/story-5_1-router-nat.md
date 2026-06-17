@@ -1,7 +1,7 @@
 # Plan: Story 5.1 — Router as a real machine + player-controlled NAT
 
 **Branch**: feat/story-5_1-router-nat (one branch per slice/PR below)
-**Status**: Active — 5.1.1a ✅ (#258, `33e7444`) + 5.1.1b ✅ (#259, `f9c52ea`) + 5.1.2 ✅ (#261, `6d742ee`) shipped; next **5.1.3**.
+**Status**: Active — 5.1.1a ✅ (#258, `33e7444`) + 5.1.1b ✅ (#259, `f9c52ea`) + 5.1.2 ✅ (#261, `6d742ee`) shipped. 5.1.3 split into **5.1.3a/b/c** (A's own journal-backed router is a NEW machine category, distinct from own-workstation / regenerated-sibling / cross-player-foreign); **5.1.3a in flight**.
 
 > Parent: `plans/multiplayer-crossplayer-epic.md` — Story 5 (cross-player home NAT only). The 11 locked
 > SCOPE decisions live in §"Story 5 — resolved scope & decisions"; the 7 IMPLEMENTATION decisions this
@@ -30,9 +30,9 @@ reshaped **agent-browser E2E** for the full cross-player loop (browser-only; per
 - [x] With no forward configured, `ssh …@<A.publicIp> -p 2222` is `host_unreachable` (opt-in default).
       _(5.1.2, #261 — unit + live wire-check)_
 - [ ] A configures a forward by `ssh root@<subnet>.1` → `nano /etc/iptables/rules.v4` → add
-      `forward 2222 to <ws.lanIp>:22` → save; the edit persists to the shared journal.
-- [ ] After A's edit, B's `nmap <A.publicIp>` shows `:2222` **iff** A's workstation `sshd` is up, and
-      `ssh guest@<A.publicIp> -p 2222` lands on the **workstation**.
+      `forward 2222 to <ws.lanIp>:22` → save; the edit persists to the shared journal. _(5.1.3a)_
+- [ ] After A's edit, B's `nmap <A.publicIp>` shows `:2222` **iff** A's workstation `sshd` is up _(scan, 5.1.3b)_,
+      and `ssh guest@<A.publicIp> -p 2222` lands on the **workstation** _(ssh, 5.1.3c)_.
 - [ ] `nmap <subnet>.1` from inside the LAN shows the router's own `:22` but **NOT** the forwards (the
       dual-homed `.1`-vs-public invariant — never a merged view).
 
@@ -163,38 +163,113 @@ confirmed, human approves commit.
 
 ---
 
-### Slice 5.1.3: A opts a forward in via `nano rules.v4` — reflected cross-player
+### Slice 5.1.3a: A `ssh root@<subnet>.1` → journal-backed router; `nano rules.v4` persists to the shared journal
 
-**Value**: The victim/defender player (A) — exposes their workstation deliberately; an attacker (B) then sees
-and uses the forward. The first own-LAN-but-journal-backed machine (decision 6 seam).
-**Path**: A `ssh root@<subnet>.1` — own-LAN ssh must route to the **journal-backed router** (the registered
-machine), NOT a regenerated sibling via `hostForMachineId`. Then `nano /etc/iptables/rules.v4`, add
-`forward 2222 to <ws.lanIp>:22`, save → persists to the router's shared journal (the shipped write path:
-L1 session + L2 walker at the root tier on the router tree). B's `nmap <A.publicIp>` external-scan now wires
-`resolveTargetPorts` for real (materialize the workstation, `readOpenPorts`, keep `:2222` iff ws `:22` up),
-and `ssh guest@<A.publicIp> -p 2222` lands on the workstation.
+**Value**: The victim/defender player (A) — logs into their OWN router and edits its NAT config; the edit
+sticks on the shared journal. The FIRST own-LAN-but-journal-backed machine (decision 6 seam) — a new machine
+category the whole stack must recognize, distinct from own-workstation (L1 bypass), regenerated LAN sibling
+(`hostForMachineId`→`buildRemoteHostFs`), and cross-player foreign box (registry→`buildWorkstationBaseFsFromIdentity`).
+**Path**: `ssh root@<subnet>.1` → own-LAN reachability checked against the **router** FS (seeded `sshd:22`,
+not `buildRemoteHostFs`) → server `authCreateSession` **router branch** (build the router FS from the caller's
+verified key, validate the seeded admin pw, session on `computeRouterId(publicKey)`) → client materializes the
+router via the **own-router FS branch** (`buildRouterBaseFsFromIdentity(ownKey)` + replayed router journal, NOT
+a served tree) → `nano /etc/iptables/rules.v4` save → L1 session-gate (no own-box bypass — router is a distinct
+namespace) + L2 walker on the **router** tree at root tier → patch persisted under `router_machine_id`.
+**Required implementation skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`, `api-design`.
+**Sub-decisions** (confirmed): **D-a** — new `isOwnRouter(machineId, publicKeyHex) = machineId ===
+computeRouterId(publicKeyHex)`, the identity-derived sibling of `isOwnWorkstation`, used client-side (FS-view
+branch + exclude from `isCrossPlayerWorkstation`) and server-side L2. **D-b** — EXTEND `authCreateSession` with
+a `host.kind === 'router'` branch (caller is the owner ⇒ every router secret is server-derivable), not a new
+handler.
+**Acceptance criteria** (confirmed):
+
+- `ssh root@<subnet>.1` authenticates against the router's seeded admin pw and opens a **root** session whose
+  `machineId === computeRouterId(env.identity.publicKeyHex)` (the id the registry stores + B's public paths
+  resolve). Reachability/port checked against the **router** FS. Wrong pw → `Permission denied`; a non-root
+  user → `Permission denied` (router is root-only).
+- Inside the session, `ls`/`cat`/`nano` read the **router** tree (root-only `/etc/passwd`, the seeded
+  `/etc/iptables/rules.v4` template, `/bin` etc.) — client base = `buildRouterBaseFsFromIdentity(ownKey)` +
+  replayed router journal, NOT a regenerated sibling, NOT a served cross-player tree.
+- `nano /etc/iptables/rules.v4` → add `forward 2222 to <ws.lanIp>:22` → Ctrl-O persists a patch under
+  `router_machine_id` at **root** tier (passes L1 session-gate + L2 router-tree walker). A fresh session
+  re-opening the file shows the line; the edit is visible when the router is re-materialized server-side.
+- The own router is **not** a cross-player hop (no served-tree fetch) and **not** the own workstation (no L1
+  bypass — session-gated).
+
+**Deferred to 5.1.3b/c**: B seeing/using the forward (`resolveTargetPorts`, forward→ws auth). Deferred to
+5.1.4: the dual-homed `.1` sameLAN scan. Deferred to Story 5.2: foreign-router L2 (B's brick).
+**RED** (mutator-aware): ssh.ts own-LAN router routing (root@.1 reachable on 22 via router FS; session
+`machineId === computeRouterId`; non-root/bad-pw → Permission denied); `authCreateSession` router branch (root
++ seeded admin pw → 200 on router id; wrong pw → 401; non-root → 401); `isOwnRouter` true/false +
+`isCrossPlayerWorkstation` false for the own router; `baseFsFor` own-router branch (router id → router base,
+not `buildRemoteHostFs`/ownBase); `resolveTargetBaseFs` own-router branch (router id → router FS so root
+`canWrite` rules.v4; guest tier denied).
+**GREEN**: `isOwnRouter` + thread the router branch through ssh.ts / `authCreateSession` / `baseFsFor` /
+`resolveTargetBaseFs`.
+**MUTATE / KILL MUTANTS**: Stryker over the changed `core/`; verify the router-vs-sibling FS choice and the
+own-router-vs-cross-player classification aren't survivable swaps.
+**REFACTOR**: assess a single `routerFsForCaller(publicKey)` helper shared by the auth branch + L2 branch.
+**Done when**: AC met, mutation reviewed, agent-browser (A `ssh root@.1` → router root prompt → `nano
+rules.v4` → save → re-open shows the line) confirmed against `vercel dev`+Supabase, human approves commit.
+
+---
+
+### Slice 5.1.3b: B's external scan reflects A's forward (`resolveTargetPorts` wired for real)
+
+**Value**: An attacking player (B) — `nmap <A.publicIp>` now reveals a forwarded port, the recon step before
+using it. Wires the `resolveTargetPorts` seam `scanResult` already consumes (stubbed `() => []` since 5.1.1b).
+**Path**: `nmap <A.publicIp>` → `resolvePublicScan` materializes the router (already), parses `rules.v4`, and
+for each forward calls a REAL `resolveTargetPorts(internalIp)`: map `internalIp` → A's workstation via
+`assignHomeNetwork(owner_key, essid).localIp`, materialize it (`materializeWorkstationFs`), `readOpenPorts`;
+`scanResult` keeps the forward (mapped to its public port) iff the target's internal port is up.
 **Required implementation skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`, `api-design`.
 **Acceptance criteria** (present + confirm before code):
 
-- A's own-LAN `ssh root@<subnet>.1` resolves to the registered router machine (journal-backed), authenticates
-  against its seeded admin pw, and opens a root session on `router_machine_id` — `nano`/`cat` work there.
-- Editing + saving `/etc/iptables/rules.v4` on the router persists to the shared journal under the router
-  machine id (so a different identity's materialize sees it).
-- `resolveTargetPorts(internalIp)` resolves `internalIp` → the workstation via
-  `assignHomeNetwork(owner_key, essid).localIp`, materializes it, and returns its open ports; a forward is
-  reported open only when the target's internal port is actually up.
-- After A's edit: B's `nmap <A.publicIp>` includes `:2222` (iff ws `:22` up); `ssh guest@<A.publicIp> -p 2222`
-  → workstation session. Removing/malforming the line removes the forward.
+- A new server-side `resolveTargetPorts(internalIp)` (injected into `scanResult`) resolves `internalIp` → A's
+  workstation (`assignHomeNetwork(owner_key, essid).localIp` match), materializes it from base + ws journal,
+  and returns its open ports; an `internalIp` that matches no host → empty.
+- After A's 5.1.3a forward edit, B's `nmap <A.publicIp>` includes `:2222` **iff** A's workstation `sshd` is up;
+  with the ws `sshd` down (or the forward line removed/malformed) `:2222` is absent. The router's own `:22` is
+  always present and never double-listed.
+- `resolvePublicScan` passes the real resolver (no longer `() => []`); the registry/patches deps it needs
+  (owner_key, essid, ws journal) are wired + wire-checked for DB-column correctness.
 
-**RED**: own-LAN `.1` → router resolution (not a regenerated sibling); a forward written to the router journal
-changes a subsequent `scanResult` external result; `resolveTargetPorts` liveness (ws sshd down → forward not
-shown); `ssh -p 2222` post-forward → workstation.
-**GREEN**: route own-LAN `.1` to the router; wire `resolveTargetPorts`; map internalIp → ws.
-**MUTATE / KILL MUTANTS**: Stryker over the resolver + liveness filter.
-**REFACTOR**: assess unifying the `.1`-router and public-IP-router resolution.
-**Done when**: AC met, mutation reviewed, full agent-browser cross-player loop (A forwards → B scans → B
-`ssh -p 2222` → workstation) green, human approves commit. **Restores** the reshaped Story 2–4 E2E with the
-front step (A starts ws `sshd` + forwards `2222→ws:22`) per decision 8.
+**RED**: `resolveTargetPorts` (internalIp matches ws → ws ports; no match → empty; ws sshd down → port absent);
+`resolvePublicScan` integration (forward in router journal + ws up → `:2222` shown; ws down → hidden).
+**GREEN**: implement + inject `resolveTargetPorts`; thread the ws lookup deps.
+**MUTATE / KILL MUTANTS**: Stryker over the resolver + the liveness branch.
+**REFACTOR**: assess sharing the internalIp→ws materialization with 5.1.3c's auth path.
+**Done when**: AC met, mutation reviewed, agent-browser (A forwards → B `nmap <A.publicIp>` shows `:2222`)
+confirmed, human approves commit.
+
+---
+
+### Slice 5.1.3c: B's `ssh … -p 2222` lands on the workstation (restores the cross-player loop E2E)
+
+**Value**: An attacking player (B) — `ssh guest@<A.publicIp> -p 2222` finally lands on A's exposed workstation,
+completing the cross-player NAT loop. Restores the Story 2–4 agent-browser E2E (reshaped since 5.1.1b).
+**Path**: `ssh guest@<A.publicIp> -p 2222` → `authCreateSessionPublic`; `machineServing` already returns the
+`forward` branch — wire it: resolve `internalIp` → A's workstation (same lookup as 5.1.3b), materialize it,
+validate `payload.password` against ITS `/etc/passwd`, insert the session on `workstation_machine_id`, return
+its host. A bricked/booted gate + boot-state stay on the router for the IP; the ws is the auth target.
+**Required implementation skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`, `api-design`.
+**Acceptance criteria** (present + confirm before code):
+
+- With A's `2222 → ws:22` forward live, `ssh guest@<A.publicIp> -p 2222` validates against the **workstation**'s
+  passwd and opens a session on `workstation_machine_id` (not the router); a wrong pw → 401; an unforwarded port
+  → 404 (unchanged from 5.1.2).
+- The forward→ws auth reuses 5.1.3b's internalIp→workstation materialization (no second copy of the lookup).
+- The reshaped agent-browser E2E passes end-to-end: A starts ws `sshd` + forwards `2222→ws:22` (front step,
+  decision 8) → B `crack→connect→nmap <A.publicIp>` (sees `:22` + `:2222`) → `ssh guest@<A.publicIp> -p 2222` →
+  operates on A's workstation.
+
+**RED**: `authCreateSessionPublic` forward branch (`-p 2222` + ws-valid pw → 200 on `workstation_machine_id`;
+wrong pw → 401; ws sshd down → 404/refused); E2E reshape.
+**GREEN**: wire the `forward` branch of `machineServing` to ws auth.
+**MUTATE / KILL MUTANTS**: Stryker over the auth branch.
+**REFACTOR**: assess unifying the router-port and forward-port auth arms.
+**Done when**: AC met, mutation reviewed, full agent-browser cross-player loop green, human approves commit.
+**Restores** the Story 2–4 E2E with the front step (A starts ws `sshd` + forwards `2222→ws:22`) per decision 8.
 
 ---
 

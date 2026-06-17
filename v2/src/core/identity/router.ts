@@ -19,3 +19,13 @@ import { deriveHostnameSuffix } from './workstation';
 
 export const computeRouterId = (playerKeyHex: string): string =>
   `router-${deriveHostnameSuffix(`ed25519-router:${playerKeyHex}`)}`;
+
+/** Whether `machineId` is the caller's OWN router — the router counterpart of
+ *  `isOwnWorkstation`. The router has its own (`'ed25519-router:'`) namespace, so
+ *  this is a plain identity-derived match: A's router id is `computeRouterId(A)`
+ *  and no other key reproduces it. Used both client-side (route the own-router FS
+ *  view, exclude it from the cross-player hop) and server-side (the L2 walker
+ *  rebuilds the router tree for an own-router write). Unlike `isOwnWorkstation`,
+ *  holding this id grants no L1 bypass: the router is always session-gated. */
+export const isOwnRouter = (machineId: string, playerKeyHex: string): boolean =>
+  machineId === computeRouterId(playerKeyHex);
