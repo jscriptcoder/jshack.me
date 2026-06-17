@@ -7,6 +7,8 @@ import {
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
 import { computeRouterId } from '../identity/router';
+import { assignHomeNetwork } from '../network/homeNetwork';
+import { md5 } from '../generation/md5';
 import type { OwnerPatchRow } from '../network/materializeWorkstationFs';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
@@ -23,13 +25,56 @@ import type { NonceStore } from '../signedRequest/nonceStore';
 
 const freshStore: NonceStore = async () => ({ fresh: true });
 const TARGET = '203.0.113.7';
+const ESSID = 'CoffeeShopWiFi';
 // A real identity so the router's seeded admin password / sshd presence recover
-// from the owner key; the registry now carries only what the router scan needs.
+// from the owner key; the registry now also carries what materializing the
+// workstation behind a NAT forward needs (machine id, essid, ws identity).
 const OWNER = generateIdentity();
 const REGISTERED: RegistryLookup = {
   router_machine_id: computeRouterId(OWNER.publicKeyHex),
   owner_key: OWNER.publicKeyHex,
+  workstation_machine_id: 'workstation-a1b2c3d4',
+  essid: ESSID,
+  workstation_username: 'neo',
+  workstation_root_hash: md5('toor'),
 };
+
+/** A's workstation LAN IP — the deterministic address a `rules.v4` forward must
+ *  target to reach it (the server recomputes the same value from owner_key+essid). */
+const wsLanIp = assignHomeNetwork(OWNER.publicKeyHex, ESSID).localIp;
+
+/** A root `nano /etc/iptables/rules.v4` edit on the ROUTER's journal opening a NAT
+ *  forward `2222 → <ws>:22` — the opt-in that exposes the workstation behind NAT. */
+const routerForward: OwnerPatchRow = {
+  path: '/etc/iptables/rules.v4',
+  content: `forward 2222 to ${wsLanIp}:22`,
+  owner: 'root',
+  permissions: null,
+  node_type: 'file',
+  updated_at: '2026-06-17T00:00:01.000Z',
+  writer_key: OWNER.publicKeyHex,
+};
+
+/** A's workstation `sshd` running — its pidfile planted on the WORKSTATION journal
+ *  (A started the daemon). With it the forward is live; without it the ws is dark. */
+const wsSshdUp: OwnerPatchRow = {
+  path: '/var/run/sshd.pid',
+  content: 'sshd:port=22',
+  owner: 'root',
+  permissions: null,
+  node_type: 'file',
+  updated_at: '2026-06-17T00:00:00.000Z',
+  writer_key: OWNER.publicKeyHex,
+};
+
+/** Route the journal read by machine id: the ROUTER's rows vs the WORKSTATION's
+ *  rows — the handler reads each separately to scan ports + liveness-gate forwards. */
+const patchesByMachine =
+  (router: readonly OwnerPatchRow[], workstation: readonly OwnerPatchRow[]) =>
+  async ({ machine_id }: { machine_id: string }): Promise<PatchesResult> =>
+    machine_id === REGISTERED.workstation_machine_id
+      ? { data: workstation, error: null }
+      : { data: router, error: null };
 
 /** A root `rm /boot/vmlinuz` on the ROUTER's journal — replayed, it deletes the
  *  kernel so `canBoot` reports the router bricked (the whole public IP goes dark). */
@@ -48,7 +93,10 @@ type PatchesResult = { data: readonly OwnerPatchRow[] | null; error: unknown };
 
 const makeDeps = (
   lookup: () => Promise<LookupResult> = async () => ({ data: null, error: null }),
-  patches: () => Promise<PatchesResult> = async () => ({ data: [], error: null }),
+  patches: (query: { machine_id: string }) => Promise<PatchesResult> = async () => ({
+    data: [],
+    error: null,
+  }),
 ) => {
   const findRegistryByPublicIp = vi.fn<(publicIp: string) => Promise<LookupResult>>(lookup);
   const findPatches = vi.fn<(query: { machine_id: string }) => Promise<PatchesResult>>(patches);
@@ -84,6 +132,77 @@ describe('handleResolvePublicScan', () => {
     expect(findRegistryByPublicIp).toHaveBeenCalledWith(TARGET);
     // The journal is read off the ROUTER machine, not the workstation.
     expect(findPatches).toHaveBeenCalledWith({ machine_id: REGISTERED.router_machine_id });
+  });
+
+  it('surfaces a forwarded port on the public IP when the workstation behind it is up', async () => {
+    const id = generateIdentity();
+    const { deps, findPatches } = makeDeps(
+      async () => ({ data: REGISTERED, error: null }),
+      patchesByMachine([routerForward], [wsSshdUp]),
+    );
+
+    const result = await handleResolvePublicScan(envelope(id, TARGET), deps);
+
+    // The router's own :22 PLUS the live forward, mapped to its public port :2222.
+    expect(result).toEqual({
+      status: 200,
+      body: {
+        ok: true,
+        found: true,
+        ports: [
+          { port: 22, service: 'ssh' },
+          { port: 2222, service: 'ssh' },
+        ],
+      },
+    });
+    // The forward's liveness is gated on the WORKSTATION journal, read separately.
+    expect(findPatches).toHaveBeenCalledWith({ machine_id: REGISTERED.workstation_machine_id });
+  });
+
+  it('hides a forwarded port when the workstation behind it is down', async () => {
+    const id = generateIdentity();
+    const { deps } = makeDeps(
+      async () => ({ data: REGISTERED, error: null }),
+      // Forward configured, but the workstation sshd is NOT running (empty journal).
+      patchesByMachine([routerForward], []),
+    );
+
+    const result = await handleResolvePublicScan(envelope(id, TARGET), deps);
+
+    // Only the router's own port — the dead forward is not advertised.
+    expect(result).toEqual({
+      status: 200,
+      body: { ok: true, found: true, ports: [{ port: 22, service: 'ssh' }] },
+    });
+  });
+
+  it('does not read the workstation journal when no forward is configured', async () => {
+    const id = generateIdentity();
+    const { deps, findPatches } = makeDeps(async () => ({ data: REGISTERED, error: null }));
+
+    await handleResolvePublicScan(envelope(id, TARGET), deps);
+
+    // A fresh box exposes only the router; the workstation behind NAT is never touched.
+    expect(findPatches).toHaveBeenCalledWith({ machine_id: REGISTERED.router_machine_id });
+    expect(findPatches).not.toHaveBeenCalledWith({
+      machine_id: REGISTERED.workstation_machine_id,
+    });
+    expect(findPatches).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a server error when the workstation journal lookup fails', async () => {
+    const id = generateIdentity();
+    const { deps } = makeDeps(
+      async () => ({ data: REGISTERED, error: null }),
+      async ({ machine_id }) =>
+        machine_id === REGISTERED.workstation_machine_id
+          ? { data: null, error: new Error('ws db down') }
+          : { data: [routerForward], error: null },
+    );
+
+    const result = await handleResolvePublicScan(envelope(id, TARGET), deps);
+
+    expect(result).toEqual({ status: 500, body: { error: 'patches_lookup_failed' } });
   });
 
   it('reports a bricked router (a /boot tombstone on its journal) as host down, with no ports', async () => {

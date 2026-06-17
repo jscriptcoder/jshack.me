@@ -28,14 +28,25 @@ import type { NonceStore } from '../signedRequest/nonceStore';
 import { materializeRouterFs } from '../network/materializeRouterFs';
 import type { OwnerPatchRow } from '../network/materializeWorkstationFs';
 import { canBoot } from '../boot/bootFiles';
+import { parseForwardRules, readRulesV4 } from '../network/iptablesRules';
 import { scanResult } from './scanResult';
+import { buildWorkstationPortResolver } from './workstationPortResolver';
+import type { Directory } from '../filesystem/types';
+import type { OpenPort } from '../services/pidfile';
 
-/** The registry fields the router scan needs: which router the public IP maps to
- *  (`router_machine_id` — its journal scope) and the `owner_key` that seeds the
- *  router's base FS (admin password + sshd presence) for the boot-state check. */
+/** The registry fields the router scan needs. For the boot-state check + the
+ *  router's own ports: which router the public IP maps to (`router_machine_id` — its
+ *  journal scope) and the `owner_key` that seeds its base FS. For liveness-gating a
+ *  NAT forward to the workstation behind NAT (Story 5.1.3b): the workstation's
+ *  machine id (its journal scope), the `essid` (with `owner_key`, derives its LAN
+ *  IP), and its identity (to reconstruct its tree). */
 export type RegistryLookup = {
   readonly router_machine_id: string;
   readonly owner_key: string;
+  readonly workstation_machine_id: string;
+  readonly essid: string;
+  readonly workstation_username: string;
+  readonly workstation_root_hash: string;
 };
 
 export type ResolvePublicScanDeps = {
@@ -65,6 +76,28 @@ const resolvePublicScanSchema = z
     target: z.string().min(1),
   })
   .refine((payload) => !('player_key' in payload));
+
+/** The forward-liveness resolver `scanResult` consumes, or `null` when the
+ *  workstation journal read fails (→ the caller fails the scan with 500, like the
+ *  router read). The router's `rules.v4` is the single source of truth for forwards;
+ *  we parse it ONLY to decide whether a workstation read is even needed — a fresh
+ *  box (no forward) returns a resolver that resolves nothing and skips the extra
+ *  journal fetch. When a forward exists, read the workstation behind NAT so
+ *  `scanResult` shows the forward only while its target port is up. */
+type ForwardResolver = (internalIp: string) => readonly OpenPort[];
+
+const resolveForwardTargets = async (
+  deps: ResolvePublicScanDeps,
+  registry: RegistryLookup,
+  routerFs: Directory,
+): Promise<ForwardResolver | null> => {
+  if (parseForwardRules(readRulesV4(routerFs)).length === 0) {
+    return () => [];
+  }
+  const workstationPatches = await deps.findPatches({ machine_id: registry.workstation_machine_id });
+  if (workstationPatches.error) return null;
+  return buildWorkstationPortResolver({ registry, workstationPatches: workstationPatches.data });
+};
 
 export const handleResolvePublicScan = async (
   body: unknown,
@@ -99,8 +132,12 @@ export const handleResolvePublicScan = async (
 
   // The router's open ports from the single `scanResult` total function (external
   // vantage = own ports ∪ live forwards). The router's own `sshd:22` is seeded into
-  // its base FS; forwards parse off `/etc/iptables/rules.v4`. No forward resolver is
-  // wired yet (5.1.3) — a fresh router exposes only its own ports.
-  const ports = scanResult({ vantage: 'external', routerFs, resolveTargetPorts: () => [] });
+  // its base FS; forwards parse off `/etc/iptables/rules.v4`, each surfaced only
+  // while the workstation behind it is actually serving the internal port.
+  const resolveTargetPorts = await resolveForwardTargets(deps, data, routerFs);
+  if (resolveTargetPorts === null) {
+    return { status: 500, body: { error: 'patches_lookup_failed' } };
+  }
+  const ports = scanResult({ vantage: 'external', routerFs, resolveTargetPorts });
   return { status: 200, body: { ok: true, found: true, ports } };
 };
