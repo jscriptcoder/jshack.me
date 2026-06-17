@@ -7,11 +7,12 @@ import {
 } from '../src/core/sessions/authCreateSession';
 import {
   handleAuthCreateSessionPublic,
-  type RegistryWorkstation,
+  type RegistryTarget,
 } from '../src/core/sessions/authCreateSessionPublic';
 import type { OwnerPatchRow } from '../src/core/network/materializeWorkstationFs';
 import {
   handleAuthElevateSession,
+  type RegistryWorkstation,
   type SuSessionRow,
 } from '../src/core/sessions/authElevateSession';
 import {
@@ -149,18 +150,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (actionOf(req.body) === 'authCreateSessionPublic') {
-    // Cross-PLAYER ssh login: resolve the target PUBLIC IP in the registry, then the
-    // handler rebuilds the owner's workstation from the persisted identity and
-    // validates the password before this insert runs. No write to the owner's box —
-    // the auth.log trace on a foreign workstation is a later story (Story 6).
+    // Cross-PLAYER ssh login (Story 5.1.2): resolve the target PUBLIC IP in the
+    // registry, then the handler materializes the owner's ROUTER and routes by
+    // destination port — port 22 lands on the router itself (validated against its
+    // seeded admin password). No write to the owner's box — the auth.log trace on a
+    // foreign machine is a later story (Story 6).
     const findRegistryByPublicIp = async (publicIp: string) => {
       const { data, error } = await supabase
         .from('network_registry')
-        .select('owner_key, workstation_machine_id, essid, workstation_username, workstation_root_hash')
+        .select('owner_key, router_machine_id, essid')
         .eq('public_ip', publicIp)
         .maybeSingle();
       if (error) console.error('[sessions] registry lookup error:', error);
-      return { data: data as RegistryWorkstation | null, error };
+      return { data: data as RegistryTarget | null, error };
     };
     const insertSessionPublic = async (row: AuthSessionRow) => {
       const { error } = await supabase.from('sessions').insert(row);

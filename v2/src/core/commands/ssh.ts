@@ -103,6 +103,7 @@ const executePublicLogin = async (
     target: target.host,
     username: target.user,
     password,
+    port,
     parentSessionId: env.session.id,
     sourceIp,
   });

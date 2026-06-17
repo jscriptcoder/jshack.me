@@ -16,7 +16,7 @@
 
 import type { Directory } from '../filesystem/types';
 import { readOpenPorts, type OpenPort } from '../services/pidfile';
-import { parseForwardRules } from '../network/iptablesRules';
+import { parseForwardRules, readRulesV4 } from '../network/iptablesRules';
 
 /** Where the scan is performed FROM. `sameLAN` = a host on the router's own LAN
  *  scanning its `.1` interface (own services only); `external` = the public IP
@@ -29,17 +29,6 @@ export type ScanResultArgs = {
   /** The open ports of the host an internal forward targets — used to keep a
    *  forward only while its target port is actually up. */
   readonly resolveTargetPorts: (internalIp: string) => readonly OpenPort[];
-};
-
-/** The router's `/etc/iptables/rules.v4` content, or '' when absent. Walks the
- *  tree the same way `readOpenPorts` does (this layer has no path resolver). */
-const readRulesV4 = (routerFs: Directory): string => {
-  const etc = routerFs.entries.get('etc');
-  if (etc?.kind !== 'directory') return '';
-  const iptables = etc.entries.get('iptables');
-  if (iptables?.kind !== 'directory') return '';
-  const rules = iptables.entries.get('rules.v4');
-  return rules?.kind === 'file' ? rules.content : '';
 };
 
 /** Drop later entries that repeat an already-seen port (own ports win). */

@@ -419,6 +419,7 @@ describe('ssh to a public IP (cross-player)', () => {
       target: PUBLIC_IP,
       username: 'guest',
       password: 'guestpw',
+      port: 22,
       parentSessionId: 'su-root-1',
       sourceIp: selfIp,
     });
@@ -433,6 +434,29 @@ describe('ssh to a public IP (cross-player)', () => {
       createdAt: NOW,
     });
     expect(onCwd).toHaveBeenCalledWith('/home/guest');
+  });
+
+  it('carries the destination port to cross-player auth so the server can route by port', async () => {
+    // A forwarded port: the public scan shows :2222, so reachability passes and the
+    // command must hand the SERVER port 2222 (not silently 22) — that's how the
+    // server routes the login to the right machine behind the NAT.
+    const authenticatePublic = vi.fn<(params: PublicAuthParams) => Promise<PublicAuthResult>>(
+      async () => ({ ok: true, userType: 'guest', machineId: A_MACHINE_ID }),
+    );
+    const bound = bindFlags([`guest@${PUBLIC_IP}`, '-p', '2222'], ssh.flags ?? {});
+    expect(bound.ok).toBe(true);
+    if (!bound.ok) throw new Error(bound.error);
+
+    await ssh.execute(
+      sshPublicEnv({
+        authenticatePublic,
+        resolvePublic: async () => ({ found: true, ports: [{ port: 2222, service: 'ssh' }] }),
+      }),
+      bound.positional,
+      bound.flags,
+    );
+
+    expect(authenticatePublic.mock.calls[0]![0]).toMatchObject({ port: 2222 });
   });
 
   it('routes a public IP through resolvePublic (the registry), not the own-LAN host path', async () => {

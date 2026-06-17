@@ -137,6 +137,7 @@ export const authCreateServerSessionPublic = async (
       target: params.target,
       username: params.username,
       password: params.password,
+      port: params.port,
       parent_session_id: params.parentSessionId,
       source_ip: params.sourceIp,
     });

@@ -238,6 +238,7 @@ describe('authCreateServerSessionPublic', () => {
     target: '203.0.113.7',
     username: 'guest',
     password: 'guestpw',
+    port: 2222,
     parentSessionId: 'su-root-1',
     sourceIp: '192.168.50.23',
   };
@@ -259,6 +260,7 @@ describe('authCreateServerSessionPublic', () => {
       target: '203.0.113.7',
       username: 'guest',
       password: 'guestpw',
+      port: 2222,
       parent_session_id: 'su-root-1',
       source_ip: '192.168.50.23',
     });

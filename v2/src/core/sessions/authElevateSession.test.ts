@@ -2,9 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   handleAuthElevateSession,
   type AuthElevateSessionDeps,
+  type RegistryWorkstation,
   type SuSessionRow,
 } from './authElevateSession';
-import type { RegistryWorkstation } from './authCreateSessionPublic';
 import { workstationGuestPassword } from '../generation/workstationFs';
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';

@@ -244,6 +244,9 @@ export type PublicAuthParams = {
   readonly target: string;
   readonly username: string;
   readonly password: string;
+  /** The destination port (default 22). The server routes by it — the router's own
+   *  port lands on the router; a NAT-forwarded port lands on the internal host. */
+  readonly port: number;
   readonly parentSessionId: string | null;
   readonly sourceIp: string | null;
 };
