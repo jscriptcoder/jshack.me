@@ -18,7 +18,9 @@
 import { asAbsPath, asMachineId, type UserType } from '../types';
 import { generateHomeLan } from '../generation/generateHomeLan';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
+import { buildRouterBaseFs } from '../generation/routerFs';
 import { hostMachineId } from '../generation/remoteHostId';
+import { computeRouterId } from '../identity/router';
 import { isPublicIp } from '../generation/ip';
 import { parsePidfilePort } from '../services/pidfile';
 import type { Command, CommandEnv, CommandResult, Session } from './types';
@@ -162,9 +164,19 @@ const execute: Command['execute'] = async (env, args, flags) => {
   if (host === undefined) {
     return connectError(target.host, port, 'No route to host');
   }
+  // The `.1` gateway is the player's OWN ROUTER — a journal-backed box keyed by
+  // `computeRouterId`, not a regenerated LAN sibling. Its reachability + the hop's
+  // machine id come from the router FS/id; every other host stays on its
+  // coordinate `hostMachineId` + `buildRemoteHostFs` tree. The server (resolving
+  // the same ip → host.kind) lands the session on the matching machine id.
+  const isRouter = host.kind === 'router';
+  const hostFs = isRouter
+    ? buildRouterBaseFs(env.identity.publicKeyHex)
+    : buildRemoteHostFs(env.identity.publicKeyHex, essid, host);
+  const machineId = isRouter ? computeRouterId(env.identity.publicKeyHex) : hostMachineId(host, essid);
   // A host not running ssh has a null port, which is `!== port` too — so the one
   // check covers both "no ssh service" and "listening on a different port".
-  const runningPort = sshPortOf(buildRemoteHostFs(env.identity.publicKeyHex, essid, host));
+  const runningPort = sshPortOf(hostFs);
   if (runningPort !== port) {
     return connectError(target.host, port, 'Connection refused');
   }
@@ -200,7 +212,7 @@ const execute: Command['execute'] = async (env, args, flags) => {
   const session: Session = {
     id: sessionId,
     playerKey: env.session.playerKey,
-    machineId: asMachineId(hostMachineId(host, essid)),
+    machineId: asMachineId(machineId),
     username: target.user,
     userType: result.userType,
     kind: 'ssh',

@@ -3,6 +3,7 @@ import { isCrossPlayerWorkstation } from './crossPlayerHop';
 import { generateHomeLan } from '../generation/generateHomeLan';
 import { hostMachineId } from '../generation/remoteHostId';
 import { computeWorkstationId } from '../identity/workstation';
+import { computeRouterId } from '../identity/router';
 
 /**
  * `isCrossPlayerWorkstation` is the machine-level "am I standing on ANOTHER
@@ -44,5 +45,15 @@ describe('isCrossPlayerWorkstation', () => {
     expect(isCrossPlayerWorkstation({ machineId: FOREIGN_ID, publicKeyHex: PUBKEY, essid: null })).toBe(
       false,
     );
+  });
+
+  it('is false for your OWN router (a journal-backed machine on your LAN, not a foreign box)', () => {
+    // The router has a distinct id namespace, so it is neither your workstation
+    // nor a host `hostForMachineId` resolves — without the own-router exclusion it
+    // would be misread as cross-player and fetch a server-served (tier-filtered)
+    // tree instead of your own journal-replayed router tree.
+    expect(
+      isCrossPlayerWorkstation({ machineId: computeRouterId(PUBKEY), publicKeyHex: PUBKEY, essid: ESSID }),
+    ).toBe(false);
   });
 });

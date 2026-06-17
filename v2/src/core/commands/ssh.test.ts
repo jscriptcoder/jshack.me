@@ -12,6 +12,7 @@ import {
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
 import { hostMachineId } from '../generation/remoteHostId';
+import { computeRouterId } from '../identity/router';
 import { parsePidfilePort } from '../services/pidfile';
 import { bindFlags } from '../shell/bindFlags';
 import { assignHomeNetwork } from '../network/homeNetwork';
@@ -63,11 +64,14 @@ const sshdPort = (fs: Directory): number | null => {
   return pid?.kind === 'file' ? parsePidfilePort(pid.content) : null;
 };
 
-/** Deterministic LAN hosts: one running sshd on :22, and one running no ssh. */
+/** Deterministic LAN MACHINE hosts: one running sshd on :22, and one running no
+ *  ssh. Excludes the `.1` gateway — the router routes to its own journal-backed
+ *  machine id (covered by its own test), not the generic-sibling path. */
 const pickHosts = (): { sshHost: LanHost; noSshHost: LanHost } => {
   let sshHost: LanHost | undefined;
   let noSshHost: LanHost | undefined;
   for (const host of generateHomeLan(PUBKEY, ESSID).hosts) {
+    if (host.kind !== 'machine') continue;
     const port = sshdPort(buildRemoteHostFs(PUBKEY, ESSID, host));
     if (port === 22 && sshHost === undefined) sshHost = host;
     if (port === null && noSshHost === undefined) noSshHost = host;
@@ -296,6 +300,37 @@ describe('ssh', () => {
     );
     expect(result.exitCode).toBe(0);
     expect(onCwd).toHaveBeenCalledWith('/home/admin');
+  });
+
+  it('routes ssh to the .1 gateway to the OWN ROUTER — root session on computeRouterId, reachable on :22', async () => {
+    const gateway = generateHomeLan(PUBKEY, ESSID).hosts.find((host) => host.kind === 'router');
+    if (gateway === undefined) throw new Error('no gateway on LAN');
+    const authenticate = vi.fn<(params: RemoteAuthParams) => Promise<RemoteAuthResult>>(async () => ({
+      ok: true,
+      userType: 'root',
+    }));
+    const onPush = vi.fn<(session: Session) => void>();
+
+    const result = sync(
+      await ssh.execute(sshEnv({ authenticate, onPush }), [`root@${gateway.ip}`], new Map()),
+    );
+
+    // Reachable on :22 (the router's seeded sshd) — auth proceeds, not "Connection refused".
+    expect(result.exitCode).toBe(0);
+    expect(authenticate.mock.calls[0]![0]).toMatchObject({
+      essid: ESSID,
+      targetIp: gateway.ip,
+      username: 'root',
+    });
+    // The hop lands on the ROUTER's journal-backed id, NOT the gateway's coordinate
+    // sibling id — so the router journal (the `nano rules.v4` edit) materializes.
+    expect(onPush.mock.calls[0]![0]).toMatchObject({
+      machineId: computeRouterId(PUBKEY),
+      username: 'root',
+      userType: 'root',
+      kind: 'ssh',
+    });
+    expect(onPush.mock.calls[0]![0].machineId).not.toBe(hostMachineId(gateway, ESSID));
   });
 
   it('reports Permission denied and pushes no session on bad credentials', async () => {

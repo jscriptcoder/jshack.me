@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeRouterId } from './router';
+import { computeRouterId, isOwnRouter } from './router';
 import { computeWorkstationId, isOwnWorkstation, parseWorkstationId } from './workstation';
 
 // A representative Ed25519 pubkey hex (64 chars). Any fixed value works — the
@@ -32,5 +32,25 @@ describe('computeRouterId', () => {
 
   it("is never recognised as the owner's own workstation", () => {
     expect(isOwnWorkstation(computeRouterId(KEY), KEY)).toBe(false);
+  });
+});
+
+describe('isOwnRouter', () => {
+  it("recognises the caller's own router id", () => {
+    expect(isOwnRouter(computeRouterId(KEY), KEY)).toBe(true);
+  });
+
+  it("rejects another owner's router id", () => {
+    // B scanning/standing on A's router must NOT see it as their own — A's
+    // router id is derived from A's key, not B's.
+    expect(isOwnRouter(computeRouterId(KEY), OTHER_KEY)).toBe(false);
+  });
+
+  it("rejects the caller's own workstation id (the router is a distinct machine)", () => {
+    expect(isOwnRouter(computeWorkstationId('box', KEY), KEY)).toBe(false);
+  });
+
+  it('rejects an unrelated machine id', () => {
+    expect(isOwnRouter('203.0.113.7', KEY)).toBe(false);
   });
 });

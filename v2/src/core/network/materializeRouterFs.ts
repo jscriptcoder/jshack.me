@@ -14,12 +14,7 @@
  */
 
 import { materializeMachineFs, type OwnerPatchRow } from './materializeMachineFs';
-import {
-  buildRouterBaseFsFromIdentity,
-  seedRouterAdminPw,
-  seedRouterHasSsh,
-} from '../generation/routerFs';
-import { md5 } from '../generation/md5';
+import { buildRouterBaseFs } from '../generation/routerFs';
 import type { Directory } from '../filesystem/types';
 
 /** The registry identity the router base is reconstructed from — the owner's
@@ -31,11 +26,4 @@ export type RouterIdentity = { readonly owner_key: string };
 export const materializeRouterFs = (
   registry: RouterIdentity,
   patches: readonly OwnerPatchRow[] | null,
-): Directory =>
-  materializeMachineFs(
-    buildRouterBaseFsFromIdentity({
-      adminPwHash: md5(seedRouterAdminPw(registry.owner_key)),
-      hasSsh: seedRouterHasSsh(registry.owner_key),
-    }),
-    patches,
-  );
+): Directory => materializeMachineFs(buildRouterBaseFs(registry.owner_key), patches);

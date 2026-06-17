@@ -8,7 +8,9 @@ import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { buildRemoteHostFs, WEAK_PASSWORDS } from '../generation/remoteHostFs';
+import { seedRouterAdminPw } from '../generation/routerFs';
 import { hostMachineId } from '../generation/remoteHostId';
+import { computeRouterId } from '../identity/router';
 import { md5 } from '../generation/md5';
 import { asGameTime } from '../types';
 import { AUTH_LOG_PATH, formatSshdAuthLine } from '../logging/authLog';
@@ -80,6 +82,13 @@ const targetHostFor = (pubkey: string): LanHost => {
   const machine = generateHomeLan(pubkey, ESSID).hosts.filter((host) => host.kind === 'machine').at(-1);
   if (machine === undefined) throw new Error('no machine host on LAN');
   return machine;
+};
+
+/** The `.1` gateway (the player's own router) on the signer's LAN. */
+const routerHostFor = (pubkey: string): LanHost => {
+  const router = generateHomeLan(pubkey, ESSID).hosts.find((host) => host.kind === 'router');
+  if (router === undefined) throw new Error('no router host on LAN');
+  return router;
 };
 
 const passwdRows = (fs: Directory): readonly (readonly string[])[] => {
@@ -440,5 +449,68 @@ describe('handleAuthCreateSession', () => {
 
     expect(result).toEqual({ status: 200, body: { ok: true, userType: 'root' } });
     expect(insertSession).toHaveBeenCalledTimes(1);
+  });
+
+  // The own-LAN `.1` gateway is the player's ROUTER — a journal-backed box with a
+  // root-only passwd seeded by the owner key. A login there must validate against
+  // the SEEDED ADMIN PW and land on `computeRouterId`, not a regenerated sibling.
+  it('logs into the OWN ROUTER at .1 with the seeded admin pw — root session on the router id', async () => {
+    const id = generateIdentity();
+    const router = routerHostFor(id.publicKeyHex);
+    const envelope = signRequest(
+      id,
+      'authCreateSession',
+      basePayload({
+        target_ip: router.ip,
+        username: 'root',
+        password: seedRouterAdminPw(id.publicKeyHex),
+      }),
+    );
+    const { deps, insertSession } = makeDeps();
+
+    const result = await handleAuthCreateSession(envelope, deps);
+
+    expect(result).toEqual({ status: 200, body: { ok: true, userType: 'root' } });
+    const row = insertSession.mock.calls[0]![0];
+    expect(row.machine_id).toBe(computeRouterId(id.publicKeyHex));
+    expect(row.credentials).toEqual({ username: 'root', userType: 'root' });
+    expect(row.kind).toBe('ssh');
+    expect(row.essid).toBe(ESSID);
+  });
+
+  it('rejects a wrong router admin password with 401 and never inserts', async () => {
+    const id = generateIdentity();
+    const router = routerHostFor(id.publicKeyHex);
+    const envelope = signRequest(
+      id,
+      'authCreateSession',
+      basePayload({ target_ip: router.ip, username: 'root', password: 'definitely-not-the-admin-pw' }),
+    );
+    const { deps, insertSession } = makeDeps();
+
+    const result = await handleAuthCreateSession(envelope, deps);
+
+    expect(result).toEqual({ status: 401, body: { error: 'invalid_credentials' } });
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+
+  it('rejects a guest login on the router even with the would-be NPC password (router is root-only)', async () => {
+    const id = generateIdentity();
+    const router = routerHostFor(id.publicKeyHex);
+    // The password a generic machine FS WOULD seed for `guest` at this coordinate —
+    // accepting it would prove the handler built a sibling machine FS, not the
+    // root-only router FS, for a `.1` target.
+    const wouldBeGuestPw = passwordFor(buildRemoteHostFs(id.publicKeyHex, ESSID, router), 'guest');
+    const envelope = signRequest(
+      id,
+      'authCreateSession',
+      basePayload({ target_ip: router.ip, username: 'guest', password: wouldBeGuestPw }),
+    );
+    const { deps, insertSession } = makeDeps();
+
+    const result = await handleAuthCreateSession(envelope, deps);
+
+    expect(result).toEqual({ status: 401, body: { error: 'invalid_credentials' } });
+    expect(insertSession).not.toHaveBeenCalled();
   });
 });

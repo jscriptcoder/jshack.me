@@ -3,7 +3,14 @@ import { isCrossPlayerHop, resolveActiveRoot } from './activeRoot';
 import { generateHomeLan } from '../core/generation/generateHomeLan';
 import { buildRemoteHostFs } from '../core/generation/remoteHostFs';
 import { hostMachineId } from '../core/generation/remoteHostId';
+import {
+  buildRouterBaseFsFromIdentity,
+  seedRouterAdminPw,
+  seedRouterHasSsh,
+} from '../core/generation/routerFs';
+import { md5 } from '../core/generation/md5';
 import { computeWorkstationId } from '../core/identity/workstation';
+import { computeRouterId } from '../core/identity/router';
 import { asEpochMs, asMachineId, asPlayerKeyHex } from '../core/types';
 import { buildDirectory } from '../test/factories/filesystem';
 import type { Patch } from '../core/filesystem/applyPatches';
@@ -106,6 +113,39 @@ describe('resolveActiveRoot', () => {
 
   it('falls back to the own base when the machine_id matches no host on the current LAN', () => {
     expect(resolveActiveRoot(args({ session: session('ghost-00000000', 'ssh') }))).toBe(ownBaseFs);
+  });
+
+  it('returns the OWN ROUTER tree for a session on the router id (journal-backed, not a regenerated sibling)', () => {
+    // A `ssh root@<subnet>.1` lands a session on the router's id. Its tree must be
+    // the seeded router box (root-only passwd + `/etc/iptables/rules.v4`) rebuilt
+    // from the player's own key — exactly what the server materializes — NOT a
+    // `buildRemoteHostFs` sibling and NOT the own workstation base.
+    const routerBaseFs = buildRouterBaseFsFromIdentity({
+      adminPwHash: md5(seedRouterAdminPw(PUBKEY)),
+      hasSsh: seedRouterHasSsh(PUBKEY),
+    });
+
+    const root = resolveActiveRoot(args({ session: session(computeRouterId(PUBKEY), 'ssh') }));
+
+    expect(root).toEqual(routerBaseFs);
+    expect(root).not.toBe(ownBaseFs);
+  });
+
+  it('replays the active journal over the ROUTER base (rules.v4 edit observability)', () => {
+    const root = resolveActiveRoot(
+      args({
+        session: session(computeRouterId(PUBKEY), 'ssh'),
+        patches: [writePatch('/etc/iptables/rules.v4', 'forward 2222 to 192.168.1.5:22\n')],
+      }),
+    );
+
+    // The edit is visible…
+    expect(fileAt(root, ['etc', 'iptables', 'rules.v4'])?.content).toBe(
+      'forward 2222 to 192.168.1.5:22\n',
+    );
+    // …AND it landed on the ROUTER base, not an empty/own one: a router-only
+    // seeded file (root passwd) still exists alongside the patched rules.
+    expect(fileAt(root, ['etc', 'passwd'])).toBeDefined();
   });
 });
 
