@@ -25,6 +25,15 @@ export type NanoProps = {
  *  otherwise the count of newline-separated segments. */
 const lineCount = (content: string): number => (content === '' ? 0 : content.split('\n').length);
 
+/** Map a failed save to nano's status-line reason, reusing the same wording as
+ *  the `>` redirect write path (`runLine.ts`): an auth/permission rejection reads
+ *  "Permission denied", a transport failure reads "I/O error". */
+const SAVE_ERROR_REASON: Record<Extract<PatchResult, { ok: false }>['error'], string> = {
+  no_session: 'Permission denied',
+  permission_denied: 'Permission denied',
+  network_error: 'I/O error',
+};
+
 export const Nano = (props: NanoProps) => {
   // Seed the editable buffer from the opened file's content (read once at open).
   // eslint-disable-next-line solid/reactivity -- initial buffer value, not a tracked dependency
@@ -36,7 +45,11 @@ export const Nano = (props: NanoProps) => {
     if (event.ctrlKey && event.key === 'o') {
       event.preventDefault();
       const result = await props.onSave(buffer());
-      setStatus(result.ok ? `[ Wrote ${lineCount(buffer())} lines ]` : '');
+      setStatus(
+        result.ok
+          ? `[ Wrote ${lineCount(buffer())} lines ]`
+          : `[ Error writing ${props.path}: ${SAVE_ERROR_REASON[result.error]} ]`,
+      );
       return;
     }
     // Ctrl-X leaves the editor (back to the terminal).

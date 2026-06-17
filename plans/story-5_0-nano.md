@@ -87,9 +87,10 @@ operand` (exit 1). Only `ok`/`not_found` enter the editor.
       file; `ls`/`cat` then show it. _(E2E created the file from a `not_found` buffer with `is_new=true`.)_
 - [x] `nano <directory>` errors (`nano: <path>: Is a directory`) and does NOT enter the editor.
       _(Also: `permission_denied` read → error, no editor.)_
-- [ ] A save the session's tier may not perform surfaces an in-editor error (nano status line) and
-      does NOT corrupt or partially write; the file is unchanged. **← only remaining AC** (the
-      `saveEditor`/`PatchResult` plumbing exists; the editor just needs to RENDER a failed save).
+- [x] A save the session's tier may not perform surfaces an in-editor error (nano status line) and
+      does NOT corrupt or partially write; the file is unchanged. _(`<Nano>` maps the failed
+      `PatchResult` → `[ Error writing <path>: Permission denied | I/O error ]`, keeps the buffer, and
+      stays open; the patch model guarantees a rejected write persists nothing.)_
 - [x] No regression: existing terminal flows (commands, prompts, Ctrl-C, redirect) behave unchanged
       when not in editor mode. _(Full suite: 1376/1376 green.)_
 
@@ -236,10 +237,12 @@ open vs exiting.)
   as metadata per project rules); live agent-browser E2E proved the full
   `nano → edit → Ctrl-O → Ctrl-X → cat` round-trip (create + overwrite + rm-delete) against
   `vercel dev` + Supabase.
-- **REMAINING (one small follow-up slice)**: render a FAILED save in the editor status line (the last
-  unchecked AC) + the optional "Save modified buffer?" Ctrl-X prompt. `saveEditor` already returns the
-  `PatchResult`; `Nano` currently shows the wrote-status only on `result.ok` (a denied save shows
-  nothing). Then delete this file and return to the epic for Story 5.1.
+- **ALL whole-story AC met (2026-06-17)**: the denied-save error display landed (`<Nano>` maps a failed
+  `PatchResult` → `[ Error writing <path>: Permission denied | I/O error ]`, keeps the buffer, stays
+  open; +2 component tests; full suite 1378/1378). The only thing NOT done is the **optional** "Save
+  modified buffer?" Ctrl-X prompt — explicitly optional, never an AC. **5.0 is complete**: on merge of
+  `feat/v2-nano-edit` (PR #256), delete this file and return to the epic for **Story 5.1** (router as a
+  real journal-backed machine + player NAT; `nano /etc/iptables/rules.v4` now unblocked).
 
 ---
 

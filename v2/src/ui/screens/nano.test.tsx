@@ -64,4 +64,27 @@ describe('Nano editor', () => {
 
     expect(onExit).toHaveBeenCalledTimes(1);
   });
+
+  it('shows a permission error and keeps the buffer when a save is denied', async () => {
+    const onSave = vi.fn(async () => ({ ok: false, error: 'permission_denied' }) as PatchResult);
+    renderNano({ content: 'original', onSave });
+
+    fireEvent.input(editor(), { target: { value: 'edited but not saveable' } });
+    fireEvent.keyDown(editor(), { key: 'o', ctrlKey: true });
+
+    expect(await screen.findByText('[ Error writing /home/alice/notes.txt: Permission denied ]'))
+      .toBeInTheDocument();
+    // The edited buffer is intact (no data loss) and the editor stays open.
+    expect(editor()).toHaveValue('edited but not saveable');
+  });
+
+  it('reports an I/O error when the save fails on the network', async () => {
+    const onSave = vi.fn(async () => ({ ok: false, error: 'network_error' }) as PatchResult);
+    renderNano({ onSave });
+
+    fireEvent.keyDown(editor(), { key: 'o', ctrlKey: true });
+
+    expect(await screen.findByText('[ Error writing /home/alice/notes.txt: I/O error ]'))
+      .toBeInTheDocument();
+  });
 });
