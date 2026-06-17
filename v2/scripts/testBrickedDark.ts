@@ -1,14 +1,19 @@
-// Wire-payload smoke for Story 4 slice 4: a BRICKED box goes dark to other players.
+// Wire-payload smoke for Story 4 slice 4 + Story 5.1.2: a BRICKED box goes dark to
+// other players, and a cross-player ssh routes by destination port.
 //
-// The two cross-player server gates must materialize A's box (regenerated base +
-// journal replay) and refuse to answer once A's /boot kernel is gone:
+// Story 5.1.2: the public IP is the ROUTER's for BOTH paths now — `nmap` resolves
+// the router and `ssh :22` lands ON the router (validated against its seeded admin
+// password, session on router_machine_id). The two cross-player server gates must
+// materialize A's ROUTER (seeded base + journal replay) and refuse once its /boot
+// kernel is gone:
 //   - POST /api/network  (resolvePublicScan)        → host-down / no ports
 //   - POST /api/sessions (authCreateSessionPublic)   → 404 host_unreachable
-// api/ runtime correctness (column names, constraints, real signed envelopes)
-// isn't covered by typecheck or unit tests, so this drives the REAL endpoints
-// against a running `vercel dev`, first proving a HEALTHY A answers (control), then
-// planting a /boot/vmlinuz tombstone and proving A drops off scans + refuses logins
-// even with a CORRECT password. Self-cleaning.
+// api/ runtime correctness (column names, the narrowed registry select, real signed
+// envelopes) isn't covered by typecheck or unit tests, so this drives the REAL
+// endpoints against a running `vercel dev`: first a HEALTHY A answers (router :22
+// scan + root login; an unforwarded -p 2222 is host_unreachable), then a
+// /boot/vmlinuz tombstone proves A drops off scans + refuses logins even with the
+// CORRECT admin password. Self-cleaning.
 //
 // Usage (with v2 supabase + vercel dev running):
 //   SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... npx tsx scripts/testBrickedDark.ts
@@ -21,7 +26,7 @@ import { generateIdentity } from '../src/core/identity/identity';
 import { computeWorkstationId } from '../src/core/identity/workstation';
 import { computeRouterId } from '../src/core/identity/router';
 import { md5 } from '../src/core/generation/md5';
-import { workstationGuestPassword } from '../src/core/generation/workstationFs';
+import { seedRouterAdminPw } from '../src/core/generation/routerFs';
 
 const NETWORK = process.env.ENDPOINT ?? 'http://localhost:3100/api/network';
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
@@ -57,6 +62,8 @@ const foundOf = (body: unknown): boolean | undefined =>
   typeof body === 'object' && body !== null ? (body as { found?: boolean }).found : undefined;
 const portsOf = (body: unknown): readonly { port: number; service: string }[] =>
   typeof body === 'object' && body !== null ? ((body as { ports?: never[] }).ports ?? []) : [];
+const machineIdOf = (body: unknown): string | undefined =>
+  typeof body === 'object' && body !== null ? (body as { machine_id?: string }).machine_id : undefined;
 
 // --- Identities: A (owner/victim), B (the scanner / would-be guest). ---
 const alice = generateIdentity();
@@ -69,9 +76,10 @@ const A_ROUTER = computeRouterId(alice.publicKeyHex);
 const A_PUBLIC_IP = '203.0.113.66';
 const ESSID = 'BEAN-THERE-WIFI';
 const ROOT_HASH = md5('alice-root-secret');
-const GUEST_PW = workstationGuestPassword(alice.publicKeyHex);
+// The router's admin password — server-recoverable from A's owner key alone, the
+// credential B types to log into the router over the public IP.
+const ROUTER_ADMIN_PW = seedRouterAdminPw(alice.publicKeyHex);
 
-const worldReadable = { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] };
 const bootPerms = { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] };
 
 const seedRegistry = async () => {
@@ -107,15 +115,9 @@ const insertPatches = async (rows: readonly Record<string, unknown>[], label: st
   }
 };
 
-// A's workstation is healthy + running sshd (for the ssh path). The router's own
-// sshd:22 is seeded into its base FS, so the SCAN needs nothing seeded to report a
-// port; this pidfile is the workstation's, kept for the ssh login checks below.
-await insertPatches(
-  [
-    { writer_key: alice.publicKeyHex, machine_id: A_MACHINE, path: '/var/run/sshd.pid', content: 'sshd:port=22', owner: 'root', permissions: worldReadable, node_type: 'file' },
-  ],
-  'sshd pidfile',
-);
+// Nothing to seed for a healthy A: the router's own sshd:22 lives in its seeded
+// base FS, so BOTH the scan (resolves the router) and the ssh gate (routes :22 to
+// the router) report it with an empty journal.
 
 // === CONTROL: a healthy A answers the network ===
 
@@ -133,30 +135,47 @@ const sshHealthy = await post(
   signRequest(bob, 'authCreateSessionPublic', {
     session_id: `ssh-bob-healthy-${Date.now()}`,
     target: A_PUBLIC_IP,
-    username: 'guest',
-    password: GUEST_PW,
+    username: 'root',
+    password: ROUTER_ADMIN_PW,
   }),
 );
 check(
-  'healthy A → ssh guest login succeeds (200)',
-  sshHealthy.status === 200 && errorOf(sshHealthy.body) === undefined,
-  `status=${sshHealthy.status} error=${errorOf(sshHealthy.body)}`,
+  'healthy A → ssh root :22 lands on the ROUTER (200, session on router_machine_id)',
+  sshHealthy.status === 200 && machineIdOf(sshHealthy.body) === A_ROUTER,
+  `status=${sshHealthy.status} machine_id=${machineIdOf(sshHealthy.body)} error=${errorOf(sshHealthy.body)}`,
+);
+
+// An unforwarded destination port: the opt-in default ships no NAT forward, so the
+// router serves nothing on :2222 — host_unreachable, before any password check.
+const sshNoForward = await post(
+  SESSIONS,
+  signRequest(bob, 'authCreateSessionPublic', {
+    session_id: `ssh-bob-noforward-${Date.now()}`,
+    target: A_PUBLIC_IP,
+    username: 'root',
+    password: ROUTER_ADMIN_PW,
+    port: 2222,
+  }),
+);
+check(
+  'healthy A → ssh to an unforwarded port (-p 2222) is host_unreachable (opt-in default)',
+  sshNoForward.status === 404 && errorOf(sshNoForward.body) === 'host_unreachable',
+  `status=${sshNoForward.status} error=${errorOf(sshNoForward.body)}`,
 );
 
 // Drop the control session so the bricked-case "no session inserted" check is clean.
 await sr.from('sessions').delete().eq('player_key', bob.publicKeyHex);
 
-// === BRICK A: a root rm /boot/vmlinuz tombstone on BOTH boxes' journals ===
-// The scan resolves the ROUTER and ssh the WORKSTATION (5.1.1b transition), so both
-// must lose their kernel to take the public IP fully dark. content:null is the
-// deletion marker; node_type stays 'file' (the table default removePatch relies on)
-// so applyPatches treats it as a file deletion.
+// === BRICK A: a root rm /boot/vmlinuz tombstone on the ROUTER's journal ===
+// Story 5.1.2: the public IP is the router's for BOTH scan and ssh, so bricking the
+// ROUTER alone takes the whole public IP dark. content:null is the deletion marker;
+// node_type stays 'file' (the table default removePatch relies on) so applyPatches
+// treats it as a file deletion.
 await insertPatches(
   [
     { writer_key: bob.publicKeyHex, machine_id: A_ROUTER, path: '/boot/vmlinuz', content: null, owner: 'root', permissions: bootPerms, node_type: 'file' },
-    { writer_key: bob.publicKeyHex, machine_id: A_MACHINE, path: '/boot/vmlinuz', content: null, owner: 'root', permissions: bootPerms, node_type: 'file' },
   ],
-  'boot tombstones (router + workstation)',
+  'router boot tombstone',
 );
 
 // === BRICKED: A goes dark to scans + refuses logins ===
@@ -168,32 +187,17 @@ check(
   `status=${scanBricked.status} found=${foundOf(scanBricked.body)} ports=${JSON.stringify(portsOf(scanBricked.body))}`,
 );
 
-const sshBrickedGuest = await post(
-  SESSIONS,
-  signRequest(bob, 'authCreateSessionPublic', {
-    session_id: `ssh-bob-bricked-${Date.now()}`,
-    target: A_PUBLIC_IP,
-    username: 'guest',
-    password: GUEST_PW,
-  }),
-);
-check(
-  'bricked A → ssh guest login refused as host_unreachable (correct password)',
-  sshBrickedGuest.status === 404 && errorOf(sshBrickedGuest.body) === 'host_unreachable',
-  `status=${sshBrickedGuest.status} error=${errorOf(sshBrickedGuest.body)}`,
-);
-
 const sshBrickedRoot = await post(
   SESSIONS,
   signRequest(bob, 'authCreateSessionPublic', {
     session_id: `ssh-bob-bricked-root-${Date.now()}`,
     target: A_PUBLIC_IP,
     username: 'root',
-    password: 'alice-root-secret',
+    password: ROUTER_ADMIN_PW,
   }),
 );
 check(
-  'bricked A → even a CORRECT root password is refused as host_unreachable',
+  'bricked A → even the CORRECT router admin password is refused as host_unreachable',
   sshBrickedRoot.status === 404 && errorOf(sshBrickedRoot.body) === 'host_unreachable',
   `status=${sshBrickedRoot.status} error=${errorOf(sshBrickedRoot.body)}`,
 );
