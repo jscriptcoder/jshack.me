@@ -277,9 +277,65 @@ directly on `workstation_machine_id`. Story 5 makes all three real.
   `network-generator` Story 4: 2–3 layers, dual-homed gateways, `switch` sub-kind, "see only your
   layer", RFC-1918 variety. Single-player generation, net-new; revisit after Story 5.
 
+### Story 5.1 — resolved implementation decisions (grill-me, 2026-06-17)
+
+The 11 locked decisions above fix Story-5 SCOPE + behavior. These fix 5.1's OPEN IMPLEMENTATION
+choices (grilled one-by-one, each grounded in code). Feed straight into `planning`.
+
+1. **Router machine_id** — NEW `computeRouterId(key) = router-${sha256('ed25519-router:'+key)[0..8]}`
+   (a DISTINCT hash namespace, not `computeWorkstationId('router', …)`). Different suffix than the
+   workstation ⇒ `isOwnWorkstation(routerId)` is **FALSE** ⇒ the router never aliases the workstation in
+   any suffix-only own-box check. Server-recoverable from the pubkey alone (`identity/workstation.ts`).
+2. **Router base FS** — NEW `buildRouterBaseFsFromIdentity({ownerKeyHex, adminPwHash})`, a sibling of
+   `buildWorkstationBaseFs` reusing the `baseFs.ts` toolkit. **ROOT-ONLY** passwd (no player/guest — an
+   appliance; B targets root), hash = `md5(seedRouterAdminPw(key))`. Full `/bin`+`/usr/bin`+`/usr/sbin` +`/lib` (so `nano`/`ls`/`cat` RESOLVE when A `ssh root`s in — command availability is binary+library
+   gated), `/boot` (brickable → 5.3), `/var/log/{auth,kern}.log`, `/var/run`, `/tmp`, `/root`, PLUS
+   `/etc/iptables/rules.v4`.
+3. **Router sshd liveness** — realize decision 3's seeded boolean as a **SEEDED PIDFILE**: when
+   `seedRouterHasSsh(key)` (pinned true), the base FS stamps `/var/run/sshd.pid = 'sshd:port=22'`
+   (`formatPidfileContent`, `services/pidfile.ts`). `scanResult` reads ports via the EXISTING
+   `readOpenPorts(materializedTree)` walker — **ONE reader for router + workstation**. Future `prob<1`
+   just omits the seeded pidfile (the open seam; nothing fights it).
+4. **`rules.v4` format** — port legacy's simplified grammar `forward <pub> to <ip>:<port>`
+   (`src/network/iptablesParser.ts` `FORWARD_RULE_RE`), **lenient** (skip `#`/blank/malformed lines),
+   ports 1–65535. Parse → `{publicPort, internalIp, internalPort}` (pure, `core/`); a SEPARATE resolver
+   maps `internalIp` → the workstation machine via the deterministic LAN IP
+   (`assignHomeNetwork(owner_key, essid).localIp`). Seeded default = comment header + a commented example
+   pre-filled with the player's OWN ws LAN IP + **NO active forward** (opt-in, decision 8). NOT real
+   iptables-save (legacy never used it; no gameplay value).
+5. **`scanResult`** — single entry `core/scan/scanResult.ts`:
+   `scanResult({ vantage: 'external' | 'sameLAN', routerFs: Directory, resolveTargetPorts: (internalIp) => OpenPort[] }) → OpenPort[]`.
+   `own = readOpenPorts(routerFs)`; **`sameLAN` → own only** (the LAN-excludes-forwards scar lives in
+   this ONE branch); **`external` → dedupe(own ∪ forwards)** where a forward is kept iff
+   `resolveTargetPorts(internalIp)` contains its `internalPort` (decision 5 liveness). `resolveTargetPorts`
+   is INJECTED — the server materializes targets + `readOpenPorts`; the client passes a stub (never called
+   for the `.1` `sameLAN` scan). It OWNS both the vantage branch and the port computation so the two scan
+   paths can't drift.
+6. **Registry** — `router_machine_id = computeRouterId(owner_key)` (was the ws id — value-only change,
+   column exists, no migration). **DROP the `forward_table` column** (`rules.v4` materialized from the
+   router's base+journal is the sole parsed source; `no-backward-compat` makes the drop free) — one
+   discrete, wire-checked migration step. **No new columns**: the router's admin pw and `.1` LAN IP are
+   both recomputable server-side from `owner_key`+`essid`.
+7. **Slice spine for `planning`** (each vertical + observable; walking skeleton FIRST):
+   - **5.1.1 (walking skeleton)** — B's `nmap <A.publicIp>` resolves the REAL router and shows its own
+     `:22` (seeded sshd pidfile); default `rules.v4` empty ⇒ the workstation is **dark behind NAT**.
+     Exercises `computeRouterId` + `buildRouterBaseFsFromIdentity` + seeded pidfile + real
+     `router_machine_id` + `resolvePublicScan` materializing the ROUTER + `scanResult` external-branch with
+     empty forwards. (Interim: ssh still lands on the ws until 5.1.2 — automated suite stays green; the
+     full agent-browser E2E is reshaped at the end per decision 8.)
+   - **5.1.2** — ssh routes by **destination port**: `ssh root@A.publicIp` (:22) → router;
+     `ssh …@A.publicIp -p 2222` → workstation via the forward (`machineServing(addr, port)`).
+   - **5.1.3** — A `ssh root@<subnet>.1` + `nano rules.v4` adds the opt-in `2222 → ws:22`, persisted to the
+     **shared journal**, reflected cross-player (B's external scan AND `ssh -p 2222` now see it). The FIRST
+     own-LAN-but-journal-backed machine — A's own-LAN `ssh root@.1` must route to the journal-backed flow,
+     not the local regenerated-sibling flow (new seam, decision 6).
+   - **5.1.4** — the dual-homed `.1` **sameLAN** client view: `nmap <subnet>.1` shows the router's own
+     `:22` but NOT the forwards (`scanResult(.1, sameLAN)`), closing the dual-homed scar cleanly.
+
 ## Next step
 
-**5.0 (`nano`) ✅ SHIPPED.** Next: load `grill-me` then `planning` to turn **5.1 (router as a real machine +
-player NAT)** into PR-sized sub-slices. Every slice runs full RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR (`tdd`, `testing`,
+**5.0 (`nano`) ✅ SHIPPED. 5.1 ✅ GRILLED (2026-06-17) — decisions above.** Next: load `planning` to turn the
+**5.1 slice spine** (5.1.1 → 5.1.4) into a `plans/story-5_1-*.md` file with PR-sized slices + acceptance
+criteria. Every slice runs full RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR (`tdd`, `testing`,
 `mutation-testing`, `refactoring`). Model `scanResult(address, vantage)` as a clean total function — each
 interface its own endpoint, NEVER a merged view (`project_dual_homed_router_scan_discrepancy`).
