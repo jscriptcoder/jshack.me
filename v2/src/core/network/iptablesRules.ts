@@ -11,6 +11,8 @@
  * skipped rather than failing the whole file — and rejects out-of-range ports.
  */
 
+import type { Directory } from '../filesystem/types';
+
 /** One parsed NAT forward: a public port DNAT'd to `internalIp:internalPort`.
  *  Distinct from the registry's `{ publicPort, targetMachineId }` shape — this
  *  is what a `rules.v4` line denotes. */
@@ -18,6 +20,20 @@ export type NatForward = {
   readonly publicPort: number;
   readonly internalIp: string;
   readonly internalPort: number;
+};
+
+/** The router's `/etc/iptables/rules.v4` content, or '' when absent (missing
+ *  `/etc`, the `iptables` dir, or the file). Walks the tree the way the port
+ *  readers do — this layer has no path resolver. Shared by `scanResult` and
+ *  `machineServing` so the NAT table is read exactly one way and the scan and
+ *  ssh-routing paths can never disagree on what it says. */
+export const readRulesV4 = (routerFs: Directory): string => {
+  const etc = routerFs.entries.get('etc');
+  if (etc?.kind !== 'directory') return '';
+  const iptables = etc.entries.get('iptables');
+  if (iptables?.kind !== 'directory') return '';
+  const rules = iptables.entries.get('rules.v4');
+  return rules?.kind === 'file' ? rules.content : '';
 };
 
 const FORWARD_RULE_RE = /^forward\s+(\d+)\s+to\s+([\d.]+):(\d+)$/;

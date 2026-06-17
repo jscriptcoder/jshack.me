@@ -27,10 +27,22 @@ import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { buildWorkstationBaseFsFromIdentity } from '../generation/workstationFs';
 import { md5 } from '../generation/md5';
 import { accountIn } from './passwdAccount';
-import type { RegistryWorkstation } from './authCreateSessionPublic';
 import type { HandlerResponse } from './authCreateSession';
 import type { UserType } from '../types';
 import type { NonceStore } from '../signedRequest/nonceStore';
+
+/** The registry fields a cross-player `su` elevation needs: who owns the box (to
+ *  reconstruct its FS), the workstation's real machine id (the session target +
+ *  the lookup key), the network the session lives on, and the persisted identity to
+ *  rebuild `/etc/passwd`. (Where `authCreateSessionPublic` now resolves the ROUTER
+ *  by port, `su` always targets the workstation B already stands on.) */
+export type RegistryWorkstation = {
+  readonly owner_key: string;
+  readonly workstation_machine_id: string;
+  readonly essid: string;
+  readonly workstation_username: string;
+  readonly workstation_root_hash: string;
+};
 
 /** The `sessions` row a cross-player `su` elevation inserts. Mirrors the ssh
  *  `AuthSessionRow` but `kind:'su'` — the credential is server-derived, the
