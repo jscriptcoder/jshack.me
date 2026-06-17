@@ -19,6 +19,7 @@ import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign';
 import { generateIdentity } from '../src/core/identity/identity';
 import { computeWorkstationId } from '../src/core/identity/workstation';
+import { computeRouterId } from '../src/core/identity/router';
 import { md5 } from '../src/core/generation/md5';
 import { workstationGuestPassword } from '../src/core/generation/workstationFs';
 
@@ -61,6 +62,10 @@ const portsOf = (body: unknown): readonly { port: number; service: string }[] =>
 const alice = generateIdentity();
 const bob = generateIdentity();
 const A_MACHINE = computeWorkstationId('skylab', alice.publicKeyHex);
+// Story 5.1.1b: the public IP now resolves to A's ROUTER (a distinct machine) for
+// scans; ssh still lands on the workstation until 5.1.2. So a bricked-box wire-check
+// must darken BOTH boxes — each keyed on its own machine id / journal.
+const A_ROUTER = computeRouterId(alice.publicKeyHex);
 const A_PUBLIC_IP = '203.0.113.66';
 const ESSID = 'BEAN-THERE-WIFI';
 const ROOT_HASH = md5('alice-root-secret');
@@ -75,8 +80,7 @@ const seedRegistry = async () => {
     public_ip: A_PUBLIC_IP,
     owner_key: alice.publicKeyHex,
     workstation_machine_id: A_MACHINE,
-    router_machine_id: A_MACHINE,
-    forward_table: [{ publicPort: '*', targetMachineId: A_MACHINE }],
+    router_machine_id: A_ROUTER,
     essid: ESSID,
     workstation_username: 'alice',
     workstation_machine_name: 'skylab',
@@ -87,6 +91,7 @@ const seedRegistry = async () => {
 const cleanup = async () => {
   await sr.from('network_registry').delete().eq('public_ip', A_PUBLIC_IP);
   await sr.from('patches').delete().eq('machine_id', A_MACHINE);
+  await sr.from('patches').delete().eq('machine_id', A_ROUTER);
   await sr.from('sessions').delete().eq('player_key', bob.publicKeyHex);
 };
 
@@ -102,8 +107,9 @@ const insertPatches = async (rows: readonly Record<string, unknown>[], label: st
   }
 };
 
-// A is healthy + running sshd. The base FS carries /boot, so nothing to seed for
-// "bootable"; just the pidfile so a healthy scan has a port to report.
+// A's workstation is healthy + running sshd (for the ssh path). The router's own
+// sshd:22 is seeded into its base FS, so the SCAN needs nothing seeded to report a
+// port; this pidfile is the workstation's, kept for the ssh login checks below.
 await insertPatches(
   [
     { writer_key: alice.publicKeyHex, machine_id: A_MACHINE, path: '/var/run/sshd.pid', content: 'sshd:port=22', owner: 'root', permissions: worldReadable, node_type: 'file' },
@@ -140,21 +146,24 @@ check(
 // Drop the control session so the bricked-case "no session inserted" check is clean.
 await sr.from('sessions').delete().eq('player_key', bob.publicKeyHex);
 
-// === BRICK A: a root rm /boot/vmlinuz tombstone on the shared journal ===
-// content:null is the deletion marker; node_type stays 'file' (the table default
-// removePatch relies on) so applyPatches treats it as a file deletion.
+// === BRICK A: a root rm /boot/vmlinuz tombstone on BOTH boxes' journals ===
+// The scan resolves the ROUTER and ssh the WORKSTATION (5.1.1b transition), so both
+// must lose their kernel to take the public IP fully dark. content:null is the
+// deletion marker; node_type stays 'file' (the table default removePatch relies on)
+// so applyPatches treats it as a file deletion.
 await insertPatches(
   [
+    { writer_key: bob.publicKeyHex, machine_id: A_ROUTER, path: '/boot/vmlinuz', content: null, owner: 'root', permissions: bootPerms, node_type: 'file' },
     { writer_key: bob.publicKeyHex, machine_id: A_MACHINE, path: '/boot/vmlinuz', content: null, owner: 'root', permissions: bootPerms, node_type: 'file' },
   ],
-  'boot tombstone',
+  'boot tombstones (router + workstation)',
 );
 
 // === BRICKED: A goes dark to scans + refuses logins ===
 
 const scanBricked = await post(NETWORK, signRequest(bob, 'resolvePublicScan', { target: A_PUBLIC_IP }));
 check(
-  'bricked A → scan reports host down, no ports (despite the lingering sshd pidfile)',
+  'bricked A → scan reports host down, no ports (router kernel gone → public IP dark)',
   scanBricked.status === 200 && foundOf(scanBricked.body) === false && portsOf(scanBricked.body).length === 0,
   `status=${scanBricked.status} found=${foundOf(scanBricked.body)} ports=${JSON.stringify(portsOf(scanBricked.body))}`,
 );

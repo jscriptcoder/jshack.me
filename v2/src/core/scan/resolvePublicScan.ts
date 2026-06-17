@@ -10,37 +10,32 @@
  * guard) but not otherwise consulted — any authenticated player may scan any
  * public IP, exactly like the real internet.
  *
- * Slice 1a reports existence only (host up / down). Slice 1b reads the resolved
- * machine's open ports from its persisted `/var/run/*.pid` rows, scoped to the
- * `workstation_machine_id` — which, after the shared-journal flip, owns its
- * journal (the workstation id encodes the owner), so a machine-scoped read
- * returns the owner's real services, never the caller's per-viewer rows.
+ * Slice 1a reported existence only (host up / down); 1b reads open ports. Story
+ * 5.1.1b flips the resolved machine from the workstation to the ROUTER: a public
+ * IP maps to the owner's router (`router_machine_id`), a distinct seeded box that
+ * bears the public IP and runs its own `sshd:22`. The workstation is dark behind
+ * NAT until the owner opts a forward in (Story 5.1.3). The router's journal is
+ * replayed over its seeded base to ask `canBoot` (a bricked router takes the whole
+ * public IP dark), and its ports come from the single `scanResult` total function
+ * — which, fed the router's parsed `/etc/iptables/rules.v4`, will surface forwards
+ * once they exist.
  */
 
 import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import type { NonceStore } from '../signedRequest/nonceStore';
-import { readOpenPortsFromPidfiles } from '../services/pidfile';
-import { materializeWorkstationFs, type OwnerPatchRow } from '../network/materializeWorkstationFs';
+import { materializeRouterFs } from '../network/materializeRouterFs';
+import type { OwnerPatchRow } from '../network/materializeWorkstationFs';
 import { canBoot } from '../boot/bootFiles';
+import { scanResult } from './scanResult';
 
-/** The registry fields resolution needs: which machine the public IP maps to
- *  (degenerate NAT → the workstation), plus the owner's identity to rebuild the
- *  box's base FS for the boot-state check (Story 4, slice 4). The machine owns its
- *  journal, so reading its record needs only the machine id. */
+/** The registry fields the router scan needs: which router the public IP maps to
+ *  (`router_machine_id` — its journal scope) and the `owner_key` that seeds the
+ *  router's base FS (admin password + sshd presence) for the boot-state check. */
 export type RegistryLookup = {
-  readonly workstation_machine_id: string;
+  readonly router_machine_id: string;
   readonly owner_key: string;
-  readonly workstation_username: string;
-  readonly workstation_root_hash: string;
-};
-
-/** One of the resolved machine's `/var/run/*.pid` patch rows — the persisted form
- *  of a running service. `readOpenPortsFromPidfiles` turns these into open ports. */
-export type RunFileRow = {
-  readonly path: string;
-  readonly content: string;
 };
 
 export type ResolvePublicScanDeps = {
@@ -48,15 +43,10 @@ export type ResolvePublicScanDeps = {
   readonly findRegistryByPublicIp: (
     publicIp: string,
   ) => Promise<{ readonly data: RegistryLookup | null; readonly error: unknown }>;
-  /** Read the resolved workstation's `/var/run/*.pid` rows. Scoped to
-   *  `machine_id` — the shared journal the machine owns — so a cross-player scan
-   *  reads the owner's real services, never the caller's own rows. */
-  readonly findRunFiles: (query: {
-    readonly machine_id: string;
-  }) => Promise<{ readonly data: readonly RunFileRow[] | null; readonly error: unknown }>;
-  /** Read the resolved workstation's FULL patch journal (scoped to `machine_id`)
-   *  so the scan can replay it over the regenerated base and ask `canBoot` — a
-   *  box whose `/boot` kernel was deleted (bricked) goes dark to scanners. */
+  /** Read the resolved ROUTER's FULL patch journal (scoped to `machine_id`) so the
+   *  scan can replay it over the seeded router base — both to ask `canBoot` (a
+   *  `/boot` tombstone takes the public IP dark) and to materialize the tree
+   *  `scanResult` reads the open ports from. */
   readonly findPatches: (query: {
     readonly machine_id: string;
   }) => Promise<{ readonly data: readonly OwnerPatchRow[] | null; readonly error: unknown }>;
@@ -95,28 +85,22 @@ export const handleResolvePublicScan = async (
     return { status: 200, body: { ok: true, found: false, ports: [] } };
   }
 
-  // A bricked box goes dark: replay the machine's journal over its regenerated base
-  // and ask `canBoot`. A root `rm /boot/vmlinuz` (tombstone) makes it unbootable, so
-  // it stops answering scans — host-down, no ports — even though its `/var/run`
-  // pidfiles still linger in the journal. Read before the ports so a dead box never
-  // advertises services.
-  const patches = await deps.findPatches({ machine_id: data.workstation_machine_id });
+  // Replay the ROUTER's journal over its seeded base, then ask `canBoot`. A root
+  // `rm /boot/vmlinuz` (tombstone) makes the router unbootable, so it stops
+  // answering scans — host-down, no ports — and the whole public IP goes dark.
+  const patches = await deps.findPatches({ machine_id: data.router_machine_id });
   if (patches.error) {
     return { status: 500, body: { error: 'patches_lookup_failed' } };
   }
-  if (!canBoot(materializeWorkstationFs(data, patches.data)).ok) {
+  const routerFs = materializeRouterFs(data, patches.data);
+  if (!canBoot(routerFs).ok) {
     return { status: 200, body: { ok: true, found: false, ports: [] } };
   }
 
-  // Found and alive: read the running services off the resolved workstation and
-  // report their real ports. Scoped to the machine's own journal so the caller sees
-  // the owner's record, not its own per-viewer rows.
-  const runFiles = await deps.findRunFiles({
-    machine_id: data.workstation_machine_id,
-  });
-  if (runFiles.error) {
-    return { status: 500, body: { error: 'ports_lookup_failed' } };
-  }
-  const ports = readOpenPortsFromPidfiles(runFiles.data ?? []);
+  // The router's open ports from the single `scanResult` total function (external
+  // vantage = own ports ∪ live forwards). The router's own `sshd:22` is seeded into
+  // its base FS; forwards parse off `/etc/iptables/rules.v4`. No forward resolver is
+  // wired yet (5.1.3) — a fresh router exposes only its own ports.
+  const ports = scanResult({ vantage: 'external', routerFs, resolveTargetPorts: () => [] });
   return { status: 200, body: { ok: true, found: true, ports } };
 };
