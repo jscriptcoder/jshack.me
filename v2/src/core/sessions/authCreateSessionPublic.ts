@@ -8,8 +8,12 @@
  *   - a port the ROUTER itself serves (its seeded `sshd:22`) → log in ON the router,
  *     validated against its `/etc/passwd` (root-only; the admin password is recovered
  *     from the owner key). The session lands on the ROUTER's machine id.
- *   - a NAT-forwarded port → the internal target (the forward → workstation path is
- *     Story 5.1.3); until then a forwarded (or unmatched) port is host_unreachable.
+ *   - a NAT-forwarded port (Story 5.1.3c) → the ONE workstation behind the router:
+ *     resolve the forward's `internalIp` to A's workstation, refuse if its internal
+ *     service isn't listening (a dark DNAT target reaches nothing), validate the
+ *     password against the WORKSTATION's `/etc/passwd`, and land the session on the
+ *     WORKSTATION's machine id.
+ *   - any other port → host_unreachable.
  *
  * The boot gate keys on the ROUTER: a `/boot` tombstone takes the whole public IP
  * dark, refused before any password is checked. It does NOT write to A's box (the
@@ -25,20 +29,28 @@ import { md5 } from '../generation/md5';
 import { accountIn } from './passwdAccount';
 import { materializeRouterFs } from '../network/materializeRouterFs';
 import type { OwnerPatchRow } from '../network/materializeWorkstationFs';
-import { machineServing } from '../network/machineServing';
+import { machineServing, type ServedMachine } from '../network/machineServing';
+import { buildWorkstationResolver } from '../scan/workstationPortResolver';
+import { readOpenPorts } from '../services/pidfile';
 import { canBoot } from '../boot/bootFiles';
+import type { Directory } from '../filesystem/types';
 import type { AuthSessionRow, HandlerResponse } from './authCreateSession';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
-/** The registry fields a router-routed cross-player login needs: who owns the box
+/** The registry fields a cross-player login needs. The router arm uses `owner_key`
  *  (to reconstruct the router FS + recover its seeded admin password), the router's
- *  machine id (the journal scope AND the session target), and the network the
- *  session lives on. The workstation-behind-NAT fields arrive when the forward →
- *  workstation auth path lands (Story 5.1.3). */
+ *  machine id (its journal scope AND the session target), and the `essid` the session
+ *  lives on. The forward → workstation arm (Story 5.1.3c) additionally needs the
+ *  workstation's machine id (its journal scope + session target) and the identity
+ *  fields that rebuild its tree — making this a structural superset of the scan
+ *  path's `WorkstationTarget`, so the shared resolver takes it verbatim. */
 export type RegistryTarget = {
   readonly owner_key: string;
   readonly router_machine_id: string;
   readonly essid: string;
+  readonly workstation_machine_id: string;
+  readonly workstation_username: string;
+  readonly workstation_root_hash: string;
 };
 
 export type AuthCreateSessionPublicDeps = {
@@ -76,6 +88,56 @@ const authCreateSessionPublicSchema = z
   })
   .refine((payload) => !('player_key' in payload));
 
+/** The resolved auth target behind the public IP: which tree to validate the
+ *  password against, and the machine id the session lands on. */
+type AuthTarget = { readonly fs: Directory; readonly machineId: string };
+
+/**
+ * Resolve `ssh <publicIp>:<port>` to its auth target. The router serves its own
+ * ports directly (its seeded `:22`); a NAT-forwarded port reaches the ONE
+ * workstation behind the router — fetch the workstation's journal, resolve it by the
+ * forward's internal IP, and refuse if the forward reaches no host or its internal
+ * service isn't listening. Returns the target, or a `HandlerResponse` to return
+ * verbatim (404 host_unreachable for an unserved/dark port, 500 if the ws journal
+ * read fails). The router's own boot/dark gate already ran upstream.
+ */
+const resolveAuthTarget = async (
+  deps: AuthCreateSessionPublicDeps,
+  registry: RegistryTarget,
+  served: ServedMachine,
+  routerFs: Directory,
+): Promise<AuthTarget | HandlerResponse> => {
+  if (served.kind === 'router') {
+    return { fs: routerFs, machineId: registry.router_machine_id };
+  }
+  if (served.kind === 'none') {
+    return { status: 404, body: { error: 'host_unreachable' } };
+  }
+
+  const workstationPatches = await deps.findPatches({
+    machine_id: registry.workstation_machine_id,
+  });
+  if (workstationPatches.error) {
+    return { status: 500, body: { error: 'patches_lookup_failed' } };
+  }
+  const workstationFs = buildWorkstationResolver({
+    registry,
+    workstationPatches: workstationPatches.data,
+  })(served.internalIp);
+  // The forward points at no host (a stray internal IP), or its internal service
+  // isn't listening (the workstation never started that daemon): a dark DNAT target.
+  if (workstationFs === null) {
+    return { status: 404, body: { error: 'host_unreachable' } };
+  }
+  const listening = readOpenPorts(workstationFs).some(
+    (openPort) => openPort.port === served.internalPort,
+  );
+  if (!listening) {
+    return { status: 404, body: { error: 'host_unreachable' } };
+  }
+  return { fs: workstationFs, machineId: registry.workstation_machine_id };
+};
+
 export const handleAuthCreateSessionPublic = async (
   body: unknown,
   deps: AuthCreateSessionPublicDeps,
@@ -110,18 +172,19 @@ export const handleAuthCreateSessionPublic = async (
     return { status: 404, body: { error: 'host_unreachable' } };
   }
 
-  // Route by destination port. Only a port the router itself serves is handled here;
-  // a NAT forward to an internal host lands in Story 5.1.3, so for now a forwarded
-  // (or unmatched) port is host_unreachable — before any password check.
+  // Route by destination port to the auth target: the router itself (a port it
+  // serves) or the workstation behind a NAT forward. An unserved/dark port resolves
+  // to a host_unreachable response, returned verbatim before any password check.
   const served = machineServing({ routerFs, port: payload.port ?? DEFAULT_SSH_PORT });
-  if (served.kind !== 'router') {
-    return { status: 404, body: { error: 'host_unreachable' } };
+  const target = await resolveAuthTarget(deps, data, served, routerFs);
+  if ('status' in target) {
+    return target;
   }
 
-  // Validate against the router's own /etc/passwd (root-only; the root hash is
-  // md5(seedRouterAdminPw(owner_key))). An unknown user OR a wrong password is one
-  // 401 — a non-root username is simply not an account on the router.
-  const account = accountIn(routerFs, payload.username);
+  // Validate against the TARGET's own /etc/passwd (the router is root-only; a
+  // workstation also has its weak `guest` account). An unknown user OR a wrong
+  // password is one 401 — the response never reveals which accounts exist.
+  const account = accountIn(target.fs, payload.username);
   const passwordOk = account !== null && md5(payload.password) === account.hash;
   if (account === null || !passwordOk) {
     return { status: 401, body: { error: 'invalid_credentials' } };
@@ -130,7 +193,7 @@ export const handleAuthCreateSessionPublic = async (
   const { error: insertError } = await deps.insertSession({
     session_id: payload.session_id,
     player_key: publicKey,
-    machine_id: data.router_machine_id,
+    machine_id: target.machineId,
     credentials: { username: payload.username, userType: account.userType },
     parent_session_id: payload.parent_session_id ?? null,
     source_ip: payload.source_ip ?? null,
@@ -143,6 +206,6 @@ export const handleAuthCreateSessionPublic = async (
 
   return {
     status: 200,
-    body: { ok: true, userType: account.userType, machine_id: data.router_machine_id },
+    body: { ok: true, userType: account.userType, machine_id: target.machineId },
   };
 };

@@ -17,6 +17,7 @@
  * closure, keeping `core/` free of any async materialization wiring.
  */
 
+import type { Directory } from '../filesystem/types';
 import { assignHomeNetwork } from '../network/homeNetwork';
 import { materializeWorkstationFs, type OwnerPatchRow } from '../network/materializeWorkstationFs';
 import { readOpenPorts, type OpenPort } from '../services/pidfile';
@@ -31,13 +32,33 @@ export type WorkstationTarget = {
   readonly workstation_root_hash: string;
 };
 
+/**
+ * Resolve a NAT forward's `internalIp` to the ONE workstation behind a player's
+ * router: returns that workstation's materialized tree (base + journal) when
+ * `internalIp` is its deterministic LAN IP, else null (the forward reaches no host).
+ *
+ * The SHARED internalIp→workstation lookup the public SCAN (its open ports —
+ * `buildWorkstationPortResolver` below) and the public SSH gate (its passwd +
+ * service liveness — `authCreateSessionPublic`) both read, so the two can never
+ * disagree on what A's box looks like behind the forward. Materializes once and
+ * closes over the tree, so a multi-forward scan doesn't rebuild it per call.
+ */
+export const buildWorkstationResolver = (args: {
+  readonly registry: WorkstationTarget;
+  readonly workstationPatches: readonly OwnerPatchRow[] | null;
+}): ((internalIp: string) => Directory | null) => {
+  const lanIp = assignHomeNetwork(args.registry.owner_key, args.registry.essid).localIp;
+  const workstationFs = materializeWorkstationFs(args.registry, args.workstationPatches);
+  return (internalIp) => (internalIp === lanIp ? workstationFs : null);
+};
+
 export const buildWorkstationPortResolver = (args: {
   readonly registry: WorkstationTarget;
   readonly workstationPatches: readonly OwnerPatchRow[] | null;
 }): ((internalIp: string) => readonly OpenPort[]) => {
-  const lanIp = assignHomeNetwork(args.registry.owner_key, args.registry.essid).localIp;
-  const openPorts = readOpenPorts(
-    materializeWorkstationFs(args.registry, args.workstationPatches),
-  );
-  return (internalIp) => (internalIp === lanIp ? openPorts : []);
+  const resolveWorkstationFs = buildWorkstationResolver(args);
+  return (internalIp) => {
+    const workstationFs = resolveWorkstationFs(internalIp);
+    return workstationFs === null ? [] : readOpenPorts(workstationFs);
+  };
 };

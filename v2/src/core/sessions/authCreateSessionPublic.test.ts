@@ -5,10 +5,13 @@ import {
   type RegistryTarget,
 } from './authCreateSessionPublic';
 import type { AuthSessionRow } from './authCreateSession';
+import { md5 } from '../generation/md5';
 import { seedRouterAdminPw } from '../generation/routerFs';
+import { workstationGuestPassword } from '../generation/workstationFs';
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
 import { computeRouterId } from '../identity/router';
+import { assignHomeNetwork } from '../network/homeNetwork';
 import type { OwnerPatchRow } from '../network/materializeWorkstationFs';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
@@ -30,12 +33,54 @@ const TARGET = '203.0.113.7';
 // from it alone, so the server recovers them when resolving a cross-player login.
 const OWNER = generateIdentity();
 const ROUTER_ID = computeRouterId(OWNER.publicKeyHex);
+const WS_ID = 'workstation-a1b2c3d4';
+const ESSID = 'BEAN-THERE-WIFI';
 const REGISTRY: RegistryTarget = {
   owner_key: OWNER.publicKeyHex,
   router_machine_id: ROUTER_ID,
-  essid: 'BEAN-THERE-WIFI',
+  essid: ESSID,
+  workstation_machine_id: WS_ID,
+  workstation_username: 'neo',
+  workstation_root_hash: md5('toor'),
 };
 const ADMIN_PW = seedRouterAdminPw(OWNER.publicKeyHex);
+// A's one workstation behind the NAT: the deterministic LAN IP a `rules.v4` forward
+// must target, and the seeded weak guest password the server recovers for the login.
+const WS_LAN_IP = assignHomeNetwork(OWNER.publicKeyHex, ESSID).localIp;
+const GUEST_PW = workstationGuestPassword(OWNER.publicKeyHex);
+
+/** A's `nano` edit of the router's NAT table: forward public `:2222` to the
+ *  workstation's `:22` — the opt-in that exposes A's ws behind the public IP. */
+const routerForward: OwnerPatchRow = {
+  path: '/etc/iptables/rules.v4',
+  content: `forward 2222 to ${WS_LAN_IP}:22`,
+  owner: 'root',
+  permissions: null,
+  node_type: 'file',
+  updated_at: '2026-06-17T00:00:00.000Z',
+  writer_key: OWNER.publicKeyHex,
+};
+
+/** A started the workstation's sshd — its pidfile on the ws journal makes `:22` a
+ *  live service (a fresh ws has an empty `/var/run`, so the forward is dark until). */
+const wsSshdUp: OwnerPatchRow = {
+  path: '/var/run/sshd.pid',
+  content: 'sshd:port=22',
+  owner: 'root',
+  permissions: null,
+  node_type: 'file',
+  updated_at: '2026-06-17T00:00:00.000Z',
+  writer_key: OWNER.publicKeyHex,
+};
+
+/** Route the per-machine journal read by `machine_id`: the router's forward table
+ *  vs the workstation's running-service pidfiles live on different machines. */
+const patchesByMachine =
+  (byId: Readonly<Record<string, readonly OwnerPatchRow[]>>) =>
+  async ({ machine_id }: { machine_id: string }): Promise<PatchesResult> => ({
+    data: byId[machine_id] ?? [],
+    error: null,
+  });
 
 /** A root `rm /boot/vmlinuz` on the ROUTER's journal — replayed, it deletes the
  *  kernel so `canBoot` reports the router bricked (the whole public IP goes dark). */
@@ -55,7 +100,10 @@ type PatchesResult = { data: readonly OwnerPatchRow[] | null; error: unknown };
 const makeDeps = (
   lookup: () => Promise<LookupResult> = async () => ({ data: REGISTRY, error: null }),
   insert: () => Promise<{ error: unknown }> = async () => ({ error: null }),
-  patches: () => Promise<PatchesResult> = async () => ({ data: [], error: null }),
+  patches: (query: { machine_id: string }) => Promise<PatchesResult> = async () => ({
+    data: [],
+    error: null,
+  }),
 ) => {
   const findRegistryByPublicIp = vi.fn<(publicIp: string) => Promise<LookupResult>>(lookup);
   const findPatches = vi.fn<(query: { machine_id: string }) => Promise<PatchesResult>>(patches);
@@ -134,9 +182,9 @@ describe('handleAuthCreateSessionPublic', () => {
     expect(insertSession).not.toHaveBeenCalled();
   });
 
-  it('reports an unforwarded destination port as host_unreachable, before the password is checked and without inserting', async () => {
+  it('reports an unforwarded destination port as host_unreachable, before the password is checked and without reading the workstation journal or inserting', async () => {
     const attacker = generateIdentity();
-    const { deps, insertSession } = makeDeps();
+    const { deps, findPatches, insertSession } = makeDeps();
 
     // -p 2222 with the opt-in default (no forward configured): the router serves no
     // such port. A CORRECT admin password must NOT matter — routing decides first.
@@ -146,6 +194,139 @@ describe('handleAuthCreateSessionPublic', () => {
     );
 
     expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    // An unserved port is NOT a forward: the gate must not read the workstation
+    // journal (only the router's, for the boot gate) — it short-circuits at routing.
+    expect(findPatches).not.toHaveBeenCalledWith({ machine_id: WS_ID });
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+
+  it("routes a NAT-forwarded port to the workstation: validates the guest password against ITS passwd and opens a session on the workstation's machine id", async () => {
+    const attacker = generateIdentity();
+    const { deps, findPatches, insertSession } = makeDeps(
+      undefined,
+      undefined,
+      patchesByMachine({ [ROUTER_ID]: [routerForward], [WS_ID]: [wsSshdUp] }),
+    );
+
+    const result = await handleAuthCreateSessionPublic(
+      envelope(attacker, { username: 'guest', password: GUEST_PW, port: 2222 }),
+      deps,
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({ ok: true, userType: 'guest', machine_id: WS_ID });
+    // The journal is read off BOTH the router (forward table + boot gate) AND the
+    // workstation (its running services + passwd) — the forward bridges the two.
+    expect(findPatches).toHaveBeenCalledWith({ machine_id: ROUTER_ID });
+    expect(findPatches).toHaveBeenCalledWith({ machine_id: WS_ID });
+    expect(insertSession.mock.calls[0]![0]).toMatchObject({
+      session_id: 'ssh-root-1',
+      player_key: attacker.publicKeyHex,
+      machine_id: WS_ID,
+      credentials: { username: 'guest', userType: 'guest' },
+      kind: 'ssh',
+      essid: ESSID,
+    });
+  });
+
+  it('rejects a wrong workstation password on a forwarded port as invalid_credentials without inserting', async () => {
+    const attacker = generateIdentity();
+    const { deps, insertSession } = makeDeps(
+      undefined,
+      undefined,
+      patchesByMachine({ [ROUTER_ID]: [routerForward], [WS_ID]: [wsSshdUp] }),
+    );
+
+    const result = await handleAuthCreateSessionPublic(
+      envelope(attacker, { username: 'guest', password: 'not-the-guest-pw', port: 2222 }),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 401, body: { error: 'invalid_credentials' } });
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+
+  it('reports a forwarded port as host_unreachable when the workstation sshd is down, before the password is checked and without inserting', async () => {
+    const attacker = generateIdentity();
+    // The forward is configured on the router, but the workstation never started
+    // sshd (empty ws journal → empty /var/run): the DNAT target is not listening.
+    const { deps, insertSession } = makeDeps(
+      undefined,
+      undefined,
+      patchesByMachine({ [ROUTER_ID]: [routerForward], [WS_ID]: [] }),
+    );
+
+    // A CORRECT guest password — liveness must win regardless, proving the routing
+    // refuses a dark target before (and independent of) password validation.
+    const result = await handleAuthCreateSessionPublic(
+      envelope(attacker, { username: 'guest', password: GUEST_PW, port: 2222 }),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+
+  it('reports a forward to a non-existent internal host as host_unreachable without inserting', async () => {
+    const attacker = generateIdentity();
+    // A fat-fingered forward targeting an IP that is not A's one workstation: the
+    // DNAT resolves to no host, so the public port reaches nothing.
+    const strayForward: OwnerPatchRow = {
+      ...routerForward,
+      content: 'forward 2222 to 192.168.99.99:22',
+    };
+    const { deps, insertSession } = makeDeps(
+      undefined,
+      undefined,
+      patchesByMachine({ [ROUTER_ID]: [strayForward], [WS_ID]: [wsSshdUp] }),
+    );
+
+    const result = await handleAuthCreateSessionPublic(
+      envelope(attacker, { username: 'guest', password: GUEST_PW, port: 2222 }),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+
+  it("reports a forwarded port as host_unreachable when the workstation serves a DIFFERENT port than the forward's internal target, without inserting", async () => {
+    const attacker = generateIdentity();
+    // The forward targets the ws `:22`, but the ws sshd is bound to 2222 — the DNAT
+    // target port is not listening even though the ws has an open port. Liveness must
+    // check the forward's specific internal port, not merely "any service is up".
+    const wsSshdOnOtherPort: OwnerPatchRow = { ...wsSshdUp, content: 'sshd:port=2222' };
+    const { deps, insertSession } = makeDeps(
+      undefined,
+      undefined,
+      patchesByMachine({ [ROUTER_ID]: [routerForward], [WS_ID]: [wsSshdOnOtherPort] }),
+    );
+
+    const result = await handleAuthCreateSessionPublic(
+      envelope(attacker, { username: 'guest', password: GUEST_PW, port: 2222 }),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+
+  it('reports a server error when the workstation journal lookup fails, without inserting', async () => {
+    const attacker = generateIdentity();
+    // Router journal (forward + boot) succeeds; the SECOND lookup — the ws journal —
+    // fails, so the gate 500s rather than auth against an unknown ws state.
+    const patches = async ({ machine_id }: { machine_id: string }): Promise<PatchesResult> =>
+      machine_id === WS_ID
+        ? { data: null, error: new Error('db down') }
+        : { data: [routerForward], error: null };
+    const { deps, insertSession } = makeDeps(undefined, undefined, patches);
+
+    const result = await handleAuthCreateSessionPublic(
+      envelope(attacker, { username: 'guest', password: GUEST_PW, port: 2222 }),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 500, body: { error: 'patches_lookup_failed' } });
     expect(insertSession).not.toHaveBeenCalled();
   });
 
