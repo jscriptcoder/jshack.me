@@ -70,13 +70,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (actionOf(req.body) === 'resolvePublicScan') {
     // Resolve the TARGET public IP (another identity's network) — no caller
     // scoping: any authenticated player may scan any public IP, like the internet.
-    // Story 5.1.1b: a public IP maps to the owner's ROUTER (a distinct machine).
-    // We need only its machine id (the journal scope) and the owner_key that seeds
-    // the router's base FS for the boot-state check + its own sshd:22 port.
+    // Story 5.1.1b: a public IP maps to the owner's ROUTER (a distinct machine) —
+    // its machine id (journal scope) + owner_key seed the router base for the
+    // boot-state check + its own sshd:22 port. Story 5.1.3b: the workstation fields
+    // (machine id, essid, identity) let the handler liveness-gate a NAT forward to
+    // the one workstation behind NAT.
     const findRegistryByPublicIp = async (publicIp: string) => {
       const { data, error } = await supabase
         .from('network_registry')
-        .select('router_machine_id, owner_key')
+        .select(
+          'router_machine_id, owner_key, workstation_machine_id, essid, workstation_username, workstation_root_hash',
+        )
         .eq('public_ip', publicIp)
         .maybeSingle();
       if (error) console.error('[network] registry lookup error:', error);
