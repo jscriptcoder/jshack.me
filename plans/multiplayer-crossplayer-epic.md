@@ -340,9 +340,12 @@ choices (grilled one-by-one, each grounded in code). Feed straight into `plannin
      - **5.1.3b** ✅ **SHIPPED** (#265 `47d45b9`) — B's external scan reflects the forward: pure
        `buildWorkstationPortResolver` wires `resolveTargetPorts` for real (materialize A's workstation,
        liveness-gate; handler gate-fetches the ws journal only when `rules.v4` has a forward). `nmap
-       <A.publicIp>` shows `:2222` iff ws `:22` up. Live confirm deferred to 5.1.3 close.
-     - **5.1.3c** — B's `ssh guest@<A.publicIp> -p 2222` lands on the **workstation** (forward→ws auth in
-       `authCreateSessionPublic`); **restores** the Story 2–4 agent-browser E2E.
+       <A.publicIp>` shows `:2222` iff ws `:22` up. Live confirm landed with 5.1.3c.
+     - **5.1.3c** ✅ **SHIPPED** (#267 `6e7bc2f`) — B's `ssh guest@<A.publicIp> -p 2222` lands on the
+       **workstation** (forward→ws auth in `authCreateSessionPublic` via one `resolveAuthTarget` unifying both
+       arms + the shared `buildWorkstationResolver`). **Restored** the Story 2–4 agent-browser E2E — full
+       decision-8 loop confirmed live (B cross-network `nmap` → `:22`+`:2222`, `ssh guest -p 2222` → `guest@A's
+       ws`, `su root` → reads A's `/etc/passwd`); also live-verified the untyped `api/` registry select.
    - **5.1.4** — the dual-homed `.1` **sameLAN** client view: `nmap <subnet>.1` shows the router's own
      `:22` but NOT the forwards (`scanResult(.1, sameLAN)`), closing the dual-homed scar cleanly.
 
@@ -350,17 +353,15 @@ choices (grilled one-by-one, each grounded in code). Feed straight into `plannin
 
 **5.0 (`nano`) ✅ SHIPPED. 5.1 PLANNED (`plans/story-5_1-router-nat.md`) + IN FLIGHT — 5.1.1a ✅ (#258,
 `33e7444`) + 5.1.1b ✅ (#259, `f9c52ea`) + 5.1.2 ✅ (#261, `6d742ee`) + 5.1.3a ✅ (#263, `3d33021`) + 5.1.3b ✅
-(#265, `47d45b9`) shipped & merged.** 5.1.3 is split into 5.1.3a/b/c (own journal-backed router = a new
-machine category). 5.1.3a landed A's own-LAN `ssh root@<subnet>.1` → journal-backed router (root session on
-`computeRouterId`) + `nano /etc/iptables/rules.v4` persisting to the shared router journal (L1 session-gate +
-L2 own-router walker), via the new `isOwnRouter` recognizer and the shared `buildRouterBaseFs` composer.
-5.1.3b wired `resolveTargetPorts` for real (pure `buildWorkstationPortResolver` materializes A's one
-workstation behind NAT + liveness-gates it; the handler gate-fetches the ws journal only when `rules.v4` has a
-forward), so B's `nmap <A.publicIp>` shows `:2222` **iff** A's ws `:22` is up. Next: **5.1.3c** — B's `ssh
-guest@<A.publicIp> -p 2222` lands on the **workstation** (forward→ws auth in `authCreateSessionPublic`,
-reusing 5.1.3b's internalIp→ws materialization) and **restores** the reshaped Story 2–4 agent-browser E2E
-with the front step (A starts ws `sshd` + forwards `2222→ws:22`) — where the live confirm for both 5.1.3b and
-5.1.3c happens. Every slice runs full RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR (`tdd`, `testing`,
-`mutation-testing`, `refactoring`).
+(#265, `47d45b9`) + 5.1.3c ✅ (#267, `6e7bc2f`) shipped & merged.** 5.1.3 (split into 5.1.3a/b/c — own
+journal-backed router = a new machine category) is now **COMPLETE**: 5.1.3a landed A's own-LAN
+`ssh root@<subnet>.1` → journal-backed router + `nano rules.v4` persistence; 5.1.3b wired `resolveTargetPorts`
+for real (B's `nmap <A.publicIp>` shows `:2222` iff A's ws `:22` is up); 5.1.3c wired the forward→ws auth
+(`ssh guest@<A.publicIp> -p 2222` lands on A's **workstation**, session on `workstation_machine_id`) via one
+`resolveAuthTarget` unifying the router and forward arms + the shared `buildWorkstationResolver`. The full
+decision-8 cross-player loop was confirmed live (agent-browser vs `vercel dev`+Supabase). Next: **5.1.4** —
+the dual-homed `.1` **sameLAN** client view (`nmap <subnet>.1` shows the router's own `:22` but NOT the
+forwards), closing the dual-homed scar and Story 5.1. Every slice runs full
+RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR (`tdd`, `testing`, `mutation-testing`, `refactoring`).
 Model `scanResult(address, vantage)` as a clean total function — each interface its own endpoint, NEVER a
 merged view (`project_dual_homed_router_scan_discrepancy`).

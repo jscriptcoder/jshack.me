@@ -1,7 +1,7 @@
 # Plan: Story 5.1 — Router as a real machine + player-controlled NAT
 
 **Branch**: feat/story-5_1-router-nat (one branch per slice/PR below)
-**Status**: Active — 5.1.1a ✅ (#258, `33e7444`) + 5.1.1b ✅ (#259, `f9c52ea`) + 5.1.2 ✅ (#261, `6d742ee`) shipped. 5.1.3 split into **5.1.3a/b/c** (A's own journal-backed router is a NEW machine category, distinct from own-workstation / regenerated-sibling / cross-player-foreign); **5.1.3a ✅ (#263, `3d33021`)** + **5.1.3b ✅ (#265, `47d45b9`)** shipped; next **5.1.3c**.
+**Status**: Active — 5.1.1a ✅ (#258, `33e7444`) + 5.1.1b ✅ (#259, `f9c52ea`) + 5.1.2 ✅ (#261, `6d742ee`) shipped. 5.1.3 split into **5.1.3a/b/c** (A's own journal-backed router is a NEW machine category, distinct from own-workstation / regenerated-sibling / cross-player-foreign); **5.1.3a ✅ (#263, `3d33021`)** + **5.1.3b ✅ (#265, `47d45b9`)** + **5.1.3c ✅ (#267, `6e7bc2f`)** shipped — full decision-8 cross-player loop confirmed live (agent-browser vs `vercel dev`+Supabase). Next **5.1.4** (dual-homed `.1` sameLAN view) closes Story 5.1.
 
 > Parent: `plans/multiplayer-crossplayer-epic.md` — Story 5 (cross-player home NAT only). The 11 locked
 > SCOPE decisions live in §"Story 5 — resolved scope & decisions"; the 7 IMPLEMENTATION decisions this
@@ -24,17 +24,17 @@ reshaped **agent-browser E2E** for the full cross-player loop (browser-only; per
 - [x] A fresh box's public IP resolves to the **router** on `nmap`: `nmap <A.publicIp>` (by any other
       identity) shows the router's own `:22` and nothing else — the workstation is dark behind NAT (no
       default forward). _(5.1.1b, #259 — unit + 6/6 live wire-check)_
-- [ ] `ssh root@<A.publicIp>` lands on the **router** (validated against its seeded admin password);
+- [x] `ssh root@<A.publicIp>` lands on the **router** (validated against its seeded admin password);
       `ssh …@<A.publicIp> -p <port>` routes by destination port through the parsed forward table.
-      _(router login ✅ 5.1.2, #261 — unit + 6/6 live wire-check; `-p` forward → workstation routing in 5.1.3)_
+      _(router login ✅ 5.1.2, #261; `-p` forward → workstation routing ✅ 5.1.3c, #267 — unit + mutation + live E2E)_
 - [x] With no forward configured, `ssh …@<A.publicIp> -p 2222` is `host_unreachable` (opt-in default).
       _(5.1.2, #261 — unit + live wire-check)_
 - [x] A configures a forward by `ssh root@<subnet>.1` → `nano /etc/iptables/rules.v4` → add
       `forward 2222 to <ws.lanIp>:22` → save; the edit persists to the shared journal.
-      _(5.1.3a, #263 — unit; agent-browser confirm deferred to 5.1.3 close)_
-- [ ] After A's edit, B's `nmap <A.publicIp>` shows `:2222` **iff** A's workstation `sshd` is up
-      _(scan ✅ 5.1.3b, #265 — unit + mutation; live confirm deferred to 5.1.3c)_, and
-      `ssh guest@<A.publicIp> -p 2222` lands on the **workstation** _(ssh → 5.1.3c)_.
+      _(5.1.3a, #263 — unit; agent-browser confirmed at 5.1.3 close, #267)_
+- [x] After A's edit, B's `nmap <A.publicIp>` shows `:2222` **iff** A's workstation `sshd` is up
+      _(scan ✅ 5.1.3b, #265 — unit + mutation; live confirm ✅ 5.1.3c, #267)_, and
+      `ssh guest@<A.publicIp> -p 2222` lands on the **workstation** _(ssh ✅ 5.1.3c, #267 — unit + mutation + live E2E)_.
 - [ ] `nmap <subnet>.1` from inside the LAN shows the router's own `:22` but **NOT** the forwards (the
       dual-homed `.1`-vs-public invariant — never a merged view).
 
@@ -246,7 +246,7 @@ confirmed, human approves commit.
 
 ---
 
-### Slice 5.1.3c: B's `ssh … -p 2222` lands on the workstation (restores the cross-player loop E2E)
+### Slice 5.1.3c: B's `ssh … -p 2222` lands on the workstation (restores the cross-player loop E2E) — ✅ DONE (PR #267, squash `6e7bc2f`)
 
 **Value**: An attacking player (B) — `ssh guest@<A.publicIp> -p 2222` finally lands on A's exposed workstation,
 completing the cross-player NAT loop. Restores the Story 2–4 agent-browser E2E (reshaped since 5.1.1b).
