@@ -158,7 +158,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const findRegistryByPublicIp = async (publicIp: string) => {
       const { data, error } = await supabase
         .from('network_registry')
-        .select('owner_key, router_machine_id, essid')
+        .select(
+          'owner_key, router_machine_id, essid, workstation_machine_id, workstation_username, workstation_root_hash',
+        )
         .eq('public_ip', publicIp)
         .maybeSingle();
       if (error) console.error('[sessions] registry lookup error:', error);
