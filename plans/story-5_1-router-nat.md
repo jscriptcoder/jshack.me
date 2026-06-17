@@ -1,7 +1,7 @@
 # Plan: Story 5.1 — Router as a real machine + player-controlled NAT
 
 **Branch**: feat/story-5_1-router-nat (one branch per slice/PR below)
-**Status**: Active — 5.1.1a ✅ (#258, `33e7444`) + 5.1.1b ✅ (#259, `f9c52ea`) + 5.1.2 ✅ (#261, `6d742ee`) shipped. 5.1.3 split into **5.1.3a/b/c** (A's own journal-backed router is a NEW machine category, distinct from own-workstation / regenerated-sibling / cross-player-foreign); **5.1.3a in flight**.
+**Status**: Active — 5.1.1a ✅ (#258, `33e7444`) + 5.1.1b ✅ (#259, `f9c52ea`) + 5.1.2 ✅ (#261, `6d742ee`) shipped. 5.1.3 split into **5.1.3a/b/c** (A's own journal-backed router is a NEW machine category, distinct from own-workstation / regenerated-sibling / cross-player-foreign); **5.1.3a ✅ (#263, `3d33021`)** shipped; next **5.1.3b**.
 
 > Parent: `plans/multiplayer-crossplayer-epic.md` — Story 5 (cross-player home NAT only). The 11 locked
 > SCOPE decisions live in §"Story 5 — resolved scope & decisions"; the 7 IMPLEMENTATION decisions this
@@ -29,8 +29,9 @@ reshaped **agent-browser E2E** for the full cross-player loop (browser-only; per
       _(router login ✅ 5.1.2, #261 — unit + 6/6 live wire-check; `-p` forward → workstation routing in 5.1.3)_
 - [x] With no forward configured, `ssh …@<A.publicIp> -p 2222` is `host_unreachable` (opt-in default).
       _(5.1.2, #261 — unit + live wire-check)_
-- [ ] A configures a forward by `ssh root@<subnet>.1` → `nano /etc/iptables/rules.v4` → add
-      `forward 2222 to <ws.lanIp>:22` → save; the edit persists to the shared journal. _(5.1.3a)_
+- [x] A configures a forward by `ssh root@<subnet>.1` → `nano /etc/iptables/rules.v4` → add
+      `forward 2222 to <ws.lanIp>:22` → save; the edit persists to the shared journal.
+      _(5.1.3a, #263 — unit; agent-browser confirm deferred to 5.1.3 close)_
 - [ ] After A's edit, B's `nmap <A.publicIp>` shows `:2222` **iff** A's workstation `sshd` is up _(scan, 5.1.3b)_,
       and `ssh guest@<A.publicIp> -p 2222` lands on the **workstation** _(ssh, 5.1.3c)_.
 - [ ] `nmap <subnet>.1` from inside the LAN shows the router's own `:22` but **NOT** the forwards (the
@@ -163,7 +164,7 @@ confirmed, human approves commit.
 
 ---
 
-### Slice 5.1.3a: A `ssh root@<subnet>.1` → journal-backed router; `nano rules.v4` persists to the shared journal
+### Slice 5.1.3a: A `ssh root@<subnet>.1` → journal-backed router; `nano rules.v4` persists to the shared journal — ✅ DONE (PR #263, squash `3d33021`)
 
 **Value**: The victim/defender player (A) — logs into their OWN router and edits its NAT config; the edit
 sticks on the shared journal. The FIRST own-LAN-but-journal-backed machine (decision 6 seam) — a new machine
