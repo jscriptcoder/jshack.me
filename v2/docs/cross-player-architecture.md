@@ -81,6 +81,14 @@ RLS denies anon/authenticated entirely; only the service-role function touches t
   served machine: a router own port → `router`; a parsed forward → `forward{internalIp,
   internalPort}`; else `none` (router-own wins a same-port tie). It shares `readRulesV4` with
   `scanResult` (both lifted into `iptablesRules.ts`).
+- **The owner's own router is a distinct machine category (Story 5.1.3a):** neither the own
+  workstation (suffix-match, L1-bypass), a regenerated LAN sibling (`hostForMachineId`), nor a
+  cross-player foreign box. `isOwnRouter(machineId, pubkey) = machineId === computeRouterId(pubkey)`
+  (`core/identity/router.ts`) is the identity-derived recognizer, and `buildRouterBaseFs(ownerKey)`
+  (`core/generation/routerFs.ts`) is the single owner-key → router base FS composer that the client
+  view, the server materialize (`materializeRouterFs`), the L2 walker, and the own-LAN auth handler
+  all share (so the router tree never drifts between them). Holding the router id grants **no L1
+  bypass** — the router is always session-gated (you must `ssh root@.1` to configure it).
 
 ## 3. Reachability & cross-player login
 
@@ -102,6 +110,14 @@ RLS denies anon/authenticated entirely; only the service-role function touches t
   the opt-in default). The registry projection here is the minimal `{ owner_key,
   router_machine_id, essid }`; the workstation-fields projection (`RegistryWorkstation`) now
   lives with its sole consumer, `authElevateSession.ts`. The client never claims a tier.
+- **Own-LAN router login (Story 5.1.3a):** A's own `ssh root@<subnet>.1` (the `.1` gateway,
+  `kind:'router'`) takes the own-LAN branch of `ssh.ts`, but reachability and the hop's machine id
+  come from the router (`buildRouterBaseFs` / `computeRouterId`), not a regenerated sibling.
+  `authCreateSession` (`core/sessions/authCreateSession.ts`) branches on `host.kind === 'router'`:
+  it builds the router FS from the caller's own (verified) key, validates the seeded admin password
+  against its root-only `/etc/passwd`, and lands the session on **`router_machine_id`**. A then
+  `nano`-edits `/etc/iptables/rules.v4`, persisting to the shared router journal (§4). B seeing
+  (`resolveTargetPorts`) and using (`-p 2222` → workstation) the forward is 5.1.3b/c.
 - **Guest password:** `workstationGuestPassword(ownerKeyHex)` — a deterministic pick from a
   weak-password list, seeded from the owner's pubkey alone (`core/generation/workstationFs.ts`),
   so the server can recover it for cross-player auth and a future cracker can match it. The
@@ -116,8 +132,10 @@ Two layers gate every write/remove (`upsertPatch.ts`, `removePatch.ts`):
   exist (B's ssh hop), else `403 no_session`.
 - **L2 — permission walker** (`core/patches/enforceRemoteWriteL2` in
   `remoteWritePermission.ts`): own-box bypasses (session is null). For a remote target it
-  resolves the tree as (1) an NPC host on the caller's LAN (`hostForMachineId`), else (2) a
-  **registered foreign workstation** via `findRegistryByMachineId` →
+  resolves the tree as (0) the caller's **own router** (`isOwnRouter` → `buildRouterBaseFs`,
+  Story 5.1.3a — so A's root-tier `/etc/iptables/rules.v4` write walks the real router perms,
+  not a workstation tree), else (1) an NPC host on the caller's LAN (`hostForMachineId`), else
+  (2) a **registered foreign workstation** via `findRegistryByMachineId` →
   `buildRegisteredWorkstationFs` (rebuilt from the **owner's** identity — the same
   `buildWorkstationBaseFsFromIdentity` the read path uses, so A's tree can't drift between
   what A sees and what an attacker is checked against), else (3) **fail closed** →
@@ -159,6 +177,13 @@ stringifies to `{}` without it).
   `ui/state.ts`), not the local journal — B can't rebuild A's box locally. Own-box / local-LAN
   hops use the local journal; `refreshServedRoot()` re-pulls after a write so B sees its own
   change, and clears to null (never B's own files) off a cross-player hop.
+- **The own router renders from the local journal, not a served tree (Story 5.1.3a):**
+  `resolveActiveRoot`/`baseFsFor` (`ui/activeRoot.ts`) has an own-router branch — when the active
+  session is on `computeRouterId(ownKey)` it picks `buildRouterBaseFs(ownKey)` and replays the
+  router journal locally — and `isCrossPlayerWorkstation` excludes the own router (`isOwnRouter`),
+  so it is NOT misread as a cross-player hop (which would fetch a tier-filtered served tree). A
+  `nano rules.v4` edit therefore reflects immediately off the journal A wrote (`rebindPatchClient`
+  points the patch client's `machineId` at the router).
 - **The command pipeline is serial** (`runInput` → `commandChain` in `ui/state.ts`): one
   command runs at a time; a second submit queues behind the first and runs only after it
   fully completes, including its async server refresh. Do **not** reintroduce concurrent
@@ -228,9 +253,13 @@ boundary, tombstone-always `rm`), **Story 4** (su-to-root via the obtained passw
 guest@<public IP> → su root → rm /boot/vmlinuz → reboot`, after which A is bricked and drops off
 scans / refuses logins for everyone.
 
-Next: **Story 5** (real iptables NAT / multi-layer), **Story 6** (cross-player scan/connection +
-su/brick auth.log trace on the shared record), **Story 7** (same-wifi shared-LAN occupancy). See
-`plans/multiplayer-crossplayer-epic.md`.
+**Story 5** (cross-player home NAT) in flight: `nano` (5.0), the router as a real journal-backed
+machine + public-IP scan/login routed through it (5.1.1a/b, 5.1.2), and A's own-LAN `ssh root@.1`
++ `nano /etc/iptables/rules.v4` persisting to the shared router journal (5.1.3a) are shipped. Next:
+**5.1.3b** (B's scan reflects the forward — wire `resolveTargetPorts`), **5.1.3c** (B's `-p 2222` →
+workstation + restored loop E2E), then **5.1.4** (dual-homed `.1` sameLAN view). Then **Story 6**
+(cross-player scan/connection + su/brick auth.log trace on the shared record), **Story 7**
+(same-wifi shared-LAN occupancy). See `plans/multiplayer-crossplayer-epic.md`.
 
 **Known accepted gap (deferred to an L3 smart-server):** a client with a valid keypair can
 mint an `effect_one_shot`/root session via `createSession` and call the read/reset effects
@@ -260,6 +289,11 @@ mitigation is a server-side game-logic re-run.
 | Wire codec            | `core/filesystem/treeCodec.ts`                                    |
 | Owner FS generator    | `core/generation/workstationFs.ts`                                |
 | Machine id derivation | `core/identity/workstation.ts`                                    |
-| ssh (cross-player)    | `core/commands/ssh.ts`                                            |
+| Router id + own-router | `core/identity/router.ts` (`computeRouterId`, `isOwnRouter`)     |
+| Router FS composer    | `core/generation/routerFs.ts` (`buildRouterBaseFs`)               |
+| Router materialize    | `core/network/materializeRouterFs.ts`                             |
+| Own-LAN ssh auth      | `core/sessions/authCreateSession.ts` (router branch)             |
+| ssh (cross + own LAN) | `core/commands/ssh.ts`                                            |
+| Client active root    | `ui/activeRoot.ts` (own / own-router / remote base + replay)      |
 | Client served tree    | `ui/state.ts` (`servedRoot`, `refreshServedRoot`, `commandChain`) |
-| API surface           | `api/patches.ts`, `api/network.ts`                                |
+| API surface           | `api/patches.ts`, `api/network.ts`, `api/sessions.ts`             |

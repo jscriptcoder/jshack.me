@@ -329,23 +329,33 @@ choices (grilled one-by-one, each grounded in code). Feed straight into `plannin
      seeded admin pw, session on `router_machine_id`); an unforwarded `-p 2222` → `host_unreachable` (opt-in
      default). The `-p 2222` → **workstation** half (forward → internal host auth) lands in 5.1.3 with the
      forward itself. (6/6 live wire-check; `RegistryWorkstation` relocated to `authElevateSession`.)
-   - **5.1.3** — A `ssh root@<subnet>.1` + `nano rules.v4` adds the opt-in `2222 → ws:22`, persisted to the
-     **shared journal**, reflected cross-player (B's external scan AND `ssh -p 2222` now see it). The FIRST
-     own-LAN-but-journal-backed machine — A's own-LAN `ssh root@.1` must route to the journal-backed flow,
-     not the local regenerated-sibling flow (new seam, decision 6).
+   - **5.1.3** — split into **5.1.3a/b/c** (A's own journal-backed router is a NEW machine category, distinct
+     from own-workstation / regenerated-sibling / cross-player-foreign):
+     - **5.1.3a** ✅ **SHIPPED** (#263 `3d33021`) — A's own-LAN `ssh root@<subnet>.1` routes to the
+       journal-backed router (new `isOwnRouter` + shared `buildRouterBaseFs`): root session on
+       `computeRouterId` (seeded admin pw), client materializes the router tree (not a sibling, not a served
+       cross-player tree), and `nano /etc/iptables/rules.v4` persists to the **shared router journal** through
+       L1 (session-gated, no own-box bypass) + L2 (own-router walker). No api/DB change. agent-browser
+       confirm deferred to 5.1.3 close.
+     - **5.1.3b** — B's external scan reflects the forward: wire `resolveTargetPorts` for real (materialize
+       A's workstation, liveness-gate). `nmap <A.publicIp>` shows `:2222` iff ws `:22` up.
+     - **5.1.3c** — B's `ssh guest@<A.publicIp> -p 2222` lands on the **workstation** (forward→ws auth in
+       `authCreateSessionPublic`); **restores** the Story 2–4 agent-browser E2E.
    - **5.1.4** — the dual-homed `.1` **sameLAN** client view: `nmap <subnet>.1` shows the router's own
      `:22` but NOT the forwards (`scanResult(.1, sameLAN)`), closing the dual-homed scar cleanly.
 
 ## Next step
 
 **5.0 (`nano`) ✅ SHIPPED. 5.1 PLANNED (`plans/story-5_1-router-nat.md`) + IN FLIGHT — 5.1.1a ✅ (#258,
-`33e7444`) + 5.1.1b ✅ (#259, `f9c52ea`) + 5.1.2 ✅ (#261, `6d742ee`) shipped & merged.** Next: **5.1.3** —
-A `ssh root@<subnet>.1` + `nano /etc/iptables/rules.v4` adds the opt-in `forward 2222 → ws:22`, persisted
-to the **shared journal** and reflected cross-player (B's external scan AND `ssh -p 2222` now see it). The
-FIRST own-LAN-but-journal-backed machine — A's own-LAN `ssh root@.1` must route to the journal-backed flow,
-NOT a regenerated sibling (`hostForMachineId`). This also wires `resolveTargetPorts` for real (materialize
-the workstation, liveness-gate the forward) and **restores** the reshaped Story 2–4 agent-browser E2E with
-the front step (A starts ws `sshd` + forwards `2222→ws:22`). Every slice runs full
-RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR (`tdd`, `testing`,
-`mutation-testing`, `refactoring`). Model `scanResult(address, vantage)` as a clean total function — each
-interface its own endpoint, NEVER a merged view (`project_dual_homed_router_scan_discrepancy`).
+`33e7444`) + 5.1.1b ✅ (#259, `f9c52ea`) + 5.1.2 ✅ (#261, `6d742ee`) + 5.1.3a ✅ (#263, `3d33021`) shipped &
+merged.** 5.1.3 is split into 5.1.3a/b/c (own journal-backed router = a new machine category). 5.1.3a landed
+A's own-LAN `ssh root@<subnet>.1` → journal-backed router (root session on `computeRouterId`) + `nano
+/etc/iptables/rules.v4` persisting to the shared router journal (L1 session-gate + L2 own-router walker), via
+the new `isOwnRouter` recognizer and the shared `buildRouterBaseFs` composer. Next: **5.1.3b** — B's external
+scan reflects A's forward: wire `resolveTargetPorts` for real (materialize A's workstation, liveness-gate), so
+`nmap <A.publicIp>` shows `:2222` **iff** A's ws `:22` is up. Then **5.1.3c** — B's `ssh guest@<A.publicIp>
+-p 2222` lands on the **workstation** (forward→ws auth in `authCreateSessionPublic`) and **restores** the
+reshaped Story 2–4 agent-browser E2E with the front step (A starts ws `sshd` + forwards `2222→ws:22`). Every
+slice runs full RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR (`tdd`, `testing`, `mutation-testing`, `refactoring`).
+Model `scanResult(address, vantage)` as a clean total function — each interface its own endpoint, NEVER a
+merged view (`project_dual_homed_router_scan_discrepancy`).
