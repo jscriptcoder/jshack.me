@@ -438,4 +438,20 @@ describe('Terminal', () => {
       expect(inputField()).toHaveValue('zzz');
     });
   });
+
+  it('opens nano over the terminal and Ctrl-X returns to the prompt', async () => {
+    // The editor is a Terminal-level overlay: `nano <file>` swaps the prompt for
+    // the nano textarea (terminal input leaves the DOM), and Ctrl-X swaps back.
+    renderTerminal();
+    runCommand('nano /etc/passwd');
+
+    const editorEl = await screen.findByRole('textbox', { name: /editor/i });
+    expect(editorEl).toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: /terminal input/i })).not.toBeInTheDocument();
+
+    fireEvent.keyDown(editorEl, { key: 'x', ctrlKey: true });
+
+    expect(await screen.findByRole('textbox', { name: /terminal input/i })).toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: /editor/i })).not.toBeInTheDocument();
+  });
 });

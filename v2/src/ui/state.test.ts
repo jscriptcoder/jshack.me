@@ -150,3 +150,92 @@ describe('resolveBootCheck', () => {
     await expect(state.resolveBootCheck()).resolves.toEqual({ ok: true });
   });
 });
+
+/**
+ * `nano <file>` returns a `mode_change`, which the terminal must turn into an
+ * open editor (the `editorMode` signal) — `executeLine` previously DROPPED
+ * `mode_change` results entirely. `saveEditor` then persists the buffer through
+ * the same patch-write seam the `>` redirect uses, resolving `isNew` from the
+ * live FS view (an absent target is a brand-new file). The full save→`cat`
+ * round-trip needs the real server, so it lives in the agent-browser E2E; here
+ * we stub `fetch` and assert the WRITE the save issues (path/content/is_new).
+ */
+describe('nano editor mode', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const startEditorGame = async () => {
+    vi.resetModules();
+    const store = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => store.set(key, value),
+      removeItem: (key: string) => store.delete(key),
+    });
+    const requestBodies: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: { body?: string }) => {
+        if (init?.body !== undefined) requestBodies.push(init.body);
+        return { ok: true, status: 200, json: async () => ({ patches: [], sessions: [] }) };
+      }),
+    );
+    const state = await import('./state');
+    state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
+    // The last `upsertPatch` write the save issued, decoded from the signed
+    // envelope (`{ payload: JSON.stringify({...fields, action, ...}) }`).
+    const lastWrite = (): Record<string, unknown> | undefined =>
+      requestBodies
+        .map((body) => JSON.parse(JSON.parse(body).payload) as Record<string, unknown>)
+        .filter((fields) => fields.action === 'upsertPatch')
+        .at(-1);
+    return { state, lastWrite };
+  };
+
+  it('opens the editor when `nano <file>` runs, carrying the file path + content', async () => {
+    const { state } = await startEditorGame();
+    expect(state.editorMode()).toBeNull();
+
+    state.setInput('nano /etc/passwd');
+    await state.runInput();
+
+    const mode = state.editorMode();
+    expect(mode?.path).toBe('/etc/passwd');
+    // The buffer is the file's real content (the seed passwd has a root row).
+    expect(mode?.content).toContain('root:');
+  });
+
+  it('leaves the editor closed for a non-editor command', async () => {
+    const { state } = await startEditorGame();
+
+    state.setInput('pwd');
+    await state.runInput();
+
+    expect(state.editorMode()).toBeNull();
+  });
+
+  it('saveEditor overwrites an existing file with isNew unset (preserves the row flag)', async () => {
+    const { state, lastWrite } = await startEditorGame();
+    state.setInput('nano /etc/passwd');
+    await state.runInput();
+
+    await state.saveEditor('root:x:0:0::/root:/bin/sh\n');
+
+    const write = lastWrite();
+    expect(write?.path).toBe('/etc/passwd');
+    expect(write?.content).toBe('root:x:0:0::/root:/bin/sh\n');
+    expect('is_new' in (write ?? {})).toBe(false);
+  });
+
+  it('saveEditor creates a not-yet-existing file with is_new=true', async () => {
+    const { state, lastWrite } = await startEditorGame();
+    state.setInput('nano /tmp/fresh.txt');
+    await state.runInput();
+
+    await state.saveEditor('hello world');
+
+    const write = lastWrite();
+    expect(write?.path).toBe('/tmp/fresh.txt');
+    expect(write?.content).toBe('hello world');
+    expect(write?.is_new).toBe(true);
+  });
+});
