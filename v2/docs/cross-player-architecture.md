@@ -64,26 +64,34 @@ RLS denies anon/authenticated entirely; only the service-role function touches t
   players' (or per-viewer NPC) boxes.
 - **Public IP** = ESSID-seeded, from a fixed prefix allowlist (`core/generation/ip.ts`,
   `isPublicIp`). Joining a home network registers a row in **`network_registry`** (PK
-  `public_ip`): `owner_key`, `workstation_machine_id` (indexed), `router_machine_id`,
-  `forward_table` (JSONB), `essid`, `workstation_username`, `workstation_machine_name`,
-  `workstation_root_hash` (`core/network/registerNetwork.ts`, migration
-  `20260613000000_network_registry.sql`).
-- **NAT is degenerate today** — stored as a value: `router_machine_id = workstation`,
-  `forward_table = [{ publicPort: '*', → workstation }]`. Real selective iptables is Story 5,
-  which swaps the value, not the shape.
+  `public_ip`): `owner_key`, `workstation_machine_id` (indexed), `router_machine_id`
+  (= `computeRouterId(owner_key)` — a DISTINCT machine, Story 5.1.1b), `essid`,
+  `workstation_username`, `workstation_machine_name`, `workstation_root_hash`
+  (`core/network/registerNetwork.ts`, migrations `20260613000000_network_registry.sql` +
+  `20260617000000_drop_network_registry_forward_table.sql`).
+- **NAT (Story 5.1):** the router is a real, journal-backed machine
+  (`router_machine_id = computeRouterId(owner_key)`, `core/identity/router.ts`) that bears the
+  public IP and runs its own seeded `sshd:22`. Forwards are NOT a registry column — they parse
+  from the router's `/etc/iptables/rules.v4` (`core/network/iptablesRules.ts`), the single
+  source of truth. `scanResult({ vantage, … })` (`core/scan/scanResult.ts`) is the one total
+  function feeding both scan paths (external = own ports ∪ live forwards; sameLAN = own only —
+  never a merged view). The old degenerate `forward_table` column is dropped.
 
 ## 3. Reachability & cross-player login
 
-- **Scan:** `nmap <A's public IP>` from B routes to a signed `resolvePublicScan`
-  (`core/scan/resolvePublicScan.ts`). The server reverse-looks-up the registry and returns
-  A's **real open ports**, read from A's owner-scoped `/var/run/*.pid` rows
-  (`core/services/pidfile.ts` `readOpenPortsFromPidfiles`). A service is "open" only if its
-  pidfile exists — e.g. `sshd` must be running (`sshd` drops `/var/run/sshd.pid`).
+- **Scan (Story 5.1.1b):** `nmap <A's public IP>` from B routes to a signed `resolvePublicScan`
+  (`core/scan/resolvePublicScan.ts`). The server resolves the public IP to A's **router**
+  (`router_machine_id`), materializes it (seeded base + journal replay —
+  `core/network/materializeRouterFs.ts`), checks `canBoot` (a bricked router takes the whole
+  IP dark), and returns its open ports via `scanResult` (external vantage): the router's own
+  seeded `sshd:22` plus any live forwards. The workstation is dark behind NAT until A opts a
+  forward in (Story 5.1.3).
 - **Login:** `ssh <user>@<A's public IP>` takes the cross-player branch in
   `core/commands/ssh.ts` (`executePublicLogin`): reachability via `resolvePublic`, password
   via `authenticatePublic` (the server regenerates A's `/etc/passwd` and validates), landing
-  a session on A's **real `workstation_machine_id`** at the server-derived `userType`. The
-  client never claims a tier.
+  a session on A's **real `workstation_machine_id`** at the server-derived `userType`. (Story
+  5.1.2 will route this by destination port so port 22 lands on the router.) The client never
+  claims a tier.
 - **Guest password:** `workstationGuestPassword(ownerKeyHex)` — a deterministic pick from a
   weak-password list, seeded from the owner's pubkey alone (`core/generation/workstationFs.ts`),
   so the server can recover it for cross-player auth and a future cracker can match it. The

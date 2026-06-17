@@ -7,6 +7,7 @@ import {
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
 import { assignHomeNetwork } from './homeNetwork';
+import { computeRouterId } from '../identity/router';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
 /**
@@ -15,9 +16,10 @@ import type { NonceStore } from '../signedRequest/nonceStore';
  * identity can later resolve this network by its public IP. The public IP is
  * derived SERVER-SIDE from the ESSID (the WAN address belongs to the AP, shared by
  * every occupant); `owner_key` is stamped from the verified pubkey, never claimed.
- * The degenerate NAT (`router_machine_id` = the workstation, `forward_table` =
- * all → workstation) is stored as a VALUE from the start so Story 5 swaps it for
- * real iptables rules without a schema change.
+ * Story 5.1: the router is now a DISTINCT machine — `router_machine_id` is
+ * `computeRouterId(owner_key)` (its own seeded box bearing the public IP), and the
+ * old degenerate `forward_table` is gone (the router's `/etc/iptables/rules.v4` is
+ * the single source of truth for forwards).
  */
 
 const freshStore: NonceStore = async () => ({ fresh: true });
@@ -65,13 +67,24 @@ describe('handleRegisterNetwork', () => {
       public_ip: publicIp,
       owner_key: id.publicKeyHex,
       workstation_machine_id: WORKSTATION_ID,
-      router_machine_id: WORKSTATION_ID,
-      forward_table: [{ publicPort: '*', targetMachineId: WORKSTATION_ID }],
+      router_machine_id: computeRouterId(id.publicKeyHex),
       essid: ESSID,
       workstation_username: USERNAME,
       workstation_machine_name: MACHINE_NAME,
       workstation_root_hash: ROOT_HASH,
     });
+  });
+
+  it('registers the router as a DISTINCT machine — router_machine_id = computeRouterId(owner_key), not the workstation', async () => {
+    const id = generateIdentity();
+    const { deps, upsertRegistry } = makeDeps();
+
+    await handleRegisterNetwork(envelope(id), deps);
+
+    const row = upsertRegistry.mock.calls[0]![0];
+    expect(row.router_machine_id).toBe(computeRouterId(id.publicKeyHex));
+    expect(row.router_machine_id).not.toBe(row.workstation_machine_id);
+    expect('forward_table' in row).toBe(false);
   });
 
   it('persists the workstation identity (username/machineName/root-hash) so a cross-player reader can reconstruct the box', async () => {

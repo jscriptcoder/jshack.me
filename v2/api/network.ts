@@ -7,7 +7,6 @@ import {
 import {
   handleResolvePublicScan,
   type RegistryLookup,
-  type RunFileRow,
 } from '../src/core/scan/resolvePublicScan';
 import {
   handleResolveCrossPlayerFs,
@@ -26,8 +25,8 @@ import type { NonceStore } from '../src/core/signedRequest/nonceStore';
 //   - registerNetwork: upsert the caller's network on join (owner_key + public_ip
 //     server-stamped; one row per public IP)
 //   - resolvePublicScan: resolve a DIFFERENT identity's nmap of a public IP to the
-//     registered machine — host up/down + the owner's real open ports (read from
-//     the owner's /var/run/*.pid patch rows)
+//     owner's ROUTER (a distinct machine bearing the public IP) — host up/down +
+//     the router's open ports (its seeded sshd:22, read off the materialized tree)
 //
 // Logic lives in core/ handlers (unit + mutation tested); this file stays a thin
 // Supabase adapter. It's typechecked via tsconfig.node.json (`npm run typecheck`),
@@ -71,33 +70,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (actionOf(req.body) === 'resolvePublicScan') {
     // Resolve the TARGET public IP (another identity's network) — no caller
     // scoping: any authenticated player may scan any public IP, like the internet.
-    // The owner identity fields rebuild the box's base FS for the boot-state check
-    // (a bricked box goes dark), the same way the cross-player read materializes it.
+    // Story 5.1.1b: a public IP maps to the owner's ROUTER (a distinct machine).
+    // We need only its machine id (the journal scope) and the owner_key that seeds
+    // the router's base FS for the boot-state check + its own sshd:22 port.
     const findRegistryByPublicIp = async (publicIp: string) => {
       const { data, error } = await supabase
         .from('network_registry')
-        .select('workstation_machine_id, owner_key, workstation_username, workstation_root_hash')
+        .select('router_machine_id, owner_key')
         .eq('public_ip', publicIp)
         .maybeSingle();
       if (error) console.error('[network] registry lookup error:', error);
       return { data: data as RegistryLookup | null, error };
     };
-    // The resolved machine's open ports come from its `/var/run/*.pid` patch rows
-    // on the shared journal — scoped to machine_id (owner-unique by construction),
-    // so a cross-player scan reads the owner's real services, never the caller's
-    // own per-viewer rows.
-    const findRunFiles = async ({ machine_id }: { machine_id: string }) => {
-      const { data, error } = await supabase
-        .from('patches')
-        .select('path, content')
-        .eq('machine_id', machine_id)
-        .like('path', '/var/run/%');
-      if (error) console.error('[network] run-files lookup error:', error);
-      return { data: data as readonly RunFileRow[] | null, error };
-    };
-    // The resolved machine's FULL journal (scoped to machine_id, server order) so
-    // the handler can replay it over the regenerated base and ask `canBoot` — a
-    // `/boot` tombstone makes the box dark to scanners.
+    // The resolved ROUTER's FULL journal (scoped to router_machine_id, server order)
+    // so the handler can replay it over the seeded router base — to ask `canBoot`
+    // (a `/boot` tombstone takes the public IP dark) and to read its open ports off
+    // the materialized tree. The router's own sshd:22 lives in its seeded base FS,
+    // so a fresh router needs no journal row to advertise a port.
     const findPatches = async ({ machine_id }: { machine_id: string }) => {
       const { data, error } = await supabase
         .from('patches')
@@ -111,7 +100,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { status, body } = await handleResolvePublicScan(req.body, {
       nonceStore: noopNonceStore,
       findRegistryByPublicIp,
-      findRunFiles,
       findPatches,
     });
     res.status(status).json(body);

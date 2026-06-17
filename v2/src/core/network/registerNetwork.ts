@@ -13,25 +13,19 @@
  *     AP, shared by every occupant) — a client cannot register a foreign IP.
  *   - `owner_key` is the verified Ed25519 pubkey, never a payload claim.
  *
- * Degenerate NAT, stored as a VALUE not a shape: `router_machine_id` is the
- * workstation itself and `forward_table` forwards everything to it. Story 5 swaps
- * the value for real PREROUTING/DNAT rules (the router becomes a distinct machine,
- * specific public ports map to specific internal machines) with NO schema change.
+ * The router is a DISTINCT machine (Story 5.1): `router_machine_id` is
+ * `computeRouterId(owner_key)` — its own seeded box that bears the public IP and
+ * runs its own `sshd`. NAT forwards are NOT stored here; the router's
+ * `/etc/iptables/rules.v4` is the single parsed source of truth (the old
+ * degenerate `forward_table` is gone).
  */
 
 import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { assignHomeNetwork } from './homeNetwork';
+import { computeRouterId } from '../identity/router';
 import type { NonceStore } from '../signedRequest/nonceStore';
-
-/** One NAT port-forward rule. Degenerate today (`publicPort: '*'` forwards every
- *  port to the one internal machine); Story 5 makes these specific
- *  `{ publicPort: 22, targetMachineId }` entries across multiple internal hosts. */
-export type ForwardRule = {
-  readonly publicPort: number | '*';
-  readonly targetMachineId: string;
-};
 
 /** A row in the public-IP registry: `public_ip → network/router/machines`. The
  *  `workstation_*` identity fields (Story 2) let the server RECONSTRUCT the owner's
@@ -44,7 +38,6 @@ export type NetworkRegistryRow = {
   readonly owner_key: string;
   readonly workstation_machine_id: string;
   readonly router_machine_id: string;
-  readonly forward_table: readonly ForwardRule[];
   readonly essid: string;
   readonly workstation_username: string;
   readonly workstation_machine_name: string;
@@ -94,8 +87,7 @@ export const handleRegisterNetwork = async (
     public_ip: publicIp,
     owner_key: publicKey,
     workstation_machine_id: payload.workstation_machine_id,
-    router_machine_id: payload.workstation_machine_id,
-    forward_table: [{ publicPort: '*', targetMachineId: payload.workstation_machine_id }],
+    router_machine_id: computeRouterId(publicKey),
     essid: payload.essid,
     workstation_username: payload.workstation_username,
     workstation_machine_name: payload.workstation_machine_name,

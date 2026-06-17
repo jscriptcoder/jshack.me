@@ -22,6 +22,7 @@ import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign';
 import { generateIdentity } from '../src/core/identity/identity';
 import { computeWorkstationId } from '../src/core/identity/workstation';
+import { computeRouterId } from '../src/core/identity/router';
 import { md5 } from '../src/core/generation/md5';
 
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
@@ -108,8 +109,7 @@ await sr.from('network_registry').insert({
   public_ip: A_PUBLIC_IP,
   owner_key: alice.publicKeyHex,
   workstation_machine_id: A_MACHINE,
-  router_machine_id: A_MACHINE,
-  forward_table: [{ publicPort: '*', targetMachineId: A_MACHINE }],
+  router_machine_id: computeRouterId(alice.publicKeyHex),
   essid: 'BEAN-THERE-WIFI',
   workstation_username: 'alice',
   workstation_machine_name: 'skylab',
