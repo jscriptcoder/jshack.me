@@ -173,7 +173,9 @@ const execute: Command['execute'] = async (env, args, flags) => {
   const hostFs = isRouter
     ? buildRouterBaseFs(env.identity.publicKeyHex)
     : buildRemoteHostFs(env.identity.publicKeyHex, essid, host);
-  const machineId = isRouter ? computeRouterId(env.identity.publicKeyHex) : hostMachineId(host, essid);
+  const machineId = isRouter
+    ? computeRouterId(env.identity.publicKeyHex)
+    : hostMachineId(host, essid);
   // A host not running ssh has a null port, which is `!== port` too — so the one
   // check covers both "no ssh service" and "listening on a different port".
   const runningPort = sshPortOf(hostFs);

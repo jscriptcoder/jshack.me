@@ -4,10 +4,7 @@ import {
   handleRegisterNetwork,
   type NetworkRegistryRow,
 } from '../src/core/network/registerNetwork';
-import {
-  handleResolvePublicScan,
-  type RegistryLookup,
-} from '../src/core/scan/resolvePublicScan';
+import { handleResolvePublicScan, type RegistryLookup } from '../src/core/scan/resolvePublicScan';
 import {
   handleResolveCrossPlayerFs,
   type ActiveSession,
@@ -147,7 +144,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
       const router = byRouter.data as { owner_key: string } | null;
       return {
-        data: router === null ? null : ({ kind: 'router', owner_key: router.owner_key } as RegistryMachine),
+        data:
+          router === null
+            ? null
+            : ({ kind: 'router', owner_key: router.owner_key } as RegistryMachine),
         error: null,
       };
     };
@@ -171,7 +171,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .maybeSingle();
       if (error) console.error('[network] session lookup error:', error);
       const session = data as { credentials: { userType: UserType } } | null;
-      return { data: session === null ? null : ({ userType: session.credentials.userType } as ActiveSession), error };
+      return {
+        data:
+          session === null ? null : ({ userType: session.credentials.userType } as ActiveSession),
+        error,
+      };
     };
     // The machine's patch rows on the target (the shared journal — every writer's
     // rows, scoped to machine_id), with the SERVER updated_at + writer_key so the

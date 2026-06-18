@@ -13,10 +13,8 @@ import type { BootCheck } from '../../core/boot/bootFiles';
  */
 
 const bootable = (): Promise<BootCheck> => Promise.resolve({ ok: true });
-const missingFile =
-  (file: 'vmlinuz' | 'initrd.img') =>
-  (): Promise<BootCheck> =>
-    Promise.resolve({ ok: false, missing: file });
+const missingFile = (file: 'vmlinuz' | 'initrd.img') => (): Promise<BootCheck> =>
+  Promise.resolve({ ok: false, missing: file });
 
 describe('BootScreen', () => {
   beforeEach(() => vi.useFakeTimers());
@@ -25,7 +23,12 @@ describe('BootScreen', () => {
   it('reveals the boot sequence and hands off to the terminal when the box can boot', async () => {
     const onComplete = vi.fn();
     render(() => (
-      <BootScreen machineName="skylab" username="neo" resolveBoot={bootable} onComplete={onComplete} />
+      <BootScreen
+        machineName="skylab"
+        username="neo"
+        resolveBoot={bootable}
+        onComplete={onComplete}
+      />
     ));
 
     await vi.advanceTimersByTimeAsync(10_000);
@@ -38,7 +41,12 @@ describe('BootScreen', () => {
   it('does not hand off before the sequence has finished', async () => {
     const onComplete = vi.fn();
     render(() => (
-      <BootScreen machineName="skylab" username="neo" resolveBoot={bootable} onComplete={onComplete} />
+      <BootScreen
+        machineName="skylab"
+        username="neo"
+        resolveBoot={bootable}
+        onComplete={onComplete}
+      />
     ));
 
     await vi.advanceTimersByTimeAsync(200);

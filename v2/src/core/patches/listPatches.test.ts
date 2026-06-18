@@ -78,10 +78,9 @@ describe('handleListPatches', () => {
     const result = await handleListPatches(envelope, deps);
 
     // Replayed oldest-first so applyPatches' last-write-wins lands the newer edit.
-    expect((result.body.patches as readonly PersistedPatchRow[]).map((row) => row.content)).toEqual([
-      'older',
-      'newer',
-    ]);
+    expect((result.body.patches as readonly PersistedPatchRow[]).map((row) => row.content)).toEqual(
+      ['older', 'newer'],
+    );
   });
 
   it('returns an empty list when the caller has no patches yet', async () => {
@@ -122,10 +121,15 @@ describe('handleListPatches', () => {
   it('returns a foreign machine’s patches when an active ssh session exists there', async () => {
     const id = generateIdentity();
     const foreign = 'darkstar-12345678';
-    const rows = [sampleRow({ writer_key: id.publicKeyHex, machine_id: foreign, path: '/tmp/pwned' })];
+    const rows = [
+      sampleRow({ writer_key: id.publicKeyHex, machine_id: foreign, path: '/tmp/pwned' }),
+    ];
     const { deps } = makeDeps({
       listPatches: async () => ({ data: rows, error: null }),
-      findActiveSession: async () => ({ data: { userType: 'root', essid: 'VANDELAY' }, error: null }),
+      findActiveSession: async () => ({
+        data: { userType: 'root', essid: 'VANDELAY' },
+        error: null,
+      }),
     });
     const envelope = signRequest(id, 'listPatches', { machine_id: foreign });
 

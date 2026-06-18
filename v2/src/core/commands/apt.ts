@@ -116,10 +116,7 @@ export const installPackageLibraries = async (
 const packageInstalled = (env: CommandEnv, pkg: (typeof APT_PACKAGES)[number]): boolean =>
   binaryExists(env, pkg.binaries?.[0] ?? pkg.name);
 
-const handleList = (
-  env: CommandEnv,
-  flags: ReadonlyMap<string, string | true>,
-): CommandResult => {
+const handleList = (env: CommandEnv, flags: ReadonlyMap<string, string | true>): CommandResult => {
   if (!env.network.isOnline()) {
     return offlineError();
   }

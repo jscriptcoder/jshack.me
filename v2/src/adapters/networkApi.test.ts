@@ -32,7 +32,10 @@ const jsonResponse = (status: number, body: unknown): Response =>
 
 const GAME_CONFIG = { machineName: 'skylab', username: 'neo', rootPassword: 'matrix1999' };
 
-const makeDeps = (fetchImpl: typeof fetch, over: Partial<NetworkClientDeps> = {}): NetworkClientDeps => {
+const makeDeps = (
+  fetchImpl: typeof fetch,
+  over: Partial<NetworkClientDeps> = {},
+): NetworkClientDeps => {
   const identity = generateIdentity();
   return {
     identity,
@@ -102,13 +105,20 @@ describe('joinHomeNetwork', () => {
 
     await joinHomeNetwork(deps, ESSID);
 
-    expect(fetchSpy).toHaveBeenCalledWith('/api/network', expect.objectContaining({ method: 'POST' }));
+    expect(fetchSpy).toHaveBeenCalledWith(
+      '/api/network',
+      expect.objectContaining({ method: 'POST' }),
+    );
   });
 
   it('carries the workstation identity (hashed root password, never plaintext) in the register payload', async () => {
     const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true }));
     const deps = makeDeps(fetchSpy as unknown as typeof fetch, {
-      gameConfig: { machineName: 'nebuchadnezzar', username: 'trinity', rootPassword: 'zion-secret' },
+      gameConfig: {
+        machineName: 'nebuchadnezzar',
+        username: 'trinity',
+        rootPassword: 'zion-secret',
+      },
     });
 
     await joinHomeNetwork(deps, ESSID);
@@ -143,7 +153,9 @@ describe('resolvePublic', () => {
       { port: 80, service: 'http' },
     ];
     const deps = makeDeps(
-      vi.fn(async () => jsonResponse(200, { ok: true, found: true, ports })) as unknown as typeof fetch,
+      vi.fn(async () =>
+        jsonResponse(200, { ok: true, found: true, ports }),
+      ) as unknown as typeof fetch,
     );
 
     expect(await resolvePublic(deps, '203.0.113.7')).toEqual({ found: true, ports });
@@ -151,7 +163,9 @@ describe('resolvePublic', () => {
 
   it('reports the host not found when the server resolves no registry row', async () => {
     const deps = makeDeps(
-      vi.fn(async () => jsonResponse(200, { ok: true, found: false, ports: [] })) as unknown as typeof fetch,
+      vi.fn(async () =>
+        jsonResponse(200, { ok: true, found: false, ports: [] }),
+      ) as unknown as typeof fetch,
     );
 
     expect(await resolvePublic(deps, '203.0.113.7')).toEqual({ found: false, ports: [] });
@@ -161,16 +175,16 @@ describe('resolvePublic', () => {
     // Adversarial body: a 500 must short-circuit to host-down BEFORE the body is
     // read, so a `found: true` payload on an error status is never trusted.
     const deps = makeDeps(
-      vi.fn(async () => jsonResponse(500, { found: true, ports: [{ port: 22, service: 'ssh' }] })) as unknown as typeof fetch,
+      vi.fn(async () =>
+        jsonResponse(500, { found: true, ports: [{ port: 22, service: 'ssh' }] }),
+      ) as unknown as typeof fetch,
     );
 
     expect(await resolvePublic(deps, '203.0.113.7')).toEqual({ found: false, ports: [] });
   });
 
   it('treats a null / malformed JSON body as host down', async () => {
-    const deps = makeDeps(
-      vi.fn(async () => jsonResponse(200, null)) as unknown as typeof fetch,
-    );
+    const deps = makeDeps(vi.fn(async () => jsonResponse(200, null)) as unknown as typeof fetch);
 
     expect(await resolvePublic(deps, '203.0.113.7')).toEqual({ found: false, ports: [] });
   });
@@ -187,11 +201,16 @@ describe('resolvePublic', () => {
 });
 
 describe('resolveCrossPlayerFs', () => {
-  const A_TREE = dir({ srv: dir({ 'loot.txt': file('OWNED_BY_A', TRAVERSABLE_DIR) }, TRAVERSABLE_DIR) }, TRAVERSABLE_DIR);
+  const A_TREE = dir(
+    { srv: dir({ 'loot.txt': file('OWNED_BY_A', TRAVERSABLE_DIR) }, TRAVERSABLE_DIR) },
+    TRAVERSABLE_DIR,
+  );
   const MACHINE_ID = 'skylab-deadbeef';
 
   it('signs a resolveCrossPlayerFs request and deserializes the served tree', async () => {
-    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, tree: serializeTree(A_TREE) }));
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, { ok: true, tree: serializeTree(A_TREE) }),
+    );
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
 
     const result = await resolveCrossPlayerFs(deps, MACHINE_ID);
@@ -199,7 +218,10 @@ describe('resolveCrossPlayerFs', () => {
     expect(result).toEqual(A_TREE);
     const verified = await verifyPayload(sentEnvelope(fetchSpy));
     if (!verified.ok) throw new Error('expected verified envelope');
-    expect(verified.payload).toMatchObject({ action: 'resolveCrossPlayerFs', machine_id: MACHINE_ID });
+    expect(verified.payload).toMatchObject({
+      action: 'resolveCrossPlayerFs',
+      machine_id: MACHINE_ID,
+    });
   });
 
   it('returns null on a non-ok response (so the caller can fall back)', async () => {
@@ -214,7 +236,9 @@ describe('resolveCrossPlayerFs', () => {
     // Adversarial: a 500 must short-circuit BEFORE the body is trusted, so a forged
     // {ok:true, tree} on an error status is never deserialized into a usable FS.
     const deps = makeDeps(
-      vi.fn(async () => jsonResponse(500, { ok: true, tree: serializeTree(A_TREE) })) as unknown as typeof fetch,
+      vi.fn(async () =>
+        jsonResponse(500, { ok: true, tree: serializeTree(A_TREE) }),
+      ) as unknown as typeof fetch,
     );
 
     expect(await resolveCrossPlayerFs(deps, MACHINE_ID)).toBeNull();
@@ -222,7 +246,9 @@ describe('resolveCrossPlayerFs', () => {
 
   it('returns null when the body does not confirm ok', async () => {
     const deps = makeDeps(
-      vi.fn(async () => jsonResponse(200, { ok: false, tree: serializeTree(A_TREE) })) as unknown as typeof fetch,
+      vi.fn(async () =>
+        jsonResponse(200, { ok: false, tree: serializeTree(A_TREE) }),
+      ) as unknown as typeof fetch,
     );
 
     expect(await resolveCrossPlayerFs(deps, MACHINE_ID)).toBeNull();

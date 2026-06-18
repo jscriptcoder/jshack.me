@@ -79,7 +79,7 @@ RLS denies anon/authenticated entirely; only the service-role function touches t
   `machineServing({ routerFs, port })` (`core/network/machineServing.ts`, Story 5.1.2) is the
   routing counterpart — given the materialized router and a destination port it returns the
   served machine: a router own port → `router`; a parsed forward → `forward{internalIp,
-  internalPort}`; else `none` (router-own wins a same-port tie). It shares `readRulesV4` with
+internalPort}`; else `none` (router-own wins a same-port tie). It shares `readRulesV4` with
   `scanResult` (both lifted into `iptablesRules.ts`).
 - **The owner's own router is a distinct machine category (Story 5.1.3a):** neither the own
   workstation (suffix-match, L1-bypass), a regenerated LAN sibling (`hostForMachineId`), nor a
@@ -121,7 +121,7 @@ RLS denies anon/authenticated entirely; only the service-role function touches t
   router (below); neither → `404 host_unreachable` (so an unforwarded `-p 2222` is refused before
   any password check — the opt-in default). The registry projection here now carries the
   workstation fields too (`{ owner_key, router_machine_id, essid, workstation_machine_id,
-  workstation_username, workstation_root_hash }`) — a structural superset of the scan path's
+workstation_username, workstation_root_hash }`) — a structural superset of the scan path's
   `WorkstationTarget`. The client never claims a tier.
 - **Forwarded-port login (Story 5.1.3c):** when `machineServing` returns a `forward`,
   `resolveAuthTarget` fetches the **workstation** journal (the existing `findPatches` dep, scoped
@@ -133,7 +133,7 @@ RLS denies anon/authenticated entirely; only the service-role function touches t
   password is validated against the **workstation's** `/etc/passwd` (a weak `guest` account exists)
   and the session lands on **`workstation_machine_id`**. The router's boot/dark gate stays upstream
   on the public IP. Confirmed live end-to-end: B's `ssh guest@<A.publicIp> -p 2222` → `guest@<A's
-  ws>` → `su root` → reads A's `/etc/passwd` (tier-gated cross-player read).
+ws>` → `su root` → reads A's `/etc/passwd` (tier-gated cross-player read).
 - **Own-LAN router login (Story 5.1.3a):** A's own `ssh root@<subnet>.1` (the `.1` gateway,
   `kind:'router'`) takes the own-LAN branch of `ssh.ts`, but reachability and the hop's machine id
   come from the router (`buildRouterBaseFs` / `computeRouterId`), not a regenerated sibling.
@@ -320,9 +320,10 @@ router via the shipped `ssh root@<A.publicIp>`) reads A's router tree (`resolveC
 `materializeRouterFs`) and the L2 walker rebuilds A's router from `buildRouterBaseFs(owner_key)` —
 letting B `nano`-rewrite A's `/etc/iptables/rules.v4`, persisted to A's shared router journal, so
 A's public scan reflects the change. The full loop is confirmed live (agent-browser vs `vercel dev`
-+ Supabase, and `scripts/testCrossPlayerRouter.ts` 8/8): B `ssh root@<A.publicIp>` → `cat rules.v4`
-→ `nano` add `forward 2222 to <A.ws>:22` → `nmap <A.publicIp>` goes `[22]` → `[22, 2222]` (B exposed
-A's workstation). No new mechanism for su (the router is root-only — B logs in as root directly).
+
+- Supabase, and `scripts/testCrossPlayerRouter.ts` 8/8): B `ssh root@<A.publicIp>` → `cat rules.v4`
+  → `nano` add `forward 2222 to <A.ws>:22` → `nmap <A.publicIp>` goes `[22]` → `[22, 2222]` (B exposed
+  A's workstation). No new mechanism for su (the router is root-only — B logs in as root directly).
 
 **Story 5.3** (router brick → whole public IP dark) is ✅ **COMPLETE**, finishing the Story-5
 cross-player home-NAT arc. The router-brick → whole-IP-dark path was already shipped (both public
@@ -344,33 +345,33 @@ mitigation is a server-side game-logic re-run.
 
 ## Key files
 
-| Concern               | File                                                              |
-| --------------------- | ----------------------------------------------------------------- |
-| Shared-journal replay | `core/patches/orderPatchesForReplay.ts`                           |
-| Write handler         | `core/patches/upsertPatch.ts`                                     |
-| Remove (tombstone)    | `core/patches/removePatch.ts`                                     |
-| L1 session gate       | `core/patches/authorizeMachineAccess.ts`                          |
-| L2 walker + registry  | `core/patches/remoteWritePermission.ts`                           |
-| Read filter (3-tier)  | `core/patches/readFilter.ts`                                      |
-| Cross-player read     | `core/network/resolveCrossPlayerFs.ts`                            |
-| Shared materialize    | `core/network/materializeWorkstationFs.ts`                        |
-| Registry write        | `core/network/registerNetwork.ts`                                 |
-| Public scan resolve   | `core/scan/resolvePublicScan.ts`                                  |
+| Concern                | File                                                                               |
+| ---------------------- | ---------------------------------------------------------------------------------- |
+| Shared-journal replay  | `core/patches/orderPatchesForReplay.ts`                                            |
+| Write handler          | `core/patches/upsertPatch.ts`                                                      |
+| Remove (tombstone)     | `core/patches/removePatch.ts`                                                      |
+| L1 session gate        | `core/patches/authorizeMachineAccess.ts`                                           |
+| L2 walker + registry   | `core/patches/remoteWritePermission.ts`                                            |
+| Read filter (3-tier)   | `core/patches/readFilter.ts`                                                       |
+| Cross-player read      | `core/network/resolveCrossPlayerFs.ts`                                             |
+| Shared materialize     | `core/network/materializeWorkstationFs.ts`                                         |
+| Registry write         | `core/network/registerNetwork.ts`                                                  |
+| Public scan resolve    | `core/scan/resolvePublicScan.ts`                                                   |
 | Forward→ws resolve     | `core/scan/workstationPortResolver.ts` (`buildWorkstationResolver` + port wrapper) |
-| su elevation (server) | `core/sessions/authElevateSession.ts`                             |
-| Public ssh gate       | `core/sessions/authCreateSessionPublic.ts`                        |
-| Brick authority       | `core/boot/bootFiles.ts` (`canBoot`)                              |
-| reboot (cold boot)    | `core/commands/reboot.ts`                                         |
-| Shared FS walker      | `core/filesystem/fsView.ts`                                       |
-| Journal fold          | `core/filesystem/applyPatches.ts`                                 |
-| Wire codec            | `core/filesystem/treeCodec.ts`                                    |
-| Owner FS generator    | `core/generation/workstationFs.ts`                                |
-| Machine id derivation | `core/identity/workstation.ts`                                    |
-| Router id + own-router | `core/identity/router.ts` (`computeRouterId`, `isOwnRouter`)     |
-| Router FS composer    | `core/generation/routerFs.ts` (`buildRouterBaseFs`)               |
-| Router materialize    | `core/network/materializeRouterFs.ts`                             |
-| Own-LAN ssh auth      | `core/sessions/authCreateSession.ts` (router branch)             |
-| ssh (cross + own LAN) | `core/commands/ssh.ts`                                            |
-| Client active root    | `ui/activeRoot.ts` (own / own-router / remote base + replay)      |
-| Client served tree    | `ui/state.ts` (`servedRoot`, `refreshServedRoot`, `commandChain`) |
-| API surface           | `api/patches.ts`, `api/network.ts`, `api/sessions.ts`             |
+| su elevation (server)  | `core/sessions/authElevateSession.ts`                                              |
+| Public ssh gate        | `core/sessions/authCreateSessionPublic.ts`                                         |
+| Brick authority        | `core/boot/bootFiles.ts` (`canBoot`)                                               |
+| reboot (cold boot)     | `core/commands/reboot.ts`                                                          |
+| Shared FS walker       | `core/filesystem/fsView.ts`                                                        |
+| Journal fold           | `core/filesystem/applyPatches.ts`                                                  |
+| Wire codec             | `core/filesystem/treeCodec.ts`                                                     |
+| Owner FS generator     | `core/generation/workstationFs.ts`                                                 |
+| Machine id derivation  | `core/identity/workstation.ts`                                                     |
+| Router id + own-router | `core/identity/router.ts` (`computeRouterId`, `isOwnRouter`)                       |
+| Router FS composer     | `core/generation/routerFs.ts` (`buildRouterBaseFs`)                                |
+| Router materialize     | `core/network/materializeRouterFs.ts`                                              |
+| Own-LAN ssh auth       | `core/sessions/authCreateSession.ts` (router branch)                               |
+| ssh (cross + own LAN)  | `core/commands/ssh.ts`                                                             |
+| Client active root     | `ui/activeRoot.ts` (own / own-router / remote base + replay)                       |
+| Client served tree     | `ui/state.ts` (`servedRoot`, `refreshServedRoot`, `commandChain`)                  |
+| API surface            | `api/patches.ts`, `api/network.ts`, `api/sessions.ts`                              |

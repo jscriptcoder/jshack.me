@@ -27,10 +27,7 @@ export type RehydratedStack = {
 const homeOf = (session: Session): AbsPath =>
   session.userType === 'root' ? asAbsPath('/root') : asAbsPath(`/home/${session.username}`);
 
-export const rehydrateSessionStack = (
-  seed: Session,
-  rows: readonly Session[],
-): RehydratedStack => {
+export const rehydrateSessionStack = (seed: Session, rows: readonly Session[]): RehydratedStack => {
   const sorted = [...rows].sort((a, b) => a.createdAt - b.createdAt);
   return {
     sessionStack: [seed, ...sorted],

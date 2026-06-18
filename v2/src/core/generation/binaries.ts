@@ -106,9 +106,7 @@ const binaryPerms = (name: string): FilePermissions => ({
  * Build binary stub `FileNode` entries for populating `/bin`. Each is a
  * root-owned stub file whose execute permission decides which tiers may run it.
  */
-export const createBinaryEntries = (
-  names: readonly string[],
-): Readonly<Record<string, FileNode>> =>
+export const createBinaryEntries = (names: readonly string[]): Readonly<Record<string, FileNode>> =>
   Object.fromEntries(
     names.map((name) => [
       name,

@@ -26,12 +26,12 @@ describe('formatPrompt', () => {
   });
 
   it('ends the prompt with # for a root-tier session and $ otherwise', () => {
-    expect(
-      formatPrompt({ username: 'root', host: 'rig', cwd: '/root', userType: 'root' }),
-    ).toBe('root@rig:/root#');
-    expect(
-      formatPrompt({ username: 'neo', host: 'rig', cwd: '/home/neo', userType: 'user' }),
-    ).toBe('neo@rig:/home/neo$');
+    expect(formatPrompt({ username: 'root', host: 'rig', cwd: '/root', userType: 'root' })).toBe(
+      'root@rig:/root#',
+    );
+    expect(formatPrompt({ username: 'neo', host: 'rig', cwd: '/home/neo', userType: 'user' })).toBe(
+      'neo@rig:/home/neo$',
+    );
   });
 });
 

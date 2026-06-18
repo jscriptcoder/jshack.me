@@ -224,7 +224,8 @@ const currentEssid = (): string | null => {
  *  to decide own-tree vs remote-tree. */
 const ownWorkstationId = (): string => {
   const base = sessionStack()[0];
-  if (base === undefined) throw new Error('ownWorkstationId read before startGame seeded the stack');
+  if (base === undefined)
+    throw new Error('ownWorkstationId read before startGame seeded the stack');
   return base.machineId;
 };
 
@@ -332,7 +333,10 @@ export { pendingPrompt };
 
 /** Backs `env.prompt`: returns a promise resolved when the player submits the
  *  next line (or rejected on Ctrl-C). */
-const requestPrompt = (opts: { readonly message: string; readonly masked: boolean }): Promise<string> =>
+const requestPrompt = (opts: {
+  readonly message: string;
+  readonly masked: boolean;
+}): Promise<string> =>
   new Promise<string>((resolve, reject) => {
     setPendingPrompt({ message: opts.message, masked: opts.masked, resolve, reject });
   });
@@ -378,9 +382,10 @@ const resetGame = (): void => {
  *  `machine_id` (`name-suffix`). Falls back to the typed config before
  *  `startGame` (the boot gate ensures that never happens in practice). */
 export const promptHost = (): string =>
-  parseWorkstationId(activeSession()?.machineId ?? '')?.name ?? config?.machineName ?? 'workstation';
-export const promptUsername = (): string =>
-  activeSession()?.username ?? config?.username ?? 'user';
+  parseWorkstationId(activeSession()?.machineId ?? '')?.name ??
+  config?.machineName ??
+  'workstation';
+export const promptUsername = (): string => activeSession()?.username ?? config?.username ?? 'user';
 /** Active tier — drives the prompt symbol (`#` for root after `su`, else `$`). */
 export const promptTier = (): UserType => activeSession()?.userType ?? 'user';
 

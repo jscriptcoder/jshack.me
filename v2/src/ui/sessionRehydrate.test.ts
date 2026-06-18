@@ -29,13 +29,23 @@ describe('rehydrateSessionStack', () => {
   });
 
   it('lands the active cwd in the top session’s home (root → /root)', () => {
-    const root = session({ id: 'su-root-1', username: 'root', userType: 'root', createdAt: asEpochMs(10) });
+    const root = session({
+      id: 'su-root-1',
+      username: 'root',
+      userType: 'root',
+      createdAt: asEpochMs(10),
+    });
 
     expect(rehydrateSessionStack(seed, [root]).activeCwd).toBe('/root');
   });
 
   it('stacks a single su-root row on the base, restoring to the base user’s home on exit', () => {
-    const root = session({ id: 'su-root-1', username: 'root', userType: 'root', createdAt: asEpochMs(10) });
+    const root = session({
+      id: 'su-root-1',
+      username: 'root',
+      userType: 'root',
+      createdAt: asEpochMs(10),
+    });
 
     const result = rehydrateSessionStack(seed, [root]);
 
@@ -45,8 +55,18 @@ describe('rehydrateSessionStack', () => {
   });
 
   it('orders rows by createdAt and restores each pop to the home of the session beneath it', () => {
-    const root = session({ id: 'su-root-1', username: 'root', userType: 'root', createdAt: asEpochMs(10) });
-    const bob = session({ id: 'su-bob-1', username: 'bob', userType: 'user', createdAt: asEpochMs(20) });
+    const root = session({
+      id: 'su-root-1',
+      username: 'root',
+      userType: 'root',
+      createdAt: asEpochMs(10),
+    });
+    const bob = session({
+      id: 'su-bob-1',
+      username: 'bob',
+      userType: 'user',
+      createdAt: asEpochMs(20),
+    });
 
     // Rows arrive newest-first to prove the rebuild sorts by createdAt ascending.
     const result = rehydrateSessionStack(seed, [bob, root]);
@@ -57,17 +77,35 @@ describe('rehydrateSessionStack', () => {
   });
 
   it('restores to /home/guest when the session beneath is the guest account', () => {
-    const guest = session({ id: 'su-guest-1', username: 'guest', userType: 'guest', createdAt: asEpochMs(5) });
-    const root = session({ id: 'su-root-1', username: 'root', userType: 'root', createdAt: asEpochMs(15) });
+    const guest = session({
+      id: 'su-guest-1',
+      username: 'guest',
+      userType: 'guest',
+      createdAt: asEpochMs(5),
+    });
+    const root = session({
+      id: 'su-root-1',
+      username: 'root',
+      userType: 'root',
+      createdAt: asEpochMs(15),
+    });
 
-    const result = rehydrateSessionStack(session({ username: 'alice', userType: 'user' }), [guest, root]);
+    const result = rehydrateSessionStack(session({ username: 'alice', userType: 'user' }), [
+      guest,
+      root,
+    ]);
 
     // guest pops to alice's home; root pops to guest's home.
     expect(result.returnCwdStack).toEqual(['/home/alice', '/home/guest']);
   });
 
   it('rebuilds an ssh hop above an su elevation, landing in the remote root home', () => {
-    const root = session({ id: 'su-root-1', username: 'root', userType: 'root', createdAt: asEpochMs(10) });
+    const root = session({
+      id: 'su-root-1',
+      username: 'root',
+      userType: 'root',
+      createdAt: asEpochMs(10),
+    });
     // The ssh hop lives on a DIFFERENT machine — the remote host's coordinate id.
     const remote = session({
       id: 'ssh-root-1',

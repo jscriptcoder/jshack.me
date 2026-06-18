@@ -16,7 +16,13 @@
  */
 
 import { signRequest } from '../core/signedRequest/sign';
-import { asEpochMs, asMachineId, asPlayerKeyHex, type MachineId, type UserType } from '../core/types';
+import {
+  asEpochMs,
+  asMachineId,
+  asPlayerKeyHex,
+  type MachineId,
+  type UserType,
+} from '../core/types';
 import type {
   Identity,
   PatchResult,
@@ -215,9 +221,7 @@ const summaryToSession = (deps: SessionsClientDeps, row: SessionSummary): Sessio
 
 /** Read the caller's own active sessions. Returns `[]` on any failure so boot
  *  degrades to the base login rather than crashing the terminal. */
-export const listServerSessions = async (
-  deps: SessionsClientDeps,
-): Promise<readonly Session[]> => {
+export const listServerSessions = async (deps: SessionsClientDeps): Promise<readonly Session[]> => {
   try {
     const response = await post(deps, 'listSessions', {});
     if (!response.ok) return [];

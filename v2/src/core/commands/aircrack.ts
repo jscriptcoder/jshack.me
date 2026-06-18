@@ -50,10 +50,7 @@ const failureReason = (network: WifiNetwork): string | null => {
   return null;
 };
 
-async function* crack(
-  env: CommandEnv,
-  network: WifiNetwork,
-): AsyncIterable<TerminalLine> {
+async function* crack(env: CommandEnv, network: WifiNetwork): AsyncIterable<TerminalLine> {
   yield text(`Opening capture file for ${network.essid} (${network.bssid})...`);
   await env.sleep(STEP_DELAY_MS);
   yield text('Reading packets from capture file...');
@@ -119,9 +116,7 @@ export const aircrack: Command = {
     arguments: [
       { name: 'bssid', description: 'Target network BSSID (from airdump)', required: true },
     ],
-    examples: [
-      { command: 'aircrack AA:BB:CC:DD:EE:FF', description: 'Crack the target network' },
-    ],
+    examples: [{ command: 'aircrack AA:BB:CC:DD:EE:FF', description: 'Crack the target network' }],
   },
   execute,
 };

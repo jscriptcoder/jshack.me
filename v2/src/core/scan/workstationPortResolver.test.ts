@@ -62,7 +62,10 @@ const bootTombstone: OwnerPatchRow = {
 
 describe('buildWorkstationPortResolver', () => {
   it("returns the workstation's open ports for its own LAN IP when its sshd is up", () => {
-    const resolve = buildWorkstationPortResolver({ registry: registry(), workstationPatches: [sshdUp] });
+    const resolve = buildWorkstationPortResolver({
+      registry: registry(),
+      workstationPatches: [sshdUp],
+    });
 
     expect(resolve(wsLanIp)).toEqual([{ port: 22, service: 'ssh' }]);
   });
@@ -85,13 +88,19 @@ describe('buildWorkstationPortResolver', () => {
   });
 
   it('returns nothing for an internal IP that is not the workstation (dead forward)', () => {
-    const resolve = buildWorkstationPortResolver({ registry: registry(), workstationPatches: [sshdUp] });
+    const resolve = buildWorkstationPortResolver({
+      registry: registry(),
+      workstationPatches: [sshdUp],
+    });
 
     expect(resolve('192.168.0.254')).toEqual([]);
   });
 
   it('treats a null journal as no running services', () => {
-    const resolve = buildWorkstationPortResolver({ registry: registry(), workstationPatches: null });
+    const resolve = buildWorkstationPortResolver({
+      registry: registry(),
+      workstationPatches: null,
+    });
 
     expect(resolve(wsLanIp)).toEqual([]);
   });

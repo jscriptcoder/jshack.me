@@ -22,9 +22,7 @@ import type { Directory } from '../filesystem/types';
 /** A required boot file, in GRUB load order (kernel first, then initrd). */
 export type BootFile = 'vmlinuz' | 'initrd.img';
 
-export type BootCheck =
-  | { readonly ok: true }
-  | { readonly ok: false; readonly missing: BootFile };
+export type BootCheck = { readonly ok: true } | { readonly ok: false; readonly missing: BootFile };
 
 /** The files `/boot` must contain to boot, in the order the bootloader needs
  *  them — so a "both gone" check reports the kernel first. */

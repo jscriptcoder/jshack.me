@@ -52,7 +52,11 @@ describe('runInput command serialization', () => {
     // startGame fire-and-forgets a journal/session refetch; keep it benign.
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ patches: [], sessions: [] }) })),
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ patches: [], sessions: [] }),
+      })),
     );
     const state = await import('./state');
     state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
@@ -92,7 +96,10 @@ describe('runInput command serialization', () => {
     state.setInput('echo second');
     await state.runInput();
 
-    const text = state.scrollback().map((line) => line.content).join('\n');
+    const text = state
+      .scrollback()
+      .map((line) => line.content)
+      .join('\n');
     expect(text).toContain('first');
     expect(text).toContain('second');
 

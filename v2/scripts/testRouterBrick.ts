@@ -68,11 +68,12 @@ const portsOf = (body: unknown): readonly number[] =>
     .map((entry) => entry.port)
     .filter((port): port is number => typeof port === 'number');
 
-const foundOf = (body: unknown): boolean =>
-  (body as { found?: boolean } | null)?.found === true;
+const foundOf = (body: unknown): boolean => (body as { found?: boolean } | null)?.found === true;
 
 const machineIdOf = (body: unknown): string | undefined =>
-  typeof body === 'object' && body !== null ? (body as { machine_id?: string }).machine_id : undefined;
+  typeof body === 'object' && body !== null
+    ? (body as { machine_id?: string }).machine_id
+    : undefined;
 
 // --- Identities: A (owner), B (root on A's router AND A's workstation — the attacker
 //     who has already escalated on both, seeded here), C (a neutral scanner / public

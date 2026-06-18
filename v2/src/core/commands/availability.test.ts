@@ -170,10 +170,13 @@ describe('commandRegistry gating (registry wiring)', () => {
       if (command === undefined) throw new Error(`${name} not registered`);
       const env = mockCommandEnv({
         // A home dir so `cd` has somewhere valid to land; no /bin anywhere.
-        fs: mockFsViewFromTree(buildDirectory({ home: buildDirectory({ alice: buildDirectory({}) }) }), {
-          userType: 'user',
-          cwd: asAbsPath('/home/alice'),
-        }),
+        fs: mockFsViewFromTree(
+          buildDirectory({ home: buildDirectory({ alice: buildDirectory({}) }) }),
+          {
+            userType: 'user',
+            cwd: asAbsPath('/home/alice'),
+          },
+        ),
       });
 
       const result = await command.execute(env, [], NO_FLAGS);

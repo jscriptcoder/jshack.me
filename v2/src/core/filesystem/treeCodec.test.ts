@@ -62,7 +62,7 @@ describe('serializeTree / deserializeTree', () => {
   it('preserves a file’s content, owner, perms and metadata', () => {
     const tree = dir(
       {
-        'ls': {
+        ls: {
           kind: 'file',
           content: 'stub',
           owner: 'root',

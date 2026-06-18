@@ -120,9 +120,7 @@ const allowlistDir = (directory: Directory, prefix: string): Directory => {
         node.kind === 'directory' ? allowlistDir(node, `${prefix}/${name}`) : node,
       ])
       .filter(([name, node]) =>
-        node.kind === 'directory'
-          ? node.entries.size > 0
-          : matchesAllowlist(`${prefix}/${name}`),
+        node.kind === 'directory' ? node.entries.size > 0 : matchesAllowlist(`${prefix}/${name}`),
       ),
   );
   return { ...directory, entries };

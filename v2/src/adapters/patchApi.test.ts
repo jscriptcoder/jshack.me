@@ -226,7 +226,9 @@ describe('postAuthLog', () => {
 
   it('maps a 403 to no_session and a thrown fetch to network_error', async () => {
     const forbidden = await postAuthLog(
-      makeDeps(vi.fn(async () => jsonResponse(403, { error: 'no_session' })) as unknown as typeof fetch),
+      makeDeps(
+        vi.fn(async () => jsonResponse(403, { error: 'no_session' })) as unknown as typeof fetch,
+      ),
       event(computeWorkstationId('skylab', 'a'.repeat(64))),
     );
     const offline = await postAuthLog(

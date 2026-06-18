@@ -60,7 +60,11 @@ export const handleListPatches = async (
   }
 
   const { publicKey, payload } = verified;
-  const access = await authorizeMachineAccess(publicKey, payload.machine_id, deps.findActiveSession);
+  const access = await authorizeMachineAccess(
+    publicKey,
+    payload.machine_id,
+    deps.findActiveSession,
+  );
   if (!access.ok) {
     return { status: access.status, body: { error: access.error } };
   }

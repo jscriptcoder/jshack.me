@@ -100,7 +100,9 @@ describe('airmon', () => {
       interfaces: new Map(cold.interfaces).set('wlan0', { ...wlan0Of(cold), monitorMode: true }),
     };
     const { env } = airmonEnv(monitoring);
-    const { text, exitCode } = await textOf(await airmon.execute(env, ['start', 'wlan0'], NO_FLAGS));
+    const { text, exitCode } = await textOf(
+      await airmon.execute(env, ['start', 'wlan0'], NO_FLAGS),
+    );
 
     expect(text).toBe('wlan0 is already in monitor mode');
     expect(text).not.toContain('AR9271');
@@ -114,10 +116,7 @@ describe('airmon', () => {
   });
 
   it('refuses to run off the player’s own workstation', async () => {
-    const { env, get } = airmonEnv(
-      buildColdStartConnectivity(PUBKEY),
-      asMachineId('203.0.113.42'),
-    );
+    const { env, get } = airmonEnv(buildColdStartConnectivity(PUBKEY), asMachineId('203.0.113.42'));
     const result = await airmon.execute(env, ['start', 'wlan0'], NO_FLAGS);
     if (result.kind !== 'sync') throw new Error('sync expected');
 
@@ -139,7 +138,9 @@ describe('airmon', () => {
       }),
     };
     const { env } = airmonEnv(connected);
-    const { text, exitCode } = await textOf(await airmon.execute(env, ['start', 'wlan0'], NO_FLAGS));
+    const { text, exitCode } = await textOf(
+      await airmon.execute(env, ['start', 'wlan0'], NO_FLAGS),
+    );
 
     expect(text).toContain('airmon: wlan0 is already connected to a network');
     expect(exitCode).toBe(1);
@@ -154,7 +155,9 @@ describe('airmon', () => {
 
   it('reports an unknown interface as not found', async () => {
     const { env } = airmonEnv(buildColdStartConnectivity(PUBKEY));
-    const { text, exitCode } = await textOf(await airmon.execute(env, ['start', 'wlan9'], NO_FLAGS));
+    const { text, exitCode } = await textOf(
+      await airmon.execute(env, ['start', 'wlan9'], NO_FLAGS),
+    );
     expect(text).toContain("airmon: interface 'wlan9' not found");
     expect(exitCode).toBe(1);
   });

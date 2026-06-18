@@ -20,7 +20,10 @@ const ENDPOINT = 'http://test.local/api/sessions';
 const jsonResponse = (status: number, body: unknown): Response =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
-const makeDeps = (fetchImpl: typeof fetch, over: Partial<SessionsClientDeps> = {}): SessionsClientDeps => {
+const makeDeps = (
+  fetchImpl: typeof fetch,
+  over: Partial<SessionsClientDeps> = {},
+): SessionsClientDeps => {
   const identity = generateIdentity();
   return {
     identity,
@@ -97,7 +100,10 @@ describe('createServerSession', () => {
 
     await createServerSession(deps, sessionFor(deps), null);
 
-    expect(fetchSpy).toHaveBeenCalledWith('/api/sessions', expect.objectContaining({ method: 'POST' }));
+    expect(fetchSpy).toHaveBeenCalledWith(
+      '/api/sessions',
+      expect.objectContaining({ method: 'POST' }),
+    );
   });
 
   it('maps a 403 to a no_session result', async () => {

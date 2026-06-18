@@ -48,7 +48,9 @@ const LIBRARY_PERMS: FilePermissions = {
 type WriteCall = {
   readonly path: string;
   readonly content: string;
-  readonly options?: { readonly isNew?: boolean; readonly permissions?: FilePermissions } | undefined;
+  readonly options?:
+    | { readonly isNew?: boolean; readonly permissions?: FilePermissions }
+    | undefined;
 };
 
 type AptEnvOpts = {
@@ -340,7 +342,9 @@ describe('installPackageLibraries', () => {
 describe('apt list', () => {
   /** An env whose `/usr/bin` already holds `installed` binaries; online by
    *  default. Session is a plain user — `apt list` needs no root. */
-  const listEnv = (opts: { readonly installed?: readonly string[]; readonly online?: boolean } = {}) => {
+  const listEnv = (
+    opts: { readonly installed?: readonly string[]; readonly online?: boolean } = {},
+  ) => {
     const tree = buildDirectory({
       bin: buildDirectory({}),
       usr: buildDirectory({

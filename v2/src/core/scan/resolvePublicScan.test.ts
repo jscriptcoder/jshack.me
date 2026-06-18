@@ -288,7 +288,10 @@ describe('handleResolvePublicScan', () => {
     const id = generateIdentity();
     const { deps, findRegistryByPublicIp } = makeDeps();
 
-    const result = await handleResolvePublicScan(envelope(id, TARGET, { player_key: 'attacker' }), deps);
+    const result = await handleResolvePublicScan(
+      envelope(id, TARGET, { player_key: 'attacker' }),
+      deps,
+    );
 
     expect(result.status).toBe(400);
     expect(findRegistryByPublicIp).not.toHaveBeenCalled();

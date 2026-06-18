@@ -47,7 +47,11 @@ const makeDeps = (
 ) => {
   const findRegistryByMachineId = vi.fn<(machineId: string) => Promise<LookupResult>>(lookup);
   const insertSession = vi.fn<(row: SuSessionRow) => Promise<{ error: unknown }>>(insert);
-  const deps: AuthElevateSessionDeps = { nonceStore: freshStore, findRegistryByMachineId, insertSession };
+  const deps: AuthElevateSessionDeps = {
+    nonceStore: freshStore,
+    findRegistryByMachineId,
+    insertSession,
+  };
   return { deps, findRegistryByMachineId, insertSession };
 };
 
@@ -160,7 +164,10 @@ describe('handleAuthElevateSession', () => {
 
   it('reports a server error when the registry lookup fails', async () => {
     const attacker = generateIdentity();
-    const { deps, insertSession } = makeDeps(async () => ({ data: null, error: new Error('db down') }));
+    const { deps, insertSession } = makeDeps(async () => ({
+      data: null,
+      error: new Error('db down'),
+    }));
 
     const result = await handleAuthElevateSession(
       envelope(attacker, { username: 'root', password: 'matrix1999' }),

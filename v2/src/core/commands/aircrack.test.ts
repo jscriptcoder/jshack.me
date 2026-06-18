@@ -133,7 +133,11 @@ const syncOf = (result: CommandResult): { readonly text: string; readonly exitCo
 
 describe('aircrack', () => {
   it('refuses to run off the player’s own workstation', async () => {
-    const result = await aircrack.execute(onMachine(asMachineId('203.0.113.42')), ['AA:AA:AA:AA:AA:AA'], NO_FLAGS);
+    const result = await aircrack.execute(
+      onMachine(asMachineId('203.0.113.42')),
+      ['AA:AA:AA:AA:AA:AA'],
+      NO_FLAGS,
+    );
     expect(syncOf(result)).toEqual({
       text: 'aircrack: command not available on this machine',
       exitCode: 1,
@@ -165,7 +169,9 @@ describe('aircrack', () => {
   });
 
   it('cracks a WPA2 AP and reveals its password', async () => {
-    const { lines, exitCode } = await drain(await aircrack.execute(onMachine(), [CRACKABLE.bssid], NO_FLAGS));
+    const { lines, exitCode } = await drain(
+      await aircrack.execute(onMachine(), [CRACKABLE.bssid], NO_FLAGS),
+    );
     const joined = lines.join('\n');
     expect(exitCode).toBe(0);
     expect(joined).toContain(`KEY FOUND! [ ${CRACKABLE.password} ]`);
@@ -246,7 +252,9 @@ describe('aircrack', () => {
   it('fails on a hidden-ESSID AP — no probing clients seen', async () => {
     const { lines } = await drain(await aircrack.execute(onMachine(), [HIDDEN.bssid], NO_FLAGS));
     const joined = lines.join('\n');
-    expect(joined).toContain(`ESSID hidden for ${HIDDEN.bssid} — no probing clients seen, cannot derive key`);
+    expect(joined).toContain(
+      `ESSID hidden for ${HIDDEN.bssid} — no probing clients seen, cannot derive key`,
+    );
     expect(joined).not.toContain('KEY FOUND');
   });
 
@@ -256,10 +264,14 @@ describe('aircrack', () => {
       sleep: () => {
         calls += 1;
         // Simulate Ctrl-C: the second pace rejects (the signal fired).
-        return calls >= 2 ? Promise.reject(new DOMException('aborted', 'AbortError')) : Promise.resolve();
+        return calls >= 2
+          ? Promise.reject(new DOMException('aborted', 'AbortError'))
+          : Promise.resolve();
       },
     });
-    const { lines, rejected } = await drainUntilReject(await aircrack.execute(env, [CRACKABLE.bssid], NO_FLAGS));
+    const { lines, rejected } = await drainUntilReject(
+      await aircrack.execute(env, [CRACKABLE.bssid], NO_FLAGS),
+    );
     expect(rejected).toBe(true);
     expect(lines.join('\n')).not.toContain('KEY FOUND');
   });
@@ -284,7 +296,9 @@ describe('aircrack', () => {
     });
     const { runCommandLine } = await import('../shell/runLine');
 
-    const { lines } = await drain(await runCommandLine(env, `aircrack ${CRACKABLE.bssid}`, commandRegistry));
+    const { lines } = await drain(
+      await runCommandLine(env, `aircrack ${CRACKABLE.bssid}`, commandRegistry),
+    );
     expect(lines.join('\n')).toContain('KEY FOUND!');
   });
 });

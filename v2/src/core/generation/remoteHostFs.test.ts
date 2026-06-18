@@ -93,9 +93,9 @@ describe('buildRemoteHostFs', () => {
   it('always emits a /var/run directory', () => {
     // Even a host running no services has /var/run (just empty) — it is where a
     // pidfile would land, and nmap reads it.
-    expect(OCTETS.every((octet) => varRun(buildRemoteHostFs(PUBKEY, ESSID, host(octet))) !== undefined)).toBe(
-      true,
-    );
+    expect(
+      OCTETS.every((octet) => varRun(buildRemoteHostFs(PUBKEY, ESSID, host(octet))) !== undefined),
+    ).toBe(true);
   });
 
   it('plants a root-owned sshd.pid (sshd:port=<n>) on a host that runs ssh', () => {

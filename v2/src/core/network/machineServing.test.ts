@@ -3,7 +3,11 @@ import type { Directory, FilePermissions } from '../filesystem/types';
 import { dir, file, TRAVERSABLE_DIR } from '../generation/baseFs';
 import { machineServing } from './machineServing';
 
-const FILE_PERMS: FilePermissions = { read: ['root', 'user', 'guest'], write: ['root'], execute: [] };
+const FILE_PERMS: FilePermissions = {
+  read: ['root', 'user', 'guest'],
+  write: ['root'],
+  execute: [],
+};
 
 /**
  * A minimal router FS for `machineServing`: the two things it reads to route a
@@ -25,7 +29,10 @@ const makeRouterFs = (
         {
           run: dir(
             Object.fromEntries(
-              Object.entries(ownPidfiles).map(([name, content]) => [name, file(content, FILE_PERMS)]),
+              Object.entries(ownPidfiles).map(([name, content]) => [
+                name,
+                file(content, FILE_PERMS),
+              ]),
             ),
             TRAVERSABLE_DIR,
           ),
@@ -65,7 +72,9 @@ describe('machineServing', () => {
 
   it('ignores malformed / commented / blank rules when routing', () => {
     const routerFs = makeRouterFs(
-      ['# forward 2222 to 10.0.0.5:22', '', 'forward 70000 to 10.0.0.5:22', 'garbage line'].join('\n'),
+      ['# forward 2222 to 10.0.0.5:22', '', 'forward 70000 to 10.0.0.5:22', 'garbage line'].join(
+        '\n',
+      ),
     );
     // The only "forward" lines are a comment, an out-of-range port, and junk — none
     // parse, so 2222 (the commented-out target) is not actually served.

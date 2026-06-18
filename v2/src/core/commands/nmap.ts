@@ -170,9 +170,7 @@ const execute: Command['execute'] = async (env, args) => {
   // real round-trip runs alongside the streamed display rather than delaying it,
   // and so a logging failure — or an unwired seam — never breaks the scan.
   try {
-    void env.scan
-      .record({ essid, target: rawTarget, sourceIp: wlan0.ipv4 })
-      .catch(() => undefined);
+    void env.scan.record({ essid, target: rawTarget, sourceIp: wlan0.ipv4 }).catch(() => undefined);
   } catch {
     // best-effort: logging must not surface to the scan.
   }
@@ -193,7 +191,9 @@ const execute: Command['execute'] = async (env, args) => {
       });
     }
     const hostFs =
-      host.ip === selfIp ? env.fs.root() : buildRemoteHostFs(env.identity.publicKeyHex, essid, host);
+      host.ip === selfIp
+        ? env.fs.root()
+        : buildRemoteHostFs(env.identity.publicKeyHex, essid, host);
     return readOpenPorts(hostFs);
   };
 

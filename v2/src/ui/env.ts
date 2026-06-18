@@ -31,7 +31,11 @@ import type {
 import type { Directory } from '../core/filesystem/types';
 import type { WifiNetwork } from '../core/network/wifi';
 import { createFsView } from '../core/filesystem/fsView';
-import { isOnline, type ConnectivityState, type NetworkInterface } from '../core/network/interfaces';
+import {
+  isOnline,
+  type ConnectivityState,
+  type NetworkInterface,
+} from '../core/network/interfaces';
 import { assignHomeNetwork } from '../core/network/homeNetwork';
 import { abortableSleep } from './sleep';
 
@@ -74,7 +78,10 @@ export type BuildCommandEnvArgs = {
   /** The general interactive-input primitive — backs `env.prompt`. The UI shows
    *  a (optionally masked) prompt and resolves with the submitted line, or
    *  rejects on Ctrl-C. Reused by `su` now; ssh/scp/ftp/… later. */
-  readonly prompt: (opts: { readonly message: string; readonly masked: boolean }) => Promise<string>;
+  readonly prompt: (opts: {
+    readonly message: string;
+    readonly masked: boolean;
+  }) => Promise<string>;
   /** Writer — `su` (and later ssh/nc) call this (via `env.pushSession`) to push
    *  a new active session onto the stack. The UI owns the session signal. */
   readonly onPushSession: (session: Session) => void;

@@ -65,10 +65,15 @@ export const nano: Command = {
     synopsis: 'nano [file]',
     description:
       'Open FILE in a full-screen editor. An existing file is loaded for editing; a path that does not exist yet opens an empty buffer and is created on save. Ctrl-O writes the file, Ctrl-X exits.',
-    arguments: [{ name: 'file', description: 'The file to edit (created on save if it does not exist)' }],
+    arguments: [
+      { name: 'file', description: 'The file to edit (created on save if it does not exist)' },
+    ],
     examples: [
       { command: 'nano /etc/hosts', description: 'Edit the hosts file' },
-      { command: 'nano notes.txt', description: 'Create or edit notes.txt in the current directory' },
+      {
+        command: 'nano notes.txt',
+        description: 'Create or edit notes.txt in the current directory',
+      },
     ],
   },
   execute,

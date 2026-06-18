@@ -57,7 +57,9 @@ const sshdEnv = (opts: SshdEnvOpts = {}) => {
   return { env, writes };
 };
 
-const syncResult = (result: CommandResult): { readonly text: string; readonly exitCode: number } => {
+const syncResult = (
+  result: CommandResult,
+): { readonly text: string; readonly exitCode: number } => {
   if (result.kind !== 'sync') throw new Error('sync expected');
   return { text: result.lines.map((line) => line.content).join('\n'), exitCode: result.exitCode };
 };

@@ -105,9 +105,7 @@ export const sshd: Command = {
     synopsis: 'sshd [port]',
     description:
       'Start the OpenSSH server daemon, opening the SSH port (default 22) on this machine so it accepts incoming connections. Must be run as root (run "su" first). Refuses to start if sshd is already running.',
-    arguments: [
-      { name: 'port', description: 'Port to listen on (default: 22)', required: false },
-    ],
+    arguments: [{ name: 'port', description: 'Port to listen on (default: 22)', required: false }],
     examples: [
       { command: 'sshd', description: 'Start the SSH server on the default port 22' },
       { command: 'sshd 2222', description: 'Start the SSH server on port 2222' },

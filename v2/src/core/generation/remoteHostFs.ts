@@ -51,7 +51,11 @@ import type { Directory, FileEntry, FilePermissions } from '../filesystem/types'
 import type { LanHost } from './generateHomeLan';
 
 /** A pidfile: world-readable, root-writable, never executed. */
-const PIDFILE_PERMS: FilePermissions = { read: ['root', 'user', 'guest'], write: ['root'], execute: [] };
+const PIDFILE_PERMS: FilePermissions = {
+  read: ['root', 'user', 'guest'],
+  write: ['root'],
+  execute: [],
+};
 
 const pidfile = (content: string, owner: string): FileEntry => file(content, PIDFILE_PERMS, owner);
 

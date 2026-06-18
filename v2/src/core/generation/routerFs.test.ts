@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest';
 import type { Directory, FileNode } from '../filesystem/types';
 import { buildRouterBaseFsFromIdentity, seedRouterAdminPw, seedRouterHasSsh } from './routerFs';
 import { workstationGuestPassword } from './workstationFs';
-import { LOCALHOST_PREINSTALLED_TOOLS, SYSTEM_DAEMON_NAMES, SYSTEM_UTILITY_NAMES } from './binaries';
+import {
+  LOCALHOST_PREINSTALLED_TOOLS,
+  SYSTEM_DAEMON_NAMES,
+  SYSTEM_UTILITY_NAMES,
+} from './binaries';
 import { readOpenPorts } from '../services/pidfile';
 import { parseForwardRules } from '../network/iptablesRules';
 
@@ -175,7 +179,11 @@ describe('buildRouterBaseFsFromIdentity', () => {
     const pidfile = dirAt(fs, 'var', 'run').entries.get('sshd.pid');
     if (pidfile?.kind !== 'file') throw new Error('missing sshd.pid');
     // World-readable so nmap/ps see the port; root writes it (the daemon is root).
-    expect(pidfile.perms).toEqual({ read: ['root', 'user', 'guest'], write: ['root'], execute: [] });
+    expect(pidfile.perms).toEqual({
+      read: ['root', 'user', 'guest'],
+      write: ['root'],
+      execute: [],
+    });
   });
 
   it('has NO open ports when hasSsh is false (the seam toggles the pidfile off)', () => {

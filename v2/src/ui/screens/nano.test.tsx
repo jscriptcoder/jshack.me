@@ -72,8 +72,9 @@ describe('Nano editor', () => {
     fireEvent.input(editor(), { target: { value: 'edited but not saveable' } });
     fireEvent.keyDown(editor(), { key: 'o', ctrlKey: true });
 
-    expect(await screen.findByText('[ Error writing /home/alice/notes.txt: Permission denied ]'))
-      .toBeInTheDocument();
+    expect(
+      await screen.findByText('[ Error writing /home/alice/notes.txt: Permission denied ]'),
+    ).toBeInTheDocument();
     // The edited buffer is intact (no data loss) and the editor stays open.
     expect(editor()).toHaveValue('edited but not saveable');
   });
@@ -84,7 +85,8 @@ describe('Nano editor', () => {
 
     fireEvent.keyDown(editor(), { key: 'o', ctrlKey: true });
 
-    expect(await screen.findByText('[ Error writing /home/alice/notes.txt: I/O error ]'))
-      .toBeInTheDocument();
+    expect(
+      await screen.findByText('[ Error writing /home/alice/notes.txt: I/O error ]'),
+    ).toBeInTheDocument();
   });
 });

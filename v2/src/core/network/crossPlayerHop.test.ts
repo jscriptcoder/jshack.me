@@ -23,28 +23,28 @@ const FOREIGN_ID = computeWorkstationId('skylab', 'b'.repeat(64));
 
 describe('isCrossPlayerWorkstation', () => {
   it('is true for a foreign workstation that is not a host on your LAN', () => {
-    expect(isCrossPlayerWorkstation({ machineId: FOREIGN_ID, publicKeyHex: PUBKEY, essid: ESSID })).toBe(
-      true,
-    );
+    expect(
+      isCrossPlayerWorkstation({ machineId: FOREIGN_ID, publicKeyHex: PUBKEY, essid: ESSID }),
+    ).toBe(true);
   });
 
   it('is false for a host that IS on your own LAN (an NPC ssh hop)', () => {
     const lanHopId = hostMachineId(generateHomeLan(PUBKEY, ESSID).hosts.at(-1)!, ESSID);
-    expect(isCrossPlayerWorkstation({ machineId: lanHopId, publicKeyHex: PUBKEY, essid: ESSID })).toBe(
-      false,
-    );
+    expect(
+      isCrossPlayerWorkstation({ machineId: lanHopId, publicKeyHex: PUBKEY, essid: ESSID }),
+    ).toBe(false);
   });
 
   it('is false for your own workstation', () => {
-    expect(isCrossPlayerWorkstation({ machineId: OWN_ID, publicKeyHex: PUBKEY, essid: ESSID })).toBe(
-      false,
-    );
+    expect(
+      isCrossPlayerWorkstation({ machineId: OWN_ID, publicKeyHex: PUBKEY, essid: ESSID }),
+    ).toBe(false);
   });
 
   it('is false when offline (no essid to resolve a LAN against)', () => {
-    expect(isCrossPlayerWorkstation({ machineId: FOREIGN_ID, publicKeyHex: PUBKEY, essid: null })).toBe(
-      false,
-    );
+    expect(
+      isCrossPlayerWorkstation({ machineId: FOREIGN_ID, publicKeyHex: PUBKEY, essid: null }),
+    ).toBe(false);
   });
 
   it('is false for your OWN router (a journal-backed machine on your LAN, not a foreign box)', () => {
@@ -53,7 +53,11 @@ describe('isCrossPlayerWorkstation', () => {
     // would be misread as cross-player and fetch a server-served (tier-filtered)
     // tree instead of your own journal-replayed router tree.
     expect(
-      isCrossPlayerWorkstation({ machineId: computeRouterId(PUBKEY), publicKeyHex: PUBKEY, essid: ESSID }),
+      isCrossPlayerWorkstation({
+        machineId: computeRouterId(PUBKEY),
+        publicKeyHex: PUBKEY,
+        essid: ESSID,
+      }),
     ).toBe(false);
   });
 });

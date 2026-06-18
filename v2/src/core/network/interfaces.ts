@@ -59,11 +59,7 @@ const LOOPBACK_IPV4 = '127.0.0.1';
 /** One locally-administered MAC: `02:` (the locally-administered-unicast
  *  prefix) followed by five seeded octets, lowercase hex. */
 const seededMac = (prng: Prng): MacAddress => {
-  const octet = (): string =>
-    prng
-      .nextInt(0, 255)
-      .toString(16)
-      .padStart(2, '0');
+  const octet = (): string => prng.nextInt(0, 255).toString(16).padStart(2, '0');
   return ['02', octet(), octet(), octet(), octet(), octet()].join(':');
 };
 
@@ -105,6 +101,4 @@ export const buildColdStartConnectivity = (seedPubkeyHex: string): ConnectivityS
 /** Online = any NON-loopback interface has been assigned an IPv4 address.
  *  Loopback's 127.0.0.1 never counts. */
 export const isOnline = (state: ConnectivityState): boolean =>
-  [...state.interfaces.values()].some(
-    (iface) => iface.kind !== 'loopback' && iface.ipv4 !== null,
-  );
+  [...state.interfaces.values()].some((iface) => iface.kind !== 'loopback' && iface.ipv4 !== null);

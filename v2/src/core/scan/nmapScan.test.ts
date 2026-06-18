@@ -34,10 +34,12 @@ const makeDeps = (over: Partial<NmapScanDeps> = {}) => {
   const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async () => ({
     error: null,
   }));
-  const readLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(async () => ({
-    data: null,
-    error: null,
-  }));
+  const readLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
+    async () => ({
+      data: null,
+      error: null,
+    }),
+  );
   const deps: NmapScanDeps = {
     nonceStore: freshStore,
     now: () => FIXED_NOW,
@@ -93,10 +95,7 @@ describe('handleNmapScan', () => {
     const { deps, upsertPatch } = makeDeps();
     const logged = loggedHostsOf(id.publicKeyHex);
 
-    const result = await handleNmapScan(
-      envelope(id, `${subnetOf(id.publicKeyHex)}.1-254`),
-      deps,
-    );
+    const result = await handleNmapScan(envelope(id, `${subnetOf(id.publicKeyHex)}.1-254`), deps);
 
     expect(result).toEqual({ status: 200, body: { ok: true, hostsLogged: logged.length } });
     expect(upsertPatch).toHaveBeenCalledTimes(logged.length);
@@ -123,7 +122,9 @@ describe('handleNmapScan', () => {
     expect(result.body).toEqual({ ok: true, hostsLogged: 1 });
     expect(upsertPatch).toHaveBeenCalledTimes(1);
     expect(upsertPatch.mock.calls[0]![0].machine_id).toBe(hostMachineId(host, ESSID));
-    expect(upsertPatch.mock.calls[0]![0].content).toBe(`${expectedKernLine(id.publicKeyHex, host)}\n`);
+    expect(upsertPatch.mock.calls[0]![0].content).toBe(
+      `${expectedKernLine(id.publicKeyHex, host)}\n`,
+    );
   });
 
   it('appends after the existing log content rather than clobbering it', async () => {

@@ -77,9 +77,7 @@ const builtins: readonly Command[] = [
  *  its linker error. Both wrappers preserve metadata and read `env.fs` at run
  *  time, so the filesystem stays the source of truth for availability. */
 const gate = (command: Command): Command =>
-  isAlwaysAvailable(command.name)
-    ? command
-    : wrapWithBinaryCheck(wrapWithLibraryCheck(command));
+  isAlwaysAvailable(command.name) ? command : wrapWithBinaryCheck(wrapWithLibraryCheck(command));
 
 export const commandRegistry: ReadonlyMap<string, Command> = new Map(
   builtins.map((command) => [command.name, gate(command)]),

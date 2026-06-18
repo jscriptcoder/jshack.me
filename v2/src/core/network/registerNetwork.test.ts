@@ -40,10 +40,7 @@ const makeDeps = (over: Partial<RegisterNetworkDeps> = {}) => {
   return { deps, upsertRegistry };
 };
 
-const envelope = (
-  id: ReturnType<typeof generateIdentity>,
-  over: Record<string, unknown> = {},
-) =>
+const envelope = (id: ReturnType<typeof generateIdentity>, over: Record<string, unknown> = {}) =>
   signRequest(id, 'registerNetwork', {
     essid: ESSID,
     workstation_machine_id: WORKSTATION_ID,

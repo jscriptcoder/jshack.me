@@ -75,14 +75,40 @@ const worldReadable = { read: ['root', 'user', 'guest'], write: ['root'], execut
 const userOnly = { read: ['root', 'user'], write: ['root'], execute: ['root'] };
 await sr.from('patches').delete().eq('machine_id', A_MACHINE);
 await sr.from('patches').insert([
-  { writer_key: alice.publicKeyHex, machine_id: A_MACHINE, path: '/srv/loot.txt', content: 'OWNED_BY_A', owner: 'root', permissions: worldReadable, node_type: 'file' },
-  { writer_key: alice.publicKeyHex, machine_id: A_MACHINE, path: '/srv/secret.txt', content: 'TOP_SECRET', owner: 'root', permissions: userOnly, node_type: 'file' },
-  { writer_key: alice.publicKeyHex, machine_id: A_MACHINE, path: '/var/run/sshd.pid', content: 'sshd:port=22', owner: 'root', permissions: worldReadable, node_type: 'file' },
+  {
+    writer_key: alice.publicKeyHex,
+    machine_id: A_MACHINE,
+    path: '/srv/loot.txt',
+    content: 'OWNED_BY_A',
+    owner: 'root',
+    permissions: worldReadable,
+    node_type: 'file',
+  },
+  {
+    writer_key: alice.publicKeyHex,
+    machine_id: A_MACHINE,
+    path: '/srv/secret.txt',
+    content: 'TOP_SECRET',
+    owner: 'root',
+    permissions: userOnly,
+    node_type: 'file',
+  },
+  {
+    writer_key: alice.publicKeyHex,
+    machine_id: A_MACHINE,
+    path: '/var/run/sshd.pid',
+    content: 'sshd:port=22',
+    owner: 'root',
+    permissions: worldReadable,
+    node_type: 'file',
+  },
 ]);
 
 console.log('\n=== B should type in the browser ===');
 console.log(`  ssh guest@${PUBLIC_IP}`);
 console.log(`  password: ${GUEST_PW}`);
-console.log(`  then: ls /srv ; cat /srv/loot.txt ; cat /srv/secret.txt ; cat /etc/passwd ; ls /root`);
+console.log(
+  `  then: ls /srv ; cat /srv/loot.txt ; cat /srv/secret.txt ; cat /etc/passwd ; ls /root`,
+);
 console.log(`\n(A workstation id: ${A_MACHINE})`);
 process.exit(0);
