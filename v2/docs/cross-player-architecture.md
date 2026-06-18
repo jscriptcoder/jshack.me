@@ -168,12 +168,16 @@ Two layers gate every write/remove (`upsertPatch.ts`, `removePatch.ts`):
   resolves the tree as (0) the caller's **own router** (`isOwnRouter` → `buildRouterBaseFs`,
   Story 5.1.3a — so A's root-tier `/etc/iptables/rules.v4` write walks the real router perms,
   not a workstation tree), else (1) an NPC host on the caller's LAN (`hostForMachineId`), else
-  (2) a **registered foreign workstation** via `findRegistryByMachineId` →
-  `buildRegisteredWorkstationFs` (rebuilt from the **owner's** identity — the same
-  `buildWorkstationBaseFsFromIdentity` the read path uses, so A's tree can't drift between
-  what A sees and what an attacker is checked against), else (3) **fail closed** →
-  `permission_denied`. It then runs the shared walker `createFsView(tree, { userType }).canWrite`
-  at the **server session's** tier.
+  (2) a **registered foreign machine** via `findRegistryByMachineId`, which now returns a
+  **discriminated** row (`RegistryMachine = workstation | router`, matching BOTH the
+  `workstation_machine_id` and `router_machine_id` columns): a foreign **router** (Story 5.2 —
+  B `ssh root`'d into A's router) → `buildRouterBaseFs(owner_key)`, a foreign **workstation** →
+  `buildRegisteredWorkstationFs` — both rebuilt from the **owner's** identity (the same builders
+  the read path uses, so A's tree can't drift between what A sees and what an attacker is checked
+  against), else (3) **fail closed** → `permission_denied`. It then runs the shared walker
+  `createFsView(tree, { userType }).canWrite` at the **server session's** tier — so B, holding a
+  **root** session on A's router (the appliance is root-only), can rewrite A's `rules.v4`, while a
+  non-root / no-session caller is denied.
 - **The shared walker** (`core/filesystem/fsView.ts`) is the single FS-permission authority
   for client AND server, so there's no drift. Overwriting a node needs write on the node;
   **creating** a new entry needs write **+ execute on the containing directory** (Unix:
@@ -188,8 +192,12 @@ bricking are Story 4 (they use the obtained root password).
 `core/network/resolveCrossPlayerFs.ts` serves A's filesystem to B. B has neither A's seed nor
 A's rows, so the **server** is the only party that can materialize A's box: registry
 reverse-lookup → rebuild A's baseline from the owner's identity → replay A's machine-scoped
-journal (chronologically) → **prune to the caller's tier** → serialize and ship. The tier is
-server-derived, never a client claim:
+journal (chronologically) → **prune to the caller's tier** → serialize and ship. Since Story 5.2
+the reverse-lookup is **discriminated** (`RegistryMachine = workstation | router`, matching both
+id columns), so a `router_machine_id` materializes the **router** base (`materializeRouterFs`)
+and a `workstation_machine_id` the workstation base (`materializeWorkstationFs`) — one handler,
+one tier filter, the right base. (This is how B `cat`s/`nano`s A's `/etc/iptables/rules.v4` after
+`ssh root`ing into A's router.) The tier is server-derived, never a client claim:
 
 - **Tier 1 — owner** (verified pubkey == `owner_key`): the FULL tree; the session table is
   not even consulted.
@@ -295,10 +303,23 @@ A's own-LAN `ssh root@.1` + `nano /etc/iptables/rules.v4` persisting to the shar
 `scanResult` sameLAN (5.1.4 — `.1` no longer cosmetic; forwards excluded LAN-side, closing the
 dual-homed scar). The full decision-8 cross-player loop is confirmed live (agent-browser vs
 `vercel dev`+Supabase: B cross-network `nmap` → `:22`+`:2222`, `ssh guest -p 2222` → A's ws, `su root`
-→ A's `/etc/passwd`). Next: **Story 5.2** (A's home LAN behind the router — B attacks the router itself:
-root + rewrite forwards + brick → whole-net-dark; multi-layer nets deferred to 5b). Then **Story 6**
-(cross-player scan/connection + su/brick auth.log trace on the shared record), **Story 7**
-(same-wifi shared-LAN occupancy). See `plans/multiplayer-crossplayer-epic.md`.
+→ A's `/etc/passwd`).
+
+**Story 5.2** (B attacks A's router — cross-player router takeover) is ✅ **COMPLETE**: the
+cross-player READ + WRITE paths are now router-aware. The server reverse-lookup is **discriminated**
+(`RegistryMachine = workstation | router`, matching both id columns), so B (root-session'd on A's
+router via the shipped `ssh root@<A.publicIp>`) reads A's router tree (`resolveCrossPlayerFs` →
+`materializeRouterFs`) and the L2 walker rebuilds A's router from `buildRouterBaseFs(owner_key)` —
+letting B `nano`-rewrite A's `/etc/iptables/rules.v4`, persisted to A's shared router journal, so
+A's public scan reflects the change. The full loop is confirmed live (agent-browser vs `vercel dev`
++ Supabase, and `scripts/testCrossPlayerRouter.ts` 8/8): B `ssh root@<A.publicIp>` → `cat rules.v4`
+→ `nano` add `forward 2222 to <A.ws>:22` → `nmap <A.publicIp>` goes `[22]` → `[22, 2222]` (B exposed
+A's workstation). No new mechanism for su (the router is root-only — B logs in as root directly).
+
+Next: **Story 5.3** (router brick → whole public IP dark — the role-based dark-gate; its mechanism
+is already shipped, so it's largely a verification story). Then **Story 6** (cross-player
+scan/connection + su/brick auth.log trace on the shared record), **Story 7** (same-wifi shared-LAN
+occupancy). See `plans/multiplayer-crossplayer-epic.md`.
 
 **Known accepted gap (deferred to an L3 smart-server):** a client with a valid keypair can
 mint an `effect_one_shot`/root session via `createSession` and call the read/reset effects
