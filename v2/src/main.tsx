@@ -1,5 +1,5 @@
 import { render } from 'solid-js/web';
-import { App } from './ui/screens/app';
+import { App } from './ui/screens/App';
 import './index.css';
 
 const root = document.getElementById('root');
