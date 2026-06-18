@@ -17,12 +17,13 @@
  */
 
 import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
-import type { Directory } from '../filesystem/types';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
+import { buildRouterBaseFs } from '../generation/routerFs';
 import { isPublicIp } from '../generation/ip';
 import { parseScanTarget, hostsInScanTarget } from '../network/scanTarget';
 import { readOpenPorts, type OpenPort } from '../services/pidfile';
+import { scanResult } from '../scan/scanResult';
 
 const error = (message: string): CommandResult => ({
   kind: 'sync',
@@ -94,7 +95,7 @@ async function* scanSingle(
   env: CommandEnv,
   rawTarget: string,
   host: LanHost | undefined,
-  resolveHostFs: (host: LanHost) => Directory,
+  resolveHostPorts: (host: LanHost) => readonly OpenPort[],
 ): AsyncIterable<TerminalLine> {
   yield text(`Starting Nmap scan — ${rawTarget}`);
   yield text('');
@@ -107,9 +108,7 @@ async function* scanSingle(
   }
   yield text(`Nmap scan report for ${host.hostname} (${host.ip})`);
   yield text('Host is up.');
-  // Ports come from the host's filesystem: the live env.fs for the player's own
-  // host, the deterministic generated FS for any other host.
-  yield* portTableLines(readOpenPorts(resolveHostFs(host)));
+  yield* portTableLines(resolveHostPorts(host));
   yield text('');
   yield text('Nmap done — 1 host up');
 }
@@ -178,18 +177,30 @@ const execute: Command['execute'] = async (env, args) => {
     // best-effort: logging must not surface to the scan.
   }
 
-  // The player's own host reads its LIVE filesystem (so a runtime `sshd` shows
-  // up); every other host reads its deterministic generated FS.
+  // Per-host open ports. The `.1` gateway is the player's OWN ROUTER — a distinct
+  // journal-backed box; its ports come from the single `scanResult` total function
+  // at the `sameLAN` vantage (the router's own services only, never the NAT forward
+  // table), the same function the public-IP scan uses at `external`. Every other
+  // host reads its filesystem directly: the live env.fs for the player's own host
+  // (so a runtime `sshd` shows up), the deterministic generated FS for a sibling.
   const selfIp = wlan0.ipv4;
-  const resolveHostFs = (host: LanHost): Directory =>
-    host.ip === selfIp
-      ? env.fs.root()
-      : buildRemoteHostFs(env.identity.publicKeyHex, essid, host);
+  const resolveHostPorts = (host: LanHost): readonly OpenPort[] => {
+    if (host.kind === 'router') {
+      return scanResult({
+        vantage: 'sameLAN',
+        routerFs: buildRouterBaseFs(env.identity.publicKeyHex),
+        resolveTargetPorts: () => [],
+      });
+    }
+    const hostFs =
+      host.ip === selfIp ? env.fs.root() : buildRemoteHostFs(env.identity.publicKeyHex, essid, host);
+    return readOpenPorts(hostFs);
+  };
 
   const lines =
     parsed.target.kind === 'range'
       ? scanRange(env, rawTarget, hosts)
-      : scanSingle(env, rawTarget, hosts[0], resolveHostFs);
+      : scanSingle(env, rawTarget, hosts[0], resolveHostPorts);
   return { kind: 'async', lines, exitCode: async () => 0 };
 };
 
