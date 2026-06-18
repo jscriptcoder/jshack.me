@@ -15,9 +15,10 @@ bricked box dark to others): Slice 1 su-elevation #249 v0.64.0 · Slice 2 `/boot
 v0.65.0 · Slice 3 `reboot` #251 v0.66.0 · Slice 4 bricked-box-dark v0.67.0** — B `su root` on A → `rm
 /boot/vmlinuz` → A is permanently unbootable (journal-derived, no recovery), dark to scans + ssh for
 everyone. **Story 5 IN PROGRESS** (real iptables NAT — **SCOPED 2026-06-16 via grill-me to cross-player home NAT
-only; multi-layer → new Story 5b; see "Story 5 — resolved scope & decisions" below**). **5.0 `nano` ✅ SHIPPED
-(PR #256, 2026-06-17); NEXT = 5.1 (router as a real machine + player NAT).** Story-split
-authored 2026-06-13. Consolidates the remaining work from two now-retired plans
+only; multi-layer → new Story 5b; see "Story 5 — resolved scope & decisions" below**). **5.0 `nano` ✅ · 5.1
+(router as a real machine + player NAT) ✅ · 5.2 (B attacks A's router — cross-player router takeover) ✅
+SHIPPED; NEXT = 5.3 (router brick → whole public IP dark — largely a verification story; mechanism shipped).**
+Story-split authored 2026-06-13. Consolidates the remaining work from two now-retired plans
 (`network-generator-epic.md` Story 4; `scan-logging-cross-player.md` Slice 3b) into one epic. Each child
 story below graduates to its own `plans/<slice>.md` (via the `planning` skill) when started.
 
@@ -268,9 +269,13 @@ directly on `workstation_machine_id`. Story 5 makes all three real.
   `rules.v4` and feeds both scan paths; ssh routes through NAT; A `ssh root@.1` + `nano rules.v4` adds an
   opt-in forward, reflected cross-player; the dual-homed `.1`-vs-public invariant holds. **Big →
   `planning` sub-slices into PR-sized increments.**
-- **5.2 — B attacks A's router** — B uses the recovered seeded router creds → `ssh root@A.publicIp` →
-  root session on A's router → B edits A's `rules.v4` (opens/closes A's forwards). Cross-player router
-  L1/L2 (reuse Story 3's machinery for the router `machine_id`).
+- **5.2 — B attacks A's router** ✅ **DONE** (5.2.1 READ #273 `4b5eb71`; 5.2.2 WRITE #275) — B uses the
+  recovered seeded router creds → `ssh root@A.publicIp` → root session on A's router → B edits A's
+  `rules.v4` (opens/closes A's forwards). Net-new = the foreign-router branch in BOTH the cross-player
+  READ (`resolveCrossPlayerFs` → `materializeRouterFs`) and WRITE L2 (`buildRouterBaseFs(owner_key)`),
+  fed by a **discriminated** registry reverse-lookup (`RegistryMachine = workstation | router`, matching
+  both id columns). No `su` (router is root-only). No migration. Confirmed live (agent-browser + 8/8
+  `scripts/testCrossPlayerRouter.ts`): B's edit → `nmap <A.publicIp>` `[22]` → `[22, 2222]`.
 - **5.3 — Router brick → whole net dark** — the generalized role-based dark-gate; B (root on A's router)
   `rm /boot/vmlinuz` → A's whole public IP goes dark.
 - **5b — Multi-layer generated target networks** _(separate, deferred)_ — the absorbed
@@ -365,26 +370,29 @@ routes by destination port through the parsed `rules.v4`; A opts a workstation f
 decision-8 cross-player loop is confirmed live (agent-browser vs `vercel dev`+Supabase). The as-built model
 lives in `v2/docs/cross-player-architecture.md` (READ FIRST).
 
-**Next: Story 5.2 — B attacks A's router** (cross-player router takeover; the brick is NOT here — that's the
-separate Story 5.3). The headline observable: **B gains root on A's router and rewrites A's NAT forwards**,
-changing A's exposure cross-player. It reuses the shipped 5.1 paths end-to-end:
+**Story 5.2 — B attacks A's router is ✅ COMPLETE** — two slices shipped: **5.2.1 READ** (#273 `4b5eb71`)
+made the cross-player READ router-aware (`resolveCrossPlayerFs` resolves a `router_machine_id` →
+`materializeRouterFs`); **5.2.2 WRITE** (#275) added the foreign-router L2 branch
+(`buildRouterBaseFs(owner_key)`), both fed by a **discriminated** registry reverse-lookup
+(`RegistryMachine = workstation | router`, matching both id columns). B `ssh root@<A.publicIp>` (shipped
+5.1.2 routing) → root on A's router → `cat`/`nano`-rewrites A's `/etc/iptables/rules.v4`, persisted to A's
+shared router journal, so A's public scan reflects the change. No `su` (router is root-only); no migration.
+Confirmed live (agent-browser + 8/8 `scripts/testCrossPlayerRouter.ts`): B's edit → `nmap <A.publicIp>`
+goes `[22]` → `[22, 2222]` (B exposed A's workstation). As-built: `v2/docs/cross-player-architecture.md`
+§4 (L2 foreign-router branch) + §5 (discriminated read).
 
-- B recovers A's seeded router creds (`seedRouterAdminPw(owner_key)` — server-recoverable from A's pubkey
-  alone, like the workstation guest pw; decision #4) → `ssh root@<A.publicIp>` already lands on the **router**
-  (5.1.2 destination-port routing) → root session on `computeRouterId(A)`.
-- B then `nano`-edits A's **`/etc/iptables/rules.v4`** (open/close A's forwards), persisting to the **shared
-  router journal** so A's public scan/NAT reflects B's change.
-
-**The net-new work is the cross-player router WRITE path (L1/L2).** Extend Story 3's machinery (shared-journal
-write + session-gate L1 + owner-materialized L2 perm walker) to the router `machine_id` — this is the
-**foreign-router L2 branch explicitly deferred from 5.1.3a** (5.1.3a only built A's OWN-router write; B writing
-A's router is new). Locked scope: decision **#9** (B attacks the router IS in scope) in §"Story 5 — resolved
-scope & decisions". The §"Child-story split" defines **5.2** (this — root + rewrite forwards) and **5.3**
-(router brick → whole public IP dark, via the role-based dark-gate of decision **#10**) as **separate
-stories** — do not fuse them. Plan 5.2 with `planning` into PR-sized vertical slices.
+**Next: Story 5.3 — router brick → whole public IP dark.** B (already able to gain root on A's router and
+write its FS, post-5.2) `rm /boot/vmlinuz` on A's router → A's whole public IP goes dark. Per decision
+**#10** the dark-gate is role-based: `dark-gate(addr) = canBoot(machineServing(addr))`, and the public-IP
+gates (`resolvePublicScan` / `authCreateSessionPublic`) already key on the **router** + `canBoot`
+(Story 4 / 5.1.1b). So the **mechanism is essentially already shipped** — 5.3 is largely a **verification
+story**: confirm B root-on-A's-router `rm /boot/vmlinuz` → A's public IP host-down on scan + `404` on
+public ssh (for everyone), with the workstation-brick-only case still leaving the router answering its own
+ports. Plan 5.3 with `planning`; expect it thin (acceptance + live E2E, little/no new mechanism). Do NOT
+fuse with anything else. Then **Story 6** (cross-player scan/connection + su/brick auth.log trace on the
+shared record), **Story 7** (same-wifi shared-LAN occupancy). Multi-layer generated target networks remain
+deferred to **5b**.
 
 As-built foundation to build on (READ FIRST): `v2/docs/cross-player-architecture.md` — esp. §4 authorization
-(L1 `authorizeMachineAccess`, L2 `remoteWritePermission` + `isOwnRouter`/`buildRouterBaseFs`) and the router
-sections. Multi-layer generated target networks remain deferred to **5b**. Every slice runs full
-RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR (`tdd`, `testing`, `mutation-testing`, `refactoring`). Keep
-`scanResult(address, vantage)` a clean total function — each interface its own endpoint, NEVER a merged view.
+and §7 root escalation & bricking (`canBoot`, the role-based dark-gate, `materializeRouterFs`). Every slice
+runs full RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR (`tdd`, `testing`, `mutation-testing`, `refactoring`).
