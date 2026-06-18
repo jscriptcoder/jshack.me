@@ -676,3 +676,45 @@ describe('nmap — cross-player public-IP scan (slice 1a)', () => {
     expect(resolvePublic).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * Scanning the `.1` gateway from inside your OWN LAN resolves your REAL router
+ * (Story 5.1.4): a distinct journal-backed box that always runs its own sshd:22,
+ * NOT the cosmetic NPC gateway the generator used to roll there. The port view
+ * comes from the single `scanResult` total function at the `sameLAN` vantage — the
+ * same function the public-IP (`external`) scan uses — so the two can never drift.
+ * `sameLAN` shows only the router's own ports and never the NAT forward table, so
+ * a forward configured for the public side can never leak into the LAN-side view.
+ */
+describe('nmap — own router (.1) sameLAN scan (5.1.4)', () => {
+  // For PUBKEY + XFINITY-1234 the COSMETIC gateway (the old buildRemoteHostFs path)
+  // rolls sshd on :2222, while the REAL router always runs sshd on :22 — so a .1
+  // scan showing :22 (and not :2222) proves it resolves the router, not the gateway.
+  const ROUTER_ESSID = 'XFINITY-1234';
+  const routerSubnet = generateHomeLan(PUBKEY, ROUTER_ESSID).subnet;
+  const ROUTER_IP = `${routerSubnet}.1`;
+
+  it('reports the real router’s own 22/tcp ssh, not the cosmetic gateway’s port', async () => {
+    const { text, exitCode } = await drain(
+      await nmap.execute(onlineEnv(ROUTER_ESSID), [ROUTER_IP], new Map()),
+    );
+
+    expect(exitCode).toBe(0);
+    // The full report is pinned: the router runs sshd on :22 (its real seeded
+    // service), NOT the :2222 the cosmetic gateway used to roll on this LAN — so a
+    // 2222/tcp row appearing here would mean the old buildRemoteHostFs path leaked.
+    expect(text).toBe(
+      [
+        `Starting Nmap scan — ${ROUTER_IP}`,
+        '',
+        `Nmap scan report for gateway (${ROUTER_IP})`,
+        'Host is up.',
+        '',
+        'PORT     STATE SERVICE',
+        '22/tcp   open  ssh',
+        '',
+        'Nmap done — 1 host up',
+      ].join('\n'),
+    );
+  });
+});
