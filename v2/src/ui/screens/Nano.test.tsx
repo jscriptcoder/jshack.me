@@ -35,6 +35,12 @@ describe('Nano editor', () => {
     expect(editor()).toHaveValue('first line\nsecond line');
   });
 
+  it('focuses the textarea on open so the player can type immediately', () => {
+    renderNano();
+
+    expect(document.activeElement).toBe(editor());
+  });
+
   it('updates the buffer as the player types', () => {
     renderNano({ content: '' });
 

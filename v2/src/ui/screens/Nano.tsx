@@ -10,7 +10,7 @@
  * real `saveEditor` / `setEditorMode(null)`).
  */
 
-import { createSignal, Show } from 'solid-js';
+import { createSignal, onMount, Show } from 'solid-js';
 import type { AbsPath } from '../../core/types';
 import type { PatchResult } from '../../core/commands/types';
 
@@ -39,6 +39,12 @@ export const Nano = (props: NanoProps) => {
   // eslint-disable-next-line solid/reactivity -- initial buffer value, not a tracked dependency
   const [buffer, setBuffer] = createSignal(props.content);
   const [status, setStatus] = createSignal('');
+  let textarea: HTMLTextAreaElement | undefined;
+
+  // The editor fills the screen the moment it opens, so put the cursor in the
+  // buffer straight away — the player should be able to type without first
+  // clicking the textarea.
+  onMount(() => textarea?.focus());
 
   const onKeyDown = async (event: KeyboardEvent) => {
     // Ctrl-O writes the buffer out and stays in the editor.
@@ -65,6 +71,7 @@ export const Nano = (props: NanoProps) => {
         GNU nano · {props.path}
       </div>
       <textarea
+        ref={textarea}
         aria-label="editor"
         class="flex-1 resize-none border-none bg-transparent p-2 text-inherit caret-[var(--theme-caret)] outline-none [font:inherit]"
         autocomplete="off"

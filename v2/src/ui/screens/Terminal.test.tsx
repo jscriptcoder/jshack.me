@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@solidjs/testing-library';
 import { Terminal } from './Terminal';
 import { startGame } from '../state';
@@ -438,6 +438,54 @@ describe('Terminal', () => {
       pressTab();
 
       expect(inputField()).toHaveValue('zzz');
+    });
+  });
+
+  describe('Prompt focus', () => {
+    it('focuses the prompt input on mount so the player can type immediately', () => {
+      renderTerminal();
+
+      expect(document.activeElement).toBe(inputField());
+    });
+
+    it('snaps focus back to the prompt on a plain click in the terminal', () => {
+      renderTerminal();
+      const field = inputField();
+      field.blur();
+      expect(document.activeElement).not.toBe(field);
+
+      // A plain click leaves no text selection, so focus returns to the prompt.
+      fireEvent.click(screen.getByTestId('terminal-banner'));
+
+      expect(document.activeElement).toBe(field);
+    });
+
+    it('does not steal focus while output text is selected, so it stays copyable', () => {
+      renderTerminal();
+      const field = inputField();
+      field.blur();
+      // A live, non-collapsed selection means the player is highlighting output
+      // to copy it — clicking must NOT pull focus to the prompt (which would clear
+      // the highlight and make Ctrl-C copy the empty prompt instead).
+      const getSelection = vi
+        .spyOn(window, 'getSelection')
+        .mockReturnValue({ isCollapsed: false } as Selection);
+
+      fireEvent.click(screen.getByTestId('terminal-banner'));
+
+      expect(document.activeElement).not.toBe(field);
+      getSelection.mockRestore();
+    });
+
+    it('returns focus to the prompt after exiting nano', async () => {
+      renderTerminal();
+      runCommand('nano /etc/passwd');
+      const editorEl = await screen.findByRole('textbox', { name: /editor/i });
+
+      fireEvent.keyDown(editorEl, { key: 'x', ctrlKey: true });
+
+      const field = await screen.findByRole('textbox', { name: /terminal input/i });
+      expect(document.activeElement).toBe(field);
     });
   });
 

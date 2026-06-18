@@ -27,16 +27,18 @@ key-event quirk after page reload — none obvious, all repeatable.
   `/tmp` path won't) and `npx tsx` it: `assignHomeNetwork(ownerKey, essid)` → `{ localIp, publicIp }`,
   `workstationGuestPassword(ownerKey)`, `seedRouterAdminPw(ownerKey)`. Cross-check `localIp` against the
   live `ifconfig`. Delete the temp file.
-- **Terminal input.** The shell command line is a single `<input>` that is NOT auto-focused —
-  `document.querySelector('input').focus()` before typing. Read output via `document.body.innerText`
-  (the terminal is plain text).
+- **Terminal input.** The shell command line is a single `<input>` that auto-focuses on mount and
+  re-grabs focus on any plain click in the terminal (a click _while text is selected_ is left alone,
+  so output stays copyable). So typing usually Just Works without a manual focus; only re-`focus()` it
+  if a prior step (devtools, an alert, a foreign element) stole focus. Read output via
+  `document.body.innerText` (the terminal is plain text).
 - **Enter doesn't submit after a reload.** `agent-browser keyboard type` lands characters, but
   `agent-browser press Enter` is lost post-reload (chars accumulate with no submit). Submit by
   dispatching a native keydown on the input via `eval`:
   `i.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }))`.
-- **nano** is a focusable `<textarea>` — focus it, type, and read `.value` to verify the buffer (the
-  rendered body is canvas/non-text, so `innerText` shows only the chrome). Save =
-  `press Control+o` → `press Enter` → `press Control+x`.
+- **nano** is a `<textarea>` that auto-focuses when the editor opens — just type, then read `.value`
+  to verify the buffer (the rendered body is canvas/non-text, so `innerText` shows only the chrome).
+  Save = `press Control+o` → `press Enter` → `press Control+x`.
 - **Cross-player file reads are tier-gated.** As `guest`, A's `/etc/` etc. list EMPTY (root-readable
   content is hidden from the guest tier) — that is NOT a bug. `su root` (A's workstation root password)
   reveals `/etc/passwd` and the rest.
