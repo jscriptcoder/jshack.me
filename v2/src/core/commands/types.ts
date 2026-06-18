@@ -11,14 +11,7 @@
  * harness, or anywhere else.
  */
 
-import type {
-  AbsPath,
-  EpochMs,
-  MachineId,
-  NetworkAddress,
-  PlayerKeyHex,
-  UserType,
-} from '../types';
+import type { AbsPath, EpochMs, MachineId, NetworkAddress, PlayerKeyHex, UserType } from '../types';
 import type { Directory, FileNode, FilePermissions } from '../filesystem/types';
 import type { WalkResult } from '../filesystem/walker';
 import type { NetworkInterface } from '../network/interfaces';
@@ -374,7 +367,10 @@ export type CommandEnv = {
    *  mysql/redis later). `masked` hides the input (passwords). Promise-shaped so
    *  a command awaits it inline and composes prompts sequentially (ftp's
    *  username then password). Rejects if the run is aborted (Ctrl-C). */
-  readonly prompt: (opts: { readonly message: string; readonly masked: boolean }) => Promise<string>;
+  readonly prompt: (opts: {
+    readonly message: string;
+    readonly masked: boolean;
+  }) => Promise<string>;
 
   /** Elevate/switch the active session by pushing a new one onto the hop chain
    *  (sibling to `setCwd`/`setInterface`). The UI owns the session stack and

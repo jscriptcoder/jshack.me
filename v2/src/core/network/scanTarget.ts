@@ -66,5 +66,7 @@ export const hostsInScanTarget = (lan: HomeLan, target: ScanTarget): readonly La
     const host = lan.hosts.find((candidate) => lastOctet(candidate) === target.octet);
     return host === undefined ? [] : [host];
   }
-  return lan.hosts.filter((host) => lastOctet(host) >= target.start && lastOctet(host) <= target.end);
+  return lan.hosts.filter(
+    (host) => lastOctet(host) >= target.start && lastOctet(host) <= target.end,
+  );
 };

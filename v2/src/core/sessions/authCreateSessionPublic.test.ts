@@ -375,7 +375,10 @@ describe('handleAuthCreateSessionPublic', () => {
 
   it('reports host_unreachable for an unregistered public IP without inserting or reading the journal', async () => {
     const attacker = generateIdentity();
-    const { deps, findPatches, insertSession } = makeDeps(async () => ({ data: null, error: null }));
+    const { deps, findPatches, insertSession } = makeDeps(async () => ({
+      data: null,
+      error: null,
+    }));
 
     const result = await handleAuthCreateSessionPublic(
       envelope(attacker, { username: 'root', password: ADMIN_PW }),

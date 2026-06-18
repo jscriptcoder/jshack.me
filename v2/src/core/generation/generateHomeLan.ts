@@ -58,6 +58,8 @@ export const generateHomeLan = (seedPubkeyHex: string, essid: string): HomeLan =
     }),
   );
 
-  const hosts = [gateway, self, ...siblings].sort((left, right) => lastOctet(left) - lastOctet(right));
+  const hosts = [gateway, self, ...siblings].sort(
+    (left, right) => lastOctet(left) - lastOctet(right),
+  );
   return { subnet, hosts };
 };

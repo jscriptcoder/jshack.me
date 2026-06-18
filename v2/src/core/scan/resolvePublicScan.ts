@@ -94,7 +94,9 @@ const resolveForwardTargets = async (
   if (parseForwardRules(readRulesV4(routerFs)).length === 0) {
     return () => [];
   }
-  const workstationPatches = await deps.findPatches({ machine_id: registry.workstation_machine_id });
+  const workstationPatches = await deps.findPatches({
+    machine_id: registry.workstation_machine_id,
+  });
   if (workstationPatches.error) return null;
   return buildWorkstationPortResolver({ registry, workstationPatches: workstationPatches.data });
 };

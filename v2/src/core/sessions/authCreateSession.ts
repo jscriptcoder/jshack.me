@@ -157,7 +157,9 @@ export const handleAuthCreateSession = async (
   // regenerated LAN machine keyed by its coordinate `hostMachineId`.
   const isRouter = host.kind === 'router';
   const machineId = isRouter ? computeRouterId(publicKey) : hostMachineId(host, payload.essid);
-  const hostFs = isRouter ? buildRouterBaseFs(publicKey) : buildRemoteHostFs(publicKey, payload.essid, host);
+  const hostFs = isRouter
+    ? buildRouterBaseFs(publicKey)
+    : buildRemoteHostFs(publicKey, payload.essid, host);
   const account = accountIn(hostFs, payload.username);
   const passwordOk = account !== null && md5(payload.password) === account.hash;
 

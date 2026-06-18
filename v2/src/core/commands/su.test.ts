@@ -18,7 +18,13 @@ import {
   type MachineId,
   type UserType,
 } from '../types';
-import type { AuthLogEvent, CommandResult, RemoteAuthResult, Session, SuElevateParams } from './types';
+import type {
+  AuthLogEvent,
+  CommandResult,
+  RemoteAuthResult,
+  Session,
+  SuElevateParams,
+} from './types';
 import { su } from './su';
 
 /**
@@ -377,7 +383,9 @@ describe('su', () => {
     };
 
     it('prompts then elevates server-side, pushing the SERVER-derived root session (never reads the local passwd)', async () => {
-      const { env, pushed, cwds, promptCalls, elevateCalls } = crossPlayerEnv({ typed: 'matrix1999' });
+      const { env, pushed, cwds, promptCalls, elevateCalls } = crossPlayerEnv({
+        typed: 'matrix1999',
+      });
 
       const { exitCode, text, lineCount } = syncResult(await su.execute(env, ['root'], NO_FLAGS));
 
@@ -493,7 +501,11 @@ describe('su', () => {
       await su.execute(env, [], NO_FLAGS);
 
       expect(authLogs).toHaveLength(1);
-      expect(authLogs[0]).toMatchObject({ outcome: 'failure', targetUser: 'root', fromUser: 'neo' });
+      expect(authLogs[0]).toMatchObject({
+        outcome: 'failure',
+        targetUser: 'root',
+        fromUser: 'neo',
+      });
     });
 
     it('records no-prompt switches too (root → guest)', async () => {
@@ -502,7 +514,11 @@ describe('su', () => {
       await su.execute(env, ['guest'], NO_FLAGS);
 
       expect(authLogs).toHaveLength(1);
-      expect(authLogs[0]).toMatchObject({ outcome: 'success', targetUser: 'guest', fromUser: 'neo' });
+      expect(authLogs[0]).toMatchObject({
+        outcome: 'success',
+        targetUser: 'guest',
+        fromUser: 'neo',
+      });
     });
 
     it('does not log when the target user does not exist', async () => {

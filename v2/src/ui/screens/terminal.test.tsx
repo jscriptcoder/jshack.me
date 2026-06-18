@@ -200,9 +200,7 @@ describe('Terminal', () => {
 
     runCommand('airdump');
     expect(
-      await screen.findByText(
-        (content) => content.includes('BSSID') && content.includes('ESSID'),
-      ),
+      await screen.findByText((content) => content.includes('BSSID') && content.includes('ESSID')),
     ).toBeInTheDocument();
     // The scan paces rows with real timers, so allow it to drain to completion.
     expect(
@@ -255,7 +253,11 @@ describe('Terminal', () => {
       const power = Number(/\s(-\d+)\s/.exec(content.trim())?.[1]);
       return match[2] !== '<hidden>' && power >= -80;
     };
-    const rows = await screen.findAllByText((content) => isCrackable(content), {}, { timeout: 4000 });
+    const rows = await screen.findAllByText(
+      (content) => isCrackable(content),
+      {},
+      { timeout: 4000 },
+    );
     const parsed = crackableRow.exec(rows[0]!.textContent!.trim())!;
     const bssid = parsed[1]!.trim();
     const essid = parsed[2]!.trim();

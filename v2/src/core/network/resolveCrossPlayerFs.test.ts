@@ -45,7 +45,11 @@ const REGISTERED_ROUTER: RegistryRouter = {
 
 // A guest-readable file A created (a real persisted patch) and a user-only one —
 // the tier filter must keep the first for a guest reader and drop the second.
-const worldReadable = { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] } as const;
+const worldReadable = {
+  read: ['root', 'user', 'guest'],
+  write: ['root'],
+  execute: ['root'],
+} as const;
 const userOnly = { read: ['root', 'user'], write: ['root'], execute: ['root'] } as const;
 
 /** A persisted row on the machine's shared journal. Carries the SERVER
@@ -70,11 +74,13 @@ type RegistryResult = { data: RegistryMachine | null; error: unknown };
 type SessionResult = { data: ActiveSession | null; error: unknown };
 type PatchesResult = { data: readonly OwnerPatchRow[] | null; error: unknown };
 
-const makeDeps = (over: {
-  registry?: () => Promise<RegistryResult>;
-  session?: () => Promise<SessionResult>;
-  patches?: () => Promise<PatchesResult>;
-} = {}) => {
+const makeDeps = (
+  over: {
+    registry?: () => Promise<RegistryResult>;
+    session?: () => Promise<SessionResult>;
+    patches?: () => Promise<PatchesResult>;
+  } = {},
+) => {
   const findRegistryByMachineId = vi.fn<(machineId: string) => Promise<RegistryResult>>(
     over.registry ?? (async () => ({ data: REGISTERED, error: null })),
   );
@@ -176,7 +182,9 @@ describe('handleResolveCrossPlayerFs', () => {
 
   it('filters at the SESSION’s tier, not a hardcoded guest — a user session sees passwd + user files', async () => {
     const id = generateIdentity();
-    const { deps } = makeDeps({ session: async () => ({ data: { userType: 'user' }, error: null }) });
+    const { deps } = makeDeps({
+      session: async () => ({ data: { userType: 'user' }, error: null }),
+    });
 
     const result = await handleResolveCrossPlayerFs(envelope(id), deps);
     const tree = treeOf(result);
@@ -186,7 +194,9 @@ describe('handleResolveCrossPlayerFs', () => {
     // The passwd reflects A's PERSISTED identity (username + root hash), proving the
     // box is rebuilt from the registry row, not from empty/defaulted fields.
     expect(passwd?.kind === 'file' ? passwd.content : '').toContain('alice');
-    expect(passwd?.kind === 'file' ? passwd.content : '').toContain(REGISTERED.workstation_root_hash);
+    expect(passwd?.kind === 'file' ? passwd.content : '').toContain(
+      REGISTERED.workstation_root_hash,
+    );
     expect(get(tree, 'srv', 'secret.txt')?.kind).toBe('file');
   });
 
@@ -199,7 +209,14 @@ describe('handleResolveCrossPlayerFs', () => {
     } as const;
     const { deps } = makeDeps({
       patches: async () => ({
-        data: [ownerRow({ path: '/srv/loot', content: null, permissions: worldDir, node_type: 'directory' })],
+        data: [
+          ownerRow({
+            path: '/srv/loot',
+            content: null,
+            permissions: worldDir,
+            node_type: 'directory',
+          }),
+        ],
         error: null,
       }),
     });
@@ -255,7 +272,13 @@ describe('handleResolveCrossPlayerFs', () => {
     const id = generateIdentity();
     const path = '/srv/loot.txt';
     const writeRow = (updated_at: string): OwnerPatchRow =>
-      ownerRow({ path, content: 'REBORN', permissions: worldReadable, writer_key: OWNER_KEY, updated_at });
+      ownerRow({
+        path,
+        content: 'REBORN',
+        permissions: worldReadable,
+        writer_key: OWNER_KEY,
+        updated_at,
+      });
     // A visitor's rm lands a content:null tombstone (the Slice-4 cross-player delete).
     const tombRow = (updated_at: string): OwnerPatchRow =>
       ownerRow({ path, content: null, writer_key: 'b'.repeat(64), updated_at });
@@ -348,7 +371,9 @@ describe('handleResolveCrossPlayerFs', () => {
 
   it('reports an unregistered machine as unreachable, without checking the session', async () => {
     const id = generateIdentity();
-    const { deps, findActiveSession } = makeDeps({ registry: async () => ({ data: null, error: null }) });
+    const { deps, findActiveSession } = makeDeps({
+      registry: async () => ({ data: null, error: null }),
+    });
 
     const result = await handleResolveCrossPlayerFs(envelope(id), deps);
 
@@ -380,7 +405,9 @@ describe('handleResolveCrossPlayerFs', () => {
 
   it('reports a server error when the registry lookup fails', async () => {
     const id = generateIdentity();
-    const { deps } = makeDeps({ registry: async () => ({ data: null, error: new Error('db down') }) });
+    const { deps } = makeDeps({
+      registry: async () => ({ data: null, error: new Error('db down') }),
+    });
 
     const result = await handleResolveCrossPlayerFs(envelope(id), deps);
 
@@ -389,7 +416,9 @@ describe('handleResolveCrossPlayerFs', () => {
 
   it('reports a server error when the session lookup fails', async () => {
     const id = generateIdentity();
-    const { deps } = makeDeps({ session: async () => ({ data: null, error: new Error('db down') }) });
+    const { deps } = makeDeps({
+      session: async () => ({ data: null, error: new Error('db down') }),
+    });
 
     const result = await handleResolveCrossPlayerFs(envelope(id), deps);
 
@@ -398,7 +427,9 @@ describe('handleResolveCrossPlayerFs', () => {
 
   it('reports a server error when the patches lookup fails', async () => {
     const id = generateIdentity();
-    const { deps } = makeDeps({ patches: async () => ({ data: null, error: new Error('db down') }) });
+    const { deps } = makeDeps({
+      patches: async () => ({ data: null, error: new Error('db down') }),
+    });
 
     const result = await handleResolveCrossPlayerFs(envelope(id), deps);
 
@@ -421,7 +452,10 @@ describe('handleResolveCrossPlayerFs', () => {
     const id = generateIdentity();
     const { deps, findRegistryByMachineId } = makeDeps();
 
-    const result = await handleResolveCrossPlayerFs(envelope(id, MACHINE_ID, { player_key: 'x' }), deps);
+    const result = await handleResolveCrossPlayerFs(
+      envelope(id, MACHINE_ID, { player_key: 'x' }),
+      deps,
+    );
 
     expect(result.status).toBe(400);
     expect(findRegistryByMachineId).not.toHaveBeenCalled();
@@ -431,7 +465,10 @@ describe('handleResolveCrossPlayerFs', () => {
     const id = generateIdentity();
     const { deps, findRegistryByMachineId } = makeDeps();
 
-    const result = await handleResolveCrossPlayerFs(signRequest(id, 'resolveCrossPlayerFs', {}), deps);
+    const result = await handleResolveCrossPlayerFs(
+      signRequest(id, 'resolveCrossPlayerFs', {}),
+      deps,
+    );
 
     expect(result.status).toBe(400);
     expect(findRegistryByMachineId).not.toHaveBeenCalled();

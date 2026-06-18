@@ -25,7 +25,9 @@ const aRow = (over: Partial<SessionSummary> = {}): SessionSummary => ({
 
 const makeDeps = (over: Partial<ListSessionsDeps> = {}) => {
   const listSessions = vi.fn<
-    (query: ListSessionsQuery) => Promise<{ data: readonly SessionSummary[] | null; error: unknown }>
+    (
+      query: ListSessionsQuery,
+    ) => Promise<{ data: readonly SessionSummary[] | null; error: unknown }>
   >(async () => ({ data: [], error: null }));
   const deps: ListSessionsDeps = { nonceStore: freshStore, listSessions, ...over };
   return { deps, listSessions };
@@ -107,7 +109,9 @@ describe('handleListSessions', () => {
   it('returns 500 when the query fails', async () => {
     const id = generateIdentity();
     const envelope = signRequest(id, 'listSessions', {});
-    const { deps } = makeDeps({ listSessions: async () => ({ data: null, error: { message: 'db down' } }) });
+    const { deps } = makeDeps({
+      listSessions: async () => ({ data: null, error: { message: 'db down' } }),
+    });
 
     const result = await handleListSessions(envelope, deps);
 

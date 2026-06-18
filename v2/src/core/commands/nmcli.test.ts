@@ -77,7 +77,11 @@ const connectedTo = (essid: string, bssid: string, ipv4: string): ConnectivitySt
 
 type EnvOpts = {
   readonly wifiNetworks?: readonly WifiNetwork[];
-  readonly assignment?: { readonly localIp: string; readonly publicIp: string; readonly hostname: string };
+  readonly assignment?: {
+    readonly localIp: string;
+    readonly publicIp: string;
+    readonly hostname: string;
+  };
   readonly machineId?: ReturnType<typeof asMachineId>;
 };
 
@@ -101,7 +105,13 @@ const nmcliEnv = (initial: ConnectivityState, opts: EnvOpts = {}) => {
     homeNetwork: mockHomeNetwork({
       join: async (essid) => {
         joinCalls.push(essid);
-        return opts.assignment ?? { localIp: '192.168.5.20', publicIp: '203.0.113.20', hostname: 'host-20' };
+        return (
+          opts.assignment ?? {
+            localIp: '192.168.5.20',
+            publicIp: '203.0.113.20',
+            hostname: 'host-20',
+          }
+        );
       },
     }),
   });
@@ -247,7 +257,9 @@ describe('nmcli', () => {
 
   describe('disconnect', () => {
     it('clears the association and goes offline', async () => {
-      const { env, get } = nmcliEnv(connectedTo('BEAN-THERE-WIFI', 'AA:BB:CC:DD:EE:01', '192.168.5.20'));
+      const { env, get } = nmcliEnv(
+        connectedTo('BEAN-THERE-WIFI', 'AA:BB:CC:DD:EE:01', '192.168.5.20'),
+      );
 
       const { text, exitCode } = syncResult(await nmcli.execute(env, ['disconnect'], NO_FLAGS));
 

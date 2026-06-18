@@ -43,7 +43,10 @@ const check = (name: string, pass: boolean, detail: string) => {
   console.log(`${pass ? 'PASS' : 'FAIL'}  ${name}  —  ${detail}`);
 };
 
-const post = async (endpoint: string, envelope: unknown): Promise<{ status: number; body: unknown }> => {
+const post = async (
+  endpoint: string,
+  envelope: unknown,
+): Promise<{ status: number; body: unknown }> => {
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -84,7 +87,11 @@ const writeImplant = (signer: typeof alice) =>
   );
 
 const rowsAtImplant = async (): Promise<number> => {
-  const { data } = await sr.from('patches').select('writer_key').eq('machine_id', A_MACHINE).eq('path', IMPLANT);
+  const { data } = await sr
+    .from('patches')
+    .select('writer_key')
+    .eq('machine_id', A_MACHINE)
+    .eq('path', IMPLANT);
   return data?.length ?? 0;
 };
 const suRowsForBob = async (): Promise<readonly { credentials: { userType: string } }[]> => {
@@ -148,7 +155,9 @@ const e2 = await post(
 );
 check(
   'B suElevate with WRONG password → 401, no su row',
-  e2.status === 401 && errorOf(e2.body) === 'invalid_credentials' && (await suRowsForBob()).length === 0,
+  e2.status === 401 &&
+    errorOf(e2.body) === 'invalid_credentials' &&
+    (await suRowsForBob()).length === 0,
   `status=${e2.status} error=${errorOf(e2.body)} suRows=${(await suRowsForBob()).length}`,
 );
 

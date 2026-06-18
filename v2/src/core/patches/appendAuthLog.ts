@@ -44,9 +44,10 @@ export type AppendAuthLogDeps = {
   /** The server's wall clock, epoch-ms (UTC). Injected so the handler is pure
    *  and deterministic under test. */
   readonly now: () => number;
-  readonly readAuthLog: (
-    query: AuthLogContentQuery,
-  ) => Promise<{ readonly data: { readonly content: string | null } | null; readonly error: unknown }>;
+  readonly readAuthLog: (query: AuthLogContentQuery) => Promise<{
+    readonly data: { readonly content: string | null } | null;
+    readonly error: unknown;
+  }>;
   readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
 };
 

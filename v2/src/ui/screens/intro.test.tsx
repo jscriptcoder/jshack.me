@@ -18,7 +18,9 @@ const fillField = (name: RegExp, value: string) => {
   fireEvent.input(screen.getByLabelText(name), { target: { value } });
 };
 
-const fillValidForm = (overrides?: Partial<Record<'workstation' | 'username' | 'password' | 'confirm', string>>) => {
+const fillValidForm = (
+  overrides?: Partial<Record<'workstation' | 'username' | 'password' | 'confirm', string>>,
+) => {
   fillField(/workstation/i, overrides?.workstation ?? 'skylab');
   fillField(/username/i, overrides?.username ?? 'alice');
   fillField(/^root password/i, overrides?.password ?? 'hunter2');

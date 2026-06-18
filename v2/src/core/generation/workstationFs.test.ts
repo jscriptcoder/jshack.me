@@ -174,7 +174,18 @@ describe('buildWorkstationBaseFs', () => {
       // The gated v2 commands (cat/grep/ls/man/mkdir/rm/touch) plus the
       // connectivity tools the arc depends on (ifconfig/nmcli) and apt itself.
       const binKeys = [...dirAt(baseFs(), 'bin').entries.keys()];
-      const required = ['cat', 'grep', 'ls', 'man', 'mkdir', 'rm', 'touch', 'ifconfig', 'nmcli', 'apt'];
+      const required = [
+        'cat',
+        'grep',
+        'ls',
+        'man',
+        'mkdir',
+        'rm',
+        'touch',
+        'ifconfig',
+        'nmcli',
+        'apt',
+      ];
       required.forEach((name) => expect(binKeys).toContain(name));
     });
 
@@ -371,7 +382,10 @@ describe('buildWorkstationBaseFs', () => {
   });
 
   it('hashes the root password with md5 at uid 0', () => {
-    const root = passwdRow(buildWorkstationBaseFs(SEED_A, getConfig({ rootPassword: 'hunter2' })), 'root');
+    const root = passwdRow(
+      buildWorkstationBaseFs(SEED_A, getConfig({ rootPassword: 'hunter2' })),
+      'root',
+    );
     // name:hash:uid:gid:gecos:home:shell
     expect(root[0]).toBe('root');
     expect(root[1]).toBe('2ab96390c7dbe3439de74d0c9b0b1767'); // md5('hunter2')

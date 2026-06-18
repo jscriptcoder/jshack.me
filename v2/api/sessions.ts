@@ -75,7 +75,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const listSessions = async ({ player_key }: ListSessionsQuery) => {
       const { data, error } = await supabase
         .from('sessions')
-        .select('session_id, machine_id, credentials, parent_session_id, source_ip, kind, created_at')
+        .select(
+          'session_id, machine_id, credentials, parent_session_id, source_ip, kind, created_at',
+        )
         .eq('player_key', player_key)
         .is('ended_at', null)
         .order('created_at', { ascending: true });
@@ -204,7 +206,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const findRegistryByMachineId = async (machineId: string) => {
       const { data, error } = await supabase
         .from('network_registry')
-        .select('owner_key, workstation_machine_id, essid, workstation_username, workstation_root_hash')
+        .select(
+          'owner_key, workstation_machine_id, essid, workstation_username, workstation_root_hash',
+        )
         .eq('workstation_machine_id', machineId)
         .maybeSingle();
       if (error) console.error('[sessions] su-elevate registry lookup error:', error);

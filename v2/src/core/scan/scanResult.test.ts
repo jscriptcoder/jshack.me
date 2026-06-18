@@ -4,7 +4,11 @@ import type { OpenPort } from '../services/pidfile';
 import { dir, file, TRAVERSABLE_DIR } from '../generation/baseFs';
 import { scanResult } from './scanResult';
 
-const FILE_PERMS: FilePermissions = { read: ['root', 'user', 'guest'], write: ['root'], execute: [] };
+const FILE_PERMS: FilePermissions = {
+  read: ['root', 'user', 'guest'],
+  write: ['root'],
+  execute: [],
+};
 
 /**
  * A minimal router FS for the scan: just the two things `scanResult` reads —
@@ -25,7 +29,10 @@ const makeRouterFs = (
         {
           run: dir(
             Object.fromEntries(
-              Object.entries(ownPidfiles).map(([name, content]) => [name, file(content, FILE_PERMS)]),
+              Object.entries(ownPidfiles).map(([name, content]) => [
+                name,
+                file(content, FILE_PERMS),
+              ]),
             ),
             TRAVERSABLE_DIR,
           ),
@@ -53,17 +60,19 @@ describe('scanResult', () => {
 
   it('external with no forwards shows the router own ports only (workstation dark behind NAT)', () => {
     const fs = makeRouterFs(''); // opt-in default: no forward configured
-    expect(scanResult({ vantage: 'external', routerFs: fs, resolveTargetPorts: noOpenPorts })).toEqual([
-      { port: 22, service: 'ssh' },
-    ]);
+    expect(
+      scanResult({ vantage: 'external', routerFs: fs, resolveTargetPorts: noOpenPorts }),
+    ).toEqual([{ port: 22, service: 'ssh' }]);
   });
 
   it('external surfaces a live forward at its PUBLIC port with the target service label', () => {
     const fs = makeRouterFs('forward 2222 to 10.0.0.5:22');
-    expect(scanResult({ vantage: 'external', routerFs: fs, resolveTargetPorts: wsHasSsh })).toEqual([
-      { port: 22, service: 'ssh' }, // the router's own sshd
-      { port: 2222, service: 'ssh' }, // the forward → ws:22 (ssh), shown at public 2222
-    ]);
+    expect(scanResult({ vantage: 'external', routerFs: fs, resolveTargetPorts: wsHasSsh })).toEqual(
+      [
+        { port: 22, service: 'ssh' }, // the router's own sshd
+        { port: 2222, service: 'ssh' }, // the forward → ws:22 (ssh), shown at public 2222
+      ],
+    );
   });
 
   it('external DROPS a forward whose target port is down (liveness gate)', () => {
@@ -81,9 +90,9 @@ describe('scanResult', () => {
     const fs = makeRouterFs('forward 2222 to 10.0.0.5:22');
     const wsWrongPort = (internalIp: string): readonly OpenPort[] =>
       internalIp === '10.0.0.5' ? [{ port: 80, service: 'http' }] : [];
-    expect(scanResult({ vantage: 'external', routerFs: fs, resolveTargetPorts: wsWrongPort })).toEqual([
-      { port: 22, service: 'ssh' },
-    ]);
+    expect(
+      scanResult({ vantage: 'external', routerFs: fs, resolveTargetPorts: wsWrongPort }),
+    ).toEqual([{ port: 22, service: 'ssh' }]);
   });
 
   it('external labels a forward with the MATCHING target port service, not just the first open port', () => {
@@ -115,18 +124,18 @@ describe('scanResult', () => {
       withVar({ etc: dir({ iptables: dir({}, TRAVERSABLE_DIR) }, TRAVERSABLE_DIR) }), // no rules.v4
     ];
     variants.forEach((fs) => {
-      expect(scanResult({ vantage: 'external', routerFs: fs, resolveTargetPorts: wsHasSsh })).toEqual([
-        { port: 22, service: 'ssh' },
-      ]);
+      expect(
+        scanResult({ vantage: 'external', routerFs: fs, resolveTargetPorts: wsHasSsh }),
+      ).toEqual([{ port: 22, service: 'ssh' }]);
     });
   });
 
   it('external does NOT double-list a port the router owns when a forward also maps to it', () => {
     // A forward to public 22 collides with the router's own sshd:22 — dedupe.
     const fs = makeRouterFs('forward 22 to 10.0.0.5:22');
-    expect(scanResult({ vantage: 'external', routerFs: fs, resolveTargetPorts: wsHasSsh })).toEqual([
-      { port: 22, service: 'ssh' },
-    ]);
+    expect(scanResult({ vantage: 'external', routerFs: fs, resolveTargetPorts: wsHasSsh })).toEqual(
+      [{ port: 22, service: 'ssh' }],
+    );
   });
 
   it('sameLAN never consults the forward table even when a target port is up', () => {

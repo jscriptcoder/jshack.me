@@ -7,11 +7,7 @@ import {
 } from '../core/network/interfaces';
 import { assignHomeNetwork } from '../core/network/homeNetwork';
 import type { WifiNetwork } from '../core/network/wifi';
-import {
-  CONNECTED_ESSID_KEY,
-  persistConnection,
-  restoreConnection,
-} from './connectionPersistence';
+import { CONNECTED_ESSID_KEY, persistConnection, restoreConnection } from './connectionPersistence';
 
 /**
  * Connection persistence is the "survives a reload" half of nmcli: the

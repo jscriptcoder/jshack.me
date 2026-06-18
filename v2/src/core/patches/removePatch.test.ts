@@ -1,9 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { handleRemovePatch, type RemovePatchDeps } from './removePatch';
-import type {
-  ActiveSessionQuery,
-  FindActiveSessionResult,
-} from './authorizeMachineAccess';
+import type { ActiveSessionQuery, FindActiveSessionResult } from './authorizeMachineAccess';
 import type {
   FindRegistryByMachineId,
   ListMachinePatchesResult,
@@ -26,7 +23,9 @@ const ESSID = 'BEAN-THERE-WIFI';
 /** A REAL remote host on the signer's LAN — so L2 regeneration resolves the same
  *  FS the perms are walked over. Returns the coordinate machine_id + essid. */
 const remoteTarget = (publicKeyHex: string) => {
-  const host = generateHomeLan(publicKeyHex, ESSID).hosts.filter((candidate) => candidate.kind === 'machine').at(-1);
+  const host = generateHomeLan(publicKeyHex, ESSID)
+    .hosts.filter((candidate) => candidate.kind === 'machine')
+    .at(-1);
   if (host === undefined) throw new Error('no machine host on LAN');
   return { machineId: hostMachineId(host, ESSID), essid: ESSID };
 };

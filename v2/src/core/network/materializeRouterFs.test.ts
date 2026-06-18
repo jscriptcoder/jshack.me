@@ -61,7 +61,9 @@ describe('materializeRouterFs', () => {
   });
 
   it('replays the journal over the base — a written rules.v4 forward is reflected', () => {
-    const router = materializeRouterFs(REGISTRY, [patchRow({ content: 'forward 8080 to 10.0.0.9:80\n' })]);
+    const router = materializeRouterFs(REGISTRY, [
+      patchRow({ content: 'forward 8080 to 10.0.0.9:80\n' }),
+    ]);
 
     expect(readFileContent(router, '/etc/iptables/rules.v4')).toBe('forward 8080 to 10.0.0.9:80\n');
   });
@@ -77,7 +79,9 @@ describe('materializeRouterFs', () => {
   });
 
   it('treats a null journal as empty (fresh router still answers with sshd:22)', () => {
-    expect(readOpenPorts(materializeRouterFs(REGISTRY, null))).toEqual([{ port: 22, service: 'ssh' }]);
+    expect(readOpenPorts(materializeRouterFs(REGISTRY, null))).toEqual([
+      { port: 22, service: 'ssh' },
+    ]);
   });
 
   it("applies a journal row's node_type and permissions on replay (cross-player writes carry them)", () => {

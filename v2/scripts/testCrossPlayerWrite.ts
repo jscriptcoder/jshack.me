@@ -43,7 +43,10 @@ const check = (name: string, pass: boolean, detail: string) => {
   console.log(`${pass ? 'PASS' : 'FAIL'}  ${name}  —  ${detail}`);
 };
 
-const post = async (endpoint: string, envelope: unknown): Promise<{ status: number; body: unknown }> => {
+const post = async (
+  endpoint: string,
+  envelope: unknown,
+): Promise<{ status: number; body: unknown }> => {
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -78,7 +81,11 @@ const A_PUBLIC_IP = '203.0.113.77';
 const ROOT_HASH = md5('alice-root-secret');
 const PWNED = '/tmp/pwned';
 // World-readable so B's guest cross-player read can see its own write back.
-const worldFile = { read: ['root', 'user', 'guest'], write: ['root', 'user', 'guest'], execute: [] };
+const worldFile = {
+  read: ['root', 'user', 'guest'],
+  write: ['root', 'user', 'guest'],
+  execute: [],
+};
 
 // Clean slate, then seed A's registry row (as the join would) + B's active guest
 // session on A's workstation (as the 2b cross-player login would).
@@ -143,12 +150,13 @@ const aSees = patchesOf(l3.body).find((row) => row.path === PWNED);
 check(
   'A’s own-box read sees B’s write, attributed to B',
   l3.status === 200 && aSees?.content === 'owned by B' && aSees.writer_key === bob.publicKeyHex,
-  `status=${l3.status} content=${aSees?.content} writer=${aSees?.writer_key === bob.publicKeyHex ? 'B' : aSees?.writer_key ?? '-'}`,
+  `status=${l3.status} content=${aSees?.content} writer=${aSees?.writer_key === bob.publicKeyHex ? 'B' : (aSees?.writer_key ?? '-')}`,
 );
 
 // 4. B's own cross-player read (resolveCrossPlayerFs) materializes its write too.
 const r4 = await post(NETWORK, signRequest(bob, 'resolveCrossPlayerFs', { machine_id: A_MACHINE }));
-const tree4 = r4.status === 200 ? deserializeTree((r4.body as { tree: SerializedDirectory }).tree) : null;
+const tree4 =
+  r4.status === 200 ? deserializeTree((r4.body as { tree: SerializedDirectory }).tree) : null;
 const pwned4 = tree4 ? get(tree4, 'tmp', 'pwned') : undefined;
 check(
   'B’s cross-player read sees /tmp/pwned',
@@ -268,8 +276,12 @@ check(
 );
 
 // 10. A's box now materializes /tmp/pwned as GONE (B's cross-player read agrees).
-const r10 = await post(NETWORK, signRequest(bob, 'resolveCrossPlayerFs', { machine_id: A_MACHINE }));
-const tree10 = r10.status === 200 ? deserializeTree((r10.body as { tree: SerializedDirectory }).tree) : null;
+const r10 = await post(
+  NETWORK,
+  signRequest(bob, 'resolveCrossPlayerFs', { machine_id: A_MACHINE }),
+);
+const tree10 =
+  r10.status === 200 ? deserializeTree((r10.body as { tree: SerializedDirectory }).tree) : null;
 check(
   'after B’s rm, /tmp/pwned is gone from A’s materialized box',
   r10.status === 200 && (tree10 ? get(tree10, 'tmp', 'pwned') : undefined) === undefined,
@@ -290,8 +302,12 @@ const w11 = await post(
     node_type: 'file',
   }),
 );
-const r11 = await post(NETWORK, signRequest(bob, 'resolveCrossPlayerFs', { machine_id: A_MACHINE }));
-const tree11 = r11.status === 200 ? deserializeTree((r11.body as { tree: SerializedDirectory }).tree) : null;
+const r11 = await post(
+  NETWORK,
+  signRequest(bob, 'resolveCrossPlayerFs', { machine_id: A_MACHINE }),
+);
+const tree11 =
+  r11.status === 200 ? deserializeTree((r11.body as { tree: SerializedDirectory }).tree) : null;
 const pwned11 = tree11 ? get(tree11, 'tmp', 'pwned') : undefined;
 check(
   'A re-creates /tmp/pwned (later ts) → wins over B’s tombstone (file reappears)',

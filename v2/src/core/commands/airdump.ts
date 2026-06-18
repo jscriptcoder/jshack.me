@@ -55,7 +55,10 @@ const formatRow = (network: WifiNetwork): string =>
 /** Per-row pause so the table populates live rather than all at once. */
 const SCAN_DELAY_MS = 250;
 
-async function* scan(env: CommandEnv, networks: readonly WifiNetwork[]): AsyncIterable<TerminalLine> {
+async function* scan(
+  env: CommandEnv,
+  networks: readonly WifiNetwork[],
+): AsyncIterable<TerminalLine> {
   yield text(' CH  0 ][ Elapsed: 0 s ][ scanning...');
   yield text('');
   yield text(HEADER);

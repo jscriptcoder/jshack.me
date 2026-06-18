@@ -50,5 +50,4 @@ const binaryToPackage: ReadonlyMap<string, string> = new Map(
 
 /** The apt package that provides `binary`, or `undefined` if it isn't a known
  *  apt tool (a system utility, a builtin, or simply unknown). */
-export const packageForBinary = (binary: string): string | undefined =>
-  binaryToPackage.get(binary);
+export const packageForBinary = (binary: string): string | undefined => binaryToPackage.get(binary);

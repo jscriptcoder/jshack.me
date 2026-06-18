@@ -88,7 +88,10 @@ describe('filterTreeForRead', () => {
   it('keeps a deeply nested readable file through traversable parents', () => {
     const tree = dir(
       {
-        var: dir({ www: dir({ 'index.html': worldFile('<h1>A</h1>') }, TRAVERSABLE_DIR) }, TRAVERSABLE_DIR),
+        var: dir(
+          { www: dir({ 'index.html': worldFile('<h1>A</h1>') }, TRAVERSABLE_DIR) },
+          TRAVERSABLE_DIR,
+        ),
       },
       TRAVERSABLE_DIR,
     );
@@ -149,7 +152,10 @@ describe('filterTreeForRead', () => {
   });
 
   it('preserves a kept directory’s perms and owner', () => {
-    const tree = dir({ srv: dir({ ok: worldFile('x') }, TRAVERSABLE_DIR, 'deploy') }, TRAVERSABLE_DIR);
+    const tree = dir(
+      { srv: dir({ ok: worldFile('x') }, TRAVERSABLE_DIR, 'deploy') },
+      TRAVERSABLE_DIR,
+    );
 
     const srv = get(filterTreeForRead(tree, 'guest'), 'srv');
 
@@ -180,7 +186,12 @@ describe('filterTreeToAllowlist', () => {
     const tree = dir(
       {
         var: dir(
-          { run: dir({ 'sshd.pid': worldFile('4131'), 'notes.txt': worldFile('scratch') }, TRAVERSABLE_DIR) },
+          {
+            run: dir(
+              { 'sshd.pid': worldFile('4131'), 'notes.txt': worldFile('scratch') },
+              TRAVERSABLE_DIR,
+            ),
+          },
           TRAVERSABLE_DIR,
         ),
       },
@@ -198,7 +209,10 @@ describe('filterTreeToAllowlist', () => {
       {
         etc: dir({ passwd: file('root:x:0:0:...:hash', PASSWD_FILE) }, TRAVERSABLE_DIR),
         root: dir({ '.wallet': worldFile('PRIVATE_KEY') }, ROOT_DIR),
-        home: dir({ alice: dir({ '.bashrc': worldFile('export X=1') }, HOME_DIR) }, TRAVERSABLE_DIR),
+        home: dir(
+          { alice: dir({ '.bashrc': worldFile('export X=1') }, HOME_DIR) },
+          TRAVERSABLE_DIR,
+        ),
       },
       TRAVERSABLE_DIR,
     );
@@ -278,7 +292,12 @@ describe('filterTreeToAllowlist', () => {
         var: dir(
           {
             lib: dir(
-              { dpkg: dir({ status: dir({ leak: worldFile('SECRET') }, TRAVERSABLE_DIR) }, TRAVERSABLE_DIR) },
+              {
+                dpkg: dir(
+                  { status: dir({ leak: worldFile('SECRET') }, TRAVERSABLE_DIR) },
+                  TRAVERSABLE_DIR,
+                ),
+              },
               TRAVERSABLE_DIR,
             ),
           },
@@ -352,7 +371,10 @@ describe('filterTreeToAllowlist', () => {
           {
             run: dir({ 'sshd.pid': worldFile('1') }, TRAVERSABLE_DIR),
             www: dir({ 'index.html': worldFile('page') }, TRAVERSABLE_DIR),
-            lib: dir({ dpkg: dir({ status: worldFile('Package: nginx') }, TRAVERSABLE_DIR) }, TRAVERSABLE_DIR),
+            lib: dir(
+              { dpkg: dir({ status: worldFile('Package: nginx') }, TRAVERSABLE_DIR) },
+              TRAVERSABLE_DIR,
+            ),
           },
           TRAVERSABLE_DIR,
         ),
@@ -393,7 +415,10 @@ describe('filterTreeToAllowlist', () => {
   });
 
   it('does not mutate the input tree', () => {
-    const tree = dir({ etc: dir({ passwd: file('hash', PASSWD_FILE) }, TRAVERSABLE_DIR) }, TRAVERSABLE_DIR);
+    const tree = dir(
+      { etc: dir({ passwd: file('hash', PASSWD_FILE) }, TRAVERSABLE_DIR) },
+      TRAVERSABLE_DIR,
+    );
 
     filterTreeToAllowlist(tree);
 

@@ -46,7 +46,10 @@ const check = (name: string, pass: boolean, detail: string) => {
   console.log(`${pass ? 'PASS' : 'FAIL'}  ${name}  —  ${detail}`);
 };
 
-const post = async (endpoint: string, envelope: unknown): Promise<{ status: number; body: unknown }> => {
+const post = async (
+  endpoint: string,
+  envelope: unknown,
+): Promise<{ status: number; body: unknown }> => {
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -63,7 +66,9 @@ const foundOf = (body: unknown): boolean | undefined =>
 const portsOf = (body: unknown): readonly { port: number; service: string }[] =>
   typeof body === 'object' && body !== null ? ((body as { ports?: never[] }).ports ?? []) : [];
 const machineIdOf = (body: unknown): string | undefined =>
-  typeof body === 'object' && body !== null ? (body as { machine_id?: string }).machine_id : undefined;
+  typeof body === 'object' && body !== null
+    ? (body as { machine_id?: string }).machine_id
+    : undefined;
 
 // --- Identities: A (owner/victim), B (the scanner / would-be guest). ---
 const alice = generateIdentity();
@@ -121,7 +126,10 @@ const insertPatches = async (rows: readonly Record<string, unknown>[], label: st
 
 // === CONTROL: a healthy A answers the network ===
 
-const scanHealthy = await post(NETWORK, signRequest(bob, 'resolvePublicScan', { target: A_PUBLIC_IP }));
+const scanHealthy = await post(
+  NETWORK,
+  signRequest(bob, 'resolvePublicScan', { target: A_PUBLIC_IP }),
+);
 check(
   'healthy A → scan reports host up with the sshd port',
   scanHealthy.status === 200 &&
@@ -173,17 +181,30 @@ await sr.from('sessions').delete().eq('player_key', bob.publicKeyHex);
 // treats it as a file deletion.
 await insertPatches(
   [
-    { writer_key: bob.publicKeyHex, machine_id: A_ROUTER, path: '/boot/vmlinuz', content: null, owner: 'root', permissions: bootPerms, node_type: 'file' },
+    {
+      writer_key: bob.publicKeyHex,
+      machine_id: A_ROUTER,
+      path: '/boot/vmlinuz',
+      content: null,
+      owner: 'root',
+      permissions: bootPerms,
+      node_type: 'file',
+    },
   ],
   'router boot tombstone',
 );
 
 // === BRICKED: A goes dark to scans + refuses logins ===
 
-const scanBricked = await post(NETWORK, signRequest(bob, 'resolvePublicScan', { target: A_PUBLIC_IP }));
+const scanBricked = await post(
+  NETWORK,
+  signRequest(bob, 'resolvePublicScan', { target: A_PUBLIC_IP }),
+);
 check(
   'bricked A → scan reports host down, no ports (router kernel gone → public IP dark)',
-  scanBricked.status === 200 && foundOf(scanBricked.body) === false && portsOf(scanBricked.body).length === 0,
+  scanBricked.status === 200 &&
+    foundOf(scanBricked.body) === false &&
+    portsOf(scanBricked.body).length === 0,
   `status=${scanBricked.status} found=${foundOf(scanBricked.body)} ports=${JSON.stringify(portsOf(scanBricked.body))}`,
 );
 

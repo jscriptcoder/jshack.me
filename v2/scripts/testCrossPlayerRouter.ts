@@ -208,7 +208,8 @@ check(
 
 // 4. READ-BACK: B's cross-player router read now reflects its own edit.
 const r4 = await post(NETWORK, signRequest(bob, 'resolveCrossPlayerFs', { machine_id: A_ROUTER }));
-const rules4 = r4.status === 200 ? fileContent(get(treeOf(r4.body)!, 'etc', 'iptables', 'rules.v4')) : null;
+const rules4 =
+  r4.status === 200 ? fileContent(get(treeOf(r4.body)!, 'etc', 'iptables', 'rules.v4')) : null;
 check(
   'B’s router read reflects its rules.v4 edit',
   rules4 === FORWARD_RULES,

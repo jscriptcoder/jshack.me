@@ -15,10 +15,7 @@ import { md5 } from '../generation/md5';
 import { asGameTime } from '../types';
 import { AUTH_LOG_PATH, formatSshdAuthLine } from '../logging/authLog';
 import { derivePid } from '../logging/syslog';
-import type {
-  MachineLogReadQuery,
-  MachineLogReadResult,
-} from '../patches/appendMachineLog';
+import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
 import type { PatchRow } from '../patches/upsertPatch';
 import type { Directory } from '../filesystem/types';
 import type { NonceStore } from '../signedRequest/nonceStore';
@@ -79,7 +76,9 @@ const expectedSshdLine = (
 
 /** A real machine host on the signer's deterministic LAN to ssh into. */
 const targetHostFor = (pubkey: string): LanHost => {
-  const machine = generateHomeLan(pubkey, ESSID).hosts.filter((host) => host.kind === 'machine').at(-1);
+  const machine = generateHomeLan(pubkey, ESSID)
+    .hosts.filter((host) => host.kind === 'machine')
+    .at(-1);
   if (machine === undefined) throw new Error('no machine host on LAN');
   return machine;
 };
@@ -244,7 +243,11 @@ describe('handleAuthCreateSession', () => {
     const id = generateIdentity();
     const host = targetHostFor(id.publicKeyHex);
     const fs = buildRemoteHostFs(id.publicKeyHex, ESSID, host);
-    const { parent_session_id: _p, source_ip: _s, ...rest } = basePayload({
+    const {
+      parent_session_id: _p,
+      source_ip: _s,
+      ...rest
+    } = basePayload({
       target_ip: host.ip,
       username: 'root',
       password: passwordFor(fs, 'root'),
@@ -294,7 +297,10 @@ describe('handleAuthCreateSession', () => {
     const envelope = validEnvelope(id, host, 'root');
     const { deps, insertSession } = makeDeps();
 
-    const result = await handleAuthCreateSession({ ...envelope, payload: `${envelope.payload} ` }, deps);
+    const result = await handleAuthCreateSession(
+      { ...envelope, payload: `${envelope.payload} ` },
+      deps,
+    );
 
     expect(result).toEqual({ status: 401, body: { error: 'signature_invalid' } });
     expect(insertSession).not.toHaveBeenCalled();
@@ -383,10 +389,7 @@ describe('handleAuthCreateSession', () => {
     const host = targetHostFor(id.publicKeyHex);
     const { deps, upsertPatch } = makeDeps();
 
-    await handleAuthCreateSession(
-      validEnvelope(id, host, 'root', { source_ip: '10.9.8.7' }),
-      deps,
-    );
+    await handleAuthCreateSession(validEnvelope(id, host, 'root', { source_ip: '10.9.8.7' }), deps);
 
     expect(upsertPatch.mock.calls[0]![0].content).toContain('from 10.9.8.7');
   });
@@ -484,7 +487,11 @@ describe('handleAuthCreateSession', () => {
     const envelope = signRequest(
       id,
       'authCreateSession',
-      basePayload({ target_ip: router.ip, username: 'root', password: 'definitely-not-the-admin-pw' }),
+      basePayload({
+        target_ip: router.ip,
+        username: 'root',
+        password: 'definitely-not-the-admin-pw',
+      }),
     );
     const { deps, insertSession } = makeDeps();
 

@@ -92,9 +92,33 @@ await sr.from('network_registry').insert({
 // secret, sshd pidfile — all written by A (writer_key = owner).
 await sr.from('patches').delete().eq('machine_id', A_MACHINE);
 await sr.from('patches').insert([
-  { writer_key: alice.publicKeyHex, machine_id: A_MACHINE, path: '/srv/loot.txt', content: 'OWNED_BY_A', owner: 'root', permissions: worldReadable, node_type: 'file' },
-  { writer_key: alice.publicKeyHex, machine_id: A_MACHINE, path: '/srv/secret.txt', content: 'TOP_SECRET', owner: 'root', permissions: userOnly, node_type: 'file' },
-  { writer_key: alice.publicKeyHex, machine_id: A_MACHINE, path: '/var/run/sshd.pid', content: 'sshd:port=22', owner: 'root', permissions: worldReadable, node_type: 'file' },
+  {
+    writer_key: alice.publicKeyHex,
+    machine_id: A_MACHINE,
+    path: '/srv/loot.txt',
+    content: 'OWNED_BY_A',
+    owner: 'root',
+    permissions: worldReadable,
+    node_type: 'file',
+  },
+  {
+    writer_key: alice.publicKeyHex,
+    machine_id: A_MACHINE,
+    path: '/srv/secret.txt',
+    content: 'TOP_SECRET',
+    owner: 'root',
+    permissions: userOnly,
+    node_type: 'file',
+  },
+  {
+    writer_key: alice.publicKeyHex,
+    machine_id: A_MACHINE,
+    path: '/var/run/sshd.pid',
+    content: 'sshd:port=22',
+    owner: 'root',
+    permissions: worldReadable,
+    node_type: 'file',
+  },
 ]);
 
 // Seed B's active guest session on A's workstation (as 2b's login would write it).
@@ -111,7 +135,8 @@ await sr.from('sessions').insert({
 
 // 1. B (guest session) reads A's box → 200, sees A's real guest-readable file.
 const r1 = await post(signRequest(bob, 'resolveCrossPlayerFs', { machine_id: A_MACHINE }));
-const tree1 = r1.status === 200 ? deserializeTree((r1.body as { tree: SerializedDirectory }).tree) : null;
+const tree1 =
+  r1.status === 200 ? deserializeTree((r1.body as { tree: SerializedDirectory }).tree) : null;
 const loot = tree1 ? get(tree1, 'srv', 'loot.txt') : undefined;
 check(
   'B (guest) reads A’s real guest-readable file',
@@ -136,7 +161,8 @@ check(
 // observable allowlist: the sshd pidfile leaks (port liveness), but the guest-
 // readable loot, the user-only secret, /etc/passwd and /root all default-deny.
 const r3 = await post(signRequest(carol, 'resolveCrossPlayerFs', { machine_id: A_MACHINE }));
-const tree3 = r3.status === 200 ? deserializeTree((r3.body as { tree: SerializedDirectory }).tree) : null;
+const tree3 =
+  r3.status === 200 ? deserializeTree((r3.body as { tree: SerializedDirectory }).tree) : null;
 const wire3 = JSON.stringify(r3.body);
 const pid3 = tree3 ? get(tree3, 'var', 'run', 'sshd.pid') : undefined;
 check(
@@ -157,7 +183,8 @@ check(
 // 3b. Tier 1 — the OWNER (A) reads its own box in full: even the user-only secret
 // and /etc/passwd (with A's real root hash) are returned. Ownership trumps tier.
 const r3b = await post(signRequest(alice, 'resolveCrossPlayerFs', { machine_id: A_MACHINE }));
-const tree3b = r3b.status === 200 ? deserializeTree((r3b.body as { tree: SerializedDirectory }).tree) : null;
+const tree3b =
+  r3b.status === 200 ? deserializeTree((r3b.body as { tree: SerializedDirectory }).tree) : null;
 const secret3b = tree3b ? get(tree3b, 'srv', 'secret.txt') : undefined;
 const passwd3b = tree3b ? get(tree3b, 'etc', 'passwd') : undefined;
 check(
@@ -172,7 +199,9 @@ check(
 
 // 4. An unregistered machine → 404 host_unreachable.
 const r4 = await post(
-  signRequest(bob, 'resolveCrossPlayerFs', { machine_id: computeWorkstationId('ghost', 'e'.repeat(64)) }),
+  signRequest(bob, 'resolveCrossPlayerFs', {
+    machine_id: computeWorkstationId('ghost', 'e'.repeat(64)),
+  }),
 );
 check(
   'unregistered machine → 404 host_unreachable',
@@ -183,7 +212,11 @@ check(
 // 5. Tampered signature rejected before any lookup.
 const env5 = signRequest(bob, 'resolveCrossPlayerFs', { machine_id: A_MACHINE });
 const r5 = await post({ ...env5, payload: `${env5.payload} ` });
-check('tampered signature → 401', r5.status === 401, `status=${r5.status} error=${errorOf(r5.body)}`);
+check(
+  'tampered signature → 401',
+  r5.status === 401,
+  `status=${r5.status} error=${errorOf(r5.body)}`,
+);
 
 // 6. Client-supplied player_key rejected.
 const r6 = await post(

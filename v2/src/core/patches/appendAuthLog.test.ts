@@ -23,7 +23,9 @@ const makeDeps = (over: Partial<AppendAuthLogDeps> = {}) => {
     error: null,
   }));
   const readAuthLog = vi.fn<
-    (query: AuthLogContentQuery) => Promise<{ data: { content: string | null } | null; error: unknown }>
+    (
+      query: AuthLogContentQuery,
+    ) => Promise<{ data: { content: string | null } | null; error: unknown }>
   >(async () => ({ data: null, error: null }));
   const deps: AppendAuthLogDeps = {
     nonceStore: freshStore,
@@ -204,7 +206,10 @@ describe('handleAppendAuthLog', () => {
     const envelope = signRequest(id, 'appendAuthLog', ownEvent(id.publicKeyHex));
     const { deps, upsertPatch, readAuthLog } = makeDeps();
 
-    const result = await handleAppendAuthLog({ ...envelope, payload: `${envelope.payload} ` }, deps);
+    const result = await handleAppendAuthLog(
+      { ...envelope, payload: `${envelope.payload} ` },
+      deps,
+    );
 
     expect(result).toEqual({ status: 401, body: { error: 'signature_invalid' } });
     expect(readAuthLog).not.toHaveBeenCalled();

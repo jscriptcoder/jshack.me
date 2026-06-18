@@ -72,7 +72,10 @@ describe('nmap', () => {
     const conn = onlineConnectivity('BEAN-THERE-WIFI');
     const env = mockCommandEnv({
       identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
-      network: mockNetworkView({ isOnline: () => false, interfaces: () => [...conn.interfaces.values()] }),
+      network: mockNetworkView({
+        isOnline: () => false,
+        interfaces: () => [...conn.interfaces.values()],
+      }),
     });
 
     const result = await nmap.execute(env, ['192.168.188.0/24'], new Map());
@@ -101,7 +104,10 @@ describe('nmap', () => {
     const cold = buildColdStartConnectivity(PUBKEY);
     const env = mockCommandEnv({
       identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
-      network: mockNetworkView({ isOnline: () => true, interfaces: () => [...cold.interfaces.values()] }),
+      network: mockNetworkView({
+        isOnline: () => true,
+        interfaces: () => [...cold.interfaces.values()],
+      }),
     });
 
     const result = await nmap.execute(env, ['192.168.188.0/24'], new Map());
@@ -138,9 +144,7 @@ describe('nmap', () => {
   });
 
   it('a range lists only the hosts whose last octet falls inside it', async () => {
-    const { text } = await drain(
-      await nmap.execute(onlineEnv(), ['192.168.188.20-80'], new Map()),
-    );
+    const { text } = await drain(await nmap.execute(onlineEnv(), ['192.168.188.20-80'], new Map()));
 
     // .25 and .70 are inside [20, 80]; .1, .154, .209, .245 are not.
     expect(text).toContain('192.168.188.25');
@@ -153,9 +157,7 @@ describe('nmap', () => {
 
   it('includes hosts sitting exactly on the range boundaries', async () => {
     // .25 == start and .70 == end must both be included (inclusive bounds).
-    const { text } = await drain(
-      await nmap.execute(onlineEnv(), ['192.168.188.25-70'], new Map()),
-    );
+    const { text } = await drain(await nmap.execute(onlineEnv(), ['192.168.188.25-70'], new Map()));
 
     expect(text).toContain('192.168.188.25');
     expect(text).toContain('192.168.188.70');
@@ -163,9 +165,7 @@ describe('nmap', () => {
   });
 
   it('includes the gateway when the range covers .1', async () => {
-    const { text } = await drain(
-      await nmap.execute(onlineEnv(), ['192.168.188.1-30'], new Map()),
-    );
+    const { text } = await drain(await nmap.execute(onlineEnv(), ['192.168.188.1-30'], new Map()));
 
     expect(text).toContain('192.168.188.1');
     expect(text).toContain('router');
@@ -185,9 +185,7 @@ describe('nmap', () => {
   });
 
   it('echoes the scanned range in the banner', async () => {
-    const { text } = await drain(
-      await nmap.execute(onlineEnv(), ['192.168.188.20-80'], new Map()),
-    );
+    const { text } = await drain(await nmap.execute(onlineEnv(), ['192.168.188.20-80'], new Map()));
 
     expect(text).toContain('192.168.188.20-80');
   });
@@ -654,7 +652,10 @@ describe('nmap — cross-player public-IP scan (slice 1a)', () => {
     const conn = onlineConnectivity('BEAN-THERE-WIFI');
     const env = mockCommandEnv({
       identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
-      network: mockNetworkView({ isOnline: () => false, interfaces: () => [...conn.interfaces.values()] }),
+      network: mockNetworkView({
+        isOnline: () => false,
+        interfaces: () => [...conn.interfaces.values()],
+      }),
       scan: mockScanApi({ resolvePublic }),
     });
 
@@ -668,7 +669,11 @@ describe('nmap — cross-player public-IP scan (slice 1a)', () => {
   it('treats a public-prefixed RANGE as a normal (out-of-range) LAN target, not a cross-player scan', async () => {
     const resolvePublic = vi.fn(async () => ({ found: true, ports: [] }));
 
-    const result = await nmap.execute(envWithResolve(resolvePublic), ['203.0.113.1-254'], new Map());
+    const result = await nmap.execute(
+      envWithResolve(resolvePublic),
+      ['203.0.113.1-254'],
+      new Map(),
+    );
     if (result.kind !== 'sync') throw new Error('expected sync result');
 
     expect(result.exitCode).toBe(1);

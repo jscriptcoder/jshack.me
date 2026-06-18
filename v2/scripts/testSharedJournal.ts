@@ -42,7 +42,10 @@ const check = (name: string, pass: boolean, detail: string) => {
   console.log(`${pass ? 'PASS' : 'FAIL'}  ${name}  —  ${detail}`);
 };
 
-const post = async (endpoint: string, envelope: unknown): Promise<{ status: number; body: unknown }> => {
+const post = async (
+  endpoint: string,
+  envelope: unknown,
+): Promise<{ status: number; body: unknown }> => {
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -143,8 +146,12 @@ await sr.from('patches').insert({
   node_type: 'file',
   updated_at: '2099-01-01T00:00:00.000000+00:00',
 });
-const r3 = await post(NETWORK, signRequest(alice, 'resolveCrossPlayerFs', { machine_id: A_MACHINE }));
-const tree3 = r3.status === 200 ? deserializeTree((r3.body as { tree: SerializedDirectory }).tree) : null;
+const r3 = await post(
+  NETWORK,
+  signRequest(alice, 'resolveCrossPlayerFs', { machine_id: A_MACHINE }),
+);
+const tree3 =
+  r3.status === 200 ? deserializeTree((r3.body as { tree: SerializedDirectory }).tree) : null;
 const notes3 = tree3 ? get(tree3, 'home', 'alice', 'notes.txt') : undefined;
 check(
   'multi-writer combine: later writer (B) wins the materialized content',

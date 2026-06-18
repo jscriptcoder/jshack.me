@@ -1,9 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { handleUpsertPatch, type PatchRow, type UpsertPatchDeps } from './upsertPatch';
-import type {
-  ActiveSessionQuery,
-  FindActiveSessionResult,
-} from './authorizeMachineAccess';
+import type { ActiveSessionQuery, FindActiveSessionResult } from './authorizeMachineAccess';
 import type {
   FindRegistryByMachineId,
   ListMachinePatchesResult,
@@ -25,12 +22,15 @@ const ESSID = 'BEAN-THERE-WIFI';
  *  (`hostForMachineId` → `buildRemoteHostFs`) resolves the same FS the perms are
  *  walked over. Returns the coordinate machine_id the ssh session would carry. */
 const remoteTarget = (publicKeyHex: string) => {
-  const host = generateHomeLan(publicKeyHex, ESSID).hosts.filter((candidate) => candidate.kind === 'machine').at(-1);
+  const host = generateHomeLan(publicKeyHex, ESSID)
+    .hosts.filter((candidate) => candidate.kind === 'machine')
+    .at(-1);
   if (host === undefined) throw new Error('no machine host on LAN');
   return { machineId: hostMachineId(host, ESSID), essid: ESSID };
 };
 
-const remoteSession = (userType: UserType, essid = ESSID) =>
+const remoteSession =
+  (userType: UserType, essid = ESSID) =>
   async (): Promise<FindActiveSessionResult> => ({ data: { userType, essid }, error: null });
 
 /** A registered FOREIGN player workstation (A's box): A's identity → A's
@@ -488,7 +488,9 @@ describe('handleUpsertPatch', () => {
     // `/home/alice` wouldn't exist and the create would be DENIED (no container) —
     // so an ALLOW here proves A's tree is walked, not the caller's.
     expect(result).toEqual({ status: 200, body: { ok: true } });
-    expect(upsertPatch.mock.calls[0]![0].path).toBe(`/home/${registry.workstation_username}/notes.txt`);
+    expect(upsertPatch.mock.calls[0]![0].path).toBe(
+      `/home/${registry.workstation_username}/notes.txt`,
+    );
   });
 
   it('returns 500 when the registry reverse-lookup fails (not a false allow or deny)', async () => {

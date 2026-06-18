@@ -10,12 +10,7 @@
  * making accidental dependencies loud rather than silent.
  */
 
-import {
-  asEpochMs,
-  asMachineId,
-  asNetworkAddress,
-  asPlayerKeyHex,
-} from '../../core/types';
+import { asEpochMs, asMachineId, asNetworkAddress, asPlayerKeyHex } from '../../core/types';
 import type {
   CommandEnv,
   HomeNetworkApi,

@@ -77,7 +77,9 @@ export const Nano = (props: NanoProps) => {
       <Show when={status()}>
         <div class="px-2 text-center text-[var(--theme-text-dim)]">{status()}</div>
       </Show>
-      <div class="px-2 py-1 text-[var(--theme-text-dim)]">^O Write Out&nbsp;&nbsp;&nbsp;^X Exit</div>
+      <div class="px-2 py-1 text-[var(--theme-text-dim)]">
+        ^O Write Out&nbsp;&nbsp;&nbsp;^X Exit
+      </div>
     </main>
   );
 };

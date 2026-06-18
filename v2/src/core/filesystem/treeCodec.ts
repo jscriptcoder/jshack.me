@@ -47,5 +47,7 @@ export const deserializeTree = (node: SerializedDirectory): Directory => ({
   kind: 'directory',
   owner: node.owner,
   perms: node.perms,
-  entries: new Map(Object.entries(node.entries).map(([name, child]) => [name, deserializeNode(child)])),
+  entries: new Map(
+    Object.entries(node.entries).map(([name, child]) => [name, deserializeNode(child)]),
+  ),
 });

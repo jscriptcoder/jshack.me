@@ -139,7 +139,10 @@ describe('handleCreateSession', () => {
     const envelope = signRequest(id, 'createSession', ownPayload(id.publicKeyHex));
     const { deps, insertSession } = makeDeps();
 
-    const result = await handleCreateSession({ ...envelope, payload: `${envelope.payload} ` }, deps);
+    const result = await handleCreateSession(
+      { ...envelope, payload: `${envelope.payload} ` },
+      deps,
+    );
 
     expect(result).toEqual({ status: 401, body: { error: 'signature_invalid' } });
     expect(insertSession).not.toHaveBeenCalled();

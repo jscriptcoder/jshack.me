@@ -214,13 +214,17 @@ describe('loadGameConfig / serializeGameConfig', () => {
 
   it('returns null when machineName is the wrong type', () => {
     expect(
-      loadGameConfig(JSON.stringify({ machineName: 5, username: 'alice', rootPassword: 'hunter2' })),
+      loadGameConfig(
+        JSON.stringify({ machineName: 5, username: 'alice', rootPassword: 'hunter2' }),
+      ),
     ).toBeNull();
   });
 
   it('returns null when username is the wrong type', () => {
     expect(
-      loadGameConfig(JSON.stringify({ machineName: 'skylab', username: 5, rootPassword: 'hunter2' })),
+      loadGameConfig(
+        JSON.stringify({ machineName: 'skylab', username: 5, rootPassword: 'hunter2' }),
+      ),
     ).toBeNull();
   });
 
@@ -244,7 +248,9 @@ describe('loadGameConfig / serializeGameConfig', () => {
   it('returns null when the stored machineName fails validation', () => {
     // Defensive: a hand-tampered store with an invalid machine name must not
     // load — load re-validates the machineName branch, not just the username.
-    expect(loadGameConfig(serializeGameConfig(getMockConfig({ machineName: 'Bad Name' })))).toBeNull();
+    expect(
+      loadGameConfig(serializeGameConfig(getMockConfig({ machineName: 'Bad Name' }))),
+    ).toBeNull();
   });
 
   it('returns null when the stored username fails validation (reserved name)', () => {

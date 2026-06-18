@@ -3,10 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { handleUpsertPatch, type PatchRow } from '../src/core/patches/upsertPatch';
 import { handleListPatches, type ListPatchesQuery } from '../src/core/patches/listPatches';
 import { handleRemovePatch, type PatchTreeQuery } from '../src/core/patches/removePatch';
-import {
-  handleAppendAuthLog,
-  type AuthLogContentQuery,
-} from '../src/core/patches/appendAuthLog';
+import { handleAppendAuthLog, type AuthLogContentQuery } from '../src/core/patches/appendAuthLog';
 import { handleNmapScan } from '../src/core/scan/nmapScan';
 import type { MachineLogReadQuery } from '../src/core/patches/appendMachineLog';
 import type {
@@ -183,7 +180,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     const router = byRouter.data as { owner_key: string } | null;
     return {
-      data: router === null ? null : ({ kind: 'router', owner_key: router.owner_key } as RegistryMachine),
+      data:
+        router === null
+          ? null
+          : ({ kind: 'router', owner_key: router.owner_key } as RegistryMachine),
       error: null,
     };
   };

@@ -39,7 +39,9 @@ type BootFileName = 'vmlinuz' | 'initrd.img';
 const bootTree = (files: readonly BootFileName[]): Directory =>
   buildDirectory({
     boot: buildDirectory(
-      Object.fromEntries(files.map((name) => [name, buildFile('bzImage 5.15.0', { owner: 'root' })])),
+      Object.fromEntries(
+        files.map((name) => [name, buildFile('bzImage 5.15.0', { owner: 'root' })]),
+      ),
     ),
   });
 
@@ -53,7 +55,8 @@ type RebootEnvOpts = {
 };
 
 const rebootEnv = (opts: RebootEnvOpts = {}) => {
-  const session = opts.session ?? mockSession({ machineId: OWN, userType: 'root', username: 'root' });
+  const session =
+    opts.session ?? mockSession({ machineId: OWN, userType: 'root', username: 'root' });
   // Compose the boot dir with any extra top-level nodes (e.g. /bin for the
   // registry path) without losing the /boot the decision reads.
   const base = bootTree(opts.files ?? ['vmlinuz', 'initrd.img']);

@@ -76,7 +76,8 @@ const pickHosts = (): { sshHost: LanHost; noSshHost: LanHost } => {
     if (port === 22 && sshHost === undefined) sshHost = host;
     if (port === null && noSshHost === undefined) noSshHost = host;
   }
-  if (sshHost === undefined || noSshHost === undefined) throw new Error('need an ssh + a non-ssh host');
+  if (sshHost === undefined || noSshHost === undefined)
+    throw new Error('need an ssh + a non-ssh host');
   return { sshHost, noSshHost };
 };
 
@@ -91,7 +92,11 @@ const sshEnv = (over: EnvOver = {}) =>
   mockCommandEnv({
     identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
     network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
-    session: mockSession({ id: 'su-root-1', machineId: asMachineId('skylab-deadbeef'), userType: 'root' }),
+    session: mockSession({
+      id: 'su-root-1',
+      machineId: asMachineId('skylab-deadbeef'),
+      userType: 'root',
+    }),
     now: () => asEpochMs(NOW),
     prompt: over.prompt ?? (async () => 'hunter2'),
     ssh: mockSshApi({
@@ -155,7 +160,10 @@ describe('ssh', () => {
     const cold = buildColdStartConnectivity(PUBKEY); // wlan0 exists but association is null
     const env = mockCommandEnv({
       identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
-      network: mockNetworkView({ isOnline: () => true, interfaces: () => [...cold.interfaces.values()] }),
+      network: mockNetworkView({
+        isOnline: () => true,
+        interfaces: () => [...cold.interfaces.values()],
+      }),
     });
     const result = sync(await ssh.execute(env, ['root@192.168.50.5'], new Map()));
     expect(result.exitCode).toBe(255);
@@ -250,10 +258,12 @@ describe('ssh', () => {
 
   it('authenticates, pushes the remote session, and moves into the remote home (happy path)', async () => {
     const { sshHost } = pickHosts();
-    const authenticate = vi.fn<(params: RemoteAuthParams) => Promise<RemoteAuthResult>>(async () => ({
-      ok: true,
-      userType: 'root',
-    }));
+    const authenticate = vi.fn<(params: RemoteAuthParams) => Promise<RemoteAuthResult>>(
+      async () => ({
+        ok: true,
+        userType: 'root',
+      }),
+    );
     const onPush = vi.fn<(session: Session) => void>();
     const onCwd = vi.fn<(path: string) => void>();
 
@@ -305,10 +315,12 @@ describe('ssh', () => {
   it('routes ssh to the .1 gateway to the OWN ROUTER — root session on computeRouterId, reachable on :22', async () => {
     const gateway = generateHomeLan(PUBKEY, ESSID).hosts.find((host) => host.kind === 'router');
     if (gateway === undefined) throw new Error('no gateway on LAN');
-    const authenticate = vi.fn<(params: RemoteAuthParams) => Promise<RemoteAuthResult>>(async () => ({
-      ok: true,
-      userType: 'root',
-    }));
+    const authenticate = vi.fn<(params: RemoteAuthParams) => Promise<RemoteAuthResult>>(
+      async () => ({
+        ok: true,
+        userType: 'root',
+      }),
+    );
     const onPush = vi.fn<(session: Session) => void>();
 
     const result = sync(
@@ -415,12 +427,17 @@ const sshPublicEnv = (over: PublicEnvOver = {}) =>
   mockCommandEnv({
     identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
     network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
-    session: mockSession({ id: 'su-root-1', machineId: asMachineId('bstation-cafef00d'), userType: 'root' }),
+    session: mockSession({
+      id: 'su-root-1',
+      machineId: asMachineId('bstation-cafef00d'),
+      userType: 'root',
+    }),
     now: () => asEpochMs(NOW),
     prompt: over.prompt ?? (async () => 'guestpw'),
     scan: mockScanApi({
       resolvePublic:
-        over.resolvePublic ?? (async () => ({ found: true, ports: [{ port: 22, service: 'ssh' }] })),
+        over.resolvePublic ??
+        (async () => ({ found: true, ports: [{ port: 22, service: 'ssh' }] })),
     }),
     ssh: mockSshApi({
       authenticatePublic:
@@ -641,7 +658,9 @@ describe('ssh to a public IP (cross-player)', () => {
   it('reports Connection refused when cross-player auth says host_unreachable', async () => {
     const result = sync(
       await ssh.execute(
-        sshPublicEnv({ authenticatePublic: async () => ({ ok: false, error: 'host_unreachable' }) }),
+        sshPublicEnv({
+          authenticatePublic: async () => ({ ok: false, error: 'host_unreachable' }),
+        }),
         [`guest@${PUBLIC_IP}`],
         new Map(),
       ),

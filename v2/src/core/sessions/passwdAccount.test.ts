@@ -14,7 +14,11 @@ import { md5 } from '../generation/md5';
 
 const SEED = '1'.repeat(64);
 const goodFs = () =>
-  buildWorkstationBaseFsFromIdentity({ ownerKeyHex: SEED, username: 'neo', rootPasswordHash: md5('rootpw') });
+  buildWorkstationBaseFsFromIdentity({
+    ownerKeyHex: SEED,
+    username: 'neo',
+    rootPasswordHash: md5('rootpw'),
+  });
 
 describe('accountIn', () => {
   it('returns the hash and server-derived tier for an existing account', () => {

@@ -160,7 +160,10 @@ export const postAuthLog = async (
  *  the (verified pubkey, essid, target) and writes each one's `/var/log/kern.log`
  *  itself — the client only names what it scanned. Best-effort + fire-and-forget:
  *  a failure resolves silently so logging never breaks (or delays) the scan. */
-export const recordScan = async (deps: PatchClientDeps, params: ScanRecordParams): Promise<void> => {
+export const recordScan = async (
+  deps: PatchClientDeps,
+  params: ScanRecordParams,
+): Promise<void> => {
   try {
     await post(deps, 'nmapScan', {
       essid: params.essid,

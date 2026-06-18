@@ -48,7 +48,10 @@ const monitoring = (base: ConnectivityState): ConnectivityState => ({
 
 const airdumpEnv = (
   state: ConnectivityState,
-  options: { readonly machineId?: ReturnType<typeof asMachineId>; readonly sleep?: () => Promise<void> } = {},
+  options: {
+    readonly machineId?: ReturnType<typeof asMachineId>;
+    readonly sleep?: () => Promise<void>;
+  } = {},
 ): CommandEnv =>
   mockCommandEnv({
     identity: mockIdentity({ publicKeyHex: PUBKEY }),
