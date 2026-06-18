@@ -346,22 +346,28 @@ choices (grilled one-by-one, each grounded in code). Feed straight into `plannin
        arms + the shared `buildWorkstationResolver`). **Restored** the Story 2–4 agent-browser E2E — full
        decision-8 loop confirmed live (B cross-network `nmap` → `:22`+`:2222`, `ssh guest -p 2222` → `guest@A's
        ws`, `su root` → reads A's `/etc/passwd`); also live-verified the untyped `api/` registry select.
-   - **5.1.4** — the dual-homed `.1` **sameLAN** client view: `nmap <subnet>.1` shows the router's own
-     `:22` but NOT the forwards (`scanResult(.1, sameLAN)`), closing the dual-homed scar cleanly.
+   - **5.1.4** ✅ **SHIPPED** (#270 `5bd1060`) — the dual-homed `.1` **sameLAN** client view: `nmap
+     <subnet>.1` resolves A's own real router (`buildRouterBaseFs`) and reads its ports through the single
+     `scanResult({ vantage:'sameLAN' })` (the same fn the public-IP scan uses at `external`), showing the
+     router's own `:22` but NOT the forwards. `.1` stops being a cosmetic NPC gateway. Client-only (no
+     api/DB). **Closes Story 5.1** and the dual-homed scar (`project_dual_homed_router_scan_discrepancy`).
 
 ## Next step
 
-**5.0 (`nano`) ✅ SHIPPED. 5.1 PLANNED (`plans/story-5_1-router-nat.md`) + IN FLIGHT — 5.1.1a ✅ (#258,
-`33e7444`) + 5.1.1b ✅ (#259, `f9c52ea`) + 5.1.2 ✅ (#261, `6d742ee`) + 5.1.3a ✅ (#263, `3d33021`) + 5.1.3b ✅
-(#265, `47d45b9`) + 5.1.3c ✅ (#267, `6e7bc2f`) shipped & merged.** 5.1.3 (split into 5.1.3a/b/c — own
-journal-backed router = a new machine category) is now **COMPLETE**: 5.1.3a landed A's own-LAN
-`ssh root@<subnet>.1` → journal-backed router + `nano rules.v4` persistence; 5.1.3b wired `resolveTargetPorts`
-for real (B's `nmap <A.publicIp>` shows `:2222` iff A's ws `:22` is up); 5.1.3c wired the forward→ws auth
-(`ssh guest@<A.publicIp> -p 2222` lands on A's **workstation**, session on `workstation_machine_id`) via one
-`resolveAuthTarget` unifying the router and forward arms + the shared `buildWorkstationResolver`. The full
-decision-8 cross-player loop was confirmed live (agent-browser vs `vercel dev`+Supabase). Next: **5.1.4** —
-the dual-homed `.1` **sameLAN** client view (`nmap <subnet>.1` shows the router's own `:22` but NOT the
-forwards), closing the dual-homed scar and Story 5.1. Every slice runs full
-RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR (`tdd`, `testing`, `mutation-testing`, `refactoring`).
-Model `scanResult(address, vantage)` as a clean total function — each interface its own endpoint, NEVER a
-merged view (`project_dual_homed_router_scan_discrepancy`).
+**Story 5.1 (router as a real machine + player-controlled NAT) is ✅ COMPLETE** — all eight slices shipped &
+merged: 5.0 `nano` (#256/#257), 5.1.1a (#258 `33e7444`), 5.1.1b (#259 `f9c52ea`), 5.1.2 (#261 `6d742ee`),
+5.1.3a (#263 `3d33021`), 5.1.3b (#265 `47d45b9`), 5.1.3c (#267 `6e7bc2f`), 5.1.4 (#270 `5bd1060`). The router
+is now a distinct journal-backed machine on the public IP running its own `sshd:22`; a single
+`scanResult({ address, vantage })` total function drives BOTH the external (public-IP) and sameLAN (`.1`)
+scans — never a merged view, closing the dual-homed scar (`project_dual_homed_router_scan_discrepancy`); ssh
+routes by destination port through the parsed `rules.v4`; A opts a workstation forward in by
+`nano`-editing `rules.v4`; and B's cross-player `nmap`/`ssh -p 2222` reflect it (forward→ws auth). The full
+decision-8 cross-player loop is confirmed live (agent-browser vs `vercel dev`+Supabase). The as-built model
+lives in `v2/docs/cross-player-architecture.md` (READ FIRST).
+
+**Next: Story 5.2** — A's home network behind the router (cross-player home NAT for the LAN, not just the one
+workstation): B attacks the router itself (root + rewrite forwards + brick → whole-net-dark). See the 11
+locked scope decisions in §"Story 5 — resolved scope & decisions" and the Story 5 spine above. Multi-layer
+generated target networks remain deferred to **5b**. Every slice runs full
+RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR (`tdd`, `testing`, `mutation-testing`, `refactoring`). Keep
+`scanResult(address, vantage)` a clean total function — each interface its own endpoint, NEVER a merged view.

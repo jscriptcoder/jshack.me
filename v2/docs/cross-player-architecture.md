@@ -143,6 +143,14 @@ RLS denies anon/authenticated entirely; only the service-role function touches t
   `nano`-edits `/etc/iptables/rules.v4`, persisting to the shared router journal (§4). B **seeing**
   the forward is shipped (5.1.3b — `resolveTargetPorts`, above); B **using** it (`-p 2222` →
   workstation auth) is shipped too (5.1.3c — forwarded-port login, above).
+- **Own-LAN router scan (Story 5.1.4):** A's own `nmap <subnet>.1` (the `.1` gateway, `kind:'router'`)
+  resolves the player's REAL router rather than a cosmetic NPC host: `nmap.ts` builds the router FS from
+  the own key (`buildRouterBaseFs`) and reads its ports through the single `scanResult({ vantage:'sameLAN' })`
+  — the SAME total function the public-IP scan uses at `external`. `sameLAN` returns the router's own ports
+  only (its seeded `sshd:22`) and never consults `rules.v4`, so a forward configured for the public side can
+  never leak into the LAN-side `.1` view — the dual-homed invariant: one function, two vantages, never a
+  merged view (`project_dual_homed_router_scan_discrepancy` closed). Client-only (no api/DB); self and
+  sibling hosts still read their own FS via `readOpenPorts`.
 - **Guest password:** `workstationGuestPassword(ownerKeyHex)` — a deterministic pick from a
   weak-password list, seeded from the owner's pubkey alone (`core/generation/workstationFs.ts`),
   so the server can recover it for cross-player auth and a future cracker can match it. The
@@ -278,15 +286,17 @@ boundary, tombstone-always `rm`), **Story 4** (su-to-root via the obtained passw
 guest@<public IP> → su root → rm /boot/vmlinuz → reboot`, after which A is bricked and drops off
 scans / refuses logins for everyone.
 
-**Story 5** (cross-player home NAT) in flight: `nano` (5.0), the router as a real journal-backed
-machine + public-IP scan/login routed through it (5.1.1a/b, 5.1.2), A's own-LAN `ssh root@.1`
-+ `nano /etc/iptables/rules.v4` persisting to the shared router journal (5.1.3a), B's scan
-reflecting A's forward (5.1.3b — `resolveTargetPorts` wired + liveness-gated), and B's `-p 2222` →
-**workstation** auth (5.1.3c — forward→ws via `resolveAuthTarget` + the shared
-`buildWorkstationResolver`) are all shipped — **5.1.3 is complete**, and the full decision-8
-cross-player loop is confirmed live (agent-browser vs `vercel dev`+Supabase: B cross-network
-`nmap` → `:22`+`:2222`, `ssh guest -p 2222` → A's ws, `su root` → A's `/etc/passwd`). Next:
-**5.1.4** (dual-homed `.1` sameLAN view) closes Story 5.1. Then **Story 6**
+**Story 5.1** (router as a real machine + player-controlled NAT) is ✅ **COMPLETE**: `nano` (5.0), the
+router as a real journal-backed machine + public-IP scan/login routed through it (5.1.1a/b, 5.1.2),
+A's own-LAN `ssh root@.1` + `nano /etc/iptables/rules.v4` persisting to the shared router journal
+(5.1.3a), B's scan reflecting A's forward (5.1.3b — `resolveTargetPorts` wired + liveness-gated), B's
+`-p 2222` → **workstation** auth (5.1.3c — forward→ws via `resolveAuthTarget` + the shared
+`buildWorkstationResolver`), and A's own-LAN `nmap <subnet>.1` resolving the real router via
+`scanResult` sameLAN (5.1.4 — `.1` no longer cosmetic; forwards excluded LAN-side, closing the
+dual-homed scar). The full decision-8 cross-player loop is confirmed live (agent-browser vs
+`vercel dev`+Supabase: B cross-network `nmap` → `:22`+`:2222`, `ssh guest -p 2222` → A's ws, `su root`
+→ A's `/etc/passwd`). Next: **Story 5.2** (A's home LAN behind the router — B attacks the router itself:
+root + rewrite forwards + brick → whole-net-dark; multi-layer nets deferred to 5b). Then **Story 6**
 (cross-player scan/connection + su/brick auth.log trace on the shared record), **Story 7**
 (same-wifi shared-LAN occupancy). See `plans/multiplayer-crossplayer-epic.md`.
 
