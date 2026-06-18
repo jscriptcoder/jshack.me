@@ -26,6 +26,7 @@ import type {
   Session,
   SshApi,
   SuApi,
+  TerminalLine,
 } from '../core/commands/types';
 import type { Directory } from '../core/filesystem/types';
 import type { WifiNetwork } from '../core/network/wifi';
@@ -111,6 +112,15 @@ export type BuildCommandEnvArgs = {
    *  local assignment). Optional here: when absent, join falls back to the pure
    *  local-deterministic assignment (terse test setups + pre-server callers). */
   readonly onHomeNetworkJoin?: HomeNetworkApi['join'];
+  /** A line emitted mid-command via `env.output` — the UI appends it to scrollback.
+   *  `reset` is the first consumer (its danger warning prints before the prompt).
+   *  Optional: terse test setups that don't drive `env.output` leave it unwired,
+   *  so any accidental `env.output` use surfaces as the loud stub. */
+  readonly onOutputLine?: (line: TerminalLine) => void;
+  /** The game-reset seam — backs `env.resetGame`. The UI wires it to wipe all
+   *  client-persisted state and reload to the intro screen. Optional: only `reset`
+   *  fires it, so other setups leave it unwired (a stray call hits the loud stub). */
+  readonly onResetGame?: () => void;
 };
 
 const notWired = (method: string) => (): never => {
@@ -136,6 +146,15 @@ const outputStub = (): OutputSink => ({
   dim: notWired('output.dim'),
 });
 
+/** A live `OutputSink` that forwards each line (tagged with its kind) to the UI's
+ *  scrollback appender. Used when the UI wires `onOutputLine` (the real terminal);
+ *  absent it, callers get `outputStub` so missing wiring stays loud. */
+const outputSinkFrom = (emit: (line: TerminalLine) => void): OutputSink => ({
+  text: (content) => emit({ kind: 'text', content }),
+  error: (content) => emit({ kind: 'error', content }),
+  dim: (content) => emit({ kind: 'dim', content }),
+});
+
 const remoteStub = (): RemoteApi => ({ listPatches: notWired('remote.listPatches') });
 
 export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
@@ -146,7 +165,7 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   now: () => asEpochMs(Date.now()),
   fs: createFsView(args.root, { userType: args.session.userType, cwd: args.cwd }),
   network: networkView(args.session, args.connectivity, args.wifiNetworks),
-  output: outputStub(),
+  output: args.onOutputLine ? outputSinkFrom(args.onOutputLine) : outputStub(),
   patches: args.patches,
   remote: remoteStub(),
   log: args.log,
@@ -175,6 +194,7 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   prompt: args.prompt,
   pushSession: args.onPushSession,
   popSession: args.onPopSession,
+  resetGame: args.onResetGame ?? notWired('resetGame'),
   // The UI owns the run's signal; both the abort flag commands read and the
   // pacing sleep observe it, so Ctrl-C stops a streamed command mid-flight.
   sleep: (ms) => abortableSleep(args.signal, ms),

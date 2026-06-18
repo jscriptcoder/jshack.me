@@ -358,6 +358,20 @@ export const cancelPrompt = (): void => {
   pending.reject(new DOMException('prompt cancelled', 'AbortError'));
 };
 
+/** The deferred-reload delay (ms) for `reset`: long enough that the command's
+ *  `Resetting game...` line renders before the page tears down. */
+const RESET_RELOAD_MS = 400;
+
+/** Backs `env.resetGame` (the `reset` command). Wipe ALL client-persisted state
+ *  — identity, game config, and the saved connection all live in `localStorage`,
+ *  the whole origin is the game — so the next boot regenerates a fresh Ed25519
+ *  identity and shows the intro screen. The reload is deferred a beat so the
+ *  command's `Resetting game...` line paints first. */
+const resetGame = (): void => {
+  localStorage.clear();
+  setTimeout(() => window.location.reload(), RESET_RELOAD_MS);
+};
+
 /** Reactive prompt host (machine name) + username for the UI. The host reflects
  *  the ACTIVE session's machine: your own box for the base/`su` sessions, the
  *  remote host's name after an `ssh` hop — both recovered from the session's
@@ -743,6 +757,10 @@ const executeLine = async (line: string): Promise<void> => {
     // whether there's somewhere to drop back to (empty at the base shell).
     hopChain: sessionStack().slice(0, -1),
     onPopSession: popSession,
+    onResetGame: resetGame,
+    // `reset` prints its danger warning mid-command via `env.output`, before the
+    // confirm prompt — append it straight to scrollback.
+    onOutputLine: (line) => setScrollback((previous) => [...previous, line]),
   });
 
   try {

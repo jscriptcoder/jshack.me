@@ -389,6 +389,13 @@ export type CommandEnv = {
    *  every "leave this hop" transition (ssh/nc session exits). */
   readonly popSession: () => void;
 
+  /** Wipe the player's game and start fresh — the game-only `reset` command's
+   *  seam. The UI owns the actual side effect (clear all client-persisted state,
+   *  regenerating the identity, then reload to the intro screen); `core/` only
+   *  knows there's a trigger. Fire-once: the reload is deferred a beat so the
+   *  command's `Resetting game...` line renders before the page tears down. */
+  readonly resetGame: () => void;
+
   /** Piped input from a previous command in the pipeline. */
   readonly stdin?: AsyncIterable<string>;
 
