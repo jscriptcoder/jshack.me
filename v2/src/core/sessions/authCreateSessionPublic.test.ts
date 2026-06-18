@@ -82,9 +82,11 @@ const patchesByMachine =
     error: null,
   });
 
-/** A root `rm /boot/vmlinuz` on the ROUTER's journal — replayed, it deletes the
- *  kernel so `canBoot` reports the router bricked (the whole public IP goes dark). */
-const routerBootTombstone: OwnerPatchRow = {
+/** A root `rm /boot/vmlinuz` tombstone — replayed over a machine's seeded base, it
+ *  deletes the kernel so `canBoot` reports that box bricked. Dropped on the ROUTER's
+ *  journal it takes the whole public IP dark; dropped on the WORKSTATION's journal it
+ *  drops only the forward behind the NAT (the router still answers its own ports). */
+const bootTombstone: OwnerPatchRow = {
   path: '/boot/vmlinuz',
   content: null,
   owner: 'root',
@@ -311,6 +313,27 @@ describe('handleAuthCreateSessionPublic', () => {
     expect(insertSession).not.toHaveBeenCalled();
   });
 
+  it('refuses a forwarded port to a BRICKED workstation as host_unreachable, even with its sshd up and a correct password, without inserting', async () => {
+    const attacker = generateIdentity();
+    // The forward is live (router forward + ws sshd pidfile present), but the
+    // workstation has been bricked (a /boot tombstone). A bricked box behind the NAT
+    // can't come up, so the forward reaches a dead host — refused regardless of a
+    // CORRECT guest password, proving the boot gate wins over liveness + credentials.
+    const { deps, insertSession } = makeDeps(
+      undefined,
+      undefined,
+      patchesByMachine({ [ROUTER_ID]: [routerForward], [WS_ID]: [wsSshdUp, bootTombstone] }),
+    );
+
+    const result = await handleAuthCreateSessionPublic(
+      envelope(attacker, { username: 'guest', password: GUEST_PW, port: 2222 }),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+
   it('reports a server error when the workstation journal lookup fails, without inserting', async () => {
     const attacker = generateIdentity();
     // Router journal (forward + boot) succeeds; the SECOND lookup — the ws journal —
@@ -335,7 +358,7 @@ describe('handleAuthCreateSessionPublic', () => {
     const { deps, findPatches, insertSession } = makeDeps(
       async () => ({ data: REGISTRY, error: null }),
       undefined,
-      async () => ({ data: [routerBootTombstone], error: null }),
+      async () => ({ data: [bootTombstone], error: null }),
     );
 
     // A CORRECT admin password — the brick must win regardless, proving the boot
