@@ -265,6 +265,14 @@ escalate on A's box and permanently brick it.
   `404 host_unreachable` before the password is checked, no session inserted. (Cross-player `su`,
   `authElevateSession`, still rebuilds the **workstation** B stands on via `materializeWorkstationFs`.)
   A dead box can't be scanned or logged into no matter the credentials.
+- **The dark-gate is role-based, at the workstation level too (Story 5.3):**
+  `dark-gate(addr) = canBoot(machineServing(addr))`. The shared `buildWorkstationResolver`
+  (`core/scan/workstationPortResolver.ts` — the ONE internal-IP→workstation lookup both the public
+  scan and the public ssh gate read) returns `null` when the materialized workstation can't boot, so
+  a bricked workstation **behind a NAT forward** drops its forwarded port from `resolvePublicScan`
+  and `404`s an `authCreateSessionPublic` to that port — even with a lingering `sshd` pidfile. Because
+  the router is gated upstream by its own `canBoot`, **bricking the workstation only removes its
+  forwarded ports; the router keeps answering its own.** (One gate site → scan and ssh can't disagree.)
 
 su / brick auth.log traces on the foreign box are a cross-player WRITE, deferred to Story 6.
 
@@ -316,10 +324,18 @@ A's public scan reflects the change. The full loop is confirmed live (agent-brow
 → `nano` add `forward 2222 to <A.ws>:22` → `nmap <A.publicIp>` goes `[22]` → `[22, 2222]` (B exposed
 A's workstation). No new mechanism for su (the router is root-only — B logs in as root directly).
 
-Next: **Story 5.3** (router brick → whole public IP dark — the role-based dark-gate; its mechanism
-is already shipped, so it's largely a verification story). Then **Story 6** (cross-player
-scan/connection + su/brick auth.log trace on the shared record), **Story 7** (same-wifi shared-LAN
-occupancy). See `plans/multiplayer-crossplayer-epic.md`.
+**Story 5.3** (router brick → whole public IP dark) is ✅ **COMPLETE**, finishing the Story-5
+cross-player home-NAT arc. The router-brick → whole-IP-dark path was already shipped (both public
+gates `canBoot`-gate the router); 5.3 verified it end-to-end **and** generalized the dark-gate to the
+**workstation behind the NAT**: the shared `buildWorkstationResolver` now returns `null` for a bricked
+workstation, so its forwarded port drops from the scan and `404`s ssh-via-forward, while the router
+keeps answering its own — `dark-gate(addr) = canBoot(machineServing(addr))` realised at both roles
+(decision #10). Confirmed live (agent-browser vs `vercel dev`+Supabase: B cross-network bricks A's
+router → `nmap <A.publicIp>` "Host seems down", `ssh` "No route to host"; and
+`scripts/testRouterBrick.ts` 9/9, both brick directions).
+
+Next: **Story 6** (cross-player scan/connection + su/brick auth.log trace on the shared record), then
+**Story 7** (same-wifi shared-LAN occupancy). See `plans/multiplayer-crossplayer-epic.md`.
 
 **Known accepted gap (deferred to an L3 smart-server):** a client with a valid keypair can
 mint an `effect_one_shot`/root session via `createSession` and call the read/reset effects
