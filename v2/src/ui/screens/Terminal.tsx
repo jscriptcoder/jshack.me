@@ -55,6 +55,24 @@ export const Terminal = () => {
     if (output) output.scrollTop = output.scrollHeight;
   });
 
+  // Keep the prompt focused. Runs on first mount, and again whenever a
+  // full-screen overlay (nano, future apps) closes — `editorMode → null`
+  // re-mounts the input, and this re-points the cursor at it — so the player
+  // never has to click to resume typing after an editor or an async command.
+  createEffect(() => {
+    if (editorMode() === null) inputEl?.focus();
+  });
+
+  // Click-to-refocus: a plain click anywhere in the terminal returns focus to
+  // the prompt, so the shell always feels live. Skipped while text is selected,
+  // so the player can still highlight output and copy it — focusing the input
+  // would collapse the selection and make Ctrl-C copy the empty prompt instead.
+  const refocusPrompt = () => {
+    const selection = window.getSelection();
+    if (selection !== null && !selection.isCollapsed) return;
+    inputEl?.focus();
+  };
+
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === 'Enter') {
       event.preventDefault();
@@ -109,7 +127,10 @@ export const Terminal = () => {
     <Show
       when={editorMode()}
       fallback={
-        <main class="flex h-full flex-col p-4 font-mono text-sm leading-relaxed">
+        <main
+          class="flex h-full flex-col p-4 font-mono text-sm leading-relaxed"
+          onClick={refocusPrompt}
+        >
           <div ref={output} class="flex-1 overflow-y-auto">
             <pre
               data-testid="terminal-banner"
