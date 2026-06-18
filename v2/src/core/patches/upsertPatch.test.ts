@@ -42,7 +42,8 @@ const remoteSession = (userType: UserType, essid = ESSID) =>
 const registeredWorkstation = () => {
   const owner = generateIdentity();
   const machineId = computeWorkstationId('skylab', owner.publicKeyHex);
-  const registry: RegistryWorkstation = {
+  const registry: { kind: 'workstation' } & RegistryWorkstation = {
+    kind: 'workstation',
     owner_key: owner.publicKeyHex,
     workstation_username: 'alice',
     workstation_root_hash: md5('hunter2'),

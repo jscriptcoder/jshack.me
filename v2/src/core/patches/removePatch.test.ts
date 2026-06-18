@@ -8,6 +8,7 @@ import type {
   FindRegistryByMachineId,
   ListMachinePatchesResult,
   RegistryWorkstation,
+  RegistryMachine,
 } from './remoteWritePermission';
 import type { PatchRow } from './upsertPatch';
 import { signRequest } from '../signedRequest/sign';
@@ -44,7 +45,8 @@ const remoteSession = (userType: UserType): FindActiveSessionResult => ({
 const registeredWorkstation = () => {
   const owner = generateIdentity();
   const machineId = computeWorkstationId('skylab', owner.publicKeyHex);
-  const registry: RegistryWorkstation = {
+  const registry: { kind: 'workstation' } & RegistryWorkstation = {
+    kind: 'workstation',
     owner_key: owner.publicKeyHex,
     workstation_username: 'alice',
     workstation_root_hash: md5('hunter2'),
@@ -62,7 +64,7 @@ const makeDeps = (
     readonly upsertError?: unknown;
     readonly activeSession?: FindActiveSessionResult;
     readonly machinePatches?: ListMachinePatchesResult;
-    readonly registry?: RegistryWorkstation | null;
+    readonly registry?: RegistryMachine | null;
   } = {},
 ) => {
   const deletePatchTree = vi.fn<RemovePatchDeps['deletePatchTree']>(async () => ({

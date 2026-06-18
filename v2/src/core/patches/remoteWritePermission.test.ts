@@ -3,6 +3,7 @@ import {
   buildRegisteredWorkstationFs,
   enforceRemoteWriteL2,
   type RegistryWorkstation,
+  type RegistryMachine,
 } from './remoteWritePermission';
 import { generateIdentity } from '../identity/identity';
 import { computeRouterId } from '../identity/router';
@@ -86,6 +87,57 @@ describe('enforceRemoteWriteL2 — own router', () => {
       session: { userType: 'guest', essid: 'HOME-WIFI' },
       listMachinePatches: noPriorPatches,
       findRegistryByMachineId: noRegistry,
+    });
+
+    expect(denial).toEqual({ status: 403, error: 'permission_denied' });
+  });
+});
+
+/**
+ * The FOREIGN-ROUTER L2 branch (Story 5.2): B (a DIFFERENT identity) `ssh root`'d
+ * into A's router and writes A's `rules.v4`. The target is neither B's own router
+ * (`isOwnRouter` is A's, not B's) nor a LAN sibling — it's a registered foreign
+ * ROUTER, so L2 must rebuild A's ROUTER tree (from the registry's `owner_key`) and
+ * walk it at the session tier. If the code resolved a workstation instead, the
+ * router-only `/etc/iptables` dir would be absent → creating `rules.v4` would have
+ * no container → denied, so a passing "allowed" proves the router tree was built.
+ */
+describe('enforceRemoteWriteL2 — foreign router (cross-player)', () => {
+  const noPriorPatches = () => Promise.resolve({ data: [], error: null });
+
+  it("allows B's ROOT write to /etc/iptables/rules.v4 on A's registered router", async () => {
+    const attacker = generateIdentity();
+    const owner = generateIdentity();
+    // The registry resolves A's router machine_id → a router-kind row carrying A's
+    // owner_key (the seed the router tree is rebuilt from).
+    const findRegistryByMachineId = (): Promise<{ data: RegistryMachine | null; error: unknown }> =>
+      Promise.resolve({ data: { kind: 'router', owner_key: owner.publicKeyHex }, error: null });
+
+    const denial = await enforceRemoteWriteL2({
+      publicKey: attacker.publicKeyHex,
+      machineId: computeRouterId(owner.publicKeyHex),
+      path: '/etc/iptables/rules.v4',
+      session: { userType: 'root', essid: 'B-WIFI' },
+      listMachinePatches: noPriorPatches,
+      findRegistryByMachineId,
+    });
+
+    expect(denial).toBeNull();
+  });
+
+  it("denies B's non-root write to A's router root-only rules.v4", async () => {
+    const attacker = generateIdentity();
+    const owner = generateIdentity();
+    const findRegistryByMachineId = (): Promise<{ data: RegistryMachine | null; error: unknown }> =>
+      Promise.resolve({ data: { kind: 'router', owner_key: owner.publicKeyHex }, error: null });
+
+    const denial = await enforceRemoteWriteL2({
+      publicKey: attacker.publicKeyHex,
+      machineId: computeRouterId(owner.publicKeyHex),
+      path: '/etc/iptables/rules.v4',
+      session: { userType: 'guest', essid: 'B-WIFI' },
+      listMachinePatches: noPriorPatches,
+      findRegistryByMachineId,
     });
 
     expect(denial).toEqual({ status: 403, error: 'permission_denied' });

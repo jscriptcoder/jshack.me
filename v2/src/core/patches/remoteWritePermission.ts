@@ -50,9 +50,19 @@ export type RegistryWorkstation = {
   readonly workstation_root_hash: string;
 };
 
+/** A registered machine resolved by machine_id for the L2 perm check — A's
+ *  WORKSTATION (Story 2/3) or A's ROUTER (Story 5.2, B `ssh root`'d into it). The
+ *  caller holds only the machine_id and can't know which, so the reverse-lookup
+ *  discriminates and the walker rebuilds the matching OWNER tree. The router base
+ *  is seeded from the owner key alone, so its arm carries only that. Per-module
+ *  (mirrors `resolveCrossPlayerFs`'s `RegistryMachine`). */
+export type RegistryMachine =
+  | ({ readonly kind: 'workstation' } & RegistryWorkstation)
+  | { readonly kind: 'router'; readonly owner_key: string };
+
 export type FindRegistryByMachineId = (
   machineId: string,
-) => Promise<{ readonly data: RegistryWorkstation | null; readonly error: unknown }>;
+) => Promise<{ readonly data: RegistryMachine | null; readonly error: unknown }>;
 
 /** Rebuild a registered foreign workstation's base FS from its registry identity row
  *  — from the OWNER's identity (decision D6), so the cross-player write L2 walks the
@@ -94,7 +104,15 @@ const resolveTargetBaseFs = async (args: {
   const registry = await args.findRegistryByMachineId(args.machineId);
   if (registry.error) return { fs: null, error: registry.error };
   if (registry.data === null) return { fs: null, error: null };
-  return { fs: buildRegisteredWorkstationFs(registry.data), error: null };
+  // A registered foreign ROUTER (B `ssh root`'d into A's router) rebuilds from the
+  // owner's key alone; a foreign workstation from its persisted identity (D6). Both
+  // rebuild the OWNER's tree, so the write walks the SAME perms the owner sees —
+  // never a caller regeneration (Story 5.2).
+  const fs =
+    registry.data.kind === 'router'
+      ? buildRouterBaseFs(registry.data.owner_key)
+      : buildRegisteredWorkstationFs(registry.data);
+  return { fs, error: null };
 };
 
 /**
