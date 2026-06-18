@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@solidjs/testing-library';
-import { Nano } from './nano';
+import { Nano } from './Nano';
 import { asAbsPath } from '../../core/types';
 import type { PatchResult } from '../../core/commands/types';
 

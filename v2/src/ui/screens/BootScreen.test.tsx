@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@solidjs/testing-library';
-import { BootScreen } from './boot';
+import { BootScreen } from './BootScreen';
 import type { BootCheck } from '../../core/boot/bootFiles';
 
 /**

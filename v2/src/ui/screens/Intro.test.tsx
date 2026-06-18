@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@solidjs/testing-library';
-import { Intro } from './intro';
+import { Intro } from './Intro';
 
 /**
  * The intro screen is a dumb component with two steps: a menu (intro copy +

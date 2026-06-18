@@ -22,9 +22,9 @@ import {
   storeGameConfig,
 } from '../../core/gameConfig/gameConfig';
 import { resolveBootCheck, startGame } from '../state';
-import { Intro } from './intro';
-import { BootScreen } from './boot';
-import { Terminal } from './terminal';
+import { Intro } from './Intro';
+import { BootScreen } from './BootScreen';
+import { Terminal } from './Terminal';
 
 export type AppProps = {
   readonly storage: GameConfigStorage;
