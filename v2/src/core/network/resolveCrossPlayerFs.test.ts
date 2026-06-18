@@ -3,6 +3,8 @@ import {
   handleResolveCrossPlayerFs,
   type ActiveSession,
   type RegistryWorkstation,
+  type RegistryRouter,
+  type RegistryMachine,
   type ResolveCrossPlayerFsDeps,
   type OwnerPatchRow,
 } from './resolveCrossPlayerFs';
@@ -28,11 +30,17 @@ import type { NonceStore } from '../signedRequest/nonceStore';
 
 const freshStore: NonceStore = async () => ({ fresh: true });
 const MACHINE_ID = 'skylab-deadbeef';
+const ROUTER_MACHINE_ID = 'router-deadbeef';
 const OWNER_KEY = 'a'.repeat(64);
 const REGISTERED: RegistryWorkstation = {
+  kind: 'workstation',
   owner_key: OWNER_KEY,
   workstation_username: 'alice',
   workstation_root_hash: '5f4dcc3b5aa765d61d8327deb882cf99',
+};
+const REGISTERED_ROUTER: RegistryRouter = {
+  kind: 'router',
+  owner_key: OWNER_KEY,
 };
 
 // A guest-readable file A created (a real persisted patch) and a user-only one —
@@ -58,7 +66,7 @@ const OWNER_PATCHES: readonly OwnerPatchRow[] = [
   ownerRow({ path: '/srv/secret.txt', content: 'TOP_SECRET', permissions: userOnly }),
 ];
 
-type RegistryResult = { data: RegistryWorkstation | null; error: unknown };
+type RegistryResult = { data: RegistryMachine | null; error: unknown };
 type SessionResult = { data: ActiveSession | null; error: unknown };
 type PatchesResult = { data: readonly OwnerPatchRow[] | null; error: unknown };
 
@@ -114,6 +122,41 @@ describe('handleResolveCrossPlayerFs', () => {
     expect(result.body.ok).toBe(true);
     const loot = get(treeOf(result), 'srv', 'loot.txt');
     expect(loot?.kind === 'file' ? loot.content : null).toBe('OWNED_BY_A');
+  });
+
+  it('serves A’s ROUTER tree for a router registry row — rules.v4 + journal replay at the root tier', async () => {
+    const id = generateIdentity();
+    const rootOnly = { read: ['root'], write: ['root'], execute: [] } as const;
+    // B holds a ROOT session on A's router (the only way onto a root-only appliance).
+    const { deps } = makeDeps({
+      registry: async () => ({ data: REGISTERED_ROUTER, error: null }),
+      session: async () => ({ data: { userType: 'root' }, error: null }),
+      patches: async () => ({
+        data: [
+          ownerRow({
+            path: '/etc/iptables/rules.v4',
+            content: 'forward 2222 to 10.0.0.10:22',
+            permissions: rootOnly,
+          }),
+        ],
+        error: null,
+      }),
+    });
+
+    const result = await handleResolveCrossPlayerFs(envelope(id, ROUTER_MACHINE_ID), deps);
+    const tree = treeOf(result);
+
+    expect(result.status).toBe(200);
+    // A's journal edit replayed over the router base (not the seed) — proves the
+    // router's journal is replayed.
+    const rules = get(tree, 'etc', 'iptables', 'rules.v4');
+    expect(rules?.kind === 'file' ? rules.content : null).toBe('forward 2222 to 10.0.0.10:22');
+    // The discriminator: the router is a ROOT-ONLY appliance, so its /etc/passwd has
+    // no `guest` account — whereas every workstation base seeds a weak `guest`. If the
+    // handler materialized a workstation instead of the router, `guest` would appear.
+    const passwd = get(tree, 'etc', 'passwd');
+    expect(passwd?.kind).toBe('file');
+    expect(passwd?.kind === 'file' ? passwd.content : '').not.toContain('guest');
   });
 
   it('prunes paths the guest tier cannot read — no passwd hashes, no /root, no user-only files', async () => {

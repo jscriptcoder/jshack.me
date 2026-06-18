@@ -12,7 +12,7 @@ import {
   handleResolveCrossPlayerFs,
   type ActiveSession,
   type OwnerPatchRow,
-  type RegistryWorkstation,
+  type RegistryMachine,
 } from '../src/core/network/resolveCrossPlayerFs';
 import type { UserType } from '../src/core/types';
 import type { NonceStore } from '../src/core/signedRequest/nonceStore';
@@ -111,18 +111,45 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (actionOf(req.body) === 'resolveCrossPlayerFs') {
-    // Cross-player READ (slice 2c): the caller (B) holds an active session on
-    // ANOTHER identity's (A's) workstation and fetches A's filtered FS. Reverse-
-    // look-up the registry by the workstation's machine id (B holds it from the 2b
-    // login; the registry PK is public_ip, so this rides the machine_id index).
+    // Cross-player READ: the caller (B) holds an active session on ANOTHER identity's
+    // (A's) machine and fetches A's filtered FS. The held `machine_id` may be A's
+    // workstation (Story 2) OR A's router (Story 5.2 — B `ssh root`'d into it), so
+    // reverse-look-up BOTH columns and DISCRIMINATE. Two parameterized `.eq` lookups
+    // (workstation first, the common case) keep the attacker-controlled machine_id
+    // out of a string-interpolated `.or` filter; the registry PK is public_ip, so each
+    // rides the respective machine_id index.
     const findRegistryByMachineId = async (machineId: string) => {
-      const { data, error } = await supabase
+      const byWorkstation = await supabase
         .from('network_registry')
         .select('owner_key, workstation_username, workstation_root_hash')
         .eq('workstation_machine_id', machineId)
         .maybeSingle();
-      if (error) console.error('[network] registry reverse-lookup error:', error);
-      return { data: data as RegistryWorkstation | null, error };
+      if (byWorkstation.error) {
+        console.error('[network] registry ws reverse-lookup error:', byWorkstation.error);
+        return { data: null, error: byWorkstation.error };
+      }
+      if (byWorkstation.data !== null) {
+        const ws = byWorkstation.data as {
+          owner_key: string;
+          workstation_username: string;
+          workstation_root_hash: string;
+        };
+        return { data: { kind: 'workstation', ...ws } as RegistryMachine, error: null };
+      }
+      const byRouter = await supabase
+        .from('network_registry')
+        .select('owner_key')
+        .eq('router_machine_id', machineId)
+        .maybeSingle();
+      if (byRouter.error) {
+        console.error('[network] registry router reverse-lookup error:', byRouter.error);
+        return { data: null, error: byRouter.error };
+      }
+      const router = byRouter.data as { owner_key: string } | null;
+      return {
+        data: router === null ? null : ({ kind: 'router', owner_key: router.owner_key } as RegistryMachine),
+        error: null,
+      };
     };
     // The caller's active (un-ended) session on the target — the SERVER source of the
     // read tier, scoped to the verified player_key the handler supplies.

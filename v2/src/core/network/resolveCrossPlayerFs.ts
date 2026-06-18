@@ -27,6 +27,7 @@ import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { materializeWorkstationFs, type OwnerPatchRow } from './materializeWorkstationFs';
+import { materializeRouterFs } from './materializeRouterFs';
 import { filterTreeForRead, filterTreeToAllowlist } from '../patches/readFilter';
 import { serializeTree } from '../filesystem/treeCodec';
 import type { UserType } from '../types';
@@ -34,14 +35,29 @@ import type { NonceStore } from '../signedRequest/nonceStore';
 
 export type { OwnerPatchRow } from './materializeWorkstationFs';
 
-/** The registry fields needed to reconstruct the owner's box (decision D2): whose
- *  box it is (guest-password + world seed) and the player-chosen identity the FS
- *  generator stamps into `/etc/passwd`. */
+/** The registry fields needed to reconstruct the owner's WORKSTATION (decision D2):
+ *  whose box it is (guest-password + world seed) and the player-chosen identity the
+ *  FS generator stamps into `/etc/passwd`. */
 export type RegistryWorkstation = {
+  readonly kind: 'workstation';
   readonly owner_key: string;
   readonly workstation_username: string;
   readonly workstation_root_hash: string;
 };
+
+/** The registry fields needed to reconstruct the owner's ROUTER (Story 5.2). The
+ *  router base is seeded from the owner key ALONE (admin password + sshd presence
+ *  derive from it), so this carries only that. */
+export type RegistryRouter = {
+  readonly kind: 'router';
+  readonly owner_key: string;
+};
+
+/** A registered machine behind a public IP — the owner's workstation OR its router.
+ *  The caller (B) holds only a `machine_id` from the login and can't know which it
+ *  is, so the reverse-lookup discriminates and the handler materializes the matching
+ *  base (Story 5.2). */
+export type RegistryMachine = RegistryWorkstation | RegistryRouter;
 
 /** The caller's active session on the target — the SERVER-authoritative tier the
  *  read filter runs at. */
@@ -51,7 +67,7 @@ export type ResolveCrossPlayerFsDeps = {
   readonly nonceStore: NonceStore;
   readonly findRegistryByMachineId: (
     machineId: string,
-  ) => Promise<{ readonly data: RegistryWorkstation | null; readonly error: unknown }>;
+  ) => Promise<{ readonly data: RegistryMachine | null; readonly error: unknown }>;
   readonly findActiveSession: (query: {
     readonly player_key: string;
     readonly machine_id: string;
@@ -117,7 +133,12 @@ export const handleResolveCrossPlayerFs = async (
     return { status: 500, body: { error: 'patches_lookup_failed' } };
   }
 
-  const tree = materializeWorkstationFs(registry.data, patches.data);
+  // Materialize the matching base for the registered machine: a router is rebuilt
+  // from the owner key alone; a workstation from its persisted identity (Story 5.2).
+  const tree =
+    registry.data.kind === 'router'
+      ? materializeRouterFs(registry.data, patches.data)
+      : materializeWorkstationFs(registry.data, patches.data);
   // Tier dispatch: owner → full tree; active session → walker at the session tier;
   // no session → externally-observable allowlist only.
   const activeSession = session?.data ?? null;
