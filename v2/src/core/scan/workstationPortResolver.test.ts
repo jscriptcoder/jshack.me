@@ -47,6 +47,19 @@ const sshdUp: OwnerPatchRow = {
   writer_key: OWNER.publicKeyHex,
 };
 
+/** A root `rm /boot/vmlinuz` on the workstation's journal — replayed, it deletes the
+ *  kernel so the box is bricked (`canBoot` false): it can't come up, so it answers
+ *  nothing behind the NAT even if a stale `sshd` pidfile lingers. */
+const bootTombstone: OwnerPatchRow = {
+  path: '/boot/vmlinuz',
+  content: null,
+  owner: 'root',
+  permissions: null,
+  node_type: null,
+  updated_at: '2026-06-17T00:00:01.000Z',
+  writer_key: OWNER.publicKeyHex,
+};
+
 describe('buildWorkstationPortResolver', () => {
   it("returns the workstation's open ports for its own LAN IP when its sshd is up", () => {
     const resolve = buildWorkstationPortResolver({ registry: registry(), workstationPatches: [sshdUp] });
@@ -57,6 +70,17 @@ describe('buildWorkstationPortResolver', () => {
   it('returns nothing for the LAN IP when the workstation sshd is down (empty journal)', () => {
     const resolve = buildWorkstationPortResolver({ registry: registry(), workstationPatches: [] });
 
+    expect(resolve(wsLanIp)).toEqual([]);
+  });
+
+  it('returns nothing for the LAN IP when the workstation is bricked, even though its sshd pidfile lingers', () => {
+    const resolve = buildWorkstationPortResolver({
+      registry: registry(),
+      workstationPatches: [sshdUp, bootTombstone],
+    });
+
+    // A bricked box (a /boot tombstone) can't come up, so its forward goes dark — the
+    // lingering pidfile must NOT keep a dead host reachable behind the NAT.
     expect(resolve(wsLanIp)).toEqual([]);
   });
 

@@ -21,6 +21,7 @@ import type { Directory } from '../filesystem/types';
 import { assignHomeNetwork } from '../network/homeNetwork';
 import { materializeWorkstationFs, type OwnerPatchRow } from '../network/materializeWorkstationFs';
 import { readOpenPorts, type OpenPort } from '../services/pidfile';
+import { canBoot } from '../boot/bootFiles';
 
 /** The registry identity needed to locate + reconstruct the one workstation behind
  *  a player's router: the LAN IP is derived from `owner_key`+`essid`, and the tree
@@ -49,7 +50,11 @@ export const buildWorkstationResolver = (args: {
 }): ((internalIp: string) => Directory | null) => {
   const lanIp = assignHomeNetwork(args.registry.owner_key, args.registry.essid).localIp;
   const workstationFs = materializeWorkstationFs(args.registry, args.workstationPatches);
-  return (internalIp) => (internalIp === lanIp ? workstationFs : null);
+  // The role-based dark-gate behind the NAT: a bricked workstation (a /boot tombstone)
+  // can't come up, so the forward reaches a dead host — it answers nothing even if a
+  // stale sshd pidfile lingers. The tree is materialized once, so check boot once.
+  const bootable = canBoot(workstationFs).ok;
+  return (internalIp) => (internalIp === lanIp && bootable ? workstationFs : null);
 };
 
 export const buildWorkstationPortResolver = (args: {

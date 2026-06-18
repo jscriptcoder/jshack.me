@@ -76,9 +76,11 @@ const patchesByMachine =
       ? { data: workstation, error: null }
       : { data: router, error: null };
 
-/** A root `rm /boot/vmlinuz` on the ROUTER's journal — replayed, it deletes the
- *  kernel so `canBoot` reports the router bricked (the whole public IP goes dark). */
-const routerBootTombstone: OwnerPatchRow = {
+/** A root `rm /boot/vmlinuz` tombstone — replayed over a machine's seeded base, it
+ *  deletes the kernel so `canBoot` reports that box bricked. Dropped on the ROUTER's
+ *  journal it takes the whole public IP dark; dropped on the WORKSTATION's journal it
+ *  drops only the forward behind the NAT (the router still answers its own ports). */
+const bootTombstone: OwnerPatchRow = {
   path: '/boot/vmlinuz',
   content: null,
   owner: 'root',
@@ -176,6 +178,24 @@ describe('handleResolvePublicScan', () => {
     });
   });
 
+  it('hides a forwarded port when the workstation behind it is bricked, even though its sshd pidfile lingers (router still answers its own port)', async () => {
+    const id = generateIdentity();
+    const { deps } = makeDeps(
+      async () => ({ data: REGISTERED, error: null }),
+      // Forward configured + ws sshd pidfile present, but the workstation is bricked.
+      patchesByMachine([routerForward], [wsSshdUp, bootTombstone]),
+    );
+
+    const result = await handleResolvePublicScan(envelope(id, TARGET), deps);
+
+    // Only the router's own port — a bricked box behind the NAT can't answer, so its
+    // forward drops; the router itself still boots and serves :22.
+    expect(result).toEqual({
+      status: 200,
+      body: { ok: true, found: true, ports: [{ port: 22, service: 'ssh' }] },
+    });
+  });
+
   it('does not read the workstation journal when no forward is configured', async () => {
     const id = generateIdentity();
     const { deps, findPatches } = makeDeps(async () => ({ data: REGISTERED, error: null }));
@@ -209,7 +229,7 @@ describe('handleResolvePublicScan', () => {
     const id = generateIdentity();
     const { deps, findPatches } = makeDeps(
       async () => ({ data: REGISTERED, error: null }),
-      async () => ({ data: [routerBootTombstone], error: null }),
+      async () => ({ data: [bootTombstone], error: null }),
     );
 
     const result = await handleResolvePublicScan(envelope(id, TARGET), deps);
