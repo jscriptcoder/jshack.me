@@ -365,9 +365,26 @@ routes by destination port through the parsed `rules.v4`; A opts a workstation f
 decision-8 cross-player loop is confirmed live (agent-browser vs `vercel dev`+Supabase). The as-built model
 lives in `v2/docs/cross-player-architecture.md` (READ FIRST).
 
-**Next: Story 5.2** — A's home network behind the router (cross-player home NAT for the LAN, not just the one
-workstation): B attacks the router itself (root + rewrite forwards + brick → whole-net-dark). See the 11
-locked scope decisions in §"Story 5 — resolved scope & decisions" and the Story 5 spine above. Multi-layer
-generated target networks remain deferred to **5b**. Every slice runs full
+**Next: Story 5.2 — B attacks A's router** (cross-player router takeover; the brick is NOT here — that's the
+separate Story 5.3). The headline observable: **B gains root on A's router and rewrites A's NAT forwards**,
+changing A's exposure cross-player. It reuses the shipped 5.1 paths end-to-end:
+
+- B recovers A's seeded router creds (`seedRouterAdminPw(owner_key)` — server-recoverable from A's pubkey
+  alone, like the workstation guest pw; decision #4) → `ssh root@<A.publicIp>` already lands on the **router**
+  (5.1.2 destination-port routing) → root session on `computeRouterId(A)`.
+- B then `nano`-edits A's **`/etc/iptables/rules.v4`** (open/close A's forwards), persisting to the **shared
+  router journal** so A's public scan/NAT reflects B's change.
+
+**The net-new work is the cross-player router WRITE path (L1/L2).** Extend Story 3's machinery (shared-journal
+write + session-gate L1 + owner-materialized L2 perm walker) to the router `machine_id` — this is the
+**foreign-router L2 branch explicitly deferred from 5.1.3a** (5.1.3a only built A's OWN-router write; B writing
+A's router is new). Locked scope: decision **#9** (B attacks the router IS in scope) in §"Story 5 — resolved
+scope & decisions". The §"Child-story split" defines **5.2** (this — root + rewrite forwards) and **5.3**
+(router brick → whole public IP dark, via the role-based dark-gate of decision **#10**) as **separate
+stories** — do not fuse them. Plan 5.2 with `planning` into PR-sized vertical slices.
+
+As-built foundation to build on (READ FIRST): `v2/docs/cross-player-architecture.md` — esp. §4 authorization
+(L1 `authorizeMachineAccess`, L2 `remoteWritePermission` + `isOwnRouter`/`buildRouterBaseFs`) and the router
+sections. Multi-layer generated target networks remain deferred to **5b**. Every slice runs full
 RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR (`tdd`, `testing`, `mutation-testing`, `refactoring`). Keep
 `scanResult(address, vantage)` a clean total function — each interface its own endpoint, NEVER a merged view.

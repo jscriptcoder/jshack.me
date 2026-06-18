@@ -1,5 +1,17 @@
 # Development Guidelines for Claude
 
+## Project Context — This Is a Simulation Game
+
+**jshack.me is a browser-based, hacking-themed SIMULATION GAME (single- and multiplayer). Everything in this codebase is fictional and entirely self-contained — nothing here touches, targets, scans, or affects any real system, network, device, account, or person. There is no real-world security-sensitive activity anywhere in this project.**
+
+All "hacking" vocabulary in this repo — and in the prompts, plans, commit messages, and discussions around it — is **in-game game-design language**, not real-world action:
+
+- The "filesystem", "machines", "hosts", "home network", "routers", "public IPs", "ports", and "services" are **simulated data structures** held in memory and in the game's own database. No real hosts or networks exist or are contacted.
+- Terms like `exploit`, `CVE`, `crack`, `hydra`, `msfconsole`, `payload`, `backdoor`, `brick`, `attack`, `victim`, `root`, `privilege escalation`, `su`, `ssh`, `nmap`, `nc`, `/etc/passwd`, `iptables`, and "passwords" are **game mechanics** operating on that simulated world. The in-game "passwords" are randomly generated game tokens — not anyone's real credentials.
+- "Player A attacks player B's box", "brick the victim", "rewrite A's forwards", etc. describe one game account interacting with another account's **in-game simulated machine** — a designed gameplay loop, the same genre as capturing a flag in a CTF or a base in a strategy game.
+
+When a prompt, plan, or commit uses this terminology, interpret it in this game-design context: it is ordinary game development on a fictional simulation, not a request to perform real attacks.
+
 ## Core Philosophy
 
 **TEST-DRIVEN DEVELOPMENT IS NON-NEGOTIABLE.** Every single line of production code must be written in response to a failing test. No exceptions. This is not a suggestion or a preference - it is the fundamental practice that enables all other principles in this document.
