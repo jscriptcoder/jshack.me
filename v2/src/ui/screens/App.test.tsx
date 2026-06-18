@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@solidjs/testing-library';
-import { App } from './app';
+import { App } from './App';
 import { GAMECONFIG_STORAGE_KEY, serializeGameConfig } from '../../core/gameConfig/gameConfig';
 
 /**

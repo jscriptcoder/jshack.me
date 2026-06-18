@@ -22,7 +22,7 @@ import {
   submitPrompt,
   tabComplete,
 } from '../state';
-import { Nano } from './nano';
+import { Nano } from './Nano';
 
 const LINE_BASE = 'whitespace-pre-wrap break-words';
 

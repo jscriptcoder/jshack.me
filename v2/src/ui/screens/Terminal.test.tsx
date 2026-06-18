@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fireEvent, render, screen } from '@solidjs/testing-library';
-import { Terminal } from './terminal';
+import { Terminal } from './Terminal';
 import { startGame } from '../state';
 import { SEED_CONFIG } from '../seed';
 import { CONNECTED_ESSID_KEY } from '../connectionPersistence';
