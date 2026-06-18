@@ -15,7 +15,7 @@ import type {
 } from '../src/core/patches/authorizeMachineAccess';
 import type {
   ListMachinePatchesResult,
-  RegistryWorkstation,
+  RegistryMachine,
 } from '../src/core/patches/remoteWritePermission';
 import type { Patch } from '../src/core/filesystem/applyPatches';
 import type { FilePermissions } from '../src/core/filesystem/types';
@@ -146,18 +146,46 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return { data: patches, error };
   };
 
-  // L2's cross-player branch (D6): reverse-look-up a registered FOREIGN workstation
-  // by its machine_id so the handler can rebuild the OWNER's tree (the same identity
-  // the cross-player READ uses) and walk it at the session tier. Returns null for an
-  // NPC host / unknown id — L2 then resolves via the caller's own LAN or fails closed.
+  // L2's cross-player branch (D6): reverse-look-up a registered FOREIGN machine by
+  // its machine_id so the handler can rebuild the OWNER's tree (the same identity the
+  // cross-player READ uses) and walk it at the session tier. The id may be A's
+  // workstation (Story 2/3) OR A's ROUTER (Story 5.2 — B `ssh root`'d into it), so
+  // look up BOTH columns and DISCRIMINATE. Two parameterized `.eq` lookups
+  // (workstation first, the common case) keep the attacker-controlled machine_id out
+  // of a string-interpolated `.or` filter. Returns null for an NPC host / unknown id —
+  // L2 then resolves via the caller's own LAN/router or fails closed.
   const findRegistryByMachineId = async (machineId: string) => {
-    const { data, error } = await supabase
+    const byWorkstation = await supabase
       .from('network_registry')
       .select('owner_key, workstation_username, workstation_root_hash')
       .eq('workstation_machine_id', machineId)
       .maybeSingle();
-    if (error) console.error('[patches] registry reverse-lookup error:', error);
-    return { data: data as RegistryWorkstation | null, error };
+    if (byWorkstation.error) {
+      console.error('[patches] registry ws reverse-lookup error:', byWorkstation.error);
+      return { data: null, error: byWorkstation.error };
+    }
+    if (byWorkstation.data !== null) {
+      const ws = byWorkstation.data as {
+        owner_key: string;
+        workstation_username: string;
+        workstation_root_hash: string;
+      };
+      return { data: { kind: 'workstation', ...ws } as RegistryMachine, error: null };
+    }
+    const byRouter = await supabase
+      .from('network_registry')
+      .select('owner_key')
+      .eq('router_machine_id', machineId)
+      .maybeSingle();
+    if (byRouter.error) {
+      console.error('[patches] registry router reverse-lookup error:', byRouter.error);
+      return { data: null, error: byRouter.error };
+    }
+    const router = byRouter.data as { owner_key: string } | null;
+    return {
+      data: router === null ? null : ({ kind: 'router', owner_key: router.owner_key } as RegistryMachine),
+      error: null,
+    };
   };
 
   if (actionOf(req.body) === 'listPatches') {
