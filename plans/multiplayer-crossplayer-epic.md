@@ -14,10 +14,11 @@ tree) server-enforced. **Story 4 (su-to-root via the obtained password → perma
 bricked box dark to others): Slice 1 su-elevation #249 v0.64.0 · Slice 2 `/boot`+boot-screen brick #250
 v0.65.0 · Slice 3 `reboot` #251 v0.66.0 · Slice 4 bricked-box-dark v0.67.0** — B `su root` on A → `rm
 /boot/vmlinuz` → A is permanently unbootable (journal-derived, no recovery), dark to scans + ssh for
-everyone. **Story 5 IN PROGRESS** (real iptables NAT — **SCOPED 2026-06-16 via grill-me to cross-player home NAT
+everyone. **Story 5 ✅ COMPLETE** (real iptables NAT — **SCOPED 2026-06-16 via grill-me to cross-player home NAT
 only; multi-layer → new Story 5b; see "Story 5 — resolved scope & decisions" below**). **5.0 `nano` ✅ · 5.1
-(router as a real machine + player NAT) ✅ · 5.2 (B attacks A's router — cross-player router takeover) ✅
-SHIPPED; NEXT = 5.3 (router brick → whole public IP dark — largely a verification story; mechanism shipped).**
+(router as a real machine + player NAT) ✅ · 5.2 (B attacks A's router — cross-player router takeover) ✅ ·
+5.3 (router brick → whole public IP dark + workstation-behind-NAT dark-gate) ✅ SHIPPED (v0.68.0). NEXT =
+Story 6 (cross-player scan/connection + su/brick auth.log trace on the shared record).**
 Story-split authored 2026-06-13. Consolidates the remaining work from two now-retired plans
 (`network-generator-epic.md` Story 4; `scan-logging-cross-player.md` Slice 3b) into one epic. Each child
 story below graduates to its own `plans/<slice>.md` (via the `planning` skill) when started.
@@ -276,8 +277,13 @@ directly on `workstation_machine_id`. Story 5 makes all three real.
   fed by a **discriminated** registry reverse-lookup (`RegistryMachine = workstation | router`, matching
   both id columns). No `su` (router is root-only). No migration. Confirmed live (agent-browser + 8/8
   `scripts/testCrossPlayerRouter.ts`): B's edit → `nmap <A.publicIp>` `[22]` → `[22, 2222]`.
-- **5.3 — Router brick → whole net dark** — the generalized role-based dark-gate; B (root on A's router)
-  `rm /boot/vmlinuz` → A's whole public IP goes dark.
+- **5.3 — Router brick → whole net dark** ✅ **SHIPPED** (v0.68.0) — the generalized role-based dark-gate.
+  B (root on A's router) `rm /boot/vmlinuz` → A's whole public IP dark (already shipped; verified live).
+  Net-new: the **workstation-behind-NAT dark-gate** — the shared `buildWorkstationResolver` now `canBoot`-
+  gates the ws, so a bricked workstation drops its forwarded port from the scan + `404`s ssh-via-forward,
+  while the router keeps answering its own (decision #10, both roles). Confirmed live (agent-browser: B
+  bricks A's router → `nmap <A.publicIp>` "Host seems down"; `scripts/testRouterBrick.ts` 9/9, both
+  directions). As-built: `v2/docs/cross-player-architecture.md` §7.
 - **5b — Multi-layer generated target networks** _(separate, deferred)_ — the absorbed
   `network-generator` Story 4: 2–3 layers, dual-homed gateways, `switch` sub-kind, "see only your
   layer", RFC-1918 variety. Single-player generation, net-new; revisit after Story 5.
@@ -381,17 +387,22 @@ Confirmed live (agent-browser + 8/8 `scripts/testCrossPlayerRouter.ts`): B's edi
 goes `[22]` → `[22, 2222]` (B exposed A's workstation). As-built: `v2/docs/cross-player-architecture.md`
 §4 (L2 foreign-router branch) + §5 (discriminated read).
 
-**Next: Story 5.3 — router brick → whole public IP dark.** B (already able to gain root on A's router and
-write its FS, post-5.2) `rm /boot/vmlinuz` on A's router → A's whole public IP goes dark. Per decision
-**#10** the dark-gate is role-based: `dark-gate(addr) = canBoot(machineServing(addr))`, and the public-IP
-gates (`resolvePublicScan` / `authCreateSessionPublic`) already key on the **router** + `canBoot`
-(Story 4 / 5.1.1b). So the **mechanism is essentially already shipped** — 5.3 is largely a **verification
-story**: confirm B root-on-A's-router `rm /boot/vmlinuz` → A's public IP host-down on scan + `404` on
-public ssh (for everyone), with the workstation-brick-only case still leaving the router answering its own
-ports. Plan 5.3 with `planning`; expect it thin (acceptance + live E2E, little/no new mechanism). Do NOT
-fuse with anything else. Then **Story 6** (cross-player scan/connection + su/brick auth.log trace on the
-shared record), **Story 7** (same-wifi shared-LAN occupancy). Multi-layer generated target networks remain
-deferred to **5b**.
+**Story 5.3 — router brick → whole public IP dark — ✅ SHIPPED (#277, v0.68.0).** The router-brick →
+whole-IP-dark path was already shipped (both public gates `canBoot`-gate the **router**, Story 4 / 5.1.1b),
+so 5.3 verified it end-to-end **and** generalized the dark-gate to the **workstation behind the NAT** —
+the one real gap against decision **#10** (`dark-gate(addr) = canBoot(machineServing(addr))`). Net-new
+production code: the shared `buildWorkstationResolver` (`core/scan/workstationPortResolver.ts`) now returns
+`null` when the materialized workstation can't boot, fixing both the scan path (forwarded port dropped) and
+the ssh path (`404 host_unreachable`) at one site — so bricking the workstation only removes its forwarded
+ports; the router keeps answering its own. 100% mutation on the changed file; `scripts/testRouterBrick.ts`
+9/9 both directions; agent-browser live (B cross-network bricks A's router → `nmap` "Host seems down", `ssh`
+"No route to host"). The WS-brick contrast's prerequisite (root on A's workstation = A's player-chosen
+password) is a Story-4 crack, so that direction is carried by the deterministic wire-check (it seeds the
+post-crack root session). As-built: `v2/docs/cross-player-architecture.md` §7.
+
+**Next: Story 6** (cross-player scan/connection + su/brick auth.log trace on the shared record), then
+**Story 7** (same-wifi shared-LAN occupancy). Multi-layer generated target networks remain deferred to
+**5b**. Story 5 (cross-player home NAT) is now complete end to end.
 
 As-built foundation to build on (READ FIRST): `v2/docs/cross-player-architecture.md` — esp. §4 authorization
 and §7 root escalation & bricking (`canBoot`, the role-based dark-gate, `materializeRouterFs`). Every slice
