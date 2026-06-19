@@ -5,32 +5,45 @@
 **Epic**: `plans/multiplayer-crossplayer-epic.md` → "Story 6 — resolved scope & decisions (grill-me, 2026-06-19)" (READ FIRST; 7 locked decisions)
 **As-built foundation**: `v2/docs/cross-player-architecture.md` (esp. §3 reachability/login, §4 authorization, §7 root/bricking)
 
-## ▶ RESUME HERE (Slice 6.2) — picking up after compaction
+## ▶ RESUME HERE (Slice 6.3) — picking up after compaction
 
-**Done so far:** 6.0 (router seeded hostname, `seedRouterHostname`/`ROUTER_HOSTNAMES` in `core/generation/routerFs.ts`)
-and 6.1 (cross-player scan → router `kern.log`) are MERGED to `main` and live-confirmed (wire-check 6/6 +
-agent-browser). The 6.1 pattern to MIRROR in 6.2 lives in `core/scan/resolvePublicScan.ts`:
-`resolveScannerSourceIp(deps, scannerKey)` (B's source IP from `findRegistryByOwnerKey(verified.publicKey)`,
-never the client `source_ip`) + `logCrossPlayerScan(...)` (best-effort `appendMachineLog`, `writerKey =
-data.owner_key`). New deps wired in `api/network.ts`: `now`/`readLog`/`upsertPatch`/`findRegistryByOwnerKey`.
+**Done so far:** 6.0 (#284), 6.1 (#286), 6.2 (#287) ALL MERGED to `main` + live-confirmed. Branch
+`feat/v2-crossplayer-su-trace` is already created off main — start RED on it. The 6.1+6.2 pattern to
+MIRROR: the SHARED `core/logging/crossPlayerSourceIp.ts` (`resolveCrossPlayerSourceIp`/`FindRegistryByOwnerKey`)
++ each handler's local best-effort `logCrossPlayerAuth`/`logCrossPlayerScan` (try/catch around `appendMachineLog`,
+`writerKey = owner_key`, kept inline). **NOTE: `su` lines have NO source IP** (username-only) → 6.3 does NOT
+use `crossPlayerSourceIp`; it uses `formatSuAuthLine({outcome, targetUser, fromUser, hostname, time, pid})`
+from `core/logging/authLog.ts`.
 
-**6.2 = wire the SAME logging into `core/sessions/authCreateSessionPublic.ts`** (the cross-player ssh-login
-handler) → owner-keyed `auth.log` line via `formatSshdAuthLine` on `target.machineId` (router `:22` /
-workstation forward `:2222`), BOTH success + failure; `404 host_unreachable` logs nothing. Source IP = reuse
-the 6.1 source-IP derivation; hostname = `seedRouterHostname(owner_key)` for a router-served port /
-`workstation_machine_name` (ADD to the registry projection — see `RegisterNetworkDeps` row, it's already
-stored). Wire `api/sessions.ts`. **REFACTOR opportunity (now earned across 6.1+6.2):** extract a shared
-`crossPlayerSourceIp` helper + an "append cross-player log line" wrapper (assess during 6.2's REFACTOR step).
-See Slice 6.2 below for full RED/GREEN/mutator detail. The existing own-LAN `logSshAttempt` in
-`core/sessions/authCreateSession.ts` is the shape to mirror (it already does both outcomes + `formatSshdAuthLine`).
+**6.3 = wire owner-keyed `auth.log` logging into `core/sessions/authElevateSession.ts`** (cross-player `su`).
+Concrete deltas (scouted 2026-06-20):
+- `RegistryWorkstation` (`authElevateSession.ts:39`) → ADD `workstation_machine_name` (the su line hostname).
+  The `api/sessions.ts` `suElevate` projection currently selects `owner_key, workstation_machine_id, essid,
+  workstation_username, workstation_root_hash` → ADD `workstation_machine_name`.
+- `AuthElevateSessionDeps` → ADD `now`/`readAuthLog`/`upsertPatch` (NO `findRegistryByOwnerKey` — no source IP).
+- `authElevateSessionSchema` → ADD `from_user: z.string().min(1)` (B's current ws user, e.g. `guest`).
+- After `passwordOk` is computed, BOTH outcomes, BEFORE the 401: best-effort `appendMachineLog` of
+  `formatSuAuthLine({ outcome: passwordOk ? 'success' : 'failure', targetUser: payload.username, fromUser:
+  payload.from_user, hostname: data.workstation_machine_name, time: asGameTime(now()), pid: derivePid(now()) })`
+  to `(machineId = data.workstation_machine_id, AUTH_LOG_PATH, writerKey = data.owner_key, AUTH_LOG_OWNER/PERMS)`.
+  Mirror 6.2's `logCrossPlayerAuth`. `404 host_unreachable` (unknown machine_id) is upstream → logs nothing.
+- CLIENT thread `from_user`: `su.ts` `elevateCrossPlayer` (`su.ts:147`) `env.su.elevate({...})` → ADD
+  `fromUser: env.session.username`; the `env.su.elevate` adapter (`adapters/sessionsApi.ts`, suElevate payload
+  builder) maps it to `from_user`. (Own-box `logSwitch` already uses `fromUser: env.session.username`.)
+- Wire `api/sessions.ts` `suElevate` branch: projection + `now`/`readAuthLog`/`upsertPatch` (copy the 6.2
+  `authCreateSessionPublic` branch verbatim). See Slice 6.3 below for the full RED/GREEN/mutator detail.
 
-**Live-env state:** `vercel dev` is/was running on :3100 (Supabase is the user's). Re-confirm recipe →
-`v2/docs/cross-player-e2e-playbook.md` + the new `scripts/testCrossPlayerScanTrace.ts` pattern (mirror it for a
-6.2 `testCrossPlayerConnectionTrace.ts`). agent-browser B-online recipe (cost iterations to find):
-`airmon start wlan0` → `airdump` → `aircrack <strongest-BSSID>` → `airmon stop wlan0` → `nmcli connect <ESSID>
-<pw>` → `su root` (B's new-game root pw) → `apt install nmap`. Seed a target with
-`scripts/seedCrossPlayerTarget.ts` (fixed identity A, prints A's public IP + guest pw; router admin pw =
-`seedRouterAdminPw(A)`, e.g. `linksys`). `su`/`ssh` show a `Password:` prompt — type pw on the next input line.
+**Live-env state:** `vercel dev` is/was running on :3100 (Supabase is the user's). Wire-check: add
+`scripts/testCrossPlayerSuTrace.ts` mirroring `testCrossPlayerConnectionTrace.ts` (seed A + B's guest ssh row
+on A's ws, drive `/api/sessions` suElevate, read A's WORKSTATION auth.log for `Successful/FAILED su for root by
+guest`). **A's seeded ws root pw = `alice-root-secret`** (`seedCrossPlayerTarget.ts` sets `md5('alice-root-secret')`)
+— so a `su root` success IS browser-drivable, BUT B must first be on A's ws (`ssh guest@<A.publicIp> -p 2222`,
+guest pw `letmein`), which needs A's forward + ws sshd seeded (the 6.2 wire-check seeds these; the base
+`seedCrossPlayerTarget.ts` does NOT) → easiest agent-browser path = extend the seed with a forward + ws sshd
+pidfile, or rely on the wire-check for the su-line and agent-browser for the readable-trace. agent-browser
+B-online recipe: `airmon start wlan0` → `airdump` → `aircrack <strongest-BSSID>` → `airmon stop wlan0` →
+`nmcli connect <ESSID> <pw>`. `su`/`ssh` show a `Password:` prompt — type pw on the next input line (keydown
+dispatch). Playbook → `v2/docs/cross-player-e2e-playbook.md`.
 
 ## Goal
 
