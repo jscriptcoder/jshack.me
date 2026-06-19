@@ -9,7 +9,12 @@ import { generateIdentity } from '../identity/identity';
 import { computeRouterId } from '../identity/router';
 import { assignHomeNetwork } from '../network/homeNetwork';
 import { md5 } from '../generation/md5';
+import { seedRouterHostname } from '../generation/routerFs';
+import { formatNmapScanAggregate, KERN_LOG_OWNER, KERN_LOG_PERMISSIONS } from '../logging/kernLog';
+import { asGameTime } from '../types';
 import type { OwnerPatchRow } from '../network/materializeWorkstationFs';
+import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
+import type { PatchRow } from '../patches/upsertPatch';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
 /**
@@ -26,6 +31,11 @@ import type { NonceStore } from '../signedRequest/nonceStore';
 const freshStore: NonceStore = async () => ({ fresh: true });
 const TARGET = '203.0.113.7';
 const ESSID = 'CoffeeShopWiFi';
+// 2026-06-19 12:00:00 UTC — the server clock the kern.log trace is stamped with.
+const FIXED_NOW = Date.UTC(2026, 5, 19, 12, 0, 0);
+// B's (the scanner's) home public IP, as the registry returns it for B's owner key.
+// Server-derived; NEVER the client-supplied `source_ip`.
+const SCANNER_PUBLIC_IP = '198.51.100.22';
 // A real identity so the router's seeded admin password / sshd presence recover
 // from the owner key; the registry now also carries what materializing the
 // workstation behind a NAT forward needs (machine id, essid, ws identity).
@@ -92,6 +102,16 @@ const bootTombstone: OwnerPatchRow = {
 
 type LookupResult = { data: RegistryLookup | null; error: unknown };
 type PatchesResult = { data: readonly OwnerPatchRow[] | null; error: unknown };
+type OwnerKeyResult = { data: { public_ip: string } | null; error: unknown };
+
+/** Overrides for the system-logging + source-IP deps (Story 6.1). Defaults: an
+ *  empty log (a host-up scan appends one line), a successful write, and a
+ *  registry that resolves the scanner's owner key to `SCANNER_PUBLIC_IP`. */
+type LogOverrides = {
+  readLog?: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
+  upsertPatch?: (row: PatchRow) => Promise<{ error: unknown }>;
+  findRegistryByOwnerKey?: (ownerKey: string) => Promise<OwnerKeyResult>;
+};
 
 const makeDeps = (
   lookup: () => Promise<LookupResult> = async () => ({ data: null, error: null }),
@@ -99,16 +119,49 @@ const makeDeps = (
     data: [],
     error: null,
   }),
+  over: LogOverrides = {},
 ) => {
   const findRegistryByPublicIp = vi.fn<(publicIp: string) => Promise<LookupResult>>(lookup);
   const findPatches = vi.fn<(query: { machine_id: string }) => Promise<PatchesResult>>(patches);
+  const readLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
+    over.readLog ?? (async () => ({ data: null, error: null })),
+  );
+  const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(
+    over.upsertPatch ?? (async () => ({ error: null })),
+  );
+  const findRegistryByOwnerKey = vi.fn<(ownerKey: string) => Promise<OwnerKeyResult>>(
+    over.findRegistryByOwnerKey ??
+      (async () => ({ data: { public_ip: SCANNER_PUBLIC_IP }, error: null })),
+  );
   const deps: ResolvePublicScanDeps = {
     nonceStore: freshStore,
     findRegistryByPublicIp,
     findPatches,
+    now: () => FIXED_NOW,
+    readLog,
+    upsertPatch,
+    findRegistryByOwnerKey,
   };
-  return { deps, findRegistryByPublicIp, findPatches };
+  return {
+    deps,
+    findRegistryByPublicIp,
+    findPatches,
+    readLog,
+    upsertPatch,
+    findRegistryByOwnerKey,
+  };
 };
+
+/** The kern.log line the server is expected to stamp on the ROUTER record for a
+ *  host-up cross-player scan at `FIXED_NOW`: the router's owner-seeded hostname,
+ *  B's server-derived source IP, and the ports B actually saw. */
+const expectedKernLine = (sourceIp: string, ports: readonly number[]): string =>
+  formatNmapScanAggregate({
+    time: asGameTime(FIXED_NOW),
+    hostname: seedRouterHostname(REGISTERED.owner_key),
+    sourceIp,
+    probedPorts: ports,
+  });
 
 const envelope = (
   id: ReturnType<typeof generateIdentity>,
@@ -305,5 +358,142 @@ describe('handleResolvePublicScan', () => {
 
     expect(result.status).toBe(400);
     expect(findRegistryByPublicIp).not.toHaveBeenCalled();
+  });
+
+  // Story 6.1: a host-up cross-player scan leaves a truthful kern.log trace on the
+  // TARGET's shared router record. The keystone (decision 1): the line is written
+  // under the TARGET OWNER's writer_key (the system owns its logs) so multi-writer
+  // rows don't collapse under the last-write-wins fold — the scanner's identity
+  // lives in the line content (source IP), never in writer_key.
+  describe('cross-player scan trace (Story 6.1)', () => {
+    it("appends ONE kern.log line on the ROUTER record under the OWNER's writer_key for a host-up scan", async () => {
+      const scanner = generateIdentity();
+      const { deps, upsertPatch } = makeDeps(async () => ({ data: REGISTERED, error: null }));
+
+      const result = await handleResolvePublicScan(envelope(scanner, TARGET), deps);
+
+      // The scan result is unchanged by the logging.
+      expect(result).toEqual({
+        status: 200,
+        body: { ok: true, found: true, ports: [{ port: 22, service: 'ssh' }] },
+      });
+      expect(upsertPatch).toHaveBeenCalledTimes(1);
+      expect(upsertPatch.mock.calls[0]![0]).toEqual({
+        writer_key: REGISTERED.owner_key,
+        machine_id: REGISTERED.router_machine_id,
+        path: '/var/log/kern.log',
+        content: `${expectedKernLine(SCANNER_PUBLIC_IP, [22])}\n`,
+        owner: KERN_LOG_OWNER,
+        permissions: KERN_LOG_PERMISSIONS,
+        node_type: 'file',
+      });
+      // The provenance is the OWNER, never the scanner — the keystone.
+      expect(upsertPatch.mock.calls[0]![0].writer_key).not.toBe(scanner.publicKeyHex);
+    });
+
+    it('lists every port B actually saw, including a live NAT forward', async () => {
+      const scanner = generateIdentity();
+      const { deps, upsertPatch } = makeDeps(
+        async () => ({ data: REGISTERED, error: null }),
+        patchesByMachine([routerForward], [wsSshdUp]),
+      );
+
+      await handleResolvePublicScan(envelope(scanner, TARGET), deps);
+
+      // Router's own :22 plus the forwarded :2222 — the same port set the scan returned.
+      expect(upsertPatch.mock.calls[0]![0].content).toBe(
+        `${expectedKernLine(SCANNER_PUBLIC_IP, [22, 2222])}\n`,
+      );
+    });
+
+    it("uses B's REGISTRY public IP as the source, ignoring a client-supplied source_ip", async () => {
+      const scanner = generateIdentity();
+      const { deps, upsertPatch, findRegistryByOwnerKey } = makeDeps(async () => ({
+        data: REGISTERED,
+        error: null,
+      }));
+
+      await handleResolvePublicScan(envelope(scanner, TARGET, { source_ip: '10.0.0.66' }), deps);
+
+      // The lookup is keyed by the SCANNER's verified key, not the target owner.
+      expect(findRegistryByOwnerKey).toHaveBeenCalledWith(scanner.publicKeyHex);
+      const content = upsertPatch.mock.calls[0]![0].content;
+      expect(content).toContain(`from ${SCANNER_PUBLIC_IP}`);
+      expect(content).not.toContain('10.0.0.66');
+    });
+
+    it("falls back to 'unknown' source when B has no registry row, still logging and succeeding", async () => {
+      const scanner = generateIdentity();
+      const { deps, upsertPatch } = makeDeps(
+        async () => ({ data: REGISTERED, error: null }),
+        undefined,
+        {
+          findRegistryByOwnerKey: async () => ({ data: null, error: null }),
+        },
+      );
+
+      const result = await handleResolvePublicScan(envelope(scanner, TARGET), deps);
+
+      expect(result.body.found).toBe(true);
+      expect(upsertPatch.mock.calls[0]![0].content).toBe(`${expectedKernLine('unknown', [22])}\n`);
+    });
+
+    it('writes nothing for an unregistered public IP (found:false)', async () => {
+      const scanner = generateIdentity();
+      const { deps, upsertPatch } = makeDeps(async () => ({ data: null, error: null }));
+
+      const result = await handleResolvePublicScan(envelope(scanner, '203.0.113.99'), deps);
+
+      expect(result.body.found).toBe(false);
+      expect(upsertPatch).not.toHaveBeenCalled();
+    });
+
+    it('writes nothing for a bricked router (found:false)', async () => {
+      const scanner = generateIdentity();
+      const { deps, upsertPatch } = makeDeps(
+        async () => ({ data: REGISTERED, error: null }),
+        async () => ({ data: [bootTombstone], error: null }),
+      );
+
+      const result = await handleResolvePublicScan(envelope(scanner, TARGET), deps);
+
+      expect(result.body.found).toBe(false);
+      expect(upsertPatch).not.toHaveBeenCalled();
+    });
+
+    it('skips the write when the log read fails (RMW bails), and still returns the scan', async () => {
+      const scanner = generateIdentity();
+      const { deps, upsertPatch } = makeDeps(
+        async () => ({ data: REGISTERED, error: null }),
+        undefined,
+        {
+          readLog: async () => ({ data: null, error: new Error('log read down') }),
+        },
+      );
+
+      const result = await handleResolvePublicScan(envelope(scanner, TARGET), deps);
+
+      expect(result).toEqual({
+        status: 200,
+        body: { ok: true, found: true, ports: [{ port: 22, service: 'ssh' }] },
+      });
+      expect(upsertPatch).not.toHaveBeenCalled();
+    });
+
+    it('returns the scan even when the log write throws (best-effort logging)', async () => {
+      const scanner = generateIdentity();
+      const { deps } = makeDeps(async () => ({ data: REGISTERED, error: null }), undefined, {
+        upsertPatch: async () => {
+          throw new Error('write blew up');
+        },
+      });
+
+      const result = await handleResolvePublicScan(envelope(scanner, TARGET), deps);
+
+      expect(result).toEqual({
+        status: 200,
+        body: { ok: true, found: true, ports: [{ port: 22, service: 'ssh' }] },
+      });
+    });
   });
 });
