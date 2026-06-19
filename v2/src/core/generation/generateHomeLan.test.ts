@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { generateHomeLan } from './generateHomeLan';
 import { assignHomeNetwork } from '../network/homeNetwork';
+import { seedRouterHostname } from './routerFs';
 
 /**
  * `generateHomeLan` is the pure topology generator behind `nmap <subnet>`. Given
@@ -15,7 +16,7 @@ const PUBKEY = 'a'.repeat(64);
 // Captured from the seeded generator (see golden test below). Pins the gateway,
 // the player's own host, and the full sibling population for a fixed identity.
 const GOLDEN_HOSTS = [
-  { ip: '192.168.188.1', hostname: 'gateway', kind: 'router' },
+  { ip: '192.168.188.1', hostname: 'net-gateway', kind: 'router' },
   { ip: '192.168.188.25', hostname: 'desktop-25', kind: 'machine' },
   { ip: '192.168.188.70', hostname: 'workstation-70', kind: 'machine' },
   { ip: '192.168.188.154', hostname: 'iphone-154', kind: 'machine' },
@@ -35,7 +36,22 @@ describe('generateHomeLan', () => {
     const lan = generateHomeLan(PUBKEY, 'BEAN-THERE-WIFI');
 
     // Gateway is first (octet .1 sorts ahead of the player's host octet >= 2).
-    expect(lan.hosts[0]).toEqual({ ip: `${lan.subnet}.1`, hostname: 'gateway', kind: 'router' });
+    expect(lan.hosts[0]).toEqual({
+      ip: `${lan.subnet}.1`,
+      hostname: seedRouterHostname(PUBKEY),
+      kind: 'router',
+    });
+  });
+
+  it('names the .1 router with its owner-seeded hostname, not a generic "gateway"', () => {
+    // Story 6.0: the router is just another machine with a real name (seeded from
+    // the owner key alone), so cross-player log lines can identify it. For the
+    // own-LAN view the viewer IS the router's owner, so the name seeds off PUBKEY.
+    const router = generateHomeLan(PUBKEY, 'BEAN-THERE-WIFI').hosts.find(
+      (host) => host.kind === 'router',
+    );
+    expect(router?.hostname).toBe(seedRouterHostname(PUBKEY));
+    expect(router?.hostname).not.toBe('gateway');
   });
 
   it('includes the player’s own host with its assigned hostname', () => {
@@ -83,7 +99,9 @@ describe('generateHomeLan', () => {
     const lan = generateHomeLan(PUBKEY, 'BEAN-THERE-WIFI');
     const routers = lan.hosts.filter((host) => host.kind === 'router');
 
-    expect(routers).toEqual([{ ip: `${lan.subnet}.1`, hostname: 'gateway', kind: 'router' }]);
+    expect(routers).toEqual([
+      { ip: `${lan.subnet}.1`, hostname: seedRouterHostname(PUBKEY), kind: 'router' },
+    ]);
   });
 
   it('returns hosts sorted ascending by last octet', () => {

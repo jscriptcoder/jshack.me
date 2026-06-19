@@ -4,6 +4,7 @@ import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
+import { seedRouterHostname } from '../generation/routerFs';
 import { hostMachineId } from '../generation/remoteHostId';
 import { assignHomeNetwork } from '../network/homeNetwork';
 import { readOpenPorts } from '../services/pidfile';
@@ -80,7 +81,13 @@ const PORTED_IDENTITY: ReturnType<typeof generateIdentity> = {
   publicKeyHex: asPlayerKeyHex('7af20db688cbc12e66e5a499e232818a6a63011a641493c6cbc821a377cbbb32'),
   privateKeyHex: '88fd07c8eea8d81329435d6eefacf423aae078245e5a9b71940e1653573d7cf7',
 };
-const PORTED_HOST: LanHost = { ip: '192.168.218.1', hostname: 'gateway', kind: 'router' };
+// The `.1` router carries its owner-seeded name (Story 6.0), exactly as the
+// regenerated LAN does — so the logged kern.log line names the real router.
+const PORTED_HOST: LanHost = {
+  ip: '192.168.218.1',
+  hostname: seedRouterHostname(PORTED_IDENTITY.publicKeyHex),
+  kind: 'router',
+};
 const PORTED_SUBNET = '192.168.218';
 
 const envelope = (

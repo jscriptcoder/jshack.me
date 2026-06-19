@@ -10,6 +10,7 @@
 
 import { createPrng } from './prng';
 import { assignHomeNetwork, DEVICE_TYPES } from '../network/homeNetwork';
+import { seedRouterHostname } from './routerFs';
 import type { Ipv4 } from '../network/interfaces';
 
 export type LanHostKind = 'machine' | 'router';
@@ -38,7 +39,14 @@ export const generateHomeLan = (seedPubkeyHex: string, essid: string): HomeLan =
   const subnet = localIp.split('.').slice(0, 3).join('.');
   const selfOctet = Number(localIp.split('.')[3]);
 
-  const gateway: LanHost = { ip: `${subnet}.1`, hostname: 'gateway', kind: 'router' };
+  // The `.1` router is the viewer's OWN home router (own-LAN view), so its name
+  // seeds off the viewer's key — the same owner-key the server uses to recover it
+  // when stamping a cross-player log line (Story 6).
+  const gateway: LanHost = {
+    ip: `${subnet}.1`,
+    hostname: seedRouterHostname(seedPubkeyHex),
+    kind: 'router',
+  };
   const self: LanHost = { ip: localIp, hostname, kind: 'machine' };
 
   // Seeded by identity+ESSID like the assignment (own namespace to keep the draw

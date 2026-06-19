@@ -56,6 +56,35 @@ const ROUTER_ADMIN_PASSWORDS: readonly string[] = [
 export const seedRouterAdminPw = (ownerKeyHex: string): string =>
   createPrng(`router-admin-${ownerKeyHex}`).pick(ROUTER_ADMIN_PASSWORDS);
 
+/** Router display names, ported verbatim from the legacy generator
+ *  (`hostnamesByRole.router`). A router is just another machine with NAT config,
+ *  so it carries a real name rather than a universal `gateway`; the cross-player
+ *  scan/auth log lines (Story 6) read this name to identify the router. */
+export const ROUTER_HOSTNAMES: readonly string[] = [
+  'router01',
+  'gw-main',
+  'border-gw',
+  'core-rtr',
+  'firewall01',
+  'edge-rtr',
+  'fw-dmz',
+  'switch-core',
+  'vpn-gw',
+  'net-gateway',
+  'wan-rtr',
+  'pfsense01',
+  'opnsense',
+  'mikrotik01',
+  'dist-rtr',
+];
+
+/** The router's hostname, seeded from the owner key alone (the `router-host-`
+ *  namespace — SEPARATE from `router-admin-`/`router-ssh-` so the name never
+ *  correlates with the secrets). Server-recoverable from `owner_key` without an
+ *  FS read, so a cross-player log line can name the router it was written on. */
+export const seedRouterHostname = (ownerKeyHex: string): string =>
+  createPrng(`router-host-${ownerKeyHex}`).pick(ROUTER_HOSTNAMES);
+
 /** The fraction of routers that run their own `sshd`. Pinned to 1.0 for Story
  *  5.1 — every router bears `sshd:22`. The seam stays so a later story can make
  *  sshd presence vary per router without reshaping callers. */

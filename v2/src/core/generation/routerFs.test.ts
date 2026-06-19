@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { Directory, FileNode } from '../filesystem/types';
-import { buildRouterBaseFsFromIdentity, seedRouterAdminPw, seedRouterHasSsh } from './routerFs';
+import {
+  buildRouterBaseFsFromIdentity,
+  ROUTER_HOSTNAMES,
+  seedRouterAdminPw,
+  seedRouterHasSsh,
+  seedRouterHostname,
+} from './routerFs';
 import { workstationGuestPassword } from './workstationFs';
 import {
   LOCALHOST_PREINSTALLED_TOOLS,
@@ -65,6 +71,42 @@ describe('seedRouterHasSsh', () => {
       index.toString(16).padStart(2, '0').repeat(32),
     );
     keys.forEach((key) => expect(seedRouterHasSsh(key)).toBe(true));
+  });
+});
+
+/**
+ * Story 6.0: the router gets a real name — one of a ported pool — seeded from the
+ * owner key ALONE (the same recoverable-from-the-key contract as the admin pw), so
+ * the cross-player scan/auth log lines (Story 6.1/6.2) can name the router without
+ * reading its FS. Pinned through the public function + the exported pool.
+ */
+describe('seedRouterHostname', () => {
+  it('is deterministic: same owner key yields the same hostname', () => {
+    expect(seedRouterHostname(SEED_A)).toBe(seedRouterHostname(SEED_A));
+  });
+
+  it('always picks a real member of the router hostname pool (no blank/out-of-pool name)', () => {
+    // Sweeps enough keys to exercise many pool slots; a deleted pool entry or an
+    // out-of-range index would surface as a non-member here.
+    const keys = Array.from({ length: 40 }, (_unused, index) =>
+      (index + 1).toString(16).padStart(2, '0').repeat(32),
+    );
+    keys.forEach((key) => expect(ROUTER_HOSTNAMES).toContain(seedRouterHostname(key)));
+  });
+
+  it('spreads across the pool — different identities are not all the same router name', () => {
+    const keys = Array.from({ length: 40 }, (_unused, index) =>
+      (index + 1).toString(16).padStart(2, '0').repeat(32),
+    );
+    expect(new Set(keys.map((key) => seedRouterHostname(key))).size).toBeGreaterThan(1);
+  });
+
+  it('is pinned per identity (golden) — locks the router-host- namespace, the pool and the pick', () => {
+    // Captured from the seeded generator. Distinct from the `router-admin-` /
+    // `router-ssh-` streams: mutating the namespace string, the pool, or the pick
+    // index shifts these values and fails the golden.
+    expect(seedRouterHostname(SEED_A)).toBe('opnsense');
+    expect(seedRouterHostname(SEED_B)).toBe('mikrotik01');
   });
 });
 
