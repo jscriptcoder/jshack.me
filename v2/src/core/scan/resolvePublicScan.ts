@@ -31,6 +31,20 @@ import { canBoot } from '../boot/bootFiles';
 import { parseForwardRules, readRulesV4 } from '../network/iptablesRules';
 import { scanResult } from './scanResult';
 import { buildWorkstationPortResolver } from './workstationPortResolver';
+import { seedRouterHostname } from '../generation/routerFs';
+import {
+  formatNmapScanAggregate,
+  KERN_LOG_OWNER,
+  KERN_LOG_PATH,
+  KERN_LOG_PERMISSIONS,
+} from '../logging/kernLog';
+import {
+  appendMachineLog,
+  type MachineLogReadQuery,
+  type MachineLogReadResult,
+} from '../patches/appendMachineLog';
+import { asGameTime } from '../types';
+import type { PatchRow } from '../patches/upsertPatch';
 import type { Directory } from '../filesystem/types';
 import type { OpenPort } from '../services/pidfile';
 
@@ -61,6 +75,19 @@ export type ResolvePublicScanDeps = {
   readonly findPatches: (query: {
     readonly machine_id: string;
   }) => Promise<{ readonly data: readonly OwnerPatchRow[] | null; readonly error: unknown }>;
+  /** The server's wall clock, epoch-ms (UTC) — stamps the kern.log trace line. */
+  readonly now: () => number;
+  /** Read the current content of the router's kern.log on the shared journal,
+   *  keyed `(machine_id, path, writer_key)` — the read half of the appended line. */
+  readonly readLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
+  /** Write a patch (here: the appended kern.log line on the scanned router). */
+  readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
+  /** Resolve the SCANNER's (caller's) own home public IP from their verified owner
+   *  key — the truthful source IP of the scan, server-derived so a client cannot
+   *  forge it or frame another network. `null` (no home network) → source unknown. */
+  readonly findRegistryByOwnerKey: (
+    ownerKey: string,
+  ) => Promise<{ readonly data: { readonly public_ip: string } | null; readonly error: unknown }>;
 };
 
 export type HandlerResponse = {
@@ -99,6 +126,54 @@ const resolveForwardTargets = async (
   });
   if (workstationPatches.error) return null;
   return buildWorkstationPortResolver({ registry, workstationPatches: workstationPatches.data });
+};
+
+/** The scanner's truthful source IP: their own home public IP, server-derived from
+ *  their VERIFIED owner key (never the client `source_ip`, which is forgeable). A
+ *  missing registry row or a lookup error degrades to `unknown` — the scan stands.
+ *  Today the scanner's "operating machine" is always their home box; when the pivot
+ *  feature ships this same seam will resolve the hop they operate from. */
+const resolveScannerSourceIp = async (
+  deps: ResolvePublicScanDeps,
+  scannerKey: string,
+): Promise<string> => {
+  const { data, error } = await deps.findRegistryByOwnerKey(scannerKey);
+  return error || data === null ? 'unknown' : data.public_ip;
+};
+
+/** Stamp the scan onto the TARGET router's `/var/log/kern.log` via the shared
+ *  system-log primitive. The keystone (decision 1): `writerKey` is the TARGET
+ *  OWNER's key — the system owns its logs, so every scanner's line accretes into
+ *  ONE row instead of colliding under the last-write-wins fold; the scanner's
+ *  identity lives in the line's source IP. Best-effort: a logging failure must
+ *  never break (or fabricate) the scan. */
+const logCrossPlayerScan = async (
+  deps: ResolvePublicScanDeps,
+  registry: RegistryLookup,
+  ports: readonly OpenPort[],
+  sourceIp: string,
+): Promise<void> => {
+  const line = formatNmapScanAggregate({
+    time: asGameTime(deps.now()),
+    hostname: seedRouterHostname(registry.owner_key),
+    sourceIp,
+    probedPorts: ports.map((openPort) => openPort.port),
+  });
+  try {
+    await appendMachineLog(
+      { readLog: deps.readLog, upsertPatch: deps.upsertPatch },
+      {
+        writerKey: registry.owner_key,
+        machineId: registry.router_machine_id,
+        path: KERN_LOG_PATH,
+        owner: KERN_LOG_OWNER,
+        permissions: KERN_LOG_PERMISSIONS,
+      },
+      line,
+    );
+  } catch {
+    // best-effort: the scan result stands regardless of a logging failure.
+  }
 };
 
 export const handleResolvePublicScan = async (
@@ -141,5 +216,12 @@ export const handleResolvePublicScan = async (
     return { status: 500, body: { error: 'patches_lookup_failed' } };
   }
   const ports = scanResult({ vantage: 'external', routerFs, resolveTargetPorts });
+
+  // Host-up: leave a truthful kern.log trace on the TARGET's shared router record
+  // (decision 1: written under the owner's key). The source IP is the scanner's own
+  // home public IP, server-derived from their verified key — never the payload's.
+  const sourceIp = await resolveScannerSourceIp(deps, verified.publicKey);
+  await logCrossPlayerScan(deps, data, ports, sourceIp);
+
   return { status: 200, body: { ok: true, found: true, ports } };
 };

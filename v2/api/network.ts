@@ -12,6 +12,8 @@ import {
   type RegistryMachine,
 } from '../src/core/network/resolveCrossPlayerFs';
 import type { UserType } from '../src/core/types';
+import type { MachineLogReadQuery } from '../src/core/patches/appendMachineLog';
+import type { PatchRow } from '../src/core/patches/upsertPatch';
 import type { NonceStore } from '../src/core/signedRequest/nonceStore';
 
 // Vercel adapter for POST /api/network — the cross-player public-IP registry.
@@ -98,10 +100,51 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (error) console.error('[network] scan boot-state lookup error:', error);
       return { data: data as readonly OwnerPatchRow[] | null, error };
     };
+    // Story 6.1: a host-up cross-player scan leaves a kern.log trace on the TARGET
+    // router's shared record. readLog/upsertPatch are the same read-modify-write
+    // `patches` shapes the ssh/su auth.log appenders use; the line is written under
+    // the OWNER's writer_key (decision 1) so multi-scanner rows don't collide.
+    const readLog = async ({ writer_key, machine_id, path }: MachineLogReadQuery) => {
+      const { data, error } = await supabase
+        .from('patches')
+        .select('content')
+        .eq('writer_key', writer_key)
+        .eq('machine_id', machine_id)
+        .eq('path', path)
+        .maybeSingle();
+      if (error) console.error('[network] scan kern-log read error:', error);
+      return { data, error };
+    };
+    const upsertPatch = async (row: PatchRow) => {
+      const { error } = await supabase
+        .from('patches')
+        .upsert(row, { onConflict: 'machine_id,path,writer_key' });
+      if (error) console.error('[network] scan kern-log upsert error:', error);
+      return { error };
+    };
+    // The SCANNER's own home public IP — the truthful source IP, server-derived from
+    // their verified owner key (never the client `source_ip`). One player may carry
+    // rows for several APs they've joined; the most-recently-updated is their current
+    // network ("one network at a time"). owner_key is not the PK, hence the order+limit.
+    const findRegistryByOwnerKey = async (ownerKey: string) => {
+      const { data, error } = await supabase
+        .from('network_registry')
+        .select('public_ip')
+        .eq('owner_key', ownerKey)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) console.error('[network] scanner source-ip lookup error:', error);
+      return { data: data as { public_ip: string } | null, error };
+    };
     const { status, body } = await handleResolvePublicScan(req.body, {
       nonceStore: noopNonceStore,
       findRegistryByPublicIp,
       findPatches,
+      now: () => Date.now(),
+      readLog,
+      upsertPatch,
+      findRegistryByOwnerKey,
     });
     res.status(status).json(body);
     return;
