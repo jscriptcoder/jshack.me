@@ -244,13 +244,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // registered workstation by the machine_id B is standing on, then the handler
     // rebuilds A's box from the persisted identity and validates the typed password
     // before this insert runs (a root-tier `kind:'su'` row that makes B's later
-    // writes authorize at root). No write to A's box — the su auth.log trace is
-    // Story 6.
+    // writes authorize at root). Story 6.3: a resolved attempt now leaves a su
+    // auth.log trace on A's shared workstation record, under the OWNER's writer_key.
     const findRegistryByMachineId = async (machineId: string) => {
       const { data, error } = await supabase
         .from('network_registry')
         .select(
-          'owner_key, workstation_machine_id, essid, workstation_username, workstation_root_hash',
+          'owner_key, workstation_machine_id, essid, workstation_username, workstation_machine_name, workstation_root_hash',
         )
         .eq('workstation_machine_id', machineId)
         .maybeSingle();
@@ -262,10 +262,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (error) console.error('[sessions] su-elevate insert error:', error);
       return { error };
     };
+    // The system-written su auth.log line on A's WORKSTATION: read the current content
+    // + upsert the appended line (read-modify-write, bypassing L1/L2 — su logs it as
+    // the system, not the player). Same `patches`-table shapes + owner-keyed writer as
+    // the cross-player ssh appender above; the line is written under the OWNER's
+    // writer_key (decision 1).
+    const readAuthLog = async ({ writer_key, machine_id, path }: MachineLogReadQuery) => {
+      const { data, error } = await supabase
+        .from('patches')
+        .select('content')
+        .eq('writer_key', writer_key)
+        .eq('machine_id', machine_id)
+        .eq('path', path)
+        .maybeSingle();
+      if (error) console.error('[sessions] su auth-log read error:', error);
+      return { data, error };
+    };
+    const upsertSuAuthLog = async (row: PatchRow) => {
+      const { error } = await supabase
+        .from('patches')
+        .upsert(row, { onConflict: 'machine_id,path,writer_key' });
+      if (error) console.error('[sessions] su auth-log upsert error:', error);
+      return { error };
+    };
     const { status, body } = await handleAuthElevateSession(req.body, {
       nonceStore: noopNonceStore,
       findRegistryByMachineId,
       insertSession: insertSuSession,
+      now: () => Date.now(),
+      readAuthLog,
+      upsertPatch: upsertSuAuthLog,
     });
     res.status(status).json(body);
     return;

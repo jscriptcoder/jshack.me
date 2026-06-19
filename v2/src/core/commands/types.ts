@@ -275,6 +275,10 @@ export type SuElevateParams = {
   readonly machineId: string;
   readonly username: string;
   readonly password: string;
+  /** B's current user on the box (e.g. `guest`) — the `by <from>` in the target's
+   *  su auth.log trace (Story 6.3). Not an identity claim (the verified pubkey is the
+   *  actor); it only names which local account ran `su`. */
+  readonly fromUser: string;
   readonly parentSessionId: string | null;
   readonly sourceIp: string | null;
 };

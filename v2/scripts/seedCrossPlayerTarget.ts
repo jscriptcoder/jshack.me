@@ -14,6 +14,7 @@ import * as ed from '@noble/ed25519';
 import { sha512 } from '@noble/hashes/sha2.js';
 import { signRequest } from '../src/core/signedRequest/sign';
 import { computeWorkstationId } from '../src/core/identity/workstation';
+import { computeRouterId } from '../src/core/identity/router';
 import { bytesToHex, hexToBytes } from '../src/core/identity/hex';
 import { workstationGuestPassword } from '../src/core/generation/workstationFs';
 import { assignHomeNetwork } from '../src/core/network/homeNetwork';
@@ -43,11 +44,15 @@ const alice: Identity = {
 };
 const ESSID = 'CAFE-DELACROIX-5G';
 const A_MACHINE = computeWorkstationId('skylab', alice.publicKeyHex);
+const A_ROUTER = computeRouterId(alice.publicKeyHex);
 const PUBLIC_IP = assignHomeNetwork(alice.publicKeyHex, ESSID).publicIp;
+const A_LAN = assignHomeNetwork(alice.publicKeyHex, ESSID).localIp;
 const GUEST_PW = workstationGuestPassword(alice.publicKeyHex);
+const ROOT_PW = 'alice-root-secret'; // matches the registered workstation_root_hash
 
 if (process.argv[2] === 'clean') {
   await sr.from('patches').delete().eq('machine_id', A_MACHINE);
+  await sr.from('patches').delete().eq('machine_id', A_ROUTER);
   await sr.from('network_registry').delete().eq('public_ip', PUBLIC_IP);
   console.log('cleaned A’s registry row + patches');
   process.exit(0);
@@ -104,11 +109,31 @@ await sr.from('patches').insert([
   },
 ]);
 
+// A's opt-in NAT forward on the ROUTER: expose the workstation sshd on public :2222,
+// so B reaches the WS (as guest) under the router-routing model — `ssh guest@<pub>`
+// (port 22) would hit the root-only router instead. Needed for the cross-player `su`
+// confirm (Story 6.3).
+const rootOnly = { read: ['root'], write: ['root'], execute: [] };
+await sr.from('patches').delete().eq('machine_id', A_ROUTER);
+await sr.from('patches').insert([
+  {
+    writer_key: alice.publicKeyHex,
+    machine_id: A_ROUTER,
+    path: '/etc/iptables/rules.v4',
+    content: `# /etc/iptables/rules.v4 — NAT port-forward table\nforward 2222 to ${A_LAN}:22\n`,
+    owner: 'root',
+    permissions: rootOnly,
+    node_type: 'file',
+  },
+]);
+
 console.log('\n=== B should type in the browser ===');
-console.log(`  ssh guest@${PUBLIC_IP}`);
+console.log(`  ssh guest@${PUBLIC_IP} -p 2222`);
 console.log(`  password: ${GUEST_PW}`);
+console.log(`  then (Story 6.3 su trace): su root  →  password: ${ROOT_PW}`);
+console.log(`  then: cat /var/log/auth.log   (expect "Successful su for root by guest")`);
 console.log(
-  `  then: ls /srv ; cat /srv/loot.txt ; cat /srv/secret.txt ; cat /etc/passwd ; ls /root`,
+  `  also: ls /srv ; cat /srv/loot.txt ; cat /srv/secret.txt ; cat /etc/passwd ; ls /root`,
 );
-console.log(`\n(A workstation id: ${A_MACHINE})`);
+console.log(`\n(A workstation id: ${A_MACHINE}; router id: ${A_ROUTER})`);
 process.exit(0);
