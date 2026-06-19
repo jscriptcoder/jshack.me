@@ -1,9 +1,36 @@
 # Plan: Story 6 — Cross-player scan / connection / su trace on the shared record
 
 **Branch**: one branch + PR per slice (v2 convention, squash-merge `feat(v2): … (#N)`)
-**Status**: Active
+**Status**: Active — 6.0 ✅ merged (#284), 6.1 ✅ merged (#286) + live-confirmed, 6.2 ✅ DONE (wire-check 7/7 + agent-browser; awaiting PR). **NEXT = Slice 6.3 (cross-player `su` → `auth.log`).**
 **Epic**: `plans/multiplayer-crossplayer-epic.md` → "Story 6 — resolved scope & decisions (grill-me, 2026-06-19)" (READ FIRST; 7 locked decisions)
 **As-built foundation**: `v2/docs/cross-player-architecture.md` (esp. §3 reachability/login, §4 authorization, §7 root/bricking)
+
+## ▶ RESUME HERE (Slice 6.2) — picking up after compaction
+
+**Done so far:** 6.0 (router seeded hostname, `seedRouterHostname`/`ROUTER_HOSTNAMES` in `core/generation/routerFs.ts`)
+and 6.1 (cross-player scan → router `kern.log`) are MERGED to `main` and live-confirmed (wire-check 6/6 +
+agent-browser). The 6.1 pattern to MIRROR in 6.2 lives in `core/scan/resolvePublicScan.ts`:
+`resolveScannerSourceIp(deps, scannerKey)` (B's source IP from `findRegistryByOwnerKey(verified.publicKey)`,
+never the client `source_ip`) + `logCrossPlayerScan(...)` (best-effort `appendMachineLog`, `writerKey =
+data.owner_key`). New deps wired in `api/network.ts`: `now`/`readLog`/`upsertPatch`/`findRegistryByOwnerKey`.
+
+**6.2 = wire the SAME logging into `core/sessions/authCreateSessionPublic.ts`** (the cross-player ssh-login
+handler) → owner-keyed `auth.log` line via `formatSshdAuthLine` on `target.machineId` (router `:22` /
+workstation forward `:2222`), BOTH success + failure; `404 host_unreachable` logs nothing. Source IP = reuse
+the 6.1 source-IP derivation; hostname = `seedRouterHostname(owner_key)` for a router-served port /
+`workstation_machine_name` (ADD to the registry projection — see `RegisterNetworkDeps` row, it's already
+stored). Wire `api/sessions.ts`. **REFACTOR opportunity (now earned across 6.1+6.2):** extract a shared
+`crossPlayerSourceIp` helper + an "append cross-player log line" wrapper (assess during 6.2's REFACTOR step).
+See Slice 6.2 below for full RED/GREEN/mutator detail. The existing own-LAN `logSshAttempt` in
+`core/sessions/authCreateSession.ts` is the shape to mirror (it already does both outcomes + `formatSshdAuthLine`).
+
+**Live-env state:** `vercel dev` is/was running on :3100 (Supabase is the user's). Re-confirm recipe →
+`v2/docs/cross-player-e2e-playbook.md` + the new `scripts/testCrossPlayerScanTrace.ts` pattern (mirror it for a
+6.2 `testCrossPlayerConnectionTrace.ts`). agent-browser B-online recipe (cost iterations to find):
+`airmon start wlan0` → `airdump` → `aircrack <strongest-BSSID>` → `airmon stop wlan0` → `nmcli connect <ESSID>
+<pw>` → `su root` (B's new-game root pw) → `apt install nmap`. Seed a target with
+`scripts/seedCrossPlayerTarget.ts` (fixed identity A, prints A's public IP + guest pw; router admin pw =
+`seedRouterAdminPw(A)`, e.g. `linksys`). `su`/`ssh` show a `Password:` prompt — type pw on the next input line.
 
 ## Goal
 
@@ -69,7 +96,7 @@ loop is proven by a **deterministic wire-check script** (`v2/scripts/`, the `tes
 
 ---
 
-### Slice 6.0 (prerequisite): Routers get a seeded random hostname (port the legacy pool)
+### Slice 6.0 (prerequisite): Routers get a seeded random hostname (port the legacy pool) — ✅ DONE (#284, merged)
 
 **Value**: The router is a real machine with a real name (`mikrotik01`), not a universal `gateway` — and
 that name is what the cross-player log lines (6.1/6.2) need. Observable on its own via `nmap`.
@@ -94,7 +121,7 @@ own-LAN). Server-recoverable from `owner_key` alone, like the admin pw / sshd se
 
 ---
 
-### Slice 6.1 (walking skeleton): Cross-player scan leaves an owner-keyed router `kern.log` line
+### Slice 6.1 (walking skeleton): Cross-player scan leaves an owner-keyed router `kern.log` line — ✅ DONE (#286, merged + live-confirmed)
 
 **Value**: A defender (A) discovers that someone scanned their public IP, with the scanner's source IP —
 the first cross-player trace, proving the whole new path end-to-end.
@@ -132,7 +159,7 @@ report reviewed; human approves commit.
 
 ---
 
-### Slice 6.2: Cross-player connection leaves an owner-keyed `auth.log` line (both outcomes)
+### Slice 6.2: Cross-player connection leaves an owner-keyed `auth.log` line (both outcomes) — ✅ DONE (wire-check 7/7 + agent-browser; PR pending)
 
 **Value**: A defender sees who logged in (or tried to) and from where — the brute-force / hydra signal.
 **Path**: B `ssh [-p port] <user>@<A.publicIp>` → `authCreateSessionPublic` resolves `target.machineId`
@@ -225,6 +252,37 @@ reviewed; human approves commit.
 
 ## Resolved (2026-06-19)
 
+- **6.2 live-confirmed (2026-06-20)** — wire-check `scripts/testCrossPlayerConnectionTrace.ts` **7/7**
+  (router `:22` Accepted line under A's owner_key naming the seeded router; wrong-pw 401 + Failed line;
+  forged `source_ip` ignored; B+C accrete in ONE owner-keyed row; forwarded `:2222` guest Accepted line
+  on the WORKSTATION record naming `workstation_machine_name`; unregistered IP 404 writes nothing) +
+  agent-browser full loop (crack→`nmcli connect`→`ssh root@<A.publicIp>`→`cat /var/log/auth.log`): line
+  `edge-rtr sshd[…]: Accepted password for root from <B's HOME public IP>`, AND (decision 8) `cat
+  /var/log/kern.log` showed the SAME ssh ALSO left `[iptables] Port scan from <same B IP>` — a cross-player
+  ssh leaves BOTH traces. Source IP is B's registry public IP (`51.212.140.221`), NOT B's LAN IP
+  (`192.168.153.45`) — server-derived, unforgeable. **REFACTOR shipped:** the source-IP derivation
+  (duplicated across 6.1+6.2) extracted to `core/logging/crossPlayerSourceIp.ts`
+  (`resolveCrossPlayerSourceIp` + `FindRegistryByOwnerKey`, 100% mutation); `resolvePublicScan.ts`
+  refactored onto it. The best-effort log try/catch was assessed and KEPT inline (formatters/targets differ;
+  inline keeps the best-effort posture visible). Two equivalent mutants accepted on `authCreateSessionPublic.ts`
+  (`'failure'`→`''` observationally identical since the only consumer branches on `=== 'success'`;
+  `account === null` a redundant disjunct already implied by `!passwordOk`).
+- **Log ALL port probes, not just `nmap` (decision 8, 2026-06-20)** — cross-player `ssh` to a public IP
+  ALSO writes a `kern.log` "port scan" line, because `core/commands/ssh.ts` (`ssh.ts:84`) calls
+  `env.scan.resolvePublic(host)` for its reachability check — the SAME `resolvePublicScan` handler 6.1 logs.
+  **ACCEPTED as intended** (user, 2026-06-20): this is the no-silent-recon posture — an attacker cannot
+  enumerate A's open ports without leaving a trace, regardless of whether they use `nmap` or `ssh` (the
+  server can't distinguish "honest ssh" from "attacker probing via the ssh path", so suppressing ssh's line
+  would reopen a stealth-recon hole). **Consequence for 6.2:** a cross-player ssh attempt intentionally
+  leaves BOTH a `kern.log` scan line (already, via 6.1) AND the `auth.log` line 6.2 adds — defense-in-depth,
+  not a bug. Caught by the 6.1 agent-browser confirm (unit tests/wire-check missed it — the integration-seam
+  drift `feedback_e2e_test_new_primitives` warns about). Graduate to `v2/docs/cross-player-architecture.md`
+  when Story 6 ships.
+- **6.1 live-confirmed (2026-06-20)** — wire-check `scripts/testCrossPlayerScanTrace.ts` **6/6** (owner-keyed
+  row, B+C accrete in ONE row = keystone, forged `source_ip` ignored, host-down writes nothing) + agent-browser
+  full loop (crack→connect→`nmap`→`ssh root@`→`cat kern.log`): line `edge-rtr kernel: [iptables] Port scan
+  from <B's HOME public IP> …`, `writer_key = A.owner_key` (DB-verified). Source IP is B's registry public IP,
+  NOT B's LAN IP — server-derived, unforgeable.
 - **Hostname in the log lines** — routers get a **seeded random name** from a ported pool (slice 6.0,
   `seedRouterHostname(owner_key)`), NOT a universal `gateway`; the router is just another machine with NAT
   config. Router log lines (6.1, 6.2 `:22`) read that seeded name; **workstation** log lines (6.2 `:2222`,
