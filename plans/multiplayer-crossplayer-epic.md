@@ -363,6 +363,134 @@ choices (grilled one-by-one, each grounded in code). Feed straight into `plannin
      router's own `:22` but NOT the forwards. `.1` stops being a cosmetic NPC gateway. Client-only (no
      api/DB). **Closes Story 5.1** and the dual-homed scar (`project_dual_homed_router_scan_discrepancy`).
 
+## Story 6 — resolved scope & decisions (grill-me, 2026-06-19)
+
+**Story 6 = cross-player scan/connection + su auth.log/kern.log trace on the SHARED record.** The
+defender loop: B scans/connects/escalates on A's machine and leaves a trace its owner A (or a 3rd
+player C with a session) reads back. Grounding (2026-06-19) corrected the table-row framing "re-key
+the shipped 3a write": the shipped 3a logging only fires on the **own-LAN** `nmap` path
+(`handleNmapScan` → coordinate-derived NPC `hostMachineId`, `writer_key = caller`). The three
+**cross-player** handlers — `resolvePublicScan` (scan), `authCreateSessionPublic` (connection),
+`authElevateSession` (su) — do **NOT log at all** today. So Story 6 is mostly *net-new logging wired
+into those three handlers against the real registered `machine_id`*, not a re-key of an existing write.
+**Own-LAN `ssh`/`su` already log correctly** (`authCreateSession` stamps both outcomes and already
+routes the `.1` gateway to `computeRouterId`; own-box `su` → `appendAuthLog`) — so the only NEW logging
+is the three cross-player handlers.
+
+### The keystone trap (found during grill-me)
+
+`applyPatches` folds **last-write-wins per path** (`core/filesystem/applyPatches.ts`). The journal
+keeps one row per `(machine_id, path, writer_key)`, but at fold time a single path collapses to the
+chronologically-last writer's content. For a **log file** on a shared machine — where B, C, and A's own
+system all append to `/var/log/kern.log` — that means **all but one writer's lines vanish on replay**.
+Decision 1 (owner-keyed single canonical row) is exactly what dodges this.
+
+### Locked decisions
+
+1. **Log lines are owner-keyed system writes** — `appendMachineLog`'s `writerKey = owner_key` of the
+   TARGET machine, NOT the acting attacker B. Every scan/connection/su line accretes into ONE
+   ever-growing row per `(machine_id, path)`; the actor's identity lives in the **line content**
+   (source IP / username), exactly as a real kernel/sshd log works. Collision-free by construction;
+   matches `appendMachineLog`'s own "as the SYSTEM, not the player" framing. (Own-LAN already satisfies
+   this trivially: caller == owner, so its existing `writer_key = caller` IS the owner. The cross-player
+   handlers must pass `owner_key` explicitly, distinct from `verified.publicKey = B`.)
+2. **Source IP = the operating machine's IP, server-derived (home today, hop-ready)** — the logged source
+   is the public IP of the machine B **operates from**, derived **server-side from B's verified pubkey**
+   (`findRegistryByOwnerKey(B)` → B's home public IP), NEVER the client `source_ip` (so it can't be forged
+   or used to frame another network — B can't forge its own pubkey). The `su` line carries no IP
+   (`formatSuAuthLine` = "su for `<target>` by `<from>`", usernames only), so this applies to scan +
+   connection. **Pivot deferred (own future story):** v2 does NOT switch a command's execution vantage to a
+   hopped machine yet (`ssh.ts`/`nmap.ts` always resolve against B's HOME context; `resolveLogSourceIP` is
+   ported but unwired), so today B's operating machine is always its home box. The derivation is shaped so
+   that when the pivot feature lands, the operating machine becomes the hop N and the same path logs N's IP
+   — masking B's real IP — with no logging rework. (Grilled 2026-06-19: revised from an earlier
+   "derive from B's claimed essid + validate ownership" — pubkey-derivation is simpler AND stronger, and
+   forward-compatible with the pivot.)
+3. **A trace lands on the machine the action resolves to.** Connection/su → the `machineServing` /
+   session machine (router for `:22`, workstation for `:2222`/su). **Scan is router-only**
+   (`computeRouterId`): B addressed the public IP = the router's WAN interface, so the router's
+   netfilter logs it; the workstation behind NAT saw no direct probe. (Workstation-INPUT scan logging
+   on a forwarded target = possible later refinement, not now.)
+4. **Both outcomes logged** — success AND failure for connection (`Accepted`/`Failed password`) and su
+   (`Successful`/`FAILED su`); the formatters already take `outcome`. Failed attempts are the prime
+   brute-force / hydra (`project_wordlist_progression`) defender signal. Guardrail: only log once the
+   target is **reachable** (already boot-gated) and a credential was **actually checked and rejected** —
+   a `404 host_unreachable` (unforwarded port / dark / bricked box) logs nothing (a down host has no
+   service to record it). A failed-auth write touches A's journal before B proves any credential, so a
+   determined B could spam to bloat A's log — realistic (A can clear it), and the case the parking-lot
+   **nonce/rate-limit store** covers (Story 6 is where unauthenticated-tier cross-player writes first
+   appear → confirm that dependency here).
+5. **No separate brick-event trace.** A real `rm` is silent (no auditd in this world); the `su` +
+   connection + scan lines already attribute B. And a brick takes its machine **dark and terminal-less**
+   (§7: "halt, no terminal, no recovery"), so a brick-event line would entomb itself — unreadable by A
+   (dead) or anyone (box dark). The "su/brick trace" in the table row = the cross-player **su** auth.log
+   line Story 4 deferred, not a literal brick log. Acceptance therefore centers on the cases where the
+   box stays **readable**: non-destructive intrusions (recon/defacement/forward-rewrite), or a brick on
+   a **sibling** machine (B bricks A's router but A's workstation still boots → A reads the ws auth.log;
+   the router's scan kern.log survives a *workstation* brick).
+6. **Scan-trace targets — three categories, not two.** (a) **Generic NPC siblings**: UNCHANGED — the
+   own-LAN scan already writes `hostMachineId`, and break-in reads the same `hostMachineId`, so the log
+   is already there and readable (NPC LANs are per-player, seeded by the viewer's own pubkey, so no
+   cross-writer collision). (b) **The `.1` router**: **FIX** — Story 5.1.4 made `.1` a real registered
+   router (`computeRouterId`), but `handleNmapScan` still logs the own-LAN `.1` scan to the dead-end
+   `hostMachineId('gateway')`, so `ssh root@.1` (lands on `computeRouterId`) can't read it. Route the
+   own-LAN `.1` scan to the owner-keyed `computeRouterId` record. (c) **Cross-player public-IP scan**:
+   **ADD** the owner-keyed `kern.log` on the same `computeRouterId`. (b) and (c) both target the real
+   router record → "scanning a machine leaves a readable log on it" holds uniformly, internal and
+   external.
+7. **Anti-forensics emerges, not hardened.** Once B `su`s to root, `auth.log` is root-writable, so B can
+   `rm`/`nano` it to erase the trace — realistic cat-and-mouse, **zero new code** (a normal root-tier
+   cross-player write/remove). NOT special-cased, NOT made tamper-resistant (real root edits logs). One
+   quirk noted but **not fixed**: the system's append RMW reads only the **owner's** (`writer = A`) log
+   row, so a B tombstone (`writer = B`) can be overwritten by the next system append — wiped logs may
+   "resurrect." Acceptable ship-first imperfection.
+
+### Derived consequences (no new fork)
+
+- **Reading works for all three readers** given decision 1 + existing world-readable log perms:
+  A reads its own ws/router logs via the **local journal** (`listPatches` returns all writer rows for
+  the `machine_id`, incl. the owner-keyed system rows); a 3rd player C reads via the **tier-2 served
+  tree** (`resolveCrossPlayerFs` → materialize → replay → tier-2 walker keeps world-readable logs).
+- **No tier / permission changes.** `auth.log`/`kern.log` are `read: [root,user,guest]` and NOT in
+  `EXTERNALLY_OBSERVABLE_ALLOWLIST`, so they're readable at **tier-2 (any session)** but hidden from a
+  no-session (tier-3) scanner — exactly "you must break in to read them" (matches the acceptance).
+- **Concurrency is best-effort** — two simultaneous attackers' RMW on the one owner-keyed row can drop
+  a line (the posture `appendMachineLog` already documents). Real fix = server-side append / the
+  rate-limit store; accepted as ship-first.
+- **No new schema/migration** anticipated — reuses `patches` (shared journal) + `network_registry`
+  (owner-key reverse-lookup, already discriminated). Confirm at planning.
+
+### Acceptance examples
+
+- B `nmap <A.publicIp>` → A `ssh root@.1` → `cat /var/log/kern.log` sees a `[iptables] Port scan from
+  <B's validated public IP>` line on A's **router**.
+- B `ssh guest@<A.publicIp> -p 2222` (success) and a wrong-password attempt (failure) → A (or a 3rd
+  player C with a session) reads `Accepted`/`Failed password for guest from <B's public IP>` on A's
+  **workstation** auth.log.
+- B `su root` on A's workstation (success + a wrong-password failure) → `Successful`/`FAILED su for root
+  by guest` on A's workstation auth.log, read by A or C.
+- A no-session scanner cannot read either log (tier-3 hides them); a dark/bricked target logs nothing.
+
+### For `planning` — SLICED 2026-06-19 → `plans/story-6-crossplayer-trace.md`
+
+Five PR-sized slices (walking-skeleton first), each vertical + cross-player observable:
+**6.0** routers get a seeded random hostname (port legacy `hostnamesByRole.router`; unblocks the log-line
+hostnames; observable via `nmap <.1>`) · **6.1** (skeleton) cross-player **scan** trace
+(`resolvePublicScan` → owner-keyed router `kern.log`, pubkey-derived source IP) · **6.2** cross-player
+**connection** trace (`authCreateSessionPublic`, both outcomes) · **6.3** cross-player **su** trace
+(`authElevateSession`, both outcomes) · **6.4** own-LAN `.1` scan → real `computeRouterId` record (close the
+dead-end). The earlier "source-IP derive+**validate** essid" step was dropped — pubkey-derivation (decision
+2, revised) is stronger and needs no separate slice. Run full RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR.
+
+### Parked future story (surfaced during 6's grill-me)
+
+- **Pivot / operate-from-a-hop (source-IP masking)** — make a command's execution vantage adopt the hopped
+  machine (so `nmap <A>` run from a compromised box N originates from N: N's network for reachability, N's
+  IP as A's logged source). Today `ssh.ts`/`nmap.ts` always run in B's HOME vantage and `resolveLogSourceIP`
+  is ported-but-unwired. Story 6's source-IP path is shaped to extend into this with no logging rework.
+  Substantial (vantage switch + needs networks other than home to pivot through, i.e. another player's box
+  now / foreign nets after 5b). Owner wants it POSSIBLE; deferred to its own story.
+
 ## Next step
 
 **Story 5.1 (router as a real machine + player-controlled NAT) is ✅ COMPLETE** — all eight slices shipped &
@@ -400,9 +528,10 @@ ports; the router keeps answering its own. 100% mutation on the changed file; `s
 password) is a Story-4 crack, so that direction is carried by the deterministic wire-check (it seeds the
 post-crack root session). As-built: `v2/docs/cross-player-architecture.md` §7.
 
-**Next: Story 6** (cross-player scan/connection + su/brick auth.log trace on the shared record), then
-**Story 7** (same-wifi shared-LAN occupancy). Multi-layer generated target networks remain deferred to
-**5b**. Story 5 (cross-player home NAT) is now complete end to end.
+**Next: Story 6** (cross-player scan/connection + su auth.log/kern.log trace on the shared record) —
+**SCOPED 2026-06-19 via grill-me; 7 locked decisions in "Story 6 — resolved scope & decisions" above
+(READ FIRST)**, ready for `planning`. Then **Story 7** (same-wifi shared-LAN occupancy). Multi-layer
+generated target networks remain deferred to **5b**. Story 5 (cross-player home NAT) is complete end to end.
 
 As-built foundation to build on (READ FIRST): `v2/docs/cross-player-architecture.md` — esp. §4 authorization
 and §7 root escalation & bricking (`canBoot`, the role-based dark-gate, `materializeRouterFs`). Every slice
