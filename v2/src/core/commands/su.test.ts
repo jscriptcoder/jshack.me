@@ -399,6 +399,8 @@ describe('su', () => {
         username: 'root',
         password: 'matrix1999',
         parentSessionId: 'ssh-guest-seed',
+        // B's current ws user — carried so A's auth.log reads "by guest" (Story 6.3).
+        fromUser: 'guest',
       });
       expect(pushed).toHaveLength(1);
       expect(pushed[0]).toMatchObject({

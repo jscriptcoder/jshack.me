@@ -133,7 +133,9 @@ const sessionFor = (env: CommandEnv, target: TargetUser): Session => ({
  * against the owner's real passwd and persist the `kind:'su'` row; push the local
  * session ONLY on success, deriving the home from the server-returned tier. Any
  * rejection collapses to one `Authentication failure` (no leak of which check
- * failed). The auth.log trace on the foreign box is deferred to Story 6.
+ * failed). The server stamps the `su` auth.log trace on the foreign box (Story 6.3),
+ * carrying `fromUser` so A's log reads "by <B's current user>"; the client never
+ * writes that log itself.
  */
 const elevateCrossPlayer = async (env: CommandEnv, targetName: string): Promise<CommandResult> => {
   let typed: string;
@@ -149,6 +151,7 @@ const elevateCrossPlayer = async (env: CommandEnv, targetName: string): Promise<
     machineId: env.session.machineId,
     username: targetName,
     password: typed,
+    fromUser: env.session.username,
     parentSessionId: env.session.id,
     sourceIp: null,
   });

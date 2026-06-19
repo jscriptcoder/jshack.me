@@ -179,6 +179,7 @@ export const authElevateServerSession = async (
       machine_id: params.machineId,
       username: params.username,
       password: params.password,
+      from_user: params.fromUser,
       parent_session_id: params.parentSessionId,
       source_ip: params.sourceIp,
     });

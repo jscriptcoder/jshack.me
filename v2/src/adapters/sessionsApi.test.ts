@@ -347,6 +347,7 @@ describe('authElevateServerSession', () => {
     password: 'matrix1999',
     parentSessionId: 'ssh-guest-1',
     sourceIp: '192.168.50.23',
+    fromUser: 'guest',
   };
 
   it('POSTs a signed suElevate envelope and returns the server-derived userType', async () => {
@@ -366,6 +367,7 @@ describe('authElevateServerSession', () => {
       password: 'matrix1999',
       parent_session_id: 'ssh-guest-1',
       source_ip: '192.168.50.23',
+      from_user: 'guest',
     });
   });
 

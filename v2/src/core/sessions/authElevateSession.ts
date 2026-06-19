@@ -16,9 +16,10 @@
  *
  * The own-workstation bypass does not apply — A is foreign by design, so the passwd
  * check IS the authorization boundary. Unknown-user and wrong-password collapse to
- * one 401. Writing the `su` trace to A's `auth.log` is a cross-player trace, deferred
- * to Story 6 (same posture as `authCreateSessionPublic`) — this handler touches only
- * B's own session row.
+ * one 401. Once the workstation resolves, the attempt leaves a `su` trace on A's
+ * shared `auth.log` (Story 6.3) — on BOTH outcomes, under A's owner key (the system
+ * owns its logs), naming the `from` user B switched from (su lines carry no source IP,
+ * same posture as `authCreateSessionPublic`).
  */
 
 import { z } from 'zod';
@@ -27,8 +28,21 @@ import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { buildWorkstationBaseFsFromIdentity } from '../generation/workstationFs';
 import { md5 } from '../generation/md5';
 import { accountIn } from './passwdAccount';
+import {
+  AUTH_LOG_OWNER,
+  AUTH_LOG_PATH,
+  AUTH_LOG_PERMISSIONS,
+  formatSuAuthLine,
+} from '../logging/authLog';
+import { derivePid } from '../logging/syslog';
+import {
+  appendMachineLog,
+  type MachineLogReadQuery,
+  type MachineLogReadResult,
+} from '../patches/appendMachineLog';
+import { asGameTime, type UserType } from '../types';
+import type { PatchRow } from '../patches/upsertPatch';
 import type { HandlerResponse } from './authCreateSession';
-import type { UserType } from '../types';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
 /** The registry fields a cross-player `su` elevation needs: who owns the box (to
@@ -41,6 +55,9 @@ export type RegistryWorkstation = {
   readonly workstation_machine_id: string;
   readonly essid: string;
   readonly workstation_username: string;
+  /** The owner's player-chosen workstation hostname — the name the `su` auth.log
+   *  trace line carries (Story 6.3), mirroring the ssh trace's hostname. */
+  readonly workstation_machine_name: string;
   readonly workstation_root_hash: string;
 };
 
@@ -65,6 +82,13 @@ export type AuthElevateSessionDeps = {
     machineId: string,
   ) => Promise<{ readonly data: RegistryWorkstation | null; readonly error: unknown }>;
   readonly insertSession: (row: SuSessionRow) => Promise<{ readonly error: unknown }>;
+  /** The server's wall clock, epoch-ms (UTC) — stamps the auth.log trace line. */
+  readonly now: () => number;
+  /** Read the current content of the target workstation's auth.log on the shared
+   *  journal, keyed `(machine_id, path, writer_key)` — the read half of the append. */
+  readonly readAuthLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
+  /** Write a patch (here: the appended su auth.log line on the target workstation). */
+  readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
 };
 
 // Loose so the envelope fields pass through; the refine rejects a client-supplied
@@ -77,10 +101,56 @@ const authElevateSessionSchema = z
     machine_id: z.string().min(1),
     username: z.string().min(1),
     password: z.string(),
+    // B's CURRENT user on the box (e.g. `guest`) — the `by <from>` in the auth.log
+    // trace (Story 6.3). Not an identity claim (the verified pubkey is the actor);
+    // it only names which local account ran `su`, so the line reads truthfully.
+    from_user: z.string().min(1),
     parent_session_id: z.string().min(1).nullable().optional(),
     source_ip: z.string().min(1).nullable().optional(),
   })
   .refine((payload) => !('player_key' in payload) && !('userType' in payload));
+
+/** Stamp the elevation attempt onto the TARGET workstation's `/var/log/auth.log` via
+ *  the shared system-log primitive — on BOTH outcomes (su records successful AND
+ *  failed switches). The keystone (decision 1): `writerKey` is the TARGET OWNER's key
+ *  — the system owns its logs, so every attacker's line accretes into ONE row instead
+ *  of colliding under the last-write-wins fold; the attacker's identity lives in the
+ *  line's `by <from>` user (su lines carry no source IP). Best-effort: a logging
+ *  failure must never break (or fabricate) the elevation. */
+const logCrossPlayerSu = async (
+  deps: AuthElevateSessionDeps,
+  registry: RegistryWorkstation,
+  attempt: {
+    readonly outcome: 'success' | 'failure';
+    readonly targetUser: string;
+    readonly fromUser: string;
+  },
+): Promise<void> => {
+  const stamp = deps.now();
+  const line = formatSuAuthLine({
+    outcome: attempt.outcome,
+    targetUser: attempt.targetUser,
+    fromUser: attempt.fromUser,
+    hostname: registry.workstation_machine_name,
+    time: asGameTime(stamp),
+    pid: derivePid(stamp),
+  });
+  try {
+    await appendMachineLog(
+      { readLog: deps.readAuthLog, upsertPatch: deps.upsertPatch },
+      {
+        writerKey: registry.owner_key,
+        machineId: registry.workstation_machine_id,
+        path: AUTH_LOG_PATH,
+        owner: AUTH_LOG_OWNER,
+        permissions: AUTH_LOG_PERMISSIONS,
+      },
+      line,
+    );
+  } catch {
+    // best-effort: the elevation result stands regardless of a logging failure.
+  }
+};
 
 export const handleAuthElevateSession = async (
   body: unknown,
@@ -112,6 +182,17 @@ export const handleAuthElevateSession = async (
   });
   const account = accountIn(fs, payload.username);
   const passwordOk = account !== null && md5(payload.password) === account.hash;
+
+  // The workstation is resolved, so the attempt CAN be logged — su records both
+  // successful and failed elevations. (The 404 host_unreachable above logs nothing —
+  // there is no reachable box to log on.) The line is written under the OWNER's key
+  // (decision 1) on the workstation's record, naming the `from` user B switched from.
+  await logCrossPlayerSu(deps, data, {
+    outcome: passwordOk ? 'success' : 'failure',
+    targetUser: payload.username,
+    fromUser: payload.from_user,
+  });
+
   if (account === null || !passwordOk) {
     return { status: 401, body: { error: 'invalid_credentials' } };
   }
