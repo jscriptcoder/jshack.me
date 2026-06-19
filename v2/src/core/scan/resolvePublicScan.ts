@@ -39,6 +39,10 @@ import {
   KERN_LOG_PERMISSIONS,
 } from '../logging/kernLog';
 import {
+  resolveCrossPlayerSourceIp,
+  type FindRegistryByOwnerKey,
+} from '../logging/crossPlayerSourceIp';
+import {
   appendMachineLog,
   type MachineLogReadQuery,
   type MachineLogReadResult,
@@ -85,9 +89,7 @@ export type ResolvePublicScanDeps = {
   /** Resolve the SCANNER's (caller's) own home public IP from their verified owner
    *  key — the truthful source IP of the scan, server-derived so a client cannot
    *  forge it or frame another network. `null` (no home network) → source unknown. */
-  readonly findRegistryByOwnerKey: (
-    ownerKey: string,
-  ) => Promise<{ readonly data: { readonly public_ip: string } | null; readonly error: unknown }>;
+  readonly findRegistryByOwnerKey: FindRegistryByOwnerKey;
 };
 
 export type HandlerResponse = {
@@ -126,19 +128,6 @@ const resolveForwardTargets = async (
   });
   if (workstationPatches.error) return null;
   return buildWorkstationPortResolver({ registry, workstationPatches: workstationPatches.data });
-};
-
-/** The scanner's truthful source IP: their own home public IP, server-derived from
- *  their VERIFIED owner key (never the client `source_ip`, which is forgeable). A
- *  missing registry row or a lookup error degrades to `unknown` — the scan stands.
- *  Today the scanner's "operating machine" is always their home box; when the pivot
- *  feature ships this same seam will resolve the hop they operate from. */
-const resolveScannerSourceIp = async (
-  deps: ResolvePublicScanDeps,
-  scannerKey: string,
-): Promise<string> => {
-  const { data, error } = await deps.findRegistryByOwnerKey(scannerKey);
-  return error || data === null ? 'unknown' : data.public_ip;
 };
 
 /** Stamp the scan onto the TARGET router's `/var/log/kern.log` via the shared
@@ -220,7 +209,7 @@ export const handleResolvePublicScan = async (
   // Host-up: leave a truthful kern.log trace on the TARGET's shared router record
   // (decision 1: written under the owner's key). The source IP is the scanner's own
   // home public IP, server-derived from their verified key — never the payload's.
-  const sourceIp = await resolveScannerSourceIp(deps, verified.publicKey);
+  const sourceIp = await resolveCrossPlayerSourceIp(deps.findRegistryByOwnerKey, verified.publicKey);
   await logCrossPlayerScan(deps, data, ports, sourceIp);
 
   return { status: 200, body: { ok: true, found: true, ports } };

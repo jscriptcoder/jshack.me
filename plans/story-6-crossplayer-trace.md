@@ -1,7 +1,7 @@
 # Plan: Story 6 — Cross-player scan / connection / su trace on the shared record
 
 **Branch**: one branch + PR per slice (v2 convention, squash-merge `feat(v2): … (#N)`)
-**Status**: Active — 6.0 ✅ merged (#284), 6.1 ✅ merged (#286) + live-confirmed. **NEXT = Slice 6.2.**
+**Status**: Active — 6.0 ✅ merged (#284), 6.1 ✅ merged (#286) + live-confirmed, 6.2 ✅ DONE (wire-check 7/7 + agent-browser; awaiting PR). **NEXT = Slice 6.3 (cross-player `su` → `auth.log`).**
 **Epic**: `plans/multiplayer-crossplayer-epic.md` → "Story 6 — resolved scope & decisions (grill-me, 2026-06-19)" (READ FIRST; 7 locked decisions)
 **As-built foundation**: `v2/docs/cross-player-architecture.md` (esp. §3 reachability/login, §4 authorization, §7 root/bricking)
 
@@ -159,7 +159,7 @@ report reviewed; human approves commit.
 
 ---
 
-### Slice 6.2: Cross-player connection leaves an owner-keyed `auth.log` line (both outcomes)
+### Slice 6.2: Cross-player connection leaves an owner-keyed `auth.log` line (both outcomes) — ✅ DONE (wire-check 7/7 + agent-browser; PR pending)
 
 **Value**: A defender sees who logged in (or tried to) and from where — the brute-force / hydra signal.
 **Path**: B `ssh [-p port] <user>@<A.publicIp>` → `authCreateSessionPublic` resolves `target.machineId`
@@ -252,6 +252,21 @@ reviewed; human approves commit.
 
 ## Resolved (2026-06-19)
 
+- **6.2 live-confirmed (2026-06-20)** — wire-check `scripts/testCrossPlayerConnectionTrace.ts` **7/7**
+  (router `:22` Accepted line under A's owner_key naming the seeded router; wrong-pw 401 + Failed line;
+  forged `source_ip` ignored; B+C accrete in ONE owner-keyed row; forwarded `:2222` guest Accepted line
+  on the WORKSTATION record naming `workstation_machine_name`; unregistered IP 404 writes nothing) +
+  agent-browser full loop (crack→`nmcli connect`→`ssh root@<A.publicIp>`→`cat /var/log/auth.log`): line
+  `edge-rtr sshd[…]: Accepted password for root from <B's HOME public IP>`, AND (decision 8) `cat
+  /var/log/kern.log` showed the SAME ssh ALSO left `[iptables] Port scan from <same B IP>` — a cross-player
+  ssh leaves BOTH traces. Source IP is B's registry public IP (`51.212.140.221`), NOT B's LAN IP
+  (`192.168.153.45`) — server-derived, unforgeable. **REFACTOR shipped:** the source-IP derivation
+  (duplicated across 6.1+6.2) extracted to `core/logging/crossPlayerSourceIp.ts`
+  (`resolveCrossPlayerSourceIp` + `FindRegistryByOwnerKey`, 100% mutation); `resolvePublicScan.ts`
+  refactored onto it. The best-effort log try/catch was assessed and KEPT inline (formatters/targets differ;
+  inline keeps the best-effort posture visible). Two equivalent mutants accepted on `authCreateSessionPublic.ts`
+  (`'failure'`→`''` observationally identical since the only consumer branches on `=== 'success'`;
+  `account === null` a redundant disjunct already implied by `!passwordOk`).
 - **Log ALL port probes, not just `nmap` (decision 8, 2026-06-20)** — cross-player `ssh` to a public IP
   ALSO writes a `kern.log` "port scan" line, because `core/commands/ssh.ts` (`ssh.ts:84`) calls
   `env.scan.resolvePublic(host)` for its reachability check — the SAME `resolvePublicScan` handler 6.1 logs.

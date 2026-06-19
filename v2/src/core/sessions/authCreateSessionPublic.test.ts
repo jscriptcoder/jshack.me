@@ -6,13 +6,23 @@ import {
 } from './authCreateSessionPublic';
 import type { AuthSessionRow } from './authCreateSession';
 import { md5 } from '../generation/md5';
-import { seedRouterAdminPw } from '../generation/routerFs';
+import { seedRouterAdminPw, seedRouterHostname } from '../generation/routerFs';
 import { workstationGuestPassword } from '../generation/workstationFs';
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
 import { computeRouterId } from '../identity/router';
 import { assignHomeNetwork } from '../network/homeNetwork';
 import type { OwnerPatchRow } from '../network/materializeWorkstationFs';
+import { asGameTime } from '../types';
+import {
+  AUTH_LOG_OWNER,
+  AUTH_LOG_PATH,
+  AUTH_LOG_PERMISSIONS,
+  formatSshdAuthLine,
+} from '../logging/authLog';
+import { derivePid } from '../logging/syslog';
+import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
+import type { PatchRow } from '../patches/upsertPatch';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
 /**
@@ -29,6 +39,11 @@ import type { NonceStore } from '../signedRequest/nonceStore';
 
 const freshStore: NonceStore = async () => ({ fresh: true });
 const TARGET = '203.0.113.7';
+// 2026-06-19 12:00:00 UTC — the server clock the auth.log line is stamped with.
+const FIXED_NOW = Date.UTC(2026, 5, 19, 12, 0, 0);
+// B's (the attacker's) home public IP, as the registry returns it for B's owner key.
+// Server-derived; NEVER the client-supplied `source_ip`.
+const SCANNER_PUBLIC_IP = '198.51.100.22';
 // A's identity → owner_key; the router's admin password + sshd presence are seeded
 // from it alone, so the server recovers them when resolving a cross-player login.
 const OWNER = generateIdentity();
@@ -41,6 +56,7 @@ const REGISTRY: RegistryTarget = {
   essid: ESSID,
   workstation_machine_id: WS_ID,
   workstation_username: 'neo',
+  workstation_machine_name: 'nebuchadnezzar',
   workstation_root_hash: md5('toor'),
 };
 const ADMIN_PW = seedRouterAdminPw(OWNER.publicKeyHex);
@@ -98,6 +114,18 @@ const bootTombstone: OwnerPatchRow = {
 
 type LookupResult = { data: RegistryTarget | null; error: unknown };
 type PatchesResult = { data: readonly OwnerPatchRow[] | null; error: unknown };
+type OwnerKeyResult = { data: { public_ip: string } | null; error: unknown };
+
+/** Overrides for the system-logging + source-IP deps (Story 6.2). Defaults: the
+ *  fixed server clock, an empty auth.log (a reachable attempt appends one line), a
+ *  successful write, and a registry that resolves the attacker's owner key to
+ *  `SCANNER_PUBLIC_IP`. */
+type LogOverrides = {
+  now?: () => number;
+  readAuthLog?: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
+  upsertPatch?: (row: PatchRow) => Promise<{ error: unknown }>;
+  findRegistryByOwnerKey?: (ownerKey: string) => Promise<OwnerKeyResult>;
+};
 
 const makeDeps = (
   lookup: () => Promise<LookupResult> = async () => ({ data: REGISTRY, error: null }),
@@ -106,17 +134,40 @@ const makeDeps = (
     data: [],
     error: null,
   }),
+  over: LogOverrides = {},
 ) => {
   const findRegistryByPublicIp = vi.fn<(publicIp: string) => Promise<LookupResult>>(lookup);
   const findPatches = vi.fn<(query: { machine_id: string }) => Promise<PatchesResult>>(patches);
   const insertSession = vi.fn<(row: AuthSessionRow) => Promise<{ error: unknown }>>(insert);
+  const readAuthLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
+    over.readAuthLog ?? (async () => ({ data: null, error: null })),
+  );
+  const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(
+    over.upsertPatch ?? (async () => ({ error: null })),
+  );
+  const findRegistryByOwnerKey = vi.fn<(ownerKey: string) => Promise<OwnerKeyResult>>(
+    over.findRegistryByOwnerKey ??
+      (async () => ({ data: { public_ip: SCANNER_PUBLIC_IP }, error: null })),
+  );
   const deps: AuthCreateSessionPublicDeps = {
     nonceStore: freshStore,
     findRegistryByPublicIp,
     findPatches,
     insertSession,
+    now: over.now ?? (() => FIXED_NOW),
+    readAuthLog,
+    upsertPatch,
+    findRegistryByOwnerKey,
   };
-  return { deps, findRegistryByPublicIp, findPatches, insertSession };
+  return {
+    deps,
+    findRegistryByPublicIp,
+    findPatches,
+    insertSession,
+    readAuthLog,
+    upsertPatch,
+    findRegistryByOwnerKey,
+  };
 };
 
 const envelope = (id: ReturnType<typeof generateIdentity>, fields: Record<string, unknown>) =>
@@ -126,6 +177,24 @@ const envelope = (id: ReturnType<typeof generateIdentity>, fields: Record<string
     parent_session_id: 'seed-session',
     source_ip: '192.168.1.5',
     ...fields,
+  });
+
+/** The sshd auth.log line the server is expected to stamp for a cross-player attempt
+ *  at `FIXED_NOW`, given the resolved machine's hostname + outcome + user. The source
+ *  IP defaults to B's server-derived home public IP. */
+const expectedSshdLine = (
+  hostname: string,
+  outcome: 'success' | 'failure',
+  user: string,
+  fromIp: string = SCANNER_PUBLIC_IP,
+): string =>
+  formatSshdAuthLine({
+    outcome,
+    user,
+    fromIp,
+    hostname,
+    time: asGameTime(FIXED_NOW),
+    pid: derivePid(FIXED_NOW),
   });
 
 describe('handleAuthCreateSessionPublic', () => {
@@ -471,5 +540,188 @@ describe('handleAuthCreateSessionPublic', () => {
 
     expect(result.status).toBe(400);
     expect(insertSession).not.toHaveBeenCalled();
+  });
+
+  // Story 6.2: a reachable cross-player ssh attempt leaves a truthful auth.log trace
+  // on the TARGET's shared record. Keystone (decision 1): the line is written under
+  // the TARGET OWNER's writer_key (the system owns its logs) so multi-attacker rows
+  // don't collapse under the last-write-wins fold — the attacker's identity lives in
+  // the line content (source IP), never in writer_key. A router-served port logs on
+  // the ROUTER record (seeded hostname); a NAT-forwarded port logs on the WORKSTATION
+  // record (its machine name). Every 404 host_unreachable logs nothing.
+  describe('cross-player connection trace (Story 6.2)', () => {
+    it("appends ONE auth.log 'Accepted' line on the ROUTER record under the OWNER's writer_key for a :22 login", async () => {
+      const attacker = generateIdentity();
+      const { deps, upsertPatch } = makeDeps();
+
+      const result = await handleAuthCreateSessionPublic(
+        envelope(attacker, { username: 'root', password: ADMIN_PW }),
+        deps,
+      );
+
+      expect(result.status).toBe(200);
+      expect(upsertPatch).toHaveBeenCalledTimes(1);
+      expect(upsertPatch.mock.calls[0]![0]).toEqual({
+        writer_key: REGISTRY.owner_key,
+        machine_id: ROUTER_ID,
+        path: AUTH_LOG_PATH,
+        content: `${expectedSshdLine(seedRouterHostname(OWNER.publicKeyHex), 'success', 'root')}\n`,
+        owner: AUTH_LOG_OWNER,
+        permissions: AUTH_LOG_PERMISSIONS,
+        node_type: 'file',
+      });
+      // The provenance is the OWNER, never the attacker — the keystone.
+      expect(upsertPatch.mock.calls[0]![0].writer_key).not.toBe(attacker.publicKeyHex);
+    });
+
+    it('appends the line on the WORKSTATION record (its machine name) for a forwarded :2222 login', async () => {
+      const attacker = generateIdentity();
+      const { deps, upsertPatch } = makeDeps(
+        undefined,
+        undefined,
+        patchesByMachine({ [ROUTER_ID]: [routerForward], [WS_ID]: [wsSshdUp] }),
+      );
+
+      const result = await handleAuthCreateSessionPublic(
+        envelope(attacker, { username: 'guest', password: GUEST_PW, port: 2222 }),
+        deps,
+      );
+
+      expect(result.status).toBe(200);
+      expect(upsertPatch).toHaveBeenCalledTimes(1);
+      expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
+        writer_key: REGISTRY.owner_key,
+        machine_id: WS_ID,
+        path: AUTH_LOG_PATH,
+        content: `${expectedSshdLine(REGISTRY.workstation_machine_name, 'success', 'guest')}\n`,
+      });
+    });
+
+    it('appends a "Failed password" line on a wrong password and still returns 401 without inserting', async () => {
+      const attacker = generateIdentity();
+      const { deps, upsertPatch, insertSession } = makeDeps();
+
+      const result = await handleAuthCreateSessionPublic(
+        envelope(attacker, { username: 'root', password: 'definitely-not-the-pw' }),
+        deps,
+      );
+
+      expect(result).toEqual({ status: 401, body: { error: 'invalid_credentials' } });
+      expect(insertSession).not.toHaveBeenCalled();
+      expect(upsertPatch.mock.calls[0]![0].content).toBe(
+        `${expectedSshdLine(seedRouterHostname(OWNER.publicKeyHex), 'failure', 'root')}\n`,
+      );
+    });
+
+    it("uses B's REGISTRY public IP as the source, ignoring the client source_ip", async () => {
+      const attacker = generateIdentity();
+      const { deps, upsertPatch, findRegistryByOwnerKey } = makeDeps();
+
+      await handleAuthCreateSessionPublic(
+        envelope(attacker, { username: 'root', password: ADMIN_PW, source_ip: '10.0.0.66' }),
+        deps,
+      );
+
+      // The lookup is keyed by the ATTACKER's verified key, not the target owner.
+      expect(findRegistryByOwnerKey).toHaveBeenCalledWith(attacker.publicKeyHex);
+      const content = upsertPatch.mock.calls[0]![0].content;
+      expect(content).toContain(`from ${SCANNER_PUBLIC_IP}`);
+      expect(content).not.toContain('10.0.0.66');
+    });
+
+    it("falls back to 'unknown' source when B has no registry row, still logging and authenticating", async () => {
+      const attacker = generateIdentity();
+      const { deps, upsertPatch } = makeDeps(undefined, undefined, undefined, {
+        findRegistryByOwnerKey: async () => ({ data: null, error: null }),
+      });
+
+      const result = await handleAuthCreateSessionPublic(
+        envelope(attacker, { username: 'root', password: ADMIN_PW }),
+        deps,
+      );
+
+      expect(result.status).toBe(200);
+      expect(upsertPatch.mock.calls[0]![0].content).toBe(
+        `${expectedSshdLine(seedRouterHostname(OWNER.publicKeyHex), 'success', 'root', 'unknown')}\n`,
+      );
+    });
+
+    it('writes no auth.log line for an unregistered public IP (404, nothing to log on)', async () => {
+      const attacker = generateIdentity();
+      const { deps, upsertPatch } = makeDeps(async () => ({ data: null, error: null }));
+
+      const result = await handleAuthCreateSessionPublic(
+        envelope(attacker, { username: 'root', password: ADMIN_PW }),
+        deps,
+      );
+
+      expect(result.status).toBe(404);
+      expect(upsertPatch).not.toHaveBeenCalled();
+    });
+
+    it('writes no auth.log line for a bricked router (whole public IP dark)', async () => {
+      const attacker = generateIdentity();
+      const { deps, upsertPatch } = makeDeps(undefined, undefined, async () => ({
+        data: [bootTombstone],
+        error: null,
+      }));
+
+      const result = await handleAuthCreateSessionPublic(
+        envelope(attacker, { username: 'root', password: ADMIN_PW }),
+        deps,
+      );
+
+      expect(result.status).toBe(404);
+      expect(upsertPatch).not.toHaveBeenCalled();
+    });
+
+    it('writes no auth.log line for an unforwarded destination port (404 before any log)', async () => {
+      const attacker = generateIdentity();
+      const { deps, upsertPatch } = makeDeps();
+
+      // -p 2222 with the opt-in default (no forward): the router serves no such port.
+      const result = await handleAuthCreateSessionPublic(
+        envelope(attacker, { username: 'root', password: ADMIN_PW, port: 2222 }),
+        deps,
+      );
+
+      expect(result.status).toBe(404);
+      expect(upsertPatch).not.toHaveBeenCalled();
+    });
+
+    it('skips the write when the auth.log read fails (RMW bails), and still authenticates', async () => {
+      const attacker = generateIdentity();
+      const { deps, upsertPatch } = makeDeps(undefined, undefined, undefined, {
+        readAuthLog: async () => ({ data: null, error: new Error('log read down') }),
+      });
+
+      const result = await handleAuthCreateSessionPublic(
+        envelope(attacker, { username: 'root', password: ADMIN_PW }),
+        deps,
+      );
+
+      expect(result.status).toBe(200);
+      expect(upsertPatch).not.toHaveBeenCalled();
+    });
+
+    it('returns the auth result even when the log write throws (best-effort logging)', async () => {
+      const attacker = generateIdentity();
+      const { deps, insertSession } = makeDeps(undefined, undefined, undefined, {
+        upsertPatch: async () => {
+          throw new Error('write blew up');
+        },
+      });
+
+      const result = await handleAuthCreateSessionPublic(
+        envelope(attacker, { username: 'root', password: ADMIN_PW }),
+        deps,
+      );
+
+      expect(result).toEqual({
+        status: 200,
+        body: { ok: true, userType: 'root', machine_id: ROUTER_ID },
+      });
+      expect(insertSession).toHaveBeenCalledTimes(1);
+    });
   });
 });

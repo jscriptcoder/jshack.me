@@ -16,8 +16,10 @@
  *   - any other port → host_unreachable.
  *
  * The boot gate keys on the ROUTER: a `/boot` tombstone takes the whole public IP
- * dark, refused before any password is checked. It does NOT write to A's box (the
- * auth.log trace is Story 6). The own-workstation bypass does not apply — a public
+ * dark, refused before any password is checked. Once a reachable target resolves,
+ * the attempt leaves an `auth.log` trace on A's shared record (Story 6.2) — on BOTH
+ * outcomes, under A's owner key (the system owns its logs), with the attacker's
+ * server-derived source IP. The own-workstation bypass does not apply — a public
  * target is foreign by design, so the passwd check IS the authorization boundary.
  * Unknown-user and wrong-password collapse to one 401.
  */
@@ -26,6 +28,7 @@ import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { md5 } from '../generation/md5';
+import { seedRouterHostname } from '../generation/routerFs';
 import { accountIn } from './passwdAccount';
 import { materializeRouterFs } from '../network/materializeRouterFs';
 import type { OwnerPatchRow } from '../network/materializeWorkstationFs';
@@ -33,6 +36,24 @@ import { machineServing, type ServedMachine } from '../network/machineServing';
 import { buildWorkstationResolver } from '../scan/workstationPortResolver';
 import { readOpenPorts } from '../services/pidfile';
 import { canBoot } from '../boot/bootFiles';
+import {
+  AUTH_LOG_OWNER,
+  AUTH_LOG_PATH,
+  AUTH_LOG_PERMISSIONS,
+  formatSshdAuthLine,
+} from '../logging/authLog';
+import { derivePid } from '../logging/syslog';
+import {
+  resolveCrossPlayerSourceIp,
+  type FindRegistryByOwnerKey,
+} from '../logging/crossPlayerSourceIp';
+import {
+  appendMachineLog,
+  type MachineLogReadQuery,
+  type MachineLogReadResult,
+} from '../patches/appendMachineLog';
+import { asGameTime } from '../types';
+import type { PatchRow } from '../patches/upsertPatch';
 import type { Directory } from '../filesystem/types';
 import type { AuthSessionRow, HandlerResponse } from './authCreateSession';
 import type { NonceStore } from '../signedRequest/nonceStore';
@@ -50,6 +71,9 @@ export type RegistryTarget = {
   readonly essid: string;
   readonly workstation_machine_id: string;
   readonly workstation_username: string;
+  /** The owner's player-chosen workstation hostname — the name a forwarded-port
+   *  `auth.log` line (Story 6.2) carries, mirroring the router's seeded hostname. */
+  readonly workstation_machine_name: string;
   readonly workstation_root_hash: string;
 };
 
@@ -66,6 +90,17 @@ export type AuthCreateSessionPublicDeps = {
     readonly machine_id: string;
   }) => Promise<{ readonly data: readonly OwnerPatchRow[] | null; readonly error: unknown }>;
   readonly insertSession: (row: AuthSessionRow) => Promise<{ readonly error: unknown }>;
+  /** The server's wall clock, epoch-ms (UTC) — stamps the auth.log trace line. */
+  readonly now: () => number;
+  /** Read the current content of the target machine's auth.log on the shared journal,
+   *  keyed `(machine_id, path, writer_key)` — the read half of the appended line. */
+  readonly readAuthLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
+  /** Write a patch (here: the appended auth.log line on the target machine). */
+  readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
+  /** Resolve the ATTACKER's (caller's) own home public IP from their verified owner
+   *  key — the truthful source IP of the login, server-derived so a client cannot
+   *  forge it or frame another network. `null` (no home network) → source unknown. */
+  readonly findRegistryByOwnerKey: FindRegistryByOwnerKey;
 };
 
 // The destination ssh port when the client sends none — a bare `ssh user@host` is
@@ -89,8 +124,13 @@ const authCreateSessionPublicSchema = z
   .refine((payload) => !('player_key' in payload));
 
 /** The resolved auth target behind the public IP: which tree to validate the
- *  password against, and the machine id the session lands on. */
-type AuthTarget = { readonly fs: Directory; readonly machineId: string };
+ *  password against, the machine id the session lands on, and the hostname the
+ *  auth.log trace line carries (the router's seeded name / the workstation's name). */
+type AuthTarget = {
+  readonly fs: Directory;
+  readonly machineId: string;
+  readonly hostname: string;
+};
 
 /**
  * Resolve `ssh <publicIp>:<port>` to its auth target. The router serves its own
@@ -108,7 +148,11 @@ const resolveAuthTarget = async (
   routerFs: Directory,
 ): Promise<AuthTarget | HandlerResponse> => {
   if (served.kind === 'router') {
-    return { fs: routerFs, machineId: registry.router_machine_id };
+    return {
+      fs: routerFs,
+      machineId: registry.router_machine_id,
+      hostname: seedRouterHostname(registry.owner_key),
+    };
   }
   if (served.kind === 'none') {
     return { status: 404, body: { error: 'host_unreachable' } };
@@ -135,7 +179,54 @@ const resolveAuthTarget = async (
   if (!listening) {
     return { status: 404, body: { error: 'host_unreachable' } };
   }
-  return { fs: workstationFs, machineId: registry.workstation_machine_id };
+  return {
+    fs: workstationFs,
+    machineId: registry.workstation_machine_id,
+    hostname: registry.workstation_machine_name,
+  };
+};
+
+/** Stamp the login attempt onto the TARGET machine's `/var/log/auth.log` via the
+ *  shared system-log primitive — on BOTH outcomes (sshd records accepted AND rejected
+ *  logins). The keystone (decision 1): `writerKey` is the TARGET OWNER's key — the
+ *  system owns its logs, so every attacker's line accretes into ONE row instead of
+ *  colliding under the last-write-wins fold; the attacker's identity lives in the
+ *  line's source IP. Best-effort: a logging failure must never break (or fabricate)
+ *  the auth. */
+const logCrossPlayerAuth = async (
+  deps: AuthCreateSessionPublicDeps,
+  ownerKey: string,
+  target: AuthTarget,
+  attempt: {
+    readonly outcome: 'success' | 'failure';
+    readonly user: string;
+    readonly fromIp: string;
+  },
+): Promise<void> => {
+  const stamp = deps.now();
+  const line = formatSshdAuthLine({
+    outcome: attempt.outcome,
+    user: attempt.user,
+    fromIp: attempt.fromIp,
+    hostname: target.hostname,
+    time: asGameTime(stamp),
+    pid: derivePid(stamp),
+  });
+  try {
+    await appendMachineLog(
+      { readLog: deps.readAuthLog, upsertPatch: deps.upsertPatch },
+      {
+        writerKey: ownerKey,
+        machineId: target.machineId,
+        path: AUTH_LOG_PATH,
+        owner: AUTH_LOG_OWNER,
+        permissions: AUTH_LOG_PERMISSIONS,
+      },
+      line,
+    );
+  } catch {
+    // best-effort: the auth result stands regardless of a logging failure.
+  }
 };
 
 export const handleAuthCreateSessionPublic = async (
@@ -186,6 +277,20 @@ export const handleAuthCreateSessionPublic = async (
   // password is one 401 — the response never reveals which accounts exist.
   const account = accountIn(target.fs, payload.username);
   const passwordOk = account !== null && md5(payload.password) === account.hash;
+
+  // The target machine is resolved, so the attempt CAN be logged — sshd records both
+  // accepted and rejected logins. (Every 404 host_unreachable above logs nothing —
+  // there is no reachable machine to log on.) The line is written under the OWNER's
+  // key (decision 1) on the resolved machine (router or workstation behind the NAT);
+  // the source IP is the attacker's own home public IP, server-derived from their
+  // verified key — never the payload's.
+  const sourceIp = await resolveCrossPlayerSourceIp(deps.findRegistryByOwnerKey, publicKey);
+  await logCrossPlayerAuth(deps, data.owner_key, target, {
+    outcome: passwordOk ? 'success' : 'failure',
+    user: payload.username,
+    fromIp: sourceIp,
+  });
+
   if (account === null || !passwordOk) {
     return { status: 401, body: { error: 'invalid_credentials' } };
   }

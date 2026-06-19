@@ -155,13 +155,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Cross-PLAYER ssh login (Story 5.1.2): resolve the target PUBLIC IP in the
     // registry, then the handler materializes the owner's ROUTER and routes by
     // destination port — port 22 lands on the router itself (validated against its
-    // seeded admin password). No write to the owner's box — the auth.log trace on a
-    // foreign machine is a later story (Story 6).
+    // seeded admin password). Story 6.2: a reachable attempt now leaves an auth.log
+    // trace on the owner's shared record (router or workstation behind the NAT),
+    // written under the OWNER's writer_key so multi-attacker rows don't collide.
     const findRegistryByPublicIp = async (publicIp: string) => {
       const { data, error } = await supabase
         .from('network_registry')
         .select(
-          'owner_key, router_machine_id, essid, workstation_machine_id, workstation_username, workstation_root_hash',
+          'owner_key, router_machine_id, essid, workstation_machine_id, workstation_username, workstation_machine_name, workstation_root_hash',
         )
         .eq('public_ip', publicIp)
         .maybeSingle();
@@ -186,11 +187,53 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (error) console.error('[sessions] public auth boot-state lookup error:', error);
       return { data: data as readonly OwnerPatchRow[] | null, error };
     };
+    // The system-written sshd auth.log line on the TARGET machine (router or the
+    // workstation behind the NAT): read the current content + upsert the appended
+    // line (read-modify-write, bypassing L1/L2 — the service logs it, not the
+    // player). Same `patches`-table shapes as the own-LAN ssh appender above; the
+    // line is written under the OWNER's writer_key (decision 1).
+    const readAuthLog = async ({ writer_key, machine_id, path }: MachineLogReadQuery) => {
+      const { data, error } = await supabase
+        .from('patches')
+        .select('content')
+        .eq('writer_key', writer_key)
+        .eq('machine_id', machine_id)
+        .eq('path', path)
+        .maybeSingle();
+      if (error) console.error('[sessions] public auth-log read error:', error);
+      return { data, error };
+    };
+    const upsertPatchPublic = async (row: PatchRow) => {
+      const { error } = await supabase
+        .from('patches')
+        .upsert(row, { onConflict: 'machine_id,path,writer_key' });
+      if (error) console.error('[sessions] public auth-log upsert error:', error);
+      return { error };
+    };
+    // The ATTACKER's own home public IP — the truthful source IP, server-derived from
+    // their verified owner key (never the client `source_ip`). One player may carry
+    // rows for several APs they've joined; the most-recently-updated is their current
+    // network ("one network at a time"). owner_key is not the PK, hence the order+limit.
+    const findRegistryByOwnerKey = async (ownerKey: string) => {
+      const { data, error } = await supabase
+        .from('network_registry')
+        .select('public_ip')
+        .eq('owner_key', ownerKey)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) console.error('[sessions] public auth source-ip lookup error:', error);
+      return { data: data as { public_ip: string } | null, error };
+    };
     const { status, body } = await handleAuthCreateSessionPublic(req.body, {
       nonceStore: noopNonceStore,
       findRegistryByPublicIp,
       findPatches,
       insertSession: insertSessionPublic,
+      now: () => Date.now(),
+      readAuthLog,
+      upsertPatch: upsertPatchPublic,
+      findRegistryByOwnerKey,
     });
     res.status(status).json(body);
     return;
