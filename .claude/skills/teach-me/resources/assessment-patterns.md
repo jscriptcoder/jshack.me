@@ -13,7 +13,6 @@ Use these templates to generate questions at the right level for the learner's c
 **Purpose:** Verify the learner can retrieve basic information. Use sparingly — this is the lowest form of understanding.
 
 **Templates:**
-
 - "What is the definition of [concept]?"
 - "List the [N] types/steps/components of [concept]."
 - "What does [term] mean in the context of [topic]?"
@@ -28,7 +27,6 @@ Use these templates to generate questions at the right level for the learner's c
 **Purpose:** Verify the learner can explain concepts in their own words, not just parrot definitions.
 
 **Templates:**
-
 - "Explain [concept] in your own words."
 - "Why does [concept] work this way?"
 - "What is the main idea behind [concept]?"
@@ -42,7 +40,6 @@ Use these templates to generate questions at the right level for the learner's c
 **Purpose:** Verify the learner can use the concept to solve problems they haven't seen before.
 
 **Templates:**
-
 - "How would you apply [concept] to solve [new problem]?"
 - "Given [scenario], which [approach/pattern] would you use, and how?"
 - "Write code that demonstrates [concept] for [specific case]."
@@ -55,7 +52,6 @@ Use these templates to generate questions at the right level for the learner's c
 **Purpose:** Verify the learner can decompose concepts and see relationships between parts.
 
 **Templates:**
-
 - "What's the difference between [concept A] and [concept B]?"
 - "What are the trade-offs of [approach A] vs [approach B]?"
 - "What would happen if [element] were removed from [concept]?"
@@ -69,11 +65,10 @@ Use these templates to generate questions at the right level for the learner's c
 **Purpose:** Verify the learner can make and defend judgments using the concept.
 
 **Templates:**
-
 - "Which approach is better for [scenario], and why?"
 - "Here's a solution using [concept]. What are its strengths and weaknesses?"
 - "A colleague argues [position]. Do you agree? Why or why not?"
-- "Under what conditions would [approach] be the _wrong_ choice?"
+- "Under what conditions would [approach] be the *wrong* choice?"
 - "Critique this [code/design/argument]. What would you change?"
 
 **Key technique:** Require justification, not just opinion. "B is better" is incomplete. "B is better because [reason], and that matters in this context because [why]" shows real evaluation.
@@ -83,7 +78,6 @@ Use these templates to generate questions at the right level for the learner's c
 **Purpose:** Verify the learner can use concepts to produce something new.
 
 **Templates:**
-
 - "Design a [system/solution] that applies [concept] to [novel problem]."
 - "How would you combine [concept A] and [concept B] to solve [problem]?"
 - "Create a [diagram/plan/outline] for [scenario] using what you've learned."
@@ -108,7 +102,6 @@ Question 5: Evaluate/Create level — judge or build
 ```
 
 **Scoring interpretation:**
-
 - Solid through Apply → ready for intermediate material
 - Struggles at Understand → needs more foundational work
 - Strong through Evaluate → ready for advanced/creative challenges
@@ -118,17 +111,27 @@ Question 5: Evaluate/Create level — judge or build
 Design questions that specifically test common misconceptions about the topic. These are more diagnostic than generic questions.
 
 **Process:**
-
 1. Identify 3-5 common misconceptions about [topic]
 2. For each, design a question where the misconception leads to one answer and correct understanding leads to another
-3. Use the wrong answers diagnostically — they reveal _which_ misconception the learner holds
+3. Use the wrong answers diagnostically — they reveal *which* misconception the learner holds
+
+### Answer-Option Hygiene (Multiple Choice)
+
+A multiple-choice question only tests understanding if the options give nothing away. Badly-formed options let learners answer through test-taking skill instead of knowledge — which corrupts every downstream signal (pacing, calibration, spaced-review scheduling).
+
+- **Equal length and format.** All options should be roughly the same number of words (and characters, if possible). The longest, most-qualified option is famously the correct one — never let formatting leak the answer.
+- **Parallel grammar.** Every option must complete the question stem grammatically. A single option that fits the stem better is a giveaway.
+- **Plausible distractors from real misconceptions.** Each wrong option should correspond to a specific, common misconception — then the *choice* of wrong answer is diagnostic (see Misconception-Targeted Quiz above).
+- **No throwaway options.** "None of the above" and joke options reduce a 4-option question to a 3-option question.
+- **Vary the correct position.** Don't settle into a pattern.
+
+Prefer open questions when feasible — free retrieval beats recognition for building retention. Use multiple choice when speed matters (quick reviews, HTML lesson quizzes) or when distractors are diagnostically valuable.
 
 ### Interleaved Review Quiz
 
 Mix questions from the current topic with questions from previous topics. Do not label which is which.
 
 **Structure:**
-
 - 2 questions on current topic
 - 1 question on most recent previous topic
 - 1 question on an earlier topic
@@ -144,7 +147,7 @@ This builds discrimination (knowing which concept to apply) and prevents the dec
 
 Do not just say "Correct!" — this wastes a learning opportunity.
 
-- "Yes — and can you explain _why_ that's the case?"
+- "Yes — and can you explain *why* that's the case?"
 - "Right. How does this connect to [related concept]?"
 - "Correct. Now, what would change if [condition changed]?"
 
@@ -167,7 +170,6 @@ Distinguish two cases:
 2. **Learned but can't recall**: This is a retrieval opportunity — don't waste it.
 
 For case 2:
-
 - "You covered this in session [N]. Think about [context clue]."
 - "What do you remember about [related concept]? This connects to that."
 - "Try anyway — your best guess is more valuable than no answer."
@@ -183,12 +185,12 @@ After answering, compare self-rated confidence to actual accuracy.
 
 ### Interpreting the Gap
 
-| Confidence | Accuracy | Interpretation                                 | Action                                    |
-| ---------- | -------- | ---------------------------------------------- | ----------------------------------------- |
-| High       | High     | Well-calibrated, genuine understanding         | Advance to harder material                |
-| High       | Low      | Blind spot — the most dangerous state          | Target this area with deliberate practice |
-| Low        | High     | Underconfidence — often from impostor syndrome | Encourage; show them their track record   |
-| Low        | Low      | Accurate self-assessment of a gap              | Normal learning — teach and practice      |
+| Confidence | Accuracy | Interpretation | Action |
+|-----------|----------|---------------|--------|
+| High | High | Well-calibrated, genuine understanding | Advance to harder material |
+| High | Low | Blind spot — the most dangerous state | Target this area with deliberate practice |
+| Low | High | Underconfidence — often from impostor syndrome | Encourage; show them their track record |
+| Low | Low | Accurate self-assessment of a gap | Normal learning — teach and practice |
 
 **High-confidence errors are the priority.** The learner doesn't know what they don't know. These require immediate, targeted intervention.
 
@@ -208,7 +210,6 @@ A four-stage progression for code-based exercises:
 ### Bug Hunt
 
 Present code with a subtle bug related to the concept being taught. Ask the learner to:
-
 1. Identify the bug
 2. Explain why it's a bug (connect to the concept)
 3. Fix it
@@ -217,7 +218,6 @@ Present code with a subtle bug related to the concept being taught. Ask the lear
 ### Code Review Exercise
 
 Show a working but suboptimal implementation. Ask the learner to:
-
 1. Identify what could be improved
 2. Explain why (connect to principles)
 3. Propose a better approach

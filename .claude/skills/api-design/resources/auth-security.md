@@ -17,7 +17,6 @@ const payload = jwt.verify(token, key, { algorithms: ['ES256'] });
 ```
 
 Rules:
-
 - Libraries MUST let the caller specify which algorithms are acceptable
 - Libraries MUST NOT use any algorithm not in the caller's allowlist
 - SHOULD NOT generate or consume JWTs using `alg: "none"` unless the JWT is already protected end-to-end by TLS
@@ -27,12 +26,12 @@ Rules:
 
 Every JWT consumer MUST validate these claims:
 
-| Claim              | Validation                                                                                                                      |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
-| `iss` (issuer)     | Confirm the signing/encryption keys actually belong to the claimed issuer. Reject on mismatch.                                  |
-| `sub` (subject)    | Confirm the subject value corresponds to a valid subject and/or issuer-subject pair.                                            |
-| `aud` (audience)   | When the same issuer issues JWTs for multiple parties, check `aud` matches your own identifier. Reject if absent or mismatched. |
-| `exp` (expiration) | Reject expired tokens.                                                                                                          |
+| Claim | Validation |
+|-------|-----------|
+| `iss` (issuer) | Confirm the signing/encryption keys actually belong to the claimed issuer. Reject on mismatch. |
+| `sub` (subject) | Confirm the subject value corresponds to a valid subject and/or issuer-subject pair. |
+| `aud` (audience) | When the same issuer issues JWTs for multiple parties, check `aud` matches your own identifier. Reject if absent or mismatched. |
+| `exp` (expiration) | Reject expired tokens. |
 
 ### Explicit Typing
 
@@ -64,11 +63,11 @@ JWT header values are attacker-controlled input:
 
 ### Grant Type Selection
 
-| Grant Type                          | Recommendation                                                              |
-| ----------------------------------- | --------------------------------------------------------------------------- |
-| Authorization Code + PKCE           | Use for ALL client types (web apps, native apps, SPAs)                      |
-| Resource Owner Password Credentials | MUST NOT use. Exposes credentials to client, prevents MFA/WebAuthn.         |
-| Implicit (`response_type=token`)    | SHOULD NOT use. Tokens leak via URLs, browser history, and Referer headers. |
+| Grant Type | Recommendation |
+|-----------|---------------|
+| Authorization Code + PKCE | Use for ALL client types (web apps, native apps, SPAs) |
+| Resource Owner Password Credentials | MUST NOT use. Exposes credentials to client, prevents MFA/WebAuthn. |
+| Implicit (`response_type=token`) | SHOULD NOT use. Tokens leak via URLs, browser history, and Referer headers. |
 
 ### PKCE (Proof Key for Code Exchange)
 
@@ -91,20 +90,17 @@ PKCE is mandatory, not optional:
 ### Token Handling
 
 **Access tokens:**
-
 - MUST NOT pass in URI query parameters (e.g., `?access_token=...`). Use the `Authorization` header. Query parameters leak via browser history, server logs, and Referer headers.
 - SHOULD be audience-restricted to specific resource servers. Resource servers MUST verify the audience.
 - SHOULD be restricted to minimum required privileges (scope, resources, actions).
 - SHOULD be sender-constrained via DPoP (RFC 9449) or Mutual TLS (RFC 8705) to prevent stolen token replay.
 
 **Refresh tokens:**
-
 - For public clients, MUST be sender-constrained or use refresh token rotation.
 - MUST be bound to the scope and resource servers as consented by the resource owner.
 - SHOULD expire after inactivity (no refresh request for a period).
 
 **Authorization codes:**
-
 - MUST be invalidated after first use.
 - If a code is redeemed twice, the authorization server SHOULD revoke all tokens previously issued for that code.
 

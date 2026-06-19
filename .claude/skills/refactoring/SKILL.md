@@ -1,6 +1,6 @@
 ---
 name: refactoring
-description: Refactoring assessment and patterns. Use after mutation testing validates test strength (MUTATE phase) to assess improvement opportunities.
+description: Refactoring assessment and patterns for already-tested code. Use when the user asks to refactor, clean up, simplify, or restructure existing code, and automatically after mutation testing validates test strength (the REFACTOR step of the TDD cycle). Covers commit-before-refactoring discipline, when refactoring adds value vs when to skip it, and the priority classification of improvement opportunities. Do NOT use for untested code (see characterisation-tests and finding-seams first) or for adding behavior (see tdd).
 ---
 
 # Refactoring
@@ -16,14 +16,12 @@ Refactoring is the final step of TDD. After mutation testing confirms test stren
 ### Commit Before Refactoring - WHY
 
 Having a working baseline before refactoring:
-
 - Allows reverting if refactoring breaks things
 - Provides safety net for experimentation
 - Makes refactoring less risky
 - Shows clear separation in git history
 
 **Workflow:**
-
 1. GREEN: Tests pass
 2. MUTATE: Verify test effectiveness
 3. KILL MUTANTS: Address surviving mutants
@@ -33,23 +31,21 @@ Having a working baseline before refactoring:
 
 ## Priority Classification
 
-| Priority | Action       | Examples                                            |
-| -------- | ------------ | --------------------------------------------------- |
-| Critical | Fix now      | Mutations, knowledge duplication, >3 levels nesting |
-| High     | This session | Magic numbers, unclear names, >30 line functions    |
-| Nice     | Later        | Minor naming, single-use helpers                    |
-| Skip     | Don't change | Already clean code                                  |
+| Priority | Action | Examples |
+|----------|--------|----------|
+| Critical | Fix now | Mutations, knowledge duplication, >3 levels nesting |
+| High | This session | Magic numbers, unclear names, >30 line functions |
+| Nice | Later | Minor naming, single-use helpers |
+| Skip | Don't change | Already clean code |
 
 ## DRY = Knowledge, Not Code
 
 **Abstract when**:
-
 - Same business concept (semantic meaning)
 - Would change together if requirements change
 - Obvious why grouped together
 
 **Keep separate when**:
-
 - Different concepts that look similar (structural)
 - Would evolve independently
 - Coupling would be confusing
@@ -77,7 +73,6 @@ If code isn't driven by a failing test, don't write it.
 **Key lesson**: Every line must have a test that demanded its existence.
 
 ❌ **Speculative code examples:**
-
 - "Just in case" logic
 - Features not yet needed
 - Code written "for future flexibility"

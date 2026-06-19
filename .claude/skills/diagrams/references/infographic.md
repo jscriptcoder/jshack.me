@@ -15,28 +15,28 @@ Create visual infographics using pre-designed templates. Best for KPI cards, tim
 
 ## Template Categories
 
-| Category  | Prefix        | Best For                                |
-| --------- | ------------- | --------------------------------------- |
-| List      | `list-*`      | Feature lists, KPI cards, checklists    |
-| Sequence  | `sequence-*`  | Timelines, processes, funnels, roadmaps |
-| Compare   | `compare-*`   | A vs B, SWOT analysis                   |
-| Hierarchy | `hierarchy-*` | Org charts, tree structures             |
-| Chart     | `chart-*`     | Pie, bar, column, word cloud            |
-| Quadrant  | `quadrant-*`  | 2x2 matrices, priority grids            |
-| Relation  | `relation-*`  | Central concepts, relationships         |
+| Category | Prefix | Best For |
+|----------|--------|----------|
+| List | `list-*` | Feature lists, KPI cards, checklists |
+| Sequence | `sequence-*` | Timelines, processes, funnels, roadmaps |
+| Compare | `compare-*` | A vs B, SWOT analysis |
+| Hierarchy | `hierarchy-*` | Org charts, tree structures |
+| Chart | `chart-*` | Pie, bar, column, word cloud |
+| Quadrant | `quadrant-*` | 2x2 matrices, priority grids |
+| Relation | `relation-*` | Central concepts, relationships |
 
 ## Data Fields
 
-| Field      | Required | Type    | Description              |
-| ---------- | -------- | ------- | ------------------------ |
-| `label`    | Yes      | string  | Item title               |
-| `desc`     | No       | string  | Description text         |
-| `value`    | No       | number  | Numeric data (charts)    |
-| `icon`     | No       | string  | Iconify ref (`mdi/star`) |
-| `illus`    | No       | string  | unDraw illustration      |
-| `children` | No       | array   | Nested items             |
-| `done`     | No       | boolean | Checklist status         |
-| `time`     | No       | string  | Time label               |
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `label` | Yes | string | Item title |
+| `desc` | No | string | Description text |
+| `value` | No | number | Numeric data (charts) |
+| `icon` | No | string | Iconify ref (`mdi/star`) |
+| `illus` | No | string | unDraw illustration |
+| `children` | No | array | Nested items |
+| `done` | No | boolean | Checklist status |
+| `time` | No | string | Time label |
 
 ## Template Constraints
 
@@ -50,98 +50,91 @@ Create visual infographics using pre-designed templates. Best for KPI cards, tim
 
 ## Quick Selection Guide
 
-| Use Case           | Template                                      |
-| ------------------ | --------------------------------------------- |
-| KPI dashboard      | `list-grid-badge-card`                        |
-| Feature list       | `list-grid-candy-card-lite`                   |
-| Task checklist     | `list-column-done-list`                       |
-| Company history    | `sequence-timeline-simple`                    |
-| Product roadmap    | `sequence-roadmap-vertical-simple`            |
-| Sales funnel       | `sequence-filter-mesh-simple`                 |
-| Onboarding flow    | `sequence-snake-steps-simple`                 |
-| Career ladder      | `sequence-stairs-front-compact-card`          |
+| Use Case | Template |
+|----------|----------|
+| KPI dashboard | `list-grid-badge-card` |
+| Feature list | `list-grid-candy-card-lite` |
+| Task checklist | `list-column-done-list` |
+| Company history | `sequence-timeline-simple` |
+| Product roadmap | `sequence-roadmap-vertical-simple` |
+| Sales funnel | `sequence-filter-mesh-simple` |
+| Onboarding flow | `sequence-snake-steps-simple` |
+| Career ladder | `sequence-stairs-front-compact-card` |
 | Product comparison | `compare-binary-horizontal-underline-text-vs` |
-| SWOT analysis      | `compare-swot`                                |
-| Organization chart | `hierarchy-tree-tech-style-capsule-item`      |
-| Revenue breakdown  | `chart-pie-donut-plain-text`                  |
-| Priority matrix    | `quadrant-quarter-simple-card`                |
-| Trending topics    | `chart-wordcloud`                             |
+| SWOT analysis | `compare-swot` |
+| Organization chart | `hierarchy-tree-tech-style-capsule-item` |
+| Revenue breakdown | `chart-pie-donut-plain-text` |
+| Priority matrix | `quadrant-quarter-simple-card` |
+| Trending topics | `chart-wordcloud` |
 
 ---
 
 ## All Templates
 
 ### List Templates
-
-| Template                          | Description                                 |
-| --------------------------------- | ------------------------------------------- |
-| `list-grid-badge-card`            | Grid cards with badges (KPI cards, metrics) |
-| `list-grid-candy-card-lite`       | Colorful grid cards (features, services)    |
-| `list-grid-ribbon-card`           | Cards with ribbon decoration                |
-| `list-row-horizontal-icon-arrow`  | Horizontal row with arrows (process steps)  |
-| `list-row-simple-illus`           | Row with illustrations                      |
-| `list-sector-plain-text`          | Radial sector layout                        |
-| `list-column-done-list`           | Checklist with checkmarks                   |
-| `list-column-vertical-icon-arrow` | Vertical with arrows                        |
-| `list-zigzag-down-compact-card`   | Zigzag down cards (journey steps)           |
-| `list-zigzag-up-compact-card`     | Zigzag up cards (growth path)               |
+| Template | Description |
+|----------|-------------|
+| `list-grid-badge-card` | Grid cards with badges (KPI cards, metrics) |
+| `list-grid-candy-card-lite` | Colorful grid cards (features, services) |
+| `list-grid-ribbon-card` | Cards with ribbon decoration |
+| `list-row-horizontal-icon-arrow` | Horizontal row with arrows (process steps) |
+| `list-row-simple-illus` | Row with illustrations |
+| `list-sector-plain-text` | Radial sector layout |
+| `list-column-done-list` | Checklist with checkmarks |
+| `list-column-vertical-icon-arrow` | Vertical with arrows |
+| `list-zigzag-down-compact-card` | Zigzag down cards (journey steps) |
+| `list-zigzag-up-compact-card` | Zigzag up cards (growth path) |
 
 ### Sequence Templates
-
-| Template                              | Description                             |
-| ------------------------------------- | --------------------------------------- |
-| `sequence-timeline-simple`            | Simple timeline (history, milestones)   |
-| `sequence-timeline-rounded-rect-node` | Timeline with rounded nodes             |
-| `sequence-roadmap-vertical-simple`    | Vertical roadmap                        |
-| `sequence-filter-mesh-simple`         | Funnel chart (sales funnel, conversion) |
-| `sequence-funnel-simple`              | Simple funnel                           |
-| `sequence-snake-steps-simple`         | Snake path steps (long processes)       |
-| `sequence-stairs-front-compact-card`  | Front stairs cards (growth/levels)      |
-| `sequence-ascending-steps`            | Ascending steps (progress)              |
-| `sequence-circular-simple`            | Circular flow (cycles, loops)           |
-| `sequence-pyramid-simple`             | Pyramid structure                       |
+| Template | Description |
+|----------|-------------|
+| `sequence-timeline-simple` | Simple timeline (history, milestones) |
+| `sequence-timeline-rounded-rect-node` | Timeline with rounded nodes |
+| `sequence-roadmap-vertical-simple` | Vertical roadmap |
+| `sequence-filter-mesh-simple` | Funnel chart (sales funnel, conversion) |
+| `sequence-funnel-simple` | Simple funnel |
+| `sequence-snake-steps-simple` | Snake path steps (long processes) |
+| `sequence-stairs-front-compact-card` | Front stairs cards (growth/levels) |
+| `sequence-ascending-steps` | Ascending steps (progress) |
+| `sequence-circular-simple` | Circular flow (cycles, loops) |
+| `sequence-pyramid-simple` | Pyramid structure |
 
 ### Compare Templates
-
-| Template                                              | Description                 |
-| ----------------------------------------------------- | --------------------------- |
-| `compare-binary-horizontal-underline-text-vs`         | A vs B comparison           |
-| `compare-binary-horizontal-badge-card-arrow`          | Badge cards with arrows     |
-| `compare-hierarchy-left-right-circle-node-pill-badge` | Hierarchy comparison        |
-| `compare-swot`                                        | SWOT analysis (4 quadrants) |
+| Template | Description |
+|----------|-------------|
+| `compare-binary-horizontal-underline-text-vs` | A vs B comparison |
+| `compare-binary-horizontal-badge-card-arrow` | Badge cards with arrows |
+| `compare-hierarchy-left-right-circle-node-pill-badge` | Hierarchy comparison |
+| `compare-swot` | SWOT analysis (4 quadrants) |
 
 ### Hierarchy Templates
-
-| Template                                       | Description                      |
-| ---------------------------------------------- | -------------------------------- |
-| `hierarchy-tree-tech-style-capsule-item`       | Tech style tree (org charts)     |
-| `hierarchy-tree-curved-line-rounded-rect-node` | Curved tree                      |
-| `hierarchy-structure`                          | Generic hierarchy (max 3 levels) |
+| Template | Description |
+|----------|-------------|
+| `hierarchy-tree-tech-style-capsule-item` | Tech style tree (org charts) |
+| `hierarchy-tree-curved-line-rounded-rect-node` | Curved tree |
+| `hierarchy-structure` | Generic hierarchy (max 3 levels) |
 
 ### Chart Templates
-
-| Template                     | Description                   |
-| ---------------------------- | ----------------------------- |
-| `chart-pie-donut-plain-text` | Donut chart (distribution)    |
-| `chart-pie-plain-text`       | Pie chart                     |
-| `chart-bar-plain-text`       | Horizontal bar chart          |
-| `chart-column-simple`        | Vertical column chart         |
-| `chart-line-plain-text`      | Line chart (trends)           |
-| `chart-wordcloud`            | Word cloud (keywords, topics) |
+| Template | Description |
+|----------|-------------|
+| `chart-pie-donut-plain-text` | Donut chart (distribution) |
+| `chart-pie-plain-text` | Pie chart |
+| `chart-bar-plain-text` | Horizontal bar chart |
+| `chart-column-simple` | Vertical column chart |
+| `chart-line-plain-text` | Line chart (trends) |
+| `chart-wordcloud` | Word cloud (keywords, topics) |
 
 ### Quadrant Templates
-
-| Template                       | Description                      |
-| ------------------------------ | -------------------------------- |
+| Template | Description |
+|----------|-------------|
 | `quadrant-quarter-simple-card` | Quadrant cards (priority matrix) |
-| `quadrant-quarter-circular`    | Circular quadrant                |
+| `quadrant-quarter-circular` | Circular quadrant |
 
 ---
 
 ## Examples
 
 ### KPI Cards
-
 ```infographic
 infographic list-grid-badge-card
 data
@@ -163,7 +156,6 @@ data
 ```
 
 ### Timeline
-
 ```infographic
 infographic sequence-timeline-simple
 data
@@ -182,7 +174,6 @@ data
 ```
 
 ### Sales Funnel
-
 ```infographic
 infographic sequence-filter-mesh-simple
 data
@@ -206,7 +197,6 @@ data
 ```
 
 ### A vs B Comparison
-
 ```infographic
 infographic compare-binary-horizontal-underline-text-vs
 data
@@ -231,7 +221,6 @@ data
 ```
 
 ### SWOT Analysis
-
 ```infographic
 infographic compare-swot
 data
@@ -257,7 +246,6 @@ data
 ```
 
 ### Org Chart
-
 ```infographic
 infographic hierarchy-tree-tech-style-capsule-item
 data
@@ -276,7 +264,6 @@ data
 ```
 
 ### Donut Chart
-
 ```infographic
 infographic chart-pie-donut-plain-text
 data
@@ -293,7 +280,6 @@ data
 ```
 
 ### Priority Matrix
-
 ```infographic
 infographic quadrant-quarter-simple-card
 data
@@ -322,7 +308,6 @@ data
 ```
 
 ### Dark Theme
-
 ```infographic
 infographic list-row-horizontal-icon-arrow
 theme dark

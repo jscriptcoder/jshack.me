@@ -41,7 +41,6 @@ I follow Test-Driven Development (TDD) with a strong emphasis on behavior-driven
 **Core principle**: Test behavior, not implementation. 100% coverage through business behavior.
 
 **Quick reference:**
-
 - Write tests first (TDD non-negotiable)
 - Test through public API exclusively
 - Use factory functions for test data (no `let`/`beforeEach`)
@@ -56,7 +55,6 @@ For verifying test effectiveness through mutation analysis, load the `mutation-t
 **Core principle**: Strict mode always. Schema-first at trust boundaries, types for internal logic.
 
 **Quick reference:**
-
 - No `any` types - ever (use `unknown` if type truly unknown)
 - No type assertions without justification
 - Always prefer `type` over `interface`
@@ -71,7 +69,6 @@ For API and interface design patterns, load the `api-design` skill.
 **Core principle**: Functional programming with immutable data. Self-documenting code.
 
 **Quick reference:**
-
 - No data mutation - immutable data structures only
 - Pure functions wherever possible
 - No nested if/else - use early returns or composition
@@ -86,7 +83,6 @@ For detailed patterns and examples, load the `functional` skill.
 **Core principle**: RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR in small, known-good increments. TDD is the fundamental practice.
 
 **Quick reference:**
-
 - RED: Write failing test first (NO production code without failing test)
 - GREEN: Write MINIMUM code to pass test
 - MUTATE: Run mutation testing to verify test effectiveness, produce a report
@@ -94,14 +90,31 @@ For detailed patterns and examples, load the `functional` skill.
 - REFACTOR: Assess improvement opportunities (only refactor if adds value)
 - **Wait for commit approval** before every commit
 - Each increment leaves codebase in working state
-
 For detailed TDD workflow, load the `tdd` skill.
 For implementation of any planned slice, load `tdd`, `testing`, `mutation-testing`, and `refactoring` before code changes begin.
 For refactoring methodology, load the `refactoring` skill.
-For significant implementation work, load `planning` to turn one selected child story or narrow capability into PR-sized plans in `plans/`.
+For fuzzy product/design decisions, load `grill-me` to pressure-test the decision tree before writing stories or plans.
+For broad stories, epics, features, or backlog items, load `story-splitting` to create child stories before planning.
 For tightening an existing story, plan, acceptance criteria set, or mock spec, load `find-gaps` to write confirmed answers back into the artifact.
+For significant implementation work, load `planning` to turn one selected child story or narrow capability into PR-sized plans in `plans/`.
+For CI failure diagnosis, load the `ci-debugging` skill.
+For hexagonal architecture projects, load the `hexagonal-architecture` skill.
+For Domain-Driven Design projects, load the `domain-driven-design` skill.
+For 12-factor service projects, load the `twelve-factor` skill.
+For CLI tool design (stream separation, format flags, exit codes, composability), load the `cli-design` skill.
+For designing or auditing source trees (where files belong, feature folders, import boundaries), load the `folder-structure` skill.
+For environment parity issues (works locally but not in production/staging, config or auth drift), load the `production-parity-skill-builder` skill.
+For making untestable code testable, load the `finding-seams` skill.
+For documenting existing behavior before changes, load the `characterisation-tests` skill.
+For multi-surface design audits before code (embed every mock in a scope on one reviewable page with flow diagram + gap cards + per-mock audit checklists), load the `storyboard` skill.
+For structured learning of any topic (interactive tutoring, courses, quizzes, reviewable HTML lessons), use `/teach-me [topic]`.
 For discovering and installing agent skills from the open ecosystem (`npx skills`), load the `find-skills` skill.
+For adversarial review of plans, acceptance criteria, stories, or design mocks — one question at a time, turning each answer into a new AC / plan paragraph / mock-state spec written back to the source of truth — load the `find-gaps` skill.
 For relentless decision-tree interrogation before story splitting, planning, or implementation — one question at a time, with recommended answers and codebase exploration where useful — load the `grill-me` skill.
+
+**Project onboarding:** Run `/setup` in any new project to detect its tech stack and generate project-level CLAUDE.md, hooks, commands, and PR review agent in one shot. This replaces the need for `/init`.
+
+**Project-level hooks:** Projects should add a PostToolUse hook in `.claude/settings.json` to run typecheck after Write/Edit on .ts/.tsx files. Use `/setup` to generate this automatically, or use the prettier/eslint hook in this repo's `claude/.claude/settings.json` as a template (note: the curl installer does not install settings.json — only the stow-based install does).
 
 ## Output Guardrails
 
@@ -114,7 +127,6 @@ For relentless decision-tree interrogation before story splitting, planning, or 
 **Core principle**: Think deeply, follow TDD strictly, capture learnings while context is fresh.
 
 **Quick reference:**
-
 - ALWAYS FOLLOW TDD - no production code without failing test
 - Assess refactoring after every green (but only if adds value)
 - Update CLAUDE.md when introducing meaningful changes
@@ -130,7 +142,6 @@ For detailed guidance on expectations and documentation, load the `expectations`
 Prefer `agent-browser` for web automation. If it is not installed, fall back to other available tools (e.g. `WebFetch`, `curl`, or MCP browser tools). Always try `agent-browser` first.
 
 `agent-browser` core workflow:
-
 1. `agent-browser open <url>` - Navigate to page
 2. `agent-browser snapshot -i` - Get interactive elements with refs (@e1, @e2)
 3. `agent-browser click @e1` / `fill @e2 "text"` - Interact using refs
@@ -148,23 +159,3 @@ Run `agent-browser --help` for all commands.
 ## Summary
 
 The key is to write clean, testable, functional code that evolves through small, safe increments. Every change should be driven by a test that describes the desired behavior, and the implementation should be the simplest thing that makes that test pass. When in doubt, favor simplicity and readability over cleverness.
-
-## Build & Development Commands
-
-```bash
-npm run dev           # Start Vite dev server (auto-runs encode first)
-npm run build         # TypeScript compile + Vite production build (auto-runs encode first)
-npm run encode        # Generate encoded secrets (__encoded.ts file)
-npm run lint          # Run ESLint
-npm run format        # Format all files with Prettier
-npm run format:check  # Check formatting without modifying (CI-friendly)
-npm test              # Run tests in watch mode (auto-runs encode first)
-npm run test:run      # Run tests once (auto-runs encode first)
-npm run test:coverage # Run tests with coverage (auto-runs encode first)
-npm run test:e2e      # Run Playwright E2E test (mission playthrough)
-```
-
-## Verification After Changes
-
-- **After code changes**: Run `npm run build`, `npm run lint`, `npm run format`, and `npm run test:run` to verify everything passes.
-- **After documentation changes (\*.md)**: Run `npm run format` to ensure consistent formatting.

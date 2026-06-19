@@ -14,70 +14,58 @@ Create spatial, node-based diagrams using JSON Canvas format. Best for mind maps
 
 ## Common Pitfalls
 
-| Issue              | Solution                                 |
-| ------------------ | ---------------------------------------- |
-| Nodes overlapping  | Increase spacing to 100+ pixels          |
-| Edges not visible  | Check node IDs match `fromNode`/`toNode` |
-| JSON syntax error  | Validate quotes, commas, brackets        |
-| Layout looks messy | Use groups, increase canvas size         |
+| Issue | Solution |
+|-------|----------|
+| Nodes overlapping | Increase spacing to 100+ pixels |
+| Edges not visible | Check node IDs match `fromNode`/`toNode` |
+| JSON syntax error | Validate quotes, commas, brackets |
+| Layout looks messy | Use groups, increase canvas size |
 
 ---
 
 ## Node Types
 
 ### Text Node
-
 ```json
 {
   "id": "node1",
   "type": "text",
   "text": "Your text content here",
-  "x": 100,
-  "y": 100,
-  "width": 200,
-  "height": 100
+  "x": 100, "y": 100,
+  "width": 200, "height": 100
 }
 ```
 
 ### File Node
-
 ```json
 {
   "id": "file1",
   "type": "file",
   "file": "path/to/document.md",
-  "x": 100,
-  "y": 100,
-  "width": 160,
-  "height": 60
+  "x": 100, "y": 100,
+  "width": 160, "height": 60
 }
 ```
 
 ### Link Node
-
 ```json
 {
   "id": "link1",
   "type": "link",
   "url": "https://example.com",
-  "x": 100,
-  "y": 100,
-  "width": 160,
-  "height": 60
+  "x": 100, "y": 100,
+  "width": 160, "height": 60
 }
 ```
 
 ### Group Node (Visual Container)
-
 ```json
 {
   "id": "group1",
   "type": "group",
   "label": "Group Title",
-  "x": 0,
-  "y": 0,
-  "width": 600,
-  "height": 400,
+  "x": 0, "y": 0,
+  "width": 600, "height": 400,
   "color": "5"
 }
 ```
@@ -86,37 +74,36 @@ Create spatial, node-based diagrams using JSON Canvas format. Best for mind maps
 
 ## Edge Attributes
 
-| Attribute  | Required | Default | Description                      |
-| ---------- | -------- | ------- | -------------------------------- |
-| `id`       | Yes      | -       | Unique identifier                |
-| `fromNode` | Yes      | -       | Source node ID                   |
-| `toNode`   | Yes      | -       | Target node ID                   |
-| `fromSide` | No       | -       | `top`, `right`, `bottom`, `left` |
-| `toSide`   | No       | -       | `top`, `right`, `bottom`, `left` |
-| `fromEnd`  | No       | `none`  | `none` or `arrow`                |
-| `toEnd`    | No       | `arrow` | `none` or `arrow`                |
-| `label`    | No       | -       | Edge label text                  |
-| `color`    | No       | -       | Color preset `"1"`-`"6"` or hex  |
+| Attribute | Required | Default | Description |
+|-----------|----------|---------|-------------|
+| `id` | Yes | - | Unique identifier |
+| `fromNode` | Yes | - | Source node ID |
+| `toNode` | Yes | - | Target node ID |
+| `fromSide` | No | - | `top`, `right`, `bottom`, `left` |
+| `toSide` | No | - | `top`, `right`, `bottom`, `left` |
+| `fromEnd` | No | `none` | `none` or `arrow` |
+| `toEnd` | No | `arrow` | `none` or `arrow` |
+| `label` | No | - | Edge label text |
+| `color` | No | - | Color preset `"1"`-`"6"` or hex |
 
 ---
 
 ## Color Presets
 
-| Value | Color  | Usage                            |
-| ----- | ------ | -------------------------------- |
-| `"1"` | Red    | Warnings, blockers, critical     |
-| `"2"` | Orange | Actions, processes, important    |
+| Value | Color | Usage |
+|-------|-------|-------|
+| `"1"` | Red | Warnings, blockers, critical |
+| `"2"` | Orange | Actions, processes, important |
 | `"3"` | Yellow | Questions, notes, considerations |
-| `"4"` | Green  | Success, completed, positive     |
-| `"5"` | Cyan   | Information, details, neutral    |
-| `"6"` | Purple | Concepts, ideas, abstract        |
+| `"4"` | Green | Success, completed, positive |
+| `"5"` | Cyan | Information, details, neutral |
+| `"6"` | Purple | Concepts, ideas, abstract |
 
 ---
 
 ## Layout Patterns
 
 ### Horizontal Flow
-
 ```canvas
 {
   "nodes": [
@@ -132,7 +119,6 @@ Create spatial, node-based diagrams using JSON Canvas format. Best for mind maps
 ```
 
 ### Tree Structure
-
 ```canvas
 {
   "nodes": [
@@ -150,7 +136,6 @@ Create spatial, node-based diagrams using JSON Canvas format. Best for mind maps
 ```
 
 ### Radial Mind Map
-
 ```canvas
 {
   "nodes": [

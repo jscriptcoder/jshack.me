@@ -23,36 +23,36 @@ Create layered architecture diagrams using HTML/CSS templates. Best for system l
 
 ## Layout Catalog
 
-| Layout             | Best For                                     |
-| ------------------ | -------------------------------------------- |
-| Layer Layouts      | Standard top-to-bottom layered architectures |
-| Three Column       | Services spanning three groups               |
-| Pipeline           | Linear data/processing flows                 |
-| Dashboard          | Monitoring/observability views               |
-| Nested Containers  | Grouped subsystems within layers             |
-| Hub-Spoke          | Central service with satellite components    |
-| Grid Catalog       | Component inventory/catalog views            |
-| Two Column Split   | Left-right divided architectures             |
-| Left/Right Sidebar | Main content with sidebar navigation         |
-| Single Stack       | Simple vertical stack                        |
-| Banner Center      | Centered hero with supporting layout         |
+| Layout | Best For |
+|--------|----------|
+| Layer Layouts | Standard top-to-bottom layered architectures |
+| Three Column | Services spanning three groups |
+| Pipeline | Linear data/processing flows |
+| Dashboard | Monitoring/observability views |
+| Nested Containers | Grouped subsystems within layers |
+| Hub-Spoke | Central service with satellite components |
+| Grid Catalog | Component inventory/catalog views |
+| Two Column Split | Left-right divided architectures |
+| Left/Right Sidebar | Main content with sidebar navigation |
+| Single Stack | Simple vertical stack |
+| Banner Center | Centered hero with supporting layout |
 
 ## Style Catalog
 
-| Style       | Audience                   | Mood                      |
-| ----------- | -------------------------- | ------------------------- |
-| Steel Blue  | Consulting, enterprise     | Professional, trustworthy |
-| Neon Dark   | Tech talks, demos          | Modern, energetic         |
-| Sage Forest | Healthcare, sustainability | Calm, natural             |
-| Frost Clean | Documentation, technical   | Clean, precise            |
-| Slate Dark  | DevOps, infrastructure     | Technical, focused        |
-| Dusk Glow   | Creative, design           | Warm, atmospheric         |
-| Ember Warm  | Marketing, community       | Friendly, inviting        |
-| Indigo Deep | Finance, security          | Authoritative, deep       |
-| Ocean Teal  | SaaS, platforms            | Fresh, scalable           |
-| Pastel Mix  | Education, workshops       | Approachable, light       |
-| Rose Bloom  | Health, lifestyle          | Soft, caring              |
-| Stark Block | Minimalist, technical      | Bold, direct              |
+| Style | Audience | Mood |
+|-------|----------|------|
+| Steel Blue | Consulting, enterprise | Professional, trustworthy |
+| Neon Dark | Tech talks, demos | Modern, energetic |
+| Sage Forest | Healthcare, sustainability | Calm, natural |
+| Frost Clean | Documentation, technical | Clean, precise |
+| Slate Dark | DevOps, infrastructure | Technical, focused |
+| Dusk Glow | Creative, design | Warm, atmospheric |
+| Ember Warm | Marketing, community | Friendly, inviting |
+| Indigo Deep | Finance, security | Authoritative, deep |
+| Ocean Teal | SaaS, platforms | Fresh, scalable |
+| Pastel Mix | Education, workshops | Approachable, light |
+| Rose Bloom | Health, lifestyle | Soft, caring |
+| Stark Block | Minimalist, technical | Bold, direct |
 
 ---
 
@@ -60,14 +60,14 @@ Create layered architecture diagrams using HTML/CSS templates. Best for system l
 
 Standard layer hierarchy for architecture diagrams:
 
-| Layer          | Purpose             | Typical Color |
-| -------------- | ------------------- | ------------- |
-| User           | Interfaces, clients | Light/accent  |
-| Application    | Business logic, API | Primary       |
-| AI/Logic       | Processing, ML      | Secondary     |
-| Data           | Storage, databases  | Tertiary      |
-| Infrastructure | DevOps, hosting     | Dark          |
-| External       | Third-party APIs    | Muted         |
+| Layer | Purpose | Typical Color |
+|-------|---------|---------------|
+| User | Interfaces, clients | Light/accent |
+| Application | Business logic, API | Primary |
+| AI/Logic | Processing, ML | Secondary |
+| Data | Storage, databases | Tertiary |
+| Infrastructure | DevOps, hosting | Dark |
+| External | Third-party APIs | Muted |
 
 ---
 
@@ -78,60 +78,16 @@ All architecture diagrams share this base structure:
 ```html
 <div style="width: 1200px; box-sizing: border-box; position: relative;">
   <style scoped>
-    .arch-title {
-      text-align: center;
-      font-size: 20px;
-      font-weight: 600;
-      color: #333;
-      margin-bottom: 16px;
-    }
-    .arch-main {
-      width: 100%;
-    }
-    .arch-layer {
-      margin: 10px 0;
-      padding: 14px;
-      border-radius: 4px;
-      border: 1px solid #ccc;
-      background: #fafafa;
-    }
-    .arch-layer-title {
-      font-size: 12px;
-      font-weight: 600;
-      color: #555;
-      margin-bottom: 10px;
-      text-align: center;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    .arch-grid {
-      display: grid;
-      gap: 6px;
-    }
-    .arch-grid-2 {
-      grid-template-columns: repeat(2, 1fr);
-    }
-    .arch-grid-3 {
-      grid-template-columns: repeat(3, 1fr);
-    }
-    .arch-grid-4 {
-      grid-template-columns: repeat(4, 1fr);
-    }
-    .arch-box {
-      border-radius: 3px;
-      padding: 8px;
-      text-align: center;
-      font-size: 11px;
-      font-weight: 500;
-      line-height: 1.35;
-      color: #333;
-      background: #fff;
-      border: 1px solid #ddd;
-    }
-    .arch-box.highlight {
-      border: 2px solid #999;
-      font-weight: 600;
-    }
+    .arch-title { text-align: center; font-size: 20px; font-weight: 600; color: #333; margin-bottom: 16px; }
+    .arch-main { width: 100%; }
+    .arch-layer { margin: 10px 0; padding: 14px; border-radius: 4px; border: 1px solid #ccc; background: #fafafa; }
+    .arch-layer-title { font-size: 12px; font-weight: 600; color: #555; margin-bottom: 10px; text-align: center; text-transform: uppercase; letter-spacing: 0.5px; }
+    .arch-grid { display: grid; gap: 6px; }
+    .arch-grid-2 { grid-template-columns: repeat(2, 1fr); }
+    .arch-grid-3 { grid-template-columns: repeat(3, 1fr); }
+    .arch-grid-4 { grid-template-columns: repeat(4, 1fr); }
+    .arch-box { border-radius: 3px; padding: 8px; text-align: center; font-size: 11px; font-weight: 500; line-height: 1.35; color: #333; background: #fff; border: 1px solid #ddd; }
+    .arch-box.highlight { border: 2px solid #999; font-weight: 600; }
   </style>
   <div class="arch-main">
     <div class="arch-title">System Architecture</div>
@@ -159,55 +115,23 @@ All architecture diagrams share this base structure:
 
 Professional consulting style with steel blue palette.
 
-| Property   | Value                           |
-| ---------- | ------------------------------- |
-| Background | `#f0f4f8`                       |
-| Layer bg   | `#dce6f0`, `#c8d8e8`, `#b4cae0` |
-| Box bg     | `#e8eff5`                       |
-| Text       | `#2c3e50`                       |
-| Accent     | `#34618d`                       |
+| Property | Value |
+|----------|-------|
+| Background | `#f0f4f8` |
+| Layer bg | `#dce6f0`, `#c8d8e8`, `#b4cae0` |
+| Box bg | `#e8eff5` |
+| Text | `#2c3e50` |
+| Accent | `#34618d` |
 
 ```html
 <div style="width: 1200px; box-sizing: border-box; position: relative;">
   <style scoped>
-    .arch-title {
-      text-align: center;
-      font-size: 20px;
-      font-weight: 600;
-      color: #2c3e50;
-      margin-bottom: 16px;
-    }
-    .arch-layer {
-      margin: 10px 0;
-      padding: 14px;
-      border-radius: 4px;
-    }
-    .arch-layer-title {
-      font-size: 12px;
-      font-weight: 600;
-      color: #34618d;
-      margin-bottom: 10px;
-      text-align: center;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    .arch-grid {
-      display: grid;
-      gap: 6px;
-    }
-    .arch-grid-3 {
-      grid-template-columns: repeat(3, 1fr);
-    }
-    .arch-box {
-      border-radius: 3px;
-      padding: 8px;
-      text-align: center;
-      font-size: 11px;
-      font-weight: 500;
-      background: #e8eff5;
-      border: 1px solid #b4cae0;
-      color: #2c3e50;
-    }
+    .arch-title { text-align: center; font-size: 20px; font-weight: 600; color: #2c3e50; margin-bottom: 16px; }
+    .arch-layer { margin: 10px 0; padding: 14px; border-radius: 4px; }
+    .arch-layer-title { font-size: 12px; font-weight: 600; color: #34618d; margin-bottom: 10px; text-align: center; text-transform: uppercase; letter-spacing: 0.5px; }
+    .arch-grid { display: grid; gap: 6px; }
+    .arch-grid-3 { grid-template-columns: repeat(3, 1fr); }
+    .arch-box { border-radius: 3px; padding: 8px; text-align: center; font-size: 11px; font-weight: 500; background: #e8eff5; border: 1px solid #b4cae0; color: #2c3e50; }
   </style>
   <div>
     <div class="arch-title">Microservices Platform</div>
@@ -253,14 +177,14 @@ Professional consulting style with steel blue palette.
 
 Modern dark theme for tech presentations.
 
-| Property   | Value                                      |
-| ---------- | ------------------------------------------ |
-| Background | `#0d1117`                                  |
-| Layer bg   | `#161b22`                                  |
-| Box bg     | `#21262d`                                  |
-| Text       | `#e6edf3`                                  |
-| Accent     | `#58a6ff`                                  |
-| Glow       | `box-shadow: 0 0 8px rgba(88,166,255,0.3)` |
+| Property | Value |
+|----------|-------|
+| Background | `#0d1117` |
+| Layer bg | `#161b22` |
+| Box bg | `#21262d` |
+| Text | `#e6edf3` |
+| Accent | `#58a6ff` |
+| Glow | `box-shadow: 0 0 8px rgba(88,166,255,0.3)` |
 
 ---
 
@@ -268,13 +192,13 @@ Modern dark theme for tech presentations.
 
 Calm, natural palette for healthcare/sustainability.
 
-| Property   | Value                |
-| ---------- | -------------------- |
-| Background | `#f5f7f4`            |
-| Layer bg   | `#e8ede5`, `#dce3d8` |
-| Box bg     | `#eef2eb`            |
-| Text       | `#2d3b2d`            |
-| Accent     | `#5a7a5a`            |
+| Property | Value |
+|----------|-------|
+| Background | `#f5f7f4` |
+| Layer bg | `#e8ede5`, `#dce3d8` |
+| Box bg | `#eef2eb` |
+| Text | `#2d3b2d` |
+| Accent | `#5a7a5a` |
 
 ---
 
@@ -282,21 +206,20 @@ Calm, natural palette for healthcare/sustainability.
 
 Clean, precise for technical documentation.
 
-| Property   | Value                |
-| ---------- | -------------------- |
-| Background | `#fafbfc`            |
-| Layer bg   | `#f0f2f5`, `#e6e9ed` |
-| Box bg     | `#ffffff`            |
-| Text       | `#24292e`            |
-| Accent     | `#6f7681`            |
-| Border     | `1px solid #d1d5da`  |
+| Property | Value |
+|----------|-------|
+| Background | `#fafbfc` |
+| Layer bg | `#f0f2f5`, `#e6e9ed` |
+| Box bg | `#ffffff` |
+| Text | `#24292e` |
+| Accent | `#6f7681` |
+| Border | `1px solid #d1d5da` |
 
 ---
 
 ## Advanced Features
 
 ### Subgroups within layers
-
 ```html
 <div class="arch-subgroup">
   <div class="arch-subgroup-box">
@@ -317,25 +240,17 @@ Clean, precise for technical documentation.
 ```
 
 ### KPI Row
-
 ```html
 <div class="arch-kpi-row">
-  <div class="arch-kpi">
-    <span class="arch-kpi-value">99.9%</span><br /><span class="arch-kpi-label">Uptime</span>
-  </div>
-  <div class="arch-kpi">
-    <span class="arch-kpi-value">&lt;50ms</span><br /><span class="arch-kpi-label">Latency</span>
-  </div>
-  <div class="arch-kpi">
-    <span class="arch-kpi-value">10K</span><br /><span class="arch-kpi-label">RPS</span>
-  </div>
+  <div class="arch-kpi"><span class="arch-kpi-value">99.9%</span><br><span class="arch-kpi-label">Uptime</span></div>
+  <div class="arch-kpi"><span class="arch-kpi-value">&lt;50ms</span><br><span class="arch-kpi-label">Latency</span></div>
+  <div class="arch-kpi"><span class="arch-kpi-value">10K</span><br><span class="arch-kpi-label">RPS</span></div>
 </div>
 ```
 
 ### User Type Tags
-
 ```html
-<div class="arch-box">Dashboard<br /><span class="arch-user-tag">Admin</span></div>
+<div class="arch-box">Dashboard<br><span class="arch-user-tag">Admin</span></div>
 ```
 
 For the complete catalog of all 13 layouts and 12 styles with full HTML templates, see the source repository: https://github.com/markdown-viewer/skills

@@ -17,7 +17,6 @@ Create complex directed/undirected graphs using DOT language. Best for dependenc
 ## Node Definition
 
 ### Basic Syntax
-
 ```dot
 digraph G {
     node_id [label="Display Name"];
@@ -26,7 +25,6 @@ digraph G {
 ```
 
 ### Node Attributes
-
 ```dot
 digraph G {
     node_id [
@@ -43,7 +41,6 @@ digraph G {
 ```
 
 ### Record Nodes (Structured Data)
-
 ```dot
 digraph G {
     struct [shape=record, label="{name: string|age: int|email: string}"];
@@ -56,7 +53,6 @@ digraph G {
 ## Edge Definition
 
 ### Basic Syntax
-
 ```dot
 digraph G {
     A -> B;                    // Simple edge
@@ -66,7 +62,6 @@ digraph G {
 ```
 
 ### Edge Attributes
-
 ```dot
 digraph G {
     A -> B [
@@ -82,35 +77,32 @@ digraph G {
 ```
 
 ### Edge Styles
-
-| Style    | Description            |
-| -------- | ---------------------- |
-| `solid`  | Regular line (default) |
-| `dashed` | Dashed line            |
-| `dotted` | Dotted line            |
-| `bold`   | Thick line             |
-| `invis`  | Invisible (for layout) |
+| Style | Description |
+|-------|-------------|
+| `solid` | Regular line (default) |
+| `dashed` | Dashed line |
+| `dotted` | Dotted line |
+| `bold` | Thick line |
+| `invis` | Invisible (for layout) |
 
 ### Arrow Heads
-
-| Type       | Description               |
-| ---------- | ------------------------- |
-| `normal`   | Standard arrow (default)  |
-| `open`     | Open arrow tip            |
-| `none`     | No arrow                  |
-| `diamond`  | Diamond end               |
-| `odiamond` | Open diamond              |
-| `dot`      | Dot end                   |
-| `box`      | Box end                   |
-| `crow`     | Crow's foot (ER diagrams) |
-| `vee`      | V-shaped                  |
+| Type | Description |
+|------|-------------|
+| `normal` | Standard arrow (default) |
+| `open` | Open arrow tip |
+| `none` | No arrow |
+| `diamond` | Diamond end |
+| `odiamond` | Open diamond |
+| `dot` | Dot end |
+| `box` | Box end |
+| `crow` | Crow's foot (ER diagrams) |
+| `vee` | V-shaped |
 
 ---
 
 ## Layout Control
 
 ### Layout Directions
-
 ```dot
 digraph G {
     rankdir=TB;  // Top to Bottom (default)
@@ -121,7 +113,6 @@ digraph G {
 ```
 
 ### Node Ranking
-
 ```dot
 digraph G {
     {rank=same; A; B; C;}    // Force same level
@@ -131,7 +122,6 @@ digraph G {
 ```
 
 ### Spacing Control
-
 ```dot
 digraph G {
     graph [
@@ -191,20 +181,19 @@ digraph G {
 
 ## Node Shapes
 
-| Shape       | Description       | Usage           |
-| ----------- | ----------------- | --------------- |
-| `box`       | Rectangle         | Process, action |
-| `ellipse`   | Ellipse (default) | General node    |
-| `circle`    | Circle            | State, event    |
-| `diamond`   | Diamond           | Decision        |
-| `plaintext` | No border         | Labels          |
-| `record`    | Structured        | Data tables     |
-| `cylinder`  | Cylinder          | Database        |
-| `folder`    | Folder            | Directory       |
-| `component` | UML component     | Module          |
+| Shape | Description | Usage |
+|-------|-------------|-------|
+| `box` | Rectangle | Process, action |
+| `ellipse` | Ellipse (default) | General node |
+| `circle` | Circle | State, event |
+| `diamond` | Diamond | Decision |
+| `plaintext` | No border | Labels |
+| `record` | Structured | Data tables |
+| `cylinder` | Cylinder | Database |
+| `folder` | Folder | Directory |
+| `component` | UML component | Module |
 
 ### HTML Labels
-
 ```dot
 digraph G {
     node [shape=plaintext];
@@ -235,24 +224,24 @@ Use `graph` instead of `digraph`, and `--` instead of `->`.
 
 ## Color Palette
 
-| Color  | Hex       | Usage              |
-| ------ | --------- | ------------------ |
-| Green  | `#2ECC71` | Success, completed |
-| Red    | `#E74C3C` | Error, critical    |
-| Orange | `#F39C12` | Warning, action    |
-| Blue   | `#3498DB` | Info, process      |
-| Gray   | `#95A5A6` | Neutral, disabled  |
-| Purple | `#9B59B6` | Concept, idea      |
+| Color | Hex | Usage |
+|-------|-----|-------|
+| Green | `#2ECC71` | Success, completed |
+| Red | `#E74C3C` | Error, critical |
+| Orange | `#F39C12` | Warning, action |
+| Blue | `#3498DB` | Info, process |
+| Gray | `#95A5A6` | Neutral, disabled |
+| Purple | `#9B59B6` | Concept, idea |
 
 ---
 
 ## Troubleshooting
 
-| Issue                | Solution                             |
-| -------------------- | ------------------------------------ |
-| Nodes not aligned    | Use `rank=same` or invisible edges   |
-| Edges crossing       | Try different `splines` or `rankdir` |
-| Clusters not showing | Name must start with `cluster_`      |
-| Labels too long      | Use `\n` for line breaks             |
-| Graph too wide       | Switch to `rankdir=TB`               |
-| Overlapping nodes    | Increase `nodesep` or `ranksep`      |
+| Issue | Solution |
+|-------|----------|
+| Nodes not aligned | Use `rank=same` or invisible edges |
+| Edges crossing | Try different `splines` or `rankdir` |
+| Clusters not showing | Name must start with `cluster_` |
+| Labels too long | Use `\n` for line breaks |
+| Graph too wide | Switch to `rankdir=TB` |
+| Overlapping nodes | Increase `nodesep` or `ranksep` |

@@ -7,7 +7,6 @@ How to produce structured, standalone course materials that can be studied indep
 ## When to Generate a Course
 
 Generate course materials when the learner:
-
 - Wants a structured curriculum they can follow at their own pace
 - Wants shareable materials for a team or study group
 - Is learning a topic deeply enough to warrant 5+ sessions
@@ -25,11 +24,22 @@ The learning plan is the first file created. It drives everything else.
 # Learning Plan: [Topic]
 
 **Learner level:** [From discovery interview]
-**Goal:** [Specific, observable outcome — what the learner will be able to DO]
 **Time budget:** [Total hours committed]
 **Location:** [project-local / general]
 **Created:** [date]
 **Last session:** [date]
+
+## Mission
+
+[1-3 sentences. The concrete real-world outcome the learner is chasing — what changes
+in their life or work when they have this skill. "Ship a Rust CLI to my team" beats
+"learn Rust". Every session objective below must trace back to this.]
+
+**Success looks like:**
+- [A specific, observable thing the learner will be able to do]
+- [Another specific thing]
+
+**Out of scope:** [Adjacent topics the learner explicitly isn't chasing right now]
 
 ## The Critical 20%
 
@@ -39,24 +49,21 @@ Everything else is optional depth.]
 1. [Core concept 1] — why it matters
 2. [Core concept 2] — why it matters
 3. [Core concept 3] — why it matters
-   ...
+...
 
 ## Session Outline
 
 ### Session 1: [Title] — [Estimated duration]
-
 **Objective:** After this session you will be able to [observable verb] [specific thing].
 **Prerequisites:** None / [list]
 **Status:** ✅ Complete / 🔄 In Progress / ⬚ Not Started
 
 ### Session 2: [Title] — [Estimated duration]
-
 **Objective:** After this session you will be able to...
 **Prerequisites:** Session 1
 **Status:** ⬚ Not Started
 
 ### Session 3: [Title] — [Estimated duration]
-
 ...
 
 ## Optional Deep-Dives
@@ -68,10 +75,7 @@ Everything else is optional depth.]
 
 ## Resources
 
-[Books, articles, videos, existing skills the learner can reference]
-
-- [Resource 1] — why it's worth their time
-- [Resource 2] — why it's worth their time
+See [resources.md](./resources.md) for the curated source list.
 ```
 
 ---
@@ -80,9 +84,14 @@ Everything else is optional depth.]
 
 ```
 learning/[topic-slug]/
-├── plan.md                    # Learning plan (always created)
+├── plan.md                    # Mission + learning plan (always created)
+├── resources.md               # Curated sources and communities (created before first session)
+├── glossary.md                # Canonical terminology (created lazily, on first mastered term)
 ├── cheat-sheet.md             # Reference card (created after first session)
-├── session-log.md             # Progress tracking (created after first session)
+├── session-log.md             # Progress tracking + learning records (created after first session)
+├── lessons/                   # Self-contained HTML lessons (offered after each session)
+│   ├── 0001-[slug].html       # See resources/html-lessons.md for format
+│   └── 0002-[slug].html
 └── course/                    # Course materials (created on request)
     ├── 00-overview.md         # Course map, prerequisites, how to use
     ├── 01-[topic].md          # Session 1 material
@@ -93,6 +102,42 @@ learning/[topic-slug]/
         ├── 02-exercises.md    # Exercises for session 2
         └── ...
 ```
+
+---
+
+## Resources File Template (resources.md)
+
+The curated set of trusted sources for the topic. Teaching should be grounded in these, not in parametric guesses — especially for fast-moving or factual topics.
+
+```markdown
+# [Topic] Resources
+
+## Knowledge
+
+- [Book: _Title_ — Author](url)
+  [One line: what it covers. Use for: when to reach for it.]
+- [Article: "Title" — Author (Site)](url)
+  [One line annotation.]
+- [Video: "Title" — Speaker/Channel](url)
+  [One line annotation.]
+
+## Wisdom (Communities)
+
+- [Community name](url)
+  [Why it's high-signal. Use for: what kind of questions to take there.]
+
+## Gaps
+
+- [Area the mission needs that has no good source yet — drives future search]
+```
+
+**Rules:**
+- High-trust only: primary sources, recognised experts, peer-reviewed work, well-moderated communities. Marketing dressed as education stays out.
+- For HTML lessons and indexes, resources may include articles, blog posts, videos/talks, papers, and books, but only when they are excellent and directly relevant. Do not add a source merely to fill a media type.
+- Finding resources requires online research. Do not fill `resources.md`, lesson reading lists, or index reading lists from memory alone.
+- Annotate every entry — a bare link is useless in three months.
+- Prune ruthlessly: a source that turned out shallow or off-mission is removed, not buried.
+- If the learner has opted out of joining communities, note it here so future sessions stop proposing them.
 
 ---
 
@@ -108,18 +153,17 @@ learning/[topic-slug]/
 ## What You'll Learn
 
 By the end of this course you will be able to:
-
 1. [Observable outcome 1]
 2. [Observable outcome 2]
 3. [Observable outcome 3]
 
 ## Course Map
 
-| Session | Topic   | Duration | You'll be able to... |
-| ------- | ------- | -------- | -------------------- |
-| 1       | [Title] | [Est.]   | [Outcome]            |
-| 2       | [Title] | [Est.]   | [Outcome]            |
-| ...     | ...     | ...      | ...                  |
+| Session | Topic | Duration | You'll be able to... |
+|---------|-------|----------|---------------------|
+| 1 | [Title] | [Est.] | [Outcome] |
+| 2 | [Title] | [Est.] | [Outcome] |
+| ... | ... | ... | ... |
 
 ## How to Use This Course
 
@@ -242,30 +286,39 @@ By the end of this course you will be able to:
 **Bloom's level reached:** [Highest level demonstrated]
 
 **Performance:**
-
 - [Concept 1]: ✅ Solid / ⚠️ Shaky / ❌ Gap
 - [Concept 2]: ✅ / ⚠️ / ❌
 
 **Confidence calibration:**
-
 - Self-rated: [N]/10
 - Actual performance: [description]
 - Gap: [Over-confident / Under-confident / Well-calibrated]
 
 **Gaps identified:**
-
 - [Gap 1] — schedule for review in session [N]
 - [Gap 2] — needs more practice at [Bloom's level]
 
 **Spaced review due:**
-
 - [Concept from session 1]: Due session 2
 - [Concept from session 1]: Due session 4
+
+**Lesson:** [lessons/0001-slug.html, if generated — note "captured, not taught" if generated up front in capture mode]
 
 ---
 
 ## Session 2 — [Date]
+...
 
+---
+
+## Learning Records
+
+### LR-0001: [Short title]
+
+[1-3 sentences: what was learned or established, and why it changes what to
+teach next. See session-management.md for when a record qualifies.]
+
+### LR-0002: [Short title]
 ...
 ```
 
@@ -286,7 +339,6 @@ To identify the critical 20% for any topic:
 All sub-topics: ports, adapters, driving vs driven, dependency inversion, domain isolation, use cases, repositories, testing with fakes, CQRS, event sourcing, cross-cutting concerns, incremental adoption...
 
 Critical 20%:
-
 1. Core concept (domain in the center, dependencies point inward)
 2. Ports as interfaces, adapters as implementations
 3. Driving vs driven distinction

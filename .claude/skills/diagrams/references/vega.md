@@ -18,12 +18,12 @@ Create data-driven charts using Vega-Lite (simpler, 90% of use cases) or Vega (a
 
 ## Common Pitfalls
 
-| Issue              | Solution                                             |
-| ------------------ | ---------------------------------------------------- |
-| Chart won't render | Validate JSON, check for missing schema              |
-| Data not visible   | Field names must match data exactly (case-sensitive) |
-| Wrong chart type   | Verify mark type matches data structure              |
-| Colors too similar | Use named color schemes with sufficient contrast     |
+| Issue | Solution |
+|-------|----------|
+| Chart won't render | Validate JSON, check for missing schema |
+| Data not visible | Field names must match data exactly (case-sensitive) |
+| Wrong chart type | Verify mark type matches data structure |
+| Colors too similar | Use named color schemes with sufficient contrast |
 
 ---
 
@@ -180,35 +180,35 @@ Create data-driven charts using Vega-Lite (simpler, 90% of use cases) or Vega (a
 
 ## Mark Types
 
-| Mark     | Usage               |
-| -------- | ------------------- |
-| `bar`    | Bar/column charts   |
-| `line`   | Line charts, trends |
-| `point`  | Scatter plots       |
-| `area`   | Area charts         |
-| `rect`   | Heatmaps, matrices  |
-| `circle` | Bubble charts       |
-| `tick`   | Strip plots         |
-| `text`   | Label overlays      |
-| `arc`    | Pie/donut charts    |
+| Mark | Usage |
+|------|-------|
+| `bar` | Bar/column charts |
+| `line` | Line charts, trends |
+| `point` | Scatter plots |
+| `area` | Area charts |
+| `rect` | Heatmaps, matrices |
+| `circle` | Bubble charts |
+| `tick` | Strip plots |
+| `text` | Label overlays |
+| `arc` | Pie/donut charts |
 
 ## Encoding Channels
 
-| Channel   | Usage               |
-| --------- | ------------------- |
-| `x`, `y`  | Position            |
-| `color`   | Hue differentiation |
-| `size`    | Area scaling        |
-| `shape`   | Point shape         |
-| `opacity` | Transparency        |
-| `text`    | Text labels         |
-| `tooltip` | Hover info          |
+| Channel | Usage |
+|---------|-------|
+| `x`, `y` | Position |
+| `color` | Hue differentiation |
+| `size` | Area scaling |
+| `shape` | Point shape |
+| `opacity` | Transparency |
+| `text` | Text labels |
+| `tooltip` | Hover info |
 
 ## Data Types
 
-| Type           | Usage                  |
-| -------------- | ---------------------- |
-| `quantitative` | Numbers (continuous)   |
-| `nominal`      | Categories (unordered) |
-| `ordinal`      | Categories (ordered)   |
-| `temporal`     | Dates/times            |
+| Type | Usage |
+|------|-------|
+| `quantitative` | Numbers (continuous) |
+| `nominal` | Categories (unordered) |
+| `ordinal` | Categories (ordered) |
+| `temporal` | Dates/times |

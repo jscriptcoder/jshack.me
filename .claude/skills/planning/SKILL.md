@@ -21,12 +21,12 @@ If a plan starts producing database-only, API-only, UI-only, or "do all plumbing
 
 Use `grill-me` before planning when the selected story still contains unresolved product or design decisions. Use `find-gaps` before or after drafting the plan when acceptance criteria, failure modes, roles, states, or release constraints are missing or unverifiable.
 
-| Input state                                        | Use               | Output                                     |
-| -------------------------------------------------- | ----------------- | ------------------------------------------ |
-| Fuzzy decision tree                                | `grill-me`        | Resolved decisions or named open questions |
-| Broad requirement with multiple outcomes           | `story-splitting` | Child stories                              |
-| Existing story/plan/AC/mocks with holes            | `find-gaps`       | Confirmed artifact updates                 |
-| Selected child story ready for delivery sequencing | `planning`        | PR-sized implementation slices             |
+| Input state | Use | Output |
+|-------------|-----|--------|
+| Fuzzy decision tree | `grill-me` | Resolved decisions or named open questions |
+| Broad requirement with multiple outcomes | `story-splitting` | Child stories |
+| Existing story/plan/AC/mocks with holes | `find-gaps` | Confirmed artifact updates |
+| Selected child story ready for delivery sequencing | `planning` | PR-sized implementation slices |
 
 ## Plans Directory
 
@@ -53,7 +53,6 @@ There will be exceptions — some changes are inherently coupled and splitting t
 A vertical slice is not "small because it touches one layer." It is small because it delivers one observable behavior through the real production path.
 
 Each slice MUST name:
-
 - **Actor**: who receives the value (user, admin, API client, scheduled job, support operator)
 - **Trigger**: what starts the behavior (click, request, event, command, timer)
 - **Observable outcome**: what proves the behavior happened
@@ -61,7 +60,6 @@ Each slice MUST name:
 - **Smallest deployable value**: the narrowest useful version that can ship safely
 
 Good slices are often thin but complete:
-
 - A form submits one valid field through the real API and persists it
 - A background job handles one event type and emits the expected audit result
 - A CLI command supports one input shape and returns stable stdout/stderr
@@ -95,7 +93,6 @@ Valid horizontal exceptions include dependency upgrades, migrations, test harnes
 ## What Makes a Known-Good Slice
 
 Each slice MUST:
-
 - Leave all tests passing
 - Be independently deployable
 - Have clear done criteria
@@ -110,7 +107,6 @@ A slice is the unit of planning and review — one PR. Within a slice, TDD incre
 ## Slice Size Heuristics
 
 **Too big if:**
-
 - Takes more than one session
 - Has multiple "and"s in description
 - You're unsure how to test it
@@ -118,7 +114,6 @@ A slice is the unit of planning and review — one PR. Within a slice, TDD incre
 - Builds a layer without proving an outcome
 
 **Right size if:**
-
 - One clear behavior
 - One primary test case plus focused edge cases
 - Can explain to someone quickly
@@ -252,15 +247,13 @@ Read the project's CLAUDE.md and testing rules before writing slices.
 ## Pre-PR Quality Gate
 
 Before each PR:
-
 1. Mutation testing — run `mutation-testing` skill
 2. Refactoring assessment — run `refactoring` skill
 3. Typecheck and lint pass
 4. DDD glossary check — if the project uses DDD, verify all domain terms match the canonical glossary
 
 ---
-
-_Delete this file when the plan is complete. If `plans/` is empty, delete the directory._
+*Delete this file when the plan is complete. If `plans/` is empty, delete the directory.*
 ```
 
 ### Plan Changes Require Approval
@@ -284,39 +277,30 @@ When all slices are complete:
 ## Anti-Patterns
 
 ❌ **Committing without approval**
-
 - Always wait for explicit "yes" before committing
 
 ❌ **Layer-cake plans**
-
 - "Build database, then API, then UI" delays learning and hides broken integration
 
 ❌ **Foundation work with no named slice**
-
 - If setup is needed, name the vertical slice it unlocks and how the setup is verified
 
 ❌ **Database-only, API-only, or UI-only slices by default**
-
 - These are usually implementation tasks, not independently valuable behavior
 
 ❌ **Do all plumbing first**
-
 - Prefer a walking skeleton that proves the real path, then widen it behavior by behavior
 
 ❌ **Slices that span multiple PRs**
-
 - Break down further until one slice = one PR
 
 ❌ **Writing code before tests**
-
 - RED comes first, always
 
 ❌ **Plans that change silently**
-
 - All plan changes require discussion and approval
 
 ❌ **Keeping plan files after feature complete**
-
 - Delete them; knowledge lives in CLAUDE.md, ADRs, and git history
 
 ## Quick Reference

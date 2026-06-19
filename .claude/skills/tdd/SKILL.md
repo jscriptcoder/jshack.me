@@ -1,6 +1,6 @@
 ---
 name: tdd
-description: Test-Driven Development workflow. Use for ALL code changes - features, bug fixes, refactoring. TDD is non-negotiable.
+description: RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR workflow for writing production code. Use before ANY production code change - new features, bug fixes, or behavior changes. Triggers on starting implementation work of any kind. Covers the cycle itself - failing test first, minimum code to pass, mutation verification, refactor assessment. For how to write good tests, see testing. For the refactoring step in detail, see refactoring. TDD is non-negotiable.
 ---
 
 # Test-Driven Development
@@ -14,7 +14,6 @@ TDD is the fundamental practice. Every line of production code must be written i
 ## RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR Cycle
 
 ### RED: Write Failing Test First
-
 - NO production code until you have a failing test
 - Test describes desired behavior, not implementation
 - Test should fail for the right reason
@@ -22,25 +21,22 @@ TDD is the fundamental practice. Every line of production code must be written i
 - Add obvious missing cases immediately; use the harness's ask-question facility when the expected behavior is a product/domain judgment
 
 ### GREEN: Minimum Code to Pass
-
 - Write ONLY enough code to make the test pass
 - Resist adding functionality not demanded by a test
+- Faking it is legitimate: hardcode the return value if that passes, then triangulate — add a second test case that forces the real implementation. Generalize only when a test demands it
 
 ### MUTATE: Verify Test Effectiveness
-
 - Run `mutation-testing` skill against the changed code
 - Produce a mutation testing report (killed/survived/score)
 - This validates whether the RED-phase mutator scan caught the important gaps
 
 ### KILL MUTANTS: Address Surviving Mutants
-
 - Add or strengthen tests to kill surviving mutants
 - Fix obvious gaps directly
 - Ask the human with the harness's ask-question facility when a surviving mutant's value is ambiguous
 - All tests pass after fixes
 
 ### REFACTOR: Assess Improvements
-
 - Assess AFTER mutation testing confirms test strength
 - Load the `refactoring` skill before deciding what, if anything, to restructure
 - Commit before refactoring
@@ -55,7 +51,6 @@ TDD is the fundamental practice. Every line of production code must be written i
 Commit history should show clear RED → GREEN → MUTATE → KILL MUTANTS → REFACTOR progression.
 
 **Ideal progression:**
-
 ```
 commit abc123: test: add failing test for user authentication
 commit def456: feat: implement user authentication to pass test
@@ -68,21 +63,18 @@ commit jkl012: refactor: extract validation logic for clarity
 TDD evidence may not be linearly visible in commits in these cases:
 
 **1. Multi-Session Work**
-
 - Feature spans multiple development sessions
 - Work done with TDD in each session
 - Commits organized for PR clarity rather than strict TDD phases
 - **Evidence**: Tests exist, all passing, implementation matches test requirements
 
 **2. Context Continuation**
-
 - Resuming from previous work
 - Original RED phase done in previous session/commit
 - Current work continues from that point
 - **Evidence**: Reference to RED commit in PR description
 
 **3. Refactoring Commits**
-
 - Large refactors after GREEN + MUTATE + KILL MUTANTS
 - Multiple small refactors combined into single commit
 - All tests remained green throughout
@@ -119,15 +111,12 @@ Test Evidence:
 **Before approving any PR claiming "100% coverage":**
 
 1. Check out the branch
-
    ```bash
    git checkout feature-branch
    ```
 
-2. Run coverage verification:
-
+2. Run coverage verification (adapt to the project's package manager and layout):
    ```bash
-   cd packages/core
    pnpm test:coverage
    # OR
    pnpm exec vitest run --coverage
@@ -163,27 +152,21 @@ endpoints.ts   |     100 |      100 |     100 |     100 |
 Watch for these signs of incomplete coverage:
 
 ❌ **PR claims "100% coverage" but you haven't verified**
-
 - Never trust claims without running coverage yourself
 
 ❌ **Coverage summary shows <100% on any metric**
-
 ```
 All files      |   97.11 |    93.97 |   81.81 |   97.11 |
 ```
-
 - This is NOT 100% coverage (Functions: 81.81%, Lines: 97.11%)
 
 ❌ **"Uncovered Line #s" column shows line numbers**
-
 ```
 setup.ts       |   95.23 |      100 |      60 |   95.23 | 45-48, 52-55
 ```
-
 - Lines 45-48 and 52-55 are not covered
 
 ❌ **Coverage gaps without explicit exception documentation**
-
 - If coverage <100%, exception should be documented (see Exception Process below)
 
 ### When Coverage Drops, Ask
@@ -202,6 +185,8 @@ Add tests for behavior, and coverage follows naturally.
 
 No exceptions without explicit approval and documentation.
 
+This applies to code developed with TDD. When working in legacy code, the scope is the change area, not the whole codebase — see the `characterisation-tests` skill for that workflow.
+
 ### Requesting an Exception
 
 If 100% coverage cannot be achieved:
@@ -209,7 +194,6 @@ If 100% coverage cannot be achieved:
 **Step 1: Document in package README**
 
 Explain:
-
 - Current coverage metrics
 - WHY 100% cannot be achieved in this package
 - WHERE the missing coverage will come from (integration tests, E2E, etc.)
@@ -250,7 +234,8 @@ The burden of proof is on the requester. 100% is the default expectation.
 5. **Run mutation testing** - verify tests catch real bugs
 6. **Kill surviving mutants** - strengthen tests (ask human when ambiguous)
 7. **Refactor if valuable** - improve code structure
-8. **Commit** - with conventional commit message
+8. **STOP and wait for commit approval** - present the work and mutation report; never commit without explicit user approval
+9. **Commit** - with conventional commit message, once approved
 
 ### Workflow Example
 
@@ -272,7 +257,9 @@ if (user.name === '') {
 
 # 5. Refactor if needed (extract validation, improve naming)
 
-# 6. Commit
+# 6. STOP — present work + mutation report, wait for commit approval
+
+# 7. Commit (after approval)
 git add .
 git commit -m "feat: reject empty user names"
 ```
@@ -292,7 +279,6 @@ docs: update architecture documentation
 ```
 
 **Format:**
-
 - `feat:` - New feature
 - `fix:` - Bug fix
 - `refactor:` - Code change that neither fixes bug nor adds feature
@@ -340,16 +326,7 @@ REFACTOR: commit 6e5f4a3 (extract permission resolution logic)
 
 ## Refactoring Priority
 
-After mutation testing confirms test strength, classify any issues:
-
-| Priority | Action       | Examples                                            |
-| -------- | ------------ | --------------------------------------------------- |
-| Critical | Fix now      | Mutations, knowledge duplication, >3 levels nesting |
-| High     | This session | Magic numbers, unclear names, >30 line functions    |
-| Nice     | Later        | Minor naming, single-use helpers                    |
-| Skip     | Don't change | Already clean code                                  |
-
-For detailed refactoring methodology, load the `refactoring` skill.
+After mutation testing confirms test strength, assess and classify improvement opportunities. For the priority classification table and detailed refactoring methodology, load the `refactoring` skill — it owns that guidance.
 
 ---
 

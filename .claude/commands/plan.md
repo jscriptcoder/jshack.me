@@ -1,5 +1,6 @@
 ---
 description: Create a plan document on a branch with a PR - no code changes
+argument-hint: [feature or work to plan]
 allowed-tools: Read, Glob, Grep, Write, Bash(git:*), Bash(gh:*)
 ---
 
@@ -12,7 +13,7 @@ Current branch:
 Active plans:
 !`ls plans/ 2>/dev/null || echo "No plans/ directory found"`
 
-Create a vertical-slice plan for the requested work:
+Create a vertical-slice plan for the requested work: $ARGUMENTS
 
 1. If on main, create a new feature branch first
 2. Explore the codebase to understand the relevant areas
@@ -68,15 +69,13 @@ Every slice must explicitly load `tdd`, `testing`, `mutation-testing`, and `refa
 ## Pre-PR Quality Gate
 
 Before each PR:
-
 1. Mutation testing — run `mutation-testing` skill
 2. Refactoring assessment — run `refactoring` skill
 3. Typecheck and lint pass
 4. DDD glossary check — if the project uses DDD, verify all domain terms match the canonical glossary
 
 ---
-
-_Delete this file when the plan is complete. If `plans/` is empty, delete the directory._
+*Delete this file when the plan is complete. If `plans/` is empty, delete the directory.*
 ```
 
 ## Constraints

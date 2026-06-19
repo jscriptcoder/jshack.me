@@ -9,10 +9,7 @@ For expected business outcomes (validation failures, business rule violations, n
 ```typescript
 type PledgeResult =
   | { readonly success: true; readonly occasion: Occasion; readonly contributor: Contributor }
-  | {
-      readonly success: false;
-      readonly reason: 'insufficient-balance' | 'funding-closed' | 'not-found';
-    };
+  | { readonly success: false; readonly reason: 'insufficient-balance' | 'funding-closed' | 'not-found' };
 ```
 
 **Why not exceptions?** Exceptions are invisible in the type signature. A function that returns `Occasion` but can throw `InsufficientBalanceError` has a hidden return path that the compiler doesn't track. Callers can forget to handle it. A discriminated union makes every outcome explicit — the compiler enforces exhaustive handling.
@@ -96,14 +93,12 @@ For domains with many possible outcomes, use specific reason strings rather than
 ```typescript
 type CreateOrderResult =
   | { readonly success: true; readonly order: Order }
-  | {
-      readonly success: false;
-      readonly reason:
-        | 'empty-cart'
-        | 'item-out-of-stock'
-        | 'payment-declined'
-        | 'address-invalid'
-        | 'daily-limit-exceeded';
+  | { readonly success: false; readonly reason:
+      | 'empty-cart'
+      | 'item-out-of-stock'
+      | 'payment-declined'
+      | 'address-invalid'
+      | 'daily-limit-exceeded'
     };
 ```
 
@@ -112,7 +107,6 @@ The `reason` field is a string literal union — exhaustive switch handling catc
 ## What NOT To Do
 
 **Don't use exceptions for business rules:**
-
 ```typescript
 // WRONG — invisible failure mode, caller must remember to catch
 const pledgeContribution = (...): Occasion => {
@@ -122,7 +116,6 @@ const pledgeContribution = (...): Occasion => {
 ```
 
 **Don't use generic error types:**
-
 ```typescript
 // WRONG — { success: false, error: string } tells you nothing
 // Use specific reason literals so the compiler can help
@@ -130,7 +123,6 @@ type Result<T> = { success: true; data: T } | { success: false; error: string };
 ```
 
 **Don't catch and re-throw to add context:**
-
 ```typescript
 // WRONG — wrapping exceptions adds noise, not clarity
 try { ... } catch (e) { throw new PledgeError('Failed to pledge', { cause: e }); }

@@ -23,113 +23,113 @@ Fix obvious gaps immediately. If the expected behavior is a domain/product judgm
 
 ### Arithmetic Operators
 
-| Original | Mutated | Test should verify      |
-| -------- | ------- | ----------------------- |
-| `a + b`  | `a - b` | Addition behavior       |
-| `a - b`  | `a + b` | Subtraction behavior    |
-| `a * b`  | `a / b` | Multiplication behavior |
-| `a / b`  | `a * b` | Division behavior       |
-| `a % b`  | `a * b` | Modulo behavior         |
+| Original | Mutated | Test should verify |
+|----------|---------|-------------------|
+| `a + b` | `a - b` | Addition behavior |
+| `a - b` | `a + b` | Subtraction behavior |
+| `a * b` | `a / b` | Multiplication behavior |
+| `a / b` | `a * b` | Division behavior |
+| `a % b` | `a * b` | Modulo behavior |
 
 Avoid identity values that hide the difference: `0` for `+/-`, `1` for `*/`.
 
 ### Conditional Expressions
 
-| Original | Mutated  | Test should verify      |
-| -------- | -------- | ----------------------- |
-| `a < b`  | `a <= b` | Equality boundary       |
-| `a < b`  | `a >= b` | Both sides of condition |
-| `a <= b` | `a < b`  | Equality boundary       |
-| `a <= b` | `a > b`  | Both sides of condition |
-| `a > b`  | `a >= b` | Equality boundary       |
-| `a > b`  | `a <= b` | Both sides of condition |
-| `a >= b` | `a > b`  | Equality boundary       |
-| `a >= b` | `a < b`  | Both sides of condition |
+| Original | Mutated | Test should verify |
+|----------|---------|-------------------|
+| `a < b` | `a <= b` | Equality boundary |
+| `a < b` | `a >= b` | Both sides of condition |
+| `a <= b` | `a < b` | Equality boundary |
+| `a <= b` | `a > b` | Both sides of condition |
+| `a > b` | `a >= b` | Equality boundary |
+| `a > b` | `a <= b` | Both sides of condition |
+| `a >= b` | `a > b` | Equality boundary |
+| `a >= b` | `a < b` | Both sides of condition |
 
 Boundary tests should usually cover just below, exactly at, and just above the threshold.
 
 ### Equality Operators
 
-| Original  | Mutated   | Test should verify        |
-| --------- | --------- | ------------------------- |
+| Original | Mutated | Test should verify |
+|----------|---------|-------------------|
 | `a === b` | `a !== b` | Equal and not-equal cases |
 | `a !== b` | `a === b` | Equal and not-equal cases |
-| `a == b`  | `a != b`  | Equal and not-equal cases |
-| `a != b`  | `a == b`  | Equal and not-equal cases |
+| `a == b` | `a != b` | Equal and not-equal cases |
+| `a != b` | `a == b` | Equal and not-equal cases |
 
 ### Logical Operators
 
-| Original   | Mutated    | Test should verify                |
-| ---------- | ---------- | --------------------------------- |
-| `a && b`   | `a \|\| b` | One operand true, the other false |
-| `a \|\| b` | `a && b`   | One operand true, the other false |
-| `a ?? b`   | `a && b`   | Nullish-only fallback behavior    |
+| Original | Mutated | Test should verify |
+|----------|---------|-------------------|
+| `a && b` | `a \|\| b` | One operand true, the other false |
+| `a \|\| b` | `a && b` | One operand true, the other false |
+| `a ?? b` | `a && b` | Nullish-only fallback behavior |
 
 Avoid only testing all-true or all-false combinations.
 
 ### Boolean Literals and Negation
 
-| Original | Mutated | Test should verify           |
-| -------- | ------- | ---------------------------- |
-| `true`   | `false` | Both true and false outcomes |
-| `false`  | `true`  | Both true and false outcomes |
-| `!(a)`   | `a`     | Negation is necessary        |
+| Original | Mutated | Test should verify |
+|----------|---------|-------------------|
+| `true` | `false` | Both true and false outcomes |
+| `false` | `true` | Both true and false outcomes |
+| `!(a)` | `a` | Negation is necessary |
 
 ### Block Statements and Side Effects
 
-| Original   | Mutated | Test should verify                   |
-| ---------- | ------- | ------------------------------------ |
-| `{ code }` | `{ }`   | Observable side effects of the block |
+| Original | Mutated | Test should verify |
+|----------|---------|-------------------|
+| `{ code }` | `{ }` | Observable side effects of the block |
 
 Tests that only assert "does not throw" often miss empty-body mutants. Verify returned values, persisted state, emitted events, messages, permissions, or meaningful collaborator calls.
 
 ### String Literals
 
-| Original | Mutated               | Test should verify        |
-| -------- | --------------------- | ------------------------- |
-| `"text"` | `""`                  | Non-empty string behavior |
-| `""`     | `"Stryker was here!"` | Empty string behavior     |
+| Original | Mutated | Test should verify |
+|----------|---------|-------------------|
+| `"text"` | `""` | Non-empty string behavior |
+| `""` | `"Stryker was here!"` | Empty string behavior |
 
 ### Array Declarations
 
-| Original          | Mutated       | Test should verify       |
-| ----------------- | ------------- | ------------------------ |
-| `[1, 2, 3]`       | `[]`          | Non-empty array behavior |
-| `new Array(1, 2)` | `new Array()` | Array contents matter    |
+| Original | Mutated | Test should verify |
+|----------|---------|-------------------|
+| `[1, 2, 3]` | `[]` | Non-empty array behavior |
+| `new Array(1, 2)` | `new Array()` | Array contents matter |
 
 ### Unary and Update Operators
 
-| Original | Mutated | Test should verify     |
-| -------- | ------- | ---------------------- |
-| `+a`     | `-a`    | Sign matters           |
-| `-a`     | `+a`    | Sign matters           |
-| `++a`    | `--a`   | Increment vs decrement |
-| `a++`    | `a--`   | Increment vs decrement |
+| Original | Mutated | Test should verify |
+|----------|---------|-------------------|
+| `+a` | `-a` | Sign matters |
+| `-a` | `+a` | Sign matters |
+| `++a` | `--a` | Increment vs decrement |
+| `a++` | `a--` | Increment vs decrement |
 
 ### Method Expressions
 
-| Original        | Mutated         | Test should verify      |
-| --------------- | --------------- | ----------------------- |
-| `startsWith()`  | `endsWith()`    | Correct string position |
-| `endsWith()`    | `startsWith()`  | Correct string position |
-| `toUpperCase()` | `toLowerCase()` | Case transformation     |
-| `toLowerCase()` | `toUpperCase()` | Case transformation     |
-| `some()`        | `every()`       | Partial vs full match   |
-| `every()`       | `some()`        | Full vs partial match   |
-| `filter()`      | removed         | Filtering is necessary  |
-| `reverse()`     | removed         | Order matters           |
-| `sort()`        | removed         | Ordering is necessary   |
-| `min()`         | `max()`         | Correct extremum        |
-| `max()`         | `min()`         | Correct extremum        |
-| `trim()`        | `trimStart()`   | Correct trim behavior   |
+| Original | Mutated | Test should verify |
+|----------|---------|-------------------|
+| `startsWith()` | `endsWith()` | Correct string position |
+| `endsWith()` | `startsWith()` | Correct string position |
+| `toUpperCase()` | `toLowerCase()` | Case transformation |
+| `toLowerCase()` | `toUpperCase()` | Case transformation |
+| `some()` | `every()` | Partial vs full match |
+| `every()` | `some()` | Full vs partial match |
+| `filter()` | removed | Filtering is necessary |
+| `reverse()` | removed | Order matters |
+| `sort()` | removed | Ordering is necessary |
+| `min()` | `max()` | Correct extremum |
+| `max()` | `min()` | Correct extremum |
+| `trim()` | `trimStart()` | Correct trim behavior |
 
 ### Optional Chaining
 
-| Original   | Mutated   | Test should verify      |
-| ---------- | --------- | ----------------------- |
+| Original | Mutated | Test should verify |
+|----------|---------|-------------------|
 | `foo?.bar` | `foo.bar` | Null/undefined handling |
-| `foo?.[i]` | `foo[i]`  | Null/undefined handling |
-| `foo?.()`  | `foo()`   | Null/undefined handling |
+| `foo?.[i]` | `foo[i]` | Null/undefined handling |
+| `foo?.()` | `foo()` | Null/undefined handling |
 
 ## Red Flags
 

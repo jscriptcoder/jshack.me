@@ -1,13 +1,20 @@
 ---
 description: Create a pull request following standards
-allowed-tools: Bash(git:*), Bash(gh:*)
+argument-hint: [optional PR title or focus]
+allowed-tools: Bash(git:*), Bash(gh:*), Bash(npm:*), Bash(pnpm:*), Bash(npx:*), Bash(yarn:*), Bash(bun:*)
 ---
 
 Current branch state:
+!`git branch --show-current`
+
 !`git log main..HEAD --oneline`
 
 Changes summary:
 !`git diff main...HEAD --stat`
+
+## Guard
+
+If the current branch is `main` (or the repo's default branch), STOP — do not create a PR from the default branch. Ask whether to move the work to a feature branch first.
 
 ## Pre-PR Quality Gate
 
@@ -24,10 +31,11 @@ If any step has not been completed, run it now before creating the PR.
 
 ## PR Creation
 
+If arguments were provided, use them as the PR title or focus: $ARGUMENTS
+
 Create a PR with:
 
 ### Summary
-
 - 1-3 bullet points describing the changes
 - Focus on WHAT changed and WHY
 - **Prefer small PRs** — if the change could be split into independently mergeable units, consider doing so

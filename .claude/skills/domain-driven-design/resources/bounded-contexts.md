@@ -6,14 +6,14 @@ A bounded context is a linguistic boundary — the region where a particular dom
 
 When bounded contexts interact, the relationship follows one of these patterns:
 
-| Pattern                   | Relationship                            | When to use                                                                          |
-| ------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------ |
-| **Anti-Corruption Layer** | Downstream translates upstream model    | Upstream model doesn't fit your domain — protect your model with a translation layer |
-| **Shared Kernel**         | Two contexts share a minimal subset     | Small, stable shared concepts (Money, Email). Both teams agree on changes            |
-| **Published Language**    | Shared interchange format (schemas)     | Event-driven communication. Events use a shared schema                               |
-| **Open Host Service**     | Upstream provides a stable API          | Multiple downstream consumers. The API is the contract                               |
-| **Conformist**            | Downstream accepts upstream model as-is | No influence over upstream. Accept their types directly                              |
-| **Separate Ways**         | No integration                          | Cost of integration exceeds the benefit                                              |
+| Pattern | Relationship | When to use |
+|---------|-------------|-------------|
+| **Anti-Corruption Layer** | Downstream translates upstream model | Upstream model doesn't fit your domain — protect your model with a translation layer |
+| **Shared Kernel** | Two contexts share a minimal subset | Small, stable shared concepts (Money, Email). Both teams agree on changes |
+| **Published Language** | Shared interchange format (schemas) | Event-driven communication. Events use a shared schema |
+| **Open Host Service** | Upstream provides a stable API | Multiple downstream consumers. The API is the contract |
+| **Conformist** | Downstream accepts upstream model as-is | No influence over upstream. Accept their types directly |
+| **Separate Ways** | No integration | Cost of integration exceeds the benefit |
 
 **For most projects, Anti-Corruption Layer and Shared Kernel are the most immediately useful.**
 
@@ -25,8 +25,8 @@ The ACL translates between an external model and your domain model at the bounda
 // External API returns their model
 type StripeCharge = {
   readonly id: string;
-  readonly amount: number; // cents
-  readonly currency: string; // lowercase
+  readonly amount: number;        // cents
+  readonly currency: string;      // lowercase
   readonly status: string;
 };
 
@@ -62,7 +62,6 @@ A minimal set of types shared across contexts. Keep it as small as possible — 
 ```
 
 **Warning signs the shared kernel is too large:**
-
 - It contains entity types (not just value objects)
 - Changes to the kernel require coordinating multiple teams
 - It has its own business logic beyond construction/validation
@@ -117,38 +116,35 @@ Context boundaries are discovered, not designed up front. They emerge where lang
 
 The strongest signal is when the same word means different things to different people:
 
-| Word     | In gifting context                                     | In billing context                                   |
-| -------- | ------------------------------------------------------ | ---------------------------------------------------- |
-| "User"   | Someone who organizes occasions and manages gift ideas | An account with a payment method and billing history |
-| "Event"  | A gift-giving occasion (birthday, holiday)             | A billable transaction or audit log entry            |
-| "Amount" | How much to pledge toward a gift                       | An invoice line item total                           |
+| Word | In gifting context | In billing context |
+|------|-------------------|-------------------|
+| "User" | Someone who organizes occasions and manages gift ideas | An account with a payment method and billing history |
+| "Event" | A gift-giving occasion (birthday, holiday) | A billable transaction or audit log entry |
+| "Amount" | How much to pledge toward a gift | An invoice line item total |
 
 When you find yourself adding qualifiers ("billing user" vs "gifting user"), you've found a context boundary. Each context should use the unqualified term with its own meaning.
 
 ### Signals That You Need to Split
 
 **Strong signals (split now):**
-
 - The same word means different things — and you're adding prefixes to disambiguate
 - Two parts of the system change for different business reasons at different rates
 - A model that makes one workflow simple makes another workflow awkward
 - Different stakeholders or domain experts own different parts of the system
 
 **Moderate signals (consider splitting):**
-
 - You're building a "god entity" with dozens of fields, most irrelevant to any single use case
 - Teams step on each other's code — merge conflicts across unrelated features
 - Business rules in one area have nothing to do with business rules in another
 
 **Weak signals (probably don't split yet):**
-
 - Code is getting large (size alone doesn't imply a boundary)
 - You want to "clean up" the architecture (refactoring isn't the same as boundary discovery)
 - Technical concerns differ (use hex arch layers, not context boundaries)
 
 ### How to Find Boundaries in Practice
 
-**1. Listen for language friction.** When domain conversations become awkward — "I mean the _shipping_ address, not the _billing_ address" — you've found a seam. Map where these qualifiers appear.
+**1. Listen for language friction.** When domain conversations become awkward — "I mean the *shipping* address, not the *billing* address" — you've found a seam. Map where these qualifiers appear.
 
 **2. Map the workflows.** For each major business workflow (e.g., "place an order", "process a return", "manage inventory"), list the entities and rules involved. Where workflows share entities but use different fields or apply different rules, there's likely a boundary.
 
