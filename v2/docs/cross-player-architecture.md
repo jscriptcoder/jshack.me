@@ -274,7 +274,62 @@ escalate on A's box and permanently brick it.
   the router is gated upstream by its own `canBoot`, **bricking the workstation only removes its
   forwarded ports; the router keeps answering its own.** (One gate site → scan and ssh can't disagree.)
 
-su / brick auth.log traces on the foreign box are a cross-player WRITE, deferred to Story 6.
+su / brick auth.log traces on the foreign box are a cross-player WRITE — shipped in Story 6 (§8).
+
+## 8. Observability: cross-player traces (Story 6)
+
+Every cross-player scan / login / escalation leaves a truthful, **server-written** trace on the
+TARGET's shared record, which the owner (or a 3rd player with a session) reads back — turning the
+shipped attack loop into an attacker/defender loop.
+
+- **The keystone (decision 1): a log line is written under `writer_key = owner_key` of the TARGET,
+  not the attacker.** `applyPatches` folds **last-write-wins per (machine_id, path, writer_key)**, so
+  if each attacker wrote a log under their OWN key the rows would collapse to the last writer's
+  content. Writing every line under the target owner's key makes them **accrete into ONE row**; the
+  attacker's identity lives in the line **content** (source IP / `by <from>` user), never in
+  `writer_key`. This is the one place a cross-player write is keyed to the owner rather than the
+  acting player.
+- **One shared primitive** — `appendMachineLog(deps, target, line)`
+  (`core/patches/appendMachineLog.ts`): best-effort read-modify-write — read the current content at
+  `(machine_id, path, writer_key)`, append `${line}\n`, upsert `node_type:'file'`. A failed READ bails
+  without writing (never clobbers). **Best-effort throughout**: a logging read/write failure never
+  breaks — or fabricates — the underlying scan / auth (each handler wraps the call in try/catch).
+- **Source IP is server-derived, never the client `source_ip`** — `resolveCrossPlayerSourceIp`
+  (`core/logging/crossPlayerSourceIp.ts`, via `FindRegistryByOwnerKey`) maps the attacker's verified
+  pubkey → their HOME public IP. Forging / framing another network is impossible by construction; a
+  client-supplied `source_ip` is ignored. It is the attacker's **operating-machine** IP — B's home box
+  today (v2 has no command-vantage switch); when the pivot feature ships the operating machine becomes
+  the hop and the same path logs the hop's IP, masking B — no logging rework. (su lines carry **no**
+  source IP — they are username-only.)
+- **The three cross-player handlers + the own-LAN fix:**
+  - **Scan** (`resolvePublicScan`, 6.1): after a host-up resolve, one `formatNmapScanAggregate`
+    `kern.log` line on the **router** record (`router_machine_id`), hostname =
+    `seedRouterHostname(owner_key)`, source = the attacker's home IP. `found:false` (unknown / dark /
+    bricked) writes nothing.
+  - **Connection** (`authCreateSessionPublic`, 6.2): one `formatSshdAuthLine` `auth.log` line on
+    **both** outcomes (`Accepted` / `Failed password …`), on the resolved target — **router** for `:22`,
+    **workstation** for a forwarded `:2222` (hostname = seeded router name / `workstation_machine_name`).
+    A `404 host_unreachable` (unforwarded / dark / bricked, before any password) writes nothing.
+  - **su** (`authElevateSession`, 6.3): one `formatSuAuthLine` `auth.log` line on **both** outcomes
+    (`Successful` / `FAILED su for root by <from>`) on the **workstation** record; `from_user` is carried
+    in the payload (B's current ws user, e.g. `guest`) so the line reads truthfully; no source IP.
+  - **Own-LAN `.1`** (`handleNmapScan` `logHostScan`, 6.4): the `.1` gateway's `kern.log` line — its
+    **machine id AND its port list** — routes through the router (`computeRouterId(caller)` +
+    `buildRouterBaseFs(caller)`), not the dead-end coordinate path (`hostMachineId` +
+    `buildRemoteHostFs`). So a player scanning their own router reads the trace via `ssh root@.1` with
+    the router's **real** ports (was a dead-end record nobody read, listing "ports none"). NPC siblings
+    keep the coordinate path; self is skipped; writer stays the caller (= owner on this own-LAN path,
+    still owner-keyed). Mirrors `ssh.ts`'s own-router branch.
+- **Decision 8 — log ALL port probes, not just `nmap`.** A cross-player `ssh` reuses
+  `resolvePublicScan` for its reachability check, so it ALSO writes a `kern.log` scan line: a
+  cross-player ssh attempt leaves **both** a `kern.log` scan line and the `auth.log` line — the server
+  can't distinguish "honest ssh" from "probing via the ssh path", so suppressing it would reopen a
+  stealth-recon hole. Defense-in-depth, not a bug.
+- **Tier & tamper.** Logs are tier-2 readable, tier-3 hidden (a no-session scanner can't read them);
+  a dark / bricked target logs nothing (the dark-gate runs first); root can clear logs — no
+  tamper-resistance (decision 7), no separate brick-event trace (decision 5).
+- **Formatters / paths:** `core/logging/kernLog.ts` (`formatNmapScanAggregate`, `KERN_LOG_*`),
+  `core/logging/authLog.ts` (`formatSshdAuthLine`, `formatSuAuthLine`, `AUTH_LOG_*`).
 
 ## Invariants (the load-bearing rules)
 
@@ -292,6 +347,9 @@ su / brick auth.log traces on the foreign box are a cross-player WRITE, deferred
 - `canBoot` over the replayed tree is the single brick authority, shared client + server.
 - A bricked box (a `/boot` tombstone) is unreachable: scan host-down + public ssh `404`, gated
   before any port read or password check — independent of credentials or lingering pidfiles.
+- Cross-player log lines are written under the **target owner's** `writer_key` (the system owns its
+  logs, so attackers' lines accrete into one row); the attacker's identity lives in the line content
+  (source IP / `by <from>` user), never in `writer_key`. Server-derived source IP only.
 
 ## Status & roadmap
 
@@ -335,8 +393,17 @@ keeps answering its own — `dark-gate(addr) = canBoot(machineServing(addr))` re
 router → `nmap <A.publicIp>` "Host seems down", `ssh` "No route to host"; and
 `scripts/testRouterBrick.ts` 9/9, both brick directions).
 
-Next: **Story 6** (cross-player scan/connection + su/brick auth.log trace on the shared record), then
-**Story 7** (same-wifi shared-LAN occupancy). See `plans/multiplayer-crossplayer-epic.md`.
+**Story 6** (cross-player scan / connection / su trace on the shared record) is ✅ **COMPLETE** (§8).
+The three cross-player handlers (`resolvePublicScan`, `authCreateSessionPublic`, `authElevateSession`)
+and the own-LAN `.1` scan now leave owner-keyed `kern.log` / `auth.log` traces via the shared
+`appendMachineLog` primitive, with server-derived source IPs — so the shipped attack loop is now an
+observable attacker/defender loop. Confirmed live (agent-browser + per-slice wire-checks
+`scripts/testCrossPlayer{Scan,Connection,Su}Trace.ts`). Decision 8: a cross-player ssh leaves both a
+scan and an auth trace (no silent recon).
+
+Next: **Story 7** (same-wifi shared-LAN occupancy). Deferred: **5b** (multi-layer generated target
+networks), the **pivot / operate-from-a-hop** vantage (its own story — the source-IP derivation is
+already shaped for it). See `plans/multiplayer-crossplayer-epic.md`.
 
 **Known accepted gap (deferred to an L3 smart-server):** a client with a valid keypair can
 mint an `effect_one_shot`/root session via `createSession` and call the read/reset effects
@@ -360,6 +427,10 @@ mitigation is a server-side game-logic re-run.
 | Forward→ws resolve     | `core/scan/workstationPortResolver.ts` (`buildWorkstationResolver` + port wrapper) |
 | su elevation (server)  | `core/sessions/authElevateSession.ts`                                              |
 | Public ssh gate        | `core/sessions/authCreateSessionPublic.ts`                                         |
+| Trace append primitive | `core/patches/appendMachineLog.ts`                                                 |
+| Cross-player source IP | `core/logging/crossPlayerSourceIp.ts` (`resolveCrossPlayerSourceIp`)               |
+| kern.log / auth.log    | `core/logging/kernLog.ts`, `core/logging/authLog.ts`                               |
+| Own-LAN scan log       | `core/scan/nmapScan.ts` (`logHostScan`, router branch)                             |
 | Brick authority        | `core/boot/bootFiles.ts` (`canBoot`)                                               |
 | reboot (cold boot)     | `core/commands/reboot.ts`                                                          |
 | Shared FS walker       | `core/filesystem/fsView.ts`                                                        |
