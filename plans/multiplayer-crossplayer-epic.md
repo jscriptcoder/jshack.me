@@ -17,8 +17,11 @@ v0.65.0 · Slice 3 `reboot` #251 v0.66.0 · Slice 4 bricked-box-dark v0.67.0** �
 everyone. **Story 5 ✅ COMPLETE** (real iptables NAT — **SCOPED 2026-06-16 via grill-me to cross-player home NAT
 only; multi-layer → new Story 5b; see "Story 5 — resolved scope & decisions" below**). **5.0 `nano` ✅ · 5.1
 (router as a real machine + player NAT) ✅ · 5.2 (B attacks A's router — cross-player router takeover) ✅ ·
-5.3 (router brick → whole public IP dark + workstation-behind-NAT dark-gate) ✅ SHIPPED (v0.68.0). NEXT =
-Story 6 (cross-player scan/connection + su/brick auth.log trace on the shared record).**
+5.3 (router brick → whole public IP dark + workstation-behind-NAT dark-gate) ✅ SHIPPED (v0.68.0).
+**Story 6 ✅ COMPLETE** (cross-player scan/connection/su trace + own-LAN `.1` router scan — 6.0 #284 ·
+6.1 #286 · 6.2 #287 · 6.3 #288 · 6.4 #289, v0.70.0; mechanics → `v2/docs/cross-player-architecture.md` §8).
+**NEXT = Story 7 (same-wifi shared-LAN occupancy) — run `grill-me` then `planning`; starting context in
+"Story 7 — starting context (for grill-me)" below.**
 Story-split authored 2026-06-13. Consolidates the remaining work from two now-retired plans
 (`network-generator-epic.md` Story 4; `scan-logging-cross-player.md` Slice 3b) into one epic. Each child
 story below graduates to its own `plans/<slice>.md` (via the `planning` skill) when started.
@@ -128,8 +131,8 @@ the exact seam Story 5 swaps for real iptables rules with **no rework of the reg
 | 3 ✅ **DONE** (#242+#243+#244+Slice4) | **B modifies A's filesystem**                                                                                                                                                                 | The "make changes" half of the vision                                                                                       | Slice 1 flipped `patches` to a shared chronological journal (PK `(machine_id,path,writer_key)`, server `updated_at`); Slices 2–4 added the cross-player L2 (owner-materialized registry branch, D6), the write **boundary** (creates gated by the containing dir), and **tombstone-always** `rm` (a delete is a timestamped event, so delete-then-recreate replays chronologically). L1 (session) + L2 (walker at the login tier) server-enforced.                                                                                                                       | Root escalation, bricking, trace                                                                    | B writes `/tmp/pwned` on A → A sees it; B denied off the guest-writable set; B `rm`s → A sees gone; A re-creates → wins                                                                                                                                                                                                                                                   | ✅ Shipped (write loop live: `crack → connect → nmap → ssh → create/edit/rm`) |
 | 4                                     | **B escalates to root → bricks A's machine** — ✅ **DONE** (#249–#252)                                                                                                                        | The dramatic payoff — persistent cross-player damage                                                                        | Root escalation via **`su` with the obtained root password** (no privesc-CVE primitive needed — see Parking Lot) → a destructive/bricking action persists to A's shared record; A's box is observably damaged next load                                                                                                                                                                                                                                                                                                                                                  | —                                                                                                   | B `su`s to root with A's password, performs the brick action; A's machine is broken on next load; B without root cannot                                                                                                                                                                                                                                                   | ✅ Shipped (su root → rm /boot → bricked + dark to others)                    |
 | 5                                     | **Real router NAT / iptables port forwarding** — **SCOPED 2026-06-16 (grill-me) → cross-player home NAT only; multi-layer → new Story 5b. See "Story 5 — resolved scope & decisions" below.** | The owner's explicit iptables ask; "scan public IP uncovers _forwarded_ ports → internal machines" becomes real & selective | Replace degenerate NAT: router is the public-IP-bearing machine; PREROUTING DNAT maps specific public ports → specific internal machines; scanning shows only forwarded ports; connecting hits the mapped internal box. **Each dual-homed interface is its own addressable endpoint with its own port view** — `scanResult(address, vantage)` is a clean total function, NEVER a merged view (see Warnings: dual-homed scar). **Absorbs network-generator Story 4** (2–3 layers, dual-homed gateways, `switch` sub-kind, "see only your layer", RFC-1918 subnet variety) | —                                                                                                   | `nmap <publicIp>` shows the router's own ports **+** the forwarded ports; `nmap <router .1>` from inside the LAN shows the router's own ports **only**, NOT the forwarded ones (PREROUTING doesn't apply LAN-internal); `ssh <publicIp>:<fwd port>` lands on the mapped internal machine, not the router; scanning from inside a layer sees only that layer + its gateway | Shippable                                                                     |
-| 6                                     | **Cross-player scan/connection trace** (scan-logging Slice 3b)                                                                                                                                | Emergent PvP discovery — defender reads logs, sees attacker IP                                                              | Re-key the shipped **3a** per-viewer kern.log/auth.log write onto the **shared** record; scanning/connecting a real player workstation leaves a trace its owner (or a 3rd player) reads                                                                                                                                                                                                                                                                                                                                                                                  | New formatters (all shipped in 3a)                                                                  | B scans A → A `cat /var/log/kern.log` sees B's source IP; a 3rd identity who breaks into A also reads it                                                                                                                                                                                                                                                                  | Shippable                                                                     |
-| 7                                     | **Same-wifi shared-LAN occupancy** (deferred branch of the vision)                                                                                                                            | The "two players on the same wifi" scenario — same `/24`, no NAT, LAN IPs                                                   | Two identities who crack the same AP (ESSID) land on the same `/24`; `nmap` of the LAN shows the other's workstation as an occupant; same-LAN source-IP realism (LAN IP, not NAT)                                                                                                                                                                                                                                                                                                                                                                                        | —                                                                                                   | A,B both crack ESSID X → both on `192.168.x.*`; B `nmap`s the LAN, sees A's workstation; B connects over the LAN IP                                                                                                                                                                                                                                                       | Shippable                                                                     |
+| 6 ✅ **DONE** (#284–#289, v0.70.0)    | **Cross-player scan/connection/su trace + own-LAN `.1`** (scan-logging Slice 3b)                                                                                                               | Emergent PvP discovery — defender reads logs, sees attacker IP                                                              | Re-key the shipped **3a** per-viewer kern.log/auth.log write onto the **shared** record; scanning/connecting a real player workstation leaves a trace its owner (or a 3rd player) reads                                                                                                                                                                                                                                                                                                                                                                                  | New formatters (all shipped in 3a)                                                                  | B scans A → A `cat /var/log/kern.log` sees B's source IP; a 3rd identity who breaks into A also reads it                                                                                                                                                                                                                                                                  | Shippable                                                                     |
+| 7 ◀ **NEXT** (run `grill-me`)         | **Same-wifi shared-LAN occupancy** (deferred branch of the vision)                                                                                                                            | The "two players on the same wifi" scenario — same `/24`, no NAT, LAN IPs                                                   | Two identities who crack the same AP (ESSID) land on the same `/24`; `nmap` of the LAN shows the other's workstation as an occupant; same-LAN source-IP realism (LAN IP, not NAT)                                                                                                                                                                                                                                                                                                                                                                                        | —                                                                                                   | A,B both crack ESSID X → both on `192.168.x.*`; B `nmap`s the LAN, sees A's workstation; B connects over the LAN IP                                                                                                                                                                                                                                                       | Shippable                                                                     |
 
 ## Parking lot
 
@@ -471,9 +474,11 @@ Decision 1 (owner-keyed single canonical row) is exactly what dodges this.
   by guest` on A's workstation auth.log, read by A or C.
 - A no-session scanner cannot read either log (tier-3 hides them); a dark/bricked target logs nothing.
 
-### For `planning` — SLICED 2026-06-19 → `plans/story-6-crossplayer-trace.md`
+### For `planning` — ✅ SHIPPED 2026-06-20 (slices 6.0–6.4, #284 · #286 · #287 · #288 · #289, v0.70.0)
 
-Five PR-sized slices (walking-skeleton first), each vertical + cross-player observable:
+Plan `plans/story-6-crossplayer-trace.md` is DELETED (story complete); durable mechanics graduated to
+`v2/docs/cross-player-architecture.md` §8 (Observability: cross-player traces). The five shipped slices,
+for the record — five PR-sized slices (walking-skeleton first), each vertical + cross-player observable:
 **6.0** routers get a seeded random hostname (port legacy `hostnamesByRole.router`; unblocks the log-line
 hostnames; observable via `nmap <.1>`) · **6.1** (skeleton) cross-player **scan** trace
 (`resolvePublicScan` → owner-keyed router `kern.log`, pubkey-derived source IP) · **6.2** cross-player
@@ -528,10 +533,67 @@ ports; the router keeps answering its own. 100% mutation on the changed file; `s
 password) is a Story-4 crack, so that direction is carried by the deterministic wire-check (it seeds the
 post-crack root session). As-built: `v2/docs/cross-player-architecture.md` §7.
 
-**Next: Story 6** (cross-player scan/connection + su auth.log/kern.log trace on the shared record) —
-**SCOPED 2026-06-19 via grill-me; 7 locked decisions in "Story 6 — resolved scope & decisions" above
-(READ FIRST)**, ready for `planning`. Then **Story 7** (same-wifi shared-LAN occupancy). Multi-layer
-generated target networks remain deferred to **5b**. Story 5 (cross-player home NAT) is complete end to end.
+**Story 6 ✅ COMPLETE (v0.70.0)** — cross-player scan/connection/su trace + own-LAN `.1` router scan,
+shipped across slices 6.0–6.4 (#284 · #286 · #287 · #288 · #289). As-built: `v2/docs/cross-player-architecture.md`
+§8 (Observability: cross-player traces). The slice plan is deleted.
+
+**Next: Story 7 (same-wifi shared-LAN occupancy) — NOT yet scoped. Run `grill-me` first, then `planning`.**
+Multi-layer generated target networks remain deferred to **5b**; the pivot/operate-from-a-hop vantage is its
+own parked story (see "Parked future story" above).
+
+### Story 7 — starting context (for `grill-me`)
+
+**Goal (from the split-candidates table, row 7):** two identities who crack the **same AP (ESSID)** land on
+the **same `/24`** (no NAT, real LAN IPs); each `nmap`s the LAN and sees the OTHER's workstation as an
+occupant; B connects to A over the **LAN IP**; same-LAN traces log the **LAN IP**, not the home public IP.
+Acceptance shape: A,B both crack ESSID X → both on `192.168.x.*` → B `nmap`s the LAN, sees A's workstation
+→ B `ssh`es A over the LAN IP. Reuses Story 1's shared record + an occupancy registry, **minus NAT**.
+
+**Load-bearing facts already in the code (verify before deciding):**
+- `assignHomeNetwork(seedPubkeyHex, essid)` (`core/network/homeNetwork.ts`) seeds the **subnet + host octet
+  per-PLAYER** (`home-${pubkey}-${essid}`), so two players on the same ESSID get **different `/24`s today** —
+  the central thing Story 7 must change. The **public IP is already ESSID-shared** (`home-public-${essid}`,
+  "all occupants of the same AP share it"). The seam is explicitly shaped for a future server-authoritative
+  `/api/join-home-network` + occupant flow (determinism is golden-locked for reload rehydration; the assigned
+  `hostname` is returned "so the future occupant flow surfaces it").
+- `generateHomeLan(seedPubkeyHex, essid)` (`core/generation/generateHomeLan.ts`) seeds NPC siblings per
+  `(pubkey, essid)` too — so today two players on one ESSID would see **different** sibling sets, not a shared
+  LAN. The `.1` gateway is the player's OWN router (`computeRouterId(pubkey)`), per-player.
+- `ssh.ts` routes a target **cross-player only if `isPublicIp(target)`** (`ssh.ts:155`); a private LAN IP
+  takes the own-LAN deterministic path. So same-LAN cross-player connect (B → A over a `192.168.x` IP) is a
+  **new routing seam** — it is neither today's own-LAN path (which regenerates A as an NPC) nor today's
+  public-IP path.
+- Story 6's `resolveCrossPlayerSourceIp` returns the attacker's **home PUBLIC IP**; same-LAN traces need the
+  **LAN-IP** variant (the source-IP path was shaped to be vantage-swappable — see §8 / the parked pivot story).
+
+**Open decisions for `grill-me` to walk (NOT pre-decided):**
+1. **Subnet derivation** — flip the subnet to **ESSID-derived** (shared `/24`) while keeping a per-player host
+   octet? Then **how are host octets allocated without collision** across occupants — server-authoritative
+   DHCP-slot allocation (`project_multiplayer_home_network_model`), or a deterministic per-key hash with
+   collision handling?
+2. **What is a "shared" AP** — any ESSID two players both crack, or a designated **shared/themed** network
+   (café/office, `project_themed_persistent_networks` / `world_networks`)? Does every player's *home* ESSID
+   become multi-occupant, or only specific shared LANs?
+3. **Occupancy registry** — how does B discover A on the LAN? A server-authoritative occupant list keyed by
+   ESSID (the `home_network_occupants` projection lineage, `project_minimize_api_projections`); forgery-safe
+   by the broadcast-hint + signed-refetch model (`project_realtime_publish_authorization`).
+4. **NPC siblings vs player occupants** — must NPC siblings become **ESSID-seeded (shared)** so all occupants
+   see the same LAN? How do generated siblings + real player occupants **merge in one `nmap` view**
+   (`project_occupant_visibility_from_lan_machines` is the CLOSED legacy reference)?
+5. **Same-LAN connect/auth routing** — the new seam above: does B reach A via the existing
+   `authCreateSessionPublic`/cross-player materialization keyed by A's workstation `machine_id` (resolved from
+   the occupancy registry by LAN IP), or a new same-LAN handler? No NAT/forward involved.
+6. **Source-IP realism** — wire the LAN-IP source variant into the Story-6 trace path for same-LAN
+   scan/connect/su (no logging rework, per §8's design).
+7. **Occupancy lifecycle & density** — when does a player appear/disappear as an occupant (on connect?
+   persistent?); WiFi-strength = density (`project_multiplayer_home_network_model`); cross-player visibility
+   is unique-by-construction (`project_multiplayer_cross_player_visibility`).
+8. **Security/anti-cheat** — occupant list + LAN-IP source server-derived, never client-claimed (the wire is
+   the threat surface); reuse the Story-6 owner-keyed-log keystone for any same-LAN trace writes.
+
+**Foundations to read first:** `v2/docs/cross-player-architecture.md` (esp. §2 identity/addressing, §3
+reachability/login, §8 traces) + the home-network memories above. Every slice runs full
+RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR.
 
 As-built foundation to build on (READ FIRST): `v2/docs/cross-player-architecture.md` — esp. §4 authorization
 and §7 root escalation & bricking (`canBoot`, the role-based dark-gate, `materializeRouterFs`). Every slice
