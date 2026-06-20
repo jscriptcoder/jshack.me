@@ -4,8 +4,9 @@ import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
-import { seedRouterHostname } from '../generation/routerFs';
+import { buildRouterBaseFs, seedRouterHostname } from '../generation/routerFs';
 import { hostMachineId } from '../generation/remoteHostId';
+import { computeRouterId } from '../identity/router';
 import { assignHomeNetwork } from '../network/homeNetwork';
 import { readOpenPorts } from '../services/pidfile';
 import { formatNmapScanAggregate, KERN_LOG_OWNER, KERN_LOG_PERMISSIONS } from '../logging/kernLog';
@@ -61,8 +62,22 @@ const loggedHostsOf = (pubkey: string): readonly LanHost[] => {
   return generateHomeLan(pubkey, ESSID).hosts.filter((host) => host.ip !== selfIp);
 };
 
+/** The first generic NPC sibling (a `kind:'machine'` host that is not the player's
+ *  own workstation) — the coordinate-keyed path, distinct from the `.1` router. */
+const firstSiblingOf = (pubkey: string): LanHost =>
+  loggedHostsOf(pubkey).find((host) => host.kind === 'machine')!;
+
+/** The `.1` gateway host (the only `kind:'router'` host on the LAN). */
+const gatewayOf = (pubkey: string): LanHost =>
+  generateHomeLan(pubkey, ESSID).hosts.find((host) => host.kind === 'router')!;
+
+// The ports the server logs for a host, mirroring production's FS choice: the `.1`
+// router's OWN services come from its real base FS; every NPC sibling reads its
+// generic coordinate FS.
 const portsOf = (pubkey: string, host: LanHost): readonly number[] =>
-  readOpenPorts(buildRemoteHostFs(pubkey, ESSID, host)).map((port) => port.port);
+  readOpenPorts(
+    host.kind === 'router' ? buildRouterBaseFs(pubkey) : buildRemoteHostFs(pubkey, ESSID, host),
+  ).map((port) => port.port);
 
 /** The kern.log line the server should stamp for a scan of `host` at FIXED_NOW. */
 const expectedKernLine = (pubkey: string, host: LanHost): string =>
@@ -107,9 +122,13 @@ describe('handleNmapScan', () => {
     expect(result).toEqual({ status: 200, body: { ok: true, hostsLogged: logged.length } });
     expect(upsertPatch).toHaveBeenCalledTimes(logged.length);
     logged.forEach((host, index) => {
+      // The `.1` gateway logs on the REAL router record (the one `ssh root@.1`
+      // resolves to); a generic NPC sibling logs on its coordinate id (Story 6.4).
+      const expectedMachineId =
+        host.kind === 'router' ? computeRouterId(id.publicKeyHex) : hostMachineId(host, ESSID);
       expect(upsertPatch.mock.calls[index]![0]).toEqual({
         writer_key: id.publicKeyHex,
-        machine_id: hostMachineId(host, ESSID),
+        machine_id: expectedMachineId,
         path: '/var/log/kern.log',
         content: `${expectedKernLine(id.publicKeyHex, host)}\n`,
         owner: KERN_LOG_OWNER,
@@ -121,7 +140,7 @@ describe('handleNmapScan', () => {
 
   it('logs exactly one line when scanning a single real host', async () => {
     const id = generateIdentity();
-    const host = loggedHostsOf(id.publicKeyHex)[0]!;
+    const host = firstSiblingOf(id.publicKeyHex);
     const { deps, upsertPatch } = makeDeps();
 
     const result = await handleNmapScan(envelope(id, host.ip), deps);
@@ -268,5 +287,80 @@ describe('handleNmapScan', () => {
 
     expect(result.body).toEqual({ ok: true, hostsLogged: 1 });
     expect(upsertPatch.mock.calls[0]![0].content).toContain('Port scan from unknown —');
+  });
+});
+
+/**
+ * Story 6.4 — own-LAN `.1` scan writes the REAL router record. The `.1` gateway is
+ * reached at run time via `ssh root@.1` → `computeRouterId(caller)`; its coordinate
+ * `hostMachineId('<router name>', essid)` is a DEAD-END record nobody reads. So the
+ * scan line for the gateway host must land on `computeRouterId(caller)`, while a
+ * generic NPC sibling keeps its coordinate `hostMachineId`.
+ */
+// A FIXED identity (found once via a dev-time search, then hardcoded) whose `.1`
+// router's OWN services (`buildRouterBaseFs` → always `sshd:22`) DIFFER from its
+// generic coordinate FS (`buildRemoteHostFs` → no open ports here) — so a test can
+// prove the logged line lists the ROUTER's real ports, not the dead generic ones.
+const ROUTER_PORTS_IDENTITY: ReturnType<typeof generateIdentity> = {
+  publicKeyHex: asPlayerKeyHex('ef83be7f0cb0ef798b768997de0b3268ee9b82241b1c3f9a7fd0a9ee2397c0f5'),
+  privateKeyHex: 'f45fdecfa354abcb4bf1864ffcd84bde84855242d42dda83b155ec7b4b1cb033',
+};
+
+describe('handleNmapScan — own-LAN .1 scan → real router record (Story 6.4)', () => {
+  it('logs the .1 gateway scan on computeRouterId(caller), not the dead-end hostMachineId', async () => {
+    const id = generateIdentity();
+    const gateway = gatewayOf(id.publicKeyHex);
+    const { deps, upsertPatch } = makeDeps();
+
+    await handleNmapScan(envelope(id, gateway.ip), deps);
+
+    const routerId = computeRouterId(id.publicKeyHex);
+    // The two ids genuinely differ — the assertion below is only meaningful because
+    // the line moved OFF the dead-end coordinate record ONTO the one `ssh root@.1`
+    // resolves to.
+    expect(routerId).not.toBe(hostMachineId(gateway, ESSID));
+    expect(upsertPatch).toHaveBeenCalledTimes(1);
+    expect(upsertPatch.mock.calls[0]![0].machine_id).toBe(routerId);
+  });
+
+  it('still logs a generic NPC sibling on its coordinate hostMachineId', async () => {
+    const id = generateIdentity();
+    const sibling = firstSiblingOf(id.publicKeyHex);
+    const { deps, upsertPatch } = makeDeps();
+
+    await handleNmapScan(envelope(id, sibling.ip), deps);
+
+    expect(upsertPatch).toHaveBeenCalledTimes(1);
+    expect(upsertPatch.mock.calls[0]![0].machine_id).toBe(hostMachineId(sibling, ESSID));
+  });
+
+  it('logs the router scan with the router real ports (sshd:22), not the dead generic host FS', async () => {
+    const id = ROUTER_PORTS_IDENTITY;
+    const gateway = gatewayOf(id.publicKeyHex);
+    const realPorts = readOpenPorts(buildRouterBaseFs(id.publicKeyHex)).map((port) => port.port);
+    const genericPorts = readOpenPorts(buildRemoteHostFs(id.publicKeyHex, ESSID, gateway)).map(
+      (port) => port.port,
+    );
+    // Fixture premise: the router's own services (always sshd:22) genuinely DIFFER
+    // from the generic coordinate FS — so the content assertion distinguishes the
+    // two sources rather than passing by coincidence.
+    expect(realPorts).toContain(22);
+    expect(realPorts).not.toEqual(genericPorts);
+    const { deps, upsertPatch } = makeDeps();
+
+    await handleNmapScan(envelope(id, gateway.ip), deps);
+
+    expect(upsertPatch.mock.calls[0]![0].content).toBe(`${expectedKernLine(id.publicKeyHex, gateway)}\n`);
+  });
+
+  it('does not log the player own workstation on the router record (self still skipped)', async () => {
+    const id = generateIdentity();
+    const selfIp = selfIpOf(id.publicKeyHex);
+    const { deps, upsertPatch } = makeDeps();
+
+    const result = await handleNmapScan(envelope(id, selfIp), deps);
+
+    expect(result.body).toEqual({ ok: true, hostsLogged: 0 });
+    expect(upsertPatch).not.toHaveBeenCalled();
   });
 });
