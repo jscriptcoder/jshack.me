@@ -5,21 +5,26 @@
 
 ## ▶ Pick-up status (resume here)
 
-`grill-me` ✅ · `planning` ✅. **7.1 split into 7.1a/7.1b (approved).**
+`grill-me` ✅ · `planning` ✅. **7.1 split into 7.1a/7.1b — both ✅ SHIPPED.**
 
-**Slice 7.1a ✅ SHIPPED** — ESSID-seeded `/24` (`assignHomeNetwork` subnet seed → `home-subnet-${essid}`;
+**Slice 7.1a ✅ SHIPPED (#292)** — ESSID-seeded `/24` (`assignHomeNetwork` subnet seed → `home-subnet-${essid}`;
 host octet stays per-`(key,essid)`). RED→GREEN→MUTATE **100% (7/7 killed)**→REFACTOR(none). Full v2 suite
-green (1523), typecheck+lint clean. Golden re-pins: `generateHomeLan`/`nmap`/`nmapScan` tests (subnet
+green, typecheck+lint clean. Golden re-pins: `generateHomeLan`/`nmap`/`nmapScan` tests (subnet
 `188→29`, self `154→188`, fresh `ROUTER_PORTS_IDENTITY`). **AC#5 live regression GREEN** —
 `testCrossPlayerRouter` 8/8 + `testRouterBrick` 9/9 vs `vercel dev`+Supabase.
 
-**Next action**: start **Slice 7.1b** — `generateWifi` ESSID-derived password (`[D3]`), so the same ESSID
-cracks to the same password for everyone. Present 7.1b's AC for confirmation *before* code. Watch: its
-only ripple is re-pinning the `generateWifi` golden snapshot (removing the per-player password draw shifts
-the PRNG sequence) + possibly reseeding `SEED_HIDDEN`; verify `nmcli` client-side pw validation stays
-consistent.
+**Slice 7.1b ✅ SHIPPED** — `generateWifi` ESSID-derived password (`passwordForEssid(essid)` =
+`createPrng('wifi-pw-${essid}').pick(wifiPasswords)`), so the same ESSID cracks to the same password for
+everyone (parallel to `bssidFromEssid`). RED→GREEN→MUTATE **100% (6/6 killed, scoped to changed lines)**
+→REFACTOR(none). Full v2 suite green (1524), typecheck+lint clean. Golden re-pins (PRNG sequence shifted
+when the per-player password draw was removed): `generateWifi` shuffle snapshot + `airdump` table; `nmcli`
+validates against the scan's `password`, consistent by construction. `SEED_HIDDEN` survived unchanged.
 
-**One decision still open (for 7.2, not 7.1):**
+**Next action**: start **Slice 7.2** (walking-skeleton server half) — `home_network_occupants` table
+(`[D7]`) + connect-upsert/disconnect-delete (`[D8]`) + occupant-gated read (`[D11]`). FIRST resolve the
+open nonce-store decision below. Present 7.2's AC for confirmation *before* code.
+
+**One decision still open (blocks 7.2):**
 - **Nonce/rate-limit store** — keep `noopNonceStore` (ship-first) for the new occupancy + same-LAN
   failed-auth trace writes, or build the real store first? (See "Open question to confirm before 7.2".)
 

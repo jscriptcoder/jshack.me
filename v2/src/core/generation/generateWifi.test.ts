@@ -56,6 +56,34 @@ describe('generateWifi', () => {
     expect(noise.length).toBeLessThanOrEqual(5);
   });
 
+  it('derives each crackable AP password from its ESSID (same network → same password for everyone)', () => {
+    // Sweep many identities and group every crackable sighting by ESSID. The
+    // password is the network's IDENTITY (ESSID-seeded), like the BSSID — so the
+    // same AP must crack to the same password for whoever sees it, never a
+    // per-player draw.
+    const occurrences = new Map<string, string[]>();
+    for (let index = 0; index < 80; index++) {
+      const seed = index.toString().padStart(64, '0');
+      for (const network of generateWifi(seed).filter(isCrackable)) {
+        const passwords = occurrences.get(network.essid) ?? [];
+        passwords.push(network.password);
+        occurrences.set(network.essid, passwords);
+      }
+    }
+
+    const repeated = [...occurrences.values()].filter((passwords) => passwords.length > 1);
+    // The sweep must actually surface a repeated ESSID, else the check is vacuous.
+    expect(repeated.length).toBeGreaterThan(0);
+    // Each repeated ESSID carries ONE password across every sighting.
+    for (const passwords of repeated) {
+      expect(new Set(passwords).size).toBe(1);
+    }
+    // ...and the password tracks the ESSID, not a constant: distinct ESSIDs do
+    // not all collapse onto a single password (kills a constant-seed mutant).
+    const distinctPasswords = new Set([...occurrences.values()].map((passwords) => passwords[0]!));
+    expect(distinctPasswords.size).toBeGreaterThan(1);
+  });
+
   it('gives every crackable AP a real pool password and makes it gate-passable', () => {
     for (const network of generateWifi(SEED_A).filter(isCrackable)) {
       expect(POOL).toContain(network.password);
@@ -82,21 +110,23 @@ describe('generateWifi', () => {
 
   it('shuffles crackable and noise together into a stable seeded order', () => {
     // Golden snapshot for SEED_A: locks the seeded selection + interleave. The
-    // crackable APs (BEAN-THERE / GRAD-STUDENT / STARK) are NOT front-loaded —
-    // proof the final shuffle actually mixes the two populations.
+    // crackable APs (STARK / BEAN-THERE / GRAD-STUDENT) are interleaved with
+    // noise, not grouped — proof the final shuffle actually mixes the two
+    // populations.
     const order = generateWifi(SEED_A).map((network) => ({
       essid: network.essid,
       encryption: network.encryption,
       crackable: network.crackable,
     }));
     expect(order).toEqual([
+      { essid: 'STARK-WIFI', encryption: 'WPA2', crackable: true },
+      { essid: '<hidden>', encryption: 'WPA2', crackable: false },
+      { essid: '<hidden>', encryption: 'WPA2', crackable: false },
       { essid: 'BEAN-THERE-WIFI', encryption: 'WPA2', crackable: true },
       { essid: 'GRAD-STUDENT-WIFI', encryption: 'WPA2', crackable: true },
-      { essid: 'DIRECT-roku', encryption: 'WPA3', crackable: false },
-      { essid: 'Eero-Living-Room', encryption: 'WPA3', crackable: false },
-      { essid: 'STARK-WIFI', encryption: 'WPA2', crackable: true },
-      { essid: 'SUBWAY_WIFI', encryption: 'WPA2', crackable: false },
-      { essid: 'MCDONALDS-WIFI', encryption: 'WPA3', crackable: false },
+      { essid: '<hidden>', encryption: 'WPA2', crackable: false },
+      { essid: 'ATT-WIFI-9F2A', encryption: 'WPA3', crackable: false },
+      { essid: '<hidden>', encryption: 'WPA2', crackable: false },
     ]);
   });
 
