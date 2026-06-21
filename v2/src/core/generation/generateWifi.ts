@@ -14,10 +14,12 @@
  *     unsupported), weak signal (< -80 dBm), or hidden ESSID — so `aircrack`
  *     re-derives the failure from observable state, no separate tag needed.
  *
- * BSSIDs derive from the ESSID (`bssidFromEssid`), not per-player PRNG state, so
- * the same network shows the same MAC to everyone who sees it. Hidden APs derive
- * from the ORIGINAL essid before the `<hidden>` substitution, else every hidden
- * entry would collide on one BSSID.
+ * BSSIDs and crackable passwords both derive from the ESSID (`bssidFromEssid` /
+ * `passwordForEssid`), not per-player PRNG state, so the same network shows the
+ * same MAC and cracks to the same password for everyone who sees it (the basis
+ * for two players sharing one access point, Story 7). Hidden APs derive their
+ * BSSID from the ORIGINAL essid before the `<hidden>` substitution, else every
+ * hidden entry would collide on one BSSID.
  */
 
 import { bssidFromEssid, type WifiNetwork } from '../network/wifi';
@@ -25,6 +27,13 @@ import { createPrng } from './prng';
 import { secrets } from '../secrets/__encoded';
 
 const wifiPasswords: readonly string[] = JSON.parse(secrets.WIFI_PASSWORDS) as readonly string[];
+
+// The crackable password is the network's IDENTITY (ESSID-seeded), like the
+// BSSID — so the same AP cracks to the same password for every player who sees
+// it, never a per-player draw. This is what lets two occupants of one ESSID
+// agree on the credential (Story 7).
+const passwordForEssid = (essid: string): string =>
+  createPrng(`wifi-pw-${essid}`).pick(wifiPasswords);
 
 // Crackable ESSID catalog (ported verbatim, minus the `tier` field). Convention:
 // crackable ESSIDs are fictional/parody; real-world brand names live in the
@@ -162,7 +171,6 @@ export const generateWifi = (seedPubkeyHex: string): readonly WifiNetwork[] => {
 
   const crackableCount = prng.nextInt(2, 3);
   const pickedEssids = prng.pickN(crackableEssidPool, crackableCount);
-  const pickedPasswords = prng.pickN(wifiPasswords, crackableCount);
 
   const usedChannels = new Set<number>();
   const pickChannel = (): number => {
@@ -172,14 +180,14 @@ export const generateWifi = (seedPubkeyHex: string): readonly WifiNetwork[] => {
     return channel;
   };
 
-  const crackable: readonly WifiNetwork[] = pickedEssids.map((essid, index) => ({
+  const crackable: readonly WifiNetwork[] = pickedEssids.map((essid) => ({
     bssid: bssidFromEssid(essid),
     essid,
     power: prng.nextInt(-65, -35),
     channel: pickChannel(),
     encryption: 'WPA2',
     crackable: true,
-    password: pickedPasswords[index]!,
+    password: passwordForEssid(essid),
   }));
 
   const noiseCount = prng.nextInt(3, 5);
