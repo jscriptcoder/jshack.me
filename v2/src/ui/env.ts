@@ -119,6 +119,10 @@ export type BuildCommandEnvArgs = {
    *  local assignment). Optional here: when absent, join falls back to the pure
    *  local-deterministic assignment (terse test setups + pre-server callers). */
   readonly onHomeNetworkJoin?: HomeNetworkApi['join'];
+  /** The home-network leave seam — backs `env.homeNetwork.leave`. The UI wires it to
+   *  the `leaveHomeNetwork` adapter (fire-and-forget occupancy delete). Optional here:
+   *  when absent, leave is a no-op (terse test setups + pre-server callers). */
+  readonly onHomeNetworkLeave?: HomeNetworkApi['leave'];
   /** A line emitted mid-command via `env.output` — the UI appends it to scrollback.
    *  `reset` is the first consumer (its danger warning prints before the prompt).
    *  Optional: terse test setups that don't drive `env.output` leave it unwired,
@@ -184,6 +188,9 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
     join:
       args.onHomeNetworkJoin ??
       ((essid) => Promise.resolve(assignHomeNetwork(args.identity.publicKeyHex, essid))),
+    // Leave is fire-and-forget occupancy cleanup; absent the server seam it's a no-op
+    // (the local disconnect still clears `wlan0`).
+    leave: args.onHomeNetworkLeave ?? (() => undefined),
   },
   ssh: {
     authenticate: args.onSshAuthenticate ?? notWired('ssh.authenticate'),

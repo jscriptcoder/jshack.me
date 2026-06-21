@@ -119,6 +119,37 @@ describe('buildCommandEnv', () => {
     );
   });
 
+  it('wires homeNetwork.leave to the supplied disconnect seam', () => {
+    const leaveCalls: string[] = [];
+    const identity = generateIdentity();
+    const env = buildCommandEnv({
+      identity,
+      session: seedSession(identity, SEED_CONFIG),
+      root: seedFs(SEED_CONFIG, identity),
+      cwd: () => seedHome,
+      onCwdChange: () => undefined,
+      patches: noopPatches,
+      log: noopLog,
+      connectivity: seedConnectivity,
+      onInterfaceChange: () => undefined,
+      wifiNetworks: seedWifi,
+      prompt: async () => '',
+      onPushSession: () => undefined,
+      hopChain: [],
+      onPopSession: () => undefined,
+      onHomeNetworkLeave: (essid) => leaveCalls.push(essid),
+      signal: new AbortController().signal,
+    });
+
+    env.homeNetwork.leave('BEAN-THERE-WIFI');
+
+    expect(leaveCalls).toEqual(['BEAN-THERE-WIFI']);
+  });
+
+  it('defaults homeNetwork.leave to a no-op when the seam is unwired', () => {
+    expect(() => seedEnv().homeNetwork.leave('BEAN-THERE-WIFI')).not.toThrow();
+  });
+
   it('provides an abort-aware sleep that resolves when not aborted', async () => {
     // A zero-delay sleep through the real seam should resolve, proving the
     // env wires a working sleep rather than a stub.

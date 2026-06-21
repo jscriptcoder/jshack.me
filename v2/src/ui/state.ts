@@ -75,6 +75,7 @@ import {
 } from '../adapters/sessionsApi';
 import {
   joinHomeNetwork,
+  leaveHomeNetwork,
   resolveCrossPlayerFs,
   resolvePublic,
   type NetworkClientDeps,
@@ -293,6 +294,13 @@ const joinHomeNetworkFn = (essid: string): Promise<HomeNetworkAssignment> =>
   networkClientDeps === undefined
     ? Promise.resolve(assignHomeNetwork(requireIdentity().publicKeyHex, essid))
     : joinHomeNetwork(networkClientDeps, essid);
+
+/** Leave a home network (backs `env.homeNetwork.leave`, fired by `nmcli disconnect`):
+ *  fire-and-forget removal of our occupancy row. A no-op before the network client is
+ *  wired (no server to clean up against). */
+const leaveHomeNetworkFn = (essid: string): void => {
+  if (networkClientDeps !== undefined) leaveHomeNetwork(networkClientDeps, essid);
+};
 
 /** Pop the active session (backs `env.popSession`), returning to the one
  *  beneath it and restoring the cwd captured at push time. A no-op at the base
@@ -758,6 +766,7 @@ const executeLine = async (line: string): Promise<void> => {
     onScanRecord: recordScanFn,
     onScanResolvePublic: resolvePublicFn,
     onHomeNetworkJoin: joinHomeNetworkFn,
+    onHomeNetworkLeave: leaveHomeNetworkFn,
     // The sessions below the active one — what `exit` consults to decide
     // whether there's somewhere to drop back to (empty at the base shell).
     hopChain: sessionStack().slice(0, -1),

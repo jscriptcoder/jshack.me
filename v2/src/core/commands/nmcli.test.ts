@@ -91,6 +91,7 @@ type EnvOpts = {
 const nmcliEnv = (initial: ConnectivityState, opts: EnvOpts = {}) => {
   let current = initial;
   const joinCalls: string[] = [];
+  const leaveCalls: string[] = [];
   const env = mockCommandEnv({
     identity: mockIdentity({ publicKeyHex: PUBKEY }),
     session: mockSession({ machineId: opts.machineId ?? OWN_MACHINE, playerKey: PUBKEY }),
@@ -113,9 +114,12 @@ const nmcliEnv = (initial: ConnectivityState, opts: EnvOpts = {}) => {
           }
         );
       },
+      leave: (essid) => {
+        leaveCalls.push(essid);
+      },
     }),
   });
-  return { env, get: () => current, joinCalls };
+  return { env, get: () => current, joinCalls, leaveCalls };
 };
 
 const drainAsync = async (
@@ -278,6 +282,24 @@ describe('nmcli', () => {
 
       expect(text).toContain('nmcli: not connected to any network');
       expect(exitCode).toBe(1);
+    });
+
+    it('fires the leave seam with the disconnected ESSID (occupancy cleanup)', async () => {
+      const { env, leaveCalls } = nmcliEnv(
+        connectedTo('BEAN-THERE-WIFI', 'AA:BB:CC:DD:EE:01', '192.168.5.20'),
+      );
+
+      await nmcli.execute(env, ['disconnect'], NO_FLAGS);
+
+      expect(leaveCalls).toEqual(['BEAN-THERE-WIFI']);
+    });
+
+    it('does not fire the leave seam when there was no connection to leave', async () => {
+      const { env, leaveCalls } = nmcliEnv(buildColdStartConnectivity(PUBKEY));
+
+      await nmcli.execute(env, ['disconnect'], NO_FLAGS);
+
+      expect(leaveCalls).toEqual([]);
     });
   });
 

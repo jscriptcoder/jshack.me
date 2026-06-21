@@ -9,6 +9,7 @@ import {
   handleResolveOccupants,
   type OccupantListRow,
 } from '../src/core/network/resolveOccupants';
+import { handleUnregisterOccupant } from '../src/core/network/unregisterOccupant';
 import { handleResolvePublicScan, type RegistryLookup } from '../src/core/scan/resolvePublicScan';
 import {
   handleResolveCrossPlayerFs,
@@ -265,6 +266,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { status, body } = await handleResolveOccupants(req.body, {
       nonceStore: noopNonceStore,
       listOccupantsByEssid,
+    });
+    res.status(status).json(body);
+    return;
+  }
+
+  if (actionOf(req.body) === 'unregisterOccupant') {
+    // Disconnect cleanup (Story 7): remove the caller's occupancy row. Scoped to
+    // (essid, owner_key) where owner_key is server-derived from the verified pubkey
+    // — a caller can only delete its OWN row, never another occupant's. Deleting a
+    // non-existent row is not an error (idempotent disconnect).
+    const deleteOccupant = async ({ essid, owner_key }: { essid: string; owner_key: string }) => {
+      const { error } = await supabase
+        .from('home_network_occupants')
+        .delete()
+        .eq('essid', essid)
+        .eq('owner_key', owner_key);
+      if (error) console.error('[network] occupant delete error:', error);
+      return { error };
+    };
+    const { status, body } = await handleUnregisterOccupant(req.body, {
+      nonceStore: noopNonceStore,
+      deleteOccupant,
     });
     res.status(status).json(body);
     return;

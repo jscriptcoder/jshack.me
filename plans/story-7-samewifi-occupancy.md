@@ -1,7 +1,7 @@
 # Plan: Story 7 — Same-WiFi Shared-LAN Occupancy (v2)
 
 **Branch**: per-slice PRs (`feat/v2-story-7-...`), squash-merged (`feedback_pr_squash_merge_convention`)
-**Status**: Active — 7.1a/7.1b shipped (#292/#293, merged); nonce store **DEFERRED** (ship-first, keep `noopNonceStore`); **next = Slice 7.2** (occupancy skeleton).
+**Status**: Active — 7.1a/7.1b (#292/#293) + 7.2a (#296, merged)/7.2b (#297, PR open) shipped; nonce store **DEFERRED** (ship-first, keep `noopNonceStore`); **next = Slice 7.3** (nmap occupant merge).
 
 ## ▶ Pick-up status (resume here)
 
@@ -20,9 +20,22 @@ everyone (parallel to `bssidFromEssid`). RED→GREEN→MUTATE **100% (6/6 killed
 when the per-player password draw was removed): `generateWifi` shuffle snapshot + `airdump` table; `nmcli`
 validates against the scan's `password`, consistent by construction. `SEED_HIDDEN` survived unchanged.
 
-**Next action**: start **Slice 7.2** (walking-skeleton server half) — `home_network_occupants` table
-(`[D7]`) + connect-upsert/disconnect-delete (`[D8]`) + occupant-gated read (`[D11]`). Present 7.2's AC for
-confirmation *before* code. The new occupancy/trace writes ride the existing `noopNonceStore` seam.
+**Slice 7.2 (occupancy server skeleton) ✅ SHIPPED** — 7.2a (#296, merged): `home_network_occupants`
+(PK `(essid, owner_key)`, RLS-on/no-policies) + occupant upsert folded into the `registerNetwork` join +
+occupant-gated, self-excluded `resolveOccupants` read (LAN-boundary gate `[D11]`; LAN IP **re-derived**,
+not stored). 7.2b (#297, PR open): disconnect delete — `unregisterOccupant` handler + fire-and-forget
+`HomeNetworkApi.leave` seam fired by `nmcli disconnect` (only-own-row scope; idempotent; tab-close keeps
+the row). Both ride `noopNonceStore`; wire-check `scripts/testSameLanOccupancy.ts` **7/7** live (join +
+read + disconnect). 100% mutation on every changed unit. New core: `core/network/resolveOccupants.ts` +
+`unregisterOccupant.ts`; seam in `commands/types.ts` `HomeNetworkApi`; adapter `leaveHomeNetwork`; api
+actions `resolveOccupants`/`unregisterOccupant` in `api/network.ts`.
+
+**Next action**: start **Slice 7.3** (nmap occupant merge — client half). `nmap <subnet>` (and a single
+LAN-IP scan) fetches the current ESSID's occupants and merges A's workstation over B's generated NPC
+siblings — **occupant wins on octet collision; self excluded**. **This ships the deferred `adapters/`
+occupant-read method (`resolveOccupants`) as its first consumer** (7.2a left it out per minimize). Present
+7.3's AC for confirmation *before* code. Wire-checks now point at **3100** again (the stale squatter is
+killed — see below).
 
 **Nonce store — DECIDED: DEFER (ship-first).** Explored and built as Slice 7.2.0a (real Supabase nonce
 store on `/api/patches`, merged #294) + 7.2.0b (network/sessions retrofit + lazy prune, uncommitted), then
@@ -134,7 +147,7 @@ abstraction (`functional`).
 **Note**: may sub-split **7.1a** (`assignHomeNetwork` subnet) / **7.1b** (`generateWifi` identity) if the
 regression surface makes one PR unwieldy.
 
-### Slice 7.2 — Occupancy is persisted on join/leave and readable by a fellow occupant (server skeleton)
+### Slice 7.2 — Occupancy is persisted on join/leave and readable by a fellow occupant (server skeleton) — ✅ SHIPPED (7.2a #296 / 7.2b #297)
 
 **Decisions**: `[D7]` (new ESSID-keyed table) + `[D8]` (connect upsert / disconnect delete) + `[D11]`
 (occupant-gated read).
@@ -166,7 +179,8 @@ schema-rejection test for client-claimed fields. Mutator watch: the self-exclusi
 verified by the wire-check, not unit mutation (`project_v2_api_not_typechecked_locally`).
 **REFACTOR**: keep `api/` thin, logic in `core/`.
 **Done when**: ACs met, wire-check passes against live Supabase, mutation report reviewed, commit approved.
-**Note**: may sub-split **7.2a** (table + upsert + read, wire-checked) / **7.2b** (disconnect delete).
+**Note**: ✅ sub-split into **7.2a** (#296, merged — table + upsert + occupant-gated read, wire-checked) /
+**7.2b** (#297, PR open — disconnect delete via fire-and-forget `leave`).
 
 ### Slice 7.3 — B `nmap <subnet>` sees A's workstation as an occupant (client merge)
 

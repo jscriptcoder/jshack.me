@@ -98,6 +98,9 @@ const handleDisconnect = (env: CommandEnv, wlan0: WirelessInterface): CommandRes
     return error('nmcli: not connected to any network');
   }
   const essid = wlan0.association.essid;
+  // Fire-and-forget occupancy cleanup: remove our row from the ESSID's LAN so we
+  // vanish for other occupants (Story 7). Local disconnect proceeds regardless.
+  env.homeNetwork.leave(essid);
   env.setInterface('wlan0', { ...wlan0, association: null, ipv4: null });
   return text([`Disconnected from ${essid}`]);
 };
