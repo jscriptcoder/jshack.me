@@ -88,10 +88,10 @@ const expectedKernLine = (pubkey: string, host: LanHost): string =>
     probedPorts: portsOf(pubkey, host),
   });
 
-// A FIXED identity (found once via a dev-time search, then hardcoded — no run-time
-// loop) whose deterministic LAN includes a host that runs a service, so a test can
-// pin that the host's REAL port reaches the log line. Verified: on ESSID
-// 'BEAN-THERE-WIFI' this identity's gateway 192.168.218.1 runs ssh (port 22).
+// A FIXED identity whose deterministic LAN gateway runs a service, so a test can
+// pin that the host's REAL port reaches the log line. The `.1` router always runs
+// ssh (port 22). The /24 is now ESSID-seeded (Story 7.1), so every identity on
+// 'BEAN-THERE-WIFI' sits on 192.168.29 and its gateway is 192.168.29.1.
 const PORTED_IDENTITY: ReturnType<typeof generateIdentity> = {
   publicKeyHex: asPlayerKeyHex('7af20db688cbc12e66e5a499e232818a6a63011a641493c6cbc821a377cbbb32'),
   privateKeyHex: '88fd07c8eea8d81329435d6eefacf423aae078245e5a9b71940e1653573d7cf7',
@@ -99,11 +99,11 @@ const PORTED_IDENTITY: ReturnType<typeof generateIdentity> = {
 // The `.1` router carries its owner-seeded name (Story 6.0), exactly as the
 // regenerated LAN does — so the logged kern.log line names the real router.
 const PORTED_HOST: LanHost = {
-  ip: '192.168.218.1',
+  ip: '192.168.29.1',
   hostname: seedRouterHostname(PORTED_IDENTITY.publicKeyHex),
   kind: 'router',
 };
-const PORTED_SUBNET = '192.168.218';
+const PORTED_SUBNET = '192.168.29';
 
 const envelope = (
   id: ReturnType<typeof generateIdentity>,
@@ -302,8 +302,8 @@ describe('handleNmapScan', () => {
 // generic coordinate FS (`buildRemoteHostFs` → no open ports here) — so a test can
 // prove the logged line lists the ROUTER's real ports, not the dead generic ones.
 const ROUTER_PORTS_IDENTITY: ReturnType<typeof generateIdentity> = {
-  publicKeyHex: asPlayerKeyHex('ef83be7f0cb0ef798b768997de0b3268ee9b82241b1c3f9a7fd0a9ee2397c0f5'),
-  privateKeyHex: 'f45fdecfa354abcb4bf1864ffcd84bde84855242d42dda83b155ec7b4b1cb033',
+  publicKeyHex: asPlayerKeyHex('d1f9513763e20bc7d3c6579b2f9159972c2d79e0232c16358573e67d80f0d1d1'),
+  privateKeyHex: 'b06229c561e83d6513a217c0e80760adc729cf73f2a787c554af70464b10ec14',
 };
 
 describe('handleNmapScan — own-LAN .1 scan → real router record (Story 6.4)', () => {

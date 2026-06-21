@@ -20,8 +20,9 @@ only; multi-layer → new Story 5b; see "Story 5 — resolved scope & decisions"
 5.3 (router brick → whole public IP dark + workstation-behind-NAT dark-gate) ✅ SHIPPED (v0.68.0).
 **Story 6 ✅ COMPLETE** (cross-player scan/connection/su trace + own-LAN `.1` router scan — 6.0 #284 ·
 6.1 #286 · 6.2 #287 · 6.3 #288 · 6.4 #289, v0.70.0; mechanics → `v2/docs/cross-player-architecture.md` §8).
-**NEXT = Story 7 (same-wifi shared-LAN occupancy) — run `grill-me` then `planning`; starting context in
-"Story 7 — starting context (for grill-me)" below.**
+**NEXT = Story 7 (same-wifi shared-LAN occupancy) — ✅ SCOPED via `grill-me` (2026-06-21); run
+`planning` next. Resolved decisions in "Story 7 — resolved scope & decisions (grill-me, 2026-06-21)"
+below; original starting context in "Story 7 — starting context (for grill-me)".**
 Story-split authored 2026-06-13. Consolidates the remaining work from two now-retired plans
 (`network-generator-epic.md` Story 4; `scan-logging-cross-player.md` Slice 3b) into one epic. Each child
 story below graduates to its own `plans/<slice>.md` (via the `planning` skill) when started.
@@ -496,6 +497,127 @@ dead-end). The earlier "source-IP derive+**validate** essid" step was dropped �
   Substantial (vantage switch + needs networks other than home to pivot through, i.e. another player's box
   now / foreign nets after 5b). Owner wants it POSSIBLE; deferred to its own story.
 
+## Story 7 — resolved scope & decisions (grill-me, 2026-06-21)
+
+Story 7 (same-wifi shared-LAN occupancy) was interrogated with `grill-me` and **scoped to
+LAN-occupancy only**. The owner's mental model (clarified mid-grill) is the spine: **scanning WiFi
+yields a random, per-scan list; an ESSID becomes a shared LAN the moment a player occupies it;
+another player who happens to *see* that ESSID in their scan and connects lands in the same `/24`.**
+Re-scanning (disconnect → `airmon` → scan) is "relocating" — a fresh roll with a *chance* of seeing
+other players' currently-occupied networks (the A/B/C narrative: C in another location doesn't see
+A+B's ESSID; A later relocates, sees C's ESSID, joins → A+C now share). The WAN/router/public-IP
+model is **left untouched** (its multi-occupant collision is a noted, out-of-scope imperfection).
+
+### Locked decisions
+
+1. **Shared-AP model = any ESSID, keyed by ESSID.** No new themed/`world_networks` concept; café/
+   campus pool entries stay flavour. An ESSID is a shared LAN once anyone occupies it.
+2. **Discovery = occupancy-injected, probabilistic per scan ("relocation").** Each `airdump` surfaces
+   a random base subset of catalog ESSIDs **plus** a random subset of currently-occupied ESSIDs (from
+   the occupancy table). Visibility is location/chance-based, **not** occupancy-guaranteed. Occupancy
+   is what makes a network *findable* by strangers (the injection read is global but **name-only** —
+   occupied ESSID strings, no occupant identities).
+3. **ESSID identity is global/deterministic.** Crackability + password seed from the **ESSID**, not the
+   player PRNG: crackable catalog always crackable with an ESSID-seeded password (pick from
+   `WIFI_PASSWORDS`), noise catalog always noise. Same ESSID = same network for everyone — the
+   precondition for injection (a stranger cracks the injected net to the key that *actually works*).
+   Per-player/per-scan keeps only *which* subset appears + power/channel (cosmetic). Refactor of
+   `generateWifi` (`core/generation/generateWifi.ts`).
+4. **Scan re-rolls per scan (non-deterministic relocation).** `generateWifi`/airdump becomes a fresh
+   roll each scan (base subset + injected occupied), replacing the golden-locked deterministic draw
+   (free — `no-backward-compat`). **Required fix:** decouple `restoreConnection`
+   (`ui/connectionPersistence.ts:55`) from scan-list membership — re-derive the connected AP's BSSID via
+   `bssidFromEssid(essid)` so a reload's re-rolled list can't kick a connected player offline. (May be
+   its own slice after the LAN-occupancy skeleton.)
+5. **Subnet ESSID-derived (shared `/24`); host octet deterministic per-(key, essid).** Flip
+   `assignHomeNetwork`'s subnet seed from `home-${pubkey}-${essid}` to **ESSID-only**; keep the per-key
+   host octet (server-verifiable from the verified pubkey). **IP collisions accepted as low-probability
+   and DEFERRED** (owner call) — no DHCP-slot allocator now; the dev demo picks non-colliding seeds.
+   Public IP already ESSID-shared (unchanged).
+6. **WAN/router/public-IP path untouched (LAN-occupancy only).** `network_registry` (PK `public_ip`)
+   left as-is; its multi-occupant **last-writer-wins** collision (B's join overwrites A's row on a
+   shared ESSID) is a NOTED, OUT-OF-SCOPE WAN imperfection (Story 7's LAN-only acceptance never
+   exercises the public path). The `.1` gateway stays each occupant's **own** router
+   (`computeRouterId(own pubkey)`) — so the LAN is never *fully* shared; reconciling a shared router/
+   public IP per ESSID is a deferred follow-up.
+7. **Occupancy lives in a NEW ESSID-keyed table** `home_network_occupants`, PK `(essid, owner_key)`
+   (occupants coexist). **Server-stamped from the verified pubkey.** Stores `workstation_machine_id` +
+   the non-derivable cross-player-auth/display fields (mirroring `network_registry`'s `workstation_*`
+   projection); LAN IP + hostname are **re-derived** from `assignHomeNetwork(owner_key, essid)` (per
+   `minimize-api-projections`, not stored). Forgery-safe via the broadcast-hint + signed-refetch lineage
+   (`project_realtime_publish_authorization`).
+8. **Occupancy lifecycle = connection-state-based, no heartbeat.** Row upserted on `nmcli connect`,
+   deleted on `nmcli disconnect` (disconnect gains a **fire-and-forget signed server call** — today it
+   is purely local, `env.setInterface`). Closing the tab leaves you connected (row persists —
+   consistent with ESSID rehydration). TTL/presence/last-seen DEFERRED; WiFi-strength-as-density
+   DEFERRED (could later scale injection probability).
+9. **LAN view = per-player NPCs + occupant merge.** `generateHomeLan` NPC siblings stay per-player;
+   `nmap <subnet>` (and a single-LAN-IP scan) **merges real occupants from the table on top** — on an
+   octet collision the real occupant **wins** (drop the NPC); **self excluded.** `nmap` gains a server
+   round-trip to fetch the current ESSID's occupants. ESSID-seeding the NPC population is DEFERRED
+   realism polish (pointless while `.1` is per-player).
+10. **Same-LAN connect = a NEW thin front-door handler.** Resolve (caller's **verified** current ESSID,
+    target LAN IP) → occupant's `workstation_machine_id` via the occupancy table, validate the caller is
+    a **live occupant** of that ESSID (LAN boundary), auth the password against A's workstation
+    `/etc/passwd` **directly** (no router/NAT/`machineServing`/forward), land the session on
+    `workstation_machine_id`. **All downstream cross-player paths reuse unchanged** (3-tier read filter,
+    L1/L2 write, `su` elevation, traces — they key on `machine_id`, not on how the session was created).
+    `ssh.ts` gains a "private LAN IP belongs to an occupant" branch, distinct from today's `isPublicIp`
+    cross-player branch (`ssh.ts:155`) and the own-LAN NPC-regeneration branch.
+11. **LAN boundary on reads/connect.** The LAN occupant-list read **and** the same-LAN connect require
+    the caller's verified pubkey to hold a **live occupancy row** for the ESSID (real-WiFi: you must be
+    *on* the LAN to enumerate/reach it — blocks global occupant enumeration + cross-LAN framing). The
+    injection read (airdump, while disconnected) stays deliberately global but **name-only**. Both
+    server-derived, never client-claimed.
+12. **Same-LAN traces in scope, LAN-IP source.** Same-LAN scan/connect/su leave Story-6-style
+    owner-keyed `kern.log`/`auth.log` traces via the shared `appendMachineLog`, but source IP = the
+    attacker's **LAN IP** (`assignHomeNetwork(B_ownerKey, essid).localIp`, server-derived from the
+    verified pubkey + ESSID), not the home public IP. Reuses all Story-6 machinery; only the source-IP
+    resolver differs (a same-LAN sibling of `resolveCrossPlayerSourceIp`). `su` lines stay IP-less.
+
+### Derived consequences (no new fork)
+
+- A disconnected player has no occupancy row → vanishes from the LAN → **unreachable same-LAN**
+  (matches real WiFi; their box stays reachable via the WAN public path if known). Reachability is
+  occupancy-gated, checked at connect time.
+- Occupied ESSIDs are always crackable-catalog (you can only occupy a network you cracked), so
+  injection only ever surfaces crackable APs — consistent with decision 3.
+- The new same-LAN handler is the **only** net-new auth front door; the read filter / write L1+L2 /
+  `su` / trace layers are reused verbatim (they are `machine_id`-keyed and occupancy-agnostic).
+
+### Deferred (surfaced during grill-me)
+
+- IP-clash collision-free allocation (DHCP-slot) — accepted low odds for now.
+- WAN/router/public-IP reconciliation per shared ESSID (shared router; `network_registry`
+  multi-occupant) — its own follow-up.
+- ESSID-seeded shared NPC population; WiFi-strength = density; TTL/presence heartbeat.
+- Organic stranger rendezvous beyond occupancy-injection (matchmaking / findit.io) — the same
+  "discovery" problem the public-IP path also punts.
+
+### Acceptance examples (refined)
+
+- A `nmcli connect X` (now an occupant of ESSID X). B, scanning while disconnected, sees **X injected**
+  into `airdump` → `aircrack` (ESSID-seeded password) → `nmcli connect X` → lands on the **same `/24`**
+  as A.
+- B `nmap <subnet>` → sees **A's workstation** as an occupant (merged over B's NPC siblings) at A's LAN
+  IP; B `nmap <A's LAN IP>` resolves the real occupant.
+- B `ssh guest@<A's LAN IP>` → the same-LAN handler resolves A's workstation → guest session →
+  `su root` → reads A's `/etc/passwd` (downstream cross-player paths reuse).
+- A `cat /var/log/auth.log` on its workstation → `Accepted`/`Failed password for guest from <B's LAN
+  IP>` (LAN IP, **not** B's public IP).
+- A third player C, in "another location," does **not** see X in scan and cannot enumerate X's
+  occupants (not a current occupant); later C relocates (disconnect → scan), X injects, C joins → C now
+  shares the LAN with whoever remains.
+
+### For `planning`
+
+Feed these 12 decisions straight into `planning` (walking-skeleton first; each slice vertical +
+cross-player observable; full RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR). Likely spine to validate in
+planning: (skeleton) ESSID-deterministic identity + ESSID-shared subnet + occupancy table + occupant
+upsert-on-join → B `nmap <subnet>` sees A; then same-LAN connect handler; then occupancy-injection into
+scans + the `restoreConnection` decouple; then same-LAN LAN-IP traces. **Foundation to read first:**
+`v2/docs/cross-player-architecture.md` (§2 addressing, §3 reachability/login, §4 authz, §8 traces).
+
 ## Next step
 
 **Story 5.1 (router as a real machine + player-controlled NAT) is ✅ COMPLETE** — all eight slices shipped &
@@ -537,7 +659,8 @@ post-crack root session). As-built: `v2/docs/cross-player-architecture.md` §7.
 shipped across slices 6.0–6.4 (#284 · #286 · #287 · #288 · #289). As-built: `v2/docs/cross-player-architecture.md`
 §8 (Observability: cross-player traces). The slice plan is deleted.
 
-**Next: Story 7 (same-wifi shared-LAN occupancy) — NOT yet scoped. Run `grill-me` first, then `planning`.**
+**Next: Story 7 (same-wifi shared-LAN occupancy) — ✅ SCOPED via `grill-me` (2026-06-21); run `planning` next.**
+See "Story 7 — resolved scope & decisions (grill-me, 2026-06-21)" above for the 12 locked decisions.
 Multi-layer generated target networks remain deferred to **5b**; the pivot/operate-from-a-hop vantage is its
 own parked story (see "Parked future story" above).
 
