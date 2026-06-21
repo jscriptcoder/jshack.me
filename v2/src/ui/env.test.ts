@@ -240,4 +240,41 @@ describe('buildCommandEnv', () => {
 
     expect(recorded).toEqual([{ essid: 'E', target: '192.168.1.1-254', sourceIp: '192.168.1.50' }]);
   });
+
+  it('routes scan.resolveOccupants through the injected onScanResolveOccupants seam', async () => {
+    const requested: string[] = [];
+    const occupants = [
+      { workstation_machine_id: 'skylab-aaaa', localIp: '192.168.50.88', machineName: 'alice-rig' },
+    ];
+    const env = buildCommandEnv({
+      identity: generateIdentity(),
+      session: seedSession(generateIdentity(), SEED_CONFIG),
+      root: seedFs(SEED_CONFIG, generateIdentity()),
+      cwd: () => seedHome,
+      onCwdChange: () => undefined,
+      patches: noopPatches,
+      log: noopLog,
+      connectivity: seedConnectivity,
+      onInterfaceChange: () => undefined,
+      wifiNetworks: seedWifi,
+      prompt: async () => '',
+      onPushSession: () => undefined,
+      hopChain: [],
+      onPopSession: () => undefined,
+      signal: new AbortController().signal,
+      onScanResolveOccupants: async (essid) => {
+        requested.push(essid);
+        return occupants;
+      },
+    });
+
+    await expect(env.scan.resolveOccupants('BEAN-THERE-WIFI')).resolves.toEqual(occupants);
+    expect(requested).toEqual(['BEAN-THERE-WIFI']);
+  });
+
+  it('defaults scan.resolveOccupants to an empty list when the seam is unwired', async () => {
+    // The occupant read is ADDITIVE — absent the server seam, an own-LAN scan still
+    // works, it just shows no fellow players (mirrors homeNetwork.join's local fallback).
+    await expect(seedEnv().scan.resolveOccupants('BEAN-THERE-WIFI')).resolves.toEqual([]);
+  });
 });

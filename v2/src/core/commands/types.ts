@@ -16,6 +16,7 @@ import type { Directory, FileNode, FilePermissions } from '../filesystem/types';
 import type { WalkResult } from '../filesystem/walker';
 import type { NetworkInterface } from '../network/interfaces';
 import type { HomeNetworkAssignment } from '../network/homeNetwork';
+import type { OccupantProjection } from '../network/resolveOccupants';
 import type { WifiNetwork } from '../network/wifi';
 import type { OpenPort } from '../services/pidfile';
 import type { FlagSpec } from '../shell/bindFlags';
@@ -325,6 +326,11 @@ export type PublicScanResolution = {
 export type ScanApi = {
   readonly record: (params: ScanRecordParams) => Promise<void>;
   readonly resolvePublic: (target: string) => Promise<PublicScanResolution>;
+  /** Fetch the current ESSID's OTHER occupants for a same-LAN scan (signed
+   *  `resolveOccupants` endpoint). `nmap` merges the result over its generated LAN so
+   *  a fellow player shows up as a real host. Additive: degrades to an empty list
+   *  (server down, or the viewer isn't an occupant) rather than failing the scan. */
+  readonly resolveOccupants: (essid: string) => Promise<readonly OccupantProjection[]>;
 };
 
 // ---- The boundary ----
