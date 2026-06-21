@@ -9,6 +9,10 @@ import {
   handleAuthCreateSessionPublic,
   type RegistryTarget,
 } from '../src/core/sessions/authCreateSessionPublic';
+import {
+  handleAuthCreateSessionSameLan,
+  type OccupantConnectRow,
+} from '../src/core/sessions/authCreateSessionSameLan';
 import type { OwnerPatchRow } from '../src/core/network/materializeWorkstationFs';
 import {
   handleAuthElevateSession,
@@ -234,6 +238,49 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       readAuthLog,
       upsertPatch: upsertPatchPublic,
       findRegistryByOwnerKey,
+    });
+    res.status(status).json(body);
+    return;
+  }
+
+  if (actionOf(req.body) === 'authCreateSessionSameLan') {
+    // Same-WiFi LAN ssh login: B reaches a fellow occupant A's workstation DIRECTLY
+    // over the shared LAN (no router/NAT). The handler reads the ESSID's occupancy
+    // (the LAN-boundary gate + LAN-IP match), materializes A's box, and validates the
+    // password server-side before this insert runs.
+    const listOccupantsByEssid = async (essid: string) => {
+      // The auth projection (root hash + username) — server-internal, never sent to a
+      // client. Distinct from the lean `resolveOccupants` read, which omits the hash.
+      const { data, error } = await supabase
+        .from('home_network_occupants')
+        .select('owner_key, workstation_machine_id, workstation_username, workstation_root_hash')
+        .eq('essid', essid);
+      if (error) console.error('[sessions] same-lan occupants lookup error:', error);
+      return { data: data as readonly OccupantConnectRow[] | null, error };
+    };
+    // A's workstation FULL journal (scoped to machine_id, server order) so the gate can
+    // materialize A's box — refusing a bricked (dark) or non-listening target before the
+    // password is ever checked.
+    const findPatches = async ({ machine_id }: { machine_id: string }) => {
+      const { data, error } = await supabase
+        .from('patches')
+        .select('path, content, owner, permissions, node_type, updated_at, writer_key')
+        .eq('machine_id', machine_id)
+        .order('updated_at', { ascending: true })
+        .order('writer_key', { ascending: true });
+      if (error) console.error('[sessions] same-lan boot-state lookup error:', error);
+      return { data: data as readonly OwnerPatchRow[] | null, error };
+    };
+    const insertSession = async (row: AuthSessionRow) => {
+      const { error } = await supabase.from('sessions').insert(row);
+      if (error) console.error('[sessions] same-lan auth insert error:', error);
+      return { error };
+    };
+    const { status, body } = await handleAuthCreateSessionSameLan(req.body, {
+      nonceStore: noopNonceStore,
+      listOccupantsByEssid,
+      findPatches,
+      insertSession,
     });
     res.status(status).json(body);
     return;

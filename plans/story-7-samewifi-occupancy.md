@@ -1,7 +1,7 @@
 # Plan: Story 7 — Same-WiFi Shared-LAN Occupancy (v2)
 
 **Branch**: per-slice PRs (`feat/v2-story-7-...`), squash-merged (`feedback_pr_squash_merge_convention`)
-**Status**: Active — 7.1a/7.1b (#292/#293) + 7.2a (#296, merged)/7.2b (#297, PR open) shipped; nonce store **DEFERRED** (ship-first, keep `noopNonceStore`); **next = Slice 7.3** (nmap occupant merge).
+**Status**: Active — 7.1a/7.1b (#292/#293) + 7.2a (#296)/7.2b (#297) + 7.3 (#298) shipped + merged; **7.4a (same-LAN connect server handler) implemented + wire-checked 4/4, pending commit**; nonce store **DEFERRED** (ship-first, keep `noopNonceStore`); **next = Slice 7.4b** (client `ssh.ts` branch).
 
 ## ▶ Pick-up status (resume here)
 
@@ -30,12 +30,61 @@ read + disconnect). 100% mutation on every changed unit. New core: `core/network
 `unregisterOccupant.ts`; seam in `commands/types.ts` `HomeNetworkApi`; adapter `leaveHomeNetwork`; api
 actions `resolveOccupants`/`unregisterOccupant` in `api/network.ts`.
 
-**Next action**: start **Slice 7.3** (nmap occupant merge — client half). `nmap <subnet>` (and a single
-LAN-IP scan) fetches the current ESSID's occupants and merges A's workstation over B's generated NPC
-siblings — **occupant wins on octet collision; self excluded**. **This ships the deferred `adapters/`
-occupant-read method (`resolveOccupants`) as its first consumer** (7.2a left it out per minimize). Present
-7.3's AC for confirmation *before* code. Wire-checks now point at **3100** again (the stale squatter is
-killed — see below).
+**Slice 7.3 (nmap occupant merge — client half) ✅ SHIPPED + MERGED (#298)** — `nmap <subnet>` (and a
+single LAN-IP scan) fetches the current ESSID's occupants via the now-shipped `adapters/` `resolveOccupants`
+and merges them over the generated NPCs: **occupant wins on octet collision; self excluded server-side**.
+New pure `core/network/mergeLanOccupants.ts`; `nmap` gained the fetch + merge + a **port-fabrication guard**
+(an occupant IP skips `buildRemoteHostFs`, which keys on IP alone — so we never fabricate A's services from
+B's seed; real LAN-port resolution is **deferred to the 7.4 connect path**). Occupant projection +
+occupancy `SELECT` gained the display `machineName` (the nmap HOSTNAME column is a genuine consumer →
+minimize-compliant). New additive `env.scan.resolveOccupants` seam (defaults to `[]`, wired in `state.ts`
+mirroring `resolvePublic`). RED→GREEN→MUTATE **100%** (merge 15/15, nmap merge+guard 4/4, adapter 65/65)
+→REFACTOR(none). Wire-check `testSameLanOccupancy.ts` **7/7** (now asserts `machineName` round-trips).
+**Comment hygiene (user call 2026-06-21):** NO Story/Slice/decision-number tags in code/test comments or
+describe/it titles — they rot into dangling refs; state the WHY directly (see the user-local feedback memory
+`feedback_no_story_slice_refs_in_comments`). Clean only refs you add in the current change.
+
+**Slice 7.4a (same-LAN connect server handler) ✅ implemented (pending commit/merge)** — new
+`core/sessions/authCreateSessionSameLan.ts` `handleAuthCreateSessionSameLan` + `OccupantConnectRow`
+(auth-field projection, server-internal): verify B → read ESSID occupancy → LAN-boundary gate (B a live
+occupant, else 403) → match target LAN IP to a FELLOW occupant's row (self excluded, else 404) →
+`materializeWorkstationFs` → `canBoot` gate (404 dark) → port-liveness via `readOpenPorts` (404 if sshd not
+on the asked port) → `accountIn` + `md5` (401 unknown-user/bad-pw collapse) → insert `kind:'ssh'` on A's
+`workstation_machine_id` → 200 `{ok,userType,machine_id}`. Auth fields read by a DISTINCT occupancy SELECT
+in `api/sessions.ts` (lean `resolveOccupants` SELECT untouched). RED→GREEN (16 unit)→MUTATE **98.29%**
+(2 survivors both equivalent: defensive `?? []` per `feedback_type_narrowing_defensive_equivalent`; the
+`account === null ||` disjunct redundant since `passwordOk` already false then — mirrors shipped
+`authCreateSessionPublic`)→REFACTOR(none). Wire-check `scripts/testSameLanConnect.ts` **4/4** vs `vercel
+dev` 3100 + Supabase (happy / wrong-pw / non-occupant 403 / unknown-IP 404). No auth.log trace yet (7.5).
+
+**Next action**: start **Slice 7.4b** (client half — wire the front door into `ssh.ts`). Add
+`SshApi.authenticateSameLan` + `SameLanAuthParams` (reuse `PublicAuthResult` — lands on A's machine id) in
+`commands/types.ts`; adapter `authCreateServerSessionSameLan` in `adapters/sessionsApi.ts` (POST
+`authCreateSessionSameLan`; 200→{ok,userType,machineId}, 401→invalid_credentials, 404→host_unreachable,
+else network_error); in `ssh.ts`, for a PRIVATE target IP fetch `env.scan.resolveOccupants(essid)` and if it
+matches a fetched occupant route to a new `executeSameLanLogin` (occupant checked BEFORE the generated-LAN
+path so occupant-wins-on-collision holds with the 7.3 nmap merge) — prompt → `authenticateSameLan` → push
+session on `result.machineId` + cwd; non-occupant private IP falls through to the existing own-LAN path
+unchanged. Wire `onSshAuthenticateSameLan` through `env.ts` (loud `notWired` default) + `state.ts`;
+`mockSshApi` throws by default. Live agent-browser check deferred to the Story-7 capstone (7.6). Then
+**Slice 7.5** adds the LAN-IP-source auth.log trace into this handler `[D12]`.
+
+**Superseded (kept for history)**: start **Slice 7.4** (same-LAN ssh front door — see the full slice spec below). B
+`ssh guest@<A's LAN IP>` lands a guest session on A's workstation over the **LAN IP** (NO router / NAT /
+`machineServing` / forward — auth A's `/etc/passwd` directly). Decisions `[D10]` (new thin same-LAN connect
+handler) + `[D11]` (connect gated on the caller's own live occupancy row). **Reachability comes from the 7.3
+occupant fetch**; the client `ssh.ts` gains a "private LAN IP that belongs to an occupant" branch, distinct
+from the `isPublicIp` cross-player branch (~`ssh.ts:155`) and the own-LAN NPC-regeneration branch.
+Downstream `resolveCrossPlayerFs` / read filter / write L1+L2 / `su` are all `machine_id`-keyed and reused
+**unchanged**. Server resolves `(B's verified current ESSID, target LAN IP)` → occupant's
+`workstation_machine_id` via the occupancy table (the table already stores `workstation_root_hash` for this
+auth), validates B is a live occupant, validates the typed password, inserts the session on
+`workstation_machine_id`. Failure paths: non-occupant caller → refused before any pw check; unknown LAN IP →
+`No route to host`; wrong pw → `Permission denied`; bricked/dark A → existing `canBoot` gate (reused).
+**Present 7.4's AC for confirmation *before* code (CONFIRM gate).** May sub-split **7.4a** (server handler +
+wire-check `scripts/testSameLanConnect.ts`) / **7.4b** (client `ssh.ts` branch + live). Wire-checks point at
+**3100** (`npm run vercel:dev`; kill any stale dev first). The plan-file edits in THIS pick-up are
+uncommitted in the working tree — they ride 7.4's branch/PR (prior cadence).
 
 **Nonce store — DECIDED: DEFER (ship-first).** Explored and built as Slice 7.2.0a (real Supabase nonce
 store on `/api/patches`, merged #294) + 7.2.0b (network/sessions retrofit + lazy prune, uncommitted), then
@@ -182,7 +231,7 @@ verified by the wire-check, not unit mutation (`project_v2_api_not_typechecked_l
 **Note**: ✅ sub-split into **7.2a** (#296, merged — table + upsert + occupant-gated read, wire-checked) /
 **7.2b** (#297, PR open — disconnect delete via fire-and-forget `leave`).
 
-### Slice 7.3 — B `nmap <subnet>` sees A's workstation as an occupant (client merge)
+### Slice 7.3 — B `nmap <subnet>` sees A's workstation as an occupant (client merge) — ✅ SHIPPED + MERGED (#298)
 
 **Decisions**: `[D9]` (per-player NPCs + occupant merge, occupant wins on octet collision, self excluded).
 **Value**: The headline cross-player observable — a player sees a real other player on their LAN.
@@ -207,7 +256,7 @@ unchanged NPC view). Mutator watch: the collision-dedupe key (octet equality), t
 **Done when**: ACs met (jsdom + `@solidjs/testing-library` for the nmap render), mutation report reviewed,
 commit approved. (Closes the walking skeleton with 7.2.)
 
-### Slice 7.4 — B `ssh guest@<A's LAN IP>` lands on A's workstation (same-LAN connect front door)
+### Slice 7.4 — B `ssh guest@<A's LAN IP>` lands on A's workstation (same-LAN connect front door) — sub-split: 7.4a server ✅ (pending merge) / 7.4b client (next)
 
 **Decisions**: `[D10]` (new thin same-LAN handler) + `[D11]` (connect gated on occupancy).
 **Value**: The payoff — B operates on A's real box over the LAN, unlocking the entire reused cross-player
