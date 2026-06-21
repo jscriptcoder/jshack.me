@@ -1,7 +1,7 @@
 # Plan: Story 7 — Same-WiFi Shared-LAN Occupancy (v2)
 
 **Branch**: per-slice PRs (`feat/v2-story-7-...`), squash-merged (`feedback_pr_squash_merge_convention`)
-**Status**: Active — 7.1a/7.1b (#292/#293) + 7.2a (#296)/7.2b (#297) + 7.3 (#298) + 7.4a (#299) shipped + merged; **7.4b (client `ssh.ts` same-LAN branch) implemented, pending commit**; nonce store **DEFERRED** (ship-first, keep `noopNonceStore`); **next = Slice 7.5** (same-LAN traces, LAN-IP source).
+**Status**: Active — 7.1a/7.1b (#292/#293) + 7.2a (#296)/7.2b (#297) + 7.3 (#298) + 7.4a (#299) + 7.4b (#300) shipped + merged; **Slice 7.5 sub-split into 7.5a (connect+su trace) / 7.5b (scan trace); 7.5a implemented + wire-checked, pending commit**; nonce store **DEFERRED** (ship-first, keep `noopNonceStore`); **next after 7.5a commit = Slice 7.5b** (same-LAN scan kern.log trace, LAN-IP source).
 
 ## ▶ Pick-up status (resume here)
 
@@ -71,12 +71,32 @@ way; mirror the shipped public adapter)→REFACTOR(none — `executeSameLanLogin
 `executePublicLogin`, matching the file's accepted duplication style). Full suite 1601 green;
 typecheck+lint clean. No live agent-browser run yet — deferred to the Story-7 capstone (7.6).
 
-**Next action**: start **Slice 7.5** (same-LAN scan/connect/su traces with a LAN-IP source `[D12]`) — see
-the slice spec below. A same-LAN source-IP resolver (sibling of `resolveCrossPlayerSourceIp`) returns
-`assignHomeNetwork(B_ownerKey, essid).localIp`, server-derived from B's verified key + ESSID; wire it into
-the 7.4a same-LAN connect handler (`handleAuthCreateSessionSameLan` — add the logging deps + `appendMachineLog`
-under A's owner key, reusing `formatSshdAuthLine`) and the same-LAN nmap-scan path; `su` lines stay IP-less.
-Wire-check `scripts/testSameLanTrace.ts`. **Present 7.5's AC for confirmation before code (CONFIRM gate).**
+**Next action**: commit **Slice 7.5a** (below), then start **Slice 7.5b** (same-LAN scan kern.log trace).
+
+**Slice 7.5a ✅ IMPLEMENTED + WIRE-CHECKED (pending commit)** — the same-LAN connect attempt now leaves an
+`auth.log` trace on A's workstation, sourced from B's **LAN IP**, and the `su` trace is verified end-to-end:
+- `handleAuthCreateSessionSameLan` gains logging deps (`now`/`readAuthLog`/`upsertPatch`) + a `logSameLanAuth`
+  helper (mirrors the public path's `logCrossPlayerAuth`): on BOTH outcomes, owner-keyed (`writer_key = ownerA`)
+  on A's workstation, `formatSshdAuthLine` with `fromIp = assignHomeNetwork(publicKey, payload.essid).localIp`.
+  The LAN-IP source is derived **inline** — pure (B is a verified occupant), no injected registry lookup or
+  `unknown` degradation (the deviation from the planned "sibling resolver": the public resolver only exists
+  because the public IP needs an impure lookup; the LAN IP doesn't). `su` already worked unchanged — A's WiFi
+  join upserts BOTH `network_registry` + occupancy, so `authElevateSession`'s machine_id path resolves A.
+- `OccupantConnectRow` + the `api/sessions.ts` same-LAN SELECT gain `workstation_machine_name` (the log line's
+  hostname); the dispatch passes `now`/`readAuthLog`/`upsertPatch` (mirrors the public dispatch).
+- Tests: `authCreateSessionSameLan.test.ts` +8 trace tests (24/24); full suite 1609/1609; typecheck+lint clean;
+  Stryker on the new code 96.84% (3 survivors all documented-equivalent: `'failure'→""` no-op vs
+  `formatSshdAuthLine`, the `account === null` type-narrowing disjunct, the pre-existing `?? []`).
+- Wire-check `scripts/testSameLanTrace.ts` **6/6** vs `vercel dev` 3100: Accepted/Failed from B's LAN IP
+  (not public, not the forged client `source_ip`), IP-less `su` line, all three lines in ONE owner-keyed row.
+
+**Slice 7.5b (NEXT)** — same-LAN scan kern.log trace. NON-trivial: today's `handleNmapScan` regenerates the
+caller's OWN NPC LAN and writes kern.log on its own per-seed boxes (`hostMachineId`/`computeRouterId`), never
+reading occupancy or targeting a real fellow occupant's `workstation_machine_id`. A same-LAN scan trace needs
+a new server path: read the ESSID occupancy, for a target matching a fellow occupant's LAN IP write kern.log
+on A's REAL workstation (owner-keyed `writer_key = ownerA`), source = B's server-derived LAN IP, with the
+port-fabrication guard (no fabricating A's ports from B's seed — mirror the 7.3 nmap merge). **Present 7.5b's
+AC for confirmation before code (CONFIRM gate).**
 
 **Superseded (kept for history)**: start **Slice 7.4b** (client half — wire the front door into `ssh.ts`). Add
 `SshApi.authenticateSameLan` + `SameLanAuthParams` (reuse `PublicAuthResult` — lands on A's machine id) in
@@ -310,6 +330,10 @@ reviewed, commit approved.
 **Note**: may sub-split **7.4a** (server handler + wire-check) / **7.4b** (client `ssh.ts` branch + live).
 
 ### Slice 7.5 — Same-LAN scan/connect/su leave a trace with a LAN-IP source
+
+**Sub-split (approved 2026-06-21):** **7.5a** = connect `auth.log` trace + `su` trace verified (✅ implemented +
+wire-checked, pending commit — see the pick-up status above); **7.5b** = same-LAN scan `kern.log` trace (NEXT,
+its own PR — a new occupancy-reading scan path, not a trivial wiring). Below is the original combined spec.
 
 **Decisions**: `[D12]` (same-LAN traces, LAN-IP source).
 **Value**: The defender half — A reads who touched its box over the LAN, attributed to B's LAN IP.
