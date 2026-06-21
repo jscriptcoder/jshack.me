@@ -101,6 +101,10 @@ export type BuildCommandEnvArgs = {
    *  wires it to the `authCreateServerSessionPublic` adapter (signed
    *  `authCreateSessionPublic` round-trip). Optional here for terse test setups. */
   readonly onSshAuthenticatePublic?: SshApi['authenticatePublic'];
+  /** The same-LAN remote-login seam — backs `env.ssh.authenticateSameLan`. The UI wires
+   *  it to the `authCreateServerSessionSameLan` adapter (signed `authCreateSessionSameLan`
+   *  round-trip). Optional here for terse test setups; the UI always passes the real one. */
+  readonly onSshAuthenticateSameLan?: SshApi['authenticateSameLan'];
   /** The cross-player `su`-elevation seam — backs `env.su.elevate`. The UI wires it
    *  to the `authElevateServerSession` adapter (signed `suElevate` round-trip).
    *  Optional here: only a cross-player hop's `su` calls it, so own-box/test setups
@@ -200,6 +204,7 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   ssh: {
     authenticate: args.onSshAuthenticate ?? notWired('ssh.authenticate'),
     authenticatePublic: args.onSshAuthenticatePublic ?? notWired('ssh.authenticatePublic'),
+    authenticateSameLan: args.onSshAuthenticateSameLan ?? notWired('ssh.authenticateSameLan'),
   },
   su: {
     elevate: args.onSuElevate ?? notWired('su.elevate'),

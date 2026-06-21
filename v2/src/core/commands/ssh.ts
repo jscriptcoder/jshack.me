@@ -131,6 +131,61 @@ const executePublicLogin = async (
   return { kind: 'sync', lines: [], exitCode: 0 };
 };
 
+/** Same-LAN login to a FELLOW OCCUPANT (Story 7): the target is a private IP on the
+ *  player's own ESSID owned by another occupant, reached DIRECTLY over the shared LAN
+ *  (no router/NAT). Reachability + auth go through `env.ssh.authenticateSameLan`, which
+ *  resolves the IP via the ESSID occupancy and lands the session on the OWNER's real
+ *  workstation id — whose name drives the prompt hostname. */
+const executeSameLanLogin = async (
+  env: CommandEnv,
+  target: { readonly user: string; readonly host: string },
+  port: number,
+  sourceIp: string | null,
+  essid: string,
+): Promise<CommandResult> => {
+  let password: string;
+  try {
+    password = await env.prompt({
+      message: `${target.user}@${target.host}'s password: `,
+      masked: true,
+    });
+  } catch {
+    return { kind: 'sync', lines: [], exitCode: 130 };
+  }
+
+  const sessionId = `ssh-${target.user}-${env.now()}`;
+  const result = await env.ssh.authenticateSameLan({
+    sessionId,
+    essid,
+    targetIp: target.host,
+    username: target.user,
+    password,
+    port,
+    parentSessionId: env.session.id,
+    sourceIp,
+  });
+  if (!result.ok) {
+    if (result.error === 'invalid_credentials') return errorResult('Permission denied (password).');
+    if (result.error === 'host_unreachable') {
+      return connectError(target.host, port, 'Connection refused');
+    }
+    return connectError(target.host, port, 'Network error');
+  }
+
+  const session: Session = {
+    id: sessionId,
+    playerKey: env.session.playerKey,
+    machineId: asMachineId(result.machineId),
+    username: target.user,
+    userType: result.userType,
+    kind: 'ssh',
+    createdAt: env.now(),
+  };
+  env.pushSession(session);
+  env.setCwd(asAbsPath(homeFor(target.user, result.userType)));
+  return { kind: 'sync', lines: [], exitCode: 0 };
+};
+
 const execute: Command['execute'] = async (env, args, flags) => {
   const rawTarget = args[0];
   if (rawTarget === undefined) return errorResult(USAGE);
@@ -154,6 +209,14 @@ const execute: Command['execute'] = async (env, args, flags) => {
   // resolution + cross-player auth) instead of the deterministic own-LAN path.
   if (isPublicIp(target.host)) {
     return executePublicLogin(env, target, port, sourceIp);
+  }
+
+  // A private IP that belongs to a FELLOW OCCUPANT of this ESSID is reached directly
+  // over the shared LAN. Checked BEFORE the generated-LAN path so a real occupant wins
+  // an octet collision with a generated NPC — the same precedence the nmap merge uses.
+  const occupants = await env.scan.resolveOccupants(essid);
+  if (occupants.some((occupant) => occupant.localIp === target.host)) {
+    return executeSameLanLogin(env, target, port, sourceIp, essid);
   }
 
   // Reachability is resolved from the deterministic generated world — no prompt

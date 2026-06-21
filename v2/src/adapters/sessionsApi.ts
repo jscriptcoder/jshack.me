@@ -30,6 +30,7 @@ import type {
   PublicAuthResult,
   RemoteAuthParams,
   RemoteAuthResult,
+  SameLanAuthParams,
   Session,
   SuElevateParams,
 } from '../core/commands/types';
@@ -141,6 +142,45 @@ export const authCreateServerSessionPublic = async (
     const response = await post(deps, 'authCreateSessionPublic', {
       session_id: params.sessionId,
       target: params.target,
+      username: params.username,
+      password: params.password,
+      port: params.port,
+      parent_session_id: params.parentSessionId,
+      source_ip: params.sourceIp,
+    });
+    if (response.ok) {
+      const body: unknown = await response.json();
+      const userType = (body as { userType?: unknown } | null)?.userType;
+      const machineId = (body as { machine_id?: unknown } | null)?.machine_id;
+      return isUserType(userType) && typeof machineId === 'string'
+        ? { ok: true, userType, machineId }
+        : { ok: false, error: 'network_error' };
+    }
+    if (response.status === 401) return { ok: false, error: 'invalid_credentials' };
+    if (response.status === 404) return { ok: false, error: 'host_unreachable' };
+    return { ok: false, error: 'network_error' };
+  } catch {
+    return { ok: false, error: 'network_error' };
+  }
+};
+
+/** Authenticate a SAME-WiFi LAN ssh login server-side (Story 7): the server resolves
+ *  the target LAN IP through the ESSID occupancy, rebuilds the fellow occupant's
+ *  workstation, validates the password against its `/etc/passwd`, and on success
+ *  persists the `kind:'ssh'` session on the owner's REAL machine id (returned as
+ *  `machineId` for the prompt + hop chain). 401 → bad password/unknown user; 404 → the
+ *  LAN IP is no occupant's box (or the box is dark / not serving sshd); 403 (caller not
+ *  an occupant) collapses to network_error like any other non-ok. A 200 missing a valid
+ *  userType OR machine_id is malformed, never a login. */
+export const authCreateServerSessionSameLan = async (
+  deps: SessionsClientDeps,
+  params: SameLanAuthParams,
+): Promise<PublicAuthResult> => {
+  try {
+    const response = await post(deps, 'authCreateSessionSameLan', {
+      session_id: params.sessionId,
+      essid: params.essid,
+      target_ip: params.targetIp,
       username: params.username,
       password: params.password,
       port: params.port,

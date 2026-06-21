@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   authCreateServerSession,
   authCreateServerSessionPublic,
+  authCreateServerSessionSameLan,
   authElevateServerSession,
   createServerSession,
   endServerSession,
@@ -333,6 +334,109 @@ describe('authCreateServerSessionPublic', () => {
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
 
     expect(await authCreateServerSessionPublic(deps, params)).toEqual({
+      ok: false,
+      error: 'network_error',
+    });
+  });
+});
+
+describe('authCreateServerSessionSameLan', () => {
+  const params = {
+    sessionId: 'ssh-guest-1700000000000',
+    essid: 'SHARED-LAN-WIFI',
+    targetIp: '192.168.29.42',
+    username: 'guest',
+    password: 'guestpw',
+    port: 22,
+    parentSessionId: 'shell-1',
+    sourceIp: '192.168.29.50',
+  };
+
+  it('POSTs a signed authCreateSessionSameLan envelope and returns the userType + owner machine id', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, { ok: true, userType: 'guest', machine_id: 'skylab-deadbeef' }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    const result = await authCreateServerSessionSameLan(deps, params);
+
+    expect(result).toEqual({ ok: true, userType: 'guest', machineId: 'skylab-deadbeef' });
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected a verified envelope');
+    expect(verified.payload).toMatchObject({
+      action: 'authCreateSessionSameLan',
+      session_id: 'ssh-guest-1700000000000',
+      essid: 'SHARED-LAN-WIFI',
+      target_ip: '192.168.29.42',
+      username: 'guest',
+      password: 'guestpw',
+      port: 22,
+      parent_session_id: 'shell-1',
+      source_ip: '192.168.29.50',
+    });
+    // A LAN IP is resolved through the ESSID occupancy server-side — no own-machine scope.
+    expect(verified.payload).not.toHaveProperty('machine_id');
+  });
+
+  it('maps a 401 to invalid_credentials', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(401, { error: 'invalid_credentials' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await authCreateServerSessionSameLan(deps, params)).toEqual({
+      ok: false,
+      error: 'invalid_credentials',
+    });
+  });
+
+  it('maps a 404 to host_unreachable', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(404, { error: 'host_unreachable' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await authCreateServerSessionSameLan(deps, params)).toEqual({
+      ok: false,
+      error: 'host_unreachable',
+    });
+  });
+
+  it('maps a 403 (non-occupant) to network_error', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(403, { error: 'not_an_occupant' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await authCreateServerSessionSameLan(deps, params)).toEqual({
+      ok: false,
+      error: 'network_error',
+    });
+  });
+
+  it('maps a 200 with a garbage userType to network_error', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, { ok: true, userType: 'superuser', machine_id: 'skylab-deadbeef' }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await authCreateServerSessionSameLan(deps, params)).toEqual({
+      ok: false,
+      error: 'network_error',
+    });
+  });
+
+  it('maps a 200 with a missing machine_id to network_error (never lands a session with no target id)', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, userType: 'guest' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await authCreateServerSessionSameLan(deps, params)).toEqual({
+      ok: false,
+      error: 'network_error',
+    });
+  });
+
+  it('maps a thrown fetch (offline) to network_error', async () => {
+    const fetchSpy = vi.fn(async () => {
+      throw new Error('offline');
+    });
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await authCreateServerSessionSameLan(deps, params)).toEqual({
       ok: false,
       error: 'network_error',
     });

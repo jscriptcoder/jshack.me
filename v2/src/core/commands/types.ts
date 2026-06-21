@@ -259,13 +259,35 @@ export type PublicAuthResult =
       readonly error: 'invalid_credentials' | 'host_unreachable' | 'network_error';
     };
 
-/** The remote-login seam — backed by the signed `authCreateSession` (own-LAN) and
- *  `authCreateSessionPublic` (cross-player public IP) endpoints. The UI wires these
- *  to the `sessionsApi` adapters; `core/` stays adapter-free. `ssh` authenticates
- *  through one or the other before pushing a session. */
+/** What `ssh` hands to `env.ssh.authenticateSameLan` to log into a FELLOW OCCUPANT's
+ *  workstation by its LAN IP over shared WiFi (Story 7). Unlike the public path the
+ *  target is on the same LAN — no router/NAT — so the server resolves it through the
+ *  ESSID occupancy (`essid` + `targetIp`), not the registry. Like the public path it
+ *  carries a `port` and lands on the OWNER's real workstation id (hence `PublicAuthResult`). */
+export type SameLanAuthParams = {
+  readonly sessionId: string;
+  readonly essid: string;
+  readonly targetIp: string;
+  readonly username: string;
+  readonly password: string;
+  /** The destination port (default 22). The server refuses the login unless the
+   *  workstation is serving sshd on it. */
+  readonly port: number;
+  readonly parentSessionId: string | null;
+  readonly sourceIp: string | null;
+};
+
+/** The remote-login seam — backed by the signed `authCreateSession` (own-LAN),
+ *  `authCreateSessionPublic` (cross-player public IP), and `authCreateSessionSameLan`
+ *  (same-WiFi fellow occupant) endpoints. The UI wires these to the `sessionsApi`
+ *  adapters; `core/` stays adapter-free. `ssh` authenticates through one of them
+ *  before pushing a session. */
 export type SshApi = {
   readonly authenticate: (params: RemoteAuthParams) => Promise<RemoteAuthResult>;
   readonly authenticatePublic: (params: PublicAuthParams) => Promise<PublicAuthResult>;
+  /** Same-LAN login to a fellow occupant — lands on the owner's real workstation id,
+   *  so it shares `PublicAuthResult` (ok + userType + machineId). */
+  readonly authenticateSameLan: (params: SameLanAuthParams) => Promise<PublicAuthResult>;
 };
 
 /** What `su` hands to `env.su.elevate` to escalate a session it ALREADY holds on a
