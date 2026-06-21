@@ -158,8 +158,20 @@ the exact seam Story 5 swaps for real iptables rules with **no rework of the reg
   Story 3** (its first cross-player WRITE is what forces it; Stories 1–2 only read the owner's existing
   rows via the registry's `owner_key`). No live players → free to reshape (`feedback_no_backward_compat`),
   but this rule sunsets at multiplayer announce. Decide the column shape when planning Story 3.
-- **Replay/nonce store** — `api/patches.ts` uses a `noopNonceStore` locally. The real nonce/rate-limit
-  store should land with cross-player writes (Story 3) — confirm.
+- **Replay/nonce store — DEFERRED (ship-first), 2026-06-21.** A real Supabase nonce store was built during
+  Story 7 (Slice 7.2.0a, merged #294; 7.2.0b retrofit + lazy prune) and then **reverted** on the user's
+  call. Reason: in this threat model (TLS wire + the adversary is the player's own key-holding client) the
+  nonce's front-line value is narrow — an authorized player just re-signs with a fresh nonce, so it only
+  blocks *byte-identical* resubmission (captured-envelope reuse by a non-key-holder + duplicate
+  non-idempotent effects). Idempotent upserts + per-request re-authorization (L1/L2/`canBoot`/tier) carry
+  the real guarantee. All endpoints keep `noopNonceStore`; **revisit at the multiplayer-hardening phase**
+  (load-bearing if envelopes ever become shareable). **Preserved re-add design** (cheap to reinstate):
+  `createSupabaseNonceStore(db)` over a `nonces` table (`nonce` PK, `created_at` + index, RLS
+  service-role-only); `.upsert({nonce},{onConflict:'nonce',ignoreDuplicates:true}).select()` → inserted-row
+  ⇒ fresh, conflict ⇒ replay; **fail-open** on DB error (degrade to timestamp-window-only); **lazy
+  fire-and-forget prune** of rows older than `REPLAY_WINDOW_MS` after each insert (self-cleaning, no cron).
+  Wire it at the `verifySignedRequest` seam in `api/patches.ts` (×5), `api/network.ts` (×3),
+  `api/sessions.ts` (×6). Proven by a `scripts/testNonceReplay.ts` wire-check (replay → 401 `replay`).
 
 ## Warnings
 

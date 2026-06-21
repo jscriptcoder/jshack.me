@@ -16,7 +16,7 @@ import type {
 } from '../src/core/patches/remoteWritePermission';
 import type { Patch } from '../src/core/filesystem/applyPatches';
 import type { FilePermissions } from '../src/core/filesystem/types';
-import { createSupabaseNonceStore } from '../src/adapters/nonceStore';
+import type { NonceStore } from '../src/core/signedRequest/nonceStore';
 import type { UserType } from '../src/core/types';
 
 // Vercel adapter for POST /api/patches.
@@ -36,9 +36,11 @@ import type { UserType } from '../src/core/types';
 // The cross-player three-tier READ filter is still a later plan; remote reads
 // remain L1-only (any active-session tier may read).
 //
-// Replay protection: every action verifies the signed envelope against a
-// Supabase-backed nonce store (createSupabaseNonceStore), so a captured envelope
-// can't be re-POSTed within the timestamp window.
+// Replay protection uses a noop nonce store locally (Upstash wiring lands when
+// cross-player flows need it). Acceptable for local dev — same posture as
+// legacy when Upstash env vars are absent.
+const noopNonceStore: NonceStore = async () => ({ fresh: true });
+
 const actionOf = (body: unknown): string | undefined => {
   const payload = (body as { payload?: unknown } | null)?.payload;
   if (typeof payload !== 'string') return undefined;
@@ -68,8 +70,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const supabase = createClient(supabaseUrl, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
-
-  const nonceStore = createSupabaseNonceStore(supabase);
 
   const upsertPatch = async (row: PatchRow) => {
     // .upsert resolves the (machine_id, path, writer_key) PK conflict as an
@@ -200,7 +200,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return { data, error };
     };
     const { status, body } = await handleListPatches(req.body, {
-      nonceStore,
+      nonceStore: noopNonceStore,
       findActiveSession,
       listPatches,
     });
@@ -228,7 +228,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return { error: descendants.error };
     };
     const { status, body } = await handleRemovePatch(req.body, {
-      nonceStore,
+      nonceStore: noopNonceStore,
       findActiveSession,
       listMachinePatches,
       findRegistryByMachineId,
@@ -255,7 +255,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return { data, error };
     };
     const { status, body } = await handleAppendAuthLog(req.body, {
-      nonceStore,
+      nonceStore: noopNonceStore,
       now: () => Date.now(),
       readAuthLog,
       upsertPatch,
@@ -281,7 +281,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return { data, error };
     };
     const { status, body } = await handleNmapScan(req.body, {
-      nonceStore,
+      nonceStore: noopNonceStore,
       now: () => Date.now(),
       readLog,
       upsertPatch,
@@ -291,7 +291,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const { status, body } = await handleUpsertPatch(req.body, {
-    nonceStore,
+    nonceStore: noopNonceStore,
     findActiveSession,
     listMachinePatches,
     findRegistryByMachineId,

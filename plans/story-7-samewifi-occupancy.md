@@ -1,7 +1,7 @@
 # Plan: Story 7 — Same-WiFi Shared-LAN Occupancy (v2)
 
 **Branch**: per-slice PRs (`feat/v2-story-7-...`), squash-merged (`feedback_pr_squash_merge_convention`)
-**Status**: Active — 7.1a/7.1b shipped (#292/#293, merged); **7.2.0a code complete (RED→GREEN→MUTATE→KILL→REFACTOR done, awaiting PR/merge)**; 7.2.0b next (see pick-up below).
+**Status**: Active — 7.1a/7.1b shipped (#292/#293, merged); nonce store **DEFERRED** (ship-first, keep `noopNonceStore`); **next = Slice 7.2** (occupancy skeleton).
 
 ## ▶ Pick-up status (resume here)
 
@@ -20,33 +20,22 @@ everyone (parallel to `bssidFromEssid`). RED→GREEN→MUTATE **100% (6/6 killed
 when the per-player password draw was removed): `generateWifi` shuffle snapshot + `airdump` table; `nmcli`
 validates against the scan's `password`, consistent by construction. `SEED_HIDDEN` survived unchanged.
 
-**7.1a #292 + 7.1b #293 — both MERGED to `main`.**
+**Next action**: start **Slice 7.2** (walking-skeleton server half) — `home_network_occupants` table
+(`[D7]`) + connect-upsert/disconnect-delete (`[D8]`) + occupant-gated read (`[D11]`). Present 7.2's AC for
+confirmation *before* code. The new occupancy/trace writes ride the existing `noopNonceStore` seam.
 
-**Nonce decision RESOLVED (2026-06-21)**: build the real nonce store NOW (over ship-first), **Supabase-backed**,
-rolled out to **ALL signed endpoints** → sequenced as **Slice 7.2.0a/0b** (in Slices below), BEFORE 7.2.
-
-**✅ Slice 7.2.0a — CODE COMPLETE** on branch `feat/v2-story-7-2-0a-nonce-store` (off `main` @ #293).
-RED→GREEN→MUTATE→KILL→REFACTOR done; awaiting PR + merge. What shipped:
-- Migration `supabase/migrations/20260621000000_nonces.sql` (`nonce` PK, `created_at` + index, RLS service-role-only).
-- `src/adapters/nonceStore.ts` `createSupabaseNonceStore(db)` — `.upsert({nonce},{onConflict:'nonce',ignoreDuplicates:true}).select()`
-  → inserted-row ⇒ `fresh`, conflict ⇒ replay; **fail-open on DB error** (degrades to timestamp-window-only, no
-  game-wide write block). Takes a NARROW structural `NonceDb` port (real `SupabaseClient` satisfies it, zero casts;
-  unit-testable with a trivial fake). `+ nonceStore.test.ts` (fresh / replay / distinct / fail-open).
-- `api/patches.ts` — dropped local `noopNonceStore`; one `createSupabaseNonceStore(supabase)` wired into all 5 sites.
-- `scripts/testNonceReplay.ts` (the RED artifact; **5/5** green vs live Supabase).
-- Evidence: RED 3/5 → GREEN 5/5; Stryker 13 killed / 7 survived (all DB-call-shape wire-covered or equivalent log/`?.`);
-  `testRouterBrick` 9/9, full unit suite 1528 green, typecheck+lint clean. (`testUpsertPatch` 10/12: the 2 fails are
-  **pre-existing on `main`** — stale hard-delete checks vs the current tombstone-always handler; script untouched.)
-
-**▶ NEXT = Slice 7.2.0b** — retrofit `api/network.ts` + `api/sessions.ts` (swap their local `noopNonceStore` →
-`createSupabaseNonceStore`), grep-clean `noopNonceStore`, and prune `nonces` rows older than `REPLAY_WINDOW_MS`
-(cron/pg_cron — decide mechanism at slice start). Full ACs in the Slices section below. After 7.2.0 → **Slice 7.2**
-(occupancy skeleton).
-
-**Env notes for pick-up**: Vercel CLI IS installed (54.6.1); `v2/.env.development.local` present; start the
-server with `npm --prefix v2 run vercel:dev` (port 3100) before any wire-check; stop it before Stryker
-(`project_v2_stryker_devserver_contention`). Run vitest/tsx from inside `v2/` (PowerShell cwd has drifted to
-`v2`, Bash cwd to repo root — `cd` explicitly).
+**Nonce store — DECIDED: DEFER (ship-first).** Explored and built as Slice 7.2.0a (real Supabase nonce
+store on `/api/patches`, merged #294) + 7.2.0b (network/sessions retrofit + lazy prune, uncommitted), then
+**reverted** (revert PR for #294; 7.2.0b discarded) on the user's call. Rationale: in this threat model
+(TLS on the wire + the adversary is the player's own key-holding client) the front-line value is narrow —
+an authorized player can just re-sign with a fresh nonce, so the nonce only blocks *byte-identical*
+resubmission (captured-envelope reuse by a non-key-holder + duplicate non-idempotent effects). Idempotent
+upserts + per-request re-authorization (L1/L2/`canBoot`/tier) carry the real "can't repeat harm" guarantee.
+Per the ship-first memory, keep `noopNonceStore` for now; **revisit at the multiplayer-hardening phase**
+(re-add becomes load-bearing if envelopes ever become shareable). The built design is preserved in the
+epic for a cheap re-add: `createSupabaseNonceStore` over a `nonces` table (`nonce` PK + `created_at`),
+`.upsert({onConflict:'nonce',ignoreDuplicates:true}).select()` → inserted ⇒ fresh, conflict ⇒ replay,
+fail-open on DB error, lazy fire-and-forget prune past `REPLAY_WINDOW_MS` (self-cleaning, no cron).
 
 Everything else (scope, the 12 decisions, slice details, regression gate, testing approach) is captured
 below and in `plans/multiplayer-crossplayer-epic.md` §"Story 7 — resolved scope & decisions".
@@ -143,64 +132,7 @@ crackable/noise branch (conditional-boundary).
 abstraction (`functional`).
 **Done when**: ACs met, shipped-loop regression green, mutation report reviewed, commit approved.
 **Note**: may sub-split **7.1a** (`assignHomeNetwork` subnet) / **7.1b** (`generateWifi` identity) if the
-regression surface makes one PR unwieldy. **BOTH SHIPPED** (7.1a #292, 7.1b #293).
-
-### Slice 7.2.0 — Real Supabase nonce store, replay protection on every signed endpoint (horizontal unblock)
-
-**Why before 7.2**: 7.2/7.5 add new signed cross-player writes; the user chose to **build the real nonce
-store now** (over ship-first `noopNonceStore`) and roll it out to **all** signed endpoints. Backing =
-**Supabase table** (no new service); rollout = **all endpoints**. Horizontal but justified: it unblocks
-7.2's secure writes and is independently verifiable (replay a signed envelope → rejected).
-**Key facts** (verified in code): `verifySignedRequest` (`core/signedRequest/verify.ts`) already takes a
-`NonceStore = (nonce) => Promise<{fresh}>` and checks the **timestamp window (`REPLAY_WINDOW_MS`) BEFORE**
-the nonce — so the table only needs to retain nonces *within* that window (cleanup = delete older rows).
-Every api/ handler (`api/patches.ts` ×5 actions, `api/network.ts`, `api/sessions.ts`) currently defines a
-local `noopNonceStore` and passes it at each `verifySignedRequest` call site — the retrofit is a per-site
-swap. The nonce is already in the envelope; **no envelope/schema change**.
-
-#### Slice 7.2.0a — Supabase nonce store, proven on the patches endpoint (walking skeleton) ✅ CODE COMPLETE
-**Value**: A real replay-reject on the busiest signed endpoint — the novel path (migration + adapter +
-atomic dedup) proven end-to-end before mechanical widening.
-**Actor / Trigger / Outcome**: Any signed client / replays a `patches` envelope (same nonce) / first call
-succeeds, the replay is rejected `replay` (403/401) — a fresh nonce still succeeds.
-**Path**: migration `nonces` (`nonce text primary key`, `created_at timestamptz default now()`); RLS
-service-role-only like the other tables. `adapters/nonceStore.ts`
-`createSupabaseNonceStore(supabase): NonceStore` = `INSERT … ON CONFLICT (nonce) DO NOTHING` →
-`fresh = (inserted rowcount === 1)`. Wire it into `api/patches.ts` (replace the local `noopNonceStore` at
-all 5 handler call sites; construct the store once from the request's service-role client).
-**Required implementation skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`; `hexagonal-architecture`.
-**Acceptance criteria**:
-- Two signed `upsertPatch` envelopes with the **same nonce**: first → 200, second → rejected (`replay`);
-  the second writes **no** row.
-- A signed envelope with a **fresh** nonce still succeeds (no false-positive dedup).
-- `core/` keeps the `NonceStore` type only; the Supabase impl is in `adapters/`; `api/` stays thin.
-- Verified by a new wire-check `scripts/testNonceReplay.ts` (live Supabase): replay-rejected + fresh-ok.
-**RED**: the dedup CONTRACT is DB-enforced (unique constraint), so the primary proof is the wire-check
-(`project_v2_api_not_typechecked_locally`). Any pure mapping logic (`inserted → fresh`) gets a thin unit
-test with an injected fake (first call fresh; repeat not fresh). Mutator watch: the `inserted === 1` /
-rowcount→`fresh` mapping (equality/boolean), the ON CONFLICT clause (verified by the wire-check, not unit).
-**GREEN**: migration + adapter + patches wiring.
-**MUTATE / KILL MUTANTS**: target the rowcount→`fresh` mapping unit; DB dedup verified by the wire-check.
-**REFACTOR**: keep `api/` thin; the adapter is the only Supabase touch-point.
-**Done when**: ACs met, `testNonceReplay.ts` green vs live Supabase, mutation report reviewed, commit approved.
-
-#### Slice 7.2.0b — Retrofit the remaining signed endpoints + bound the table
-**Value**: Replay protection is game-wide (only meaningful if everywhere), and the `nonces` table can't grow
-unbounded.
-**Actor / Trigger / Outcome**: Any signed client / replays a `network`/`sessions` envelope / rejected
-`replay`, same as patches.
-**Path**: swap `noopNonceStore` → `createSupabaseNonceStore` in `api/network.ts` + `api/sessions.ts`
-(every call site). Cleanup: delete `nonces` rows older than `REPLAY_WINDOW_MS` (a Vercel cron hitting a
-tiny cleanup endpoint, or pg_cron) — decide the mechanism at slice start; lazy/periodic is fine for ship.
-**Required implementation skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
-**Acceptance criteria**:
-- Replaying a `registerNetwork` (network) and a session-create (sessions) envelope is rejected `replay`;
-  fresh nonces still succeed (extend `testNonceReplay.ts` or add per-endpoint checks).
-- No api/ handler still references `noopNonceStore` (grep-clean).
-- Expired nonces are pruned (cleanup mechanism in place + a note/verification of the bound).
-**RED / GREEN / MUTATE / REFACTOR**: per-endpoint wire-checks (DB-bound), thin per-site swap; cleanup
-verified by the prune query / wire-check.
-**Done when**: ACs met, wire-checks green, `noopNonceStore` gone, mutation report reviewed, commit approved.
+regression surface makes one PR unwieldy.
 
 ### Slice 7.2 — Occupancy is persisted on join/leave and readable by a fellow occupant (server skeleton)
 
@@ -364,11 +296,11 @@ report reviewed, commit approved.
 4. Server round-trips verified by the slice's wire-check (api/ isn't typechecked locally).
 5. Bump version in `package.json` + `package-lock.json` on the story capstone (per user preference).
 
-## Nonce/rate-limit store — RESOLVED (2026-06-21)
+## Nonce/rate-limit store — RESOLVED: DEFER (ship-first)
 
-- **Build the real nonce store now** (over ship-first `noopNonceStore`). Backing = **Supabase table** (no
-  new service); rollout = **all signed endpoints**. Sequenced as **Slice 7.2.0a/0b** above, BEFORE 7.2.
-  (Replaces Story 6's parking-lot deferral.)
+- Built (Slice 7.2.0a #294 + 7.2.0b) then **reverted** on the user's call. The new occupancy + same-LAN
+  trace writes ride the existing `noopNonceStore`. Full rationale + the preserved re-add design are in the
+  pick-up status above; revisit at the multiplayer-hardening phase.
 
 ---
 *Delete this file when the plan is complete. If `plans/` is empty, delete the directory.*
