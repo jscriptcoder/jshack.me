@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   handleRegisterNetwork,
+  type HomeNetworkOccupantRow,
   type NetworkRegistryRow,
   type RegisterNetworkDeps,
 } from './registerNetwork';
@@ -36,8 +37,16 @@ const makeDeps = (over: Partial<RegisterNetworkDeps> = {}) => {
   const upsertRegistry = vi.fn<(row: NetworkRegistryRow) => Promise<{ error: unknown }>>(
     async () => ({ error: null }),
   );
-  const deps: RegisterNetworkDeps = { nonceStore: freshStore, upsertRegistry, ...over };
-  return { deps, upsertRegistry };
+  const upsertOccupant = vi.fn<(row: HomeNetworkOccupantRow) => Promise<{ error: unknown }>>(
+    async () => ({ error: null }),
+  );
+  const deps: RegisterNetworkDeps = {
+    nonceStore: freshStore,
+    upsertRegistry,
+    upsertOccupant,
+    ...over,
+  };
+  return { deps, upsertRegistry, upsertOccupant };
 };
 
 const envelope = (id: ReturnType<typeof generateIdentity>, over: Record<string, unknown> = {}) =>
@@ -207,5 +216,46 @@ describe('handleRegisterNetwork', () => {
     const result = await handleRegisterNetwork(envelope(id), deps);
 
     expect(result).toEqual({ status: 500, body: { error: 'registry_write_failed' } });
+  });
+
+  it('upserts an occupancy row keyed by (essid, owner_key), server-stamped from the verified pubkey', async () => {
+    const id = generateIdentity();
+    const { deps, upsertOccupant } = makeDeps();
+
+    const result = await handleRegisterNetwork(envelope(id), deps);
+
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    expect(upsertOccupant).toHaveBeenCalledTimes(1);
+    expect(upsertOccupant.mock.calls[0]![0]).toEqual({
+      essid: ESSID,
+      owner_key: id.publicKeyHex,
+      workstation_machine_id: WORKSTATION_ID,
+      workstation_username: USERNAME,
+      workstation_machine_name: MACHINE_NAME,
+      workstation_root_hash: ROOT_HASH,
+    });
+  });
+
+  it('reports a server error when the occupant upsert fails (registry already written)', async () => {
+    const id = generateIdentity();
+    const { deps, upsertRegistry } = makeDeps({
+      upsertOccupant: vi.fn(async () => ({ error: new Error('db down') })),
+    });
+
+    const result = await handleRegisterNetwork(envelope(id), deps);
+
+    expect(result).toEqual({ status: 500, body: { error: 'occupant_write_failed' } });
+    expect(upsertRegistry).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not write the occupant row when the registry upsert fails first', async () => {
+    const id = generateIdentity();
+    const { deps, upsertOccupant } = makeDeps({
+      upsertRegistry: vi.fn(async () => ({ error: new Error('db down') })),
+    });
+
+    await handleRegisterNetwork(envelope(id), deps);
+
+    expect(upsertOccupant).not.toHaveBeenCalled();
   });
 });

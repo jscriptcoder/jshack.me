@@ -2,8 +2,13 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 import {
   handleRegisterNetwork,
+  type HomeNetworkOccupantRow,
   type NetworkRegistryRow,
 } from '../src/core/network/registerNetwork';
+import {
+  handleResolveOccupants,
+  type OccupantListRow,
+} from '../src/core/network/resolveOccupants';
 import { handleResolvePublicScan, type RegistryLookup } from '../src/core/scan/resolvePublicScan';
 import {
   handleResolveCrossPlayerFs,
@@ -244,6 +249,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
+  if (actionOf(req.body) === 'resolveOccupants') {
+    // Same-LAN occupant enumeration (Story 7): a verified occupant of the ESSID asks
+    // who else is on its LAN. Gated server-side on the caller's own live occupancy row
+    // (decision D11 — you must be ON the LAN to enumerate it). The composite PK's
+    // leading `essid` column serves this `... WHERE essid = $1` read.
+    const listOccupantsByEssid = async (essid: string) => {
+      const { data, error } = await supabase
+        .from('home_network_occupants')
+        .select('owner_key, workstation_machine_id')
+        .eq('essid', essid);
+      if (error) console.error('[network] occupant list error:', error);
+      return { data: data as readonly OccupantListRow[] | null, error };
+    };
+    const { status, body } = await handleResolveOccupants(req.body, {
+      nonceStore: noopNonceStore,
+      listOccupantsByEssid,
+    });
+    res.status(status).json(body);
+    return;
+  }
+
   // .upsert resolves the public_ip PK conflict as an update — re-joining the same
   // AP refreshes the owner/workstation rather than erroring.
   const upsertRegistry = async (row: NetworkRegistryRow) => {
@@ -251,9 +277,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (error) console.error('[network] registry upsert error:', error);
     return { error };
   };
+  // The same join also records the player as a live occupant of the ESSID's LAN. The
+  // (essid, owner_key) PK conflict resolves as an update — re-joining refreshes the row
+  // rather than erroring (every occupant coexists, unlike the per-public-IP registry).
+  const upsertOccupant = async (row: HomeNetworkOccupantRow) => {
+    const { error } = await supabase
+      .from('home_network_occupants')
+      .upsert(row, { onConflict: 'essid,owner_key' });
+    if (error) console.error('[network] occupant upsert error:', error);
+    return { error };
+  };
   const { status, body } = await handleRegisterNetwork(req.body, {
     nonceStore: noopNonceStore,
     upsertRegistry,
+    upsertOccupant,
   });
   res.status(status).json(body);
 }

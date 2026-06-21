@@ -44,9 +44,25 @@ export type NetworkRegistryRow = {
   readonly workstation_root_hash: string;
 };
 
+/** An occupancy row: the same join that writes the WAN registry also records the
+ *  player as a live occupant of the ESSID's LAN (Story 7, PK `(essid, owner_key)`).
+ *  Unlike `network_registry` (PK `public_ip`, last-writer-wins on a shared AP), this
+ *  table is the only place each occupant's workstation identity survives — the
+ *  same-LAN connect handler (7.4) auths against it directly. LAN IP/hostname are NOT
+ *  stored: they re-derive from `(owner_key, essid)` (`minimize-api-projections`). */
+export type HomeNetworkOccupantRow = {
+  readonly essid: string;
+  readonly owner_key: string;
+  readonly workstation_machine_id: string;
+  readonly workstation_username: string;
+  readonly workstation_machine_name: string;
+  readonly workstation_root_hash: string;
+};
+
 export type RegisterNetworkDeps = {
   readonly nonceStore: NonceStore;
   readonly upsertRegistry: (row: NetworkRegistryRow) => Promise<{ readonly error: unknown }>;
+  readonly upsertOccupant: (row: HomeNetworkOccupantRow) => Promise<{ readonly error: unknown }>;
 };
 
 export type HandlerResponse = {
@@ -97,6 +113,22 @@ export const handleRegisterNetwork = async (
   const { error } = await deps.upsertRegistry(row);
   if (error) {
     return { status: 500, body: { error: 'registry_write_failed' } };
+  }
+
+  // The same join records the player as a live occupant of the ESSID's LAN. Keyed by
+  // (essid, owner_key) so every occupant coexists (Story 7) — distinct from the WAN
+  // registry's single per-public-IP row.
+  const occupant: HomeNetworkOccupantRow = {
+    essid: payload.essid,
+    owner_key: publicKey,
+    workstation_machine_id: payload.workstation_machine_id,
+    workstation_username: payload.workstation_username,
+    workstation_machine_name: payload.workstation_machine_name,
+    workstation_root_hash: payload.workstation_root_hash,
+  };
+  const occupantWrite = await deps.upsertOccupant(occupant);
+  if (occupantWrite.error) {
+    return { status: 500, body: { error: 'occupant_write_failed' } };
   }
   return { status: 200, body: { ok: true } };
 };
