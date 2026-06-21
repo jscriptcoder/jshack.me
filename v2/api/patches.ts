@@ -4,7 +4,8 @@ import { handleUpsertPatch, type PatchRow } from '../src/core/patches/upsertPatc
 import { handleListPatches, type ListPatchesQuery } from '../src/core/patches/listPatches';
 import { handleRemovePatch, type PatchTreeQuery } from '../src/core/patches/removePatch';
 import { handleAppendAuthLog, type AuthLogContentQuery } from '../src/core/patches/appendAuthLog';
-import { handleNmapScan } from '../src/core/scan/nmapScan';
+import { handleNmapScan, type ScanOccupant } from '../src/core/scan/nmapScan';
+import type { OwnerPatchRow } from '../src/core/network/materializeWorkstationFs';
 import type { MachineLogReadQuery } from '../src/core/patches/appendMachineLog';
 import type {
   ActiveSessionQuery,
@@ -280,11 +281,37 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (error) console.error('[patches] kern-log read error:', error);
       return { data, error };
     };
+    // Story 7: a same-LAN scan also traces REAL fellow occupants. The occupancy read
+    // (auth fields included — server-internal) is the LAN-boundary gate + the per-occupant
+    // trace target; the journal read (full OwnerPatchRow shape, server order) materializes
+    // each occupant's box to gate `canBoot` and read its real open ports.
+    const listOccupantsByEssid = async (essid: string) => {
+      const { data, error } = await supabase
+        .from('home_network_occupants')
+        .select(
+          'owner_key, workstation_machine_id, workstation_machine_name, workstation_username, workstation_root_hash',
+        )
+        .eq('essid', essid);
+      if (error) console.error('[patches] scan occupant list error:', error);
+      return { data: data as readonly ScanOccupant[] | null, error };
+    };
+    const findPatches = async ({ machine_id }: { machine_id: string }) => {
+      const { data, error } = await supabase
+        .from('patches')
+        .select('path, content, owner, permissions, node_type, updated_at, writer_key')
+        .eq('machine_id', machine_id)
+        .order('updated_at', { ascending: true })
+        .order('writer_key', { ascending: true });
+      if (error) console.error('[patches] scan occupant journal lookup error:', error);
+      return { data: data as readonly OwnerPatchRow[] | null, error };
+    };
     const { status, body } = await handleNmapScan(req.body, {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
       readLog,
       upsertPatch,
+      listOccupantsByEssid,
+      findPatches,
     });
     res.status(status).json(body);
     return;

@@ -8,9 +8,12 @@ import { buildRouterBaseFs, seedRouterHostname } from '../generation/routerFs';
 import { hostMachineId } from '../generation/remoteHostId';
 import { computeRouterId } from '../identity/router';
 import { assignHomeNetwork } from '../network/homeNetwork';
+import { materializeWorkstationFs, type OwnerPatchRow } from '../network/materializeWorkstationFs';
 import { readOpenPorts } from '../services/pidfile';
+import { md5 } from '../generation/md5';
 import { formatNmapScanAggregate, KERN_LOG_OWNER, KERN_LOG_PERMISSIONS } from '../logging/kernLog';
 import { asGameTime, asPlayerKeyHex } from '../types';
+import type { ScanOccupant } from './nmapScan';
 import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
 import type { PatchRow } from '../patches/upsertPatch';
 import type { NonceStore } from '../signedRequest/nonceStore';
@@ -32,6 +35,9 @@ const ESSID = 'BEAN-THERE-WIFI';
 const FIXED_NOW = Date.UTC(2026, 5, 7, 14, 32, 1);
 const SOURCE_IP = '192.168.1.50';
 
+type OccupantsResult = { data: readonly ScanOccupant[] | null; error: unknown };
+type PatchesResult = { data: readonly OwnerPatchRow[] | null; error: unknown };
+
 const makeDeps = (over: Partial<NmapScanDeps> = {}) => {
   const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async () => ({
     error: null,
@@ -42,14 +48,25 @@ const makeDeps = (over: Partial<NmapScanDeps> = {}) => {
       error: null,
     }),
   );
+  // Default: no fellow occupants and an empty journal — the own-LAN NPC scan is
+  // unaffected (every existing test keeps passing); occupant tests override these.
+  const listOccupantsByEssid = vi.fn<(essid: string) => Promise<OccupantsResult>>(async () => ({
+    data: [],
+    error: null,
+  }));
+  const findPatches = vi.fn<(query: { machine_id: string }) => Promise<PatchesResult>>(
+    async () => ({ data: [], error: null }),
+  );
   const deps: NmapScanDeps = {
     nonceStore: freshStore,
     now: () => FIXED_NOW,
     readLog,
     upsertPatch,
+    listOccupantsByEssid,
+    findPatches,
     ...over,
   };
-  return { deps, upsertPatch, readLog };
+  return { deps, upsertPatch, readLog, listOccupantsByEssid, findPatches };
 };
 
 const subnetOf = (pubkey: string): string => generateHomeLan(pubkey, ESSID).subnet;
@@ -362,5 +379,229 @@ describe('handleNmapScan — own-LAN .1 scan → real router record (Story 6.4)'
 
     expect(result.body).toEqual({ ok: true, hostsLogged: 0 });
     expect(upsertPatch).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Story 7 — a same-WiFi scan also leaves a trace on a REAL fellow occupant's box. The
+ * own-LAN NPC tracing above regenerates the caller's OWN siblings; this path reads the
+ * ESSID occupancy and, for a target matching a fellow occupant's LAN IP, writes a
+ * kern.log line on that occupant's REAL workstation — owner-keyed (writer = the target
+ * owner) so multiple scanners accrete into one row, with the caller's SERVER-DERIVED LAN
+ * IP as the source (never the client `source_ip`), listing the occupant's real open
+ * ports (materialized from its own journal, never fabricated from the caller's seed). A
+ * non-occupant caller, the caller's own row, and a bricked (dark) occupant log nothing.
+ */
+const A_ROOT_HASH = md5('toor');
+
+const occupantRow = (
+  owner: ReturnType<typeof generateIdentity>,
+  machineId: string,
+  machineName: string,
+): ScanOccupant => ({
+  owner_key: owner.publicKeyHex,
+  workstation_machine_id: machineId,
+  workstation_machine_name: machineName,
+  workstation_username: 'neo',
+  workstation_root_hash: A_ROOT_HASH,
+});
+
+/** A started workstation's sshd pidfile — makes :22 a live service on the
+ *  materialized box (a fresh ws has an empty /var/run). */
+const wsSshdUp: OwnerPatchRow = {
+  path: '/var/run/sshd.pid',
+  content: 'sshd:port=22',
+  owner: 'root',
+  permissions: null,
+  node_type: 'file',
+  updated_at: '2026-06-19T00:00:00.000Z',
+  writer_key: 'unused-here',
+};
+
+/** A root `rm /boot/vmlinuz` tombstone — replayed over the seeded base it bricks the
+ *  box so `canBoot` reports it dark. */
+const bootTombstone: OwnerPatchRow = {
+  path: '/boot/vmlinuz',
+  content: null,
+  owner: 'root',
+  permissions: null,
+  node_type: null,
+  updated_at: '2026-06-19T00:00:00.000Z',
+  writer_key: 'unused-here',
+};
+
+/** The kern.log line the server should stamp on occupant A's box for a scan by B. */
+const expectedOccupantLine = (
+  occ: ScanOccupant,
+  patches: readonly OwnerPatchRow[],
+  sourceIp: string,
+): string =>
+  formatNmapScanAggregate({
+    time: asGameTime(FIXED_NOW),
+    hostname: occ.workstation_machine_name,
+    sourceIp,
+    probedPorts: readOpenPorts(materializeWorkstationFs(occ, patches)).map((port) => port.port),
+  });
+
+/** Find the upsert call that wrote a trace on the given machine_id (occupant traces
+ *  may sit alongside the caller's own NPC traces, so we locate by target, not order). */
+const traceOn = (
+  upsertPatch: ReturnType<typeof makeDeps>['upsertPatch'],
+  machineId: string,
+): PatchRow | undefined =>
+  upsertPatch.mock.calls.map((call) => call[0]).find((row) => row.machine_id === machineId);
+
+describe('handleNmapScan — same-LAN scan traces a fellow occupant (Story 7)', () => {
+  const setup = (
+    over: {
+      aPatches?: readonly OwnerPatchRow[];
+      caller?: 'bob' | 'stranger';
+      listOccupantsByEssid?: NmapScanDeps['listOccupantsByEssid'];
+      findPatches?: NmapScanDeps['findPatches'];
+    } = {},
+  ) => {
+    const alice = generateIdentity();
+    const bob = generateIdentity();
+    const stranger = generateIdentity();
+    const aWs = `workstation-${alice.publicKeyHex.slice(0, 8)}`;
+    const bWs = `workstation-${bob.publicKeyHex.slice(0, 8)}`;
+    const occAlice = occupantRow(alice, aWs, 'skylab');
+    const occBob = occupantRow(bob, bWs, 'nebuchadnezzar');
+    const aPatches = over.aPatches ?? [wsSshdUp];
+    const { deps, upsertPatch } = makeDeps({
+      listOccupantsByEssid:
+        over.listOccupantsByEssid ?? vi.fn(async () => ({ data: [occAlice, occBob], error: null })),
+      findPatches:
+        over.findPatches ??
+        vi.fn(async ({ machine_id }) => ({
+          data: machine_id === aWs ? aPatches : [],
+          error: null,
+        })),
+    });
+    const caller = over.caller === 'stranger' ? stranger : bob;
+    return {
+      deps,
+      upsertPatch,
+      alice,
+      bob,
+      caller,
+      aWs,
+      bWs,
+      occAlice,
+      occBob,
+      aPatches,
+      aLan: assignHomeNetwork(alice.publicKeyHex, ESSID).localIp,
+      bLan: assignHomeNetwork(bob.publicKeyHex, ESSID).localIp,
+    };
+  };
+
+  it("writes a kern.log line on the occupant's real box, under the owner's key, from the caller's LAN IP", async () => {
+    const ctx = setup();
+
+    await handleNmapScan(envelope(ctx.bob, ctx.aLan), ctx.deps);
+
+    expect(traceOn(ctx.upsertPatch, ctx.aWs)).toEqual({
+      writer_key: ctx.alice.publicKeyHex,
+      machine_id: ctx.aWs,
+      path: '/var/log/kern.log',
+      content: `${expectedOccupantLine(ctx.occAlice, ctx.aPatches, ctx.bLan)}\n`,
+      owner: KERN_LOG_OWNER,
+      permissions: KERN_LOG_PERMISSIONS,
+      node_type: 'file',
+    });
+  });
+
+  it("lists the occupant's real open ports (sshd:22), materialized from its own journal", async () => {
+    const ctx = setup();
+
+    await handleNmapScan(envelope(ctx.bob, ctx.aLan), ctx.deps);
+
+    const content = traceOn(ctx.upsertPatch, ctx.aWs)!.content as string;
+    expect(content).toContain('probed ports 22');
+  });
+
+  it('traces an occupant whose LAN IP falls inside a scanned range', async () => {
+    const ctx = setup();
+    const subnet = subnetOf(ctx.bob.publicKeyHex);
+
+    await handleNmapScan(envelope(ctx.bob, `${subnet}.1-254`), ctx.deps);
+
+    expect(traceOn(ctx.upsertPatch, ctx.aWs)?.content).toContain(`Port scan from ${ctx.bLan}`);
+  });
+
+  it("uses the caller's SERVER-DERIVED LAN IP, never the client-supplied source_ip", async () => {
+    const ctx = setup();
+
+    await handleNmapScan(envelope(ctx.bob, ctx.aLan, { source_ip: '203.0.113.222' }), ctx.deps);
+
+    const content = traceOn(ctx.upsertPatch, ctx.aWs)!.content as string;
+    expect(content).toContain(ctx.bLan);
+    expect(content).not.toContain('203.0.113.222');
+  });
+
+  it('does not trace a fellow occupant when the caller is not a live occupant of the ESSID', async () => {
+    const ctx = setup({ caller: 'stranger' });
+
+    await handleNmapScan(envelope(ctx.caller, ctx.aLan), ctx.deps);
+
+    expect(traceOn(ctx.upsertPatch, ctx.aWs)).toBeUndefined();
+  });
+
+  it("excludes the caller's own occupancy row (self is the own-LAN path, not an occupant trace)", async () => {
+    const ctx = setup();
+
+    await handleNmapScan(envelope(ctx.bob, ctx.bLan), ctx.deps);
+
+    expect(traceOn(ctx.upsertPatch, ctx.bWs)).toBeUndefined();
+  });
+
+  it('does not trace a bricked (dark) occupant, even with sshd up', async () => {
+    const ctx = setup({ aPatches: [wsSshdUp, bootTombstone] });
+
+    await handleNmapScan(envelope(ctx.bob, ctx.aLan), ctx.deps);
+
+    expect(traceOn(ctx.upsertPatch, ctx.aWs)).toBeUndefined();
+  });
+
+  it('does not trace an occupant whose LAN IP the single target does not cover', async () => {
+    const ctx = setup();
+    const aOctet = Number(ctx.aLan.split('.')[3]);
+    const otherOctet = aOctet === 100 ? 101 : 100;
+
+    await handleNmapScan(
+      envelope(ctx.bob, `${subnetOf(ctx.bob.publicKeyHex)}.${otherOctet}`),
+      ctx.deps,
+    );
+
+    expect(traceOn(ctx.upsertPatch, ctx.aWs)).toBeUndefined();
+  });
+
+  it('traces nobody — and does not throw — when the scan target is on a foreign subnet', async () => {
+    const ctx = setup();
+
+    const result = await handleNmapScan(envelope(ctx.bob, '10.0.0.5'), ctx.deps);
+
+    expect(result.status).toBe(200);
+    expect(traceOn(ctx.upsertPatch, ctx.aWs)).toBeUndefined();
+  });
+
+  it('skips occupant tracing without failing the scan when the occupancy lookup errors', async () => {
+    const ctx = setup({
+      listOccupantsByEssid: vi.fn(async () => ({ data: null, error: new Error('db down') })),
+    });
+
+    const result = await handleNmapScan(envelope(ctx.bob, ctx.aLan), ctx.deps);
+
+    expect(result.status).toBe(200);
+    expect(traceOn(ctx.upsertPatch, ctx.aWs)).toBeUndefined();
+  });
+
+  it('skips an occupant whose journal lookup errors, without failing the scan', async () => {
+    const ctx = setup({ findPatches: vi.fn(async () => ({ data: null, error: new Error('db down') })) });
+
+    const result = await handleNmapScan(envelope(ctx.bob, ctx.aLan), ctx.deps);
+
+    expect(result.status).toBe(200);
+    expect(traceOn(ctx.upsertPatch, ctx.aWs)).toBeUndefined();
   });
 });
