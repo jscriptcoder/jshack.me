@@ -30,6 +30,7 @@ import type {
   PublicScanResolution,
   RemoteAuthParams,
   RemoteAuthResult,
+  SameLanAuthParams,
   ScanRecordParams,
   Session,
   SuElevateParams,
@@ -67,6 +68,7 @@ import { createSyncChannel, type SyncChannel } from '../adapters/crossTabSync';
 import {
   authCreateServerSession,
   authCreateServerSessionPublic,
+  authCreateServerSessionSameLan,
   authElevateServerSession,
   createServerSession,
   endServerSession,
@@ -268,6 +270,13 @@ const sshAuthenticatePublic = (params: PublicAuthParams): Promise<PublicAuthResu
   sessionsClientDeps === undefined
     ? Promise.resolve({ ok: false, error: 'network_error' })
     : authCreateServerSessionPublic(sessionsClientDeps, params);
+
+/** Authenticate a SAME-WiFi LAN ssh login server-side (backs `env.ssh.authenticateSameLan`).
+ *  Degrades to a network error before `startGame` wires the sessions client. */
+const sshAuthenticateSameLan = (params: SameLanAuthParams): Promise<PublicAuthResult> =>
+  sessionsClientDeps === undefined
+    ? Promise.resolve({ ok: false, error: 'network_error' })
+    : authCreateServerSessionSameLan(sessionsClientDeps, params);
 
 /** Elevate a session on another player's box to root server-side (backs
  *  `env.su.elevate`). Degrades to a network error before `startGame` wires the
@@ -772,6 +781,7 @@ const executeLine = async (line: string): Promise<void> => {
     onPushSession: pushSession,
     onSshAuthenticate: sshAuthenticate,
     onSshAuthenticatePublic: sshAuthenticatePublic,
+    onSshAuthenticateSameLan: sshAuthenticateSameLan,
     onSuElevate: suElevate,
     onScanRecord: recordScanFn,
     onScanResolvePublic: resolvePublicFn,

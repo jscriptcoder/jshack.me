@@ -26,8 +26,10 @@ import type {
   PublicScanResolution,
   RemoteAuthParams,
   RemoteAuthResult,
+  SameLanAuthParams,
   Session,
 } from './types';
+import type { OccupantProjection } from '../network/resolveOccupants';
 
 /**
  * `ssh user@host` — connect to a generated LAN host, authenticate the password
@@ -697,6 +699,261 @@ describe('ssh to a public IP (cross-player)', () => {
     );
     expect(result.exitCode).toBe(130);
     expect(result.lines).toEqual([]);
+    expect(onPush).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * `ssh <user>@<LAN IP of a fellow occupant>` (Story 7) — same-WiFi connect. A PRIVATE
+ * IP that matches a fetched occupant of the current ESSID routes server-side through
+ * `env.ssh.authenticateSameLan`, landing a session on the OWNER's real workstation id.
+ * The occupant fetch is the reachability check (no own-LAN regeneration), and it is
+ * consulted BEFORE the generated-LAN path so an occupant wins an octet collision —
+ * consistent with the nmap merge. A private IP that is NOT an occupant falls through to
+ * the unchanged own-LAN generated path.
+ */
+const OCCUPANT_IP = '192.168.29.42';
+const A_SAMELAN_MACHINE_ID = 'alice-rig-cafef00d';
+
+const occupantAt = (ip: string): OccupantProjection => ({
+  workstation_machine_id: A_SAMELAN_MACHINE_ID,
+  localIp: ip,
+  machineName: 'alice-rig',
+});
+
+type SameLanEnvOver = {
+  readonly resolveOccupants?: (essid: string) => Promise<readonly OccupantProjection[]>;
+  readonly authenticateSameLan?: (params: SameLanAuthParams) => Promise<PublicAuthResult>;
+  readonly authenticate?: (params: RemoteAuthParams) => Promise<RemoteAuthResult>;
+  readonly prompt?: () => Promise<string>;
+  readonly onPush?: (session: Session) => void;
+  readonly onCwd?: (path: string) => void;
+};
+
+const sshSameLanEnv = (over: SameLanEnvOver = {}) =>
+  mockCommandEnv({
+    identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+    network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+    session: mockSession({
+      id: 'shell-1',
+      machineId: asMachineId('bstation-cafef00d'),
+      userType: 'root',
+    }),
+    now: () => asEpochMs(NOW),
+    prompt: over.prompt ?? (async () => 'guestpw'),
+    scan: mockScanApi({
+      resolveOccupants: over.resolveOccupants ?? (async () => [occupantAt(OCCUPANT_IP)]),
+    }),
+    ssh: mockSshApi({
+      // Keep the throwing default for `authenticate` unless a test wires it — the
+      // collision test relies on the own-LAN path blowing up if (wrongly) taken.
+      ...(over.authenticate ? { authenticate: over.authenticate } : {}),
+      authenticateSameLan:
+        over.authenticateSameLan ??
+        (async () => ({ ok: true, userType: 'guest', machineId: A_SAMELAN_MACHINE_ID })),
+    }),
+    pushSession: over.onPush ?? (() => undefined),
+    setCwd: over.onCwd ?? (() => undefined),
+  });
+
+describe('ssh to a fellow occupant on the same LAN (Story 7)', () => {
+  it('resolves the ESSID occupants, authenticates same-LAN, and pushes a session on the owner real machine id', async () => {
+    const resolveOccupants = vi.fn(async () => [occupantAt(OCCUPANT_IP)]);
+    const authenticateSameLan = vi.fn<(params: SameLanAuthParams) => Promise<PublicAuthResult>>(
+      async () => ({ ok: true, userType: 'guest', machineId: A_SAMELAN_MACHINE_ID }),
+    );
+    const onPush = vi.fn<(session: Session) => void>();
+    const onCwd = vi.fn<(path: string) => void>();
+
+    const result = sync(
+      await ssh.execute(
+        sshSameLanEnv({ resolveOccupants, authenticateSameLan, onPush, onCwd }),
+        [`guest@${OCCUPANT_IP}`],
+        new Map(),
+      ),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.lines).toEqual([]);
+    expect(resolveOccupants).toHaveBeenCalledWith(ESSID);
+    expect(authenticateSameLan.mock.calls[0]![0]).toEqual({
+      sessionId: 'ssh-guest-1700000000000',
+      essid: ESSID,
+      targetIp: OCCUPANT_IP,
+      username: 'guest',
+      password: 'guestpw',
+      port: 22,
+      parentSessionId: 'shell-1',
+      sourceIp: selfIp,
+    });
+    // Session lands on the OWNER's real workstation id (the occupant's machine id).
+    expect(onPush.mock.calls[0]![0]).toEqual({
+      id: 'ssh-guest-1700000000000',
+      playerKey: PUBKEY,
+      machineId: A_SAMELAN_MACHINE_ID,
+      username: 'guest',
+      userType: 'guest',
+      kind: 'ssh',
+      createdAt: NOW,
+    });
+    expect(onCwd).toHaveBeenCalledWith('/home/guest');
+  });
+
+  it('carries the destination port to same-LAN auth', async () => {
+    const authenticateSameLan = vi.fn<(params: SameLanAuthParams) => Promise<PublicAuthResult>>(
+      async () => ({ ok: true, userType: 'guest', machineId: A_SAMELAN_MACHINE_ID }),
+    );
+    const bound = bindFlags([`guest@${OCCUPANT_IP}`, '-p', '2222'], ssh.flags ?? {});
+    expect(bound.ok).toBe(true);
+    if (!bound.ok) throw new Error(bound.error);
+
+    await ssh.execute(sshSameLanEnv({ authenticateSameLan }), bound.positional, bound.flags);
+
+    expect(authenticateSameLan.mock.calls[0]![0]).toMatchObject({ port: 2222 });
+  });
+
+  it('routes an occupant whose IP collides with a generated NPC to the same-LAN path (occupant wins)', async () => {
+    // An occupant sits at the exact IP of one of B's generated sshd NPCs. The occupant
+    // must win — the same-LAN path runs, never the own-LAN `authenticate`. `authenticate`
+    // is left throwing (mock default) so taking the own-LAN branch would blow up.
+    const npcIp = pickHosts().sshHost.ip;
+    const authenticateSameLan = vi.fn<(params: SameLanAuthParams) => Promise<PublicAuthResult>>(
+      async () => ({ ok: true, userType: 'guest', machineId: A_SAMELAN_MACHINE_ID }),
+    );
+    const onPush = vi.fn<(session: Session) => void>();
+
+    const result = sync(
+      await ssh.execute(
+        sshSameLanEnv({
+          resolveOccupants: async () => [occupantAt(npcIp)],
+          authenticateSameLan,
+          onPush,
+        }),
+        [`guest@${npcIp}`],
+        new Map(),
+      ),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(authenticateSameLan.mock.calls[0]![0]).toMatchObject({ targetIp: npcIp });
+    // The session lands on the OCCUPANT's machine id, not the NPC's regenerated id.
+    expect(onPush.mock.calls[0]![0]?.machineId).toBe(A_SAMELAN_MACHINE_ID);
+  });
+
+  it('falls through to the own-LAN generated path for a private IP that is not an occupant', async () => {
+    // A NON-EMPTY occupant list that does NOT include the target: the private IP is a
+    // generated sshd host, so it must take the unchanged own-LAN path (`authenticate`),
+    // never the same-LAN front door — proving the occupant list is actually matched
+    // against the target, not blindly routed.
+    const { sshHost, noSshHost } = pickHosts();
+    const authenticate = vi.fn<(params: RemoteAuthParams) => Promise<RemoteAuthResult>>(async () => ({
+      ok: true,
+      userType: 'root',
+    }));
+    const authenticateSameLan = vi.fn<(params: SameLanAuthParams) => Promise<PublicAuthResult>>(
+      async () => ({ ok: true, userType: 'guest', machineId: A_SAMELAN_MACHINE_ID }),
+    );
+    const onPush = vi.fn<(session: Session) => void>();
+
+    const result = sync(
+      await ssh.execute(
+        sshSameLanEnv({
+          resolveOccupants: async () => [occupantAt(noSshHost.ip)],
+          authenticate,
+          authenticateSameLan,
+          onPush,
+        }),
+        [`root@${sshHost.ip}`],
+        new Map(),
+      ),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(authenticateSameLan).not.toHaveBeenCalled();
+    expect(authenticate).toHaveBeenCalledTimes(1);
+    // The own-LAN path lands the session on the generated host's coordinate machine id.
+    expect(onPush.mock.calls[0]![0]?.machineId).toBe(hostMachineId(sshHost, ESSID));
+  });
+
+  it('prompts (masked) for the account password before same-LAN auth', async () => {
+    const prompt = vi.fn(async () => 'guestpw');
+    await ssh.execute(sshSameLanEnv({ prompt }), [`guest@${OCCUPANT_IP}`], new Map());
+    expect(prompt).toHaveBeenCalledWith({
+      message: `guest@${OCCUPANT_IP}'s password: `,
+      masked: true,
+    });
+  });
+
+  it('surfaces Permission denied and pushes no session on bad credentials', async () => {
+    const onPush = vi.fn<(session: Session) => void>();
+    const result = sync(
+      await ssh.execute(
+        sshSameLanEnv({
+          authenticateSameLan: async () => ({ ok: false, error: 'invalid_credentials' }),
+          onPush,
+        }),
+        [`guest@${OCCUPANT_IP}`],
+        new Map(),
+      ),
+    );
+    expect(result.exitCode).toBe(255);
+    expect(result.lines[0]?.content).toContain('Permission denied');
+    expect(onPush).not.toHaveBeenCalled();
+  });
+
+  it('surfaces Connection refused and pushes no session when the box is dark/not listening', async () => {
+    const onPush = vi.fn<(session: Session) => void>();
+    const result = sync(
+      await ssh.execute(
+        sshSameLanEnv({
+          authenticateSameLan: async () => ({ ok: false, error: 'host_unreachable' }),
+          onPush,
+        }),
+        [`guest@${OCCUPANT_IP}`],
+        new Map(),
+      ),
+    );
+    expect(result.exitCode).toBe(255);
+    expect(result.lines[0]?.content).toContain('Connection refused');
+    expect(onPush).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a Network error and pushes no session on a transport failure', async () => {
+    const onPush = vi.fn<(session: Session) => void>();
+    const result = sync(
+      await ssh.execute(
+        sshSameLanEnv({
+          authenticateSameLan: async () => ({ ok: false, error: 'network_error' }),
+          onPush,
+        }),
+        [`guest@${OCCUPANT_IP}`],
+        new Map(),
+      ),
+    );
+    expect(result.exitCode).toBe(255);
+    expect(result.lines[0]?.content).toContain('Network error');
+    expect(onPush).not.toHaveBeenCalled();
+  });
+
+  it('exits 130 and pushes no session when the same-LAN password prompt is cancelled', async () => {
+    const authenticateSameLan = vi.fn<(params: SameLanAuthParams) => Promise<PublicAuthResult>>(
+      async () => ({ ok: true, userType: 'guest', machineId: A_SAMELAN_MACHINE_ID }),
+    );
+    const onPush = vi.fn<(session: Session) => void>();
+    const result = sync(
+      await ssh.execute(
+        sshSameLanEnv({
+          prompt: async () => Promise.reject(new Error('aborted')),
+          authenticateSameLan,
+          onPush,
+        }),
+        [`guest@${OCCUPANT_IP}`],
+        new Map(),
+      ),
+    );
+    expect(result.exitCode).toBe(130);
+    expect(result.lines).toEqual([]);
+    expect(authenticateSameLan).not.toHaveBeenCalled();
     expect(onPush).not.toHaveBeenCalled();
   });
 });

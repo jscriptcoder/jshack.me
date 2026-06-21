@@ -1,7 +1,7 @@
 # Plan: Story 7 — Same-WiFi Shared-LAN Occupancy (v2)
 
 **Branch**: per-slice PRs (`feat/v2-story-7-...`), squash-merged (`feedback_pr_squash_merge_convention`)
-**Status**: Active — 7.1a/7.1b (#292/#293) + 7.2a (#296)/7.2b (#297) + 7.3 (#298) shipped + merged; **7.4a (same-LAN connect server handler) implemented + wire-checked 4/4, pending commit**; nonce store **DEFERRED** (ship-first, keep `noopNonceStore`); **next = Slice 7.4b** (client `ssh.ts` branch).
+**Status**: Active — 7.1a/7.1b (#292/#293) + 7.2a (#296)/7.2b (#297) + 7.3 (#298) + 7.4a (#299) shipped + merged; **7.4b (client `ssh.ts` same-LAN branch) implemented, pending commit**; nonce store **DEFERRED** (ship-first, keep `noopNonceStore`); **next = Slice 7.5** (same-LAN traces, LAN-IP source).
 
 ## ▶ Pick-up status (resume here)
 
@@ -57,7 +57,28 @@ in `api/sessions.ts` (lean `resolveOccupants` SELECT untouched). RED→GREEN (16
 `authCreateSessionPublic`)→REFACTOR(none). Wire-check `scripts/testSameLanConnect.ts` **4/4** vs `vercel
 dev` 3100 + Supabase (happy / wrong-pw / non-occupant 403 / unknown-IP 404). No auth.log trace yet (7.5).
 
-**Next action**: start **Slice 7.4b** (client half — wire the front door into `ssh.ts`). Add
+**Slice 7.4b (client `ssh.ts` same-LAN branch) ✅ implemented (pending commit/merge)** — `SshApi`
+gained `authenticateSameLan` + `SameLanAuthParams` (reuses `PublicAuthResult` — lands on A's machine id);
+adapter `authCreateServerSessionSameLan` (POST `authCreateSessionSameLan`; 200→{ok,userType,machineId},
+401→invalid_credentials, 404→host_unreachable, else network_error — incl. 403 non-occupant). In `ssh.ts`,
+for a PRIVATE target IP, fetch `env.scan.resolveOccupants(essid)` and if it matches a fetched occupant route
+to new `executeSameLanLogin` — checked BEFORE the generated-LAN path so occupant-wins-on-collision holds with
+the 7.3 nmap merge; a non-occupant private IP falls through to the own-LAN path unchanged. Wired
+`onSshAuthenticateSameLan` through `env.ts` (`notWired` default, sibling-consistent) + `state.ts`;
+`mockSshApi` throws by default. RED→GREEN (adapter +7, ssh +9)→MUTATE: ssh.ts new code **100% (39/39)**,
+adapter new fn 2 survivors both equivalent (optional-chaining vs a `null` 200-body → `network_error` either
+way; mirror the shipped public adapter)→REFACTOR(none — `executeSameLanLogin` is a sibling of
+`executePublicLogin`, matching the file's accepted duplication style). Full suite 1601 green;
+typecheck+lint clean. No live agent-browser run yet — deferred to the Story-7 capstone (7.6).
+
+**Next action**: start **Slice 7.5** (same-LAN scan/connect/su traces with a LAN-IP source `[D12]`) — see
+the slice spec below. A same-LAN source-IP resolver (sibling of `resolveCrossPlayerSourceIp`) returns
+`assignHomeNetwork(B_ownerKey, essid).localIp`, server-derived from B's verified key + ESSID; wire it into
+the 7.4a same-LAN connect handler (`handleAuthCreateSessionSameLan` — add the logging deps + `appendMachineLog`
+under A's owner key, reusing `formatSshdAuthLine`) and the same-LAN nmap-scan path; `su` lines stay IP-less.
+Wire-check `scripts/testSameLanTrace.ts`. **Present 7.5's AC for confirmation before code (CONFIRM gate).**
+
+**Superseded (kept for history)**: start **Slice 7.4b** (client half — wire the front door into `ssh.ts`). Add
 `SshApi.authenticateSameLan` + `SameLanAuthParams` (reuse `PublicAuthResult` — lands on A's machine id) in
 `commands/types.ts`; adapter `authCreateServerSessionSameLan` in `adapters/sessionsApi.ts` (POST
 `authCreateSessionSameLan`; 200→{ok,userType,machineId}, 401→invalid_credentials, 404→host_unreachable,
@@ -256,7 +277,7 @@ unchanged NPC view). Mutator watch: the collision-dedupe key (octet equality), t
 **Done when**: ACs met (jsdom + `@solidjs/testing-library` for the nmap render), mutation report reviewed,
 commit approved. (Closes the walking skeleton with 7.2.)
 
-### Slice 7.4 — B `ssh guest@<A's LAN IP>` lands on A's workstation (same-LAN connect front door) — sub-split: 7.4a server ✅ (pending merge) / 7.4b client (next)
+### Slice 7.4 — B `ssh guest@<A's LAN IP>` lands on A's workstation (same-LAN connect front door) — ✅ 7.4a server (#299) / 7.4b client (pending merge)
 
 **Decisions**: `[D10]` (new thin same-LAN handler) + `[D11]` (connect gated on occupancy).
 **Value**: The payoff — B operates on A's real box over the LAN, unlocking the entire reused cross-player

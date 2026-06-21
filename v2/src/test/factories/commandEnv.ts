@@ -114,6 +114,7 @@ export const mockHomeNetwork = (overrides: Partial<HomeNetworkApi> = {}): HomeNe
 export const mockSshApi = (overrides: Partial<SshApi> = {}): SshApi => ({
   authenticate: NOT_IMPLEMENTED('ssh.authenticate'),
   authenticatePublic: NOT_IMPLEMENTED('ssh.authenticatePublic'),
+  authenticateSameLan: NOT_IMPLEMENTED('ssh.authenticateSameLan'),
   ...overrides,
 });
 
