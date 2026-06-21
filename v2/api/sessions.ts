@@ -251,9 +251,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const listOccupantsByEssid = async (essid: string) => {
       // The auth projection (root hash + username) — server-internal, never sent to a
       // client. Distinct from the lean `resolveOccupants` read, which omits the hash.
+      // `workstation_machine_name` is the hostname the auth.log trace line carries.
       const { data, error } = await supabase
         .from('home_network_occupants')
-        .select('owner_key, workstation_machine_id, workstation_username, workstation_root_hash')
+        .select(
+          'owner_key, workstation_machine_id, workstation_machine_name, workstation_username, workstation_root_hash',
+        )
         .eq('essid', essid);
       if (error) console.error('[sessions] same-lan occupants lookup error:', error);
       return { data: data as readonly OccupantConnectRow[] | null, error };
@@ -276,11 +279,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (error) console.error('[sessions] same-lan auth insert error:', error);
       return { error };
     };
+    // The login attempt's auth.log trace on A's workstation: read the current content +
+    // upsert the appended line (read-modify-write, bypassing L1/L2 — sshd logs it, not
+    // the player). Same `patches`-table shapes as the public appender; written under
+    // A's owner writer_key (the keystone), source = B's server-derived LAN IP.
+    const readAuthLog = async ({ writer_key, machine_id, path }: MachineLogReadQuery) => {
+      const { data, error } = await supabase
+        .from('patches')
+        .select('content')
+        .eq('writer_key', writer_key)
+        .eq('machine_id', machine_id)
+        .eq('path', path)
+        .maybeSingle();
+      if (error) console.error('[sessions] same-lan auth-log read error:', error);
+      return { data, error };
+    };
+    const upsertSameLanAuthLog = async (row: PatchRow) => {
+      const { error } = await supabase
+        .from('patches')
+        .upsert(row, { onConflict: 'machine_id,path,writer_key' });
+      if (error) console.error('[sessions] same-lan auth-log upsert error:', error);
+      return { error };
+    };
     const { status, body } = await handleAuthCreateSessionSameLan(req.body, {
       nonceStore: noopNonceStore,
       listOccupantsByEssid,
       findPatches,
       insertSession,
+      now: () => Date.now(),
+      readAuthLog,
+      upsertPatch: upsertSameLanAuthLog,
     });
     res.status(status).json(body);
     return;

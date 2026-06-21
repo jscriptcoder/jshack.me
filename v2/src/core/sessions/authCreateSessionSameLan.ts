@@ -28,6 +28,20 @@ import { readOpenPorts } from '../services/pidfile';
 import { canBoot } from '../boot/bootFiles';
 import { md5 } from '../generation/md5';
 import { accountIn } from './passwdAccount';
+import {
+  AUTH_LOG_OWNER,
+  AUTH_LOG_PATH,
+  AUTH_LOG_PERMISSIONS,
+  formatSshdAuthLine,
+} from '../logging/authLog';
+import { derivePid } from '../logging/syslog';
+import {
+  appendMachineLog,
+  type MachineLogReadQuery,
+  type MachineLogReadResult,
+} from '../patches/appendMachineLog';
+import { asGameTime } from '../types';
+import type { PatchRow } from '../patches/upsertPatch';
 import type { AuthSessionRow, HandlerResponse } from './authCreateSession';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
@@ -38,6 +52,9 @@ import type { NonceStore } from '../signedRequest/nonceStore';
 export type OccupantConnectRow = {
   readonly owner_key: string;
   readonly workstation_machine_id: string;
+  /** The owner's player-chosen workstation hostname — the name the auth.log trace line
+   *  carries, mirroring the cross-player public path's hostname. */
+  readonly workstation_machine_name: string;
   readonly workstation_username: string;
   readonly workstation_root_hash: string;
 };
@@ -56,6 +73,13 @@ export type AuthCreateSessionSameLanDeps = {
     readonly machine_id: string;
   }) => Promise<{ readonly data: readonly OwnerPatchRow[] | null; readonly error: unknown }>;
   readonly insertSession: (row: AuthSessionRow) => Promise<{ readonly error: unknown }>;
+  /** The server's wall clock, epoch-ms (UTC) — stamps the auth.log trace line. */
+  readonly now: () => number;
+  /** Read the current content of A's workstation auth.log on the shared journal,
+   *  keyed `(machine_id, path, writer_key)` — the read half of the appended line. */
+  readonly readAuthLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
+  /** Write a patch (here: the appended auth.log line on A's workstation). */
+  readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
 };
 
 // The destination ssh port when the client sends none — a bare `ssh user@host` is :22.
@@ -77,6 +101,50 @@ const authCreateSessionSameLanSchema = z
     source_ip: z.string().min(1).nullable().optional(),
   })
   .refine((payload) => !('player_key' in payload) && !('owner_key' in payload));
+
+/** Stamp the LAN login attempt onto A's `/var/log/auth.log` via the shared system-log
+ *  primitive — on BOTH outcomes (sshd records accepted AND rejected logins). The
+ *  keystone: `writerKey` is the TARGET OWNER's key — the system owns its logs, so every
+ *  attacker's line accretes into ONE row instead of colliding under last-write-wins; the
+ *  attacker's identity lives in the line's source IP. That source is B's LAN IP — the
+ *  pure `assignHomeNetwork(B, essid).localIp` (B is a verified occupant, so no lookup),
+ *  the same-LAN vantage of the public path's home-public-IP derivation — never the
+ *  forgeable payload `source_ip`. Best-effort: a logging failure must never break (or
+ *  fabricate) the auth. */
+const logSameLanAuth = async (
+  deps: AuthCreateSessionSameLanDeps,
+  target: { readonly ownerKey: string; readonly machineId: string; readonly hostname: string },
+  attempt: {
+    readonly outcome: 'success' | 'failure';
+    readonly user: string;
+    readonly fromIp: string;
+  },
+): Promise<void> => {
+  const stamp = deps.now();
+  const line = formatSshdAuthLine({
+    outcome: attempt.outcome,
+    user: attempt.user,
+    fromIp: attempt.fromIp,
+    hostname: target.hostname,
+    time: asGameTime(stamp),
+    pid: derivePid(stamp),
+  });
+  try {
+    await appendMachineLog(
+      { readLog: deps.readAuthLog, upsertPatch: deps.upsertPatch },
+      {
+        writerKey: target.ownerKey,
+        machineId: target.machineId,
+        path: AUTH_LOG_PATH,
+        owner: AUTH_LOG_OWNER,
+        permissions: AUTH_LOG_PERMISSIONS,
+      },
+      line,
+    );
+  } catch {
+    // best-effort: the auth result stands regardless of a logging failure.
+  }
+};
 
 export const handleAuthCreateSessionSameLan = async (
   body: unknown,
@@ -135,6 +203,25 @@ export const handleAuthCreateSessionSameLan = async (
   // the response never reveals which accounts exist.
   const account = accountIn(workstationFs, payload.username);
   const passwordOk = account !== null && md5(payload.password) === account.hash;
+
+  // The box is resolved and reachable, so the attempt CAN be logged — sshd records both
+  // accepted and rejected logins. (Every 404 above logs nothing — no reachable box to
+  // log on.) Written under A's owner key on A's workstation; the source is B's LAN IP,
+  // server-derived from the verified caller + ESSID.
+  await logSameLanAuth(
+    deps,
+    {
+      ownerKey: target.owner_key,
+      machineId: target.workstation_machine_id,
+      hostname: target.workstation_machine_name,
+    },
+    {
+      outcome: passwordOk ? 'success' : 'failure',
+      user: payload.username,
+      fromIp: assignHomeNetwork(publicKey, payload.essid).localIp,
+    },
+  );
+
   if (account === null || !passwordOk) {
     return { status: 401, body: { error: 'invalid_credentials' } };
   }
