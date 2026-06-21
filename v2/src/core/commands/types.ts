@@ -198,6 +198,10 @@ export type LogApi = {
  *  swap is the only change. `nmcli connect` awaits this, then assigns `wlan0`. */
 export type HomeNetworkApi = {
   readonly join: (essid: string) => Promise<HomeNetworkAssignment>;
+  /** Leave a home network (backs `nmcli disconnect`): remove the player's occupancy
+   *  row so they vanish from the LAN (Story 7). Fire-and-forget — disconnect is a
+   *  local state change that must never block on or fail from this cleanup. */
+  readonly leave: (essid: string) => void;
 };
 
 /** What the `ssh` command hands to `env.ssh.authenticate` to validate a remote

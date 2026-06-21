@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import {
   joinHomeNetwork,
+  leaveHomeNetwork,
   resolveCrossPlayerFs,
   resolvePublic,
   type NetworkClientDeps,
@@ -131,6 +132,34 @@ describe('joinHomeNetwork', () => {
       workstation_root_hash: md5('zion-secret'),
     });
     expect(JSON.stringify(verified.payload)).not.toContain('zion-secret');
+  });
+});
+
+describe('leaveHomeNetwork', () => {
+  it('signs an unregisterOccupant request carrying the essid (fire-and-forget)', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    leaveHomeNetwork(deps, ESSID);
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      ENDPOINT,
+      expect.objectContaining({ method: 'POST', headers: { 'Content-Type': 'application/json' } }),
+    );
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected verified envelope');
+    expect(verified.payload).toMatchObject({ action: 'unregisterOccupant', essid: ESSID });
+  });
+
+  it('swallows a thrown fetch (offline) — disconnect never fails on cleanup', async () => {
+    const deps = makeDeps(
+      vi.fn(async () => {
+        throw new Error('offline');
+      }) as unknown as typeof fetch,
+    );
+
+    expect(() => leaveHomeNetwork(deps, ESSID)).not.toThrow();
+    await Promise.resolve(); // flush the swallowed rejection so it can't leak between tests
   });
 });
 

@@ -72,6 +72,19 @@ export const joinHomeNetwork = async (
   return assignHomeNetwork(deps.identity.publicKeyHex, essid);
 };
 
+/**
+ * Leave a home network (backs `env.homeNetwork.leave`, fired by `nmcli disconnect`):
+ * a fire-and-forget signed `unregisterOccupant` that removes the player's occupancy
+ * row server-side. Best-effort by design — disconnect is a local state change, so a
+ * failed cleanup (offline, server hiccup) must never surface to the player; a stale
+ * row is harmless (overwritten on next join, removed on the next disconnect).
+ */
+export const leaveHomeNetwork = (deps: NetworkClientDeps, essid: string): void => {
+  void post(deps, 'unregisterOccupant', { essid }).catch(() => {
+    // swallowed: occupancy cleanup must not fail or block the disconnect.
+  });
+};
+
 export const resolvePublic = async (
   deps: NetworkClientDeps,
   target: string,

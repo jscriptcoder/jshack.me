@@ -137,6 +137,24 @@ check(
   `status=${r5.status} body=${JSON.stringify(r5.body)}`,
 );
 
+// === 6. A disconnects → only A's row is removed; B (still connected) remains. ===
+const d6 = await post(signRequest(alice, 'unregisterOccupant', { essid: X_ESSID }));
+const aAfter = await readOccupant(alice.publicKeyHex);
+const bAfter = await readOccupant(bob.publicKeyHex);
+check(
+  "A's disconnect removes only A's occupancy row — B's row is untouched",
+  d6.status === 200 && aAfter === null && bAfter !== null,
+  `status=${d6.status} aRow=${JSON.stringify(aAfter)} bRow=${JSON.stringify(bAfter)}`,
+);
+
+// === 7. A repeat disconnect (no row left) is a harmless idempotent no-op. ===
+const d7 = await post(signRequest(alice, 'unregisterOccupant', { essid: X_ESSID }));
+check(
+  'a repeat disconnect with no row left still succeeds (idempotent)',
+  d7.status === 200 && (await readOccupant(alice.publicKeyHex)) === null,
+  `status=${d7.status}`,
+);
+
 // Cleanup.
 await sr.from('home_network_occupants').delete().eq('essid', X_ESSID);
 await sr.from('network_registry').delete().eq('public_ip', X_PUBLIC_IP);
