@@ -258,7 +258,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const listOccupantsByEssid = async (essid: string) => {
       const { data, error } = await supabase
         .from('home_network_occupants')
-        .select('owner_key, workstation_machine_id')
+        .select('owner_key, workstation_machine_id, workstation_machine_name')
         .eq('essid', essid);
       if (error) console.error('[network] occupant list error:', error);
       return { data: data as readonly OccupantListRow[] | null, error };

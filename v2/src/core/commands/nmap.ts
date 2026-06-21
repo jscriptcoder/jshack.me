@@ -22,6 +22,7 @@ import { buildRemoteHostFs } from '../generation/remoteHostFs';
 import { buildRouterBaseFs } from '../generation/routerFs';
 import { isPublicIp } from '../generation/ip';
 import { parseScanTarget, hostsInScanTarget } from '../network/scanTarget';
+import { mergeLanOccupants } from '../network/mergeLanOccupants';
 import { readOpenPorts, type OpenPort } from '../services/pidfile';
 import { scanResult } from '../scan/scanResult';
 
@@ -158,11 +159,20 @@ const execute: Command['execute'] = async (env, args) => {
   }
 
   const essid = wlan0.association.essid;
-  const lan = generateHomeLan(env.identity.publicKeyHex, essid);
-  const parsed = parseScanTarget(rawTarget, lan.subnet);
+  const baseLan = generateHomeLan(env.identity.publicKeyHex, essid);
+  const parsed = parseScanTarget(rawTarget, baseLan.subnet);
   if (!parsed.ok) {
-    return error(parsed.reason === 'usage' ? USAGE : outOfRange(rawTarget, lan.subnet));
+    return error(parsed.reason === 'usage' ? USAGE : outOfRange(rawTarget, baseLan.subnet));
   }
+
+  // Merge the ESSID's other live occupants over the generated NPC siblings, so a real
+  // player on this LAN shows up as a host. The server already excludes the caller and
+  // gates on the caller's own occupancy; the seam degrades to [] (server down / not an
+  // occupant), leaving the own-LAN view untouched. On an octet collision the occupant
+  // wins.
+  const occupants = await env.scan.resolveOccupants(essid);
+  const lan = mergeLanOccupants(baseLan, occupants);
+  const occupantIps = new Set(occupants.map((occupant) => occupant.localIp));
   const hosts = hostsInScanTarget(lan, parsed.target);
 
   // Leave a trace: record the scan server-side (the server resolves the touched
@@ -189,6 +199,13 @@ const execute: Command['execute'] = async (env, args) => {
         routerFs: buildRouterBaseFs(env.identity.publicKeyHex),
         resolveTargetPorts: () => [],
       });
+    }
+    // A real occupant's services live on THEIR box and can't be derived from our seed —
+    // `buildRemoteHostFs` keys on the host IP alone, so letting an occupant fall through
+    // would FABRICATE the NPC ports that octet would have rolled. Report the host up with
+    // no ports; real LAN-port resolution is deferred to the same-LAN connect path.
+    if (occupantIps.has(host.ip)) {
+      return [];
     }
     const hostFs =
       host.ip === selfIp

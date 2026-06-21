@@ -77,9 +77,11 @@ import {
   joinHomeNetwork,
   leaveHomeNetwork,
   resolveCrossPlayerFs,
+  resolveOccupants,
   resolvePublic,
   type NetworkClientDeps,
 } from '../adapters/networkApi';
+import type { OccupantProjection } from '../core/network/resolveOccupants';
 import { assignHomeNetwork, type HomeNetworkAssignment } from '../core/network/homeNetwork';
 import { type HistoryNav, idleNav, navigateDown, navigateUp } from '../core/shell/commandHistory';
 import { homePathFor, seedFs, seedSession } from './seed';
@@ -286,6 +288,14 @@ const resolvePublicFn = (target: string): Promise<PublicScanResolution> =>
   networkClientDeps === undefined
     ? Promise.resolve({ found: false, ports: [] })
     : resolvePublic(networkClientDeps, target);
+
+/** Resolve the current ESSID's other occupants (backs `env.scan.resolveOccupants`).
+ *  Additive — an empty list (here, before the network client is wired) just means an
+ *  own-LAN scan with no fellow players, never a failure. */
+const resolveOccupantsFn = (essid: string): Promise<readonly OccupantProjection[]> =>
+  networkClientDeps === undefined
+    ? Promise.resolve([])
+    : resolveOccupants(networkClientDeps, essid);
 
 /** Join a home network (backs `env.homeNetwork.join`): register it server-side so
  *  other identities can resolve it, then return the assignment. Falls back to the
@@ -765,6 +775,7 @@ const executeLine = async (line: string): Promise<void> => {
     onSuElevate: suElevate,
     onScanRecord: recordScanFn,
     onScanResolvePublic: resolvePublicFn,
+    onScanResolveOccupants: resolveOccupantsFn,
     onHomeNetworkJoin: joinHomeNetworkFn,
     onHomeNetworkLeave: leaveHomeNetworkFn,
     // The sessions below the active one — what `exit` consults to decide

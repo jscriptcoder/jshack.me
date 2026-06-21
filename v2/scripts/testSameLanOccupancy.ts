@@ -80,9 +80,14 @@ const readOccupant = async (ownerKey: string) => {
   return data as { owner_key: string; workstation_machine_id: string } | null;
 };
 
-const occupantsOf = (body: unknown): readonly { workstation_machine_id: string; localIp: string }[] =>
-  (body as { occupants?: readonly { workstation_machine_id: string; localIp: string }[] } | null)
-    ?.occupants ?? [];
+type WireOccupant = {
+  workstation_machine_id: string;
+  localIp: string;
+  machineName: string;
+};
+
+const occupantsOf = (body: unknown): readonly WireOccupant[] =>
+  (body as { occupants?: readonly WireOccupant[] } | null)?.occupants ?? [];
 
 // Clean slate.
 await sr.from('home_network_occupants').delete().eq('essid', X_ESSID);
@@ -110,11 +115,12 @@ check(
 const r3 = await post(signRequest(bob, 'resolveOccupants', { essid: X_ESSID }));
 const seen = occupantsOf(r3.body);
 check(
-  "B resolveOccupants X sees A's workstation at A's re-derived LAN IP, excluding B",
+  "B resolveOccupants X sees A's workstation (id + LAN IP + machine name), excluding B",
   r3.status === 200 &&
     seen.length === 1 &&
     seen[0]!.workstation_machine_id === A_WS &&
     seen[0]!.localIp === A_LOCAL_IP &&
+    seen[0]!.machineName === 'skylab' &&
     !seen.some((occupant) => occupant.localIp === B_LOCAL_IP),
   `status=${r3.status} occupants=${JSON.stringify(seen)}`,
 );

@@ -114,6 +114,11 @@ export type BuildCommandEnvArgs = {
    *  The UI wires it to the `resolvePublicScan` adapter (signed round-trip).
    *  Optional here for terse test setups; the UI always passes the real one. */
   readonly onScanResolvePublic?: ScanApi['resolvePublic'];
+  /** The same-LAN occupant-read seam — backs `env.scan.resolveOccupants`. The UI wires
+   *  it to the `resolveOccupants` adapter (signed round-trip). Optional here: when
+   *  absent it defaults to an empty list, since the read is ADDITIVE (an own-LAN scan
+   *  still works, it just shows no fellow players) — like `homeNetwork.join`'s fallback. */
+  readonly onScanResolveOccupants?: ScanApi['resolveOccupants'];
   /** The home-network join seam — backs `env.homeNetwork.join`. The UI wires it to
    *  the `joinHomeNetwork` adapter (registers the network server-side, returns the
    *  local assignment). Optional here: when absent, join falls back to the pure
@@ -202,6 +207,8 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   scan: {
     record: args.onScanRecord ?? notWired('scan.record'),
     resolvePublic: args.onScanResolvePublic ?? notWired('scan.resolvePublic'),
+    // Additive read: absent the seam, the scan still runs with no fellow occupants.
+    resolveOccupants: args.onScanResolveOccupants ?? (() => Promise.resolve([])),
   },
   setCwd: args.onCwdChange,
   setInterface: args.onInterfaceChange,

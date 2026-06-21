@@ -26,19 +26,23 @@ import type { Ipv4 } from './interfaces';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
 /** The narrow occupancy projection the gate + merge need: whose row it is (for the
- *  LAN-boundary check + self-exclusion + LAN-IP re-derivation) and the workstation
- *  the caller will later reach. The stored auth/display fields are NOT read here —
- *  only the same-LAN connect handler (7.4) needs them. */
+ *  LAN-boundary check + self-exclusion + LAN-IP re-derivation), the workstation the
+ *  caller will later reach, and its display name (the HOSTNAME column of a fellow
+ *  occupant's `nmap`). The auth field (`workstation_root_hash`) is NOT read here —
+ *  only the same-LAN connect handler needs it. */
 export type OccupantListRow = {
   readonly owner_key: string;
   readonly workstation_machine_id: string;
+  readonly workstation_machine_name: string;
 };
 
-/** What a fellow occupant learns about another: the machine to reach and where to
- *  reach it. No owner key, username, or hash crosses the wire. */
+/** What a fellow occupant learns about another: the machine to reach, where to reach
+ *  it, and its display name for the scan host list. No owner key, username, or hash
+ *  crosses the wire. */
 export type OccupantProjection = {
   readonly workstation_machine_id: string;
   readonly localIp: Ipv4;
+  readonly machineName: string;
 };
 
 export type ResolveOccupantsDeps = {
@@ -91,6 +95,7 @@ export const handleResolveOccupants = async (
     .map((row) => ({
       workstation_machine_id: row.workstation_machine_id,
       localIp: assignHomeNetwork(row.owner_key, payload.essid).localIp,
+      machineName: row.workstation_machine_name,
     }));
 
   return { status: 200, body: { ok: true, occupants: others } };

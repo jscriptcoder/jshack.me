@@ -693,6 +693,146 @@ describe('nmap — cross-player public-IP scan (slice 1a)', () => {
  * `sameLAN` shows only the router's own ports and never the NAT forward table, so
  * a forward configured for the public side can never leak into the LAN-side view.
  */
+/**
+ * Same-LAN occupant merge: a player connected to ESSID X sees FELLOW occupants of X as
+ * real hosts on their own `nmap`, merged over the generated NPC siblings. The occupant
+ * list is fetched server-side (`env.scan.resolveOccupants`, self already excluded) and
+ * overlaid: on an octet collision the real occupant wins and the NPC is dropped. A
+ * single-IP scan of an occupant reports it up under its real machine name; A's services
+ * are NOT fabricated from the viewer's seed.
+ */
+describe('nmap — same-LAN occupant merge', () => {
+  const ESSID = 'BEAN-THERE-WIFI';
+  const baseLan = generateHomeLan(PUBKEY, ESSID);
+
+  type Occupant = { workstation_machine_id: string; localIp: string; machineName: string };
+
+  const envWithOccupants = (resolveOccupants: () => Promise<readonly Occupant[]>) =>
+    mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+      scan: mockScanApi({ resolveOccupants }),
+    });
+
+  /** The IP of a generated NPC the world gives an sshd — its FS (and thus ports)
+   *  key on the host IP alone, so an occupant placed here would fabricate this port
+   *  unless the merge suppresses it. */
+  const SELF_IP = assignHomeNetwork(PUBKEY, ESSID).localIp;
+  const sshNpcIp = (): string => {
+    const host = baseLan.hosts.find((candidate) => {
+      if (candidate.kind !== 'machine' || candidate.ip === SELF_IP) return false;
+      const fs: Directory = buildRemoteHostFs(PUBKEY, ESSID, candidate);
+      const varDir = fs.entries.get('var');
+      const runDir = varDir?.kind === 'directory' ? varDir.entries.get('run') : undefined;
+      return runDir?.kind === 'directory' && runDir.entries.has('sshd.pid');
+    });
+    if (host === undefined) throw new Error('expected a generated ssh host on the LAN');
+    return host.ip;
+  };
+
+  it('lists a fellow occupant as a host at its LAN IP under its real machine name', async () => {
+    // .42 is an empty octet in PUBKEY's generated LAN (occupied: .1/.25/.70/.188/.209/.245).
+    const resolveOccupants = vi.fn(async () => [
+      { workstation_machine_id: 'skylab-aaaa', localIp: '192.168.29.42', machineName: 'alice-rig' },
+    ]);
+
+    const { text, exitCode } = await drain(
+      await nmap.execute(envWithOccupants(resolveOccupants), ['192.168.29.0-254'], new Map()),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(text).toContain('192.168.29.42');
+    expect(text).toContain('alice-rig');
+    // The occupant is ADDED on top of the generated LAN (self iphone-188 still present).
+    expect(text).toContain('192.168.29.188');
+    expect(text).toContain(`${baseLan.hosts.length + 1} hosts up`);
+    // The fetch is keyed on the player's currently-associated ESSID.
+    expect(resolveOccupants).toHaveBeenCalledWith(ESSID);
+  });
+
+  it('drops the generated NPC on an octet collision — the occupant wins', async () => {
+    // .25 is the generated `desktop-25`; an occupant there must REPLACE it.
+    const resolveOccupants = vi.fn(async () => [
+      { workstation_machine_id: 'skylab-aaaa', localIp: '192.168.29.25', machineName: 'alice-rig' },
+    ]);
+
+    const { text } = await drain(
+      await nmap.execute(envWithOccupants(resolveOccupants), ['192.168.29.0-254'], new Map()),
+    );
+
+    expect(text).toContain('alice-rig');
+    expect(text).not.toContain('desktop-25');
+    // No net host added — the NPC was replaced, not appended.
+    expect(text).toContain(`${baseLan.hosts.length} hosts up`);
+  });
+
+  it('leaves the generated LAN unchanged when there are no fellow occupants', async () => {
+    const { text } = await drain(
+      await nmap.execute(
+        envWithOccupants(async () => []),
+        ['192.168.29.0-254'],
+        new Map(),
+      ),
+    );
+
+    expect(text).toContain(`${baseLan.hosts.length} hosts up`);
+  });
+
+  it('reports a single occupant IP up under its real machine name', async () => {
+    const { text, exitCode } = await drain(
+      await nmap.execute(
+        envWithOccupants(async () => [
+          {
+            workstation_machine_id: 'skylab-aaaa',
+            localIp: '192.168.29.42',
+            machineName: 'alice-rig',
+          },
+        ]),
+        ['192.168.29.42'],
+        new Map(),
+      ),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(text).toContain('Nmap scan report for alice-rig (192.168.29.42)');
+    expect(text).toContain('Host is up.');
+  });
+
+  it("does not fabricate an occupant's ports from the viewer's own seed", async () => {
+    // Place the occupant on an octet where a generated NPC runs sshd. Because NPC
+    // filesystems key on the host IP alone, scanning here WOULD surface a fabricated
+    // ssh port if the merge let the occupant fall through to the generator.
+    const ip = sshNpcIp();
+    const { text } = await drain(
+      await nmap.execute(
+        envWithOccupants(async () => [
+          { workstation_machine_id: 'skylab-aaaa', localIp: ip, machineName: 'alice-rig' },
+        ]),
+        [ip],
+        new Map(),
+      ),
+    );
+
+    expect(text).toContain(`Nmap scan report for alice-rig (${ip})`);
+    expect(text).toContain('Host is up.');
+    expect(text).not.toContain('PORT');
+    expect(text).not.toContain('22/tcp');
+  });
+
+  it('does not fetch occupants for a cross-player public-IP scan (own-LAN merge only)', async () => {
+    const resolveOccupants = vi.fn(async () => []);
+    const env = mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+      scan: mockScanApi({ resolveOccupants, resolvePublic: async () => ({ found: true, ports: [] }) }),
+    });
+
+    await drain(await nmap.execute(env, ['203.0.113.7'], new Map()));
+
+    expect(resolveOccupants).not.toHaveBeenCalled();
+  });
+});
+
 describe('nmap — own router (.1) sameLAN scan (5.1.4)', () => {
   // For PUBKEY + XFINITY-1234 the COSMETIC gateway (the old buildRemoteHostFs path)
   // rolls sshd on :2222, while the REAL router always runs sshd on :22 — so a .1

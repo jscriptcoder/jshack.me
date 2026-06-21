@@ -4,6 +4,7 @@ import {
   joinHomeNetwork,
   leaveHomeNetwork,
   resolveCrossPlayerFs,
+  resolveOccupants,
   resolvePublic,
   type NetworkClientDeps,
 } from './networkApi';
@@ -226,6 +227,70 @@ describe('resolvePublic', () => {
     );
 
     expect(await resolvePublic(deps, '203.0.113.7')).toEqual({ found: false, ports: [] });
+  });
+});
+
+describe('resolveOccupants', () => {
+  const OCCUPANTS = [
+    { workstation_machine_id: 'skylab-aaaa', localIp: '192.168.50.88', machineName: 'alice-rig' },
+  ];
+
+  it('signs a resolveOccupants request carrying the essid and returns the served occupants', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, occupants: OCCUPANTS }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    const result = await resolveOccupants(deps, ESSID);
+
+    expect(result).toEqual(OCCUPANTS);
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected verified envelope');
+    expect(verified.payload).toMatchObject({ action: 'resolveOccupants', essid: ESSID });
+  });
+
+  it('degrades to an empty list when the caller is not an occupant (403)', async () => {
+    const deps = makeDeps(
+      vi.fn(async () =>
+        jsonResponse(403, { error: 'not_an_occupant' }),
+      ) as unknown as typeof fetch,
+    );
+
+    expect(await resolveOccupants(deps, ESSID)).toEqual([]);
+  });
+
+  it('degrades to an empty list on a non-ok response even when its body lists occupants', async () => {
+    // Adversarial: a 500 must short-circuit BEFORE the body is trusted, so a forged
+    // occupant list on an error status is never surfaced into the scan.
+    const deps = makeDeps(
+      vi.fn(async () => jsonResponse(500, { ok: true, occupants: OCCUPANTS })) as unknown as typeof fetch,
+    );
+
+    expect(await resolveOccupants(deps, ESSID)).toEqual([]);
+  });
+
+  it('degrades to an empty list when the body does not confirm ok', async () => {
+    const deps = makeDeps(
+      vi.fn(async () => jsonResponse(200, { ok: false, occupants: OCCUPANTS })) as unknown as typeof fetch,
+    );
+
+    expect(await resolveOccupants(deps, ESSID)).toEqual([]);
+  });
+
+  it('degrades to an empty list when the response omits the occupants', async () => {
+    const deps = makeDeps(
+      vi.fn(async () => jsonResponse(200, { ok: true })) as unknown as typeof fetch,
+    );
+
+    expect(await resolveOccupants(deps, ESSID)).toEqual([]);
+  });
+
+  it('degrades to an empty list on a thrown fetch (offline)', async () => {
+    const deps = makeDeps(
+      vi.fn(async () => {
+        throw new Error('offline');
+      }) as unknown as typeof fetch,
+    );
+
+    expect(await resolveOccupants(deps, ESSID)).toEqual([]);
   });
 });
 

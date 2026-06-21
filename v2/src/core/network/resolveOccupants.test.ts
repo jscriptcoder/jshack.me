@@ -24,9 +24,11 @@ const ESSID = 'BEAN-THERE-WIFI';
 const occupant = (
   id: ReturnType<typeof generateIdentity>,
   machineId: string,
+  machineName = `box-${machineId}`,
 ): OccupantListRow => ({
   owner_key: id.publicKeyHex,
   workstation_machine_id: machineId,
+  workstation_machine_name: machineName,
 });
 
 const makeDeps = (rows: readonly OccupantListRow[], over: Partial<ResolveOccupantsDeps> = {}) => {
@@ -44,7 +46,10 @@ describe('handleResolveOccupants', () => {
   it("returns a fellow occupant's workstation id + re-derived LAN IP, excluding the caller", async () => {
     const alice = generateIdentity();
     const bob = generateIdentity();
-    const { deps } = makeDeps([occupant(alice, 'skylab-aaaa'), occupant(bob, 'nebu-bbbb')]);
+    const { deps } = makeDeps([
+      occupant(alice, 'skylab-aaaa', 'alice-rig'),
+      occupant(bob, 'nebu-bbbb'),
+    ]);
 
     const result = await handleResolveOccupants(envelope(bob), deps);
 
@@ -56,10 +61,25 @@ describe('handleResolveOccupants', () => {
           {
             workstation_machine_id: 'skylab-aaaa',
             localIp: assignHomeNetwork(alice.publicKeyHex, ESSID).localIp,
+            machineName: 'alice-rig',
           },
         ],
       },
     });
+  });
+
+  it("includes each occupant's real machine name (for the scan host display)", async () => {
+    const alice = generateIdentity();
+    const bob = generateIdentity();
+    const { deps } = makeDeps([
+      occupant(alice, 'skylab-aaaa', 'alice-rig'),
+      occupant(bob, 'nebu-bbbb'),
+    ]);
+
+    const result = await handleResolveOccupants(envelope(bob), deps);
+
+    const occupants = result.body.occupants as readonly { machineName: string }[];
+    expect(occupants[0]!.machineName).toBe('alice-rig');
   });
 
   it("derives each occupant's LAN IP from THAT occupant's key+ESSID, not the caller's", async () => {
