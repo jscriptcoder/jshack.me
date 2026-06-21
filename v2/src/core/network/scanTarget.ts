@@ -59,14 +59,15 @@ export const parseScanTarget = (target: string, subnet: string): ParseScanTarget
 
 const lastOctet = (host: LanHost): number => Number(host.ip.split('.')[3]);
 
+/** Whether a host octet is selected by a parsed target — the single shared piece of
+ *  "which octets does target T cover" knowledge, used by both the LAN host list below
+ *  and the same-LAN occupant-scan trace, so the two can never drift. */
+export const octetInScanTarget = (octet: number, target: ScanTarget): boolean =>
+  target.kind === 'single'
+    ? octet === target.octet
+    : octet >= target.start && octet <= target.end;
+
 /** The hosts on `lan` a parsed target selects: the single matching host (empty
  *  when that octet is down / has no host), or the in-range slice for a range. */
-export const hostsInScanTarget = (lan: HomeLan, target: ScanTarget): readonly LanHost[] => {
-  if (target.kind === 'single') {
-    const host = lan.hosts.find((candidate) => lastOctet(candidate) === target.octet);
-    return host === undefined ? [] : [host];
-  }
-  return lan.hosts.filter(
-    (host) => lastOctet(host) >= target.start && lastOctet(host) <= target.end,
-  );
-};
+export const hostsInScanTarget = (lan: HomeLan, target: ScanTarget): readonly LanHost[] =>
+  lan.hosts.filter((host) => octetInScanTarget(lastOctet(host), target));

@@ -31,7 +31,17 @@ import { buildRouterBaseFs } from '../generation/routerFs';
 import { hostMachineId } from '../generation/remoteHostId';
 import { computeRouterId } from '../identity/router';
 import { assignHomeNetwork } from '../network/homeNetwork';
-import { parseScanTarget, hostsInScanTarget } from '../network/scanTarget';
+import {
+  parseScanTarget,
+  hostsInScanTarget,
+  octetInScanTarget,
+  type ScanTarget,
+} from '../network/scanTarget';
+import {
+  materializeWorkstationFs,
+  type OwnerPatchRow,
+} from '../network/materializeWorkstationFs';
+import { canBoot } from '../boot/bootFiles';
 import { readOpenPorts } from '../services/pidfile';
 import {
   formatNmapScanAggregate,
@@ -48,6 +58,19 @@ import { asGameTime } from '../types';
 import type { PatchRow } from '../patches/upsertPatch';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
+/** The occupancy fields a same-LAN scan trace needs: whose row it is (the LAN-boundary
+ *  gate + self-exclusion + LAN-IP match), the workstation the trace lands on + its
+ *  hostname for the line, and the identity fields that rebuild the box to read its real
+ *  open ports. A structural superset of `RegistryWorkstation`, so it feeds
+ *  `materializeWorkstationFs` directly. */
+export type ScanOccupant = {
+  readonly owner_key: string;
+  readonly workstation_machine_id: string;
+  readonly workstation_machine_name: string;
+  readonly workstation_username: string;
+  readonly workstation_root_hash: string;
+};
+
 export type NmapScanDeps = {
   readonly nonceStore: NonceStore;
   /** The server's wall clock, epoch-ms (UTC) — stamps the kern.log line. */
@@ -57,6 +80,17 @@ export type NmapScanDeps = {
   readonly readLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
   /** Write a patch (here: the appended kern.log line on the scanned host). */
   readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
+  /** Every occupant of the ESSID (auth fields included — server-internal): the
+   *  LAN-boundary gate reads it for the caller, and the trace for each fellow occupant
+   *  whose LAN IP the scan touches. */
+  readonly listOccupantsByEssid: (
+    essid: string,
+  ) => Promise<{ readonly data: readonly ScanOccupant[] | null; readonly error: unknown }>;
+  /** A scanned occupant's FULL workstation journal (scoped to machine_id, server order)
+   *  replayed over its seeded base — drives the boot gate + the real-port read. */
+  readonly findPatches: (query: {
+    readonly machine_id: string;
+  }) => Promise<{ readonly data: readonly OwnerPatchRow[] | null; readonly error: unknown }>;
 };
 
 export type HandlerResponse = {
@@ -128,6 +162,77 @@ const logHostScan = async (
   }
 };
 
+/** Stamp a same-LAN scan onto one fellow occupant's REAL workstation kern.log. The
+ *  keystone (decision 1): `writerKey` is the TARGET OWNER's key — the system owns its
+ *  logs, so scanners accrete into ONE row; the scanner's identity lives in the line's
+ *  source IP. The probed ports are the occupant's REAL open ports, materialized from
+ *  their own journal (never fabricated from the scanner's seed). A bricked/dark box, a
+ *  journal read failure, or a best-effort write failure leaves no line. */
+const traceOneOccupant = async (
+  deps: NmapScanDeps,
+  occupant: ScanOccupant,
+  sourceIp: string,
+  time: number,
+): Promise<void> => {
+  const patches = await deps.findPatches({ machine_id: occupant.workstation_machine_id });
+  if (patches.error) return;
+  const fs = materializeWorkstationFs(occupant, patches.data);
+  // A bricked (dark) box doesn't answer scans — leave no trace, like the public path.
+  if (!canBoot(fs).ok) return;
+  const line = formatNmapScanAggregate({
+    time: asGameTime(time),
+    hostname: occupant.workstation_machine_name,
+    sourceIp,
+    probedPorts: readOpenPorts(fs).map((openPort) => openPort.port),
+  });
+  try {
+    await appendMachineLog(
+      { readLog: deps.readLog, upsertPatch: deps.upsertPatch },
+      {
+        writerKey: occupant.owner_key,
+        machineId: occupant.workstation_machine_id,
+        path: KERN_LOG_PATH,
+        owner: KERN_LOG_OWNER,
+        permissions: KERN_LOG_PERMISSIONS,
+      },
+      line,
+    );
+  } catch {
+    // best-effort: the scan stands regardless of a logging failure.
+  }
+};
+
+/** Trace every REAL fellow occupant the scan touches. Where `logHostScan` records the
+ *  caller's OWN regenerated NPC siblings, this reads the ESSID occupancy and writes on
+ *  the actual boxes of other players: gated on the caller being a live occupant (the LAN
+ *  boundary — you must be on the LAN to scan it), self excluded (own box is the own-LAN
+ *  path), and only for occupants whose LAN IP the scan target covers. Best-effort: an
+ *  occupancy read failure simply skips the cross-player traces. */
+const traceOccupants = async (
+  deps: NmapScanDeps,
+  args: {
+    readonly scannerKey: string;
+    readonly essid: string;
+    readonly target: ScanTarget | null;
+    readonly sourceIp: string;
+    readonly time: number;
+  },
+): Promise<void> => {
+  if (args.target === null) return;
+  const occupants = await deps.listOccupantsByEssid(args.essid);
+  if (occupants.error) return;
+  const rows = occupants.data ?? [];
+  // LAN boundary: only a live occupant of the ESSID may trace fellow occupants.
+  if (!rows.some((row) => row.owner_key === args.scannerKey)) return;
+
+  for (const occupant of rows) {
+    if (occupant.owner_key === args.scannerKey) continue;
+    const lanIp = assignHomeNetwork(occupant.owner_key, args.essid).localIp;
+    if (!octetInScanTarget(Number(lanIp.split('.')[3]), args.target)) continue;
+    await traceOneOccupant(deps, occupant, args.sourceIp, args.time);
+  }
+};
+
 export const handleNmapScan = async (
   body: unknown,
   deps: NmapScanDeps,
@@ -158,6 +263,18 @@ export const handleNmapScan = async (
   for (const host of hosts) {
     await logHostScan(deps, context, host);
   }
+
+  // A same-LAN scan also leaves a trace on REAL fellow occupants the target covers —
+  // owner-keyed on their box, with the scanner's own LAN IP (`selfIp`) as the source.
+  // Additive to the own-LAN sweep above; `hostsLogged` reports the caller's own-LAN
+  // count (the cross-player traces are a server-side side effect the client ignores).
+  await traceOccupants(deps, {
+    scannerKey: publicKey,
+    essid: payload.essid,
+    target: parsed.ok ? parsed.target : null,
+    sourceIp: selfIp,
+    time: context.time,
+  });
 
   return { status: 200, body: { ok: true, hostsLogged: hosts.length } };
 };

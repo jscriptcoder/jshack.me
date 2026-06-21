@@ -1,7 +1,7 @@
 # Plan: Story 7 — Same-WiFi Shared-LAN Occupancy (v2)
 
 **Branch**: per-slice PRs (`feat/v2-story-7-...`), squash-merged (`feedback_pr_squash_merge_convention`)
-**Status**: Active — 7.1a/7.1b (#292/#293) + 7.2a (#296)/7.2b (#297) + 7.3 (#298) + 7.4a (#299) + 7.4b (#300) shipped + merged; **Slice 7.5 sub-split into 7.5a (connect+su trace) / 7.5b (scan trace); 7.5a implemented + wire-checked, pending commit**; nonce store **DEFERRED** (ship-first, keep `noopNonceStore`); **next after 7.5a commit = Slice 7.5b** (same-LAN scan kern.log trace, LAN-IP source).
+**Status**: Active — 7.1a/7.1b (#292/#293) + 7.2a (#296)/7.2b (#297) + 7.3 (#298) + 7.4a (#299) + 7.4b (#300) + 7.5a (#301) shipped + merged; **Slice 7.5b (same-LAN scan kern.log trace) implemented + wire-checked, pending commit** — all of Slice 7.5 (connect/su/scan traces, `[D12]`) now done; nonce store **DEFERRED** (ship-first, keep `noopNonceStore`); **next after 7.5b commit = Slice 7.6** (organic discovery + agent-browser E2E + story capstone version bump).
 
 ## ▶ Pick-up status (resume here)
 
@@ -71,9 +71,29 @@ way; mirror the shipped public adapter)→REFACTOR(none — `executeSameLanLogin
 `executePublicLogin`, matching the file's accepted duplication style). Full suite 1601 green;
 typecheck+lint clean. No live agent-browser run yet — deferred to the Story-7 capstone (7.6).
 
-**Next action**: commit **Slice 7.5a** (below), then start **Slice 7.5b** (same-LAN scan kern.log trace).
+**Next action**: commit **Slice 7.5b** (below), then start **Slice 7.6** (organic discovery + agent-browser E2E + story capstone version bump). All of Slice 7.5's traces (connect/su/scan) are now done.
 
-**Slice 7.5a ✅ IMPLEMENTED + WIRE-CHECKED (pending commit)** — the same-LAN connect attempt now leaves an
+**Slice 7.5b ✅ IMPLEMENTED + WIRE-CHECKED (pending commit)** — a same-LAN scan now leaves a `kern.log` trace
+on a REAL fellow occupant's box, sourced from the scanner's **LAN IP**:
+- `handleNmapScan` gains a `ScanOccupant` type + `listOccupantsByEssid`/`findPatches` deps + `traceOccupants` /
+  `traceOneOccupant` helpers (alongside the unchanged own-LAN NPC `logHostScan`). It reads the ESSID occupancy,
+  gates on the caller being a live occupant (LAN boundary `[D11]`), and for each fellow occupant (self excluded)
+  whose LAN IP the scan target covers, materializes their REAL box (`materializeWorkstationFs`), `canBoot`-gates
+  a bricked/dark box, and appends an owner-keyed (`writer_key = ownerA`) kern.log line listing the occupant's
+  REAL open ports — never fabricated from the scanner's seed. Source = `assignHomeNetwork(publicKey, essid).localIp`
+  (the scanner's own `selfIp`), never the client `source_ip`. NPC path UNCHANGED (`hostsLogged` = own-LAN count).
+- New shared `octetInScanTarget(octet, target)` in `core/network/scanTarget.ts` (hostsInScanTarget refactored to
+  use it) — the "which octets does target T cover" knowledge in one place, used by both the NPC list + occupant filter.
+- `nmapScan` is dispatched in **`api/patches.ts`** (not network.ts) — that dispatch gains `listOccupantsByEssid`
+  (auth-field SELECT) + `findPatches` (full OwnerPatchRow journal).
+- Tests: `nmapScan.test.ts` +11 occupant tests (30/30); full suite 1620/1620; typecheck+lint clean; Stryker on
+  the new code 96.49% + scanTarget 100% (2 survivors equivalent: redundant `if(occupants.error)` guard — data is
+  null on error so the empty-rows path returns anyway; defensive `?? []`).
+- Wire-check `scripts/testSameLanScanTrace.ts` **5/5** vs `vercel dev` 3100: scan line from B's LAN IP with A's
+  real ports (not forged source_ip, not B's public IP), range accretion into one owner-keyed row, non-occupant
+  traces nobody.
+
+**Slice 7.5a ✅ SHIPPED + MERGED (#301)** — the same-LAN connect attempt leaves an
 `auth.log` trace on A's workstation, sourced from B's **LAN IP**, and the `su` trace is verified end-to-end:
 - `handleAuthCreateSessionSameLan` gains logging deps (`now`/`readAuthLog`/`upsertPatch`) + a `logSameLanAuth`
   helper (mirrors the public path's `logCrossPlayerAuth`): on BOTH outcomes, owner-keyed (`writer_key = ownerA`)
@@ -90,13 +110,10 @@ typecheck+lint clean. No live agent-browser run yet — deferred to the Story-7 
 - Wire-check `scripts/testSameLanTrace.ts` **6/6** vs `vercel dev` 3100: Accepted/Failed from B's LAN IP
   (not public, not the forged client `source_ip`), IP-less `su` line, all three lines in ONE owner-keyed row.
 
-**Slice 7.5b (NEXT)** — same-LAN scan kern.log trace. NON-trivial: today's `handleNmapScan` regenerates the
-caller's OWN NPC LAN and writes kern.log on its own per-seed boxes (`hostMachineId`/`computeRouterId`), never
-reading occupancy or targeting a real fellow occupant's `workstation_machine_id`. A same-LAN scan trace needs
-a new server path: read the ESSID occupancy, for a target matching a fellow occupant's LAN IP write kern.log
-on A's REAL workstation (owner-keyed `writer_key = ownerA`), source = B's server-derived LAN IP, with the
-port-fabrication guard (no fabricating A's ports from B's seed — mirror the 7.3 nmap merge). **Present 7.5b's
-AC for confirmation before code (CONFIRM gate).**
+**Slice 7.6 (NEXT)** — organic discovery `[D2]/[D4]` (occupied ESSIDs surface in `airdump`, fresh roll per scan,
+`restoreConnection` decouple) + full two-identity agent-browser E2E of the same-LAN loop + the story capstone
+version bump (package.json + package-lock.json). **Present 7.6's AC for confirmation before code (CONFIRM gate).**
+See the Slice 7.6 spec below.
 
 **Superseded (kept for history)**: start **Slice 7.4b** (client half — wire the front door into `ssh.ts`). Add
 `SshApi.authenticateSameLan` + `SameLanAuthParams` (reuse `PublicAuthResult` — lands on A's machine id) in
@@ -331,9 +348,9 @@ reviewed, commit approved.
 
 ### Slice 7.5 — Same-LAN scan/connect/su leave a trace with a LAN-IP source
 
-**Sub-split (approved 2026-06-21):** **7.5a** = connect `auth.log` trace + `su` trace verified (✅ implemented +
-wire-checked, pending commit — see the pick-up status above); **7.5b** = same-LAN scan `kern.log` trace (NEXT,
-its own PR — a new occupancy-reading scan path, not a trivial wiring). Below is the original combined spec.
+**Sub-split (approved 2026-06-21):** **7.5a** = connect `auth.log` trace + `su` trace verified (✅ SHIPPED + MERGED
+#301); **7.5b** = same-LAN scan `kern.log` trace (✅ implemented + wire-checked, pending commit — see the pick-up
+status above). Both done → all of Slice 7.5 complete. Below is the original combined spec.
 
 **Decisions**: `[D12]` (same-LAN traces, LAN-IP source).
 **Value**: The defender half — A reads who touched its box over the LAN, attributed to B's LAN IP.
