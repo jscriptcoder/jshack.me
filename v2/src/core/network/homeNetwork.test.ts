@@ -20,11 +20,13 @@ describe('assignHomeNetwork', () => {
 
     // Determinism is the load-bearing property: rehydration re-derives this.
     expect(second).toEqual(first);
-    // Golden lock — pins the seed string, the octet ranges, and the draw order.
+    // Golden lock — pins the seed strings, the octet ranges, and the draw order.
+    // The /24 (third octet, 29) is seeded by the ESSID alone; the host octet (188)
+    // and device by identity+ESSID; the public IP (untouched) by the ESSID alone.
     expect(first).toEqual({
-      localIp: '192.168.188.154',
+      localIp: '192.168.29.188',
       publicIp: '51.130.158.42',
-      hostname: 'iphone-154',
+      hostname: 'iphone-188',
     });
   });
 
@@ -68,6 +70,34 @@ describe('assignHomeNetwork', () => {
     expect(bob.publicIp).toBe(alice.publicIp);
     // ...while their LAN addresses still differ (per-player DHCP draw).
     expect(bob.localIp).not.toBe(alice.localIp);
+  });
+
+  it('places different identities on the same /24 for the same ESSID', () => {
+    const alice = assignHomeNetwork('a'.repeat(64), 'BEAN-THERE-WIFI');
+    const bob = assignHomeNetwork('b'.repeat(64), 'BEAN-THERE-WIFI');
+
+    const slashTwentyFour = (ip: string): string => ip.split('.').slice(0, 3).join('.');
+    const hostOctet = (ip: string): string => ip.split('.')[3]!;
+
+    // The /24 belongs to the AP, not the player: every occupant of the same ESSID
+    // shares the subnet (seeded by ESSID alone, like the public IP). This is the
+    // addressing precondition the shared-LAN occupancy model stands on — two
+    // identities on one ESSID must be reachable on one LAN.
+    expect(slashTwentyFour(bob.localIp)).toBe(slashTwentyFour(alice.localIp));
+    // ...while their host octets still differ (per-(identity, ESSID) draw), so
+    // they are distinct hosts on that shared subnet.
+    expect(hostOctet(bob.localIp)).not.toBe(hostOctet(alice.localIp));
+  });
+
+  it('places a given identity on a different /24 per ESSID', () => {
+    const bean = assignHomeNetwork(PUBKEY, 'BEAN-THERE-WIFI');
+    const grad = assignHomeNetwork(PUBKEY, 'GRAD-STUDENT-WIFI');
+
+    const slashTwentyFour = (ip: string): string => ip.split('.').slice(0, 3).join('.');
+
+    // Different networks are different LANs: the subnet must track the ESSID, not
+    // be a constant — this is what fails if the ESSID drops out of the subnet seed.
+    expect(slashTwentyFour(grad.localIp)).not.toBe(slashTwentyFour(bean.localIp));
   });
 
   it('issues a different public IP per ESSID (different routers)', () => {

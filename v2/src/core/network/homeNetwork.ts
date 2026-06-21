@@ -43,10 +43,17 @@ export const DEVICE_TYPES = [
 ] as const;
 
 export const assignHomeNetwork = (seedPubkeyHex: string, essid: string): HomeNetworkAssignment => {
+  // The /24 (third octet) belongs to the AP, not the player: seeded by ESSID
+  // ALONE so every occupant of the same network shares the subnet (mirrors the
+  // public IP below). This is the addressing precondition shared-LAN occupancy
+  // stands on — two identities on one ESSID land on one reachable LAN.
+  const subnet = createPrng(`home-subnet-${essid}`).nextInt(0, 255);
+
+  // The host octet + device name stay per-(identity, ESSID): each occupant gets a
+  // distinct address on the shared subnet (local DHCP-style draw). Draw order is
+  // part of the contract (golden-locked): host, then device. The host octet
+  // avoids .0/.1 (network + gateway) and .255 (broadcast).
   const prng = createPrng(`home-${seedPubkeyHex}-${essid}`);
-  // Draw order is part of the contract (golden-locked): subnet, then host, then
-  // device. The host octet avoids .0/.1 (network + gateway) and .255 (broadcast).
-  const subnet = prng.nextInt(0, 255);
   const host = prng.nextInt(2, 254);
   const device = prng.pick(DEVICE_TYPES);
 

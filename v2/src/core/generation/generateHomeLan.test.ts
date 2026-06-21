@@ -16,12 +16,12 @@ const PUBKEY = 'a'.repeat(64);
 // Captured from the seeded generator (see golden test below). Pins the gateway,
 // the player's own host, and the full sibling population for a fixed identity.
 const GOLDEN_HOSTS = [
-  { ip: '192.168.188.1', hostname: 'net-gateway', kind: 'router' },
-  { ip: '192.168.188.25', hostname: 'desktop-25', kind: 'machine' },
-  { ip: '192.168.188.70', hostname: 'workstation-70', kind: 'machine' },
-  { ip: '192.168.188.154', hostname: 'iphone-154', kind: 'machine' },
-  { ip: '192.168.188.209', hostname: 'android-209', kind: 'machine' },
-  { ip: '192.168.188.245', hostname: 'iphone-245', kind: 'machine' },
+  { ip: '192.168.29.1', hostname: 'net-gateway', kind: 'router' },
+  { ip: '192.168.29.25', hostname: 'desktop-25', kind: 'machine' },
+  { ip: '192.168.29.70', hostname: 'workstation-70', kind: 'machine' },
+  { ip: '192.168.29.188', hostname: 'iphone-188', kind: 'machine' },
+  { ip: '192.168.29.209', hostname: 'android-209', kind: 'machine' },
+  { ip: '192.168.29.245', hostname: 'iphone-245', kind: 'machine' },
 ];
 
 describe('generateHomeLan', () => {
@@ -120,12 +120,12 @@ describe('generateHomeLan', () => {
   });
 
   it('is deterministic for the same identity + ESSID (golden)', () => {
-    // Pinned to the assignHomeNetwork golden (192.168.188.154 / iphone-154)
-    // plus the seeded sibling population.
+    // Pinned to the assignHomeNetwork golden (192.168.29.188 / iphone-188; the
+    // /24 is ESSID-seeded) plus the seeded sibling population.
     const first = generateHomeLan(PUBKEY, 'BEAN-THERE-WIFI');
 
     expect(generateHomeLan(PUBKEY, 'BEAN-THERE-WIFI')).toEqual(first);
-    expect(first.subnet).toBe('192.168.188');
+    expect(first.subnet).toBe('192.168.29');
     expect(first.hosts).toEqual(GOLDEN_HOSTS);
   });
 });

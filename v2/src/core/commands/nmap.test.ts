@@ -79,7 +79,7 @@ describe('nmap', () => {
       }),
     });
 
-    const result = await nmap.execute(env, ['192.168.188.0/24'], new Map());
+    const result = await nmap.execute(env, ['192.168.29.0/24'], new Map());
     if (result.kind !== 'sync') throw new Error('expected sync result');
 
     expect(result.exitCode).toBe(1);
@@ -93,7 +93,7 @@ describe('nmap', () => {
       network: mockNetworkView({ isOnline: () => true, interfaces: () => [] }),
     });
 
-    const result = await nmap.execute(env, ['192.168.188.0/24'], new Map());
+    const result = await nmap.execute(env, ['192.168.29.0/24'], new Map());
     if (result.kind !== 'sync') throw new Error('expected sync result');
 
     expect(result.exitCode).toBe(1);
@@ -111,7 +111,7 @@ describe('nmap', () => {
       }),
     });
 
-    const result = await nmap.execute(env, ['192.168.188.0/24'], new Map());
+    const result = await nmap.execute(env, ['192.168.29.0/24'], new Map());
     if (result.kind !== 'sync') throw new Error('expected sync result');
 
     expect(result.exitCode).toBe(1);
@@ -127,80 +127,80 @@ describe('nmap', () => {
   });
 
   // The LAN scanned for these tests (assignHomeNetwork golden for PUBKEY +
-  // BEAN-THERE-WIFI): subnet 192.168.188, hosts at .1 (gateway/router), .25, .70,
-  // .154 (self), .209, .245 — every other octet is empty.
+  // BEAN-THERE-WIFI): subnet 192.168.29 (ESSID-seeded), hosts at .1 (gateway/router),
+  // .25, .70, .188 (self), .209, .245 — every other octet is empty.
 
   it('scanning the whole range lists every host on the LAN', async () => {
     const { text, exitCode } = await drain(
-      await nmap.execute(onlineEnv(), ['192.168.188.0-254'], new Map()),
+      await nmap.execute(onlineEnv(), ['192.168.29.0-254'], new Map()),
     );
 
     expect(exitCode).toBe(0);
-    expect(text).toContain('192.168.188.1'); // gateway
+    expect(text).toContain('192.168.29.1'); // gateway
     expect(text).toContain('router');
-    expect(text).toContain('192.168.188.154'); // self
-    expect(text).toContain('iphone-154');
+    expect(text).toContain('192.168.29.188'); // self
+    expect(text).toContain('iphone-188');
     const lan = generateHomeLan(PUBKEY, 'BEAN-THERE-WIFI');
     expect(text).toContain(`${lan.hosts.length} hosts up`);
   });
 
   it('a range lists only the hosts whose last octet falls inside it', async () => {
-    const { text } = await drain(await nmap.execute(onlineEnv(), ['192.168.188.20-80'], new Map()));
+    const { text } = await drain(await nmap.execute(onlineEnv(), ['192.168.29.20-80'], new Map()));
 
     // .25 and .70 are inside [20, 80]; .1, .154, .209, .245 are not.
-    expect(text).toContain('192.168.188.25');
-    expect(text).toContain('192.168.188.70');
-    expect(text).not.toContain('192.168.188.1 '); // gateway (.1) excluded
-    expect(text).not.toContain('192.168.188.154');
-    expect(text).not.toContain('192.168.188.209');
+    expect(text).toContain('192.168.29.25');
+    expect(text).toContain('192.168.29.70');
+    expect(text).not.toContain('192.168.29.1 '); // gateway (.1) excluded
+    expect(text).not.toContain('192.168.29.188');
+    expect(text).not.toContain('192.168.29.209');
     expect(text).toContain('2 hosts up');
   });
 
   it('includes hosts sitting exactly on the range boundaries', async () => {
     // .25 == start and .70 == end must both be included (inclusive bounds).
-    const { text } = await drain(await nmap.execute(onlineEnv(), ['192.168.188.25-70'], new Map()));
+    const { text } = await drain(await nmap.execute(onlineEnv(), ['192.168.29.25-70'], new Map()));
 
-    expect(text).toContain('192.168.188.25');
-    expect(text).toContain('192.168.188.70');
+    expect(text).toContain('192.168.29.25');
+    expect(text).toContain('192.168.29.70');
     expect(text).toContain('2 hosts up');
   });
 
   it('includes the gateway when the range covers .1', async () => {
-    const { text } = await drain(await nmap.execute(onlineEnv(), ['192.168.188.1-30'], new Map()));
+    const { text } = await drain(await nmap.execute(onlineEnv(), ['192.168.29.1-30'], new Map()));
 
-    expect(text).toContain('192.168.188.1');
+    expect(text).toContain('192.168.29.1');
     expect(text).toContain('router');
-    expect(text).toContain('192.168.188.25');
-    expect(text).not.toContain('192.168.188.70');
+    expect(text).toContain('192.168.29.25');
+    expect(text).not.toContain('192.168.29.70');
     expect(text).toContain('2 hosts up');
   });
 
   it('reports zero hosts for a valid range with nothing in it', async () => {
     const { text, exitCode } = await drain(
-      await nmap.execute(onlineEnv(), ['192.168.188.100-120'], new Map()),
+      await nmap.execute(onlineEnv(), ['192.168.29.100-120'], new Map()),
     );
 
     expect(exitCode).toBe(0);
     expect(text).toContain('0 hosts up');
-    expect(text).not.toContain('192.168.188.154');
+    expect(text).not.toContain('192.168.29.188');
   });
 
   it('echoes the scanned range in the banner', async () => {
-    const { text } = await drain(await nmap.execute(onlineEnv(), ['192.168.188.20-80'], new Map()));
+    const { text } = await drain(await nmap.execute(onlineEnv(), ['192.168.29.20-80'], new Map()));
 
-    expect(text).toContain('192.168.188.20-80');
+    expect(text).toContain('192.168.29.20-80');
   });
 
   it('accepts the inclusive upper octet 254', async () => {
     const { exitCode } = await drain(
-      await nmap.execute(onlineEnv(), ['192.168.188.1-254'], new Map()),
+      await nmap.execute(onlineEnv(), ['192.168.29.1-254'], new Map()),
     );
 
     expect(exitCode).toBe(0);
   });
 
   it('rejects a range whose octet exceeds 254', async () => {
-    const result = await nmap.execute(onlineEnv(), ['192.168.188.1-255'], new Map());
+    const result = await nmap.execute(onlineEnv(), ['192.168.29.1-255'], new Map());
     if (result.kind !== 'sync') throw new Error('expected sync result');
 
     expect(result.exitCode).toBe(1);
@@ -208,7 +208,7 @@ describe('nmap', () => {
   });
 
   it('rejects a start octet that exceeds 254', async () => {
-    const result = await nmap.execute(onlineEnv(), ['192.168.188.255-255'], new Map());
+    const result = await nmap.execute(onlineEnv(), ['192.168.29.255-255'], new Map());
     if (result.kind !== 'sync') throw new Error('expected sync result');
 
     expect(result.exitCode).toBe(1);
@@ -216,7 +216,7 @@ describe('nmap', () => {
   });
 
   it('rejects a range where the start is greater than the end', async () => {
-    const result = await nmap.execute(onlineEnv(), ['192.168.188.80-20'], new Map());
+    const result = await nmap.execute(onlineEnv(), ['192.168.29.80-20'], new Map());
     if (result.kind !== 'sync') throw new Error('expected sync result');
 
     expect(result.exitCode).toBe(1);
@@ -224,7 +224,7 @@ describe('nmap', () => {
   });
 
   it('rejects CIDR notation as a usage error', async () => {
-    const result = await nmap.execute(onlineEnv(), ['192.168.188.0/24'], new Map());
+    const result = await nmap.execute(onlineEnv(), ['192.168.29.0/24'], new Map());
     if (result.kind !== 'sync') throw new Error('expected sync result');
 
     expect(result.exitCode).toBe(1);
@@ -233,12 +233,12 @@ describe('nmap', () => {
 
   it('reports a single host that is up', async () => {
     const { text, exitCode } = await drain(
-      await nmap.execute(onlineEnv(), ['192.168.188.25'], new Map()),
+      await nmap.execute(onlineEnv(), ['192.168.29.25'], new Map()),
     );
 
     expect(exitCode).toBe(0);
-    expect(text).toContain('Starting Nmap scan — 192.168.188.25');
-    expect(text).toContain('Nmap scan report for desktop-25 (192.168.188.25)');
+    expect(text).toContain('Starting Nmap scan — 192.168.29.25');
+    expect(text).toContain('Nmap scan report for desktop-25 (192.168.29.25)');
     expect(text).toContain('Host is up.');
     expect(text).toContain('1 host up');
   });
@@ -246,11 +246,11 @@ describe('nmap', () => {
   it('accepts an A-A range, scanning the single octet it covers', async () => {
     // start === end must be a valid range (legacy allows it), not a usage error.
     const { text, exitCode } = await drain(
-      await nmap.execute(onlineEnv(), ['192.168.188.25-25'], new Map()),
+      await nmap.execute(onlineEnv(), ['192.168.29.25-25'], new Map()),
     );
 
     expect(exitCode).toBe(0);
-    expect(text).toContain('192.168.188.25');
+    expect(text).toContain('192.168.29.25');
     expect(text).toContain('desktop-25');
     expect(text).toContain('1 hosts up');
   });
@@ -259,7 +259,7 @@ describe('nmap', () => {
     // .254 is the last scannable host octet (.255 is broadcast); parsing it is
     // valid even when no host sits there.
     const { text, exitCode } = await drain(
-      await nmap.execute(onlineEnv(), ['192.168.188.254'], new Map()),
+      await nmap.execute(onlineEnv(), ['192.168.29.254'], new Map()),
     );
 
     expect(exitCode).toBe(0);
@@ -268,7 +268,7 @@ describe('nmap', () => {
 
   it('reports a single host that is down when no host sits on that octet', async () => {
     const { text, exitCode } = await drain(
-      await nmap.execute(onlineEnv(), ['192.168.188.30'], new Map()),
+      await nmap.execute(onlineEnv(), ['192.168.29.30'], new Map()),
     );
 
     expect(exitCode).toBe(0);
@@ -278,7 +278,7 @@ describe('nmap', () => {
   });
 
   it('rejects a single IP whose octet exceeds 254', async () => {
-    const result = await nmap.execute(onlineEnv(), ['192.168.188.255'], new Map());
+    const result = await nmap.execute(onlineEnv(), ['192.168.29.255'], new Map());
     if (result.kind !== 'sync') throw new Error('expected sync result');
 
     expect(result.exitCode).toBe(1);
@@ -307,10 +307,11 @@ describe('nmap', () => {
  * `/var/run/*.pid` files (the source of truth a running `sshd` writes). `env.fs`
  * is always the current machine, so this is the player's own host only; other
  * hosts get port detail from their generated FS in a later slice. The self host
- * for PUBKEY + BEAN-THERE-WIFI is `iphone-154` at 192.168.188.154 (= wlan0.ipv4).
+ * for PUBKEY + BEAN-THERE-WIFI is `iphone-188` at 192.168.29.188 (= wlan0.ipv4).
+ * (subnet 192.168.29 is ESSID-seeded; the self octet is per-identity.)
  */
 describe('nmap — self-host open ports (slice 1)', () => {
-  const SELF_IP = '192.168.188.154';
+  const SELF_IP = '192.168.29.188';
 
   /** An online env whose `/var/run` holds the given pidfiles (name → content). */
   const envWithVarRun = (pidfiles: Readonly<Record<string, string>>) => {
