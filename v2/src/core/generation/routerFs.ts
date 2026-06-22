@@ -85,6 +85,13 @@ export const ROUTER_HOSTNAMES: readonly string[] = [
 export const seedRouterHostname = (ownerKeyHex: string): string =>
   createPrng(`router-host-${ownerKeyHex}`).pick(ROUTER_HOSTNAMES);
 
+/** The inner gateway's hostname, seeded from the owner key AND its LAN octet (the
+ *  `inner-gw-host-` namespace — SEPARATE from the edge router's `router-host-` so a
+ *  second router on the player's LAN draws its name independently). It reuses the
+ *  router name pool because an inner gateway is still a router. */
+export const seedInnerGatewayHostname = (ownerKeyHex: string, octet: number): string =>
+  createPrng(`inner-gw-host-${ownerKeyHex}:${octet}`).pick(ROUTER_HOSTNAMES);
+
 /** The fraction of routers that run their own `sshd`. Pinned to 1.0 for Story
  *  5.1 — every router bears `sshd:22`. The seam stays so a later story can make
  *  sshd presence vary per router without reshaping callers. */

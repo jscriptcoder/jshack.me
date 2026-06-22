@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { computeRouterId, isOwnRouter } from './router';
+import { computeInnerGatewayId, computeRouterId, isOwnRouter } from './router';
 import { computeWorkstationId, isOwnWorkstation, parseWorkstationId } from './workstation';
+import { hostMachineId } from '../generation/remoteHostId';
+import type { LanHost } from '../generation/generateHomeLan';
 
 // A representative Ed25519 pubkey hex (64 chars). Any fixed value works — the
 // contract is determinism + DISTINCTNESS, not a specific key.
@@ -52,5 +54,43 @@ describe('isOwnRouter', () => {
 
   it('rejects an unrelated machine id', () => {
     expect(isOwnRouter('203.0.113.7', KEY)).toBe(false);
+  });
+});
+
+describe('computeInnerGatewayId', () => {
+  // A deeper-layer gateway hanging off the player's own LAN. It is the player's
+  // OWN device, but it must NOT alias the edge router (`computeRouterId`) — so it
+  // lives in its own key+octet namespace. The octet is load-bearing: two inner
+  // gateways at different octets must never collide.
+  it('returns an `inner-gw-<8 hex>` id', () => {
+    expect(computeInnerGatewayId(KEY, 37)).toMatch(/^inner-gw-[0-9a-f]{8}$/);
+  });
+
+  it('is deterministic for the same key + octet', () => {
+    expect(computeInnerGatewayId(KEY, 37)).toBe(computeInnerGatewayId(KEY, 37));
+  });
+
+  it('differs from the edge router id for the same key (never aliases the edge)', () => {
+    expect(computeInnerGatewayId(KEY, 37)).not.toBe(computeRouterId(KEY));
+  });
+
+  it('differs per octet, so two inner gateways never alias', () => {
+    expect(computeInnerGatewayId(KEY, 37)).not.toBe(computeInnerGatewayId(KEY, 38));
+  });
+
+  it('differs for different keys at the same octet', () => {
+    expect(computeInnerGatewayId(KEY, 37)).not.toBe(computeInnerGatewayId(OTHER_KEY, 37));
+  });
+
+  it('is distinct from a coordinate-seeded NPC sibling id', () => {
+    // An NPC sibling lives in the `host:<essid>:<ip>` coordinate namespace; the
+    // inner gateway lives in the `ed25519-inner-gw:` key namespace — they can
+    // never collide even when an NPC happens to share the gateway's octet.
+    const sibling: LanHost = { ip: '192.168.29.37', hostname: 'desktop-37', kind: 'machine' };
+    expect(computeInnerGatewayId(KEY, 37)).not.toBe(hostMachineId(sibling, 'BEAN-THERE-WIFI'));
+  });
+
+  it("is never recognised as the owner's own workstation", () => {
+    expect(isOwnWorkstation(computeInnerGatewayId(KEY, 37), KEY)).toBe(false);
   });
 });

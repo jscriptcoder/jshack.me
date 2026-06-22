@@ -13,11 +13,13 @@ import { seedRouterHostname } from './routerFs';
 
 const PUBKEY = 'a'.repeat(64);
 
-// Captured from the seeded generator (see golden test below). Pins the gateway,
-// the player's own host, and the full sibling population for a fixed identity.
+// Captured from the seeded generator (see golden test below). Pins the edge
+// gateway at .1, the inner gateway (a second router) at .25, the player's own
+// host, and the full sibling population for a fixed identity.
 const GOLDEN_HOSTS = [
   { ip: '192.168.29.1', hostname: 'net-gateway', kind: 'router' },
-  { ip: '192.168.29.25', hostname: 'desktop-25', kind: 'machine' },
+  { ip: '192.168.29.25', hostname: 'fw-dmz', kind: 'router' },
+  { ip: '192.168.29.30', hostname: 'tablet-30', kind: 'machine' },
   { ip: '192.168.29.70', hostname: 'workstation-70', kind: 'machine' },
   { ip: '192.168.29.188', hostname: 'iphone-188', kind: 'machine' },
   { ip: '192.168.29.209', hostname: 'android-209', kind: 'machine' },
@@ -62,14 +64,62 @@ describe('generateHomeLan', () => {
     expect(self).toEqual({ ip: localIp, hostname, kind: 'machine' });
   });
 
-  it('populates the LAN with 3 to 8 sibling hosts for any identity/ESSID', () => {
+  it('populates the LAN with 3 to 8 sibling machine hosts for any identity/ESSID', () => {
     for (let seed = 0; seed < 50; seed += 1) {
-      const lan = generateHomeLan('a'.repeat(64), `NET-${seed}`);
-      const siblingCount = lan.hosts.length - 2; // minus the gateway and self
+      const essid = `NET-${seed}`;
+      const lan = generateHomeLan('a'.repeat(64), essid);
+      const { localIp } = assignHomeNetwork('a'.repeat(64), essid);
+      // Siblings are the machine hosts other than the player's own box; the two
+      // routers (edge `.1` + inner gateway) are excluded by kind.
+      const siblingCount = lan.hosts.filter(
+        (host) => host.kind === 'machine' && host.ip !== localIp,
+      ).length;
 
       expect(siblingCount).toBeGreaterThanOrEqual(3);
       expect(siblingCount).toBeLessThanOrEqual(8);
     }
+  });
+
+  it('exposes a second router — the inner gateway — distinct from the .1 edge router', () => {
+    const lan = generateHomeLan(PUBKEY, 'BEAN-THERE-WIFI');
+    const routerOctets = lan.hosts
+      .filter((host) => host.kind === 'router')
+      .map((router) => Number(router.ip.split('.')[3]));
+
+    expect(routerOctets).toContain(1); // the edge gateway sits at .1
+    expect(routerOctets).toHaveLength(2); // edge + exactly one inner gateway
+    expect(routerOctets.filter((octet) => octet !== 1)).toHaveLength(1);
+  });
+
+  it('seeds the inner gateway at a unique octet — not .1, not self, not a sibling', () => {
+    const lan = generateHomeLan(PUBKEY, 'BEAN-THERE-WIFI');
+    const { localIp } = assignHomeNetwork(PUBKEY, 'BEAN-THERE-WIFI');
+    const selfOctet = Number(localIp.split('.')[3]);
+
+    const inner = lan.hosts.find(
+      (host) => host.kind === 'router' && host.ip !== `${lan.subnet}.1`,
+    );
+    const machineOctets = lan.hosts
+      .filter((host) => host.kind === 'machine' && host.ip !== localIp)
+      .map((host) => Number(host.ip.split('.')[3]));
+
+    expect(inner).toBeDefined();
+    const innerOctet = Number(inner?.ip.split('.')[3]);
+    expect(innerOctet).not.toBe(1);
+    expect(innerOctet).not.toBe(selfOctet);
+    expect(machineOctets).not.toContain(innerOctet);
+  });
+
+  it('places the inner gateway deterministically for the same identity + ESSID', () => {
+    const innerIp = (essid: string): string | undefined => {
+      const lan = generateHomeLan(PUBKEY, essid);
+      return lan.hosts.find(
+        (host) => host.kind === 'router' && host.ip !== `${lan.subnet}.1`,
+      )?.ip;
+    };
+
+    expect(innerIp('BEAN-THERE-WIFI')).toBeDefined();
+    expect(innerIp('BEAN-THERE-WIFI')).toBe(innerIp('BEAN-THERE-WIFI'));
   });
 
   it('assigns every host a unique last octet', () => {
@@ -95,13 +145,18 @@ describe('generateHomeLan', () => {
     }
   });
 
-  it('marks every sibling as a machine — only the gateway is a router', () => {
+  it('marks only the gateways as routers — every other host is a machine', () => {
     const lan = generateHomeLan(PUBKEY, 'BEAN-THERE-WIFI');
-    const routers = lan.hosts.filter((host) => host.kind === 'router');
+    const nonRouters = lan.hosts.filter((host) => host.kind !== 'router');
 
-    expect(routers).toEqual([
-      { ip: `${lan.subnet}.1`, hostname: seedRouterHostname(PUBKEY), kind: 'router' },
-    ]);
+    // The edge gateway keeps its owner-seeded name at .1; the inner gateway is a
+    // second router elsewhere on the LAN. Everything else is a machine.
+    expect(lan.hosts.filter((host) => host.kind === 'router')).toContainEqual({
+      ip: `${lan.subnet}.1`,
+      hostname: seedRouterHostname(PUBKEY),
+      kind: 'router',
+    });
+    expect(nonRouters.every((host) => host.kind === 'machine')).toBe(true);
   });
 
   it('returns hosts sorted ascending by last octet', () => {
