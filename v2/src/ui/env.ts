@@ -67,10 +67,13 @@ export type BuildCommandEnvArgs = {
    *  one interface. The UI owns the connectivity signal; `core/` only knows
    *  there's a setter. */
   readonly onInterfaceChange: (name: string, iface: NetworkInterface) => void;
-  /** Reader for the seeded WiFi access points in range — called whenever
-   *  `network.wifiNetworks()` runs (airdump/aircrack). Memoized once per
-   *  identity in `ui/state`. */
+  /** Reader for the WiFi access points in range — the latest scan roll held in
+   *  `ui/state`, read by `aircrack`/`nmcli` after `airdump` refreshes it. */
   readonly wifiNetworks: () => readonly WifiNetwork[];
+  /** Re-roll the scan, injecting the given occupied ESSIDs — backs
+   *  `network.rescanWifi`. The UI owns the per-scan counter + the wifi signal:
+   *  it re-draws, stores the roll (so `wifiNetworks` reflects it), and returns it. */
+  readonly rescanWifi: (occupiedEssids: readonly string[]) => readonly WifiNetwork[];
   /** The run's abort signal, owned by the UI (`runInput` makes one per command
    *  so Ctrl-C can abort it). Backs both `env.signal` and the abort-aware
    *  `env.sleep`, so aborting stops a streamed command mid-flight. */
@@ -123,6 +126,11 @@ export type BuildCommandEnvArgs = {
    *  absent it defaults to an empty list, since the read is ADDITIVE (an own-LAN scan
    *  still works, it just shows no fellow players) — like `homeNetwork.join`'s fallback. */
   readonly onScanResolveOccupants?: ScanApi['resolveOccupants'];
+  /** The organic-discovery occupied-ESSID-names seam — backs
+   *  `env.scan.resolveOccupiedEssids`. The UI wires it to the `resolveOccupiedEssids`
+   *  adapter (signed round-trip). Optional here: absent, it defaults to an empty list,
+   *  since injection is ADDITIVE (a scan still works, it just discovers nothing). */
+  readonly onScanResolveOccupiedEssids?: ScanApi['resolveOccupiedEssids'];
   /** The home-network join seam — backs `env.homeNetwork.join`. The UI wires it to
    *  the `joinHomeNetwork` adapter (registers the network server-side, returns the
    *  local assignment). Optional here: when absent, join falls back to the pure
@@ -151,6 +159,7 @@ const networkView = (
   session: Session,
   connectivity: () => ConnectivityState,
   wifiNetworks: () => readonly WifiNetwork[],
+  rescanWifi: (occupiedEssids: readonly string[]) => readonly WifiNetwork[],
 ): NetworkView => ({
   currentMachine: () => session.machineId,
   findMachineByAddress: () => null,
@@ -158,6 +167,7 @@ const networkView = (
   interfaces: () => [...connectivity().interfaces.values()],
   isOnline: () => isOnline(connectivity()),
   wifiNetworks,
+  rescanWifi,
 });
 
 const outputStub = (): OutputSink => ({
@@ -184,7 +194,7 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   hostname: args.hostname ?? 'workstation',
   now: () => asEpochMs(Date.now()),
   fs: createFsView(args.root, { userType: args.session.userType, cwd: args.cwd }),
-  network: networkView(args.session, args.connectivity, args.wifiNetworks),
+  network: networkView(args.session, args.connectivity, args.wifiNetworks, args.rescanWifi),
   output: args.onOutputLine ? outputSinkFrom(args.onOutputLine) : outputStub(),
   patches: args.patches,
   remote: remoteStub(),
@@ -214,6 +224,8 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
     resolvePublic: args.onScanResolvePublic ?? notWired('scan.resolvePublic'),
     // Additive read: absent the seam, the scan still runs with no fellow occupants.
     resolveOccupants: args.onScanResolveOccupants ?? (() => Promise.resolve([])),
+    // Additive read: absent the seam, the scan discovers no occupied networks.
+    resolveOccupiedEssids: args.onScanResolveOccupiedEssids ?? (() => Promise.resolve([])),
   },
   setCwd: args.onCwdChange,
   setInterface: args.onInterfaceChange,

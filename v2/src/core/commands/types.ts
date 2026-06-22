@@ -153,10 +153,16 @@ export type NetworkView = {
   /** True when any non-loopback interface holds an IPv4 address. The arc's
    *  milestone predicate — `apt`/`nmap` (downstream) gate on it. */
   readonly isOnline: () => boolean;
-  /** The WiFi access points in range — seeded once per identity in `ui/state`,
-   *  exposed read-only. `airdump` lists them (no password column); `aircrack`
-   *  is the only command that reveals a crackable AP's password. */
+  /** The WiFi access points in range — the latest scan roll, held in `ui/state`.
+   *  `airdump` refreshes it via `rescanWifi`; `aircrack`/`nmcli` then read it to
+   *  resolve the AP the player just saw (no password column for airdump — only
+   *  `aircrack` reveals a crackable AP's password). */
   readonly wifiNetworks: () => readonly WifiNetwork[];
+  /** Re-roll the scan (a fresh draw each call, "relocating"), injecting the given
+   *  currently-occupied ESSIDs as discoverable crackable APs. Updates the in-range
+   *  list `wifiNetworks` returns AND returns the fresh roll for the caller to
+   *  render. Backs `airdump`. */
+  readonly rescanWifi: (occupiedEssids: readonly string[]) => readonly WifiNetwork[];
 };
 
 export type OutputSink = {
@@ -353,6 +359,11 @@ export type ScanApi = {
    *  a fellow player shows up as a real host. Additive: degrades to an empty list
    *  (server down, or the viewer isn't an occupant) rather than failing the scan. */
   readonly resolveOccupants: (essid: string) => Promise<readonly OccupantProjection[]>;
+  /** Fetch the ESSID NAMES anyone currently occupies (signed `resolveOccupiedEssids`
+   *  endpoint) — global and name-only, so `airdump` can inject live networks into the
+   *  scan for organic discovery. Additive: degrades to an empty list (server down)
+   *  rather than failing the scan. */
+  readonly resolveOccupiedEssids: () => Promise<readonly string[]>;
 };
 
 // ---- The boundary ----

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { asMachineId, asPlayerKeyHex } from '../types';
 import { computeWorkstationId } from '../identity/workstation';
 import {
@@ -7,13 +7,14 @@ import {
   type ConnectivityState,
   type WirelessInterface,
 } from '../network/interfaces';
-import { generateWifi } from '../generation/generateWifi';
+import type { WifiNetwork } from '../network/wifi';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
   mockIdentity,
   mockNetworkView,
+  mockScanApi,
   mockSession,
 } from '../../test/factories/commandEnv';
 import type { CommandEnv, CommandResult } from './types';
@@ -34,7 +35,46 @@ import { airdump } from './airdump';
 const NO_FLAGS = new Map<string, string | true>();
 const PUBKEY = asPlayerKeyHex('a'.repeat(64));
 const OWN_MACHINE = asMachineId(computeWorkstationId('workstation', 'a'.repeat(64)));
-const WIFI = generateWifi(PUBKEY);
+// A FIXED scan list — airdump's job is to RENDER whatever APs are in range, so the
+// table golden pins the rendering (columns, padding, ordering, password redaction)
+// independent of the generator's seeding. Includes both crackable APs (carrying a
+// password that must never be printed), a hidden AP, and a WPA3 noise AP.
+const WIFI: readonly WifiNetwork[] = [
+  {
+    bssid: '4F:4E:1F:ED:04:0B',
+    essid: 'STARK-WIFI',
+    power: -42,
+    channel: 6,
+    encryption: 'WPA2',
+    crackable: true,
+    password: 'sunshine2024',
+  },
+  {
+    bssid: '7E:0B:70:69:91:BE',
+    essid: '<hidden>',
+    power: -71,
+    channel: 1,
+    encryption: 'WPA2',
+    crackable: false,
+  },
+  {
+    bssid: '63:58:F4:ED:85:EA',
+    essid: 'ATT-WIFI-9F2A',
+    power: -66,
+    channel: 11,
+    encryption: 'WPA3',
+    crackable: false,
+  },
+  {
+    bssid: 'AE:89:6D:78:E7:DB',
+    essid: 'BEAN-THERE-WIFI',
+    power: -54,
+    channel: 3,
+    encryption: 'WPA2',
+    crackable: true,
+    password: 'hunter2pass',
+  },
+];
 
 const wlan0Of = (state: ConnectivityState): WirelessInterface => {
   const iface = state.interfaces.get('wlan0');
@@ -59,7 +99,8 @@ const airdumpEnv = (
     network: mockNetworkView({
       interfaces: () => [...state.interfaces.values()],
       isOnline: () => isOnline(state),
-      wifiNetworks: () => WIFI,
+      // airdump re-rolls the scan each run; the fixed list stands in for the roll.
+      rescanWifi: () => WIFI,
     }),
     ...(options.sleep ? { sleep: options.sleep } : {}),
   });
@@ -101,6 +142,31 @@ describe('airdump', () => {
     });
   });
 
+  it('fetches the currently-occupied ESSIDs and re-rolls the scan with them', async () => {
+    // The organic-discovery wiring: airdump asks the server which ESSIDs are
+    // occupied (name-only) and feeds them into a fresh roll, so a live network can
+    // surface in the scan. aircrack/nmcli then read that same refreshed list.
+    const occupied = ['STARK-WIFI', 'NAKATOMI-PLAZA'];
+    const resolveOccupiedEssids = vi.fn(async () => occupied);
+    const rescanWifi = vi.fn(() => WIFI);
+    const state = monitoring(buildColdStartConnectivity(PUBKEY));
+    const env = mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: PUBKEY }),
+      session: mockSession({ machineId: OWN_MACHINE, playerKey: PUBKEY }),
+      network: mockNetworkView({
+        interfaces: () => [...state.interfaces.values()],
+        isOnline: () => isOnline(state),
+        rescanWifi,
+      }),
+      scan: mockScanApi({ resolveOccupiedEssids }),
+    });
+
+    await drain(await airdump.execute(env, [], NO_FLAGS));
+
+    expect(resolveOccupiedEssids).toHaveBeenCalled();
+    expect(rescanWifi).toHaveBeenCalledWith(occupied);
+  });
+
   it('streams every access point as a row with BSSID, power, channel, encryption and ESSID', async () => {
     const env = airdumpEnv(monitoring(buildColdStartConnectivity(PUBKEY)));
     const { lines, exitCode } = await drain(await airdump.execute(env, [], NO_FLAGS));
@@ -118,9 +184,10 @@ describe('airdump', () => {
     expect(joined).toContain(`Scan complete — ${WIFI.length} networks found`);
   });
 
-  it('streams the exact airodump-style table for a seeded scan', async () => {
-    // Golden snapshot for SEED_A — pins the scan banner, the column header, the
-    // per-row padding/spacing, the blank separators, and the summary tail.
+  it('streams the exact airodump-style table for a scan', async () => {
+    // Golden snapshot for the fixed WIFI list — pins the scan banner, the column
+    // header, the per-row padding/spacing, the blank separators, and the summary
+    // tail. Independent of the generator: airdump renders whatever is in range.
     const env = airdumpEnv(monitoring(buildColdStartConnectivity(PUBKEY)));
     const { lines } = await drain(await airdump.execute(env, [], NO_FLAGS));
     expect(lines).toEqual([
@@ -128,16 +195,12 @@ describe('airdump', () => {
       '',
       'BSSID                  PWR    CH  ENC     ESSID',
       '',
-      '4F:4E:1F:ED:04:0B      -40    10  WPA2    STARK-WIFI',
-      '7E:0B:70:69:91:BE      -68     3  WPA2    <hidden>',
-      '0B:5C:50:5B:90:71      -71     6  WPA2    <hidden>',
-      'AE:89:6D:78:E7:DB      -54     1  WPA2    BEAN-THERE-WIFI',
-      'B8:F6:FE:26:E1:E2      -48     2  WPA2    GRAD-STUDENT-WIFI',
-      'C7:51:97:F7:DC:B3      -75     8  WPA2    <hidden>',
-      '63:58:F4:ED:85:EA      -68     4  WPA3    ATT-WIFI-9F2A',
-      'E2:4B:64:08:9A:A3      -68     7  WPA2    <hidden>',
+      '4F:4E:1F:ED:04:0B      -42     6  WPA2    STARK-WIFI',
+      '7E:0B:70:69:91:BE      -71     1  WPA2    <hidden>',
+      '63:58:F4:ED:85:EA      -66    11  WPA3    ATT-WIFI-9F2A',
+      'AE:89:6D:78:E7:DB      -54     3  WPA2    BEAN-THERE-WIFI',
       '',
-      'Scan complete — 8 networks found',
+      'Scan complete — 4 networks found',
     ]);
   });
 
@@ -202,7 +265,7 @@ describe('airdump', () => {
       fs: mockFsViewFromTree(tree, { userType: 'user' }),
       network: mockNetworkView({
         interfaces: () => [...state.interfaces.values()],
-        wifiNetworks: () => WIFI,
+        rescanWifi: () => WIFI,
       }),
     });
     const { runCommandLine } = await import('../shell/runLine');
