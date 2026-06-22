@@ -81,6 +81,15 @@ export type AuthElevateSessionDeps = {
   readonly findRegistryByMachineId: (
     machineId: string,
   ) => Promise<{ readonly data: RegistryWorkstation | null; readonly error: unknown }>;
+  /** Same-LAN fallback when the WAN registry has no row for the machine. The registry's
+   *  PK is the ESSID-shared `public_ip` (last-writer-wins), so a fellow occupant who
+   *  joined a shared AP before a later joiner has been evicted from it — but never from
+   *  `home_network_occupants` (PK `(essid, owner_key)`, every occupant coexists), which
+   *  carries the same identity fields. Without this, a same-LAN `su` into an evicted
+   *  occupant fails to resolve A's box and collapses to 404 / auth failure. */
+  readonly findOccupantWorkstationByMachineId: (
+    machineId: string,
+  ) => Promise<{ readonly data: RegistryWorkstation | null; readonly error: unknown }>;
   readonly insertSession: (row: SuSessionRow) => Promise<{ readonly error: unknown }>;
   /** The server's wall clock, epoch-ms (UTC) — stamps the auth.log trace line. */
   readonly now: () => number;
@@ -164,9 +173,20 @@ export const handleAuthElevateSession = async (
   }
   const { publicKey, payload } = verified;
 
-  const { data, error } = await deps.findRegistryByMachineId(payload.machine_id);
-  if (error) {
+  const registry = await deps.findRegistryByMachineId(payload.machine_id);
+  if (registry.error) {
     return { status: 500, body: { error: 'registry_lookup_failed' } };
+  }
+
+  // Resolve A's box: the WAN registry first, then the same-LAN occupancy fallback (a
+  // shared-AP occupant evicted from the registry by a later joiner — see the dep doc).
+  let data: RegistryWorkstation | null = registry.data;
+  if (data === null) {
+    const occupant = await deps.findOccupantWorkstationByMachineId(payload.machine_id);
+    if (occupant.error) {
+      return { status: 500, body: { error: 'occupant_lookup_failed' } };
+    }
+    data = occupant.data;
   }
   if (data === null) {
     return { status: 404, body: { error: 'host_unreachable' } };

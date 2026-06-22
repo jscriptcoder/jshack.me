@@ -14,6 +14,7 @@ import type {
 import type {
   ListMachinePatchesResult,
   RegistryMachine,
+  RegistryWorkstation,
 } from '../src/core/patches/remoteWritePermission';
 import type { Patch } from '../src/core/filesystem/applyPatches';
 import type { FilePermissions } from '../src/core/filesystem/types';
@@ -188,6 +189,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       error: null,
     };
   };
+  // Same-LAN fallback for L2 when the registry misses: a shared-AP occupant evicted from
+  // network_registry (PK = the ESSID-shared public_ip, last-writer-wins) is still in
+  // home_network_occupants (PK (essid, owner_key)). One player on N APs has N rows with
+  // the SAME workstation_machine_id, so `.limit(1)`. Only ever resolves a workstation.
+  const findOccupantWorkstationByMachineId = async (machineId: string) => {
+    const { data, error } = await supabase
+      .from('home_network_occupants')
+      .select('owner_key, workstation_username, workstation_root_hash')
+      .eq('workstation_machine_id', machineId)
+      .limit(1)
+      .maybeSingle();
+    if (error) console.error('[patches] occupant reverse-lookup error:', error);
+    return { data: data as RegistryWorkstation | null, error };
+  };
 
   if (actionOf(req.body) === 'listPatches') {
     const listPatches = async ({ machine_id }: ListPatchesQuery) => {
@@ -233,6 +248,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findActiveSession,
       listMachinePatches,
       findRegistryByMachineId,
+      findOccupantWorkstationByMachineId,
       deletePatchTree,
       upsertPatch,
     });
@@ -322,6 +338,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     findActiveSession,
     listMachinePatches,
     findRegistryByMachineId,
+    findOccupantWorkstationByMachineId,
     upsertPatch,
   });
   res.status(status).json(body);

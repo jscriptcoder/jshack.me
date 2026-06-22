@@ -72,6 +72,7 @@ describe('enforceRemoteWriteL2 — own router', () => {
       session: { userType: 'root', essid: 'HOME-WIFI' },
       listMachinePatches: noPriorPatches,
       findRegistryByMachineId: noRegistry,
+      findOccupantWorkstationByMachineId: noRegistry,
     });
 
     expect(denial).toBeNull();
@@ -87,6 +88,7 @@ describe('enforceRemoteWriteL2 — own router', () => {
       session: { userType: 'guest', essid: 'HOME-WIFI' },
       listMachinePatches: noPriorPatches,
       findRegistryByMachineId: noRegistry,
+      findOccupantWorkstationByMachineId: noRegistry,
     });
 
     expect(denial).toEqual({ status: 403, error: 'permission_denied' });
@@ -120,6 +122,7 @@ describe('enforceRemoteWriteL2 — foreign router (cross-player)', () => {
       session: { userType: 'root', essid: 'B-WIFI' },
       listMachinePatches: noPriorPatches,
       findRegistryByMachineId,
+      findOccupantWorkstationByMachineId: () => Promise.resolve({ data: null, error: null }),
     });
 
     expect(denial).toBeNull();
@@ -138,8 +141,98 @@ describe('enforceRemoteWriteL2 — foreign router (cross-player)', () => {
       session: { userType: 'guest', essid: 'B-WIFI' },
       listMachinePatches: noPriorPatches,
       findRegistryByMachineId,
+      findOccupantWorkstationByMachineId: () => Promise.resolve({ data: null, error: null }),
     });
 
     expect(denial).toEqual({ status: 403, error: 'permission_denied' });
+  });
+});
+
+/**
+ * The SAME-LAN occupant fallback (cross-player): B and A occupy one ESSID, so A's row
+ * was evicted from network_registry (PK = the shared public_ip, last-writer-wins) when
+ * B joined after A. The occupancy table (PK (essid, owner_key)) still has A, so L2 must
+ * rebuild A's WORKSTATION from the occupant row and walk its real perms — otherwise B's
+ * root-tier write to A (e.g. deleting /boot) would falsely 403, breaking the same-LAN
+ * brick the session + su already permit.
+ */
+describe('enforceRemoteWriteL2 — same-LAN occupant fallback (cross-player)', () => {
+  const noPriorPatches = () => Promise.resolve({ data: [], error: null });
+  const noRegistry = () => Promise.resolve({ data: null, error: null });
+  const occupantRow = (owner: ReturnType<typeof generateIdentity>) => () =>
+    Promise.resolve({
+      data: {
+        owner_key: owner.publicKeyHex,
+        workstation_username: 'alice',
+        workstation_root_hash: md5('hunter2'),
+      } as RegistryWorkstation,
+      error: null,
+    });
+
+  it("rebuilds A's box from the occupancy fallback when the registry misses, allowing B's root write to /boot", async () => {
+    const attacker = generateIdentity();
+    const owner = generateIdentity();
+
+    const denial = await enforceRemoteWriteL2({
+      publicKey: attacker.publicKeyHex,
+      machineId: 'skylab-deadbeef',
+      path: '/boot/vmlinuz',
+      session: { userType: 'root', essid: 'SHARED-WIFI' },
+      listMachinePatches: noPriorPatches,
+      findRegistryByMachineId: noRegistry,
+      findOccupantWorkstationByMachineId: occupantRow(owner),
+    });
+
+    expect(denial).toBeNull();
+  });
+
+  it("still denies a guest write to A's root-only /boot when resolved via the fallback", async () => {
+    const attacker = generateIdentity();
+    const owner = generateIdentity();
+
+    const denial = await enforceRemoteWriteL2({
+      publicKey: attacker.publicKeyHex,
+      machineId: 'skylab-deadbeef',
+      path: '/boot/vmlinuz',
+      session: { userType: 'guest', essid: 'SHARED-WIFI' },
+      listMachinePatches: noPriorPatches,
+      findRegistryByMachineId: noRegistry,
+      findOccupantWorkstationByMachineId: occupantRow(owner),
+    });
+
+    expect(denial).toEqual({ status: 403, error: 'permission_denied' });
+  });
+
+  it('fails closed (403) when BOTH the registry and the occupancy fallback miss', async () => {
+    const attacker = generateIdentity();
+
+    const denial = await enforceRemoteWriteL2({
+      publicKey: attacker.publicKeyHex,
+      machineId: 'unknown-machine',
+      path: '/boot/vmlinuz',
+      session: { userType: 'root', essid: 'SHARED-WIFI' },
+      listMachinePatches: noPriorPatches,
+      findRegistryByMachineId: noRegistry,
+      findOccupantWorkstationByMachineId: noRegistry,
+    });
+
+    expect(denial).toEqual({ status: 403, error: 'permission_denied' });
+  });
+
+  it('500s (no false deny) when the occupancy fallback lookup errors', async () => {
+    const attacker = generateIdentity();
+
+    const denial = await enforceRemoteWriteL2({
+      publicKey: attacker.publicKeyHex,
+      machineId: 'skylab-deadbeef',
+      path: '/boot/vmlinuz',
+      session: { userType: 'root', essid: 'SHARED-WIFI' },
+      listMachinePatches: noPriorPatches,
+      findRegistryByMachineId: noRegistry,
+      findOccupantWorkstationByMachineId: () =>
+        Promise.resolve({ data: null, error: new Error('db down') }),
+    });
+
+    expect(denial).toEqual({ status: 500, error: 'permission_check_failed' });
   });
 });

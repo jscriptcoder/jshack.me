@@ -34,6 +34,7 @@ import { authorizeMachineAccess, type FindActiveSession } from './authorizeMachi
 import {
   enforceRemoteWriteL2,
   type FindRegistryByMachineId,
+  type FindOccupantWorkstationByMachineId,
   type ListMachinePatches,
 } from './remoteWritePermission';
 import type { NonceStore } from '../signedRequest/nonceStore';
@@ -52,6 +53,9 @@ export type RemovePatchDeps = {
   /** Reverse-look-up a registered foreign workstation by its machine_id — shared
    *  with the write path's L2 cross-player branch (D6). */
   readonly findRegistryByMachineId: FindRegistryByMachineId;
+  /** Same-LAN fallback for L2 when the registry misses (a shared-AP occupant evicted
+   *  by a later joiner) — resolves the workstation from the occupancy table. */
+  readonly findOccupantWorkstationByMachineId: FindOccupantWorkstationByMachineId;
   /** Delete the row at `path` AND every row beneath it (`path/...`). */
   readonly deletePatchTree: (query: PatchTreeQuery) => Promise<{ readonly error: unknown }>;
   /** Record the `content: null` deletion marker (the tombstone). */
@@ -104,6 +108,7 @@ export const handleRemovePatch = async (
     session: access.session,
     listMachinePatches: deps.listMachinePatches,
     findRegistryByMachineId: deps.findRegistryByMachineId,
+    findOccupantWorkstationByMachineId: deps.findOccupantWorkstationByMachineId,
   });
   if (denial) {
     return { status: denial.status, body: { error: denial.error } };

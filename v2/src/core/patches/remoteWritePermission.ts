@@ -64,6 +64,17 @@ export type FindRegistryByMachineId = (
   machineId: string,
 ) => Promise<{ readonly data: RegistryMachine | null; readonly error: unknown }>;
 
+/** Same-LAN fallback when the registry has no row for the machine. The registry's PK is
+ *  the ESSID-shared `public_ip` (last-writer-wins), so a fellow occupant who joined a
+ *  shared AP before a later joiner is evicted from it — but never from
+ *  `home_network_occupants` (PK `(essid, owner_key)`), which carries the identity fields
+ *  needed to rebuild A's tree. Only ever a WORKSTATION — routers live solely in the
+ *  registry. Without it a same-LAN cross-player write to an evicted occupant (e.g. a
+ *  root `rm /boot`) can't resolve A's tree and falsely fails closed (403). */
+export type FindOccupantWorkstationByMachineId = (
+  machineId: string,
+) => Promise<{ readonly data: RegistryWorkstation | null; readonly error: unknown }>;
+
 /** Rebuild a registered foreign workstation's base FS from its registry identity row
  *  — from the OWNER's identity (decision D6), so the cross-player write L2 walks the
  *  SAME tree the cross-player read materializes, never a caller regeneration. */
@@ -89,6 +100,7 @@ const resolveTargetBaseFs = async (args: {
   readonly machineId: string;
   readonly session: ActiveSession;
   readonly findRegistryByMachineId: FindRegistryByMachineId;
+  readonly findOccupantWorkstationByMachineId: FindOccupantWorkstationByMachineId;
 }): Promise<ResolvedBase> => {
   // The caller's OWN router (a `ssh root@<subnet>.1` hop) is journal-backed but
   // neither a LAN sibling nor a registered foreign workstation — rebuild its
@@ -103,16 +115,24 @@ const resolveTargetBaseFs = async (args: {
   }
   const registry = await args.findRegistryByMachineId(args.machineId);
   if (registry.error) return { fs: null, error: registry.error };
-  if (registry.data === null) return { fs: null, error: null };
-  // A registered foreign ROUTER (B `ssh root`'d into A's router) rebuilds from the
-  // owner's key alone; a foreign workstation from its persisted identity (D6). Both
-  // rebuild the OWNER's tree, so the write walks the SAME perms the owner sees —
-  // never a caller regeneration (Story 5.2).
-  const fs =
-    registry.data.kind === 'router'
-      ? buildRouterBaseFs(registry.data.owner_key)
-      : buildRegisteredWorkstationFs(registry.data);
-  return { fs, error: null };
+  if (registry.data !== null) {
+    // A registered foreign ROUTER (B `ssh root`'d into A's router) rebuilds from the
+    // owner's key alone; a foreign workstation from its persisted identity (D6). Both
+    // rebuild the OWNER's tree, so the write walks the SAME perms the owner sees —
+    // never a caller regeneration (Story 5.2).
+    const fs =
+      registry.data.kind === 'router'
+        ? buildRouterBaseFs(registry.data.owner_key)
+        : buildRegisteredWorkstationFs(registry.data);
+    return { fs, error: null };
+  }
+  // Registry miss → same-LAN occupancy fallback: a shared-AP occupant evicted from the
+  // registry by a later joiner (see the dep doc). Always a workstation. A genuine miss
+  // here (no occupant either) leaves `fs: null` → the caller fails the write closed.
+  const occupant = await args.findOccupantWorkstationByMachineId(args.machineId);
+  if (occupant.error) return { fs: null, error: occupant.error };
+  if (occupant.data === null) return { fs: null, error: null };
+  return { fs: buildRegisteredWorkstationFs(occupant.data), error: null };
 };
 
 /**
@@ -129,6 +149,7 @@ export const enforceRemoteWriteL2 = async (args: {
   readonly session: ActiveSession | null;
   readonly listMachinePatches: ListMachinePatches;
   readonly findRegistryByMachineId: FindRegistryByMachineId;
+  readonly findOccupantWorkstationByMachineId: FindOccupantWorkstationByMachineId;
 }): Promise<L2Denial | null> => {
   if (args.session === null) return null;
 
@@ -140,6 +161,7 @@ export const enforceRemoteWriteL2 = async (args: {
     machineId: args.machineId,
     session: args.session,
     findRegistryByMachineId: args.findRegistryByMachineId,
+    findOccupantWorkstationByMachineId: args.findOccupantWorkstationByMachineId,
   });
   if (base.error) return { status: 500, error: 'permission_check_failed' };
   if (base.fs === null) return { status: 403, error: 'permission_denied' };

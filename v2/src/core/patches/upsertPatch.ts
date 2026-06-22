@@ -21,6 +21,7 @@ import { authorizeMachineAccess, type FindActiveSession } from './authorizeMachi
 import {
   enforceRemoteWriteL2,
   type FindRegistryByMachineId,
+  type FindOccupantWorkstationByMachineId,
   type ListMachinePatches,
 } from './remoteWritePermission';
 import type { NonceStore } from '../signedRequest/nonceStore';
@@ -52,6 +53,9 @@ export type UpsertPatchDeps = {
   /** Reverse-look-up a registered foreign workstation by its machine_id — the L2
    *  cross-player branch (D6) rebuilds the owner's tree from this. */
   readonly findRegistryByMachineId: FindRegistryByMachineId;
+  /** Same-LAN fallback for L2 when the registry misses (a shared-AP occupant evicted
+   *  by a later joiner) — resolves the workstation from the occupancy table. */
+  readonly findOccupantWorkstationByMachineId: FindOccupantWorkstationByMachineId;
   readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
 };
 
@@ -113,6 +117,7 @@ export const handleUpsertPatch = async (
     session: access.session,
     listMachinePatches: deps.listMachinePatches,
     findRegistryByMachineId: deps.findRegistryByMachineId,
+    findOccupantWorkstationByMachineId: deps.findOccupantWorkstationByMachineId,
   });
   if (denial) {
     return { status: denial.status, body: { error: denial.error } };

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { handleUpsertPatch, type PatchRow, type UpsertPatchDeps } from './upsertPatch';
 import type { ActiveSessionQuery, FindActiveSessionResult } from './authorizeMachineAccess';
 import type {
+  FindOccupantWorkstationByMachineId,
   FindRegistryByMachineId,
   ListMachinePatchesResult,
   RegistryWorkstation,
@@ -72,15 +73,31 @@ const makeDeps = (over: Partial<UpsertPatchDeps> = {}) => {
     data: null,
     error: null,
   }));
+  // Default: not a same-LAN occupant either (so a registry miss fails closed). The
+  // shared-AP-eviction test overrides this with A's occupancy row.
+  const findOccupantWorkstationByMachineId = vi.fn<FindOccupantWorkstationByMachineId>(
+    async () => ({
+      data: null,
+      error: null,
+    }),
+  );
   const deps: UpsertPatchDeps = {
     nonceStore: freshStore,
     upsertPatch,
     findActiveSession,
     listMachinePatches,
     findRegistryByMachineId,
+    findOccupantWorkstationByMachineId,
     ...over,
   };
-  return { deps, upsertPatch, findActiveSession, listMachinePatches, findRegistryByMachineId };
+  return {
+    deps,
+    upsertPatch,
+    findActiveSession,
+    listMachinePatches,
+    findRegistryByMachineId,
+    findOccupantWorkstationByMachineId,
+  };
 };
 
 // Fields for a write to the signer's OWN workstation.
@@ -303,17 +320,51 @@ describe('handleUpsertPatch', () => {
       content: 'y',
       owner: 'user',
     });
-    const { deps, upsertPatch, findRegistryByMachineId } = makeDeps({
-      findActiveSession: remoteSession('user'),
-    });
+    const { deps, upsertPatch, findRegistryByMachineId, findOccupantWorkstationByMachineId } =
+      makeDeps({
+        findActiveSession: remoteSession('user'),
+      });
 
     const result = await handleUpsertPatch(envelope, deps);
 
     expect(result).toEqual({ status: 403, body: { error: 'permission_denied' } });
     expect(upsertPatch).not.toHaveBeenCalled();
-    // The registry fallback IS attempted before failing closed — proving an NPC miss
-    // doesn't short-circuit the cross-player branch.
+    // Both resolution sources ARE attempted before failing closed — the registry, then
+    // the same-LAN occupancy fallback — proving an NPC miss doesn't short-circuit the
+    // cross-player branch and the fallback dep is actually threaded through.
     expect(findRegistryByMachineId).toHaveBeenCalledWith('ghost-00000000');
+    expect(findOccupantWorkstationByMachineId).toHaveBeenCalledWith('ghost-00000000');
+  });
+
+  it('permits a cross-player write resolved via the OCCUPANCY fallback when the registry has no row (shared-AP eviction)', async () => {
+    const visitor = generateIdentity();
+    const { machineId, registry } = registeredWorkstation();
+    const envelope = signRequest(visitor, 'upsertPatch', {
+      machine_id: machineId,
+      path: '/tmp/pwned',
+      content: 'owned via the LAN',
+      owner: 'guest',
+    });
+    // A's row was evicted from network_registry (a later same-ESSID joiner), but A is
+    // still a live occupant — so the write resolves A's box from the occupancy fallback.
+    const findRegistryByMachineId = vi.fn<FindRegistryByMachineId>(async () => ({
+      data: null,
+      error: null,
+    }));
+    const findOccupantWorkstationByMachineId = vi.fn<FindOccupantWorkstationByMachineId>(
+      async () => ({ data: registry, error: null }),
+    );
+    const { deps, upsertPatch } = makeDeps({
+      findActiveSession: remoteSession('guest'),
+      findRegistryByMachineId,
+      findOccupantWorkstationByMachineId,
+    });
+
+    const result = await handleUpsertPatch(envelope, deps);
+
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    expect(upsertPatch.mock.calls[0]![0].machine_id).toBe(machineId);
+    expect(findOccupantWorkstationByMachineId).toHaveBeenCalledWith(machineId);
   });
 
   // ---- Cross-player WRITE: B writes A's REGISTERED workstation (decision D6). ----

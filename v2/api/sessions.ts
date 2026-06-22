@@ -332,6 +332,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (error) console.error('[sessions] su-elevate registry lookup error:', error);
       return { data: data as RegistryWorkstation | null, error };
     };
+    // Same-LAN fallback: the WAN registry's PK is the ESSID-shared public_ip
+    // (last-writer-wins), so a fellow occupant who joined a shared AP before a later
+    // joiner is no longer in network_registry — but is still in home_network_occupants
+    // (PK (essid, owner_key)), which carries the same identity fields su needs. One
+    // player on N APs has N rows with the SAME workstation_machine_id, so `.limit(1)`.
+    const findOccupantWorkstationByMachineId = async (machineId: string) => {
+      const { data, error } = await supabase
+        .from('home_network_occupants')
+        .select(
+          'owner_key, workstation_machine_id, essid, workstation_username, workstation_machine_name, workstation_root_hash',
+        )
+        .eq('workstation_machine_id', machineId)
+        .limit(1)
+        .maybeSingle();
+      if (error) console.error('[sessions] su-elevate occupant lookup error:', error);
+      return { data: data as RegistryWorkstation | null, error };
+    };
     const insertSuSession = async (row: SuSessionRow) => {
       const { error } = await supabase.from('sessions').insert(row);
       if (error) console.error('[sessions] su-elevate insert error:', error);
@@ -363,6 +380,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { status, body } = await handleAuthElevateSession(req.body, {
       nonceStore: noopNonceStore,
       findRegistryByMachineId,
+      findOccupantWorkstationByMachineId,
       insertSession: insertSuSession,
       now: () => Date.now(),
       readAuthLog,

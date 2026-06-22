@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { handleRemovePatch, type RemovePatchDeps } from './removePatch';
 import type { ActiveSessionQuery, FindActiveSessionResult } from './authorizeMachineAccess';
 import type {
+  FindOccupantWorkstationByMachineId,
   FindRegistryByMachineId,
   ListMachinePatchesResult,
   RegistryWorkstation,
@@ -64,6 +65,7 @@ const makeDeps = (
     readonly activeSession?: FindActiveSessionResult;
     readonly machinePatches?: ListMachinePatchesResult;
     readonly registry?: RegistryMachine | null;
+    readonly occupant?: RegistryWorkstation | null;
   } = {},
 ) => {
   const deletePatchTree = vi.fn<RemovePatchDeps['deletePatchTree']>(async () => ({
@@ -87,11 +89,20 @@ const makeDeps = (
     data: over.registry ?? null,
     error: null,
   }));
+  // Default: not a same-LAN occupant either (a registry miss fails closed); the
+  // shared-AP-eviction test overrides this with A's occupancy row.
+  const findOccupantWorkstationByMachineId = vi.fn<FindOccupantWorkstationByMachineId>(
+    async () => ({
+      data: over.occupant ?? null,
+      error: null,
+    }),
+  );
   const deps: RemovePatchDeps = {
     nonceStore: over.nonceStore ?? freshStore,
     findActiveSession,
     listMachinePatches,
     findRegistryByMachineId,
+    findOccupantWorkstationByMachineId,
     deletePatchTree,
     upsertPatch,
   };
@@ -102,6 +113,7 @@ const makeDeps = (
     findActiveSession,
     listMachinePatches,
     findRegistryByMachineId,
+    findOccupantWorkstationByMachineId,
   };
 };
 
@@ -364,6 +376,32 @@ describe('handleRemovePatch', () => {
       player_key: visitor.publicKeyHex,
       machine_id: machineId,
     });
+  });
+
+  it("tombstones via the OCCUPANCY fallback when the registry has no row — a root rm of A's /boot bricks a same-LAN occupant evicted from the registry", async () => {
+    const visitor = generateIdentity();
+    const { machineId, registry } = registeredWorkstation();
+    // B is root on A (same-LAN su) and deletes A's kernel. A's row was evicted from
+    // network_registry by a later same-ESSID joiner, so the write path resolves A's box
+    // from the occupancy fallback — without it the brick would falsely 403.
+    const envelope = signRequest(visitor, 'removePatch', {
+      machine_id: machineId,
+      path: '/boot/vmlinuz',
+      owner: 'root',
+    });
+    const { deps, upsertPatch, findOccupantWorkstationByMachineId } = makeDeps({
+      activeSession: remoteSession('root'),
+      registry: null,
+      occupant: registry,
+    });
+
+    const result = await handleRemovePatch(envelope, deps);
+
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    const row = upsertPatch.mock.calls[0]![0];
+    expect(row.content).toBeNull();
+    expect(row.path).toBe('/boot/vmlinuz');
+    expect(findOccupantWorkstationByMachineId).toHaveBeenCalledWith(machineId);
   });
 
   it('denies a guest cross-player rm of a root-owned file on a foreign workstation (403, no tombstone)', async () => {
