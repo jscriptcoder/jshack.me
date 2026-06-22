@@ -12,7 +12,7 @@ import {
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
 import { hostMachineId } from '../generation/remoteHostId';
-import { computeRouterId } from '../identity/router';
+import { computeInnerGatewayId, computeRouterId } from '../identity/router';
 import { parsePidfilePort } from '../services/pidfile';
 import { bindFlags } from '../shell/bindFlags';
 import { assignHomeNetwork } from '../network/homeNetwork';
@@ -345,6 +345,39 @@ describe('ssh', () => {
       kind: 'ssh',
     });
     expect(onPush.mock.calls[0]![0].machineId).not.toBe(hostMachineId(gateway, ESSID));
+  });
+
+  it('routes ssh to the INNER GATEWAY to its own router id — root session on computeInnerGatewayId, reachable on :22', async () => {
+    const inner = generateHomeLan(PUBKEY, ESSID).hosts.find(
+      (host) => host.kind === 'router' && Number(host.ip.split('.')[3]) !== 1,
+    );
+    if (inner === undefined) throw new Error('no inner gateway on LAN');
+    const octet = Number(inner.ip.split('.')[3]);
+    const authenticate = vi.fn<(params: RemoteAuthParams) => Promise<RemoteAuthResult>>(async () => ({
+      ok: true,
+      userType: 'root',
+    }));
+    const onPush = vi.fn<(session: Session) => void>();
+
+    const result = sync(
+      await ssh.execute(sshEnv({ authenticate, onPush }), [`root@${inner.ip}`], new Map()),
+    );
+
+    // Reachable on :22 (the inner gateway's own sshd) — auth proceeds.
+    expect(result.exitCode).toBe(0);
+    expect(authenticate.mock.calls[0]![0]).toMatchObject({
+      essid: ESSID,
+      targetIp: inner.ip,
+      username: 'root',
+    });
+    // The hop lands on the INNER GATEWAY's distinct id — never the edge router's
+    // (would alias) nor a coordinate sibling id.
+    expect(onPush.mock.calls[0]![0]).toMatchObject({
+      machineId: computeInnerGatewayId(PUBKEY, octet),
+      kind: 'ssh',
+    });
+    expect(onPush.mock.calls[0]![0].machineId).not.toBe(computeRouterId(PUBKEY));
+    expect(onPush.mock.calls[0]![0].machineId).not.toBe(hostMachineId(inner, ESSID));
   });
 
   it('reports Permission denied and pushes no session on bad credentials', async () => {

@@ -210,3 +210,21 @@ export const buildRouterBaseFs = (ownerKeyHex: string): Directory =>
     adminPwHash: md5(seedRouterAdminPw(ownerKeyHex)),
     hasSsh: seedRouterHasSsh(ownerKeyHex),
   });
+
+/** The inner gateway root ("admin") password, seeded from the owner key AND the
+ *  gateway's LAN octet (the `inner-gw-admin-` namespace — SEPARATE from the edge
+ *  router's `router-admin-`, so the two routers never share a credential). Weak by
+ *  design (pool member) for the future cracker; the server recovers it by
+ *  regenerating the owner's LAN, which fixes the octet. */
+export const seedInnerGatewayAdminPw = (ownerKeyHex: string, octet: number): string =>
+  createPrng(`inner-gw-admin-${ownerKeyHex}:${octet}`).pick(ROUTER_ADMIN_PASSWORDS);
+
+/** Build an inner gateway's base FS — the same root-only router toolkit as the edge
+ *  (`buildRouterBaseFsFromIdentity`), but the admin password is the octet-seeded
+ *  inner credential (never the edge's) and `sshd` is always up: an inner gateway is
+ *  a reachable target by design. */
+export const buildInnerGatewayBaseFs = (ownerKeyHex: string, octet: number): Directory =>
+  buildRouterBaseFsFromIdentity({
+    adminPwHash: md5(seedInnerGatewayAdminPw(ownerKeyHex, octet)),
+    hasSsh: true,
+  });

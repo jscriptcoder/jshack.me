@@ -26,10 +26,7 @@ import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { buildRemoteHostFs } from '../generation/remoteHostFs';
-import { buildRouterBaseFs } from '../generation/routerFs';
-import { hostMachineId } from '../generation/remoteHostId';
-import { computeRouterId } from '../identity/router';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { assignHomeNetwork } from '../network/homeNetwork';
 import {
   parseScanTarget,
@@ -124,20 +121,13 @@ const logHostScan = async (
   context: ScanContext,
   host: LanHost,
 ): Promise<void> => {
-  // The `.1` gateway is the player's OWN ROUTER — a journal-backed box reached at
-  // run time via `ssh root@.1` → `computeRouterId`, with its real services in the
-  // router base FS. Both its trace TARGET (machine id) and its PORT list must come
-  // from the router, not the generic coordinate path: its `hostMachineId` is a
-  // dead-end nobody reads, and its `buildRemoteHostFs` ports are unrelated to the
-  // sshd the scanner actually sees (so a generic read would log "ports none" for a
-  // router visibly running ssh). A generic NPC sibling keeps the coordinate path
-  // (the owner never logs into it). Mirrors `ssh.ts`'s own-router branch. The writer
-  // stays the caller, who is the owner on this own-LAN path — still owner-keyed.
-  const isRouter = host.kind === 'router';
-  const hostFs = isRouter
-    ? buildRouterBaseFs(context.publicKey)
-    : buildRemoteHostFs(context.publicKey, context.essid, host);
-  const machineId = isRouter ? computeRouterId(context.publicKey) : hostMachineId(host, context.essid);
+  // The shared resolver maps the host to the SAME machine id + base FS that ssh/auth
+  // use, so the scan trace lands where `ssh root@<host>` resolves: the edge router
+  // and an inner gateway log on their real router record + real ports (their
+  // `hostMachineId` is a dead-end nobody reads, and the generic FS would log "ports
+  // none" for a box visibly running ssh); a generic NPC sibling keeps its coordinate
+  // path. The writer stays the caller, who is the owner on this own-LAN path.
+  const { machineId, baseFs: hostFs } = resolveLanHostIdentity(host, context.publicKey, context.essid);
   const ports = readOpenPorts(hostFs);
   const line = formatNmapScanAggregate({
     time: asGameTime(context.time),
