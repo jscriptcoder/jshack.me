@@ -595,7 +595,7 @@ export const startGame = (gameConfig: GameConfig): void => {
   const cold = buildColdStartConnectivity(identity.publicKeyHex);
   const wifi = generateWifi(identity.publicKeyHex);
   setWifiNetworks(wifi);
-  setConnectivity(restoreConnection(localStorage, cold, wifi, identity.publicKeyHex));
+  setConnectivity(restoreConnection(localStorage, cold, identity.publicKeyHex));
 
   patchClientDeps = {
     identity,

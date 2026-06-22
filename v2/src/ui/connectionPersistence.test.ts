@@ -6,7 +6,7 @@ import {
   type WirelessInterface,
 } from '../core/network/interfaces';
 import { assignHomeNetwork } from '../core/network/homeNetwork';
-import type { WifiNetwork } from '../core/network/wifi';
+import { bssidFromEssid } from '../core/network/wifi';
 import { CONNECTED_ESSID_KEY, persistConnection, restoreConnection } from './connectionPersistence';
 
 /**
@@ -41,17 +41,6 @@ const wlan0Of = (state: ConnectivityState): WirelessInterface => {
   if (iface === undefined || iface.kind !== 'wireless') throw new Error('unreachable');
   return iface;
 };
-
-const crackableNet = (overrides: Partial<WifiNetwork> = {}): WifiNetwork => ({
-  bssid: 'AA:BB:CC:DD:EE:01',
-  essid: 'BEAN-THERE-WIFI',
-  power: -45,
-  channel: 6,
-  encryption: 'WPA2',
-  crackable: true,
-  password: 'sunshine2024',
-  ...overrides,
-});
 
 describe('persistConnection', () => {
   it('stores the ESSID when wlan0 is associated', () => {
@@ -89,17 +78,21 @@ describe('persistConnection', () => {
 });
 
 describe('restoreConnection', () => {
-  it('rehydrates wlan0 from a stored ESSID, re-deriving the IP through the join seam', () => {
+  it('rehydrates wlan0 from a stored ESSID, re-deriving the BSSID and IP from the ESSID', () => {
     const storage = fakeStorage();
     storage.setItem(CONNECTED_ESSID_KEY, 'BEAN-THERE-WIFI');
     const cold = buildColdStartConnectivity(PUBKEY);
-    const wifi = [crackableNet()];
 
-    const restored = restoreConnection(storage, cold, wifi, PUBKEY);
+    const restored = restoreConnection(storage, cold, PUBKEY);
 
     const wlan0 = wlan0Of(restored);
-    expect(wlan0.association).toEqual({ essid: 'BEAN-THERE-WIFI', bssid: 'AA:BB:CC:DD:EE:01' });
-    // The IP is re-derived deterministically — identical to a fresh join.
+    // Both halves of the association are re-derived from the ESSID alone — the
+    // BSSID deterministically (matching what any scan would show), the IP through
+    // the join seam (identical to a fresh join).
+    expect(wlan0.association).toEqual({
+      essid: 'BEAN-THERE-WIFI',
+      bssid: bssidFromEssid('BEAN-THERE-WIFI'),
+    });
     expect(wlan0.ipv4).toBe(assignHomeNetwork(PUBKEY, 'BEAN-THERE-WIFI').localIp);
     expect(isOnline(restored)).toBe(true);
   });
@@ -108,20 +101,28 @@ describe('restoreConnection', () => {
     const storage = fakeStorage();
     const cold = buildColdStartConnectivity(PUBKEY);
 
-    const restored = restoreConnection(storage, cold, [crackableNet()], PUBKEY);
+    const restored = restoreConnection(storage, cold, PUBKEY);
 
     expect(restored).toBe(cold);
     expect(isOnline(restored)).toBe(false);
   });
 
-  it('stays offline when the stored ESSID is no longer in range', () => {
+  it('restores a connected ESSID even when no scan list would contain it', () => {
     const storage = fakeStorage();
     storage.setItem(CONNECTED_ESSID_KEY, 'GONE-WIFI');
     const cold = buildColdStartConnectivity(PUBKEY);
 
-    const restored = restoreConnection(storage, cold, [crackableNet()], PUBKEY);
+    // A re-rolled scan need not contain the connected ESSID; restore re-derives
+    // the BSSID from the ESSID rather than looking it up, so it never drops the
+    // player offline just because the AP isn't in the latest roll.
+    const restored = restoreConnection(storage, cold, PUBKEY);
 
-    expect(restored).toBe(cold);
-    expect(isOnline(restored)).toBe(false);
+    const wlan0 = wlan0Of(restored);
+    expect(wlan0.association).toEqual({
+      essid: 'GONE-WIFI',
+      bssid: bssidFromEssid('GONE-WIFI'),
+    });
+    expect(wlan0.ipv4).toBe(assignHomeNetwork(PUBKEY, 'GONE-WIFI').localIp);
+    expect(isOnline(restored)).toBe(true);
   });
 });

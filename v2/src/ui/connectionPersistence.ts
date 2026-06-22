@@ -14,7 +14,7 @@
 
 import { assignHomeNetwork } from '../core/network/homeNetwork';
 import type { ConnectivityState, NetworkInterface } from '../core/network/interfaces';
-import type { WifiNetwork } from '../core/network/wifi';
+import { bssidFromEssid } from '../core/network/wifi';
 
 export const CONNECTED_ESSID_KEY = 'jshack:connected-essid';
 
@@ -37,29 +37,31 @@ export const persistConnection = (storage: StorageLike, iface: NetworkInterface)
 };
 
 /**
- * Rehydrate the connection on startup. If a connected ESSID is stored and that
- * AP is still in range, re-derive its address through the join seam and return
- * a connectivity state with `wlan0` associated; otherwise return the cold state
- * untouched (offline). The stored ESSID is trusted — the password was already
- * proven when the player originally connected, so no re-validation here.
+ * Rehydrate the connection on startup. If a connected ESSID is stored, re-derive
+ * the whole association from the ESSID alone — the BSSID via `bssidFromEssid` and
+ * the IP via the join seam — and return a connectivity state with `wlan0`
+ * associated; otherwise return the cold state untouched (offline). The stored
+ * ESSID is trusted (the password was proven when the player originally connected),
+ * and restore is deliberately INDEPENDENT of the current scan list: scans re-roll
+ * per `airdump`, so a connected AP need not appear in the latest roll — looking it
+ * up there would drop the player offline on a reload that happened to re-roll past
+ * the connected network.
  */
 export const restoreConnection = (
   storage: StorageLike,
   cold: ConnectivityState,
-  wifi: readonly WifiNetwork[],
   seedPubkeyHex: string,
 ): ConnectivityState => {
   const essid = storage.getItem(CONNECTED_ESSID_KEY);
   if (essid === null) return cold;
 
-  const network = wifi.find((candidate) => candidate.essid === essid);
   const wlan0 = cold.interfaces.get('wlan0');
-  if (network === undefined || wlan0 === undefined || wlan0.kind !== 'wireless') return cold;
+  if (wlan0 === undefined || wlan0.kind !== 'wireless') return cold;
 
   const { localIp } = assignHomeNetwork(seedPubkeyHex, essid);
   const connected: NetworkInterface = {
     ...wlan0,
-    association: { essid, bssid: network.bssid },
+    association: { essid, bssid: bssidFromEssid(essid) },
     ipv4: localIp,
   };
   return { interfaces: new Map(cold.interfaces).set('wlan0', connected) };
