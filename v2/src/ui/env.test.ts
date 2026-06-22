@@ -21,7 +21,7 @@ const noopLog: LogApi = {
 
 const seedHome = homePathFor(SEED_CONFIG.username);
 const seedConnectivity = () => buildColdStartConnectivity('a'.repeat(64));
-const seedWifi = () => generateWifi('a'.repeat(64));
+const seedWifi = () => generateWifi({ seedPubkeyHex: 'a'.repeat(64) });
 
 const seedEnv = (userType: 'guest' | 'user' | 'root' = 'user') =>
   buildCommandEnv({
@@ -35,6 +35,7 @@ const seedEnv = (userType: 'guest' | 'user' | 'root' = 'user') =>
     connectivity: seedConnectivity,
     onInterfaceChange: () => undefined,
     wifiNetworks: seedWifi,
+    rescanWifi: seedWifi,
     prompt: async () => '',
     onPushSession: () => undefined,
     hopChain: [],
@@ -71,6 +72,7 @@ describe('buildCommandEnv', () => {
       connectivity: seedConnectivity,
       onInterfaceChange: () => undefined,
       wifiNetworks: seedWifi,
+    rescanWifi: seedWifi,
       prompt: async () => '',
       onPushSession: () => undefined,
       hopChain: [],
@@ -105,6 +107,7 @@ describe('buildCommandEnv', () => {
       connectivity: seedConnectivity,
       onInterfaceChange: () => undefined,
       wifiNetworks: seedWifi,
+    rescanWifi: seedWifi,
       prompt: async () => '',
       onPushSession: () => undefined,
       hopChain: [],
@@ -133,6 +136,7 @@ describe('buildCommandEnv', () => {
       connectivity: seedConnectivity,
       onInterfaceChange: () => undefined,
       wifiNetworks: seedWifi,
+    rescanWifi: seedWifi,
       prompt: async () => '',
       onPushSession: () => undefined,
       hopChain: [],
@@ -169,6 +173,7 @@ describe('buildCommandEnv', () => {
       connectivity: seedConnectivity,
       onInterfaceChange: () => undefined,
       wifiNetworks: seedWifi,
+    rescanWifi: seedWifi,
       prompt: async () => '',
       onPushSession: () => undefined,
       hopChain: [],
@@ -195,6 +200,7 @@ describe('buildCommandEnv', () => {
       connectivity: seedConnectivity,
       onInterfaceChange: (name, iface) => calls.push([name, iface]),
       wifiNetworks: seedWifi,
+    rescanWifi: seedWifi,
       prompt: async () => '',
       onPushSession: () => undefined,
       hopChain: [],
@@ -226,6 +232,7 @@ describe('buildCommandEnv', () => {
       connectivity: seedConnectivity,
       onInterfaceChange: () => undefined,
       wifiNetworks: seedWifi,
+    rescanWifi: seedWifi,
       prompt: async () => '',
       onPushSession: () => undefined,
       hopChain: [],
@@ -257,6 +264,7 @@ describe('buildCommandEnv', () => {
       connectivity: seedConnectivity,
       onInterfaceChange: () => undefined,
       wifiNetworks: seedWifi,
+    rescanWifi: seedWifi,
       prompt: async () => '',
       onPushSession: () => undefined,
       hopChain: [],

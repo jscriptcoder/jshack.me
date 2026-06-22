@@ -9,6 +9,10 @@ import {
   handleResolveOccupants,
   type OccupantListRow,
 } from '../src/core/network/resolveOccupants';
+import {
+  handleResolveOccupiedEssids,
+  type OccupiedEssidRow,
+} from '../src/core/network/resolveOccupiedEssids';
 import { handleUnregisterOccupant } from '../src/core/network/unregisterOccupant';
 import { handleResolvePublicScan, type RegistryLookup } from '../src/core/scan/resolvePublicScan';
 import {
@@ -266,6 +270,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { status, body } = await handleResolveOccupants(req.body, {
       nonceStore: noopNonceStore,
       listOccupantsByEssid,
+    });
+    res.status(status).json(body);
+    return;
+  }
+
+  if (actionOf(req.body) === 'resolveOccupiedEssids') {
+    // Organic-discovery read (Story 7): any verified identity asks which ESSIDs are
+    // currently occupied, so airdump can inject them for discovery. UNGATED (you learn
+    // a network exists before joining it) and NAME-ONLY — only the essid column is
+    // selected, so no occupant identity crosses the wire. The handler de-duplicates
+    // names (several players can occupy one ESSID).
+    const listAllOccupiedEssids = async () => {
+      const { data, error } = await supabase.from('home_network_occupants').select('essid');
+      if (error) console.error('[network] occupied-essid list error:', error);
+      return { data: data as readonly OccupiedEssidRow[] | null, error };
+    };
+    const { status, body } = await handleResolveOccupiedEssids(req.body, {
+      nonceStore: noopNonceStore,
+      listAllOccupiedEssids,
     });
     res.status(status).json(body);
     return;

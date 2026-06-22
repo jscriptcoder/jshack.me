@@ -20,6 +20,15 @@
  * for two players sharing one access point, Story 7). Hidden APs derive their
  * BSSID from the ORIGINAL essid before the `<hidden>` substitution, else every
  * hidden entry would collide on one BSSID.
+ *
+ * Each scan is a FRESH ROLL, not a once-per-identity fixture: the seed mixes in
+ * a per-scan index, so re-scanning ("relocating") re-draws which subset of APs is
+ * in range. On top of the base catalog draw it can INJECT currently-occupied
+ * ESSIDs (passed in by the caller, read name-only from the occupancy table) as
+ * normal crackable APs — that is how a stranger stumbles onto another player's
+ * live network and cracks it to the key that actually works. The injected sample
+ * is random and may be empty, so visibility stays chance-based, not guaranteed;
+ * an occupied ESSID the base draw already produced is never doubled.
  */
 
 import { bssidFromEssid, type WifiNetwork } from '../network/wifi';
@@ -166,11 +175,42 @@ type NoiseReason = 'wpa3' | 'weak-signal' | 'hidden';
 
 const noiseReasons: readonly NoiseReason[] = ['wpa3', 'weak-signal', 'hidden'];
 
-export const generateWifi = (seedPubkeyHex: string): readonly WifiNetwork[] => {
-  const prng = createPrng(`wifi-${seedPubkeyHex}`);
+/** At most this many occupied ESSIDs surface in any single scan — keeps an
+ *  injected list realistic and bounds the per-scan reveal. */
+const INJECT_MAX = 3;
+
+export type GenerateWifiInput = {
+  /** The player's identity pubkey — the per-identity half of the scan seed. */
+  readonly seedPubkeyHex: string;
+  /** Which scan this is (0, 1, 2, …) — the per-scan half of the seed, so
+   *  re-scanning re-rolls. Defaults to the first scan. */
+  readonly scanIndex?: number;
+  /** ESSIDs other players currently occupy (name-only). A random subset is
+   *  injected as crackable APs so a stranger can discover a live network.
+   *  Defaults to none (a plain own-LAN scan). */
+  readonly occupiedEssids?: readonly string[];
+};
+
+export const generateWifi = ({
+  seedPubkeyHex,
+  scanIndex = 0,
+  occupiedEssids = [],
+}: GenerateWifiInput): readonly WifiNetwork[] => {
+  const prng = createPrng(`wifi-${seedPubkeyHex}-${scanIndex}`);
 
   const crackableCount = prng.nextInt(2, 3);
   const pickedEssids = prng.pickN(crackableEssidPool, crackableCount);
+
+  // Inject a random subset of currently-occupied ESSIDs, deduped against the base
+  // draw so an already-shown network is never doubled. An empty injectable set
+  // takes NO prng draw, so a plain scan stays byte-identical to the base roll.
+  const injectableEssids = occupiedEssids.filter((essid) => !pickedEssids.includes(essid));
+  const injectCount =
+    injectableEssids.length === 0
+      ? 0
+      : prng.nextInt(0, Math.min(injectableEssids.length, INJECT_MAX));
+  const injectedEssids = prng.pickN(injectableEssids, injectCount);
+  const allCrackableEssids = [...pickedEssids, ...injectedEssids];
 
   const usedChannels = new Set<number>();
   const pickChannel = (): number => {
@@ -180,7 +220,7 @@ export const generateWifi = (seedPubkeyHex: string): readonly WifiNetwork[] => {
     return channel;
   };
 
-  const crackable: readonly WifiNetwork[] = pickedEssids.map((essid) => ({
+  const crackable: readonly WifiNetwork[] = allCrackableEssids.map((essid) => ({
     bssid: bssidFromEssid(essid),
     essid,
     power: prng.nextInt(-65, -35),

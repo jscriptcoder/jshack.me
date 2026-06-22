@@ -113,6 +113,28 @@ export const resolveOccupants = async (
   }
 };
 
+/**
+ * Fetch the ESSID names anyone currently occupies for organic discovery (backs
+ * `env.scan.resolveOccupiedEssids`). Global and name-only — no occupant identity
+ * crosses the wire. Additive by design: it degrades to an EMPTY list on any
+ * non-ok / malformed / thrown response, so a server hiccup simply means a scan
+ * with nothing to discover, never a crash.
+ */
+export const resolveOccupiedEssids = async (
+  deps: NetworkClientDeps,
+): Promise<readonly string[]> => {
+  try {
+    const response = await post(deps, 'resolveOccupiedEssids', {});
+    if (!response.ok) return [];
+    const body: unknown = await response.json();
+    const resolved = body as { readonly ok?: boolean; readonly essids?: readonly string[] };
+    if (resolved.ok !== true) return [];
+    return resolved.essids ?? [];
+  } catch {
+    return [];
+  }
+};
+
 export const resolvePublic = async (
   deps: NetworkClientDeps,
   target: string,

@@ -80,6 +80,7 @@ export const mockNetworkView = (overrides: Partial<NetworkView> = {}): NetworkVi
   interfaces: () => [],
   isOnline: () => false,
   wifiNetworks: () => [],
+  rescanWifi: () => [],
   ...overrides,
 });
 
@@ -138,6 +139,8 @@ export const mockScanApi = (overrides: Partial<ScanApi> = {}): ScanApi => ({
   // Additive read: defaults to no fellow occupants so own-LAN nmap tests are unaffected;
   // occupant-merge tests override it to merge a real occupant.
   resolveOccupants: async () => [],
+  // Additive read: defaults to no occupied ESSIDs so a plain scan injects nothing.
+  resolveOccupiedEssids: async () => [],
   ...overrides,
 });
 

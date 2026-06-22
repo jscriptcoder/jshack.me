@@ -80,6 +80,7 @@ import {
   leaveHomeNetwork,
   resolveCrossPlayerFs,
   resolveOccupants,
+  resolveOccupiedEssids,
   resolvePublic,
   type NetworkClientDeps,
 } from '../adapters/networkApi';
@@ -145,10 +146,28 @@ const CROSS_PLAYER_LOADING_ROOT: Directory = {
 const [connectivity, setConnectivity] = createSignal<ConnectivityState>({
   interfaces: new Map(),
 });
-// The WiFi access points in range. Seeded ONCE per identity at `startGame`
-// (deterministic, like the workstation FS); read by airdump/aircrack. Empty
-// until the game starts.
+// The WiFi access points in range — the latest scan roll. Seeded at `startGame`,
+// then refreshed by every `airdump` (a fresh roll, "relocating"); read afterwards
+// by aircrack/nmcli. Empty until the game starts.
 const [wifiNetworks, setWifiNetworks] = createSignal<readonly WifiNetwork[]>([]);
+// The per-scan counter — the varying half of the roll seed, so consecutive scans
+// differ. Bumped on every `rescanWifi`.
+const [wifiScanIndex, setWifiScanIndex] = createSignal(0);
+
+/** Re-roll the WiFi scan (backs `env.network.rescanWifi`): bump the scan index for
+ *  a fresh draw, inject the currently-occupied ESSIDs for organic discovery, store
+ *  the roll so aircrack/nmcli read what airdump just showed, and return it. */
+const rescanWifi = (occupiedEssids: readonly string[]): readonly WifiNetwork[] => {
+  const scanIndex = wifiScanIndex() + 1;
+  setWifiScanIndex(scanIndex);
+  const roll = generateWifi({
+    seedPubkeyHex: requireIdentity().publicKeyHex,
+    scanIndex,
+    occupiedEssids,
+  });
+  setWifiNetworks(roll);
+  return roll;
+};
 
 /** Replace one interface in the connectivity signal (read-modify-write of a
  *  single Map entry). Backs `env.setInterface`, which airmon/nmcli call. A
@@ -305,6 +324,12 @@ const resolveOccupantsFn = (essid: string): Promise<readonly OccupantProjection[
   networkClientDeps === undefined
     ? Promise.resolve([])
     : resolveOccupants(networkClientDeps, essid);
+
+/** Fetch the ESSID names anyone currently occupies (backs `env.scan.resolveOccupiedEssids`).
+ *  Additive — an empty list (before the network client is wired, or the server is down)
+ *  just means a scan with nothing to discover, never a failure. */
+const resolveOccupiedEssidsFn = (): Promise<readonly string[]> =>
+  networkClientDeps === undefined ? Promise.resolve([]) : resolveOccupiedEssids(networkClientDeps);
 
 /** Join a home network (backs `env.homeNetwork.join`): register it server-side so
  *  other identities can resolve it, then return the assignment. Falls back to the
@@ -593,7 +618,7 @@ export const startGame = (gameConfig: GameConfig): void => {
   // ESSID (from a prior nmcli connect) re-derives its address through the join
   // seam so the player comes back online on reload without re-cracking.
   const cold = buildColdStartConnectivity(identity.publicKeyHex);
-  const wifi = generateWifi(identity.publicKeyHex);
+  const wifi = generateWifi({ seedPubkeyHex: identity.publicKeyHex });
   setWifiNetworks(wifi);
   setConnectivity(restoreConnection(localStorage, cold, identity.publicKeyHex));
 
@@ -776,6 +801,7 @@ const executeLine = async (line: string): Promise<void> => {
     connectivity,
     onInterfaceChange: setInterface,
     wifiNetworks,
+    rescanWifi,
     signal: controller.signal,
     prompt: requestPrompt,
     onPushSession: pushSession,
@@ -786,6 +812,7 @@ const executeLine = async (line: string): Promise<void> => {
     onScanRecord: recordScanFn,
     onScanResolvePublic: resolvePublicFn,
     onScanResolveOccupants: resolveOccupantsFn,
+    onScanResolveOccupiedEssids: resolveOccupiedEssidsFn,
     onHomeNetworkJoin: joinHomeNetworkFn,
     onHomeNetworkLeave: leaveHomeNetworkFn,
     // The sessions below the active one — what `exit` consults to decide

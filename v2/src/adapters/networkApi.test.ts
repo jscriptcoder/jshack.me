@@ -5,6 +5,7 @@ import {
   leaveHomeNetwork,
   resolveCrossPlayerFs,
   resolveOccupants,
+  resolveOccupiedEssids,
   resolvePublic,
   type NetworkClientDeps,
 } from './networkApi';
@@ -291,6 +292,58 @@ describe('resolveOccupants', () => {
     );
 
     expect(await resolveOccupants(deps, ESSID)).toEqual([]);
+  });
+});
+
+describe('resolveOccupiedEssids', () => {
+  const ESSIDS = ['STARK-WIFI', 'NAKATOMI-PLAZA'];
+
+  it('signs a resolveOccupiedEssids request and returns the served names', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, essids: ESSIDS }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    const result = await resolveOccupiedEssids(deps);
+
+    expect(result).toEqual(ESSIDS);
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected verified envelope');
+    expect(verified.payload).toMatchObject({ action: 'resolveOccupiedEssids' });
+  });
+
+  it('degrades to an empty list on a non-ok response even when its body lists names', async () => {
+    // Adversarial: a 500 must short-circuit before the body is trusted, so a forged
+    // name list on an error status is never injected into the scan.
+    const deps = makeDeps(
+      vi.fn(async () => jsonResponse(500, { ok: true, essids: ESSIDS })) as unknown as typeof fetch,
+    );
+
+    expect(await resolveOccupiedEssids(deps)).toEqual([]);
+  });
+
+  it('degrades to an empty list when the body does not confirm ok', async () => {
+    const deps = makeDeps(
+      vi.fn(async () => jsonResponse(200, { ok: false, essids: ESSIDS })) as unknown as typeof fetch,
+    );
+
+    expect(await resolveOccupiedEssids(deps)).toEqual([]);
+  });
+
+  it('degrades to an empty list when the response omits the names', async () => {
+    const deps = makeDeps(
+      vi.fn(async () => jsonResponse(200, { ok: true })) as unknown as typeof fetch,
+    );
+
+    expect(await resolveOccupiedEssids(deps)).toEqual([]);
+  });
+
+  it('degrades to an empty list on a thrown fetch (offline)', async () => {
+    const deps = makeDeps(
+      vi.fn(async () => {
+        throw new Error('offline');
+      }) as unknown as typeof fetch,
+    );
+
+    expect(await resolveOccupiedEssids(deps)).toEqual([]);
   });
 });
 

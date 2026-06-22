@@ -6,6 +6,11 @@
  * streams the in-range APs as an airodump-ng-style table, one row at a time, so
  * the scan feels live. It reads the seeded AP list off `env.network`.
  *
+ * Each run is a FRESH scan: it asks the server which ESSIDs are currently
+ * occupied (name-only) and re-rolls the in-range list with them injected, so a
+ * live network another player is on can surface for discovery ("relocating").
+ * The refreshed list is what `aircrack`/`nmcli` then act on.
+ *
  * Two hard rules: it runs only on the player's own workstation, and it NEVER
  * prints a password — even though crackable APs carry one in the runtime model.
  * Revealing a key is `aircrack`'s job alone.
@@ -81,7 +86,11 @@ const execute: Command['execute'] = async (env) => {
     return error('airdump: monitor mode not enabled — run airmon start wlan0 first');
   }
 
-  const networks = env.network.wifiNetworks();
+  // Fresh roll each scan, with currently-occupied ESSIDs injected for organic
+  // discovery. The fetch is additive (it degrades to no occupants), and the roll
+  // is what aircrack/nmcli will read afterwards.
+  const occupiedEssids = await env.scan.resolveOccupiedEssids();
+  const networks = env.network.rescanWifi(occupiedEssids);
   return { kind: 'async', lines: scan(env, networks), exitCode: async () => 0 };
 };
 
