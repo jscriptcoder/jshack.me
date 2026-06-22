@@ -29,3 +29,14 @@ export const computeRouterId = (playerKeyHex: string): string =>
  *  holding this id grants no L1 bypass: the router is always session-gated. */
 export const isOwnRouter = (machineId: string, playerKeyHex: string): boolean =>
   machineId === computeRouterId(playerKeyHex);
+
+/** The machine_id for a deeper-layer gateway hanging off the player's OWN LAN — a
+ *  router the player owns, but which must NOT alias the edge router. It derives
+ *  from a SEPARATE (`ed25519-inner-gw:`) namespace keyed by BOTH the owner key and
+ *  the gateway's LAN octet: the octet-less edge router (`computeRouterId`) and a
+ *  second inner gateway at another octet therefore each get an independent suffix,
+ *  and an NPC sibling that happens to share the octet (the coordinate `host:`
+ *  namespace) can never collide either. Like the edge router, the server recovers
+ *  this id by regenerating the owner's LAN, which fixes the octet. */
+export const computeInnerGatewayId = (playerKeyHex: string, octet: number): string =>
+  `inner-gw-${deriveHostnameSuffix(`ed25519-inner-gw:${playerKeyHex}:${octet}`)}`;

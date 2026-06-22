@@ -6,7 +6,8 @@ import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
 import { buildRouterBaseFs, seedRouterHostname } from '../generation/routerFs';
 import { hostMachineId } from '../generation/remoteHostId';
-import { computeRouterId } from '../identity/router';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
+import { computeInnerGatewayId, computeRouterId } from '../identity/router';
 import { assignHomeNetwork } from '../network/homeNetwork';
 import { materializeWorkstationFs, type OwnerPatchRow } from '../network/materializeWorkstationFs';
 import { readOpenPorts } from '../services/pidfile';
@@ -84,17 +85,21 @@ const loggedHostsOf = (pubkey: string): readonly LanHost[] => {
 const firstSiblingOf = (pubkey: string): LanHost =>
   loggedHostsOf(pubkey).find((host) => host.kind === 'machine')!;
 
-/** The `.1` gateway host (the only `kind:'router'` host on the LAN). */
+/** The `.1` edge gateway host (the first `kind:'router'` host in octet order). */
 const gatewayOf = (pubkey: string): LanHost =>
   generateHomeLan(pubkey, ESSID).hosts.find((host) => host.kind === 'router')!;
 
-// The ports the server logs for a host, mirroring production's FS choice: the `.1`
-// router's OWN services come from its real base FS; every NPC sibling reads its
-// generic coordinate FS.
+/** The inner gateway — a SECOND router on the LAN, at a non-.1 octet. */
+const innerGatewayOf = (pubkey: string): LanHost =>
+  generateHomeLan(pubkey, ESSID).hosts.find(
+    (host) => host.kind === 'router' && Number(host.ip.split('.')[3]) !== 1,
+  )!;
+
+// The ports the server logs for a host, mirroring production's FS choice via the
+// shared resolver: the edge router and inner gateway read their real router base
+// FS; every NPC sibling reads its generic coordinate FS.
 const portsOf = (pubkey: string, host: LanHost): readonly number[] =>
-  readOpenPorts(
-    host.kind === 'router' ? buildRouterBaseFs(pubkey) : buildRemoteHostFs(pubkey, ESSID, host),
-  ).map((port) => port.port);
+  readOpenPorts(resolveLanHostIdentity(host, pubkey, ESSID).baseFs).map((port) => port.port);
 
 /** The kern.log line the server should stamp for a scan of `host` at FIXED_NOW. */
 const expectedKernLine = (pubkey: string, host: LanHost): string =>
@@ -139,10 +144,9 @@ describe('handleNmapScan', () => {
     expect(result).toEqual({ status: 200, body: { ok: true, hostsLogged: logged.length } });
     expect(upsertPatch).toHaveBeenCalledTimes(logged.length);
     logged.forEach((host, index) => {
-      // The `.1` gateway logs on the REAL router record (the one `ssh root@.1`
-      // resolves to); a generic NPC sibling logs on its coordinate id (Story 6.4).
-      const expectedMachineId =
-        host.kind === 'router' ? computeRouterId(id.publicKeyHex) : hostMachineId(host, ESSID);
+      // Each host logs on the id the shared resolver picks: the edge router, an
+      // inner gateway, or a generic NPC sibling's coordinate id.
+      const expectedMachineId = resolveLanHostIdentity(host, id.publicKeyHex, ESSID).machineId;
       expect(upsertPatch.mock.calls[index]![0]).toEqual({
         writer_key: id.publicKeyHex,
         machine_id: expectedMachineId,
@@ -349,6 +353,24 @@ describe('handleNmapScan — own-LAN .1 scan → real router record (Story 6.4)'
 
     expect(upsertPatch).toHaveBeenCalledTimes(1);
     expect(upsertPatch.mock.calls[0]![0].machine_id).toBe(hostMachineId(sibling, ESSID));
+  });
+
+  it('logs the inner gateway scan on computeInnerGatewayId(caller), distinct from the edge router id', async () => {
+    const id = generateIdentity();
+    const inner = innerGatewayOf(id.publicKeyHex);
+    const octet = Number(inner.ip.split('.')[3]);
+    const { deps, upsertPatch } = makeDeps();
+
+    await handleNmapScan(envelope(id, inner.ip), deps);
+
+    const innerId = computeInnerGatewayId(id.publicKeyHex, octet);
+    // The trace lands on the inner gateway's OWN id — never the edge router's
+    // (would alias) nor its dead-end coordinate record — listing its own sshd:22.
+    expect(innerId).not.toBe(computeRouterId(id.publicKeyHex));
+    expect(innerId).not.toBe(hostMachineId(inner, ESSID));
+    expect(upsertPatch).toHaveBeenCalledTimes(1);
+    expect(upsertPatch.mock.calls[0]![0].machine_id).toBe(innerId);
+    expect(upsertPatch.mock.calls[0]![0].content).toBe(`${expectedKernLine(id.publicKeyHex, inner)}\n`);
   });
 
   it('logs the router scan with the router real ports (sshd:22), not the dead generic host FS', async () => {

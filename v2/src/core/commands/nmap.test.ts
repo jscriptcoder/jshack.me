@@ -127,8 +127,9 @@ describe('nmap', () => {
   });
 
   // The LAN scanned for these tests (assignHomeNetwork golden for PUBKEY +
-  // BEAN-THERE-WIFI): subnet 192.168.29 (ESSID-seeded), hosts at .1 (gateway/router),
-  // .25, .70, .188 (self), .209, .245 — every other octet is empty.
+  // BEAN-THERE-WIFI): subnet 192.168.29 (ESSID-seeded), hosts at .1 (edge gateway,
+  // router), .25 (inner gateway, also a router), .30, .70, .188 (self), .209, .245 —
+  // every other octet is empty.
 
   it('scanning the whole range lists every host on the LAN', async () => {
     const { text, exitCode } = await drain(
@@ -147,22 +148,25 @@ describe('nmap', () => {
   it('a range lists only the hosts whose last octet falls inside it', async () => {
     const { text } = await drain(await nmap.execute(onlineEnv(), ['192.168.29.20-80'], new Map()));
 
-    // .25 and .70 are inside [20, 80]; .1, .154, .209, .245 are not.
+    // .25, .30 and .70 are inside [20, 80]; .1, .188, .209, .245 are not.
     expect(text).toContain('192.168.29.25');
+    expect(text).toContain('192.168.29.30');
     expect(text).toContain('192.168.29.70');
     expect(text).not.toContain('192.168.29.1 '); // gateway (.1) excluded
     expect(text).not.toContain('192.168.29.188');
     expect(text).not.toContain('192.168.29.209');
-    expect(text).toContain('2 hosts up');
+    expect(text).toContain('3 hosts up');
   });
 
   it('includes hosts sitting exactly on the range boundaries', async () => {
-    // .25 == start and .70 == end must both be included (inclusive bounds).
+    // .25 == start and .70 == end must both be included (inclusive bounds); .30
+    // sits between them.
     const { text } = await drain(await nmap.execute(onlineEnv(), ['192.168.29.25-70'], new Map()));
 
     expect(text).toContain('192.168.29.25');
+    expect(text).toContain('192.168.29.30');
     expect(text).toContain('192.168.29.70');
-    expect(text).toContain('2 hosts up');
+    expect(text).toContain('3 hosts up');
   });
 
   it('includes the gateway when the range covers .1', async () => {
@@ -170,9 +174,10 @@ describe('nmap', () => {
 
     expect(text).toContain('192.168.29.1');
     expect(text).toContain('router');
-    expect(text).toContain('192.168.29.25');
+    expect(text).toContain('192.168.29.25'); // inner gateway
+    expect(text).toContain('192.168.29.30');
     expect(text).not.toContain('192.168.29.70');
-    expect(text).toContain('2 hosts up');
+    expect(text).toContain('3 hosts up');
   });
 
   it('reports zero hosts for a valid range with nothing in it', async () => {
@@ -233,12 +238,12 @@ describe('nmap', () => {
 
   it('reports a single host that is up', async () => {
     const { text, exitCode } = await drain(
-      await nmap.execute(onlineEnv(), ['192.168.29.25'], new Map()),
+      await nmap.execute(onlineEnv(), ['192.168.29.70'], new Map()),
     );
 
     expect(exitCode).toBe(0);
-    expect(text).toContain('Starting Nmap scan — 192.168.29.25');
-    expect(text).toContain('Nmap scan report for desktop-25 (192.168.29.25)');
+    expect(text).toContain('Starting Nmap scan — 192.168.29.70');
+    expect(text).toContain('Nmap scan report for workstation-70 (192.168.29.70)');
     expect(text).toContain('Host is up.');
     expect(text).toContain('1 host up');
   });
@@ -246,12 +251,12 @@ describe('nmap', () => {
   it('accepts an A-A range, scanning the single octet it covers', async () => {
     // start === end must be a valid range (legacy allows it), not a usage error.
     const { text, exitCode } = await drain(
-      await nmap.execute(onlineEnv(), ['192.168.29.25-25'], new Map()),
+      await nmap.execute(onlineEnv(), ['192.168.29.70-70'], new Map()),
     );
 
     expect(exitCode).toBe(0);
-    expect(text).toContain('192.168.29.25');
-    expect(text).toContain('desktop-25');
+    expect(text).toContain('192.168.29.70');
+    expect(text).toContain('workstation-70');
     expect(text).toContain('1 hosts up');
   });
 
@@ -268,13 +273,13 @@ describe('nmap', () => {
 
   it('reports a single host that is down when no host sits on that octet', async () => {
     const { text, exitCode } = await drain(
-      await nmap.execute(onlineEnv(), ['192.168.29.30'], new Map()),
+      await nmap.execute(onlineEnv(), ['192.168.29.50'], new Map()),
     );
 
     expect(exitCode).toBe(0);
     expect(text).toContain('Host seems down.');
     expect(text).toContain('0 hosts up');
-    expect(text).not.toContain('desktop-25');
+    expect(text).not.toContain('Host is up.');
   });
 
   it('rejects a single IP whose octet exceeds 254', async () => {

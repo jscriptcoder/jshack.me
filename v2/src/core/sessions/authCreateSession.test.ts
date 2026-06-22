@@ -8,9 +8,9 @@ import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { buildRemoteHostFs, WEAK_PASSWORDS } from '../generation/remoteHostFs';
-import { seedRouterAdminPw } from '../generation/routerFs';
+import { seedInnerGatewayAdminPw, seedRouterAdminPw } from '../generation/routerFs';
 import { hostMachineId } from '../generation/remoteHostId';
-import { computeRouterId } from '../identity/router';
+import { computeInnerGatewayId, computeRouterId } from '../identity/router';
 import { md5 } from '../generation/md5';
 import { asGameTime } from '../types';
 import { AUTH_LOG_PATH, formatSshdAuthLine } from '../logging/authLog';
@@ -83,11 +83,21 @@ const targetHostFor = (pubkey: string): LanHost => {
   return machine;
 };
 
-/** The `.1` gateway (the player's own router) on the signer's LAN. */
+/** The `.1` gateway (the player's own router) on the signer's LAN. The first
+ *  router in octet order is always the edge gateway at .1. */
 const routerHostFor = (pubkey: string): LanHost => {
   const router = generateHomeLan(pubkey, ESSID).hosts.find((host) => host.kind === 'router');
   if (router === undefined) throw new Error('no router host on LAN');
   return router;
+};
+
+/** The inner gateway — a SECOND router on the signer's LAN, at a non-.1 octet. */
+const innerGatewayHostFor = (pubkey: string): LanHost => {
+  const inner = generateHomeLan(pubkey, ESSID).hosts.find(
+    (host) => host.kind === 'router' && Number(host.ip.split('.')[3]) !== 1,
+  );
+  if (inner === undefined) throw new Error('no inner gateway on LAN');
+  return inner;
 };
 
 const passwdRows = (fs: Directory): readonly (readonly string[])[] => {
@@ -512,6 +522,49 @@ describe('handleAuthCreateSession', () => {
       id,
       'authCreateSession',
       basePayload({ target_ip: router.ip, username: 'guest', password: wouldBeGuestPw }),
+    );
+    const { deps, insertSession } = makeDeps();
+
+    const result = await handleAuthCreateSession(envelope, deps);
+
+    expect(result).toEqual({ status: 401, body: { error: 'invalid_credentials' } });
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+
+  // The inner gateway is a SECOND router on the own LAN. A login there must validate
+  // against ITS OWN octet-seeded admin pw and land on a machine id DISTINCT from the
+  // edge router — proving the two routers no longer alias.
+  it('logs into the INNER GATEWAY with its own octet-seeded admin pw — root session on a distinct id', async () => {
+    const id = generateIdentity();
+    const inner = innerGatewayHostFor(id.publicKeyHex);
+    const octet = Number(inner.ip.split('.')[3]);
+    const envelope = signRequest(
+      id,
+      'authCreateSession',
+      basePayload({
+        target_ip: inner.ip,
+        username: 'root',
+        password: seedInnerGatewayAdminPw(id.publicKeyHex, octet),
+      }),
+    );
+    const { deps, insertSession } = makeDeps();
+
+    const result = await handleAuthCreateSession(envelope, deps);
+
+    expect(result).toEqual({ status: 200, body: { ok: true, userType: 'root' } });
+    const row = insertSession.mock.calls[0]![0];
+    expect(row.machine_id).toBe(computeInnerGatewayId(id.publicKeyHex, octet));
+    expect(row.machine_id).not.toBe(computeRouterId(id.publicKeyHex));
+    expect(row.credentials).toEqual({ username: 'root', userType: 'root' });
+  });
+
+  it('rejects a wrong admin password on the inner gateway with 401 and never inserts', async () => {
+    const id = generateIdentity();
+    const inner = innerGatewayHostFor(id.publicKeyHex);
+    const envelope = signRequest(
+      id,
+      'authCreateSession',
+      basePayload({ target_ip: inner.ip, username: 'root', password: 'not-the-inner-pw' }),
     );
     const { deps, insertSession } = makeDeps();
 

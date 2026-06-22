@@ -23,10 +23,7 @@ import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { buildRemoteHostFs } from '../generation/remoteHostFs';
-import { buildRouterBaseFs } from '../generation/routerFs';
-import { hostMachineId } from '../generation/remoteHostId';
-import { computeRouterId } from '../identity/router';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { md5 } from '../generation/md5';
 import {
   AUTH_LOG_OWNER,
@@ -151,15 +148,11 @@ export const handleAuthCreateSession = async (
   }
 
   // Validate the credential against the host's real /etc/passwd. Unknown user and
-  // bad password are indistinguishable in the response. The `.1` gateway is the
-  // player's OWN ROUTER — a journal-backed box keyed by `computeRouterId`, with a
-  // root-only passwd seeded from the (verified) owner key; every other host is a
-  // regenerated LAN machine keyed by its coordinate `hostMachineId`.
-  const isRouter = host.kind === 'router';
-  const machineId = isRouter ? computeRouterId(publicKey) : hostMachineId(host, payload.essid);
-  const hostFs = isRouter
-    ? buildRouterBaseFs(publicKey)
-    : buildRemoteHostFs(publicKey, payload.essid, host);
+  // bad password are indistinguishable in the response. The shared resolver maps the
+  // host to its machine id + seeded FS: the edge router (`.1`), an inner gateway, or
+  // a coordinate-seeded sibling — the same mapping the client uses, so the session
+  // lands on the box both agree on.
+  const { machineId, baseFs: hostFs } = resolveLanHostIdentity(host, publicKey, payload.essid);
   const account = accountIn(hostFs, payload.username);
   const passwordOk = account !== null && md5(payload.password) === account.hash;
 

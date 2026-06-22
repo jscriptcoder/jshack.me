@@ -10,7 +10,7 @@
 
 import { createPrng } from './prng';
 import { assignHomeNetwork, DEVICE_TYPES } from '../network/homeNetwork';
-import { seedRouterHostname } from './routerFs';
+import { seedInnerGatewayHostname, seedRouterHostname } from './routerFs';
 import type { Ipv4 } from '../network/interfaces';
 
 export type LanHostKind = 'machine' | 'router';
@@ -51,14 +51,23 @@ export const generateHomeLan = (seedPubkeyHex: string, essid: string): HomeLan =
 
   // Seeded by identity+ESSID like the assignment (own namespace to keep the draw
   // order independent). Usable host octets are 2..254 minus the player's own;
-  // .1 (gateway) is already excluded by starting at 2. `pickN` gives distinct
-  // octets without a rejection loop.
+  // .1 (gateway) is already excluded by starting at 2. A SINGLE `pickN` covers the
+  // inner gateway plus every sibling, so its without-replacement guarantee makes
+  // all of them distinct from each other (and from `.1`/self) with no rejection
+  // loop. The first octet drawn becomes the inner gateway — a second router that
+  // fronts the player's deeper layers — and the rest are ordinary machines.
   const prng = createPrng(`home-lan-${seedPubkeyHex}-${essid}`);
   const count = prng.nextInt(HOST_COUNT_MIN, HOST_COUNT_MAX);
   const usableOctets = Array.from({ length: 253 }, (_, index) => index + 2).filter(
     (octet) => octet !== selfOctet,
   );
-  const siblings: readonly LanHost[] = prng.pickN(usableOctets, count).map(
+  const [gatewayOctet, ...siblingOctets] = prng.pickN(usableOctets, count + 1);
+  const innerGateway: LanHost = {
+    ip: `${subnet}.${gatewayOctet}`,
+    hostname: seedInnerGatewayHostname(seedPubkeyHex, gatewayOctet),
+    kind: 'router',
+  };
+  const siblings: readonly LanHost[] = siblingOctets.map(
     (octet): LanHost => ({
       ip: `${subnet}.${octet}`,
       hostname: `${prng.pick(DEVICE_TYPES)}-${octet}`,
@@ -66,7 +75,7 @@ export const generateHomeLan = (seedPubkeyHex: string, essid: string): HomeLan =
     }),
   );
 
-  const hosts = [gateway, self, ...siblings].sort(
+  const hosts = [gateway, self, innerGateway, ...siblings].sort(
     (left, right) => lastOctet(left) - lastOctet(right),
   );
   return { subnet, hosts };

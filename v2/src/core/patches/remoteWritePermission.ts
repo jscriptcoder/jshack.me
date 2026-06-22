@@ -20,11 +20,9 @@
 
 import { applyPatches, type Patch } from '../filesystem/applyPatches';
 import { createFsView } from '../filesystem/fsView';
-import { buildRemoteHostFs } from '../generation/remoteHostFs';
-import { hostForMachineId } from '../generation/remoteHostId';
+import { ownLanBaseFsForMachineId } from '../generation/lanHostIdentity';
 import { buildWorkstationBaseFsFromIdentity } from '../generation/workstationFs';
 import { buildRouterBaseFs } from '../generation/routerFs';
-import { isOwnRouter } from '../identity/router';
 import { asAbsPath } from '../types';
 import type { Directory } from '../filesystem/types';
 import type { ActiveSession } from './authorizeMachineAccess';
@@ -102,16 +100,13 @@ const resolveTargetBaseFs = async (args: {
   readonly findRegistryByMachineId: FindRegistryByMachineId;
   readonly findOccupantWorkstationByMachineId: FindOccupantWorkstationByMachineId;
 }): Promise<ResolvedBase> => {
-  // The caller's OWN router (a `ssh root@<subnet>.1` hop) is journal-backed but
-  // neither a LAN sibling nor a registered foreign workstation — rebuild its
-  // seeded tree from the caller's own key, the SAME tree the client edits, so the
-  // root-tier `rules.v4` write walks the real router perms.
-  if (isOwnRouter(args.machineId, args.publicKey)) {
-    return { fs: buildRouterBaseFs(args.publicKey), error: null };
-  }
-  const host = hostForMachineId(args.publicKey, args.session.essid, args.machineId);
-  if (host !== null) {
-    return { fs: buildRemoteHostFs(args.publicKey, args.session.essid, host), error: null };
+  // Any host on the caller's OWN LAN — a journal-backed edge router or inner gateway
+  // (a `ssh root@<gateway>` hop), or an NPC sibling — rebuilds from the caller's own
+  // key via the shared resolver, the SAME tree the client edits, so a root-tier
+  // `rules.v4` write walks the real router perms.
+  const ownFs = ownLanBaseFsForMachineId(args.publicKey, args.session.essid, args.machineId);
+  if (ownFs !== null) {
+    return { fs: ownFs, error: null };
   }
   const registry = await args.findRegistryByMachineId(args.machineId);
   if (registry.error) return { fs: null, error: registry.error };

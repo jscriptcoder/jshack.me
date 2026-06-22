@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { Directory, FileNode } from '../filesystem/types';
 import {
+  buildInnerGatewayBaseFs,
   buildRouterBaseFsFromIdentity,
   ROUTER_HOSTNAMES,
+  seedInnerGatewayAdminPw,
   seedRouterAdminPw,
   seedRouterHasSsh,
   seedRouterHostname,
@@ -13,6 +15,7 @@ import {
   SYSTEM_DAEMON_NAMES,
   SYSTEM_UTILITY_NAMES,
 } from './binaries';
+import { md5 } from './md5';
 import { readOpenPorts } from '../services/pidfile';
 import { parseForwardRules } from '../network/iptablesRules';
 
@@ -107,6 +110,67 @@ describe('seedRouterHostname', () => {
     // index shifts these values and fails the golden.
     expect(seedRouterHostname(SEED_A)).toBe('opnsense');
     expect(seedRouterHostname(SEED_B)).toBe('mikrotik01');
+  });
+});
+
+/**
+ * Story 5b: an inner gateway is a SECOND router on the player's own LAN, fronting
+ * a deeper layer. Its admin password is seeded from the owner key AND its LAN octet
+ * (a SEPARATE `inner-gw-admin-` stream from the edge router's `router-admin-`), so
+ * the two routers never share a credential by construction.
+ */
+describe('seedInnerGatewayAdminPw', () => {
+  it('is deterministic for the same owner key + octet', () => {
+    expect(seedInnerGatewayAdminPw(SEED_A, 25)).toBe(seedInnerGatewayAdminPw(SEED_A, 25));
+  });
+
+  it('varies by octet, so two inner gateways on one LAN do not share a credential', () => {
+    const octets = [2, 25, 70, 130, 200, 245];
+    const passwords = new Set(octets.map((octet) => seedInnerGatewayAdminPw(SEED_A, octet)));
+    expect(passwords.size).toBeGreaterThan(1);
+  });
+
+  it('always returns a non-empty weak password across many identities', () => {
+    const keys = Array.from({ length: 40 }, (_unused, index) =>
+      (index + 1).toString(16).padStart(2, '0').repeat(32),
+    );
+    keys.forEach((key) => expect(seedInnerGatewayAdminPw(key, 25)).toMatch(/^\S+$/));
+  });
+
+  it('is pinned per key+octet (golden) — locks the inner-gw-admin- namespace, pool and pick', () => {
+    // Captured from the seeded generator; hardcoded (not recomputed via the fn) so a
+    // mutated namespace/pool/index shifts the value and fails here deterministically.
+    expect(seedInnerGatewayAdminPw(SEED_A, 25)).toBe('netgear');
+  });
+});
+
+/**
+ * Story 5b: the inner gateway reuses the edge router's root-only toolkit
+ * (`buildRouterBaseFsFromIdentity`), but its admin hash is the octet-seeded inner
+ * credential (never the edge's) and its sshd is always up — an inner gateway is a
+ * reachable target by design.
+ */
+describe('buildInnerGatewayBaseFs', () => {
+  it('is a root-only FS whose admin hash is the octet-seeded inner-gateway pw', () => {
+    const rows = passwdRows(buildInnerGatewayBaseFs(SEED_A, 25));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]![0]).toBe('root');
+    expect(rows[0]![1]).toBe(md5(seedInnerGatewayAdminPw(SEED_A, 25)));
+  });
+
+  it('runs sshd:22 — an inner gateway is a reachable target by design', () => {
+    expect(readOpenPorts(buildInnerGatewayBaseFs(SEED_A, 25))).toEqual([
+      { port: 22, service: 'ssh' },
+    ]);
+  });
+
+  it('seeds rules.v4 with no active forward (opt-in default, same as the edge router)', () => {
+    const rules = fileAt(buildInnerGatewayBaseFs(SEED_A, 25), ['etc', 'iptables'], 'rules.v4');
+    expect(parseForwardRules(rules)).toEqual([]);
+  });
+
+  it('is deterministic: same key+octet yields a byte-identical tree', () => {
+    expect(buildInnerGatewayBaseFs(SEED_A, 25)).toEqual(buildInnerGatewayBaseFs(SEED_A, 25));
   });
 });
 
