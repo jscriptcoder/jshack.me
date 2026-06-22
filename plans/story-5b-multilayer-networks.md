@@ -3,29 +3,38 @@
 **Branch**: `feat/story-5b-multilayer-networks` (per-slice branches off `main`)
 **Status**: Executing Slice 5b.1a (TDD)
 
-> **Status: EXECUTING Slice 5b.1a — increment 1 of 4 done (2026-06-22). ⟵ RESUME HERE.**
-> Grill-me (D1–D9) + `planning` (Slices 5b.1a → 5b.5) complete. Building 5b.1a in TDD increments on
-> branch `feat/story-5b-multilayer-networks`. This file is the self-contained source of truth.
+> **Status: Slice 5b.1a ✅ COMPLETE (2026-06-22) — all 6 criteria. ⟵ RESUME at 5b.1b.**
+> Grill-me (D1–D9) + `planning` (Slices 5b.1a → 5b.5) complete. 5b.1a built in 4 TDD increments on
+> branch `feat/story-5b-multilayer-networks` (4 commits). This file is the self-contained source of truth.
 >
-> **5b.1a progress (criteria numbered in the slice below):**
+> **5b.1a — all increments DONE (full v2 suite green @ 1681 · `tsc -b` clean · ~100% mutation, one
+> documented equivalent mutant on `activeRoot`'s own-box fast-path):**
 > - ✅ **Increment 1 (criteria 1 + 2)** — `generateHomeLan` emits a second router (the inner gateway)
 >   via a single `pickN(count+1)` draw (structurally distinct octet); `computeInnerGatewayId(key, octet)`
->   in the `ed25519-inner-gw:` namespace (never aliases edge/siblings); `seedInnerGatewayHostname`.
->   `nmap <home /24>` already lists it as a second `router`. Full suite green · `tsc -b` clean · 100%
->   mutation on changed units. Latent: `logHostScan`/`ssh.ts`/write-path still route BOTH routers
->   through the edge id (`computeRouterId`) → the inner gateway **aliases the edge** until increment 2.
-> - ⏳ **Increment 2 (criterion 3)** — octet-seeded inner-gateway router FS + creds
->   (`buildInnerGatewayBaseFs`/`seedInnerGatewayAdminPw`); `ssh root@<inner IP>` auths against its OWN
->   pw, fails with the edge's.
-> - ⏳ **Increment 3 (criterion 4 remainder)** — `logHostScan` picks edge-vs-inner identity/FS →
->   distinct ids + the inner's own `:22` in the scan trace.
-> - ⏳ **Increment 4 (criteria 5 + 6)** — server write-path recognizes the inner gateway as a
->   journal-backed router (`nano rules.v4` persists); wire-check the cross-player public-IP scan +
->   shipped loop are untouched.
+>   in the `ed25519-inner-gw:` namespace; `seedInnerGatewayHostname`.
+> - ✅ **Increment 2 (criterion 3)** — `buildInnerGatewayBaseFs`/`seedInnerGatewayAdminPw` (octet-seeded
+>   creds, sshd:22); shared `resolveLanHostIdentity` resolver wired into `ssh.ts` + `authCreateSession`
+>   → `ssh root@<inner IP>` auths against its OWN pw, lands on `computeInnerGatewayId` (non-alias proven
+>   via the hash-based machine_id, not the pool-collision-prone "edge pw fails").
+> - ✅ **Increment 3 (criterion 4)** — `logHostScan` uses the resolver → distinct ids + inner's own `:22`
+>   in the scan trace.
+> - ✅ **Increment 4 (criteria 5 + 6)** — `ownLanBaseFsForMachineId` reverse lookup in the L2 write-gate
+>   (`remoteWritePermission`) + client read-back (`activeRoot`) → `nano rules.v4` persists across reload
+>   (root allowed / guest 403); depth stays private (inner gateway never registered → cross-player
+>   public-IP scan unchanged; all cross-player unit tests green).
 >
-> **Open review questions:** Q1 RESOLVED — keep 5b.1a standalone (user started with it). Still open,
-> non-blocking for 5b.1a: (2) deep-layer addressing `10.x` vs other range (decided at 5b.1b);
-> (3) keep 5b.2 reachability-pivot in this story or split it out (decided when 5b.1b lands).
+> **As-built code anchors:** `core/generation/lanHostIdentity.ts` (resolver + reverse lookup),
+> `core/generation/routerFs.ts` (`seedInnerGatewayAdminPw`/`buildInnerGatewayBaseFs`),
+> `core/identity/router.ts` (`computeInnerGatewayId`), `core/generation/generateHomeLan.ts` (inner
+> gateway host). Consumers: `ssh.ts`, `authCreateSession.ts`, `nmapScan.ts logHostScan`,
+> `remoteWritePermission.ts`, `ui/activeRoot.ts`.
+>
+> **Next:** capstone 5b.1a (version bump + open PR) OR start **5b.1b** (forward through the inner
+> router to a hidden Layer-2 machine) — answer Q2/Q3 first.
+>
+> **Open review questions (block 5b.1b, not 5b.1a):** Q1 RESOLVED — kept 5b.1a standalone.
+> (2) deep-layer addressing `10.x` vs other range (decide at 5b.1b);
+> (3) keep 5b.2 reachability-pivot in this story or split it out (decide when 5b.1b lands).
 >
 > **Deferred housekeeping:** fold the 5b reshaping back into `plans/multiplayer-crossplayer-epic.md`
 > (5b absorbed the *reachability half* of deferred item #2; depth landed as per-player home playgrounds,
