@@ -67,8 +67,13 @@ const makeDeps = (
   lookup: () => Promise<LookupResult> = async () => ({ data: REGISTRY, error: null }),
   insert: () => Promise<{ error: unknown }> = async () => ({ error: null }),
   over: LogOverrides = {},
+  // The same-LAN fallback source: defaults to "no occupant" so the registry path is
+  // exercised exactly as before — only the shared-AP-eviction tests override it.
+  occupant: () => Promise<LookupResult> = async () => ({ data: null, error: null }),
 ) => {
   const findRegistryByMachineId = vi.fn<(machineId: string) => Promise<LookupResult>>(lookup);
+  const findOccupantWorkstationByMachineId =
+    vi.fn<(machineId: string) => Promise<LookupResult>>(occupant);
   const insertSession = vi.fn<(row: SuSessionRow) => Promise<{ error: unknown }>>(insert);
   const readAuthLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
     over.readAuthLog ?? (async () => ({ data: null, error: null })),
@@ -79,12 +84,20 @@ const makeDeps = (
   const deps: AuthElevateSessionDeps = {
     nonceStore: freshStore,
     findRegistryByMachineId,
+    findOccupantWorkstationByMachineId,
     insertSession,
     now: over.now ?? (() => FIXED_NOW),
     readAuthLog,
     upsertPatch,
   };
-  return { deps, findRegistryByMachineId, insertSession, readAuthLog, upsertPatch };
+  return {
+    deps,
+    findRegistryByMachineId,
+    findOccupantWorkstationByMachineId,
+    insertSession,
+    readAuthLog,
+    upsertPatch,
+  };
 };
 
 const envelope = (id: ReturnType<typeof generateIdentity>, fields: Record<string, unknown>) =>
@@ -198,9 +211,12 @@ describe('handleAuthElevateSession', () => {
     expect(insertSession).not.toHaveBeenCalled();
   });
 
-  it('reports host_unreachable for an unregistered machine id without inserting', async () => {
+  it('reports host_unreachable only when BOTH the registry and the occupancy fallback miss, without inserting', async () => {
     const attacker = generateIdentity();
-    const { deps, insertSession } = makeDeps(async () => ({ data: null, error: null }));
+    const { deps, insertSession, findOccupantWorkstationByMachineId } = makeDeps(async () => ({
+      data: null,
+      error: null,
+    }));
 
     const result = await handleAuthElevateSession(
       envelope(attacker, { username: 'root', password: 'matrix1999' }),
@@ -208,6 +224,60 @@ describe('handleAuthElevateSession', () => {
     );
 
     expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    expect(findOccupantWorkstationByMachineId).toHaveBeenCalledWith(MACHINE);
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+
+  it('elevates against the occupancy fallback when the registry has no row — a shared-AP occupant evicted by a later same-ESSID joiner', async () => {
+    // network_registry's PK is the ESSID-shared public_ip (last-writer-wins), so A's
+    // row is overwritten when a fellow occupant joins after them. The occupancy table
+    // (PK (essid, owner_key)) never loses A's row, so su still resolves A's box.
+    const attacker = generateIdentity();
+    const { deps, insertSession, findOccupantWorkstationByMachineId } = makeDeps(
+      async () => ({ data: null, error: null }),
+      undefined,
+      {},
+      async () => ({ data: REGISTRY, error: null }),
+    );
+
+    const result = await handleAuthElevateSession(
+      envelope(attacker, { username: 'root', password: 'matrix1999' }),
+      deps,
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({ ok: true, userType: 'root' });
+    expect(findOccupantWorkstationByMachineId).toHaveBeenCalledWith(MACHINE);
+    expect(insertSession.mock.calls[0]![0]).toMatchObject({ machine_id: MACHINE, kind: 'su' });
+  });
+
+  it('prefers the registry and never consults the occupancy fallback when the registry resolves', async () => {
+    const attacker = generateIdentity();
+    const { deps, findOccupantWorkstationByMachineId } = makeDeps();
+
+    await handleAuthElevateSession(
+      envelope(attacker, { username: 'root', password: 'matrix1999' }),
+      deps,
+    );
+
+    expect(findOccupantWorkstationByMachineId).not.toHaveBeenCalled();
+  });
+
+  it('reports a server error when the occupancy fallback lookup fails', async () => {
+    const attacker = generateIdentity();
+    const { deps, insertSession } = makeDeps(
+      async () => ({ data: null, error: null }),
+      undefined,
+      {},
+      async () => ({ data: null, error: new Error('db down') }),
+    );
+
+    const result = await handleAuthElevateSession(
+      envelope(attacker, { username: 'root', password: 'matrix1999' }),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 500, body: { error: 'occupant_lookup_failed' } });
     expect(insertSession).not.toHaveBeenCalled();
   });
 
