@@ -5,10 +5,7 @@ import {
   type HomeNetworkOccupantRow,
   type NetworkRegistryRow,
 } from '../src/core/network/registerNetwork';
-import {
-  handleResolveOccupants,
-  type OccupantListRow,
-} from '../src/core/network/resolveOccupants';
+import { handleResolveOccupants, type OccupantListRow } from '../src/core/network/resolveOccupants';
 import {
   handleResolveOccupiedEssids,
   type OccupiedEssidRow,
@@ -20,6 +17,7 @@ import {
   type ActiveSession,
   type OwnerPatchRow,
   type RegistryMachine,
+  type RegistryWorkstation,
 } from '../src/core/network/resolveCrossPlayerFs';
 import type { UserType } from '../src/core/types';
 import type { MachineLogReadQuery } from '../src/core/patches/appendMachineLog';
@@ -204,6 +202,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         error: null,
       };
     };
+    // Same-LAN fallback: the WAN registry's PK is the ESSID-shared public_ip
+    // (last-writer-wins), so a fellow occupant who joined a shared AP before a later
+    // joiner is no longer in `network_registry` — but is still in `home_network_occupants`
+    // (PK (essid, owner_key), every occupant coexists). One player on N APs has N rows
+    // with the SAME workstation_machine_id (identity-derived) + identical identity fields,
+    // so `.limit(1)` picks any. The selected columns are exactly RegistryWorkstation.
+    const findOccupantWorkstationByMachineId = async (machineId: string) => {
+      const { data, error } = await supabase
+        .from('home_network_occupants')
+        .select('owner_key, workstation_username, workstation_root_hash')
+        .eq('workstation_machine_id', machineId)
+        .limit(1)
+        .maybeSingle();
+      if (error) console.error('[network] occupant reverse-lookup error:', error);
+      const occupant = data as {
+        owner_key: string;
+        workstation_username: string;
+        workstation_root_hash: string;
+      } | null;
+      return {
+        data:
+          occupant === null ? null : ({ kind: 'workstation', ...occupant } as RegistryWorkstation),
+        error,
+      };
+    };
     // The caller's active (un-ended) session on the target — the SERVER source of the
     // read tier, scoped to the verified player_key the handler supplies.
     const findActiveSession = async ({
@@ -247,6 +270,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { status, body } = await handleResolveCrossPlayerFs(req.body, {
       nonceStore: noopNonceStore,
       findRegistryByMachineId,
+      findOccupantWorkstationByMachineId,
       findActiveSession,
       findPatches,
     });

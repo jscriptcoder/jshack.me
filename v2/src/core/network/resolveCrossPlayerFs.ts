@@ -68,6 +68,16 @@ export type ResolveCrossPlayerFsDeps = {
   readonly findRegistryByMachineId: (
     machineId: string,
   ) => Promise<{ readonly data: RegistryMachine | null; readonly error: unknown }>;
+  /** Same-LAN fallback when the WAN registry has no row for the machine. The registry's
+   *  PK is the ESSID-shared `public_ip` (last-writer-wins), so a fellow occupant who
+   *  joined a shared AP before a later joiner has been evicted from it — but never from
+   *  `home_network_occupants` (PK `(essid, owner_key)`, every occupant coexists). That
+   *  table is the never-overwritten "this `workstation_machine_id` is owner X" record and
+   *  its row is a structural superset of `RegistryWorkstation`, so it materializes the
+   *  box identically. Only ever a WORKSTATION — routers live solely in the registry. */
+  readonly findOccupantWorkstationByMachineId: (
+    machineId: string,
+  ) => Promise<{ readonly data: RegistryWorkstation | null; readonly error: unknown }>;
   readonly findActiveSession: (query: {
     readonly player_key: string;
     readonly machine_id: string;
@@ -111,13 +121,25 @@ export const handleResolveCrossPlayerFs = async (
   if (registry.error) {
     return { status: 500, body: { error: 'registry_lookup_failed' } };
   }
-  if (registry.data === null) {
+
+  // Resolve the target box: the WAN registry first (workstation or router), then the
+  // same-LAN occupancy fallback (a shared-AP occupant evicted from the registry by a
+  // later joiner — see the dep doc). Only a true miss in BOTH is unreachable.
+  let machine: RegistryMachine | null = registry.data;
+  if (machine === null) {
+    const occupant = await deps.findOccupantWorkstationByMachineId(payload.machine_id);
+    if (occupant.error) {
+      return { status: 500, body: { error: 'occupant_lookup_failed' } };
+    }
+    machine = occupant.data;
+  }
+  if (machine === null) {
     return { status: 404, body: { error: 'host_unreachable' } };
   }
 
   // Tier 1 — the owner reads its own box in full; ownership trumps any session tier,
   // so we never consult the session table for the owner.
-  const isOwner = publicKey === registry.data.owner_key;
+  const isOwner = publicKey === machine.owner_key;
 
   const session = isOwner
     ? null
@@ -136,9 +158,9 @@ export const handleResolveCrossPlayerFs = async (
   // Materialize the matching base for the registered machine: a router is rebuilt
   // from the owner key alone; a workstation from its persisted identity (Story 5.2).
   const tree =
-    registry.data.kind === 'router'
-      ? materializeRouterFs(registry.data, patches.data)
-      : materializeWorkstationFs(registry.data, patches.data);
+    machine.kind === 'router'
+      ? materializeRouterFs(machine, patches.data)
+      : materializeWorkstationFs(machine, patches.data);
   // Tier dispatch: owner → full tree; active session → walker at the session tier;
   // no session → externally-observable allowlist only.
   const activeSession = session?.data ?? null;

@@ -71,18 +71,25 @@ const OWNER_PATCHES: readonly OwnerPatchRow[] = [
 ];
 
 type RegistryResult = { data: RegistryMachine | null; error: unknown };
+type OccupantResult = { data: RegistryWorkstation | null; error: unknown };
 type SessionResult = { data: ActiveSession | null; error: unknown };
 type PatchesResult = { data: readonly OwnerPatchRow[] | null; error: unknown };
 
 const makeDeps = (
   over: {
     registry?: () => Promise<RegistryResult>;
+    occupant?: () => Promise<OccupantResult>;
     session?: () => Promise<SessionResult>;
     patches?: () => Promise<PatchesResult>;
   } = {},
 ) => {
   const findRegistryByMachineId = vi.fn<(machineId: string) => Promise<RegistryResult>>(
     over.registry ?? (async () => ({ data: REGISTERED, error: null })),
+  );
+  // The same-LAN fallback source: defaults to "no occupant" so the registry path is
+  // exercised exactly as before — only the shared-AP-eviction tests override it.
+  const findOccupantWorkstationByMachineId = vi.fn<(machineId: string) => Promise<OccupantResult>>(
+    over.occupant ?? (async () => ({ data: null, error: null })),
   );
   const findActiveSession = vi.fn<
     (query: { player_key: string; machine_id: string }) => Promise<SessionResult>
@@ -93,10 +100,17 @@ const makeDeps = (
   const deps: ResolveCrossPlayerFsDeps = {
     nonceStore: freshStore,
     findRegistryByMachineId,
+    findOccupantWorkstationByMachineId,
     findActiveSession,
     findPatches,
   };
-  return { deps, findRegistryByMachineId, findActiveSession, findPatches };
+  return {
+    deps,
+    findRegistryByMachineId,
+    findOccupantWorkstationByMachineId,
+    findActiveSession,
+    findPatches,
+  };
 };
 
 const envelope = (
@@ -369,16 +383,62 @@ describe('handleResolveCrossPlayerFs', () => {
     expect(findActiveSession).not.toHaveBeenCalled();
   });
 
-  it('reports an unregistered machine as unreachable, without checking the session', async () => {
+  it('reports a machine unreachable only when BOTH the registry and the occupancy fallback miss, without checking the session', async () => {
     const id = generateIdentity();
-    const { deps, findActiveSession } = makeDeps({
+    const { deps, findActiveSession, findOccupantWorkstationByMachineId } = makeDeps({
       registry: async () => ({ data: null, error: null }),
+      occupant: async () => ({ data: null, error: null }),
     });
 
     const result = await handleResolveCrossPlayerFs(envelope(id), deps);
 
     expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    expect(findOccupantWorkstationByMachineId).toHaveBeenCalledWith(MACHINE_ID);
     expect(findActiveSession).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the occupancy table when the WAN registry has no row — a shared-AP occupant evicted by a later same-ESSID joiner', async () => {
+    const id = generateIdentity();
+    // network_registry's PK is the ESSID-shared public_ip (last-writer-wins), so a
+    // fellow occupant who joined the AP earlier has been overwritten there. The
+    // occupancy table (PK (essid, owner_key)) never loses the row, so the box still
+    // resolves — and its world-readable /bin survives the guest filter, which is what
+    // makes ls/cat/su resolve their binaries again (the same-LAN command-not-found bug).
+    const { deps, findOccupantWorkstationByMachineId } = makeDeps({
+      registry: async () => ({ data: null, error: null }),
+      occupant: async () => ({ data: REGISTERED, error: null }),
+      patches: async () => ({ data: [], error: null }),
+    });
+
+    const result = await handleResolveCrossPlayerFs(envelope(id), deps);
+    const tree = treeOf(result);
+
+    expect(result.status).toBe(200);
+    expect(get(tree, 'bin', 'ls')?.kind).toBe('file');
+    // The guest tier filter still applies to the occupant-resolved tree — passwd hides.
+    expect(get(tree, 'etc', 'passwd')).toBeUndefined();
+    expect(findOccupantWorkstationByMachineId).toHaveBeenCalledWith(MACHINE_ID);
+  });
+
+  it('prefers the registry and never consults the occupancy fallback when the registry resolves', async () => {
+    const id = generateIdentity();
+    const { deps, findOccupantWorkstationByMachineId } = makeDeps();
+
+    await handleResolveCrossPlayerFs(envelope(id), deps);
+
+    expect(findOccupantWorkstationByMachineId).not.toHaveBeenCalled();
+  });
+
+  it('reports a server error when the occupancy fallback lookup fails', async () => {
+    const id = generateIdentity();
+    const { deps } = makeDeps({
+      registry: async () => ({ data: null, error: null }),
+      occupant: async () => ({ data: null, error: new Error('db down') }),
+    });
+
+    const result = await handleResolveCrossPlayerFs(envelope(id), deps);
+
+    expect(result).toEqual({ status: 500, body: { error: 'occupant_lookup_failed' } });
   });
 
   it('serves the regenerated baseline when the owner has no patches yet', async () => {
