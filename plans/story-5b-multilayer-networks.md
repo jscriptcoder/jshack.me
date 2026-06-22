@@ -1,11 +1,11 @@
 # Story 5b — Multi-layer Generated Networks (v2)
 
-**Branch**: `feat/story-5b-multilayer-networks` (per-slice branches off `main`)
-**Status**: Executing Slice 5b.1a (TDD)
+**Branch**: per-slice branches off `main` (5b.1a merged; next slice = fresh branch off `main`)
+**Status**: Slice 5b.1a ✅ MERGED (#307, v0.72.0). Next = 5b.1b (answer Q2/Q3 first).
 
-> **Status: Slice 5b.1a ✅ COMPLETE (2026-06-22) — all 6 criteria. ⟵ RESUME at 5b.1b.**
-> Grill-me (D1–D9) + `planning` (Slices 5b.1a → 5b.5) complete. 5b.1a built in 4 TDD increments on
-> branch `feat/story-5b-multilayer-networks` (4 commits). This file is the self-contained source of truth.
+> **Status: Slice 5b.1a ✅ MERGED — #307, v0.72.0 (2026-06-22), all 6 criteria. ⟵ RESUME at 5b.1b.**
+> Grill-me (D1–D9) + `planning` (Slices 5b.1a → 5b.5) complete. 5b.1a shipped via #307 (squash-merged to
+> `main`, branch deleted). This file is the self-contained source of truth; pick up at **5b.1b** below.
 >
 > **5b.1a — all increments DONE (full v2 suite green @ 1681 · `tsc -b` clean · ~100% mutation, one
 > documented equivalent mutant on `activeRoot`'s own-box fast-path):**
@@ -29,8 +29,12 @@
 > gateway host). Consumers: `ssh.ts`, `authCreateSession.ts`, `nmapScan.ts logHostScan`,
 > `remoteWritePermission.ts`, `ui/activeRoot.ts`.
 >
-> **Next:** capstone 5b.1a (version bump + open PR) OR start **5b.1b** (forward through the inner
-> router to a hidden Layer-2 machine) — answer Q2/Q3 first.
+> **Next action (resume here):** start **Slice 5b.1b** (forward through the inner router to reach a
+> hidden Layer-2 machine — full slice spec in the Slices section below). FIRST answer the two open
+> review questions Q2/Q3, THEN cut a fresh branch off `main`, confirm 5b.1b's acceptance criteria, and
+> begin RED. 5b.1b reuses everything 5b.1a built (the `lanHostIdentity` resolver, `buildInnerGatewayBaseFs`,
+> the inner gateway's `rules.v4`) — it adds Layer-2 generation + `external`-vantage scan of the inner
+> gateway + destination-port routing (`machineServing`).
 >
 > **Open review questions (block 5b.1b, not 5b.1a):** Q1 RESOLVED — kept 5b.1a standalone.
 > (2) deep-layer addressing `10.x` vs other range (decide at 5b.1b);
