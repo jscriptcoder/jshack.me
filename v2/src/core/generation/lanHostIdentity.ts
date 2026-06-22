@@ -23,29 +23,56 @@ import { computeInnerGatewayId, computeRouterId } from '../identity/router';
 import { buildInnerGatewayBaseFs, buildRouterBaseFs } from './routerFs';
 import { buildRemoteHostFs } from './remoteHostFs';
 import { hostMachineId } from './remoteHostId';
-import type { LanHost } from './generateHomeLan';
+import { generateHomeLan, type LanHost } from './generateHomeLan';
 
 export type LanHostIdentity = {
   readonly machineId: string;
   readonly baseFs: Directory;
 };
 
+const lanHostOctet = (host: LanHost): number => Number(host.ip.split('.')[3]);
+
+/** A LAN host's storage machine_id — without building its FS (the cheap half, used
+ *  by the reverse lookup to match an id against the regenerated LAN). */
+export const machineIdForLanHost = (host: LanHost, ownerKeyHex: string, essid: string): string => {
+  if (host.kind === 'router') {
+    const octet = lanHostOctet(host);
+    return octet === 1 ? computeRouterId(ownerKeyHex) : computeInnerGatewayId(ownerKeyHex, octet);
+  }
+  return hostMachineId(host, essid);
+};
+
+/** A LAN host's seeded base filesystem — the edge router, an inner gateway, or a
+ *  coordinate-seeded NPC tree. */
+export const baseFsForLanHost = (host: LanHost, ownerKeyHex: string, essid: string): Directory => {
+  if (host.kind === 'router') {
+    const octet = lanHostOctet(host);
+    return octet === 1 ? buildRouterBaseFs(ownerKeyHex) : buildInnerGatewayBaseFs(ownerKeyHex, octet);
+  }
+  return buildRemoteHostFs(ownerKeyHex, essid, host);
+};
+
 export const resolveLanHostIdentity = (
   host: LanHost,
   ownerKeyHex: string,
   essid: string,
-): LanHostIdentity => {
-  if (host.kind === 'router') {
-    const octet = Number(host.ip.split('.')[3]);
-    return octet === 1
-      ? { machineId: computeRouterId(ownerKeyHex), baseFs: buildRouterBaseFs(ownerKeyHex) }
-      : {
-          machineId: computeInnerGatewayId(ownerKeyHex, octet),
-          baseFs: buildInnerGatewayBaseFs(ownerKeyHex, octet),
-        };
-  }
-  return {
-    machineId: hostMachineId(host, essid),
-    baseFs: buildRemoteHostFs(ownerKeyHex, essid, host),
-  };
+): LanHostIdentity => ({
+  machineId: machineIdForLanHost(host, ownerKeyHex, essid),
+  baseFs: baseFsForLanHost(host, ownerKeyHex, essid),
+});
+
+/** The reverse of `resolveLanHostIdentity`: the seeded base FS of the host on the
+ *  player's OWN LAN whose machine_id equals `machineId` (edge router, inner gateway,
+ *  or NPC), or null when none matches. The write path (L2) and the client read-back
+ *  rebuild a journal-backed box this way — a session carries only a machine_id, so
+ *  the tree it replays its journal over is recovered by regenerating the LAN. */
+export const ownLanBaseFsForMachineId = (
+  ownerKeyHex: string,
+  essid: string,
+  machineId: string,
+): Directory | null => {
+  const host = generateHomeLan(ownerKeyHex, essid).hosts.find(
+    (candidate) => machineIdForLanHost(candidate, ownerKeyHex, essid) === machineId,
+  );
+  return host === undefined ? null : baseFsForLanHost(host, ownerKeyHex, essid);
 };

@@ -6,7 +6,8 @@ import {
   type RegistryMachine,
 } from './remoteWritePermission';
 import { generateIdentity } from '../identity/identity';
-import { computeRouterId } from '../identity/router';
+import { computeInnerGatewayId, computeRouterId } from '../identity/router';
+import { generateHomeLan } from '../generation/generateHomeLan';
 import { md5 } from '../generation/md5';
 import type { Directory, FileNode } from '../filesystem/types';
 
@@ -86,6 +87,61 @@ describe('enforceRemoteWriteL2 — own router', () => {
       machineId: computeRouterId(owner.publicKeyHex),
       path: '/etc/iptables/rules.v4',
       session: { userType: 'guest', essid: 'HOME-WIFI' },
+      listMachinePatches: noPriorPatches,
+      findRegistryByMachineId: noRegistry,
+      findOccupantWorkstationByMachineId: noRegistry,
+    });
+
+    expect(denial).toEqual({ status: 403, error: 'permission_denied' });
+  });
+});
+
+/**
+ * The OWN INNER-GATEWAY L2 branch: a SECOND own-LAN router (a non-`.1` gateway) is
+ * journal-backed exactly like the edge. A root `rules.v4` write there must rebuild
+ * the inner gateway's seeded tree (from the caller's own key + octet) and walk it at
+ * the session tier. The registry stub resolves to NOTHING, so an "allowed" proves the
+ * own-LAN resolver built the inner gateway tree rather than failing closed.
+ */
+describe('enforceRemoteWriteL2 — own inner gateway', () => {
+  const noPriorPatches = () => Promise.resolve({ data: [], error: null });
+  const noRegistry = () => Promise.resolve({ data: null, error: null });
+  const ESSID = 'HOME-WIFI';
+
+  const innerGatewayOctet = (pubkey: string): number => {
+    const inner = generateHomeLan(pubkey, ESSID).hosts.find(
+      (host) => host.kind === 'router' && Number(host.ip.split('.')[3]) !== 1,
+    );
+    if (inner === undefined) throw new Error('no inner gateway on LAN');
+    return Number(inner.ip.split('.')[3]);
+  };
+
+  it("allows a ROOT write to /etc/iptables/rules.v4 on the caller's own inner gateway", async () => {
+    const owner = generateIdentity();
+    const octet = innerGatewayOctet(owner.publicKeyHex);
+
+    const denial = await enforceRemoteWriteL2({
+      publicKey: owner.publicKeyHex,
+      machineId: computeInnerGatewayId(owner.publicKeyHex, octet),
+      path: '/etc/iptables/rules.v4',
+      session: { userType: 'root', essid: ESSID },
+      listMachinePatches: noPriorPatches,
+      findRegistryByMachineId: noRegistry,
+      findOccupantWorkstationByMachineId: noRegistry,
+    });
+
+    expect(denial).toBeNull();
+  });
+
+  it("denies a non-root tier writing the inner gateway's root-only rules.v4", async () => {
+    const owner = generateIdentity();
+    const octet = innerGatewayOctet(owner.publicKeyHex);
+
+    const denial = await enforceRemoteWriteL2({
+      publicKey: owner.publicKeyHex,
+      machineId: computeInnerGatewayId(owner.publicKeyHex, octet),
+      path: '/etc/iptables/rules.v4',
+      session: { userType: 'guest', essid: ESSID },
       listMachinePatches: noPriorPatches,
       findRegistryByMachineId: noRegistry,
       findOccupantWorkstationByMachineId: noRegistry,

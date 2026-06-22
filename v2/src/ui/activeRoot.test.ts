@@ -4,13 +4,14 @@ import { generateHomeLan } from '../core/generation/generateHomeLan';
 import { buildRemoteHostFs } from '../core/generation/remoteHostFs';
 import { hostMachineId } from '../core/generation/remoteHostId';
 import {
+  buildInnerGatewayBaseFs,
   buildRouterBaseFsFromIdentity,
   seedRouterAdminPw,
   seedRouterHasSsh,
 } from '../core/generation/routerFs';
 import { md5 } from '../core/generation/md5';
 import { computeWorkstationId } from '../core/identity/workstation';
-import { computeRouterId } from '../core/identity/router';
+import { computeInnerGatewayId, computeRouterId } from '../core/identity/router';
 import { asEpochMs, asMachineId, asPlayerKeyHex } from '../core/types';
 import { buildDirectory } from '../test/factories/filesystem';
 import type { Patch } from '../core/filesystem/applyPatches';
@@ -145,6 +146,52 @@ describe('resolveActiveRoot', () => {
     );
     // …AND it landed on the ROUTER base, not an empty/own one: a router-only
     // seeded file (root passwd) still exists alongside the patched rules.
+    expect(fileAt(root, ['etc', 'passwd'])).toBeDefined();
+  });
+
+  // The inner gateway is a SECOND own-LAN router, journal-backed exactly like the
+  // edge `.1` — a session on its id must rebuild ITS seeded tree so a `nano rules.v4`
+  // edit is visible and survives a refresh.
+  const innerGatewayOctet = (): number => {
+    const inner = generateHomeLan(PUBKEY, ESSID).hosts.find(
+      (host) => host.kind === 'router' && Number(host.ip.split('.')[3]) !== 1,
+    );
+    if (inner === undefined) throw new Error('no inner gateway on LAN');
+    return Number(inner.ip.split('.')[3]);
+  };
+
+  it('falls back to the own base for an own-router session when offline (no essid to resolve the LAN)', () => {
+    // Offline (essid null) there is no LAN to resolve any remote against — the edge
+    // router included — so every remote session uniformly shows the own base, rather
+    // than the router tree it can no longer reach.
+    expect(
+      resolveActiveRoot(args({ session: session(computeRouterId(PUBKEY), 'ssh'), essid: null })),
+    ).toBe(ownBaseFs);
+  });
+
+  it('returns the INNER GATEWAY tree for a session on its id, not the own base', () => {
+    const octet = innerGatewayOctet();
+    const root = resolveActiveRoot(
+      args({ session: session(computeInnerGatewayId(PUBKEY, octet), 'ssh') }),
+    );
+
+    expect(root).toEqual(buildInnerGatewayBaseFs(PUBKEY, octet));
+    expect(root).not.toBe(ownBaseFs);
+  });
+
+  it('replays the active journal over the INNER GATEWAY base (rules.v4 edit survives a refresh)', () => {
+    const octet = innerGatewayOctet();
+    const root = resolveActiveRoot(
+      args({
+        session: session(computeInnerGatewayId(PUBKEY, octet), 'ssh'),
+        patches: [writePatch('/etc/iptables/rules.v4', 'forward 2222 to 10.0.0.5:22\n')],
+      }),
+    );
+
+    expect(fileAt(root, ['etc', 'iptables', 'rules.v4'])?.content).toBe(
+      'forward 2222 to 10.0.0.5:22\n',
+    );
+    // Landed on the inner gateway base, not own/empty: its root passwd survives.
     expect(fileAt(root, ['etc', 'passwd'])).toBeDefined();
   });
 });
