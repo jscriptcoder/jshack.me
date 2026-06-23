@@ -20,12 +20,13 @@ import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
 import { buildRouterBaseFs } from '../generation/routerFs';
+import { buildDeepHostFs, generateDeepLayer, DEEP_LAYER_INDEX } from '../generation/generateDeepLayer';
 import { isPublicIp } from '../generation/ip';
 import { parseScanTarget, hostsInScanTarget } from '../network/scanTarget';
 import { mergeLanOccupants } from '../network/mergeLanOccupants';
 import { readOpenPorts, type OpenPort } from '../services/pidfile';
 import { scanResult } from '../scan/scanResult';
-import { isInnerGateway } from '../generation/lanHostIdentity';
+import { innerGatewayForMachineId, isInnerGateway } from '../generation/lanHostIdentity';
 
 const error = (message: string): CommandResult => ({
   kind: 'sync',
@@ -164,6 +165,34 @@ async function* scanInnerGateway(
   yield text('Nmap done — 1 host up');
 }
 
+/** Scan the deep `/24` BEHIND the inner gateway the active shell is standing on —
+ *  the reachability pivot. Returns the scan when the target falls inside the deep
+ *  subnet, or null when it doesn't (a home/foreign target falls through to the home
+ *  path, so the upstream segment stays visible from the gateway too). The deep host
+ *  is a deterministic NPC with no journal, so its ports resolve CLIENT-side
+ *  (`buildDeepHostFs`) — no server round-trip and no NAT forward needed: you are on
+ *  the segment. Leaves no trace here (deep-layer logging is its own concern). */
+const resolveDeepPivotScan = (
+  env: CommandEnv,
+  essid: string,
+  rawTarget: string,
+): CommandResult | null => {
+  const deep = generateDeepLayer(env.identity.publicKeyHex, essid, DEEP_LAYER_INDEX);
+  const parsed = parseScanTarget(rawTarget, deep.subnet);
+  if (!parsed.ok) {
+    return null;
+  }
+  const deepLan = { subnet: deep.subnet, hosts: [deep.host] };
+  const hosts = hostsInScanTarget(deepLan, parsed.target);
+  const resolveHostPorts = (host: LanHost): readonly OpenPort[] =>
+    readOpenPorts(buildDeepHostFs(env.identity.publicKeyHex, essid, host));
+  const lines =
+    parsed.target.kind === 'range'
+      ? scanRange(env, rawTarget, hosts)
+      : scanSingle(env, rawTarget, hosts[0], resolveHostPorts);
+  return { kind: 'async', lines, exitCode: async () => 0 };
+};
+
 const execute: Command['execute'] = async (env, args) => {
   const rawTarget = args[0];
   if (rawTarget === undefined) {
@@ -187,6 +216,23 @@ const execute: Command['execute'] = async (env, args) => {
   }
 
   const essid = wlan0.association.essid;
+
+  // Reachability pivot: when the active shell sits on an inner gateway, that gateway's
+  // downstream deep `/24` is directly scannable from here. A deep-subnet target routes
+  // to the pivot scan; anything else falls through to the home path below — so the
+  // upstream home segment stays visible from the gateway too.
+  const pivotGateway = innerGatewayForMachineId(
+    env.identity.publicKeyHex,
+    essid,
+    env.session.machineId,
+  );
+  if (pivotGateway !== null) {
+    const pivotScan = resolveDeepPivotScan(env, essid, rawTarget);
+    if (pivotScan !== null) {
+      return pivotScan;
+    }
+  }
+
   const baseLan = generateHomeLan(env.identity.publicKeyHex, essid);
   const parsed = parseScanTarget(rawTarget, baseLan.subnet);
   if (!parsed.ok) {

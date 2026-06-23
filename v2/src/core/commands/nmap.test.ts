@@ -9,15 +9,18 @@ import {
   mockNetworkView,
   mockNetworkViewFromConnectivity,
   mockScanApi,
+  mockSession,
 } from '../../test/factories/commandEnv';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 import { assignHomeNetwork } from '../network/homeNetwork';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
 import { seedRouterHostname } from '../generation/routerFs';
+import { machineIdForLanHost } from '../generation/lanHostIdentity';
+import { DEEP_LAYER_INDEX, generateDeepLayer } from '../generation/generateDeepLayer';
 import type { Directory } from '../filesystem/types';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
-import { asPlayerKeyHex } from '../types';
+import { asMachineId, asPlayerKeyHex } from '../types';
 
 /**
  * `nmap <target>` host-discovery (generator epic, Story 2). Online on a home LAN
@@ -994,5 +997,131 @@ describe('nmap — own router (.1) sameLAN scan (5.1.4)', () => {
         'Nmap done — 1 host up',
       ].join('\n'),
     );
+  });
+});
+
+/**
+ * Reachability-pivot: with an active shell on an inner gateway, the gateway's
+ * downstream deep `/24` becomes scannable directly — no NAT forward needed,
+ * because you are standing on the segment. The vantage is the active session's
+ * machine: nmap scans the deep layer only when that session sits on an inner
+ * gateway; from home (or any non-gateway box) the deep `/24` stays out of range.
+ * The deep hosts are deterministic NPCs, so this resolves CLIENT-side — no server
+ * round-trip, unlike the upstream inner-gateway forward-scan above.
+ */
+describe('nmap — reachability-pivot from an inner gateway (5b.2)', () => {
+  const ESSID = 'BEAN-THERE-WIFI';
+  const lan = generateHomeLan(PUBKEY, ESSID);
+  const findHost = (predicate: (host: LanHost) => boolean): LanHost => {
+    const host = lan.hosts.find(predicate);
+    if (host === undefined) throw new Error('host not found on golden LAN');
+    return host;
+  };
+  const octetOf = (host: LanHost): number => Number(host.ip.split('.')[3]);
+
+  const INNER = findHost((host) => host.kind === 'router' && octetOf(host) !== 1);
+  const EDGE = findHost((host) => host.kind === 'router' && octetOf(host) === 1);
+  const SIBLING = findHost((host) => host.kind === 'machine');
+
+  const idOf = (host: LanHost): string => machineIdForLanHost(host, PUBKEY, ESSID);
+  const DEEP = generateDeepLayer(PUBKEY, ESSID, DEEP_LAYER_INDEX);
+  const deepHostOctet = octetOf(DEEP.host);
+  const deepDownIp = `${DEEP.subnet}.${deepHostOctet === 2 ? 3 : 2}`;
+
+  /** Online on the home ESSID with the active session sitting on `machineId`. */
+  const vantageEnv = (machineId: string, record?: ScanApi['record']) =>
+    mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+      session: mockSession({ machineId: asMachineId(machineId) }),
+      scan: mockScanApi(record ? { record } : {}),
+    });
+
+  it('scans the downstream deep host directly when the shell is on the inner gateway', async () => {
+    const { text, exitCode } = await drain(
+      await nmap.execute(vantageEnv(idOf(INNER)), [DEEP.host.ip], new Map()),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(text).toContain(`Nmap scan report for ${DEEP.host.hostname} (${DEEP.host.ip})`);
+    expect(text).toContain('Host is up.');
+    // The deep host is a reachable target by design — sshd:22 is forced on.
+    expect(text).toContain('22/tcp   open  ssh');
+    expect(text).toContain('Nmap done — 1 host up');
+  });
+
+  it('lists the deep host in a range scan of the deep /24 — no forward configured', async () => {
+    const { text, exitCode } = await drain(
+      await nmap.execute(vantageEnv(idOf(INNER)), [`${DEEP.subnet}.1-254`], new Map()),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(text).toContain(DEEP.host.ip);
+    expect(text).toContain(DEEP.host.hostname);
+    expect(text).toContain('machine');
+    expect(text).toContain('Nmap done — 1 hosts up');
+  });
+
+  it('reports a deep-subnet address with no host as down', async () => {
+    const { text, exitCode } = await drain(
+      await nmap.execute(vantageEnv(idOf(INNER)), [deepDownIp], new Map()),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(text).toContain('Host seems down.');
+    expect(text).toContain('Nmap done — 0 hosts up');
+    expect(text).not.toContain('Host is up.');
+  });
+
+  it('keeps the deep /24 out of range from home (no active hop)', async () => {
+    // The default session sits on the player's own workstation, not a gateway.
+    const result = await nmap.execute(
+      mockCommandEnv({
+        identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+        network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+      }),
+      [DEEP.host.ip],
+      new Map(),
+    );
+    if (result.kind !== 'sync') throw new Error('expected sync result');
+
+    expect(result.exitCode).toBe(1);
+    expect(result.lines[0]?.content).toContain('out of range');
+  });
+
+  it('still scans the upstream home /24 from the gateway vantage (deep branch falls through)', async () => {
+    const { text, exitCode } = await drain(
+      await nmap.execute(vantageEnv(idOf(INNER)), [`${lan.subnet}.1-30`], new Map()),
+    );
+
+    expect(exitCode).toBe(0);
+    // The home LAN is unchanged from this vantage: .1/.25/.30 all still list.
+    expect(text).toContain(`${lan.subnet}.30`);
+    expect(text).toContain(`${lan.subnet}.25`);
+    expect(text).toContain('3 hosts up');
+  });
+
+  it('does NOT pivot from the edge .1 router — only an inner gateway exposes a deep layer', async () => {
+    const result = await nmap.execute(vantageEnv(idOf(EDGE)), [DEEP.host.ip], new Map());
+    if (result.kind !== 'sync') throw new Error('expected sync result');
+
+    expect(result.exitCode).toBe(1);
+    expect(result.lines[0]?.content).toContain('out of range');
+  });
+
+  it('does NOT pivot from an ordinary sibling host (not a gateway at all)', async () => {
+    const result = await nmap.execute(vantageEnv(idOf(SIBLING)), [DEEP.host.ip], new Map());
+    if (result.kind !== 'sync') throw new Error('expected sync result');
+
+    expect(result.exitCode).toBe(1);
+    expect(result.lines[0]?.content).toContain('out of range');
+  });
+
+  it('leaves no deep-layer trace — the pivot scan does not record a kern.log line', async () => {
+    const record = vi.fn(async () => undefined);
+
+    await drain(await nmap.execute(vantageEnv(idOf(INNER), record), [DEEP.host.ip], new Map()));
+
+    expect(record).not.toHaveBeenCalled();
   });
 });
