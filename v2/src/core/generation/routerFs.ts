@@ -103,8 +103,9 @@ export const seedRouterHasSsh = (ownerKeyHex: string): boolean =>
   createPrng(`router-ssh-${ownerKeyHex}`).next() < ROUTER_SSH_PROBABILITY;
 
 /** `/etc/iptables/rules.v4`: root reads + edits it (`nano`), no one else. Not an
- *  executable. The router has only a root account, so root-only is the boundary. */
-const RULES_V4_PERMISSIONS: FilePermissions = { read: ['root'], write: ['root'], execute: [] };
+ *  executable. The router has only a root account, so root-only is the boundary.
+ *  The switch's `acl.conf` shares the same root-only boundary. */
+const GATEWAY_CONFIG_PERMISSIONS: FilePermissions = { read: ['root'], write: ['root'], execute: [] };
 
 /** A service pidfile under `/var/run`: world-readable (so `nmap`/`ps` see the
  *  port), root-written (the daemon runs as root). */
@@ -125,23 +126,32 @@ const RULES_V4_SEED = [
   '',
 ].join('\n');
 
+/** The seeded `/etc/switch/acl.conf` — a documented header plus ONE active deny.
+ *  A switch is DEFAULT-ALLOW (the mirror of the router's default-deny): every line
+ *  names a port to BLOCK behind the switch, so a fresh switch exposes its whole
+ *  segment except the seeded port. The active `deny` gives the player a port to
+ *  filter — then re-open by deleting the line. */
+const ACL_CONF_SEED = [
+  '# /etc/switch/acl.conf — port access-control list',
+  '# Default policy: ALLOW. One rule per line to block a port behind this switch:',
+  '#   deny <port>',
+  '# Delete a deny line to re-open that port to the segment behind the switch.',
+  'deny 8080',
+].join('\n');
+
 /**
- * Build the router's base filesystem from the IDENTITY the server can
- * RECONSTRUCT cross-player: the router root password ALREADY HASHED (the caller
- * computes `md5(seedRouterAdminPw(ownerKey))`) and whether it runs `sshd` (the
- * caller computes `seedRouterHasSsh(ownerKey)`). Keeping both as inputs makes
- * the builder a pure function of (root hash, sshd-on?) — the owner-key→secret
- * derivation lives in the composing layer, and the sshd seam is directly
- * testable by toggling `hasSsh`.
- *
- * A router is a root-ONLY box (no player/guest accounts), with a full toolchain
- * (so `nano`/`ls`/`cat`/`sshd` resolve), a `/boot` brick surface, and
- * `/etc/iptables/rules.v4` as the single NAT source of truth.
+ * Build a gateway device's base filesystem from the IDENTITY the server can
+ * RECONSTRUCT cross-player: the root password ALREADY HASHED and whether it runs
+ * `sshd`. A gateway is a root-ONLY box (no player/guest accounts), with a full
+ * toolchain (so `nano`/`ls`/`cat`/`sshd` resolve), a `/boot` brick surface, and
+ * empty `/var/log/{auth,kern}.log`. The ONLY thing that differs between device
+ * TYPES is the config subtree under `/etc` — a router's NAT `iptables/rules.v4`
+ * vs a switch's `switch/acl.conf` — so the caller supplies it as `configEntries`.
  */
-export const buildRouterBaseFsFromIdentity = (identity: {
-  readonly adminPwHash: string;
-  readonly hasSsh: boolean;
-}): Directory => {
+const buildGatewayBaseFs = (
+  identity: { readonly adminPwHash: string; readonly hasSsh: boolean },
+  configEntries: Record<string, FileNode>,
+): Directory => {
   const passwd = generatePasswd([
     {
       username: 'root',
@@ -165,7 +175,7 @@ export const buildRouterBaseFsFromIdentity = (identity: {
       etc: dir(
         {
           passwd: file(passwd, PASSWD_FILE),
-          iptables: dir({ 'rules.v4': file(RULES_V4_SEED, RULES_V4_PERMISSIONS) }, TRAVERSABLE_DIR),
+          ...configEntries,
         },
         TRAVERSABLE_DIR,
       ),
@@ -198,6 +208,23 @@ export const buildRouterBaseFsFromIdentity = (identity: {
 };
 
 /**
+ * Build the router's base filesystem — the shared gateway skeleton (the caller
+ * supplies the root hash + sshd flag, so the builder stays a pure function of
+ * (root hash, sshd-on?)) plus `/etc/iptables/rules.v4` as the single NAT source of
+ * truth. The owner-key→secret derivation lives in the composing layer.
+ */
+export const buildRouterBaseFsFromIdentity = (identity: {
+  readonly adminPwHash: string;
+  readonly hasSsh: boolean;
+}): Directory =>
+  buildGatewayBaseFs(identity, {
+    iptables: dir(
+      { 'rules.v4': file(RULES_V4_SEED, GATEWAY_CONFIG_PERMISSIONS) },
+      TRAVERSABLE_DIR,
+    ),
+  });
+
+/**
  * Build the router's base FS from the OWNER KEY alone — the one place the
  * owner-key→secret derivation (admin password hash + sshd presence) lives, so
  * every path that needs a player's router tree agrees byte-for-byte: the public
@@ -228,3 +255,14 @@ export const buildInnerGatewayBaseFs = (ownerKeyHex: string, octet: number): Dir
     adminPwHash: md5(seedInnerGatewayAdminPw(ownerKeyHex, octet)),
     hasSsh: true,
   });
+
+/** Build a switch's base FS — the same root-only gateway toolkit as an inner
+ *  gateway, with the octet-seeded inner credential (never the edge router's) and
+ *  `sshd` always up, but instead of a NAT `rules.v4` it owns an `/etc/switch/acl.conf`
+ *  access-control list. A switch forwards nothing, so the segment behind it is dark
+ *  from upstream by construction (no forward table at all). */
+export const buildSwitchBaseFs = (ownerKeyHex: string, octet: number): Directory =>
+  buildGatewayBaseFs(
+    { adminPwHash: md5(seedInnerGatewayAdminPw(ownerKeyHex, octet)), hasSsh: true },
+    { switch: dir({ 'acl.conf': file(ACL_CONF_SEED, GATEWAY_CONFIG_PERMISSIONS) }, TRAVERSABLE_DIR) },
+  );

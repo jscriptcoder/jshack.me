@@ -3,6 +3,7 @@ import type { Directory, FileNode } from '../filesystem/types';
 import {
   buildInnerGatewayBaseFs,
   buildRouterBaseFsFromIdentity,
+  buildSwitchBaseFs,
   ROUTER_HOSTNAMES,
   seedInnerGatewayAdminPw,
   seedRouterAdminPw,
@@ -18,6 +19,7 @@ import {
 import { md5 } from './md5';
 import { readOpenPorts } from '../services/pidfile';
 import { parseForwardRules } from '../network/iptablesRules';
+import { parseAclDenies } from '../network/switchAcl';
 
 // Two distinct valid 64-hex pubkeys — the owner-key seed source.
 const SEED_A = '1'.repeat(64);
@@ -171,6 +173,47 @@ describe('buildInnerGatewayBaseFs', () => {
 
   it('is deterministic: same key+octet yields a byte-identical tree', () => {
     expect(buildInnerGatewayBaseFs(SEED_A, 25)).toEqual(buildInnerGatewayBaseFs(SEED_A, 25));
+  });
+});
+
+/**
+ * Story 5b: a switch is the SECOND inner-gateway device type — the router's
+ * mechanical opposite. It reuses the inner-gateway root-only toolkit and its
+ * octet-seeded admin credential, but instead of a NAT `rules.v4` it owns an
+ * `/etc/switch/acl.conf` access-control list. A switch forwards nothing, so the
+ * segment behind it is dark from upstream by construction (no forward table at all).
+ */
+describe('buildSwitchBaseFs', () => {
+  it('is a root-only FS whose admin hash is the octet-seeded inner-gateway pw', () => {
+    const rows = passwdRows(buildSwitchBaseFs(SEED_A, 80));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]![0]).toBe('root');
+    expect(rows[0]![1]).toBe(md5(seedInnerGatewayAdminPw(SEED_A, 80)));
+  });
+
+  it('runs sshd:22 — a switch is a reachable target by design', () => {
+    expect(readOpenPorts(buildSwitchBaseFs(SEED_A, 80))).toEqual([{ port: 22, service: 'ssh' }]);
+  });
+
+  it('seeds /etc/switch/acl.conf with a documented default-allow policy and one active deny', () => {
+    const acl = fileAt(buildSwitchBaseFs(SEED_A, 80), ['etc', 'switch'], 'acl.conf');
+    expect(acl.startsWith('#')).toBe(true); // documented for the player
+    expect(parseAclDenies(acl)).toEqual([8080]); // one seeded deny to filter then open later
+  });
+
+  it('makes acl.conf root-only readable/writable and not executable (the owner edits it as root)', () => {
+    const node = dirAt(buildSwitchBaseFs(SEED_A, 80), 'etc', 'switch').entries.get('acl.conf');
+    if (node?.kind !== 'file') throw new Error('missing acl.conf');
+    expect(node.owner).toBe('root');
+    expect(node.perms).toEqual({ read: ['root'], write: ['root'], execute: [] });
+  });
+
+  it('forwards nothing — has NO /etc/iptables/rules.v4 (dark from upstream by construction)', () => {
+    expect(dirAt(buildSwitchBaseFs(SEED_A, 80), 'etc').entries.has('iptables')).toBe(false);
+  });
+
+  it('is deterministic: same key+octet yields a byte-identical tree', () => {
+    expect(buildSwitchBaseFs(SEED_A, 80)).toEqual(buildSwitchBaseFs(SEED_A, 80));
   });
 });
 

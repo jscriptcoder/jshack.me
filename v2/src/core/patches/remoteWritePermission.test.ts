@@ -152,6 +152,59 @@ describe('enforceRemoteWriteL2 — own inner gateway', () => {
 });
 
 /**
+ * The OWN SWITCH L2 branch: a switch is the second inner-gateway device type, also
+ * journal-backed and reachable on its own machine id. A root `acl.conf` write there
+ * must rebuild the switch's seeded tree (its root-only `/etc/switch/acl.conf`) and
+ * walk it at the session tier. The registry stub resolves to NOTHING, so an "allowed"
+ * proves the own-LAN resolver built the SWITCH tree (not a router/workstation).
+ */
+describe('enforceRemoteWriteL2 — own switch', () => {
+  const noPriorPatches = () => Promise.resolve({ data: [], error: null });
+  const noRegistry = () => Promise.resolve({ data: null, error: null });
+  const ESSID = 'HOME-WIFI';
+
+  const switchOctet = (pubkey: string): number => {
+    const device = generateHomeLan(pubkey, ESSID).hosts.find((host) => host.kind === 'switch');
+    if (device === undefined) throw new Error('no switch on LAN');
+    return Number(device.ip.split('.')[3]);
+  };
+
+  it("allows a ROOT write to /etc/switch/acl.conf on the caller's own switch", async () => {
+    const owner = generateIdentity();
+    const octet = switchOctet(owner.publicKeyHex);
+
+    const denial = await enforceRemoteWriteL2({
+      publicKey: owner.publicKeyHex,
+      machineId: computeInnerGatewayId(owner.publicKeyHex, octet),
+      path: '/etc/switch/acl.conf',
+      session: { userType: 'root', essid: ESSID },
+      listMachinePatches: noPriorPatches,
+      findRegistryByMachineId: noRegistry,
+      findOccupantWorkstationByMachineId: noRegistry,
+    });
+
+    expect(denial).toBeNull();
+  });
+
+  it("denies a non-root tier writing the switch's root-only acl.conf", async () => {
+    const owner = generateIdentity();
+    const octet = switchOctet(owner.publicKeyHex);
+
+    const denial = await enforceRemoteWriteL2({
+      publicKey: owner.publicKeyHex,
+      machineId: computeInnerGatewayId(owner.publicKeyHex, octet),
+      path: '/etc/switch/acl.conf',
+      session: { userType: 'guest', essid: ESSID },
+      listMachinePatches: noPriorPatches,
+      findRegistryByMachineId: noRegistry,
+      findOccupantWorkstationByMachineId: noRegistry,
+    });
+
+    expect(denial).toEqual({ status: 403, error: 'permission_denied' });
+  });
+});
+
+/**
  * The FOREIGN-ROUTER L2 branch (Story 5.2): B (a DIFFERENT identity) `ssh root`'d
  * into A's router and writes A's `rules.v4`. The target is neither B's own router
  * (`isOwnRouter` is A's, not B's) nor a LAN sibling — it's a registered foreign

@@ -6,6 +6,7 @@ import { hostMachineId } from '../core/generation/remoteHostId';
 import {
   buildInnerGatewayBaseFs,
   buildRouterBaseFsFromIdentity,
+  buildSwitchBaseFs,
   seedRouterAdminPw,
   seedRouterHasSsh,
 } from '../core/generation/routerFs';
@@ -192,6 +193,39 @@ describe('resolveActiveRoot', () => {
       'forward 2222 to 10.0.0.5:22\n',
     );
     // Landed on the inner gateway base, not own/empty: its root passwd survives.
+    expect(fileAt(root, ['etc', 'passwd'])).toBeDefined();
+  });
+
+  // The switch is the second inner-gateway device type, journal-backed on its own id
+  // exactly like the inner router — a session on its id must rebuild ITS seeded tree
+  // (an `acl.conf` box) so a `nano acl.conf` edit is visible and survives a refresh.
+  const switchOctet = (): number => {
+    const device = generateHomeLan(PUBKEY, ESSID).hosts.find((host) => host.kind === 'switch');
+    if (device === undefined) throw new Error('no switch on LAN');
+    return Number(device.ip.split('.')[3]);
+  };
+
+  it('returns the SWITCH tree for a session on its id, not the own base', () => {
+    const octet = switchOctet();
+    const root = resolveActiveRoot(
+      args({ session: session(computeInnerGatewayId(PUBKEY, octet), 'ssh') }),
+    );
+
+    expect(root).toEqual(buildSwitchBaseFs(PUBKEY, octet));
+    expect(root).not.toBe(ownBaseFs);
+  });
+
+  it('replays the active journal over the SWITCH base (acl.conf edit survives a refresh)', () => {
+    const octet = switchOctet();
+    const root = resolveActiveRoot(
+      args({
+        session: session(computeInnerGatewayId(PUBKEY, octet), 'ssh'),
+        patches: [writePatch('/etc/switch/acl.conf', '# default policy: ALLOW\n')],
+      }),
+    );
+
+    expect(fileAt(root, ['etc', 'switch', 'acl.conf'])?.content).toBe('# default policy: ALLOW\n');
+    // Landed on the switch base, not own/empty: its root passwd survives.
     expect(fileAt(root, ['etc', 'passwd'])).toBeDefined();
   });
 });

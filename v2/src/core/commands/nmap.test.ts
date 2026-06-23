@@ -131,8 +131,8 @@ describe('nmap', () => {
 
   // The LAN scanned for these tests (assignHomeNetwork golden for PUBKEY +
   // BEAN-THERE-WIFI): subnet 192.168.29 (ESSID-seeded), hosts at .1 (edge gateway,
-  // router), .25 (inner gateway, also a router), .30, .70, .188 (self), .209, .245 —
-  // every other octet is empty.
+  // router), .25 (inner gateway, also a router), .30, .70, .80 (switch), .188 (self),
+  // .209, .245 — every other octet is empty.
 
   it('scanning the whole range lists every host on the LAN', async () => {
     const { text, exitCode } = await drain(
@@ -151,14 +151,16 @@ describe('nmap', () => {
   it('a range lists only the hosts whose last octet falls inside it', async () => {
     const { text } = await drain(await nmap.execute(onlineEnv(), ['192.168.29.20-80'], new Map()));
 
-    // .25, .30 and .70 are inside [20, 80]; .1, .188, .209, .245 are not.
+    // .25, .30, .70 and the switch at .80 are inside [20, 80]; .1, .188, .209,
+    // .245 are not.
     expect(text).toContain('192.168.29.25');
     expect(text).toContain('192.168.29.30');
     expect(text).toContain('192.168.29.70');
+    expect(text).toContain('192.168.29.80'); // the switch is a scannable host
     expect(text).not.toContain('192.168.29.1 '); // gateway (.1) excluded
     expect(text).not.toContain('192.168.29.188');
     expect(text).not.toContain('192.168.29.209');
-    expect(text).toContain('3 hosts up');
+    expect(text).toContain('4 hosts up');
   });
 
   it('includes hosts sitting exactly on the range boundaries', async () => {
@@ -906,6 +908,32 @@ describe('nmap — own-LAN inner-gateway scan (5b.1b-i)', () => {
     );
   });
 
+  const switchOf = (essid: string): LanHost => {
+    const device = generateHomeLan(PUBKEY, essid).hosts.find((host) => host.kind === 'switch');
+    if (device === undefined) throw new Error('no switch on LAN');
+    return device;
+  };
+  const SWITCH = switchOf(ESSID);
+
+  it('resolves a single-IP scan of a SWITCH server-side too — it routes like an inner gateway', async () => {
+    // A switch is the second inner-gateway device type, so a single-IP scan of it
+    // takes the same upstream server round-trip. It forwards nothing, so the server
+    // resolves only its own sshd:22 (dark downstream) — no extra forwarded port.
+    const resolveInnerGateway = vi.fn(async () => ({
+      found: true,
+      ports: [{ port: 22, service: 'ssh' }],
+    }));
+
+    const { text, exitCode } = await drain(
+      await nmap.execute(envWithInnerGateway(resolveInnerGateway), [SWITCH.ip], new Map()),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(resolveInnerGateway).toHaveBeenCalledWith(ESSID, SWITCH.ip);
+    expect(text).toContain(`Nmap scan report for ${SWITCH.hostname} (${SWITCH.ip})`);
+    expect(text).toContain('22/tcp   open  ssh');
+  });
+
   it('reports the inner gateway down when the server resolves nothing (e.g. bricked)', async () => {
     const resolveInnerGateway = vi.fn(async () => ({ found: false, ports: [] }));
 
@@ -1022,6 +1050,7 @@ describe('nmap — reachability-pivot from an inner gateway (5b.2)', () => {
   const INNER = findHost((host) => host.kind === 'router' && octetOf(host) !== 1);
   const EDGE = findHost((host) => host.kind === 'router' && octetOf(host) === 1);
   const SIBLING = findHost((host) => host.kind === 'machine');
+  const SWITCH = findHost((host) => host.kind === 'switch');
 
   const idOf = (host: LanHost): string => machineIdForLanHost(host, PUBKEY, ESSID);
   const DEEP = generateDeepLayer(PUBKEY, ESSID, DEEP_LAYER_INDEX);
@@ -1111,6 +1140,17 @@ describe('nmap — reachability-pivot from an inner gateway (5b.2)', () => {
 
   it('does NOT pivot from an ordinary sibling host (not a gateway at all)', async () => {
     const result = await nmap.execute(vantageEnv(idOf(SIBLING)), [DEEP.host.ip], new Map());
+    if (result.kind !== 'sync') throw new Error('expected sync result');
+
+    expect(result.exitCode).toBe(1);
+    expect(result.lines[0]?.content).toContain('out of range');
+  });
+
+  it('does NOT pivot from a SWITCH — a switch fronts no deep layer yet, so the router deep /24 stays out of range', async () => {
+    // The switch is reachable like an inner gateway (ssh/scan/auth), but pivoting onto
+    // it to reach a deep segment is a separate capability. From a switch vantage the
+    // router's deep /24 must NOT resolve — it is not the switch's segment.
+    const result = await nmap.execute(vantageEnv(idOf(SWITCH)), [DEEP.host.ip], new Map());
     if (result.kind !== 'sync') throw new Error('expected sync result');
 
     expect(result.exitCode).toBe(1);

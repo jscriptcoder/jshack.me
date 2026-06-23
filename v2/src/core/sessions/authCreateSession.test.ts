@@ -573,4 +573,56 @@ describe('handleAuthCreateSession', () => {
     expect(result).toEqual({ status: 401, body: { error: 'invalid_credentials' } });
     expect(insertSession).not.toHaveBeenCalled();
   });
+
+  // A switch is the second inner-gateway device type on the own LAN. A login there
+  // must validate against ITS OWN octet-seeded admin pw and land on a machine id
+  // DISTINCT from BOTH the edge router and the inner router — its own box, its own
+  // /etc/passwd, never an alias.
+  it('logs into a SWITCH with its octet-seeded admin pw — root session on a distinct inner-gateway id', async () => {
+    const id = generateIdentity();
+    const device = generateHomeLan(id.publicKeyHex, ESSID).hosts.find(
+      (host) => host.kind === 'switch',
+    );
+    if (device === undefined) throw new Error('no switch on LAN');
+    const octet = Number(device.ip.split('.')[3]);
+    const innerOctet = Number(innerGatewayHostFor(id.publicKeyHex).ip.split('.')[3]);
+    const envelope = signRequest(
+      id,
+      'authCreateSession',
+      basePayload({
+        target_ip: device.ip,
+        username: 'root',
+        password: seedInnerGatewayAdminPw(id.publicKeyHex, octet),
+      }),
+    );
+    const { deps, insertSession } = makeDeps();
+
+    const result = await handleAuthCreateSession(envelope, deps);
+
+    expect(result).toEqual({ status: 200, body: { ok: true, userType: 'root' } });
+    const row = insertSession.mock.calls[0]![0];
+    expect(row.machine_id).toBe(computeInnerGatewayId(id.publicKeyHex, octet));
+    expect(row.machine_id).not.toBe(computeRouterId(id.publicKeyHex));
+    expect(row.machine_id).not.toBe(computeInnerGatewayId(id.publicKeyHex, innerOctet));
+    expect(row.credentials).toEqual({ username: 'root', userType: 'root' });
+  });
+
+  it('rejects a wrong admin password on the switch with 401 and never inserts', async () => {
+    const id = generateIdentity();
+    const device = generateHomeLan(id.publicKeyHex, ESSID).hosts.find(
+      (host) => host.kind === 'switch',
+    );
+    if (device === undefined) throw new Error('no switch on LAN');
+    const envelope = signRequest(
+      id,
+      'authCreateSession',
+      basePayload({ target_ip: device.ip, username: 'root', password: 'not-the-switch-pw' }),
+    );
+    const { deps, insertSession } = makeDeps();
+
+    const result = await handleAuthCreateSession(envelope, deps);
+
+    expect(result).toEqual({ status: 401, body: { error: 'invalid_credentials' } });
+    expect(insertSession).not.toHaveBeenCalled();
+  });
 });

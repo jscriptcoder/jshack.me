@@ -104,6 +104,24 @@ describe('handleResolveInnerGatewayScan', () => {
     });
   });
 
+  it('resolves a SWITCH to its own sshd:22 only — a switch forwards nothing (dark from upstream)', async () => {
+    // A switch is the second inner-gateway device type. It has no `rules.v4` at all,
+    // so the external-vantage scan finds an empty forward table by construction: its
+    // segment is dark from upstream with no forward mechanic to disable.
+    const innerSwitch = hostMatching(PLAYER.publicKeyHex, ESSID, (host) => host.kind === 'switch');
+    const { deps, findPatches } = makeDeps();
+
+    const result = await handleResolveInnerGatewayScan(envelope(innerSwitch.ip), deps);
+
+    expect(result).toEqual({
+      status: 200,
+      body: { ok: true, found: true, ports: [{ port: 22, service: 'ssh' }] },
+    });
+    expect(findPatches).toHaveBeenCalledWith({
+      machine_id: computeInnerGatewayId(PLAYER.publicKeyHex, octetOf(innerSwitch)),
+    });
+  });
+
   it('surfaces the forwarded deep port when the forward targets the live deep host', async () => {
     const { deps } = makeDeps(async () => ({ data: [forwardPatch], error: null }));
 

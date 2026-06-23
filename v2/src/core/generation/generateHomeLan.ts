@@ -13,7 +13,7 @@ import { assignHomeNetwork, DEVICE_TYPES } from '../network/homeNetwork';
 import { seedInnerGatewayHostname, seedRouterHostname } from './routerFs';
 import type { Ipv4 } from '../network/interfaces';
 
-export type LanHostKind = 'machine' | 'router';
+export type LanHostKind = 'machine' | 'router' | 'switch';
 
 export type LanHost = {
   readonly ip: Ipv4;
@@ -75,7 +75,22 @@ export const generateHomeLan = (seedPubkeyHex: string, essid: string): HomeLan =
     }),
   );
 
-  const hosts = [gateway, self, innerGateway, ...siblings].sort(
+  // The switch is a SECOND inner gateway. It is drawn LAST, from the octets the
+  // gateway+sibling draw left behind, so it can never collide with them and — by
+  // coming after the sibling hostname picks above — leaves every earlier draw (and
+  // the names seeded off it) byte-stable. Adding the switch only appends a host.
+  const taken = new Set([gatewayOctet, ...siblingOctets]);
+  const [switchOctet] = prng.pickN(
+    usableOctets.filter((octet) => !taken.has(octet)),
+    1,
+  );
+  const innerSwitch: LanHost = {
+    ip: `${subnet}.${switchOctet}`,
+    hostname: seedInnerGatewayHostname(seedPubkeyHex, switchOctet),
+    kind: 'switch',
+  };
+
+  const hosts = [gateway, self, innerGateway, innerSwitch, ...siblings].sort(
     (left, right) => lastOctet(left) - lastOctet(right),
   );
   return { subnet, hosts };
