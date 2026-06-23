@@ -1,61 +1,52 @@
 # Story 5b — Multi-layer Generated Networks (v2)
 
-**Branch**: per-slice branches off `main` (5b.1a + 5b.1b-i + 5b.1b-ii + 5b.2 all merged)
-**Status**: 5b.1a ✅ MERGED (#307). 5b.1b-i (Expose) ✅ MERGED (#308, v0.73.0). 5b.1b-ii (Reach) ✅ MERGED (#309, v0.74.0). 5b.2 (reachability-pivot) ✅ MERGED (#310, v0.75.0); next = **5b.3 (switch inner gateway)**.
+**Branch**: per-slice branches off `main` (5b.1a + 5b.1b-i + 5b.1b-ii + 5b.2 + 5b.3a all merged)
+**Status**: 5b.1a ✅ MERGED (#307). 5b.1b-i (Expose) ✅ MERGED (#308, v0.73.0). 5b.1b-ii (Reach) ✅ MERGED (#309, v0.74.0). 5b.2 (reachability-pivot) ✅ MERGED (#310, v0.75.0). 5b.3a (switch device foundation) ✅ MERGED (#311, v0.76.0); next = **5b.3b (switch ACL pivot + edit-to-open)**.
 
-> **Status: Slice 5b.2 ✅ MERGED (#310, v0.75.0). NEXT = Slice 5b.3a (switch device foundation). ⟵
-> RESUME: start **5b.3a** on a fresh branch off `main`. Plan CONFIRMED with the user 2026-06-23 (sub-split +
-> decisions 1–3 + 5b.3a AC all approved). The full, pre-explored spec is the **"Slice 5b.3" section below**
-> (5b.3a + 5b.3b) — it has the AC, the code anchors, and the golden-LAN-safety note, so NO re-exploration is
-> needed. Go straight to presenting 5b.3a's AC for a final confirm (already drafted below), then RED.**
+> **Status: Slice 5b.3a ✅ MERGED (#311, v0.76.0, squash `584be13`). NEXT = Slice 5b.3b (switch ACL pivot). ⟵
+> RESUME: start **5b.3b** on a fresh branch off `main`. The full spec is the **"Slice 5b.3b" section below** —
+> it has the AC + code anchors. ONE design point is still open (the per-gateway → deep-layer-index mapping);
+> see "5b.3b OPEN POINT" below for the recommendation. Present 5b.3b's AC for confirmation, resolve the open
+> point, then RED.**
 >
-> **5b.3 DECISIONS (confirmed 2026-06-23 — see also D10 in Locked decisions):**
-> 1. **Sub-split:** 5b.3a = the switch device (appears / attackable / dark-from-upstream / `acl.conf`
->    editable; touches NO deep-layer code). 5b.3b = pivot onto the switch → ACL-filtered downstream scan +
->    delete-a-deny-opens-the-port (consumes 5b.2's pivot; carries the per-gateway deep-layer mapping).
-> 2. **The switch is a 2nd PINNED inner gateway, alongside the router** — every home now has edge `.1` +
->    inner **router** + inner **switch**. Purely additive (keeps every shipped router test/golden LAN). Full
->    gateway-kind/depth VARIETY stays in 5b.4. The switch REUSES the octet-keyed inner-gateway identity +
->    creds (`computeInnerGatewayId` / `seedInnerGatewayAdminPw` / `seedInnerGatewayHostname` — octet
->    disambiguates it from the router) + the journal / L2-write / ssh paths via an extended `isInnerGateway`.
->    Only NEW primitive: `buildSwitchBaseFs` (+ an `acl.conf` seed & parser).
-> 3. **Switch-pivot scan is CLIENT-side, no new `api/` action** (a KEY finding): pivoted onto the switch,
->    `env.fs.root()` IS the switch's JOURNAL-materialized tree (client replays the active box's journal via
->    `activeRoot`), so the 5b.3b scan reads `acl.conf` straight off `env.fs` and **edit-to-open works for
->    free** (env.fs reflects the journal after `nano`). Same client-side shape as 5b.2.
+> **5b.3a AS-BUILT (shipped #311 — what 5b.3b builds on):**
+> - `LanHostKind = 'machine' | 'router' | 'switch'`. `generateHomeLan` seeds ONE `kind:'switch'` host, drawn
+>   LAST from the octets the gateway+sibling `pickN` draw left behind (`taken` Set → `pickN(remaining, 1)`) —
+>   NOT `pickN(count+2)`. WHY the change: `pickN(count+2)` consumes one extra `next()` BEFORE the
+>   `prng.pick(DEVICE_TYPES)` sibling-name draws, which shifts the sibling HOSTNAMES (octets stay, names
+>   churn). Drawing the switch after the sibling-name picks keeps the whole existing draw stream byte-stable.
+>   The golden switch for `('a'*64, BEAN-THERE-WIFI)` is **`.80` `vpn-gw`** (was projected `.130`); the only
+>   test that moved is `nmap 20-80` (the switch is a real scannable host inside that range → `4 hosts up`).
+> - `buildGatewayBaseFs(identity, configEntries)` EXTRACTED in `routerFs.ts` — the shared root-only gateway
+>   skeleton. `buildRouterBaseFsFromIdentity` (byte-identical to before) + new `buildSwitchBaseFs(key, octet)`
+>   both build from it; switch swaps `etc/iptables/rules.v4` → `etc/switch/acl.conf` (seeded `ACL_CONF_SEED`:
+>   default-allow header + one active `deny 8080`, root-only perms `GATEWAY_CONFIG_PERMISSIONS`).
+> - `core/network/switchAcl.ts` (NEW): `readAclConf(fs): string` (mirror `readRulesV4`) + `parseAclDenies(content):
+>   readonly number[]` (grammar `deny <port>`, lenient, out-of-range rejected). NOTE: NO redundant pre-`.filter`
+>   — `parseDenyLine` is the single validity gate (blanks/comments/malformed all fail its `^deny\s+(\d+)$` match
+>   and drop via `flatMap`). This is the seam 5b.3b's ACL filter consumes.
+> - `lanHostIdentity.ts`: `isInnerGateway` widened to `(kind==='router'||kind==='switch') && octet!==1`;
+>   `machineIdForLanHost`/`baseFsForLanHost` route a switch → `computeInnerGatewayId`/`buildSwitchBaseFs`. So
+>   ssh-to-switch:22, server auth (`handleAuthCreateSession`), upstream scan (`handleResolveInnerGatewayScan`
+>   → own `:22` only, dark-from-upstream FREE), and `nano acl.conf` persist (L2 `remoteWritePermission` +
+>   client `activeRoot`, both via `ownLanBaseFsForMachineId`) ALL work for the switch with no further code.
+> - **CRITICAL for 5b.3b — `innerGatewayForMachineId` (the 5b.2 pivot vantage helper) was kept ROUTER-ONLY**
+>   (`candidate.kind === 'router' && isInnerGateway(candidate)`), so a switch session does NOT yet pivot. This
+>   is pinned by a GUARD test in `nmap.test.ts` (`'does NOT pivot from a SWITCH …'`). **5b.3b MUST update this
+>   helper (and FLIP that guard test) to make the switch a pivot vantage onto its OWN deep layer.**
+> - Mutation 98.87% on changed files (generateHomeLan/lanHostIdentity/switchAcl = 100%; the 3 survivors are the
+>   pre-existing `routerFs.ts:103 seedRouterHasSsh` pinned-to-1.0 equivalents — NOT this slice's code).
 >
-> **5b.3 KEY FINDINGS (pre-explored 2026-06-23, so resume is fast):**
-> - **Dark-from-upstream is FREE:** a switch has no `/etc/iptables/rules.v4`, so the EXISTING inner-gateway
->   upstream scan path (`nmap <switch IP>` → `isInnerGateway(single)` → server `resolveInnerGatewayScan` →
->   `scanResult({vantage:'external'})`) returns own-ports-only by construction (empty forward table). "No
->   forward mechanic" needs NO new code — only `baseFsForLanHost` must return `buildSwitchBaseFs` for a
->   switch so the server reads the right box.
-> - **Blast radius of adding `kind:'switch'` (own-LAN path ONLY; cross-player registry untouched — depth is
->   private):** `LanHostKind` (generateHomeLan.ts:16); `isInnerGateway` (lanHostIdentity.ts:40 → make it
->   `(kind==='router'||kind==='switch') && octet!==1`); `machineIdForLanHost`/`baseFsForLanHost`
->   (lanHostIdentity.ts:60/70 → switch → `computeInnerGatewayId`/`buildSwitchBaseFs`); `generateHomeLan`
->   (seed the switch host); `nmap.ts:279` home-range router-port branch (a switch host in a RANGE just lists
->   as a row — ranges show no ports — so likely no change; a single `nmap <switch>` routes to the server via
->   `isInnerGateway`). ssh-to-switch:22 works for free (ssh.ts:307 `isInnerGateway` → port===22 → own-LAN
->   `authCreateSession` → `resolveLanHostIdentity` → switch FS → its `/etc/passwd`). `acl.conf` editing
->   persists for free (L2 gate `ownLanBaseFsForMachineId` + `remoteWritePermission` regenerate the LAN by
->   machineId → switch FS). NOT touched (edge router / cross-player): `remoteWritePermission.ts:119`,
->   `resolveCrossPlayerFs.ts:161` (both `registry.data.kind==='router'`).
-> - **GOLDEN-LAN SAFETY (load-bearing for generation):** `prng.pickN` is a SEQUENTIAL Fisher-Yates partial
->   shuffle (one `next()` per pick), so `pickN(arr, count+2).slice(0,count+1) === pickN(arr, count+1)`.
->   Therefore APPEND the switch as the LAST draw: `const drawn = pickN(usableOctets, count+2);
->   gatewayOctet=drawn[0]; switchOctet=drawn[count+1]; siblingOctets=drawn.slice(1,count+1);` → the inner
->   ROUTER octet + ALL sibling octets stay byte-identical; only `hosts.length` (+1) and any
->   full-range/hardcoded "N hosts up" assertion that the switch octet lands inside need updating. Recompute
->   the BEAN-THERE-WIFI switch octet during impl to fix those goldens.
-> - **`acl.conf` model (D10):** path `/etc/switch/acl.conf`, root-only perms (mirror `RULES_V4_PERMISSIONS`).
->   Default-ALLOW with explicit `deny <port>` lines (legacy grammar, simplified to a bare port). Seed = a
->   documented header + ONE active `deny <port>` line (so 5b.3b has a port to filter, then open by deleting
->   it). New parser `parseAclDenies(content): readonly number[]` modelled on
->   `iptablesRules.ts parseForwardRules`/`readRulesV4`. `buildSwitchBaseFs(key, octet)` mirrors
->   `buildRouterBaseFsFromIdentity` (root-only passwd via `seedInnerGatewayAdminPw`, sshd:22 forced,
->   toolchain, `/boot`) but swaps `etc/iptables/rules.v4` → `etc/switch/acl.conf`.
->
+> **5b.3b OPEN POINT (resolve at slice start) — per-gateway → deep-layer-index mapping:** the switch must front
+> its OWN deep `/24`, distinct from the router's (router stays `DEEP_LAYER_INDEX`=2). RECOMMENDED: map by KIND —
+> router → `DEEP_LAYER_INDEX` (2), switch → `DEEP_LAYER_INDEX + 1` (3) — simplest and sufficient while there is
+> exactly ONE router + ONE switch per home (full 1–3 depth / N-gateway variety is 5b.4). `resolveDeepPivotScan`
+> (nmap.ts, 5b.2) already reads the vantage gateway from `innerGatewayForMachineId`; widen that to ALSO match a
+> switch, derive the index+kind from the matched host, build the deep host FS via `buildDeepHostFs(key, essid,
+> index)`, and for a SWITCH vantage subtract `parseAclDenies(readAclConf(env.fs.root()))` from the deep host
+> ports. Reading `acl.conf` off `env.fs` (the journal-materialized switch tree via `activeRoot`) makes
+> edit-to-open FREE (delete the `deny` line via `nano` → next pivot scan shows the port). All CLIENT-side, no
+> new `api/` action — same shape as 5b.2.
 > **5b.2 as-built (2 commits, full v2 suite green @ 1752, `tsc -b` + lint clean, 100% mutation on the new
 > pivot code + `lanHostIdentity.ts`):** `e05236d` feat — `core/generation/lanHostIdentity.ts`
 > `innerGatewayForMachineId` (machine_id-keyed reverse lookup: is the active session sitting on an inner
@@ -387,8 +378,10 @@ shipped cross-player loop green (D1).
       lands a session on the Layer-2 box (auth against its own `/etc/passwd`). _(v0.74.0)_
 - [x] **5b.2** Reach a Layer-2 host by **pivoting**: `ssh` onto the inner gateway, then `nmap <L2 /24>`
       from that vantage lists Layer-2 hosts with no forward configured. _(v0.75.0)_
-- [ ] **5b.3** A **switch** inner gateway: its downstream is **dark from upstream**; pivot onto it →
-      scan downstream **ACL-filtered**; delete an `acl.conf` `deny` → the port opens.
+- [x] **5b.3a** A **switch** inner gateway appears, is attackable on its own creds/`machine_id`, and is
+      **dark from upstream** (`nmap <switch>` → own `:22` only); `acl.conf` seeded + editable. _(v0.76.0)_
+- [ ] **5b.3b** Pivot onto the switch → scan its downstream **ACL-filtered**; delete an `acl.conf` `deny`
+      → the port opens on the next pivot scan.
 - [ ] **5b.4** Depth is **seeded 1–3** per `(pubkey, essid)`; gateway kind (router/switch) varies;
       chains of deep layers compose; the skeleton's pin is lifted.
 - [ ] **5b.5** A deep-layer scan/connect leaves an NPC trace readable on that machine.
@@ -534,7 +527,14 @@ The second device type — a switch you must pivot into, gated by `acl.conf`. De
 status block at the top (DECISIONS 1–3 + KEY FINDINGS) and D10 for the confirmed design. Split into 5b.3a
 (device foundation, no deep-layer code) + 5b.3b (pivot ACL scan + edit-to-open).
 
-#### Slice 5b.3a — A switch inner gateway appears, is attackable, and is dark from upstream
+#### Slice 5b.3a — A switch inner gateway appears, is attackable, and is dark from upstream ✅ MERGED (#311, v0.76.0)
+
+**As-built note:** all 5 AC shipped. ONE deviation from the spec below: the switch is drawn LAST from the
+LEFTOVER octets (after the gateway+sibling `pickN` and the sibling-name picks), NOT via `pickN(count+2)` —
+the extra `pickN` draw shifted the sibling HOSTNAMES, so the leftover-draw approach is what actually keeps
+the existing stream byte-stable. Golden switch = `.80 vpn-gw`. `parseAclDenies` ships with NO redundant
+pre-`.filter` (parseDenyLine is the single validity gate). `innerGatewayForMachineId` kept ROUTER-ONLY (a
+guard test pins that a switch does not yet pivot — 5b.3b flips it). Full as-built dossier → top status block.
 
 **Value**: The player discovers a SECOND new device on their LAN — a switch (the router's mechanical
 opposite): attackable like the router, but it forwards nothing and hides its downstream. Foundation for
