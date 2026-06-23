@@ -21,9 +21,8 @@
 import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { DEEP_LAYER_INDEX } from '../generation/generateDeepLayer';
-import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
+import { innerGatewayAt, resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs';
 import { canBoot } from '../boot/bootFiles';
 import { scanResult } from './scanResult';
@@ -56,18 +55,6 @@ const resolveInnerGatewayScanSchema = z
   .refine((payload) => !('player_key' in payload));
 
 const HOST_DOWN: HandlerResponse = { status: 200, body: { ok: true, found: false, ports: [] } };
-
-const octetOf = (host: LanHost): number => Number(host.ip.split('.')[3]);
-
-/** The target host, but only when it is genuinely an INNER GATEWAY on the caller's
- *  regenerated LAN — a `router` host at a non-`.1` octet. The edge `.1` (own-LAN
- *  `sameLAN` scan, client-side), an ordinary sibling, and an off-LAN address all
- *  fall through to null → host-down (a forged or mis-routed target finds nothing). */
-const innerGatewayAt = (publicKey: string, essid: string, target: string): LanHost | null => {
-  const host = generateHomeLan(publicKey, essid).hosts.find((candidate) => candidate.ip === target);
-  if (host === undefined || host.kind !== 'router' || octetOf(host) === 1) return null;
-  return host;
-};
 
 export const handleResolveInnerGatewayScan = async (
   body: unknown,
