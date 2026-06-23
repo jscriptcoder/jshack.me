@@ -1,9 +1,26 @@
 # Story 5b — Multi-layer Generated Networks (v2)
 
-**Branch**: per-slice branches off `main` (5b.1a merged; next slice = fresh branch off `main`)
-**Status**: Slice 5b.1a ✅ MERGED (#307, v0.72.0). 5b.1b SPLIT → 5b.1b-i (Expose) + 5b.1b-ii (Reach); next = 5b.1b-i.
+**Branch**: per-slice branches off `main` (5b.1a merged; 5b.1b-i on `feat/5b1b-i-inner-gateway-expose`)
+**Status**: 5b.1a ✅ MERGED (#307). 5b.1b SPLIT → 5b.1b-i (Expose) ✅ COMPLETE on branch (v0.73.0, ready to PR) + 5b.1b-ii (Reach); next = PR 5b.1b-i, then 5b.1b-ii.
 
-> **Status: Slice 5b.1a ✅ MERGED — #307, v0.72.0 (2026-06-22), all 6 criteria. ⟵ RESUME at 5b.1b-i.**
+> **Status: Slice 5b.1b-i (Expose) ✅ COMPLETE on `feat/5b1b-i-inner-gateway-expose` (v0.73.0) — all 6
+> criteria met, wire-check 5/5 live. ⟵ RESUME at PR 5b.1b-i, then 5b.1b-ii (Reach).**
+>
+> **5b.1b-i as-built (4 commits on branch, full v2 suite green @ 1713, `tsc -b` clean, ~100% mutation on
+> changed core w/ documented equivalents):** `8198a7d` foundation (`core/generation/generateDeepLayer.ts`
+> `generateDeepLayer`/`buildDeepHostFs`/`DEEP_LAYER_INDEX`=2; `core/scan/deepLayerPortResolver.ts`) ·
+> `8f9b614` server action (`core/scan/resolveInnerGatewayScan.ts` — regenerate+guard+journal-replay+
+> `canBoot`+`scanResult` external; `ScanApi.resolveInnerGateway` seam, `networkApi` adapter, `api/network`
+> branch) · `a7cb717` client (`nmap.ts` `scanInnerGateway` + single-IP `isInnerGateway` dispatch) ·
+> capstone (wire-check `scripts/testInnerGatewayScan.ts` 5/5, v0.73.0). **Equivalent mutants (documented):**
+> `buildDeepHostFs` pidfile-perms (no perm-gated reader this slice); `vantage:'external'`→`""` (scanResult
+> only distinguishes `sameLAN`). **E2E note:** the live wire-check drives the REAL `/api/network` +
+> `/api/patches` runtime end-to-end (baseline→live forward→dead-forward liveness gate→brick-dark); a
+> separate agent-browser E2E would duplicate unit + wire coverage with NO browser-only behavior (the nano/
+> terminal flow is unchanged from shipped) — per `feedback_e2e_scope`, the wire-check is the integration
+> proof for this slice.
+
+> **Status (prior): Slice 5b.1a ✅ MERGED — #307, v0.72.0 (2026-06-22), all 6 criteria.**
 > Grill-me (D1–D9) + `planning` (Slices 5b.1a → 5b.5) complete. 5b.1a shipped via #307 (squash-merged to
 > `main`, branch deleted). This file is the self-contained source of truth; pick up at **5b.1b** below.
 >
@@ -265,10 +282,10 @@ Test at the lowest level that gives confidence (vitest units for core logic; jsd
 `@solidjs/testing-library` for UI; agent-browser E2E only for the full loop). Each slice keeps the
 shipped cross-player loop green (D1).
 
-- [ ] A multi-layer home: `nmap <home /24>` lists an **inner gateway** (router/switch) distinct from
-      the `.1` edge router, with its **own** seeded creds + `machine_id` (not aliasing the edge).
-- [ ] **5b.1b-i (Expose)** Root the inner **router** → `nano rules.v4` add a forward → `nmap <inner IP>`
-      surfaces the forwarded port (server-resolved `external` vantage, L2-liveness-gated).
+- [x] A multi-layer home: `nmap <home /24>` lists an **inner gateway** (router/switch) distinct from
+      the `.1` edge router, with its **own** seeded creds + `machine_id` (not aliasing the edge). _(5b.1a)_
+- [x] **5b.1b-i (Expose)** Root the inner **router** → `nano rules.v4` add a forward → `nmap <inner IP>`
+      surfaces the forwarded port (server-resolved `external` vantage, L2-liveness-gated). _(v0.73.0)_
 - [ ] **5b.1b-ii (Reach)** `ssh …:<fwd port>` routes through the inner gateway's `machineServing` and
       lands a session on the Layer-2 box (auth against its own `/etc/passwd`).
 - [ ] **5b.2** Reach a Layer-2 host by **pivoting**: `ssh` onto the inner gateway, then `nmap <L2 /24>`
@@ -355,6 +372,10 @@ action + `api/` route + `env.scan.resolveInnerGateway` seam/adapter; branch `nma
 to the inner-gateway async resolve.
 **MUTATE / KILL MUTANTS / REFACTOR**: per the skills. **Done when**: criteria met + the `scripts/`
 wire-check + agent-browser confirm of the expose loop; human approves.
+**✅ DONE (v0.73.0, 2026-06-23):** all 6 criteria met; `scripts/testInnerGatewayScan.ts` 5/5 live against
+`vercel dev`+supabase (baseline→live forward→dead-forward liveness gate→brick-dark). Agent-browser E2E
+substituted by the live wire-check (no browser-only behavior; `feedback_e2e_scope`). 4 commits on
+`feat/5b1b-i-inner-gateway-expose`.
 **Deferred from this slice (noted 2026-06-23):** in-game DISCOVERY of the L2 host IP — a player learns
 which `<L2 IP>` to forward to either via the 5b.2 pivot (scan the deep `/24` from the gateway) or a
 future `rules.v4` seed-comment that names the real downstream host (would thread `essid` into
