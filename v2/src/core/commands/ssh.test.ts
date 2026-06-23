@@ -381,6 +381,37 @@ describe('ssh', () => {
     expect(onPush.mock.calls[0]![0].machineId).not.toBe(hostMachineId(inner, ESSID));
   });
 
+  it('routes ssh to a SWITCH to its own inner-gateway id — root session on computeInnerGatewayId, reachable on :22', async () => {
+    const device = generateHomeLan(PUBKEY, ESSID).hosts.find((host) => host.kind === 'switch');
+    if (device === undefined) throw new Error('no switch on LAN');
+    const octet = Number(device.ip.split('.')[3]);
+    const authenticate = vi.fn<(params: RemoteAuthParams) => Promise<RemoteAuthResult>>(async () => ({
+      ok: true,
+      userType: 'root',
+    }));
+    const onPush = vi.fn<(session: Session) => void>();
+
+    const result = sync(
+      await ssh.execute(sshEnv({ authenticate, onPush }), [`root@${device.ip}`], new Map()),
+    );
+
+    // Reachable on :22 (the switch's own sshd) — auth proceeds, like an inner gateway.
+    expect(result.exitCode).toBe(0);
+    expect(authenticate.mock.calls[0]![0]).toMatchObject({
+      essid: ESSID,
+      targetIp: device.ip,
+      username: 'root',
+    });
+    // The hop lands on the switch's own octet-keyed inner-gateway id — never the
+    // edge router's (would alias) nor a coordinate sibling id.
+    expect(onPush.mock.calls[0]![0]).toMatchObject({
+      machineId: computeInnerGatewayId(PUBKEY, octet),
+      kind: 'ssh',
+    });
+    expect(onPush.mock.calls[0]![0].machineId).not.toBe(computeRouterId(PUBKEY));
+    expect(onPush.mock.calls[0]![0].machineId).not.toBe(hostMachineId(device, ESSID));
+  });
+
   it('reports Permission denied and pushes no session on bad credentials', async () => {
     const { sshHost } = pickHosts();
     const onPush = vi.fn<(session: Session) => void>();
