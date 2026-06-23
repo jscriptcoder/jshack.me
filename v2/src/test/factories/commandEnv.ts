@@ -116,6 +116,7 @@ export const mockSshApi = (overrides: Partial<SshApi> = {}): SshApi => ({
   authenticate: NOT_IMPLEMENTED('ssh.authenticate'),
   authenticatePublic: NOT_IMPLEMENTED('ssh.authenticatePublic'),
   authenticateSameLan: NOT_IMPLEMENTED('ssh.authenticateSameLan'),
+  authenticateInnerGateway: NOT_IMPLEMENTED('ssh.authenticateInnerGateway'),
   ...overrides,
 });
 

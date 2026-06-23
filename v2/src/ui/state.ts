@@ -25,6 +25,7 @@ import type {
   LogApi,
   PatchApi,
   PublicAuthParams,
+  InnerGatewayAuthParams,
   PublicAuthResult,
   PatchResult,
   PublicScanResolution,
@@ -67,6 +68,7 @@ import {
 import { createSyncChannel, type SyncChannel } from '../adapters/crossTabSync';
 import {
   authCreateServerSession,
+  authCreateServerSessionInnerGateway,
   authCreateServerSessionPublic,
   authCreateServerSessionSameLan,
   authElevateServerSession,
@@ -297,6 +299,14 @@ const sshAuthenticateSameLan = (params: SameLanAuthParams): Promise<PublicAuthRe
   sessionsClientDeps === undefined
     ? Promise.resolve({ ok: false, error: 'network_error' })
     : authCreateServerSessionSameLan(sessionsClientDeps, params);
+
+/** Authenticate an ssh login through a NAT forward on the player's own inner gateway
+ *  (backs `env.ssh.authenticateInnerGateway`). Degrades to a network error before
+ *  `startGame` wires the sessions client. */
+const sshAuthenticateInnerGateway = (params: InnerGatewayAuthParams): Promise<PublicAuthResult> =>
+  sessionsClientDeps === undefined
+    ? Promise.resolve({ ok: false, error: 'network_error' })
+    : authCreateServerSessionInnerGateway(sessionsClientDeps, params);
 
 /** Elevate a session on another player's box to root server-side (backs
  *  `env.su.elevate`). Degrades to a network error before `startGame` wires the
@@ -817,6 +827,7 @@ const executeLine = async (line: string): Promise<void> => {
     onSshAuthenticate: sshAuthenticate,
     onSshAuthenticatePublic: sshAuthenticatePublic,
     onSshAuthenticateSameLan: sshAuthenticateSameLan,
+    onSshAuthenticateInnerGateway: sshAuthenticateInnerGateway,
     onSuElevate: suElevate,
     onScanRecord: recordScanFn,
     onScanResolvePublic: resolvePublicFn,

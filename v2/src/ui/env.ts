@@ -108,6 +108,10 @@ export type BuildCommandEnvArgs = {
    *  it to the `authCreateServerSessionSameLan` adapter (signed `authCreateSessionSameLan`
    *  round-trip). Optional here for terse test setups; the UI always passes the real one. */
   readonly onSshAuthenticateSameLan?: SshApi['authenticateSameLan'];
+  /** The inner-gateway forward-login seam — backs `env.ssh.authenticateInnerGateway`. The
+   *  UI wires it to the `authCreateServerSessionInnerGateway` adapter (signed
+   *  `authCreateSessionInnerGateway` round-trip). Optional here for terse test setups. */
+  readonly onSshAuthenticateInnerGateway?: SshApi['authenticateInnerGateway'];
   /** The cross-player `su`-elevation seam — backs `env.su.elevate`. The UI wires it
    *  to the `authElevateServerSession` adapter (signed `suElevate` round-trip).
    *  Optional here: only a cross-player hop's `su` calls it, so own-box/test setups
@@ -219,6 +223,8 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
     authenticate: args.onSshAuthenticate ?? notWired('ssh.authenticate'),
     authenticatePublic: args.onSshAuthenticatePublic ?? notWired('ssh.authenticatePublic'),
     authenticateSameLan: args.onSshAuthenticateSameLan ?? notWired('ssh.authenticateSameLan'),
+    authenticateInnerGateway:
+      args.onSshAuthenticateInnerGateway ?? notWired('ssh.authenticateInnerGateway'),
   },
   su: {
     elevate: args.onSuElevate ?? notWired('su.elevate'),

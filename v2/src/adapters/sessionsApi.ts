@@ -25,6 +25,7 @@ import {
 } from '../core/types';
 import type {
   Identity,
+  InnerGatewayAuthParams,
   PatchResult,
   PublicAuthParams,
   PublicAuthResult,
@@ -181,6 +182,44 @@ export const authCreateServerSessionSameLan = async (
       session_id: params.sessionId,
       essid: params.essid,
       target_ip: params.targetIp,
+      username: params.username,
+      password: params.password,
+      port: params.port,
+      parent_session_id: params.parentSessionId,
+      source_ip: params.sourceIp,
+    });
+    if (response.ok) {
+      const body: unknown = await response.json();
+      const userType = (body as { userType?: unknown } | null)?.userType;
+      const machineId = (body as { machine_id?: unknown } | null)?.machine_id;
+      return isUserType(userType) && typeof machineId === 'string'
+        ? { ok: true, userType, machineId }
+        : { ok: false, error: 'network_error' };
+    }
+    if (response.status === 401) return { ok: false, error: 'invalid_credentials' };
+    if (response.status === 404) return { ok: false, error: 'host_unreachable' };
+    return { ok: false, error: 'network_error' };
+  } catch {
+    return { ok: false, error: 'network_error' };
+  }
+};
+
+/** Authenticate an ssh login THROUGH a NAT forward on the player's OWN inner gateway
+ *  onto a deep Layer-2 host: the server regenerates the gateway from the verified key +
+ *  essid, routes the forwarded port via `machineServing`, validates the password against
+ *  the deep host's `/etc/passwd`, and on success persists the `kind:'ssh'` session on the
+ *  DEEP HOST's machine id (returned as `machineId` for the prompt + hop chain). 401 → bad
+ *  password/unknown user; 404 → no forward / a dark target / a bricked gateway. A 200
+ *  missing a valid userType OR machine_id is malformed, never a login. */
+export const authCreateServerSessionInnerGateway = async (
+  deps: SessionsClientDeps,
+  params: InnerGatewayAuthParams,
+): Promise<PublicAuthResult> => {
+  try {
+    const response = await post(deps, 'authCreateSessionInnerGateway', {
+      session_id: params.sessionId,
+      essid: params.essid,
+      target: params.target,
       username: params.username,
       password: params.password,
       port: params.port,
