@@ -82,6 +82,7 @@ import {
   resolveOccupants,
   resolveOccupiedEssids,
   resolvePublic,
+  resolveInnerGateway,
   type NetworkClientDeps,
 } from '../adapters/networkApi';
 import type { OccupantProjection } from '../core/network/resolveOccupants';
@@ -316,6 +317,14 @@ const resolvePublicFn = (target: string): Promise<PublicScanResolution> =>
   networkClientDeps === undefined
     ? Promise.resolve({ found: false, ports: [] })
     : resolvePublic(networkClientDeps, target);
+
+/** Resolve an own-LAN `nmap <inner gateway IP>` server-side (backs
+ *  `env.scan.resolveInnerGateway`). Host-down until `startGame` wires the network
+ *  client — degrade rather than crash, like the public-IP scan. */
+const resolveInnerGatewayFn = (essid: string, target: string): Promise<PublicScanResolution> =>
+  networkClientDeps === undefined
+    ? Promise.resolve({ found: false, ports: [] })
+    : resolveInnerGateway(networkClientDeps, essid, target);
 
 /** Resolve the current ESSID's other occupants (backs `env.scan.resolveOccupants`).
  *  Additive — an empty list (here, before the network client is wired) just means an
@@ -811,6 +820,7 @@ const executeLine = async (line: string): Promise<void> => {
     onSuElevate: suElevate,
     onScanRecord: recordScanFn,
     onScanResolvePublic: resolvePublicFn,
+    onScanResolveInnerGateway: resolveInnerGatewayFn,
     onScanResolveOccupants: resolveOccupantsFn,
     onScanResolveOccupiedEssids: resolveOccupiedEssidsFn,
     onHomeNetworkJoin: joinHomeNetworkFn,

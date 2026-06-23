@@ -354,6 +354,15 @@ export type PublicScanResolution = {
 export type ScanApi = {
   readonly record: (params: ScanRecordParams) => Promise<void>;
   readonly resolvePublic: (target: string) => Promise<PublicScanResolution>;
+  /** Resolve the player's OWN-LAN `nmap` of an inner gateway server-side (signed
+   *  `resolveInnerGatewayScan` endpoint): its own sshd PLUS any LIVE NAT forward to
+   *  the deep layer behind it, read from the gateway's journal at the upstream
+   *  (`external`) vantage — the forward lives server-side, so it can't be computed
+   *  from the client's static world. Load-bearing like `resolvePublic`. */
+  readonly resolveInnerGateway: (
+    essid: string,
+    target: string,
+  ) => Promise<PublicScanResolution>;
   /** Fetch the current ESSID's OTHER occupants for a same-LAN scan (signed
    *  `resolveOccupants` endpoint). `nmap` merges the result over its generated LAN so
    *  a fellow player shows up as a real host. Additive: degrades to an empty list

@@ -25,6 +25,12 @@ import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import type { Directory, FilePermissions } from '../filesystem/types';
 import type { LanHost } from './generateHomeLan';
 
+/** The pinned depth for the walking skeleton: every inner gateway fronts exactly
+ *  ONE deeper layer (index 2 — Layer 1 is the home LAN). The seam stays open
+ *  (`generateDeepLayer` takes any index) so a later slice can vary depth per home
+ *  without reshaping the scan/ssh callers that share this pin. */
+export const DEEP_LAYER_INDEX = 2;
+
 /** A generated deeper layer: its `/24` prefix and the one NPC machine on it. The
  *  gateway's downstream interface is `${subnet}.1` by convention (consumed by the
  *  pivot, not here), so it is derived rather than stored. */

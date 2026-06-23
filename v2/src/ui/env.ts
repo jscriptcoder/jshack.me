@@ -121,6 +121,10 @@ export type BuildCommandEnvArgs = {
    *  The UI wires it to the `resolvePublicScan` adapter (signed round-trip).
    *  Optional here for terse test setups; the UI always passes the real one. */
   readonly onScanResolvePublic?: ScanApi['resolvePublic'];
+  /** The inner-gateway own-LAN resolution seam — backs `env.scan.resolveInnerGateway`.
+   *  The UI wires it to the `resolveInnerGateway` adapter (signed round-trip). Optional
+   *  here for terse test setups; the UI always passes the real one. */
+  readonly onScanResolveInnerGateway?: ScanApi['resolveInnerGateway'];
   /** The same-LAN occupant-read seam — backs `env.scan.resolveOccupants`. The UI wires
    *  it to the `resolveOccupants` adapter (signed round-trip). Optional here: when
    *  absent it defaults to an empty list, since the read is ADDITIVE (an own-LAN scan
@@ -222,6 +226,7 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   scan: {
     record: args.onScanRecord ?? notWired('scan.record'),
     resolvePublic: args.onScanResolvePublic ?? notWired('scan.resolvePublic'),
+    resolveInnerGateway: args.onScanResolveInnerGateway ?? notWired('scan.resolveInnerGateway'),
     // Additive read: absent the seam, the scan still runs with no fellow occupants.
     resolveOccupants: args.onScanResolveOccupants ?? (() => Promise.resolve([])),
     // Additive read: absent the seam, the scan discovers no occupied networks.
