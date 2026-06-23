@@ -1,11 +1,12 @@
 # Story 5b — Multi-layer Generated Networks (v2)
 
-**Branch**: per-slice branches off `main` (5b.1a + 5b.1b-i merged; 5b.1b-ii on `feat/5b1b-ii-inner-gateway-reach`)
-**Status**: 5b.1a ✅ MERGED (#307). 5b.1b-i (Expose) ✅ MERGED (#308, v0.73.0). 5b.1b-ii (Reach) ✅ COMPLETE on branch (v0.74.0, ready to PR); next = PR 5b.1b-ii, then **5b.2 (reachability-pivot)**.
+**Branch**: per-slice branches off `main` (5b.1a + 5b.1b-i + 5b.1b-ii all merged)
+**Status**: 5b.1a ✅ MERGED (#307). 5b.1b-i (Expose) ✅ MERGED (#308, v0.73.0). 5b.1b-ii (Reach) ✅ MERGED (#309, v0.74.0); next = **5b.2 (reachability-pivot)**.
 
-> **Status: Slice 5b.1b-ii (Reach) ✅ COMPLETE — all 5 criteria met, wire-check 6/6 live (v0.74.0). ⟵
-> RESUME: open the PR for `feat/5b1b-ii-inner-gateway-reach`; after merge, start 5b.2 (reachability-pivot)
-> on a fresh branch off `main`.**
+> **Status: Slice 5b.1b-ii (Reach) ✅ MERGED — #309, v0.74.0, all 5 criteria met, wire-check 6/6 live. ⟵
+> RESUME: start 5b.2 (reachability-pivot) on a fresh branch off `main` — vantage = head of the active hop
+> chain; `nmap`/`ssh` resolve against the current box's segment (its layer `/24`, + downstream if a
+> gateway) instead of home; source-IP masking stays deferred (D4). Spec in the Slices section below.**
 >
 > **5b.1b-ii as-built (4 commits on branch, full v2 suite green @ 1744, `tsc -b` clean, ~100% mutation on
 > changed core w/ documented equivalents):** `72b83f7` server gate
