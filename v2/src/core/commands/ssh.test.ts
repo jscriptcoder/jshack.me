@@ -21,6 +21,7 @@ import { asEpochMs, asMachineId, asPlayerKeyHex } from '../types';
 import type { Directory } from '../filesystem/types';
 import type {
   CommandResult,
+  InnerGatewayAuthParams,
   PublicAuthParams,
   PublicAuthResult,
   PublicScanResolution,
@@ -987,6 +988,240 @@ describe('ssh to a fellow occupant on the same LAN (Story 7)', () => {
     expect(result.exitCode).toBe(130);
     expect(result.lines).toEqual([]);
     expect(authenticateSameLan).not.toHaveBeenCalled();
+    expect(onPush).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * `ssh user@<inner gateway IP>:<fwd port>` (Slice 5b.1b-ii) — log into the hidden
+ * Layer-2 host THROUGH a NAT forward the player configured on their own inner
+ * gateway. The forward lives on the gateway's server-side journal, so reachability
+ * comes from `env.scan.resolveInnerGateway` (5b.1b-i, reused) and auth from
+ * `env.ssh.authenticateInnerGateway`, which lands a session on the DEEP host behind
+ * the forward. The gateway's own `:22` (port 22) stays the own-LAN path (5b.1a),
+ * untouched.
+ */
+const DEEP_MACHINE_ID = 'iot-cam-deadbeef';
+const INNER_GATEWAY = generateHomeLan(PUBKEY, ESSID).hosts.find(
+  (host) => host.kind === 'router' && Number(host.ip.split('.')[3]) !== 1,
+);
+if (INNER_GATEWAY === undefined) throw new Error('no inner gateway on LAN');
+const INNER_IP = INNER_GATEWAY.ip;
+
+const liveForward: PublicScanResolution = {
+  found: true,
+  ports: [
+    { port: 22, service: 'ssh' },
+    { port: 2222, service: 'ssh' },
+  ],
+};
+
+type ForwardEnvOver = {
+  readonly resolveInnerGateway?: (essid: string, target: string) => Promise<PublicScanResolution>;
+  readonly authenticate?: (params: RemoteAuthParams) => Promise<RemoteAuthResult>;
+  readonly authenticateInnerGateway?: (params: InnerGatewayAuthParams) => Promise<PublicAuthResult>;
+  readonly prompt?: () => Promise<string>;
+  readonly onPush?: (session: Session) => void;
+  readonly onCwd?: (path: string) => void;
+};
+
+const sshForwardEnv = (over: ForwardEnvOver = {}) =>
+  mockCommandEnv({
+    identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+    network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+    session: mockSession({ id: 'su-root-1', machineId: asMachineId('skylab-deadbeef'), userType: 'root' }),
+    now: () => asEpochMs(NOW),
+    prompt: over.prompt ?? (async () => 'guestpw'),
+    scan: mockScanApi({
+      resolveInnerGateway: over.resolveInnerGateway ?? (async () => liveForward),
+    }),
+    ssh: mockSshApi({
+      // The own-LAN gateway login (port 22) still uses this seam (5b.1a); provide it so
+      // the port-22 test can assert the forward seam is NOT consulted.
+      authenticate: over.authenticate ?? (async () => ({ ok: true, userType: 'root' })),
+      authenticateInnerGateway:
+        over.authenticateInnerGateway ??
+        (async () => ({ ok: true, userType: 'guest', machineId: DEEP_MACHINE_ID })),
+    }),
+    pushSession: over.onPush ?? (() => undefined),
+    setCwd: over.onCwd ?? (() => undefined),
+  });
+
+describe('ssh through an inner-gateway NAT forward (deep layer)', () => {
+  it('routes a forwarded port to the deep host and lands the session on the deep host id', async () => {
+    const authenticateInnerGateway = vi.fn<
+      (params: InnerGatewayAuthParams) => Promise<PublicAuthResult>
+    >(async () => ({ ok: true, userType: 'guest', machineId: DEEP_MACHINE_ID }));
+    const onPush = vi.fn<(session: Session) => void>();
+    const onCwd = vi.fn<(path: string) => void>();
+
+    const result = sync(
+      await ssh.execute(
+        sshForwardEnv({ authenticateInnerGateway, onPush, onCwd }),
+        [`guest@${INNER_IP}`],
+        new Map([['-p', '2222']]),
+      ),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.lines).toEqual([]);
+    expect(authenticateInnerGateway.mock.calls[0]![0]).toEqual({
+      sessionId: 'ssh-guest-1700000000000',
+      essid: ESSID,
+      target: INNER_IP,
+      username: 'guest',
+      password: 'guestpw',
+      port: 2222,
+      parentSessionId: 'su-root-1',
+      sourceIp: selfIp,
+    });
+    // The hop lands on the DEEP host id the server returned — not the gateway's.
+    expect(onPush.mock.calls[0]![0]).toEqual({
+      id: 'ssh-guest-1700000000000',
+      playerKey: PUBKEY,
+      machineId: DEEP_MACHINE_ID,
+      username: 'guest',
+      userType: 'guest',
+      kind: 'ssh',
+      createdAt: NOW,
+    });
+    expect(onCwd).toHaveBeenCalledWith('/home/guest');
+  });
+
+  it('routes port 22 to the gateway through the own-LAN seam, never the forward seam', async () => {
+    const authenticate = vi.fn<(params: RemoteAuthParams) => Promise<RemoteAuthResult>>(async () => ({
+      ok: true,
+      userType: 'root',
+    }));
+    const authenticateInnerGateway = vi.fn<
+      (params: InnerGatewayAuthParams) => Promise<PublicAuthResult>
+    >(async () => ({ ok: true, userType: 'guest', machineId: DEEP_MACHINE_ID }));
+
+    const result = sync(
+      await ssh.execute(
+        sshForwardEnv({ authenticate, authenticateInnerGateway }),
+        [`root@${INNER_IP}`],
+        new Map(),
+      ),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(authenticate).toHaveBeenCalledTimes(1);
+    expect(authenticateInnerGateway).not.toHaveBeenCalled();
+  });
+
+  it('reports Connection refused when no live forward serves the asked port — without prompting', async () => {
+    const prompt = vi.fn(async () => 'guestpw');
+    const authenticateInnerGateway = vi.fn<
+      (params: InnerGatewayAuthParams) => Promise<PublicAuthResult>
+    >(async () => ({ ok: true, userType: 'guest', machineId: DEEP_MACHINE_ID }));
+
+    const result = sync(
+      await ssh.execute(
+        sshForwardEnv({
+          // Only the gateway's own :22 is up — no forward on :2222.
+          resolveInnerGateway: async () => ({ found: true, ports: [{ port: 22, service: 'ssh' }] }),
+          prompt,
+          authenticateInnerGateway,
+        }),
+        [`guest@${INNER_IP}`],
+        new Map([['-p', '2222']]),
+      ),
+    );
+
+    expect(result.exitCode).toBe(255);
+    expect(result.lines[0]?.content).toContain('Connection refused');
+    expect(prompt).not.toHaveBeenCalled();
+    expect(authenticateInnerGateway).not.toHaveBeenCalled();
+  });
+
+  it('refuses when the forwarded port is open but not ssh — without prompting', async () => {
+    const prompt = vi.fn(async () => 'guestpw');
+    const result = sync(
+      await ssh.execute(
+        sshForwardEnv({
+          resolveInnerGateway: async () => ({
+            found: true,
+            ports: [{ port: 2222, service: 'http' }],
+          }),
+          prompt,
+        }),
+        [`guest@${INNER_IP}`],
+        new Map([['-p', '2222']]),
+      ),
+    );
+
+    expect(result.exitCode).toBe(255);
+    expect(result.lines[0]?.content).toContain('Connection refused');
+    expect(prompt).not.toHaveBeenCalled();
+  });
+
+  it('reports No route to host when the gateway is dark (host-down) — without prompting', async () => {
+    const prompt = vi.fn(async () => 'guestpw');
+    const result = sync(
+      await ssh.execute(
+        sshForwardEnv({ resolveInnerGateway: async () => ({ found: false, ports: [] }), prompt }),
+        [`guest@${INNER_IP}`],
+        new Map([['-p', '2222']]),
+      ),
+    );
+
+    expect(result.exitCode).toBe(255);
+    expect(result.lines[0]?.content).toContain('No route to host');
+    expect(prompt).not.toHaveBeenCalled();
+  });
+
+  it('reports Permission denied and pushes no session on a wrong deep-host password', async () => {
+    const onPush = vi.fn<(session: Session) => void>();
+    const result = sync(
+      await ssh.execute(
+        sshForwardEnv({
+          authenticateInnerGateway: async () => ({ ok: false, error: 'invalid_credentials' }),
+          onPush,
+        }),
+        [`guest@${INNER_IP}`],
+        new Map([['-p', '2222']]),
+      ),
+    );
+
+    expect(result.exitCode).toBe(255);
+    expect(result.lines[0]?.content).toContain('Permission denied');
+    expect(onPush).not.toHaveBeenCalled();
+  });
+
+  it('reports Connection refused when the forward vanished server-side (host_unreachable)', async () => {
+    const onPush = vi.fn<(session: Session) => void>();
+    const result = sync(
+      await ssh.execute(
+        sshForwardEnv({
+          authenticateInnerGateway: async () => ({ ok: false, error: 'host_unreachable' }),
+          onPush,
+        }),
+        [`guest@${INNER_IP}`],
+        new Map([['-p', '2222']]),
+      ),
+    );
+
+    expect(result.exitCode).toBe(255);
+    expect(result.lines[0]?.content).toContain('Connection refused');
+    expect(onPush).not.toHaveBeenCalled();
+  });
+
+  it('reports a generic Network error for a transport failure (distinct from a refused port)', async () => {
+    const onPush = vi.fn<(session: Session) => void>();
+    const result = sync(
+      await ssh.execute(
+        sshForwardEnv({
+          authenticateInnerGateway: async () => ({ ok: false, error: 'network_error' }),
+          onPush,
+        }),
+        [`guest@${INNER_IP}`],
+        new Map([['-p', '2222']]),
+      ),
+    );
+
+    expect(result.exitCode).toBe(255);
+    expect(result.lines[0]?.content).toContain('Network error');
     expect(onPush).not.toHaveBeenCalled();
   });
 });

@@ -25,6 +25,7 @@ import { parseScanTarget, hostsInScanTarget } from '../network/scanTarget';
 import { mergeLanOccupants } from '../network/mergeLanOccupants';
 import { readOpenPorts, type OpenPort } from '../services/pidfile';
 import { scanResult } from '../scan/scanResult';
+import { isInnerGateway } from '../generation/lanHostIdentity';
 
 const error = (message: string): CommandResult => ({
   kind: 'sync',
@@ -162,12 +163,6 @@ async function* scanInnerGateway(
   yield text('');
   yield text('Nmap done — 1 host up');
 }
-
-/** Whether a resolved host is an INNER GATEWAY — a `router` deeper in the LAN, not
- *  the edge `.1`. Its scan routes server-side; the edge `.1` and siblings stay
- *  client-side. */
-const isInnerGateway = (host: LanHost): boolean =>
-  host.kind === 'router' && Number(host.ip.split('.')[3]) !== 1;
 
 const execute: Command['execute'] = async (env, args) => {
   const rawTarget = args[0];

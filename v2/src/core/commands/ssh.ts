@@ -17,7 +17,7 @@
 
 import { asAbsPath, asMachineId, type UserType } from '../types';
 import { generateHomeLan } from '../generation/generateHomeLan';
-import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
+import { isInnerGateway, resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { isPublicIp } from '../generation/ip';
 import { parsePidfilePort } from '../services/pidfile';
 import type { Command, CommandEnv, CommandResult, Session } from './types';
@@ -183,6 +183,71 @@ const executeSameLanLogin = async (
   return { kind: 'sync', lines: [], exitCode: 0 };
 };
 
+/** Login THROUGH a NAT forward on the player's OWN inner gateway (multi-layer depth):
+ *  the forward lives on the gateway's server-side journal, so reachability comes from
+ *  `env.scan.resolveInnerGateway` (the gateway's own ports ∪ its live forwards) and auth
+ *  from `env.ssh.authenticateInnerGateway`, which routes the forwarded port to the deep
+ *  host behind the gateway and lands the session on THAT host's id — whose name drives
+ *  the prompt hostname. Only an ssh forward connects; a dark/down gateway is "No route
+ *  to host", a port with no live ssh forward is "Connection refused". */
+const executeForwardLogin = async (
+  env: CommandEnv,
+  target: { readonly user: string; readonly host: string },
+  port: number,
+  sourceIp: string | null,
+  essid: string,
+): Promise<CommandResult> => {
+  const resolution = await env.scan.resolveInnerGateway(essid, target.host);
+  if (!resolution.found) {
+    return connectError(target.host, port, 'No route to host');
+  }
+  if (!resolution.ports.some((open) => open.port === port && open.service === 'ssh')) {
+    return connectError(target.host, port, 'Connection refused');
+  }
+
+  let password: string;
+  try {
+    password = await env.prompt({
+      message: `${target.user}@${target.host}'s password: `,
+      masked: true,
+    });
+  } catch {
+    return { kind: 'sync', lines: [], exitCode: 130 };
+  }
+
+  const sessionId = `ssh-${target.user}-${env.now()}`;
+  const result = await env.ssh.authenticateInnerGateway({
+    sessionId,
+    essid,
+    target: target.host,
+    username: target.user,
+    password,
+    port,
+    parentSessionId: env.session.id,
+    sourceIp,
+  });
+  if (!result.ok) {
+    if (result.error === 'invalid_credentials') return errorResult('Permission denied (password).');
+    if (result.error === 'host_unreachable') {
+      return connectError(target.host, port, 'Connection refused');
+    }
+    return connectError(target.host, port, 'Network error');
+  }
+
+  const session: Session = {
+    id: sessionId,
+    playerKey: env.session.playerKey,
+    machineId: asMachineId(result.machineId),
+    username: target.user,
+    userType: result.userType,
+    kind: 'ssh',
+    createdAt: env.now(),
+  };
+  env.pushSession(session);
+  env.setCwd(asAbsPath(homeFor(target.user, result.userType)));
+  return { kind: 'sync', lines: [], exitCode: 0 };
+};
+
 const execute: Command['execute'] = async (env, args, flags) => {
   const rawTarget = args[0];
   if (rawTarget === undefined) return errorResult(USAGE);
@@ -233,6 +298,16 @@ const execute: Command['execute'] = async (env, args, flags) => {
   // A host not running ssh has a null port, which is `!== port` too — so the one
   // check covers both "no ssh service" and "listening on a different port".
   const runningPort = sshPortOf(hostFs);
+
+  // An inner gateway on a port OTHER than its own sshd is a NAT forward into the deep
+  // layer behind it. The forward lives on the gateway's server-side journal (not the
+  // client's static FS), so this can't be checked locally — reachability + auth resolve
+  // server-side, landing the session on the deep host. The gateway's own port falls
+  // through to the own-LAN path below (5b.1a: `ssh root@<inner>` lands on the gateway).
+  if (isInnerGateway(host) && port !== runningPort) {
+    return executeForwardLogin(env, target, port, sourceIp, essid);
+  }
+
   if (runningPort !== port) {
     return connectError(target.host, port, 'Connection refused');
   }
