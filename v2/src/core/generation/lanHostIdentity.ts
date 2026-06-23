@@ -99,3 +99,22 @@ export const ownLanBaseFsForMachineId = (
   );
   return host === undefined ? null : baseFsForLanHost(host, ownerKeyHex, essid);
 };
+
+/** The inner gateway on the caller's regenerated LAN whose machine_id is `machineId`
+ *  — i.e. the active shell is sitting ON that gateway — or null when the session is
+ *  on the edge `.1`, an ordinary host, or the player's own workstation. Lets a pivot
+ *  scan recognize "my shell is on an inner gateway" so it resolves the downstream
+ *  deep layer instead of home. The machine_id-keyed counterpart of `innerGatewayAt`
+ *  (a session carries an id, not an address). */
+export const innerGatewayForMachineId = (
+  ownerKeyHex: string,
+  essid: string,
+  machineId: string,
+): LanHost | null => {
+  const host = generateHomeLan(ownerKeyHex, essid).hosts.find(
+    (candidate) =>
+      isInnerGateway(candidate) &&
+      machineIdForLanHost(candidate, ownerKeyHex, essid) === machineId,
+  );
+  return host ?? null;
+};
