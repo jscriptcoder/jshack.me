@@ -3,11 +3,58 @@
 **Branch**: per-slice branches off `main` (5b.1a + 5b.1b-i + 5b.1b-ii + 5b.2 all merged)
 **Status**: 5b.1a ✅ MERGED (#307). 5b.1b-i (Expose) ✅ MERGED (#308, v0.73.0). 5b.1b-ii (Reach) ✅ MERGED (#309, v0.74.0). 5b.2 (reachability-pivot) ✅ MERGED (#310, v0.75.0); next = **5b.3 (switch inner gateway)**.
 
-> **Status: Slice 5b.2 (reachability-pivot) ✅ MERGED — #310, v0.75.0, all 6 criteria met. ⟵
-> RESUME: start 5b.3 (switch inner gateway) on a fresh branch off `main`. 5b.3 is the FIRST consumer of
-> the pivot: a switch gateway's downstream is DARK from upstream (no NAT forward, unlike the router), so
-> you MUST pivot onto the switch (root it → the pivot vantage 5b.2 shipped) and scan its downstream
-> `acl.conf`-FILTERED. Spec in the Slices section below.**
+> **Status: Slice 5b.2 ✅ MERGED (#310, v0.75.0). NEXT = Slice 5b.3a (switch device foundation). ⟵
+> RESUME: start **5b.3a** on a fresh branch off `main`. Plan CONFIRMED with the user 2026-06-23 (sub-split +
+> decisions 1–3 + 5b.3a AC all approved). The full, pre-explored spec is the **"Slice 5b.3" section below**
+> (5b.3a + 5b.3b) — it has the AC, the code anchors, and the golden-LAN-safety note, so NO re-exploration is
+> needed. Go straight to presenting 5b.3a's AC for a final confirm (already drafted below), then RED.**
+>
+> **5b.3 DECISIONS (confirmed 2026-06-23 — see also D10 in Locked decisions):**
+> 1. **Sub-split:** 5b.3a = the switch device (appears / attackable / dark-from-upstream / `acl.conf`
+>    editable; touches NO deep-layer code). 5b.3b = pivot onto the switch → ACL-filtered downstream scan +
+>    delete-a-deny-opens-the-port (consumes 5b.2's pivot; carries the per-gateway deep-layer mapping).
+> 2. **The switch is a 2nd PINNED inner gateway, alongside the router** — every home now has edge `.1` +
+>    inner **router** + inner **switch**. Purely additive (keeps every shipped router test/golden LAN). Full
+>    gateway-kind/depth VARIETY stays in 5b.4. The switch REUSES the octet-keyed inner-gateway identity +
+>    creds (`computeInnerGatewayId` / `seedInnerGatewayAdminPw` / `seedInnerGatewayHostname` — octet
+>    disambiguates it from the router) + the journal / L2-write / ssh paths via an extended `isInnerGateway`.
+>    Only NEW primitive: `buildSwitchBaseFs` (+ an `acl.conf` seed & parser).
+> 3. **Switch-pivot scan is CLIENT-side, no new `api/` action** (a KEY finding): pivoted onto the switch,
+>    `env.fs.root()` IS the switch's JOURNAL-materialized tree (client replays the active box's journal via
+>    `activeRoot`), so the 5b.3b scan reads `acl.conf` straight off `env.fs` and **edit-to-open works for
+>    free** (env.fs reflects the journal after `nano`). Same client-side shape as 5b.2.
+>
+> **5b.3 KEY FINDINGS (pre-explored 2026-06-23, so resume is fast):**
+> - **Dark-from-upstream is FREE:** a switch has no `/etc/iptables/rules.v4`, so the EXISTING inner-gateway
+>   upstream scan path (`nmap <switch IP>` → `isInnerGateway(single)` → server `resolveInnerGatewayScan` →
+>   `scanResult({vantage:'external'})`) returns own-ports-only by construction (empty forward table). "No
+>   forward mechanic" needs NO new code — only `baseFsForLanHost` must return `buildSwitchBaseFs` for a
+>   switch so the server reads the right box.
+> - **Blast radius of adding `kind:'switch'` (own-LAN path ONLY; cross-player registry untouched — depth is
+>   private):** `LanHostKind` (generateHomeLan.ts:16); `isInnerGateway` (lanHostIdentity.ts:40 → make it
+>   `(kind==='router'||kind==='switch') && octet!==1`); `machineIdForLanHost`/`baseFsForLanHost`
+>   (lanHostIdentity.ts:60/70 → switch → `computeInnerGatewayId`/`buildSwitchBaseFs`); `generateHomeLan`
+>   (seed the switch host); `nmap.ts:279` home-range router-port branch (a switch host in a RANGE just lists
+>   as a row — ranges show no ports — so likely no change; a single `nmap <switch>` routes to the server via
+>   `isInnerGateway`). ssh-to-switch:22 works for free (ssh.ts:307 `isInnerGateway` → port===22 → own-LAN
+>   `authCreateSession` → `resolveLanHostIdentity` → switch FS → its `/etc/passwd`). `acl.conf` editing
+>   persists for free (L2 gate `ownLanBaseFsForMachineId` + `remoteWritePermission` regenerate the LAN by
+>   machineId → switch FS). NOT touched (edge router / cross-player): `remoteWritePermission.ts:119`,
+>   `resolveCrossPlayerFs.ts:161` (both `registry.data.kind==='router'`).
+> - **GOLDEN-LAN SAFETY (load-bearing for generation):** `prng.pickN` is a SEQUENTIAL Fisher-Yates partial
+>   shuffle (one `next()` per pick), so `pickN(arr, count+2).slice(0,count+1) === pickN(arr, count+1)`.
+>   Therefore APPEND the switch as the LAST draw: `const drawn = pickN(usableOctets, count+2);
+>   gatewayOctet=drawn[0]; switchOctet=drawn[count+1]; siblingOctets=drawn.slice(1,count+1);` → the inner
+>   ROUTER octet + ALL sibling octets stay byte-identical; only `hosts.length` (+1) and any
+>   full-range/hardcoded "N hosts up" assertion that the switch octet lands inside need updating. Recompute
+>   the BEAN-THERE-WIFI switch octet during impl to fix those goldens.
+> - **`acl.conf` model (D10):** path `/etc/switch/acl.conf`, root-only perms (mirror `RULES_V4_PERMISSIONS`).
+>   Default-ALLOW with explicit `deny <port>` lines (legacy grammar, simplified to a bare port). Seed = a
+>   documented header + ONE active `deny <port>` line (so 5b.3b has a port to filter, then open by deleting
+>   it). New parser `parseAclDenies(content): readonly number[]` modelled on
+>   `iptablesRules.ts parseForwardRules`/`readRulesV4`. `buildSwitchBaseFs(key, octet)` mirrors
+>   `buildRouterBaseFsFromIdentity` (root-only passwd via `seedInnerGatewayAdminPw`, sshd:22 forced,
+>   toolchain, `/boot`) but swaps `etc/iptables/rules.v4` → `etc/switch/acl.conf`.
 >
 > **5b.2 as-built (2 commits, full v2 suite green @ 1752, `tsc -b` + lint clean, 100% mutation on the new
 > pivot code + `lanHostIdentity.ts`):** `e05236d` feat — `core/generation/lanHostIdentity.ts`
@@ -277,9 +324,28 @@ to 1.0 before generalizing.
   machines are NPC, no `owner_key`); **source IP stays home-derived** until the deferred masking half of
   pivot lands (consistent with D4).
 
+### D10 — Switch lands as a 2nd pinned inner gateway; client-side ACL pivot _(planning, confirmed 2026-06-23)_
+Settles the planning-level choices D3/D4 left open, for the SKELETON:
+- **Placement:** the switch is a SECOND pinned inner gateway alongside the router (additive — every shipped
+  router test/golden LAN intact). Gateway-kind/depth VARIETY (random kind, 1–3 depth, chains) stays in 5b.4.
+- **Identity/creds:** REUSE the octet-keyed inner-gateway scheme (`computeInnerGatewayId` /
+  `seedInnerGatewayAdminPw` / `seedInnerGatewayHostname`); the switch's distinct octet disambiguates it from
+  the router. No new id namespace. Only new primitive: `buildSwitchBaseFs` + `acl.conf` seed/parser.
+- **`isInnerGateway`** widens to `(kind==='router'||kind==='switch') && octet!==1` so the switch inherits the
+  ssh / journal / L2-write paths; the cross-player `registry.kind==='router'` checks are NOT widened (depth
+  is private, the switch is never registered).
+- **Dark-from-upstream is structural:** a switch has no `rules.v4`, so the existing `external`-vantage
+  upstream scan yields own-ports-only with no new code.
+- **ACL pivot is CLIENT-side:** when pivoted onto the switch, `env.fs.root()` is the switch's
+  journal-materialized tree, so the 5b.3b downstream scan reads `acl.conf` off `env.fs` (edit-to-open free).
+- **`acl.conf`:** `/etc/switch/acl.conf`, root-only perms, default-ALLOW + explicit `deny <port>` lines
+  (legacy grammar simplified to a bare port); seeded with one active `deny`. Parser `parseAclDenies`.
+- **Generation order (golden-LAN safety):** APPEND the switch as the LAST `pickN` draw (`drawn[count+1]`) so
+  the inner-router + sibling octets stay byte-identical (`pickN` is sequential — proven).
+
 ## Open decisions (grill queue)
 
-_(none — core design tree resolved; remaining detail is planning-level)_
+_(none — core design tree resolved; remaining detail is planning-level. 5b.3 plan confirmed 2026-06-23.)_
 
 ## Planning-surfaced seams (verified against shipped code, 2026-06-22)
 
@@ -462,16 +528,67 @@ pivot** — `ssh user@<deep IP>` DIRECTLY from the gateway vantage (no forward) 
 action + wire-check; login via the NAT forward already works (5b.1b-ii), so this is its own later slice;
 (2) no deep-layer scan trace (→ 5b.5).
 
-### Slice 5b.3 — Switch inner gateway: dark-from-upstream + ACL filter
+### Slice 5b.3 — Switch inner gateway: dark-from-upstream + ACL filter — SUB-SPLIT a/b (confirmed 2026-06-23)
 
-**Value**: The second device type — a switch you must pivot into, gated by `acl.conf`. Depends on
-5b.2. **Path**: `buildSwitchBaseFs` (sibling of the router FS, `/etc/switch/acl.conf` default-allow +
-`deny` lines, seeded admin pw, sshd); `switch` as an inner-gateway kind in generation; downstream dark
-from upstream; pivot onto the switch → `scanResult(host, from-switch) = own − aclDenied`; deleting a
-`deny` opens the port. **Required skills**: `tdd`,`testing`,`mutation-testing`,`refactoring`.
-**Acceptance criteria** (confirm before code — detail when reached): switch-gated Layer-2 is dark from
-Layer 1; after pivot, downstream hosts show all ports except `acl.conf`-denied; editing `acl.conf`
-to drop a deny opens that port; no forward mechanic on a switch.
+The second device type — a switch you must pivot into, gated by `acl.conf`. Depends on 5b.2. See the
+status block at the top (DECISIONS 1–3 + KEY FINDINGS) and D10 for the confirmed design. Split into 5b.3a
+(device foundation, no deep-layer code) + 5b.3b (pivot ACL scan + edit-to-open).
+
+#### Slice 5b.3a — A switch inner gateway appears, is attackable, and is dark from upstream
+
+**Value**: The player discovers a SECOND new device on their LAN — a switch (the router's mechanical
+opposite): attackable like the router, but it forwards nothing and hides its downstream. Foundation for
+the switch half of depth.
+**Path**: `generateHomeLan` seeds a 2nd inner gateway `kind:'switch'` (APPENDED as the last `pickN`
+draw — golden-LAN-safe) → `nmap <home /24>` lists it (kind `switch`) → `ssh root@<switch IP>` auths
+against its octet-seeded admin pw (`seedInnerGatewayAdminPw`, lands on `computeInnerGatewayId`) →
+`nmap <switch IP>` (single) routes server-side (`isInnerGateway` → `resolveInnerGatewayScan`) and shows
+ONLY its own `:22` (no `rules.v4` ⇒ empty forward table ⇒ dark downstream, free) → `cat /etc/switch/acl.conf`
+shows the seed → `nano acl.conf` persists (journal via the inner-gateway L2 path). Skipped: ANY deep-layer
+scan/host yet (5b.3b), the ACL filter (5b.3b).
+**Required implementation skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
+**Acceptance criteria** (drafted + confirmed 2026-06-23 — re-confirm at slice start, then RED):
+(1) `generateHomeLan` returns a switch inner gateway (`kind:'switch'`, distinct octet ≠ `.1`/self/
+inner-router/siblings, deterministic + reload-stable); `LanHostKind` gains `'switch'`; the inner ROUTER
+octet + all sibling octets are UNCHANGED (appended-last draw). (2) the switch has its OWN `machine_id`
+(≠ edge, ≠ inner router, ≠ siblings) + seeded admin pw; `ssh root@<switch IP>` SUCCEEDS with it and FAILS
+with the inner-router's / edge's pw (non-alias). (3) `nmap <switch IP>` from Layer 1 lists ONLY the
+switch's own `:22` — its downstream deep hosts NEVER appear (dark; no forward mechanic). (4)
+`cat /etc/switch/acl.conf` shows the seeded default (allow-by-default + one `deny <port>`); `nano`-editing
+it persists across reload (journal). (5) cross-player public-IP scan + the shipped `crack→…→brick` loop
+unchanged (switch unregistered; depth private).
+**RED**: unit — `generateHomeLan` includes a deterministic `kind:'switch'` host with router+siblings
+stable; `buildSwitchBaseFs` has root passwd + sshd:22 + `/etc/switch/acl.conf` (no `rules.v4`);
+`parseAclDenies` (denies parsed, comments/blank ignored); `isInnerGateway(switch)===true`;
+`machineIdForLanHost`/`baseFsForLanHost` route a switch to `computeInnerGatewayId`/`buildSwitchBaseFs`.
+Behavioral — `nmap <switch>` (own `:22` only), `ssh root@<switch>` (own pw ok / others fail) through the
+shipped own-LAN paths. Likely mutants: the `||`/octet guard in `isInnerGateway`; the switch branch in the
+identity resolvers; `parseAclDenies` line filter + number parse; the appended-draw index `count+1`.
+**GREEN**: `LanHostKind += 'switch'`; seed the switch in `generateHomeLan` (appended draw); add
+`buildSwitchBaseFs` + `acl.conf` seed + `parseAclDenies` (sibling of `iptablesRules`); extend
+`isInnerGateway`/`machineIdForLanHost`/`baseFsForLanHost`.
+**MUTATE / KILL / REFACTOR**: per the skills. **Done when**: criteria met, report reviewed, human approves,
+version bumped. **No new `api/` action / wire-check** (own-LAN device on the proven journal path).
+
+#### Slice 5b.3b — Pivot onto the switch → ACL-filtered downstream scan; delete a deny opens the port
+
+**Value**: The switch payoff — stand on the switch you breached and scan its hidden segment, gated by the
+firewall you can edit. **Path**: the switch fronts its OWN deep `/24` (a 2nd pinned deep layer — per-gateway
+index; router stays `DEEP_LAYER_INDEX`=2 unchanged, switch gets its own; full depth variety → 5b.4). Pivoted
+onto the switch (active session = switch id), `nmap <switch deep /24>` resolves CLIENT-side: list the deep
+host(s), ports = `readOpenPorts(buildDeepHostFs(...)) − parseAclDenies(env.fs.root()'s acl.conf)`. Delete the
+`deny <port>` line (`nano`) → next pivot scan shows that port (edit-to-open, free via `env.fs`=journal). From
+Layer 1 (no pivot) the deep `/24` is out of range. Router pivot (5b.2) unchanged (no ACL filter).
+**Required implementation skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
+**Acceptance criteria** (confirm before code — detail at slice start): (1) the switch's deep layer is
+deterministic + distinct from the router's deep `/24`. (2) pivoted onto the switch, `nmap <switch deep /24>`
+lists the deep host with ports = own − denied (a seeded-denied port is ABSENT). (3) deleting the `deny`
+line opens that port on the next pivot scan. (4) from Layer 1 the switch's deep `/24` is out of range
+(must pivot). (5) the router pivot + shipped scans unchanged.
+**Open implementation point (resolve at slice start):** the per-gateway → deep-layer-index mapping. Recommended:
+the i-th inner gateway (by draw/octet order) fronts index `DEEP_LAYER_INDEX + i` (router=first→2, switch=
+second→3); keep `resolveDeepPivotScan` reading the gateway from `innerGatewayForMachineId` and deriving the
+index + kind from it. Full 1–3 depth + chains stay 5b.4.
 **RED/GREEN/MUTATE/KILL/REFACTOR**: detailed at slice start. **Done when**: criteria met, human approves.
 
 ### Slice 5b.4 — Depth & gateway-kind variety
