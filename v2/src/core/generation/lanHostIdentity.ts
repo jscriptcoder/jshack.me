@@ -32,6 +32,29 @@ export type LanHostIdentity = {
 
 const lanHostOctet = (host: LanHost): number => Number(host.ip.split('.')[3]);
 
+/** Whether a LAN host is an INNER GATEWAY — a `router` deeper than the edge `.1`.
+ *  Its scan + ssh route SERVER-side (the forward lives on its journal, not the
+ *  client's static world); the edge `.1` and ordinary siblings stay client-side.
+ *  The one rule the scan gate, the ssh-reach gate, and the `nmap`/`ssh` client
+ *  branches all share, so they can't drift on what counts as a gateway. */
+export const isInnerGateway = (host: LanHost): boolean =>
+  host.kind === 'router' && lanHostOctet(host) !== 1;
+
+/** The host at `target` on the caller's regenerated LAN, but only when it is an
+ *  inner gateway — the edge `.1`, an ordinary sibling, and an off-LAN address all
+ *  yield null. Shared by the server scan + ssh-reach gates so a forged or mis-routed
+ *  target finds nothing the same way in both. */
+export const innerGatewayAt = (
+  ownerKeyHex: string,
+  essid: string,
+  target: string,
+): LanHost | null => {
+  const host = generateHomeLan(ownerKeyHex, essid).hosts.find(
+    (candidate) => candidate.ip === target,
+  );
+  return host !== undefined && isInnerGateway(host) ? host : null;
+};
+
 /** A LAN host's storage machine_id — without building its FS (the cheap half, used
  *  by the reverse lookup to match an id against the regenerated LAN). */
 export const machineIdForLanHost = (host: LanHost, ownerKeyHex: string, essid: string): string => {

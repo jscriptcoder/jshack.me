@@ -283,17 +283,42 @@ export type SameLanAuthParams = {
   readonly sourceIp: string | null;
 };
 
+/** What `ssh` hands to `env.ssh.authenticateInnerGateway` to log into a hidden
+ *  Layer-2 machine THROUGH a NAT forward on the player's OWN inner gateway (multi-layer
+ *  depth). Unlike the public/same-LAN paths the target is the player's own gateway: the
+ *  server regenerates it from the verified pubkey + `essid`, routes the forwarded `port`
+ *  through its `machineServing`, and lands the session on the DEEP HOST's id (hence
+ *  `PublicAuthResult`). The deep layer is private — no registry, no occupancy. */
+export type InnerGatewayAuthParams = {
+  readonly sessionId: string;
+  readonly essid: string;
+  /** The inner gateway's LAN IP — the server regenerates the gateway from the verified
+   *  pubkey + essid and routes the forwarded port onto the deep host behind it. */
+  readonly target: string;
+  readonly username: string;
+  readonly password: string;
+  /** The forwarded public port on the gateway (e.g. 2222) — the server routes it
+   *  through the gateway's NAT to the deep host's internal service. */
+  readonly port: number;
+  readonly parentSessionId: string | null;
+  readonly sourceIp: string | null;
+};
+
 /** The remote-login seam — backed by the signed `authCreateSession` (own-LAN),
- *  `authCreateSessionPublic` (cross-player public IP), and `authCreateSessionSameLan`
- *  (same-WiFi fellow occupant) endpoints. The UI wires these to the `sessionsApi`
- *  adapters; `core/` stays adapter-free. `ssh` authenticates through one of them
- *  before pushing a session. */
+ *  `authCreateSessionPublic` (cross-player public IP), `authCreateSessionSameLan`
+ *  (same-WiFi fellow occupant), and `authCreateSessionInnerGateway` (own deep layer
+ *  through a NAT forward) endpoints. The UI wires these to the `sessionsApi` adapters;
+ *  `core/` stays adapter-free. `ssh` authenticates through one of them before pushing
+ *  a session. */
 export type SshApi = {
   readonly authenticate: (params: RemoteAuthParams) => Promise<RemoteAuthResult>;
   readonly authenticatePublic: (params: PublicAuthParams) => Promise<PublicAuthResult>;
   /** Same-LAN login to a fellow occupant — lands on the owner's real workstation id,
    *  so it shares `PublicAuthResult` (ok + userType + machineId). */
   readonly authenticateSameLan: (params: SameLanAuthParams) => Promise<PublicAuthResult>;
+  /** Login to a deep Layer-2 host through a NAT forward on the player's own inner
+   *  gateway — lands on the deep host's id, so it shares `PublicAuthResult`. */
+  readonly authenticateInnerGateway: (params: InnerGatewayAuthParams) => Promise<PublicAuthResult>;
 };
 
 /** What `su` hands to `env.su.elevate` to escalate a session it ALREADY holds on a

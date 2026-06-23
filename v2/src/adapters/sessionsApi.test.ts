@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import {
   authCreateServerSession,
+  authCreateServerSessionInnerGateway,
   authCreateServerSessionPublic,
   authCreateServerSessionSameLan,
   authElevateServerSession,
@@ -437,6 +438,110 @@ describe('authCreateServerSessionSameLan', () => {
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
 
     expect(await authCreateServerSessionSameLan(deps, params)).toEqual({
+      ok: false,
+      error: 'network_error',
+    });
+  });
+});
+
+describe('authCreateServerSessionInnerGateway', () => {
+  const params = {
+    sessionId: 'ssh-guest-1700000000000',
+    essid: 'BEAN-THERE-WIFI',
+    target: '192.168.29.25',
+    username: 'guest',
+    password: 'guestpw',
+    port: 2222,
+    parentSessionId: 'shell-1',
+    sourceIp: '192.168.29.50',
+  };
+
+  it('POSTs a signed authCreateSessionInnerGateway envelope and returns the userType + deep host id', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, { ok: true, userType: 'guest', machine_id: 'iot-cam-deadbeef' }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    const result = await authCreateServerSessionInnerGateway(deps, params);
+
+    expect(result).toEqual({ ok: true, userType: 'guest', machineId: 'iot-cam-deadbeef' });
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected a verified envelope');
+    expect(verified.payload).toMatchObject({
+      action: 'authCreateSessionInnerGateway',
+      session_id: 'ssh-guest-1700000000000',
+      essid: 'BEAN-THERE-WIFI',
+      target: '192.168.29.25',
+      username: 'guest',
+      password: 'guestpw',
+      port: 2222,
+      parent_session_id: 'shell-1',
+      source_ip: '192.168.29.50',
+    });
+    // The gateway + deep host are regenerated server-side from the verified key — no
+    // own-machine scope on the envelope.
+    expect(verified.payload).not.toHaveProperty('machine_id');
+  });
+
+  it('maps a 401 to invalid_credentials', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(401, { error: 'invalid_credentials' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await authCreateServerSessionInnerGateway(deps, params)).toEqual({
+      ok: false,
+      error: 'invalid_credentials',
+    });
+  });
+
+  it('maps a 404 to host_unreachable', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(404, { error: 'host_unreachable' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await authCreateServerSessionInnerGateway(deps, params)).toEqual({
+      ok: false,
+      error: 'host_unreachable',
+    });
+  });
+
+  it('maps any other non-ok status to network_error', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(500, { error: 'patches_lookup_failed' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await authCreateServerSessionInnerGateway(deps, params)).toEqual({
+      ok: false,
+      error: 'network_error',
+    });
+  });
+
+  it('maps a 200 with a garbage userType to network_error', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, { ok: true, userType: 'superuser', machine_id: 'iot-cam-deadbeef' }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await authCreateServerSessionInnerGateway(deps, params)).toEqual({
+      ok: false,
+      error: 'network_error',
+    });
+  });
+
+  it('maps a 200 with a missing machine_id to network_error (never lands a session with no target id)', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, userType: 'guest' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await authCreateServerSessionInnerGateway(deps, params)).toEqual({
+      ok: false,
+      error: 'network_error',
+    });
+  });
+
+  it('maps a thrown fetch (offline) to network_error', async () => {
+    const fetchSpy = vi.fn(async () => {
+      throw new Error('offline');
+    });
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await authCreateServerSessionInnerGateway(deps, params)).toEqual({
       ok: false,
       error: 'network_error',
     });

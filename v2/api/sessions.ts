@@ -13,6 +13,7 @@ import {
   handleAuthCreateSessionSameLan,
   type OccupantConnectRow,
 } from '../src/core/sessions/authCreateSessionSameLan';
+import { handleAuthCreateSessionInnerGateway } from '../src/core/sessions/authCreateSessionInnerGateway';
 import type { OwnerPatchRow } from '../src/core/network/materializeWorkstationFs';
 import {
   handleAuthElevateSession,
@@ -309,6 +310,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       now: () => Date.now(),
       readAuthLog,
       upsertPatch: upsertSameLanAuthLog,
+    });
+    res.status(status).json(body);
+    return;
+  }
+
+  if (actionOf(req.body) === 'authCreateSessionInnerGateway') {
+    // ssh THROUGH a NAT forward on the player's OWN inner gateway onto a deep Layer-2
+    // host. The handler regenerates the gateway from the verified key + essid, replays
+    // its journal (to read the forward + boot state), and routes the forwarded port to
+    // the deep NPC — validating the password against ITS /etc/passwd before this insert.
+    // Own-keyed + private: no registry, no occupancy, no trace.
+    const findPatches = async ({ machine_id }: { machine_id: string }) => {
+      const { data, error } = await supabase
+        .from('patches')
+        .select('path, content, owner, permissions, node_type, updated_at, writer_key')
+        .eq('machine_id', machine_id)
+        .order('updated_at', { ascending: true })
+        .order('writer_key', { ascending: true });
+      if (error) console.error('[sessions] inner-gateway boot-state lookup error:', error);
+      return { data: data as readonly OwnerPatchRow[] | null, error };
+    };
+    const insertSession = async (row: AuthSessionRow) => {
+      const { error } = await supabase.from('sessions').insert(row);
+      if (error) console.error('[sessions] inner-gateway auth insert error:', error);
+      return { error };
+    };
+    const { status, body } = await handleAuthCreateSessionInnerGateway(req.body, {
+      nonceStore: noopNonceStore,
+      findPatches,
+      insertSession,
     });
     res.status(status).json(body);
     return;
