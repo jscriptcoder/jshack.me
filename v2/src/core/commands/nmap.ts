@@ -136,6 +136,39 @@ async function* scanPublic(env: CommandEnv, target: string): AsyncIterable<Termi
   yield text('Nmap done — 1 host up');
 }
 
+/** An inner gateway is scanned from its UPSTREAM side, so its ports — its own
+ *  service PLUS any live NAT forward to the deeper layer behind it — resolve
+ *  SERVER-side at the `external` vantage: the forward lives on the gateway's journal,
+ *  not the client's static world, so (unlike the edge `.1` or a sibling) it can't be
+ *  read locally. Mirrors `scanPublic` (the round-trip IS the latency), but renders the
+ *  host's known name + IP. */
+async function* scanInnerGateway(
+  env: CommandEnv,
+  essid: string,
+  host: LanHost,
+): AsyncIterable<TerminalLine> {
+  yield text(`Starting Nmap scan — ${host.ip}`);
+  yield text('');
+  const { found, ports } = await env.scan.resolveInnerGateway(essid, host.ip);
+  if (!found) {
+    yield text('Host seems down.');
+    yield text('');
+    yield text('Nmap done — 0 hosts up');
+    return;
+  }
+  yield text(`Nmap scan report for ${host.hostname} (${host.ip})`);
+  yield text('Host is up.');
+  yield* portTableLines(ports);
+  yield text('');
+  yield text('Nmap done — 1 host up');
+}
+
+/** Whether a resolved host is an INNER GATEWAY — a `router` deeper in the LAN, not
+ *  the edge `.1`. Its scan routes server-side; the edge `.1` and siblings stay
+ *  client-side. */
+const isInnerGateway = (host: LanHost): boolean =>
+  host.kind === 'router' && Number(host.ip.split('.')[3]) !== 1;
+
 const execute: Command['execute'] = async (env, args) => {
   const rawTarget = args[0];
   if (rawTarget === undefined) {
@@ -183,6 +216,15 @@ const execute: Command['execute'] = async (env, args) => {
     void env.scan.record({ essid, target: rawTarget, sourceIp: wlan0.ipv4 }).catch(() => undefined);
   } catch {
     // best-effort: logging must not surface to the scan.
+  }
+
+  // A single-IP scan of an inner gateway resolves SERVER-side at the external
+  // vantage — its journal-held NAT forward to the deeper layer can't be read from the
+  // client's static world. Only a single IP routes here; a range still just lists the
+  // host (no port table), and the edge `.1`/siblings stay the client-side path below.
+  const single = parsed.target.kind === 'single' ? hosts[0] : undefined;
+  if (single !== undefined && isInnerGateway(single)) {
+    return { kind: 'async', lines: scanInnerGateway(env, essid, single), exitCode: async () => 0 };
   }
 
   // Per-host open ports. The `.1` gateway is the player's OWN ROUTER — a distinct

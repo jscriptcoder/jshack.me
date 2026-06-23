@@ -838,6 +838,131 @@ describe('nmap — same-LAN occupant merge', () => {
   });
 });
 
+/**
+ * Scanning an INNER GATEWAY (a second router deeper in your own LAN) resolves
+ * SERVER-side at the upstream (`external`) vantage (Story 5b): the player sits
+ * upstream of it, so a NAT forward to the deep layer behind it is visible — and
+ * that forward lives on the gateway's journal, not the client's static world, so
+ * its ports can't be read locally the way the edge `.1` or a sibling's are. Only a
+ * SINGLE-IP scan routes to the resolver; a range still just lists the host, and the
+ * edge `.1` stays the client-side `sameLAN` scan.
+ */
+describe('nmap — own-LAN inner-gateway scan (5b.1b-i)', () => {
+  const ESSID = 'BEAN-THERE-WIFI';
+  const lan = generateHomeLan(PUBKEY, ESSID);
+
+  const innerGatewayOf = (essid: string): LanHost => {
+    const gateway = generateHomeLan(PUBKEY, essid).hosts.find(
+      (host) => host.kind === 'router' && Number(host.ip.split('.')[3]) !== 1,
+    );
+    if (gateway === undefined) throw new Error('no inner gateway on LAN');
+    return gateway;
+  };
+  const INNER = innerGatewayOf(ESSID);
+
+  const envWithInnerGateway = (
+    resolveInnerGateway: ScanApi['resolveInnerGateway'],
+    record: ScanApi['record'] = async () => undefined,
+  ) =>
+    mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+      scan: mockScanApi({ resolveInnerGateway, record }),
+    });
+
+  it('resolves a single-IP scan of an inner gateway server-side, rendering its own port plus a forward', async () => {
+    const resolveInnerGateway = vi.fn(async () => ({
+      found: true,
+      ports: [
+        { port: 22, service: 'ssh' },
+        { port: 2222, service: 'ssh' },
+      ],
+    }));
+
+    const { text, exitCode } = await drain(
+      await nmap.execute(envWithInnerGateway(resolveInnerGateway), [INNER.ip], new Map()),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(resolveInnerGateway).toHaveBeenCalledWith(ESSID, INNER.ip);
+    // Exact output (the inner-gateway scan is a deterministic server round-trip — no
+    // host list), so the report lines, the port table, AND their spacing are pinned.
+    expect(text).toBe(
+      [
+        `Starting Nmap scan — ${INNER.ip}`,
+        '',
+        `Nmap scan report for ${INNER.hostname} (${INNER.ip})`,
+        'Host is up.',
+        '',
+        'PORT     STATE SERVICE',
+        '22/tcp   open  ssh',
+        '2222/tcp open  ssh',
+        '',
+        'Nmap done — 1 host up',
+      ].join('\n'),
+    );
+  });
+
+  it('reports the inner gateway down when the server resolves nothing (e.g. bricked)', async () => {
+    const resolveInnerGateway = vi.fn(async () => ({ found: false, ports: [] }));
+
+    const { text, exitCode } = await drain(
+      await nmap.execute(envWithInnerGateway(resolveInnerGateway), [INNER.ip], new Map()),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(text).toBe(
+      [
+        `Starting Nmap scan — ${INNER.ip}`,
+        '',
+        'Host seems down.',
+        '',
+        'Nmap done — 0 hosts up',
+      ].join('\n'),
+    );
+    expect(text).not.toContain('Host is up.');
+  });
+
+  it('does NOT route the edge .1 router through the inner-gateway resolver (it stays the client-side sameLAN scan)', async () => {
+    const resolveInnerGateway = vi.fn(async () => ({ found: true, ports: [] }));
+
+    const { text } = await drain(
+      await nmap.execute(envWithInnerGateway(resolveInnerGateway), [`${lan.subnet}.1`], new Map()),
+    );
+
+    expect(resolveInnerGateway).not.toHaveBeenCalled();
+    expect(text).toContain('22/tcp   open  ssh');
+  });
+
+  it('does NOT route a range covering the inner gateway through the resolver (a range lists hosts only)', async () => {
+    const resolveInnerGateway = vi.fn(async () => ({ found: true, ports: [] }));
+
+    await drain(
+      await nmap.execute(envWithInnerGateway(resolveInnerGateway), [`${lan.subnet}.1-30`], new Map()),
+    );
+
+    expect(resolveInnerGateway).not.toHaveBeenCalled();
+  });
+
+  it('still fires the own-LAN scan record (kern.log trace) for an inner-gateway scan', async () => {
+    const record = vi.fn(async () => undefined);
+    const resolveInnerGateway = vi.fn(async () => ({
+      found: true,
+      ports: [{ port: 22, service: 'ssh' }],
+    }));
+
+    await drain(
+      await nmap.execute(envWithInnerGateway(resolveInnerGateway, record), [INNER.ip], new Map()),
+    );
+
+    expect(record).toHaveBeenCalledWith({
+      essid: ESSID,
+      target: INNER.ip,
+      sourceIp: assignHomeNetwork(PUBKEY, ESSID).localIp,
+    });
+  });
+});
+
 describe('nmap — own router (.1) sameLAN scan (5.1.4)', () => {
   // For PUBKEY + XFINITY-1234 the COSMETIC gateway (the old buildRemoteHostFs path)
   // rolls sshd on :2222, while the REAL router always runs sshd on :22 — so a .1
