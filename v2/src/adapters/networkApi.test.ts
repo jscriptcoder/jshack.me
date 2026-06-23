@@ -5,6 +5,7 @@ import {
   leaveHomeNetwork,
   resolveCrossPlayerFs,
   resolveOccupants,
+  resolveInnerGateway,
   resolveOccupiedEssids,
   resolvePublic,
   type NetworkClientDeps,
@@ -228,6 +229,78 @@ describe('resolvePublic', () => {
     );
 
     expect(await resolvePublic(deps, '203.0.113.7')).toEqual({ found: false, ports: [] });
+  });
+});
+
+describe('resolveInnerGateway', () => {
+  it('signs a resolveInnerGatewayScan request with the essid + target and parses the resolved ports', async () => {
+    const ports = [
+      { port: 22, service: 'ssh' },
+      { port: 2222, service: 'ssh' },
+    ];
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, found: true, ports }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    const result = await resolveInnerGateway(deps, ESSID, '192.168.1.37');
+
+    expect(result).toEqual({ found: true, ports });
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected verified envelope');
+    expect(verified.payload).toMatchObject({
+      action: 'resolveInnerGatewayScan',
+      essid: ESSID,
+      target: '192.168.1.37',
+    });
+  });
+
+  it('reports the host found with an empty port list when the server omits ports', async () => {
+    const deps = makeDeps(
+      vi.fn(async () => jsonResponse(200, { ok: true, found: true })) as unknown as typeof fetch,
+    );
+
+    expect(await resolveInnerGateway(deps, ESSID, '192.168.1.37')).toEqual({
+      found: true,
+      ports: [],
+    });
+  });
+
+  it('reports the host not found when the server resolves no inner gateway', async () => {
+    const deps = makeDeps(
+      vi.fn(async () =>
+        jsonResponse(200, { ok: true, found: false, ports: [] }),
+      ) as unknown as typeof fetch,
+    );
+
+    expect(await resolveInnerGateway(deps, ESSID, '192.168.1.37')).toEqual({
+      found: false,
+      ports: [],
+    });
+  });
+
+  it('treats a non-ok response as host down even when its body claims found', async () => {
+    const deps = makeDeps(
+      vi.fn(async () =>
+        jsonResponse(500, { found: true, ports: [{ port: 22, service: 'ssh' }] }),
+      ) as unknown as typeof fetch,
+    );
+
+    expect(await resolveInnerGateway(deps, ESSID, '192.168.1.37')).toEqual({
+      found: false,
+      ports: [],
+    });
+  });
+
+  it('treats a thrown fetch (offline) as host down', async () => {
+    const deps = makeDeps(
+      vi.fn(async () => {
+        throw new Error('offline');
+      }) as unknown as typeof fetch,
+    );
+
+    expect(await resolveInnerGateway(deps, ESSID, '192.168.1.37')).toEqual({
+      found: false,
+      ports: [],
+    });
   });
 });
 

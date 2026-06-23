@@ -1,9 +1,27 @@
 # Story 5b — Multi-layer Generated Networks (v2)
 
-**Branch**: per-slice branches off `main` (5b.1a merged; next slice = fresh branch off `main`)
-**Status**: Slice 5b.1a ✅ MERGED (#307, v0.72.0). Next = 5b.1b (answer Q2/Q3 first).
+**Branch**: per-slice branches off `main` (5b.1a merged; 5b.1b-i on `feat/5b1b-i-inner-gateway-expose`)
+**Status**: 5b.1a ✅ MERGED (#307). 5b.1b SPLIT → 5b.1b-i (Expose) ✅ COMPLETE on branch (v0.73.0, ready to PR) + 5b.1b-ii (Reach); next = PR 5b.1b-i, then 5b.1b-ii.
 
-> **Status: Slice 5b.1a ✅ MERGED — #307, v0.72.0 (2026-06-22), all 6 criteria. ⟵ RESUME at 5b.1b.**
+> **Status: Slice 5b.1b-i (Expose) ✅ COMPLETE — PR #308 OPEN (v0.73.0), all 6 criteria met, wire-check
+> 5/5 live. ⟵ RESUME: merge #308 (`gh pr merge 308 --squash --delete-branch`), then start 5b.1b-ii
+> (Reach) on a fresh branch off `main`.**
+>
+> **5b.1b-i as-built (4 commits on branch, full v2 suite green @ 1713, `tsc -b` clean, ~100% mutation on
+> changed core w/ documented equivalents):** `8198a7d` foundation (`core/generation/generateDeepLayer.ts`
+> `generateDeepLayer`/`buildDeepHostFs`/`DEEP_LAYER_INDEX`=2; `core/scan/deepLayerPortResolver.ts`) ·
+> `8f9b614` server action (`core/scan/resolveInnerGatewayScan.ts` — regenerate+guard+journal-replay+
+> `canBoot`+`scanResult` external; `ScanApi.resolveInnerGateway` seam, `networkApi` adapter, `api/network`
+> branch) · `a7cb717` client (`nmap.ts` `scanInnerGateway` + single-IP `isInnerGateway` dispatch) ·
+> capstone (wire-check `scripts/testInnerGatewayScan.ts` 5/5, v0.73.0). **Equivalent mutants (documented):**
+> `buildDeepHostFs` pidfile-perms (no perm-gated reader this slice); `vantage:'external'`→`""` (scanResult
+> only distinguishes `sameLAN`). **E2E note:** the live wire-check drives the REAL `/api/network` +
+> `/api/patches` runtime end-to-end (baseline→live forward→dead-forward liveness gate→brick-dark); a
+> separate agent-browser E2E would duplicate unit + wire coverage with NO browser-only behavior (the nano/
+> terminal flow is unchanged from shipped) — per `feedback_e2e_scope`, the wire-check is the integration
+> proof for this slice.
+
+> **Status (prior): Slice 5b.1a ✅ MERGED — #307, v0.72.0 (2026-06-22), all 6 criteria.**
 > Grill-me (D1–D9) + `planning` (Slices 5b.1a → 5b.5) complete. 5b.1a shipped via #307 (squash-merged to
 > `main`, branch deleted). This file is the self-contained source of truth; pick up at **5b.1b** below.
 >
@@ -29,16 +47,27 @@
 > gateway host). Consumers: `ssh.ts`, `authCreateSession.ts`, `nmapScan.ts logHostScan`,
 > `remoteWritePermission.ts`, `ui/activeRoot.ts`.
 >
-> **Next action (resume here):** start **Slice 5b.1b** (forward through the inner router to reach a
-> hidden Layer-2 machine — full slice spec in the Slices section below). FIRST answer the two open
-> review questions Q2/Q3, THEN cut a fresh branch off `main`, confirm 5b.1b's acceptance criteria, and
-> begin RED. 5b.1b reuses everything 5b.1a built (the `lanHostIdentity` resolver, `buildInnerGatewayBaseFs`,
-> the inner gateway's `rules.v4`) — it adds Layer-2 generation + `external`-vantage scan of the inner
-> gateway + destination-port routing (`machineServing`).
+> **Next action (resume here):** start **Slice 5b.1b-i** (Expose — scanning the inner gateway reveals a
+> journaled NAT forward to a hidden Layer-2 machine; full spec in the Slices section below). Cut a fresh
+> branch off `main`, confirm 5b.1b-i's acceptance criteria, begin RED. 5b.1b-i reuses everything 5b.1a
+> built (the `lanHostIdentity` resolver, `buildInnerGatewayBaseFs`, the inner gateway's journal-backed
+> `rules.v4`) — it adds Layer-2 generation + a SERVER-resolved `external`-vantage scan of the inner
+> gateway with forward liveness. 5b.1b-ii (Reach) then routes `ssh user@<inner>:<fwd port>` via
+> `machineServing` onto the Layer-2 box.
 >
-> **Open review questions (block 5b.1b, not 5b.1a):** Q1 RESOLVED — kept 5b.1a standalone.
-> (2) deep-layer addressing `10.x` vs other range (decide at 5b.1b);
-> (3) keep 5b.2 reachability-pivot in this story or split it out (decide when 5b.1b lands).
+> **Why the server-resolved scan (the load-bearing design fact):** the forward the player adds via
+> `nano rules.v4` persists ONLY to the inner gateway's `machine_id` journal in the DB; `nmap`/`ssh` run
+> from the player's OWN workstation, and the client has NO seam to fetch a non-active machine's journal
+> (`env.remote.listPatches` is an unexercised stub; `activeRoot` replays only the ACTIVE box). So the
+> inner-gateway scan + the forward-routed ssh resolve SERVER-side, mirroring the shipped public-IP path
+> (`handleResolvePublicScan` + `machineServing` + `buildWorkstationPortResolver`). This is also why each
+> sub-slice needs a `scripts/` wire-check (new `api/` action).
+>
+> **Open review questions — ALL RESOLVED (2026-06-23):** Q1 — kept 5b.1a standalone. **Q2 — deep-layer
+> `/24` = `10.<a>.<b>.0/24` seeded per `(key, essid, layer)`** (reload-stable, varied per player, cleanly
+> distinct from the home `192.168.<x>` `/24`; inner gateway is `.1` of it, dual-homed; L2 NPC at a seeded
+> octet). **Q3 — 5b.2 reachability-pivot STAYS in this story** (next slice after 5b.1b lands; reassess
+> splitting the switch + pivot into their own plan only if this story gets unwieldy).
 >
 > **Deferred housekeeping:** fold the 5b reshaping back into `plans/multiplayer-crossplayer-epic.md`
 > (5b absorbed the *reachability half* of deferred item #2; depth landed as per-player home playgrounds,
@@ -254,10 +283,12 @@ Test at the lowest level that gives confidence (vitest units for core logic; jsd
 `@solidjs/testing-library` for UI; agent-browser E2E only for the full loop). Each slice keeps the
 shipped cross-player loop green (D1).
 
-- [ ] A multi-layer home: `nmap <home /24>` lists an **inner gateway** (router/switch) distinct from
-      the `.1` edge router, with its **own** seeded creds + `machine_id` (not aliasing the edge).
-- [ ] **5b.1** Reach a Layer-2 NPC by forwarding through the inner **router**: root it → `nano rules.v4`
-      add a forward → `ssh …:<fwd port>` lands on the Layer-2 box.
+- [x] A multi-layer home: `nmap <home /24>` lists an **inner gateway** (router/switch) distinct from
+      the `.1` edge router, with its **own** seeded creds + `machine_id` (not aliasing the edge). _(5b.1a)_
+- [x] **5b.1b-i (Expose)** Root the inner **router** → `nano rules.v4` add a forward → `nmap <inner IP>`
+      surfaces the forwarded port (server-resolved `external` vantage, L2-liveness-gated). _(v0.73.0)_
+- [ ] **5b.1b-ii (Reach)** `ssh …:<fwd port>` routes through the inner gateway's `machineServing` and
+      lands a session on the Layer-2 box (auth against its own `/etc/passwd`).
 - [ ] **5b.2** Reach a Layer-2 host by **pivoting**: `ssh` onto the inner gateway, then `nmap <L2 /24>`
       from that vantage lists Layer-2 hosts with no forward configured.
 - [ ] **5b.3** A **switch** inner gateway: its downstream is **dark from upstream**; pivot onto it →
@@ -302,28 +333,78 @@ coordinate-seeded router-FS variant; extend `isOwnRouter`/`hostForMachineId` + t
 **MUTATE / KILL MUTANTS / REFACTOR**: per the skills. **Done when**: criteria met, report reviewed,
 human approves.
 
-### Slice 5b.1b — Forward through the inner router to reach a hidden Layer-2 machine
+### Slice 5b.1b-i — Expose: scanning the inner gateway reveals a journaled NAT forward to a hidden Layer-2 machine
 
-**Value**: The full multi-layer payoff — the player exposes and reaches a machine on a deeper layer by
-configuring NAT on the inner gateway. Proves the whole topology + addressing + cascading-forward path.
-**Path**: generate Layer 2 (a `10.x.y.0/24`, one `buildRemoteHostFs` NPC with `sshd` up, seeded per
-`(key, essid, layer)`) → own-LAN scan of the inner gateway uses **`external` vantage** (forwards
-visible) with `resolveTargetPorts` materializing the Layer-2 host (liveness-gated) → `nano rules.v4`
-add `forward 2222 to <L2 IP>:22` → `nmap <inner IP>` shows `:2222` → `ssh user@<inner IP>:2222` routes
-by destination port (`machineServing`) → session on the Layer-2 NPC. Skipped: pivot (5b.2), switch.
+**Value**: The player exposes a deeper-layer machine by configuring NAT on the inner gateway and SEES it
+appear — `nmap <inner IP>` surfaces the forwarded port. Proves topology + addressing + forward-liveness
+end-to-end, short of logging in (that's 5b.1b-ii).
+**Path**: a new **Layer-2 generator** (subnet `10.<a>.<b>.0/24` from `PRNG(key, essid, layer)`, one
+`buildRemoteHostFs` NPC with `sshd:22` up at a seeded octet; the inner gateway is `.1` of this `/24`,
+dual-homed onto the home `/24`) → `nano rules.v4` on the inner gateway adds `forward 2222 to <L2 IP>:22`
+(journaled via `isOwnRouter`→`materializeRouterFs`, shipped in 5b.1a) → `nmap <inner IP>` routes to a
+NEW server action that materializes the inner gateway (base + journal), runs the single
+`scanResult({ vantage: 'external', … })` total function with a deep-layer `resolveTargetPorts` (returns
+the L2 host's open ports for its `internalIp`, liveness-gated) → the client renders `:2222`. **Mirrors
+the shipped public-IP scan path** (`handleResolvePublicScan`) but own-keyed + octet-targeted (the inner
+gateway is NOT in `network_registry`; the server regenerates it from the verified pubkey + essid +
+octet and fetches its journal by `computeInnerGatewayId`). Skipped: ssh through the forward (5b.1b-ii),
+pivot (5b.2), switch (5b.3), deep-layer trace fidelity (5b.5 — the existing own-LAN kern.log trace keeps
+recording the gateway's base `:22`).
 **Required implementation skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
-**Acceptance criteria** (confirm before code): (1) with no forward, `nmap <inner IP>` shows only its
-own `:22` and the Layer-2 host is dark. (2) after adding the forward, `nmap <inner IP>` shows `:2222`
-**iff** the Layer-2 host's `:22` is live. (3) `ssh user@<inner IP>:2222` lands on the Layer-2 NPC
-(auths against ITS `/etc/passwd`), not the inner gateway. (4) Layer-2 `/24` is `10.x` and distinct.
-(5) cross-player public-IP scan still shows only edge + ws (deep layer invisible). (6) shipped loop green.
-**RED**: unit — own-LAN inner-gateway scan uses `external` vantage; `resolveTargetPorts` liveness gate;
-destination-port routing to the Layer-2 host. Likely mutants: vantage branch, the forward liveness
-`find`/`=== internalPort`, the port-equality in `machineServing`.
-**GREEN**: generate Layer 2; wire the inner-gateway own-LAN scan to `external` + a Layer-2 port
-resolver; route `ssh <inner IP>:<port>` through the inner gateway's `machineServing`.
-**MUTATE / KILL MUTANTS / REFACTOR**: per the skills. **Done when**: criteria met + a `scripts/`
-wire-check + agent-browser confirm of the 5b.1 loop; human approves.
+**Acceptance criteria** (confirm before code): (1) the Layer-2 generator is deterministic + reload-stable:
+subnet `10.<a>.<b>` seeded per `(key, essid, layer)`, distinct from the home `192.168.<x>` `/24`; one NPC
+host with `sshd:22`; inner gateway `.1` of the deep `/24`. (2) `scanResult` with a deep `resolveTargetPorts`
+hides the forward when the L2 host's `:22` is down and shows `:2222` (service from the L2 host) when it is
+up — `iff` proven at the resolver/scanResult unit level. (3) the server action: regenerates the inner
+gateway from the verified pubkey + essid + octet, refuses a target that is not an inner gateway, fetches
+its journal, and returns the `external`-vantage ports (host-down → empty/`found:false`, e.g. a bricked
+gateway). (4) `nmap <inner IP>` (client) renders the server-resolved ports — `:22` with no forward, plus
+`:2222` once the forward is added; a range scan and the edge `.1`/sibling scans are UNCHANGED. (5)
+cross-player public-IP scan still shows ONLY the edge router + forwarded workstation (deep layer
+invisible); the shipped `crack→connect→nmap→ssh→su→brick` loop is green. (6) a `scripts/test*.ts`
+wire-check exercises the new `api/` action against `vercel dev`.
+**RED**: unit — deep-layer generation determinism + `10.x` distinctness; the deep `resolveTargetPorts`
+liveness gate (down → `[]`, up → L2 ports); the server action's regenerate/guard/`external`-scan; the
+client `nmap` inner-gateway async branch. Likely mutants: the `10.<a>.<b>` octet draws, the
+`vantage === 'external'` branch reuse, the liveness `find`/`=== internalPort`, the inner-gateway
+`kind/octet` guard in the action, the client branch predicate (inner gateway vs edge/sibling).
+**GREEN**: add the Layer-2 generator; add the deep-layer `resolveTargetPorts`; add the server scan
+action + `api/` route + `env.scan.resolveInnerGateway` seam/adapter; branch `nmap.ts`'s single-IP scan
+to the inner-gateway async resolve.
+**MUTATE / KILL MUTANTS / REFACTOR**: per the skills. **Done when**: criteria met + the `scripts/`
+wire-check + agent-browser confirm of the expose loop; human approves.
+**✅ DONE (v0.73.0, 2026-06-23):** all 6 criteria met; `scripts/testInnerGatewayScan.ts` 5/5 live against
+`vercel dev`+supabase (baseline→live forward→dead-forward liveness gate→brick-dark). Agent-browser E2E
+substituted by the live wire-check (no browser-only behavior; `feedback_e2e_scope`). 4 commits on
+`feat/5b1b-i-inner-gateway-expose`.
+**Deferred from this slice (noted 2026-06-23):** in-game DISCOVERY of the L2 host IP — a player learns
+which `<L2 IP>` to forward to either via the 5b.2 pivot (scan the deep `/24` from the gateway) or a
+future `rules.v4` seed-comment that names the real downstream host (would thread `essid` into
+`buildInnerGatewayBaseFs`). 5b.1b-i proves the forward MECHANISM; its wire-check/E2E uses the
+deterministic L2 IP. Deep hosts get a guaranteed `sshd:22` (`buildDeepHostFs`), not the probabilistic
+`buildRemoteHostFs` roll, so they are reliable targets (D8).
+
+### Slice 5b.1b-ii — Reach: ssh through the forward lands a session on the Layer-2 machine
+
+**Value**: The full multi-layer payoff — the player logs into the deeper-layer box through the NAT
+forward they configured. **Path**: `ssh user@<inner IP>:2222` → the inner-gateway target with a
+non-own-sshd port routes to a NEW server auth action that materializes the inner gateway (base +
+journal), resolves `machineServing(innerFs, 2222)` → `forward → <L2 IP>:22`, regenerates the L2 host,
+validates the password against ITS `/etc/passwd`, server-derives the userType, and inserts a session on
+the **L2 host's** `machine_id` (`hostMachineId`) — so reads/writes downstream land on the L2 box, not the
+gateway. **Mirrors `authCreateSessionPublic`** (port-routed via `machineServing`) but own-keyed +
+octet-targeted, with the internal target an L2 NPC instead of the owner's workstation. `ssh root@<inner>`
+on port 22 (5b.1a) is unchanged (own sshd → lands on the gateway). Skipped: pivot (5b.2), switch (5b.3).
+**Required implementation skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
+**Acceptance criteria** (confirm before code — detail at slice start): (1) `ssh user@<inner IP>:2222`
+lands on the Layer-2 NPC (auths against ITS `/etc/passwd`; the session's `machine_id` is the L2 host's,
+its hostname drives the prompt), not the inner gateway. (2) a port with no matching forward → "Connection
+refused" (server `host_unreachable`); a wrong password → "Permission denied". (3) `ssh root@<inner>` (port
+22) still lands on the gateway (5b.1a unbroken). (4) cross-player public-IP path + the shipped loop green.
+(5) a `scripts/test*.ts` wire-check + agent-browser confirm of the full `nmap→forward→ssh→shell` loop.
+**RED/GREEN/MUTATE/KILL/REFACTOR**: detailed at slice start. Likely mutants: the `machineServing` port
+equality, the inner-vs-forward routing predicate in `ssh.ts`, the L2 passwd validation.
+**Done when**: criteria met + wire-check + agent-browser; human approves.
 
 ### Slice 5b.2 — Reachability-pivot: scan/connect from the box you're connected to
 

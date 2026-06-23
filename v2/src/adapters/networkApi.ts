@@ -153,6 +153,31 @@ export const resolvePublic = async (
 };
 
 /**
+ * Resolve the player's OWN-LAN `nmap` of an inner gateway server-side (backs
+ * `env.scan.resolveInnerGateway`): the gateway's own ports PLUS any live NAT forward
+ * to the deep layer behind it, read from its journal at the `external` vantage. The
+ * forward lives server-side (a `nano rules.v4` edit on the gateway's journal), so —
+ * unlike a sibling NPC — it can't be computed from the client's static world. Mirrors
+ * `resolvePublic`: it degrades to host-down on any non-ok / malformed / thrown
+ * response so a server hiccup reads as "down" rather than crashing the scan.
+ */
+export const resolveInnerGateway = async (
+  deps: NetworkClientDeps,
+  essid: string,
+  target: string,
+): Promise<PublicScanResolution> => {
+  try {
+    const response = await post(deps, 'resolveInnerGatewayScan', { essid, target });
+    if (!response.ok) return { found: false, ports: [] };
+    const body: unknown = await response.json();
+    const resolved = body as Partial<PublicScanResolution>;
+    return { found: resolved.found === true, ports: resolved.ports ?? [] };
+  } catch {
+    return { found: false, ports: [] };
+  }
+};
+
+/**
  * Fetch another identity's SERVER-served, tier-filtered filesystem for a
  * cross-player ssh hop (Story 2, slice 2c). Returns the materialized `Directory`
  * the server pruned to the caller's tier, or `null` on any non-ok / malformed /

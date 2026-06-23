@@ -12,6 +12,8 @@ import {
 } from '../src/core/network/resolveOccupiedEssids';
 import { handleUnregisterOccupant } from '../src/core/network/unregisterOccupant';
 import { handleResolvePublicScan, type RegistryLookup } from '../src/core/scan/resolvePublicScan';
+import { handleResolveInnerGatewayScan } from '../src/core/scan/resolveInnerGatewayScan';
+import type { OwnerPatchRow as MachinePatchRow } from '../src/core/network/materializeMachineFs';
 import {
   handleResolveCrossPlayerFs,
   type ActiveSession,
@@ -153,6 +155,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       readLog,
       upsertPatch,
       findRegistryByOwnerKey,
+    });
+    res.status(status).json(body);
+    return;
+  }
+
+  if (actionOf(req.body) === 'resolveInnerGatewayScan') {
+    // The player's OWN-LAN nmap of an inner gateway, resolved at the external vantage
+    // so a NAT forward to the deep layer is visible. The forward lives on the gateway's
+    // server-side journal, so read its patch rows (scoped to machine_id, server order)
+    // to replay over the seeded gateway base — for `canBoot` + the live `rules.v4`. No
+    // registry lookup: the gateway is the caller's own box, regenerated from their key.
+    const findPatches = async ({ machine_id }: { machine_id: string }) => {
+      const { data, error } = await supabase
+        .from('patches')
+        .select('path, content, owner, permissions, node_type, updated_at, writer_key')
+        .eq('machine_id', machine_id)
+        .order('updated_at', { ascending: true })
+        .order('writer_key', { ascending: true });
+      if (error) console.error('[network] inner-gateway scan lookup error:', error);
+      return { data: data as readonly MachinePatchRow[] | null, error };
+    };
+    const { status, body } = await handleResolveInnerGatewayScan(req.body, {
+      nonceStore: noopNonceStore,
+      findPatches,
     });
     res.status(status).json(body);
     return;

@@ -136,6 +136,9 @@ export const mockSuApi = (overrides: Partial<SuApi> = {}): SuApi => ({
 export const mockScanApi = (overrides: Partial<ScanApi> = {}): ScanApi => ({
   record: async () => undefined,
   resolvePublic: NOT_IMPLEMENTED('scan.resolvePublic'),
+  // Load-bearing like `resolvePublic`: an inner-gateway scan drives its own output, so
+  // it throws unless a test stubs the resolution.
+  resolveInnerGateway: NOT_IMPLEMENTED('scan.resolveInnerGateway'),
   // Additive read: defaults to no fellow occupants so own-LAN nmap tests are unaffected;
   // occupant-merge tests override it to merge a real occupant.
   resolveOccupants: async () => [],
