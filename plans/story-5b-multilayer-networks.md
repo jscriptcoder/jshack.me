@@ -1,12 +1,27 @@
 # Story 5b — Multi-layer Generated Networks (v2)
 
-**Branch**: per-slice branches off `main` (5b.1a + 5b.1b-i + 5b.1b-ii all merged)
-**Status**: 5b.1a ✅ MERGED (#307). 5b.1b-i (Expose) ✅ MERGED (#308, v0.73.0). 5b.1b-ii (Reach) ✅ MERGED (#309, v0.74.0); next = **5b.2 (reachability-pivot)**.
+**Branch**: per-slice branches off `main` (5b.1a + 5b.1b-i + 5b.1b-ii + 5b.2 all merged)
+**Status**: 5b.1a ✅ MERGED (#307). 5b.1b-i (Expose) ✅ MERGED (#308, v0.73.0). 5b.1b-ii (Reach) ✅ MERGED (#309, v0.74.0). 5b.2 (reachability-pivot) ✅ MERGED (#310, v0.75.0); next = **5b.3 (switch inner gateway)**.
 
-> **Status: Slice 5b.1b-ii (Reach) ✅ MERGED — #309, v0.74.0, all 5 criteria met, wire-check 6/6 live. ⟵
-> RESUME: start 5b.2 (reachability-pivot) on a fresh branch off `main` — vantage = head of the active hop
-> chain; `nmap`/`ssh` resolve against the current box's segment (its layer `/24`, + downstream if a
-> gateway) instead of home; source-IP masking stays deferred (D4). Spec in the Slices section below.**
+> **Status: Slice 5b.2 (reachability-pivot) ✅ MERGED — #310, v0.75.0, all 6 criteria met. ⟵
+> RESUME: start 5b.3 (switch inner gateway) on a fresh branch off `main`. 5b.3 is the FIRST consumer of
+> the pivot: a switch gateway's downstream is DARK from upstream (no NAT forward, unlike the router), so
+> you MUST pivot onto the switch (root it → the pivot vantage 5b.2 shipped) and scan its downstream
+> `acl.conf`-FILTERED. Spec in the Slices section below.**
+>
+> **5b.2 as-built (2 commits, full v2 suite green @ 1752, `tsc -b` + lint clean, 100% mutation on the new
+> pivot code + `lanHostIdentity.ts`):** `e05236d` feat — `core/generation/lanHostIdentity.ts`
+> `innerGatewayForMachineId` (machine_id-keyed reverse lookup: is the active session sitting on an inner
+> gateway?) + `core/commands/nmap.ts` `resolveDeepPivotScan` and a vantage-gated branch before the home
+> path (`pivotGateway !== null` → scan the deep `/24` via the existing
+> `parseScanTarget`/`hostsInScanTarget`/`scanRange`/`scanSingle` machinery, deep host ports from
+> `readOpenPorts(buildDeepHostFs(...))`; a non-deep target falls through so the upstream home segment stays
+> visible from the gateway too) · `4de045a` v0.75.0. **Resolved CLIENT-side** — deep hosts are deterministic
+> NPCs with no journal, so the pivot needs no server round-trip / no new `api/` action (unlike the 5b.1b
+> forward-scan, whose forward lived on the gateway's journal). No deep-layer trace yet (the pivot scan
+> records no kern.log — deferred to 5b.5). 8 behavioral tests through `nmap.execute` (helper distinctness
+> proven behaviorally: edge-`.1` + sibling vantages don't pivot). No wire-check (no `api/` path); the
+> shipped cross-player loop is untouched by construction.
 >
 > **5b.1b-ii as-built (4 commits on branch, full v2 suite green @ 1744, `tsc -b` clean, ~100% mutation on
 > changed core w/ documented equivalents):** `72b83f7` server gate
@@ -304,8 +319,8 @@ shipped cross-player loop green (D1).
       surfaces the forwarded port (server-resolved `external` vantage, L2-liveness-gated). _(v0.73.0)_
 - [x] **5b.1b-ii (Reach)** `ssh …:<fwd port>` routes through the inner gateway's `machineServing` and
       lands a session on the Layer-2 box (auth against its own `/etc/passwd`). _(v0.74.0)_
-- [ ] **5b.2** Reach a Layer-2 host by **pivoting**: `ssh` onto the inner gateway, then `nmap <L2 /24>`
-      from that vantage lists Layer-2 hosts with no forward configured.
+- [x] **5b.2** Reach a Layer-2 host by **pivoting**: `ssh` onto the inner gateway, then `nmap <L2 /24>`
+      from that vantage lists Layer-2 hosts with no forward configured. _(v0.75.0)_
 - [ ] **5b.3** A **switch** inner gateway: its downstream is **dark from upstream**; pivot onto it →
       scan downstream **ACL-filtered**; delete an `acl.conf` `deny` → the port opens.
 - [ ] **5b.4** Depth is **seeded 1–3** per `(pubkey, essid)`; gateway kind (router/switch) varies;
@@ -440,6 +455,12 @@ masking stays deferred (D4). **Required skills**: `tdd`,`testing`,`mutation-test
 gateway, `nmap <L2 /24>` from that vantage lists Layer-2 hosts with no forward; from home that scan
 returns nothing; the shipped own-LAN/cross-player scans are unchanged when no hop is active.
 **RED/GREEN/MUTATE/KILL/REFACTOR**: detailed at slice start. **Done when**: criteria met, human approves.
+**✅ DONE (v0.75.0, #310):** all 6 criteria met. Scoped to the **nmap discovery half** (the AC's exact
+shape); resolved CLIENT-side (deep hosts are journal-less NPCs) so NO new `api/` action + NO wire-check.
+As-built anchors in the status block at the top of this file. **Deferred from this slice:** (1) **ssh-from-
+pivot** — `ssh user@<deep IP>` DIRECTLY from the gateway vantage (no forward) needs a new server auth
+action + wire-check; login via the NAT forward already works (5b.1b-ii), so this is its own later slice;
+(2) no deep-layer scan trace (→ 5b.5).
 
 ### Slice 5b.3 — Switch inner gateway: dark-from-upstream + ACL filter
 
