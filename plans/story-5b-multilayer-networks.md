@@ -3,8 +3,9 @@
 **Branch**: per-slice branches off `main` (5b.1a merged; 5b.1b-i on `feat/5b1b-i-inner-gateway-expose`)
 **Status**: 5b.1a ✅ MERGED (#307). 5b.1b SPLIT → 5b.1b-i (Expose) ✅ COMPLETE on branch (v0.73.0, ready to PR) + 5b.1b-ii (Reach); next = PR 5b.1b-i, then 5b.1b-ii.
 
-> **Status: Slice 5b.1b-i (Expose) ✅ COMPLETE on `feat/5b1b-i-inner-gateway-expose` (v0.73.0) — all 6
-> criteria met, wire-check 5/5 live. ⟵ RESUME at PR 5b.1b-i, then 5b.1b-ii (Reach).**
+> **Status: Slice 5b.1b-i (Expose) ✅ COMPLETE — PR #308 OPEN (v0.73.0), all 6 criteria met, wire-check
+> 5/5 live. ⟵ RESUME: merge #308 (`gh pr merge 308 --squash --delete-branch`), then start 5b.1b-ii
+> (Reach) on a fresh branch off `main`.**
 >
 > **5b.1b-i as-built (4 commits on branch, full v2 suite green @ 1713, `tsc -b` clean, ~100% mutation on
 > changed core w/ documented equivalents):** `8198a7d` foundation (`core/generation/generateDeepLayer.ts`
