@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { buildDeepHostFs, generateDeepLayer, type FrontingGateway } from './generateDeepLayer';
+import {
+  buildDeepHostFs,
+  generateDeepLayer,
+  seedNetworkDepth,
+  type FrontingGateway,
+} from './generateDeepLayer';
 import { generateHomeLan } from './generateHomeLan';
 import { buildRemoteHostFs } from './remoteHostFs';
 import { readOpenPorts } from '../services/pidfile';
@@ -126,6 +131,48 @@ describe('generateDeepLayer — terminal pin (hangsChild)', () => {
 
     expect(terminal.subnet).toBe(withChild.subnet);
     expect(terminal.host).toEqual(withChild.host);
+  });
+});
+
+describe('seedNetworkDepth', () => {
+  // A spread of owner keys (00..1f repeated) to exercise the distribution, mirroring
+  // the range checks the other seed seams use.
+  const keys = Array.from({ length: 48 }, (_unused, index) =>
+    index.toString(16).padStart(2, '0').repeat(32),
+  );
+
+  it('is deterministic / reload-stable for the same owner key + essid', () => {
+    expect(seedNetworkDepth(PUBKEY, ESSID)).toBe(seedNetworkDepth(PUBKEY, ESSID));
+  });
+
+  it('every home gets a depth in 1..3 (≥1, so no player is playground-less)', () => {
+    keys.forEach((key) => {
+      const depth = seedNetworkDepth(key, ESSID);
+      expect(depth).toBeGreaterThanOrEqual(1);
+      expect(depth).toBeLessThanOrEqual(3);
+    });
+  });
+
+  it('spans the full 1..3 range across keys — the shallowest and deepest both occur', () => {
+    // Pins both bounds: a max off-by-one would never reach 3, a min off-by-one would
+    // drop 1 (or admit 0). Seeing both proves the range ends are live.
+    const depths = new Set(keys.map((key) => seedNetworkDepth(key, ESSID)));
+    expect(depths.has(1)).toBe(true);
+    expect(depths.has(3)).toBe(true);
+  });
+
+  it('is keyed on the essid — the same owner gets varying depth across essids', () => {
+    // A mutation that drops essid from the seed would pin one depth for all essids;
+    // seeing more than one distinct value across essids proves essid is in the seed.
+    const essids = Array.from({ length: 24 }, (_unused, index) => `WIFI-${index}`);
+    const depths = new Set(essids.map((essid) => seedNetworkDepth(PUBKEY, essid)));
+    expect(depths.size).toBeGreaterThan(1);
+  });
+
+  it('pins a byte-stable golden depth for a known key+essid', () => {
+    // Captured from the seeded generator and hardcoded so a mutated namespace string or
+    // range bound shifts this value and fails here deterministically.
+    expect(seedNetworkDepth(PUBKEY, ESSID)).toBe(2);
   });
 });
 

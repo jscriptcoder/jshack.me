@@ -22,6 +22,7 @@
 import {
   generateDeepLayer,
   buildDeepHostFs,
+  seedNetworkDepth,
   type FrontingGateway,
 } from '../generation/generateDeepLayer';
 import { resolveDeepGatewayIdentity } from '../generation/lanHostIdentity';
@@ -32,7 +33,11 @@ export const buildDeepLayerPortResolver = (args: {
   readonly essid: string;
   readonly frontingGateway: FrontingGateway;
 }): ((internalIp: string) => readonly OpenPort[]) => {
-  const deep = generateDeepLayer(args.seedPubkeyHex, args.essid, args.frontingGateway);
+  // The inner gateway is chain position 1: its layer surfaces a child gateway forward
+  // only when the home is seeded at least 2 deep — a depth-1 home fronts a terminal layer.
+  const deep = generateDeepLayer(args.seedPubkeyHex, args.essid, args.frontingGateway, {
+    hangsChild: 1 < seedNetworkDepth(args.seedPubkeyHex, args.essid),
+  });
   const deepHostFs = buildDeepHostFs(args.seedPubkeyHex, args.essid, deep.host);
   // The child gateway is a deep router seeded off the fronting gateway as its parent
   // (so its credentials never alias the NPC's); regenerate its base FS once for the

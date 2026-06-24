@@ -33,7 +33,7 @@ import {
 import { buildRemoteHostFs } from './remoteHostFs';
 import { hostMachineId } from './remoteHostId';
 import { generateHomeLan, type LanHost, type LanHostKind } from './generateHomeLan';
-import { generateDeepLayer } from './generateDeepLayer';
+import { generateDeepLayer, seedNetworkDepth, type FrontingGateway } from './generateDeepLayer';
 
 export type LanHostIdentity = {
   readonly machineId: string;
@@ -145,49 +145,71 @@ export type PivotVantage = {
   readonly hangsChild: boolean;
 };
 
+/** A gateway in a home's deep chain: which machine_id keys it, its `kind`, and whether
+ *  the layer it fronts hangs a child (the chain continues) or is terminal (the depth
+ *  bound). `hangsChild` is the single source for both the chain descent and the resolved
+ *  pivot vantage, so there is no second place the depth-vs-position rule can drift. */
+type ChainVantage = {
+  readonly machineId: string;
+  readonly kind: LanHostKind;
+  readonly hangsChild: boolean;
+};
+
+/** Unfold the chain of gateways fronted from `gateway` (at 1-based `position`) downward,
+ *  stopping at the first layer that hangs no child — a terminal layer (`position >=
+ *  depth`) or a switch (which forwards nothing). `hangsChild = position < depth` keys
+ *  each layer, so behind a router the chain is exactly `depth` gateways long; the
+ *  recursion is bounded by `depth` because the position strictly increases each level. */
+const chainFrom = (
+  ownerKeyHex: string,
+  essid: string,
+  gateway: FrontingGateway,
+  position: number,
+  depth: number,
+): readonly ChainVantage[] => {
+  const hangsChild = position < depth;
+  const here: ChainVantage = { machineId: gateway.machineId, kind: gateway.kind, hangsChild };
+  const child = generateDeepLayer(ownerKeyHex, essid, gateway, { hangsChild }).childGateway;
+  if (child === null) {
+    return [here];
+  }
+  const childGateway: FrontingGateway = {
+    machineId: resolveDeepGatewayIdentity(ownerKeyHex, gateway.machineId, child.ip).machineId,
+    kind: child.kind,
+  };
+  return [here, ...chainFrom(ownerKeyHex, essid, childGateway, position + 1, depth)];
+};
+
 /** Resolve the active session's machine_id to the pivot vantage it stands on, or null
  *  when the shell is on the edge `.1`, an ordinary host, or the player's own
- *  workstation. Two kinds of vantage front a deep layer:
- *  - an L1 INNER GATEWAY (router or switch) sitting directly on the home LAN — it
- *    fronts a child-bearing layer (the chain continues below it);
- *  - a deep CHILD GATEWAY one layer down (reached through a forward on the inner
- *    router) — it fronts a TERMINAL layer, the bound that caps the chain's depth.
- *  The machine_id-keyed counterpart of `innerGatewayAt` (a session carries an id, not
- *  an address); a pivot scan reads the vantage to resolve the downstream segment
- *  instead of home. */
+ *  workstation. A vantage is any gateway in the home's deep chain — an L1 inner gateway
+ *  (router or switch) on the home LAN, or any deep child gateway reached down the chain.
+ *  Each L1 inner gateway's chain is walked down to its seeded depth, and the matched
+ *  vantage carries whether the layer it fronts hangs a child — so a depth-1 inner gateway
+ *  fronts a terminal layer, while a deeper home's gateways keep fronting child-bearing
+ *  layers until the depth bound. The machine_id-keyed counterpart of `innerGatewayAt` (a
+ *  session carries an id, not an address); a pivot scan reads the vantage to resolve the
+ *  downstream segment. */
 export const pivotVantageForMachineId = (
   ownerKeyHex: string,
   essid: string,
   machineId: string,
 ): PivotVantage | null => {
-  const innerGateways = generateHomeLan(ownerKeyHex, essid).hosts.filter(isInnerGateway);
+  const depth = seedNetworkDepth(ownerKeyHex, essid);
+  const match = generateHomeLan(ownerKeyHex, essid)
+    .hosts.filter(isInnerGateway)
+    .flatMap((gateway) =>
+      chainFrom(
+        ownerKeyHex,
+        essid,
+        { machineId: machineIdForLanHost(gateway, ownerKeyHex, essid), kind: gateway.kind },
+        1,
+        depth,
+      ),
+    )
+    .find((vantage) => vantage.machineId === machineId);
 
-  const direct = innerGateways.find(
-    (gateway) => machineIdForLanHost(gateway, ownerKeyHex, essid) === machineId,
-  );
-  if (direct !== undefined) {
-    return { machineId, kind: direct.kind, hangsChild: true };
-  }
-
-  // Walk one layer down: regenerate each inner router's deep layer and match its child
-  // gateway by machine_id. A switch fronts no child, so it is skipped by construction.
-  const childMatch = innerGateways
-    .map((gateway) => {
-      const parentId = machineIdForLanHost(gateway, ownerKeyHex, essid);
-      const child = generateDeepLayer(ownerKeyHex, essid, {
-        machineId: parentId,
-        kind: gateway.kind,
-      }).childGateway;
-      return child === null ? null : { child, parentId };
-    })
-    .find(
-      (entry) =>
-        entry !== null &&
-        resolveDeepGatewayIdentity(ownerKeyHex, entry.parentId, entry.child.ip).machineId ===
-          machineId,
-    );
-
-  return childMatch == null
+  return match === undefined
     ? null
-    : { machineId, kind: childMatch.child.kind, hangsChild: false };
+    : { machineId, kind: match.kind, hangsChild: match.hangsChild };
 };

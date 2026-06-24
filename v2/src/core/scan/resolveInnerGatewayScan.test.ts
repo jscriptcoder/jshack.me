@@ -6,7 +6,8 @@ import {
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { generateDeepLayer } from '../generation/generateDeepLayer';
+import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer';
+import type { Identity } from '../commands/types';
 import { computeInnerGatewayId } from '../identity/router';
 import type { OwnerPatchRow } from '../network/materializeWorkstationFs';
 import type { NonceStore } from '../signedRequest/nonceStore';
@@ -25,7 +26,18 @@ import type { NonceStore } from '../signedRequest/nonceStore';
 const freshStore: NonceStore = async () => ({ fresh: true });
 const ESSID = 'BEAN-THERE-WIFI';
 
-const PLAYER = generateIdentity();
+/** A player whose home is seeded to EXACTLY `depth` layers. Depth is a per-(key, essid)
+ *  roll, so pick deterministically rather than hoping a random identity lands at the
+ *  depth a test needs. A depth-2 home is the shallowest whose inner router hangs a child
+ *  gateway (the forward-to-child test needs the chain door); a depth-1 home hangs none. */
+const playerWithNetworkDepth = (depth: number): Identity => {
+  const found = Array.from({ length: 96 }, () => generateIdentity()).find(
+    (identity) => seedNetworkDepth(identity.publicKeyHex, ESSID) === depth,
+  );
+  if (found === undefined) throw new Error(`no identity seeds network depth ${depth}`);
+  return found;
+};
+const PLAYER = playerWithNetworkDepth(2);
 
 const octetOf = (host: LanHost): number => Number(host.ip.split('.')[3]);
 
@@ -257,5 +269,53 @@ describe('handleResolveInnerGatewayScan', () => {
     );
 
     expect(result.status).toBe(400);
+  });
+});
+
+describe('handleResolveInnerGatewayScan — depth-1 home (no child gateway to surface)', () => {
+  // A depth-1 home's inner router fronts a single TERMINAL layer, so a forward to where a
+  // deeper home WOULD hang a child gateway points at a dark target — the upstream scan
+  // drops it and reports only the gateway's own :22.
+  const SHALLOW = playerWithNetworkDepth(1);
+  const shallowHost = (predicate: (host: LanHost) => boolean): LanHost => {
+    const host = generateHomeLan(SHALLOW.publicKeyHex, ESSID).hosts.find(predicate);
+    if (host === undefined) throw new Error('no matching host on shallow LAN');
+    return host;
+  };
+  const SHALLOW_INNER = shallowHost((host) => host.kind === 'router' && octetOf(host) !== 1);
+  const SHALLOW_GATEWAY_ID = computeInnerGatewayId(SHALLOW.publicKeyHex, octetOf(SHALLOW_INNER));
+  const WOULD_BE_CHILD = generateDeepLayer(
+    SHALLOW.publicKeyHex,
+    ESSID,
+    { machineId: SHALLOW_GATEWAY_ID, kind: 'router' },
+    { hangsChild: true },
+  ).childGateway;
+  if (WOULD_BE_CHILD === null) throw new Error('expected a would-be child gateway to assert absence of');
+
+  it('hides a forward to the would-be child gateway — only the gateway’s own :22 surfaces', async () => {
+    const forwardToWouldBeChild: OwnerPatchRow = {
+      path: '/etc/iptables/rules.v4',
+      content: `forward 2223 to ${WOULD_BE_CHILD.ip}:22`,
+      owner: 'root',
+      permissions: null,
+      node_type: 'file',
+      updated_at: '2026-06-17T00:00:01.000Z',
+      writer_key: SHALLOW.publicKeyHex,
+    };
+    const findPatches = vi.fn<(query: { machine_id: string }) => Promise<PatchesResult>>(async () => ({
+      data: [forwardToWouldBeChild],
+      error: null,
+    }));
+    const deps: ResolveInnerGatewayScanDeps = { nonceStore: freshStore, findPatches };
+
+    const result = await handleResolveInnerGatewayScan(
+      signRequest(SHALLOW, 'resolveInnerGatewayScan', { essid: ESSID, target: SHALLOW_INNER.ip }),
+      deps,
+    );
+
+    expect(result).toEqual({
+      status: 200,
+      body: { ok: true, found: true, ports: [{ port: 22, service: 'ssh' }] },
+    });
   });
 });

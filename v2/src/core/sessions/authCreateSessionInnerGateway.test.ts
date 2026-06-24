@@ -6,7 +6,12 @@ import {
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { generateDeepLayer, buildDeepHostFs } from '../generation/generateDeepLayer';
+import {
+  generateDeepLayer,
+  buildDeepHostFs,
+  seedNetworkDepth,
+} from '../generation/generateDeepLayer';
+import type { Identity } from '../commands/types';
 import { computeDeepGatewayId, computeInnerGatewayId } from '../identity/router';
 import { seedDeepGatewayAdminPw, seedInnerGatewayAdminPw } from '../generation/routerFs';
 import { hostMachineId } from '../generation/remoteHostId';
@@ -31,7 +36,20 @@ import type { Directory } from '../filesystem/types';
 
 const freshStore: NonceStore = async () => ({ fresh: true });
 const ESSID = 'BEAN-THERE-WIFI';
-const PLAYER = generateIdentity();
+
+/** A player whose home is seeded to EXACTLY `depth` layers. Depth is a per-(key, essid)
+ *  roll, so pick deterministically rather than hoping a random identity lands at the
+ *  depth a test needs. Pinning the exact depth (not just a minimum) keeps the
+ *  child-gateway boundary tests reliable: a depth-2 home is the shallowest that hangs a
+ *  child off its inner router, a depth-1 home hangs none. */
+const playerWithNetworkDepth = (depth: number): Identity => {
+  const found = Array.from({ length: 96 }, () => generateIdentity()).find(
+    (identity) => seedNetworkDepth(identity.publicKeyHex, ESSID) === depth,
+  );
+  if (found === undefined) throw new Error(`no identity seeds network depth ${depth}`);
+  return found;
+};
+const PLAYER = playerWithNetworkDepth(2);
 
 const octetOf = (host: LanHost): number => Number(host.ip.split('.')[3]);
 
@@ -270,6 +288,71 @@ describe('handleAuthCreateSessionInnerGateway — forward to the deep child gate
 
     const result = await handleAuthCreateSessionInnerGateway(
       envelope({ port: 2223, username: 'root', password: CHILD_ROOT_PW }),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('handleAuthCreateSessionInnerGateway — depth-1 home (the inner router fronts no child)', () => {
+  // A depth-1 home's inner router fronts a single TERMINAL layer, so a forward to where
+  // a deeper home WOULD hang a child gateway points at nothing reachable — the reach is
+  // refused even with the (would-be) child's correct admin password.
+  const SHALLOW = playerWithNetworkDepth(1);
+  const shallowHost = (predicate: (host: LanHost) => boolean): LanHost => {
+    const host = generateHomeLan(SHALLOW.publicKeyHex, ESSID).hosts.find(predicate);
+    if (host === undefined) throw new Error('no matching host on shallow LAN');
+    return host;
+  };
+  const SHALLOW_INNER = shallowHost((host) => host.kind === 'router' && octetOf(host) !== 1);
+  const SHALLOW_GATEWAY_ID = computeInnerGatewayId(SHALLOW.publicKeyHex, octetOf(SHALLOW_INNER));
+  const WOULD_BE_CHILD = generateDeepLayer(
+    SHALLOW.publicKeyHex,
+    ESSID,
+    { machineId: SHALLOW_GATEWAY_ID, kind: 'router' },
+    { hangsChild: true },
+  ).childGateway;
+  if (WOULD_BE_CHILD === null) throw new Error('expected a would-be child gateway to assert absence of');
+  const WOULD_BE_CHILD_PW = seedDeepGatewayAdminPw(
+    SHALLOW.publicKeyHex,
+    SHALLOW_GATEWAY_ID,
+    octetOf(WOULD_BE_CHILD),
+  );
+  const shallowChildForward: OwnerPatchRow = {
+    path: '/etc/iptables/rules.v4',
+    content: `forward 2223 to ${WOULD_BE_CHILD.ip}:22`,
+    owner: 'root',
+    permissions: null,
+    node_type: 'file',
+    updated_at: '2026-06-17T00:00:01.000Z',
+    writer_key: SHALLOW.publicKeyHex,
+  };
+
+  it('refuses a forward to the would-be child gateway as host_unreachable', async () => {
+    const findPatches = vi.fn<(query: { machine_id: string }) => Promise<PatchesResult>>(async () => ({
+      data: [shallowChildForward],
+      error: null,
+    }));
+    const insertSession = vi.fn<(row: AuthSessionRow) => Promise<{ error: unknown }>>(async () => ({
+      error: null,
+    }));
+    const deps: AuthCreateSessionInnerGatewayDeps = {
+      nonceStore: freshStore,
+      findPatches,
+      insertSession,
+    };
+
+    const result = await handleAuthCreateSessionInnerGateway(
+      signRequest(SHALLOW, 'authCreateSessionInnerGateway', {
+        session_id: 'ssh-shallow-1',
+        essid: ESSID,
+        target: SHALLOW_INNER.ip,
+        username: 'root',
+        password: WOULD_BE_CHILD_PW,
+        port: 2223,
+      }),
       deps,
     );
 
