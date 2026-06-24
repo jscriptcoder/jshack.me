@@ -1,27 +1,42 @@
 # Story 5b — Multi-layer Generated Networks (v2)
 
 **Branch**: per-slice branches off `main` (5b.1a + 5b.1b-i + 5b.1b-ii + 5b.2 + 5b.3a + 5b.3b + 5b.4a + 5b.4b all merged)
-**Status**: 5b.1a ✅ (#307). 5b.1b-i ✅ (#308, v0.73.0). 5b.1b-ii ✅ (#309, v0.74.0). 5b.2 ✅ (#310, v0.75.0). 5b.3a ✅ (#311, v0.76.0). 5b.3b ✅ (#312, v0.77.0). 5b.4 (CHAINS) sub-split a/b/c/d — **5b.4a ✅ (#313, v0.78.0); 5b.4b ✅ (#314, v0.79.0); 5b.4c-i ✅ (#315, v0.80.0)**; 5b.4c-ii UNIFIED (auth + scan-liveness, "make it scale"); next = **5b.4c-ii (unified chained-forward reach, end-to-end playable)**.
+**Status**: 5b.1a ✅ (#307). 5b.1b-i ✅ (#308, v0.73.0). 5b.1b-ii ✅ (#309, v0.74.0). 5b.2 ✅ (#310, v0.75.0). 5b.3a ✅ (#311, v0.76.0). 5b.3b ✅ (#312, v0.77.0). 5b.4 (CHAINS) sub-split a/b/c/d — **5b.4a ✅ (#313, v0.78.0); 5b.4b ✅ (#314, v0.79.0); 5b.4c-i ✅ (#315, v0.80.0); 5b.4c-ii ✅ BUILT (v0.81.0, branch `feat/v2-5b4c-ii-recursive-chained-reach`, pending PR/merge)**; next = **5b.4d (gateway-kind variety per layer)**.
 
-> **Status: Slice 5b.4c-i ✅ MERGED (#315, v0.80.0, squash `f272ec6`). NEXT = Slice 5b.4c-ii. ⟵
-> RESUME (exact pick-up): branch **`feat/v2-5b4c-ii-recursive-chained-reach`** is ALREADY CUT off `main`; this
-> plan's ii scope-update is committed on it. The **5b.4c-ii AC + unified design were PRESENTED and are AWAITING
-> the user's "approved, start Inc 1 RED"** — do NOT write code until that confirmation. On approval, start
-> **Inc 1 RED** (the recursive auth reach). 5b.4c is SPLIT i/ii (Wide/recursive — "make it scale"): i ✅; ii =
-> UNIFIED chained-forward reach (auth + scan-liveness via ONE shared recursive chain-follow core — grilled: the
-> client `executeForwardLogin` (`ssh.ts:204`) refuses any port the upstream scan doesn't surface, so a playable
-> reach needs BOTH gates chain-aware). **Full ii scope + AC + the 3-increment plan are in the "Slice 5b.4c-ii"
-> section below — READ IT.** The grilled design tree (D-chain-1..4 + D-depth-1..4) is in the "Slice 5b.4"
-> section. KEY code anchors for ii: `core/sessions/authCreateSessionInnerGateway.ts` `resolveAuthTarget`
-> (currently single-hop, pure — make it async+recursive); `core/scan/{resolveInnerGatewayScan,
-> deepLayerPortResolver}.ts` (scan-liveness — pre-resolve the chain async, inject a SYNC resolver so
-> `core/scan/scanResult.ts` stays sync); `core/network/machineServing.ts` (router|forward|none per hop);
-> `core/boot/bootFiles.ts` `canBoot` (per-hop brick gate); `materializeMachineFs` (replay a child's journal).
-> Deep gateway base FS forces sshd:22 (`buildDeepGatewayBaseFs`, `hasSsh:true`) so `machineServing(childFs,22)`
-> lands on it. Child gw admin pw = `seedDeepGatewayAdminPw(key, parentMid, octet)`; child id =
-> `computeDeepGatewayId(key, parentMid, octet)`. Wire-check to extend: `scripts/testInnerGatewayReach.ts` (8/8
-> today, single-forward) → add a depth-3 TWO-forward case. Fixture: a depth-3 key (e.g. `'02'×32` for
-> BEAN-THERE-WIFI; depth via `seedNetworkDepth`).**
+> **Status: Slice 5b.4c-ii ✅ BUILT (v0.81.0) — 4 increments committed on `feat/v2-5b4c-ii-recursive-chained-reach`,
+> PENDING PR + squash-merge. NEXT = Slice 5b.4d. ⟵
+> RESUME (exact pick-up): on the branch, `git log` shows Inc 1 `34065fe`, Inc 2 `8af3df8`, Inc 3 `778f7a3`, Inc 4
+> `fc267f9`. To ship: push, open a PR, `gh pr merge --squash --delete-branch`, then start 5b.4d (its AC sketch is
+> in the "Slice 5b.4d" section). The deep chains now reach + scan + write end-to-end (wire-check `5/5`); 5b.4d adds
+> per-layer router/switch variety; 5b.5 adds deep-layer traces.**
+>
+> **5b.4c-ii AS-BUILT (v0.81.0 — the UNIFIED chained-forward reach: a depth-3 chain reaches + scans + writes
+> end-to-end):**
+> - **Inc 1 — recursive auth reach (`34065fe`):** `resolveAuthTarget` (`authCreateSessionInnerGateway.ts`) went
+>   single-hop → async + bounded-recursive. A forward to a child gateway replays ITS journal, re-checks `canBoot`
+>   (a bricked intermediate darkens everything below), and recurses on the forward's internal port — so a chain of
+>   forwards reaches an arbitrarily deep box. `AuthResolution = target | unreachable | lookup_failed` (a mid-chain
+>   journal fetch failure → 500, distinct from a dead port's 404). Bounded by `seedNetworkDepth` (`position < depth`).
+> - **Inc 2 — chain-aware scan-liveness (`8af3df8`):** `resolveInnerGatewayScan` gained a private async recursion
+>   `resolveGatewayExposedPorts` — a gateway's exposed ports = `scanResult(external)` where a forward to a child
+>   gateway recurses into the child's OWN exposed ports, so a chained port surfaces only while the whole chain is
+>   live (a bricked/dead-ended intermediate drops it). The child is resolved only when a forward points at it.
+>   Replaced (deleted) the sync base-only `deepLayerPortResolver`. **Shared `resolveChildGatewayHop`
+>   (`core/network/childGatewayHop.ts`)** — derive identity → fetch journal → materialize → `canBoot` → `gateway |
+>   bricked | lookup_failed` — used by BOTH the auth reach and the scan walk (the unified chain-follow core, 100%
+>   mutation).
+> - **Inc 3 — deep gateways are L2-writable (`778f7a3`):** `resolveTargetBaseFs` (`remoteWritePermission.ts`) now
+>   resolves a deep chain gateway from the caller's OWN key via new `chainGatewayBaseFsForMachineId`
+>   (`lanHostIdentity.ts`), so `nano rules.v4` on a rooted chain door passes L2 — the write that lets a player chain
+>   a forward deeper. Extracted `homeChainGateways` (one chain walk feeds the pivot vantage + the base-FS
+>   resolution); `chainFrom` now carries each gateway's `baseFs`. Cross-player stays fail-closed (deep layers
+>   private). Both files 100% mutation.
+> - **Inc 4 — end-to-end wire-check + v0.81.0 (`fc267f9`):** `scripts/testDeepChainReach.ts` drives the two-forward
+>   depth-3 chain through real `/api/patches` (both forwards, incl. the deep gateway) + `/api/network` (chained
+>   port surfaces) + `/api/sessions` (lands on L3) + a bricked-intermediate teardown — **5/5 green**.
+>   `testInnerGatewayReach.ts` depth-hardened (alice depth-≥2, fixing a 5b.4c-i flake) — **8/8**; scan **5/5**.
+>   **Decision (folded into ii, user call): the deep-gateway WRITE path is part of "end-to-end playable" — a chain
+>   isn't usable if a player can't configure the L2+ forward.**
 >
 > **5b.4c-i AS-BUILT (shipped #315, v0.80.0):** `seedNetworkDepth(key, essid) → 1..3` (`network-depth-`
 > namespace, reload-stable); `pivotVantageForMachineId` rewritten into a bounded chain walk (`chainFrom`) with a
@@ -813,7 +828,7 @@ depth), so `hangsChild` is correct at every layer. (6) the shipped inner-gateway
 pivot + cross-player loop stay green (existing keys/tests re-pinned to their seeded depth via the factory).
 **Done when**: criteria met, mutation report reviewed, human approves, version bumped.
 
-##### Slice 5b.4c-ii — Unified chained-forward reach, end-to-end playable (scales to any depth)
+##### Slice 5b.4c-ii — Unified chained-forward reach, end-to-end playable (scales to any depth) — ✅ BUILT (v0.81.0, pending PR; as-built in the RESUME block at the top)
 
 **Scope (grilled 2026-06-24 — UNIFIED, user call):** the client `executeForwardLogin` (`ssh.ts`) refuses any
 port the upstream scan doesn't surface, so a *terminal-playable* chained reach needs BOTH the auth gate AND the
