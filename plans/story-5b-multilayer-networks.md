@@ -1,14 +1,12 @@
 # Story 5b — Multi-layer Generated Networks (v2)
 
-**Branch**: per-slice branches off `main` (5b.1a + 5b.1b-i + 5b.1b-ii + 5b.2 + 5b.3a + 5b.3b + 5b.4a + 5b.4b all merged)
-**Status**: 5b.1a ✅ (#307). 5b.1b-i ✅ (#308, v0.73.0). 5b.1b-ii ✅ (#309, v0.74.0). 5b.2 ✅ (#310, v0.75.0). 5b.3a ✅ (#311, v0.76.0). 5b.3b ✅ (#312, v0.77.0). 5b.4 (CHAINS) sub-split a/b/c/d — **5b.4a ✅ (#313, v0.78.0); 5b.4b ✅ (#314, v0.79.0); 5b.4c-i ✅ (#315, v0.80.0); 5b.4c-ii ✅ BUILT (v0.81.0, branch `feat/v2-5b4c-ii-recursive-chained-reach`, pending PR/merge)**; next = **5b.4d (gateway-kind variety per layer)**.
+**Branch**: per-slice branches off `main` (5b.1a + 5b.1b-i + 5b.1b-ii + 5b.2 + 5b.3a + 5b.3b + 5b.4a + 5b.4b + 5b.4c-i + 5b.4c-ii all merged)
+**Status**: 5b.1a ✅ (#307). 5b.1b-i ✅ (#308, v0.73.0). 5b.1b-ii ✅ (#309, v0.74.0). 5b.2 ✅ (#310, v0.75.0). 5b.3a ✅ (#311, v0.76.0). 5b.3b ✅ (#312, v0.77.0). 5b.4 (CHAINS) sub-split a/b/c/d — **5b.4a ✅ (#313, v0.78.0); 5b.4b ✅ (#314, v0.79.0); 5b.4c-i ✅ (#315, v0.80.0); 5b.4c-ii ✅ MERGED (#316, v0.81.0, squash `aef9d69`)**; next = **5b.4d (gateway-kind variety per layer)**.
 
-> **Status: Slice 5b.4c-ii ✅ BUILT (v0.81.0) — 4 increments committed on `feat/v2-5b4c-ii-recursive-chained-reach`,
-> PENDING PR + squash-merge. NEXT = Slice 5b.4d. ⟵
-> RESUME (exact pick-up): on the branch, `git log` shows Inc 1 `34065fe`, Inc 2 `8af3df8`, Inc 3 `778f7a3`, Inc 4
-> `fc267f9`. To ship: push, open a PR, `gh pr merge --squash --delete-branch`, then start 5b.4d (its AC sketch is
-> in the "Slice 5b.4d" section). The deep chains now reach + scan + write end-to-end (wire-check `5/5`); 5b.4d adds
-> per-layer router/switch variety; 5b.5 adds deep-layer traces.**
+> **Status: Slice 5b.4c-ii ✅ MERGED (#316, v0.81.0, squash `aef9d69`). NEXT = Slice 5b.4d. ⟵
+> RESUME (exact pick-up): the deep chains now reach + scan + write end-to-end (wire-check `testDeepChainReach.ts`
+> `5/5`). Start **5b.4d** (per-layer router/switch gateway variety — AC sketch in the "Slice 5b.4d" section), then
+> 5b.5 (deep-layer traces). No branch cut yet for 5b.4d. The 5b.4c-ii four-increment as-built is below.**
 >
 > **5b.4c-ii AS-BUILT (v0.81.0 — the UNIFIED chained-forward reach: a depth-3 chain reaches + scans + writes
 > end-to-end):**
