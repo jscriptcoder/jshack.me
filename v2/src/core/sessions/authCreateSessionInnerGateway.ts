@@ -35,7 +35,11 @@ import {
   generateDeepLayer,
   type FrontingGateway,
 } from '../generation/generateDeepLayer';
-import { innerGatewayAt, resolveLanHostIdentity } from '../generation/lanHostIdentity';
+import {
+  innerGatewayAt,
+  resolveDeepGatewayIdentity,
+  resolveLanHostIdentity,
+} from '../generation/lanHostIdentity';
 import { hostMachineId } from '../generation/remoteHostId';
 import { accountIn } from './passwdAccount';
 import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs';
@@ -82,14 +86,21 @@ const authCreateSessionInnerGatewaySchema = z
  *  against, and the machine id the session lands on. */
 type AuthTarget = { readonly fs: Directory; readonly machineId: string };
 
+/** Does this materialized tree run a daemon on `port`? A forward whose internal port
+ *  no box behind the gateway serves is a dark DNAT target (→ host_unreachable). */
+const servesInternalPort = (fs: Directory, port: number): boolean =>
+  readOpenPorts(fs).some((openPort) => openPort.port === port);
+
 /**
  * Resolve `ssh <inner>:<port>` to its auth target by destination port. The gateway
  * serves its own ports directly (its seeded `:22` → log in on the gateway); a
- * NAT-forwarded port reaches the ONE deep host behind it — regenerate the deep layer
- * and refuse a forward that points at no deep host (a stray internal IP) or a port
- * the deep host isn't serving (a dark DNAT target). Returns the target, or null for
- * an unserved/dark port (→ host_unreachable). Pure: the deep host is regenerated
- * deterministically, so no journal fetch — an NPC has no persisted state.
+ * NAT-forwarded port reaches one of the two boxes behind it — the terminal deep NPC,
+ * or the CHILD GATEWAY that fronts the next layer down (the chain door). Regenerate
+ * the deep layer, route the forward's internal IP to whichever box it names, and
+ * refuse a forward that points at neither (a stray internal IP) or a port that box
+ * isn't serving (a dark DNAT target). Returns the target, or null for an unserved/dark
+ * port (→ host_unreachable). Pure: the deep boxes are regenerated deterministically,
+ * so no journal fetch — neither an NPC nor a deep gateway has persisted state here.
  */
 const resolveAuthTarget = (
   publicKey: string,
@@ -106,16 +117,25 @@ const resolveAuthTarget = (
     return null;
   }
   const deep = generateDeepLayer(publicKey, essid, frontingGateway);
-  // The forward points at no host (a stray internal IP) — a dark DNAT target.
-  if (served.internalIp !== deep.host.ip) {
-    return null;
+  // The forward reaches the terminal NPC — auth against ITS /etc/passwd, land the
+  // session on the NPC's coordinate-seeded id.
+  if (served.internalIp === deep.host.ip) {
+    const deepFs = buildDeepHostFs(publicKey, essid, deep.host);
+    return servesInternalPort(deepFs, served.internalPort)
+      ? { fs: deepFs, machineId: hostMachineId(deep.host, essid) }
+      : null;
   }
-  const deepFs = buildDeepHostFs(publicKey, essid, deep.host);
-  // The deep host isn't serving the forward's internal port (no daemon there).
-  if (!readOpenPorts(deepFs).some((openPort) => openPort.port === served.internalPort)) {
-    return null;
+  // The forward reaches the CHILD GATEWAY — auth against ITS admin pw, land the session
+  // on its deep-gateway id (keyed off this gateway as parent so it stays unique across
+  // the chain). From there the player pivots one layer deeper.
+  if (deep.childGateway !== null && served.internalIp === deep.childGateway.ip) {
+    const child = resolveDeepGatewayIdentity(publicKey, frontingGateway.machineId, deep.childGateway.ip);
+    return servesInternalPort(child.baseFs, served.internalPort)
+      ? { fs: child.baseFs, machineId: child.machineId }
+      : null;
   }
-  return { fs: deepFs, machineId: hostMachineId(deep.host, essid) };
+  // The forward points at no box on the layer — a stray internal IP, a dark DNAT target.
+  return null;
 };
 
 export const handleAuthCreateSessionInnerGateway = async (

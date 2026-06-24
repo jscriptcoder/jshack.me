@@ -7,8 +7,8 @@ import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { generateDeepLayer, buildDeepHostFs } from '../generation/generateDeepLayer';
-import { computeInnerGatewayId } from '../identity/router';
-import { seedInnerGatewayAdminPw } from '../generation/routerFs';
+import { computeDeepGatewayId, computeInnerGatewayId } from '../identity/router';
+import { seedDeepGatewayAdminPw, seedInnerGatewayAdminPw } from '../generation/routerFs';
 import { hostMachineId } from '../generation/remoteHostId';
 import { accountIn } from './passwdAccount';
 import { md5 } from '../generation/md5';
@@ -63,6 +63,20 @@ const recover = (fs: Directory, username: string): { password: string; userType:
 };
 
 const DEEP_GUEST = recover(DEEP_FS, 'guest');
+
+/** The CHILD GATEWAY hanging on the inner router's deep layer — the door to the next
+ *  layer down (5b.4a). Its admin password is seeded off its own deep-gateway
+ *  discriminator (owner key + parent gateway id + octet), distinct from the inner
+ *  gateway's and the deep NPC's. A reach forwarded to its `:22` must land on ITS id. */
+const CHILD = DEEP.childGateway;
+if (CHILD === null) throw new Error('the inner router deep layer hangs no child gateway');
+const CHILD_OCTET = octetOf(CHILD);
+const CHILD_ID = computeDeepGatewayId(PLAYER.publicKeyHex, GATEWAY_ID, CHILD_OCTET);
+// The child gateway's admin password is the SEED plaintext directly (a `ROUTER_ADMIN_
+// PASSWORDS` pool member, disjoint from the workstation `WEAK_PASSWORDS` `recover`
+// searches) — its base FS hashes it, exactly as the gateway-port-22 test uses
+// `GATEWAY_ROOT_PW` for the inner gateway's own root login.
+const CHILD_ROOT_PW = seedDeepGatewayAdminPw(PLAYER.publicKeyHex, GATEWAY_ID, CHILD_OCTET);
 
 /** A root `nano /etc/iptables/rules.v4` edit on the gateway journal opening a NAT
  *  forward `2222 → <deep host>:22` — the opt-in that exposes the Layer-2 machine. */
@@ -194,6 +208,70 @@ describe('handleAuthCreateSessionInnerGateway — forward to the deep host', () 
     const { deps, insertSession } = makeDeps(async () => ({ data: [deadForward], error: null }));
 
     const result = await handleAuthCreateSessionInnerGateway(envelope({}), deps);
+
+    expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('handleAuthCreateSessionInnerGateway — forward to the deep child gateway', () => {
+  /** A root edit on the gateway journal forwarding `2223 → <child gateway>:22` — the
+   *  opt-in that exposes the deeper gateway (the chain door) to a reach. */
+  const childForwardPatch: OwnerPatchRow = {
+    ...forwardPatch,
+    content: `forward 2223 to ${CHILD.ip}:22`,
+  };
+
+  it('lands a session on the child gateway, authed against its own admin password', async () => {
+    const { deps, findPatches, insertSession } = makeDeps(async () => ({
+      data: [childForwardPatch],
+      error: null,
+    }));
+
+    const result = await handleAuthCreateSessionInnerGateway(
+      envelope({ port: 2223, username: 'root', password: CHILD_ROOT_PW }),
+      deps,
+    );
+
+    expect(result).toEqual({
+      status: 200,
+      body: { ok: true, userType: 'root', machine_id: CHILD_ID },
+    });
+    // The journal it replays is still the GATEWAY's (forward + boot state)...
+    expect(findPatches).toHaveBeenCalledWith({ machine_id: GATEWAY_ID });
+    // ...but the session lands on the CHILD GATEWAY's deep id — not the gateway, not
+    // the terminal NPC — with its root userType.
+    expect(insertSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        machine_id: CHILD_ID,
+        credentials: { username: 'root', userType: 'root' },
+      }),
+    );
+  });
+
+  it('rejects a wrong child-gateway password with 401 and inserts no session', async () => {
+    const { deps, insertSession } = makeDeps(async () => ({ data: [childForwardPatch], error: null }));
+
+    const result = await handleAuthCreateSessionInnerGateway(
+      envelope({ port: 2223, username: 'root', password: 'not-the-admin-pw' }),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 401, body: { error: 'invalid_credentials' } });
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+
+  it('refuses a forward to a port the child gateway does not serve as host_unreachable', async () => {
+    const deadChildForward: OwnerPatchRow = {
+      ...forwardPatch,
+      content: `forward 2223 to ${CHILD.ip}:9999`,
+    };
+    const { deps, insertSession } = makeDeps(async () => ({ data: [deadChildForward], error: null }));
+
+    const result = await handleAuthCreateSessionInnerGateway(
+      envelope({ port: 2223, username: 'root', password: CHILD_ROOT_PW }),
+      deps,
+    );
 
     expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
     expect(insertSession).not.toHaveBeenCalled();

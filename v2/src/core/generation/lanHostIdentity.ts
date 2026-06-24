@@ -23,8 +23,13 @@
  */
 
 import type { Directory } from '../filesystem/types';
-import { computeInnerGatewayId, computeRouterId } from '../identity/router';
-import { buildInnerGatewayBaseFs, buildRouterBaseFs, buildSwitchBaseFs } from './routerFs';
+import { computeDeepGatewayId, computeInnerGatewayId, computeRouterId } from '../identity/router';
+import {
+  buildDeepGatewayBaseFs,
+  buildInnerGatewayBaseFs,
+  buildRouterBaseFs,
+  buildSwitchBaseFs,
+} from './routerFs';
 import { buildRemoteHostFs } from './remoteHostFs';
 import { hostMachineId } from './remoteHostId';
 import { generateHomeLan, type LanHost } from './generateHomeLan';
@@ -94,6 +99,24 @@ export const resolveLanHostIdentity = (
   machineId: machineIdForLanHost(host, ownerKeyHex, essid),
   baseFs: baseFsForLanHost(host, ownerKeyHex, essid),
 });
+
+/** A deep CHILD GATEWAY's storage identity — its machine_id + seeded base FS — from the
+ *  owner key, the machine_id of the gateway that FRONTS its parent layer, and the
+ *  child's own deep IP. The child is keyed off its parent so two children at the same
+ *  octet behind different gateways never alias. One place owns the octet parse so the
+ *  reach gate, the upstream-scan port resolver, and the pivot scan can't disagree on
+ *  which box the chain door is. */
+export const resolveDeepGatewayIdentity = (
+  ownerKeyHex: string,
+  parentMachineId: string,
+  childIp: string,
+): LanHostIdentity => {
+  const octet = Number(childIp.split('.')[3]);
+  return {
+    machineId: computeDeepGatewayId(ownerKeyHex, parentMachineId, octet),
+    baseFs: buildDeepGatewayBaseFs(ownerKeyHex, parentMachineId, octet),
+  };
+};
 
 /** The reverse of `resolveLanHostIdentity`: the seeded base FS of the host on the
  *  player's OWN LAN whose machine_id equals `machineId` (edge router, inner gateway,
