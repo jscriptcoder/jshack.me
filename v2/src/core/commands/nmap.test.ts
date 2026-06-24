@@ -1054,16 +1054,35 @@ describe('nmap — reachability-pivot from an inner gateway (5b.2)', () => {
 
   const idOf = (host: LanHost): string => machineIdForLanHost(host, PUBKEY, ESSID);
   const DEEP = generateDeepLayer(PUBKEY, ESSID, DEEP_LAYER_INDEX);
+  // The switch fronts its OWN deep layer (the next index), disjoint from the router's.
+  const SWITCH_DEEP = generateDeepLayer(PUBKEY, ESSID, DEEP_LAYER_INDEX + 1);
   const deepHostOctet = octetOf(DEEP.host);
   const deepDownIp = `${DEEP.subnet}.${deepHostOctet === 2 ? 3 : 2}`;
 
-  /** Online on the home ESSID with the active session sitting on `machineId`. */
-  const vantageEnv = (machineId: string, record?: ScanApi['record']) =>
+  /** Online on the home ESSID with the active session sitting on `machineId`. An
+   *  optional `fs` stands in for that machine's journal-replayed tree — a switch
+   *  pivot reads its live `/etc/switch/acl.conf` from here. */
+  const vantageEnv = (
+    machineId: string,
+    opts: { readonly record?: ScanApi['record']; readonly fs?: Directory } = {},
+  ) =>
     mockCommandEnv({
       identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
       network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
       session: mockSession({ machineId: asMachineId(machineId) }),
-      scan: mockScanApi(record ? { record } : {}),
+      scan: mockScanApi(opts.record ? { record: opts.record } : {}),
+      ...(opts.fs ? { fs: mockFsViewFromTree(opts.fs) } : {}),
+    });
+
+  /** A switch session's filesystem whose `/etc/switch/acl.conf` denies the given
+   *  ports — the slice of the journal-replayed switch tree the pivot scan reads. */
+  const switchFsDenying = (...ports: readonly number[]): Directory =>
+    buildDirectory({
+      etc: buildDirectory({
+        switch: buildDirectory({
+          'acl.conf': buildFile(ports.map((port) => `deny ${port}`).join('\n')),
+        }),
+      }),
     });
 
   it('scans the downstream deep host directly when the shell is on the inner gateway', async () => {
@@ -1146,10 +1165,23 @@ describe('nmap — reachability-pivot from an inner gateway (5b.2)', () => {
     expect(result.lines[0]?.content).toContain('out of range');
   });
 
-  it('does NOT pivot from a SWITCH — a switch fronts no deep layer yet, so the router deep /24 stays out of range', async () => {
-    // The switch is reachable like an inner gateway (ssh/scan/auth), but pivoting onto
-    // it to reach a deep segment is a separate capability. From a switch vantage the
-    // router's deep /24 must NOT resolve — it is not the switch's segment.
+  it('pivots from a SWITCH onto its OWN deep /24 — a segment the router never fronts', async () => {
+    const { text, exitCode } = await drain(
+      await nmap.execute(vantageEnv(idOf(SWITCH)), [SWITCH_DEEP.host.ip], new Map()),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(text).toContain(`Nmap scan report for ${SWITCH_DEEP.host.hostname} (${SWITCH_DEEP.host.ip})`);
+    expect(text).toContain('Host is up.');
+    // The deep host is a reachable target by design — sshd:22 is forced on — and the
+    // switch's default ACL denies nothing on it, so :22 is open.
+    expect(text).toContain('22/tcp   open  ssh');
+    expect(text).toContain('Nmap done — 1 host up');
+  });
+
+  it('does NOT see the ROUTER’s deep /24 from a SWITCH vantage — disjoint segments', async () => {
+    // A switch pivots to ITS layer (the next index), not the router's. The router's
+    // deep host is on a different /24, so from the switch it is out of range.
     const result = await nmap.execute(vantageEnv(idOf(SWITCH)), [DEEP.host.ip], new Map());
     if (result.kind !== 'sync') throw new Error('expected sync result');
 
@@ -1157,10 +1189,45 @@ describe('nmap — reachability-pivot from an inner gateway (5b.2)', () => {
     expect(result.lines[0]?.content).toContain('out of range');
   });
 
+  it('does NOT see the SWITCH’s deep /24 from a ROUTER vantage — disjoint segments', async () => {
+    const result = await nmap.execute(vantageEnv(idOf(INNER)), [SWITCH_DEEP.host.ip], new Map());
+    if (result.kind !== 'sync') throw new Error('expected sync result');
+
+    expect(result.exitCode).toBe(1);
+    expect(result.lines[0]?.content).toContain('out of range');
+  });
+
+  it('hides a deep port the switch ACL denies, and re-opens it when the deny line is gone', async () => {
+    // The switch's `/etc/switch/acl.conf` filters its downstream: a denied port is
+    // absent from the pivot scan even though the deep host runs it (sshd:22 is forced).
+    const denied = await drain(
+      await nmap.execute(
+        vantageEnv(idOf(SWITCH), { fs: switchFsDenying(22) }),
+        [SWITCH_DEEP.host.ip],
+        new Map(),
+      ),
+    );
+
+    expect(denied.text).toContain('Host is up.');
+    expect(denied.text).not.toContain('22/tcp');
+
+    // env.fs is the journal-replayed switch tree, so deleting the `deny 22` line (here:
+    // an acl.conf that no longer lists it) re-opens the port on the next pivot scan.
+    const opened = await drain(
+      await nmap.execute(
+        vantageEnv(idOf(SWITCH), { fs: switchFsDenying(8080) }),
+        [SWITCH_DEEP.host.ip],
+        new Map(),
+      ),
+    );
+
+    expect(opened.text).toContain('22/tcp   open  ssh');
+  });
+
   it('leaves no deep-layer trace — the pivot scan does not record a kern.log line', async () => {
     const record = vi.fn(async () => undefined);
 
-    await drain(await nmap.execute(vantageEnv(idOf(INNER), record), [DEEP.host.ip], new Map()));
+    await drain(await nmap.execute(vantageEnv(idOf(INNER), { record }), [DEEP.host.ip], new Map()));
 
     expect(record).not.toHaveBeenCalled();
   });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildDeepHostFs, generateDeepLayer } from './generateDeepLayer';
-import { generateHomeLan } from './generateHomeLan';
+import { buildDeepHostFs, deepLayerIndexForGateway, generateDeepLayer } from './generateDeepLayer';
+import { generateHomeLan, type LanHost } from './generateHomeLan';
 import { buildRemoteHostFs } from './remoteHostFs';
 import { readOpenPorts } from '../services/pidfile';
 
@@ -54,6 +54,38 @@ describe('generateDeepLayer', () => {
     expect(generateDeepLayer(PUBKEY, ESSID, DEEP_INDEX).subnet).not.toBe(
       generateDeepLayer(PUBKEY, 'OTHER-WIFI', DEEP_INDEX).subnet,
     );
+  });
+});
+
+describe('deepLayerIndexForGateway', () => {
+  const lan = generateHomeLan(PUBKEY, ESSID);
+  const octetOf = (host: LanHost): number => Number(host.ip.split('.')[3]);
+  const findKind = (kind: LanHost['kind'], predicate: (host: LanHost) => boolean = () => true): LanHost => {
+    const host = lan.hosts.find((candidate) => candidate.kind === kind && predicate(candidate));
+    if (host === undefined) throw new Error(`no ${kind} on the golden LAN`);
+    return host;
+  };
+
+  it('maps a router inner gateway to the base deep-layer index (2)', () => {
+    const innerRouter = findKind('router', (host) => octetOf(host) !== 1);
+
+    expect(deepLayerIndexForGateway(innerRouter)).toBe(2);
+  });
+
+  it('maps a switch inner gateway to the next deep-layer index (3) — its OWN segment', () => {
+    const innerSwitch = findKind('switch');
+
+    expect(deepLayerIndexForGateway(innerSwitch)).toBe(3);
+  });
+
+  it('fronts the switch onto a deep /24 distinct from the router’s', () => {
+    const innerRouter = findKind('router', (host) => octetOf(host) !== 1);
+    const innerSwitch = findKind('switch');
+
+    const routerDeep = generateDeepLayer(PUBKEY, ESSID, deepLayerIndexForGateway(innerRouter));
+    const switchDeep = generateDeepLayer(PUBKEY, ESSID, deepLayerIndexForGateway(innerSwitch));
+
+    expect(switchDeep.subnet).not.toBe(routerDeep.subnet);
   });
 });
 
