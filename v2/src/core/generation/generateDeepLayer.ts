@@ -3,12 +3,17 @@
  * inner gateway hangs a hidden `10.x.y.0/24` segment carrying one reachable NPC
  * machine; the player exposes it by forwarding a port on the gateway.
  *
- * Pure + deterministic from `(pubkey, essid, layerIndex)`, so the same world
+ * Pure + deterministic from `(pubkey, essid, frontingGateway)`, so the same world
  * re-rolls identically every reload. The `10.x` addressing is deliberately
- * disjoint from the home `192.168.x` LAN (and varies per layer index), so a deep
+ * disjoint from the home `192.168.x` LAN (and varies per fronting gateway), so a deep
  * host's address can never be confused with a Layer-1 one — the dual-homed inner
  * gateway sits at `.1` of this subnet (the downstream interface a later pivot
  * scans).
+ *
+ * A router-fronted layer hangs a CHILD GATEWAY (the door to the next layer down)
+ * UNLESS the layer is terminal (`hangsChild: false`) — the bound that keeps a chain
+ * finite. The NPC is drawn from the same PRNG stream regardless, so flipping a layer
+ * terminal never re-rolls its reachable host.
  *
  * The deep host is a `buildRemoteHostFs` NPC with one guarantee the probabilistic
  * service roll doesn't give: `sshd` is always up on :22, so a deep layer is a
@@ -49,15 +54,25 @@ export type DeepLayer = {
   readonly childGateway: LanHost | null;
 };
 
+/** How a fronting gateway extends the chain. `hangsChild: false` makes the layer
+ *  TERMINAL — no child gateway even behind a router — the bound that caps depth (a
+ *  deep gateway fronts a terminal layer). Defaults to hanging a child, the shipped
+ *  behavior for a layer fronted directly by an inner gateway. */
+type DeepLayerOptions = {
+  readonly hangsChild: boolean;
+};
+
 export const generateDeepLayer = (
   seedPubkeyHex: string,
   essid: string,
   frontingGateway: FrontingGateway,
+  options: DeepLayerOptions = { hangsChild: true },
 ): DeepLayer => {
   const prng = createPrng(`deep-layer-${seedPubkeyHex}-${essid}-${frontingGateway.machineId}`);
   const subnet = `10.${prng.nextInt(0, 255)}.${prng.nextInt(0, 255)}`;
   // .1 is the fronting gateway's downstream interface; the hosts avoid it (and
-  // .0/.255). A single `pickN` keeps the NPC and child-gateway octets distinct.
+  // .0/.255). A single `pickN` keeps the NPC and child-gateway octets distinct, and
+  // is drawn unconditionally so a terminal layer's NPC stays byte-stable.
   const usableOctets = Array.from({ length: 253 }, (_unused, index) => index + 2);
   const [hostOctet, childOctet] = prng.pickN(usableOctets, 2);
   const host: LanHost = {
@@ -66,9 +81,10 @@ export const generateDeepLayer = (
     kind: 'machine',
   };
   // A router fronts a deeper layer, so a child gateway hangs here — dual-homed at the
-  // next layer's `.1`. A switch forwards nothing, so the chain stops at this layer.
+  // next layer's `.1` — unless the layer is terminal (the chain's depth bound). A
+  // switch forwards nothing, so it never hangs a child.
   const childGateway: LanHost | null =
-    frontingGateway.kind === 'router'
+    frontingGateway.kind === 'router' && options.hangsChild
       ? {
           ip: `${subnet}.${childOctet}`,
           hostname: `${prng.pick(ROUTER_HOSTNAMES)}-${childOctet}`,
