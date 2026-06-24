@@ -20,7 +20,10 @@
 
 import { applyPatches, type Patch } from '../filesystem/applyPatches';
 import { createFsView } from '../filesystem/fsView';
-import { ownLanBaseFsForMachineId } from '../generation/lanHostIdentity';
+import {
+  chainGatewayBaseFsForMachineId,
+  ownLanBaseFsForMachineId,
+} from '../generation/lanHostIdentity';
 import { buildWorkstationBaseFsFromIdentity } from '../generation/workstationFs';
 import { buildRouterBaseFs } from '../generation/routerFs';
 import { asAbsPath } from '../types';
@@ -107,6 +110,18 @@ const resolveTargetBaseFs = async (args: {
   const ownFs = ownLanBaseFsForMachineId(args.publicKey, args.session.essid, args.machineId);
   if (ownFs !== null) {
     return { fs: ownFs, error: null };
+  }
+  // A deep chain gateway (an L2+ chain door the player rooted through a forward) is the
+  // caller's own box but lives BELOW the home LAN, so it isn't a `generateHomeLan` host.
+  // Resolve it from the caller's own key so `nano rules.v4` on it walks the real router
+  // perms — the write that lets a player chain a forward one layer deeper.
+  const deepGatewayFs = chainGatewayBaseFsForMachineId(
+    args.publicKey,
+    args.session.essid,
+    args.machineId,
+  );
+  if (deepGatewayFs !== null) {
+    return { fs: deepGatewayFs, error: null };
   }
   const registry = await args.findRegistryByMachineId(args.machineId);
   if (registry.error) return { fs: null, error: registry.error };

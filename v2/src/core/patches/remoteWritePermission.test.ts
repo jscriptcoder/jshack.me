@@ -6,8 +6,9 @@ import {
   type RegistryMachine,
 } from './remoteWritePermission';
 import { generateIdentity } from '../identity/identity';
-import { computeInnerGatewayId, computeRouterId } from '../identity/router';
+import { computeDeepGatewayId, computeInnerGatewayId, computeRouterId } from '../identity/router';
 import { generateHomeLan } from '../generation/generateHomeLan';
+import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer';
 import { md5 } from '../generation/md5';
 import type { Directory, FileNode } from '../filesystem/types';
 
@@ -194,6 +195,78 @@ describe('enforceRemoteWriteL2 — own switch', () => {
       publicKey: owner.publicKeyHex,
       machineId: computeInnerGatewayId(owner.publicKeyHex, octet),
       path: '/etc/switch/acl.conf',
+      session: { userType: 'guest', essid: ESSID },
+      listMachinePatches: noPriorPatches,
+      findRegistryByMachineId: noRegistry,
+      findOccupantWorkstationByMachineId: noRegistry,
+    });
+
+    expect(denial).toEqual({ status: 403, error: 'permission_denied' });
+  });
+});
+
+/**
+ * The OWN DEEP-GATEWAY L2 branch: a chain door BELOW the home LAN (an L2+ gateway the
+ * player reached through a forward on the inner gateway and rooted). It is the caller's
+ * OWN box but NOT a `generateHomeLan` host, so it resolves via the deep-chain walk from
+ * the caller's own key. Configuring its forwards (`nano rules.v4`) is how a player chains
+ * deeper, so a root write there must be allowed; the registry stub resolves to NOTHING,
+ * so an "allowed" proves the deep-chain resolver built the gateway tree, not a fall-through.
+ */
+describe('enforceRemoteWriteL2 — own deep chain gateway', () => {
+  const noPriorPatches = () => Promise.resolve({ data: [], error: null });
+  const noRegistry = () => Promise.resolve({ data: null, error: null });
+  const ESSID = 'HOME-WIFI';
+
+  // Depth is a per-(key, essid) roll; pick an owner whose home is at least depth-2 so the
+  // inner router hangs a child gateway (the chain door the test configures).
+  const ownerWithChildGateway = () => {
+    for (let attempt = 0; attempt < 96; attempt += 1) {
+      const candidate = generateIdentity();
+      if (seedNetworkDepth(candidate.publicKeyHex, ESSID) >= 2) return candidate;
+    }
+    throw new Error('no identity seeds a deep chain gateway');
+  };
+
+  const childGatewayId = (owner: ReturnType<typeof generateIdentity>): string => {
+    const inner = generateHomeLan(owner.publicKeyHex, ESSID).hosts.find(
+      (host) => host.kind === 'router' && Number(host.ip.split('.')[3]) !== 1,
+    );
+    if (inner === undefined) throw new Error('no inner gateway on LAN');
+    const innerId = computeInnerGatewayId(owner.publicKeyHex, Number(inner.ip.split('.')[3]));
+    const child = generateDeepLayer(
+      owner.publicKeyHex,
+      ESSID,
+      { machineId: innerId, kind: 'router' },
+      { hangsChild: true },
+    ).childGateway;
+    if (child === null) throw new Error('the inner gateway hangs no child');
+    return computeDeepGatewayId(owner.publicKeyHex, innerId, Number(child.ip.split('.')[3]));
+  };
+
+  it("allows a ROOT write to /etc/iptables/rules.v4 on the caller's own deep chain gateway", async () => {
+    const owner = ownerWithChildGateway();
+
+    const denial = await enforceRemoteWriteL2({
+      publicKey: owner.publicKeyHex,
+      machineId: childGatewayId(owner),
+      path: '/etc/iptables/rules.v4',
+      session: { userType: 'root', essid: ESSID },
+      listMachinePatches: noPriorPatches,
+      findRegistryByMachineId: noRegistry,
+      findOccupantWorkstationByMachineId: noRegistry,
+    });
+
+    expect(denial).toBeNull();
+  });
+
+  it("denies a non-root tier writing the deep gateway's root-only rules.v4", async () => {
+    const owner = ownerWithChildGateway();
+
+    const denial = await enforceRemoteWriteL2({
+      publicKey: owner.publicKeyHex,
+      machineId: childGatewayId(owner),
+      path: '/etc/iptables/rules.v4',
       session: { userType: 'guest', essid: ESSID },
       listMachinePatches: noPriorPatches,
       findRegistryByMachineId: noRegistry,
