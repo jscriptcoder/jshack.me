@@ -38,14 +38,11 @@ import {
   seedNetworkDepth,
   type FrontingGateway,
 } from '../generation/generateDeepLayer';
-import {
-  innerGatewayAt,
-  resolveDeepGatewayIdentity,
-  resolveLanHostIdentity,
-} from '../generation/lanHostIdentity';
+import { innerGatewayAt, resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { hostMachineId } from '../generation/remoteHostId';
 import { accountIn } from './passwdAccount';
 import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs';
+import { resolveChildGatewayHop } from '../network/childGatewayHop';
 import { machineServing } from '../network/machineServing';
 import { readOpenPorts } from '../services/pidfile';
 import { canBoot } from '../boot/bootFiles';
@@ -160,29 +157,27 @@ const resolveAuthTarget = async (
       ? { kind: 'target', fs: deepFs, machineId: hostMachineId(deep.host, context.essid) }
       : UNREACHABLE;
   }
-  // The forward reaches the CHILD GATEWAY that fronts the next layer down. Replay its own
-  // journal over its seeded base so a deeper forward it carries is live, refuse it when a
-  // brick on its journal takes it dark, then walk one layer deeper on the forward's
-  // internal port. The child's id is keyed off this gateway as parent, so it stays unique
-  // across the chain.
+  // The forward reaches the CHILD GATEWAY that fronts the next layer down. Resolve it
+  // (replay its own journal, boot-gate it), refuse it when a brick takes the deeper chain
+  // dark, then walk one layer deeper on the forward's internal port — which may be the
+  // child's own `:22` (land on the child) or another forward (continue the chain).
   if (deep.childGateway !== null && served.internalIp === deep.childGateway.ip) {
-    const child = resolveDeepGatewayIdentity(
-      context.publicKey,
-      frontingGateway.machineId,
-      deep.childGateway.ip,
-    );
-    const childPatches = await context.findPatches({ machine_id: child.machineId });
-    if (childPatches.error) {
+    const hop = await resolveChildGatewayHop({
+      ownerKeyHex: context.publicKey,
+      parentMachineId: frontingGateway.machineId,
+      childIp: deep.childGateway.ip,
+      findPatches: context.findPatches,
+    });
+    if (hop.kind === 'lookup_failed') {
       return { kind: 'lookup_failed' };
     }
-    const childFs = materializeMachineFs(child.baseFs, childPatches.data);
-    if (!canBoot(childFs).ok) {
+    if (hop.kind === 'bricked') {
       return UNREACHABLE;
     }
     return resolveAuthTarget(
       context,
-      childFs,
-      { machineId: child.machineId, kind: deep.childGateway.kind },
+      hop.fs,
+      { machineId: hop.machineId, kind: deep.childGateway.kind },
       served.internalPort,
       position + 1,
     );

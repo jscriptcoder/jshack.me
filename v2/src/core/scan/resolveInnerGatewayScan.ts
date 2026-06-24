@@ -3,29 +3,41 @@
  * `nmap` of an inner gateway (multi-layer depth).
  *
  * Unlike a sibling NPC, an inner gateway is scanned from the UPSTREAM side: the
- * player sits on Layer 1, the gateway's deeper layer hangs behind it, so the scan
- * runs at the `external` vantage where a NAT forward is visible. The forward lives
- * in the gateway's `/etc/iptables/rules.v4` on its SERVER-side journal (the player
+ * player sits on Layer 1, the gateway's deeper layers hang behind it, so the scan
+ * runs at the `external` vantage where a NAT forward is visible. Each forward lives
+ * in a gateway's `/etc/iptables/rules.v4` on its SERVER-side journal (the player
  * edits it with `nano` after rooting the gateway), so the scan can't be computed
  * from the client's static world — the server regenerates the gateway from the
  * VERIFIED pubkey + essid, replays its journal, asks `canBoot` (a bricked gateway
  * takes the deep entrance dark), and reports its own `sshd:22` plus any LIVE forward
  * via the single `scanResult` total function.
  *
- * The deep layer stays PRIVATE: the gateway is the caller's own box (regenerated
- * from their key), nothing here touches the cross-player `network_registry`, and a
- * forward is surfaced only while the deep host behind it is actually serving the
- * internal port (`buildDeepLayerPortResolver`).
+ * A forward to the terminal NPC is live only while that NPC serves the internal port;
+ * a forward to the CHILD GATEWAY that fronts the next layer down is resolved by
+ * recursing into the child's OWN exposed ports (the same upstream scan, one layer
+ * deeper), so a CHAINED forward surfaces only while the whole chain below it stays
+ * live — a bricked or dead-ended intermediate takes the chained port dark. The deep
+ * layers stay PRIVATE: every gateway is the caller's own box (regenerated from their
+ * key), nothing here touches the cross-player `network_registry`.
  */
 
 import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { innerGatewayAt, resolveLanHostIdentity } from '../generation/lanHostIdentity';
+import {
+  buildDeepHostFs,
+  generateDeepLayer,
+  seedNetworkDepth,
+  type FrontingGateway,
+} from '../generation/generateDeepLayer';
 import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs';
+import { resolveChildGatewayHop } from '../network/childGatewayHop';
+import { parseForwardRules, readRulesV4 } from '../network/iptablesRules';
 import { canBoot } from '../boot/bootFiles';
+import { readOpenPorts, type OpenPort } from '../services/pidfile';
 import { scanResult } from './scanResult';
-import { buildDeepLayerPortResolver } from './deepLayerPortResolver';
+import type { Directory } from '../filesystem/types';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
 export type ResolveInnerGatewayScanDeps = {
@@ -54,6 +66,85 @@ const resolveInnerGatewayScanSchema = z
   .refine((payload) => !('player_key' in payload));
 
 const HOST_DOWN: HandlerResponse = { status: 200, body: { ok: true, found: false, ports: [] } };
+
+/** A gateway's externally-visible ports resolved down the chain, or a child-journal
+ *  fetch that failed mid-walk (→ 500, distinct from a port that simply leads nowhere). */
+type ExposedPorts =
+  | { readonly kind: 'ports'; readonly ports: readonly OpenPort[] }
+  | { readonly kind: 'lookup_failed' };
+
+/** The invariants every hop of the chain walk shares: the verified owner key + essid the
+ *  deep layers regenerate from, the home's seeded chain depth (the bound that makes the
+ *  walk finite), and the journal fetch that replays each child gateway. */
+type ChainContext = {
+  readonly publicKey: string;
+  readonly essid: string;
+  readonly depth: number;
+  readonly findPatches: ResolveInnerGatewayScanDeps['findPatches'];
+};
+
+/**
+ * The chain-aware exposed ports of the gateway at `position` (1-based; the inner gateway
+ * is position 1): its own `scanResult(external)`, where each NAT forward is live only
+ * while the box it targets actually serves the internal port. The terminal NPC behind the
+ * gateway answers from its regenerated tree (no journal); a forward to the CHILD GATEWAY
+ * that fronts the next layer down is resolved by recursing into the child's OWN exposed
+ * ports — so a chained forward surfaces only while the whole chain below it stays live,
+ * and a bricked or dead-ended intermediate takes the chained port dark. A child's journal
+ * is replayed over its seeded base (a fetch failure surfaces as `lookup_failed`), and the
+ * child is resolved only when a forward actually points at it. The walk is bounded by
+ * `depth`: a gateway fronts a child only while `position < depth`.
+ */
+const resolveGatewayExposedPorts = async (
+  context: ChainContext,
+  gatewayFs: Directory,
+  frontingGateway: FrontingGateway,
+  position: number,
+): Promise<ExposedPorts> => {
+  const deep = generateDeepLayer(context.publicKey, context.essid, frontingGateway, {
+    hangsChild: position < context.depth,
+  });
+  const forwards = parseForwardRules(readRulesV4(gatewayFs));
+  // The terminal NPC's ports come straight off its regenerated tree.
+  const targets = new Map<string, readonly OpenPort[]>([
+    [deep.host.ip, readOpenPorts(buildDeepHostFs(context.publicKey, context.essid, deep.host))],
+  ]);
+  // Resolve the child gateway's exposed ports only when a forward actually points at it,
+  // recursing one layer deeper so a chained forward is live only while the chain below is.
+  const childGateway = deep.childGateway;
+  if (childGateway !== null && forwards.some((forward) => forward.internalIp === childGateway.ip)) {
+    const hop = await resolveChildGatewayHop({
+      ownerKeyHex: context.publicKey,
+      parentMachineId: frontingGateway.machineId,
+      childIp: childGateway.ip,
+      findPatches: context.findPatches,
+    });
+    if (hop.kind === 'lookup_failed') {
+      return { kind: 'lookup_failed' };
+    }
+    if (hop.kind === 'gateway') {
+      const childExposed = await resolveGatewayExposedPorts(
+        context,
+        hop.fs,
+        { machineId: hop.machineId, kind: childGateway.kind },
+        position + 1,
+      );
+      if (childExposed.kind === 'lookup_failed') {
+        return childExposed;
+      }
+      targets.set(childGateway.ip, childExposed.ports);
+    }
+    // A bricked child is left out of the map — its forward stays dark.
+  }
+  return {
+    kind: 'ports',
+    ports: scanResult({
+      vantage: 'external',
+      routerFs: gatewayFs,
+      resolveTargetPorts: (internalIp) => targets.get(internalIp) ?? [],
+    }),
+  };
+};
 
 export const handleResolveInnerGatewayScan = async (
   body: unknown,
@@ -88,17 +179,25 @@ export const handleResolveInnerGatewayScan = async (
     return HOST_DOWN;
   }
 
-  // External vantage = the gateway's own ports ∪ its live forwards. The forward's
-  // liveness is gated on the one deep host behind it actually serving the internal
-  // port (`buildDeepLayerPortResolver`), so a forward to a dead address or a port
-  // the deep host doesn't run never surfaces. The deep layer is keyed by the gateway
-  // that fronts it, so the resolver reads the segment behind THIS gateway.
-  const resolveTargetPorts = buildDeepLayerPortResolver({
-    seedPubkeyHex: publicKey,
-    essid: payload.essid,
-    frontingGateway: { machineId, kind: gateway.kind },
-  });
-  const ports = scanResult({ vantage: 'external', routerFs: gatewayFs, resolveTargetPorts });
+  // External vantage = the gateway's own ports ∪ its live forwards, resolved down the
+  // chain: a forward to the terminal NPC is live only while it serves the internal port,
+  // and a forward to the child gateway recurses into the child's own exposed ports, so a
+  // chained forward surfaces only while the whole chain stays live. A child-journal fetch
+  // failure mid-walk is a 500, kept distinct from a port that simply leads nowhere.
+  const exposed = await resolveGatewayExposedPorts(
+    {
+      publicKey,
+      essid: payload.essid,
+      depth: seedNetworkDepth(publicKey, payload.essid),
+      findPatches: deps.findPatches,
+    },
+    gatewayFs,
+    { machineId, kind: gateway.kind },
+    1,
+  );
+  if (exposed.kind === 'lookup_failed') {
+    return { status: 500, body: { error: 'patches_lookup_failed' } };
+  }
 
-  return { status: 200, body: { ok: true, found: true, ports } };
+  return { status: 200, body: { ok: true, found: true, ports: exposed.ports } };
 };
