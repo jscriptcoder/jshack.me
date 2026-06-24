@@ -1,31 +1,37 @@
 import { describe, expect, it } from 'vitest';
-import { buildDeepHostFs, deepLayerIndexForGateway, generateDeepLayer } from './generateDeepLayer';
-import { generateHomeLan, type LanHost } from './generateHomeLan';
+import { buildDeepHostFs, generateDeepLayer, type FrontingGateway } from './generateDeepLayer';
+import { generateHomeLan } from './generateHomeLan';
 import { buildRemoteHostFs } from './remoteHostFs';
 import { readOpenPorts } from '../services/pidfile';
 
 /**
  * `generateDeepLayer` is the deeper-layer counterpart of `generateHomeLan`: behind
- * an inner gateway it hangs a hidden `10.x.y.0/24` segment with one reachable NPC
- * machine. It is pure + deterministic from `(pubkey, essid, layerIndex)`, so the
- * same world re-rolls identically every reload, and the addressing stays cleanly
- * separate from the home `192.168.x` LAN.
+ * an inner gateway it hangs a hidden `10.x.y.0/24` segment. It is pure + deterministic
+ * from `(pubkey, essid, frontingGateway)`, so the same world re-rolls identically every
+ * reload, and the addressing stays cleanly separate from the home `192.168.x` LAN. The
+ * layer is keyed by the gateway that FRONTS it (its machine_id), so every gateway in a
+ * chain fronts its own distinct segment. A layer fronted by a router also hangs a CHILD
+ * gateway — the door to the next layer down; a switch forwards nothing, so it fronts no
+ * child.
  */
 
 const PUBKEY = 'a'.repeat(64);
 const ESSID = 'BEAN-THERE-WIFI';
-const DEEP_INDEX = 2;
+const ROUTER_GW: FrontingGateway = { machineId: 'inner-gw-aaaa1111', kind: 'router' };
+const SWITCH_GW: FrontingGateway = { machineId: 'switch-bbbb2222', kind: 'switch' };
+
+const octetOf = (ip: string): number => Number(ip.split('.')[3]);
 
 describe('generateDeepLayer', () => {
-  it('is deterministic for the same identity, essid, and layer index', () => {
-    expect(generateDeepLayer(PUBKEY, ESSID, DEEP_INDEX)).toEqual(
-      generateDeepLayer(PUBKEY, ESSID, DEEP_INDEX),
+  it('is deterministic for the same identity, essid, and fronting gateway', () => {
+    expect(generateDeepLayer(PUBKEY, ESSID, ROUTER_GW)).toEqual(
+      generateDeepLayer(PUBKEY, ESSID, ROUTER_GW),
     );
   });
 
   it('addresses the deep layer as a 10.x /24, distinct from the home 192.168 /24', () => {
     const home = generateHomeLan(PUBKEY, ESSID);
-    const deep = generateDeepLayer(PUBKEY, ESSID, DEEP_INDEX);
+    const deep = generateDeepLayer(PUBKEY, ESSID, ROUTER_GW);
 
     expect(deep.subnet.startsWith('10.')).toBe(true);
     expect(deep.subnet.split('.')).toHaveLength(3);
@@ -33,8 +39,8 @@ describe('generateDeepLayer', () => {
   });
 
   it('hangs one NPC machine off the deep layer, on the deep subnet and not at .1', () => {
-    const deep = generateDeepLayer(PUBKEY, ESSID, DEEP_INDEX);
-    const octet = Number(deep.host.ip.split('.')[3]);
+    const deep = generateDeepLayer(PUBKEY, ESSID, ROUTER_GW);
+    const octet = octetOf(deep.host.ip);
 
     expect(deep.host.kind).toBe('machine');
     expect(deep.host.ip.startsWith(`${deep.subnet}.`)).toBe(true);
@@ -44,48 +50,55 @@ describe('generateDeepLayer', () => {
     expect(deep.host.hostname).toMatch(new RegExp(`-${octet}$`));
   });
 
-  it('varies the deep subnet by layer index (the index is part of the seed)', () => {
-    expect(generateDeepLayer(PUBKEY, ESSID, 2).subnet).not.toBe(
-      generateDeepLayer(PUBKEY, ESSID, 3).subnet,
+  it('varies the deep subnet by FRONTING gateway (the gateway machine_id is the seed)', () => {
+    // Two gateways front two DISTINCT segments — the rule that lets a chain stay
+    // disjoint layer to layer.
+    expect(generateDeepLayer(PUBKEY, ESSID, ROUTER_GW).subnet).not.toBe(
+      generateDeepLayer(PUBKEY, ESSID, SWITCH_GW).subnet,
     );
   });
 
   it('varies the deep subnet by essid', () => {
-    expect(generateDeepLayer(PUBKEY, ESSID, DEEP_INDEX).subnet).not.toBe(
-      generateDeepLayer(PUBKEY, 'OTHER-WIFI', DEEP_INDEX).subnet,
+    expect(generateDeepLayer(PUBKEY, ESSID, ROUTER_GW).subnet).not.toBe(
+      generateDeepLayer(PUBKEY, 'OTHER-WIFI', ROUTER_GW).subnet,
     );
+  });
+
+  it('produces a byte-stable golden deep layer for a known fronting router', () => {
+    // A pinned golden so an octet-offset or address-separator mutation shifts a value
+    // and fails here deterministically — the relationship assertions above can't.
+    expect(generateDeepLayer(PUBKEY, ESSID, ROUTER_GW)).toEqual({
+      subnet: '10.109.8',
+      host: { ip: '10.109.8.63', hostname: 'tablet-63', kind: 'machine' },
+      childGateway: { ip: '10.109.8.178', hostname: 'mikrotik01-178', kind: 'router' },
+    });
   });
 });
 
-describe('deepLayerIndexForGateway', () => {
-  const lan = generateHomeLan(PUBKEY, ESSID);
-  const octetOf = (host: LanHost): number => Number(host.ip.split('.')[3]);
-  const findKind = (kind: LanHost['kind'], predicate: (host: LanHost) => boolean = () => true): LanHost => {
-    const host = lan.hosts.find((candidate) => candidate.kind === kind && predicate(candidate));
-    if (host === undefined) throw new Error(`no ${kind} on the golden LAN`);
-    return host;
-  };
+describe('generateDeepLayer — the child gateway (chain door)', () => {
+  it('hangs a child gateway (kind router) behind a ROUTER, at a stable octet ≠ NPC ≠ .1', () => {
+    const deep = generateDeepLayer(PUBKEY, ESSID, ROUTER_GW);
+    const child = deep.childGateway;
 
-  it('maps a router inner gateway to the base deep-layer index (2)', () => {
-    const innerRouter = findKind('router', (host) => octetOf(host) !== 1);
-
-    expect(deepLayerIndexForGateway(innerRouter)).toBe(2);
+    expect(child).not.toBeNull();
+    if (child === null) return;
+    expect(child.kind).toBe('router');
+    expect(child.ip.startsWith(`${deep.subnet}.`)).toBe(true);
+    const childOctet = octetOf(child.ip);
+    expect(childOctet).not.toBe(1);
+    expect(childOctet).not.toBe(octetOf(deep.host.ip));
+    // A router-pool name, like the home inner gateways.
+    expect(child.hostname).toMatch(new RegExp(`-${childOctet}$`));
   });
 
-  it('maps a switch inner gateway to the next deep-layer index (3) — its OWN segment', () => {
-    const innerSwitch = findKind('switch');
-
-    expect(deepLayerIndexForGateway(innerSwitch)).toBe(3);
+  it('hangs NO child gateway behind a SWITCH — a switch forwards nothing', () => {
+    expect(generateDeepLayer(PUBKEY, ESSID, SWITCH_GW).childGateway).toBeNull();
   });
 
-  it('fronts the switch onto a deep /24 distinct from the router’s', () => {
-    const innerRouter = findKind('router', (host) => octetOf(host) !== 1);
-    const innerSwitch = findKind('switch');
-
-    const routerDeep = generateDeepLayer(PUBKEY, ESSID, deepLayerIndexForGateway(innerRouter));
-    const switchDeep = generateDeepLayer(PUBKEY, ESSID, deepLayerIndexForGateway(innerSwitch));
-
-    expect(switchDeep.subnet).not.toBe(routerDeep.subnet);
+  it('is deterministic — the same fronting router yields the same child gateway', () => {
+    expect(generateDeepLayer(PUBKEY, ESSID, ROUTER_GW).childGateway).toEqual(
+      generateDeepLayer(PUBKEY, ESSID, ROUTER_GW).childGateway,
+    );
   });
 });
 
@@ -95,7 +108,7 @@ describe('buildDeepHostFs', () => {
     // roll: prove it on a deep host whose RAW NPC FS does not serve :22, so a deep host
     // is always a reachable target regardless of how its services rolled.
     const deepHostWithoutRawSsh = Array.from({ length: 19 }, (_unused, index) => index + 2)
-      .map((layerIndex) => generateDeepLayer(PUBKEY, ESSID, layerIndex).host)
+      .map((octet) => generateDeepLayer(PUBKEY, ESSID, { machineId: `inner-gw-${octet}`, kind: 'router' }).host)
       .find(
         (host) =>
           !readOpenPorts(buildRemoteHostFs(PUBKEY, ESSID, host)).some(
@@ -111,7 +124,7 @@ describe('buildDeepHostFs', () => {
   });
 
   it('carries the NPC box skeleton — a populated /etc/passwd for a later login', () => {
-    const deep = generateDeepLayer(PUBKEY, ESSID, DEEP_INDEX);
+    const deep = generateDeepLayer(PUBKEY, ESSID, ROUTER_GW);
 
     const fs = buildDeepHostFs(PUBKEY, ESSID, deep.host);
     const etc = fs.entries.get('etc');

@@ -21,7 +21,6 @@
 import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { DEEP_LAYER_INDEX } from '../generation/generateDeepLayer';
 import { innerGatewayAt, resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs';
 import { canBoot } from '../boot/bootFiles';
@@ -92,11 +91,12 @@ export const handleResolveInnerGatewayScan = async (
   // External vantage = the gateway's own ports ∪ its live forwards. The forward's
   // liveness is gated on the one deep host behind it actually serving the internal
   // port (`buildDeepLayerPortResolver`), so a forward to a dead address or a port
-  // the deep host doesn't run never surfaces.
+  // the deep host doesn't run never surfaces. The deep layer is keyed by the gateway
+  // that fronts it, so the resolver reads the segment behind THIS gateway.
   const resolveTargetPorts = buildDeepLayerPortResolver({
     seedPubkeyHex: publicKey,
     essid: payload.essid,
-    layerIndex: DEEP_LAYER_INDEX,
+    frontingGateway: { machineId, kind: gateway.kind },
   });
   const ports = scanResult({ vantage: 'external', routerFs: gatewayFs, resolveTargetPorts });
 

@@ -1,29 +1,37 @@
 # Story 5b — Multi-layer Generated Networks (v2)
 
 **Branch**: per-slice branches off `main` (5b.1a + 5b.1b-i + 5b.1b-ii + 5b.2 + 5b.3a + 5b.3b all merged)
-**Status**: 5b.1a ✅ (#307). 5b.1b-i ✅ (#308, v0.73.0). 5b.1b-ii ✅ (#309, v0.74.0). 5b.2 ✅ (#310, v0.75.0). 5b.3a (switch device foundation) ✅ (#311, v0.76.0). 5b.3b (switch ACL pivot + edit-to-open) ✅ MERGED (#312, v0.77.0); next = **5b.4 (depth & gateway-kind variety)**.
+**Status**: 5b.1a ✅ (#307). 5b.1b-i ✅ (#308, v0.73.0). 5b.1b-ii ✅ (#309, v0.74.0). 5b.2 ✅ (#310, v0.75.0). 5b.3a ✅ (#311, v0.76.0). 5b.3b ✅ (#312, v0.77.0). 5b.4 (CHAINS) — grilled + sub-split a/b/c/d (2026-06-24); next = **5b.4a (chain generates + deeper gateway discoverable)**.
 
-> **Status: Slice 5b.3b ✅ MERGED (#312, v0.77.0, squash `a7b3b7f`). NEXT = Slice 5b.4 (depth & gateway-kind variety). ⟵
-> RESUME: start **5b.4** on a fresh branch off `main`. The full spec is the **"Slice 5b.4" section below**. This
-> is the FIRST 5b.4 pickup — its AC are drafted but NOT yet detailed/grilled; present them for confirmation and
-> resolve the open points (below) BEFORE RED. Depth/variety is the broadest remaining slice — consider whether
-> it should sub-split (e.g. 5b.4a seed depth 1–3 with the existing single-router shape; 5b.4b vary gateway kind
-> per layer; 5b.4c chain N gateways) rather than land as one PR.**
+> **Status: Slice 5b.3b ✅ MERGED (#312, v0.77.0, squash `a7b3b7f`). Slice 5b.4 GRILLED + sub-split a/b/c/d
+> (2026-06-24). NEXT = Slice 5b.4a. ⟵
+> RESUME: start **5b.4a** on branch `feat/5b4-depth-variety` (already cut off `main`). The grilled design tree
+> (D-chain-1..4) + the four sub-slices are in the **"Slice 5b.4" section below** — READ IT. Present 5b.4a's
+> detailed AC for confirmation, then RED.**
 >
-> **5b.4 OPEN POINTS (resolve at slice start):**
-> - **Generalize `deepLayerIndexForGateway` (the 5b.3b KIND map) to N gateways / arbitrary depth.** Today it is
->   `host.kind === 'switch' ? DEEP_LAYER_INDEX+1 : DEEP_LAYER_INDEX` — correct only while a home has exactly ONE
->   router + ONE switch, each fronting one fixed layer. 5b.4 must key the layer index on the gateway's POSITION
->   in the chain (draw/octet order, or an explicit seeded layer assignment), not its device kind — otherwise two
->   switches, or a 3-deep chain, collide on index. This is the seam 5b.3b deliberately isolated for this slice.
-> - **Where depth is seeded.** `generateHomeLan` currently hard-seeds exactly one inner router + one switch on
->   Layer 1. 5b.4 needs `seedNetworkDepth(pubkey, essid) → 1..3` and a per-layer gateway-kind seed, then the
->   generator emits a CHAIN (gateway L1 → its deep /24 hosting the next gateway → …). Decide: does each deeper
->   layer's gateway live on the parent deep `/24` (so the pivot from layer N scans it, then ssh's onto it to
->   pivot again), and how does `generateDeepLayer`/`buildDeepHostFs` gain a gateway host alongside the NPC?
-> - **Reachability through a chain.** 5b.1b (forward) + 5b.2/5b.3b (pivot) reach ONE layer down. A 3-deep home
->   needs the pivot/forward to compose across hops — confirm the hop chain (`sessions`) already carries this or
->   whether the deep-layer scan needs the vantage's OWN layer index (not just "am I on a gateway").
+> **5b.4 GRILLED DECISIONS (2026-06-24 — the open points, now RESOLVED):**
+> - **D-chain-1 (topology):** Layer 1 untouched; the chain hangs BEHIND the inner router; 4a chains the inner
+>   router only (switch joins in 4d). NOT a flat `SubnetLayer[]` reshape.
+> - **D-chain-2 (keying + identity):** a layer's `/24` is keyed by the gateway that FRONTS it —
+>   `deep-layer-${frontingGatewayMachineId}-${essid}`. The kind-based `deepLayerIndexForGateway` is REPLACED by
+>   deriving the layer off the gateway's `machine_id`. Deep-gateway id = `computeDeepGatewayId(key,
+>   parentMachineId, octet)` (`ed25519-deep-gw:` namespace). Existing inner-router L2 / switch L3 RE-KEY —
+>   mechanical (tests recompute via `generateDeepLayer`; only literal is `10.9.9.9`, a dead forward). Both
+>   server gates drop hardcoded `DEEP_LAYER_INDEX`, key off the gateway `machine_id` they already resolve.
+> - **D-chain-3 (reachability):** forward to REACH the next gateway, pivot to SCAN behind it (matches AC's
+>   "forward + pivot"). NO new `ssh-from-pivot` (stays deferred). Reach the L2 child gateway via a NAT forward
+>   on the L1 router (5b.1b-ii, extended to recognize a deep *gateway* target); pivot-nmap L3 from there.
+> - **D-chain-4 (privacy):** depth stays single-player/private — deep layers unregistered, gates own-keyed; a
+>   cross-player public-IP scan still sees ONLY the edge router + forwarded workstation (D5).
+> - **Sub-split:** 4a generate+discover child gateway · 4b forward-reach it + scan L3 · 4c `seedNetworkDepth`
+>   1–3 · 4d per-layer gateway kind. Full per-slice AC in the "Slice 5b.4" section.
+>
+> **Code anchors the re-key touches (5b.4a):** `generateDeepLayer.ts` (`deepLayerIndexForGateway` → removed;
+> `generateDeepLayer` 3rd param integer → fronting-gateway key; add the child gateway host), `identity/router.ts`
+> (`computeDeepGatewayId`), `lanHostIdentity.ts` (`innerGatewayForMachineId` + the deep reverse-lookup; deep
+> gateway → `buildDeepGatewayBaseFs`), `nmap.ts resolveDeepPivotScan` (list NPC + child gateway; key off
+> gateway id), `scan/resolveInnerGatewayScan.ts` + `sessions/authCreateSessionInnerGateway.ts` (drop hardcoded
+> `DEEP_LAYER_INDEX`), wire-checks `scripts/testInnerGateway*.ts` (recompute deep IPs — no edits beyond that).
 >
 > **5b.3b AS-BUILT (shipped #312 — what 5b.4 builds on):**
 > - `deepLayerIndexForGateway(host: LanHost): number` in `generateDeepLayer.ts` — the pure KIND→index seam
@@ -395,8 +403,13 @@ shipped cross-player loop green (D1).
       **dark from upstream** (`nmap <switch>` → own `:22` only); `acl.conf` seeded + editable. _(v0.76.0)_
 - [x] **5b.3b** Pivot onto the switch → scan its downstream **ACL-filtered**; delete an `acl.conf` `deny`
       → the port opens on the next pivot scan. _(v0.77.0)_
-- [ ] **5b.4** Depth is **seeded 1–3** per `(pubkey, essid)`; gateway kind (router/switch) varies;
-      chains of deep layers compose; the skeleton's pin is lifted.
+- [ ] **5b.4 (CHAINS — sub-split a/b/c/d, grilled 2026-06-24)** Linear chains L1→L2→L3, depth **seeded 1–3**;
+      a layer is keyed by its fronting gateway's `machine_id`; forward-to-reach + pivot-to-scan; depth private.
+  - [ ] **5b.4a** Deep layers re-keyed by fronting-gateway `machine_id` + `computeDeepGatewayId`; the inner
+        router's deep `/24` holds a discoverable **child gateway** (pivot-nmap lists it). Shipped loops green.
+  - [ ] **5b.4b** Forward to the child gateway → `ssh` lands on it → pivot-nmap **L3**; 3 layers reachable.
+  - [ ] **5b.4c** `seedNetworkDepth(key, essid) → 1–3` gates chain length; deterministic, reload-stable.
+  - [ ] **5b.4d** Per-layer gateway kind (router/switch) seeded; a switch layer ACL-filters one level deep.
 - [ ] **5b.5** A deep-layer scan/connect leaves an NPC trace readable on that machine.
 - [ ] **Invariant (every slice):** B scanning the player's **public IP** sees ONLY the edge router +
       forwarded workstation — **never** the deep layers; the shipped `crack→connect→nmap→ssh→su→brick`
@@ -614,14 +627,84 @@ second→3); keep `resolveDeepPivotScan` reading the gateway from `innerGatewayF
 index + kind from it. Full 1–3 depth + chains stay 5b.4.
 **RED/GREEN/MUTATE/KILL/REFACTOR**: detailed at slice start. **Done when**: criteria met, human approves.
 
-### Slice 5b.4 — Depth & gateway-kind variety
+### Slice 5b.4 — Depth & gateway-kind variety (CHAINS) — SUB-SPLIT a/b/c/d (grilled 2026-06-24)
 
-**Value**: Real generated variety — homes 1–3 layers deep, router/switch mix, chains compose. **Path**:
-open `seedNetworkDepth(key, essid)` to 1–3; seed each layer's gateway kind; lift the skeleton's pin;
-chain N gateways. **Required skills**: `tdd`,`testing`,`mutation-testing`,`refactoring`.
-**Acceptance criteria** (confirm before code — detail when reached): depth seeded ≥1 per home,
-deterministic, 1–3; gateway kind varies by seed; a 3-layer home is reachable end-to-end (forward +
-pivot); determinism holds across reload. **Done when**: criteria met, human approves.
+The genuinely-new capability is **linear chains** (L1 → L2 → L3, depth seeded 1–3). "Two gateway kinds" and
+"2 layers deep" already shipped (5b.1–5b.3b). Grill-me resolved the design tree:
+
+- **D-chain-1 (topology) — Layer 1 untouched; chain hangs BEHIND the inner router.** `generateHomeLan` is
+  byte-stable; the chain is a pure extension of the deep-layer generator. The 4a skeleton chains behind the
+  **inner router only** (the switch keeps its single deep layer until 4d). NOT a flat `SubnetLayer[]` reshape.
+- **D-chain-2 (keying + identity) — a layer's `/24` is keyed by the gateway that FRONTS it.** Seed
+  `deep-layer-${frontingGatewayMachineId}-${essid}` (uniform from L1 down; no global integer). The kind-based
+  `deepLayerIndexForGateway` is REPLACED by deriving the layer off the gateway's own `machine_id`. A deep
+  gateway's id = `computeDeepGatewayId(key, parentMachineId, octet)` in a new `ed25519-deep-gw:` namespace
+  (parent-id + octet ⇒ globally unique across layers/branches); its creds/base FS reuse the inner-gateway
+  router toolkit but seeded off that unique discriminator (so its admin pw is unique per deep gateway). The
+  existing inner-router L2 / switch L3 subnets RE-KEY to new values — **mechanical churn** (every test/script
+  recomputes the deep IP via `generateDeepLayer(...)`; the only literal is `10.9.9.9`, a dead forward target).
+  Both server gates (`resolveInnerGatewayScan`, `authCreateSessionInnerGateway`) drop their hardcoded
+  `DEEP_LAYER_INDEX` and key the deep layer off the gateway `machine_id` they ALREADY resolve.
+- **D-chain-3 (reachability) — forward to REACH the next gateway, pivot to SCAN the layer behind it** (matches
+  the AC's "forward + pivot"). No new `ssh-from-pivot` primitive (stays deferred): you reach the L2 child
+  gateway via a NAT forward on the L1 router (the shipped 5b.1b-ii path, extended to recognize a deep
+  *gateway* as a forward target), then pivot-nmap L3 from that vantage (client-side, 5b.2/5b.3b).
+- **D-chain-4 (privacy invariant) — depth stays single-player / private.** Deep layers are never registered;
+  every gate is own-keyed. A cross-player scan of the public IP still sees ONLY the edge router + forwarded
+  workstation — chains never leak. (D5.)
+
+#### Slice 5b.4a — The chain generates + its deeper gateway is discoverable
+
+**Value**: The player pivots onto their inner router and discovers a *deeper* gateway hanging behind it — the
+first glimpse of a multi-hop network. Isolates the riskiest reshape (re-key + deep-gateway identity) behind
+unchanged reachability. **Path**: re-key deep layers to `machine_id`-keyed (D-chain-2) + `computeDeepGatewayId`;
+the inner router's deep `/24` now holds a **child gateway** (kind `router`) at a seeded octet (distinct from
+the NPC + the `.1` parent-downstream interface; dual-homed at the NEXT layer's `.1`); both server gates
+re-keyed off the gateway `machine_id`. `nmap <inner router's deep /24>` from the pivot vantage lists the NPC
+**and** the child gateway. Reaching the child gateway / scanning L3 = NOT yet (4b). **Required skills**:
+`tdd`,`testing`,`mutation-testing`,`refactoring`.
+**Acceptance criteria** (confirm before code — detail at slice start): (1) deep layers are keyed by the
+fronting gateway's `machine_id`; the inner router's and switch's deep `/24`s are deterministic + reload-stable
+under the new keying (kind-based `deepLayerIndexForGateway` removed). (2) the inner router's deep `/24` holds a
+child gateway (`kind:'router'`) with a unique `computeDeepGatewayId` id + its own seeded admin pw, at a stable
+octet ≠ the NPC / `.1`. (3) `nmap <inner router deep /24>` from the inner-router pivot vantage lists BOTH the
+NPC and the child gateway. (4) the shipped inner-gateway scan + forward-login + switch pivot + cross-player
+loop stay green under the re-key (server gates derive the deep layer off the gateway `machine_id`). (5)
+cross-player public-IP scan unchanged — the child gateway is private (unregistered). **Done when**: criteria
+met, mutation report reviewed, human approves, version bumped.
+
+#### Slice 5b.4b — Reach the child gateway + scan L3
+
+**Value**: Stand on the deeper gateway you discovered and scan the layer behind IT — the chain becomes
+traversable to L3. **Path**: extend the forward path (`resolveAuthTarget`/`machineServing`/the deep-layer port
+resolver) to recognize a deep **gateway** as a forward target → `ssh admin@<L1 inner>:<port>` lands a session
+on the L2 child gateway → pivot-nmap L3 (from that vantage, position-keyed off the child gateway's id) lists
+its terminal NPC. **Required skills**: `tdd`,`testing`,`mutation-testing`,`refactoring`.
+**Acceptance criteria** (confirm before code — detail at slice start): a forward on the L1 router to the child
+gateway's `:22` lets `ssh admin@<inner>:<port>` land a session on the child gateway (auth against ITS admin
+pw, lands on its `computeDeepGatewayId` id); from that vantage `nmap <L3 /24>` lists the L3 terminal NPC; from
+Layer 1 (no pivot) the L3 `/24` is out of range; a 3-layer home is reachable + scannable end-to-end; the
+shipped loops stay green. **Done when**: criteria met, human approves.
+
+#### Slice 5b.4c — Variable depth (1–3)
+
+**Value**: Real generated variety — some homes shallow, some 3 deep. **Path**: `seedNetworkDepth(key, essid) →
+1..3` gates how far the chain extends (depth 1 = today's terminal NPC, no child gateway; depth 3 = two nested
+gateways); a gateway's layer derives "does a child gateway hang here?" from the seeded depth vs its position.
+**Required skills**: `tdd`,`testing`,`mutation-testing`,`refactoring`.
+**Acceptance criteria** (confirm before code — detail at slice start): depth seeded ≥1 per home, deterministic,
+1–3, reload-stable; a depth-1 home has no child gateway (terminal NPC); a depth-3 home chains two gateways
+reachable end-to-end; the chain length is recoverable server-side from `(key, essid)` for the gates.
+
+#### Slice 5b.4d — Gateway-kind variety per layer
+
+**Value**: A chain can mix routers and switches — a switch layer filters its downstream by ACL one level
+deep. **Path**: seed each chain layer's gateway kind (router/switch); a switch deep gateway builds
+`buildSwitchBaseFs` + its pivot subtracts `parseAclDenies` (5b.3b) a layer down. **Required skills**:
+`tdd`,`testing`,`mutation-testing`,`refactoring`.
+**Acceptance criteria** (confirm before code — detail at slice start): a chain layer's gateway kind is seeded
++ deterministic; a switch deep gateway forwards nothing (dark from upstream) and ACL-filters its pivot scan; a
+mixed router→switch chain is reachable + scannable end-to-end.
 
 ### Slice 5b.5 — Deep-layer traces + polish
 

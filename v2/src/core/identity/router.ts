@@ -40,3 +40,18 @@ export const isOwnRouter = (machineId: string, playerKeyHex: string): boolean =>
  *  this id by regenerating the owner's LAN, which fixes the octet. */
 export const computeInnerGatewayId = (playerKeyHex: string, octet: number): string =>
   `inner-gw-${deriveHostnameSuffix(`ed25519-inner-gw:${playerKeyHex}:${octet}`)}`;
+
+/** The machine_id for a gateway hanging off a DEEPER layer — a router the player
+ *  owns that sits behind an inner gateway, fronting a layer further down. It must be
+ *  unique across the whole chain (and, later, across branches), so it derives from a
+ *  SEPARATE (`ed25519-deep-gw:`) namespace keyed by the owner key, its PARENT
+ *  gateway's machine_id, AND its octet on the deep `/24`: two deep gateways at the
+ *  same octet behind different parents therefore each get an independent suffix, and
+ *  it can never alias the edge router, an inner gateway, or its own parent. The
+ *  server recovers it by walking the owner's chain, which fixes the parent + octet. */
+export const computeDeepGatewayId = (
+  playerKeyHex: string,
+  parentMachineId: string,
+  octet: number,
+): string =>
+  `deep-gw-${deriveHostnameSuffix(`ed25519-deep-gw:${playerKeyHex}:${parentMachineId}:${octet}`)}`;

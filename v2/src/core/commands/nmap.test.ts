@@ -17,7 +17,7 @@ import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
 import { seedRouterHostname } from '../generation/routerFs';
 import { machineIdForLanHost } from '../generation/lanHostIdentity';
-import { DEEP_LAYER_INDEX, generateDeepLayer } from '../generation/generateDeepLayer';
+import { generateDeepLayer } from '../generation/generateDeepLayer';
 import type { Directory } from '../filesystem/types';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
 import { asMachineId, asPlayerKeyHex } from '../types';
@@ -1053,11 +1053,16 @@ describe('nmap — reachability-pivot from an inner gateway (5b.2)', () => {
   const SWITCH = findHost((host) => host.kind === 'switch');
 
   const idOf = (host: LanHost): string => machineIdForLanHost(host, PUBKEY, ESSID);
-  const DEEP = generateDeepLayer(PUBKEY, ESSID, DEEP_LAYER_INDEX);
-  // The switch fronts its OWN deep layer (the next index), disjoint from the router's.
-  const SWITCH_DEEP = generateDeepLayer(PUBKEY, ESSID, DEEP_LAYER_INDEX + 1);
+  const DEEP = generateDeepLayer(PUBKEY, ESSID, { machineId: idOf(INNER), kind: 'router' });
+  // The switch fronts its OWN deep layer (keyed by its machine_id), disjoint from the router's.
+  const SWITCH_DEEP = generateDeepLayer(PUBKEY, ESSID, { machineId: idOf(SWITCH), kind: 'switch' });
   const deepHostOctet = octetOf(DEEP.host);
-  const deepDownIp = `${DEEP.subnet}.${deepHostOctet === 2 ? 3 : 2}`;
+  // An address with no host on it — distinct from BOTH the NPC and the child gateway.
+  const deepChildOctet = DEEP.childGateway ? octetOf(DEEP.childGateway) : -1;
+  const deepDownOctet = [2, 3, 4, 5].find(
+    (octet) => octet !== deepHostOctet && octet !== deepChildOctet,
+  );
+  const deepDownIp = `${DEEP.subnet}.${deepDownOctet ?? 2}`;
 
   /** Online on the home ESSID with the active session sitting on `machineId`. An
    *  optional `fs` stands in for that machine's journal-replayed tree — a switch
@@ -1098,16 +1103,41 @@ describe('nmap — reachability-pivot from an inner gateway (5b.2)', () => {
     expect(text).toContain('Nmap done — 1 host up');
   });
 
-  it('lists the deep host in a range scan of the deep /24 — no forward configured', async () => {
+  it('lists the NPC AND the deeper child gateway in a range scan of the inner router’s deep /24', async () => {
+    const child = DEEP.childGateway;
+    expect(child).not.toBeNull();
+    if (child === null) return;
+
     const { text, exitCode } = await drain(
       await nmap.execute(vantageEnv(idOf(INNER)), [`${DEEP.subnet}.1-254`], new Map()),
     );
 
     expect(exitCode).toBe(0);
+    // The terminal NPC...
     expect(text).toContain(DEEP.host.ip);
     expect(text).toContain(DEEP.host.hostname);
     expect(text).toContain('machine');
-    expect(text).toContain('Nmap done — 1 hosts up');
+    // ...and the child gateway — the door to the next layer down.
+    expect(text).toContain(child.ip);
+    expect(text).toContain(child.hostname);
+    expect(text).toContain('router');
+    expect(text).toContain('Nmap done — 2 hosts up');
+  });
+
+  it('scans the child gateway directly — a reachable router on :22', async () => {
+    const child = DEEP.childGateway;
+    expect(child).not.toBeNull();
+    if (child === null) return;
+
+    const { text, exitCode } = await drain(
+      await nmap.execute(vantageEnv(idOf(INNER)), [child.ip], new Map()),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(text).toContain(`Nmap scan report for ${child.hostname} (${child.ip})`);
+    expect(text).toContain('Host is up.');
+    expect(text).toContain('22/tcp   open  ssh');
+    expect(text).toContain('Nmap done — 1 host up');
   });
 
   it('reports a deep-subnet address with no host as down', async () => {

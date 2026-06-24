@@ -18,53 +18,64 @@
 
 import { createPrng } from './prng';
 import { buildRemoteHostFs } from './remoteHostFs';
+import { ROUTER_HOSTNAMES } from './routerFs';
 import { DEVICE_TYPES } from '../network/homeNetwork';
 import { applyPatches, type Patch } from '../filesystem/applyPatches';
 import { formatPidfileContent } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import type { Directory, FilePermissions } from '../filesystem/types';
-import type { LanHost } from './generateHomeLan';
+import type { LanHost, LanHostKind } from './generateHomeLan';
 
-/** The pinned depth for the walking skeleton: every inner gateway fronts exactly
- *  ONE deeper layer (index 2 — Layer 1 is the home LAN). The seam stays open
- *  (`generateDeepLayer` takes any index) so a later slice can vary depth per home
- *  without reshaping the scan/ssh callers that share this pin. */
-export const DEEP_LAYER_INDEX = 2;
+/** The gateway that FRONTS a deep layer — the seed for that layer's `/24`. Its
+ *  `machineId` keys the layer (so every gateway in a chain fronts a distinct
+ *  segment), and its `kind` decides whether the layer hangs a child gateway: a
+ *  router forwards to a deeper layer, a switch forwards nothing so fronts none. */
+export type FrontingGateway = {
+  readonly machineId: string;
+  readonly kind: LanHostKind;
+};
 
-/** Which deep layer a given inner gateway fronts. A router fronts the base layer
- *  (`DEEP_LAYER_INDEX`); a switch fronts the NEXT one, so the two devices guard
- *  disjoint `/24` segments — pivoting onto one never reveals the other's hosts.
- *  Keyed on device kind while a home has exactly one of each; broadening to N
- *  gateways (by draw order) is a later concern this seam isolates from the scan
- *  callers. */
-export const deepLayerIndexForGateway = (host: LanHost): number =>
-  host.kind === 'switch' ? DEEP_LAYER_INDEX + 1 : DEEP_LAYER_INDEX;
-
-/** A generated deeper layer: its `/24` prefix and the one NPC machine on it. The
- *  gateway's downstream interface is `${subnet}.1` by convention (consumed by the
- *  pivot, not here), so it is derived rather than stored. */
+/** A generated deeper layer: its `/24` prefix, the one NPC machine on it, and —
+ *  when fronted by a router — the CHILD GATEWAY that fronts the next layer down (the
+ *  chain door). The fronting gateway's downstream interface is `${subnet}.1` by
+ *  convention (consumed by the pivot, not here), so it is derived rather than stored. */
 export type DeepLayer = {
-  /** The `10.x.y` prefix the deep host sits on. */
+  /** The `10.x.y` prefix the deep hosts sit on. */
   readonly subnet: string;
   /** The single reachable NPC on the deep layer (`kind: 'machine'`). */
   readonly host: LanHost;
+  /** The gateway fronting the NEXT layer down, or null when the chain stops here
+   *  (the fronting gateway is a switch, which forwards nothing). */
+  readonly childGateway: LanHost | null;
 };
 
 export const generateDeepLayer = (
   seedPubkeyHex: string,
   essid: string,
-  layerIndex: number,
+  frontingGateway: FrontingGateway,
 ): DeepLayer => {
-  const prng = createPrng(`deep-layer-${seedPubkeyHex}-${essid}-${layerIndex}`);
+  const prng = createPrng(`deep-layer-${seedPubkeyHex}-${essid}-${frontingGateway.machineId}`);
   const subnet = `10.${prng.nextInt(0, 255)}.${prng.nextInt(0, 255)}`;
-  // .1 is the inner gateway's downstream interface; the host avoids it (and .0/.255).
-  const hostOctet = prng.nextInt(2, 254);
+  // .1 is the fronting gateway's downstream interface; the hosts avoid it (and
+  // .0/.255). A single `pickN` keeps the NPC and child-gateway octets distinct.
+  const usableOctets = Array.from({ length: 253 }, (_unused, index) => index + 2);
+  const [hostOctet, childOctet] = prng.pickN(usableOctets, 2);
   const host: LanHost = {
     ip: `${subnet}.${hostOctet}`,
     hostname: `${prng.pick(DEVICE_TYPES)}-${hostOctet}`,
     kind: 'machine',
   };
-  return { subnet, host };
+  // A router fronts a deeper layer, so a child gateway hangs here — dual-homed at the
+  // next layer's `.1`. A switch forwards nothing, so the chain stops at this layer.
+  const childGateway: LanHost | null =
+    frontingGateway.kind === 'router'
+      ? {
+          ip: `${subnet}.${childOctet}`,
+          hostname: `${prng.pick(ROUTER_HOSTNAMES)}-${childOctet}`,
+          kind: 'router',
+        }
+      : null;
+  return { subnet, host, childGateway };
 };
 
 /** A pidfile under `/var/run`: world-readable (so a scan sees the port),

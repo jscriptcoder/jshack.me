@@ -3,6 +3,7 @@ import { scanResult } from './scanResult';
 import { buildDeepLayerPortResolver } from './deepLayerPortResolver';
 import { generateDeepLayer } from '../generation/generateDeepLayer';
 import { buildInnerGatewayBaseFs } from '../generation/routerFs';
+import { computeInnerGatewayId } from '../identity/router';
 import { applyPatches } from '../filesystem/applyPatches';
 import type { Directory } from '../filesystem/types';
 
@@ -18,14 +19,16 @@ import type { Directory } from '../filesystem/types';
 
 const PUBKEY = 'a'.repeat(64);
 const ESSID = 'BEAN-THERE-WIFI';
-const LAYER_INDEX = 2;
 const GATEWAY_OCTET = 37;
 
-const deep = generateDeepLayer(PUBKEY, ESSID, LAYER_INDEX);
+// The deep layer is keyed by the gateway that fronts it; the resolver and the deep
+// layer it gates over share the SAME fronting gateway so their addresses agree.
+const FRONTING = { machineId: computeInnerGatewayId(PUBKEY, GATEWAY_OCTET), kind: 'router' } as const;
+const deep = generateDeepLayer(PUBKEY, ESSID, FRONTING);
 const resolver = buildDeepLayerPortResolver({
   seedPubkeyHex: PUBKEY,
   essid: ESSID,
-  layerIndex: LAYER_INDEX,
+  frontingGateway: FRONTING,
 });
 
 const RULES_V4_PERMS = { read: ['root'], write: ['root'], execute: [] } as const;

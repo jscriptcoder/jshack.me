@@ -6,7 +6,7 @@ import {
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { generateDeepLayer, DEEP_LAYER_INDEX } from '../generation/generateDeepLayer';
+import { generateDeepLayer } from '../generation/generateDeepLayer';
 import { computeInnerGatewayId } from '../identity/router';
 import type { OwnerPatchRow } from '../network/materializeWorkstationFs';
 import type { NonceStore } from '../signedRequest/nonceStore';
@@ -46,7 +46,10 @@ const hostMatching = (pubkey: string, essid: string, predicate: (host: LanHost) 
 const INNER = innerGatewayOf(PLAYER.publicKeyHex, ESSID);
 const EDGE = hostMatching(PLAYER.publicKeyHex, ESSID, (host) => octetOf(host) === 1);
 const SIBLING = hostMatching(PLAYER.publicKeyHex, ESSID, (host) => host.kind === 'machine');
-const DEEP_IP = generateDeepLayer(PLAYER.publicKeyHex, ESSID, DEEP_LAYER_INDEX).host.ip;
+const DEEP_IP = generateDeepLayer(PLAYER.publicKeyHex, ESSID, {
+  machineId: computeInnerGatewayId(PLAYER.publicKeyHex, octetOf(INNER)),
+  kind: 'router',
+}).host.ip;
 
 /** A root `nano /etc/iptables/rules.v4` edit on the INNER GATEWAY's journal opening a
  *  NAT forward `2222 → <deep host>:22` — the opt-in that exposes the Layer-2 machine. */
