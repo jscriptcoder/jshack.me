@@ -102,6 +102,33 @@ describe('generateDeepLayer — the child gateway (chain door)', () => {
   });
 });
 
+describe('generateDeepLayer — terminal pin (hangsChild)', () => {
+  it('hangs a child gateway by default — a router-fronted layer continues the chain', () => {
+    // The default preserves the shipped behavior: a router fronts a layer WITH a child.
+    expect(generateDeepLayer(PUBKEY, ESSID, ROUTER_GW).childGateway).not.toBeNull();
+    expect(
+      generateDeepLayer(PUBKEY, ESSID, ROUTER_GW, { hangsChild: true }).childGateway,
+    ).not.toBeNull();
+  });
+
+  it('hangs NO child gateway when the layer is terminal (hangsChild false), even behind a router', () => {
+    // A deep gateway fronts a TERMINAL layer — the chain stops, capping its depth.
+    expect(
+      generateDeepLayer(PUBKEY, ESSID, ROUTER_GW, { hangsChild: false }).childGateway,
+    ).toBeNull();
+  });
+
+  it('keeps the NPC byte-stable whether or not the layer is terminal (depth-independent host)', () => {
+    // Only the child gateway is suppressed by the terminal pin; the subnet + NPC are
+    // identical, so flipping depth never re-rolls the reachable host.
+    const withChild = generateDeepLayer(PUBKEY, ESSID, ROUTER_GW, { hangsChild: true });
+    const terminal = generateDeepLayer(PUBKEY, ESSID, ROUTER_GW, { hangsChild: false });
+
+    expect(terminal.subnet).toBe(withChild.subnet);
+    expect(terminal.host).toEqual(withChild.host);
+  });
+});
+
 describe('buildDeepHostFs', () => {
   it('forces sshd:22 onto a deep host whose generated services would otherwise omit it', () => {
     // The reliability guarantee is the FORCED pidfile, not the probabilistic catalog

@@ -23,11 +23,17 @@
  */
 
 import type { Directory } from '../filesystem/types';
-import { computeInnerGatewayId, computeRouterId } from '../identity/router';
-import { buildInnerGatewayBaseFs, buildRouterBaseFs, buildSwitchBaseFs } from './routerFs';
+import { computeDeepGatewayId, computeInnerGatewayId, computeRouterId } from '../identity/router';
+import {
+  buildDeepGatewayBaseFs,
+  buildInnerGatewayBaseFs,
+  buildRouterBaseFs,
+  buildSwitchBaseFs,
+} from './routerFs';
 import { buildRemoteHostFs } from './remoteHostFs';
 import { hostMachineId } from './remoteHostId';
-import { generateHomeLan, type LanHost } from './generateHomeLan';
+import { generateHomeLan, type LanHost, type LanHostKind } from './generateHomeLan';
+import { generateDeepLayer } from './generateDeepLayer';
 
 export type LanHostIdentity = {
   readonly machineId: string;
@@ -95,6 +101,24 @@ export const resolveLanHostIdentity = (
   baseFs: baseFsForLanHost(host, ownerKeyHex, essid),
 });
 
+/** A deep CHILD GATEWAY's storage identity — its machine_id + seeded base FS — from the
+ *  owner key, the machine_id of the gateway that FRONTS its parent layer, and the
+ *  child's own deep IP. The child is keyed off its parent so two children at the same
+ *  octet behind different gateways never alias. One place owns the octet parse so the
+ *  reach gate, the upstream-scan port resolver, and the pivot scan can't disagree on
+ *  which box the chain door is. */
+export const resolveDeepGatewayIdentity = (
+  ownerKeyHex: string,
+  parentMachineId: string,
+  childIp: string,
+): LanHostIdentity => {
+  const octet = Number(childIp.split('.')[3]);
+  return {
+    machineId: computeDeepGatewayId(ownerKeyHex, parentMachineId, octet),
+    baseFs: buildDeepGatewayBaseFs(ownerKeyHex, parentMachineId, octet),
+  };
+};
+
 /** The reverse of `resolveLanHostIdentity`: the seeded base FS of the host on the
  *  player's OWN LAN whose machine_id equals `machineId` (edge router, inner gateway,
  *  or NPC), or null when none matches. The write path (L2) and the client read-back
@@ -111,23 +135,59 @@ export const ownLanBaseFsForMachineId = (
   return host === undefined ? null : baseFsForLanHost(host, ownerKeyHex, essid);
 };
 
-/** The inner gateway on the caller's regenerated LAN whose machine_id is `machineId`
- *  — i.e. the active shell is sitting ON that gateway — or null when the session is on
- *  the edge `.1`, an ordinary host, or the player's own workstation. Lets a pivot scan
- *  recognize "my shell is on a gateway that fronts a deep layer" so it resolves the
- *  downstream segment instead of home. A router and a switch each front their OWN deep
- *  layer, so both are pivot vantages; the caller reads the matched host's kind to pick
- *  which segment. The machine_id-keyed counterpart of `innerGatewayAt` (a session
- *  carries an id, not an address). */
-export const innerGatewayForMachineId = (
+/** The gateway behind which a pivot scan resolves the deep layer the active shell can
+ *  reach: which machine_id keys that layer, the gateway's `kind` (a switch ACL-filters
+ *  its downstream, a router forwards), and whether the layer it fronts hangs a child
+ *  (the chain continues) or is terminal (the depth bound). */
+export type PivotVantage = {
+  readonly machineId: string;
+  readonly kind: LanHostKind;
+  readonly hangsChild: boolean;
+};
+
+/** Resolve the active session's machine_id to the pivot vantage it stands on, or null
+ *  when the shell is on the edge `.1`, an ordinary host, or the player's own
+ *  workstation. Two kinds of vantage front a deep layer:
+ *  - an L1 INNER GATEWAY (router or switch) sitting directly on the home LAN — it
+ *    fronts a child-bearing layer (the chain continues below it);
+ *  - a deep CHILD GATEWAY one layer down (reached through a forward on the inner
+ *    router) — it fronts a TERMINAL layer, the bound that caps the chain's depth.
+ *  The machine_id-keyed counterpart of `innerGatewayAt` (a session carries an id, not
+ *  an address); a pivot scan reads the vantage to resolve the downstream segment
+ *  instead of home. */
+export const pivotVantageForMachineId = (
   ownerKeyHex: string,
   essid: string,
   machineId: string,
-): LanHost | null => {
-  const host = generateHomeLan(ownerKeyHex, essid).hosts.find(
-    (candidate) =>
-      isInnerGateway(candidate) &&
-      machineIdForLanHost(candidate, ownerKeyHex, essid) === machineId,
+): PivotVantage | null => {
+  const innerGateways = generateHomeLan(ownerKeyHex, essid).hosts.filter(isInnerGateway);
+
+  const direct = innerGateways.find(
+    (gateway) => machineIdForLanHost(gateway, ownerKeyHex, essid) === machineId,
   );
-  return host ?? null;
+  if (direct !== undefined) {
+    return { machineId, kind: direct.kind, hangsChild: true };
+  }
+
+  // Walk one layer down: regenerate each inner router's deep layer and match its child
+  // gateway by machine_id. A switch fronts no child, so it is skipped by construction.
+  const childMatch = innerGateways
+    .map((gateway) => {
+      const parentId = machineIdForLanHost(gateway, ownerKeyHex, essid);
+      const child = generateDeepLayer(ownerKeyHex, essid, {
+        machineId: parentId,
+        kind: gateway.kind,
+      }).childGateway;
+      return child === null ? null : { child, parentId };
+    })
+    .find(
+      (entry) =>
+        entry !== null &&
+        resolveDeepGatewayIdentity(ownerKeyHex, entry.parentId, entry.child.ip).machineId ===
+          machineId,
+    );
+
+  return childMatch == null
+    ? null
+    : { machineId, kind: childMatch.child.kind, hangsChild: false };
 };

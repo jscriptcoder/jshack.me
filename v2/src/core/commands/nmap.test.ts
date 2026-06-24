@@ -18,6 +18,7 @@ import { buildRemoteHostFs } from '../generation/remoteHostFs';
 import { seedRouterHostname } from '../generation/routerFs';
 import { machineIdForLanHost } from '../generation/lanHostIdentity';
 import { generateDeepLayer } from '../generation/generateDeepLayer';
+import { computeDeepGatewayId } from '../identity/router';
 import type { Directory } from '../filesystem/types';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
 import { asMachineId, asPlayerKeyHex } from '../types';
@@ -1195,6 +1196,20 @@ describe('nmap — reachability-pivot from an inner gateway (5b.2)', () => {
     expect(result.lines[0]?.content).toContain('out of range');
   });
 
+  it('does NOT pivot a non-gateway session onto a deep /24 keyed off its OWN id', async () => {
+    // The vantage keys the deep layer off the SESSION's machine_id, so the only thing
+    // guarding against a non-gateway pivot is the gateway filter + the child-id match.
+    // A sibling's own would-be deep host must stay out of range — only a real inner
+    // gateway or a real deep child gateway is ever a pivot vantage.
+    const siblingDeep = generateDeepLayer(PUBKEY, ESSID, { machineId: idOf(SIBLING), kind: 'router' });
+
+    const result = await nmap.execute(vantageEnv(idOf(SIBLING)), [siblingDeep.host.ip], new Map());
+    if (result.kind !== 'sync') throw new Error('expected sync result');
+
+    expect(result.exitCode).toBe(1);
+    expect(result.lines[0]?.content).toContain('out of range');
+  });
+
   it('pivots from a SWITCH onto its OWN deep /24 — a segment the router never fronts', async () => {
     const { text, exitCode } = await drain(
       await nmap.execute(vantageEnv(idOf(SWITCH)), [SWITCH_DEEP.host.ip], new Map()),
@@ -1260,5 +1275,99 @@ describe('nmap — reachability-pivot from an inner gateway (5b.2)', () => {
     await drain(await nmap.execute(vantageEnv(idOf(INNER), { record }), [DEEP.host.ip], new Map()));
 
     expect(record).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Chain pivot to Layer 3: once the player reaches the L2 CHILD GATEWAY (the door
+ * discovered in 5b.4a, entered via a NAT forward on the inner router), the session
+ * sits on that deep gateway — and the layer behind IT becomes scannable the same way
+ * the inner router's L2 was. The deep layer is keyed by the fronting gateway's
+ * machine_id, so the child gateway fronts its own L3 segment; that L3 is TERMINAL
+ * (no further child), the bound that keeps the chain finite. From any shallower
+ * vantage the L3 /24 is out of range — strictly one layer down per hop.
+ */
+describe('nmap — chain pivot to L3 from a deep child gateway (5b.4b)', () => {
+  const ESSID = 'BEAN-THERE-WIFI';
+  const lan = generateHomeLan(PUBKEY, ESSID);
+  const octetOf = (host: LanHost): number => Number(host.ip.split('.')[3]);
+  const findHost = (predicate: (host: LanHost) => boolean): LanHost => {
+    const host = lan.hosts.find(predicate);
+    if (host === undefined) throw new Error('host not found on golden LAN');
+    return host;
+  };
+
+  const INNER = findHost((host) => host.kind === 'router' && octetOf(host) !== 1);
+  const INNER_ID = machineIdForLanHost(INNER, PUBKEY, ESSID);
+
+  // L2 behind the inner router, and the child gateway (the chain door) it hangs.
+  const L2 = generateDeepLayer(PUBKEY, ESSID, { machineId: INNER_ID, kind: 'router' });
+  const CHILD = L2.childGateway;
+  if (CHILD === null) throw new Error('the inner router deep layer hangs no child gateway');
+  const CHILD_ID = computeDeepGatewayId(PUBKEY, INNER_ID, octetOf(CHILD));
+
+  // L3 hangs behind the child gateway, keyed by ITS id, and is TERMINAL (no L4 child).
+  const L3 = generateDeepLayer(
+    PUBKEY,
+    ESSID,
+    { machineId: CHILD_ID, kind: 'router' },
+    { hangsChild: false },
+  );
+
+  const vantageEnv = (machineId: string) =>
+    mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+      session: mockSession({ machineId: asMachineId(machineId) }),
+    });
+
+  it('lists the L3 terminal NPC — and nothing deeper — when the shell is on the L2 child gateway', async () => {
+    const { text, exitCode } = await drain(
+      await nmap.execute(vantageEnv(CHILD_ID), [`${L3.subnet}.1-254`], new Map()),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(text).toContain(L3.host.ip);
+    expect(text).toContain(L3.host.hostname);
+    // Terminal: exactly one host (the NPC). A second router here would mean the chain
+    // failed to stop — the depth bound is what makes this "1 hosts up".
+    expect(text).toContain('Nmap done — 1 hosts up');
+  });
+
+  it('scans the L3 terminal NPC directly on :22 from the child-gateway vantage', async () => {
+    const { text, exitCode } = await drain(
+      await nmap.execute(vantageEnv(CHILD_ID), [L3.host.ip], new Map()),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(text).toContain(`Nmap scan report for ${L3.host.hostname} (${L3.host.ip})`);
+    expect(text).toContain('Host is up.');
+    expect(text).toContain('22/tcp   open  ssh');
+    expect(text).toContain('Nmap done — 1 host up');
+  });
+
+  it('keeps the L3 /24 out of range from the L1 inner-gateway vantage (one layer down per hop)', async () => {
+    // From the inner gateway you scan L2, not L3 — L3 sits on a different /24, so it is
+    // out of range until you stand on the child gateway.
+    const result = await nmap.execute(vantageEnv(INNER_ID), [L3.host.ip], new Map());
+    if (result.kind !== 'sync') throw new Error('expected sync result');
+
+    expect(result.exitCode).toBe(1);
+    expect(result.lines[0]?.content).toContain('out of range');
+  });
+
+  it('keeps the L3 /24 out of range from home (no pivot vantage)', async () => {
+    const result = await nmap.execute(
+      mockCommandEnv({
+        identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+        network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+      }),
+      [L3.host.ip],
+      new Map(),
+    );
+    if (result.kind !== 'sync') throw new Error('expected sync result');
+
+    expect(result.exitCode).toBe(1);
+    expect(result.lines[0]?.content).toContain('out of range');
   });
 });

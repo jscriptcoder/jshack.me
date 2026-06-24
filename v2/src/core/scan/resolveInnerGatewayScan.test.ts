@@ -46,10 +46,16 @@ const hostMatching = (pubkey: string, essid: string, predicate: (host: LanHost) 
 const INNER = innerGatewayOf(PLAYER.publicKeyHex, ESSID);
 const EDGE = hostMatching(PLAYER.publicKeyHex, ESSID, (host) => octetOf(host) === 1);
 const SIBLING = hostMatching(PLAYER.publicKeyHex, ESSID, (host) => host.kind === 'machine');
-const DEEP_IP = generateDeepLayer(PLAYER.publicKeyHex, ESSID, {
-  machineId: computeInnerGatewayId(PLAYER.publicKeyHex, octetOf(INNER)),
+const INNER_GW_ID = computeInnerGatewayId(PLAYER.publicKeyHex, octetOf(INNER));
+const DEEP_LAYER = generateDeepLayer(PLAYER.publicKeyHex, ESSID, {
+  machineId: INNER_GW_ID,
   kind: 'router',
-}).host.ip;
+});
+const DEEP_IP = DEEP_LAYER.host.ip;
+/** The child gateway hanging on the inner router's deep layer (5b.4a) — a forward to
+ *  its `:22` must surface from the upstream scan so a reach to it passes its gate. */
+const CHILD = DEEP_LAYER.childGateway;
+if (CHILD === null) throw new Error('the inner router deep layer hangs no child gateway');
 
 /** A root `nano /etc/iptables/rules.v4` edit on the INNER GATEWAY's journal opening a
  *  NAT forward `2222 → <deep host>:22` — the opt-in that exposes the Layer-2 machine. */
@@ -139,6 +145,26 @@ describe('handleResolveInnerGatewayScan', () => {
         ports: [
           { port: 22, service: 'ssh' },
           { port: 2222, service: 'ssh' },
+        ],
+      },
+    });
+  });
+
+  it('surfaces the forwarded port when the forward targets the live child gateway', async () => {
+    const childForward: OwnerPatchRow = { ...forwardPatch, content: `forward 2223 to ${CHILD.ip}:22` };
+    const { deps } = makeDeps(async () => ({ data: [childForward], error: null }));
+
+    const result = await handleResolveInnerGatewayScan(envelope(INNER.ip), deps);
+
+    // The gateway's own :22 PLUS the live forward to the child gateway at :2223.
+    expect(result).toEqual({
+      status: 200,
+      body: {
+        ok: true,
+        found: true,
+        ports: [
+          { port: 22, service: 'ssh' },
+          { port: 2223, service: 'ssh' },
         ],
       },
     });
