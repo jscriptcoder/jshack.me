@@ -18,8 +18,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign';
 import { generateIdentity } from '../src/core/identity/identity';
-import { computeInnerGatewayId } from '../src/core/identity/router';
-import { seedInnerGatewayAdminPw } from '../src/core/generation/routerFs';
+import { computeDeepGatewayId, computeInnerGatewayId } from '../src/core/identity/router';
+import { seedDeepGatewayAdminPw, seedInnerGatewayAdminPw } from '../src/core/generation/routerFs';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan';
 import { generateDeepLayer, buildDeepHostFs } from '../src/core/generation/generateDeepLayer';
 import { hostMachineId } from '../src/core/generation/remoteHostId';
@@ -95,10 +95,24 @@ if (DEEP_GUEST_PW === undefined) {
   process.exit(2);
 }
 
+// The CHILD GATEWAY (the chain door) hanging on the inner router's deep layer — its
+// own deep-gateway id + admin pw, reached through a SECOND forward on the inner router.
+const child = deep.childGateway;
+if (child === null) {
+  console.error('the inner router deep layer hangs no child gateway');
+  process.exit(2);
+}
+const CHILD_IP = child.ip;
+const CHILD_OCTET = Number(CHILD_IP.split('.')[3]);
+const CHILD_ID = computeDeepGatewayId(alice.publicKeyHex, INNER_GW_ID, CHILD_OCTET);
+const CHILD_ROOT_PW = seedDeepGatewayAdminPw(alice.publicKeyHex, INNER_GW_ID, CHILD_OCTET);
+
 const RULES = '/etc/iptables/rules.v4';
 const VMLINUZ = '/boot/vmlinuz';
 const ROOT_ONLY = { read: ['root'], write: ['root'], execute: [] };
-const liveForward = `# NAT port-forward table\nforward 2222 to ${DEEP_IP}:22\n`;
+// Two NAT forwards on the inner router: 2222 → the terminal NPC, 2223 → the child
+// gateway. The reach must route each public port to the right deep box.
+const liveForward = `# NAT port-forward table\nforward 2222 to ${DEEP_IP}:22\nforward 2223 to ${CHILD_IP}:22\n`;
 
 const reach = (over: Record<string, unknown>) =>
   post(
@@ -164,6 +178,30 @@ check(
     userTypeOf(r1.body) === 'guest' &&
     landedRows === 1,
   `status=${r1.status} machine=${machineOf(r1.body)} userType=${userTypeOf(r1.body)} deepRows=${landedRows}`,
+);
+
+// 1b. REACH THE CHILD GATEWAY — ssh root@<inner>:2223 with the child gateway's OWN
+//     admin pw lands a session ON THE CHILD GATEWAY (its deep-gateway id), not the
+//     gateway and not the terminal NPC. The chain is now traversable to its door.
+const r1b = await reach({ port: 2223, username: 'root', password: CHILD_ROOT_PW });
+const childRows = await sessionRowsOn(CHILD_ID);
+check(
+  'reach: ssh root@<inner>:2223 → 200, session lands on the child gateway id (not gateway, not NPC)',
+  r1b.status === 200 &&
+    machineOf(r1b.body) === CHILD_ID &&
+    machineOf(r1b.body) !== INNER_GW_ID &&
+    machineOf(r1b.body) !== DEEP_ID &&
+    userTypeOf(r1b.body) === 'root' &&
+    childRows === 1,
+  `status=${r1b.status} machine=${machineOf(r1b.body)} userType=${userTypeOf(r1b.body)} childRows=${childRows}`,
+);
+
+// 1c. WRONG CHILD-GATEWAY PASSWORD — the child gateway rejects, no session.
+const r1c = await reach({ port: 2223, username: 'root', password: 'not-the-admin-pw' });
+check(
+  'wrong child-gateway password → 401 invalid_credentials',
+  r1c.status === 401 && errorOf(r1c.body) === 'invalid_credentials',
+  `status=${r1c.status} error=${errorOf(r1c.body) ?? '-'}`,
 );
 
 // 2. WRONG PASSWORD — the deep host rejects, no session.
