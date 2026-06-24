@@ -361,6 +361,204 @@ describe('handleAuthCreateSessionInnerGateway — depth-1 home (the inner router
   });
 });
 
+describe('handleAuthCreateSessionInnerGateway — chained reach down a deeper chain', () => {
+  // A depth-3 home runs a gateway chain three deep: the inner router fronts an L2 child
+  // gateway, which itself fronts an L3 child gateway (the terminal chain door). TWO
+  // chained forwards expose the L3 gateway end-to-end — the inner forwards a port to the
+  // L2 child, and the L2 child forwards that same port on to the L3 gateway's own sshd.
+  // Logging in to the inner at that port should walk the chain and land on the L3 gateway.
+  const DEEP3 = playerWithNetworkDepth(3);
+  const deep3Host = (predicate: (host: LanHost) => boolean): LanHost => {
+    const host = generateHomeLan(DEEP3.publicKeyHex, ESSID).hosts.find(predicate);
+    if (host === undefined) throw new Error('no matching host on the depth-3 LAN');
+    return host;
+  };
+  const INNER3 = deep3Host((host) => host.kind === 'router' && octetOf(host) !== 1);
+  const INNER3_ID = computeInnerGatewayId(DEEP3.publicKeyHex, octetOf(INNER3));
+
+  const L2 = generateDeepLayer(
+    DEEP3.publicKeyHex,
+    ESSID,
+    { machineId: INNER3_ID, kind: 'router' },
+    { hangsChild: true },
+  );
+  const L2CHILD = L2.childGateway;
+  if (L2CHILD === null) throw new Error('the depth-3 inner router fronts no L2 child gateway');
+  const L2CHILD_ID = computeDeepGatewayId(DEEP3.publicKeyHex, INNER3_ID, octetOf(L2CHILD));
+
+  const L3 = generateDeepLayer(
+    DEEP3.publicKeyHex,
+    ESSID,
+    { machineId: L2CHILD_ID, kind: 'router' },
+    { hangsChild: true },
+  );
+  const L3CHILD = L3.childGateway;
+  if (L3CHILD === null) throw new Error('the depth-3 L2 child fronts no L3 child gateway');
+  const L3CHILD_ID = computeDeepGatewayId(DEEP3.publicKeyHex, L2CHILD_ID, octetOf(L3CHILD));
+  const L3CHILD_PW = seedDeepGatewayAdminPw(DEEP3.publicKeyHex, L2CHILD_ID, octetOf(L3CHILD));
+
+  const CHAINED_PORT = 2222;
+  const innerForward: OwnerPatchRow = {
+    path: '/etc/iptables/rules.v4',
+    content: `forward ${CHAINED_PORT} to ${L2CHILD.ip}:${CHAINED_PORT}`,
+    owner: 'root',
+    permissions: null,
+    node_type: 'file',
+    updated_at: '2026-06-17T00:00:01.000Z',
+    writer_key: DEEP3.publicKeyHex,
+  };
+  const l2Forward: OwnerPatchRow = {
+    ...innerForward,
+    content: `forward ${CHAINED_PORT} to ${L3CHILD.ip}:22`,
+  };
+  const l2Brick: OwnerPatchRow = {
+    path: '/boot/vmlinuz',
+    content: null,
+    owner: 'root',
+    permissions: null,
+    node_type: null,
+    updated_at: '2026-06-17T00:00:00.000Z',
+    writer_key: DEEP3.publicKeyHex,
+  };
+
+  const chainDeps = (journals: Record<string, readonly OwnerPatchRow[]>) => {
+    const findPatches = vi.fn<(query: { machine_id: string }) => Promise<PatchesResult>>(
+      async (query) => ({ data: journals[query.machine_id] ?? [], error: null }),
+    );
+    const insertSession = vi.fn<(row: AuthSessionRow) => Promise<{ error: unknown }>>(async () => ({
+      error: null,
+    }));
+    const deps: AuthCreateSessionInnerGatewayDeps = { nonceStore: freshStore, findPatches, insertSession };
+    return { deps, findPatches, insertSession };
+  };
+
+  const chainEnvelope = (over: Record<string, unknown>) =>
+    signRequest(DEEP3, 'authCreateSessionInnerGateway', {
+      session_id: 'ssh-chain-1',
+      essid: ESSID,
+      target: INNER3.ip,
+      username: 'root',
+      password: L3CHILD_PW,
+      port: CHAINED_PORT,
+      ...over,
+    });
+
+  it('lands a session on the L3 gateway through two chained forwards', async () => {
+    const { deps, insertSession } = chainDeps({
+      [INNER3_ID]: [innerForward],
+      [L2CHILD_ID]: [l2Forward],
+      [L3CHILD_ID]: [],
+    });
+
+    const result = await handleAuthCreateSessionInnerGateway(chainEnvelope({}), deps);
+
+    expect(result).toEqual({
+      status: 200,
+      body: { ok: true, userType: 'root', machine_id: L3CHILD_ID },
+    });
+    expect(insertSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        machine_id: L3CHILD_ID,
+        credentials: { username: 'root', userType: 'root' },
+      }),
+    );
+  });
+
+  it('rejects a wrong password at the chain end with 401 and inserts no session', async () => {
+    const { deps, insertSession } = chainDeps({
+      [INNER3_ID]: [innerForward],
+      [L2CHILD_ID]: [l2Forward],
+      [L3CHILD_ID]: [],
+    });
+
+    const result = await handleAuthCreateSessionInnerGateway(
+      chainEnvelope({ password: 'not-the-admin-pw' }),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 401, body: { error: 'invalid_credentials' } });
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+
+  it('refuses the chained reach when an intermediate gateway is bricked', async () => {
+    const { deps, insertSession } = chainDeps({
+      [INNER3_ID]: [innerForward],
+      [L2CHILD_ID]: [l2Forward, l2Brick],
+      [L3CHILD_ID]: [],
+    });
+
+    const result = await handleAuthCreateSessionInnerGateway(chainEnvelope({}), deps);
+
+    expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+
+  it('reports a server error when an intermediate journal lookup fails', async () => {
+    const findPatches = vi.fn<(query: { machine_id: string }) => Promise<PatchesResult>>(
+      async (query) =>
+        query.machine_id === L2CHILD_ID
+          ? { data: null, error: new Error('db down') }
+          : { data: [innerForward], error: null },
+    );
+    const insertSession = vi.fn<(row: AuthSessionRow) => Promise<{ error: unknown }>>(async () => ({
+      error: null,
+    }));
+    const deps: AuthCreateSessionInnerGatewayDeps = { nonceStore: freshStore, findPatches, insertSession };
+
+    const result = await handleAuthCreateSessionInnerGateway(chainEnvelope({}), deps);
+
+    expect(result).toEqual({ status: 500, body: { error: 'patches_lookup_failed' } });
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('handleAuthCreateSessionInnerGateway — the seeded depth bounds the chain', () => {
+  // PLAYER's home is depth-2: the inner router fronts the L2 child gateway, and the L2
+  // child fronts a TERMINAL layer (no grandchild). A forward chain that tries to step
+  // onto a THIRD gateway — where a deeper home WOULD hang one — reaches nothing: the walk
+  // stops at the seeded depth even with a live forward pointed past it.
+  const GRANDCHILD = generateDeepLayer(
+    PLAYER.publicKeyHex,
+    ESSID,
+    { machineId: CHILD_ID, kind: 'router' },
+    { hangsChild: true },
+  ).childGateway;
+  if (GRANDCHILD === null) throw new Error('expected a would-be grandchild gateway to assert absence of');
+
+  const innerToChild: OwnerPatchRow = { ...forwardPatch, content: `forward 2222 to ${CHILD.ip}:2222` };
+  const childToGrandchild: OwnerPatchRow = {
+    ...forwardPatch,
+    content: `forward 2222 to ${GRANDCHILD.ip}:22`,
+  };
+
+  it('refuses a forward that steps past the seeded depth onto a third gateway', async () => {
+    const journals: Record<string, readonly OwnerPatchRow[]> = {
+      [GATEWAY_ID]: [innerToChild],
+      [CHILD_ID]: [childToGrandchild],
+    };
+    const findPatches = vi.fn<(query: { machine_id: string }) => Promise<PatchesResult>>(async (query) => ({
+      data: journals[query.machine_id] ?? [],
+      error: null,
+    }));
+    const insertSession = vi.fn<(row: AuthSessionRow) => Promise<{ error: unknown }>>(async () => ({
+      error: null,
+    }));
+    const deps: AuthCreateSessionInnerGatewayDeps = { nonceStore: freshStore, findPatches, insertSession };
+
+    const result = await handleAuthCreateSessionInnerGateway(
+      envelope({
+        port: 2222,
+        username: 'root',
+        password: seedDeepGatewayAdminPw(PLAYER.publicKeyHex, CHILD_ID, octetOf(GRANDCHILD)),
+      }),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+});
+
 describe('handleAuthCreateSessionInnerGateway — the gateway itself (port 22)', () => {
   it('lands a session on the gateway when the port is its own sshd', async () => {
     const { deps, insertSession } = makeDeps(async () => ({ data: [], error: null }));
