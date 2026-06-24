@@ -21,7 +21,11 @@ import { generateIdentity } from '../src/core/identity/identity';
 import { computeDeepGatewayId, computeInnerGatewayId } from '../src/core/identity/router';
 import { seedDeepGatewayAdminPw, seedInnerGatewayAdminPw } from '../src/core/generation/routerFs';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan';
-import { generateDeepLayer, buildDeepHostFs } from '../src/core/generation/generateDeepLayer';
+import {
+  generateDeepLayer,
+  buildDeepHostFs,
+  seedNetworkDepth,
+} from '../src/core/generation/generateDeepLayer';
 import { hostMachineId } from '../src/core/generation/remoteHostId';
 import { accountIn } from '../src/core/sessions/passwdAccount';
 import { md5 } from '../src/core/generation/md5';
@@ -65,9 +69,17 @@ const machineOf = (body: unknown): string | undefined =>
 const userTypeOf = (body: unknown): string | undefined =>
   (body as { userType?: string } | null)?.userType;
 
-// --- The owner (alice). She reaches her OWN deep layer; depth is single-player. ---
-const alice = generateIdentity();
+// --- The owner (alice). She reaches her OWN deep layer; depth is single-player. Pick a
+//     depth-≥2 home so the inner router fronts a child gateway (the 2223 forward reaches
+//     it) — depth is a per-(key, essid) roll, so a random identity could front none. ---
 const ESSID = 'ABSTERGO-NET';
+const alice = Array.from({ length: 200 }, () => generateIdentity()).find(
+  (candidate) => seedNetworkDepth(candidate.publicKeyHex, ESSID) >= 2,
+);
+if (alice === undefined) {
+  console.error('no identity seeds a depth-≥2 home');
+  process.exit(2);
+}
 
 const innerGateway = generateHomeLan(alice.publicKeyHex, ESSID).hosts.find(
   (host) => host.kind === 'router' && Number(host.ip.split('.')[3]) !== 1,

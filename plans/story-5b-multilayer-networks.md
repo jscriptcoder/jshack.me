@@ -1,14 +1,53 @@
 # Story 5b — Multi-layer Generated Networks (v2)
 
 **Branch**: per-slice branches off `main` (5b.1a + 5b.1b-i + 5b.1b-ii + 5b.2 + 5b.3a + 5b.3b + 5b.4a + 5b.4b all merged)
-**Status**: 5b.1a ✅ (#307). 5b.1b-i ✅ (#308, v0.73.0). 5b.1b-ii ✅ (#309, v0.74.0). 5b.2 ✅ (#310, v0.75.0). 5b.3a ✅ (#311, v0.76.0). 5b.3b ✅ (#312, v0.77.0). 5b.4 (CHAINS) sub-split a/b/c/d — **5b.4a ✅ (#313, v0.78.0); 5b.4b ✅ (#314, v0.79.0)**; 5b.4c split i/ii (Wide/recursive — "make it scale"); next = **5b.4c-i (`seedNetworkDepth` 1–3 + depth-general generation & pivot-scan)**.
+**Status**: 5b.1a ✅ (#307). 5b.1b-i ✅ (#308, v0.73.0). 5b.1b-ii ✅ (#309, v0.74.0). 5b.2 ✅ (#310, v0.75.0). 5b.3a ✅ (#311, v0.76.0). 5b.3b ✅ (#312, v0.77.0). 5b.4 (CHAINS) sub-split a/b/c/d — **5b.4a ✅ (#313, v0.78.0); 5b.4b ✅ (#314, v0.79.0); 5b.4c-i ✅ (#315, v0.80.0); 5b.4c-ii ✅ BUILT (v0.81.0, branch `feat/v2-5b4c-ii-recursive-chained-reach`, pending PR/merge)**; next = **5b.4d (gateway-kind variety per layer)**.
 
-> **Status: Slice 5b.4b ✅ MERGED (#314, v0.79.0, squash `a95d13b`). NEXT = Slice 5b.4c-i. ⟵
-> RESUME: start **5b.4c-i** on a fresh branch off `main`. 5b.4c is SPLIT i/ii (Wide/recursive design — user
-> call "make it scale"): i = `seedNetworkDepth` + depth-general generation & pivot-scan; ii = recursive
-> chained-forward reach. The grilled design tree (D-chain-1..4 + D-depth-1..4) + the sub-slices are in the
-> **"Slice 5b.4" section below** — READ IT. The 5b.4b as-built dossier (the seams 5b.4c generalizes) is just
-> below. 5b.4c-i AC presented + awaiting confirmation, then RED.**
+> **Status: Slice 5b.4c-ii ✅ BUILT (v0.81.0) — 4 increments committed on `feat/v2-5b4c-ii-recursive-chained-reach`,
+> PENDING PR + squash-merge. NEXT = Slice 5b.4d. ⟵
+> RESUME (exact pick-up): on the branch, `git log` shows Inc 1 `34065fe`, Inc 2 `8af3df8`, Inc 3 `778f7a3`, Inc 4
+> `fc267f9`. To ship: push, open a PR, `gh pr merge --squash --delete-branch`, then start 5b.4d (its AC sketch is
+> in the "Slice 5b.4d" section). The deep chains now reach + scan + write end-to-end (wire-check `5/5`); 5b.4d adds
+> per-layer router/switch variety; 5b.5 adds deep-layer traces.**
+>
+> **5b.4c-ii AS-BUILT (v0.81.0 — the UNIFIED chained-forward reach: a depth-3 chain reaches + scans + writes
+> end-to-end):**
+> - **Inc 1 — recursive auth reach (`34065fe`):** `resolveAuthTarget` (`authCreateSessionInnerGateway.ts`) went
+>   single-hop → async + bounded-recursive. A forward to a child gateway replays ITS journal, re-checks `canBoot`
+>   (a bricked intermediate darkens everything below), and recurses on the forward's internal port — so a chain of
+>   forwards reaches an arbitrarily deep box. `AuthResolution = target | unreachable | lookup_failed` (a mid-chain
+>   journal fetch failure → 500, distinct from a dead port's 404). Bounded by `seedNetworkDepth` (`position < depth`).
+> - **Inc 2 — chain-aware scan-liveness (`8af3df8`):** `resolveInnerGatewayScan` gained a private async recursion
+>   `resolveGatewayExposedPorts` — a gateway's exposed ports = `scanResult(external)` where a forward to a child
+>   gateway recurses into the child's OWN exposed ports, so a chained port surfaces only while the whole chain is
+>   live (a bricked/dead-ended intermediate drops it). The child is resolved only when a forward points at it.
+>   Replaced (deleted) the sync base-only `deepLayerPortResolver`. **Shared `resolveChildGatewayHop`
+>   (`core/network/childGatewayHop.ts`)** — derive identity → fetch journal → materialize → `canBoot` → `gateway |
+>   bricked | lookup_failed` — used by BOTH the auth reach and the scan walk (the unified chain-follow core, 100%
+>   mutation).
+> - **Inc 3 — deep gateways are L2-writable (`778f7a3`):** `resolveTargetBaseFs` (`remoteWritePermission.ts`) now
+>   resolves a deep chain gateway from the caller's OWN key via new `chainGatewayBaseFsForMachineId`
+>   (`lanHostIdentity.ts`), so `nano rules.v4` on a rooted chain door passes L2 — the write that lets a player chain
+>   a forward deeper. Extracted `homeChainGateways` (one chain walk feeds the pivot vantage + the base-FS
+>   resolution); `chainFrom` now carries each gateway's `baseFs`. Cross-player stays fail-closed (deep layers
+>   private). Both files 100% mutation.
+> - **Inc 4 — end-to-end wire-check + v0.81.0 (`fc267f9`):** `scripts/testDeepChainReach.ts` drives the two-forward
+>   depth-3 chain through real `/api/patches` (both forwards, incl. the deep gateway) + `/api/network` (chained
+>   port surfaces) + `/api/sessions` (lands on L3) + a bricked-intermediate teardown — **5/5 green**.
+>   `testInnerGatewayReach.ts` depth-hardened (alice depth-≥2, fixing a 5b.4c-i flake) — **8/8**; scan **5/5**.
+>   **Decision (folded into ii, user call): the deep-gateway WRITE path is part of "end-to-end playable" — a chain
+>   isn't usable if a player can't configure the L2+ forward.**
+>
+> **5b.4c-i AS-BUILT (shipped #315, v0.80.0):** `seedNetworkDepth(key, essid) → 1..3` (`network-depth-`
+> namespace, reload-stable); `pivotVantageForMachineId` rewritten into a bounded chain walk (`chainFrom`) with a
+> single-source `hangsChild` on `ChainVantage` (DRY — one `position < depth`); the two position-1 callers
+> (`resolveAuthTarget`, `buildDeepLayerPortResolver`) pass `hangsChild = 1 < seedNetworkDepth(...)`. Suite
+> 1817→1827; mutation 100% on `generateDeepLayer`/`lanHostIdentity`/`deepLayerPortResolver`, the 5
+> `authCreateSessionInnerGateway.ts` survivors are the pre-existing documented equivalents (L93 `.some`→`.every`,
+> L117 `none`-arm ×3, L202 `account===null`). Test migration: the two random-key signed-test files
+> (`authCreateSessionInnerGateway.test.ts`, `resolveInnerGatewayScan.test.ts`) pin a deterministic
+> `playerWithNetworkDepth(2)` + a depth-1 boundary test each (so the server-gate `1 < depth` mutants die
+> reliably).
 >
 > **5b.4 GRILLED DECISIONS (2026-06-24 — the open points, now RESOLVED):**
 > - **D-chain-1 (topology):** Layer 1 untouched; the chain hangs BEHIND the inner router; 4a chains the inner
@@ -453,10 +492,11 @@ shipped cross-player loop green (D1).
         router's deep `/24` holds a discoverable **child gateway** (pivot-nmap lists it). Shipped loops green. _(v0.78.0)_
   - [x] **5b.4b** Forward to the child gateway → `ssh` lands on it → pivot-nmap **L3**; 3 layers reachable. _(v0.79.0)_
   - [ ] **5b.4c** Variable depth (1–3), depth-general so adding layers later is a seed-range bump. Split:
-    - [ ] **5b.4c-i** `seedNetworkDepth(key, essid) → 1–3` gates chain length (deterministic, reload-stable);
-          generation + **pivot-scan** depth-general (depth-1 = terminal NPC; depth-3 = scan reveals a deeper child gw).
-    - [ ] **5b.4c-ii** `resolveAuthTarget` becomes a **bounded recursion** — chained forwards ssh-reach any depth
-          (depth-3 reachable end-to-end through two forwards; a bricked intermediate gateway darkens everything below).
+    - [x] **5b.4c-i** `seedNetworkDepth(key, essid) → 1–3` gates chain length (deterministic, reload-stable);
+          generation + **pivot-scan** depth-general (depth-1 = terminal NPC; depth-3 = scan reveals a deeper child gw). _(#315, v0.80.0)_
+    - [ ] **5b.4c-ii** UNIFIED chained-forward reach, end-to-end playable — ONE shared recursive chain-follow core
+          feeds both `resolveAuthTarget` (auth) and `resolveInnerGatewayScan` (scan-liveness), so chained ports are
+          scan-visible AND reachable (depth-3 via two forwards); bricked intermediate darkens everything below.
   - [ ] **5b.4d** Per-layer gateway kind (router/switch) seeded; a switch layer ACL-filters one level deep.
 - [ ] **5b.5** A deep-layer scan/connect leaves an NPC trace readable on that machine.
 - [ ] **Invariant (every slice):** B scanning the player's **public IP** sees ONLY the edge router +
@@ -788,22 +828,38 @@ depth), so `hangsChild` is correct at every layer. (6) the shipped inner-gateway
 pivot + cross-player loop stay green (existing keys/tests re-pinned to their seeded depth via the factory).
 **Done when**: criteria met, mutation report reviewed, human approves, version bumped.
 
-##### Slice 5b.4c-ii — Recursive chained-forward reach (scales to any depth)
+##### Slice 5b.4c-ii — Unified chained-forward reach, end-to-end playable (scales to any depth) — ✅ BUILT (v0.81.0, pending PR; as-built in the RESUME block at the top)
 
-**Value**: ssh-connect all the way down a chain of any depth by chaining port-forwards across each gateway —
-the reach half catches up to the scan half. **Path**: `resolveAuthTarget` becomes async + bounded-recursive:
-`machineServing` a gateway's forward; a forward to a child gateway materializes that child (base FS + ITS
-journal via `findPatches`), `canBoot`-gates it, and recurses on the forward's internal port; terminates at an
-NPC (auth against its passwd) or a gateway's own `:22` (auth against its admin pw). The handler threads
-`findPatches` + the position counter into the recursion. **Required skills**:
+**Scope (grilled 2026-06-24 — UNIFIED, user call):** the client `executeForwardLogin` (`ssh.ts`) refuses any
+port the upstream scan doesn't surface, so a *terminal-playable* chained reach needs BOTH the auth gate AND the
+scan-liveness resolver to follow the forward chain. Both are the same "follow the forward chain through each
+gateway's journal" operation — recursively, a gateway's externally-exposed ports = `scanResult(external)` over
+its own chain. So ii ships ONE shared recursive chain-follow core in `core/` (async, `findPatches`-fed,
+`canBoot`-gated per hop, bounded by `seedNetworkDepth`) consumed by both:
+- **`resolveAuthTarget`** (auth) → async + recursive: `machineServing` a gateway's forward; a forward to a CHILD
+  gateway materializes that child (base FS + ITS journal via `findPatches`), `canBoot`-gates it, and recurses on
+  the forward's internal port; terminates at an NPC (auth its passwd) or a gateway's own `:22` (auth its admin
+  pw). Distinguishes unreachable (404) from a journal lookup failure (500).
+- **`resolveInnerGatewayScan`** (scan-liveness) → pre-resolves the chain async (walk the inner's forwards, for a
+  child-gateway target recurse to its exposed ports), builds a `Map<internalIp, ports>` and injects a SYNC
+  resolver — so `scanResult` stays sync (no async ripple). The upstream scan now surfaces a chained port, so the
+  client allows `ssh <inner>:<chainedPort>`.
+
+The handler threads `findPatches` + the depth + a position counter into the core. NO new `api/` action (the
+existing `findPatches`/`resolveInnerGateway` deps already key by `machine_id`); NO `ssh.ts` change (its
+scan-then-auth flow already works once the scan surfaces the port). Client `executeForwardLogin` semantics
+preserved — a dark/dead chained port still refuses (the scan drops it). **Required skills**:
 `tdd`,`testing`,`mutation-testing`,`refactoring`.
-**Acceptance criteria** (confirm before code — detail at slice start): a depth-3 home with two chained
-forwards (inner router `port→L2child:port`, L2 child `port→L3:22`) lets `ssh user@<inner>:<port>` land a
-session on the L3 child gateway (auth against ITS admin pw, lands on its `computeDeepGatewayId` id); a bricked
-intermediate gateway (a `/boot` tombstone on its journal) takes everything below it dark (404); a depth-1
-home's single forward still reaches only the terminal NPC; the shipped loops stay green; a new wire-check
-drives the two-forward depth-3 reach end-to-end through the real `/api/sessions` + `/api/patches`.
-**Done when**: criteria met, human approves.
+**Acceptance criteria** (confirm before code — detail at slice start): (1) a depth-3 home with two chained
+forwards (inner `P→L2child:P`, L2child `P→L3:22`) lets `ssh user@<inner>:P` land a session on the L3 child
+gateway (auth against ITS admin pw, lands on its `computeDeepGatewayId` id). (2) the upstream scan of the inner
+surfaces the chained public port `P` as ssh (so the client allows the connect); a chained forward whose chain
+dead-ends (dark target / unserved port) is NOT surfaced and is refused. (3) a bricked intermediate gateway (a
+`/boot` tombstone on its journal) takes everything below it dark — scan drops the chained port, reach → 404.
+(4) a journal lookup failure mid-chain → 500 (distinct from unreachable). (5) the shipped single-forward reach
+(5b.4b) + depth-1 reach + cross-player loop stay green. (6) a new/extended wire-check drives the two-forward
+depth-3 reach end-to-end through the real `/api/network` (scan surfaces P) + `/api/sessions` (auth lands on L3)
++ `/api/patches`. **Done when**: criteria met, mutation report reviewed, human approves, version bumped.
 
 #### Slice 5b.4d — Gateway-kind variety per layer
 

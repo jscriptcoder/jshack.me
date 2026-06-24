@@ -8,7 +8,7 @@ import { generateIdentity } from '../identity/identity';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer';
 import type { Identity } from '../commands/types';
-import { computeInnerGatewayId } from '../identity/router';
+import { computeDeepGatewayId, computeInnerGatewayId } from '../identity/router';
 import type { OwnerPatchRow } from '../network/materializeWorkstationFs';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
@@ -68,6 +68,7 @@ const DEEP_IP = DEEP_LAYER.host.ip;
  *  its `:22` must surface from the upstream scan so a reach to it passes its gate. */
 const CHILD = DEEP_LAYER.childGateway;
 if (CHILD === null) throw new Error('the inner router deep layer hangs no child gateway');
+const CHILD_ID = computeDeepGatewayId(PLAYER.publicKeyHex, INNER_GW_ID, octetOf(CHILD));
 
 /** A root `nano /etc/iptables/rules.v4` edit on the INNER GATEWAY's journal opening a
  *  NAT forward `2222 → <deep host>:22` — the opt-in that exposes the Layer-2 machine. */
@@ -102,6 +103,17 @@ const makeDeps = (
   }),
 ) => {
   const findPatches = vi.fn<(query: { machine_id: string }) => Promise<PatchesResult>>(patches);
+  const deps: ResolveInnerGatewayScanDeps = { nonceStore: freshStore, findPatches };
+  return { deps, findPatches };
+};
+
+/** Deps whose journal lookup answers per machine_id (each gateway in a chain has its
+ *  own journal), defaulting to an empty journal for any id not listed. */
+const perIdDeps = (journals: Record<string, readonly OwnerPatchRow[]>) => {
+  const findPatches = vi.fn<(query: { machine_id: string }) => Promise<PatchesResult>>(async (query) => ({
+    data: journals[query.machine_id] ?? [],
+    error: null,
+  }));
   const deps: ResolveInnerGatewayScanDeps = { nonceStore: freshStore, findPatches };
   return { deps, findPatches };
 };
@@ -194,6 +206,18 @@ describe('handleResolveInnerGatewayScan', () => {
     });
   });
 
+  it('hides the forwarded port when the deep host does not serve the internal port', async () => {
+    const portMismatch: OwnerPatchRow = { ...forwardPatch, content: `forward 2222 to ${DEEP_IP}:9999` };
+    const { deps } = makeDeps(async () => ({ data: [portMismatch], error: null }));
+
+    const result = await handleResolveInnerGatewayScan(envelope(INNER.ip), deps);
+
+    expect(result).toEqual({
+      status: 200,
+      body: { ok: true, found: true, ports: [{ port: 22, service: 'ssh' }] },
+    });
+  });
+
   it('reports a bricked inner gateway (a /boot tombstone on its journal) as host down, no ports', async () => {
     const { deps } = makeDeps(async () => ({ data: [bootTombstone], error: null }));
 
@@ -269,6 +293,212 @@ describe('handleResolveInnerGatewayScan', () => {
     );
 
     expect(result.status).toBe(400);
+  });
+});
+
+describe('handleResolveInnerGatewayScan — chained forward down a deeper chain', () => {
+  // A depth-3 home runs a gateway chain three deep: the inner router fronts an L2 child
+  // gateway, which itself fronts an L3 child gateway. TWO chained forwards expose the L3
+  // gateway end-to-end — the inner forwards a port to the L2 child, and the L2 child
+  // forwards that same port on to the L3 gateway's own sshd. The upstream scan of the
+  // inner should surface that chained port only while the WHOLE chain below stays live.
+  const DEEP3 = playerWithNetworkDepth(3);
+  const deep3Host = (predicate: (host: LanHost) => boolean): LanHost => {
+    const host = generateHomeLan(DEEP3.publicKeyHex, ESSID).hosts.find(predicate);
+    if (host === undefined) throw new Error('no matching host on the depth-3 LAN');
+    return host;
+  };
+  const INNER3 = deep3Host((host) => host.kind === 'router' && octetOf(host) !== 1);
+  const INNER3_ID = computeInnerGatewayId(DEEP3.publicKeyHex, octetOf(INNER3));
+  const L2CHILD = generateDeepLayer(
+    DEEP3.publicKeyHex,
+    ESSID,
+    { machineId: INNER3_ID, kind: 'router' },
+    { hangsChild: true },
+  ).childGateway;
+  if (L2CHILD === null) throw new Error('the depth-3 inner router fronts no L2 child gateway');
+  const L2CHILD_ID = computeDeepGatewayId(DEEP3.publicKeyHex, INNER3_ID, octetOf(L2CHILD));
+  const L3CHILD = generateDeepLayer(
+    DEEP3.publicKeyHex,
+    ESSID,
+    { machineId: L2CHILD_ID, kind: 'router' },
+    { hangsChild: true },
+  ).childGateway;
+  if (L3CHILD === null) throw new Error('the depth-3 L2 child fronts no L3 child gateway');
+
+  const CHAINED_PORT = 2222;
+  const innerForward: OwnerPatchRow = {
+    path: '/etc/iptables/rules.v4',
+    content: `forward ${CHAINED_PORT} to ${L2CHILD.ip}:${CHAINED_PORT}`,
+    owner: 'root',
+    permissions: null,
+    node_type: 'file',
+    updated_at: '2026-06-17T00:00:01.000Z',
+    writer_key: DEEP3.publicKeyHex,
+  };
+  const l2ToL3: OwnerPatchRow = { ...innerForward, content: `forward ${CHAINED_PORT} to ${L3CHILD.ip}:22` };
+  const l2Brick: OwnerPatchRow = {
+    path: '/boot/vmlinuz',
+    content: null,
+    owner: 'root',
+    permissions: null,
+    node_type: null,
+    updated_at: '2026-06-17T00:00:00.000Z',
+    writer_key: DEEP3.publicKeyHex,
+  };
+
+  const scanInner3 = (deps: ResolveInnerGatewayScanDeps) =>
+    handleResolveInnerGatewayScan(
+      signRequest(DEEP3, 'resolveInnerGatewayScan', { essid: ESSID, target: INNER3.ip }),
+      deps,
+    );
+
+  it('surfaces the chained port through two live forwards', async () => {
+    const { deps } = perIdDeps({ [INNER3_ID]: [innerForward], [L2CHILD_ID]: [l2ToL3] });
+
+    const result = await scanInner3(deps);
+
+    expect(result).toEqual({
+      status: 200,
+      body: {
+        ok: true,
+        found: true,
+        ports: [
+          { port: 22, service: 'ssh' },
+          { port: CHAINED_PORT, service: 'ssh' },
+        ],
+      },
+    });
+  });
+
+  it('hides the chained port when the deeper forward dead-ends at no host', async () => {
+    const l2ToNowhere: OwnerPatchRow = { ...innerForward, content: `forward ${CHAINED_PORT} to 10.9.9.9:22` };
+    const { deps } = perIdDeps({ [INNER3_ID]: [innerForward], [L2CHILD_ID]: [l2ToNowhere] });
+
+    const result = await scanInner3(deps);
+
+    expect(result).toEqual({
+      status: 200,
+      body: { ok: true, found: true, ports: [{ port: 22, service: 'ssh' }] },
+    });
+  });
+
+  it('hides the chained port when the intermediate gateway is bricked', async () => {
+    const { deps } = perIdDeps({ [INNER3_ID]: [innerForward], [L2CHILD_ID]: [l2ToL3, l2Brick] });
+
+    const result = await scanInner3(deps);
+
+    expect(result).toEqual({
+      status: 200,
+      body: { ok: true, found: true, ports: [{ port: 22, service: 'ssh' }] },
+    });
+  });
+
+  it('reports a server error when the first child journal lookup fails', async () => {
+    const findPatches = vi.fn<(query: { machine_id: string }) => Promise<PatchesResult>>(async (query) =>
+      query.machine_id === L2CHILD_ID
+        ? { data: null, error: new Error('db down') }
+        : { data: [innerForward], error: null },
+    );
+    const deps: ResolveInnerGatewayScanDeps = { nonceStore: freshStore, findPatches };
+
+    const result = await scanInner3(deps);
+
+    expect(result).toEqual({ status: 500, body: { error: 'patches_lookup_failed' } });
+  });
+
+  it('reports a server error when a journal lookup fails two layers deep', async () => {
+    // The inner reaches the L2 child fine; the BREAK is one layer deeper, where the L2
+    // child forwards on to the L3 gateway. The failure must propagate back up the chain
+    // as a 500 rather than silently dropping the chained port.
+    const findPatches = vi.fn<(query: { machine_id: string }) => Promise<PatchesResult>>(async (query) => {
+      if (query.machine_id === INNER3_ID) return { data: [innerForward], error: null };
+      if (query.machine_id === L2CHILD_ID) return { data: [l2ToL3], error: null };
+      return { data: null, error: new Error('db down') };
+    });
+    const deps: ResolveInnerGatewayScanDeps = { nonceStore: freshStore, findPatches };
+
+    const result = await scanInner3(deps);
+
+    expect(result).toEqual({ status: 500, body: { error: 'patches_lookup_failed' } });
+  });
+});
+
+describe('handleResolveInnerGatewayScan — the seeded depth + forward set bound the chain', () => {
+  it('hides a chain that steps past the seeded depth onto a third gateway', async () => {
+    // PLAYER is depth-2: the inner fronts the L2 child, which fronts a TERMINAL layer. A
+    // forward chain pointed at where a deeper home WOULD hang a third gateway reaches
+    // nothing — the chained port stays dark.
+    const grandchild = generateDeepLayer(
+      PLAYER.publicKeyHex,
+      ESSID,
+      { machineId: CHILD_ID, kind: 'router' },
+      { hangsChild: true },
+    ).childGateway;
+    if (grandchild === null) throw new Error('expected a would-be grandchild gateway to assert absence of');
+    const innerToChild: OwnerPatchRow = { ...forwardPatch, content: `forward 2222 to ${CHILD.ip}:2222` };
+    const childToGrandchild: OwnerPatchRow = { ...forwardPatch, content: `forward 2222 to ${grandchild.ip}:22` };
+    const { deps } = perIdDeps({ [INNER_GW_ID]: [innerToChild], [CHILD_ID]: [childToGrandchild] });
+
+    const result = await handleResolveInnerGatewayScan(envelope(INNER.ip), deps);
+
+    expect(result).toEqual({
+      status: 200,
+      body: { ok: true, found: true, ports: [{ port: 22, service: 'ssh' }] },
+    });
+  });
+
+  it('surfaces both an NPC forward and a forward to the child gateway from the same gateway', async () => {
+    // A player can expose the Layer-2 NPC AND the chain door at once: two forwards off
+    // one gateway, one to each. Both must surface — resolving the child is gated on a
+    // forward pointing AT it, not on every forward doing so.
+    const twoForwards: OwnerPatchRow = {
+      ...forwardPatch,
+      content: `forward 2222 to ${DEEP_IP}:22\nforward 2223 to ${CHILD.ip}:22`,
+    };
+    const { deps } = perIdDeps({ [INNER_GW_ID]: [twoForwards] });
+
+    const result = await handleResolveInnerGatewayScan(envelope(INNER.ip), deps);
+
+    expect(result).toEqual({
+      status: 200,
+      body: {
+        ok: true,
+        found: true,
+        ports: [
+          { port: 22, service: 'ssh' },
+          { port: 2222, service: 'ssh' },
+          { port: 2223, service: 'ssh' },
+        ],
+      },
+    });
+  });
+
+  it('resolves only the chain its forwards reference — an NPC-only forward is unaffected by a broken deep gateway', async () => {
+    // The inner forwards only to its own NPC; the child gateway it COULD chain to has a
+    // broken journal. Because nothing forwards to the child, the scan never walks down to
+    // it, so the broken deep journal cannot turn this into a spurious 500.
+    const npcForward: OwnerPatchRow = { ...forwardPatch, content: `forward 2222 to ${DEEP_IP}:22` };
+    const findPatches = vi.fn<(query: { machine_id: string }) => Promise<PatchesResult>>(async (query) =>
+      query.machine_id === CHILD_ID
+        ? { data: null, error: new Error('db down') }
+        : { data: [npcForward], error: null },
+    );
+    const deps: ResolveInnerGatewayScanDeps = { nonceStore: freshStore, findPatches };
+
+    const result = await handleResolveInnerGatewayScan(envelope(INNER.ip), deps);
+
+    expect(result).toEqual({
+      status: 200,
+      body: {
+        ok: true,
+        found: true,
+        ports: [
+          { port: 22, service: 'ssh' },
+          { port: 2222, service: 'ssh' },
+        ],
+      },
+    });
   });
 });
 
