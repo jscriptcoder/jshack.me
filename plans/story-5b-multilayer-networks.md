@@ -859,15 +859,52 @@ dead-ends (dark target / unserved port) is NOT surfaced and is refused. (3) a br
 depth-3 reach end-to-end through the real `/api/network` (scan surfaces P) + `/api/sessions` (auth lands on L3)
 + `/api/patches`. **Done when**: criteria met, mutation report reviewed, human approves, version bumped.
 
-#### Slice 5b.4d — Gateway-kind variety per layer
+#### Slice 5b.4d — Gateway-kind variety per layer ← NEXT (grill the open questions below BEFORE cutting a branch)
 
 **Value**: A chain can mix routers and switches — a switch layer filters its downstream by ACL one level
-deep. **Path**: seed each chain layer's gateway kind (router/switch); a switch deep gateway builds
-`buildSwitchBaseFs` + its pivot subtracts `parseAclDenies` (5b.3b) a layer down. **Required skills**:
-`tdd`,`testing`,`mutation-testing`,`refactoring`.
-**Acceptance criteria** (confirm before code — detail at slice start): a chain layer's gateway kind is seeded
-+ deterministic; a switch deep gateway forwards nothing (dark from upstream) and ACL-filters its pivot scan; a
-mixed router→switch chain is reachable + scannable end-to-end.
+deep. **Path**: seed each deep child gateway's kind (router/switch); a switch deep gateway builds a deep
+SWITCH base FS (`acl.conf`, no NAT `rules.v4`) + its pivot subtracts `parseAclDenies` (5b.3b) a layer down.
+**Required skills**: `grill-me` (firm the AC first), then `tdd`,`testing`,`mutation-testing`,`refactoring`.
+
+**As-is (what's hardcoded today, post-5b.4c-ii):** every chain gateway is a ROUTER. `generateDeepLayer.ts`
+hardcodes `childGateway.kind: 'router'` (the `childGateway` literal), and only a `frontingGateway.kind ===
+'router'` hangs a child at all (a switch forwards nothing → fronts none). So 5b.4d's core change is: **seed
+the child gateway's kind**, and make every per-kind builder/branch handle a deep SWITCH.
+
+**Open questions to GRILL (resolve → write back as AC + decisions, like 5b.4's D-chain-1..4):**
+- **Q1 — kind seeding:** per deep child gateway, seed `router|switch` from `(key, parentMid, octet)` (new
+  `seedDeepGatewayKind`, mirror `seedDeepGatewayAdminPw`)? Mix ratio? Reload-stable + byte-stable (don't shift
+  the existing router golden seeds).
+- **Q2 — does a switch truncate the chain?** A switch forwards nothing → it can't chain a forward THROUGH it,
+  so a switch is a chain LEAF. If a switch is seeded mid-chain, the chain STOPS there (shorter than
+  `seedNetworkDepth`) — OR do switches only appear at the terminal layer? Decide; it interacts with the
+  depth/`hangsChild` bound.
+- **Q3 — switch deep layer:** a switch deep gateway still fronts its OWN deep NPC layer (no child gateway, but
+  an NPC) that the pivot scans ACL-filtered (the 5b.3b mechanic, one layer deeper). Confirm `generateDeepLayer`
+  for a switch fronting gateway yields `host` (NPC) but `childGateway: null`.
+- **Q4 — reach/scan semantics of a switch child:** reach `ssh ...:<fwd>` where the parent forwards to the
+  switch's `:22` → lands ON the switch (auth its admin pw); a forward to switch `:<non-22>` is dark (no NAT);
+  upstream scan of the switch surfaces only its own `:22`.
+
+**Code anchors (the seams 5b.4c-ii left that 5b.4d generalizes):**
+- `generateDeepLayer.ts` — the `childGateway` construction (`kind: 'router'` → seeded); the
+  `frontingGateway.kind === 'router'` guard stays (a switch fronts no child).
+- `generation/lanHostIdentity.ts` `resolveDeepGatewayIdentity` — always builds `buildDeepGatewayBaseFs`
+  (router) → branch on kind; `chainFrom` already carries `child.kind` but maps it through the router-only
+  identity builder, so the base FS must become kind-aware (feeds `chainGatewayBaseFsForMachineId` L2 write +
+  `homeChainGateways`).
+- `network/childGatewayHop.ts` `resolveChildGatewayHop` — calls `resolveDeepGatewayIdentity`, so it inherits
+  kind-awareness for free once that branches (the auth reach + scan walk both land on the right FS).
+- `generation/routerFs.ts` — add `buildDeepSwitchBaseFs` (a deep `buildSwitchBaseFs`: `acl.conf` + deep-gw
+  admin pw seed), alongside the existing `buildDeepGatewayBaseFs`.
+- `commands/nmap.ts` `resolveDeepPivotScan` + `network/switchAcl.ts` `parseAclDenies` — the 5b.3b switch ACL
+  pivot filter; extend it to a DEEP switch vantage (`pivotVantageForMachineId` already returns `kind`).
+- Wire-check: extend `scripts/testDeepChainReach.ts` (or a sibling) with a router→switch mixed chain.
+
+**Acceptance criteria** (FIRM via grill-me before code): a deep child gateway's kind is seeded + deterministic
+(reload-stable, existing router seeds unshifted); a switch deep gateway forwards nothing (dark from upstream
+beyond its own `:22`) and ACL-filters its pivot scan a layer down; a mixed router→switch chain is reachable +
+scannable end-to-end (wire-check).
 
 ### Slice 5b.5 — Deep-layer traces + polish
 
