@@ -31,6 +31,15 @@ import type { LanHost } from './generateHomeLan';
  *  without reshaping the scan/ssh callers that share this pin. */
 export const DEEP_LAYER_INDEX = 2;
 
+/** Which deep layer a given inner gateway fronts. A router fronts the base layer
+ *  (`DEEP_LAYER_INDEX`); a switch fronts the NEXT one, so the two devices guard
+ *  disjoint `/24` segments — pivoting onto one never reveals the other's hosts.
+ *  Keyed on device kind while a home has exactly one of each; broadening to N
+ *  gateways (by draw order) is a later concern this seam isolates from the scan
+ *  callers. */
+export const deepLayerIndexForGateway = (host: LanHost): number =>
+  host.kind === 'switch' ? DEEP_LAYER_INDEX + 1 : DEEP_LAYER_INDEX;
+
 /** A generated deeper layer: its `/24` prefix and the one NPC machine on it. The
  *  gateway's downstream interface is `${subnet}.1` by convention (consumed by the
  *  pivot, not here), so it is derived rather than stored. */

@@ -111,14 +111,14 @@ export const ownLanBaseFsForMachineId = (
   return host === undefined ? null : baseFsForLanHost(host, ownerKeyHex, essid);
 };
 
-/** The ROUTER inner gateway on the caller's regenerated LAN whose machine_id is
- *  `machineId` — i.e. the active shell is sitting ON that gateway — or null when the
- *  session is on the edge `.1`, a switch, an ordinary host, or the player's own
- *  workstation. Lets a pivot scan recognize "my shell is on a gateway that fronts a
- *  deep layer" so it resolves the downstream segment instead of home. A switch is an
- *  inner gateway for ssh/scan/auth, but fronts no deep layer of its own yet, so it is
- *  deliberately NOT a pivot vantage here. The machine_id-keyed counterpart of
- *  `innerGatewayAt` (a session carries an id, not an address). */
+/** The inner gateway on the caller's regenerated LAN whose machine_id is `machineId`
+ *  — i.e. the active shell is sitting ON that gateway — or null when the session is on
+ *  the edge `.1`, an ordinary host, or the player's own workstation. Lets a pivot scan
+ *  recognize "my shell is on a gateway that fronts a deep layer" so it resolves the
+ *  downstream segment instead of home. A router and a switch each front their OWN deep
+ *  layer, so both are pivot vantages; the caller reads the matched host's kind to pick
+ *  which segment. The machine_id-keyed counterpart of `innerGatewayAt` (a session
+ *  carries an id, not an address). */
 export const innerGatewayForMachineId = (
   ownerKeyHex: string,
   essid: string,
@@ -126,7 +126,6 @@ export const innerGatewayForMachineId = (
 ): LanHost | null => {
   const host = generateHomeLan(ownerKeyHex, essid).hosts.find(
     (candidate) =>
-      candidate.kind === 'router' &&
       isInnerGateway(candidate) &&
       machineIdForLanHost(candidate, ownerKeyHex, essid) === machineId,
   );

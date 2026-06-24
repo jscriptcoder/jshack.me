@@ -20,13 +20,18 @@ import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
 import { buildRouterBaseFs } from '../generation/routerFs';
-import { buildDeepHostFs, generateDeepLayer, DEEP_LAYER_INDEX } from '../generation/generateDeepLayer';
+import {
+  buildDeepHostFs,
+  deepLayerIndexForGateway,
+  generateDeepLayer,
+} from '../generation/generateDeepLayer';
 import { isPublicIp } from '../generation/ip';
 import { parseScanTarget, hostsInScanTarget } from '../network/scanTarget';
 import { mergeLanOccupants } from '../network/mergeLanOccupants';
 import { readOpenPorts, type OpenPort } from '../services/pidfile';
 import { scanResult } from '../scan/scanResult';
 import { innerGatewayForMachineId, isInnerGateway } from '../generation/lanHostIdentity';
+import { parseAclDenies, readAclConf } from '../network/switchAcl';
 
 const error = (message: string): CommandResult => ({
   kind: 'sync',
@@ -176,16 +181,31 @@ const resolveDeepPivotScan = (
   env: CommandEnv,
   essid: string,
   rawTarget: string,
+  gateway: LanHost,
 ): CommandResult | null => {
-  const deep = generateDeepLayer(env.identity.publicKeyHex, essid, DEEP_LAYER_INDEX);
+  const deep = generateDeepLayer(
+    env.identity.publicKeyHex,
+    essid,
+    deepLayerIndexForGateway(gateway),
+  );
   const parsed = parseScanTarget(rawTarget, deep.subnet);
   if (!parsed.ok) {
     return null;
   }
   const deepLan = { subnet: deep.subnet, hosts: [deep.host] };
   const hosts = hostsInScanTarget(deepLan, parsed.target);
+  // A switch fronts its segment behind an ACL: a port listed in the switch's live
+  // `/etc/switch/acl.conf` (read off env.fs — the journal-replayed switch tree, so an
+  // edit takes effect on the next scan) is filtered out of the downstream view. A
+  // router forwards rather than filters, so it denies nothing here.
+  const deniedPorts =
+    gateway.kind === 'switch'
+      ? new Set(parseAclDenies(readAclConf(env.fs.root())))
+      : new Set<number>();
   const resolveHostPorts = (host: LanHost): readonly OpenPort[] =>
-    readOpenPorts(buildDeepHostFs(env.identity.publicKeyHex, essid, host));
+    readOpenPorts(buildDeepHostFs(env.identity.publicKeyHex, essid, host)).filter(
+      (openPort) => !deniedPorts.has(openPort.port),
+    );
   const lines =
     parsed.target.kind === 'range'
       ? scanRange(env, rawTarget, hosts)
@@ -227,7 +247,7 @@ const execute: Command['execute'] = async (env, args) => {
     env.session.machineId,
   );
   if (pivotGateway !== null) {
-    const pivotScan = resolveDeepPivotScan(env, essid, rawTarget);
+    const pivotScan = resolveDeepPivotScan(env, essid, rawTarget, pivotGateway);
     if (pivotScan !== null) {
       return pivotScan;
     }
