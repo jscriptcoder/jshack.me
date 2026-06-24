@@ -33,7 +33,7 @@ import { md5 } from '../generation/md5';
 import {
   buildDeepHostFs,
   generateDeepLayer,
-  DEEP_LAYER_INDEX,
+  type FrontingGateway,
 } from '../generation/generateDeepLayer';
 import { innerGatewayAt, resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { hostMachineId } from '../generation/remoteHostId';
@@ -95,17 +95,17 @@ const resolveAuthTarget = (
   publicKey: string,
   essid: string,
   gatewayFs: Directory,
-  gatewayMachineId: string,
+  frontingGateway: FrontingGateway,
   port: number,
 ): AuthTarget | null => {
   const served = machineServing({ routerFs: gatewayFs, port });
   if (served.kind === 'router') {
-    return { fs: gatewayFs, machineId: gatewayMachineId };
+    return { fs: gatewayFs, machineId: frontingGateway.machineId };
   }
   if (served.kind === 'none') {
     return null;
   }
-  const deep = generateDeepLayer(publicKey, essid, DEEP_LAYER_INDEX);
+  const deep = generateDeepLayer(publicKey, essid, frontingGateway);
   // The forward points at no host (a stray internal IP) — a dark DNAT target.
   if (served.internalIp !== deep.host.ip) {
     return null;
@@ -162,7 +162,7 @@ export const handleAuthCreateSessionInnerGateway = async (
     publicKey,
     payload.essid,
     gatewayFs,
-    gatewayMachineId,
+    { machineId: gatewayMachineId, kind: gateway.kind },
     payload.port ?? DEFAULT_SSH_PORT,
   );
   if (target === null) {

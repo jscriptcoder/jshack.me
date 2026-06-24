@@ -19,18 +19,18 @@
 import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
-import { buildRouterBaseFs } from '../generation/routerFs';
-import {
-  buildDeepHostFs,
-  deepLayerIndexForGateway,
-  generateDeepLayer,
-} from '../generation/generateDeepLayer';
+import { buildDeepGatewayBaseFs, buildRouterBaseFs } from '../generation/routerFs';
+import { buildDeepHostFs, generateDeepLayer } from '../generation/generateDeepLayer';
 import { isPublicIp } from '../generation/ip';
 import { parseScanTarget, hostsInScanTarget } from '../network/scanTarget';
 import { mergeLanOccupants } from '../network/mergeLanOccupants';
 import { readOpenPorts, type OpenPort } from '../services/pidfile';
 import { scanResult } from '../scan/scanResult';
-import { innerGatewayForMachineId, isInnerGateway } from '../generation/lanHostIdentity';
+import {
+  innerGatewayForMachineId,
+  isInnerGateway,
+  machineIdForLanHost,
+} from '../generation/lanHostIdentity';
 import { parseAclDenies, readAclConf } from '../network/switchAcl';
 
 const error = (message: string): CommandResult => ({
@@ -183,16 +183,21 @@ const resolveDeepPivotScan = (
   rawTarget: string,
   gateway: LanHost,
 ): CommandResult | null => {
-  const deep = generateDeepLayer(
-    env.identity.publicKeyHex,
-    essid,
-    deepLayerIndexForGateway(gateway),
-  );
+  const frontingMachineId = machineIdForLanHost(gateway, env.identity.publicKeyHex, essid);
+  const deep = generateDeepLayer(env.identity.publicKeyHex, essid, {
+    machineId: frontingMachineId,
+    kind: gateway.kind,
+  });
   const parsed = parseScanTarget(rawTarget, deep.subnet);
   if (!parsed.ok) {
     return null;
   }
-  const deepLan = { subnet: deep.subnet, hosts: [deep.host] };
+  // A router fronts a child gateway (the door to the next layer down) alongside the
+  // terminal NPC; a switch forwards nothing, so it fronts no child.
+  const deepLan = {
+    subnet: deep.subnet,
+    hosts: deep.childGateway === null ? [deep.host] : [deep.host, deep.childGateway],
+  };
   const hosts = hostsInScanTarget(deepLan, parsed.target);
   // A switch fronts its segment behind an ACL: a port listed in the switch's live
   // `/etc/switch/acl.conf` (read off env.fs — the journal-replayed switch tree, so an
@@ -202,10 +207,20 @@ const resolveDeepPivotScan = (
     gateway.kind === 'switch'
       ? new Set(parseAclDenies(readAclConf(env.fs.root())))
       : new Set<number>();
-  const resolveHostPorts = (host: LanHost): readonly OpenPort[] =>
-    readOpenPorts(buildDeepHostFs(env.identity.publicKeyHex, essid, host)).filter(
-      (openPort) => !deniedPorts.has(openPort.port),
-    );
+  // A child gateway is a deep router (its own root toolkit + sshd), keyed off the
+  // vantage gateway as its parent; the terminal NPC is a generated host. Read each
+  // host's ports from its own seeded tree.
+  const resolveHostPorts = (host: LanHost): readonly OpenPort[] => {
+    const hostFs =
+      host.kind === 'router'
+        ? buildDeepGatewayBaseFs(
+            env.identity.publicKeyHex,
+            frontingMachineId,
+            Number(host.ip.split('.')[3]),
+          )
+        : buildDeepHostFs(env.identity.publicKeyHex, essid, host);
+    return readOpenPorts(hostFs).filter((openPort) => !deniedPorts.has(openPort.port));
+  };
   const lines =
     parsed.target.kind === 'range'
       ? scanRange(env, rawTarget, hosts)

@@ -18,15 +18,19 @@
  * `core/` free of any async materialization wiring.
  */
 
-import { generateDeepLayer, buildDeepHostFs } from '../generation/generateDeepLayer';
+import {
+  generateDeepLayer,
+  buildDeepHostFs,
+  type FrontingGateway,
+} from '../generation/generateDeepLayer';
 import { readOpenPorts, type OpenPort } from '../services/pidfile';
 
 export const buildDeepLayerPortResolver = (args: {
   readonly seedPubkeyHex: string;
   readonly essid: string;
-  readonly layerIndex: number;
+  readonly frontingGateway: FrontingGateway;
 }): ((internalIp: string) => readonly OpenPort[]) => {
-  const deep = generateDeepLayer(args.seedPubkeyHex, args.essid, args.layerIndex);
+  const deep = generateDeepLayer(args.seedPubkeyHex, args.essid, args.frontingGateway);
   const deepHostFs = buildDeepHostFs(args.seedPubkeyHex, args.essid, deep.host);
   return (internalIp) => (internalIp === deep.host.ip ? readOpenPorts(deepHostFs) : []);
 };

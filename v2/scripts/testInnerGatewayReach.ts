@@ -21,7 +21,7 @@ import { generateIdentity } from '../src/core/identity/identity';
 import { computeInnerGatewayId } from '../src/core/identity/router';
 import { seedInnerGatewayAdminPw } from '../src/core/generation/routerFs';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan';
-import { generateDeepLayer, buildDeepHostFs, DEEP_LAYER_INDEX } from '../src/core/generation/generateDeepLayer';
+import { generateDeepLayer, buildDeepHostFs } from '../src/core/generation/generateDeepLayer';
 import { hostMachineId } from '../src/core/generation/remoteHostId';
 import { accountIn } from '../src/core/sessions/passwdAccount';
 import { md5 } from '../src/core/generation/md5';
@@ -81,7 +81,7 @@ const INNER_OCTET = Number(INNER_IP.split('.')[3]);
 const INNER_GW_ID = computeInnerGatewayId(alice.publicKeyHex, INNER_OCTET);
 const GATEWAY_ROOT_PW = seedInnerGatewayAdminPw(alice.publicKeyHex, INNER_OCTET);
 
-const deep = generateDeepLayer(alice.publicKeyHex, ESSID, DEEP_LAYER_INDEX);
+const deep = generateDeepLayer(alice.publicKeyHex, ESSID, { machineId: INNER_GW_ID, kind: 'router' });
 const DEEP_IP = deep.host.ip;
 const DEEP_ID = hostMachineId(deep.host, ESSID);
 const guestAccount = accountIn(buildDeepHostFs(alice.publicKeyHex, ESSID, deep.host), 'guest');

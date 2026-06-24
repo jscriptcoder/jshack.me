@@ -6,7 +6,7 @@ import {
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { generateDeepLayer, buildDeepHostFs, DEEP_LAYER_INDEX } from '../generation/generateDeepLayer';
+import { generateDeepLayer, buildDeepHostFs } from '../generation/generateDeepLayer';
 import { computeInnerGatewayId } from '../identity/router';
 import { seedInnerGatewayAdminPw } from '../generation/routerFs';
 import { hostMachineId } from '../generation/remoteHostId';
@@ -48,7 +48,7 @@ const SIBLING = hostMatching((host) => host.kind === 'machine');
 const GATEWAY_ID = computeInnerGatewayId(PLAYER.publicKeyHex, octetOf(INNER));
 const GATEWAY_ROOT_PW = seedInnerGatewayAdminPw(PLAYER.publicKeyHex, octetOf(INNER));
 
-const DEEP = generateDeepLayer(PLAYER.publicKeyHex, ESSID, DEEP_LAYER_INDEX);
+const DEEP = generateDeepLayer(PLAYER.publicKeyHex, ESSID, { machineId: GATEWAY_ID, kind: 'router' });
 const DEEP_FS: Directory = buildDeepHostFs(PLAYER.publicKeyHex, ESSID, DEEP.host);
 const DEEP_ID = hostMachineId(DEEP.host, ESSID);
 

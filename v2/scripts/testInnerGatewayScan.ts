@@ -20,7 +20,7 @@ import { signRequest } from '../src/core/signedRequest/sign';
 import { generateIdentity } from '../src/core/identity/identity';
 import { computeInnerGatewayId } from '../src/core/identity/router';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan';
-import { generateDeepLayer, DEEP_LAYER_INDEX } from '../src/core/generation/generateDeepLayer';
+import { generateDeepLayer } from '../src/core/generation/generateDeepLayer';
 
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
@@ -77,7 +77,10 @@ if (innerGateway === undefined) {
 const INNER_IP = innerGateway.ip;
 const INNER_OCTET = Number(INNER_IP.split('.')[3]);
 const INNER_GW_ID = computeInnerGatewayId(alice.publicKeyHex, INNER_OCTET);
-const DEEP_IP = generateDeepLayer(alice.publicKeyHex, ESSID, DEEP_LAYER_INDEX).host.ip;
+const DEEP_IP = generateDeepLayer(alice.publicKeyHex, ESSID, {
+  machineId: INNER_GW_ID,
+  kind: 'router',
+}).host.ip;
 
 const RULES = '/etc/iptables/rules.v4';
 const VMLINUZ = '/boot/vmlinuz';

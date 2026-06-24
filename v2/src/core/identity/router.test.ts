@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { computeInnerGatewayId, computeRouterId, isOwnRouter } from './router';
+import {
+  computeDeepGatewayId,
+  computeInnerGatewayId,
+  computeRouterId,
+  isOwnRouter,
+} from './router';
 import { computeWorkstationId, isOwnWorkstation, parseWorkstationId } from './workstation';
 import { hostMachineId } from '../generation/remoteHostId';
 import type { LanHost } from '../generation/generateHomeLan';
@@ -92,5 +97,50 @@ describe('computeInnerGatewayId', () => {
 
   it("is never recognised as the owner's own workstation", () => {
     expect(isOwnWorkstation(computeInnerGatewayId(KEY, 37), KEY)).toBe(false);
+  });
+});
+
+describe('computeDeepGatewayId', () => {
+  // A gateway hanging off a DEEPER layer (behind an inner gateway): still the
+  // player's own device, but it must be unique across layers and branches, so it
+  // is keyed by the owner key, its PARENT gateway's machine_id, AND its octet on
+  // the deep /24. Two deep gateways at the same octet behind DIFFERENT parents must
+  // never collide — that is what lets a chain (and later, branches) stay distinct.
+  const PARENT = computeInnerGatewayId(KEY, 37);
+  const OTHER_PARENT = computeInnerGatewayId(KEY, 38);
+
+  it('returns a `deep-gw-<8 hex>` id', () => {
+    expect(computeDeepGatewayId(KEY, PARENT, 50)).toMatch(/^deep-gw-[0-9a-f]{8}$/);
+  });
+
+  it('is deterministic for the same key + parent + octet', () => {
+    expect(computeDeepGatewayId(KEY, PARENT, 50)).toBe(computeDeepGatewayId(KEY, PARENT, 50));
+  });
+
+  it('differs per octet behind the same parent', () => {
+    expect(computeDeepGatewayId(KEY, PARENT, 50)).not.toBe(computeDeepGatewayId(KEY, PARENT, 51));
+  });
+
+  it('differs per PARENT at the same octet — distinct across layers/branches', () => {
+    expect(computeDeepGatewayId(KEY, PARENT, 50)).not.toBe(
+      computeDeepGatewayId(KEY, OTHER_PARENT, 50),
+    );
+  });
+
+  it('differs for different owner keys', () => {
+    expect(computeDeepGatewayId(KEY, PARENT, 50)).not.toBe(
+      computeDeepGatewayId(OTHER_KEY, PARENT, 50),
+    );
+  });
+
+  it('never aliases an inner gateway, the edge router, or the parent itself', () => {
+    const deep = computeDeepGatewayId(KEY, PARENT, 50);
+    expect(deep).not.toBe(computeInnerGatewayId(KEY, 50));
+    expect(deep).not.toBe(computeRouterId(KEY));
+    expect(deep).not.toBe(PARENT);
+  });
+
+  it("is never recognised as the owner's own workstation", () => {
+    expect(isOwnWorkstation(computeDeepGatewayId(KEY, PARENT, 50), KEY)).toBe(false);
   });
 });
