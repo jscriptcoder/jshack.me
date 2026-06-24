@@ -62,6 +62,15 @@ type DeepLayerOptions = {
   readonly hangsChild: boolean;
 };
 
+/** How many deep layers hang behind a home's inner gateway, seeded deterministically
+ *  from the owner key AND essid (the `network-depth-` namespace, reload-stable). Every
+ *  home gets at least one deep layer (so no player is playground-less); the 1–3 range
+ *  gives variety — some chains are a single terminal layer, some run three gateways
+ *  deep. A gateway at chain position P fronts a child-bearing layer iff P < depth, so
+ *  the inner gateway (position 1) hangs a child only when depth ≥ 2. */
+export const seedNetworkDepth = (ownerKeyHex: string, essid: string): number =>
+  createPrng(`network-depth-${ownerKeyHex}:${essid}`).nextInt(1, 3);
+
 export const generateDeepLayer = (
   seedPubkeyHex: string,
   essid: string,

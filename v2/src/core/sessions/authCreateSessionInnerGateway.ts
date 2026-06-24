@@ -33,6 +33,7 @@ import { md5 } from '../generation/md5';
 import {
   buildDeepHostFs,
   generateDeepLayer,
+  seedNetworkDepth,
   type FrontingGateway,
 } from '../generation/generateDeepLayer';
 import {
@@ -116,7 +117,11 @@ const resolveAuthTarget = (
   if (served.kind === 'none') {
     return null;
   }
-  const deep = generateDeepLayer(publicKey, essid, frontingGateway);
+  // The inner gateway is chain position 1, so its layer hangs a child gateway only when
+  // the home is seeded at least 2 deep — a depth-1 home's forward can reach only the NPC.
+  const deep = generateDeepLayer(publicKey, essid, frontingGateway, {
+    hangsChild: 1 < seedNetworkDepth(publicKey, essid),
+  });
   // The forward reaches the terminal NPC — auth against ITS /etc/passwd, land the
   // session on the NPC's coordinate-seeded id.
   if (served.internalIp === deep.host.ip) {

@@ -1,12 +1,14 @@
 # Story 5b — Multi-layer Generated Networks (v2)
 
 **Branch**: per-slice branches off `main` (5b.1a + 5b.1b-i + 5b.1b-ii + 5b.2 + 5b.3a + 5b.3b + 5b.4a + 5b.4b all merged)
-**Status**: 5b.1a ✅ (#307). 5b.1b-i ✅ (#308, v0.73.0). 5b.1b-ii ✅ (#309, v0.74.0). 5b.2 ✅ (#310, v0.75.0). 5b.3a ✅ (#311, v0.76.0). 5b.3b ✅ (#312, v0.77.0). 5b.4 (CHAINS) sub-split a/b/c/d — **5b.4a ✅ (#313, v0.78.0); 5b.4b ✅ (#314, v0.79.0)**; next = **5b.4c (variable depth `seedNetworkDepth` 1–3)**.
+**Status**: 5b.1a ✅ (#307). 5b.1b-i ✅ (#308, v0.73.0). 5b.1b-ii ✅ (#309, v0.74.0). 5b.2 ✅ (#310, v0.75.0). 5b.3a ✅ (#311, v0.76.0). 5b.3b ✅ (#312, v0.77.0). 5b.4 (CHAINS) sub-split a/b/c/d — **5b.4a ✅ (#313, v0.78.0); 5b.4b ✅ (#314, v0.79.0)**; 5b.4c split i/ii (Wide/recursive — "make it scale"); next = **5b.4c-i (`seedNetworkDepth` 1–3 + depth-general generation & pivot-scan)**.
 
-> **Status: Slice 5b.4b ✅ MERGED (#314, v0.79.0, squash `a95d13b`). NEXT = Slice 5b.4c. ⟵
-> RESUME: start **5b.4c** on a fresh branch off `main`. The grilled design tree (D-chain-1..4) + the four
-> sub-slices are in the **"Slice 5b.4" section below** — READ IT. The 5b.4b as-built dossier (the seams 5b.4c
-> generalizes) is just below. Present 5b.4c's detailed AC for confirmation, then RED.**
+> **Status: Slice 5b.4b ✅ MERGED (#314, v0.79.0, squash `a95d13b`). NEXT = Slice 5b.4c-i. ⟵
+> RESUME: start **5b.4c-i** on a fresh branch off `main`. 5b.4c is SPLIT i/ii (Wide/recursive design — user
+> call "make it scale"): i = `seedNetworkDepth` + depth-general generation & pivot-scan; ii = recursive
+> chained-forward reach. The grilled design tree (D-chain-1..4 + D-depth-1..4) + the sub-slices are in the
+> **"Slice 5b.4" section below** — READ IT. The 5b.4b as-built dossier (the seams 5b.4c generalizes) is just
+> below. 5b.4c-i AC presented + awaiting confirmation, then RED.**
 >
 > **5b.4 GRILLED DECISIONS (2026-06-24 — the open points, now RESOLVED):**
 > - **D-chain-1 (topology):** Layer 1 untouched; the chain hangs BEHIND the inner router; 4a chains the inner
@@ -49,24 +51,30 @@
 >   null-narrowing on the unreachable switch-forward path; the child-vs-NPC port branch — both serve exactly
 >   `:22`, invisible to a PORT scan, killed in the reach AUTH instead).
 >
-> **5b.4c PICKUP (variable depth 1–3):** generalize the hardcoded 3-layer cap into a seeded depth.
-> - **(1)** new `seedNetworkDepth(key, essid) → 1..3` (deterministic, reload-stable). Semantics from the AC:
->   depth 1 = inner router's L2 is TERMINAL (no child); depth 2 = TODAY (L2 hangs a child, L3 terminal); depth 3
->   = L2 + L3 each hang a child, L4 terminal. So "does the layer fronted by gateway G hang a child?" =
->   `G.position < seedNetworkDepth` (inner router = position 1 fronting L2; an L2 child gw = position 2 fronting
->   L3; …).
-> - **(2)** the three `generateDeepLayer` callers must pass `hangsChild` = `(frontingPosition < depth)` instead
->   of the current constants: `resolveAuthTarget` + `buildDeepLayerPortResolver` (inner router = position 1) and
->   `resolveDeepPivotScan` (position from the vantage). The fronting gateway's POSITION must be recoverable —
->   `computeDeepGatewayId(key, parentMid, octet)` chains parent ids, so walking from the L1 inner gateway down
->   recovers it.
-> - **(3)** `pivotVantageForMachineId`'s search: today a 2-level (L1 + direct child) lookup → make it a bounded
->   walk that descends up to `seedNetworkDepth` layers, tagging each matched vantage with its position so it sets
->   `hangsChild` correctly. A depth-1 home: the inner router fronts a terminal L2 (no child) → no deeper vantage.
-> - **(4)** server gates derive depth from `(key, essid)` (own-keyed, private). Needs a new/extended wire-check
->   (a depth-3 chain reachable end-to-end through TWO forwards). Open question to settle at slice start: the
->   position/depth recovery shape — a small `chainPositionForMachineId` walk vs. threading position through the
->   vantage — grill it before RED.
+> **5b.4c PICKUP (variable depth 1–3, DEPTH-GENERAL — SUB-SPLIT i/ii):** the open scope fork (narrow vs wide
+> reach) is RESOLVED **Wide, as a bounded recursion** (user call "make it scale" — all three seams become
+> depth-parametric; a future 4th/5th layer is a `seedNetworkDepth` range bump, not a reshape). Split into two PRs:
+> - **5b.4c-i — depth + generation + pivot-scan (NEXT):**
+>   - **(1)** new `seedNetworkDepth(key, essid) → 1..3` (mirror `seedRouterHasSsh`: `createPrng('network-depth-'
+>     +key+':'+essid)`; deterministic, reload-stable, every home ≥1). Semantics: a gateway at POSITION P fronts a
+>     child-bearing layer iff `P < depth` (inner router = pos 1 fronting L2; an L2 child gw = pos 2 fronting L3).
+>     So depth 1 = inner router's L2 TERMINAL; depth 2 = TODAY; depth 3 = L2 + L3 each hang a child, L4 terminal.
+>   - **(2)** the two position-1 callers `resolveAuthTarget` + `buildDeepLayerPortResolver` pass `hangsChild =
+>     1 < seedNetworkDepth(key,essid)` (no walk — they're always the L1 inner router).
+>   - **(3)** `pivotVantageForMachineId`: today a 2-level (L1 + direct child) lookup → a bounded chain WALK that
+>     descends up to `seedNetworkDepth` layers, recovering each vantage's POSITION and setting `hangsChild =
+>     position < depth` (keep `hangsChild`, NOT raw position, on `PivotVantage` — D-depth-2). `resolveDeepPivotScan`
+>     already reads `vantage.hangsChild`, so it's unchanged. Depth-1 home: inner router fronts a terminal L2 → no
+>     deeper vantage.
+>   - **(6) test migration:** existing tests assume depth-2 (child gw exists). Re-pin via the factory — pick keys
+>     whose `seedNetworkDepth` gives the depth the test needs (a depth-≥2 key for child-gw tests, a depth-1 key for
+>     the terminal-NPC test). No `api/` path → no new wire-check; existing wire-checks must stay green.
+> - **5b.4c-ii — recursive chained-forward reach (after i):** `resolveAuthTarget` → async + bounded-recursive
+>   (D-depth-3): read a gateway's forward → if it points at a CHILD gateway, materialize that child (base FS + ITS
+>   journal via `findPatches`), `canBoot`-gate it, RECURSE on the forward's internal port; terminate at an NPC or
+>   a gateway's own `:22`. Threads `findPatches` + a position counter. New wire-check: a depth-3 chain reachable
+>   end-to-end through TWO chained forwards (inner `port→L2child:port`, L2child `port→L3:22`); a bricked
+>   intermediate gateway darkens everything below.
 >
 > **5b.3b AS-BUILT (shipped #312 — NOTE: `deepLayerIndexForGateway` below was REMOVED by 5b.4a's re-key; the
 > rest still stands):**
@@ -444,7 +452,11 @@ shipped cross-player loop green (D1).
   - [x] **5b.4a** Deep layers re-keyed by fronting-gateway `machine_id` + `computeDeepGatewayId`; the inner
         router's deep `/24` holds a discoverable **child gateway** (pivot-nmap lists it). Shipped loops green. _(v0.78.0)_
   - [x] **5b.4b** Forward to the child gateway → `ssh` lands on it → pivot-nmap **L3**; 3 layers reachable. _(v0.79.0)_
-  - [ ] **5b.4c** `seedNetworkDepth(key, essid) → 1–3` gates chain length; deterministic, reload-stable.
+  - [ ] **5b.4c** Variable depth (1–3), depth-general so adding layers later is a seed-range bump. Split:
+    - [ ] **5b.4c-i** `seedNetworkDepth(key, essid) → 1–3` gates chain length (deterministic, reload-stable);
+          generation + **pivot-scan** depth-general (depth-1 = terminal NPC; depth-3 = scan reveals a deeper child gw).
+    - [ ] **5b.4c-ii** `resolveAuthTarget` becomes a **bounded recursion** — chained forwards ssh-reach any depth
+          (depth-3 reachable end-to-end through two forwards; a bricked intermediate gateway darkens everything below).
   - [ ] **5b.4d** Per-layer gateway kind (router/switch) seeded; a switch layer ACL-filters one level deep.
 - [ ] **5b.5** A deep-layer scan/connect leaves an NPC trace readable on that machine.
 - [ ] **Invariant (every slice):** B scanning the player's **public IP** sees ONLY the edge router +
@@ -735,15 +747,63 @@ pw, lands on its `computeDeepGatewayId` id); from that vantage `nmap <L3 /24>` l
 Layer 1 (no pivot) the L3 `/24` is out of range; a 3-layer home is reachable + scannable end-to-end; the
 shipped loops stay green. **Done when**: criteria met, human approves.
 
-#### Slice 5b.4c — Variable depth (1–3)
+#### Slice 5b.4c — Variable depth (1–3), DEPTH-GENERAL — SUB-SPLIT i/ii (grilled 2026-06-24)
 
-**Value**: Real generated variety — some homes shallow, some 3 deep. **Path**: `seedNetworkDepth(key, essid) →
-1..3` gates how far the chain extends (depth 1 = today's terminal NPC, no child gateway; depth 3 = two nested
-gateways); a gateway's layer derives "does a child gateway hang here?" from the seeded depth vs its position.
-**Required skills**: `tdd`,`testing`,`mutation-testing`,`refactoring`.
-**Acceptance criteria** (confirm before code — detail at slice start): depth seeded ≥1 per home, deterministic,
-1–3, reload-stable; a depth-1 home has no child gateway (terminal NPC); a depth-3 home chains two gateways
-reachable end-to-end; the chain length is recoverable server-side from `(key, essid)` for the gates.
+**Scope decision (Wide, recursive — user call "make it scale"):** 5b.4c makes all three seams depth-PARAMETRIC,
+so a future 4th/5th layer is a `seedNetworkDepth` range bump, not a reshape. Generation + pivot-scan +
+ssh-reach all stop hardcoding "2 layers". The genuinely-large piece is the **recursive reach** (an async
+server gate following chained forwards through each deep gateway's own journal); it gets its own PR.
+
+- **D-depth-1 (semantics):** a gateway at chain POSITION P (inner router = 1, its child gw = 2, …) fronts a
+  layer that hangs a child iff `P < seedNetworkDepth`. So depth 1 = inner router's L2 terminal (no child gw);
+  depth 2 = today (L2 hangs a child, L3 terminal); depth 3 = L2 + L3 each hang a child, L4 terminal.
+- **D-depth-2 (position recovery):** keep `hangsChild` (not raw position) on `PivotVantage`; the
+  `pivotVantageForMachineId` chain WALK computes it (`position < depth`) as it descends — no separate threaded
+  field. The two server gates are always position 1, so they compute `1 < depth` directly (no walk).
+- **D-depth-3 (reach scales via bounded recursion):** `resolveAuthTarget` reads a gateway's forward; if it
+  points at a CHILD gateway, it materializes that child's journal, `canBoot`-gates it, and RECURSES on the
+  forward's internal port — terminating at an NPC or a gateway's own `:22`. N chained forwards reach N layers;
+  no new `ssh-from-pivot` primitive. Bounded by the chain length (≤ depth).
+- **D-depth-4 (privacy invariant):** unchanged from D-chain-4 — depth stays single-player/private; a
+  cross-player public-IP scan still sees ONLY the edge router + forwarded workstation, at any depth.
+
+##### Slice 5b.4c-i — Seeded depth + depth-general generation & pivot-scan
+
+**Value**: Real generated variety — some homes shallow (terminal NPC), some 3 deep — and the SCAN reaches all
+the way down a chain of any seeded length. **Path**: new `seedNetworkDepth(key, essid) → 1..3` (mirrors
+`seedRouterHasSsh`; `createPrng('network-depth-…')`, reload-stable). The two position-1 callers
+(`resolveAuthTarget`, `buildDeepLayerPortResolver`) pass `hangsChild = 1 < depth`. `pivotVantageForMachineId`
+becomes a bounded chain walk that recovers each vantage's position and sets `hangsChild = position < depth`.
+ssh-reach is unchanged (still one forward → ssh to position 2). **Required skills**:
+`tdd`,`testing`,`mutation-testing`,`refactoring`.
+**Acceptance criteria** (confirm before code): (1) `seedNetworkDepth(key, essid)` returns a deterministic,
+reload-stable integer 1–3; every home ≥1. (2) a depth-1 home: the inner router's L2 is TERMINAL — no child
+gateway (`generateDeepLayer` for the inner router returns `childGateway: null`); pivot-scanning the inner
+router's deep `/24` lists only the terminal NPC. (3) a depth-≥2 home: the inner router's L2 hangs a child
+gateway (today's behavior), forward-reachable + listed in the pivot scan as before. (4) a depth-3 home: after
+forwarding onto + ssh-ing the L2 child gateway, a pivot-scan from THAT vantage lists an L3 child gateway (the
+chain extended a third layer); a depth-2 home's same pivot-scan lists only the terminal NPC. (5) the position
+each pivot vantage stands at is recovered from `(key, essid)` + its session machine_id via a bounded walk (≤
+depth), so `hangsChild` is correct at every layer. (6) the shipped inner-gateway scan + forward-login + switch
+pivot + cross-player loop stay green (existing keys/tests re-pinned to their seeded depth via the factory).
+**Done when**: criteria met, mutation report reviewed, human approves, version bumped.
+
+##### Slice 5b.4c-ii — Recursive chained-forward reach (scales to any depth)
+
+**Value**: ssh-connect all the way down a chain of any depth by chaining port-forwards across each gateway —
+the reach half catches up to the scan half. **Path**: `resolveAuthTarget` becomes async + bounded-recursive:
+`machineServing` a gateway's forward; a forward to a child gateway materializes that child (base FS + ITS
+journal via `findPatches`), `canBoot`-gates it, and recurses on the forward's internal port; terminates at an
+NPC (auth against its passwd) or a gateway's own `:22` (auth against its admin pw). The handler threads
+`findPatches` + the position counter into the recursion. **Required skills**:
+`tdd`,`testing`,`mutation-testing`,`refactoring`.
+**Acceptance criteria** (confirm before code — detail at slice start): a depth-3 home with two chained
+forwards (inner router `port→L2child:port`, L2 child `port→L3:22`) lets `ssh user@<inner>:<port>` land a
+session on the L3 child gateway (auth against ITS admin pw, lands on its `computeDeepGatewayId` id); a bricked
+intermediate gateway (a `/boot` tombstone on its journal) takes everything below it dark (404); a depth-1
+home's single forward still reaches only the terminal NPC; the shipped loops stay green; a new wire-check
+drives the two-forward depth-3 reach end-to-end through the real `/api/sessions` + `/api/patches`.
+**Done when**: criteria met, human approves.
 
 #### Slice 5b.4d — Gateway-kind variety per layer
 
