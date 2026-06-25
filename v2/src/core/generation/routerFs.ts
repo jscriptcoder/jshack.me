@@ -284,6 +284,22 @@ export const buildDeepGatewayBaseFs = (
     hasSsh: true,
   });
 
+/** Build a DEEP switch's base FS — a deep gateway seeded as a switch rather than a
+ *  router. It is the deep counterpart of `buildSwitchBaseFs` (an `acl.conf` box, no NAT
+ *  `rules.v4`, so it forwards nothing and caps the chain) but its admin password is the
+ *  deep discriminator (owner key + parent machine_id + octet), REUSING
+ *  `seedDeepGatewayAdminPw` — a given slot is one kind, so the deep namespace is
+ *  unambiguous, the same way the inner switch reuses `inner-gw-admin-`. */
+export const buildDeepSwitchBaseFs = (
+  ownerKeyHex: string,
+  parentMachineId: string,
+  octet: number,
+): Directory =>
+  buildGatewayBaseFs(
+    { adminPwHash: md5(seedDeepGatewayAdminPw(ownerKeyHex, parentMachineId, octet)), hasSsh: true },
+    { switch: dir({ 'acl.conf': file(ACL_CONF_SEED, GATEWAY_CONFIG_PERMISSIONS) }, TRAVERSABLE_DIR) },
+  );
+
 /** Build a switch's base FS — the same root-only gateway toolkit as an inner
  *  gateway, with the octet-seeded inner credential (never the edge router's) and
  *  `sshd` always up, but instead of a NAT `rules.v4` it owns an `/etc/switch/acl.conf`

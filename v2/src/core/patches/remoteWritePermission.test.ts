@@ -218,14 +218,27 @@ describe('enforceRemoteWriteL2 — own deep chain gateway', () => {
   const noRegistry = () => Promise.resolve({ data: null, error: null });
   const ESSID = 'HOME-WIFI';
 
-  // Depth is a per-(key, essid) roll; pick an owner whose home is at least depth-2 so the
-  // inner router hangs a child gateway (the chain door the test configures).
-  const ownerWithChildGateway = () => {
-    for (let attempt = 0; attempt < 96; attempt += 1) {
+  // Depth is a per-(key, essid) roll AND the inner router's deep child is a seeded
+  // router-OR-switch; pick an owner whose inner gateway hangs a child of the kind the test
+  // configures — a router exposes a NAT `rules.v4`, a switch an `acl.conf`.
+  const ownerWithInnerChildOfKind = (kind: 'router' | 'switch') => {
+    for (let attempt = 0; attempt < 400; attempt += 1) {
       const candidate = generateIdentity();
-      if (seedNetworkDepth(candidate.publicKeyHex, ESSID) >= 2) return candidate;
+      if (seedNetworkDepth(candidate.publicKeyHex, ESSID) < 2) continue;
+      const inner = generateHomeLan(candidate.publicKeyHex, ESSID).hosts.find(
+        (host) => host.kind === 'router' && Number(host.ip.split('.')[3]) !== 1,
+      );
+      if (inner === undefined) continue;
+      const innerId = computeInnerGatewayId(candidate.publicKeyHex, Number(inner.ip.split('.')[3]));
+      const child = generateDeepLayer(
+        candidate.publicKeyHex,
+        ESSID,
+        { machineId: innerId, kind: 'router' },
+        { hangsChild: true },
+      ).childGateway;
+      if (child !== null && child.kind === kind) return candidate;
     }
-    throw new Error('no identity seeds a deep chain gateway');
+    throw new Error(`no identity seeds an inner ${kind} child gateway`);
   };
 
   const childGatewayId = (owner: ReturnType<typeof generateIdentity>): string => {
@@ -244,8 +257,8 @@ describe('enforceRemoteWriteL2 — own deep chain gateway', () => {
     return computeDeepGatewayId(owner.publicKeyHex, innerId, Number(child.ip.split('.')[3]));
   };
 
-  it("allows a ROOT write to /etc/iptables/rules.v4 on the caller's own deep chain gateway", async () => {
-    const owner = ownerWithChildGateway();
+  it("allows a ROOT write to /etc/iptables/rules.v4 on the caller's own deep chain ROUTER gateway", async () => {
+    const owner = ownerWithInnerChildOfKind('router');
 
     const denial = await enforceRemoteWriteL2({
       publicKey: owner.publicKeyHex,
@@ -260,13 +273,48 @@ describe('enforceRemoteWriteL2 — own deep chain gateway', () => {
     expect(denial).toBeNull();
   });
 
-  it("denies a non-root tier writing the deep gateway's root-only rules.v4", async () => {
-    const owner = ownerWithChildGateway();
+  it("denies a non-root tier writing the deep ROUTER gateway's root-only rules.v4", async () => {
+    const owner = ownerWithInnerChildOfKind('router');
 
     const denial = await enforceRemoteWriteL2({
       publicKey: owner.publicKeyHex,
       machineId: childGatewayId(owner),
       path: '/etc/iptables/rules.v4',
+      session: { userType: 'guest', essid: ESSID },
+      listMachinePatches: noPriorPatches,
+      findRegistryByMachineId: noRegistry,
+      findOccupantWorkstationByMachineId: noRegistry,
+    });
+
+    expect(denial).toEqual({ status: 403, error: 'permission_denied' });
+  });
+
+  it("allows a ROOT write to /etc/switch/acl.conf on the caller's own deep chain SWITCH gateway", async () => {
+    // A deep gateway seeded as a SWITCH owns an `acl.conf`, not a `rules.v4`. An "allowed"
+    // proves the chain resolver built a SWITCH tree from the caller's key (the registry
+    // stub resolves to nothing) — so a player can `nano` a rooted deep switch's ACL.
+    const owner = ownerWithInnerChildOfKind('switch');
+
+    const denial = await enforceRemoteWriteL2({
+      publicKey: owner.publicKeyHex,
+      machineId: childGatewayId(owner),
+      path: '/etc/switch/acl.conf',
+      session: { userType: 'root', essid: ESSID },
+      listMachinePatches: noPriorPatches,
+      findRegistryByMachineId: noRegistry,
+      findOccupantWorkstationByMachineId: noRegistry,
+    });
+
+    expect(denial).toBeNull();
+  });
+
+  it("denies a non-root tier writing the deep SWITCH gateway's root-only acl.conf", async () => {
+    const owner = ownerWithInnerChildOfKind('switch');
+
+    const denial = await enforceRemoteWriteL2({
+      publicKey: owner.publicKeyHex,
+      machineId: childGatewayId(owner),
+      path: '/etc/switch/acl.conf',
       session: { userType: 'guest', essid: ESSID },
       listMachinePatches: noPriorPatches,
       findRegistryByMachineId: noRegistry,

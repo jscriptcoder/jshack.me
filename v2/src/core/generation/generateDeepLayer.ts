@@ -71,6 +71,28 @@ type DeepLayerOptions = {
 export const seedNetworkDepth = (ownerKeyHex: string, essid: string): number =>
   createPrng(`network-depth-${ownerKeyHex}:${essid}`).nextInt(1, 3);
 
+/** The fraction of deep child gateways that are SWITCHES rather than routers. A
+ *  switch forwards nothing, so it is a chain leaf — the rest are routers that
+ *  continue the chain. Tuned low enough that deep router chains stay common while a
+ *  meaningful minority of layers are switch-capped. */
+const DEEP_SWITCH_PROBABILITY = 0.33;
+
+/** A deep child gateway's device kind, seeded from the owner key, its PARENT
+ *  gateway's machine_id, AND its octet (the `deep-gw-kind-` namespace — SEPARATE from
+ *  every existing deep-gateway seed, so adding it leaves the router topology
+ *  byte-stable). A switch caps the chain here; a router continues it. Keying on the
+ *  parent + octet keeps two deep gateways at the same octet behind different parents
+ *  independent, the same discriminator the deep id + admin password already use. */
+const seedDeepGatewayKind = (
+  ownerKeyHex: string,
+  parentMachineId: string,
+  octet: number,
+): Extract<LanHostKind, 'router' | 'switch'> =>
+  createPrng(`deep-gw-kind-${ownerKeyHex}:${parentMachineId}:${octet}`).next() <
+  DEEP_SWITCH_PROBABILITY
+    ? 'switch'
+    : 'router';
+
 export const generateDeepLayer = (
   seedPubkeyHex: string,
   essid: string,
@@ -97,7 +119,7 @@ export const generateDeepLayer = (
       ? {
           ip: `${subnet}.${childOctet}`,
           hostname: `${prng.pick(ROUTER_HOSTNAMES)}-${childOctet}`,
-          kind: 'router',
+          kind: seedDeepGatewayKind(seedPubkeyHex, frontingGateway.machineId, childOctet),
         }
       : null;
   return { subnet, host, childGateway };

@@ -73,14 +73,37 @@ const portsOf = (body: unknown): readonly number[] =>
 const octetOf = (ip: string): number => Number(ip.split('.')[3]);
 
 // --- The owner (alice). She reaches her OWN deep chain; depth is single-player. Pick a
-//     depth-3 identity so the inner router fronts an L2 child that itself fronts an L3
-//     gateway (the two-forward chain). ---
+//     depth-3 identity whose chain is ALL ROUTERS — every layer hangs a router child, so
+//     the inner router fronts an L2 child that itself fronts an L3 gateway (the two-forward
+//     chain). A switch caps the chain short (5b.4d), so a bare depth-3 home no longer
+//     guarantees three router hops. ---
 const ESSID = 'ABSTERGO-NET';
-const alice = Array.from({ length: 400 }, () => generateIdentity()).find(
-  (candidate) => seedNetworkDepth(candidate.publicKeyHex, ESSID) === 3,
-);
+const isAllRouterDepth3 = (candidate: ReturnType<typeof generateIdentity>): boolean => {
+  if (seedNetworkDepth(candidate.publicKeyHex, ESSID) !== 3) return false;
+  const innerHost = generateHomeLan(candidate.publicKeyHex, ESSID).hosts.find(
+    (host) => host.kind === 'router' && octetOf(host.ip) !== 1,
+  );
+  if (innerHost === undefined) return false;
+  const innerId = computeInnerGatewayId(candidate.publicKeyHex, octetOf(innerHost.ip));
+  const child = generateDeepLayer(
+    candidate.publicKeyHex,
+    ESSID,
+    { machineId: innerId, kind: 'router' },
+    { hangsChild: true },
+  ).childGateway;
+  if (child === null || child.kind !== 'router') return false;
+  const childId = computeDeepGatewayId(candidate.publicKeyHex, innerId, octetOf(child.ip));
+  const grandchild = generateDeepLayer(
+    candidate.publicKeyHex,
+    ESSID,
+    { machineId: childId, kind: 'router' },
+    { hangsChild: true },
+  ).childGateway;
+  return grandchild !== null && grandchild.kind === 'router';
+};
+const alice = Array.from({ length: 400 }, () => generateIdentity()).find(isAllRouterDepth3);
 if (alice === undefined) {
-  console.error('no identity seeds a depth-3 home');
+  console.error('no identity seeds an all-router depth-3 home');
   process.exit(2);
 }
 

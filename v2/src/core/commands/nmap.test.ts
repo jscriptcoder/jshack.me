@@ -1384,10 +1384,12 @@ describe('nmap — variable network depth (5b.4c-i)', () => {
   const octetOf = (host: LanHost): number => Number(host.ip.split('.')[3]);
 
   // Fixture keys captured from `seedNetworkDepth` for this essid: an all-zero key seeds
-  // a depth-1 home, `02` repeated seeds a depth-3 home (the canonical 'a'×64 is depth 2,
-  // exercised by the 5b.2 / 5b.4b suites above).
+  // a depth-1 home, `03` repeated seeds a depth-3 home whose WHOLE gateway chain is
+  // routers — every layer hangs a router child, so the chain runs three gateways deep (a
+  // switch would cap it short). The canonical 'a'×64 is depth 2, exercised by the 5b.2 /
+  // 5b.4b suites above.
   const DEPTH1_KEY = '0'.repeat(64);
-  const DEPTH3_KEY = '02'.repeat(32);
+  const DEPTH3_KEY = '03'.repeat(32);
 
   const innerRouterOf = (key: string): LanHost => {
     const host = generateHomeLan(key, ESSID).hosts.find(
@@ -1469,5 +1471,94 @@ describe('nmap — variable network depth (5b.4c-i)', () => {
     expect(text).toContain(l4.host.ip);
     expect(text).toContain('Nmap done — 1 hosts up');
     expect(text).not.toContain(wouldBeL4Child.ip);
+  });
+});
+
+/**
+ * A deep gateway seeded as a SWITCH (5b.4d) is a chain leaf: it forwards nothing but
+ * fronts its own deep /24. Rooted through a forward on its parent, it becomes a pivot
+ * vantage like any gateway — but, being a switch, it ACL-filters its downstream. A port
+ * its live /etc/switch/acl.conf denies is absent from the pivot scan, and deleting the
+ * deny line re-opens it. Same mechanic as the L1 switch (5b.3b), one layer deeper —
+ * proving the chain walk resolves a DEEP switch as a switch vantage, not a router.
+ */
+describe('nmap — pivot from a deep SWITCH child gateway, ACL-filtered (5b.4d)', () => {
+  // '02'×32 seeds a depth-3 home whose inner router's first deep child is a SWITCH (a
+  // chain leaf), so the switch sits one layer down — reached + rooted through a forward.
+  const KEY = '02'.repeat(32);
+  const ESSID = 'BEAN-THERE-WIFI';
+  const octetOf = (host: LanHost): number => Number(host.ip.split('.')[3]);
+
+  const inner = generateHomeLan(KEY, ESSID).hosts.find(
+    (host) => host.kind === 'router' && octetOf(host) !== 1,
+  );
+  if (inner === undefined) throw new Error('no inner router on the deep-switch LAN');
+  const INNER_ID = machineIdForLanHost(inner, KEY, ESSID);
+  const switchChild = generateDeepLayer(
+    KEY,
+    ESSID,
+    { machineId: INNER_ID, kind: 'router' },
+    { hangsChild: true },
+  ).childGateway;
+  if (switchChild === null || switchChild.kind !== 'switch') {
+    throw new Error('the inner router hangs no switch child');
+  }
+  const SWITCH_ID = computeDeepGatewayId(KEY, INNER_ID, octetOf(switchChild));
+  // The deep layer the switch itself fronts — its own /24, keyed by the switch's id.
+  const SWITCH_DEEP = generateDeepLayer(KEY, ESSID, { machineId: SWITCH_ID, kind: 'switch' });
+
+  const vantageEnv = (machineId: string, fs?: Directory) =>
+    mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(KEY) }),
+      network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+      session: mockSession({ machineId: asMachineId(machineId) }),
+      ...(fs ? { fs: mockFsViewFromTree(fs) } : {}),
+    });
+
+  const switchFsDenying = (...ports: readonly number[]): Directory =>
+    buildDirectory({
+      etc: buildDirectory({
+        switch: buildDirectory({
+          'acl.conf': buildFile(ports.map((port) => `deny ${port}`).join('\n')),
+        }),
+      }),
+    });
+
+  it('pivots from the deep switch onto its OWN deep /24 (a reachable NPC on :22)', async () => {
+    const { text, exitCode } = await drain(
+      await nmap.execute(vantageEnv(SWITCH_ID), [SWITCH_DEEP.host.ip], new Map()),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(text).toContain(
+      `Nmap scan report for ${SWITCH_DEEP.host.hostname} (${SWITCH_DEEP.host.ip})`,
+    );
+    expect(text).toContain('22/tcp   open  ssh');
+    expect(text).toContain('Nmap done — 1 host up');
+  });
+
+  it('hides a deep port the switch ACL denies, and re-opens it when the deny line is gone', async () => {
+    const denied = await drain(
+      await nmap.execute(
+        vantageEnv(SWITCH_ID, switchFsDenying(22)),
+        [SWITCH_DEEP.host.ip],
+        new Map(),
+      ),
+    );
+
+    expect(denied.text).toContain('Host is up.');
+    expect(denied.text).not.toContain('22/tcp');
+
+    // env.fs is the journal-replayed switch tree, so an acl.conf that no longer denies 22
+    // (the player deleted the line via nano) re-opens the port on the next pivot scan.
+    const opened = await drain(
+      await nmap.execute(
+        vantageEnv(SWITCH_ID, switchFsDenying(8080)),
+        [SWITCH_DEEP.host.ip],
+        new Map(),
+      ),
+    );
+
+    expect(opened.text).toContain('22/tcp   open  ssh');
   });
 });

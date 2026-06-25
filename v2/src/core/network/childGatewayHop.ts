@@ -18,6 +18,7 @@ import { canBoot } from '../boot/bootFiles';
 import { resolveDeepGatewayIdentity } from '../generation/lanHostIdentity';
 import { materializeMachineFs, type OwnerPatchRow } from './materializeMachineFs';
 import type { Directory } from '../filesystem/types';
+import type { LanHostKind } from '../generation/generateHomeLan';
 
 export type ChildGatewayHop =
   | { readonly kind: 'gateway'; readonly fs: Directory; readonly machineId: string }
@@ -34,9 +35,15 @@ export const resolveChildGatewayHop = async (args: {
   readonly ownerKeyHex: string;
   readonly parentMachineId: string;
   readonly childIp: string;
+  readonly childKind: LanHostKind;
   readonly findPatches: FindPatches;
 }): Promise<ChildGatewayHop> => {
-  const child = resolveDeepGatewayIdentity(args.ownerKeyHex, args.parentMachineId, args.childIp);
+  const child = resolveDeepGatewayIdentity(
+    args.ownerKeyHex,
+    args.parentMachineId,
+    args.childIp,
+    args.childKind,
+  );
   const childPatches = await args.findPatches({ machine_id: child.machineId });
   if (childPatches.error) {
     return { kind: 'lookup_failed' };

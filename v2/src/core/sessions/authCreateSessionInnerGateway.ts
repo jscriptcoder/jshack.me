@@ -166,6 +166,7 @@ const resolveAuthTarget = async (
       ownerKeyHex: context.publicKey,
       parentMachineId: frontingGateway.machineId,
       childIp: deep.childGateway.ip,
+      childKind: deep.childGateway.kind,
       findPatches: context.findPatches,
     });
     if (hop.kind === 'lookup_failed') {
