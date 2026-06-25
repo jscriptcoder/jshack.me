@@ -727,8 +727,14 @@ scoped owner decision, not a gap). None blocks the shipped cross-player PvP loop
 3. **Replay / nonce store** — built (Slice 7.2.0a #294) then REVERTED on owner call (ship-first: narrow value
    in this threat model). All endpoints keep `noopNonceStore`. **Revisit at the multiplayer-hardening phase**;
    cheap-to-reinstate design preserved in the Parking Lot ("Replay/nonce store — DEFERRED").
-4. **Unique public-IP allocation service — DESIGN RESOLVED (grill-me, 2026-06-25; ready for `planning`).**
-   *Problem:* v2 derives `public_ip` from the ESSID alone (`generatePublicIp(createPrng('home-public-'+essid))`),
+4. **Unique public-IP allocation service — ✅ DONE (PRs #322 / #323 / #324 + the slice-3b close-out; allocation
+   core shipped at v0.87.0).** As-built: `network_public_ips(essid PK, public_ip UNIQUE)` + a server-only
+   `allocatePublicIp(essid, deps)` (lazy first-join allocate → draw via `generatePublicIp` → `INSERT … ON CONFLICT
+   (essid) DO NOTHING` to win-or-read, redraw on a `public_ip` 23505; permanent, no GC), wired into
+   `registerNetwork` in place of the old derive. `assignHomeNetwork` now returns `{localIp, hostname}` only — the
+   `home-public-${essid}` derivation is gone, and no client-side public IP remains. Wire-check:
+   `scripts/testPublicIpAllocation.ts`. The resolved design + defaults below are retained as the as-built record.
+   *Problem (resolved):* v2 derived `public_ip` from the ESSID alone (`generatePublicIp(createPrng('home-public-'+essid))`),
    a deterministic PRNG draw, so two *different* ESSIDs can birthday-collide onto one address (rare — ~195M
    space vs the ~50-ESSID catalog, <1%). Legacy issued unique IPs from a service so networks never clashed;
    the owner wants that ported.
@@ -786,11 +792,10 @@ scoped owner decision, not a gap). None blocks the shipped cross-player PvP loop
    - **WiFi-strength = density**, **presence/TTL heartbeat** (occupancy is connection-state-based, no last-seen),
      and **organic stranger rendezvous beyond occupancy-injection** (matchmaking / findit.io) — all deferred.
 
-**Next action (updated 2026-06-25):** **item #4 (unique public-IP allocation) is grilled & DESIGN-RESOLVED
-above → next is `planning` to slice it into PR-sized increments, then build with full RED-GREEN-MUTATE-KILL
-MUTANTS-REFACTOR.** Still needing `grill-me` before planning: #2 (pivot/hop source-IP masking) and #5's
-shared-router-per-ESSID / registry-reconciliation model (coupled to #4 but deliberately split out). As-built
-foundation to read first: `v2/docs/cross-player-architecture.md`.
+**Next action (updated 2026-06-25):** **item #4 (unique public-IP allocation) is ✅ DONE (PRs #322–#324 + the
+slice-3b close-out).** Next candidates, both still needing `grill-me` before planning: #2 (pivot/hop source-IP
+masking) and #5's shared-router-per-ESSID / registry-reconciliation model — now unblocked by #4 (the per-ESSID
+allocation it builds on is in place). As-built foundation to read first: `v2/docs/cross-player-architecture.md`.
 
 ### Story 7 — starting context (for `grill-me`)
 

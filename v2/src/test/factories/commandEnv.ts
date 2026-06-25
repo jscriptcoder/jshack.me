@@ -105,7 +105,7 @@ export const mockLogApi = (): LogApi => ({
  *  `leave` is a no-op. Command tests override either to capture the requested ESSID
  *  or vary the address. */
 export const mockHomeNetwork = (overrides: Partial<HomeNetworkApi> = {}): HomeNetworkApi => ({
-  join: async () => ({ localIp: '192.168.0.2', publicIp: '203.0.113.7', hostname: 'test-host' }),
+  join: async () => ({ localIp: '192.168.0.2', hostname: 'test-host' }),
   leave: () => undefined,
   ...overrides,
 });

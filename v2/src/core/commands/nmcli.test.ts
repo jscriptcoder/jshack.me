@@ -79,7 +79,6 @@ type EnvOpts = {
   readonly wifiNetworks?: readonly WifiNetwork[];
   readonly assignment?: {
     readonly localIp: string;
-    readonly publicIp: string;
     readonly hostname: string;
   };
   readonly machineId?: ReturnType<typeof asMachineId>;
@@ -109,7 +108,6 @@ const nmcliEnv = (initial: ConnectivityState, opts: EnvOpts = {}) => {
         return (
           opts.assignment ?? {
             localIp: '192.168.5.20',
-            publicIp: '203.0.113.20',
             hostname: 'host-20',
           }
         );
@@ -143,7 +141,7 @@ describe('nmcli', () => {
     it('joins a cracked AP, assigns wlan0 an IP, and goes online', async () => {
       const { env, get, joinCalls } = nmcliEnv(buildColdStartConnectivity(PUBKEY), {
         wifiNetworks: [crackableNet()],
-        assignment: { localIp: '192.168.5.20', publicIp: '203.0.113.20', hostname: 'host-20' },
+        assignment: { localIp: '192.168.5.20', hostname: 'host-20' },
       });
 
       const { text, exitCode } = await drainAsync(
