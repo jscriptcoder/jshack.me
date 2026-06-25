@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { isCrossPlayerWorkstation } from './crossPlayerHop';
-import { generateHomeLan } from '../generation/generateHomeLan';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
+import { generateDeepLayer } from '../generation/generateDeepLayer';
 import { hostMachineId } from '../generation/remoteHostId';
+import { machineIdForLanHost, resolveDeepGatewayIdentity } from '../generation/lanHostIdentity';
 import { computeWorkstationId } from '../identity/workstation';
 import { computeRouterId } from '../identity/router';
 
@@ -55,6 +57,61 @@ describe('isCrossPlayerWorkstation', () => {
     expect(
       isCrossPlayerWorkstation({
         machineId: computeRouterId(PUBKEY),
+        publicKeyHex: PUBKEY,
+        essid: ESSID,
+      }),
+    ).toBe(false);
+  });
+
+  // The inner gateway, switch, and the deep boxes behind them are the player's OWN
+  // private generated machines (distinct id namespaces, never NPC-coordinate ids), so
+  // `hostForMachineId` alone misses them — they must still be own-LAN, or the UI serves
+  // an empty cross-player tree instead of their real journal-replayed filesystem.
+  const innerGatewayId = (): string => {
+    const inner = generateHomeLan(PUBKEY, ESSID).hosts.find(
+      (host) => host.kind === 'router' && Number(host.ip.split('.')[3]) !== 1,
+    );
+    if (inner === undefined) throw new Error('no inner gateway on fixture LAN');
+    return machineIdForLanHost(inner, PUBKEY, ESSID);
+  };
+
+  it('is false for your OWN inner gateway (a second journal-backed router on your LAN)', () => {
+    expect(
+      isCrossPlayerWorkstation({ machineId: innerGatewayId(), publicKeyHex: PUBKEY, essid: ESSID }),
+    ).toBe(false);
+  });
+
+  it('is false for your OWN switch (the second inner-gateway device kind)', () => {
+    const device = generateHomeLan(PUBKEY, ESSID).hosts.find((host) => host.kind === 'switch');
+    if (device === undefined) throw new Error('no switch on fixture LAN');
+    expect(
+      isCrossPlayerWorkstation({
+        machineId: machineIdForLanHost(device, PUBKEY, ESSID),
+        publicKeyHex: PUBKEY,
+        essid: ESSID,
+      }),
+    ).toBe(false);
+  });
+
+  it('is false for a deep child gateway in your OWN chain (a forwarded chain door)', () => {
+    const innerId = innerGatewayId();
+    const child = generateDeepLayer(PUBKEY, ESSID, { machineId: innerId, kind: 'router' }).childGateway;
+    if (child === null) throw new Error('fixture chain has no deep gateway');
+    const deepGatewayId = resolveDeepGatewayIdentity(PUBKEY, innerId, child.ip, child.kind).machineId;
+    expect(
+      isCrossPlayerWorkstation({ machineId: deepGatewayId, publicKeyHex: PUBKEY, essid: ESSID }),
+    ).toBe(false);
+  });
+
+  it('is false for a deep NPC reachable in your OWN chain (a private per-viewer box)', () => {
+    const innerId = innerGatewayId();
+    const deepHost: LanHost = generateDeepLayer(PUBKEY, ESSID, {
+      machineId: innerId,
+      kind: 'router',
+    }).host;
+    expect(
+      isCrossPlayerWorkstation({
+        machineId: hostMachineId(deepHost, ESSID),
         publicKeyHex: PUBKEY,
         essid: ESSID,
       }),

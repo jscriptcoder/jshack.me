@@ -2,10 +2,13 @@
  * isCrossPlayerWorkstation — the machine-level "am I standing on ANOTHER player's
  * registered box?" check. A machine is cross-player when it is none of: the
  * caller's OWN workstation (identity-derived suffix match), the caller's OWN
- * router (its own id namespace — a journal-backed machine on their LAN, not a
- * foreign box), or a host on the LAN they're connected to (`hostForMachineId`
- * resolves it) — the only way to hold a session on such a machine is a public-IP
- * login into another identity's box.
+ * router (its own id namespace), or ANY machine the caller owns in their own
+ * generated world — a home-LAN host, an inner gateway/switch, a deep chain door,
+ * or a deep NPC behind one (`ownChainBaseFsForMachineId` rebuilds its tree). The
+ * only way to hold a session on a cross-player machine is a public-IP login into
+ * another identity's box. Recognizing the deep chain here is what stops your own
+ * gateway/deep boxes from being misread as foreign and served an empty tree
+ * instead of their real journal-replayed filesystem.
  *
  * This is the shared core of two callers that must agree:
  *   - `ui/activeRoot`'s `isCrossPlayerHop` adds the shell-kind requirement (a hop's
@@ -18,7 +21,7 @@
 
 import { isOwnWorkstation } from '../identity/workstation';
 import { isOwnRouter } from '../identity/router';
-import { hostForMachineId } from '../generation/remoteHostId';
+import { ownChainBaseFsForMachineId } from '../generation/lanHostIdentity';
 
 export const isCrossPlayerWorkstation = (args: {
   readonly machineId: string;
@@ -28,4 +31,4 @@ export const isCrossPlayerWorkstation = (args: {
   !isOwnWorkstation(args.machineId, args.publicKeyHex) &&
   !isOwnRouter(args.machineId, args.publicKeyHex) &&
   args.essid !== null &&
-  hostForMachineId(args.publicKeyHex, args.essid, args.machineId) === null;
+  ownChainBaseFsForMachineId(args.publicKeyHex, args.essid, args.machineId) === null;
