@@ -20,7 +20,7 @@
  * unchanged (by reference).
  */
 
-import { ownLanBaseFsForMachineId } from '../core/generation/lanHostIdentity';
+import { ownChainBaseFsForMachineId } from '../core/generation/lanHostIdentity';
 import { isCrossPlayerWorkstation } from '../core/network/crossPlayerHop';
 import { applyPatches, type Patch } from '../core/filesystem/applyPatches';
 import type { Directory } from '../core/filesystem/types';
@@ -35,13 +35,15 @@ const baseFsFor = (args: {
 }): Directory => {
   if (args.session.machineId === args.ownWorkstationId) return args.ownBaseFs;
   if (args.essid === null) return args.ownBaseFs;
-  // Any host on the player's OWN LAN — a journal-backed edge router or inner gateway
-  // (a `ssh root@<gateway>` hop), or a regenerated NPC sibling — rebuilds its seeded
-  // base from the player's own key via the shared resolver, the same tree the server
-  // materializes, so a locally replayed journal (e.g. a `nano rules.v4` edit) lands
-  // on it. Falls back to the own base when no LAN host matches (a defensive edge).
-  const lanFs = ownLanBaseFsForMachineId(args.publicKeyHex, args.essid, args.session.machineId);
-  return lanFs ?? args.ownBaseFs;
+  // Any machine the player OWNS in their generated world — a journal-backed edge router
+  // or inner gateway/switch (a `ssh root@<gateway>` hop), a deep chain door reached
+  // through a forward, a deep NPC behind one, or a regenerated NPC sibling — rebuilds its
+  // seeded base from the player's own key via the shared resolver, the same tree the
+  // server materializes, so a locally replayed journal (a `nano rules.v4` edit, a deep
+  // reach/scan trace) lands on it. Falls back to the own base when nothing matches (a
+  // defensive edge — a genuinely foreign box is fetched server-side, not here).
+  const ownFs = ownChainBaseFsForMachineId(args.publicKeyHex, args.essid, args.session.machineId);
+  return ownFs ?? args.ownBaseFs;
 };
 
 export const resolveActiveRoot = (args: {

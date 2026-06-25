@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { isCrossPlayerHop, resolveActiveRoot } from './activeRoot';
 import { generateHomeLan } from '../core/generation/generateHomeLan';
+import { generateDeepLayer, buildDeepHostFs } from '../core/generation/generateDeepLayer';
+import { resolveDeepGatewayIdentity } from '../core/generation/lanHostIdentity';
 import { buildRemoteHostFs } from '../core/generation/remoteHostFs';
 import { hostMachineId } from '../core/generation/remoteHostId';
 import {
@@ -226,6 +228,52 @@ describe('resolveActiveRoot', () => {
 
     expect(fileAt(root, ['etc', 'switch', 'acl.conf'])?.content).toBe('# default policy: ALLOW\n');
     // Landed on the switch base, not own/empty: its root passwd survives.
+    expect(fileAt(root, ['etc', 'passwd'])).toBeDefined();
+  });
+
+  // A deep CHILD GATEWAY (a chain door behind the inner gateway) and the deep NPCs on
+  // each layer are the player's OWN private generated machines — reached by ssh through a
+  // forward — so a session on one must rebuild ITS seeded tree (with its toolchain) rather
+  // than fall back to the own workstation base, or the deep loop has no filesystem to stand on.
+  const deepChainDoor = () => {
+    const innerId = computeInnerGatewayId(PUBKEY, innerGatewayOctet());
+    const child = generateDeepLayer(PUBKEY, ESSID, { machineId: innerId, kind: 'router' }).childGateway;
+    if (child === null) throw new Error('fixture chain has no deep gateway');
+    return resolveDeepGatewayIdentity(PUBKEY, innerId, child.ip, child.kind);
+  };
+
+  const deepNpcHost = () => {
+    const innerId = computeInnerGatewayId(PUBKEY, innerGatewayOctet());
+    return generateDeepLayer(PUBKEY, ESSID, { machineId: innerId, kind: 'router' }).host;
+  };
+
+  it('returns the DEEP GATEWAY tree for a session on a chain door, not the own base', () => {
+    const door = deepChainDoor();
+    const root = resolveActiveRoot(args({ session: session(door.machineId, 'ssh') }));
+
+    expect(root).toEqual(door.baseFs);
+    expect(root).not.toBe(ownBaseFs);
+  });
+
+  it('returns the DEEP NPC tree for a session on a host reached through a forward, not the own base', () => {
+    const host = deepNpcHost();
+    const root = resolveActiveRoot(args({ session: session(hostMachineId(host, ESSID), 'ssh') }));
+
+    expect(root).toEqual(buildDeepHostFs(PUBKEY, ESSID, host));
+    expect(root).not.toBe(ownBaseFs);
+  });
+
+  it('replays the active journal over the DEEP NPC base (auth.log trace survives a refresh)', () => {
+    const host = deepNpcHost();
+    const root = resolveActiveRoot(
+      args({
+        session: session(hostMachineId(host, ESSID), 'ssh'),
+        patches: [writePatch('/var/log/auth.log', 'Accepted password for operator from 10.75.133.1\n')],
+      }),
+    );
+
+    expect(fileAt(root, ['var', 'log', 'auth.log'])?.content).toContain('Accepted password');
+    // Landed on the deep NPC base, not own/empty: its seeded passwd survives.
     expect(fileAt(root, ['etc', 'passwd'])).toBeDefined();
   });
 });

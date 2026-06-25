@@ -34,7 +34,7 @@ import {
 import { buildRemoteHostFs } from './remoteHostFs';
 import { hostMachineId } from './remoteHostId';
 import { generateHomeLan, type LanHost, type LanHostKind } from './generateHomeLan';
-import { generateDeepLayer, seedNetworkDepth } from './generateDeepLayer';
+import { buildDeepHostFs, generateDeepLayer, seedNetworkDepth } from './generateDeepLayer';
 
 export type LanHostIdentity = {
   readonly machineId: string;
@@ -283,3 +283,42 @@ export const chainGatewayBaseFsForMachineId = (
   const match = chainGatewayVantageForMachineId(ownerKeyHex, essid, machineId);
   return match === null ? null : match.baseFs;
 };
+
+/** The seeded base FS of a DEEP NPC reachable in the player's own chain whose coordinate
+ *  machine_id matches — the single reachable host on each deep layer (`buildDeepHostFs`,
+ *  `sshd` guaranteed up). Walks every fronting gateway in the chain and regenerates the
+ *  layer it fronts; the layer's NPC is byte-stable, so the matched host rebuilds the same
+ *  tree the deep reach/scan traces were written onto. Returns null when no deep NPC matches. */
+const deepHostBaseFsForMachineId = (
+  ownerKeyHex: string,
+  essid: string,
+  machineId: string,
+): Directory | null => {
+  for (const gateway of homeChainGateways(ownerKeyHex, essid)) {
+    // Only the layer's NPC is needed, and it is byte-stable whether or not the layer
+    // hangs a child — so the `hangsChild` option is irrelevant here and left at default.
+    const layer = generateDeepLayer(ownerKeyHex, essid, {
+      machineId: gateway.machineId,
+      kind: gateway.kind,
+    });
+    if (hostMachineId(layer.host, essid) === machineId) {
+      return buildDeepHostFs(ownerKeyHex, essid, layer.host);
+    }
+  }
+  return null;
+};
+
+/** The seeded base FS of ANY machine the player owns in their generated world — a home-LAN
+ *  host (edge router, inner gateway, switch, NPC sibling), a deep child gateway down the
+ *  chain, or a deep NPC behind a gateway — recovered from its machine_id alone. The single
+ *  "is this MY box, and what is its tree?" resolver: the FS dispatch builds an own machine's
+ *  tree from it, and the cross-player check treats a non-null result as own (so it is never
+ *  served an empty foreign tree). Returns null only for a genuinely foreign / unknown id. */
+export const ownChainBaseFsForMachineId = (
+  ownerKeyHex: string,
+  essid: string,
+  machineId: string,
+): Directory | null =>
+  ownLanBaseFsForMachineId(ownerKeyHex, essid, machineId) ??
+  chainGatewayBaseFsForMachineId(ownerKeyHex, essid, machineId) ??
+  deepHostBaseFsForMachineId(ownerKeyHex, essid, machineId);
