@@ -23,6 +23,7 @@ import type { Patch } from '../core/filesystem/applyPatches';
 import type { FilePermissions } from '../core/filesystem/types';
 import type {
   AuthLogEvent,
+  DeepScanRecordParams,
   Identity,
   PatchApi,
   PatchResult,
@@ -169,6 +170,26 @@ export const recordScan = async (
       essid: params.essid,
       target: params.target,
       source_ip: params.sourceIp,
+    });
+  } catch {
+    // best-effort: a logging failure must not surface to the scan.
+  }
+};
+
+/** Fire the server-internal DEEP scan log: the deep hosts resolve client-side, but
+ *  the server re-derives the vantage from the (verified pubkey, essid,
+ *  vantage_machine_id), regenerates its deep layer, and writes each touched deep
+ *  host's `/var/log/kern.log` itself. Best-effort + fire-and-forget, like
+ *  `recordScan`. */
+export const recordDeepScan = async (
+  deps: PatchClientDeps,
+  params: DeepScanRecordParams,
+): Promise<void> => {
+  try {
+    await post(deps, 'nmapScanDeep', {
+      essid: params.essid,
+      target: params.target,
+      vantage_machine_id: params.vantageMachineId,
     });
   } catch {
     // best-effort: a logging failure must not surface to the scan.

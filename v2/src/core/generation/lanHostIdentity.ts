@@ -243,12 +243,31 @@ export const pivotVantageForMachineId = (
   essid: string,
   machineId: string,
 ): PivotVantage | null => {
+  const match = chainGatewayVantageForMachineId(ownerKeyHex, essid, machineId);
+  return match === null ? null : { machineId: match.machineId, kind: match.kind, hangsChild: match.hangsChild };
+};
+
+/** A pivot vantage PLUS the gateway's seeded base FS — everything the deep scan trace
+ *  needs from one chain walk: the vantage to regenerate the layer, and the base tree
+ *  to replay a switch's journal for its `acl.conf`. */
+export type ChainGatewayVantage = PivotVantage & { readonly baseFs: Directory };
+
+/** The full chain gateway (vantage + base FS) whose machine_id matches — an L1 inner
+ *  gateway or a deep child gateway below it — or null when none matches. The single
+ *  walk both `pivotVantageForMachineId` and `chainGatewayBaseFsForMachineId` project
+ *  from, so a caller that needs BOTH (the deep scan trace) resolves them together and
+ *  can't land in a half-resolved state. */
+export const chainGatewayVantageForMachineId = (
+  ownerKeyHex: string,
+  essid: string,
+  machineId: string,
+): ChainGatewayVantage | null => {
   const match = homeChainGateways(ownerKeyHex, essid).find(
     (vantage) => vantage.machineId === machineId,
   );
   return match === undefined
     ? null
-    : { machineId, kind: match.kind, hangsChild: match.hangsChild };
+    : { machineId, kind: match.kind, hangsChild: match.hangsChild, baseFs: match.baseFs };
 };
 
 /** The seeded base FS of a gateway in the player's OWN home deep chain whose machine_id
@@ -261,8 +280,6 @@ export const chainGatewayBaseFsForMachineId = (
   essid: string,
   machineId: string,
 ): Directory | null => {
-  const match = homeChainGateways(ownerKeyHex, essid).find(
-    (vantage) => vantage.machineId === machineId,
-  );
-  return match === undefined ? null : match.baseFs;
+  const match = chainGatewayVantageForMachineId(ownerKeyHex, essid, machineId);
+  return match === null ? null : match.baseFs;
 };

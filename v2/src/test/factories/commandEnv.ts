@@ -136,6 +136,9 @@ export const mockSuApi = (overrides: Partial<SuApi> = {}): SuApi => ({
  *  or `resolvePublic` to stub a cross-player resolution. */
 export const mockScanApi = (overrides: Partial<ScanApi> = {}): ScanApi => ({
   record: async () => undefined,
+  // Fire-and-forget like `record`: a deep pivot resolves client-side, so this no-ops
+  // by default; pivot tests override it to capture the recorded deep scan.
+  recordDeep: async () => undefined,
   resolvePublic: NOT_IMPLEMENTED('scan.resolvePublic'),
   // Load-bearing like `resolvePublic`: an inner-gateway scan drives its own output, so
   // it throws unless a test stubs the resolution.
