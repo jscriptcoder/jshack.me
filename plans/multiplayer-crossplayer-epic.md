@@ -713,10 +713,11 @@ consciously-deferred tail only (no enumerated story is open) — see the next se
 The epic's parent capability is complete; these are the items the plan deliberately deferred (each was a
 scoped owner decision, not a gap). None blocks the shipped cross-player PvP loop.
 
-1. **Story 5b — multi-layer generated target networks** (separate, never built). 2–3 layers, dual-homed
-   gateways, `switch` sub-kind, "see only your layer", RFC-1918 subnet variety. Single-player *generation*
-   (net-new in v2), NOT cross-player. Absorbed from the retired `network-generator` Story 4. Largest remaining
-   piece. (Split-candidates §5b; Story-5 decisions.)
+1. **Story 5b — multi-layer generated target networks ✅ COMPLETE (v0.85.0).** Shipped as slices 5b.1–5b.5
+   (single-player / per-player NPC depth): a deep gateway chain (`inner → L2 → L3`) of mixed routers and
+   switches — each door reachable/scannable/configurable — plus deep `auth.log`/`kern.log` traces and inner
+   gateway/switch octet reservation. No longer remaining work; kept here as a closed pointer so the numbering
+   below (referenced as "#4"/"#5") stays stable. (As-built: §1 status block; Split-candidates §5b.)
 2. **Pivot / operate-from-a-hop (source-IP masking)** — make a command's execution vantage adopt a hopped
    machine, so `nmap <A>` run from compromised box N originates from N (N's network for reachability, N's IP as
    A's logged source). Today `ssh.ts`/`nmap.ts` always run in B's HOME vantage; `resolveLogSourceIP` is
@@ -726,16 +727,51 @@ scoped owner decision, not a gap). None blocks the shipped cross-player PvP loop
 3. **Replay / nonce store** — built (Slice 7.2.0a #294) then REVERTED on owner call (ship-first: narrow value
    in this threat model). All endpoints keep `noopNonceStore`. **Revisit at the multiplayer-hardening phase**;
    cheap-to-reinstate design preserved in the Parking Lot ("Replay/nonce store — DEFERRED").
-4. **Unique public-IP allocation service (owner-flagged 2026-06-22; legacy precedent).** The clash this
-   targets: v2 derives `public_ip` from the ESSID alone (`generatePublicIp(createPrng('home-public-'+essid))`),
-   so every occupant of a shared AP collides on one `public_ip`, and `network_registry` (PK `public_ip`) can
-   only hold ONE — last-writer-wins (the imperfection #306 worked around for the by-`machine_id` resolvers,
-   not at the source). **Legacy had a service that ISSUED unique IPs so public IPs never clashed** — the owner
-   wants that ported. Open design tension to resolve in `grill-me` before planning: a unique IP **per
-   player/workstation** removes all clashes but drops the "shared home NAT = one public IP per AP" realism;
-   the alternative is making `network_registry` represent **multiple occupants behind one shared public IP**
-   (shared-router-per-ESSID, below). Decide which model (or a hybrid: unique IP per *home network instance*,
-   shared within it) — this is the root-cause fix the rest of the reconciliation hangs off.
+4. **Unique public-IP allocation service — DESIGN RESOLVED (grill-me, 2026-06-25; ready for `planning`).**
+   *Problem:* v2 derives `public_ip` from the ESSID alone (`generatePublicIp(createPrng('home-public-'+essid))`),
+   a deterministic PRNG draw, so two *different* ESSIDs can birthday-collide onto one address (rare — ~195M
+   space vs the ~50-ESSID catalog, <1%). Legacy issued unique IPs from a service so networks never clashed;
+   the owner wants that ported.
+   *Grounding that shaped the resolution:* there is **no player-owned home ESSID** — ESSIDs are a shared world
+   catalog (`crackableEssidPool`; café/corporate/campus/…) whose BSSID, crack password, subnet, AND public IP
+   all already derive from the ESSID string, so no player owns an AP. And `.publicIp` is consumed in exactly
+   ONE production site — `registerNetwork.ts` writing `network_registry.public_ip` on join. Nothing client-side
+   reads a player's own public IP (the client uses `.localIp`/`.hostname`); downstream (cross-player scan
+   `findRegistryByPublicIp`, Story-6 source-IP traces `findRegistryByOwnerKey`) reads the *stored* value,
+   never re-derives. So the public IP is already effectively server-authoritative → the "determinism break" of
+   moving off derivation is near-free.
+
+   **Resolved model & scope (locked):**
+   1. **One public IP per AP/ESSID instance, shared by all occupants behind one NAT** (realistic;
+      Story-7-aligned). Uniqueness holds *across networks*, NOT *across players* — "unique IP per
+      player/workstation" was rejected (it drops the shared-home-NAT realism + sits wrong with two players on
+      one LAN).
+   2. **Server-issued + stored allocation service** (not derive-then-de-collide): a DB `UNIQUE` constraint
+      *guarantees* no collision and is the right base for the deferred themed/mission networks; derive-then-
+      de-collide was rejected as not-really-a-service with a rarely-exercised (rot-prone) override path.
+   3. **Standalone — this item is the root-cause fix ONLY.** Add `network_public_ips(essid PK, public_ip
+      UNIQUE)`; route join's IP through it; **leave `network_registry` at PK `public_ip`** (intra-ESSID
+      multi-occupant eviction stays #306's occupants-fallback). Re-keying the registry to `essid` is the
+      SEPARATE item #5 (it forces the shared-router-per-ESSID refactor) — kept split, NOT pulled in here.
+
+   **Implementation defaults (owner-confirmed):**
+   - **Trigger = lazy:** allocate on the first `registerNetwork` for an ESSID; later joins read it.
+     (Pre-seeding rejected — can't cover injected/dynamic/future-themed ESSIDs, so lazy is needed anyway.)
+   - **Mechanism:** draw via `generatePublicIp` (server randomness) → `INSERT … ON CONFLICT (essid) DO NOTHING
+     RETURNING` to win-or-read; on a `public_ip` UNIQUE conflict, redraw (bounded retries). Two-level
+     uniqueness (`essid` PK + `public_ip` UNIQUE) resolves concurrent first-joiners.
+   - **Lifecycle = permanent:** an ESSID keeps its IP forever, never released ("same network, same IP,
+     always"); no GC.
+   - **`assignHomeNetwork` split:** drop `publicIp` from its return (`{localIp, hostname}` only, pure
+     per-player); a new server-only `allocatePublicIp(essid, deps)` owns the IP, called by `registerNetwork`
+     (replaces the derive at `registerNetwork.ts:101`).
+   - **Client projection:** drop the client's own public IP (nothing reads it — `minimize-api-projections`);
+     resurface server-side only if a future `ifconfig`/"your IP" display needs it.
+   - **Untouched:** `isPublicIp` still classifies allocated IPs (same prefix pool); `.localIp` resolvers, scan
+     resolution, and source-IP traces all read stored state — no rework.
+   - **Migration:** pre-launch / no-backward-compat → reset the dev DB; no data migration of existing rows.
+   - **Wire-check:** `scripts/testPublicIpAllocation.ts` — two ESSIDs get distinct IPs (incl. a forced-collision
+     draw), re-join idempotent, concurrent race resolves to one IP.
 5. **Story-7 reconciliation tail** (Story-7 "Deferred" list + decision #6):
    - **Shared-router / public-IP per ESSID reconciliation** — the `.1` gateway stays each occupant's OWN router
      (`computeRouterId(own pubkey)`), and `network_registry` (PK `public_ip`) still holds ONE row per ESSID
@@ -750,9 +786,10 @@ scoped owner decision, not a gap). None blocks the shipped cross-player PvP loop
    - **WiFi-strength = density**, **presence/TTL heartbeat** (occupancy is connection-state-based, no last-seen),
      and **organic stranger rendezvous beyond occupancy-injection** (matchmaking / findit.io) — all deferred.
 
-**Next action (owner, post-context-clear, 2026-06-22):** author a separate `plans/<item>.md` for each of the
-above (grill-me first where there are open decisions — 5b, pivot/hop, and the unique-IP / public-IP
-reconciliation model), then `planning`, then build with full RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR. As-built
+**Next action (updated 2026-06-25):** **item #4 (unique public-IP allocation) is grilled & DESIGN-RESOLVED
+above → next is `planning` to slice it into PR-sized increments, then build with full RED-GREEN-MUTATE-KILL
+MUTANTS-REFACTOR.** Still needing `grill-me` before planning: #2 (pivot/hop source-IP masking) and #5's
+shared-router-per-ESSID / registry-reconciliation model (coupled to #4 but deliberately split out). As-built
 foundation to read first: `v2/docs/cross-player-architecture.md`.
 
 ### Story 7 — starting context (for `grill-me`)
