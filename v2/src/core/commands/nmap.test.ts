@@ -761,8 +761,26 @@ describe('nmap — same-LAN occupant merge', () => {
     expect(resolveOccupants).toHaveBeenCalledWith(ESSID);
   });
 
-  it('drops the generated NPC on an octet collision — the occupant wins', async () => {
-    // .25 is the generated `desktop-25`; an occupant there must REPLACE it.
+  it('drops the generated NPC on an octet collision with a machine — the occupant wins', async () => {
+    // .70 is the generated `workstation-70` (a machine); an occupant there REPLACES it.
+    const resolveOccupants = vi.fn(async () => [
+      { workstation_machine_id: 'skylab-aaaa', localIp: '192.168.29.70', machineName: 'alice-rig' },
+    ]);
+
+    const { text } = await drain(
+      await nmap.execute(envWithOccupants(resolveOccupants), ['192.168.29.0-254'], new Map()),
+    );
+
+    expect(text).toContain('alice-rig');
+    expect(text).not.toContain('workstation-70');
+    // No net host added — the NPC was replaced, not appended.
+    expect(text).toContain(`${baseLan.hosts.length} hosts up`);
+  });
+
+  it('reserves the inner gateway octet — an occupant that collides with it is omitted', async () => {
+    // .25 is the viewer's inner gateway (`fw-dmz`, a router) — their private depth entry.
+    // A fellow occupant landing on it is dropped from THIS view rather than drawn over the
+    // gateway (it stays attackable via its public IP); the gateway holds its slot.
     const resolveOccupants = vi.fn(async () => [
       { workstation_machine_id: 'skylab-aaaa', localIp: '192.168.29.25', machineName: 'alice-rig' },
     ]);
@@ -771,9 +789,24 @@ describe('nmap — same-LAN occupant merge', () => {
       await nmap.execute(envWithOccupants(resolveOccupants), ['192.168.29.0-254'], new Map()),
     );
 
-    expect(text).toContain('alice-rig');
-    expect(text).not.toContain('desktop-25');
-    // No net host added — the NPC was replaced, not appended.
+    expect(text).toContain('fw-dmz');
+    expect(text).not.toContain('alice-rig');
+    // No net change — the occupant was dropped, the gateway kept.
+    expect(text).toContain(`${baseLan.hosts.length} hosts up`);
+  });
+
+  it('reserves the inner switch octet — an occupant that collides with it is omitted', async () => {
+    // .80 is the viewer's inner switch (`vpn-gw`) — the second gateway device kind.
+    const resolveOccupants = vi.fn(async () => [
+      { workstation_machine_id: 'skylab-aaaa', localIp: '192.168.29.80', machineName: 'alice-rig' },
+    ]);
+
+    const { text } = await drain(
+      await nmap.execute(envWithOccupants(resolveOccupants), ['192.168.29.0-254'], new Map()),
+    );
+
+    expect(text).toContain('vpn-gw');
+    expect(text).not.toContain('alice-rig');
     expect(text).toContain(`${baseLan.hosts.length} hosts up`);
   });
 

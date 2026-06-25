@@ -27,24 +27,25 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
   recovery) and **dark to everyone**. Stories 5 (cross-player home NAT), 6 (scan/connect/su
   traces), 7 (same-wifi shared-LAN occupancy) all shipped. Deferred tail →
   `plans/multiplayer-crossplayer-epic.md` §"Remaining work / deferred follow-ups".
-- **Story 5b — multi-layer generated networks** (IN PROGRESS). Plan + full per-slice
-  as-built: `plans/story-5b-multilayer-networks.md` (**read first**). A home now has a deep
+- **Story 5b — multi-layer generated networks ✅ COMPLETE (v0.85.0).** A home has a deep
   gateway **chain** behind its inner gateway: `inner → L2 → L3 …` (`seedNetworkDepth` 1–3,
   a max), keyed by the fronting gateway's `machine_id`. Each chain door is reachable
   (`ssh user@<inner>:<fwd>`), scannable (upstream + pivot), and player-configurable (L2
-  write to its `rules.v4`/`acl.conf`). **5b.4 (CHAINS) ✅ COMPLETE through #317, v0.82.0** —
-  including 5b.4d: chains mix **routers and switches** (a switch is a chain leaf that
-  forwards nothing but ACL-filters its own downstream). **5b.5 (deep-layer traces) GRILLED
-  2026-06-25** (decisions D-trace-1..5, sub-split a/b/c): traces log source = the fronting
-  gateway's `<deep subnet>.1`; **5b.5a (deep CONNECT trace) ✅ MERGED (#318, v0.83.0)** — a
-  deep ssh reach leaves an `auth.log` line on the landed box; **5b.5b (deep SCAN trace) ✅
-  (v0.84.0)** — a pivot `nmap` fires a fire-and-forget `nmapScanDeep` (on `/api/patches`)
-  that appends `kern.log` per touched deep host through the shared `core/scan/deepScanHosts`
+  write to its `rules.v4`/`acl.conf`). Chains mix **routers and switches** (a switch is a
+  chain leaf that forwards nothing but ACL-filters its own downstream via `acl.conf`).
+  **Deep-layer traces** log source = the fronting gateway's `<deep subnet>.1`: a deep ssh
+  reach appends an `auth.log` line on the landed box (`Accepted`/`Failed password … from
+  <.1>`); a pivot `nmap` fires a fire-and-forget `nmapScanDeep` (on `/api/patches`) that
+  appends `kern.log` per touched deep host through the shared `core/scan/deepScanHosts`
   resolver (client render + server trace can't drift; a switch vantage records post-ACL
-  ports). **NEXT = Slice 5b.5c** (octet reservation via `mergeLanOccupants` gateway-wins +
-  close-out).
+  ports). **Octet reservation**: `mergeLanOccupants` reserves the inner gateway/switch
+  octets — a same-LAN occupant that collides with one is omitted from that viewer's `nmap`
+  (your private depth entry outranks one occupant's visibility; the occupant stays
+  attackable via its public IP). Depth is **single-player / per-player NPC**; cross-player /
+  ESSID-shared depth + a fixed-IP mission catalog remain deferred (epic doc). Pivot
+  **source-IP masking** is still deferred — see `plans/multiplayer-crossplayer-epic.md`.
 
-**Current version: 0.84.0.**
+**Current version: 0.85.0.**
 
 To pick up the next slice: read the relevant `plans/*.md` TOP BLOCK (live status +
 as-built), then the cross-player architecture doc if the work touches cross-player paths.

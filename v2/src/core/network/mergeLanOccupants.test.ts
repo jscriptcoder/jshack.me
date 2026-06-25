@@ -77,4 +77,57 @@ describe('mergeLanOccupants', () => {
     expect(merged.hosts.find((entry) => entry.ip === `${SUBNET}.70`)?.hostname).toBe('alice-rig');
     expect(merged.hosts.find((entry) => entry.ip === `${SUBNET}.200`)?.hostname).toBe('bob-rig');
   });
+
+  it('keeps the inner gateway and OMITS an occupant that collides with it', () => {
+    // The inner gateway is the player's private depth entry — a busy AP must not eat it.
+    const generated = lan([host(1, 'router-x', 'router'), host(25, 'inner-gw', 'router'), host(50, 'self-box')]);
+
+    const merged = mergeLanOccupants(generated, [occupant(25, 'alice-rig')]);
+
+    // The gateway holds its octet; the colliding occupant is not drawn on this LAN.
+    const onTwentyFive = merged.hosts.filter((entry) => entry.ip === `${SUBNET}.25`);
+    expect(onTwentyFive).toEqual([host(25, 'inner-gw', 'router')]);
+    expect(merged.hosts).not.toContainEqual({ ip: `${SUBNET}.25`, hostname: 'alice-rig', kind: 'machine' });
+  });
+
+  it('keeps the inner switch and OMITS an occupant that collides with it', () => {
+    const generated = lan([host(1, 'router-x', 'router'), host(80, 'sw-80', 'switch'), host(50, 'self-box')]);
+
+    const merged = mergeLanOccupants(generated, [occupant(80, 'alice-rig')]);
+
+    const onEighty = merged.hosts.filter((entry) => entry.ip === `${SUBNET}.80`);
+    expect(onEighty).toEqual([host(80, 'sw-80', 'switch')]);
+    expect(merged.hosts).not.toContainEqual({ ip: `${SUBNET}.80`, hostname: 'alice-rig', kind: 'machine' });
+  });
+
+  it('reserves gateway/switch octets yet still lets occupants win over generated machines', () => {
+    const generated = lan([
+      host(1, 'router-x', 'router'),
+      host(25, 'inner-gw', 'router'),
+      host(70, 'desktop-70'),
+      host(80, 'sw-80', 'switch'),
+      host(50, 'self-box'),
+    ]);
+
+    const merged = mergeLanOccupants(generated, [
+      occupant(25, 'gw-crasher'), // collides with the gateway → omitted
+      occupant(70, 'alice-rig'), // collides with a generated machine → occupant wins
+      occupant(200, 'bob-rig'), // free octet → added
+    ]);
+
+    // Gateway and switch survive on their own octets.
+    expect(merged.hosts.find((entry) => entry.ip === `${SUBNET}.25`)).toEqual(host(25, 'inner-gw', 'router'));
+    expect(merged.hosts.find((entry) => entry.ip === `${SUBNET}.80`)).toEqual(host(80, 'sw-80', 'switch'));
+    expect(merged.hosts).not.toContainEqual({ ip: `${SUBNET}.25`, hostname: 'gw-crasher', kind: 'machine' });
+    // The machine-colliding occupant still wins; the NPC is dropped.
+    expect(merged.hosts.find((entry) => entry.ip === `${SUBNET}.70`)).toEqual({
+      ip: `${SUBNET}.70`,
+      hostname: 'alice-rig',
+      kind: 'machine',
+    });
+    expect(merged.hosts).not.toContainEqual(host(70, 'desktop-70'));
+    // The free-octet occupant is added.
+    expect(merged.hosts.find((entry) => entry.ip === `${SUBNET}.200`)?.hostname).toBe('bob-rig');
+    expect(octetsOf(merged)).toEqual([1, 25, 50, 70, 80, 200]);
+  });
 });

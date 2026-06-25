@@ -30,7 +30,9 @@ and proven end-to-end live.
 row is evicted by a later joiner — closing PART of the Story-7-deferred "WAN/router/public-IP reconciliation
 per shared ESSID" (the by-`machine_id` resolvers survive eviction; the broader shared-router-per-ESSID
 reconciliation is still deferred — see "Remaining work / deferred follow-ups").
-**What's left = the deferred tail only** (5b multi-layer nets · pivot/hop · nonce store · the Story-7
+**Story 5b ✅ COMPLETE (v0.85.0)** — multi-layer generated networks (single-player / per-player NPC depth),
+slices 5b.1–5b.5; it absorbed the reachability half of the deferred pivot item (see "Parked future story"
+below). **What's left = the deferred tail only** (pivot source-IP masking · nonce store · the Story-7
 reconciliation/DHCP/density/presence items) — consolidated under "Remaining work / deferred follow-ups" at
 the end. No enumerated story is open.
 Story-split authored 2026-06-13. Consolidates the remaining work from two now-retired plans
@@ -310,9 +312,16 @@ directly on `workstation_machine_id`. Story 5 makes all three real.
   while the router keeps answering its own (decision #10, both roles). Confirmed live (agent-browser: B
   bricks A's router → `nmap <A.publicIp>` "Host seems down"; `scripts/testRouterBrick.ts` 9/9, both
   directions). As-built: `v2/docs/cross-player-architecture.md` §7.
-- **5b — Multi-layer generated target networks** _(separate, deferred)_ — the absorbed
-  `network-generator` Story 4: 2–3 layers, dual-homed gateways, `switch` sub-kind, "see only your
-  layer", RFC-1918 variety. Single-player generation, net-new; revisit after Story 5.
+- **5b — Multi-layer generated target networks** ✅ **COMPLETE (v0.85.0)** — the absorbed
+  `network-generator` Story 4, shipped as slices 5b.1–5b.5 (single-player / per-player NPC depth).
+  A home grows a deep gateway **chain** (`inner → L2 → L3`, `seedNetworkDepth` 1–3) of mixed
+  **routers and switches** (a switch ACL-filters its own downstream via `acl.conf`); each door is
+  reachable (`ssh user@<inner>:<fwd>`), scannable (upstream + pivot), and player-configurable.
+  Deep reach/scan leave **traces** (`auth.log`/`kern.log`) sourced from the fronting gateway's
+  `<deep subnet>.1`, and `mergeLanOccupants` **reserves the inner gateway/switch octets** so a busy
+  AP can't eat the player's depth entry. 5b **absorbed the reachability half** of the deferred pivot
+  item (below) — only cross-player **source-IP masking** stays deferred there. Cross-player /
+  ESSID-shared depth and a fixed-IP mission catalog remain separate later work.
 
 ### Story 5.1 — resolved implementation decisions (grill-me, 2026-06-17)
 
@@ -512,12 +521,15 @@ dead-end). The earlier "source-IP derive+**validate** essid" step was dropped �
 
 ### Parked future story (surfaced during 6's grill-me)
 
-- **Pivot / operate-from-a-hop (source-IP masking)** — make a command's execution vantage adopt the hopped
-  machine (so `nmap <A>` run from a compromised box N originates from N: N's network for reachability, N's
-  IP as A's logged source). Today `ssh.ts`/`nmap.ts` always run in B's HOME vantage and `resolveLogSourceIP`
-  is ported-but-unwired. Story 6's source-IP path is shaped to extend into this with no logging rework.
-  Substantial (vantage switch + needs networks other than home to pivot through, i.e. another player's box
-  now / foreign nets after 5b). Owner wants it POSSIBLE; deferred to its own story.
+- **Pivot / operate-from-a-hop — source-IP masking only** (the REACHABILITY half shipped in 5b).
+  5b already lets a player pivot a scan/connect *through* a hopped inner gateway/switch into their own
+  private deeper layers, and the deep traces are sourced from the fronting gateway's `.1`. What stays
+  deferred is **cross-player source-IP masking**: making a command's execution vantage adopt a *foreign*
+  hopped machine so `nmap <A>` run from a compromised box N originates from N — N's network for reachability,
+  N's IP as A's logged source. Today `ssh.ts`/`nmap.ts` still run in B's HOME vantage for cross-player ops
+  and `resolveLogSourceIP` is ported-but-unwired. Story 6's source-IP path is shaped to extend into this
+  with no logging rework. Substantial (vantage switch + needs another player's box / foreign nets to pivot
+  through). Owner wants it POSSIBLE; deferred to its own story.
 
 ## Story 7 — resolved scope & decisions (grill-me, 2026-06-21)
 
