@@ -7,20 +7,19 @@ import {
 } from './registerNetwork';
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
-import { assignHomeNetwork } from './homeNetwork';
 import { computeRouterId } from '../identity/router';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
 /**
- * `handleRegisterNetwork` is the server-side join action (Story 1, slice 1a). It
- * verifies the signed envelope and upserts a public-IP registry row so a DIFFERENT
- * identity can later resolve this network by its public IP. The public IP is
- * derived SERVER-SIDE from the ESSID (the WAN address belongs to the AP, shared by
- * every occupant); `owner_key` is stamped from the verified pubkey, never claimed.
- * Story 5.1: the router is now a DISTINCT machine — `router_machine_id` is
- * `computeRouterId(owner_key)` (its own seeded box bearing the public IP), and the
- * old degenerate `forward_table` is gone (the router's `/etc/iptables/rules.v4` is
- * the single source of truth for forwards).
+ * `handleRegisterNetwork` is the server-side join action. It verifies the signed
+ * envelope and upserts a public-IP registry row so a DIFFERENT identity can later
+ * resolve this network by its public IP. The public IP is ALLOCATED server-side per
+ * ESSID (an injected `allocatePublicIp` issues a globally-unique WAN address that
+ * belongs to the AP, shared by every occupant); `owner_key` is stamped from the
+ * verified pubkey, never claimed. The router is a DISTINCT machine —
+ * `router_machine_id` is `computeRouterId(owner_key)` (its own seeded box bearing
+ * the public IP), and there is no `forward_table` (the router's
+ * `/etc/iptables/rules.v4` is the single source of truth for forwards).
  */
 
 const freshStore: NonceStore = async () => ({ fresh: true });
@@ -32,6 +31,9 @@ const WORKSTATION_ID = 'skylab-deadbeef';
 const USERNAME = 'neo';
 const MACHINE_NAME = 'skylab';
 const ROOT_HASH = 'd41d8cd98f00b204e9800998ecf8427e';
+// The IP the stub allocator issues for the ESSID — opaque to the handler, which
+// only stamps it into the registry row (the real allocation is wire-checked).
+const ALLOCATED_IP = '203.0.113.7';
 
 const makeDeps = (over: Partial<RegisterNetworkDeps> = {}) => {
   const upsertRegistry = vi.fn<(row: NetworkRegistryRow) => Promise<{ error: unknown }>>(
@@ -40,13 +42,15 @@ const makeDeps = (over: Partial<RegisterNetworkDeps> = {}) => {
   const upsertOccupant = vi.fn<(row: HomeNetworkOccupantRow) => Promise<{ error: unknown }>>(
     async () => ({ error: null }),
   );
+  const allocatePublicIp = vi.fn<(essid: string) => Promise<string>>(async () => ALLOCATED_IP);
   const deps: RegisterNetworkDeps = {
     nonceStore: freshStore,
+    allocatePublicIp,
     upsertRegistry,
     upsertOccupant,
     ...over,
   };
-  return { deps, upsertRegistry, upsertOccupant };
+  return { deps, upsertRegistry, upsertOccupant, allocatePublicIp };
 };
 
 const envelope = (id: ReturnType<typeof generateIdentity>, over: Record<string, unknown> = {}) =>
@@ -60,17 +64,19 @@ const envelope = (id: ReturnType<typeof generateIdentity>, over: Record<string, 
   });
 
 describe('handleRegisterNetwork', () => {
-  it('upserts a registry row keyed by the server-derived public IP, owner-stamped from the verified pubkey', async () => {
+  it('upserts a registry row keyed by the allocated public IP, owner-stamped from the verified pubkey', async () => {
     const id = generateIdentity();
-    const { deps, upsertRegistry } = makeDeps();
-    const publicIp = assignHomeNetwork(id.publicKeyHex, ESSID).publicIp;
+    const { deps, upsertRegistry, allocatePublicIp } = makeDeps();
 
     const result = await handleRegisterNetwork(envelope(id), deps);
 
     expect(result).toEqual({ status: 200, body: { ok: true } });
+    // The public IP is the one the allocator issued for THIS ESSID — not a client
+    // claim and not a local derivation.
+    expect(allocatePublicIp).toHaveBeenCalledWith(ESSID);
     expect(upsertRegistry).toHaveBeenCalledTimes(1);
     expect(upsertRegistry.mock.calls[0]![0]).toEqual({
-      public_ip: publicIp,
+      public_ip: ALLOCATED_IP,
       owner_key: id.publicKeyHex,
       workstation_machine_id: WORKSTATION_ID,
       router_machine_id: computeRouterId(id.publicKeyHex),
@@ -148,11 +154,16 @@ describe('handleRegisterNetwork', () => {
     expect(upsertRegistry).not.toHaveBeenCalled();
   });
 
-  it('derives the public IP from the ESSID alone — two identities on the same AP register the same public IP but their own owner_key', async () => {
+  it('stamps the allocator’s per-ESSID IP — two identities on one AP share it, each with its own owner_key', async () => {
     const idA = generateIdentity();
     const idB = generateIdentity();
-    const { deps: depsA, upsertRegistry: upA } = makeDeps();
-    const { deps: depsB, upsertRegistry: upB } = makeDeps();
+    // One shared allocator keyed by ESSID (mirrors the real per-ESSID store): both
+    // occupants of the same AP resolve to the SAME public IP, owner-stamped distinctly.
+    const allocatePublicIp = vi.fn<(essid: string) => Promise<string>>(
+      async (essid) => `198.51.100.${essid.length}`,
+    );
+    const { deps: depsA, upsertRegistry: upA } = makeDeps({ allocatePublicIp });
+    const { deps: depsB, upsertRegistry: upB } = makeDeps({ allocatePublicIp });
 
     await handleRegisterNetwork(envelope(idA), depsA);
     await handleRegisterNetwork(envelope(idB), depsB);
@@ -216,6 +227,22 @@ describe('handleRegisterNetwork', () => {
     const result = await handleRegisterNetwork(envelope(id), deps);
 
     expect(result).toEqual({ status: 500, body: { error: 'registry_write_failed' } });
+  });
+
+  it('reports a server error when public-IP allocation fails, without writing', async () => {
+    const id = generateIdentity();
+    const { deps, upsertRegistry, upsertOccupant } = makeDeps({
+      allocatePublicIp: vi.fn(async () => {
+        throw new Error('allocation exhausted');
+      }),
+    });
+
+    const result = await handleRegisterNetwork(envelope(id), deps);
+
+    expect(result).toEqual({ status: 500, body: { error: 'allocation_failed' } });
+    // Allocation precedes the writes — a failure must not touch the journal.
+    expect(upsertRegistry).not.toHaveBeenCalled();
+    expect(upsertOccupant).not.toHaveBeenCalled();
   });
 
   it('upserts an occupancy row keyed by (essid, owner_key), server-stamped from the verified pubkey', async () => {
