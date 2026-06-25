@@ -53,7 +53,12 @@ Every slice follows RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR. No production code w
 `tdd`, `testing`, `mutation-testing`, `refactoring` before code. Wire-checks need local supabase + `vercel dev`
 on 3100 (mind the squatter gotcha, conventions §5).
 
-### Slice 1: A pure `allocatePublicIp` resolves an ESSID to a unique IP, retrying past draw-collisions
+### Slice 1: A pure `allocatePublicIp` resolves an ESSID to a unique IP, retrying past draw-collisions — ✅ MERGED (#322)
+
+> Shipped: `core/network/allocatePublicIp.ts` (fast-path read + bounded draw/claim retry; injected
+> `readByEssid`/`drawIp`/`claim(essid, ip) → string | null`). 6 behaviour tests, 100% mutation (14/14).
+> The `claim` contract was simplified to `string | null` (the bound IP, or null on inter-ESSID collision)
+> so Slice 2's adapter is a single `INSERT … ON CONFLICT (essid) DO UPDATE … RETURNING`.
 
 **Value**: The allocation *logic* (the novel, risky part — retry/fast-path/race) exists and is exhaustively
 unit-tested in isolation, unblocking the wired walking skeleton (Slice 2). Permitted horizontal exception
@@ -85,7 +90,13 @@ test that asserts `drawIp` is never called for a known ESSID).
 **REFACTOR**: assess only if it adds value.
 **Done when**: all five criteria green, mutation report reviewed, human approves commit.
 
-### Slice 2: Joining a network allocates + persists a unique public IP, end-to-end
+### Slice 2: Joining a network allocates + persists a unique public IP, end-to-end — ✅ DONE (pending commit)
+
+> Shipped: migration `network_public_ips(essid PK, public_ip UNIQUE)`; `api/network.ts` `readEssidIp`/
+> `claimEssidIp` (`upsert onConflict:'essid', ignoreDuplicates` = `DO NOTHING`; `23505` → null redraw) +
+> `drawIp` = `generatePublicIp(createPrng(randomUUID()))`; `handleRegisterNetwork` takes an injected
+> `allocatePublicIp` and stamps its result (replaced the derive), mapping allocation failure → 500. 15 handler
+> tests green (100% mutation, 45/45); `scripts/testPublicIpAllocation.ts` 6/6 vs `vercel dev`+supabase.
 
 **Value**: A player's join now stores a server-allocated, globally-unique public IP, and another identity's
 `nmap <that IP>` still resolves it. The real walking skeleton — the production path from the `/api/network`
@@ -133,7 +144,11 @@ Pure cleanup, fully reversible. (May be folded into Slice 2 if the reviewer pref
 **Path**: `core/network/homeNetwork.ts` — `HomeNetworkAssignment` becomes `{localIp, hostname}`;
 `assignHomeNetwork` drops the `generatePublicIp(createPrng('home-public-'+essid))` line; the unused `ip`
 import goes. `adapters/networkApi.ts` `joinHomeNetwork`'s return type follows (typecheck-driven); confirm the
-local/offline `env.homeNetwork.join` fallbacks (`ui/env.ts`, `ui/state.ts`) still typecheck.
+local/offline `env.homeNetwork.join` fallbacks (`ui/env.ts`, `ui/state.ts`) still typecheck. **Also migrate the
+`.publicIp` consumers Slice 2 left behind** — `scripts/{testSameLanCrossPlayerFs,testSameLanOccupancy,seedCrossPlayerTarget}.ts`
+compute the old derived public IP (only for cleanup/seed, so they still pass post-Slice-2, but the derive is
+gone here): read the allocated IP from `network_public_ips`/`network_registry` after the join instead, and drop
+the now-stale "public_ip is essid-derived" comments. `homeNetwork.test.ts` loses its `publicIp` goldens.
 **Required implementation skills**: `tdd`, `testing`, `refactoring`, `typescript-strict`.
 **Acceptance criteria** (present + confirm before code):
 - `assignHomeNetwork(pubkey, essid)` returns exactly `{localIp, hostname}` with the localIp/hostname values
