@@ -130,12 +130,13 @@ if (l2child === null) {
 const L2CHILD_IP = l2child.ip;
 const L2CHILD_ID = computeDeepGatewayId(alice.publicKeyHex, INNER_GW_ID, octetOf(L2CHILD_IP));
 
-const l3child = generateDeepLayer(
+const l3layer = generateDeepLayer(
   alice.publicKeyHex,
   ESSID,
   { machineId: L2CHILD_ID, kind: 'router' },
   { hangsChild: true },
-).childGateway;
+);
+const l3child = l3layer.childGateway;
 if (l3child === null) {
   console.error('the L2 child fronts no L3 gateway');
   process.exit(2);
@@ -193,11 +194,23 @@ const sessionRowsOn = async (machineId: string): Promise<number> => {
   return data?.length ?? 0;
 };
 
+const readAuthLog = async (machineId: string): Promise<string> => {
+  const { data } = await sr
+    .from('patches')
+    .select('content')
+    .eq('writer_key', alice.publicKeyHex)
+    .eq('machine_id', machineId)
+    .eq('path', '/var/log/auth.log')
+    .maybeSingle();
+  return (data as { content?: string | null } | null)?.content ?? '';
+};
+
 // Clean slate, then seed alice's root sessions on the inner gateway AND the L2 child (as
 // her `ssh root@<inner>` then `ssh root@<inner>:<fwd>` hops would leave them) so her
 // writes to each gateway's rules.v4 pass L1/L2.
 await sr.from('patches').delete().eq('machine_id', INNER_GW_ID);
 await sr.from('patches').delete().eq('machine_id', L2CHILD_ID);
+await sr.from('patches').delete().eq('machine_id', L3CHILD_ID);
 await sr.from('sessions').delete().eq('player_key', alice.publicKeyHex);
 await sr.from('sessions').insert([
   {
@@ -259,6 +272,16 @@ check(
   `status=${r4.status} machine=${machineOf(r4.body)} userType=${userTypeOf(r4.body)} l3Rows=${l3Rows}`,
 );
 
+// 4b. TRACE: the successful reach left an sshd auth.log line on the L3 gateway — the
+//     deep-reach trace, sourced from the fronting gateway's `.1` (its own deep subnet),
+//     readable once the player is in. Read it back from the L3 gateway's shared journal.
+const l3AuthLog = await readAuthLog(L3CHILD_ID);
+check(
+  'deep-reach trace: the L3 gateway auth.log records the accepted login from the gateway .1',
+  l3AuthLog.includes(`Accepted password for root from ${l3layer.subnet}.1`),
+  `auth.log=${JSON.stringify(l3AuthLog)}`,
+);
+
 // 5. BRICK the intermediate L2 child: everything below it goes dark — the scan drops the
 //    chained port AND the reach is refused (the per-hop canBoot gate).
 await post(
@@ -280,6 +303,7 @@ check(
 // Cleanup.
 await sr.from('patches').delete().eq('machine_id', INNER_GW_ID);
 await sr.from('patches').delete().eq('machine_id', L2CHILD_ID);
+await sr.from('patches').delete().eq('machine_id', L3CHILD_ID);
 await sr.from('sessions').delete().eq('player_key', alice.publicKeyHex);
 
 const passed = results.filter((result) => result.pass).length;

@@ -22,6 +22,12 @@ import type { OwnerPatchRow } from '../network/materializeMachineFs';
 import type { AuthSessionRow } from './authCreateSession';
 import type { NonceStore } from '../signedRequest/nonceStore';
 import type { Directory } from '../filesystem/types';
+import { AUTH_LOG_PATH } from '../logging/authLog';
+import type {
+  MachineLogReadQuery,
+  MachineLogReadResult,
+} from '../patches/appendMachineLog';
+import type { PatchRow } from '../patches/upsertPatch';
 
 /**
  * `handleAuthCreateSessionInnerGateway` is the server gate for `ssh user@<inner>:<fwd
@@ -152,6 +158,39 @@ const bootTombstone: OwnerPatchRow = {
 
 type PatchesResult = { data: readonly OwnerPatchRow[] | null; error: unknown };
 
+/** A capturing auth.log appender: `appended` collects every system-written trace row
+ *  so a test can assert the deep-reach line (or its absence). The clock is fixed; the
+ *  read half always reports an empty log so the first line is written verbatim. */
+const makeLogDeps = () => {
+  const appended: PatchRow[] = [];
+  const readAuthLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
+    async () => ({ data: { content: null }, error: null }),
+  );
+  const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async (row) => {
+    appended.push(row);
+    return { error: null };
+  });
+  return { now: () => Date.parse('2026-06-17T00:00:02.000Z'), readAuthLog, upsertPatch, appended };
+};
+
+/** Assemble the handler deps around a findPatches/insertSession pair plus the capturing
+ *  log appender. */
+const gatewayDeps = (
+  findPatches: AuthCreateSessionInnerGatewayDeps['findPatches'],
+  insertSession: AuthCreateSessionInnerGatewayDeps['insertSession'],
+) => {
+  const log = makeLogDeps();
+  const deps: AuthCreateSessionInnerGatewayDeps = {
+    nonceStore: freshStore,
+    findPatches,
+    insertSession,
+    now: log.now,
+    readAuthLog: log.readAuthLog,
+    upsertPatch: log.upsertPatch,
+  };
+  return { deps, appended: log.appended };
+};
+
 const makeDeps = (
   patches: (query: { machine_id: string }) => Promise<PatchesResult> = async () => ({
     data: [forwardPatch],
@@ -161,8 +200,8 @@ const makeDeps = (
 ) => {
   const findPatches = vi.fn<(query: { machine_id: string }) => Promise<PatchesResult>>(patches);
   const insertSession = vi.fn<(row: AuthSessionRow) => Promise<{ error: unknown }>>(insert);
-  const deps: AuthCreateSessionInnerGatewayDeps = { nonceStore: freshStore, findPatches, insertSession };
-  return { deps, findPatches, insertSession };
+  const { deps, appended } = gatewayDeps(findPatches, insertSession);
+  return { deps, findPatches, insertSession, appended };
 };
 
 const envelope = (over: Record<string, unknown>) =>
@@ -368,11 +407,7 @@ describe('handleAuthCreateSessionInnerGateway — depth-1 home (the inner router
     const insertSession = vi.fn<(row: AuthSessionRow) => Promise<{ error: unknown }>>(async () => ({
       error: null,
     }));
-    const deps: AuthCreateSessionInnerGatewayDeps = {
-      nonceStore: freshStore,
-      findPatches,
-      insertSession,
-    };
+    const { deps } = gatewayDeps(findPatches, insertSession);
 
     const result = await handleAuthCreateSessionInnerGateway(
       signRequest(SHALLOW, 'authCreateSessionInnerGateway', {
@@ -453,11 +488,7 @@ describe('handleAuthCreateSessionInnerGateway — reach a deep SWITCH child gate
     const insertSession = vi.fn<(row: AuthSessionRow) => Promise<{ error: unknown }>>(async () => ({
       error: null,
     }));
-    const deps: AuthCreateSessionInnerGatewayDeps = {
-      nonceStore: freshStore,
-      findPatches,
-      insertSession,
-    };
+    const { deps } = gatewayDeps(findPatches, insertSession);
     return { deps, insertSession };
   };
 
@@ -558,7 +589,7 @@ describe('handleAuthCreateSessionInnerGateway — chained reach down a deeper ch
     const insertSession = vi.fn<(row: AuthSessionRow) => Promise<{ error: unknown }>>(async () => ({
       error: null,
     }));
-    const deps: AuthCreateSessionInnerGatewayDeps = { nonceStore: freshStore, findPatches, insertSession };
+    const { deps } = gatewayDeps(findPatches, insertSession);
     return { deps, findPatches, insertSession };
   };
 
@@ -633,7 +664,7 @@ describe('handleAuthCreateSessionInnerGateway — chained reach down a deeper ch
     const insertSession = vi.fn<(row: AuthSessionRow) => Promise<{ error: unknown }>>(async () => ({
       error: null,
     }));
-    const deps: AuthCreateSessionInnerGatewayDeps = { nonceStore: freshStore, findPatches, insertSession };
+    const { deps } = gatewayDeps(findPatches, insertSession);
 
     const result = await handleAuthCreateSessionInnerGateway(chainEnvelope({}), deps);
 
@@ -673,7 +704,7 @@ describe('handleAuthCreateSessionInnerGateway — the seeded depth bounds the ch
     const insertSession = vi.fn<(row: AuthSessionRow) => Promise<{ error: unknown }>>(async () => ({
       error: null,
     }));
-    const deps: AuthCreateSessionInnerGatewayDeps = { nonceStore: freshStore, findPatches, insertSession };
+    const { deps } = gatewayDeps(findPatches, insertSession);
 
     const result = await handleAuthCreateSessionInnerGateway(
       envelope({
@@ -809,5 +840,73 @@ describe('handleAuthCreateSessionInnerGateway — guards', () => {
 
     expect(result.status).toBe(400);
     expect(findPatches).not.toHaveBeenCalled();
+  });
+});
+
+describe('handleAuthCreateSessionInnerGateway — deep-reach auth.log trace', () => {
+  const writtenLines = (appended: readonly PatchRow[]): string =>
+    appended.map((row) => row.content ?? '').join('');
+
+  it('appends an Accepted line on the landed deep host, sourced from the fronting gateway .1', async () => {
+    const { deps, appended } = makeDeps();
+
+    await handleAuthCreateSessionInnerGateway(envelope({}), deps);
+
+    expect(appended).toHaveLength(1);
+    expect(appended).toContainEqual(
+      expect.objectContaining({
+        writer_key: PLAYER.publicKeyHex,
+        machine_id: DEEP_ID,
+        path: AUTH_LOG_PATH,
+      }),
+    );
+    expect(writtenLines(appended)).toContain(`Accepted password for guest from ${DEEP.subnet}.1`);
+  });
+
+  it('appends a Failed line on a wrong-password reach to a resolvable deep host', async () => {
+    const { deps, appended } = makeDeps();
+
+    await handleAuthCreateSessionInnerGateway(envelope({ password: 'not-the-password' }), deps);
+
+    expect(appended).toContainEqual(
+      expect.objectContaining({
+        machine_id: DEEP_ID,
+        path: AUTH_LOG_PATH,
+        writer_key: PLAYER.publicKeyHex,
+      }),
+    );
+    expect(writtenLines(appended)).toContain(`Failed password for guest from ${DEEP.subnet}.1`);
+  });
+
+  it('traces a deep child-gateway reach on the child, sourced from the parent subnet .1', async () => {
+    const childForward: OwnerPatchRow = { ...forwardPatch, content: `forward 2223 to ${CHILD.ip}:22` };
+    const { deps, appended } = makeDeps(async () => ({ data: [childForward], error: null }));
+
+    await handleAuthCreateSessionInnerGateway(
+      envelope({ port: 2223, username: 'root', password: CHILD_ROOT_PW }),
+      deps,
+    );
+
+    expect(appended).toContainEqual(expect.objectContaining({ machine_id: CHILD_ID }));
+    expect(writtenLines(appended)).toContain(`Accepted password for root from ${DEEP.subnet}.1`);
+  });
+
+  it('writes no line when the reach resolves no deep box (an unserved port)', async () => {
+    const { deps, appended } = makeDeps();
+
+    await handleAuthCreateSessionInnerGateway(envelope({ port: 3333 }), deps);
+
+    expect(appended).toHaveLength(0);
+  });
+
+  it('writes no line when the reach lands on the inner gateway own :22 (a Layer-1 box)', async () => {
+    const { deps, appended } = makeDeps(async () => ({ data: [], error: null }));
+
+    await handleAuthCreateSessionInnerGateway(
+      envelope({ port: 22, username: 'root', password: GATEWAY_ROOT_PW }),
+      deps,
+    );
+
+    expect(appended).toHaveLength(0);
   });
 });
