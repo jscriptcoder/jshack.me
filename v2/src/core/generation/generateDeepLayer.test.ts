@@ -5,8 +5,9 @@ import {
   seedNetworkDepth,
   type FrontingGateway,
 } from './generateDeepLayer';
-import { generateHomeLan } from './generateHomeLan';
+import { generateHomeLan, type LanHost } from './generateHomeLan';
 import { buildRemoteHostFs } from './remoteHostFs';
+import { computeDeepGatewayId } from '../identity/router';
 import { readOpenPorts } from '../services/pidfile';
 
 /**
@@ -71,23 +72,26 @@ describe('generateDeepLayer', () => {
 
   it('produces a byte-stable golden deep layer for a known fronting router', () => {
     // A pinned golden so an octet-offset or address-separator mutation shifts a value
-    // and fails here deterministically — the relationship assertions above can't.
+    // and fails here deterministically — the relationship assertions above can't. The
+    // child's `kind` is the seeded value for this fixture (a switch at the ~0.33 rate),
+    // so a mutated kind-seed namespace also shifts it and fails here.
     expect(generateDeepLayer(PUBKEY, ESSID, ROUTER_GW)).toEqual({
       subnet: '10.109.8',
       host: { ip: '10.109.8.63', hostname: 'tablet-63', kind: 'machine' },
-      childGateway: { ip: '10.109.8.178', hostname: 'mikrotik01-178', kind: 'router' },
+      childGateway: { ip: '10.109.8.178', hostname: 'mikrotik01-178', kind: 'switch' },
     });
   });
 });
 
 describe('generateDeepLayer — the child gateway (chain door)', () => {
-  it('hangs a child gateway (kind router) behind a ROUTER, at a stable octet ≠ NPC ≠ .1', () => {
+  it('hangs a child GATEWAY behind a ROUTER, at a stable octet ≠ NPC ≠ .1', () => {
     const deep = generateDeepLayer(PUBKEY, ESSID, ROUTER_GW);
     const child = deep.childGateway;
 
     expect(child).not.toBeNull();
     if (child === null) return;
-    expect(child.kind).toBe('router');
+    // A gateway device (router OR switch — its kind is seeded); never an NPC machine.
+    expect(child.kind === 'router' || child.kind === 'switch').toBe(true);
     expect(child.ip.startsWith(`${deep.subnet}.`)).toBe(true);
     const childOctet = octetOf(child.ip);
     expect(childOctet).not.toBe(1);
@@ -104,6 +108,82 @@ describe('generateDeepLayer — the child gateway (chain door)', () => {
     expect(generateDeepLayer(PUBKEY, ESSID, ROUTER_GW).childGateway).toEqual(
       generateDeepLayer(PUBKEY, ESSID, ROUTER_GW).childGateway,
     );
+  });
+});
+
+describe('generateDeepLayer — the child gateway kind is seeded (router/switch variety)', () => {
+  // A spread of distinct fronting routers to exercise the per-gateway kind seed. Each
+  // fronts its own layer, so its child gateway's kind is drawn independently.
+  const frontingRouters: readonly FrontingGateway[] = Array.from({ length: 300 }, (_unused, index) => ({
+    machineId: `inner-gw-${index}`,
+    kind: 'router',
+  }));
+  const childKinds: readonly LanHost['kind'][] = frontingRouters
+    .map((gateway) => generateDeepLayer(PUBKEY, ESSID, gateway).childGateway)
+    .filter((child): child is LanHost => child !== null)
+    .map((child) => child.kind);
+
+  it('seeds BOTH router and switch children across fronting gateways', () => {
+    // The variety the slice exists for: a deep child gateway is no longer always a router.
+    expect(childKinds).toContain('router');
+    expect(childKinds).toContain('switch');
+  });
+
+  it('makes switches roughly a third of deep child gateways', () => {
+    // Pins the ~0.33 mix: an all-router (prob→0) or all-switch (prob→1) mutation is
+    // already caught above; this rejects a flipped (>) or doubled (~0.5+) probability.
+    const switchCount = childKinds.filter((kind) => kind === 'switch').length;
+    const fraction = switchCount / childKinds.length;
+    expect(fraction).toBeGreaterThan(0.2);
+    expect(fraction).toBeLessThan(0.45);
+  });
+
+  it('re-rolls the same child kind for the same fronting gateway (reload-stable)', () => {
+    const gateway = frontingRouters[0];
+    expect(generateDeepLayer(PUBKEY, ESSID, gateway).childGateway?.kind).toBe(
+      generateDeepLayer(PUBKEY, ESSID, gateway).childGateway?.kind,
+    );
+  });
+
+  it('keys the kind on the fronting gateway — the switch/router split varies by parent', () => {
+    // A mutation that drops the parent machine_id from the kind seed would pin one kind
+    // for every layer; seeing both kinds across distinct parents proves the parent is in
+    // the seed (and the determinism test above proves it is stable per parent).
+    expect(new Set(childKinds).size).toBeGreaterThan(1);
+  });
+});
+
+describe('generateDeepLayer — a seeded switch child truncates the chain', () => {
+  it('a switch child fronts no further gateway, but still fronts its own NPC layer', () => {
+    // Find a fronting router whose child seeds as a switch, then confirm that switch —
+    // used as a fronting gateway in turn — hangs no child of its own even with
+    // hangsChild:true. So a switch seeded mid-chain ENDS the chain (depth is a max), while
+    // still fronting a recon-only NPC layer.
+    const switchParent = Array.from({ length: 300 }, (_unused, index) => ({
+      machineId: `inner-gw-${index}`,
+      kind: 'router' as const,
+    })).find(
+      (gateway) => generateDeepLayer(PUBKEY, ESSID, gateway).childGateway?.kind === 'switch',
+    );
+    expect(switchParent).toBeDefined();
+    if (switchParent === undefined) return;
+
+    const switchChild = generateDeepLayer(PUBKEY, ESSID, switchParent).childGateway;
+    expect(switchChild?.kind).toBe('switch');
+    if (switchChild === null || switchChild === undefined) return;
+
+    const switchAsFronting: FrontingGateway = {
+      machineId: computeDeepGatewayId(
+        PUBKEY,
+        switchParent.machineId,
+        Number(switchChild.ip.split('.')[3]),
+      ),
+      kind: switchChild.kind,
+    };
+    const below = generateDeepLayer(PUBKEY, ESSID, switchAsFronting, { hangsChild: true });
+
+    expect(below.childGateway).toBeNull();
+    expect(below.host.kind).toBe('machine');
   });
 });
 

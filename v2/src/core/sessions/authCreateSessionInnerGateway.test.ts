@@ -53,6 +53,36 @@ const PLAYER = playerWithNetworkDepth(2);
 
 const octetOf = (host: LanHost): number => Number(host.ip.split('.')[3]);
 
+/** A player whose home is seeded to EXACTLY `depth` layers AND whose entire gateway chain
+ *  is routers — every layer hangs a ROUTER child, so the chain runs the full `depth`
+ *  gateways deep. The chained-reach tests need this: a switch caps the chain short (it
+ *  forwards nothing), so a random depth-N home no longer guarantees N router hops. Picks
+ *  deterministically by walking each candidate's seeded chain. */
+const playerWithAllRouterChain = (depth: number): Identity => {
+  const isAllRouterChain = (identity: Identity): boolean => {
+    if (seedNetworkDepth(identity.publicKeyHex, ESSID) !== depth) return false;
+    const inner = generateHomeLan(identity.publicKeyHex, ESSID).hosts.find(
+      (host) => host.kind === 'router' && octetOf(host) !== 1,
+    );
+    if (inner === undefined) return false;
+    let parentId = computeInnerGatewayId(identity.publicKeyHex, octetOf(inner));
+    for (let position = 1; position < depth; position++) {
+      const child = generateDeepLayer(
+        identity.publicKeyHex,
+        ESSID,
+        { machineId: parentId, kind: 'router' },
+        { hangsChild: true },
+      ).childGateway;
+      if (child === null || child.kind !== 'router') return false;
+      parentId = computeDeepGatewayId(identity.publicKeyHex, parentId, octetOf(child));
+    }
+    return true;
+  };
+  const found = Array.from({ length: 400 }, () => generateIdentity()).find(isAllRouterChain);
+  if (found === undefined) throw new Error(`no identity seeds an all-router depth-${depth} chain`);
+  return found;
+};
+
 const hostMatching = (predicate: (host: LanHost) => boolean): LanHost => {
   const host = generateHomeLan(PLAYER.publicKeyHex, ESSID).hosts.find(predicate);
   if (host === undefined) throw new Error('no matching host on LAN');
@@ -367,7 +397,7 @@ describe('handleAuthCreateSessionInnerGateway — chained reach down a deeper ch
   // chained forwards expose the L3 gateway end-to-end — the inner forwards a port to the
   // L2 child, and the L2 child forwards that same port on to the L3 gateway's own sshd.
   // Logging in to the inner at that port should walk the chain and land on the L3 gateway.
-  const DEEP3 = playerWithNetworkDepth(3);
+  const DEEP3 = playerWithAllRouterChain(3);
   const deep3Host = (predicate: (host: LanHost) => boolean): LanHost => {
     const host = generateHomeLan(DEEP3.publicKeyHex, ESSID).hosts.find(predicate);
     if (host === undefined) throw new Error('no matching host on the depth-3 LAN');

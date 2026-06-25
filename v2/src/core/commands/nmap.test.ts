@@ -1384,10 +1384,12 @@ describe('nmap — variable network depth (5b.4c-i)', () => {
   const octetOf = (host: LanHost): number => Number(host.ip.split('.')[3]);
 
   // Fixture keys captured from `seedNetworkDepth` for this essid: an all-zero key seeds
-  // a depth-1 home, `02` repeated seeds a depth-3 home (the canonical 'a'×64 is depth 2,
-  // exercised by the 5b.2 / 5b.4b suites above).
+  // a depth-1 home, `03` repeated seeds a depth-3 home whose WHOLE gateway chain is
+  // routers — every layer hangs a router child, so the chain runs three gateways deep (a
+  // switch would cap it short). The canonical 'a'×64 is depth 2, exercised by the 5b.2 /
+  // 5b.4b suites above.
   const DEPTH1_KEY = '0'.repeat(64);
-  const DEPTH3_KEY = '02'.repeat(32);
+  const DEPTH3_KEY = '03'.repeat(32);
 
   const innerRouterOf = (key: string): LanHost => {
     const host = generateHomeLan(key, ESSID).hosts.find(
