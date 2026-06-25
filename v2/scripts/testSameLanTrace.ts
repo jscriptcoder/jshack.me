@@ -90,7 +90,7 @@ const A_WS = computeWorkstationId(A_WS_NAME, alice.publicKeyHex);
 const A_ROUTER = computeRouterId(alice.publicKeyHex);
 const A_LAN = assignHomeNetwork(alice.publicKeyHex, ESSID).localIp; // A's ws LAN ip
 const B_LAN = assignHomeNetwork(bob.publicKeyHex, ESSID).localIp; // B's LAN ip — the source
-const B_PUBLIC = assignHomeNetwork(bob.publicKeyHex, ESSID).publicIp; // must NOT appear
+const B_PUBLIC = '198.51.100.42'; // a home public IP that must NOT appear (the source is the LAN IP)
 const GUEST_PW = workstationGuestPassword(alice.publicKeyHex); // A's ws guest pw
 const A_ROOT_PW = 'root-secret'; // matches the seeded workstation_root_hash below
 const FORGED_SOURCE = '203.0.113.250'; // a client-claimed source_ip the server must ignore
@@ -107,9 +107,10 @@ const occupancyRow = (owner: ReturnType<typeof generateIdentity>, wsName: string
 });
 
 // A's registry row — what the su path resolves by machine_id (the WiFi join upserts both
-// the occupancy AND the registry; this wire-check seeds both so the su half can run).
+// the occupancy AND the registry; this wire-check seeds both so the su half can run). The
+// public_ip is just this row's PK here — an explicit constant the seed + cleanup share.
 const registryRow = {
-  public_ip: assignHomeNetwork(alice.publicKeyHex, ESSID).publicIp,
+  public_ip: '198.51.100.41',
   owner_key: alice.publicKeyHex,
   workstation_machine_id: A_WS,
   router_machine_id: A_ROUTER,

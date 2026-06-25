@@ -94,10 +94,11 @@ const A_WS = computeWorkstationId(A_WS_NAME, alice.publicKeyHex);
 const A_ROUTER = computeRouterId(alice.publicKeyHex);
 const A_PUBLIC_IP = '203.0.113.93';
 const A_LAN = assignHomeNetwork(alice.publicKeyHex, A_ESSID).localIp; // A's ws LAN ip
-// B's + C's truthful source IPs: their OWN home public IPs (essid-derived), which the
-// server recovers from their verified key via the registry — never a client claim.
-const B_PUBLIC_IP = assignHomeNetwork(bob.publicKeyHex, B_ESSID).publicIp;
-const C_PUBLIC_IP = assignHomeNetwork(carol.publicKeyHex, C_ESSID).publicIp;
+// B's + C's truthful source IPs: the public IPs in their seeded registry rows, which the
+// server recovers from each verified key via the registry — never a client claim. Explicit
+// constants, since this script seeds those rows directly (self-consistent with the asserts).
+const B_PUBLIC_IP = '198.51.100.93';
+const C_PUBLIC_IP = '192.0.2.93';
 const A_ROUTER_HOST = seedRouterHostname(alice.publicKeyHex);
 const ADMIN_PW = seedRouterAdminPw(alice.publicKeyHex); // A's router root (admin) pw
 const GUEST_PW = workstationGuestPassword(alice.publicKeyHex); // A's ws guest pw

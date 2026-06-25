@@ -75,7 +75,6 @@ const B_WS_NAME = 'nebuchadnezzar';
 const A_WS = computeWorkstationId(A_WS_NAME, alice.publicKeyHex);
 const B_WS = computeWorkstationId(B_WS_NAME, bob.publicKeyHex);
 const A_LAN = assignHomeNetwork(alice.publicKeyHex, ESSID).localIp;
-const PUBLIC_IP = assignHomeNetwork(alice.publicKeyHex, ESSID).publicIp; // shared by both
 const GUEST_PW = workstationGuestPassword(alice.publicKeyHex);
 
 const WORLD_PID = { read: ['root', 'user', 'guest'], write: ['root'], execute: [] };
@@ -99,7 +98,8 @@ const join = (owner: ReturnType<typeof generateIdentity>, wsName: string) =>
   });
 
 // Clean slate.
-await sr.from('network_registry').delete().eq('public_ip', PUBLIC_IP);
+await sr.from('network_registry').delete().in('owner_key', [alice.publicKeyHex, bob.publicKeyHex]);
+await sr.from('network_public_ips').delete().eq('essid', ESSID);
 await sr.from('home_network_occupants').delete().eq('essid', ESSID);
 await sr.from('patches').delete().eq('machine_id', A_WS);
 await sr.from('sessions').delete().eq('player_key', bob.publicKeyHex);
@@ -179,7 +179,8 @@ check(
 );
 
 // Cleanup.
-await sr.from('network_registry').delete().eq('public_ip', PUBLIC_IP);
+await sr.from('network_registry').delete().in('owner_key', [alice.publicKeyHex, bob.publicKeyHex]);
+await sr.from('network_public_ips').delete().eq('essid', ESSID);
 await sr.from('home_network_occupants').delete().eq('essid', ESSID);
 await sr.from('patches').delete().eq('machine_id', A_WS);
 await sr.from('sessions').delete().eq('player_key', bob.publicKeyHex);

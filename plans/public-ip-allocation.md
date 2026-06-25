@@ -136,19 +136,44 @@ runtime correctness is covered by the wire-check (not Stryker — `api/` isn't u
 **Done when**: all criteria green, wire-check exits 0 against `vercel dev`, mutation report reviewed, human
 approves commit.
 
-### Slice 3: The client no longer carries a (now-dead) public IP
+### Slice 3: The client no longer carries a (now-dead) public IP — SPLIT 3a (scripts/test) ✅ DONE + 3b (core)
 
-**Value**: Remove the dead `home-public-${essid}` derivation and the unused client projection
-(`minimize-api-projections`), so a future reader isn't misled into thinking the client owns a public IP.
-Pure cleanup, fully reversible. (May be folded into Slice 2 if the reviewer prefers a single PR.)
-**Path**: `core/network/homeNetwork.ts` — `HomeNetworkAssignment` becomes `{localIp, hostname}`;
-`assignHomeNetwork` drops the `generatePublicIp(createPrng('home-public-'+essid))` line; the unused `ip`
-import goes. `adapters/networkApi.ts` `joinHomeNetwork`'s return type follows (typecheck-driven); confirm the
-local/offline `env.homeNetwork.join` fallbacks (`ui/env.ts`, `ui/state.ts`) still typecheck. **Also migrate the
-`.publicIp` consumers Slice 2 left behind** — `scripts/{testSameLanCrossPlayerFs,testSameLanOccupancy,seedCrossPlayerTarget}.ts`
-compute the old derived public IP (only for cleanup/seed, so they still pass post-Slice-2, but the derive is
-gone here): read the allocated IP from `network_public_ips`/`network_registry` after the join instead, and drop
-the now-stale "public_ip is essid-derived" comments. `homeNetwork.test.ts` loses its `publicIp` goldens.
+> **3a** ✅ DONE (this branch): migrated the 7 scripts + the `authCreateSessionSameLan` anti-leak test OFF
+> `assignHomeNetwork().publicIp` — the field stays intact (3b removes it), so this is behaviour-neutral.
+> Two shapes:
+> - *Seed-and-expect / anti-leak* (`testCrossPlayer{Scan,Connection}Trace`, `testSameLan{Scan,}Trace`): the
+>   derived IP was a value the script both seeds and asserts on, so it became an explicit self-consistent
+>   public-IP literal. `testCrossPlayerScanTrace` lost its now-unused `assignHomeNetwork` import.
+> - *Register-and-use / cleanup* (`seedCrossPlayerTarget`, `testSameLanOccupancy`, `testSameLanCrossPlayerFs`):
+>   these hit the real `registerNetwork`, which post-Slice-2 ALLOCATES the IP, so the derive no longer matched
+>   the stored row. `seedCrossPlayerTarget` now reads the allocated IP back from `network_public_ips` (its
+>   printed ssh target was silently stale); all three clean up `network_registry` by `owner_key` + drop the
+>   ESSID's `network_public_ips` row (cleanup-by-derived-IP had been a silent no-op).
+> Verified: typecheck + lint clean, 1889 unit tests green, all 6 affected wire-checks pass, the seeder prints a
+> real allocated IP and `clean` removes it. No production code → no TDD cycle; no version bump (no feature change).
+> **3b** (next branch): remove the field + derive from `homeNetwork.ts`; drop the `homeNetwork.test.ts` goldens
+> + the `commandEnv` factory `publicIp`; the `networkApi`/`state` type narrows. Atomic + typecheck-gated.
+
+**Value**: Remove the dead, now-MISLEADING `home-public-${essid}` derivation. Post-Slice-2 the real public IP
+is allocated, so `assignHomeNetwork().publicIp` is a value that no longer matches reality — a latent trap for
+the 7 scripts that compute it. Cleanup that also corrects that staleness (`minimize-api-projections`).
+**Scope is bigger than first planned** — removing the field is typecheck-gated, so every consumer moves with it
+(~11 files; scripts are typechecked via `tsc -b`):
+- **Core**: `core/network/homeNetwork.ts` — `HomeNetworkAssignment` → `{localIp, hostname}`; drop the
+  `generatePublicIp(createPrng('home-public-'+essid))` derive + the now-unused `generatePublicIp` import.
+- **Type ripple (no logic change)**: `adapters/networkApi.ts` + `ui/state.ts` return `HomeNetworkAssignment`
+  (neither reads `.publicIp`); `src/test/factories/commandEnv.ts` `join` stub drops `publicIp`.
+- **Unit test**: `core/network/homeNetwork.test.ts` loses its `publicIp` goldens;
+  `core/sessions/authCreateSessionSameLan.test.ts` reworks its anti-leak assertion (currently
+  `not.toContain(assignHomeNetwork(B).publicIp)`) to assert the LAN-IP line positively / an explicit constant.
+- **Scripts — seed-and-expect / anti-leak** (`testCrossPlayerScanTrace`, `testCrossPlayerConnectionTrace`,
+  `testSameLanScanTrace`, `testSameLanTrace`): they seed a registry row with the derived IP and assert on it —
+  replace with an explicit public-IP constant (self-consistent; re-run to confirm).
+- **Scripts — register-and-use / cleanup** (`seedCrossPlayerTarget`, `testSameLanOccupancy`,
+  `testSameLanCrossPlayerFs`): `seedCrossPlayerTarget` reads the ALLOCATED IP from `network_public_ips` after
+  the join; the two same-LAN ones delete `network_registry` by `owner_key` (not the derived public IP) and drop
+  the stale "public_ip is essid-derived" comments.
+- **Verify**: re-run the affected wire-checks vs `vercel dev` + supabase.
 **Required implementation skills**: `tdd`, `testing`, `refactoring`, `typescript-strict`.
 **Acceptance criteria** (present + confirm before code):
 - `assignHomeNetwork(pubkey, essid)` returns exactly `{localIp, hostname}` with the localIp/hostname values
