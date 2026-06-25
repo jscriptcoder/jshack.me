@@ -34,11 +34,15 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
   (`ssh user@<inner>:<fwd>`), scannable (upstream + pivot), and player-configurable (L2
   write to its `rules.v4`/`acl.conf`). **5b.4 (CHAINS) ✅ COMPLETE through #317, v0.82.0** —
   including 5b.4d: chains mix **routers and switches** (a switch is a chain leaf that
-  forwards nothing but ACL-filters its own downstream). **NEXT = Slice 5b.5** (deep-layer
-  scan/connect traces + polish; reserve the inner-gateway octet vs occupant collision) —
-  AC sketched in the plan's "Slice 5b.5" section, not yet grilled/firmed.
+  forwards nothing but ACL-filters its own downstream). **5b.5 (deep-layer traces) GRILLED
+  2026-06-25** (decisions D-trace-1..5, sub-split a/b/c): traces log source = the fronting
+  gateway's `<deep subnet>.1`; **5b.5a (deep CONNECT trace) ✅ MERGED (#318, v0.83.0)** — a
+  deep ssh reach leaves an `auth.log` line on the landed box. **NEXT = Slice 5b.5b** (deep
+  SCAN trace: a fire-and-forget server action appends `kern.log` per touched deep host,
+  shared client/server resolution), then 5b.5c (octet reservation via `mergeLanOccupants`
+  gateway-wins + close-out).
 
-**Current version: 0.82.0.**
+**Current version: 0.83.0.**
 
 To pick up the next slice: read the relevant `plans/*.md` TOP BLOCK (live status +
 as-built), then the cross-player architecture doc if the work touches cross-player paths.
