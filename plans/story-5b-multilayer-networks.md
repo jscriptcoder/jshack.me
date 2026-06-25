@@ -1,17 +1,17 @@
 # Story 5b — Multi-layer Generated Networks (v2)
 
 **Branch**: per-slice branches off `main` (5b.1a … 5b.4c-ii + 5b.4d all merged)
-**Status**: 5b.1a ✅ (#307). 5b.1b-i ✅ (#308, v0.73.0). 5b.1b-ii ✅ (#309, v0.74.0). 5b.2 ✅ (#310, v0.75.0). 5b.3a ✅ (#311, v0.76.0). 5b.3b ✅ (#312, v0.77.0). 5b.4 (CHAINS) sub-split a/b/c/d — **5b.4a ✅ (#313, v0.78.0); 5b.4b ✅ (#314, v0.79.0); 5b.4c-i ✅ (#315, v0.80.0); 5b.4c-ii ✅ (#316, v0.81.0); 5b.4d ✅ MERGED (#317, v0.82.0, squash `f98f5ab`)**. **5b.4 (CHAINS) COMPLETE.** Next = **5b.5 (deep-layer traces + polish)**.
+**Status**: 5b.1a ✅ (#307). 5b.1b-i ✅ (#308, v0.73.0). 5b.1b-ii ✅ (#309, v0.74.0). 5b.2 ✅ (#310, v0.75.0). 5b.3a ✅ (#311, v0.76.0). 5b.3b ✅ (#312, v0.77.0). 5b.4 (CHAINS) sub-split a/b/c/d — **5b.4a ✅ (#313, v0.78.0); 5b.4b ✅ (#314, v0.79.0); 5b.4c-i ✅ (#315, v0.80.0); 5b.4c-ii ✅ (#316, v0.81.0); 5b.4d ✅ MERGED (#317, v0.82.0, squash `f98f5ab`)**. **5b.4 (CHAINS) COMPLETE.** 5b.5 GRILLED 2026-06-25 (D-trace-1..5), sub-split a/b/c. Next = **5b.5a (deep connect trace)**.
 
-> **Status: Slice 5b.4d ✅ MERGED (#317, v0.82.0, squash `f98f5ab`). 5b.4 (CHAINS) COMPLETE. NEXT = Slice 5b.5. ⟵
-> RESUME (exact pick-up): a home's deep chain now MIXES routers + switches — a deep switch is a reachable,
-> rootable chain LEAF that ACL-filters its own downstream (wire-checks `testDeepChainReach.ts` 5/5 +
-> `testDeepSwitchChain.ts` 5/5). 5b.4d as-built: kind seeding `seedDeepGatewayKind` (`deep-gw-kind-`, ~0.33
-> switch, a switch caps the chain) → `buildDeepSwitchBaseFs` + kind-aware `resolveDeepGatewayIdentity` (deep
-> switch FS = `acl.conf`, reach + L2 write) → deep-switch pivot ACL (composes prior increments; the anticipated
-> `resolveHostPorts` widen was a NO-OP — a switch child's NPC FS is port-identical to the switch FS) → wire-checks.
-> Start **5b.5** (deep-layer scan/connect traces; reserve the inner-gateway octet vs occupant collision — AC
-> sketch in the "Slice 5b.5" section). No branch cut yet for 5b.5. The 5b.4c-ii four-increment as-built is below.**
+> **Status: Slice 5b.4d ✅ MERGED (#317, v0.82.0, squash `f98f5ab`). 5b.4 (CHAINS) COMPLETE. 5b.5 GRILLED
+> 2026-06-25 → D-trace-1..5, sub-split a/b/c. NEXT = Slice 5b.5a. ⟵
+> RESUME (exact pick-up): grilling done; firmed decisions + 5b.5a/b/c AC are in the "Slice 5b.5" section
+> below. Deep traces log source = the fronting gateway's `<deep subnet>.1` ("came from the gateway"), for
+> BOTH scan and connect; pivot scan RESULT stays client-side (fire-and-forget side-effect trace only);
+> octet collision fixed by `mergeLanOccupants` gateway-wins. Start **5b.5a (deep connect trace)** — the
+> readable-trace walking skeleton: `authCreateSessionInnerGateway` appends `auth.log` on the landed deep
+> box (`Accepted`/`Failed password … from <gateway .1>`). NO branch cut yet for 5b.5a; AC awaiting the
+> RED gate. The 5b.4d/5b.4c-ii as-built is below.**
 >
 > **5b.4c-ii AS-BUILT (v0.81.0 — the UNIFIED chained-forward reach: a depth-3 chain reaches + scans + writes
 > end-to-end):**
@@ -501,7 +501,14 @@ shipped cross-player loop green (D1).
           feeds both `resolveAuthTarget` (auth) and `resolveInnerGatewayScan` (scan-liveness), so chained ports are
           scan-visible AND reachable (depth-3 via two forwards); bricked intermediate darkens everything below.
   - [x] **5b.4d** Per-layer gateway kind (router/switch) seeded; a switch layer ACL-filters one level deep. ✅ #317
-- [ ] **5b.5** A deep-layer scan/connect leaves an NPC trace readable on that machine.
+- [ ] **5b.5 (TRACES + octet reservation — grilled 2026-06-25 → D-trace-1..5)** A deep-layer scan/connect
+      leaves a readable trace (source = the fronting gateway's `.1`) on the target deep box; the inner
+      gateway survives a colliding occupant. Sub-split a/b/c.
+  - [ ] **5b.5a** Deep CONNECT trace — a deep reach appends `auth.log` (`Accepted`/`Failed password … from
+        <gateway .1>`) on the landed box, readable after landing.
+  - [ ] **5b.5b** Deep SCAN trace — a pivot `nmap` fires a fire-and-forget server trace that appends
+        `kern.log` per touched deep host (shared resolution; switch records post-ACL visible ports).
+  - [ ] **5b.5c** Octet reservation (`mergeLanOccupants` gateway-wins) + epic doc fold-back + plan delete.
 - [ ] **Invariant (every slice):** B scanning the player's **public IP** sees ONLY the edge router +
       forwarded workstation — **never** the deep layers; the shipped `crack→connect→nmap→ssh→su→brick`
       loop is unchanged (wire-checks + agent-browser E2E green).
@@ -959,15 +966,116 @@ the child gateway's kind**, and make every per-kind builder/branch handle a deep
 
 </details>
 
-### Slice 5b.5 — Deep-layer traces + polish
+### Slice 5b.5 — Deep-layer traces + octet reservation + close-out (GRILLED 2026-06-25 → D-trace-1..5)
 
-**Value**: Recon leaves a readable trace on deep NPC machines; loose ends closed. **Path**: deep-layer
-scan/connect write owner-less NPC traces (per-viewer, `hostMachineId`-keyed; source IP home-derived per
-D4); reserve the inner-gateway octet against occupant collision (D5 caveat 1). **Required skills**:
-`tdd`,`testing`,`mutation-testing`,`refactoring`.
-**Acceptance criteria** (confirm before code — detail when reached): a deep-layer scan/connect leaves a
-readable kern.log/auth.log line on the target NPC; the inner-gateway octet survives a colliding
-occupant. **Done when**: criteria met, human approves.
+Recon leaves a readable trace on deep boxes; the inner gateway survives a colliding occupant; the story
+is closed out. Sub-split **a/b/c** (walking-skeleton-first: thin connect trace → the bigger scan trace →
+octet + close-out).
+
+**Grilled decisions:**
+
+- **D-trace-1 — trace BOTH deep scan AND deep connect (full fidelity).** Depth is single-player/private,
+  so a deep trace is a SELF-trace (read only by the same player, after they breach the box). Still worth
+  full fidelity: the deep net is the pivot-practice surface (D5), and a playground where recon leaves no
+  trace teaches the wrong lesson and denies track-covering practice. The pivot scan RESULT stays
+  client-side (deterministic, fast); only a fire-and-forget side-effect trace call is added.
+- **D-trace-2 — source IP = the fronting gateway's `<deep subnet>.1` ("came from the gateway"), for BOTH
+  scan and connect.** Unified rule: a trace logs the box the attacker operates FROM, as routable on the
+  target's segment. An outside cross-player scan logs the scanner's home public IP (shipped, UNCHANGED);
+  an inside deep scan/connect logs the vantage gateway's downstream `.1`. Server-computable by
+  regenerating the deep layer from the verified key + vantage `machine_id` → `${deep.subnet}.1`; no
+  registry lookup. This is NOT the deferred cross-player masking-half (pivoting through ANOTHER player's
+  box to hide your IP from a THIRD party, D4) — the deep case is your own private chain, so logging the
+  gateway is just correct, not gold-plating.
+- **D-trace-3 — scan trace = client result + fire-and-forget server side-effect.** Mirrors the shipped
+  own-LAN scan (`nmap.ts` `void env.scan.record(...)`). The pivot result keeps resolving CLIENT-side; a
+  new vantage-keyed server action regenerates the deep layer and appends ONE aggregate `kern.log` line
+  per touched deep host (terminal NPC + child gateway if in range) via `appendMachineLog` +
+  `formatNmapScanAggregate`. A switch vantage records the post-ACL VISIBLE ports (what actually reached
+  the host). The deep host/port resolution that today lives client-side in `resolveDeepPivotScan` is
+  EXTRACTED to a shared `core/` fn consumed by BOTH the client render and the server trace, so they
+  can't drift.
+- **D-trace-4 — connect trace = auth.log on the existing reach path.** `authCreateSessionInnerGateway`
+  gains an `auth.log` append on the landed deep box: `Accepted password … from <gateway .1>` on success,
+  `Failed password …` on a wrong-password reach (both readable once you're IN — the failure line surfaces
+  earlier attempts after you eventually get in). A no-forward/dead-port reach writes nothing (no target
+  box to log on). NO new api action — rides the existing server round-trip.
+- **D-trace-5 — octet reservation = gateway wins in the merge.** `mergeLanOccupants` protects generated
+  `kind !== 'machine'` hosts (the inner router + switch): a colliding occupant is dropped from THIS
+  viewer's nmap (still in `home_network_occupants` + attackable via their public IP). The non-colliding
+  case is byte-unchanged (pure addition on the collision path). Priority: your private depth-entry beats
+  one occupant's same-LAN visibility. The collision is structural (the occupant's octet is
+  viewer-independent — `assignHomeNetwork` seeds it off the OCCUPANT's key — so it can't be avoided at
+  allocation); the collision-free unique-IP/DHCP allocation service stays the deferred PROPER fix.
+
+#### Slice 5b.5a — Deep connect trace (the readable-trace walking skeleton)
+
+**Value**: After reaching a deep box, the player can `cat /var/log/auth.log` and see their own login
+recorded — the deep box "feels real," and the gateway-sourced line teaches the login arrived through the
+gateway.
+**Path**: `ssh user@<inner>:<fwd>` → `authCreateSessionInnerGateway` lands the session on the deep box →
+the server appends an `auth.log` line (`formatSshdAuthLine`, source = `${deep.subnet}.1` derived by
+regenerating the deep layer) to the landed `machine_id` via `appendMachineLog` (writer = the verified
+caller key, per-viewer) → after landing, `cat /var/log/auth.log` (journal-replayed) shows it. A
+wrong-password reach appends a `Failed password` line to the same box; a no-forward/dead-port reach
+writes nothing.
+**Required implementation skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
+**Acceptance criteria** (confirm before code):
+1. A successful deep reach appends `Accepted password for <user> from ${deep.subnet}.1` to the landed
+   deep box's `/var/log/auth.log`, readable after landing (journal-replayed).
+2. A wrong-password reach against a RESOLVABLE deep box appends `Failed password for <user> from
+   ${deep.subnet}.1` to that box; a no-forward/dead-port reach writes NO line.
+3. The source IP is the fronting gateway's downstream `.1` of the deep subnet (server-derived), never the
+   player's home IP.
+4. Best-effort: a logging failure never fails the reach (the session still lands).
+5. The shipped reach behaviour stays green; a wire-check (extend `testDeepChainReach.ts` /
+   `testInnerGatewayReach.ts`) drives the real `/api/sessions` reach and asserts the auth.log line.
+**RED/GREEN/MUTATE/KILL/REFACTOR**: per the skills. **Done when**: criteria met, ~100% mutation on changed
+core, wire-check green, version bumped, human approves.
+
+#### Slice 5b.5b — Deep scan trace (fire-and-forget server side-effect)
+
+**Value**: A pivot `nmap` of a deep `/24` leaves a `kern.log` line on each touched deep host — the recon
+is recorded, readable after you breach the host; the practice surface logs scans like a real network.
+**Path**: pivot `nmap <deep /24>` resolves the RESULT client-side (unchanged) AND fires a
+fire-and-forget `env.scan.recordDeep({ essid, target, vantage })` → a new server action regenerates the
+deep layer from the verified key + vantage `machine_id` + kind, resolves the touched hosts via the SHARED
+`core/` resolution, and appends one aggregate `kern.log` line (source = `${deep.subnet}.1`) per host via
+`appendMachineLog`. A switch vantage records the post-ACL visible ports. Best-effort.
+**Required implementation skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
+**Acceptance criteria** (confirm before code):
+1. A deep pivot scan appends an aggregate `kern.log` line to each touched deep host (terminal NPC + child
+   gateway when in range), readable on that host after breach (journal-replayed), source =
+   `${deep.subnet}.1`.
+2. The trace records the SAME ports the pivot scan displays (the deep host/port resolution is shared, so
+   render and trace can't drift) — a behavioural test exercising both proves the equivalence.
+3. A switch vantage records the post-ACL visible ports: a `deny`'d port does NOT appear in the trace, and
+   deleting the `deny` makes it reappear on the next scan (this also kills the deferred 5b.4d
+   deep-switch `acl.conf`-seed survivor).
+4. Fire-and-forget: a trace/round-trip failure never breaks or delays the scan RESULT.
+5. The pivot scan RESULT is byte-unchanged from today (client-resolved); a new wire-check (extend
+   `testDeepSwitchChain.ts` or a sibling `testDeepScanTrace.ts`) drives the real api action and asserts
+   the lines.
+**RED/GREEN/MUTATE/KILL/REFACTOR**: per the skills. **Done when**: criteria met, ~100% mutation on changed
+core, wire-check green, version bumped, human approves.
+
+#### Slice 5b.5c — Octet reservation + story close-out
+
+**Value**: A busy AP can no longer eat your inner gateway/switch — your depth entry always survives; the
+story is closed out.
+**Path**: `mergeLanOccupants` drops a colliding occupant when its octet matches a generated
+`kind !== 'machine'` host (the gateway/switch survive); then fold the 5b epic-reconciliation notes back
+into `multiplayer-crossplayer-epic.md`, delete this plan, and bump the conventions-doc status.
+**Required implementation skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
+**Acceptance criteria** (confirm before code):
+1. When a real occupant's octet equals the viewer's inner gateway or switch octet, the merged LAN keeps
+   the gateway/switch and OMITS that occupant; the non-colliding case is unchanged (every occupant still
+   wins over a generated `machine` sibling).
+2. Close-out: `multiplayer-crossplayer-epic.md` updated (5b absorbed the reachability half; cross-player
+   source-IP masking still deferred; deep traces now log the gateway); plan deleted; conventions-doc
+   status → 5b.5 done.
+**RED/GREEN/MUTATE/KILL/REFACTOR**: per the skills. **Done when**: criteria met, ~100% mutation on the
+merge change, human approves.
 
 ## Pre-PR Quality Gate (every slice)
 

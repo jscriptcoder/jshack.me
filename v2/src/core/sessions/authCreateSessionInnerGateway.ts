@@ -46,6 +46,20 @@ import { resolveChildGatewayHop } from '../network/childGatewayHop';
 import { machineServing } from '../network/machineServing';
 import { readOpenPorts } from '../services/pidfile';
 import { canBoot } from '../boot/bootFiles';
+import {
+  AUTH_LOG_OWNER,
+  AUTH_LOG_PATH,
+  AUTH_LOG_PERMISSIONS,
+  formatSshdAuthLine,
+} from '../logging/authLog';
+import { derivePid } from '../logging/syslog';
+import {
+  appendMachineLog,
+  type MachineLogReadQuery,
+  type MachineLogReadResult,
+} from '../patches/appendMachineLog';
+import { asGameTime } from '../types';
+import type { PatchRow } from '../patches/upsertPatch';
 import type { Directory } from '../filesystem/types';
 import type { AuthSessionRow, HandlerResponse } from './authCreateSession';
 import type { NonceStore } from '../signedRequest/nonceStore';
@@ -59,6 +73,13 @@ export type AuthCreateSessionInnerGatewayDeps = {
     readonly machine_id: string;
   }) => Promise<{ readonly data: readonly OwnerPatchRow[] | null; readonly error: unknown }>;
   readonly insertSession: (row: AuthSessionRow) => Promise<{ readonly error: unknown }>;
+  /** The server's wall clock, epoch-ms (UTC) — stamps the deep-reach auth.log line. */
+  readonly now: () => number;
+  /** Read the current content of the landed deep box's auth.log on the shared journal,
+   *  keyed `(machine_id, path, writer_key)` — the read half of the appended line. */
+  readonly readAuthLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
+  /** Write a patch (here: the appended auth.log line on the landed deep box). */
+  readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
 };
 
 // The destination ssh port when the client sends none — a bare `ssh user@host` is
@@ -87,7 +108,17 @@ const authCreateSessionInnerGatewaySchema = z
  *  unreachable port (→ 404 host_unreachable), or a child-gateway journal fetch that
  *  failed mid-walk (→ 500, distinct from a port that simply leads nowhere). */
 type AuthResolution =
-  | { readonly kind: 'target'; readonly fs: Directory; readonly machineId: string }
+  | {
+      readonly kind: 'target';
+      readonly fs: Directory;
+      readonly machineId: string;
+      /** The landed box's hostname — the `auth.log` trace line carries it. */
+      readonly hostname: string;
+      /** The source IP the trace records: the `.1` of the deep subnet the connection
+       *  arrived through (the fronting gateway). `null` when the reach landed on the
+       *  inner gateway's OWN `:22` — a Layer-1 box, not a deep one, so no deep trace. */
+      readonly sourceIp: string | null;
+    }
   | { readonly kind: 'unreachable' }
   | { readonly kind: 'lookup_failed' };
 
@@ -102,6 +133,10 @@ type ChainContext = {
   readonly depth: number;
   readonly findPatches: AuthCreateSessionInnerGatewayDeps['findPatches'];
 };
+
+/** The gateway the walk currently sits on: a `FrontingGateway` plus the hostname the
+ *  landed box's `auth.log` trace line carries (its seeded name). */
+type WalkGateway = FrontingGateway & { readonly hostname: string };
 
 /** Does this materialized tree run a daemon on `port`? A forward whose internal port
  *  no box behind the gateway serves is a dark DNAT target (→ host_unreachable). */
@@ -133,13 +168,24 @@ const servesInternalPort = (fs: Directory, port: number): boolean =>
 const resolveAuthTarget = async (
   context: ChainContext,
   gatewayFs: Directory,
-  frontingGateway: FrontingGateway,
+  frontingGateway: WalkGateway,
   port: number,
   position: number,
+  arrivalSubnet: string | null,
 ): Promise<AuthResolution> => {
   const served = machineServing({ routerFs: gatewayFs, port });
   if (served.kind === 'router') {
-    return { kind: 'target', fs: gatewayFs, machineId: frontingGateway.machineId };
+    // Landing on this gateway's own `:22`. The source IP is the `.1` of the subnet the
+    // connection arrived on — `null` at the top of the walk (the inner gateway, a
+    // Layer-1 box reached directly), a deep `.1` for a child gateway reached through a
+    // forward.
+    return {
+      kind: 'target',
+      fs: gatewayFs,
+      machineId: frontingGateway.machineId,
+      hostname: frontingGateway.hostname,
+      sourceIp: arrivalSubnet === null ? null : `${arrivalSubnet}.1`,
+    };
   }
   if (served.kind === 'none') {
     return UNREACHABLE;
@@ -154,7 +200,13 @@ const resolveAuthTarget = async (
   if (served.internalIp === deep.host.ip) {
     const deepFs = buildDeepHostFs(context.publicKey, context.essid, deep.host);
     return servesInternalPort(deepFs, served.internalPort)
-      ? { kind: 'target', fs: deepFs, machineId: hostMachineId(deep.host, context.essid) }
+      ? {
+          kind: 'target',
+          fs: deepFs,
+          machineId: hostMachineId(deep.host, context.essid),
+          hostname: deep.host.hostname,
+          sourceIp: `${deep.subnet}.1`,
+        }
       : UNREACHABLE;
   }
   // The forward reaches the CHILD GATEWAY that fronts the next layer down. Resolve it
@@ -178,13 +230,56 @@ const resolveAuthTarget = async (
     return resolveAuthTarget(
       context,
       hop.fs,
-      { machineId: hop.machineId, kind: deep.childGateway.kind },
+      { machineId: hop.machineId, kind: deep.childGateway.kind, hostname: deep.childGateway.hostname },
       served.internalPort,
       position + 1,
+      deep.subnet,
     );
   }
   // The forward points at no box on the layer — a stray internal IP, a dark DNAT target.
   return UNREACHABLE;
+};
+
+/** Stamp the deep reach onto the landed box's `/var/log/auth.log` via the shared
+ *  system-log primitive — on BOTH outcomes (sshd records accepted AND rejected logins).
+ *  The writer is the CALLER's own key: deep boxes are private per-viewer NPCs, so the
+ *  trace accretes under the player who reads it back once they are in. The source IP is
+ *  the fronting gateway's `.1` (the box the connection arrived through). Best-effort: a
+ *  logging failure must never break (or fabricate) the auth. */
+const logDeepReachAuth = async (
+  deps: AuthCreateSessionInnerGatewayDeps,
+  target: {
+    readonly machineId: string;
+    readonly hostname: string;
+    readonly sourceIp: string;
+    readonly writerKey: string;
+  },
+  attempt: { readonly outcome: 'success' | 'failure'; readonly user: string },
+): Promise<void> => {
+  const stamp = deps.now();
+  const line = formatSshdAuthLine({
+    outcome: attempt.outcome,
+    user: attempt.user,
+    fromIp: target.sourceIp,
+    hostname: target.hostname,
+    time: asGameTime(stamp),
+    pid: derivePid(stamp),
+  });
+  try {
+    await appendMachineLog(
+      { readLog: deps.readAuthLog, upsertPatch: deps.upsertPatch },
+      {
+        writerKey: target.writerKey,
+        machineId: target.machineId,
+        path: AUTH_LOG_PATH,
+        owner: AUTH_LOG_OWNER,
+        permissions: AUTH_LOG_PERMISSIONS,
+      },
+      line,
+    );
+  } catch {
+    // best-effort: the reach stands regardless of a logging failure.
+  }
 };
 
 export const handleAuthCreateSessionInnerGateway = async (
@@ -235,9 +330,10 @@ export const handleAuthCreateSessionInnerGateway = async (
       findPatches: deps.findPatches,
     },
     gatewayFs,
-    { machineId: gatewayMachineId, kind: gateway.kind },
+    { machineId: gatewayMachineId, kind: gateway.kind, hostname: gateway.hostname },
     payload.port ?? DEFAULT_SSH_PORT,
     1,
+    null,
   );
   // A child journal fetch that failed mid-walk is a server error, not a dead port — keep
   // it distinct from the host-unreachable a port leading nowhere produces.
@@ -253,6 +349,24 @@ export const handleAuthCreateSessionInnerGateway = async (
   // never reveals which accounts exist.
   const account = accountIn(resolution.fs, payload.username);
   const passwordOk = account !== null && md5(payload.password) === account.hash;
+
+  // A DEEP reach (resolved through a forward) leaves an sshd auth.log line on the landed
+  // box — on both outcomes, readable once the player is in — sourced from the fronting
+  // gateway's `.1`. Landing on the inner gateway's own `:22` is a Layer-1 box (sourceIp
+  // null), not a deep one, so it records nothing here.
+  if (resolution.sourceIp !== null) {
+    await logDeepReachAuth(
+      deps,
+      {
+        machineId: resolution.machineId,
+        hostname: resolution.hostname,
+        sourceIp: resolution.sourceIp,
+        writerKey: publicKey,
+      },
+      { outcome: passwordOk ? 'success' : 'failure', user: payload.username },
+    );
+  }
+
   if (account === null || !passwordOk) {
     return { status: 401, body: { error: 'invalid_credentials' } };
   }

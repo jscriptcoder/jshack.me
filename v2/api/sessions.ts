@@ -336,10 +336,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (error) console.error('[sessions] inner-gateway auth insert error:', error);
       return { error };
     };
+    // The system-written sshd auth.log line on the landed DEEP box: read the current
+    // content + upsert the appended line (read-modify-write, bypassing L1/L2 — the
+    // service logs it, not the player). Written under the CALLER's OWN writer_key —
+    // deep boxes are private per-viewer NPCs, so the trace accretes under the player who
+    // reads it back. Same `patches`-table shapes as the public/same-lan appenders.
+    const readAuthLog = async ({ writer_key, machine_id, path }: MachineLogReadQuery) => {
+      const { data, error } = await supabase
+        .from('patches')
+        .select('content')
+        .eq('writer_key', writer_key)
+        .eq('machine_id', machine_id)
+        .eq('path', path)
+        .maybeSingle();
+      if (error) console.error('[sessions] inner-gateway auth-log read error:', error);
+      return { data, error };
+    };
+    const upsertInnerGatewayAuthLog = async (row: PatchRow) => {
+      const { error } = await supabase
+        .from('patches')
+        .upsert(row, { onConflict: 'machine_id,path,writer_key' });
+      if (error) console.error('[sessions] inner-gateway auth-log upsert error:', error);
+      return { error };
+    };
     const { status, body } = await handleAuthCreateSessionInnerGateway(req.body, {
       nonceStore: noopNonceStore,
       findPatches,
       insertSession,
+      now: () => Date.now(),
+      readAuthLog,
+      upsertPatch: upsertInnerGatewayAuthLog,
     });
     res.status(status).json(body);
     return;
