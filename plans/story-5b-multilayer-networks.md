@@ -1,13 +1,17 @@
 # Story 5b — Multi-layer Generated Networks (v2)
 
-**Branch**: per-slice branches off `main` (5b.1a + 5b.1b-i + 5b.1b-ii + 5b.2 + 5b.3a + 5b.3b + 5b.4a + 5b.4b + 5b.4c-i + 5b.4c-ii all merged)
-**Status**: 5b.1a ✅ (#307). 5b.1b-i ✅ (#308, v0.73.0). 5b.1b-ii ✅ (#309, v0.74.0). 5b.2 ✅ (#310, v0.75.0). 5b.3a ✅ (#311, v0.76.0). 5b.3b ✅ (#312, v0.77.0). 5b.4 (CHAINS) sub-split a/b/c/d — **5b.4a ✅ (#313, v0.78.0); 5b.4b ✅ (#314, v0.79.0); 5b.4c-i ✅ (#315, v0.80.0); 5b.4c-ii ✅ MERGED (#316, v0.81.0, squash `aef9d69`)**; next = **5b.4d (gateway-kind variety per layer)**.
+**Branch**: per-slice branches off `main` (5b.1a … 5b.4c-ii + 5b.4d all merged)
+**Status**: 5b.1a ✅ (#307). 5b.1b-i ✅ (#308, v0.73.0). 5b.1b-ii ✅ (#309, v0.74.0). 5b.2 ✅ (#310, v0.75.0). 5b.3a ✅ (#311, v0.76.0). 5b.3b ✅ (#312, v0.77.0). 5b.4 (CHAINS) sub-split a/b/c/d — **5b.4a ✅ (#313, v0.78.0); 5b.4b ✅ (#314, v0.79.0); 5b.4c-i ✅ (#315, v0.80.0); 5b.4c-ii ✅ (#316, v0.81.0); 5b.4d ✅ MERGED (#317, v0.82.0, squash `f98f5ab`)**. **5b.4 (CHAINS) COMPLETE.** Next = **5b.5 (deep-layer traces + polish)**.
 
-> **Status: Slice 5b.4c-ii ✅ MERGED (#316, v0.81.0, squash `aef9d69`). NEXT = Slice 5b.4d. ⟵
-> RESUME (exact pick-up): the deep chains now reach + scan + write end-to-end (wire-check `testDeepChainReach.ts`
-> `5/5`). **5b.4d AC FIRMED via grill-me 2026-06-25 → D-kind-1..5 in the "Slice 5b.4d" section (ready to plan +
-> cut a branch).** Then 5b.5 (deep-layer traces). No branch cut yet for 5b.4d. The 5b.4c-ii four-increment
-> as-built is below.**
+> **Status: Slice 5b.4d ✅ MERGED (#317, v0.82.0, squash `f98f5ab`). 5b.4 (CHAINS) COMPLETE. NEXT = Slice 5b.5. ⟵
+> RESUME (exact pick-up): a home's deep chain now MIXES routers + switches — a deep switch is a reachable,
+> rootable chain LEAF that ACL-filters its own downstream (wire-checks `testDeepChainReach.ts` 5/5 +
+> `testDeepSwitchChain.ts` 5/5). 5b.4d as-built: kind seeding `seedDeepGatewayKind` (`deep-gw-kind-`, ~0.33
+> switch, a switch caps the chain) → `buildDeepSwitchBaseFs` + kind-aware `resolveDeepGatewayIdentity` (deep
+> switch FS = `acl.conf`, reach + L2 write) → deep-switch pivot ACL (composes prior increments; the anticipated
+> `resolveHostPorts` widen was a NO-OP — a switch child's NPC FS is port-identical to the switch FS) → wire-checks.
+> Start **5b.5** (deep-layer scan/connect traces; reserve the inner-gateway octet vs occupant collision — AC
+> sketch in the "Slice 5b.5" section). No branch cut yet for 5b.5. The 5b.4c-ii four-increment as-built is below.**
 >
 > **5b.4c-ii AS-BUILT (v0.81.0 — the UNIFIED chained-forward reach: a depth-3 chain reaches + scans + writes
 > end-to-end):**
@@ -496,7 +500,7 @@ shipped cross-player loop green (D1).
     - [ ] **5b.4c-ii** UNIFIED chained-forward reach, end-to-end playable — ONE shared recursive chain-follow core
           feeds both `resolveAuthTarget` (auth) and `resolveInnerGatewayScan` (scan-liveness), so chained ports are
           scan-visible AND reachable (depth-3 via two forwards); bricked intermediate darkens everything below.
-  - [ ] **5b.4d** Per-layer gateway kind (router/switch) seeded; a switch layer ACL-filters one level deep.
+  - [x] **5b.4d** Per-layer gateway kind (router/switch) seeded; a switch layer ACL-filters one level deep. ✅ #317
 - [ ] **5b.5** A deep-layer scan/connect leaves an NPC trace readable on that machine.
 - [ ] **Invariant (every slice):** B scanning the player's **public IP** sees ONLY the edge router +
       forwarded workstation — **never** the deep layers; the shipped `crack→connect→nmap→ssh→su→brick`
@@ -860,7 +864,21 @@ dead-ends (dark target / unserved port) is NOT surfaced and is refused. (3) a br
 depth-3 reach end-to-end through the real `/api/network` (scan surfaces P) + `/api/sessions` (auth lands on L3)
 + `/api/patches`. **Done when**: criteria met, mutation report reviewed, human approves, version bumped.
 
-#### Slice 5b.4d — Gateway-kind variety per layer ← NEXT (AC firmed via grill-me 2026-06-25; ready to plan)
+#### Slice 5b.4d — Gateway-kind variety per layer ✅ MERGED (#317, v0.82.0, squash `f98f5ab`)
+
+**AS-BUILT (4 increments):** (1) `33f215b` `seedDeepGatewayKind` (`deep-gw-kind-${key}:${parentMid}:${octet}`,
+`DEEP_SWITCH_PROBABILITY=0.33`) → `generateDeepLayer` seeds `childGateway.kind`; a switch caps the chain (byte-
+stable; `seedNetworkDepth`=max). (2) `e112965` `buildDeepSwitchBaseFs` (deep switch = `acl.conf` box, reuses
+`seedDeepGatewayAdminPw`) + kind-aware `resolveDeepGatewayIdentity` threaded through `chainFrom` (L2 write),
+`resolveChildGatewayHop` (reach/scan), nmap pivot — a player roots a deep switch (`ssh`→`:22`) + `nano`s its
+`acl.conf`. (3) `8b83ceb` deep-switch pivot ACL test (composes Inc 1+2+5b.3b; **the anticipated `resolveHostPorts`
+widen was a NO-OP** — a switch child's NPC FS is port-identical to the switch FS, only `:22`, so it was omitted).
+(4) `d880aeb` wire-checks `testDeepSwitchChain.ts` 5/5 + `testDeepChainReach.ts` 5/5 (alice re-picked all-router)
++ bump 0.82.0. Mutation: `lanHostIdentity`/`childGatewayHop` 100%. Decisions D-kind-1..5 below (firmed `0d0643d`).
+
+---
+
+<details><summary>Original 5b.4d plan (pre-build) — kept for the decision record</summary>
 
 **Value**: A chain can mix routers and switches — a switch layer filters its downstream by ACL one level
 deep. **Path**: seed each deep child gateway's kind (router/switch); a switch deep gateway builds a deep
@@ -938,6 +956,8 @@ the child gateway's kind**, and make every per-kind builder/branch handle a deep
   `testDeepSwitchChain.ts` drives the router→switch chain end-to-end through `/api/{network,sessions,patches}`.
 - [ ] The shipped cross-player E2E loop + depth-1/single-forward reach stay green; ~100% mutation on changed
   core; version bumped.
+
+</details>
 
 ### Slice 5b.5 — Deep-layer traces + polish
 
