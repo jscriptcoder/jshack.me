@@ -37,12 +37,14 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
   forwards nothing but ACL-filters its own downstream). **5b.5 (deep-layer traces) GRILLED
   2026-06-25** (decisions D-trace-1..5, sub-split a/b/c): traces log source = the fronting
   gateway's `<deep subnet>.1`; **5b.5a (deep CONNECT trace) ✅ MERGED (#318, v0.83.0)** — a
-  deep ssh reach leaves an `auth.log` line on the landed box. **NEXT = Slice 5b.5b** (deep
-  SCAN trace: a fire-and-forget server action appends `kern.log` per touched deep host,
-  shared client/server resolution), then 5b.5c (octet reservation via `mergeLanOccupants`
-  gateway-wins + close-out).
+  deep ssh reach leaves an `auth.log` line on the landed box; **5b.5b (deep SCAN trace) ✅
+  (v0.84.0)** — a pivot `nmap` fires a fire-and-forget `nmapScanDeep` (on `/api/patches`)
+  that appends `kern.log` per touched deep host through the shared `core/scan/deepScanHosts`
+  resolver (client render + server trace can't drift; a switch vantage records post-ACL
+  ports). **NEXT = Slice 5b.5c** (octet reservation via `mergeLanOccupants` gateway-wins +
+  close-out).
 
-**Current version: 0.83.0.**
+**Current version: 0.84.0.**
 
 To pick up the next slice: read the relevant `plans/*.md` TOP BLOCK (live status +
 as-built), then the cross-player architecture doc if the work touches cross-player paths.

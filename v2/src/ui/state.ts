@@ -29,6 +29,7 @@ import type {
   PublicAuthResult,
   PatchResult,
   PublicScanResolution,
+  DeepScanRecordParams,
   RemoteAuthParams,
   RemoteAuthResult,
   SameLanAuthParams,
@@ -62,6 +63,7 @@ import {
   createPatchApi,
   fetchOwnPatches,
   postAuthLog,
+  recordDeepScan,
   recordScan,
   type PatchClientDeps,
 } from '../adapters/patchApi';
@@ -320,6 +322,11 @@ const suElevate = (params: SuElevateParams): Promise<RemoteAuthResult> =>
  *  no-op until `startGame` wires the patch client; the scan stands regardless. */
 const recordScanFn = (params: ScanRecordParams): Promise<void> =>
   patchClientDeps === undefined ? Promise.resolve() : recordScan(patchClientDeps, params);
+
+/** Record a deep PIVOT scan server-side (backs `env.scan.recordDeep`). Best-effort
+ *  and a no-op until `startGame` wires the patch client; the scan stands regardless. */
+const recordDeepScanFn = (params: DeepScanRecordParams): Promise<void> =>
+  patchClientDeps === undefined ? Promise.resolve() : recordDeepScan(patchClientDeps, params);
 
 /** Resolve an `nmap <public IP>` cross-player (backs `env.scan.resolvePublic`).
  *  Host-down until `startGame` wires the network client — degrade rather than crash. */
@@ -830,6 +837,7 @@ const executeLine = async (line: string): Promise<void> => {
     onSshAuthenticateInnerGateway: sshAuthenticateInnerGateway,
     onSuElevate: suElevate,
     onScanRecord: recordScanFn,
+    onScanRecordDeep: recordDeepScanFn,
     onScanResolvePublic: resolvePublicFn,
     onScanResolveInnerGateway: resolveInnerGatewayFn,
     onScanResolveOccupants: resolveOccupantsFn,

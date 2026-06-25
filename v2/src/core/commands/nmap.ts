@@ -20,19 +20,17 @@ import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
 import { buildRouterBaseFs } from '../generation/routerFs';
-import { buildDeepHostFs, generateDeepLayer } from '../generation/generateDeepLayer';
 import { isPublicIp } from '../generation/ip';
 import { parseScanTarget, hostsInScanTarget } from '../network/scanTarget';
 import { mergeLanOccupants } from '../network/mergeLanOccupants';
 import { readOpenPorts, type OpenPort } from '../services/pidfile';
 import { scanResult } from '../scan/scanResult';
+import { resolveDeepScanHosts } from '../scan/deepScanHosts';
 import {
   isInnerGateway,
   pivotVantageForMachineId,
-  resolveDeepGatewayIdentity,
   type PivotVantage,
 } from '../generation/lanHostIdentity';
-import { parseAclDenies, readAclConf } from '../network/switchAcl';
 
 const error = (message: string): CommandResult => ({
   kind: 'sync',
@@ -174,55 +172,47 @@ async function* scanInnerGateway(
 /** Scan the deep `/24` BEHIND the gateway the active shell is standing on — the
  *  reachability pivot. Returns the scan when the target falls inside the deep subnet,
  *  or null when it doesn't (a home/foreign target falls through to the home path, so
- *  the upstream segment stays visible from the gateway too). The deep layer is keyed
- *  off the vantage gateway's machine_id and is terminal when the vantage is itself a
- *  deep gateway (the chain's depth bound). The deep hosts are deterministic with no
- *  journal, so their ports resolve CLIENT-side — no server round-trip and no NAT
- *  forward needed: you are on the segment. Leaves no trace here (deep-layer logging is
- *  its own concern). */
+ *  the upstream segment stays visible from the gateway too). The deep hosts + their
+ *  post-ACL ports resolve CLIENT-side through the SHARED `resolveDeepScanHosts` — the
+ *  same resolution the server trace uses, so the scan display and its kern.log trace
+ *  can never drift. A fire-and-forget `recordDeep` leaves that trace on each touched
+ *  deep host. */
 const resolveDeepPivotScan = (
   env: CommandEnv,
   essid: string,
   rawTarget: string,
   vantage: PivotVantage,
 ): CommandResult | null => {
-  const deep = generateDeepLayer(
+  const resolution = resolveDeepScanHosts(
     env.identity.publicKeyHex,
     essid,
-    { machineId: vantage.machineId, kind: vantage.kind },
-    { hangsChild: vantage.hangsChild },
+    vantage,
+    env.fs.root(),
   );
-  const parsed = parseScanTarget(rawTarget, deep.subnet);
+  const parsed = parseScanTarget(rawTarget, resolution.subnet);
   if (!parsed.ok) {
     return null;
   }
-  // A router fronts a child gateway (the door to the next layer down) alongside the
-  // terminal NPC, unless this layer is terminal; a switch forwards nothing, so it
-  // fronts no child either way.
-  const deepLan = {
-    subnet: deep.subnet,
-    hosts: deep.childGateway === null ? [deep.host] : [deep.host, deep.childGateway],
-  };
+  // Leave a deep-layer trace: record the pivot scan server-side (the server resolves
+  // the touched deep hosts and writes each one's kern.log itself). Fire-and-forget so
+  // the round-trip never delays the client-resolved scan, and a failure — or an
+  // unwired seam — never breaks it.
+  try {
+    void env.scan
+      .recordDeep({ essid, target: rawTarget, vantageMachineId: vantage.machineId })
+      .catch(() => undefined);
+  } catch {
+    // best-effort: logging must not surface to the scan.
+  }
+  // Ports come straight off the shared resolution (keyed by IP), so the rendered ports
+  // match the kern.log trace the server writes from the same resolver. The `?? []` is
+  // unreachable — `scanSingle` only asks for a host it was handed, and every such host
+  // is in the map — it just satisfies the total resolver type (a host-down scan renders
+  // without ever reading ports).
+  const deepLan = { subnet: resolution.subnet, hosts: resolution.hosts.map((entry) => entry.host) };
   const hosts = hostsInScanTarget(deepLan, parsed.target);
-  // A switch fronts its segment behind an ACL: a port listed in the switch's live
-  // `/etc/switch/acl.conf` (read off env.fs — the journal-replayed switch tree, so an
-  // edit takes effect on the next scan) is filtered out of the downstream view. A
-  // router forwards rather than filters, so it denies nothing here.
-  const deniedPorts =
-    vantage.kind === 'switch'
-      ? new Set(parseAclDenies(readAclConf(env.fs.root())))
-      : new Set<number>();
-  // A child gateway is a deep router (its own root toolkit + sshd), keyed off the
-  // vantage gateway as its parent; the terminal NPC is a generated host. Read each
-  // host's ports from its own seeded tree.
-  const resolveHostPorts = (host: LanHost): readonly OpenPort[] => {
-    const hostFs =
-      host.kind === 'router'
-        ? resolveDeepGatewayIdentity(env.identity.publicKeyHex, vantage.machineId, host.ip, host.kind)
-            .baseFs
-        : buildDeepHostFs(env.identity.publicKeyHex, essid, host);
-    return readOpenPorts(hostFs).filter((openPort) => !deniedPorts.has(openPort.port));
-  };
+  const portsByIp = new Map(resolution.hosts.map((entry) => [entry.host.ip, entry.ports]));
+  const resolveHostPorts = (host: LanHost): readonly OpenPort[] => portsByIp.get(host.ip) ?? [];
   const lines =
     parsed.target.kind === 'range'
       ? scanRange(env, rawTarget, hosts)

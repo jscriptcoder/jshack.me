@@ -1070,13 +1070,20 @@ describe('nmap — reachability-pivot from an inner gateway (5b.2)', () => {
    *  pivot reads its live `/etc/switch/acl.conf` from here. */
   const vantageEnv = (
     machineId: string,
-    opts: { readonly record?: ScanApi['record']; readonly fs?: Directory } = {},
+    opts: {
+      readonly record?: ScanApi['record'];
+      readonly recordDeep?: ScanApi['recordDeep'];
+      readonly fs?: Directory;
+    } = {},
   ) =>
     mockCommandEnv({
       identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
       network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
       session: mockSession({ machineId: asMachineId(machineId) }),
-      scan: mockScanApi(opts.record ? { record: opts.record } : {}),
+      scan: mockScanApi({
+        ...(opts.record ? { record: opts.record } : {}),
+        ...(opts.recordDeep ? { recordDeep: opts.recordDeep } : {}),
+      }),
       ...(opts.fs ? { fs: mockFsViewFromTree(opts.fs) } : {}),
     });
 
@@ -1269,12 +1276,48 @@ describe('nmap — reachability-pivot from an inner gateway (5b.2)', () => {
     expect(opened.text).toContain('22/tcp   open  ssh');
   });
 
-  it('leaves no deep-layer trace — the pivot scan does not record a kern.log line', async () => {
+  it('fires a fire-and-forget deep-scan trace keyed by the vantage machine_id when the pivot resolves', async () => {
+    const recordDeep = vi.fn(async () => undefined);
     const record = vi.fn(async () => undefined);
 
-    await drain(await nmap.execute(vantageEnv(idOf(INNER), { record }), [DEEP.host.ip], new Map()));
+    await drain(
+      await nmap.execute(vantageEnv(idOf(INNER), { record, recordDeep }), [DEEP.host.ip], new Map()),
+    );
 
+    // The deep pivot records via the deep endpoint (keyed by the vantage the shell
+    // stands on), never the own-LAN `record`.
+    expect(recordDeep).toHaveBeenCalledWith({
+      essid: ESSID,
+      target: DEEP.host.ip,
+      vantageMachineId: idOf(INNER),
+    });
     expect(record).not.toHaveBeenCalled();
+  });
+
+  it('does not fire a deep-scan trace when the target falls through to the home path', async () => {
+    const recordDeep = vi.fn(async () => undefined);
+
+    // A home-/24 target from the gateway vantage is not a deep-subnet address, so the
+    // pivot branch declines and the home path handles it — no deep trace.
+    await drain(
+      await nmap.execute(vantageEnv(idOf(INNER), { recordDeep }), [`${lan.subnet}.1-30`], new Map()),
+    );
+
+    expect(recordDeep).not.toHaveBeenCalled();
+  });
+
+  it('still renders the pivot scan when the deep-scan trace rejects (best-effort)', async () => {
+    const recordDeep = vi.fn(async () => {
+      throw new Error('endpoint down');
+    });
+
+    const { text, exitCode } = await drain(
+      await nmap.execute(vantageEnv(idOf(INNER), { recordDeep }), [DEEP.host.ip], new Map()),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(text).toContain(`Nmap scan report for ${DEEP.host.hostname} (${DEEP.host.ip})`);
+    expect(text).toContain('22/tcp   open  ssh');
   });
 });
 

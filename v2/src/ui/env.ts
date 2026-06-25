@@ -121,6 +121,10 @@ export type BuildCommandEnvArgs = {
    *  `recordScan` adapter (signed `nmapScan` round-trip). Optional here for terse
    *  test setups; the UI always passes the real one. */
   readonly onScanRecord?: ScanApi['record'];
+  /** The deep-pivot scan-logging seam — backs `env.scan.recordDeep`. The UI wires it
+   *  to the `recordDeepScan` adapter (signed `nmapScanDeep` round-trip). Optional here
+   *  for terse test setups; the UI always passes the real one. */
+  readonly onScanRecordDeep?: ScanApi['recordDeep'];
   /** The cross-player public-IP resolution seam — backs `env.scan.resolvePublic`.
    *  The UI wires it to the `resolvePublicScan` adapter (signed round-trip).
    *  Optional here for terse test setups; the UI always passes the real one. */
@@ -231,6 +235,7 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   },
   scan: {
     record: args.onScanRecord ?? notWired('scan.record'),
+    recordDeep: args.onScanRecordDeep ?? notWired('scan.recordDeep'),
     resolvePublic: args.onScanResolvePublic ?? notWired('scan.resolvePublic'),
     resolveInnerGateway: args.onScanResolveInnerGateway ?? notWired('scan.resolveInnerGateway'),
     // Additive read: absent the seam, the scan still runs with no fellow occupants.

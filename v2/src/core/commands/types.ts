@@ -361,6 +361,19 @@ export type ScanRecordParams = {
   readonly sourceIp: string | null;
 };
 
+/** What `nmap` hands the DEEP scan action so the server can record a pivot scan on
+ *  each touched deep host. The server re-derives the vantage gateway from the
+ *  verified pubkey + `vantageMachineId`, regenerates its deep layer, and writes
+ *  `/var/log/kern.log` itself — the client never names a path, source IP, or
+ *  content (the source is the gateway's downstream `.1`, server-derived). */
+export type DeepScanRecordParams = {
+  readonly essid: string;
+  /** The raw nmap target — a single IP (`x.y.z.w`) or a range (`x.y.z.A-B`). */
+  readonly target: string;
+  /** The machine_id of the gateway the active shell stands on (the pivot vantage). */
+  readonly vantageMachineId: string;
+};
+
 /** The server-resolved result of scanning a public IP (Story 1). `found` is host
  *  up/down; `ports` are the resolved machine's REAL open ports, read server-side
  *  from the owner's `/var/run/*.pid` record (empty when the host is down or runs
@@ -378,6 +391,12 @@ export type PublicScanResolution = {
  *  adapter-free. */
 export type ScanApi = {
   readonly record: (params: ScanRecordParams) => Promise<void>;
+  /** Fire-and-forget logger for a deep PIVOT scan (signed `nmapScanDeep` endpoint):
+   *  the deep hosts resolve CLIENT-side (deterministic, no round-trip), and this
+   *  records the scan as a `/var/log/kern.log` line on each touched deep host —
+   *  readable once the player breaks into it. Best-effort like `record`: a logging
+   *  failure never surfaces to the scan. */
+  readonly recordDeep: (params: DeepScanRecordParams) => Promise<void>;
   readonly resolvePublic: (target: string) => Promise<PublicScanResolution>;
   /** Resolve the player's OWN-LAN `nmap` of an inner gateway server-side (signed
    *  `resolveInnerGatewayScan` endpoint): its own sshd PLUS any LIVE NAT forward to
