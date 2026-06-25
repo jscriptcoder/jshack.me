@@ -25,6 +25,10 @@ import type { UserType } from '../src/core/types';
 import type { MachineLogReadQuery } from '../src/core/patches/appendMachineLog';
 import type { PatchRow } from '../src/core/patches/upsertPatch';
 import type { NonceStore } from '../src/core/signedRequest/nonceStore';
+import { allocatePublicIp } from '../src/core/network/allocatePublicIp';
+import { generatePublicIp } from '../src/core/generation/ip';
+import { createPrng } from '../src/core/generation/prng';
+import { randomUUID } from 'node:crypto';
 
 // Vercel adapter for POST /api/network — the cross-player public-IP registry.
 //
@@ -383,8 +387,49 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (error) console.error('[network] occupant upsert error:', error);
     return { error };
   };
+  // Allocate the AP's globally-unique public IP for this ESSID (epic item #4). The
+  // read is the fast path (a re-join returns the stored address with no draw).
+  const readEssidIp = async (essid: string): Promise<string | null> => {
+    const { data, error } = await supabase
+      .from('network_public_ips')
+      .select('public_ip')
+      .eq('essid', essid)
+      .maybeSingle();
+    if (error) {
+      console.error('[network] public-ip read error:', error);
+      throw new Error('public_ip_read_failed');
+    }
+    return (data as { public_ip: string } | null)?.public_ip ?? null;
+  };
+  // INSERT … ON CONFLICT (essid) DO NOTHING: a row back ⇒ we claimed the drawn IP;
+  // no row ⇒ the ESSID was already allocated (read + adopt it); a 23505 ⇒ the drawn
+  // IP belongs to ANOTHER ESSID (the `public_ip` UNIQUE constraint, NOT the
+  // ON CONFLICT target), so null signals a redraw.
+  const claimEssidIp = async (essid: string, ip: string): Promise<string | null> => {
+    const { data, error } = await supabase
+      .from('network_public_ips')
+      .upsert({ essid, public_ip: ip }, { onConflict: 'essid', ignoreDuplicates: true })
+      .select('public_ip')
+      .maybeSingle();
+    if (error) {
+      if (error.code === '23505') return null;
+      console.error('[network] public-ip claim error:', error);
+      throw new Error('public_ip_claim_failed');
+    }
+    if (data !== null) return (data as { public_ip: string }).public_ip;
+    return readEssidIp(essid);
+  };
   const { status, body } = await handleRegisterNetwork(req.body, {
     nonceStore: noopNonceStore,
+    // A fresh random seed per draw so a redraw yields a DIFFERENT candidate (an
+    // ESSID-seeded draw would loop forever on a collision). The result is stored, so
+    // determinism doesn't matter.
+    allocatePublicIp: (essid: string) =>
+      allocatePublicIp(essid, {
+        readByEssid: readEssidIp,
+        drawIp: () => generatePublicIp(createPrng(randomUUID())),
+        claim: claimEssidIp,
+      }),
     upsertRegistry,
     upsertOccupant,
   });

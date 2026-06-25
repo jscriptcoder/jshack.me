@@ -9,8 +9,9 @@
  * against another's machine server-side.
  *
  * Server-stamped, never client-claimed:
- *   - `public_ip` is derived from the ESSID ALONE (the WAN address belongs to the
- *     AP, shared by every occupant) — a client cannot register a foreign IP.
+ *   - `public_ip` is allocated server-side per ESSID (a globally-unique WAN address
+ *     belonging to the AP, shared by every occupant) — a client cannot register a
+ *     foreign IP.
  *   - `owner_key` is the verified Ed25519 pubkey, never a payload claim.
  *
  * The router is a DISTINCT machine (Story 5.1): `router_machine_id` is
@@ -23,7 +24,6 @@
 import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { assignHomeNetwork } from './homeNetwork';
 import { computeRouterId } from '../identity/router';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
@@ -61,6 +61,10 @@ export type HomeNetworkOccupantRow = {
 
 export type RegisterNetworkDeps = {
   readonly nonceStore: NonceStore;
+  /** Issue (or recall) the AP's globally-unique public IP for this ESSID. Composed
+   *  in the api/ adapter from `allocatePublicIp` over the `network_public_ips`
+   *  store; rejects on a store error or allocation exhaustion. */
+  readonly allocatePublicIp: (essid: string) => Promise<string>;
   readonly upsertRegistry: (row: NetworkRegistryRow) => Promise<{ readonly error: unknown }>;
   readonly upsertOccupant: (row: HomeNetworkOccupantRow) => Promise<{ readonly error: unknown }>;
 };
@@ -96,9 +100,16 @@ export const handleRegisterNetwork = async (
   }
   const { publicKey, payload } = verified;
 
-  // The public IP is seeded by the essid alone (see `assignHomeNetwork`), so every
-  // occupant of an AP registers the same WAN address under their own owner_key.
-  const publicIp = assignHomeNetwork(publicKey, payload.essid).publicIp;
+  // The public IP is allocated server-side per ESSID — a globally-unique WAN
+  // address belonging to the AP, so every occupant registers the same one under
+  // their own owner_key. Allocation precedes the writes; a failure (store error /
+  // exhaustion) is a clean 500, never a partial journal write.
+  let publicIp: string;
+  try {
+    publicIp = await deps.allocatePublicIp(payload.essid);
+  } catch {
+    return { status: 500, body: { error: 'allocation_failed' } };
+  }
   const row: NetworkRegistryRow = {
     public_ip: publicIp,
     owner_key: publicKey,
