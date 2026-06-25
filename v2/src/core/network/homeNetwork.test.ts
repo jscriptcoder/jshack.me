@@ -22,10 +22,9 @@ describe('assignHomeNetwork', () => {
     expect(second).toEqual(first);
     // Golden lock — pins the seed strings, the octet ranges, and the draw order.
     // The /24 (third octet, 29) is seeded by the ESSID alone; the host octet (188)
-    // and device by identity+ESSID; the public IP (untouched) by the ESSID alone.
+    // and device by identity+ESSID.
     expect(first).toEqual({
       localIp: '192.168.29.188',
-      publicIp: '51.130.158.42',
       hostname: 'iphone-188',
     });
   });
@@ -59,19 +58,6 @@ describe('assignHomeNetwork', () => {
     expect(bob).not.toEqual(alice);
   });
 
-  it('issues the SAME public IP to different identities on the same ESSID', () => {
-    const alice = assignHomeNetwork('a'.repeat(64), 'BEAN-THERE-WIFI');
-    const bob = assignHomeNetwork('b'.repeat(64), 'BEAN-THERE-WIFI');
-
-    // The WAN IP belongs to the router/network, not the player — every occupant
-    // of the same AP shares it (seeded by ESSID alone). This is the forward-
-    // correct seam for cross-player: occupants agree on the public IP with no
-    // migration when the server-authoritative join lands.
-    expect(bob.publicIp).toBe(alice.publicIp);
-    // ...while their LAN addresses still differ (per-player DHCP draw).
-    expect(bob.localIp).not.toBe(alice.localIp);
-  });
-
   it('places different identities on the same /24 for the same ESSID', () => {
     const alice = assignHomeNetwork('a'.repeat(64), 'BEAN-THERE-WIFI');
     const bob = assignHomeNetwork('b'.repeat(64), 'BEAN-THERE-WIFI');
@@ -80,9 +66,9 @@ describe('assignHomeNetwork', () => {
     const hostOctet = (ip: string): string => ip.split('.')[3]!;
 
     // The /24 belongs to the AP, not the player: every occupant of the same ESSID
-    // shares the subnet (seeded by ESSID alone, like the public IP). This is the
-    // addressing precondition the shared-LAN occupancy model stands on — two
-    // identities on one ESSID must be reachable on one LAN.
+    // shares the subnet (seeded by ESSID alone). This is the addressing precondition
+    // the shared-LAN occupancy model stands on — two identities on one ESSID must be
+    // reachable on one LAN.
     expect(slashTwentyFour(bob.localIp)).toBe(slashTwentyFour(alice.localIp));
     // ...while their host octets still differ (per-(identity, ESSID) draw), so
     // they are distinct hosts on that shared subnet.
@@ -98,21 +84,6 @@ describe('assignHomeNetwork', () => {
     // Different networks are different LANs: the subnet must track the ESSID, not
     // be a constant — this is what fails if the ESSID drops out of the subnet seed.
     expect(slashTwentyFour(grad.localIp)).not.toBe(slashTwentyFour(bean.localIp));
-  });
-
-  it('issues a different public IP per ESSID (different routers)', () => {
-    const bean = assignHomeNetwork(PUBKEY, 'BEAN-THERE-WIFI');
-    const grad = assignHomeNetwork(PUBKEY, 'GRAD-STUDENT-WIFI');
-
-    expect(grad.publicIp).not.toBe(bean.publicIp);
-  });
-
-  it('places the public IP on a routable (non-RFC1918) address', () => {
-    const { publicIp } = assignHomeNetwork(PUBKEY, 'BEAN-THERE-WIFI');
-    const firstOctet = Number(publicIp.split('.')[0]);
-
-    // Never a private/loopback leading octet — the router faces the open net.
-    expect([10, 127, 172, 192]).not.toContain(firstOctet);
   });
 
   it('names the hostname after the assigned host octet', () => {

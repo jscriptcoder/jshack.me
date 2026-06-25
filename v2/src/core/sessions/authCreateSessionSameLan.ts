@@ -108,7 +108,7 @@ const authCreateSessionSameLanSchema = z
  *  attacker's line accretes into ONE row instead of colliding under last-write-wins; the
  *  attacker's identity lives in the line's source IP. That source is B's LAN IP — the
  *  pure `assignHomeNetwork(B, essid).localIp` (B is a verified occupant, so no lookup),
- *  the same-LAN vantage of the public path's home-public-IP derivation — never the
+ *  unlike the public path whose source is B's server-side registry public IP — never the
  *  forgeable payload `source_ip`. Best-effort: a logging failure must never break (or
  *  fabricate) the auth. */
 const logSameLanAuth = async (
