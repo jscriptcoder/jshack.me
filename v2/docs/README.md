@@ -24,6 +24,10 @@ disagree, the code wins; fix the doc.
 
 ## Index
 
+- [conventions-and-gotchas.md](./conventions-and-gotchas.md) — **start here.** Project arc
+  & current status (5b.4 done @ v0.82.0; next 5b.5), working conventions, build/test/type
+  gates, mutation conventions, operational gotchas (the 3100 squatter etc.), wire-check
+  infra, architecture invariants, git conventions, and the deferred backlog / future ideas.
 - [cross-player-architecture.md](./cross-player-architecture.md) — how one player scans,
   enters, reads, and modifies another player's machine: the shared patch journal, the
   public-IP registry, L1/L2 authorization, and the server-side read filter (Stories 1–3
