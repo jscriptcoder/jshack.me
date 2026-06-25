@@ -117,6 +117,7 @@ const resolveGatewayExposedPorts = async (
       ownerKeyHex: context.publicKey,
       parentMachineId: frontingGateway.machineId,
       childIp: childGateway.ip,
+      childKind: childGateway.kind,
       findPatches: context.findPatches,
     });
     if (hop.kind === 'lookup_failed') {

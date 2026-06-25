@@ -218,7 +218,8 @@ const resolveDeepPivotScan = (
   const resolveHostPorts = (host: LanHost): readonly OpenPort[] => {
     const hostFs =
       host.kind === 'router'
-        ? resolveDeepGatewayIdentity(env.identity.publicKeyHex, vantage.machineId, host.ip).baseFs
+        ? resolveDeepGatewayIdentity(env.identity.publicKeyHex, vantage.machineId, host.ip, host.kind)
+            .baseFs
         : buildDeepHostFs(env.identity.publicKeyHex, essid, host);
     return readOpenPorts(hostFs).filter((openPort) => !deniedPorts.has(openPort.port));
   };

@@ -391,6 +391,106 @@ describe('handleAuthCreateSessionInnerGateway — depth-1 home (the inner router
   });
 });
 
+describe('handleAuthCreateSessionInnerGateway — reach a deep SWITCH child gateway', () => {
+  // An owner whose inner router's deep child seeds as a SWITCH (a chain leaf — it forwards
+  // nothing). Reached through a forward on the inner gateway to its :22, the session must
+  // land ON the switch, authed against its own seeded admin password — proving the chain
+  // resolves a deep SWITCH tree with sshd up, not just a router.
+  const ownerWithSwitchChild = (): Identity => {
+    for (let attempt = 0; attempt < 400; attempt += 1) {
+      const candidate = generateIdentity();
+      if (seedNetworkDepth(candidate.publicKeyHex, ESSID) < 2) continue;
+      const inner = generateHomeLan(candidate.publicKeyHex, ESSID).hosts.find(
+        (host) => host.kind === 'router' && octetOf(host) !== 1,
+      );
+      if (inner === undefined) continue;
+      const innerId = computeInnerGatewayId(candidate.publicKeyHex, octetOf(inner));
+      const child = generateDeepLayer(
+        candidate.publicKeyHex,
+        ESSID,
+        { machineId: innerId, kind: 'router' },
+        { hangsChild: true },
+      ).childGateway;
+      if (child !== null && child.kind === 'switch') return candidate;
+    }
+    throw new Error('no identity seeds an inner switch child gateway');
+  };
+
+  const SW_OWNER = ownerWithSwitchChild();
+  const swInner = generateHomeLan(SW_OWNER.publicKeyHex, ESSID).hosts.find(
+    (host) => host.kind === 'router' && octetOf(host) !== 1,
+  );
+  if (swInner === undefined) throw new Error('no inner gateway on the switch-child LAN');
+  const SW_INNER_ID = computeInnerGatewayId(SW_OWNER.publicKeyHex, octetOf(swInner));
+  const swChild = generateDeepLayer(
+    SW_OWNER.publicKeyHex,
+    ESSID,
+    { machineId: SW_INNER_ID, kind: 'router' },
+    { hangsChild: true },
+  ).childGateway;
+  if (swChild === null) throw new Error('the inner router hangs no child gateway');
+  const SWITCH_ID = computeDeepGatewayId(SW_OWNER.publicKeyHex, SW_INNER_ID, octetOf(swChild));
+  const SWITCH_PW = seedDeepGatewayAdminPw(SW_OWNER.publicKeyHex, SW_INNER_ID, octetOf(swChild));
+
+  // The inner gateway forwards 2222 → the switch's own sshd:22.
+  const switchForward: OwnerPatchRow = {
+    path: '/etc/iptables/rules.v4',
+    content: `forward 2222 to ${swChild.ip}:22`,
+    owner: 'root',
+    permissions: null,
+    node_type: 'file',
+    updated_at: '2026-06-17T00:00:01.000Z',
+    writer_key: SW_OWNER.publicKeyHex,
+  };
+
+  const switchDeps = () => {
+    const findPatches = vi.fn<(query: { machine_id: string }) => Promise<PatchesResult>>(
+      async ({ machine_id }) => ({
+        data: machine_id === SW_INNER_ID ? [switchForward] : [],
+        error: null,
+      }),
+    );
+    const insertSession = vi.fn<(row: AuthSessionRow) => Promise<{ error: unknown }>>(async () => ({
+      error: null,
+    }));
+    const deps: AuthCreateSessionInnerGatewayDeps = {
+      nonceStore: freshStore,
+      findPatches,
+      insertSession,
+    };
+    return { deps, insertSession };
+  };
+
+  it('lands a session ON the deep switch (sshd:22), authed against its admin password', async () => {
+    const { deps, insertSession } = switchDeps();
+
+    const result = await handleAuthCreateSessionInnerGateway(
+      signRequest(SW_OWNER, 'authCreateSessionInnerGateway', {
+        session_id: 'ssh-switch-1',
+        essid: ESSID,
+        target: swInner.ip,
+        username: 'root',
+        password: SWITCH_PW,
+        port: 2222,
+        parent_session_id: null,
+        source_ip: null,
+      }),
+      deps,
+    );
+
+    expect(result).toEqual({
+      status: 200,
+      body: { ok: true, userType: 'root', machine_id: SWITCH_ID },
+    });
+    expect(insertSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        machine_id: SWITCH_ID,
+        credentials: { username: 'root', userType: 'root' },
+      }),
+    );
+  });
+});
+
 describe('handleAuthCreateSessionInnerGateway — chained reach down a deeper chain', () => {
   // A depth-3 home runs a gateway chain three deep: the inner router fronts an L2 child
   // gateway, which itself fronts an L3 child gateway (the terminal chain door). TWO

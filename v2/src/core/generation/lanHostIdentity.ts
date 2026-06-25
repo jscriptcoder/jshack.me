@@ -26,6 +26,7 @@ import type { Directory } from '../filesystem/types';
 import { computeDeepGatewayId, computeInnerGatewayId, computeRouterId } from '../identity/router';
 import {
   buildDeepGatewayBaseFs,
+  buildDeepSwitchBaseFs,
   buildInnerGatewayBaseFs,
   buildRouterBaseFs,
   buildSwitchBaseFs,
@@ -102,20 +103,26 @@ export const resolveLanHostIdentity = (
 });
 
 /** A deep CHILD GATEWAY's storage identity — its machine_id + seeded base FS — from the
- *  owner key, the machine_id of the gateway that FRONTS its parent layer, and the
- *  child's own deep IP. The child is keyed off its parent so two children at the same
- *  octet behind different gateways never alias. One place owns the octet parse so the
- *  reach gate, the upstream-scan port resolver, and the pivot scan can't disagree on
- *  which box the chain door is. */
+ *  owner key, the machine_id of the gateway that FRONTS its parent layer, the child's own
+ *  deep IP, and its device `kind`. The child is keyed off its parent so two children at
+ *  the same octet behind different gateways never alias. The `machine_id` is kind-agnostic
+ *  (a slot is one kind), but the base FS branches: a switch is an `acl.conf` box that
+ *  forwards nothing, a router a NAT `rules.v4` one. One place owns the octet parse + the
+ *  kind branch so the reach gate, the upstream-scan port resolver, and the pivot scan
+ *  can't disagree on which box the chain door is. */
 export const resolveDeepGatewayIdentity = (
   ownerKeyHex: string,
   parentMachineId: string,
   childIp: string,
+  kind: LanHostKind,
 ): LanHostIdentity => {
   const octet = Number(childIp.split('.')[3]);
   return {
     machineId: computeDeepGatewayId(ownerKeyHex, parentMachineId, octet),
-    baseFs: buildDeepGatewayBaseFs(ownerKeyHex, parentMachineId, octet),
+    baseFs:
+      kind === 'switch'
+        ? buildDeepSwitchBaseFs(ownerKeyHex, parentMachineId, octet)
+        : buildDeepGatewayBaseFs(ownerKeyHex, parentMachineId, octet),
   };
 };
 
@@ -180,7 +187,12 @@ const chainFrom = (
   if (child === null) {
     return [here];
   }
-  const childIdentity = resolveDeepGatewayIdentity(ownerKeyHex, gateway.machineId, child.ip);
+  const childIdentity = resolveDeepGatewayIdentity(
+    ownerKeyHex,
+    gateway.machineId,
+    child.ip,
+    child.kind,
+  );
   return [
     here,
     ...chainFrom(
