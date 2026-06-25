@@ -85,7 +85,7 @@ const B_WS_NAME = 'nebuchadnezzar';
 const A_WS = computeWorkstationId(A_WS_NAME, alice.publicKeyHex);
 const A_LAN = assignHomeNetwork(alice.publicKeyHex, ESSID).localIp; // A's ws LAN ip
 const B_LAN = assignHomeNetwork(bob.publicKeyHex, ESSID).localIp; // B's LAN ip — the source
-const B_PUBLIC = assignHomeNetwork(bob.publicKeyHex, ESSID).publicIp; // must NOT appear
+const B_PUBLIC = '198.51.100.40'; // a home public IP that must NOT appear (the source is the LAN IP)
 const SUBNET = assignHomeNetwork(alice.publicKeyHex, ESSID).localIp.split('.').slice(0, 3).join('.');
 const FORGED_SOURCE = '203.0.113.250'; // a client-claimed source_ip the server must ignore
 

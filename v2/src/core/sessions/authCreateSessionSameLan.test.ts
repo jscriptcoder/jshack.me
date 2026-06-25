@@ -48,6 +48,10 @@ const FIXED_NOW = 1_750_000_000_000;
 // derivation the server re-runs to match a target IP to its occupant.
 const A_LAN_IP = assignHomeNetwork(ALICE.publicKeyHex, ESSID).localIp;
 const B_LAN_IP = assignHomeNetwork(BOB.publicKeyHex, ESSID).localIp;
+// A representative home/WAN public IP that must NEVER surface in a same-LAN trace: a LAN
+// connect is sourced from the occupant's LAN IP, never any public address (the real public
+// IP is server-allocated, not client-derivable).
+const B_HOME_PUBLIC_IP = '198.51.100.50';
 // A's deterministic weak guest password — the credential B types to land a guest shell.
 const GUEST_PW = workstationGuestPassword(ALICE.publicKeyHex);
 
@@ -438,7 +442,7 @@ describe('handleAuthCreateSessionSameLan', () => {
       const content = upsertPatch.mock.calls[0]![0].content as string;
       expect(content).toContain(B_LAN_IP);
       expect(content).not.toContain('203.0.113.200');
-      expect(content).not.toContain(assignHomeNetwork(BOB.publicKeyHex, ESSID).publicIp);
+      expect(content).not.toContain(B_HOME_PUBLIC_IP);
     });
 
     it('appends onto the existing auth.log content rather than clobbering it', async () => {

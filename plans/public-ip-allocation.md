@@ -136,11 +136,21 @@ runtime correctness is covered by the wire-check (not Stryker — `api/` isn't u
 **Done when**: all criteria green, wire-check exits 0 against `vercel dev`, mutation report reviewed, human
 approves commit.
 
-### Slice 3: The client no longer carries a (now-dead) public IP — SPLIT 3a (scripts/test) + 3b (core)
+### Slice 3: The client no longer carries a (now-dead) public IP — SPLIT 3a (scripts/test) ✅ DONE + 3b (core)
 
-> **3a** (this branch): migrate the 7 scripts + the `authCreateSessionSameLan` anti-leak test OFF
-> `assignHomeNetwork().publicIp` — field still exists, behaviour-neutral, re-run affected wire-checks. No
-> production code change → no TDD cycle; verified by the existing tests/wire-checks staying green.
+> **3a** ✅ DONE (this branch): migrated the 7 scripts + the `authCreateSessionSameLan` anti-leak test OFF
+> `assignHomeNetwork().publicIp` — the field stays intact (3b removes it), so this is behaviour-neutral.
+> Two shapes:
+> - *Seed-and-expect / anti-leak* (`testCrossPlayer{Scan,Connection}Trace`, `testSameLan{Scan,}Trace`): the
+>   derived IP was a value the script both seeds and asserts on, so it became an explicit self-consistent
+>   public-IP literal. `testCrossPlayerScanTrace` lost its now-unused `assignHomeNetwork` import.
+> - *Register-and-use / cleanup* (`seedCrossPlayerTarget`, `testSameLanOccupancy`, `testSameLanCrossPlayerFs`):
+>   these hit the real `registerNetwork`, which post-Slice-2 ALLOCATES the IP, so the derive no longer matched
+>   the stored row. `seedCrossPlayerTarget` now reads the allocated IP back from `network_public_ips` (its
+>   printed ssh target was silently stale); all three clean up `network_registry` by `owner_key` + drop the
+>   ESSID's `network_public_ips` row (cleanup-by-derived-IP had been a silent no-op).
+> Verified: typecheck + lint clean, 1889 unit tests green, all 6 affected wire-checks pass, the seeder prints a
+> real allocated IP and `clean` removes it. No production code → no TDD cycle; no version bump (no feature change).
 > **3b** (next branch): remove the field + derive from `homeNetwork.ts`; drop the `homeNetwork.test.ts` goldens
 > + the `commandEnv` factory `publicIp`; the `networkApi`/`state` type narrows. Atomic + typecheck-gated.
 

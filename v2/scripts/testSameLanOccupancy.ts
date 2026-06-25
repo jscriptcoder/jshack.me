@@ -59,8 +59,6 @@ const A_WS = computeWorkstationId('skylab', alice.publicKeyHex);
 const B_WS = computeWorkstationId('nebuchadnezzar', bob.publicKeyHex);
 const A_LOCAL_IP = assignHomeNetwork(alice.publicKeyHex, X_ESSID).localIp;
 const B_LOCAL_IP = assignHomeNetwork(bob.publicKeyHex, X_ESSID).localIp;
-// A + B share the AP's public IP (essid-derived) — clean both registry rows up after.
-const X_PUBLIC_IP = assignHomeNetwork(alice.publicKeyHex, X_ESSID).publicIp;
 
 const joinPayload = (wsName: string, machineId: string) => ({
   essid: X_ESSID,
@@ -91,7 +89,11 @@ const occupantsOf = (body: unknown): readonly WireOccupant[] =>
 
 // Clean slate.
 await sr.from('home_network_occupants').delete().eq('essid', X_ESSID);
-await sr.from('network_registry').delete().eq('public_ip', X_PUBLIC_IP);
+// A + B both join the real endpoint, so their registry rows bear the SERVER-ALLOCATED
+// public IP — clean up by owner_key (and drop the ESSID's allocation) rather than a
+// now-stale derived address.
+await sr.from('network_registry').delete().in('owner_key', [alice.publicKeyHex, bob.publicKeyHex]);
+await sr.from('network_public_ips').delete().eq('essid', X_ESSID);
 
 // === 1. A's signed join writes an occupancy row keyed (essid, owner_key). ===
 const j1 = await post(signRequest(alice, 'registerNetwork', joinPayload('skylab', A_WS)));
@@ -161,9 +163,10 @@ check(
   `status=${d7.status}`,
 );
 
-// Cleanup.
+// Cleanup (registry by owner_key — the rows bear the server-allocated public IP).
 await sr.from('home_network_occupants').delete().eq('essid', X_ESSID);
-await sr.from('network_registry').delete().eq('public_ip', X_PUBLIC_IP);
+await sr.from('network_registry').delete().in('owner_key', [alice.publicKeyHex, bob.publicKeyHex]);
+await sr.from('network_public_ips').delete().eq('essid', X_ESSID);
 
 const passed = results.filter((result) => result.pass).length;
 console.log(`\n${passed}/${results.length} checks passed`);
