@@ -142,10 +142,6 @@ For adversarial review of plans, acceptance criteria, stories, or design mocks �
 For relentless decision-tree interrogation before story splitting, planning, or implementation — one question at a time, with recommended answers and codebase exploration where useful — load the `grill-me` skill.
 For an independent second opinion on finished work — spinning up a *different* AI provider's CLI agent (codex/claude/gemini/cursor-agent) at its best model and effort, then arguing constructively until both agents genuinely agree — load the `double-check` skill.
 
-**Project onboarding:** Run `/setup` in any new project to detect its tech stack and generate project-level CLAUDE.md, hooks, commands, and PR review agent in one shot. This replaces the need for `/init`.
-
-**Project-level hooks:** Projects should add a PostToolUse hook in `.claude/settings.json` to run typecheck after Write/Edit on .ts/.tsx files. Use `/setup` to generate this automatically, or use the prettier/eslint hook in this repo's `claude/.claude/settings.json` as a template (note: the curl installer does not install settings.json — only the stow-based install does).
-
 ## Output Guardrails
 
 - **Write to files, not chat** — When asked to produce a plan, document, or artifact, always persist it to a file. You may also present it inline for approval, but the file is the source of truth.
