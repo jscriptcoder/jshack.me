@@ -778,24 +778,111 @@ scoped owner decision, not a gap). None blocks the shipped cross-player PvP loop
    - **Migration:** pre-launch / no-backward-compat → reset the dev DB; no data migration of existing rows.
    - **Wire-check:** `scripts/testPublicIpAllocation.ts` — two ESSIDs get distinct IPs (incl. a forced-collision
      draw), re-join idempotent, concurrent race resolves to one IP.
-5. **Story-7 reconciliation tail** (Story-7 "Deferred" list + decision #6):
-   - **Shared-router / public-IP per ESSID reconciliation** — the `.1` gateway stays each occupant's OWN router
-     (`computeRouterId(own pubkey)`), and `network_registry` (PK `public_ip`) still holds ONE row per ESSID
-     (last-writer-wins). PR #306 made the by-`machine_id` cross-player resolvers (FS read / `su` / write) survive
-     that eviction via the occupancy fallback, but the LAN is still never *fully* shared (no shared router, and a
-     public-IP scan of a shared AP still resolves to whichever occupant joined last). Coupled to the unique-IP
-     decision above — its own follow-up.
-   - **DHCP-slot collision-free IP allocation** — host octet is a per-key hash; IP clashes accepted as
-     low-probability, no allocator yet.
-   - **ESSID-seeded shared NPC population** — `generateHomeLan` siblings stay per-player (pointless to share
-     while `.1` is per-player).
-   - **WiFi-strength = density**, **presence/TTL heartbeat** (occupancy is connection-state-based, no last-seen),
-     and **organic stranger rendezvous beyond occupancy-injection** (matchmaking / findit.io) — all deferred.
+5. **Shared-network reconciliation — GRILLED & RESOLVED 2026-07-25, ready to plan.** Supersedes the
+   "Story-7 reconciliation tail" (Story-7 "Deferred" list + decision #6). *Problem:* the `.1` gateway is each
+   occupant's OWN router (`computeRouterId(own pubkey)`) while `network_registry` (PK `public_ip`, now 1:1 with
+   ESSID via item #4's `network_public_ips`) holds ONE last-writer-wins row per ESSID — so occupants of a shared
+   AP have different `.1` machines all claiming the same public IP, and a public-IP scan resolves to whichever
+   occupant joined last. PR #306's occupancy fallback patched the by-`machine_id` resolvers around the eviction
+   but left the LAN a per-viewer illusion: `generateHomeLan` seeds the whole population per-player, so two players
+   on one `/24` see different machines at the same addresses.
 
-**Next action (updated 2026-06-25):** **item #4 (unique public-IP allocation) is ✅ DONE (PRs #322–#324 + the
-slice-3b close-out).** Next candidates, both still needing `grill-me` before planning: #2 (pivot/hop source-IP
-masking) and #5's shared-router-per-ESSID / registry-reconciliation model — now unblocked by #4 (the per-ESSID
-allocation it builds on is in place). As-built foundation to read first: `v2/docs/cross-player-architecture.md`.
+   **Resolved model (locked — the governing principle throughout was OWNER-STATED REALISM: prefer what real
+   hardware and real NAT would do over what is most forgiving):**
+   1. **One shared AP gateway per ESSID.** `nmap <shared public IP>` resolves to it; its open ports are its own
+      `sshd` ∪ **every** occupant's NAT forwards. Picking a forwarded port lands on that occupant's box.
+   2. **The gateway is a NEUTRAL CONTESTED box**, not anyone's property — ESSID-seeded weak admin password that
+      must be **cracked** (hydra) like any other target. Cracking the WiFi buys the LAN, not the gateway.
+      **The per-player router retires**: `computeRouterId(playerKey)` stops being a live world object and
+      Stories 5.1/5.2/5.3's takeover/brick gameplay re-points at the shared AP box. Accepted cost: a new
+      occupant cannot publish a forward (and so is WAN-unreachable) until they take the gateway.
+   3. **Bricking the gateway is PERMANENT and unrecoverable**, whole-AP blast radius — no self-heal, no
+      cooldown, no reprovision. (Self-healing shared infra was proposed and **rejected** on realism grounds.)
+   4. **A brick kills the WAN ONLY.** The SSID keeps broadcasting, the AP stays crackable and joinable, the
+      shared LAN stays alive (occupants still `nmap`/`ssh` each other over LAN IPs) — but the public IP is dark
+      forever and no forward through it can ever work again. Rationale: the router hostname pool
+      (`border-gw`/`fw-dmz`/`core-rtr`, `routerFs.ts`) models a CORPORATE topology where the AP, the switching,
+      and the edge firewall are separate devices. A brick therefore **degrades** a network rather than deleting
+      it — no future player is locked out of an AP bricked before they arrived.
+   5. **The LAN becomes FULLY SHARED and ESSID-seeded.** `generateHomeLan` reseeds from the ESSID, so every
+      occupant sees the same gateway, the same NPC population, and the same deep chains behind the same inner
+      gateways. **Depth stops being per-player** — 5b's private chains become shared, contested territory.
+      This absorbs BOTH the old "ESSID-seeded shared NPC population" deferral and 5b's deferred
+      "cross-player / ESSID-shared depth". Shared-surface-but-private-depth was considered and **rejected** as
+      unstable (two players sshing the same inner gateway and finding different machines behind it is a worse
+      artifact than today's).
+   6. **Occupant LAN addresses come from a real DHCP lease table** — `(essid, octet)` with a uniqueness
+      constraint, lazy-allocated on join, drawn excluding the ESSID's NPC/gateway octets, **permanent per
+      `(essid, owner_key)`** (same network, same address, always; no GC), modeled directly on item #4's
+      `allocatePublicIp` (lazy allocate → `INSERT … ON CONFLICT` win-or-read → redraw on constraint violation).
+      Closes the old "DHCP-slot collision-free IP allocation" deferral, which full LAN sharing promotes from a
+      cosmetic clash into a player landing *on* a world object. **`mergeLanOccupants`' octet reservation is
+      DELETED, not extended** — it exists only to paper over unallocated collisions, and it does so by hiding
+      fellow players from each other, which is exactly wrong under a shared LAN.
+   7. **`network_registry` is DELETED outright.** Once the above land, every column is derivable or already
+      stored properly elsewhere: `public_ip`↔`essid` belongs to `network_public_ips`; `router_machine_id`
+      derives from the ESSID; `owner_key` + all four `workstation_*` columns are already in
+      `home_network_occupants` (which is why #306 needed the fallback at all). The three lookups re-home as
+      by-public-IP → `network_public_ips` (`public_ip` is UNIQUE) → essid → derive gateway id; by-owner-key →
+      `home_network_occupants` → essid → `network_public_ips`; by-machine-id → `home_network_occupants` (needs
+      an index on `workstation_machine_id`, mirroring the registry's existing one). Re-keying the table to
+      `essid` instead was **rejected** — what remains would be a copy of `network_public_ips` plus a cached pure
+      function, exactly the duplicated-DB-projection smell that
+      `20260617000000_drop_network_registry_forward_table.sql` already deleted a column from this table for.
+      **The §7 architecture invariant "any cross-player by-`machine_id` resolver needs the occupancy fallback"
+      RETIRES with it** — occupants stops being a fallback and becomes the single source of truth.
+   8. **Port-forward conflicts need NO new mechanism.** `machineServing.ts` selects a forward with `.find(...)`
+      — first matching line in `rules.v4` wins, which is real PREROUTING chain semantics. Two occupants both
+      claiming `:2222` resolve first-writer-wins on the shared file, and anyone holding gateway root can
+      reorder, redirect, or delete another occupant's line. Realistic, already implemented.
+   9. **Fixes a latent bug by construction.** `hostMachineId` (`remoteHostId.ts`) is
+      `` `${host.hostname}-${suffix('host:'+essid+':'+ip)}` `` — the suffix half is viewer-INDEPENDENT and only
+      the `hostname` prefix varies, drawn `prng.pick(DEVICE_TYPES)` from a 6-element pool. So today, whenever
+      two occupants of one ESSID draw the same device type for the same octet (~1 in 6), their supposedly-private
+      NPC boxes **alias onto one `machine_id` and share a journal**. ESSID-seeded generation makes the ids align
+      intentionally instead of by accident.
+
+   **Headline claim = NET MECHANISM REMOVAL with conserved behavior (a table, an index, a dep shape, and the
+   occupancy-fallback special case all go) → this item is governed by `reduce-system-complexity`, not plain
+   `planning`.** Multi-slice walking skeleton: shared gateway → shared NPC population → shared depth.
+6. **Procedural world expansion — GRILLED & RESOLVED 2026-07-25, follows item #5.** Split OUT of #5 deliberately:
+   the reconciliation depends only on the ESSID being the seed, not on the world being big, and doing it first is
+   cheaper to VERIFY (today's 50-entry pool + `INJECT_MAX = 3` makes encounters frequent, so the shared-LAN
+   behaviour is easy to exercise live via the two-identity E2E playbook). Expanding the world first would make
+   encounters rare *before* the code handling them is proven.
+   - **The ESSID space becomes procedurally generated and LARGE.** Today `generateWifi` draws every player's scan
+     from one 50-entry `crackableEssidPool` — so the world contains exactly **50 networks total, shared by all
+     players**. Combined with #5's decisions 3+5 (permanent bricks + the whole LAN as shared world objects) that
+     world is fully consumable: a late-joining player could find all 50 stripped and dark. Owner call: the world
+     should be **much bigger than 50 and procedurally generated**, with the chance of landing on another player's
+     LAN **small**. The current 50 become naming TEMPLATES rather than fixed world objects. Realism argues the
+     same way — a fixed catalog of 50 is the least realistic element in the design, and against an effectively
+     unbounded AP space permanent destruction becomes *more* plausible, not less. Costs little infrastructure:
+     item #4 explicitly rejected pre-seeding public IPs so the allocator would cover "injected/dynamic/
+     future-themed ESSIDs", and the #5 DHCP table inherits that lazy shape. Also the natural substrate for the
+     deferred themed/mission networks. Periodic world reset was considered and **rejected** (destroys the
+     persistence that makes PvP damage meaningful).
+   - **The occupied-ESSID injector is tuned DOWN hard.** `generateWifi` currently injects up to `INJECT_MAX = 3`
+     occupied ESSIDs into EVERY scan — built to manufacture encounters in a 50-ESSID world, and now pulling
+     directly against "collisions should be small". Drop to a low roll (a few percent of scans, one at a time).
+     Deleting the injector outright was **rejected**: it would make encounters not merely rare but impossible,
+     leaving the fully-shared-LAN work with no live consumer to keep it honest.
+   - **Deliberate rendezvous is the eventual shape** (you are *led* to an occupied network via intel — a trace,
+     a findit.io lookup — rather than stumbling onto it). Best fit for the realism principle, but it depends on
+     the discovery surface that doesn't exist yet; revisit when findit.io lands.
+   - **Consequence to hold onto: the PUBLIC IP remains the primary cross-player attack surface**, and the shared
+     LAN is the rare special case. #5 is still worth doing — it fixes the aliasing bug, makes the rare encounter
+     correct, and builds the themed/mission substrate — but it is not the headline PvP path. `nmap <public IP>` is.
+7. **Still deferred, untouched by the above** — **WiFi-strength = density**, **presence/TTL heartbeat**
+   (occupancy is connection-state-based, no last-seen), and **matchmaking** beyond the rendezvous note in #6.
+
+**Next action (updated 2026-07-25):** **item #4 (unique public-IP allocation) ✅ DONE (PRs #322–#325);
+item #5 (shared-network reconciliation) and item #6 (procedural world) are GRILLED & RESOLVED** — decision
+records above, no open questions. **#5 is the next thing to build**: take it to `reduce-system-complexity`
+(headline claim is net mechanism removal — see #5 decision 7) and then `planning` to cut PR-sized slices, in the
+walking-skeleton order shared gateway → shared NPC population → shared depth. #6 follows #5. #2 (pivot/hop
+source-IP masking) remains unplanned and still needs its own `grill-me`. As-built foundation to read first:
+`v2/docs/cross-player-architecture.md`.
 
 ### Story 7 — starting context (for `grill-me`)
 

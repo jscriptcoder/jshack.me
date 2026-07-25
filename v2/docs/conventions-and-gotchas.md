@@ -45,10 +45,28 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
   ESSID-shared depth + a fixed-IP mission catalog remain deferred (epic doc). Pivot
   **source-IP masking** is still deferred — see `plans/multiplayer-crossplayer-epic.md`.
 
-**Current version: 0.85.0.**
+- **Unique public-IP allocation ✅ COMPLETE (v0.87.0).** A network's WAN address is now
+  **server-issued and stored**, not derived: `network_public_ips(essid PK, public_ip UNIQUE)`
+  plus a server-only `allocatePublicIp(essid, deps)` (lazy allocate on an ESSID's first join →
+  draw via `generatePublicIp` → `INSERT … ON CONFLICT (essid) DO NOTHING` to win-or-read →
+  redraw on a `public_ip` 23505; permanent, no GC), wired into `registerNetwork` in place of the
+  old `home-public-${essid}` PRNG derivation (which could birthday-collide across ESSIDs).
+  `assignHomeNetwork` returns `{localIp, hostname}` only — **no client-side public IP remains**.
+  Wire-check: `scripts/testPublicIpAllocation.ts`.
+
+**Current version: 0.87.0.**
 
 To pick up the next slice: read the relevant `plans/*.md` TOP BLOCK (live status +
 as-built), then the cross-player architecture doc if the work touches cross-player paths.
+
+**Next up — shared-network reconciliation** (epic doc item #5, grilled & resolved 2026-07-25,
+no open questions): the ESSID becomes the seed for the whole LAN — one shared, contested AP
+gateway per ESSID (the per-player router retires), an ESSID-seeded NPC population and depth,
+DHCP-allocated occupant octets, and **`network_registry` deleted outright** (its content is
+derivable or already in `network_public_ips` / `home_network_occupants`). Headline claim is net
+mechanism removal → governed by `reduce-system-complexity`. **Note it retires the "occupancy
+fallback" invariant in §7 below.** A follow-up item then makes the ESSID space procedurally
+generated and large, and tunes the occupied-ESSID injector down.
 
 ---
 
