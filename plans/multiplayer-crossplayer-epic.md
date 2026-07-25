@@ -842,9 +842,12 @@ scoped owner decision, not a gap). None blocks the shipped cross-player PvP loop
       NPC boxes **alias onto one `machine_id` and share a journal**. ESSID-seeded generation makes the ids align
       intentionally instead of by accident.
 
-   **Headline claim = NET MECHANISM REMOVAL with conserved behavior (a table, an index, a dep shape, and the
-   occupancy-fallback special case all go) → this item is governed by `reduce-system-complexity`, not plain
-   `planning`.** Multi-slice walking skeleton: shared gateway → shared NPC population → shared depth.
+   **Workflow routing:** the item as a whole is **behaviour-changing work governed by `tdd`** — six of the nine
+   decisions above introduce or change observable behaviour (contested gateway, shared LAN population, shared
+   depth, DHCP addressing, WAN-only brick, the aliasing fix). Only the `network_registry` removal (decision 7)
+   conserves behaviour, so **`reduce-system-complexity` governs that slice pair specifically**, not the item.
+   Multi-slice walking skeleton: shared gateway → brick semantics → addressing → shared NPC population → shared
+   depth → registry removal. **Planned: `plans/shared-network-reconciliation.md`** (7 slices, awaiting approval).
 6. **Procedural world expansion — GRILLED & RESOLVED 2026-07-25, follows item #5.** Split OUT of #5 deliberately:
    the reconciliation depends only on the ESSID being the seed, not on the world being big, and doing it first is
    cheaper to VERIFY (today's 50-entry pool + `INJECT_MAX = 3` makes encounters frequent, so the shared-LAN
@@ -878,11 +881,11 @@ scoped owner decision, not a gap). None blocks the shipped cross-player PvP loop
 
 **Next action (updated 2026-07-25):** **item #4 (unique public-IP allocation) ✅ DONE (PRs #322–#325);
 item #5 (shared-network reconciliation) and item #6 (procedural world) are GRILLED & RESOLVED** — decision
-records above, no open questions. **#5 is the next thing to build**: take it to `reduce-system-complexity`
-(headline claim is net mechanism removal — see #5 decision 7) and then `planning` to cut PR-sized slices, in the
-walking-skeleton order shared gateway → shared NPC population → shared depth. #6 follows #5. #2 (pivot/hop
-source-IP masking) remains unplanned and still needs its own `grill-me`. As-built foundation to read first:
-`v2/docs/cross-player-architecture.md`.
+records above, no open questions. **#5 is PLANNED and is the next thing to build** —
+`plans/shared-network-reconciliation.md` holds 7 PR-sized slices (awaiting approval); `tdd` governs the
+behaviour-changing slices and `reduce-system-complexity` governs the registry-removal pair only. #6 follows #5.
+#2 (pivot/hop source-IP masking) remains unplanned and still needs its own `grill-me`. As-built foundation to
+read first: `v2/docs/cross-player-architecture.md`.
 
 ### Story 7 — starting context (for `grill-me`)
 

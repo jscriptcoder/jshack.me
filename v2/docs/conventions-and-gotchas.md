@@ -63,10 +63,11 @@ as-built), then the cross-player architecture doc if the work touches cross-play
 no open questions): the ESSID becomes the seed for the whole LAN — one shared, contested AP
 gateway per ESSID (the per-player router retires), an ESSID-seeded NPC population and depth,
 DHCP-allocated occupant octets, and **`network_registry` deleted outright** (its content is
-derivable or already in `network_public_ips` / `home_network_occupants`). Headline claim is net
-mechanism removal → governed by `reduce-system-complexity`. **Note it retires the "occupancy
-fallback" invariant in §7 below.** A follow-up item then makes the ESSID space procedurally
-generated and large, and tunes the occupied-ESSID injector down.
+derivable or already in `network_public_ips` / `home_network_occupants`). **Note it retires the
+"occupancy fallback" invariant in §7 below.** Sliced in
+`plans/shared-network-reconciliation.md`: `tdd` governs the behaviour-changing slices;
+`reduce-system-complexity` governs the registry-removal pair only. A follow-up item then makes
+the ESSID space procedurally generated and large, and tunes the occupied-ESSID injector down.
 
 ---
 
