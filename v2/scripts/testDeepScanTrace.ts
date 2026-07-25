@@ -21,7 +21,11 @@
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign';
 import { generateIdentity } from '../src/core/identity/identity';
-import { computeDeepGatewayId, computeInnerGatewayId, computeRouterId } from '../src/core/identity/router';
+import {
+  computeApGatewayId,
+  computeDeepGatewayId,
+  computeInnerGatewayId,
+} from '../src/core/identity/router';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan';
 import { generateDeepLayer, seedNetworkDepth } from '../src/core/generation/generateDeepLayer';
 import { hostMachineId } from '../src/core/generation/remoteHostId';
@@ -211,7 +215,7 @@ check(
 
 // 6. A forged vantage (the edge .1 router — a real box, but NOT a pivot vantage) logs nothing.
 await clearKernLog(R_NPC_ID);
-const EDGE_ID = computeRouterId(alice.publicKeyHex);
+const EDGE_ID = computeApGatewayId(ESSID);
 const s6 = await scanDeep(EDGE_ID, `${rDeep.subnet}.1-254`);
 const npcAfterForged = await readKernLog(R_NPC_ID);
 check(

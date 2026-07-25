@@ -24,7 +24,7 @@ import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign';
 import { generateIdentity } from '../src/core/identity/identity';
 import { computeWorkstationId } from '../src/core/identity/workstation';
-import { computeRouterId } from '../src/core/identity/router';
+import { computeApGatewayId } from '../src/core/identity/router';
 import { isPublicIp } from '../src/core/generation/ip';
 import { md5 } from '../src/core/generation/md5';
 
@@ -102,7 +102,7 @@ const bob = generateIdentity();
 const A_ESSID = 'ABSTERGO-NET';
 const B_ESSID = 'BLUE-SUN-CAFE';
 const C_ESSID = 'CYBERDYNE-GUEST';
-const A_ROUTER = computeRouterId(alice.publicKeyHex);
+const A_ROUTER = computeApGatewayId(A_ESSID);
 const FRESH_IP = '198.51.100.222';
 
 // Clean slate.

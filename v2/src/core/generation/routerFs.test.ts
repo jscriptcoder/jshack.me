@@ -8,9 +8,9 @@ import {
   ROUTER_HOSTNAMES,
   seedDeepGatewayAdminPw,
   seedInnerGatewayAdminPw,
-  seedRouterAdminPw,
-  seedRouterHasSsh,
-  seedRouterHostname,
+  seedApGatewayAdminPw,
+  seedApGatewayHasSsh,
+  seedApGatewayHostname,
 } from './routerFs';
 import { computeInnerGatewayId } from '../identity/router';
 import { workstationGuestPassword } from './workstationFs';
@@ -37,17 +37,17 @@ const ADMIN_HASH = 'deadbeefdeadbeefdeadbeefdeadbeef';
  * without the owner's config (mirroring `workstationGuestPassword`). These pin
  * the seed contract through the public functions, not internals.
  */
-describe('seedRouterAdminPw', () => {
+describe('seedApGatewayAdminPw', () => {
   it('is deterministic: same owner key yields the same admin password', () => {
-    expect(seedRouterAdminPw(SEED_A)).toBe(seedRouterAdminPw(SEED_A));
+    expect(seedApGatewayAdminPw(SEED_A)).toBe(seedApGatewayAdminPw(SEED_A));
   });
 
   it('is owner-key specific — different identities get different admin passwords', () => {
-    expect(seedRouterAdminPw(SEED_A)).not.toBe(seedRouterAdminPw(SEED_B));
+    expect(seedApGatewayAdminPw(SEED_A)).not.toBe(seedApGatewayAdminPw(SEED_B));
   });
 
   it('returns a non-empty weak password string', () => {
-    expect(seedRouterAdminPw(SEED_A)).toMatch(/^\S+$/);
+    expect(seedApGatewayAdminPw(SEED_A)).toMatch(/^\S+$/);
   });
 
   it('always returns a non-empty password across many identities (every pool entry is real)', () => {
@@ -56,20 +56,20 @@ describe('seedRouterAdminPw', () => {
     const keys = Array.from({ length: 40 }, (_unused, index) =>
       (index + 1).toString(16).padStart(2, '0').repeat(32),
     );
-    keys.forEach((key) => expect(seedRouterAdminPw(key)).toMatch(/^\S+$/));
+    keys.forEach((key) => expect(seedApGatewayAdminPw(key)).toMatch(/^\S+$/));
   });
 
   it('draws from a DISTINCT namespace than the workstation guest password', () => {
     // Same owner key, but the router admin pw must not be coupled to the
     // workstation guest pw — they seed from separate `router-admin-` /
     // `workstation-` streams (and disjoint pools), so they never coincide.
-    expect(seedRouterAdminPw(SEED_A)).not.toBe(workstationGuestPassword(SEED_A));
+    expect(seedApGatewayAdminPw(SEED_A)).not.toBe(workstationGuestPassword(SEED_A));
   });
 });
 
-describe('seedRouterHasSsh', () => {
+describe('seedApGatewayHasSsh', () => {
   it('is deterministic for a given owner key', () => {
-    expect(seedRouterHasSsh(SEED_A)).toBe(seedRouterHasSsh(SEED_A));
+    expect(seedApGatewayHasSsh(SEED_A)).toBe(seedApGatewayHasSsh(SEED_A));
   });
 
   it('is pinned true this story — every router runs its own sshd', () => {
@@ -78,19 +78,20 @@ describe('seedRouterHasSsh', () => {
     const keys = Array.from({ length: 32 }, (_unused, index) =>
       index.toString(16).padStart(2, '0').repeat(32),
     );
-    keys.forEach((key) => expect(seedRouterHasSsh(key)).toBe(true));
+    keys.forEach((key) => expect(seedApGatewayHasSsh(key)).toBe(true));
   });
 });
 
 /**
- * Story 6.0: the router gets a real name — one of a ported pool — seeded from the
- * owner key ALONE (the same recoverable-from-the-key contract as the admin pw), so
- * the cross-player scan/auth log lines (Story 6.1/6.2) can name the router without
- * reading its FS. Pinned through the public function + the exported pool.
+ * The AP gateway gets a real name — one of a ported pool — seeded from the ESSID
+ * ALONE (the same recoverable-from-the-ESSID contract as its admin pw), so the
+ * cross-player scan/auth log lines can name the gateway without reading its FS and
+ * without knowing which occupant was looking. Pinned through the public function +
+ * the exported pool.
  */
-describe('seedRouterHostname', () => {
-  it('is deterministic: same owner key yields the same hostname', () => {
-    expect(seedRouterHostname(SEED_A)).toBe(seedRouterHostname(SEED_A));
+describe('seedApGatewayHostname', () => {
+  it('is deterministic: the same ESSID yields the same hostname', () => {
+    expect(seedApGatewayHostname(SEED_A)).toBe(seedApGatewayHostname(SEED_A));
   });
 
   it('always picks a real member of the router hostname pool (no blank/out-of-pool name)', () => {
@@ -99,22 +100,22 @@ describe('seedRouterHostname', () => {
     const keys = Array.from({ length: 40 }, (_unused, index) =>
       (index + 1).toString(16).padStart(2, '0').repeat(32),
     );
-    keys.forEach((key) => expect(ROUTER_HOSTNAMES).toContain(seedRouterHostname(key)));
+    keys.forEach((key) => expect(ROUTER_HOSTNAMES).toContain(seedApGatewayHostname(key)));
   });
 
-  it('spreads across the pool — different identities are not all the same router name', () => {
+  it('spreads across the pool — different networks are not all the same gateway name', () => {
     const keys = Array.from({ length: 40 }, (_unused, index) =>
       (index + 1).toString(16).padStart(2, '0').repeat(32),
     );
-    expect(new Set(keys.map((key) => seedRouterHostname(key))).size).toBeGreaterThan(1);
+    expect(new Set(keys.map((key) => seedApGatewayHostname(key))).size).toBeGreaterThan(1);
   });
 
-  it('is pinned per identity (golden) — locks the router-host- namespace, the pool and the pick', () => {
-    // Captured from the seeded generator. Distinct from the `router-admin-` /
-    // `router-ssh-` streams: mutating the namespace string, the pool, or the pick
+  it('is pinned per network (golden) — locks the ap-gw-host- namespace, the pool and the pick', () => {
+    // Captured from the seeded generator. Distinct from the `ap-gw-admin-` /
+    // `ap-gw-ssh-` streams: mutating the namespace string, the pool, or the pick
     // index shifts these values and fails the golden.
-    expect(seedRouterHostname(SEED_A)).toBe('opnsense');
-    expect(seedRouterHostname(SEED_B)).toBe('mikrotik01');
+    expect(seedApGatewayHostname(SEED_A)).toBe('pfsense01');
+    expect(seedApGatewayHostname(SEED_B)).toBe('opnsense');
   });
 });
 

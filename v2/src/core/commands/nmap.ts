@@ -19,7 +19,7 @@
 import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
-import { buildRouterBaseFs } from '../generation/routerFs';
+import { buildApGatewayBaseFs } from '../generation/routerFs';
 import { isPublicIp } from '../generation/ip';
 import { parseScanTarget, hostsInScanTarget } from '../network/scanTarget';
 import { mergeLanOccupants } from '../network/mergeLanOccupants';
@@ -296,10 +296,11 @@ const execute: Command['execute'] = async (env, args) => {
     return { kind: 'async', lines: scanInnerGateway(env, essid, single), exitCode: async () => 0 };
   }
 
-  // Per-host open ports. The `.1` gateway is the player's OWN ROUTER — a distinct
-  // journal-backed box; its ports come from the single `scanResult` total function
-  // at the `sameLAN` vantage (the router's own services only, never the NAT forward
-  // table), the same function the public-IP scan uses at `external`. Every other
+  // Per-host open ports. The `.1` gateway is the ACCESS POINT's gateway — a distinct
+  // journal-backed box shared by every occupant; its ports come from the single
+  // `scanResult` total function at the `sameLAN` vantage (the gateway's own services
+  // only, never the NAT forward table), the same function the public-IP scan uses at
+  // `external`. Every other
   // host reads its filesystem directly: the live env.fs for the player's own host
   // (so a runtime `sshd` shows up), the deterministic generated FS for a sibling.
   const selfIp = wlan0.ipv4;
@@ -307,7 +308,7 @@ const execute: Command['execute'] = async (env, args) => {
     if (host.kind === 'router') {
       return scanResult({
         vantage: 'sameLAN',
-        routerFs: buildRouterBaseFs(env.identity.publicKeyHex),
+        routerFs: buildApGatewayBaseFs(essid),
         resolveTargetPorts: () => [],
       });
     }

@@ -27,7 +27,7 @@ import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { materializeWorkstationFs, type OwnerPatchRow } from './materializeWorkstationFs';
-import { materializeRouterFs } from './materializeRouterFs';
+import { materializeApGatewayFs } from './materializeRouterFs';
 import { filterTreeForRead, filterTreeToAllowlist } from '../patches/readFilter';
 import { serializeTree } from '../filesystem/treeCodec';
 import type { UserType } from '../types';
@@ -45,12 +45,13 @@ export type RegistryWorkstation = {
   readonly workstation_root_hash: string;
 };
 
-/** The registry fields needed to reconstruct the owner's ROUTER (Story 5.2). The
- *  router base is seeded from the owner key ALONE (admin password + sshd presence
- *  derive from it), so this carries only that. */
+/** The registry fields needed to reconstruct the access point's GATEWAY. Its base
+ *  is seeded from the ESSID ALONE (admin password + sshd presence derive from it),
+ *  because the gateway belongs to the AP and not to any occupant, so this carries
+ *  only that. */
 export type RegistryRouter = {
   readonly kind: 'router';
-  readonly owner_key: string;
+  readonly essid: string;
 };
 
 /** A registered machine behind a public IP — the owner's workstation OR its router.
@@ -138,8 +139,10 @@ export const handleResolveCrossPlayerFs = async (
   }
 
   // Tier 1 — the owner reads its own box in full; ownership trumps any session tier,
-  // so we never consult the session table for the owner.
-  const isOwner = publicKey === machine.owner_key;
+  // so we never consult the session table for the owner. The AP gateway has NO owner
+  // (it belongs to the access point, not to an occupant), so every caller on it —
+  // including occupants of its own ESSID — falls through to the session tiers.
+  const isOwner = machine.kind !== 'router' && publicKey === machine.owner_key;
 
   const session = isOwner
     ? null
@@ -159,7 +162,7 @@ export const handleResolveCrossPlayerFs = async (
   // from the owner key alone; a workstation from its persisted identity (Story 5.2).
   const tree =
     machine.kind === 'router'
-      ? materializeRouterFs(machine, patches.data)
+      ? materializeApGatewayFs(machine, patches.data)
       : materializeWorkstationFs(machine, patches.data);
   // Tier dispatch: owner → full tree; active session → walker at the session tier;
   // no session → externally-observable allowlist only.

@@ -14,7 +14,7 @@ import * as ed from '@noble/ed25519';
 import { sha512 } from '@noble/hashes/sha2.js';
 import { signRequest } from '../src/core/signedRequest/sign';
 import { computeWorkstationId } from '../src/core/identity/workstation';
-import { computeRouterId } from '../src/core/identity/router';
+import { computeApGatewayId } from '../src/core/identity/router';
 import { bytesToHex, hexToBytes } from '../src/core/identity/hex';
 import { workstationGuestPassword } from '../src/core/generation/workstationFs';
 import { assignHomeNetwork } from '../src/core/network/homeNetwork';
@@ -45,7 +45,7 @@ const alice: Identity = {
 };
 const ESSID = 'CAFE-DELACROIX-5G';
 const A_MACHINE = computeWorkstationId('skylab', alice.publicKeyHex);
-const A_ROUTER = computeRouterId(alice.publicKeyHex);
+const A_ROUTER = computeApGatewayId(ESSID);
 const A_LAN = assignHomeNetwork(alice.publicKeyHex, ESSID).localIp;
 const GUEST_PW = workstationGuestPassword(alice.publicKeyHex);
 const ROOT_PW = 'alice-root-secret'; // matches the registered workstation_root_hash

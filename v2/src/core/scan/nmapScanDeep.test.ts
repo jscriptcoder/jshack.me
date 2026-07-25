@@ -10,7 +10,7 @@ import {
   resolveDeepGatewayIdentity,
 } from '../generation/lanHostIdentity';
 import { hostMachineId } from '../generation/remoteHostId';
-import { computeRouterId } from '../identity/router';
+import { computeApGatewayId } from '../identity/router';
 import { readOpenPorts } from '../services/pidfile';
 import { formatNmapScanAggregate, KERN_LOG_OWNER, KERN_LOG_PERMISSIONS } from '../logging/kernLog';
 import { asGameTime, asPlayerKeyHex } from '../types';
@@ -285,7 +285,7 @@ describe('handleNmapScanDeep', () => {
   it('records nothing when the claimed vantage is not a gateway in the caller chain', async () => {
     const pubkey = ROUTER_CHILD.publicKeyHex;
     // The edge .1 router is a real box but NOT a pivot vantage (it fronts no deep layer).
-    const edgeId = computeRouterId(pubkey);
+    const edgeId = computeApGatewayId(ESSID);
     const expected = expectedDeepLayer(pubkey, innerRouterVantage(pubkey));
     const { deps, upsertPatch } = makeDeps();
 

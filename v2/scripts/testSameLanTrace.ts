@@ -24,7 +24,7 @@ import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign';
 import { generateIdentity } from '../src/core/identity/identity';
 import { computeWorkstationId } from '../src/core/identity/workstation';
-import { computeRouterId } from '../src/core/identity/router';
+import { computeApGatewayId } from '../src/core/identity/router';
 import { assignHomeNetwork } from '../src/core/network/homeNetwork';
 import { formatPidfileContent } from '../src/core/services/pidfile';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
@@ -87,7 +87,7 @@ const ESSID = 'SAME-LAN-TRACE-WIFI';
 const A_WS_NAME = 'skylab';
 const B_WS_NAME = 'nebuchadnezzar';
 const A_WS = computeWorkstationId(A_WS_NAME, alice.publicKeyHex);
-const A_ROUTER = computeRouterId(alice.publicKeyHex);
+const A_ROUTER = computeApGatewayId(ESSID);
 const A_LAN = assignHomeNetwork(alice.publicKeyHex, ESSID).localIp; // A's ws LAN ip
 const B_LAN = assignHomeNetwork(bob.publicKeyHex, ESSID).localIp; // B's LAN ip — the source
 const B_PUBLIC = '198.51.100.42'; // a home public IP that must NOT appear (the source is the LAN IP)

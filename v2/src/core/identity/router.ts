@@ -1,34 +1,34 @@
 /**
- * Router identity — the canonical machine_id for a player's home router.
+ * Gateway identity — the canonical machine_id for the AP gateway and for the
+ * deeper gateways behind it.
  *
- * The router is a DISTINCT machine from the player's workstation: it bears the
- * public IP, runs its own `sshd`, and owns `/etc/iptables/rules.v4`. It must NOT
- * alias the workstation, so it derives from a SEPARATE hash namespace.
+ * The AP gateway is the `.1` of an access point's LAN: it bears the public IP,
+ * runs its own `sshd`, and owns `/etc/iptables/rules.v4`. It belongs to the ACCESS
+ * POINT, not to any player — an AP has one gateway, so every occupant of an ESSID
+ * is behind the same NAT on the same box, and it therefore derives from the ESSID
+ * alone. Deriving it per-player instead would give each occupant a private `.1`
+ * while all of them claimed one shared public address.
  *
- * `isOwnWorkstation` matches on the identity-derived suffix ALONE (it ignores
- * the name part), so a router id built from the same `'ed25519:'` namespace as
- * the workstation would collide on the suffix and be wrongly claimed as the
- * player's own box. The `'ed25519-router:'` prefix is therefore LOAD-BEARING —
- * same key, different domain → an independent, never-colliding suffix. Both the
- * registry writer and every server-side lookup call this one function, so the
- * exact prefix bytes are an internal detail; only determinism + distinctness
- * from the workstation suffix are the contract.
+ * Nobody owns it: it is a contested machine reached the same way as any other
+ * target, by cracking its (deliberately weak, ESSID-seeded) admin password. There
+ * is no "own gateway" shortcut.
+ *
+ * Namespaces are LOAD-BEARING. `isOwnWorkstation` matches on the identity-derived
+ * suffix ALONE (it ignores the name part), so an id built from the same `'ed25519:'`
+ * namespace as the workstation would collide on the suffix and be wrongly claimed
+ * as the player's own box. Each gateway kind therefore hashes in its own domain →
+ * independent, never-colliding suffixes. The exact prefix bytes are an internal
+ * detail; only determinism + distinctness across kinds are the contract.
  */
 
 import { deriveHostnameSuffix } from './workstation';
 
-export const computeRouterId = (playerKeyHex: string): string =>
-  `router-${deriveHostnameSuffix(`ed25519-router:${playerKeyHex}`)}`;
-
-/** Whether `machineId` is the caller's OWN router — the router counterpart of
- *  `isOwnWorkstation`. The router has its own (`'ed25519-router:'`) namespace, so
- *  this is a plain identity-derived match: A's router id is `computeRouterId(A)`
- *  and no other key reproduces it. Used both client-side (route the own-router FS
- *  view, exclude it from the cross-player hop) and server-side (the L2 walker
- *  rebuilds the router tree for an own-router write). Unlike `isOwnWorkstation`,
- *  holding this id grants no L1 bypass: the router is always session-gated. */
-export const isOwnRouter = (machineId: string, playerKeyHex: string): boolean =>
-  machineId === computeRouterId(playerKeyHex);
+/** The machine_id for an access point's gateway, keyed by the ESSID ALONE so every
+ *  occupant of that AP resolves the same box. The `ap-gw:` namespace is not an
+ *  `ed25519-` one because this id is not derived from any keypair — no player owns
+ *  an access point. */
+export const computeApGatewayId = (essid: string): string =>
+  `ap-gw-${deriveHostnameSuffix(`ap-gw:${essid}`)}`;
 
 /** The machine_id for a deeper-layer gateway hanging off the player's OWN LAN — a
  *  router the player owns, but which must NOT alias the edge router. It derives

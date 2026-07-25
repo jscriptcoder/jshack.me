@@ -25,7 +25,7 @@ import {
   ownLanBaseFsForMachineId,
 } from '../generation/lanHostIdentity';
 import { buildWorkstationBaseFsFromIdentity } from '../generation/workstationFs';
-import { buildRouterBaseFs } from '../generation/routerFs';
+import { buildApGatewayBaseFs } from '../generation/routerFs';
 import { asAbsPath } from '../types';
 import type { Directory } from '../filesystem/types';
 import type { ActiveSession } from './authorizeMachineAccess';
@@ -51,15 +51,15 @@ export type RegistryWorkstation = {
   readonly workstation_root_hash: string;
 };
 
-/** A registered machine resolved by machine_id for the L2 perm check — A's
- *  WORKSTATION (Story 2/3) or A's ROUTER (Story 5.2, B `ssh root`'d into it). The
- *  caller holds only the machine_id and can't know which, so the reverse-lookup
- *  discriminates and the walker rebuilds the matching OWNER tree. The router base
- *  is seeded from the owner key alone, so its arm carries only that. Per-module
- *  (mirrors `resolveCrossPlayerFs`'s `RegistryMachine`). */
+/** A registered machine resolved by machine_id for the L2 perm check — a player's
+ *  WORKSTATION, or the AP GATEWAY someone has `ssh root`'d into. The caller holds
+ *  only the machine_id and can't know which, so the reverse-lookup discriminates and
+ *  the walker rebuilds the matching tree. The gateway base is seeded from the ESSID
+ *  alone, so its arm carries only that. Per-module (mirrors
+ *  `resolveCrossPlayerFs`'s `RegistryMachine`). */
 export type RegistryMachine =
   | ({ readonly kind: 'workstation' } & RegistryWorkstation)
-  | { readonly kind: 'router'; readonly owner_key: string };
+  | { readonly kind: 'router'; readonly essid: string };
 
 export type FindRegistryByMachineId = (
   machineId: string,
@@ -132,7 +132,7 @@ const resolveTargetBaseFs = async (args: {
     // never a caller regeneration (Story 5.2).
     const fs =
       registry.data.kind === 'router'
-        ? buildRouterBaseFs(registry.data.owner_key)
+        ? buildApGatewayBaseFs(registry.data.essid)
         : buildRegisteredWorkstationFs(registry.data);
     return { fs, error: null };
   }

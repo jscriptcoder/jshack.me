@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  computeDeepGatewayId,
-  computeInnerGatewayId,
-  computeRouterId,
-  isOwnRouter,
-} from './router';
+import { computeApGatewayId, computeDeepGatewayId, computeInnerGatewayId } from './router';
 import { computeWorkstationId, isOwnWorkstation, parseWorkstationId } from './workstation';
 import { hostMachineId } from '../generation/remoteHostId';
 import type { LanHost } from '../generation/generateHomeLan';
@@ -13,58 +8,43 @@ import type { LanHost } from '../generation/generateHomeLan';
 // contract is determinism + DISTINCTNESS, not a specific key.
 const KEY = 'a'.repeat(64);
 const OTHER_KEY = 'b'.repeat(64);
+const ESSID = 'BREW-AND-CODE';
+const OTHER_ESSID = 'NAKATOMI-PLAZA';
 
-describe('computeRouterId', () => {
-  it('returns a `router-<8 hex>` id', () => {
-    expect(computeRouterId(KEY)).toMatch(/^router-[0-9a-f]{8}$/);
+describe('computeApGatewayId', () => {
+  it('returns an `ap-gw-<8 hex>` id', () => {
+    expect(computeApGatewayId(ESSID)).toMatch(/^ap-gw-[0-9a-f]{8}$/);
   });
 
-  it('is deterministic for the same key', () => {
-    expect(computeRouterId(KEY)).toBe(computeRouterId(KEY));
+  it('is deterministic for the same ESSID', () => {
+    expect(computeApGatewayId(ESSID)).toBe(computeApGatewayId(ESSID));
   });
 
-  it('differs for different keys', () => {
-    expect(computeRouterId(KEY)).not.toBe(computeRouterId(OTHER_KEY));
+  it('differs for different ESSIDs', () => {
+    expect(computeApGatewayId(ESSID)).not.toBe(computeApGatewayId(OTHER_ESSID));
   });
 
-  it('uses a DISTINCT namespace from the workstation id for the same key', () => {
-    // Same owner key, but the router suffix must NOT equal the workstation
-    // suffix — otherwise the router would alias the player's own box and the
-    // suffix-only `isOwnWorkstation` check would wrongly claim it.
-    const routerSuffix = parseWorkstationId(computeRouterId(KEY))?.suffix;
+  // The gateway belongs to the access point, so no player key enters its derivation:
+  // every occupant of the ESSID must land on the same box behind the same public IP.
+  it('does not vary with the caller', () => {
+    expect(computeApGatewayId(ESSID)).toBe(computeApGatewayId(ESSID));
+    expect(isOwnWorkstation(computeApGatewayId(ESSID), KEY)).toBe(false);
+    expect(isOwnWorkstation(computeApGatewayId(ESSID), OTHER_KEY)).toBe(false);
+  });
+
+  it('uses a DISTINCT namespace from a workstation id', () => {
+    // The suffix-only `isOwnWorkstation` check would wrongly claim the gateway as a
+    // player's own box if the two namespaces ever produced the same suffix.
+    const gatewaySuffix = parseWorkstationId(computeApGatewayId(ESSID))?.suffix;
     const workstationSuffix = parseWorkstationId(computeWorkstationId('box', KEY))?.suffix;
-    expect(routerSuffix).toBeDefined();
-    expect(routerSuffix).not.toBe(workstationSuffix);
-  });
-
-  it("is never recognised as the owner's own workstation", () => {
-    expect(isOwnWorkstation(computeRouterId(KEY), KEY)).toBe(false);
-  });
-});
-
-describe('isOwnRouter', () => {
-  it("recognises the caller's own router id", () => {
-    expect(isOwnRouter(computeRouterId(KEY), KEY)).toBe(true);
-  });
-
-  it("rejects another owner's router id", () => {
-    // B scanning/standing on A's router must NOT see it as their own — A's
-    // router id is derived from A's key, not B's.
-    expect(isOwnRouter(computeRouterId(KEY), OTHER_KEY)).toBe(false);
-  });
-
-  it("rejects the caller's own workstation id (the router is a distinct machine)", () => {
-    expect(isOwnRouter(computeWorkstationId('box', KEY), KEY)).toBe(false);
-  });
-
-  it('rejects an unrelated machine id', () => {
-    expect(isOwnRouter('203.0.113.7', KEY)).toBe(false);
+    expect(gatewaySuffix).toBeDefined();
+    expect(gatewaySuffix).not.toBe(workstationSuffix);
   });
 });
 
 describe('computeInnerGatewayId', () => {
   // A deeper-layer gateway hanging off the player's own LAN. It is the player's
-  // OWN device, but it must NOT alias the edge router (`computeRouterId`) — so it
+  // OWN device, but it must NOT alias the edge router (`computeApGatewayId`) — so it
   // lives in its own key+octet namespace. The octet is load-bearing: two inner
   // gateways at different octets must never collide.
   it('returns an `inner-gw-<8 hex>` id', () => {
@@ -75,8 +55,8 @@ describe('computeInnerGatewayId', () => {
     expect(computeInnerGatewayId(KEY, 37)).toBe(computeInnerGatewayId(KEY, 37));
   });
 
-  it('differs from the edge router id for the same key (never aliases the edge)', () => {
-    expect(computeInnerGatewayId(KEY, 37)).not.toBe(computeRouterId(KEY));
+  it('differs from the AP gateway id (never aliases the edge)', () => {
+    expect(computeInnerGatewayId(KEY, 37)).not.toBe(computeApGatewayId(ESSID));
   });
 
   it('differs per octet, so two inner gateways never alias', () => {
@@ -136,7 +116,7 @@ describe('computeDeepGatewayId', () => {
   it('never aliases an inner gateway, the edge router, or the parent itself', () => {
     const deep = computeDeepGatewayId(KEY, PARENT, 50);
     expect(deep).not.toBe(computeInnerGatewayId(KEY, 50));
-    expect(deep).not.toBe(computeRouterId(KEY));
+    expect(deep).not.toBe(computeApGatewayId(ESSID));
     expect(deep).not.toBe(PARENT);
   });
 

@@ -6,7 +6,7 @@ import {
   type RegistryMachine,
 } from './remoteWritePermission';
 import { generateIdentity } from '../identity/identity';
-import { computeDeepGatewayId, computeInnerGatewayId, computeRouterId } from '../identity/router';
+import { computeDeepGatewayId, computeInnerGatewayId, computeApGatewayId } from '../identity/router';
 import { generateHomeLan } from '../generation/generateHomeLan';
 import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer';
 import { md5 } from '../generation/md5';
@@ -60,16 +60,19 @@ describe('buildRegisteredWorkstationFs', () => {
  * base would be null and the write denied — a passing "allowed" proves the
  * own-router branch built the router tree.
  */
-describe('enforceRemoteWriteL2 — own router', () => {
+describe('enforceRemoteWriteL2 — AP gateway', () => {
   const noPriorPatches = () => Promise.resolve({ data: [], error: null });
   const noRegistry = () => Promise.resolve({ data: null, error: null });
 
-  it("allows a ROOT write to /etc/iptables/rules.v4 on the caller's own router", async () => {
-    const owner = generateIdentity();
+  it('denies a write to an AP gateway that resolves to no registered network', async () => {
+    // The gateway is nobody's own box, so there is no own-machine branch to fall back
+    // on: with no registry row there is no tree to walk and the write fails closed,
+    // exactly as it would for any other unresolvable machine.
+    const caller = generateIdentity();
 
     const denial = await enforceRemoteWriteL2({
-      publicKey: owner.publicKeyHex,
-      machineId: computeRouterId(owner.publicKeyHex),
+      publicKey: caller.publicKeyHex,
+      machineId: computeApGatewayId('HOME-WIFI'),
       path: '/etc/iptables/rules.v4',
       session: { userType: 'root', essid: 'HOME-WIFI' },
       listMachinePatches: noPriorPatches,
@@ -77,7 +80,7 @@ describe('enforceRemoteWriteL2 — own router', () => {
       findOccupantWorkstationByMachineId: noRegistry,
     });
 
-    expect(denial).toBeNull();
+    expect(denial).toEqual({ status: 403, error: 'permission_denied' });
   });
 
   it("denies a non-root tier writing the router's root-only rules.v4", async () => {
@@ -85,7 +88,7 @@ describe('enforceRemoteWriteL2 — own router', () => {
 
     const denial = await enforceRemoteWriteL2({
       publicKey: owner.publicKeyHex,
-      machineId: computeRouterId(owner.publicKeyHex),
+      machineId: computeApGatewayId('HOME-WIFI'),
       path: '/etc/iptables/rules.v4',
       session: { userType: 'guest', essid: 'HOME-WIFI' },
       listMachinePatches: noPriorPatches,
@@ -339,15 +342,14 @@ describe('enforceRemoteWriteL2 — foreign router (cross-player)', () => {
 
   it("allows B's ROOT write to /etc/iptables/rules.v4 on A's registered router", async () => {
     const attacker = generateIdentity();
-    const owner = generateIdentity();
-    // The registry resolves A's router machine_id → a router-kind row carrying A's
-    // owner_key (the seed the router tree is rebuilt from).
+    // The registry resolves the gateway's machine_id → a router-kind row carrying the
+    // ESSID (the seed its tree is rebuilt from — the AP owns it, so no player key).
     const findRegistryByMachineId = (): Promise<{ data: RegistryMachine | null; error: unknown }> =>
-      Promise.resolve({ data: { kind: 'router', owner_key: owner.publicKeyHex }, error: null });
+      Promise.resolve({ data: { kind: 'router', essid: 'HOME-WIFI' }, error: null });
 
     const denial = await enforceRemoteWriteL2({
       publicKey: attacker.publicKeyHex,
-      machineId: computeRouterId(owner.publicKeyHex),
+      machineId: computeApGatewayId('HOME-WIFI'),
       path: '/etc/iptables/rules.v4',
       session: { userType: 'root', essid: 'B-WIFI' },
       listMachinePatches: noPriorPatches,
@@ -358,15 +360,14 @@ describe('enforceRemoteWriteL2 — foreign router (cross-player)', () => {
     expect(denial).toBeNull();
   });
 
-  it("denies B's non-root write to A's router root-only rules.v4", async () => {
+  it("denies a non-root write to the AP gateway's root-only rules.v4", async () => {
     const attacker = generateIdentity();
-    const owner = generateIdentity();
     const findRegistryByMachineId = (): Promise<{ data: RegistryMachine | null; error: unknown }> =>
-      Promise.resolve({ data: { kind: 'router', owner_key: owner.publicKeyHex }, error: null });
+      Promise.resolve({ data: { kind: 'router', essid: 'HOME-WIFI' }, error: null });
 
     const denial = await enforceRemoteWriteL2({
       publicKey: attacker.publicKeyHex,
-      machineId: computeRouterId(owner.publicKeyHex),
+      machineId: computeApGatewayId('HOME-WIFI'),
       path: '/etc/iptables/rules.v4',
       session: { userType: 'guest', essid: 'B-WIFI' },
       listMachinePatches: noPriorPatches,

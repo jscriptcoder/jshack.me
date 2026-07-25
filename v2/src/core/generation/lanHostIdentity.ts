@@ -8,9 +8,9 @@
  * (a divergence would silently route a session onto the wrong machine's tree).
  *
  * Four kinds of host:
- * - the edge router at `.1` keeps its key-only identity (`computeRouterId` /
- *   `buildRouterBaseFs`) — it is the box `network_registry` holds, so cross-player
- *   resolution stays untouched;
+ * - the AP gateway at `.1` takes its ESSID-keyed identity (`computeApGatewayId` /
+ *   `buildApGatewayBaseFs`) — it belongs to the access point, so every occupant of
+ *   the ESSID resolves the same box behind the same public IP;
  * - an inner gateway (any OTHER router) takes its octet-keyed identity
  *   (`computeInnerGatewayId` / `buildInnerGatewayBaseFs`) so it never aliases the
  *   edge or a sibling;
@@ -23,12 +23,16 @@
  */
 
 import type { Directory } from '../filesystem/types';
-import { computeDeepGatewayId, computeInnerGatewayId, computeRouterId } from '../identity/router';
 import {
+  computeApGatewayId,
+  computeDeepGatewayId,
+  computeInnerGatewayId,
+} from '../identity/router';
+import {
+  buildApGatewayBaseFs,
   buildDeepGatewayBaseFs,
   buildDeepSwitchBaseFs,
   buildInnerGatewayBaseFs,
-  buildRouterBaseFs,
   buildSwitchBaseFs,
 } from './routerFs';
 import { buildRemoteHostFs } from './remoteHostFs';
@@ -72,7 +76,7 @@ export const innerGatewayAt = (
 export const machineIdForLanHost = (host: LanHost, ownerKeyHex: string, essid: string): string => {
   const octet = lanHostOctet(host);
   if (host.kind === 'router') {
-    return octet === 1 ? computeRouterId(ownerKeyHex) : computeInnerGatewayId(ownerKeyHex, octet);
+    return octet === 1 ? computeApGatewayId(essid) : computeInnerGatewayId(ownerKeyHex, octet);
   }
   if (host.kind === 'switch') {
     return computeInnerGatewayId(ownerKeyHex, octet);
@@ -85,7 +89,7 @@ export const machineIdForLanHost = (host: LanHost, ownerKeyHex: string, essid: s
 export const baseFsForLanHost = (host: LanHost, ownerKeyHex: string, essid: string): Directory => {
   const octet = lanHostOctet(host);
   if (host.kind === 'router') {
-    return octet === 1 ? buildRouterBaseFs(ownerKeyHex) : buildInnerGatewayBaseFs(ownerKeyHex, octet);
+    return octet === 1 ? buildApGatewayBaseFs(essid) : buildInnerGatewayBaseFs(ownerKeyHex, octet);
   }
   if (host.kind === 'switch') {
     return buildSwitchBaseFs(ownerKeyHex, octet);
@@ -127,17 +131,24 @@ export const resolveDeepGatewayIdentity = (
 };
 
 /** The reverse of `resolveLanHostIdentity`: the seeded base FS of the host on the
- *  player's OWN LAN whose machine_id equals `machineId` (edge router, inner gateway,
- *  or NPC), or null when none matches. The write path (L2) and the client read-back
- *  rebuild a journal-backed box this way — a session carries only a machine_id, so
- *  the tree it replays its journal over is recovered by regenerating the LAN. */
+ *  player's OWN LAN whose machine_id equals `machineId` (inner gateway or NPC), or
+ *  null when none matches. The write path (L2) and the client read-back rebuild a
+ *  journal-backed box this way — a session carries only a machine_id, so the tree it
+ *  replays its journal over is recovered by regenerating the LAN.
+ *
+ *  The `.1` is EXCLUDED: the AP gateway belongs to the access point, not to the
+ *  viewer, so it must resolve through the shared server-side path like any other
+ *  contested box. Matching it here would let each occupant rebuild it from their own
+ *  regeneration and never see another occupant's writes to it. */
 export const ownLanBaseFsForMachineId = (
   ownerKeyHex: string,
   essid: string,
   machineId: string,
 ): Directory | null => {
   const host = generateHomeLan(ownerKeyHex, essid).hosts.find(
-    (candidate) => machineIdForLanHost(candidate, ownerKeyHex, essid) === machineId,
+    (candidate) =>
+      lanHostOctet(candidate) !== 1 &&
+      machineIdForLanHost(candidate, ownerKeyHex, essid) === machineId,
   );
   return host === undefined ? null : baseFsForLanHost(host, ownerKeyHex, essid);
 };

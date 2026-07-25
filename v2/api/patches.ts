@@ -174,19 +174,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     const byRouter = await supabase
       .from('network_registry')
-      .select('owner_key')
+      .select('essid')
       .eq('router_machine_id', machineId)
       .maybeSingle();
     if (byRouter.error) {
       console.error('[patches] registry router reverse-lookup error:', byRouter.error);
       return { data: null, error: byRouter.error };
     }
-    const router = byRouter.data as { owner_key: string } | null;
+    const router = byRouter.data as { essid: string } | null;
     return {
       data:
         router === null
           ? null
-          : ({ kind: 'router', owner_key: router.owner_key } as RegistryMachine),
+          : ({ kind: 'router', essid: router.essid } as RegistryMachine),
       error: null,
     };
   };

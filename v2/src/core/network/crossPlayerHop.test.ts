@@ -5,7 +5,7 @@ import { generateDeepLayer } from '../generation/generateDeepLayer';
 import { hostMachineId } from '../generation/remoteHostId';
 import { machineIdForLanHost, resolveDeepGatewayIdentity } from '../generation/lanHostIdentity';
 import { computeWorkstationId } from '../identity/workstation';
-import { computeRouterId } from '../identity/router';
+import { computeApGatewayId } from '../identity/router';
 
 /**
  * `isCrossPlayerWorkstation` is the machine-level "am I standing on ANOTHER
@@ -49,18 +49,18 @@ describe('isCrossPlayerWorkstation', () => {
     ).toBe(false);
   });
 
-  it('is false for your OWN router (a journal-backed machine on your LAN, not a foreign box)', () => {
-    // The router has a distinct id namespace, so it is neither your workstation
-    // nor a host `hostForMachineId` resolves — without the own-router exclusion it
-    // would be misread as cross-player and fetch a server-served (tier-filtered)
-    // tree instead of your own journal-replayed router tree.
+  it('is TRUE for the AP gateway on your own LAN — nobody owns the access point', () => {
+    // The gateway belongs to the access point, so it is foreign to every occupant
+    // including the caller. That is what routes it through the server-served tree
+    // and makes one occupant's writes to it visible to the others; treating it as
+    // "own" would have each occupant rebuild a private copy from their own seed.
     expect(
       isCrossPlayerWorkstation({
-        machineId: computeRouterId(PUBKEY),
+        machineId: computeApGatewayId(ESSID),
         publicKeyHex: PUBKEY,
         essid: ESSID,
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   // The inner gateway, switch, and the deep boxes behind them are the player's OWN

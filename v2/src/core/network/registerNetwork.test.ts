@@ -7,7 +7,7 @@ import {
 } from './registerNetwork';
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
-import { computeRouterId } from '../identity/router';
+import { computeApGatewayId } from '../identity/router';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
 /**
@@ -17,7 +17,7 @@ import type { NonceStore } from '../signedRequest/nonceStore';
  * ESSID (an injected `allocatePublicIp` issues a globally-unique WAN address that
  * belongs to the AP, shared by every occupant); `owner_key` is stamped from the
  * verified pubkey, never claimed. The router is a DISTINCT machine —
- * `router_machine_id` is `computeRouterId(owner_key)` (its own seeded box bearing
+ * `router_machine_id` is `computeApGatewayId(ESSID)` (its own seeded box bearing
  * the public IP), and there is no `forward_table` (the router's
  * `/etc/iptables/rules.v4` is the single source of truth for forwards).
  */
@@ -79,7 +79,7 @@ describe('handleRegisterNetwork', () => {
       public_ip: ALLOCATED_IP,
       owner_key: id.publicKeyHex,
       workstation_machine_id: WORKSTATION_ID,
-      router_machine_id: computeRouterId(id.publicKeyHex),
+      router_machine_id: computeApGatewayId(ESSID),
       essid: ESSID,
       workstation_username: USERNAME,
       workstation_machine_name: MACHINE_NAME,
@@ -87,14 +87,14 @@ describe('handleRegisterNetwork', () => {
     });
   });
 
-  it('registers the router as a DISTINCT machine — router_machine_id = computeRouterId(owner_key), not the workstation', async () => {
+  it('registers the router as a DISTINCT machine — router_machine_id = computeApGatewayId(ESSID), not the workstation', async () => {
     const id = generateIdentity();
     const { deps, upsertRegistry } = makeDeps();
 
     await handleRegisterNetwork(envelope(id), deps);
 
     const row = upsertRegistry.mock.calls[0]![0];
-    expect(row.router_machine_id).toBe(computeRouterId(id.publicKeyHex));
+    expect(row.router_machine_id).toBe(computeApGatewayId(ESSID));
     expect(row.router_machine_id).not.toBe(row.workstation_machine_id);
     expect('forward_table' in row).toBe(false);
   });

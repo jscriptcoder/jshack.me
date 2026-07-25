@@ -22,9 +22,9 @@ import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign';
 import { generateIdentity } from '../src/core/identity/identity';
 import { computeWorkstationId } from '../src/core/identity/workstation';
-import { computeRouterId } from '../src/core/identity/router';
+import { computeApGatewayId } from '../src/core/identity/router';
 import { md5 } from '../src/core/generation/md5';
-import { seedRouterHostname } from '../src/core/generation/routerFs';
+import { seedApGatewayHostname } from '../src/core/generation/routerFs';
 
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
 const url = process.env.SUPABASE_URL;
@@ -81,14 +81,14 @@ const carol = generateIdentity();
 const A_ESSID = 'ABSTERGO-NET';
 const B_ESSID = 'BLUE-SUN-CAFE';
 const C_ESSID = 'CYBERDYNE-GUEST';
-const A_ROUTER = computeRouterId(alice.publicKeyHex);
+const A_ROUTER = computeApGatewayId(A_ESSID);
 const A_PUBLIC_IP = '203.0.113.92';
 // B's + C's truthful source IPs: the public IPs in their seeded registry rows, which the
 // server recovers from each verified key via the registry — never a client claim. Explicit
 // constants, since this script seeds those rows directly (self-consistent with the asserts).
 const B_PUBLIC_IP = '198.51.100.92';
 const C_PUBLIC_IP = '192.0.2.92';
-const A_ROUTER_HOST = seedRouterHostname(alice.publicKeyHex);
+const A_ROUTER_HOST = seedApGatewayHostname(A_ESSID);
 
 // Clean slate, then seed the three registry rows (as each player's join would).
 await sr.from('network_registry').delete().in('public_ip', [A_PUBLIC_IP, B_PUBLIC_IP, C_PUBLIC_IP]);
@@ -102,7 +102,7 @@ const registryRow = (
   public_ip: publicIp,
   owner_key: owner.publicKeyHex,
   workstation_machine_id: computeWorkstationId(wsName, owner.publicKeyHex),
-  router_machine_id: computeRouterId(owner.publicKeyHex),
+  router_machine_id: computeApGatewayId(essid),
   essid,
   workstation_username: 'player',
   workstation_machine_name: wsName,
