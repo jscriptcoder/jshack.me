@@ -67,6 +67,12 @@ export type RegisterNetworkDeps = {
    *  in the api/ adapter from `allocatePublicIp` over the `network_public_ips`
    *  store; rejects on a store error or allocation exhaustion. */
   readonly allocatePublicIp: (essid: string) => Promise<string>;
+  /** Issue (or recall) this occupant's host octet on the ESSID's `/24`. Where the
+   *  public IP is ONE address shared by the whole AP, a LAN lease is per
+   *  `(essid, owner_key)` — each occupant holds its own, and the `(essid, octet)`
+   *  uniqueness that guarantees it is a database constraint. Composed in the api/
+   *  adapter from `allocateLanLease` over the `network_lan_leases` store. */
+  readonly allocateLanLease: (essid: string, ownerKey: string) => Promise<number>;
   readonly upsertRegistry: (row: NetworkRegistryRow) => Promise<{ readonly error: unknown }>;
   readonly upsertOccupant: (row: HomeNetworkOccupantRow) => Promise<{ readonly error: unknown }>;
 };
@@ -112,6 +118,19 @@ export const handleRegisterNetwork = async (
   } catch {
     return { status: 500, body: { error: 'allocation_failed' } };
   }
+
+  // The occupant's own address on that AP's LAN, leased against a uniqueness
+  // constraint so two occupants of one ESSID can never hold the same one. Like the
+  // public IP it precedes the writes: a full subnet or a store failure is a clean
+  // 500, never a join that registers a player on a network they hold no address on.
+  // Nothing reads the lease yet — the readers still derive their addresses — so this
+  // establishes the allocation of record without moving anyone.
+  try {
+    await deps.allocateLanLease(payload.essid, publicKey);
+  } catch {
+    return { status: 500, body: { error: 'lease_allocation_failed' } };
+  }
+
   const row: NetworkRegistryRow = {
     public_ip: publicIp,
     owner_key: publicKey,

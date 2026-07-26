@@ -26,6 +26,8 @@ import type { MachineLogReadQuery } from '../src/core/patches/appendMachineLog';
 import type { PatchRow } from '../src/core/patches/upsertPatch';
 import type { NonceStore } from '../src/core/signedRequest/nonceStore';
 import { allocatePublicIp } from '../src/core/network/allocatePublicIp';
+import { allocateLanLease, drawLanOctet } from '../src/core/network/allocateLanLease';
+import { assignHomeNetwork } from '../src/core/network/homeNetwork';
 import { generatePublicIp } from '../src/core/generation/ip';
 import { createPrng } from '../src/core/generation/prng';
 import { randomUUID } from 'node:crypto';
@@ -419,6 +421,52 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (data !== null) return (data as { public_ip: string }).public_ip;
     return readEssidIp(essid);
   };
+
+  // The occupant's host octet on the ESSID's /24, leased against `UNIQUE (essid,
+  // octet)`. Nothing reads these leases yet — every address is still derived — so
+  // this establishes the allocation of record ahead of the readers moving onto it.
+  const readLanLease = async (essid: string, ownerKey: string): Promise<number | null> => {
+    const { data, error } = await supabase
+      .from('network_lan_leases')
+      .select('octet')
+      .eq('essid', essid)
+      .eq('owner_key', ownerKey)
+      .maybeSingle();
+    if (error) {
+      console.error('[network] lan-lease read error:', error);
+      throw new Error('lan_lease_read_failed');
+    }
+    return (data as { octet: number } | null)?.octet ?? null;
+  };
+  // INSERT … ON CONFLICT (essid, owner_key) DO NOTHING: a row back ⇒ we leased the
+  // offered octet; no row ⇒ this occupant already had a lease (read + adopt it); a
+  // 23505 ⇒ the octet is held by ANOTHER occupant of the ESSID (the `(essid, octet)`
+  // UNIQUE constraint, NOT the ON CONFLICT target), so null signals a redraw.
+  const claimLanLease = async (
+    essid: string,
+    ownerKey: string,
+    octet: number,
+  ): Promise<number | null> => {
+    const { data, error } = await supabase
+      .from('network_lan_leases')
+      .upsert(
+        { essid, owner_key: ownerKey, octet },
+        { onConflict: 'essid,owner_key', ignoreDuplicates: true },
+      )
+      .select('octet')
+      .maybeSingle();
+    if (error) {
+      if (error.code === '23505') return null;
+      console.error('[network] lan-lease claim error:', error);
+      throw new Error('lan_lease_claim_failed');
+    }
+    if (data !== null) return (data as { octet: number }).octet;
+    return readLanLease(essid, ownerKey);
+  };
+  // Transitional: seeds the lease from the address the pure derivation issues, so
+  // switching the readers over relocates nobody. Retire this once nothing derives.
+  const derivedOctetFor = (ownerKey: string, essid: string): number =>
+    Number(assignHomeNetwork(ownerKey, essid).localIp.split('.')[3]);
   const { status, body } = await handleRegisterNetwork(req.body, {
     nonceStore: noopNonceStore,
     // A fresh random seed per draw so a redraw yields a DIFFERENT candidate (an
@@ -430,6 +478,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         drawIp: () => generatePublicIp(createPrng(randomUUID())),
         claim: claimEssidIp,
       }),
+    // The preferred octet is the address the pure derivation issues today, so an
+    // occupant already connected under it leases the address it is ALREADY using and
+    // never moves. Only a genuine collision redraws — with a fresh random seed per
+    // draw, since a key-seeded redraw would return the same colliding octet forever.
+    allocateLanLease: (essid: string, ownerKey: string) =>
+      allocateLanLease(
+        { essid, ownerKey, preferredOctet: derivedOctetFor(ownerKey, essid) },
+        {
+          readLease: readLanLease,
+          redrawOctet: () => drawLanOctet(createPrng(randomUUID())),
+          claim: claimLanLease,
+        },
+      ),
     upsertRegistry,
     upsertOccupant,
   });
