@@ -4,9 +4,10 @@
  *
  *   - `joinHomeNetwork` backs `env.homeNetwork.join`: on connect it registers the
  *     player's network server-side (so a DIFFERENT identity can later resolve it by
- *     public IP) and returns the local, deterministic LAN assignment. Registration
- *     is best-effort — a failure must never stop the player connecting, since the
- *     LAN itself is local-deterministic; it only forgoes cross-player discovery.
+ *     public IP) and returns the LAN address the server LEASED. Registration is no
+ *     longer best-effort: it is what issues the address, so a failure leaves the player
+ *     with nothing to be addressed with unless this network was already joined once —
+ *     in which case the remembered address stands and the reconnect works offline.
  *   - `resolvePublic` backs `env.scan.resolvePublic`: it resolves an
  *     `nmap <public IP>` against the registry, degrading to host-down on any
  *     non-ok/thrown response so a server hiccup reads as "down" rather than
@@ -16,15 +17,18 @@
  * `fetchImpl` is injected so tests drive the wire shape without a network.
  */
 
+import { z } from 'zod';
 import { signRequest } from '../core/signedRequest/sign';
 import { assignHomeNetwork } from '../core/network/homeNetwork';
 import { workstationIdentityFields } from '../core/network/workstationIdentity';
+import { noLanLeaseCache, type LanLeaseCache } from '../core/network/lanLeaseCache';
 import { deserializeTree, type SerializedDirectory } from '../core/filesystem/treeCodec';
 import type { HomeNetworkAssignment } from '../core/network/homeNetwork';
 import type { GameConfig } from '../core/gameConfig/gameConfig';
 import type { Directory } from '../core/filesystem/types';
 import type { Identity, PublicScanResolution } from '../core/commands/types';
 import type { OccupantProjection } from '../core/network/resolveOccupants';
+import type { Ipv4 } from '../core/network/interfaces';
 import type { MachineId } from '../core/types';
 
 const DEFAULT_ENDPOINT = '/api/network';
@@ -40,7 +44,15 @@ export type NetworkClientDeps = {
   readonly gameConfig: GameConfig;
   readonly endpoint?: string;
   readonly fetchImpl?: typeof fetch;
+  /** The client's copy of the addresses this player has been leased, so a reconnect
+   *  survives an unreachable server. Absent, every join must reach the server. */
+  readonly leaseCache?: LanLeaseCache;
 };
+
+/** The join response the client actually depends on: the LAN address the server
+ *  leased. Validated rather than trusted — a malformed body is a join that issued
+ *  no address, not an address-shaped fragment of one. */
+const joinResponseSchema = z.object({ local_ip: z.string().min(1) });
 
 const post = async (
   deps: NetworkClientDeps,
@@ -59,18 +71,35 @@ const post = async (
 export const joinHomeNetwork = async (
   deps: NetworkClientDeps,
   essid: string,
-): Promise<HomeNetworkAssignment> => {
-  try {
-    await post(deps, 'registerNetwork', {
-      essid,
-      workstation_machine_id: deps.machineId,
-      ...workstationIdentityFields(deps.gameConfig),
-    });
-  } catch {
-    // best-effort: registration enables cross-player discovery, but a failure must
-    // not stop the player connecting (the LAN address is local-deterministic).
-  }
-  return assignHomeNetwork(deps.identity.publicKeyHex, essid);
+): Promise<HomeNetworkAssignment | null> => {
+  // The hostname stays a pure derivation — only the ADDRESS is leased.
+  const { hostname } = assignHomeNetwork(deps.identity.publicKeyHex, essid);
+  const cache = deps.leaseCache ?? noLanLeaseCache;
+
+  const issued = await (async (): Promise<Ipv4 | null> => {
+    try {
+      const response = await post(deps, 'registerNetwork', {
+        essid,
+        workstation_machine_id: deps.machineId,
+        ...workstationIdentityFields(deps.gameConfig),
+      });
+      if (!response.ok) return null;
+      const body: unknown = await response.json();
+      const parsed = joinResponseSchema.safeParse(body);
+      return parsed.success ? parsed.data.local_ip : null;
+    } catch {
+      return null;
+    }
+  })();
+
+  if (issued !== null) return { localIp: issued, hostname };
+
+  // The server said nothing usable. A network we already hold a lease on is still
+  // joinable at the address it issued; a network we have never joined is NOT — the
+  // client cannot allocate its own address, so connecting fails rather than putting
+  // the player on an address that may belong to someone else.
+  const cached = cache.recall(essid);
+  return cached === null ? null : { localIp: cached, hostname };
 };
 
 /**

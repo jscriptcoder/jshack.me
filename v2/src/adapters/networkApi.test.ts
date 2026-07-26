@@ -14,6 +14,7 @@ import { generateIdentity } from '../core/identity/identity';
 import { computeWorkstationId } from '../core/identity/workstation';
 import { verifySignedRequest } from '../core/signedRequest/verify';
 import { assignHomeNetwork } from '../core/network/homeNetwork';
+import { lanLeaseCacheIn } from '../core/network/lanLeaseCache';
 import { md5 } from '../core/generation/md5';
 import { serializeTree } from '../core/filesystem/treeCodec';
 import { dir, file, TRAVERSABLE_DIR } from '../core/generation/baseFs';
@@ -35,6 +36,20 @@ const jsonResponse = (status: number, body: unknown): Response =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
 const GAME_CONFIG = { machineName: 'skylab', username: 'neo', rootPassword: 'matrix1999' };
+
+/** An in-memory stand-in for `localStorage`, so the lease cache round-trips without a DOM. */
+const fakeStorage = () => {
+  const entries = new Map<string, string>();
+  return {
+    getItem: (key: string) => entries.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      entries.set(key, value);
+    },
+    removeItem: (key: string) => {
+      entries.delete(key);
+    },
+  };
+};
 
 const makeDeps = (
   fetchImpl: typeof fetch,
@@ -60,13 +75,19 @@ const verifyPayload = (envelope: unknown) =>
   });
 
 describe('joinHomeNetwork', () => {
-  it('signs a registerNetwork request carrying the essid and own workstation id, returning the local assignment', async () => {
-    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true }));
+  it('signs a registerNetwork request carrying the essid and own workstation id, returning the issued assignment', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, { ok: true, local_ip: '192.168.29.213' }),
+    );
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
 
     const result = await joinHomeNetwork(deps, ESSID);
 
-    expect(result).toEqual(assignHomeNetwork(deps.identity.publicKeyHex, ESSID));
+    // The address is the server's; the hostname is still the local derivation.
+    expect(result).toEqual({
+      localIp: '192.168.29.213',
+      hostname: assignHomeNetwork(deps.identity.publicKeyHex, ESSID).hostname,
+    });
     expect(fetchSpy).toHaveBeenCalledWith(
       ENDPOINT,
       expect.objectContaining({
@@ -83,16 +104,80 @@ describe('joinHomeNetwork', () => {
     });
   });
 
-  it('still returns the assignment (connecting succeeds) when registration throws offline', async () => {
+  it('issues no address when the server answers without one', async () => {
+    const deps = makeDeps(
+      vi.fn(async () => jsonResponse(200, { ok: true })) as unknown as typeof fetch,
+      { leaseCache: lanLeaseCacheIn(fakeStorage()) },
+    );
+
+    const result = await joinHomeNetwork(deps, ESSID);
+
+    // A 200 that names no address is not an address: the client has nothing to be
+    // addressed with, and inventing one is exactly what the lease replaced.
+    expect(result).toBeNull();
+  });
+
+  it('returns the address the SERVER issued, not the one the derivation would pick', async () => {
+    const deps = makeDeps(vi.fn() as unknown as typeof fetch);
+    const derived = assignHomeNetwork(deps.identity.publicKeyHex, ESSID).localIp;
+    // A relocated occupant: someone already held this player's preferred octet, so
+    // the server leased it a different address. Only the server knows this.
+    const leased = '192.168.29.213';
+    const withServer = makeDeps(
+      vi.fn(async () => jsonResponse(200, { ok: true, local_ip: leased })) as unknown as typeof fetch,
+      { identity: deps.identity, machineId: deps.machineId },
+    );
+
+    const result = await joinHomeNetwork(withServer, ESSID);
+
+    expect(result?.localIp).toBe(leased);
+    expect(result?.localIp).not.toBe(derived);
+  });
+
+  it('reconnects offline at the remembered address for a network already leased', async () => {
+    const cache = lanLeaseCacheIn(fakeStorage());
+    // What the last successful join put on wlan0, mirrored by `persistConnection`.
+    cache.remember(ESSID, '192.168.29.213');
+    const deps = makeDeps(
+      vi.fn(async () => {
+        throw new Error('offline');
+      }) as unknown as typeof fetch,
+      { leaseCache: cache },
+    );
+
+    const result = await joinHomeNetwork(deps, ESSID);
+
+    // A network we already hold an address on stays joinable with the server down —
+    // the whole point of remembering it.
+    expect(result?.localIp).toBe('192.168.29.213');
+  });
+
+  it('fails a FIRST join to an unknown network when the server is unreachable', async () => {
+    const deps = makeDeps(
+      vi.fn(async () => {
+        throw new Error('offline');
+      }) as unknown as typeof fetch,
+      { leaseCache: lanLeaseCacheIn(fakeStorage()) },
+    );
+
+    const result = await joinHomeNetwork(deps, ESSID);
+
+    // No lease was ever issued for this ESSID, and the client may not invent one:
+    // a derived address could collide with a real occupant and would change under
+    // the player on the next successful join. Connecting fails instead.
+    expect(result).toBeNull();
+  });
+
+  it('issues no address when the server fails and no lease memory is wired at all', async () => {
+    // `leaseCache` OMITTED: a client with nowhere to remember addresses has nothing to
+    // fall back to, so it must fail rather than produce an address-shaped nothing.
     const deps = makeDeps(
       vi.fn(async () => {
         throw new Error('offline');
       }) as unknown as typeof fetch,
     );
 
-    const result = await joinHomeNetwork(deps, ESSID);
-
-    expect(result).toEqual(assignHomeNetwork(deps.identity.publicKeyHex, ESSID));
+    await expect(joinHomeNetwork(deps, ESSID)).resolves.toBeNull();
   });
 
   it('posts to /api/network by default when no endpoint is configured', async () => {

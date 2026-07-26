@@ -27,6 +27,7 @@ import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { computeApGatewayId } from '../identity/router';
+import { lanAddressFor } from './lanAddress';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
 /** A row in the public-IP registry: `public_ip → network/router/machines`. The
@@ -123,10 +124,9 @@ export const handleRegisterNetwork = async (
   // constraint so two occupants of one ESSID can never hold the same one. Like the
   // public IP it precedes the writes: a full subnet or a store failure is a clean
   // 500, never a join that registers a player on a network they hold no address on.
-  // Nothing reads the lease yet — the readers still derive their addresses — so this
-  // establishes the allocation of record without moving anyone.
+  let leasedOctet: number;
   try {
-    await deps.allocateLanLease(payload.essid, publicKey);
+    leasedOctet = await deps.allocateLanLease(payload.essid, publicKey);
   } catch {
     return { status: 500, body: { error: 'lease_allocation_failed' } };
   }
@@ -162,5 +162,10 @@ export const handleRegisterNetwork = async (
   if (occupantWrite.error) {
     return { status: 500, body: { error: 'occupant_write_failed' } };
   }
-  return { status: 200, body: { ok: true } };
+
+  // The join TELLS the client where it lives. The address is the lease, not the
+  // derivation the client could compute for itself: those agree for everyone whose
+  // preferred octet was free, and for a redrawn occupant the derivation is simply
+  // wrong. Returning it here is what lets the client stop deriving at all.
+  return { status: 200, body: { ok: true, local_ip: lanAddressFor(payload.essid, leasedOctet) } };
 };

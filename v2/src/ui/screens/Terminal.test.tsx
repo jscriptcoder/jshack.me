@@ -194,6 +194,20 @@ describe('Terminal', () => {
     // airdump returns an ASYNC result whose lines `runInput` must stream into
     // the scrollback. Without the async branch the result is dropped and
     // nothing appears — so the header + summary tail prove the wiring.
+    // Connecting now needs a server: the player's address is a LEASE the join
+    // issues, and the client may not invent one. This stub is that server.
+    const LEASED_IP = '192.168.42.7';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ ok: true, local_ip: LEASED_IP }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+      ),
+    );
+
     renderTerminal();
     runCommand('airmon start wlan0');
     await screen.findByText((content) => content.includes('monitor mode enabled on wlan0'));

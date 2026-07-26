@@ -15,15 +15,16 @@ const PUBKEY = 'a'.repeat(64);
 
 // Captured from the seeded generator (see golden test below). Pins the edge
 // gateway at .1, the inner gateway (a second router) at .25, the switch (a
-// second inner gateway) at .80, the player's own host, and the full sibling
-// population for a fixed identity.
+// second inner gateway) at .80, and the full sibling population for a fixed
+// identity. The player is NOT here — it is placed by the own-view caller at its
+// leased address — and .188, this identity's preferred octet, is the vacancy the
+// generator holds open for that lease.
 const GOLDEN_HOSTS = [
   { ip: '192.168.29.1', hostname: 'vpn-gw', kind: 'router' },
   { ip: '192.168.29.25', hostname: 'fw-dmz', kind: 'router' },
   { ip: '192.168.29.30', hostname: 'tablet-30', kind: 'machine' },
   { ip: '192.168.29.70', hostname: 'workstation-70', kind: 'machine' },
   { ip: '192.168.29.80', hostname: 'vpn-gw', kind: 'switch' },
-  { ip: '192.168.29.188', hostname: 'iphone-188', kind: 'machine' },
   { ip: '192.168.29.209', hostname: 'android-209', kind: 'machine' },
   { ip: '192.168.29.245', hostname: 'iphone-245', kind: 'machine' },
 ];
@@ -58,12 +59,16 @@ describe('generateHomeLan', () => {
     expect(router?.hostname).not.toBe('gateway');
   });
 
-  it('includes the player’s own host with its assigned hostname', () => {
+  it('does not place the player, and leaves its preferred octet vacant for the lease', () => {
     const lan = generateHomeLan(PUBKEY, 'BEAN-THERE-WIFI');
-    const { localIp, hostname } = assignHomeNetwork(PUBKEY, 'BEAN-THERE-WIFI');
+    const { localIp } = assignHomeNetwork(PUBKEY, 'BEAN-THERE-WIFI');
 
-    const self = lan.hosts.find((host) => host.ip === localIp);
-    expect(self).toEqual({ ip: localIp, hostname, kind: 'machine' });
+    // A player's address is a server-issued LEASE; this generator is a pure
+    // identity+ESSID function that cannot read one, so it places NPC filler only and
+    // the own-view caller adds the player at the address it actually holds. The
+    // preferred octet is still held vacant — the allocator offers it first, so an NPC
+    // squatting it would displace nearly every player from its own address.
+    expect(lan.hosts.find((host) => host.ip === localIp)).toBeUndefined();
   });
 
   it('populates the LAN with 3 to 8 sibling machine hosts for any identity/ESSID', () => {

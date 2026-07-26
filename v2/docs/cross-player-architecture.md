@@ -100,8 +100,9 @@ internalPort}`; else `none` (router-own wins a same-port tie). It shares `readRu
   seeded `sshd:22` plus any live forwards. The workstation is dark behind NAT until A opts a
   forward in. **5.1.3b** wires `scanResult`'s injected `resolveTargetPorts`: the pure
   `core/scan/workstationPortResolver.ts` `buildWorkstationPortResolver` maps a forward's
-  `internalIp` to A's one workstation behind NAT (its deterministic LAN IP via
-  `assignHomeNetwork(owner_key, essid)`), materializes it (`materializeWorkstationFs`), and reads
+  `internalIp` to A's one workstation behind NAT (its LAN address, read from A's LEASE on the
+  ESSID — never derived, so the public path and the same-LAN path can never disagree about
+  where A's box is), materializes it (`materializeWorkstationFs`), and reads
   its open ports — so a forward (mapped to its public port) is shown **iff** the target port is up
   (a fresh ws has an empty `/var/run` → dark until A starts `sshd`). Since 5.1.3c this port reader
   is a thin wrapper over `buildWorkstationResolver` (returning the materialized `Directory | null`),

@@ -21,6 +21,7 @@
 
 import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
 import type { WirelessInterface } from '../network/interfaces';
+import type { HomeNetworkAssignment } from '../network/homeNetwork';
 import { isOwnWorkstation } from '../identity/workstation';
 
 const USAGE = [
@@ -53,11 +54,28 @@ async function* connectStream(
   wlan0: WirelessInterface,
   essid: string,
   bssid: string,
+  joined: Promise<HomeNetworkAssignment | null>,
 ): AsyncIterable<TerminalLine> {
   yield line(`Connecting to ${essid}...`);
-  const { localIp } = await env.homeNetwork.join(essid);
-  env.setInterface('wlan0', { ...wlan0, association: { essid, bssid }, ipv4: localIp });
-  yield line(`Connected to ${essid} — assigned ${localIp}`);
+  const assignment = await joined;
+  // No lease, no connection. The address is the server's to grant — and no copy of
+  // an earlier grant was remembered for this network — so there is nothing to put on
+  // wlan0. Deriving one locally is exactly what the lease replaced: it could be an
+  // address another occupant already holds, and it would change under the player on
+  // the next successful join.
+  if (assignment === null) {
+    yield {
+      kind: 'error',
+      content: `nmcli: could not get an address on ${essid} — the network is unreachable`,
+    };
+    return;
+  }
+  env.setInterface('wlan0', {
+    ...wlan0,
+    association: { essid, bssid },
+    ipv4: assignment.localIp,
+  });
+  yield line(`Connected to ${essid} — assigned ${assignment.localIp}`);
 }
 
 const handleConnect = (
@@ -86,10 +104,14 @@ const handleConnect = (
     return error(`nmcli: authentication failed for "${essid}"`);
   }
 
+  // ONE join, awaited in two places: the stream renders its outcome, the exit code
+  // reports it. Started here rather than inside the stream so both read the same
+  // result — a second call would be a second allocation attempt.
+  const joined = env.homeNetwork.join(network.essid);
   return {
     kind: 'async',
-    lines: connectStream(env, wlan0, network.essid, network.bssid),
-    exitCode: async () => 0,
+    lines: connectStream(env, wlan0, network.essid, network.bssid, joined),
+    exitCode: async () => ((await joined) === null ? 1 : 0),
   };
 };
 

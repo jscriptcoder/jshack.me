@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mergeLanOccupants } from './mergeLanOccupants';
+import { mergeLanOccupants, withSelfHost } from './mergeLanOccupants';
 import type { OccupantProjection } from './resolveOccupants';
 import type { HomeLan, LanHost } from '../generation/generateHomeLan';
 
@@ -129,5 +129,41 @@ describe('mergeLanOccupants', () => {
     // The free-octet occupant is added.
     expect(merged.hosts.find((entry) => entry.ip === `${SUBNET}.200`)?.hostname).toBe('bob-rig');
     expect(octetsOf(merged)).toEqual([1, 25, 50, 70, 80, 200]);
+  });
+});
+
+/**
+ * `withSelfHost` places the VIEWER's own host on the generated filler at the address
+ * wlan0 holds — its lease. The generator does not place the player (it is a pure
+ * identity+ESSID derivation with no view of the lease store), and the two disagree
+ * for a player the server relocated off a contested octet.
+ */
+describe('withSelfHost', () => {
+  it('keeps the hosts in ascending octet order with the player spliced into place', () => {
+    const generated = lan([host(1, 'gw', 'router'), host(20, 'tablet-20'), host(90, 'laptop-90')]);
+
+    const placed = withSelfHost(generated, `${SUBNET}.40`, 'iphone-40');
+
+    // `HomeLan` promises ascending-octet order, so the player belongs at its position
+    // rather than appended after hosts it sorts before.
+    expect(placed.hosts.map((entry) => entry.ip)).toEqual([
+      `${SUBNET}.1`,
+      `${SUBNET}.20`,
+      `${SUBNET}.40`,
+      `${SUBNET}.90`,
+    ]);
+  });
+
+  it('takes over its leased octet from a generated host', () => {
+    const generated = lan([host(1, 'gw', 'router'), host(40, 'tablet-40')]);
+
+    const placed = withSelfHost(generated, `${SUBNET}.40`, 'iphone-40');
+
+    // The lease is the authority on who answers at an address — unlike a fellow
+    // occupant, the viewer cannot be omitted from its own LAN.
+    expect(placed.hosts).toEqual([
+      host(1, 'gw', 'router'),
+      { ip: `${SUBNET}.40`, hostname: 'iphone-40', kind: 'machine' },
+    ]);
   });
 });

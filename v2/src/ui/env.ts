@@ -36,7 +36,6 @@ import {
   type ConnectivityState,
   type NetworkInterface,
 } from '../core/network/interfaces';
-import { assignHomeNetwork } from '../core/network/homeNetwork';
 import { abortableSleep } from './sleep';
 
 export type BuildCommandEnvArgs = {
@@ -144,9 +143,9 @@ export type BuildCommandEnvArgs = {
    *  since injection is ADDITIVE (a scan still works, it just discovers nothing). */
   readonly onScanResolveOccupiedEssids?: ScanApi['resolveOccupiedEssids'];
   /** The home-network join seam — backs `env.homeNetwork.join`. The UI wires it to
-   *  the `joinHomeNetwork` adapter (registers the network server-side, returns the
-   *  local assignment). Optional here: when absent, join falls back to the pure
-   *  local-deterministic assignment (terse test setups + pre-server callers). */
+   *  the `joinHomeNetwork` adapter, which registers the network server-side and carries
+   *  back the address the server leased. Optional here: when absent nothing can ISSUE an
+   *  address, so the join yields null and the connect reports it. */
   readonly onHomeNetworkJoin?: HomeNetworkApi['join'];
   /** The home-network leave seam — backs `env.homeNetwork.leave`. The UI wires it to
    *  the `leaveHomeNetwork` adapter (fire-and-forget occupancy delete). Optional here:
@@ -212,13 +211,12 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   remote: remoteStub(),
   log: args.log,
   // The home-network join: the UI wires `onHomeNetworkJoin` to the `joinHomeNetwork`
-  // adapter (registers the network server-side so other identities can resolve it,
-  // then returns the assignment). Absent it, join is the pure local-deterministic
-  // assignment — `Promise`-shaped so the seam is identical either way.
+  // adapter, which registers the network server-side AND carries back the address the
+  // server leased this player. Absent that seam nothing can issue an address, so the
+  // join yields null and `nmcli connect` reports the failure — a client that made one
+  // up would be the second allocator the lease exists to eliminate.
   homeNetwork: {
-    join:
-      args.onHomeNetworkJoin ??
-      ((essid) => Promise.resolve(assignHomeNetwork(args.identity.publicKeyHex, essid))),
+    join: args.onHomeNetworkJoin ?? (() => Promise.resolve(null)),
     // Leave is fire-and-forget occupancy cleanup; absent the server seam it's a no-op
     // (the local disconnect still clears `wlan0`).
     leave: args.onHomeNetworkLeave ?? (() => undefined),

@@ -74,7 +74,20 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
     `resolvePublicScan` / `authCreateSessionPublic` take a single-row `readLease` and
     `buildWorkstationResolver` now TAKES `lanIp` rather than deriving it, so the NAT-forward
     gate and the same-LAN path can never disagree on where a box is.
-  Remaining: 3b-ii (the player's OWN address + offline lease cache), 4 (shared LAN
+  - **Slice 3b-ii (v0.92.0)** — the player's OWN address is the leased one, and the client
+    stops deriving addresses entirely. `registerNetwork` RETURNS the leased `local_ip`, so
+    the join is what issues an address; `generateHomeLan` no longer places the player at all
+    (it emits NPC filler only, still holding the derived octet vacant because the allocator
+    offers that octet first), and the own view appends the player at the address `wlan0`
+    holds via `withSelfHost`. **Offline posture**: `lanLeaseCache` remembers the issued
+    address per ESSID — written by `persistConnection` (the ONE writer, so every path that
+    addresses `wlan0` is covered), read by `restoreConnection` and by `joinHomeNetwork`'s
+    fallback. A reconnect to an already-leased network works with the server down; a FIRST
+    join to a new ESSID with the server unreachable now FAILS (`nmcli` reports it, `wlan0`
+    stays clear) rather than silently addressing the player. `env.homeNetwork.join` returns
+    `HomeNetworkAssignment | null` and both unwired fallbacks return null — nothing in the
+    client allocates an address any more.
+  Remaining: 4 (shared LAN
   population), 5 (shared depth), 6a/6b (**`network_registry` deleted outright** — its content
   is derivable or already in `network_public_ips` / `home_network_occupants`; **this retires
   the "occupancy fallback" invariant in §7 below**). Sliced in
@@ -184,6 +197,23 @@ Provably-equivalent mutant classes — accept (don't chase) when they recur:
   loop.
 - Plus per-slice equivalents documented in the relevant plan (e.g. discriminant-by-exclusion
   arms, a default value washed out downstream).
+
+**A survivor masked by a LATER call is untested, not equivalent.** `withSelfHost`'s sort
+survived because `mergeLanOccupants` re-sorts downstream — the mutant is invisible through
+the consumer, but the module's own documented invariant (`HomeLan` = ascending octet order)
+is real. Kill it with a direct test of that invariant rather than deleting the sort or
+waving it through.
+
+**A guard clause duplicated by an EARLIER guard also survives — and its test lies.** An added
+`wlan0.ipv4 === null` check looked covered, but `env.network.isOnline()` had already rejected
+that state, so the test passed via the wrong branch. Sibling of the vacuous-absence trap in
+§5: construct the state that reaches ONLY the new guard (here: another interface addressed, so
+the machine is online while `wlan0` is not).
+
+**`stryker run --mutate <file>:<lines>` leaves STALE statuses in
+`reports/stryker-incremental.json`** for the untouched mutants in that file — a range-scoped
+run reported survivors that a full run had killed. After a scoped run, confirm any survivor by
+hand-mutating the line and running the test file.
 
 **Do NOT run Stryker and the v2 dev server at the same time.** A concurrent `vercel:dev`
 (vite/3100) makes Stryker report **false survivors** (verify by hand-mutating) and silently

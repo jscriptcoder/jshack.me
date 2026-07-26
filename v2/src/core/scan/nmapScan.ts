@@ -27,7 +27,6 @@ import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
-import { assignHomeNetwork } from '../network/homeNetwork';
 import { lanAddressesByOwner, type LanLeaseRow } from '../network/lanAddress';
 import {
   parseScanTarget,
@@ -251,20 +250,12 @@ export const handleNmapScan = async (
 
   // Resolve the scanned hosts on the caller's OWN regenerated LAN. An invalid or
   // foreign target selects nothing (the command rejects these before calling; a
-  // forged one simply finds no real hosts to record). The own workstation is
-  // excluded — it is keyed by its workstation_id, not hostMachineId.
-  //
-  // This half is still DERIVED, and deliberately: `generateHomeLan` seeds the caller's
-  // NPC filler around the derived self octet, so the exclusion has to use the same
-  // value the generator did or it would stop matching. It is the caller's private view
-  // of itself — nothing another player reaches — and it moves onto the lease when the
-  // client learns its leased address and can pass it into the generator.
+  // forged one simply finds no real hosts to record). The caller's own workstation
+  // needs no exclusion here: the generator places NPC filler only — the player is
+  // added client-side at its leased address — so it was never in this list.
   const lan = generateHomeLan(publicKey, payload.essid);
-  const selfIp = assignHomeNetwork(publicKey, payload.essid).localIp;
   const parsed = parseScanTarget(payload.target, lan.subnet);
-  const hosts = (parsed.ok ? hostsInScanTarget(lan, parsed.target) : []).filter(
-    (host) => host.ip !== selfIp,
-  );
+  const hosts = parsed.ok ? hostsInScanTarget(lan, parsed.target) : [];
 
   const context: ScanContext = {
     publicKey,

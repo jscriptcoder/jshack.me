@@ -13,6 +13,7 @@ import {
 } from '../../test/factories/commandEnv';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 import { assignHomeNetwork } from '../network/homeNetwork';
+import { withSelfHost } from '../network/mergeLanOccupants';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
 import { seedApGatewayHostname } from '../generation/routerFs';
@@ -145,8 +146,10 @@ describe('nmap', () => {
     expect(text).toContain('router');
     expect(text).toContain('192.168.29.188'); // self
     expect(text).toContain('iphone-188');
+    // The generator supplies NPC filler only; the player is placed separately at the
+    // address wlan0 holds, so the LAN is the filler plus one.
     const lan = generateHomeLan(PUBKEY, 'BEAN-THERE-WIFI');
-    expect(text).toContain(`${lan.hosts.length} hosts up`);
+    expect(text).toContain(`${lan.hosts.length + 1} hosts up`);
   });
 
   it('a range lists only the hosts whose last octet falls inside it', async () => {
@@ -714,7 +717,11 @@ describe('nmap — cross-player public-IP scan (slice 1a)', () => {
  */
 describe('nmap — same-LAN occupant merge', () => {
   const ESSID = 'BEAN-THERE-WIFI';
-  const baseLan = generateHomeLan(PUBKEY, ESSID);
+  const own = assignHomeNetwork(PUBKEY, ESSID);
+  // What the viewer sees BEFORE the occupant overlay: the generated NPC filler with
+  // the player placed at the address wlan0 holds (here the uncontested derived one,
+  // which is what `onlineConnectivity` issues).
+  const baseLan = withSelfHost(generateHomeLan(PUBKEY, ESSID), own.localIp, own.hostname);
 
   type Occupant = { workstation_machine_id: string; localIp: string; machineName: string };
 
@@ -728,7 +735,7 @@ describe('nmap — same-LAN occupant merge', () => {
   /** The IP of a generated NPC the world gives an sshd — its FS (and thus ports)
    *  key on the host IP alone, so an occupant placed here would fabricate this port
    *  unless the merge suppresses it. */
-  const SELF_IP = assignHomeNetwork(PUBKEY, ESSID).localIp;
+  const SELF_IP = own.localIp;
   const sshNpcIp = (): string => {
     const host = baseLan.hosts.find((candidate) => {
       if (candidate.kind !== 'machine' || candidate.ip === SELF_IP) return false;
@@ -1636,5 +1643,110 @@ describe('nmap — pivot from a deep SWITCH child gateway, ACL-filtered (5b.4d)'
     );
 
     expect(opened.text).toContain('22/tcp   open  ssh');
+  });
+});
+
+/**
+ * A player's own address is the one it holds a LEASE on — the address the join
+ * issued and `wlan0` carries — not the one the pure derivation would have picked.
+ * The two agree for every player whose preferred octet was free; they diverge for a
+ * player the server relocated because someone else already held that octet. The
+ * scan must follow the interface, or a relocated player watches an NPC answer at
+ * their old address while their own box is nowhere on the LAN.
+ */
+describe('nmap — the player is listed at its leased address', () => {
+  const ESSID = 'BEAN-THERE-WIFI';
+
+  /** Every IPv4 the scan printed, as exact tokens — substring matching on an octet
+   *  would let `.18` pass against a listed `.188`. */
+  const ipsIn = (text: string): readonly string[] => text.match(/\d+\.\d+\.\d+\.\d+/g) ?? [];
+
+  const octetOf = (ip: string): number => Number(ip.split('.')[3]);
+
+  /** Online on `essid` at an address the SERVER issued, which the pure derivation
+   *  would not have chosen — a relocated occupant. */
+  const relocatedEnv = (leasedIp: string) => {
+    const cold = buildColdStartConnectivity(PUBKEY);
+    const wlan0 = cold.interfaces.get('wlan0');
+    if (wlan0 === undefined || wlan0.kind !== 'wireless') throw new Error('no wlan0 in cold start');
+    const connected = {
+      ...wlan0,
+      association: { essid: ESSID, bssid: 'AA:BB:CC:DD:EE:FF' },
+      ipv4: leasedIp,
+    };
+    return mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkViewFromConnectivity({
+        interfaces: new Map(cold.interfaces).set('wlan0', connected),
+      }),
+    });
+  };
+
+  it('shows the player at the address wlan0 holds, with nothing left at the derived one', async () => {
+    const derivedIp = assignHomeNetwork(PUBKEY, ESSID).localIp;
+    const derivedOctet = Number(derivedIp.split('.')[3]);
+    const leasedIp = `192.168.29.${derivedOctet === 254 ? 2 : derivedOctet + 1}`;
+
+    const result = await drain(
+      await nmap.execute(relocatedEnv(leasedIp), ['192.168.29.1-254'], new Map()),
+    );
+
+    const listed = ipsIn(result.text);
+    expect(listed).toContain(leasedIp);
+    // The derived octet is the hole the generator reserves, so once the player is no
+    // longer pinned there NOTHING may answer at it — not a stale copy of the player,
+    // and not an NPC that filled the vacancy.
+    expect(listed).not.toContain(derivedIp);
+    // Rows stay in ascending-octet order with the player spliced into place, not
+    // appended after the hosts it sorts before.
+    expect([...listed].sort((left, right) => octetOf(left) - octetOf(right))).toEqual(listed);
+  });
+
+  it('reports the network unreachable when wlan0 is associated but holds no address', async () => {
+    const cold = buildColdStartConnectivity(PUBKEY);
+    const wlan0 = cold.interfaces.get('wlan0');
+    if (wlan0 === undefined || wlan0.kind !== 'wireless') throw new Error('no wlan0 in cold start');
+    // Associated, but never addressed — the state a join that issued no lease leaves
+    // behind. There is no own address to scan from and no subnet to scan.
+    const unaddressed = {
+      ...wlan0,
+      association: { essid: ESSID, bssid: 'AA:BB:CC:DD:EE:FF' },
+      ipv4: null,
+    };
+    // A wired interface carries an address, so the machine is ONLINE overall — the
+    // refusal has to come from wlan0 holding no address, not from a blanket
+    // offline check that would mask it.
+    const eth0 = cold.interfaces.get('eth0');
+    if (eth0 === undefined || eth0.kind === 'loopback') throw new Error('no eth0 in cold start');
+    const env = mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkViewFromConnectivity({
+        interfaces: new Map(cold.interfaces)
+          .set('eth0', { ...eth0, ipv4: '10.0.0.5' })
+          .set('wlan0', unaddressed),
+      }),
+    });
+
+    const result = await nmap.execute(env, ['192.168.29.1-254'], new Map());
+
+    if (result.kind !== 'sync') throw new Error('expected a sync error result');
+    expect(result.exitCode).toBe(1);
+    expect(result.lines[0]?.content).toContain('network is unreachable');
+  });
+
+  it('answers at the leased address itself when an NPC already generated there', async () => {
+    // .30 is a generated sibling (`tablet-30`) on PUBKEY's LAN. A relocated player can
+    // be leased it, because the generator only holds the DERIVED octet vacant.
+    const contested = '192.168.29.30';
+
+    const result = await drain(
+      await nmap.execute(relocatedEnv(contested), ['192.168.29.1-254'], new Map()),
+    );
+
+    // The lease is the authority on who answers at an address, so the player takes it
+    // and the NPC is gone — one host there, and it is ours.
+    expect(ipsIn(result.text).filter((ip) => ip === contested)).toHaveLength(1);
+    expect(result.text).toContain(assignHomeNetwork(PUBKEY, ESSID).hostname);
+    expect(result.text).not.toContain('tablet-30');
   });
 });

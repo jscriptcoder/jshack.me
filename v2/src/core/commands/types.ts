@@ -199,12 +199,15 @@ export type LogApi = {
   readonly appendAccessLog: (target: MachineId, line: string) => Promise<void>;
 };
 
-/** Join a home network by ESSID, returning the LAN address the player was
- *  issued. Local-deterministic today (seeded from identity), the documented
- *  future server boundary (`/api/join-home-network`) — `Promise`-shaped so the
- *  swap is the only change. `nmcli connect` awaits this, then assigns `wlan0`. */
+/** Join a home network by ESSID, returning the LAN address the player was ISSUED —
+ *  a server-allocated lease, not a local derivation, so two occupants of one AP can
+ *  never hold the same address. `null` means no address could be issued (a first
+ *  join to an unknown network with the server unreachable): `nmcli connect` reports
+ *  the failure and leaves the player disconnected rather than assigning `wlan0` an
+ *  address nobody granted. A reconnect to a network already leased succeeds offline
+ *  from the client's remembered copy. */
 export type HomeNetworkApi = {
-  readonly join: (essid: string) => Promise<HomeNetworkAssignment>;
+  readonly join: (essid: string) => Promise<HomeNetworkAssignment | null>;
   /** Leave a home network (backs `nmcli disconnect`): remove the player's occupancy
    *  row so they vanish from the LAN (Story 7). Fire-and-forget — disconnect is a
    *  local state change that must never block on or fail from this cleanup. */
