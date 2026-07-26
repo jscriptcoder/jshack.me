@@ -74,7 +74,7 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
     `resolvePublicScan` / `authCreateSessionPublic` take a single-row `readLease` and
     `buildWorkstationResolver` now TAKES `lanIp` rather than deriving it, so the NAT-forward
     gate and the same-LAN path can never disagree on where a box is.
-  - **Slice 3b-ii (v0.92.0)** — the player's OWN address is the leased one, and the client
+  - **Slice 3b-ii (v0.92.0, `879dcc4`)** — the player's OWN address is the leased one, and the client
     stops deriving addresses entirely. `registerNetwork` RETURNS the leased `local_ip`, so
     the join is what issues an address; `generateHomeLan` no longer places the player at all
     (it emits NPC filler only, still holding the derived octet vacant because the allocator

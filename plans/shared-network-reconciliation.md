@@ -5,11 +5,13 @@
 Slice 2 ✅ MERGED (PR #327, `88054bf`, v0.89.0),
 Slice 3a ✅ MERGED (PR #328, `6ae4109`, v0.90.0),
 Slice 3b-i ✅ MERGED (PR #329, `21e3f9e`, v0.91.0),
-Slice 3b-ii ✅ COMPLETE — PR #330 OPEN (v0.92.0, `feat/own-address-is-the-lease`).
-**Next: Slice 4 — every occupant of an ESSID sees the SAME LAN population. Slice 3 is now
-finished end to end: no code path anywhere derives a player's LAN address. Slice 4 is where
-`generateHomeLan`'s per-viewer NPC draw becomes one shared ESSID-seeded population, which
-also deletes the reserved-octet hole 3b-ii left in place.**
+Slice 3b-ii ✅ MERGED (PR #330, `879dcc4`, v0.92.0).
+**Next: Slice 4 — every occupant of an ESSID sees the SAME LAN population. Nothing is in
+flight; `main` is clean at `879dcc4`. Cut a branch, then start at the Slice 4 section below.
+Slice 3 is finished end to end: NO code path anywhere derives a player's LAN address. Slice 4
+turns `generateHomeLan`'s per-viewer NPC draw into one shared ESSID-seeded population, which
+also deletes the reserved-octet vacancy 3b-ii deliberately left standing and the
+relocated-player displacement case recorded with it.**
 **Parent**: `plans/multiplayer-crossplayer-epic.md` item #5 (decision record; grilled & resolved 2026-07-25)
 **Follows**: item #4 (unique public-IP allocation, v0.87.0)
 **Precedes**: item #6 (procedural world expansion) — do NOT pull it in here
