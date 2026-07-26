@@ -5,7 +5,7 @@
 Slice 2 ✅ MERGED (PR #327, `88054bf`, v0.89.0),
 Slice 3a ✅ MERGED (PR #328, `6ae4109`, v0.90.0),
 Slice 3b-i ✅ MERGED (PR #329, `21e3f9e`, v0.91.0),
-Slice 3b-ii ✅ COMPLETE on `feat/own-address-is-the-lease` (v0.92.0, awaiting commit/PR).
+Slice 3b-ii ✅ COMPLETE — PR #330 OPEN (v0.92.0, `feat/own-address-is-the-lease`).
 **Next: Slice 4 — every occupant of an ESSID sees the SAME LAN population. Slice 3 is now
 finished end to end: no code path anywhere derives a player's LAN address. Slice 4 is where
 `generateHomeLan`'s per-viewer NPC draw becomes one shared ESSID-seeded population, which
