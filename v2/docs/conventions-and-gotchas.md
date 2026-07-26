@@ -204,8 +204,12 @@ real endpoints against `vercel dev` + local supabase.
   cleans up. Examples: `testDeepChainReach.ts`, `testDeepSwitchChain.ts`,
   `testSameLanConnect.ts`, `testRouterBrick.ts`.
 
-The live two-identity cross-player E2E loop (for browser-reachable flows) has its own
-playbook: [`cross-player-e2e-playbook.md`](./cross-player-e2e-playbook.md).
+Live browser E2E (agent-browser vs `vercel dev`) is covered by the project skill
+**`v2-e2e`** (`.claude/skills/v2-e2e/SKILL.md`) — load it before writing any agent-browser
+command. It holds the preflight, recipes for reaching a given in-game state (fresh player →
+connected with nmap; a shell on the AP gateway; the two-identity cross-player loop), the
+terminal/nano DOM quirks, and how to derive seeded secrets offline. Add a recipe whenever a
+state costs you more than one wrong attempt.
 
 ---
 
