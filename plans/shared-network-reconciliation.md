@@ -1,7 +1,9 @@
 # Plan: Shared-Network Reconciliation
 
 **Branch**: one per slice, cut off `main`
-**Status**: Active — **Slice 1 ✅ MERGED (PR #326, `7c9338b`, v0.88.0). Next: Slice 2.**
+**Status**: Active — Slice 1 ✅ MERGED (PR #326, `7c9338b`, v0.88.0).
+**Slice 2 complete on `feat/gateway-brick-wan-only` (v0.89.0) — awaiting commit approval.
+Next: Slice 3.**
 **Parent**: `plans/multiplayer-crossplayer-epic.md` item #5 (decision record; grilled & resolved 2026-07-25)
 **Follows**: item #4 (unique public-IP allocation, v0.87.0)
 **Precedes**: item #6 (procedural world expansion) — do NOT pull it in here
@@ -23,14 +25,22 @@ one shared gateway, one LAN population, and one set of deep chains — and delet
 
 ## Acceptance Criteria
 
-- [ ] Two identities that join the same ESSID resolve the **same AP gateway machine**, and a
+- [x] Two identities that join the same ESSID resolve the **same AP gateway machine**, and a
       third identity's `nmap <public IP>` returns the same gateway regardless of join order.
-- [ ] A NAT forward published by one occupant is visible in another player's public scan of
-      that AP, and reaching that port lands on the publishing occupant's box.
-- [ ] No player has implicit access to an AP gateway: reading or writing its filesystem
-      requires a session obtained through the normal crack-and-connect path.
-- [ ] Bricking an AP gateway takes its public IP **permanently** dark, while the ESSID stays
-      visible, crackable, joinable, and internally reachable between occupants.
+      *(Slice 1.)*
+- [x] A NAT forward published by one occupant is visible in another player's public scan of
+      that AP, and reaching that port lands on the publishing occupant's box. *(Slice 1 — the
+      gateway's `rules.v4` is now one shared journal-backed file; covered by the cross-player
+      wire-checks and the UI smoke's nano-write → shared-journal read-back.)*
+- [x] No player has implicit access to an AP gateway: reading or writing its filesystem
+      requires a session obtained through the normal crack-and-connect path. *(Slice 1 — this
+      was already the status quo; the slice preserved it while flipping the read path from
+      local regeneration to server-materialized.)*
+- [x] Bricking an AP gateway takes its public IP **permanently** dark, while the ESSID stays
+      visible, crackable, joinable, and internally reachable between occupants. *(Slice 2 —
+      plus the bricked box itself now refuses ssh from inside its own LAN. Visibility and
+      crackability are client-side seeded and never touched the gateway; the rest is proven
+      end to end by `testGatewayBrickLanAlive.ts`.)*
 - [ ] Two occupants of one ESSID never share a LAN address, and never land on an NPC's or the
       gateway's address; a reconnecting occupant gets the same address it had before.
 - [ ] Two occupants of one ESSID see the **same** NPC hosts at the same addresses, and the
@@ -151,7 +161,39 @@ the design.
 **Done when**: criteria met, `computeRouterId`'s per-player derivation is no longer used for
 the `.1`, wire-checks touching the router path pass, human approves the commit.
 
-### Slice 2: Bricking an AP gateway kills the WAN but leaves the LAN alive
+### Slice 2: Bricking an AP gateway kills the WAN but leaves the LAN alive — 🔨 IN PROGRESS (v0.89.0)
+
+**As-built.** The model we settled on: an access point is radio + switch + router in one box.
+A brick kills the ROUTER — WAN routing and the box's own management plane, on *every*
+interface — while radio and switching are dumb and survive. So the AP's public IP goes
+permanently dark and the gateway refuses ssh from inside its own LAN, but the ESSID keeps
+admitting joiners, occupants keep scanning the subnet, and occupant-to-occupant ssh keeps
+working.
+
+The production change is small and lives in one place: `handleAuthCreateSession` gained a
+`findPatches` dep, replays the resolved host's journal over its seeded base via
+`materializeMachineFs`, and gates on `canBoot` before the passwd check. The handler now
+validates credentials against the materialized tree rather than the pristine base, matching
+what its three sibling session handlers already did.
+
+**The non-obvious part, for whoever reads this next:** the fix is not scoped to the gateway.
+`handleAuthCreateSession` serves EVERY own-LAN host, so the same defect made bricked NPCs
+loginable too — and gating the whole handler is less code than special-casing the `.1`. A
+dead box is dead on every interface, whatever kind of box it is.
+
+**Evidence:** RED 5/6 failing for the right reason (sharpest: a bricked AP gateway returned
+`200` with a root session on the correct seeded admin password; the 6th test is the
+over-gating guard and passes in both states) · 1891 unit tests · mutation 97.65% on
+`authCreateSession.ts` with **100% of the new gate's mutants killed** — the 2 survivors are
+pre-existing and equivalent (`account === null` is redundant with `!passwordOk`;
+`formatSshdAuthLine` branches on `=== 'success'`, so `''` yields the identical failure line)
+· 24/24 wire-check scripts, including the new `testGatewayBrickLanAlive.ts` at 11/11.
+
+**Pre-existing failure, NOT from this slice:** `testUpsertPatch` is 10/12 — `removePatch` of
+an `is_new` file/dir leaves a tombstone row where the script expects the row deleted.
+Confirmed identical on `main` with this work stashed, and it touches `/api/patches`, which
+this slice does not modify. Needs its own triage: either the script's expectation is stale or
+`removePatch` regressed.
 
 **Value**: Actor = occupants of a bricked AP. A gateway brick becomes a permanent scar on one
 network's internet access rather than the erasure of the network, so no future player is
@@ -168,10 +210,36 @@ occupants still reach each other over LAN IPs.
 - After the same brick: the ESSID appears in a wifi scan, can be cracked and joined, an
   occupant's `nmap <subnet>` still lists fellow occupants, and same-LAN ssh still works.
 - No forward through the bricked public IP resolves, ever.
+- **A bricked own-LAN host refuses ssh from inside the LAN too** — `ssh root@<.1>` on a
+  bricked AP gateway is `host_unreachable`, not a successful login. Applies to every host
+  the own-LAN handler serves (gateway and NPC alike): a dead box is dead on every
+  interface. Added after the verify-first pass below; approved 2026-07-26.
+**Starting point (verified on branch cut)**: both `testRouterBrick.ts` and `testBrickedDark.ts`
+assert only the **WAN** half — gateway brick → public scan host-down + public ssh 404. That half
+is CONSERVED by this slice, so neither script is expected to go red on the WAN assertions; they
+are extended with the LAN-alive half, which nothing asserts today. Note the stakes changed under
+Slice 1: the gateway is now shared per ESSID, so one player's brick is permanent for every
+current and future occupant of that AP — which is precisely why the LAN must survive it.
 **RED**: A behavior test that bricks the gateway then asserts the WAN-dark / LAN-alive split;
 extend `scripts/testRouterBrick.ts` + `scripts/testBrickedDark.ts` for the wire path.
-**GREEN**: Separate the WAN gate (public scan / public session) from the LAN gate (occupant
-resolution / same-LAN session) so `canBoot` on the gateway governs only the former.
+**GREEN**: Give `handleAuthCreateSession` a `findPatches` dep, replay the resolved host's
+journal over its seeded base, and gate on `canBoot` before the passwd check — the same shape
+the three other session handlers already use.
+
+**Correction to this slice's original GREEN, from the verify-first pass.** The plan predicted
+we would need to "separate the WAN gate from the LAN gate so `canBoot` governs only the
+former". That separation ALREADY holds and needed no work: the WAN paths
+(`resolvePublicScan`, `authCreateSessionPublic`) gate on the gateway's `canBoot`, while
+`authCreateSessionSameLan`, `handleNmapScan` and `handleRegisterNetwork` never consult the
+gateway — so occupant↔occupant ssh, LAN scans and joining already survive a brick, and the
+ESSID pool is client-side seeded so cracking/joining were never at risk.
+
+The real gap is the INVERSE: `handleAuthCreateSession` (the own-LAN path serving
+`ssh root@<.1>`) has no `findPatches` dep at all, authenticates against the pure regenerated
+base FS, and therefore CANNOT observe a `/boot` tombstone. A bricked gateway keeps serving
+ssh to every occupant, so "permanently dark" is today only half true. Had we built the plan's
+original GREEN, this slice would have produced only passing characterization tests and zero
+production change.
 **MUTATE**: Run on the boot/dark-gate paths — these are pure predicates and mutate well.
 **KILL MUTANTS**: Address survivors distinguishing WAN-dark from LAN-dark.
 **REFACTOR**: Assess only.
