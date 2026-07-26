@@ -181,7 +181,13 @@ check(
   `status=${r8.status} error=${errorOf(r8.body)}`,
 );
 
-// 9. removePatch of an is_new file DELETES the row (no tombstone left behind).
+// 9. removePatch of a player-created file still leaves a tombstone.
+//
+// A hard delete would be tempting here — the file never existed in the base FS, so there
+// is nothing to mask. But the journal is SHARED: a concurrent writer's row for the same
+// path would survive the delete and resurrect the file on replay. The content:null marker
+// records the removal as a timestamped EVENT that replay honours, so it is written for a
+// player-created node exactly as it is for a base one.
 const newFile = '/home/smoke/scratch.txt';
 await post(
   signRequest(id, 'upsertPatch', {
@@ -198,17 +204,22 @@ const r9 = await post(
 );
 const afterNewDelete = await sr
   .from('patches')
-  .select('path')
+  .select('path, content, is_new')
   .eq('writer_key', id.publicKeyHex)
   .eq('machine_id', machine)
   .eq('path', newFile);
 check(
-  'removePatch of is_new file → row DELETED (no tombstone)',
-  r9.status === 200 && afterNewDelete.data?.length === 0,
-  `status=${r9.status} rows=${afterNewDelete.data?.length ?? 'undefined'}`,
+  'removePatch of is_new file → content:null tombstone, and the row is no longer is_new',
+  r9.status === 200 &&
+    afterNewDelete.data?.length === 1 &&
+    afterNewDelete.data[0]?.content === null &&
+    afterNewDelete.data[0]?.is_new === false,
+  `status=${r9.status} rows=${afterNewDelete.data?.length ?? 'undefined'} row=${JSON.stringify(afterNewDelete.data?.[0])}`,
 );
 
-// 10. removePatch of an is_new directory also drops its is_new descendants.
+// 10. removePatch of a player-created directory drops its DESCENDANTS outright, and
+// tombstones only the directory itself — one marker is enough to make replay drop the
+// whole subtree, so every child row is redundant once the parent is gone.
 const newDir = '/home/smoke/cache';
 const newChild = '/home/smoke/cache/item.txt';
 for (const [p, type] of [
@@ -231,14 +242,17 @@ const r10 = await post(
 );
 const afterDirDelete = await sr
   .from('patches')
-  .select('path')
+  .select('path, content')
   .eq('writer_key', id.publicKeyHex)
   .eq('machine_id', machine)
   .like('path', `${newDir}%`);
 check(
-  'removePatch of is_new dir → row + descendants DELETED',
-  r10.status === 200 && afterDirDelete.data?.length === 0,
-  `status=${r10.status} rows=${afterDirDelete.data?.length ?? 'undefined'}`,
+  'removePatch of is_new dir → descendants DELETED, directory left as a tombstone',
+  r10.status === 200 &&
+    afterDirDelete.data?.length === 1 &&
+    afterDirDelete.data[0]?.path === newDir &&
+    afterDirDelete.data[0]?.content === null,
+  `status=${r10.status} rows=${afterDirDelete.data?.length ?? 'undefined'} paths=${JSON.stringify(afterDirDelete.data?.map((row) => row.path))}`,
 );
 
 // 11. removePatch of a base/modified file (is_new=false) leaves a null tombstone.
