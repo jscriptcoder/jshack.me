@@ -22,6 +22,7 @@ import { generateIdentity } from '../src/core/identity/identity';
 import { computeWorkstationId } from '../src/core/identity/workstation';
 import { computeApGatewayId } from '../src/core/identity/router';
 import { assignHomeNetwork } from '../src/core/network/homeNetwork';
+import { generateHomeLan } from '../src/core/generation/generateHomeLan';
 import { formatPidfileContent } from '../src/core/services/pidfile';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
 import { md5 } from '../src/core/generation/md5';
@@ -292,6 +293,32 @@ check(
   'router brick: ssh root@<A.publicIp>:22 → 404 host_unreachable (whole IP dark)',
   a9.status === 404 && errorOf(a9.body) === 'host_unreachable',
   `status=${a9.status} error=${errorOf(a9.body) ?? '-'}`,
+);
+
+// 10. OWN-LAN ssh after the router brick: a bricked box is dark from INSIDE its own
+//     LAN too, not just from the WAN. A herself `ssh root@<her .1>` with the correct
+//     seeded admin password → 404. Before this gate the own-LAN handler authenticated
+//     against the purely regenerated base FS, which cannot carry a /boot tombstone, so
+//     a bricked gateway kept serving ssh to every occupant of its own network.
+const gatewayHost = generateHomeLan(alice.publicKeyHex, ESSID).hosts.find(
+  (host) => Number(host.ip.split('.')[3]) === 1,
+);
+const a10 = await post(
+  SESSIONS,
+  signRequest(alice, 'authCreateSession', {
+    session_id: `a-ownlan-dark-${A_PUBLIC_IP}`,
+    essid: ESSID,
+    target_ip: gatewayHost?.ip ?? '',
+    username: 'root',
+    password: ROUTER_ADMIN_PW,
+    parent_session_id: null,
+    source_ip: A_LAN,
+  }),
+);
+check(
+  'router brick: ssh root@<own .1> from INSIDE the LAN → 404 host_unreachable',
+  a10.status === 404 && errorOf(a10.body) === 'host_unreachable',
+  `status=${a10.status} error=${errorOf(a10.body) ?? '-'} target=${gatewayHost?.ip ?? '-'}`,
 );
 
 // Cleanup.

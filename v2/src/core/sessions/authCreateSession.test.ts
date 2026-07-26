@@ -16,6 +16,7 @@ import { asGameTime } from '../types';
 import { AUTH_LOG_PATH, formatSshdAuthLine } from '../logging/authLog';
 import { derivePid } from '../logging/syslog';
 import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
+import type { OwnerPatchRow } from '../network/materializeMachineFs';
 import type { PatchRow } from '../patches/upsertPatch';
 import type { Directory } from '../filesystem/types';
 import type { NonceStore } from '../signedRequest/nonceStore';
@@ -46,15 +47,25 @@ const makeDeps = (over: Partial<AuthCreateSessionDeps> = {}) => {
   const readAuthLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
     async () => ({ data: null, error: null }),
   );
+  // An empty journal is a healthy box: nothing has been written, so nothing is
+  // tombstoned and `canBoot` holds. Every pre-existing test therefore keeps its
+  // behaviour without naming the dep.
+  const findPatches = vi.fn<
+    (query: { machine_id: string }) => Promise<{
+      data: readonly OwnerPatchRow[] | null;
+      error: unknown;
+    }>
+  >(async () => ({ data: [], error: null }));
   const deps: AuthCreateSessionDeps = {
     nonceStore: freshStore,
     now: () => FIXED_NOW,
     insertSession,
     readAuthLog,
     upsertPatch,
+    findPatches,
     ...over,
   };
-  return { deps, insertSession, upsertPatch, readAuthLog };
+  return { deps, insertSession, upsertPatch, readAuthLog, findPatches };
 };
 
 /** The sshd auth.log line the server is expected to stamp for an attempt at
@@ -623,6 +634,137 @@ describe('handleAuthCreateSession', () => {
     const result = await handleAuthCreateSession(envelope, deps);
 
     expect(result).toEqual({ status: 401, body: { error: 'invalid_credentials' } });
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A bricked box is dark on EVERY interface, not just the WAN.
+ *
+ * The public paths (`resolvePublicScan`, `authCreateSessionPublic`) already refuse a
+ * host whose `/boot` kernel has been tombstoned, so a bricked AP gateway takes its
+ * public IP dark. This handler serves the INSIDE of the LAN — `ssh root@<.1>` and
+ * `ssh <user>@<npc>` from an occupant — and used to authenticate against the purely
+ * regenerated base FS, which cannot carry a tombstone. A bricked gateway therefore
+ * kept serving ssh to every occupant of its own network.
+ *
+ * That matters more since the gateway became one shared machine per ESSID: the brick
+ * is a permanent, world-visible scar, so the box has to be unreachable from the LAN
+ * too. What survives a gateway brick is the NETWORK, not the box — the ESSID keeps
+ * broadcasting, occupants keep reaching each other (`authCreateSessionSameLan`), and
+ * joins keep working. Radio and switching outlive the router.
+ */
+describe('handleAuthCreateSession — a bricked own-LAN host is dark from inside the LAN', () => {
+  /** A root `rm /boot/vmlinuz` tombstone on the host's shared journal — replayed over
+   *  its seeded base it deletes the kernel, so `canBoot` fails and the box is dark. */
+  const bootTombstone = (writerKey: string): OwnerPatchRow => ({
+    path: '/boot/vmlinuz',
+    content: null,
+    owner: 'root',
+    permissions: null,
+    node_type: null,
+    updated_at: '2026-07-26T00:00:00.000Z',
+    writer_key: writerKey,
+  });
+
+  it('refuses ssh to a bricked AP gateway even with the correct seeded admin password', async () => {
+    const id = generateIdentity();
+    const router = routerHostFor(id.publicKeyHex);
+    const envelope = signRequest(
+      id,
+      'authCreateSession',
+      basePayload({
+        target_ip: router.ip,
+        username: 'root',
+        password: seedApGatewayAdminPw(ESSID),
+      }),
+    );
+    const { deps, insertSession } = makeDeps({
+      findPatches: async () => ({ data: [bootTombstone(id.publicKeyHex)], error: null }),
+    });
+
+    const result = await handleAuthCreateSession(envelope, deps);
+
+    expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+
+  it('reads the journal of the machine the target resolves to — the gateway id, not a sibling', async () => {
+    const id = generateIdentity();
+    const router = routerHostFor(id.publicKeyHex);
+    const envelope = signRequest(
+      id,
+      'authCreateSession',
+      basePayload({
+        target_ip: router.ip,
+        username: 'root',
+        password: seedApGatewayAdminPw(ESSID),
+      }),
+    );
+    const { deps, findPatches } = makeDeps();
+
+    await handleAuthCreateSession(envelope, deps);
+
+    expect(findPatches).toHaveBeenCalledWith({ machine_id: computeApGatewayId(ESSID) });
+  });
+
+  it('refuses ssh to a bricked NPC host on the LAN — the same defect, any host kind', async () => {
+    const id = generateIdentity();
+    const host = targetHostFor(id.publicKeyHex);
+    const { deps, insertSession } = makeDeps({
+      findPatches: async () => ({ data: [bootTombstone(id.publicKeyHex)], error: null }),
+    });
+
+    const result = await handleAuthCreateSession(validEnvelope(id, host, 'root'), deps);
+
+    expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+
+  it('leaves no auth.log line on a bricked host — a dark box records nothing', async () => {
+    const id = generateIdentity();
+    const host = targetHostFor(id.publicKeyHex);
+    const { deps, upsertPatch } = makeDeps({
+      findPatches: async () => ({ data: [bootTombstone(id.publicKeyHex)], error: null }),
+    });
+
+    await handleAuthCreateSession(validEnvelope(id, host, 'root'), deps);
+
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('still logs in when the journal carries writes that are NOT a boot tombstone', async () => {
+    const id = generateIdentity();
+    const host = targetHostFor(id.publicKeyHex);
+    const unrelatedWrite: OwnerPatchRow = {
+      path: '/home/notes.txt',
+      content: 'a write that leaves the kernel intact',
+      owner: 'root',
+      permissions: null,
+      node_type: 'file',
+      updated_at: '2026-07-26T00:00:00.000Z',
+      writer_key: id.publicKeyHex,
+    };
+    const { deps, insertSession } = makeDeps({
+      findPatches: async () => ({ data: [unrelatedWrite], error: null }),
+    });
+
+    const result = await handleAuthCreateSession(validEnvelope(id, host, 'root'), deps);
+
+    expect(result).toEqual({ status: 200, body: { ok: true, userType: 'root' } });
+    expect(insertSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails the login with 500 when the journal read errors — never a false login or false dark', async () => {
+    const id = generateIdentity();
+    const host = targetHostFor(id.publicKeyHex);
+    const { deps, insertSession } = makeDeps({
+      findPatches: async () => ({ data: null, error: new Error('journal unavailable') }),
+    });
+
+    const result = await handleAuthCreateSession(validEnvelope(id, host, 'root'), deps);
+
+    expect(result).toEqual({ status: 500, body: { error: 'patches_lookup_failed' } });
     expect(insertSession).not.toHaveBeenCalled();
   });
 });

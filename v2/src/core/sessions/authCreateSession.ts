@@ -24,6 +24,8 @@ import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
+import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs';
+import { canBoot } from '../boot/bootFiles';
 import { md5 } from '../generation/md5';
 import {
   AUTH_LOG_OWNER,
@@ -58,6 +60,14 @@ export type AuthCreateSessionDeps = {
   /** The server's wall clock, epoch-ms (UTC) — stamps the auth.log line. */
   readonly now: () => number;
   readonly insertSession: (row: AuthSessionRow) => Promise<{ readonly error: unknown }>;
+  /** The resolved host's FULL patch journal (scoped to `machine_id`, server order),
+   *  replayed over its seeded base so the gate sees the box's REAL state: a `/boot`
+   *  tombstone makes it unbootable, and any journal write to `/etc/passwd` is the
+   *  credential actually in force. Without this the handler could only ever see the
+   *  pristine regenerated tree. */
+  readonly findPatches: (query: {
+    readonly machine_id: string;
+  }) => Promise<{ readonly data: readonly OwnerPatchRow[] | null; readonly error: unknown }>;
   /** Read the current content of a log file on the host's shared journal, keyed
    *  `(machine_id, path, writer_key)` — the read half of the system-written
    *  auth.log line. */
@@ -152,7 +162,26 @@ export const handleAuthCreateSession = async (
   // host to its machine id + seeded FS: the edge router (`.1`), an inner gateway, or
   // a coordinate-seeded sibling — the same mapping the client uses, so the session
   // lands on the box both agree on.
-  const { machineId, baseFs: hostFs } = resolveLanHostIdentity(host, publicKey, payload.essid);
+  const { machineId, baseFs } = resolveLanHostIdentity(host, publicKey, payload.essid);
+
+  // Replay the host's journal over its seeded base so the gate reads the box's REAL
+  // state rather than the pristine regeneration. A read failure is a 500: never a
+  // false login, and never a false dark either.
+  const patches = await deps.findPatches({ machine_id: machineId });
+  if (patches.error) {
+    return { status: 500, body: { error: 'patches_lookup_failed' } };
+  }
+  const hostFs = materializeMachineFs(baseFs, patches.data);
+
+  // A bricked box (a root `rm /boot/vmlinuz` tombstone) is dark on EVERY interface,
+  // not just the WAN — refuse before the password is checked, so no credential
+  // reaches a dead machine and nothing is logged on it. What survives a gateway
+  // brick is the NETWORK, not the box: the ESSID keeps broadcasting and occupants
+  // still reach each other over the LAN.
+  if (!canBoot(hostFs).ok) {
+    return { status: 404, body: { error: 'host_unreachable' } };
+  }
+
   const account = accountIn(hostFs, payload.username);
   const passwordOk = account !== null && md5(payload.password) === account.hash;
 

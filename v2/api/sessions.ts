@@ -145,10 +145,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (error) console.error('[sessions] ssh auth-log upsert error:', error);
       return { error };
     };
+    // The target host's shared journal, replayed over its seeded base so the login
+    // sees the box's REAL state — a `/boot` tombstone means a bricked host is dark
+    // from inside the LAN too, not just from the WAN.
+    const findPatches = async ({ machine_id }: { machine_id: string }) => {
+      const { data, error } = await supabase
+        .from('patches')
+        .select('path, content, owner, permissions, node_type, updated_at, writer_key')
+        .eq('machine_id', machine_id)
+        .order('updated_at', { ascending: true })
+        .order('writer_key', { ascending: true });
+      if (error) console.error('[sessions] own-lan boot-state lookup error:', error);
+      return { data: data as readonly OwnerPatchRow[] | null, error };
+    };
     const { status, body } = await handleAuthCreateSession(req.body, {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
       insertSession,
+      findPatches,
       readAuthLog,
       upsertPatch,
     });
