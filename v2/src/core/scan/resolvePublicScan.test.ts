@@ -49,12 +49,24 @@ const REGISTERED: RegistryLookup = {
   workstation_root_hash: md5('toor'),
 };
 
-/** A's workstation LAN IP — the deterministic address a `rules.v4` forward must
- *  target to reach it (the server recomputes the same value from owner_key+essid). */
-const wsLanIp = assignHomeNetwork(OWNER.publicKeyHex, ESSID).localIp;
+/** The address A's derivation OFFERS its workstation. A's LEASE is seeded from it, so
+ *  where nothing collided a `rules.v4` forward aimed here still reaches the box. */
+const wsDerivedLanIp = assignHomeNetwork(OWNER.publicKeyHex, ESSID).localIp;
+const wsLanIp = wsDerivedLanIp;
+
+const octetOf = (ip: string): number => Number(ip.split('.')[3]);
+const addressAt = (octet: number): string =>
+  `${wsDerivedLanIp.split('.').slice(0, 3).join('.')}.${octet}`;
+/** An octet A's derivation never offered — where a REDRAW lands when the offered one
+ *  is already held by another occupant of the ESSID. */
+const wsRedrawnOctet = octetOf(wsDerivedLanIp) === 7 ? 8 : 7;
 
 /** A root `nano /etc/iptables/rules.v4` edit on the ROUTER's journal opening a NAT
  *  forward `2222 → <ws>:22` — the opt-in that exposes the workstation behind NAT. */
+const forwardTo = (internalIp: string): OwnerPatchRow => ({
+  ...routerForward,
+  content: `forward 2222 to ${internalIp}:22`,
+});
 const routerForward: OwnerPatchRow = {
   path: '/etc/iptables/rules.v4',
   content: `forward 2222 to ${wsLanIp}:22`,
@@ -104,13 +116,17 @@ type LookupResult = { data: RegistryLookup | null; error: unknown };
 type PatchesResult = { data: readonly OwnerPatchRow[] | null; error: unknown };
 type OwnerKeyResult = { data: { public_ip: string } | null; error: unknown };
 
+type LeaseResult = { data: number | null; error: unknown };
+
 /** Overrides for the system-logging + source-IP deps (Story 6.1). Defaults: an
- *  empty log (a host-up scan appends one line), a successful write, and a
- *  registry that resolves the scanner's owner key to `SCANNER_PUBLIC_IP`. */
+ *  empty log (a host-up scan appends one line), a successful write, a registry that
+ *  resolves the scanner's owner key to `SCANNER_PUBLIC_IP`, and a target owner whose
+ *  lease sits on the octet its derivation offered. */
 type LogOverrides = {
   readLog?: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
   upsertPatch?: (row: PatchRow) => Promise<{ error: unknown }>;
   findRegistryByOwnerKey?: (ownerKey: string) => Promise<OwnerKeyResult>;
+  readLease?: (essid: string, ownerKey: string) => Promise<LeaseResult>;
 };
 
 const makeDeps = (
@@ -133,6 +149,11 @@ const makeDeps = (
     over.findRegistryByOwnerKey ??
       (async () => ({ data: { public_ip: SCANNER_PUBLIC_IP }, error: null })),
   );
+  // Default: the owner leases the octet its derivation offered — where nothing
+  // collided the two agree, so an existing forward keeps reaching the same box.
+  const readLease = vi.fn<(essid: string, ownerKey: string) => Promise<LeaseResult>>(
+    over.readLease ?? (async () => ({ data: octetOf(wsDerivedLanIp), error: null })),
+  );
   const deps: ResolvePublicScanDeps = {
     nonceStore: freshStore,
     findRegistryByPublicIp,
@@ -141,9 +162,11 @@ const makeDeps = (
     readLog,
     upsertPatch,
     findRegistryByOwnerKey,
+    readLease,
   };
   return {
     deps,
+    readLease,
     findRegistryByPublicIp,
     findPatches,
     readLog,
@@ -494,6 +517,67 @@ describe('handleResolvePublicScan', () => {
         status: 200,
         body: { ok: true, found: true, ports: [{ port: 22, service: 'ssh' }] },
       });
+    });
+  });
+
+  describe('the host behind the NAT is at its LEASED address', () => {
+    const redrawnLease = async () => ({ data: wsRedrawnOctet, error: null });
+
+    it('surfaces a forward aimed at the leased address', async () => {
+      const id = generateIdentity();
+      const { deps } = makeDeps(
+        async () => ({ data: REGISTERED, error: null }),
+        patchesByMachine([forwardTo(addressAt(wsRedrawnOctet))], [wsSshdUp]),
+        { readLease: redrawnLease },
+      );
+
+      const result = await handleResolvePublicScan(envelope(id, TARGET), deps);
+
+      expect(result.body).toMatchObject({
+        ports: [
+          { port: 22, service: 'ssh' },
+          { port: 2222, service: 'ssh' },
+        ],
+      });
+    });
+
+    it('hides a forward still aimed at the DERIVED address once the lease moved', async () => {
+      const id = generateIdentity();
+      const { deps } = makeDeps(
+        async () => ({ data: REGISTERED, error: null }),
+        patchesByMachine([routerForward], [wsSshdUp]),
+        { readLease: redrawnLease },
+      );
+
+      const result = await handleResolvePublicScan(envelope(id, TARGET), deps);
+
+      expect(result.body).toMatchObject({ ports: [{ port: 22, service: 'ssh' }] });
+    });
+
+    it('hides the forward when the owner holds no lease at all', async () => {
+      const id = generateIdentity();
+      const { deps } = makeDeps(
+        async () => ({ data: REGISTERED, error: null }),
+        patchesByMachine([routerForward], [wsSshdUp]),
+        { readLease: async () => ({ data: null, error: null }) },
+      );
+
+      const result = await handleResolvePublicScan(envelope(id, TARGET), deps);
+
+      expect(result.body).toMatchObject({ ports: [{ port: 22, service: 'ssh' }] });
+    });
+
+    it('fails the scan when the lease read fails — never guesses the address', async () => {
+      const id = generateIdentity();
+      const { deps } = makeDeps(
+        async () => ({ data: REGISTERED, error: null }),
+        patchesByMachine([routerForward], [wsSshdUp]),
+        { readLease: async () => ({ data: null, error: new Error('db down') }) },
+      );
+
+      const result = await handleResolvePublicScan(envelope(id, TARGET), deps);
+
+      expect(result).toEqual({ status: 500, body: { error: 'patches_lookup_failed' } });
     });
   });
 });

@@ -6,6 +6,7 @@ import {
   type NetworkRegistryRow,
 } from '../src/core/network/registerNetwork';
 import { handleResolveOccupants, type OccupantListRow } from '../src/core/network/resolveOccupants';
+import type { LanLeaseRow } from '../src/core/network/lanAddress';
 import {
   handleResolveOccupiedEssids,
   type OccupiedEssidRow,
@@ -153,10 +154,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (error) console.error('[network] scanner source-ip lookup error:', error);
       return { data: data as { public_ip: string } | null, error };
     };
+    // Where the ONE host behind the target's NAT answers: its owner's lease on its own
+    // ESSID. Read here so a forward is live only when it names the same address the
+    // same-LAN path reaches that box at.
+    const readLease = async (essid: string, ownerKey: string) => {
+      const { data, error } = await supabase
+        .from('network_lan_leases')
+        .select('octet')
+        .eq('essid', essid)
+        .eq('owner_key', ownerKey)
+        .maybeSingle();
+      if (error) console.error('[network] scan lan-lease read error:', error);
+      return { data: (data as { octet: number } | null)?.octet ?? null, error };
+    };
     const { status, body } = await handleResolvePublicScan(req.body, {
       nonceStore: noopNonceStore,
       findRegistryByPublicIp,
       findPatches,
+      readLease,
       now: () => Date.now(),
       readLog,
       upsertPatch,
@@ -323,9 +338,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (error) console.error('[network] occupant list error:', error);
       return { data: data as readonly OccupantListRow[] | null, error };
     };
+    // Every lease on the ESSID in ONE read — each occupant's address of record.
+    const listLeasesByEssid = async (essid: string) => {
+      const { data, error } = await supabase
+        .from('network_lan_leases')
+        .select('owner_key, octet')
+        .eq('essid', essid);
+      if (error) console.error('[network] lan-lease list error:', error);
+      return { data: data as readonly LanLeaseRow[] | null, error };
+    };
     const { status, body } = await handleResolveOccupants(req.body, {
       nonceStore: noopNonceStore,
       listOccupantsByEssid,
+      listLeasesByEssid,
     });
     res.status(status).json(body);
     return;

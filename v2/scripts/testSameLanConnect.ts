@@ -21,7 +21,7 @@ import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign';
 import { generateIdentity } from '../src/core/identity/identity';
 import { computeWorkstationId } from '../src/core/identity/workstation';
-import { assignHomeNetwork } from '../src/core/network/homeNetwork';
+import { lanAddressFor } from '../src/core/network/lanAddress';
 import { formatPidfileContent } from '../src/core/services/pidfile';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
 import { md5 } from '../src/core/generation/md5';
@@ -66,7 +66,11 @@ const ESSID = 'SHARED-LAN-WIFI';
 const A_WS_NAME = 'skylab';
 const B_WS_NAME = 'nebuchadnezzar';
 const A_WS = computeWorkstationId(A_WS_NAME, alice.publicKeyHex);
-const A_LAN = assignHomeNetwork(alice.publicKeyHex, ESSID).localIp; // A's ws LAN ip
+// Occupants are reachable at the address they LEASE, so the seeding below issues
+// leases and these are the addresses those leases name.
+const A_OCTET = 11;
+const B_OCTET = 12;
+const A_LAN = lanAddressFor(ESSID, A_OCTET); // A's ws LAN ip
 const GUEST_PW = workstationGuestPassword(alice.publicKeyHex); // A's ws guest pw
 
 const WORLD_PID = { read: ['root', 'user', 'guest'], write: ['root'], execute: [] };
@@ -86,6 +90,7 @@ const occupancyRow = (
 // Clean slate, then seed A's + B's occupancy rows (as their joins would) and A's
 // workstation sshd pidfile (as A's own `sshd` would — a fresh ws is dark until).
 await sr.from('home_network_occupants').delete().eq('essid', ESSID);
+await sr.from('network_lan_leases').delete().eq('essid', ESSID);
 await sr.from('patches').delete().eq('machine_id', A_WS);
 for (const id of [bob]) {
   await sr.from('sessions').delete().eq('player_key', id.publicKeyHex);
@@ -93,6 +98,12 @@ for (const id of [bob]) {
 await sr
   .from('home_network_occupants')
   .insert([occupancyRow(alice, A_WS_NAME), occupancyRow(bob, B_WS_NAME)]);
+// A join allocates a LAN lease before it writes the occupancy row, so seeding one
+// without the other would describe a state the server never produces.
+await sr.from('network_lan_leases').insert([
+  { essid: ESSID, owner_key: alice.publicKeyHex, octet: A_OCTET },
+  { essid: ESSID, owner_key: bob.publicKeyHex, octet: B_OCTET },
+]);
 await sr.from('patches').insert([
   {
     machine_id: A_WS,
@@ -181,6 +192,7 @@ check(
 
 // Cleanup.
 await sr.from('home_network_occupants').delete().eq('essid', ESSID);
+await sr.from('network_lan_leases').delete().eq('essid', ESSID);
 await sr.from('patches').delete().eq('machine_id', A_WS);
 for (const id of [bob]) {
   await sr.from('sessions').delete().eq('player_key', id.publicKeyHex);

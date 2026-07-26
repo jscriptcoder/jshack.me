@@ -18,6 +18,7 @@
  */
 
 import { createPrng } from '../generation/prng';
+import { lanSubnetFor } from './lanAddress';
 import type { Ipv4 } from './interfaces';
 
 export type HomeNetworkAssignment = {
@@ -41,8 +42,9 @@ export const assignHomeNetwork = (seedPubkeyHex: string, essid: string): HomeNet
   // The /24 (third octet) belongs to the AP, not the player: seeded by ESSID
   // ALONE so every occupant of the same network shares the subnet (mirrors the
   // public IP below). This is the addressing precondition shared-LAN occupancy
-  // stands on — two identities on one ESSID land on one reachable LAN.
-  const subnet = createPrng(`home-subnet-${essid}`).nextInt(0, 255);
+  // stands on — two identities on one ESSID land on one reachable LAN. Shared with
+  // the lease readers, which form their addresses on the same subnet.
+  const subnet = lanSubnetFor(essid);
 
   // The host octet + device name stay per-(identity, ESSID): each occupant gets a
   // distinct address on the shared subnet (local DHCP-style draw). Draw order is

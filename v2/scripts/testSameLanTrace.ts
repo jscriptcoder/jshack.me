@@ -25,7 +25,7 @@ import { signRequest } from '../src/core/signedRequest/sign';
 import { generateIdentity } from '../src/core/identity/identity';
 import { computeWorkstationId } from '../src/core/identity/workstation';
 import { computeApGatewayId } from '../src/core/identity/router';
-import { assignHomeNetwork } from '../src/core/network/homeNetwork';
+import { lanAddressFor } from '../src/core/network/lanAddress';
 import { formatPidfileContent } from '../src/core/services/pidfile';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
 import { md5 } from '../src/core/generation/md5';
@@ -88,8 +88,12 @@ const A_WS_NAME = 'skylab';
 const B_WS_NAME = 'nebuchadnezzar';
 const A_WS = computeWorkstationId(A_WS_NAME, alice.publicKeyHex);
 const A_ROUTER = computeApGatewayId(ESSID);
-const A_LAN = assignHomeNetwork(alice.publicKeyHex, ESSID).localIp; // A's ws LAN ip
-const B_LAN = assignHomeNetwork(bob.publicKeyHex, ESSID).localIp; // B's LAN ip — the source
+// Occupants are reachable at the address they LEASE, so the seeding below issues
+// leases and these are the addresses those leases name.
+const A_OCTET = 11;
+const B_OCTET = 12;
+const A_LAN = lanAddressFor(ESSID, A_OCTET); // A's ws LAN ip
+const B_LAN = lanAddressFor(ESSID, B_OCTET); // B's LAN ip — the source
 const B_PUBLIC = '198.51.100.42'; // a home public IP that must NOT appear (the source is the LAN IP)
 const GUEST_PW = workstationGuestPassword(alice.publicKeyHex); // A's ws guest pw
 const A_ROOT_PW = 'root-secret'; // matches the seeded workstation_root_hash below
@@ -123,6 +127,7 @@ const registryRow = {
 // Clean slate, then seed A's + B's occupancy rows, A's registry row, and A's workstation
 // sshd pidfile (a fresh ws is dark until its `sshd` starts).
 await sr.from('home_network_occupants').delete().eq('essid', ESSID);
+await sr.from('network_lan_leases').delete().eq('essid', ESSID);
 await sr.from('network_registry').delete().eq('public_ip', registryRow.public_ip);
 await sr.from('patches').delete().eq('machine_id', A_WS);
 for (const id of [bob, carol]) {
@@ -131,6 +136,12 @@ for (const id of [bob, carol]) {
 await sr
   .from('home_network_occupants')
   .insert([occupancyRow(alice, A_WS_NAME), occupancyRow(bob, B_WS_NAME)]);
+// A join allocates a LAN lease before it writes the occupancy row, so seeding one
+// without the other would describe a state the server never produces.
+await sr.from('network_lan_leases').insert([
+  { essid: ESSID, owner_key: alice.publicKeyHex, octet: A_OCTET },
+  { essid: ESSID, owner_key: bob.publicKeyHex, octet: B_OCTET },
+]);
 await sr.from('network_registry').insert([registryRow]);
 await sr.from('patches').insert([
   {
@@ -218,6 +229,7 @@ check(
 
 // Cleanup.
 await sr.from('home_network_occupants').delete().eq('essid', ESSID);
+await sr.from('network_lan_leases').delete().eq('essid', ESSID);
 await sr.from('network_registry').delete().eq('public_ip', registryRow.public_ip);
 await sr.from('patches').delete().eq('machine_id', A_WS);
 for (const id of [bob, carol]) {

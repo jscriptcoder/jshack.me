@@ -21,7 +21,7 @@ import { signRequest } from '../src/core/signedRequest/sign';
 import { generateIdentity } from '../src/core/identity/identity';
 import { computeWorkstationId } from '../src/core/identity/workstation';
 import { computeApGatewayId } from '../src/core/identity/router';
-import { assignHomeNetwork } from '../src/core/network/homeNetwork';
+import { lanAddressFor } from '../src/core/network/lanAddress';
 import { formatPidfileContent } from '../src/core/services/pidfile';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
 import { md5 } from '../src/core/generation/md5';
@@ -94,7 +94,10 @@ const ESSID = 'ABSTERGO-NET';
 const A_WS = computeWorkstationId('skylab', alice.publicKeyHex);
 const A_ROUTER = computeApGatewayId(ESSID);
 const A_PUBLIC_IP = '203.0.113.91';
-const A_LAN = assignHomeNetwork(alice.publicKeyHex, ESSID).localIp; // A's ws LAN ip
+// A's workstation answers at the address A LEASES on its ESSID, so the NAT forward
+// below must name that address — a forward aimed anywhere else reaches no host.
+const A_OCTET = 11;
+const A_LAN = lanAddressFor(ESSID, A_OCTET); // A's ws LAN ip
 const ROOT_HASH = md5('alice-root-secret');
 const RULES = '/etc/iptables/rules.v4';
 const ROOT_ONLY = { read: ['root'], write: ['root'], execute: [] };
@@ -106,11 +109,15 @@ const FORWARD_RULES = `# /etc/iptables/rules.v4 — NAT port-forward table\nforw
 // A's ROUTER (as the 5.1.2 `ssh root@<A.publicIp>` login would), D's guest session on
 // the router (the denial case), and B's guest session on A's WORKSTATION (regression).
 await sr.from('network_registry').delete().eq('public_ip', A_PUBLIC_IP);
+await sr.from('network_lan_leases').delete().eq('essid', ESSID);
 await sr.from('patches').delete().eq('machine_id', A_ROUTER);
 await sr.from('patches').delete().eq('machine_id', A_WS);
 for (const id of [bob, carol, dave]) {
   await sr.from('sessions').delete().eq('player_key', id.publicKeyHex);
 }
+await sr
+  .from('network_lan_leases')
+  .insert({ essid: ESSID, owner_key: alice.publicKeyHex, octet: A_OCTET });
 await sr.from('network_registry').insert({
   public_ip: A_PUBLIC_IP,
   owner_key: alice.publicKeyHex,
@@ -285,6 +292,7 @@ check(
 
 // Cleanup.
 await sr.from('network_registry').delete().eq('public_ip', A_PUBLIC_IP);
+await sr.from('network_lan_leases').delete().eq('essid', ESSID);
 await sr.from('patches').delete().eq('machine_id', A_ROUTER);
 await sr.from('patches').delete().eq('machine_id', A_WS);
 for (const id of [bob, carol, dave]) {
