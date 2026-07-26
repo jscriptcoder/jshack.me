@@ -8,6 +8,8 @@ import {
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
 import { computeApGatewayId } from '../identity/router';
+import { assignHomeNetwork } from './homeNetwork';
+import { lanAddressFor } from './lanAddress';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
 /**
@@ -78,7 +80,10 @@ describe('handleRegisterNetwork', () => {
 
     const result = await handleRegisterNetwork(envelope(id), deps);
 
-    expect(result).toEqual({ status: 200, body: { ok: true } });
+    expect(result).toEqual({
+      status: 200,
+      body: { ok: true, local_ip: lanAddressFor(ESSID, LEASED_OCTET) },
+    });
     // The public IP is the one the allocator issued for THIS ESSID — not a client
     // claim and not a local derivation.
     expect(allocatePublicIp).toHaveBeenCalledWith(ESSID);
@@ -259,7 +264,10 @@ describe('handleRegisterNetwork', () => {
 
     const result = await handleRegisterNetwork(envelope(id), deps);
 
-    expect(result).toEqual({ status: 200, body: { ok: true } });
+    expect(result).toEqual({
+      status: 200,
+      body: { ok: true, local_ip: lanAddressFor(ESSID, LEASED_OCTET) },
+    });
     expect(upsertOccupant).toHaveBeenCalledTimes(1);
     expect(upsertOccupant.mock.calls[0]![0]).toEqual({
       essid: ESSID,
@@ -306,6 +314,27 @@ describe('handleRegisterNetwork', () => {
     expect(result.status).toBe(200);
     expect(allocateLanLease).toHaveBeenCalledTimes(1);
     expect(allocateLanLease).toHaveBeenCalledWith(ESSID, id.publicKeyHex);
+  });
+
+  it('returns the LEASED address, so a redrawn occupant is told where it actually lives', async () => {
+    const id = generateIdentity();
+    // The address the pure derivation would have issued — what the client used to
+    // assume it could compute for itself.
+    const derived = assignHomeNetwork(id.publicKeyHex, ESSID).localIp;
+    const derivedOctet = Number(derived.split('.')[3]);
+    // A collided occupant: the allocator hands back an octet the derivation never
+    // would have picked for this identity. This is the case the whole slice exists
+    // for — a client that derives its own address is simply wrong here.
+    const redrawnOctet = derivedOctet === 254 ? 2 : derivedOctet + 1;
+    const { deps } = makeDeps({ allocateLanLease: vi.fn(async () => redrawnOctet) });
+
+    const result = await handleRegisterNetwork(envelope(id), deps);
+
+    expect(result).toEqual({
+      status: 200,
+      body: { ok: true, local_ip: lanAddressFor(ESSID, redrawnOctet) },
+    });
+    expect(result.body.local_ip).not.toBe(derived);
   });
 
   it('leases per occupant, not per ESSID — two identities on one AP lease separately', async () => {

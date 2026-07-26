@@ -81,6 +81,9 @@ type EnvOpts = {
     readonly localIp: string;
     readonly hostname: string;
   };
+  /** No address could be issued — a first join to an unknown network with the
+   *  server unreachable. */
+  readonly joinIssuesNoAddress?: boolean;
   readonly machineId?: ReturnType<typeof asMachineId>;
 };
 
@@ -105,6 +108,7 @@ const nmcliEnv = (initial: ConnectivityState, opts: EnvOpts = {}) => {
     homeNetwork: mockHomeNetwork({
       join: async (essid) => {
         joinCalls.push(essid);
+        if (opts.joinIssuesNoAddress === true) return null;
         return (
           opts.assignment ?? {
             localIp: '192.168.5.20',
@@ -157,6 +161,27 @@ describe('nmcli', () => {
       expect(text).toContain('Connecting to BEAN-THERE-WIFI...');
       expect(text).toContain('Connected to BEAN-THERE-WIFI — assigned 192.168.5.20');
       expect(exitCode).toBe(0);
+    });
+
+    it('leaves the player offline when the join issues no address', async () => {
+      const { env, get } = nmcliEnv(buildColdStartConnectivity(PUBKEY), {
+        wifiNetworks: [crackableNet()],
+        joinIssuesNoAddress: true,
+      });
+
+      const { text, exitCode } = await drainAsync(
+        await nmcli.execute(env, ['connect', 'BEAN-THERE-WIFI', 'sunshine2024'], NO_FLAGS),
+      );
+
+      // A player's address is a server-issued lease. With no lease — and none
+      // remembered from an earlier join — there is no address to hold, so the
+      // connect fails rather than putting the player on a made-up one.
+      const wlan0 = wlan0Of(get());
+      expect(wlan0.association).toBeNull();
+      expect(wlan0.ipv4).toBeNull();
+      expect(isOnline(get())).toBe(false);
+      expect(text).toContain('could not get an address');
+      expect(exitCode).toBe(1);
     });
 
     it('shows usage (not a bogus "already connected") when given no ESSID while offline', async () => {

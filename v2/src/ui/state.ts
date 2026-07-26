@@ -90,7 +90,8 @@ import {
   type NetworkClientDeps,
 } from '../adapters/networkApi';
 import type { OccupantProjection } from '../core/network/resolveOccupants';
-import { assignHomeNetwork, type HomeNetworkAssignment } from '../core/network/homeNetwork';
+import type { HomeNetworkAssignment } from '../core/network/homeNetwork';
+import { lanLeaseCacheIn } from '../core/network/lanLeaseCache';
 import { type HistoryNav, idleNav, navigateDown, navigateUp } from '../core/shell/commandHistory';
 import { homePathFor, seedFs, seedSession } from './seed';
 import { rehydrateSessionStack } from './sessionRehydrate';
@@ -357,12 +358,13 @@ const resolveOccupantsFn = (essid: string): Promise<readonly OccupantProjection[
 const resolveOccupiedEssidsFn = (): Promise<readonly string[]> =>
   networkClientDeps === undefined ? Promise.resolve([]) : resolveOccupiedEssids(networkClientDeps);
 
-/** Join a home network (backs `env.homeNetwork.join`): register it server-side so
- *  other identities can resolve it, then return the assignment. Falls back to the
- *  pure local-deterministic assignment before the network client is wired. */
-const joinHomeNetworkFn = (essid: string): Promise<HomeNetworkAssignment> =>
+/** Join a home network (backs `env.homeNetwork.join`): register it server-side, which
+ *  is what ISSUES the player's address on that LAN. Before the network client is wired
+ *  there is nobody to issue one, so the join yields null and the connect reports it —
+ *  the client never allocates its own address. */
+const joinHomeNetworkFn = (essid: string): Promise<HomeNetworkAssignment | null> =>
   networkClientDeps === undefined
-    ? Promise.resolve(assignHomeNetwork(requireIdentity().publicKeyHex, essid))
+    ? Promise.resolve(null)
     : joinHomeNetwork(networkClientDeps, essid);
 
 /** Leave a home network (backs `env.homeNetwork.leave`, fired by `nmcli disconnect`):
@@ -646,7 +648,7 @@ export const startGame = (gameConfig: GameConfig): void => {
   const cold = buildColdStartConnectivity(identity.publicKeyHex);
   const wifi = generateWifi({ seedPubkeyHex: identity.publicKeyHex });
   setWifiNetworks(wifi);
-  setConnectivity(restoreConnection(localStorage, cold, identity.publicKeyHex));
+  setConnectivity(restoreConnection(localStorage, cold));
 
   patchClientDeps = {
     identity,
@@ -655,7 +657,12 @@ export const startGame = (gameConfig: GameConfig): void => {
     tier: seed.userType,
   };
   sessionsClientDeps = { identity, machineId: seed.machineId };
-  networkClientDeps = { identity, machineId: seed.machineId, gameConfig };
+  networkClientDeps = {
+    identity,
+    machineId: seed.machineId,
+    gameConfig,
+    leaseCache: lanLeaseCacheIn(localStorage),
+  };
   patchApi = wrapWithRefetch(createPatchApi(patchClientDeps));
 
   setCwd(homePathFor(gameConfig.username));

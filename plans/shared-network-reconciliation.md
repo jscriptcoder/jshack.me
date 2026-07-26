@@ -4,11 +4,12 @@
 **Status**: Active — Slice 1 ✅ MERGED (PR #326, `7c9338b`, v0.88.0),
 Slice 2 ✅ MERGED (PR #327, `88054bf`, v0.89.0),
 Slice 3a ✅ MERGED (PR #328, `6ae4109`, v0.90.0),
-Slice 3b-i ✅ MERGED (PR #329, `21e3f9e`, v0.91.0).
-**Next: Slice 3b-ii — the player's OWN address becomes the leased one, cached for offline.
-Nothing is in flight; `main` is clean at `21e3f9e`. Cut a branch, then start at the 3b-ii
-section below (scope, offline posture, and the two doc corrections it owes are all recorded
-there). Acceptance criteria 2 and 4 are already approved — re-confirm, don't re-derive.**
+Slice 3b-i ✅ MERGED (PR #329, `21e3f9e`, v0.91.0),
+Slice 3b-ii ✅ COMPLETE — PR #330 OPEN (v0.92.0, `feat/own-address-is-the-lease`).
+**Next: Slice 4 — every occupant of an ESSID sees the SAME LAN population. Slice 3 is now
+finished end to end: no code path anywhere derives a player's LAN address. Slice 4 is where
+`generateHomeLan`'s per-viewer NPC draw becomes one shared ESSID-seeded population, which
+also deletes the reserved-octet hole 3b-ii left in place.**
 **Parent**: `plans/multiplayer-crossplayer-epic.md` item #5 (decision record; grilled & resolved 2026-07-25)
 **Follows**: item #4 (unique public-IP allocation, v0.87.0)
 **Precedes**: item #6 (procedural world expansion) — do NOT pull it in here
@@ -551,7 +552,7 @@ derived: `generateHomeLan` seeds the caller's NPC filler AROUND the derived self
 self-exclusion has to use the same value the generator did. It is the caller's private view of
 itself and reaches no other player.
 
-##### Slice 3b-ii: the player's own address is the leased one — NOT STARTED
+##### Slice 3b-ii: the player's own address is the leased one — ✅ COMPLETE (v0.92.0)
 
 **Class**: Behavior change.
 **Scope**: `adapters/networkApi.ts:73`, `ui/env.ts:221`, `ui/state.ts:365`,
@@ -562,23 +563,50 @@ and the `registerNetwork` response shape.
 projection rationale) and `docs/cross-player-architecture.md:104`. The
 `minimize-api-projections` note in `resolveOccupants.ts` was rewritten in 3b-i.
 
-**⚠️ The hard part — resolve this BEFORE writing code.** `generateHomeLan(seedPubkeyHex,
-essid)` needs the self octet for two things: placing the `self` host, and EXCLUDING that octet
-from the NPC draw. Its 8 callers split into three groups that cannot all get a lease the same
-way:
-- *Own-view, client-side* (`nmap.ts:264`, `ssh.ts:286`): the player's own leased octet, which
-  the client will hold once the join returns it. Straightforward.
-- *Own-view, server-side* (`nmapScan.ts:240`, `authCreateSession.ts:153`): the server already
-  reads the lease map; pass the caller's octet down.
-- *ANOTHER player's LAN* (`lanHostIdentity.ts:68,148,225`, `remoteHostId.ts:30`): these
-  regenerate a DIFFERENT owner's NPC filler from pure sync functions deep in the generation
-  layer. They need that owner's lease, which means either threading it through every caller or
-  accepting that another player's NPC filler is generated around the DERIVED octet.
-  Candidate answer: Slice 4 replaces per-viewer NPC population with a shared ESSID-seeded one,
-  at which point the self-octet exclusion stops being per-viewer at all — so the cheapest
-  correct move may be to take the octet as a parameter for the own-view callers and leave the
-  other-player callers on the derivation until Slice 4 deletes the question. **Decide this
-  explicitly; do not let it be decided by whichever call site is edited first.**
+**✅ The hard part — RESOLVED 2026-07-26. The generator drops `self`; the lease never enters
+the generation layer.**
+
+⚠️ **Correction to the framing this section carried:** there is no "another player's LAN"
+caller group. All 8 `generateHomeLan` call sites pass the CALLER'S OWN key — `ownerKeyHex` is
+merely a parameter name. The `lanHostIdentity`/`remoteHostId` sites are reached from handlers
+that pass the verified caller's `publicKey` (`resolveInnerGatewayScan.ts:162`,
+`authCreateSessionInnerGateway.ts:299`, `remoteWritePermission.ts:110`), and `nmap.ts`/`ssh.ts`
+pass `env.identity.publicKeyHex`. So the candidate answer previously recorded here — own-view
+callers take the octet, other-player callers stay derived — was not merely cheap-and-imperfect,
+it was WRONG: it would make one owner's LAN generate two different NPC layouts depending on
+which code path asked, and an inner-gateway `ssh` the client offered would 404 server-side.
+
+**The self octet does two unrelated jobs**: it PLACES the `self` host, and it is EXCLUDED from
+the NPC draw (which shifts the whole filler layout). Only the client `nmap` view actually
+consumes the `self` entry — `nmapScan.ts` filters it straight back out, and both ssh paths only
+match a target IP. So the two jobs get split by owner:
+
+- **The generator keeps deriving.** `generateHomeLan(ownerKeyHex, essid)` keeps its signature
+  and emits only NPC filler — `.1` gateway, inner gateway, switch, siblings — still holding the
+  DERIVED octet out of `usableOctets` as a reserved hole. It stays a pure function of
+  owner+ESSID with no DB dependency, and the filler layout stays byte-identical to today.
+- **The lease places the player.** The own-view caller appends `self` at its LEASED address,
+  exactly as `mergeLanOccupants` already overlays fellow occupants, dropping a filler host that
+  collides on that octet.
+
+**Why this is the right split, not just the cheap one.** The 5 server handlers never read
+`self`, so none of them needs a lease read — the blast radius collapses to the client's own
+view. Making the NPC layout depend on a mutable lease would also point AWAY from Slice 4, which
+wants population seeded by the ESSID alone and shared by every occupant; keeping the filler a
+pure derivation keeps that door open.
+
+**Why the reserved hole still earns its place.** `allocateLanLease` PREFERS the derived octet,
+so for every player except a genuinely-colliding one the leased octet IS the derived one and
+`self` lands exactly in the hole the generator left. Slice 4 deletes the hole along with the
+per-viewer draw.
+
+**Accepted imperfection.** A REDRAWN player (the collided minority) can land on a filler octet;
+`self` then displaces that host in the player's own view. If the displaced host was an inner
+gateway, that player loses one depth entry while the server still resolves ssh to it at an
+address the client shows as the player's own box. This is the same deferred-imperfection class
+already documented in `mergeLanOccupants`, at a far lower rate (only redrawn players, ~4% of
+them), and Slice 4 rebuilds this surface. Rejected as scope creep: teaching the allocator's
+redraw to avoid the owner's own generated octets.
 
 **Wire-check impact**: the scripts no longer import `assignHomeNetwork` for addresses (3b-i
 moved them to `lanAddressFor` / lease read-back), but several still call `generateHomeLan` for
@@ -616,6 +644,60 @@ addresses end to end, and that each reaches the other on its leased address.
 gone from it (it would retain only the hostname draw).
 **Done when**: all five acceptance criteria hold end to end, every same-LAN wire-check passes,
 the three doc corrections are made, human approves.
+
+##### Slice 3b-ii as-built (2026-07-27)
+
+**Where the lease enters the client.** `handleRegisterNetwork` now returns
+`{ ok, local_ip }` — it already allocated the lease and threw the octet away. `joinHomeNetwork`
+validates that body with a schema (a 200 naming no address is NOT an address), returns
+`HomeNetworkAssignment | null`, and `env.homeNetwork.join` is nullable end to end. `nmcli`
+starts ONE join promise and awaits it in two places (the stream renders the outcome, the exit
+code reports it) — no mutable outcome flag, no second allocation attempt.
+
+**The generator stopped placing the player.** `generateHomeLan` emits NPC filler only. Its
+golden test is byte-identical minus the self row, which is the evidence that the filler layout
+did not move. The derived octet stays OUT of the draw as a reserved vacancy, since
+`allocateLanLease` offers it first. `withSelfHost` (beside `mergeLanOccupants`, same knowledge:
+overlaying authoritative addresses onto filler) appends the player at `wlan0.ipv4` and drops a
+filler host on that octet — the inverse of the occupant rule, because a fellow occupant can be
+omitted from this viewer's LAN and the viewer cannot.
+
+**Consequence worth knowing:** `nmapScan`'s self-exclusion and its `assignHomeNetwork` import
+are GONE — with no self in the filler there is nothing to exclude. That was the last derived
+address on the server.
+
+**Offline posture, as built.** `lanLeaseCache` (key `jshack:lan-lease:<essid>`) is written by
+`persistConnection` ONLY. That is deliberate: every path that addresses `wlan0` goes through
+`env.setInterface`, so one writer covers the server join and any future one, and two writers of
+one key would rot. Disconnect does NOT clear it (the lease outlives occupancy server-side).
+`restoreConnection` dropped its `seedPubkeyHex` parameter — it recalls rather than derives, and
+a stored ESSID with no remembered address comes back OFFLINE.
+
+**Both derivation fallbacks are gone**, not just the server-backed path: `ui/env.ts`'s unwired
+seam and `ui/state.ts`'s pre-client branch now return null. A client with no server does not
+get to invent an address. Cost: the jsdom full-arc test in `Terminal.test.tsx` had to stub
+`fetch`, because connecting now genuinely requires an issuer. That is the approved posture
+showing up as test friction, not a regression.
+
+**Evidence.** RED before each GREEN (join response → own view → offline restore → nmcli
+refusal), each failing on the address itself. 1941 unit tests (was 1928, +13). Mutation on the
+changed files: `registerNetwork` / `lanLeaseCache` / `mergeLanOccupants` / `generateHomeLan` /
+`networkApi` / `nmapScan` **100%**, `connectionPersistence` 94.29% (2 equivalent), `nmap.ts`
+survivors all pre-existing help-text literals — the one real gap it found (my own new
+`wlan0.ipv4` guard, masked by `isOnline`) is now killed. Wire-checks 24/25 green (the lone gap
+is the long-standing `testUpsertPatch` 10/12 tombstone triage, untouched by this slice).
+Typecheck + lint clean.
+
+**Doc corrections discharged:** the `home_network_occupants` migration comment (LAN IP is a
+lease in its own table, and WHY it lives there — it outlives occupancy) and
+`cross-player-architecture.md`'s `buildWorkstationPortResolver` line. Also swept three stale
+"local-deterministic" module docs (`homeNetwork`, `networkApi`, `ui/env`) that still promised a
+derivable address.
+
+**Left standing deliberately:** the reserved-octet vacancy in `generateHomeLan` (Slice 4
+deletes it with the per-viewer draw), and the accepted imperfection recorded above — a REDRAWN
+player can displace a filler gateway in its own view. Not worth machinery for a surface Slice 4
+rebuilds.
 
 ### Slice 4: Every occupant of an ESSID sees the same LAN population
 

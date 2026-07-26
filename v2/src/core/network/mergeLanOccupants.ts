@@ -22,9 +22,32 @@
  */
 
 import type { HomeLan, LanHost } from '../generation/generateHomeLan';
+import type { Ipv4 } from './interfaces';
 import type { OccupantProjection } from './resolveOccupants';
 
 const lastOctet = (ip: string): number => Number(ip.split('.')[3]);
+
+/**
+ * Place the VIEWER's own host on the generated filler, at the address `wlan0` holds
+ * — the lease the join issued. `generateHomeLan` deliberately does not place the
+ * player: it is a pure identity+ESSID derivation with no view of the lease store,
+ * and the two disagree for a player the server relocated off a contested octet.
+ *
+ * A generated host on that octet is DROPPED rather than reserved — the opposite of
+ * the occupant rule below, and deliberately so. A fellow occupant is one of many and
+ * can be omitted from this viewer's LAN; the viewer cannot be omitted from its own.
+ * The lease is the authority on who answers at that address. This only ever bites a
+ * relocated player, since the allocator offers the derived octet — the one the
+ * generator holds vacant — first.
+ */
+export const withSelfHost = (lan: HomeLan, localIp: Ipv4, hostname: string): HomeLan => {
+  const selfOctet = lastOctet(localIp);
+  const self: LanHost = { ip: localIp, hostname, kind: 'machine' };
+  const hosts = [...lan.hosts.filter((host) => lastOctet(host.ip) !== selfOctet), self].sort(
+    (left, right) => lastOctet(left.ip) - lastOctet(right.ip),
+  );
+  return { subnet: lan.subnet, hosts };
+};
 
 export const mergeLanOccupants = (
   lan: HomeLan,

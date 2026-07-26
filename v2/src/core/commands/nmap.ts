@@ -22,7 +22,8 @@ import { buildRemoteHostFs } from '../generation/remoteHostFs';
 import { buildApGatewayBaseFs } from '../generation/routerFs';
 import { isPublicIp } from '../generation/ip';
 import { parseScanTarget, hostsInScanTarget } from '../network/scanTarget';
-import { mergeLanOccupants } from '../network/mergeLanOccupants';
+import { mergeLanOccupants, withSelfHost } from '../network/mergeLanOccupants';
+import { assignHomeNetwork } from '../network/homeNetwork';
 import { readOpenPorts, type OpenPort } from '../services/pidfile';
 import { scanResult } from '../scan/scanResult';
 import { resolveDeepScanHosts } from '../scan/deepScanHosts';
@@ -230,7 +231,14 @@ const execute: Command['execute'] = async (env, args) => {
   }
 
   const wlan0 = env.network.interfaces().find((iface) => iface.name === 'wlan0');
-  if (wlan0 === undefined || wlan0.kind !== 'wireless' || wlan0.association === null) {
+  // No address means no LAN to scan: the player's own address is a server-issued
+  // lease now, so an associated-but-unaddressed interface is not on the network.
+  if (
+    wlan0 === undefined ||
+    wlan0.kind !== 'wireless' ||
+    wlan0.association === null ||
+    wlan0.ipv4 === null
+  ) {
     return error(UNREACHABLE);
   }
 
@@ -261,7 +269,16 @@ const execute: Command['execute'] = async (env, args) => {
     }
   }
 
-  const baseLan = generateHomeLan(env.identity.publicKeyHex, essid);
+  // The generator supplies the NPC filler only. The player's own host is placed at
+  // the address `wlan0` actually holds — the LEASE the join issued — so a player the
+  // server relocated off a contested octet is scanned where it really lives instead
+  // of where the derivation guessed. A generated host on that octet yields: the lease
+  // is the authority on who answers there.
+  const baseLan = withSelfHost(
+    generateHomeLan(env.identity.publicKeyHex, essid),
+    wlan0.ipv4,
+    assignHomeNetwork(env.identity.publicKeyHex, essid).hostname,
+  );
   const parsed = parseScanTarget(rawTarget, baseLan.subnet);
   if (!parsed.ok) {
     return error(parsed.reason === 'usage' ? USAGE : outOfRange(rawTarget, baseLan.subnet));

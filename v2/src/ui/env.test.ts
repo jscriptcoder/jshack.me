@@ -4,7 +4,6 @@ import { homePathFor, SEED_CONFIG, seedFs, seedSession } from './seed';
 import { generateIdentity } from '../core/identity/identity';
 import { asAbsPath } from '../core/types';
 import { buildColdStartConnectivity, type NetworkInterface } from '../core/network/interfaces';
-import { assignHomeNetwork } from '../core/network/homeNetwork';
 import { generateWifi } from '../core/generation/generateWifi';
 import type { LogApi, PatchApi, ScanRecordParams } from '../core/commands/types';
 
@@ -94,7 +93,7 @@ describe('buildCommandEnv', () => {
     expect(seedEnv().network.wifiNetworks()).toEqual(seedWifi());
   });
 
-  it('wires homeNetwork.join to the identity-seeded assignment', async () => {
+  it('yields no address from homeNetwork.join when no join seam is supplied', async () => {
     const identity = generateIdentity();
     const env = buildCommandEnv({
       identity,
@@ -115,11 +114,11 @@ describe('buildCommandEnv', () => {
       signal: new AbortController().signal,
     });
 
-    // The seam resolves to exactly the deterministic core derivation for this
-    // identity — so a fresh connect and a reload rehydration agree on the IP.
-    await expect(env.homeNetwork.join('BEAN-THERE-WIFI')).resolves.toEqual(
-      assignHomeNetwork(identity.publicKeyHex, 'BEAN-THERE-WIFI'),
-    );
+    // With no join seam supplied there is nobody to ISSUE an address: a player's
+    // LAN address is a server-allocated lease, and a client that derived one would
+    // be the second allocator the lease exists to eliminate. So the join yields
+    // nothing and the connect that awaits it reports the failure.
+    await expect(env.homeNetwork.join('BEAN-THERE-WIFI')).resolves.toBeNull();
   });
 
   it('wires homeNetwork.leave to the supplied disconnect seam', () => {

@@ -5,8 +5,12 @@
 -- Written on join (folded into the same `registerNetwork` round-trip that upserts the
 -- WAN registry): the server stamps owner_key from the verified pubkey and records the
 -- player's workstation identity. Deleted on disconnect (slice 7.2b). The LAN IP +
--- hostname are NOT stored — they re-derive from `assignHomeNetwork(owner_key, essid)`
--- (a pure function of identity + AP; storing would only risk drift).
+-- hostname are NOT stored here, but for different reasons: the hostname re-derives
+-- from `assignHomeNetwork(owner_key, essid)` (a pure function of identity + AP), while
+-- the LAN IP is a LEASE, held in `network_lan_leases` and keyed `(essid, owner_key)`.
+-- The lease is deliberately in its own table because it OUTLIVES occupancy: this row
+-- is deleted on disconnect, but the address must survive so a reconnecting player
+-- returns to the address it had. Readers join the two.
 --
 -- PK is (essid, owner_key) so every occupant of a shared ESSID COEXISTS — the crucial
 -- contrast with network_registry (PK public_ip, last-writer-wins on a shared AP, which
