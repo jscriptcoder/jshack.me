@@ -54,20 +54,39 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
   `assignHomeNetwork` returns `{localIp, hostname}` only — **no client-side public IP remains**.
   Wire-check: `scripts/testPublicIpAllocation.ts`.
 
-**Current version: 0.87.0.**
+- **Shared-network reconciliation 🔨 IN PROGRESS** (epic doc item #5, grilled & resolved
+  2026-07-25). The ESSID becomes the seed for the whole LAN. Merged so far:
+  - **Slice 1 (v0.88.0)** — one shared, contested AP gateway per ESSID; the per-player router
+    retires. `computeApGatewayId(essid)`, ESSID-seeded hostname + admin password.
+  - **Slice 2 (v0.89.0)** — a bricked AP gateway is dark on every interface, not just the WAN.
+  - **Slice 3a (v0.90.0)** — occupant LAN addresses are **leased**, not derived:
+    `network_lan_leases(essid, owner_key PK, octet, UNIQUE (essid, octet))` +
+    `core/network/allocateLanLease.ts` (read-first → offer the derived octet → redraw on a
+    `(essid, octet)` 23505 → bounded exhaustion), allocated in `registerNetwork` before any
+    write. The first candidate is the octet the old derivation issued, so existing occupants
+    lease the address they already hold and nobody is relocated. Leases are **permanent and
+    outlive occupancy** (no GC) — reconnecting returns you to your address. Wire-check:
+    `scripts/testLanLeaseAllocation.ts` (includes a genuinely concurrent colliding join).
+  - **Slice 3b-i (v0.91.0)** — every address the SERVER resolves comes from the lease.
+    `core/network/lanAddress.ts` holds the split: the `/24` stays ESSID-derived (it belongs to
+    the AP), the host octet is the lease. `resolveOccupants` / `authCreateSessionSameLan` /
+    `nmapScan` take one `listLeasesByEssid` read behind the LAN-boundary gate;
+    `resolvePublicScan` / `authCreateSessionPublic` take a single-row `readLease` and
+    `buildWorkstationResolver` now TAKES `lanIp` rather than deriving it, so the NAT-forward
+    gate and the same-LAN path can never disagree on where a box is.
+  Remaining: 3b-ii (the player's OWN address + offline lease cache), 4 (shared LAN
+  population), 5 (shared depth), 6a/6b (**`network_registry` deleted outright** — its content
+  is derivable or already in `network_public_ips` / `home_network_occupants`; **this retires
+  the "occupancy fallback" invariant in §7 below**). Sliced in
+  `plans/shared-network-reconciliation.md`: `tdd` governs the behaviour-changing slices;
+  `reduce-system-complexity` governs the registry-removal pair only. A follow-up item then
+  makes the ESSID space procedurally generated and large, and tunes the occupied-ESSID
+  injector down.
+
+**Current version: 0.91.0.**
 
 To pick up the next slice: read the relevant `plans/*.md` TOP BLOCK (live status +
 as-built), then the cross-player architecture doc if the work touches cross-player paths.
-
-**Next up — shared-network reconciliation** (epic doc item #5, grilled & resolved 2026-07-25,
-no open questions): the ESSID becomes the seed for the whole LAN — one shared, contested AP
-gateway per ESSID (the per-player router retires), an ESSID-seeded NPC population and depth,
-DHCP-allocated occupant octets, and **`network_registry` deleted outright** (its content is
-derivable or already in `network_public_ips` / `home_network_occupants`). **Note it retires the
-"occupancy fallback" invariant in §7 below.** Sliced in
-`plans/shared-network-reconciliation.md`: `tdd` governs the behaviour-changing slices;
-`reduce-system-complexity` governs the registry-removal pair only. A follow-up item then makes
-the ESSID space procedurally generated and large, and tunes the occupied-ESSID injector down.
 
 ---
 
@@ -139,6 +158,15 @@ the ESSID space procedurally generated and large, and tunes the occupied-ESSID i
   silently. Watch the network tab.
 - **No metadata-existence tests** (`expect(cmd.name).toBe('foo')`). DO test metadata
   *preservation* through wrappers/HOFs and *consumption* by other commands (help/man).
+- **A `makeDeps(over)` helper must RETURN the mock that actually landed in `deps`.** The
+  common shape — build default `vi.fn`s, then `{...defaults, ...over}` — returns the *default*
+  mock even when `over` replaced it. A later `ctx.someDep.mockImplementation(...)` then
+  retargets an orphan and the test passes vacuously. Resolve the override BEFORE building
+  `deps` and return that value, or take the variation as a typed option on the helper.
+- **A test that asserts an ABSENCE ("nothing was written / nobody was traced") is the easiest
+  one to pass for the wrong reason.** Mutation testing is what catches it — a guard that
+  survives deletion usually means the path was never reached. Before trusting such a test,
+  prove the setup reaches the code by asserting the matching PRESENCE with the same inputs.
 
 ---
 
@@ -187,6 +215,22 @@ reloads the live app mid-E2E (resetting `su` elevation). Stop one before the oth
   Windows but break on Linux/Vercel. Grep-verify import casing after any case rename.
 - **The terminal runs commands SERIALLY** (`runInput` → `commandChain` in `ui/state.ts`). Do
   NOT reintroduce concurrent `runInput` — it races on a stale FS view.
+- **A wire-check clean-slate must clear PERMANENT tables, not just the per-session ones.**
+  `network_lan_leases` and `network_public_ips` deliberately outlive occupancy, so a script
+  that only deletes `home_network_occupants` leaves a lease holding an octet forever. Every
+  re-run then either fails its `UNIQUE (essid, octet)` insert (silently — the scripts don't
+  check insert errors) or forces the allocator to redraw, which moves an address the script
+  hard-coded. Symptom: a script passes alone and fails in the full sweep, or passes once and
+  fails on the second run. Delete the lease rows in BOTH setup and teardown.
+- **A wire-check that seeds occupancy directly must seed the lease too.** A real join
+  allocates the lease BEFORE writing the occupancy row, so occupancy-without-lease is a state
+  the server never produces — and since 3b-i the handlers refuse it (`not_an_occupant`: you
+  hold no address here). Scripts that join through the real endpoint should read the issued
+  lease back rather than re-deriving an address.
+- **`nmap` scan targets: `X.Y.Z.1-254`, not `X.Y.Z.0/24`.** CIDR is not a parsed target form —
+  `parseScanTarget` returns not-ok, the handler quietly logs nothing, and a test asserting
+  "nothing was traced" passes for the wrong reason. If a scan test asserts an ABSENCE, first
+  prove the target parses by asserting a presence with the same string.
 
 ---
 

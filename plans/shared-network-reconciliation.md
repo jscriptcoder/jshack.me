@@ -3,10 +3,12 @@
 **Branch**: one per slice, cut off `main`
 **Status**: Active — Slice 1 ✅ MERGED (PR #326, `7c9338b`, v0.88.0),
 Slice 2 ✅ MERGED (PR #327, `88054bf`, v0.89.0),
-Slice 3a ✅ MERGED (PR #328, `6ae4109`, v0.90.0).
-**Slice 3b split mid-implementation into 3b-i + 3b-ii (see the correction under Slice 3b).
-3b-i is COMPLETE on `feat/lan-lease-is-the-address` at v0.91.0, awaiting commit approval.
-Next after it: 3b-ii — the player's own address + the offline cache.**
+Slice 3a ✅ MERGED (PR #328, `6ae4109`, v0.90.0),
+Slice 3b-i ✅ MERGED (PR #329, `21e3f9e`, v0.91.0).
+**Next: Slice 3b-ii — the player's OWN address becomes the leased one, cached for offline.
+Nothing is in flight; `main` is clean at `21e3f9e`. Cut a branch, then start at the 3b-ii
+section below (scope, offline posture, and the two doc corrections it owes are all recorded
+there). Acceptance criteria 2 and 4 are already approved — re-confirm, don't re-derive.**
 **Parent**: `plans/multiplayer-crossplayer-epic.md` item #5 (decision record; grilled & resolved 2026-07-25)
 **Follows**: item #4 (unique public-IP allocation, v0.87.0)
 **Precedes**: item #6 (procedural world expansion) — do NOT pull it in here
@@ -559,6 +561,28 @@ and the `registerNetwork` response shape.
 **Doc corrections still owed**: `20260621120000_home_network_occupants.sql` (the LAN-IP
 projection rationale) and `docs/cross-player-architecture.md:104`. The
 `minimize-api-projections` note in `resolveOccupants.ts` was rewritten in 3b-i.
+
+**⚠️ The hard part — resolve this BEFORE writing code.** `generateHomeLan(seedPubkeyHex,
+essid)` needs the self octet for two things: placing the `self` host, and EXCLUDING that octet
+from the NPC draw. Its 8 callers split into three groups that cannot all get a lease the same
+way:
+- *Own-view, client-side* (`nmap.ts:264`, `ssh.ts:286`): the player's own leased octet, which
+  the client will hold once the join returns it. Straightforward.
+- *Own-view, server-side* (`nmapScan.ts:240`, `authCreateSession.ts:153`): the server already
+  reads the lease map; pass the caller's octet down.
+- *ANOTHER player's LAN* (`lanHostIdentity.ts:68,148,225`, `remoteHostId.ts:30`): these
+  regenerate a DIFFERENT owner's NPC filler from pure sync functions deep in the generation
+  layer. They need that owner's lease, which means either threading it through every caller or
+  accepting that another player's NPC filler is generated around the DERIVED octet.
+  Candidate answer: Slice 4 replaces per-viewer NPC population with a shared ESSID-seeded one,
+  at which point the self-octet exclusion stops being per-viewer at all — so the cheapest
+  correct move may be to take the octet as a parameter for the own-view callers and leave the
+  other-player callers on the derivation until Slice 4 deletes the question. **Decide this
+  explicitly; do not let it be decided by whichever call site is edited first.**
+
+**Wire-check impact**: the scripts no longer import `assignHomeNetwork` for addresses (3b-i
+moved them to `lanAddressFor` / lease read-back), but several still call `generateHomeLan` for
+inner-gateway and NPC hosts — a signature change touches ~8 of them.
 **Offline posture (decided 2026-07-26): cache the lease, else fail.** The leased address is
 persisted client-side on each successful join. Reconnecting to a network the player already
 holds a lease on works with the server unreachable, and `restoreConnection` stays SYNCHRONOUS
