@@ -12,7 +12,7 @@ import {
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
 import { hostMachineId } from '../generation/remoteHostId';
-import { computeInnerGatewayId, computeRouterId } from '../identity/router';
+import { computeInnerGatewayId, computeApGatewayId } from '../identity/router';
 import { parsePidfilePort } from '../services/pidfile';
 import { bindFlags } from '../shell/bindFlags';
 import { assignHomeNetwork } from '../network/homeNetwork';
@@ -315,7 +315,7 @@ describe('ssh', () => {
     expect(onCwd).toHaveBeenCalledWith('/home/admin');
   });
 
-  it('routes ssh to the .1 gateway to the OWN ROUTER — root session on computeRouterId, reachable on :22', async () => {
+  it('routes ssh to the .1 gateway to the OWN ROUTER — root session on computeApGatewayId, reachable on :22', async () => {
     const gateway = generateHomeLan(PUBKEY, ESSID).hosts.find((host) => host.kind === 'router');
     if (gateway === undefined) throw new Error('no gateway on LAN');
     const authenticate = vi.fn<(params: RemoteAuthParams) => Promise<RemoteAuthResult>>(
@@ -340,7 +340,7 @@ describe('ssh', () => {
     // The hop lands on the ROUTER's journal-backed id, NOT the gateway's coordinate
     // sibling id — so the router journal (the `nano rules.v4` edit) materializes.
     expect(onPush.mock.calls[0]![0]).toMatchObject({
-      machineId: computeRouterId(PUBKEY),
+      machineId: computeApGatewayId(ESSID),
       username: 'root',
       userType: 'root',
       kind: 'ssh',
@@ -377,7 +377,7 @@ describe('ssh', () => {
       machineId: computeInnerGatewayId(PUBKEY, octet),
       kind: 'ssh',
     });
-    expect(onPush.mock.calls[0]![0].machineId).not.toBe(computeRouterId(PUBKEY));
+    expect(onPush.mock.calls[0]![0].machineId).not.toBe(computeApGatewayId(ESSID));
     expect(onPush.mock.calls[0]![0].machineId).not.toBe(hostMachineId(inner, ESSID));
   });
 
@@ -408,7 +408,7 @@ describe('ssh', () => {
       machineId: computeInnerGatewayId(PUBKEY, octet),
       kind: 'ssh',
     });
-    expect(onPush.mock.calls[0]![0].machineId).not.toBe(computeRouterId(PUBKEY));
+    expect(onPush.mock.calls[0]![0].machineId).not.toBe(computeApGatewayId(ESSID));
     expect(onPush.mock.calls[0]![0].machineId).not.toBe(hostMachineId(device, ESSID));
   });
 

@@ -26,12 +26,12 @@ import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign';
 import { generateIdentity } from '../src/core/identity/identity';
 import { computeWorkstationId } from '../src/core/identity/workstation';
-import { computeRouterId } from '../src/core/identity/router';
+import { computeApGatewayId } from '../src/core/identity/router';
 import { assignHomeNetwork } from '../src/core/network/homeNetwork';
 import { formatPidfileContent } from '../src/core/services/pidfile';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
 import { md5 } from '../src/core/generation/md5';
-import { seedRouterHostname, seedRouterAdminPw } from '../src/core/generation/routerFs';
+import { seedApGatewayHostname, seedApGatewayAdminPw } from '../src/core/generation/routerFs';
 import { workstationGuestPassword } from '../src/core/generation/workstationFs';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
@@ -91,7 +91,7 @@ const B_ESSID = 'BLUE-SUN-CAFE';
 const C_ESSID = 'CYBERDYNE-GUEST';
 const A_WS_NAME = 'skylab';
 const A_WS = computeWorkstationId(A_WS_NAME, alice.publicKeyHex);
-const A_ROUTER = computeRouterId(alice.publicKeyHex);
+const A_ROUTER = computeApGatewayId(A_ESSID);
 const A_PUBLIC_IP = '203.0.113.93';
 const A_LAN = assignHomeNetwork(alice.publicKeyHex, A_ESSID).localIp; // A's ws LAN ip
 // B's + C's truthful source IPs: the public IPs in their seeded registry rows, which the
@@ -99,8 +99,8 @@ const A_LAN = assignHomeNetwork(alice.publicKeyHex, A_ESSID).localIp; // A's ws 
 // constants, since this script seeds those rows directly (self-consistent with the asserts).
 const B_PUBLIC_IP = '198.51.100.93';
 const C_PUBLIC_IP = '192.0.2.93';
-const A_ROUTER_HOST = seedRouterHostname(alice.publicKeyHex);
-const ADMIN_PW = seedRouterAdminPw(alice.publicKeyHex); // A's router root (admin) pw
+const A_ROUTER_HOST = seedApGatewayHostname(A_ESSID);
+const ADMIN_PW = seedApGatewayAdminPw(A_ESSID); // A's router root (admin) pw
 const GUEST_PW = workstationGuestPassword(alice.publicKeyHex); // A's ws guest pw
 
 const RULES = '/etc/iptables/rules.v4';
@@ -118,7 +118,7 @@ const registryRow = (
   public_ip: publicIp,
   owner_key: owner.publicKeyHex,
   workstation_machine_id: computeWorkstationId(wsName, owner.publicKeyHex),
-  router_machine_id: computeRouterId(owner.publicKeyHex),
+  router_machine_id: computeApGatewayId(essid),
   essid,
   workstation_username: 'player',
   workstation_machine_name: wsName,

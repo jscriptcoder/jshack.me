@@ -9,12 +9,12 @@ import {
   buildInnerGatewayBaseFs,
   buildRouterBaseFsFromIdentity,
   buildSwitchBaseFs,
-  seedRouterAdminPw,
-  seedRouterHasSsh,
+  seedApGatewayAdminPw,
+  seedApGatewayHasSsh,
 } from '../core/generation/routerFs';
 import { md5 } from '../core/generation/md5';
 import { computeWorkstationId } from '../core/identity/workstation';
-import { computeInnerGatewayId, computeRouterId } from '../core/identity/router';
+import { computeInnerGatewayId, computeApGatewayId } from '../core/identity/router';
 import { asEpochMs, asMachineId, asPlayerKeyHex } from '../core/types';
 import { buildDirectory } from '../test/factories/filesystem';
 import type { Patch } from '../core/filesystem/applyPatches';
@@ -119,42 +119,25 @@ describe('resolveActiveRoot', () => {
     expect(resolveActiveRoot(args({ session: session('ghost-00000000', 'ssh') }))).toBe(ownBaseFs);
   });
 
-  it('returns the OWN ROUTER tree for a session on the router id (journal-backed, not a regenerated sibling)', () => {
-    // A `ssh root@<subnet>.1` lands a session on the router's id. Its tree must be
-    // the seeded router box (root-only passwd + `/etc/iptables/rules.v4`) rebuilt
-    // from the player's own key — exactly what the server materializes — NOT a
-    // `buildRemoteHostFs` sibling and NOT the own workstation base.
-    const routerBaseFs = buildRouterBaseFsFromIdentity({
-      adminPwHash: md5(seedRouterAdminPw(PUBKEY)),
-      hasSsh: seedRouterHasSsh(PUBKEY),
+  it('does NOT rebuild the AP gateway locally — it is a cross-player hop', () => {
+    // `ssh root@<subnet>.1` lands a session on the gateway, but the gateway belongs
+    // to the access point rather than the caller, so the client must NOT rebuild it
+    // from its own seed. Its tree is fetched server-side like any other foreign box —
+    // which is what lets one occupant see another's edits to `rules.v4`.
+    expect(isCrossPlayerHop(session(computeApGatewayId(ESSID), 'ssh'), ESSID, PUBKEY)).toBe(true);
+
+    const locallyRebuilt = buildRouterBaseFsFromIdentity({
+      adminPwHash: md5(seedApGatewayAdminPw(ESSID)),
+      hasSsh: seedApGatewayHasSsh(ESSID),
     });
-
-    const root = resolveActiveRoot(args({ session: session(computeRouterId(PUBKEY), 'ssh') }));
-
-    expect(root).toEqual(routerBaseFs);
-    expect(root).not.toBe(ownBaseFs);
-  });
-
-  it('replays the active journal over the ROUTER base (rules.v4 edit observability)', () => {
-    const root = resolveActiveRoot(
-      args({
-        session: session(computeRouterId(PUBKEY), 'ssh'),
-        patches: [writePatch('/etc/iptables/rules.v4', 'forward 2222 to 192.168.1.5:22\n')],
-      }),
+    expect(resolveActiveRoot(args({ session: session(computeApGatewayId(ESSID), 'ssh') }))).not.toEqual(
+      locallyRebuilt,
     );
-
-    // The edit is visible…
-    expect(fileAt(root, ['etc', 'iptables', 'rules.v4'])?.content).toBe(
-      'forward 2222 to 192.168.1.5:22\n',
-    );
-    // …AND it landed on the ROUTER base, not an empty/own one: a router-only
-    // seeded file (root passwd) still exists alongside the patched rules.
-    expect(fileAt(root, ['etc', 'passwd'])).toBeDefined();
   });
 
   // The inner gateway is a SECOND own-LAN router, journal-backed exactly like the
-  // edge `.1` — a session on its id must rebuild ITS seeded tree so a `nano rules.v4`
-  // edit is visible and survives a refresh.
+  // AP gateway at `.1` — but this one IS the player's own device, so a session on its
+  // id must rebuild ITS seeded tree so a `nano rules.v4` edit is visible after refresh.
   const innerGatewayOctet = (): number => {
     const inner = generateHomeLan(PUBKEY, ESSID).hosts.find(
       (host) => host.kind === 'router' && Number(host.ip.split('.')[3]) !== 1,
@@ -163,12 +146,12 @@ describe('resolveActiveRoot', () => {
     return Number(inner.ip.split('.')[3]);
   };
 
-  it('falls back to the own base for an own-router session when offline (no essid to resolve the LAN)', () => {
-    // Offline (essid null) there is no LAN to resolve any remote against — the edge
-    // router included — so every remote session uniformly shows the own base, rather
-    // than the router tree it can no longer reach.
+  it('falls back to the own base for an AP-gateway session when offline (no essid to resolve the LAN)', () => {
+    // Offline (essid null) there is no LAN to resolve any remote against — the AP
+    // gateway included — so every remote session uniformly shows the own base, rather
+    // than the gateway tree it can no longer reach.
     expect(
-      resolveActiveRoot(args({ session: session(computeRouterId(PUBKEY), 'ssh'), essid: null })),
+      resolveActiveRoot(args({ session: session(computeApGatewayId(ESSID), 'ssh'), essid: null })),
     ).toBe(ownBaseFs);
   });
 

@@ -15,7 +15,7 @@ import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 import { assignHomeNetwork } from '../network/homeNetwork';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
-import { seedRouterHostname } from '../generation/routerFs';
+import { seedApGatewayHostname } from '../generation/routerFs';
 import { machineIdForLanHost } from '../generation/lanHostIdentity';
 import { generateDeepLayer } from '../generation/generateDeepLayer';
 import { computeDeepGatewayId } from '../identity/router';
@@ -1049,8 +1049,8 @@ describe('nmap — own router (.1) sameLAN scan (5.1.4)', () => {
       [
         `Starting Nmap scan — ${ROUTER_IP}`,
         '',
-        // The router carries its owner-seeded name (Story 6.0), not a generic "gateway".
-        `Nmap scan report for ${seedRouterHostname(PUBKEY)} (${ROUTER_IP})`,
+        // The gateway carries its ESSID-seeded name, not a generic "gateway".
+        `Nmap scan report for ${seedApGatewayHostname(ROUTER_ESSID)} (${ROUTER_IP})`,
         'Host is up.',
         '',
         'PORT     STATE SERVICE',

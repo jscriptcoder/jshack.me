@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { generateHomeLan } from './generateHomeLan';
 import { assignHomeNetwork } from '../network/homeNetwork';
-import { seedRouterHostname } from './routerFs';
+import { seedApGatewayHostname } from './routerFs';
 
 /**
  * `generateHomeLan` is the pure topology generator behind `nmap <subnet>`. Given
@@ -18,7 +18,7 @@ const PUBKEY = 'a'.repeat(64);
 // second inner gateway) at .80, the player's own host, and the full sibling
 // population for a fixed identity.
 const GOLDEN_HOSTS = [
-  { ip: '192.168.29.1', hostname: 'net-gateway', kind: 'router' },
+  { ip: '192.168.29.1', hostname: 'vpn-gw', kind: 'router' },
   { ip: '192.168.29.25', hostname: 'fw-dmz', kind: 'router' },
   { ip: '192.168.29.30', hostname: 'tablet-30', kind: 'machine' },
   { ip: '192.168.29.70', hostname: 'workstation-70', kind: 'machine' },
@@ -42,19 +42,19 @@ describe('generateHomeLan', () => {
     // Gateway is first (octet .1 sorts ahead of the player's host octet >= 2).
     expect(lan.hosts[0]).toEqual({
       ip: `${lan.subnet}.1`,
-      hostname: seedRouterHostname(PUBKEY),
+      hostname: seedApGatewayHostname('BEAN-THERE-WIFI'),
       kind: 'router',
     });
   });
 
   it('names the .1 router with its owner-seeded hostname, not a generic "gateway"', () => {
-    // Story 6.0: the router is just another machine with a real name (seeded from
-    // the owner key alone), so cross-player log lines can identify it. For the
-    // own-LAN view the viewer IS the router's owner, so the name seeds off PUBKEY.
+    // The gateway is just another machine with a real name — seeded from the ESSID,
+    // so it is the same name for every occupant and cross-player log lines can
+    // identify it without knowing who was looking.
     const router = generateHomeLan(PUBKEY, 'BEAN-THERE-WIFI').hosts.find(
       (host) => host.kind === 'router',
     );
-    expect(router?.hostname).toBe(seedRouterHostname(PUBKEY));
+    expect(router?.hostname).toBe(seedApGatewayHostname('BEAN-THERE-WIFI'));
     expect(router?.hostname).not.toBe('gateway');
   });
 
@@ -185,7 +185,7 @@ describe('generateHomeLan', () => {
     // Everything that is neither a gateway nor the switch is a machine.
     expect(lan.hosts.filter((host) => host.kind === 'router')).toContainEqual({
       ip: `${lan.subnet}.1`,
-      hostname: seedRouterHostname(PUBKEY),
+      hostname: seedApGatewayHostname('BEAN-THERE-WIFI'),
       kind: 'router',
     });
     const ordinary = lan.hosts.filter((host) => host.kind !== 'router' && host.kind !== 'switch');

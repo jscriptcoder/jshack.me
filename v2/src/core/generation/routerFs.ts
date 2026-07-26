@@ -50,11 +50,12 @@ const ROUTER_ADMIN_PASSWORDS: readonly string[] = [
   'netgear',
 ];
 
-/** The router root account's plaintext password, seeded from the owner key alone
- *  (the `router-admin-` namespace) so the server can recover it for cross-player
- *  auth. Weak by design (pool member) for the future cracker. */
-export const seedRouterAdminPw = (ownerKeyHex: string): string =>
-  createPrng(`router-admin-${ownerKeyHex}`).pick(ROUTER_ADMIN_PASSWORDS);
+/** The AP gateway's root account plaintext password, seeded from the ESSID alone
+ *  (the `ap-gw-admin-` namespace) so every occupant of the access point faces the
+ *  same credential and the server can recover it for cross-player auth. Weak by
+ *  design (pool member): taking the gateway is a crack, not a birthright. */
+export const seedApGatewayAdminPw = (essid: string): string =>
+  createPrng(`ap-gw-admin-${essid}`).pick(ROUTER_ADMIN_PASSWORDS);
 
 /** Router display names, ported verbatim from the legacy generator
  *  (`hostnamesByRole.router`). A router is just another machine with NAT config,
@@ -78,12 +79,12 @@ export const ROUTER_HOSTNAMES: readonly string[] = [
   'dist-rtr',
 ];
 
-/** The router's hostname, seeded from the owner key alone (the `router-host-`
- *  namespace — SEPARATE from `router-admin-`/`router-ssh-` so the name never
- *  correlates with the secrets). Server-recoverable from `owner_key` without an
- *  FS read, so a cross-player log line can name the router it was written on. */
-export const seedRouterHostname = (ownerKeyHex: string): string =>
-  createPrng(`router-host-${ownerKeyHex}`).pick(ROUTER_HOSTNAMES);
+/** The AP gateway's hostname, seeded from the ESSID alone (the `ap-gw-host-`
+ *  namespace — SEPARATE from `ap-gw-admin-`/`ap-gw-ssh-` so the name never
+ *  correlates with the secrets). Server-recoverable from the ESSID without an FS
+ *  read, so a cross-player log line can name the gateway it was written on. */
+export const seedApGatewayHostname = (essid: string): string =>
+  createPrng(`ap-gw-host-${essid}`).pick(ROUTER_HOSTNAMES);
 
 /** The inner gateway's hostname, seeded from the owner key AND its LAN octet (the
  *  `inner-gw-host-` namespace — SEPARATE from the edge router's `router-host-` so a
@@ -97,10 +98,10 @@ export const seedInnerGatewayHostname = (ownerKeyHex: string, octet: number): st
  *  sshd presence vary per router without reshaping callers. */
 const ROUTER_SSH_PROBABILITY = 1;
 
-/** Whether this owner's router runs `sshd`, seeded deterministically from the
- *  owner key (the `router-ssh-` namespace). Currently always true (knob = 1.0). */
-export const seedRouterHasSsh = (ownerKeyHex: string): boolean =>
-  createPrng(`router-ssh-${ownerKeyHex}`).next() < ROUTER_SSH_PROBABILITY;
+/** Whether this AP's gateway runs `sshd`, seeded deterministically from the ESSID
+ *  (the `ap-gw-ssh-` namespace). Currently always true (knob = 1.0). */
+export const seedApGatewayHasSsh = (essid: string): boolean =>
+  createPrng(`ap-gw-ssh-${essid}`).next() < ROUTER_SSH_PROBABILITY;
 
 /** `/etc/iptables/rules.v4`: root reads + edits it (`nano`), no one else. Not an
  *  executable. The router has only a root account, so root-only is the boundary.
@@ -225,17 +226,18 @@ export const buildRouterBaseFsFromIdentity = (identity: {
   });
 
 /**
- * Build the router's base FS from the OWNER KEY alone — the one place the
- * owner-key→secret derivation (admin password hash + sshd presence) lives, so
- * every path that needs a player's router tree agrees byte-for-byte: the public
- * scan/auth (`materializeRouterFs`), the client's own-router FS view, and the
- * server-side L2 walker for an own-router write. Callers replay the router's
- * journal over this base separately.
+ * Build the AP gateway's base FS from the ESSID alone — the one place the
+ * ESSID→secret derivation (admin password hash + sshd presence) lives, so every
+ * path that needs the gateway's tree agrees byte-for-byte: the public scan/auth
+ * (`materializeApGatewayFs`), each occupant's LAN view, and the server-side L2
+ * walker for a write on it. Because the seed is the ESSID and not a player key,
+ * every occupant of the access point materializes the SAME box. Callers replay the
+ * gateway's journal over this base separately.
  */
-export const buildRouterBaseFs = (ownerKeyHex: string): Directory =>
+export const buildApGatewayBaseFs = (essid: string): Directory =>
   buildRouterBaseFsFromIdentity({
-    adminPwHash: md5(seedRouterAdminPw(ownerKeyHex)),
-    hasSsh: seedRouterHasSsh(ownerKeyHex),
+    adminPwHash: md5(seedApGatewayAdminPw(essid)),
+    hasSsh: seedApGatewayHasSsh(essid),
   });
 
 /** The inner gateway root ("admin") password, seeded from the owner key AND the

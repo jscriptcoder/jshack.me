@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseAclDenies, readAclConf } from './switchAcl';
-import { buildRouterBaseFs, buildSwitchBaseFs } from '../generation/routerFs';
+import { buildApGatewayBaseFs, buildSwitchBaseFs } from '../generation/routerFs';
 import { buildDirectory } from '../../test/factories/filesystem';
 
 /**
@@ -65,7 +65,7 @@ describe('readAclConf', () => {
   });
 
   it('returns empty for a filesystem with no /etc/switch (a router has rules.v4, not an ACL)', () => {
-    expect(readAclConf(buildRouterBaseFs(SEED_A))).toBe('');
+    expect(readAclConf(buildApGatewayBaseFs(SEED_A))).toBe('');
   });
 
   it('returns empty for a filesystem with no /etc at all', () => {

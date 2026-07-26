@@ -4,10 +4,10 @@ import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
-import { buildRouterBaseFs, seedRouterHostname } from '../generation/routerFs';
+import { buildApGatewayBaseFs, seedApGatewayHostname } from '../generation/routerFs';
 import { hostMachineId } from '../generation/remoteHostId';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
-import { computeInnerGatewayId, computeRouterId } from '../identity/router';
+import { computeInnerGatewayId, computeApGatewayId } from '../identity/router';
 import { assignHomeNetwork } from '../network/homeNetwork';
 import { materializeWorkstationFs, type OwnerPatchRow } from '../network/materializeWorkstationFs';
 import { readOpenPorts } from '../services/pidfile';
@@ -122,7 +122,7 @@ const PORTED_IDENTITY: ReturnType<typeof generateIdentity> = {
 // regenerated LAN does — so the logged kern.log line names the real router.
 const PORTED_HOST: LanHost = {
   ip: '192.168.29.1',
-  hostname: seedRouterHostname(PORTED_IDENTITY.publicKeyHex),
+  hostname: seedApGatewayHostname(ESSID),
   kind: 'router',
 };
 const PORTED_SUBNET = '192.168.29';
@@ -313,13 +313,13 @@ describe('handleNmapScan', () => {
 
 /**
  * Story 6.4 — own-LAN `.1` scan writes the REAL router record. The `.1` gateway is
- * reached at run time via `ssh root@.1` → `computeRouterId(caller)`; its coordinate
+ * reached at run time via `ssh root@.1` → `computeApGatewayId(ESSID)`; its coordinate
  * `hostMachineId('<router name>', essid)` is a DEAD-END record nobody reads. So the
- * scan line for the gateway host must land on `computeRouterId(caller)`, while a
+ * scan line for the gateway host must land on `computeApGatewayId(ESSID)`, while a
  * generic NPC sibling keeps its coordinate `hostMachineId`.
  */
 // A FIXED identity (found once via a dev-time search, then hardcoded) whose `.1`
-// router's OWN services (`buildRouterBaseFs` → always `sshd:22`) DIFFER from its
+// router's OWN services (`buildApGatewayBaseFs` → always `sshd:22`) DIFFER from its
 // generic coordinate FS (`buildRemoteHostFs` → no open ports here) — so a test can
 // prove the logged line lists the ROUTER's real ports, not the dead generic ones.
 const ROUTER_PORTS_IDENTITY: ReturnType<typeof generateIdentity> = {
@@ -328,14 +328,14 @@ const ROUTER_PORTS_IDENTITY: ReturnType<typeof generateIdentity> = {
 };
 
 describe('handleNmapScan — own-LAN .1 scan → real router record (Story 6.4)', () => {
-  it('logs the .1 gateway scan on computeRouterId(caller), not the dead-end hostMachineId', async () => {
+  it('logs the .1 gateway scan on computeApGatewayId(ESSID), not the dead-end hostMachineId', async () => {
     const id = generateIdentity();
     const gateway = gatewayOf(id.publicKeyHex);
     const { deps, upsertPatch } = makeDeps();
 
     await handleNmapScan(envelope(id, gateway.ip), deps);
 
-    const routerId = computeRouterId(id.publicKeyHex);
+    const routerId = computeApGatewayId(ESSID);
     // The two ids genuinely differ — the assertion below is only meaningful because
     // the line moved OFF the dead-end coordinate record ONTO the one `ssh root@.1`
     // resolves to.
@@ -366,7 +366,7 @@ describe('handleNmapScan — own-LAN .1 scan → real router record (Story 6.4)'
     const innerId = computeInnerGatewayId(id.publicKeyHex, octet);
     // The trace lands on the inner gateway's OWN id — never the edge router's
     // (would alias) nor its dead-end coordinate record — listing its own sshd:22.
-    expect(innerId).not.toBe(computeRouterId(id.publicKeyHex));
+    expect(innerId).not.toBe(computeApGatewayId(ESSID));
     expect(innerId).not.toBe(hostMachineId(inner, ESSID));
     expect(upsertPatch).toHaveBeenCalledTimes(1);
     expect(upsertPatch.mock.calls[0]![0].machine_id).toBe(innerId);
@@ -376,7 +376,7 @@ describe('handleNmapScan — own-LAN .1 scan → real router record (Story 6.4)'
   it('logs the router scan with the router real ports (sshd:22), not the dead generic host FS', async () => {
     const id = ROUTER_PORTS_IDENTITY;
     const gateway = gatewayOf(id.publicKeyHex);
-    const realPorts = readOpenPorts(buildRouterBaseFs(id.publicKeyHex)).map((port) => port.port);
+    const realPorts = readOpenPorts(buildApGatewayBaseFs(ESSID)).map((port) => port.port);
     const genericPorts = readOpenPorts(buildRemoteHostFs(id.publicKeyHex, ESSID, gateway)).map(
       (port) => port.port,
     );

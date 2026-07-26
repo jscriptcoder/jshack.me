@@ -6,10 +6,10 @@ import {
 } from './resolvePublicScan';
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
-import { computeRouterId } from '../identity/router';
+import { computeApGatewayId } from '../identity/router';
 import { assignHomeNetwork } from '../network/homeNetwork';
 import { md5 } from '../generation/md5';
-import { seedRouterHostname } from '../generation/routerFs';
+import { seedApGatewayHostname } from '../generation/routerFs';
 import { formatNmapScanAggregate, KERN_LOG_OWNER, KERN_LOG_PERMISSIONS } from '../logging/kernLog';
 import { asGameTime } from '../types';
 import type { OwnerPatchRow } from '../network/materializeWorkstationFs';
@@ -41,7 +41,7 @@ const SCANNER_PUBLIC_IP = '198.51.100.22';
 // workstation behind a NAT forward needs (machine id, essid, ws identity).
 const OWNER = generateIdentity();
 const REGISTERED: RegistryLookup = {
-  router_machine_id: computeRouterId(OWNER.publicKeyHex),
+  router_machine_id: computeApGatewayId(ESSID),
   owner_key: OWNER.publicKeyHex,
   workstation_machine_id: 'workstation-a1b2c3d4',
   essid: ESSID,
@@ -158,7 +158,7 @@ const makeDeps = (
 const expectedKernLine = (sourceIp: string, ports: readonly number[]): string =>
   formatNmapScanAggregate({
     time: asGameTime(FIXED_NOW),
-    hostname: seedRouterHostname(REGISTERED.owner_key),
+    hostname: seedApGatewayHostname(ESSID),
     sourceIp,
     probedPorts: ports,
   });

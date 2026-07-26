@@ -25,13 +25,13 @@ import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import type { NonceStore } from '../signedRequest/nonceStore';
-import { materializeRouterFs } from '../network/materializeRouterFs';
+import { materializeApGatewayFs } from '../network/materializeRouterFs';
 import type { OwnerPatchRow } from '../network/materializeWorkstationFs';
 import { canBoot } from '../boot/bootFiles';
 import { parseForwardRules, readRulesV4 } from '../network/iptablesRules';
 import { scanResult } from './scanResult';
 import { buildWorkstationPortResolver } from './workstationPortResolver';
-import { seedRouterHostname } from '../generation/routerFs';
+import { seedApGatewayHostname } from '../generation/routerFs';
 import {
   formatNmapScanAggregate,
   KERN_LOG_OWNER,
@@ -144,7 +144,7 @@ const logCrossPlayerScan = async (
 ): Promise<void> => {
   const line = formatNmapScanAggregate({
     time: asGameTime(deps.now()),
-    hostname: seedRouterHostname(registry.owner_key),
+    hostname: seedApGatewayHostname(registry.essid),
     sourceIp,
     probedPorts: ports.map((openPort) => openPort.port),
   });
@@ -191,7 +191,7 @@ export const handleResolvePublicScan = async (
   if (patches.error) {
     return { status: 500, body: { error: 'patches_lookup_failed' } };
   }
-  const routerFs = materializeRouterFs(data, patches.data);
+  const routerFs = materializeApGatewayFs(data, patches.data);
   if (!canBoot(routerFs).ok) {
     return { status: 200, body: { ok: true, found: false, ports: [] } };
   }

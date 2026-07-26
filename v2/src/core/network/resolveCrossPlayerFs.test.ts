@@ -40,7 +40,7 @@ const REGISTERED: RegistryWorkstation = {
 };
 const REGISTERED_ROUTER: RegistryRouter = {
   kind: 'router',
-  owner_key: OWNER_KEY,
+  essid: 'BEAN-THERE-WIFI',
 };
 
 // A guest-readable file A created (a real persisted patch) and a user-only one —

@@ -22,7 +22,7 @@ import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign';
 import { generateIdentity } from '../src/core/identity/identity';
 import { computeWorkstationId } from '../src/core/identity/workstation';
-import { computeRouterId } from '../src/core/identity/router';
+import { computeApGatewayId } from '../src/core/identity/router';
 import { md5 } from '../src/core/generation/md5';
 
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
@@ -116,7 +116,7 @@ await sr.from('network_registry').insert({
   public_ip: A_PUBLIC_IP,
   owner_key: alice.publicKeyHex,
   workstation_machine_id: A_MACHINE,
-  router_machine_id: computeRouterId(alice.publicKeyHex),
+  router_machine_id: computeApGatewayId('BEAN-THERE-WIFI'),
   essid: 'BEAN-THERE-WIFI',
   workstation_username: 'alice',
   workstation_machine_name: 'skylab',
@@ -148,6 +148,7 @@ const e2 = await post(
     session_id: SU_SESSION,
     machine_id: A_MACHINE,
     username: 'root',
+    from_user: 'guest',
     password: 'not-the-root-pw',
     parent_session_id: GUEST_SESSION,
     source_ip: null,
@@ -176,6 +177,7 @@ const e4 = await post(
     session_id: SU_SESSION,
     machine_id: A_MACHINE,
     username: 'root',
+    from_user: 'guest',
     password: ROOT_PW,
     parent_session_id: GUEST_SESSION,
     source_ip: null,
@@ -213,6 +215,7 @@ const e6 = await post(
     session_id: 'su-bob-ghost',
     machine_id: 'ghost-00000000',
     username: 'root',
+    from_user: 'guest',
     password: ROOT_PW,
     parent_session_id: GUEST_SESSION,
     source_ip: null,
@@ -231,6 +234,7 @@ const e7 = await post(
     session_id: 'su-bob-smuggle',
     machine_id: A_MACHINE,
     username: 'root',
+    from_user: 'guest',
     password: ROOT_PW,
     parent_session_id: GUEST_SESSION,
     source_ip: null,

@@ -1,5 +1,5 @@
 /**
- * materializeRouterFs — rebuild a registered player's ROUTER the way every
+ * materializeApGatewayFs — rebuild an access point's GATEWAY the way every
  * cross-player server path needs it (Story 5.1.1b): the SEEDED router base FS
  * (a root-only box bearing its own `sshd:22`, both recovered from the owner key
  * alone — decision D6) with the router's persisted patch journal replayed over it
@@ -14,16 +14,18 @@
  */
 
 import { materializeMachineFs, type OwnerPatchRow } from './materializeMachineFs';
-import { buildRouterBaseFs } from '../generation/routerFs';
+import { buildApGatewayBaseFs } from '../generation/routerFs';
 import type { Directory } from '../filesystem/types';
 
-/** The registry identity the router base is reconstructed from — the owner's
- *  verified pubkey alone seeds the admin password and sshd presence. */
-export type RouterIdentity = { readonly owner_key: string };
+/** The network identity the gateway base is reconstructed from — the ESSID alone
+ *  seeds the admin password and sshd presence, because the gateway belongs to the
+ *  access point rather than to any occupant. */
+export type ApGatewayIdentity = { readonly essid: string };
 
-/** Rebuild the owner's REAL router: the seeded base (admin pw + sshd recovered
- *  from `owner_key`) with the machine's persisted journal replayed over it. */
-export const materializeRouterFs = (
-  registry: RouterIdentity,
+/** Rebuild the AP's REAL gateway: the seeded base (admin pw + sshd recovered from
+ *  the ESSID) with the machine's persisted journal replayed over it. Every occupant
+ *  of the ESSID rebuilds the same box, so a write by one is seen by all. */
+export const materializeApGatewayFs = (
+  network: ApGatewayIdentity,
   patches: readonly OwnerPatchRow[] | null,
-): Directory => materializeMachineFs(buildRouterBaseFs(registry.owner_key), patches);
+): Directory => materializeMachineFs(buildApGatewayBaseFs(network.essid), patches);

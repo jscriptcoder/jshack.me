@@ -14,9 +14,11 @@
  *     foreign IP.
  *   - `owner_key` is the verified Ed25519 pubkey, never a payload claim.
  *
- * The router is a DISTINCT machine (Story 5.1): `router_machine_id` is
- * `computeRouterId(owner_key)` — its own seeded box that bears the public IP and
- * runs its own `sshd`. NAT forwards are NOT stored here; the router's
+ * The gateway is a DISTINCT machine: `router_machine_id` is
+ * `computeApGatewayId(essid)` — the ACCESS POINT's own seeded box, which bears the
+ * public IP and runs its own `sshd`. Keyed by the ESSID rather than the joiner, so
+ * every occupant registers the SAME gateway and they all sit behind one NAT on one
+ * public address. NAT forwards are NOT stored here; the gateway's
  * `/etc/iptables/rules.v4` is the single parsed source of truth (the old
  * degenerate `forward_table` is gone).
  */
@@ -24,7 +26,7 @@
 import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { computeRouterId } from '../identity/router';
+import { computeApGatewayId } from '../identity/router';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
 /** A row in the public-IP registry: `public_ip → network/router/machines`. The
@@ -114,7 +116,7 @@ export const handleRegisterNetwork = async (
     public_ip: publicIp,
     owner_key: publicKey,
     workstation_machine_id: payload.workstation_machine_id,
-    router_machine_id: computeRouterId(publicKey),
+    router_machine_id: computeApGatewayId(payload.essid),
     essid: payload.essid,
     workstation_username: payload.workstation_username,
     workstation_machine_name: payload.workstation_machine_name,

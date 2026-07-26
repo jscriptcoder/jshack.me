@@ -8,9 +8,9 @@ import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { buildRemoteHostFs, WEAK_PASSWORDS } from '../generation/remoteHostFs';
-import { seedInnerGatewayAdminPw, seedRouterAdminPw } from '../generation/routerFs';
+import { seedInnerGatewayAdminPw, seedApGatewayAdminPw } from '../generation/routerFs';
 import { hostMachineId } from '../generation/remoteHostId';
-import { computeInnerGatewayId, computeRouterId } from '../identity/router';
+import { computeInnerGatewayId, computeApGatewayId } from '../identity/router';
 import { md5 } from '../generation/md5';
 import { asGameTime } from '../types';
 import { AUTH_LOG_PATH, formatSshdAuthLine } from '../logging/authLog';
@@ -466,7 +466,7 @@ describe('handleAuthCreateSession', () => {
 
   // The own-LAN `.1` gateway is the player's ROUTER — a journal-backed box with a
   // root-only passwd seeded by the owner key. A login there must validate against
-  // the SEEDED ADMIN PW and land on `computeRouterId`, not a regenerated sibling.
+  // the SEEDED ADMIN PW and land on `computeApGatewayId`, not a regenerated sibling.
   it('logs into the OWN ROUTER at .1 with the seeded admin pw — root session on the router id', async () => {
     const id = generateIdentity();
     const router = routerHostFor(id.publicKeyHex);
@@ -476,7 +476,7 @@ describe('handleAuthCreateSession', () => {
       basePayload({
         target_ip: router.ip,
         username: 'root',
-        password: seedRouterAdminPw(id.publicKeyHex),
+        password: seedApGatewayAdminPw(ESSID),
       }),
     );
     const { deps, insertSession } = makeDeps();
@@ -485,7 +485,7 @@ describe('handleAuthCreateSession', () => {
 
     expect(result).toEqual({ status: 200, body: { ok: true, userType: 'root' } });
     const row = insertSession.mock.calls[0]![0];
-    expect(row.machine_id).toBe(computeRouterId(id.publicKeyHex));
+    expect(row.machine_id).toBe(computeApGatewayId(ESSID));
     expect(row.credentials).toEqual({ username: 'root', userType: 'root' });
     expect(row.kind).toBe('ssh');
     expect(row.essid).toBe(ESSID);
@@ -554,7 +554,7 @@ describe('handleAuthCreateSession', () => {
     expect(result).toEqual({ status: 200, body: { ok: true, userType: 'root' } });
     const row = insertSession.mock.calls[0]![0];
     expect(row.machine_id).toBe(computeInnerGatewayId(id.publicKeyHex, octet));
-    expect(row.machine_id).not.toBe(computeRouterId(id.publicKeyHex));
+    expect(row.machine_id).not.toBe(computeApGatewayId(ESSID));
     expect(row.credentials).toEqual({ username: 'root', userType: 'root' });
   });
 
@@ -602,7 +602,7 @@ describe('handleAuthCreateSession', () => {
     expect(result).toEqual({ status: 200, body: { ok: true, userType: 'root' } });
     const row = insertSession.mock.calls[0]![0];
     expect(row.machine_id).toBe(computeInnerGatewayId(id.publicKeyHex, octet));
-    expect(row.machine_id).not.toBe(computeRouterId(id.publicKeyHex));
+    expect(row.machine_id).not.toBe(computeApGatewayId(ESSID));
     expect(row.machine_id).not.toBe(computeInnerGatewayId(id.publicKeyHex, innerOctet));
     expect(row.credentials).toEqual({ username: 'root', userType: 'root' });
   });

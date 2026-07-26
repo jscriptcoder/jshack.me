@@ -6,11 +6,11 @@ import {
 } from './authCreateSessionPublic';
 import type { AuthSessionRow } from './authCreateSession';
 import { md5 } from '../generation/md5';
-import { seedRouterAdminPw, seedRouterHostname } from '../generation/routerFs';
+import { seedApGatewayAdminPw, seedApGatewayHostname } from '../generation/routerFs';
 import { workstationGuestPassword } from '../generation/workstationFs';
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
-import { computeRouterId } from '../identity/router';
+import { computeApGatewayId } from '../identity/router';
 import { assignHomeNetwork } from '../network/homeNetwork';
 import type { OwnerPatchRow } from '../network/materializeWorkstationFs';
 import { asGameTime } from '../types';
@@ -44,12 +44,12 @@ const FIXED_NOW = Date.UTC(2026, 5, 19, 12, 0, 0);
 // B's (the attacker's) home public IP, as the registry returns it for B's owner key.
 // Server-derived; NEVER the client-supplied `source_ip`.
 const SCANNER_PUBLIC_IP = '198.51.100.22';
-// A's identity → owner_key; the router's admin password + sshd presence are seeded
-// from it alone, so the server recovers them when resolving a cross-player login.
+// A's identity → owner_key. The AP gateway's admin password + sshd presence seed
+// from the ESSID alone, so the server recovers them for any occupant's login.
 const OWNER = generateIdentity();
-const ROUTER_ID = computeRouterId(OWNER.publicKeyHex);
-const WS_ID = 'workstation-a1b2c3d4';
 const ESSID = 'BEAN-THERE-WIFI';
+const ROUTER_ID = computeApGatewayId(ESSID);
+const WS_ID = 'workstation-a1b2c3d4';
 const REGISTRY: RegistryTarget = {
   owner_key: OWNER.publicKeyHex,
   router_machine_id: ROUTER_ID,
@@ -59,7 +59,7 @@ const REGISTRY: RegistryTarget = {
   workstation_machine_name: 'nebuchadnezzar',
   workstation_root_hash: md5('toor'),
 };
-const ADMIN_PW = seedRouterAdminPw(OWNER.publicKeyHex);
+const ADMIN_PW = seedApGatewayAdminPw(ESSID);
 // A's one workstation behind the NAT: the deterministic LAN IP a `rules.v4` forward
 // must target, and the seeded weak guest password the server recovers for the login.
 const WS_LAN_IP = assignHomeNetwork(OWNER.publicKeyHex, ESSID).localIp;
@@ -565,7 +565,7 @@ describe('handleAuthCreateSessionPublic', () => {
         writer_key: REGISTRY.owner_key,
         machine_id: ROUTER_ID,
         path: AUTH_LOG_PATH,
-        content: `${expectedSshdLine(seedRouterHostname(OWNER.publicKeyHex), 'success', 'root')}\n`,
+        content: `${expectedSshdLine(seedApGatewayHostname(ESSID), 'success', 'root')}\n`,
         owner: AUTH_LOG_OWNER,
         permissions: AUTH_LOG_PERMISSIONS,
         node_type: 'file',
@@ -609,7 +609,7 @@ describe('handleAuthCreateSessionPublic', () => {
       expect(result).toEqual({ status: 401, body: { error: 'invalid_credentials' } });
       expect(insertSession).not.toHaveBeenCalled();
       expect(upsertPatch.mock.calls[0]![0].content).toBe(
-        `${expectedSshdLine(seedRouterHostname(OWNER.publicKeyHex), 'failure', 'root')}\n`,
+        `${expectedSshdLine(seedApGatewayHostname(ESSID), 'failure', 'root')}\n`,
       );
     });
 
@@ -642,7 +642,7 @@ describe('handleAuthCreateSessionPublic', () => {
 
       expect(result.status).toBe(200);
       expect(upsertPatch.mock.calls[0]![0].content).toBe(
-        `${expectedSshdLine(seedRouterHostname(OWNER.publicKeyHex), 'success', 'root', 'unknown')}\n`,
+        `${expectedSshdLine(seedApGatewayHostname(ESSID), 'success', 'root', 'unknown')}\n`,
       );
     });
 

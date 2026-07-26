@@ -28,9 +28,9 @@ import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { md5 } from '../generation/md5';
-import { seedRouterHostname } from '../generation/routerFs';
+import { seedApGatewayHostname } from '../generation/routerFs';
 import { accountIn } from './passwdAccount';
-import { materializeRouterFs } from '../network/materializeRouterFs';
+import { materializeApGatewayFs } from '../network/materializeRouterFs';
 import type { OwnerPatchRow } from '../network/materializeWorkstationFs';
 import { machineServing, type ServedMachine } from '../network/machineServing';
 import { buildWorkstationResolver } from '../scan/workstationPortResolver';
@@ -151,7 +151,7 @@ const resolveAuthTarget = async (
     return {
       fs: routerFs,
       machineId: registry.router_machine_id,
-      hostname: seedRouterHostname(registry.owner_key),
+      hostname: seedApGatewayHostname(registry.essid),
     };
   }
   if (served.kind === 'none') {
@@ -255,7 +255,7 @@ export const handleAuthCreateSessionPublic = async (
   if (patches.error) {
     return { status: 500, body: { error: 'patches_lookup_failed' } };
   }
-  const routerFs = materializeRouterFs(data, patches.data);
+  const routerFs = materializeApGatewayFs(data, patches.data);
 
   // A bricked router (a `/boot` tombstone) takes the whole public IP dark: refuse
   // before the password is checked — no credentials reach a dead box.

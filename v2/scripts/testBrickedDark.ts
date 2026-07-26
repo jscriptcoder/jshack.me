@@ -24,9 +24,9 @@ import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign';
 import { generateIdentity } from '../src/core/identity/identity';
 import { computeWorkstationId } from '../src/core/identity/workstation';
-import { computeRouterId } from '../src/core/identity/router';
+import { computeApGatewayId } from '../src/core/identity/router';
 import { md5 } from '../src/core/generation/md5';
-import { seedRouterAdminPw } from '../src/core/generation/routerFs';
+import { seedApGatewayAdminPw } from '../src/core/generation/routerFs';
 
 const NETWORK = process.env.ENDPOINT ?? 'http://localhost:3100/api/network';
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
@@ -77,13 +77,13 @@ const A_MACHINE = computeWorkstationId('skylab', alice.publicKeyHex);
 // Story 5.1.1b: the public IP now resolves to A's ROUTER (a distinct machine) for
 // scans; ssh still lands on the workstation until 5.1.2. So a bricked-box wire-check
 // must darken BOTH boxes — each keyed on its own machine id / journal.
-const A_ROUTER = computeRouterId(alice.publicKeyHex);
-const A_PUBLIC_IP = '203.0.113.66';
 const ESSID = 'BEAN-THERE-WIFI';
+const A_ROUTER = computeApGatewayId(ESSID);
+const A_PUBLIC_IP = '203.0.113.66';
 const ROOT_HASH = md5('alice-root-secret');
-// The router's admin password — server-recoverable from A's owner key alone, the
-// credential B types to log into the router over the public IP.
-const ROUTER_ADMIN_PW = seedRouterAdminPw(alice.publicKeyHex);
+// The gateway's admin password — server-recoverable from the ESSID alone, the
+// credential B types to log into the gateway over the public IP.
+const ROUTER_ADMIN_PW = seedApGatewayAdminPw(ESSID);
 
 const bootPerms = { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] };
 
