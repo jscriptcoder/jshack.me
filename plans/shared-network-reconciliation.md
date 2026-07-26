@@ -1,7 +1,7 @@
 # Plan: Shared-Network Reconciliation
 
-**Branch**: `feat/shared-network-reconciliation`
-**Status**: Active — awaiting approval, no code written
+**Branch**: one per slice, cut off `main`
+**Status**: Active — **Slice 1 ✅ MERGED (PR #326, `7c9338b`, v0.88.0). Next: Slice 2.**
 **Parent**: `plans/multiplayer-crossplayer-epic.md` item #5 (decision record; grilled & resolved 2026-07-25)
 **Follows**: item #4 (unique public-IP allocation, v0.87.0)
 **Precedes**: item #6 (procedural world expansion) — do NOT pull it in here
@@ -83,7 +83,37 @@ nothing equivalent reintroduced elsewhere.
 Walking-skeleton order: shared gateway → brick semantics → addressing → shared population →
 shared depth → registry removal. Each slice is one PR.
 
-### Slice 1: Every occupant of an ESSID sees one shared AP gateway at `.1`
+### Slice 1: Every occupant of an ESSID sees one shared AP gateway at `.1` — ✅ MERGED (PR #326, v0.88.0)
+
+**As-built.** `computeApGatewayId(essid)` in an `ap-gw:` namespace (deliberately NOT `ed25519-`
+prefixed — no keypair is involved, an access point has no owner), with the admin password,
+hostname and sshd presence reseeded to `ap-gw-admin-` / `ap-gw-host-` / `ap-gw-ssh-`.
+`computeRouterId` / `isOwnRouter` and the owner-keyed `seedRouter*` / `buildRouterBaseFs` are
+gone; `materializeRouterFs` → `materializeApGatewayFs`; the gateway arm of both
+`RegistryMachine` unions carries `essid` instead of `owner_key`, and the `api/` reverse-lookups
+select it.
+
+**The non-obvious part, for whoever reads this next:** dropping `isOwnRouter` alone would have
+failed silently. `ownLanBaseFsForMachineId` matches ANY host on the viewer's generated LAN and
+the `.1` is still on it, so each occupant would have kept rebuilding the gateway from their own
+seed and never seen another's writes. The `.1` is excluded there too — that exclusion is the
+load-bearing half of the change.
+
+**The verify-first question is answered:** a player ALREADY had to crack their own router — ssh
+always prompted and authenticated server-side against the seeded `/etc/passwd`. So this slice did
+NOT add a crack requirement. What changed is (a) the credential reseeds from the ESSID and (b) the
+access path flips from local regeneration to server-materialized, which is what makes another
+occupant's writes visible.
+
+**Evidence:** RED 3/4 (sharpest: one identical id returned for two different ESSIDs) · 1885 unit
+tests · mutation 100% on `router.ts` (9/9) and `lanHostIdentity.ts` (122 killed, 0 survived) ·
+16/16 wire-checks · UI smoke test (scan → ssh → read → nano write → shared-journal persistence,
+with the ESSID → password → served `/etc/passwd` → login chain verified end to end).
+
+**Carried forward, out of scope here:** the shell prompt shows the machine-id name part
+(`root@ap-gw`) while scans and log traces show the seeded hostname (`gw-main`) — a pre-existing
+mismatch, previously `router`. And on some ESSIDs the `.1` gateway and the switch can draw the
+same name from `ROUTER_HOSTNAMES` (distinct ids, cosmetic only).
 
 **Value**: Actor = any player on a shared AP. Two identities on one ESSID stop having private,
 conflicting `.1` machines that both claim the same public IP; an outside scanner resolves one
