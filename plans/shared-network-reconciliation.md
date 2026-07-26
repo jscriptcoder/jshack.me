@@ -1,9 +1,9 @@
 # Plan: Shared-Network Reconciliation
 
 **Branch**: one per slice, cut off `main`
-**Status**: Active — Slice 1 ✅ MERGED (PR #326, `7c9338b`, v0.88.0).
-**Slice 2 complete on `feat/gateway-brick-wan-only` (v0.89.0) — awaiting commit approval.
-Next: Slice 3.**
+**Status**: Active — Slice 1 ✅ MERGED (PR #326, `7c9338b`, v0.88.0),
+Slice 2 ✅ MERGED (PR #327, `88054bf`, v0.89.0).
+**Next: Slice 3 on `feat/lan-dhcp-lease` — acceptance criteria not yet approved, no code written.**
 **Parent**: `plans/multiplayer-crossplayer-epic.md` item #5 (decision record; grilled & resolved 2026-07-25)
 **Follows**: item #4 (unique public-IP allocation, v0.87.0)
 **Precedes**: item #6 (procedural world expansion) — do NOT pull it in here
@@ -161,7 +161,7 @@ the design.
 **Done when**: criteria met, `computeRouterId`'s per-player derivation is no longer used for
 the `.1`, wire-checks touching the router path pass, human approves the commit.
 
-### Slice 2: Bricking an AP gateway kills the WAN but leaves the LAN alive — 🔨 IN PROGRESS (v0.89.0)
+### Slice 2: Bricking an AP gateway kills the WAN but leaves the LAN alive — ✅ MERGED (PR #327, v0.89.0)
 
 **As-built.** The model we settled on: an access point is radio + switch + router in one box.
 A brick kills the ROUTER — WAN routing and the box's own management plane, on *every*
@@ -245,7 +245,12 @@ production change.
 **REFACTOR**: Assess only.
 **Done when**: criteria met, both brick wire-checks pass, human approves the commit.
 
-### Slice 3: Occupant LAN addresses come from a real DHCP lease
+### Slice 3: Occupant LAN addresses come from a real DHCP lease — SPLIT into 3a + 3b (approved 2026-07-26)
+
+Split because the `assignHomeNetwork` read sweep is 11 production call sites across 9 files
+plus 11 wire-checks — see the scope finding below. The criteria, the NPC-clause deferral and
+the preflight below are shared by both halves; 3a discharges them at the storage layer and 3b
+makes them player-visible.
 
 **Value**: Actor = any occupant. Two players on one ESSID can no longer collide on an address,
 and (with Slice 4 landing next) can no longer land on top of a world object.
@@ -260,23 +265,191 @@ same-pattern application, not a new generic mechanism).
 **Transition/terminal evidence**: `N/A`.
 **Acceptance criteria**:
 - Two identities joining one ESSID receive different host octets, always.
-- An allocated octet never collides with the gateway (`.1`), a reserved address (`.0`/`.255`),
-  or an NPC octet of that ESSID.
+- An allocated octet never collides with the gateway (`.1`) or a reserved address
+  (`.0`/`.255`).
 - A reconnecting occupant receives the **same** address it held before (permanent lease per
   `(essid, owner_key)`, no GC).
 - Concurrent first-joiners of a fresh ESSID resolve to distinct addresses.
-**RED**: Unit tests for the allocator over a fake store (collision → redraw; existing lease →
-read-back; exhaustion → clean failure), then a wire-check.
-**GREEN**: `network_lan_leases(essid, owner_key)` PK with a `UNIQUE (essid, octet)`
-constraint; lazy allocate on join with `INSERT … ON CONFLICT` win-or-read and redraw on the
-unique violation — the `allocatePublicIp` shape one level down. `assignHomeNetwork` stops
-deriving `localIp`.
-**MUTATE**: Run on the allocator. `scripts/testPublicIpAllocation.ts` is the template for the
-new `scripts/testLanLeaseAllocation.ts`.
+
+**The NPC-collision clause moved to Slice 4 (decided 2026-07-26).** It originally read "…or an
+NPC octet of that ESSID", which is not yet a definable set: `generateHomeLan` seeds its NPC
+draw off `home-lan-${seedPubkeyHex}-${essid}`, so every viewer sees a different NPC set on one
+ESSID. There is nothing here for an allocator to avoid, and no test that could prove it did.
+Slice 4 reseeds that generator off the ESSID alone, which is the first point the set exists —
+so the exclusion belongs there. Until then, an occupant landing on an NPC's octet is resolved
+where it already is: `mergeLanOccupants` drops the generated host and the occupant wins.
+
+**Scope note — `generateHomeLan`'s signature changes here, not in Slice 4.** It currently calls
+`assignHomeNetwork` to obtain `localIp` and filters that octet out of its usable pool. Once the
+address is a lease rather than a derivation, the leased octet has to be passed in. That is the
+same call-site sweep Slice 4 was scoped for, so part of Slice 4's cost migrates forward into
+this slice; grep before scoping either one.
+
+### `evaluate-existing-solutions` preflight (2026-07-26) — status: proposed
+
+**Depth**: lightweight preflight, per this slice's skill list. No external research was needed
+and none was done: the mechanism is a Postgres UNIQUE constraint, already owned, already
+proven in this repo.
+
+**Local capability found**: `core/network/allocatePublicIp.ts` over
+`supabase/migrations/20260625000000_network_public_ips.sql`. Read-first, draw, claim against a
+UNIQUE column, redraw on `23505`, bounded attempts, effects injected so `core/` stays
+framework-agnostic; the Supabase `INSERT … ON CONFLICT … DO NOTHING` lives in the `api/`
+adapter (`api/network.ts:392-432`). This is a direct structural template for the LAN lease.
+
+**Decision**: reuse the pattern, not the code. The two allocators differ in a way that matters
+— the public-IP draw is over a practically unbounded routable space where exhaustion is
+pathological, while a LAN lease draws from **253 octets** where exhaustion is reachable and the
+candidate pool must be filtered against known-taken addresses. A shared generic allocator would
+have to be parameterised over pool, exclusion set, and exhaustion semantics to serve both; that
+is more mechanism than the duplication costs. Assess extraction at REFACTOR with both
+implementations in hand, and do not force it.
+
+**Bespoke baseline considered and rejected**: an application-level "read all leases, pick a
+free one, insert" has a lost-update race between the read and the insert that only a
+transaction or a constraint closes — so the constraint is the smaller, safer mechanism, not
+merely the familiar one.
+
+**Re-evaluation trigger**: if a third allocator of this shape appears, revisit extraction.
+
+### ⚠️ Scope finding — this slice is two PRs, not one (2026-07-26, proposed)
+
+The preflight grep for `assignHomeNetwork(` shows it is not a local helper — it is the
+**address oracle for the entire same-LAN subsystem**, used to re-derive *other players'*
+addresses without a database read:
+
+- **9 production files, 11 call sites**: `core/scan/nmapScan.ts` (×2),
+  `core/sessions/authCreateSessionSameLan.ts` (×2), `core/network/resolveOccupants.ts`,
+  `core/scan/workstationPortResolver.ts`, `core/generation/generateHomeLan.ts`,
+  `adapters/networkApi.ts`, `ui/env.ts`, `ui/state.ts`, `ui/connectionPersistence.ts`.
+- **11 wire-check scripts**, plus a migration comment and `docs/cross-player-architecture.md`.
+
+Every one of those turns from a pure synchronous derivation into a lease lookup. That is the
+whole cost of the slice, and it is not one reviewable PR alongside a new table, a new
+allocator, and a new wire-check.
+
+**Note the inversion this forces.** `20260621120000_home_network_occupants.sql` deliberately
+does NOT store LAN IP, on the stated grounds that it re-derives from `(owner_key, essid)` and
+storing it "would only risk drift". Once the address is leased, that rationale reverses: the
+lease becomes the source of truth and the derivation becomes the drift. The migration comment
+and the `minimize-api-projections` note in `resolveOccupants.ts` both need rewriting, not just
+the code.
+
+**The lease cannot live on the occupancy row.** `handleUnregisterOccupant` DELETEs the
+`(essid, owner_key)` row on `nmcli disconnect`, so a lease stored there would not survive a
+disconnect — directly violating criterion 3 (a reconnecting occupant keeps its address). The
+separate `network_lan_leases` table is load-bearing for permanence, exactly as planned.
+
+**Proposed split (needs approval before code):**
+
+- **Slice 3a — the lease exists.** Migration + `allocateLanLease` + allocation on join +
+  `scripts/testLanLeaseAllocation.ts`. Nothing reads the lease yet; addresses still come from
+  the derivation, so player-visible behavior is unchanged. Horizontal, but independently
+  verifiable at the wire and it unblocks 3b — the `planning` exception applies. Discharges
+  criteria 1–4 at the storage layer.
+- **Slice 3b — the lease is the address.** The 11-site read sweep plus the client join
+  response, `generateHomeLan`'s signature, and the doc/migration-comment corrections. This is
+  where the address a player actually sees becomes the leased one.
+
+**Seeding proposal for 3a, to keep 3b boring:** have the first draw for an
+`(essid, owner_key)` return today's `assignHomeNetwork(owner_key, essid)` octet, and only
+redraw on collision. Every currently-connected occupant then leases the address it already
+has, so 3b changes no address except the genuinely-colliding ones — which is the entire point
+of the slice. Without this, 3b silently relocates every existing player.
+#### Slice 3a: The lease exists — ✅ COMPLETE on `feat/lan-dhcp-lease` (v0.90.0), awaiting commit approval
+
+**As-built.** `network_lan_leases(essid, owner_key)` PK with `UNIQUE (essid, octet)` and a
+`CHECK (octet BETWEEN 2 AND 254)`. `allocateLanLease` in `core/` is read-first → offer the
+preferred octet → claim → redraw → bounded exhaustion, with the store effects injected; the
+`INSERT … ON CONFLICT (essid, owner_key) DO NOTHING` and the `23505` → redraw mapping live in
+the `api/` adapter, mirroring `allocatePublicIp` exactly. `handleRegisterNetwork` gained an
+`allocateLanLease` dep and calls it before either write, so a failure is a clean
+`lease_allocation_failed` 500 rather than a join that registers a player on a network they hold
+no address on.
+
+**The preferred octet is today's derived one**, composed in the adapter
+(`derivedOctetFor`), so every already-connected occupant leased the address it was already
+using. Only genuine collisions redrew. That adapter helper is explicitly transitional and dies
+with the derivation in 3b.
+
+**Evidence:** RED 8/8 on the allocator against a throwing stub, then RED 3/3 on the handler —
+the sharpest being that a lease-allocation failure returned `200`, i.e. the join succeeded
+while the player held no address · 1902 unit tests (was 1891; +11, none broken) · mutation
+**100% on both changed files**, `allocateLanLease.ts` 18/18 and `registerNetwork.ts` 50/50,
+zero survivors · 24/25 wire-checks green including the new `testLanLeaseAllocation.ts` at
+10/10.
+
+**The check that mattered:** `testLanLeaseAllocation.ts` searches for two identities whose pure
+derivations collide on one ESSID, then joins them CONCURRENTLY. Both derived `.51`; they came
+out on `.51` and `.95`. That is the defect this slice exists to close, proven at the wire under
+a real race — which is exactly what no unit test over a fake store can establish, and what
+`testPublicIpAllocation.ts` never did for its own allocator.
+
+**REFACTOR assessed and declined.** With both allocators in hand, a shared abstraction would
+need to be parameterised over key arity (`essid` vs `essid + owner_key`), value type (string vs
+number), and whether a caller-supplied first candidate precedes the draw — three parameters to
+share roughly eight lines of loop. The preflight predicted this; it holds. Revisit only if a
+third allocator of this shape appears.
+
+**Pre-existing failure, NOT from this slice:** `testUpsertPatch` remains 10/12, unchanged and
+still untriaged (see Slice 2).
+
+**Class**: Behavior change (server-side; no player-visible address changes yet).
+**Value**: The `(essid, octet)` uniqueness the whole slice rests on becomes a database
+invariant rather than a hope about hash distribution. Nothing reads the lease yet, so this is
+horizontal — it qualifies under the `planning` exception because it is independently verifiable
+at the wire and it is the only thing blocking 3b.
+**Path**: `nmcli` join → `registerNetwork` → `allocateLanLease` → a row in
+`network_lan_leases`. Observable via the new wire-check and by inspecting the table.
+**RED**: Unit tests for `allocateLanLease` over a fake store — existing lease → read-back with
+no claim attempted; fresh → the preferred octet is claimed; preferred taken by another occupant
+→ redraw; a concurrent self-write winning the `(essid, owner_key)` race → adopt its octet;
+exhaustion → clean failure. Plus a range test proving a redraw never yields `.0`/`.1`/`.255`.
+**GREEN**: `network_lan_leases(essid, owner_key)` PK with `UNIQUE (essid, octet)`; lazy
+allocation on join via `INSERT … ON CONFLICT (essid, owner_key) DO NOTHING`, adopting on no-row
+and redrawing on `23505` — the `allocatePublicIp` shape one level down.
+**Seeding (approved 2026-07-26)**: the FIRST candidate for an `(essid, owner_key)` is that
+identity's current `assignHomeNetwork(owner_key, essid)` octet; only a collision redraws. Every
+already-connected occupant therefore leases the address it already holds, so 3b relocates
+nobody except genuinely-colliding players. Without this, 3b would silently move every existing
+player and break saved connections and the hardcoded expectations in 11 wire-checks at once.
+**MUTATE**: Run on `allocateLanLease`. `scripts/testPublicIpAllocation.ts` is the template for
+`scripts/testLanLeaseAllocation.ts` — but note it does NOT race concurrent joins (its checks
+4a/4b drive the claim primitive sequentially), so criterion 4 needs a genuinely concurrent
+wire-check that nothing in the repo has today.
 **KILL MUTANTS**: Address survivors in the redraw/exhaustion branches.
-**REFACTOR**: Assess whether the two allocators share a seam worth extracting — only if it
-adds value; do not force a generic allocator abstraction.
-**Done when**: criteria met, new wire-check passes, human approves the commit.
+**REFACTOR**: Assess whether the two allocators share a seam worth extracting — the preflight
+predicts NOT (differing pool bounds and exhaustion semantics); confirm with both in hand.
+**Done when**: criteria 1–4 hold at the storage layer, `testLanLeaseAllocation.ts` passes
+including a concurrent-join check, no player-visible address changes, human approves.
+
+#### Slice 3b: The lease is the address
+
+**Class**: Behavior change.
+**Value**: Actor = any occupant. The address a player is issued, and the address every other
+player reaches them on, becomes the leased one.
+**Path**: the 11 `assignHomeNetwork` read sites resolve through the lease instead of deriving.
+**Scope (grep before starting — this list is from 2026-07-26)**: `core/scan/nmapScan.ts` (×2),
+`core/sessions/authCreateSessionSameLan.ts` (×2), `core/network/resolveOccupants.ts`,
+`core/scan/workstationPortResolver.ts`, `core/generation/generateHomeLan.ts`,
+`adapters/networkApi.ts`, `ui/env.ts`, `ui/state.ts`, `ui/connectionPersistence.ts`; plus 11
+wire-check scripts.
+**Shape**: each server handler already issues an occupancy query; add ONE
+`SELECT owner_key, octet FROM network_lan_leases WHERE essid = $1` per request and resolve
+addresses from that map, rather than N per-occupant derivations. The client receives its own
+leased address in the `registerNetwork` response instead of deriving it locally.
+**Doc corrections owed by this slice**: `20260621120000_home_network_occupants.sql` and the
+`minimize-api-projections` note in `resolveOccupants.ts` both justify NOT storing the LAN IP on
+the grounds that it re-derives from `(owner_key, essid)` and storing it "would only risk
+drift". Once the address is leased that rationale inverts — the lease is the truth and the
+derivation is the drift. Rewrite both, and `docs/cross-player-architecture.md:104`.
+**RED**: A behavior test that two occupants whose derived octets COLLIDE resolve to different
+addresses end to end, and that each reaches the other on its leased address.
+**GREEN**: The sweep. `assignHomeNetwork` stops deriving `localIp`.
+**MUTATE**: Run on the changed handlers.
+**REFACTOR**: Assess whether `assignHomeNetwork` still earns its existence once `localIp` is
+gone from it (it would retain only the hostname draw).
+**Done when**: criteria 1–4 hold end to end, every same-LAN wire-check passes, human approves.
 
 ### Slice 4: Every occupant of an ESSID sees the same LAN population
 
@@ -295,6 +468,13 @@ behavior change, not a reduction program — it is removed because its cause is 
 - Every occupant appears in every other occupant's LAN scan — no occupant is dropped by an
   octet-reservation rule.
 - The viewer's own host still appears correctly and is not displaced.
+- **An allocated LAN lease never collides with an NPC octet of that ESSID** (deferred here
+  from Slice 3, decided 2026-07-26 — see that slice for why it was undefinable earlier). The
+  ESSID-seeded NPC set feeds the Slice 3 allocator as an exclusion set. This matters MORE
+  after this slice than before it: while the population was per-viewer, an occupant landing on
+  an NPC's octet only hid that NPC from one player, but once the population is shared, one
+  player joining removes that NPC — and orphans any journal already written to it — for every
+  occupant of the AP.
 **RED**: A behavior test asserting two distinct owner keys on one ESSID generate identical
 host lists; and a test asserting an occupant previously hidden by the reservation rule is now
 visible.

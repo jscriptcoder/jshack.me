@@ -34,6 +34,10 @@ const ROOT_HASH = 'd41d8cd98f00b204e9800998ecf8427e';
 // The IP the stub allocator issues for the ESSID — opaque to the handler, which
 // only stamps it into the registry row (the real allocation is wire-checked).
 const ALLOCATED_IP = '203.0.113.7';
+// The host octet the stub lease allocator issues. Opaque to the handler in the same
+// way the public IP is: the join's job is to make the allocation happen, and the
+// real uniqueness guarantee is a database constraint, so it is wire-checked.
+const LEASED_OCTET = 84;
 
 const makeDeps = (over: Partial<RegisterNetworkDeps> = {}) => {
   const upsertRegistry = vi.fn<(row: NetworkRegistryRow) => Promise<{ error: unknown }>>(
@@ -43,14 +47,18 @@ const makeDeps = (over: Partial<RegisterNetworkDeps> = {}) => {
     async () => ({ error: null }),
   );
   const allocatePublicIp = vi.fn<(essid: string) => Promise<string>>(async () => ALLOCATED_IP);
+  const allocateLanLease = vi.fn<(essid: string, ownerKey: string) => Promise<number>>(
+    async () => LEASED_OCTET,
+  );
   const deps: RegisterNetworkDeps = {
     nonceStore: freshStore,
     allocatePublicIp,
+    allocateLanLease,
     upsertRegistry,
     upsertOccupant,
     ...over,
   };
-  return { deps, upsertRegistry, upsertOccupant, allocatePublicIp };
+  return { deps, upsertRegistry, upsertOccupant, allocatePublicIp, allocateLanLease };
 };
 
 const envelope = (id: ReturnType<typeof generateIdentity>, over: Record<string, unknown> = {}) =>
@@ -283,6 +291,54 @@ describe('handleRegisterNetwork', () => {
 
     await handleRegisterNetwork(envelope(id), deps);
 
+    expect(upsertOccupant).not.toHaveBeenCalled();
+  });
+
+  it('leases a LAN address for the occupant, keyed by the VERIFIED pubkey', async () => {
+    const id = generateIdentity();
+    const { deps, allocateLanLease } = makeDeps();
+
+    const result = await handleRegisterNetwork(envelope(id), deps);
+
+    // The lease is what stops two occupants of one ESSID colliding on an address.
+    // Keyed by the verified pubkey, so a caller cannot lease an address for anyone
+    // else — the same posture as the owner-stamped registry row.
+    expect(result.status).toBe(200);
+    expect(allocateLanLease).toHaveBeenCalledTimes(1);
+    expect(allocateLanLease).toHaveBeenCalledWith(ESSID, id.publicKeyHex);
+  });
+
+  it('leases per occupant, not per ESSID — two identities on one AP lease separately', async () => {
+    const alice = generateIdentity();
+    const bob = generateIdentity();
+    const { deps: aliceDeps, allocateLanLease: aliceLease } = makeDeps();
+    const { deps: bobDeps, allocateLanLease: bobLease } = makeDeps();
+
+    await handleRegisterNetwork(envelope(alice), aliceDeps);
+    await handleRegisterNetwork(envelope(bob), bobDeps);
+
+    // This is the axis on which a LAN lease differs from the AP's public IP: the
+    // public IP is one address SHARED by the whole ESSID, while each occupant holds
+    // its own host octet. Both requests name the same ESSID and different owners.
+    expect(aliceLease).toHaveBeenCalledWith(ESSID, alice.publicKeyHex);
+    expect(bobLease).toHaveBeenCalledWith(ESSID, bob.publicKeyHex);
+  });
+
+  it('reports a server error when LAN lease allocation fails, without writing', async () => {
+    const id = generateIdentity();
+    const { deps, upsertRegistry, upsertOccupant } = makeDeps({
+      allocateLanLease: vi.fn(async () => {
+        throw new Error('lan lease allocation exhausted');
+      }),
+    });
+
+    const result = await handleRegisterNetwork(envelope(id), deps);
+
+    // A full subnet (or a store failure) is a clean 500, never a partial join that
+    // registers the player on a network they hold no address on. Distinct from
+    // `allocation_failed` so the two allocators are separable in a log.
+    expect(result).toEqual({ status: 500, body: { error: 'lease_allocation_failed' } });
+    expect(upsertRegistry).not.toHaveBeenCalled();
     expect(upsertOccupant).not.toHaveBeenCalled();
   });
 });
