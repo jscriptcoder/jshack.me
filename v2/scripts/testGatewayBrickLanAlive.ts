@@ -30,7 +30,7 @@ import { signRequest } from '../src/core/signedRequest/sign';
 import { generateIdentity } from '../src/core/identity/identity';
 import { computeWorkstationId } from '../src/core/identity/workstation';
 import { computeApGatewayId } from '../src/core/identity/router';
-import { assignHomeNetwork } from '../src/core/network/homeNetwork';
+import { lanAddressFor } from '../src/core/network/lanAddress';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan';
 import { formatPidfileContent } from '../src/core/services/pidfile';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
@@ -88,8 +88,20 @@ const B_WS_NAME = 'nebuchadnezzar';
 const C_WS_NAME = 'discovery';
 const A_WS = computeWorkstationId(A_WS_NAME, alice.publicKeyHex);
 const GATEWAY = computeApGatewayId(ESSID);
-const A_LAN = assignHomeNetwork(alice.publicKeyHex, ESSID).localIp;
-const B_LAN = assignHomeNetwork(bob.publicKeyHex, ESSID).localIp;
+/** The address the server ISSUED this occupant on join — read back from the lease it
+ *  allocated, never re-derived. The lease is the address of record; deriving one here
+ *  would be asserting against a second source of truth. */
+const leasedAddress = async (owner: ReturnType<typeof generateIdentity>): Promise<string> => {
+  const { data } = await sr
+    .from('network_lan_leases')
+    .select('octet')
+    .eq('essid', ESSID)
+    .eq('owner_key', owner.publicKeyHex)
+    .maybeSingle();
+  const octet = (data as { octet: number } | null)?.octet;
+  if (octet === undefined) throw new Error(`no lan lease for ${owner.publicKeyHex.slice(0, 8)}`);
+  return lanAddressFor(ESSID, octet);
+};
 const A_GUEST_PW = workstationGuestPassword(alice.publicKeyHex);
 const ADMIN_PW = seedApGatewayAdminPw(ESSID);
 const VMLINUZ = '/boot/vmlinuz';
@@ -112,6 +124,7 @@ const join = (owner: ReturnType<typeof generateIdentity>, wsName: string) =>
 // Clean slate for this ESSID.
 await sr.from('network_public_ips').delete().eq('essid', ESSID);
 await sr.from('home_network_occupants').delete().eq('essid', ESSID);
+await sr.from('network_lan_leases').delete().eq('essid', ESSID);
 await sr.from('network_registry').delete().eq('essid', ESSID);
 await sr.from('patches').delete().eq('machine_id', GATEWAY);
 await sr.from('patches').delete().eq('machine_id', A_WS);
@@ -123,6 +136,9 @@ for (const id of [alice, bob, carol, dave]) {
 // public IP, two occupancy rows.
 await post(NETWORK, join(alice, A_WS_NAME));
 await post(NETWORK, join(bob, B_WS_NAME));
+
+const A_LAN = await leasedAddress(alice);
+const B_LAN = await leasedAddress(bob);
 
 const allocated = await sr
   .from('network_public_ips')
@@ -301,6 +317,7 @@ check(
 // Cleanup.
 await sr.from('network_public_ips').delete().eq('essid', ESSID);
 await sr.from('home_network_occupants').delete().eq('essid', ESSID);
+await sr.from('network_lan_leases').delete().eq('essid', ESSID);
 await sr.from('network_registry').delete().eq('essid', ESSID);
 await sr.from('patches').delete().eq('machine_id', GATEWAY);
 await sr.from('patches').delete().eq('machine_id', A_WS);

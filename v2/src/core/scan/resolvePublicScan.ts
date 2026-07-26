@@ -31,6 +31,7 @@ import { canBoot } from '../boot/bootFiles';
 import { parseForwardRules, readRulesV4 } from '../network/iptablesRules';
 import { scanResult } from './scanResult';
 import { buildWorkstationPortResolver } from './workstationPortResolver';
+import { leasedAddress } from '../network/lanAddress';
 import { seedApGatewayHostname } from '../generation/routerFs';
 import {
   formatNmapScanAggregate,
@@ -90,6 +91,14 @@ export type ResolvePublicScanDeps = {
    *  key — the truthful source IP of the scan, server-derived so a client cannot
    *  forge it or frame another network. `null` (no home network) → source unknown. */
   readonly findRegistryByOwnerKey: FindRegistryByOwnerKey;
+  /** The LAN octet the TARGET owner leases on its own ESSID — the address the one host
+   *  behind its NAT answers to. `null` data means no lease, so every forward reaches
+   *  nothing; the same read the same-LAN path resolves addresses from, so a forward and
+   *  a same-LAN scan can never disagree on where that box is. */
+  readonly readLease: (
+    essid: string,
+    ownerKey: string,
+  ) => Promise<{ readonly data: number | null; readonly error: unknown }>;
 };
 
 export type HandlerResponse = {
@@ -127,7 +136,15 @@ const resolveForwardTargets = async (
     machine_id: registry.workstation_machine_id,
   });
   if (workstationPatches.error) return null;
-  return buildWorkstationPortResolver({ registry, workstationPatches: workstationPatches.data });
+  // Where that box answers is its LEASE, not a re-derivation — so a forward is live
+  // only when it names the address the same-LAN path would reach the box at.
+  const lease = await deps.readLease(registry.essid, registry.owner_key);
+  if (lease.error) return null;
+  return buildWorkstationPortResolver({
+    registry,
+    workstationPatches: workstationPatches.data,
+    lanIp: leasedAddress(registry.essid, lease.data),
+  });
 };
 
 /** Stamp the scan onto the TARGET router's `/var/log/kern.log` via the shared

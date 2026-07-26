@@ -5,6 +5,7 @@ import { handleListPatches, type ListPatchesQuery } from '../src/core/patches/li
 import { handleRemovePatch, type PatchTreeQuery } from '../src/core/patches/removePatch';
 import { handleAppendAuthLog, type AuthLogContentQuery } from '../src/core/patches/appendAuthLog';
 import { handleNmapScan, type ScanOccupant } from '../src/core/scan/nmapScan';
+import type { LanLeaseRow } from '../src/core/network/lanAddress';
 import { handleNmapScanDeep } from '../src/core/scan/nmapScanDeep';
 import type { OwnerPatchRow } from '../src/core/network/materializeWorkstationFs';
 import type { MachineLogReadQuery } from '../src/core/patches/appendMachineLog';
@@ -322,12 +323,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (error) console.error('[patches] scan occupant journal lookup error:', error);
       return { data: data as readonly OwnerPatchRow[] | null, error };
     };
+    // Every lease on the ESSID in ONE read: which occupants the scanned range covers,
+    // and the source address the traces carry.
+    const listLeasesByEssid = async (essid: string) => {
+      const { data, error } = await supabase
+        .from('network_lan_leases')
+        .select('owner_key, octet')
+        .eq('essid', essid);
+      if (error) console.error('[patches] scan lan-lease list error:', error);
+      return { data: data as readonly LanLeaseRow[] | null, error };
+    };
     const { status, body } = await handleNmapScan(req.body, {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
       readLog,
       upsertPatch,
       listOccupantsByEssid,
+      listLeasesByEssid,
       findPatches,
     });
     res.status(status).json(body);

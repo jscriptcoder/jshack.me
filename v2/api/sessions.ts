@@ -13,6 +13,7 @@ import {
   handleAuthCreateSessionSameLan,
   type OccupantConnectRow,
 } from '../src/core/sessions/authCreateSessionSameLan';
+import type { LanLeaseRow } from '../src/core/network/lanAddress';
 import { handleAuthCreateSessionInnerGateway } from '../src/core/sessions/authCreateSessionInnerGateway';
 import type { OwnerPatchRow } from '../src/core/network/materializeWorkstationFs';
 import {
@@ -244,6 +245,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (error) console.error('[sessions] public auth source-ip lookup error:', error);
       return { data: data as { public_ip: string } | null, error };
     };
+    // Where the ONE host behind the target's NAT answers: its owner's lease on its own
+    // ESSID, so the public gate and the same-LAN path resolve that box to one address.
+    const readLease = async (essid: string, ownerKey: string) => {
+      const { data, error } = await supabase
+        .from('network_lan_leases')
+        .select('octet')
+        .eq('essid', essid)
+        .eq('owner_key', ownerKey)
+        .maybeSingle();
+      if (error) console.error('[sessions] public auth lan-lease read error:', error);
+      return { data: (data as { octet: number } | null)?.octet ?? null, error };
+    };
     const { status, body } = await handleAuthCreateSessionPublic(req.body, {
       nonceStore: noopNonceStore,
       findRegistryByPublicIp,
@@ -253,6 +266,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       readAuthLog,
       upsertPatch: upsertPatchPublic,
       findRegistryByOwnerKey,
+      readLease,
     });
     res.status(status).json(body);
     return;
@@ -316,9 +330,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (error) console.error('[sessions] same-lan auth-log upsert error:', error);
       return { error };
     };
+    // Every lease on the ESSID in ONE read: the address the target answers to, and the
+    // source address the caller's trace carries.
+    const listLeasesByEssid = async (essid: string) => {
+      const { data, error } = await supabase
+        .from('network_lan_leases')
+        .select('owner_key, octet')
+        .eq('essid', essid);
+      if (error) console.error('[sessions] same-lan lan-lease list error:', error);
+      return { data: data as readonly LanLeaseRow[] | null, error };
+    };
     const { status, body } = await handleAuthCreateSessionSameLan(req.body, {
       nonceStore: noopNonceStore,
       listOccupantsByEssid,
+      listLeasesByEssid,
       findPatches,
       insertSession,
       now: () => Date.now(),

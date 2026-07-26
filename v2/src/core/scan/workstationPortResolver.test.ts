@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildWorkstationPortResolver } from './workstationPortResolver';
 import { generateIdentity } from '../identity/identity';
-import { assignHomeNetwork } from '../network/homeNetwork';
 import { md5 } from '../generation/md5';
 import type { OwnerPatchRow } from '../network/materializeWorkstationFs';
 
@@ -9,8 +8,8 @@ import type { OwnerPatchRow } from '../network/materializeWorkstationFs';
  * `buildWorkstationPortResolver` is the server-side `resolveTargetPorts` that the
  * single `scanResult` total function consumes (Story 5.1.3b). It answers, for a NAT
  * forward's `internalIp`, "what ports is the host behind that forward serving?" —
- * resolving the one workstation behind a player's router by its deterministic LAN
- * IP, materializing it from base + journal, and reading its open ports. A forward is
+ * resolving the one workstation behind a player's router by the LAN address that
+ * player LEASES, materializing it from base + journal, and reading its open ports. A forward is
  * only surfaced on the public IP while its target is actually up, so this resolver is
  * the liveness gate: a fresh workstation has an empty `/var/run`, so it advertises
  * nothing until its `sshd` pidfile is planted on the journal.
@@ -31,9 +30,10 @@ const baseRegistry = () => ({
   workstation_root_hash: md5('toor'),
 });
 
-/** A's workstation LAN IP — the deterministic address a forward must target to
- *  reach it (the same value A's `nano` edit writes into `rules.v4`). */
-const wsLanIp = assignHomeNetwork(OWNER.publicKeyHex, ESSID).localIp;
+/** A's workstation LAN IP — the LEASED address a forward must target to reach it (the
+ *  same value A's `nano` edit writes into `rules.v4`). The handler reads it from the
+ *  lease and passes it in; here it stands for whatever that read returned. */
+const wsLanIp = '192.168.29.84';
 
 /** A journal row that plants the workstation's running-sshd pidfile (A started the
  *  daemon) — `/var/run/sshd.pid` = `sshd:port=22`, the byte-shape every reader parses. */
@@ -65,13 +65,18 @@ describe('buildWorkstationPortResolver', () => {
     const resolve = buildWorkstationPortResolver({
       registry: registry(),
       workstationPatches: [sshdUp],
+      lanIp: wsLanIp,
     });
 
     expect(resolve(wsLanIp)).toEqual([{ port: 22, service: 'ssh' }]);
   });
 
   it('returns nothing for the LAN IP when the workstation sshd is down (empty journal)', () => {
-    const resolve = buildWorkstationPortResolver({ registry: registry(), workstationPatches: [] });
+    const resolve = buildWorkstationPortResolver({
+      registry: registry(),
+      workstationPatches: [],
+      lanIp: wsLanIp,
+    });
 
     expect(resolve(wsLanIp)).toEqual([]);
   });
@@ -80,6 +85,7 @@ describe('buildWorkstationPortResolver', () => {
     const resolve = buildWorkstationPortResolver({
       registry: registry(),
       workstationPatches: [sshdUp, bootTombstone],
+      lanIp: wsLanIp,
     });
 
     // A bricked box (a /boot tombstone) can't come up, so its forward goes dark — the
@@ -91,6 +97,7 @@ describe('buildWorkstationPortResolver', () => {
     const resolve = buildWorkstationPortResolver({
       registry: registry(),
       workstationPatches: [sshdUp],
+      lanIp: wsLanIp,
     });
 
     expect(resolve('192.168.0.254')).toEqual([]);
@@ -100,6 +107,7 @@ describe('buildWorkstationPortResolver', () => {
     const resolve = buildWorkstationPortResolver({
       registry: registry(),
       workstationPatches: null,
+      lanIp: wsLanIp,
     });
 
     expect(resolve(wsLanIp)).toEqual([]);

@@ -11,22 +11,25 @@
  * verified pubkey, never a client claim) — a non-occupant is refused before any list
  * crosses the wire, blocking global occupant enumeration / cross-LAN framing.
  *
- * The caller is always excluded from its own result. Each occupant's LAN IP is
- * RE-DERIVED from `assignHomeNetwork(owner_key, essid)` rather than stored
- * (`minimize-api-projections`): the address is a pure function of the identity + AP,
- * so persisting it would only risk drift. Forgery-safe via the broadcast-hint +
- * signed-refetch lineage (`project_realtime_publish_authorization`).
+ * The caller is always excluded from its own result. Each occupant's LAN IP comes from
+ * the LEASE that occupant holds on the ESSID, read once per request. This used to be
+ * re-derived from `assignHomeNetwork(owner_key, essid)` on the argument that an address
+ * which is a pure function of identity + AP is cheaper to recompute than to store — but
+ * a pure function of the identity cannot know what OTHER identities were issued, so two
+ * occupants could be handed one address. The lease is now the address of record, and
+ * re-deriving would be the drift. Forgery-safe via the broadcast-hint + signed-refetch
+ * lineage (`project_realtime_publish_authorization`).
  */
 
 import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { assignHomeNetwork } from './homeNetwork';
+import { lanAddressesByOwner, type LanLeaseRow } from './lanAddress';
 import type { Ipv4 } from './interfaces';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
 /** The narrow occupancy projection the gate + merge need: whose row it is (for the
- *  LAN-boundary check + self-exclusion + LAN-IP re-derivation), the workstation the
+ *  LAN-boundary check + self-exclusion + lease lookup), the workstation the
  *  caller will later reach, and its display name (the HOSTNAME column of a fellow
  *  occupant's `nmap`). The auth field (`workstation_root_hash`) is NOT read here —
  *  only the same-LAN connect handler needs it. */
@@ -50,6 +53,10 @@ export type ResolveOccupantsDeps = {
   readonly listOccupantsByEssid: (
     essid: string,
   ) => Promise<{ readonly data: readonly OccupantListRow[] | null; readonly error: unknown }>;
+  /** Every lease held on this ESSID, in ONE read — the addresses of record. */
+  readonly listLeasesByEssid: (
+    essid: string,
+  ) => Promise<{ readonly data: readonly LanLeaseRow[] | null; readonly error: unknown }>;
 };
 
 export type HandlerResponse = {
@@ -90,13 +97,33 @@ export const handleResolveOccupants = async (
     return { status: 403, body: { error: 'not_an_occupant' } };
   }
 
+  // ONE lease read for the whole ESSID, behind the LAN boundary so no address reaches
+  // a non-occupant. A failure is a clean 500: an address that cannot be looked up is
+  // never guessed at, which is exactly what the derivation used to do.
+  const leases = await deps.listLeasesByEssid(payload.essid);
+  if (leases.error) {
+    return { status: 500, body: { error: 'leases_lookup_failed' } };
+  }
+  const addresses = lanAddressesByOwner(payload.essid, leases.data ?? []);
+
+  // An occupant holding no lease holds no address on this LAN, so there is nothing to
+  // route to and it is omitted. The join allocates the lease BEFORE writing the
+  // occupancy row, so this is unreachable in practice — it is the shape of "no address"
+  // rather than a fallback.
   const others: readonly OccupantProjection[] = rows
     .filter((row) => row.owner_key !== publicKey)
-    .map((row) => ({
-      workstation_machine_id: row.workstation_machine_id,
-      localIp: assignHomeNetwork(row.owner_key, payload.essid).localIp,
-      machineName: row.workstation_machine_name,
-    }));
+    .flatMap((row) => {
+      const localIp = addresses.get(row.owner_key);
+      return localIp === undefined
+        ? []
+        : [
+            {
+              workstation_machine_id: row.workstation_machine_id,
+              localIp,
+              machineName: row.workstation_machine_name,
+            },
+          ];
+    });
 
   return { status: 200, body: { ok: true, occupants: others } };
 };

@@ -34,6 +34,7 @@ import { materializeApGatewayFs } from '../network/materializeRouterFs';
 import type { OwnerPatchRow } from '../network/materializeWorkstationFs';
 import { machineServing, type ServedMachine } from '../network/machineServing';
 import { buildWorkstationResolver } from '../scan/workstationPortResolver';
+import { leasedAddress } from '../network/lanAddress';
 import { readOpenPorts } from '../services/pidfile';
 import { canBoot } from '../boot/bootFiles';
 import {
@@ -101,6 +102,14 @@ export type AuthCreateSessionPublicDeps = {
    *  key — the truthful source IP of the login, server-derived so a client cannot
    *  forge it or frame another network. `null` (no home network) → source unknown. */
   readonly findRegistryByOwnerKey: FindRegistryByOwnerKey;
+  /** The LAN octet the TARGET owner leases on its own ESSID — the address the one
+   *  host behind its NAT answers to. `null` data means no lease, so the forward
+   *  reaches nothing; the same read the same-LAN path resolves addresses from, so the
+   *  two gates can never disagree on where that box is. */
+  readonly readLease: (
+    essid: string,
+    ownerKey: string,
+  ) => Promise<{ readonly data: number | null; readonly error: unknown }>;
 };
 
 // The destination ssh port when the client sends none — a bare `ssh user@host` is
@@ -164,9 +173,14 @@ const resolveAuthTarget = async (
   if (workstationPatches.error) {
     return { status: 500, body: { error: 'patches_lookup_failed' } };
   }
+  const lease = await deps.readLease(registry.essid, registry.owner_key);
+  if (lease.error) {
+    return { status: 500, body: { error: 'lease_lookup_failed' } };
+  }
   const workstationFs = buildWorkstationResolver({
     registry,
     workstationPatches: workstationPatches.data,
+    lanIp: leasedAddress(registry.essid, lease.data),
   })(served.internalIp);
   // The forward points at no host (a stray internal IP), or its internal service
   // isn't listening (the workstation never started that daemon): a dark DNAT target.

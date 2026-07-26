@@ -10,6 +10,7 @@ import { workstationGuestPassword } from '../generation/workstationFs';
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
 import { assignHomeNetwork } from '../network/homeNetwork';
+import type { LanLeaseRow } from '../network/lanAddress';
 import type { OwnerPatchRow } from '../network/materializeWorkstationFs';
 import { formatSshdAuthLine, AUTH_LOG_PERMISSIONS } from '../logging/authLog';
 import { derivePid } from '../logging/syslog';
@@ -44,10 +45,31 @@ const A_ROOT_HASH = md5('toor');
 // A fixed server clock so the stamped auth.log line is deterministic in assertions.
 const FIXED_NOW = 1_750_000_000_000;
 
-// Both occupants' LAN IPs are pure functions of (owner_key, essid) — the same
-// derivation the server re-runs to match a target IP to its occupant.
+// The addresses the pure derivation OFFERS each occupant. The lease is seeded from it,
+// so where nothing collided these are also the leased addresses — the default fixtures
+// below lease exactly these, which is why an uncollided occupant is never relocated.
 const A_LAN_IP = assignHomeNetwork(ALICE.publicKeyHex, ESSID).localIp;
 const B_LAN_IP = assignHomeNetwork(BOB.publicKeyHex, ESSID).localIp;
+
+const SUBNET = A_LAN_IP.split('.').slice(0, 3).join('.');
+const octetOf = (ip: string): number => Number(ip.split('.')[3]);
+const addressAt = (octet: number): string => `${SUBNET}.${octet}`;
+
+/** Leases as the allocator seeds them: the octet the derivation offered. */
+const derivedLeases = (rows: readonly OccupantConnectRow[]): readonly LanLeaseRow[] =>
+  rows.map((row) => ({
+    owner_key: row.owner_key,
+    octet: octetOf(assignHomeNetwork(row.owner_key, ESSID).localIp),
+  }));
+
+/** Two octets neither occupant's derivation offered — what a REDRAW lands on when the
+ *  offered octet is already held by another occupant of the ESSID. Chosen against the
+ *  live derivations so the "leased ≠ derived" contrast can't collapse by coincidence. */
+const REDRAWN_OCTETS = [2, 3, 4, 5].filter(
+  (octet) => octet !== octetOf(A_LAN_IP) && octet !== octetOf(B_LAN_IP),
+);
+const A_REDRAWN_OCTET = REDRAWN_OCTETS[0]!;
+const B_REDRAWN_OCTET = REDRAWN_OCTETS[1]!;
 // A representative home/WAN public IP that must NEVER surface in a same-LAN trace: a LAN
 // connect is sourced from the occupant's LAN IP, never any public address (the real public
 // IP is server-allocated, not client-derivable).
@@ -96,6 +118,7 @@ const bootTombstone: OwnerPatchRow = {
 };
 
 type OccupantsResult = { data: readonly OccupantConnectRow[] | null; error: unknown };
+type LeasesResult = { data: readonly LanLeaseRow[] | null; error: unknown };
 type PatchesResult = { data: readonly OwnerPatchRow[] | null; error: unknown };
 
 const makeDeps = (
@@ -110,8 +133,13 @@ const makeDeps = (
     error: null,
   }),
   upsert: (row: PatchRow) => Promise<{ error: unknown }> = async () => ({ error: null }),
+  leases: () => Promise<LeasesResult> = async () => ({
+    data: derivedLeases(OCCUPANTS),
+    error: null,
+  }),
 ) => {
   const listOccupantsByEssid = vi.fn<(essid: string) => Promise<OccupantsResult>>(occupants);
+  const listLeasesByEssid = vi.fn<(essid: string) => Promise<LeasesResult>>(leases);
   const findPatches = vi.fn<(query: { machine_id: string }) => Promise<PatchesResult>>(patches);
   const insertSession = vi.fn<(row: AuthSessionRow) => Promise<{ error: unknown }>>(insert);
   const readAuthLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(readLog);
@@ -119,13 +147,22 @@ const makeDeps = (
   const deps: AuthCreateSessionSameLanDeps = {
     nonceStore: freshStore,
     listOccupantsByEssid,
+    listLeasesByEssid,
     findPatches,
     insertSession,
     now: () => FIXED_NOW,
     readAuthLog,
     upsertPatch,
   };
-  return { deps, listOccupantsByEssid, findPatches, insertSession, readAuthLog, upsertPatch };
+  return {
+    deps,
+    listOccupantsByEssid,
+    listLeasesByEssid,
+    findPatches,
+    insertSession,
+    readAuthLog,
+    upsertPatch,
+  };
 };
 
 /** The sshd auth.log line the server is expected to stamp for a same-LAN attempt at
@@ -510,6 +547,154 @@ describe('handleAuthCreateSessionSameLan', () => {
 
       expect(result.status).toBe(200);
       expect(insertSession).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('the LAN address is the lease, not the derivation', () => {
+    /** Both occupants sitting on REDRAWN octets — the state after the allocator found
+     *  their offered octets taken. Neither address is the one the derivation offers. */
+    const redrawnLeases = async () => ({
+      data: [
+        { owner_key: ALICE.publicKeyHex, octet: A_REDRAWN_OCTET },
+        { owner_key: BOB.publicKeyHex, octet: B_REDRAWN_OCTET },
+      ],
+      error: null,
+    });
+
+    it("reaches A at the address A LEASED, not the one A's derivation offers", async () => {
+      const { deps, insertSession } = makeDeps(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        redrawnLeases,
+      );
+
+      const result = await handleAuthCreateSessionSameLan(
+        envelope(BOB, {
+          username: 'guest',
+          password: GUEST_PW,
+          target_ip: addressAt(A_REDRAWN_OCTET),
+        }),
+        deps,
+      );
+
+      expect(result.status).toBe(200);
+      expect(insertSession.mock.calls[0]![0]).toMatchObject({ machine_id: A_WS_ID });
+    });
+
+    it("finds no host at A's DERIVED address once A's lease moved elsewhere", async () => {
+      const { deps, insertSession } = makeDeps(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        redrawnLeases,
+      );
+
+      const result = await handleAuthCreateSessionSameLan(
+        envelope(BOB, { username: 'guest', password: GUEST_PW, target_ip: A_LAN_IP }),
+        deps,
+      );
+
+      expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+      expect(insertSession).not.toHaveBeenCalled();
+    });
+
+    it("stamps B's LEASED address as the auth.log source, not B's derived one", async () => {
+      const { deps, upsertPatch } = makeDeps(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        redrawnLeases,
+      );
+
+      await handleAuthCreateSessionSameLan(
+        envelope(BOB, {
+          username: 'guest',
+          password: GUEST_PW,
+          target_ip: addressAt(A_REDRAWN_OCTET),
+        }),
+        deps,
+      );
+
+      expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
+        content: `${expectedSshdLine('success', 'guest', addressAt(B_REDRAWN_OCTET))}\n`,
+      });
+    });
+
+    it('refuses a caller that holds occupancy but no lease — it has no address here', async () => {
+      const { deps, findPatches } = makeDeps(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        async () => ({
+          data: [{ owner_key: ALICE.publicKeyHex, octet: A_REDRAWN_OCTET }],
+          error: null,
+        }),
+      );
+
+      const result = await handleAuthCreateSessionSameLan(
+        envelope(BOB, {
+          username: 'guest',
+          password: GUEST_PW,
+          target_ip: addressAt(A_REDRAWN_OCTET),
+        }),
+        deps,
+      );
+
+      expect(result).toEqual({ status: 403, body: { error: 'not_an_occupant' } });
+      expect(findPatches).not.toHaveBeenCalled();
+    });
+
+    it('refuses a caller that still holds a lease but has left the LAN', async () => {
+      // A lease outlives occupancy, so a disconnected player keeps its address. Being
+      // ADDRESSED is not being PRESENT: reaching a box on the LAN needs a live row.
+      const { deps, findPatches } = makeDeps(
+        async () => ({ data: [A_ROW], error: null }),
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        redrawnLeases,
+      );
+
+      const result = await handleAuthCreateSessionSameLan(
+        envelope(BOB, {
+          username: 'guest',
+          password: GUEST_PW,
+          target_ip: addressAt(A_REDRAWN_OCTET),
+        }),
+        deps,
+      );
+
+      expect(result).toEqual({ status: 403, body: { error: 'not_an_occupant' } });
+      expect(findPatches).not.toHaveBeenCalled();
+    });
+
+    it('reports a server error when the lease lookup fails — never guesses an address', async () => {
+      const { deps, findPatches } = makeDeps(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        async () => ({ data: null, error: new Error('db down') }),
+      );
+
+      const result = await handleAuthCreateSessionSameLan(
+        envelope(BOB, { username: 'guest', password: GUEST_PW }),
+        deps,
+      );
+
+      expect(result).toEqual({ status: 500, body: { error: 'leases_lookup_failed' } });
+      expect(findPatches).not.toHaveBeenCalled();
     });
   });
 });

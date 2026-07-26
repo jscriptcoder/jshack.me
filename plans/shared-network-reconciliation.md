@@ -2,8 +2,11 @@
 
 **Branch**: one per slice, cut off `main`
 **Status**: Active — Slice 1 ✅ MERGED (PR #326, `7c9338b`, v0.88.0),
-Slice 2 ✅ MERGED (PR #327, `88054bf`, v0.89.0).
-**Next: Slice 3 on `feat/lan-dhcp-lease` — acceptance criteria not yet approved, no code written.**
+Slice 2 ✅ MERGED (PR #327, `88054bf`, v0.89.0),
+Slice 3a ✅ MERGED (PR #328, `6ae4109`, v0.90.0).
+**Slice 3b split mid-implementation into 3b-i + 3b-ii (see the correction under Slice 3b).
+3b-i is COMPLETE on `feat/lan-lease-is-the-address` at v0.91.0, awaiting commit approval.
+Next after it: 3b-ii — the player's own address + the offline cache.**
 **Parent**: `plans/multiplayer-crossplayer-epic.md` item #5 (decision record; grilled & resolved 2026-07-25)
 **Follows**: item #4 (unique public-IP allocation, v0.87.0)
 **Precedes**: item #6 (procedural world expansion) — do NOT pull it in here
@@ -423,33 +426,172 @@ predicts NOT (differing pool bounds and exhaustion semantics); confirm with both
 **Done when**: criteria 1–4 hold at the storage layer, `testLanLeaseAllocation.ts` passes
 including a concurrent-join check, no player-visible address changes, human approves.
 
-#### Slice 3b: The lease is the address
+#### Slice 3b: The lease is the address — SPLIT into 3b-i + 3b-ii (2026-07-26, mid-slice)
+
+**Reconnaissance (2026-07-26), before criteria were approved.** The 11 sites are not one kind
+of change. They split three ways:
+
+*Mechanical (5 sites, 4 server handlers).* `resolveOccupants.ts:97`, `nmapScan.ts:220,241`,
+`authCreateSessionSameLan.ts:177,221` each already issue an occupancy query; each gains one
+`listLeasesByEssid` read and resolves addresses from that map.
+
+*Prefetch-shaped (1 site).* `workstationPortResolver.ts:51` is built as a SYNCHRONOUS closure
+over data the adapter prefetches, deliberately so `core/` carries no async materialization
+wiring. It cannot issue a query — the adapter must prefetch the lease and pass the address in.
+It is also on the cross-player PUBLIC path (NAT forward → workstation), so a forward's
+`internalIp` and the leased address must agree or every published forward goes dead.
+
+*Generation (1 site — WRONG, corrected below).* `generateHomeLan.ts:38`.
+
+**⚠️ Correction found while implementing (2026-07-26): `generateHomeLan` is EIGHT production
+call sites, not one.** `nmap.ts:264`, `ssh.ts:286`, `lanHostIdentity.ts:68,148,225`,
+`remoteHostId.ts:30`, `nmapScan.ts:240`, `authCreateSession.ts:153`, plus ~8 wire-checks — and
+crucially it is called with OTHER players' keys (`lanHostIdentity`, `remoteHostId`) to
+regenerate their NPC filler. Threading a leased octet through it means threading a lease
+lookup into deep pure generation code reached from both client and server. That is the
+SELF-address problem, not the fellow-occupant one, and it is what forced the split.
+
+**The split (approved pattern from 3a/3b; recorded here as the reason).** Every address a
+player is REACHED at is server-resolved; every address a player SEES ITSELF at is client-side
+and blocked on the client learning its lease. Those are separable, and the first is where the
+actual bug lives (two occupants at one address). So:
+
+- **3b-i — every address the SERVER resolves comes from the lease.** Fellow-occupant lists,
+  same-LAN ssh + its trace source, scan traces, and the NAT-forward target. Criteria 1, 3, 5.
+- **3b-ii — the player's own address is the leased one, cached for offline.** The
+  `registerNetwork` response carries the lease, the 4 client sites consume it,
+  `generateHomeLan` takes the octet, and `restoreConnection` reads a client-side cache.
+  Criteria 2, 4.
+
+**Known intermediate state between them (deliberate, and strictly an improvement).** After
+3b-i a REDRAWN player is reached by everyone at its leased address, while its own client still
+shows the derived one. Uncollided players — every player today, since 3a seeded leases from the
+derivation — see no difference at all. Before 3b-i a collided pair shared one address and one of
+them was unreachable; after it, both are reachable. The disagreement is confined to the
+collided player's own view of itself, which 3b-ii resolves.
+
+*Client, and NOT mechanical (4 sites).* This is where the slice's real decisions live:
+- `networkApi.ts:73` swallows a registration failure and returns the derived address, on the
+  stated grounds that "the LAN address is local-deterministic". Once the server allocates it,
+  that premise is gone and the failure posture must be chosen, not inherited.
+- `connectionPersistence.ts:61` (`restoreConnection`) is SYNCHRONOUS and offline: it rehydrates
+  from localStorage with no network call, deliberately independent of the current scan list. A
+  server-held address breaks that unless the leased address is cached client-side.
+- `env.ts:221` and `state.ts:365` both fall back to the pure derivation when the network client
+  is not wired.
+
+**`assignHomeNetwork` SURVIVES this slice — the earlier guess that it might be deletable was
+wrong.** Its `localIp` is `192.168.${subnet}.${host}` where **`subnet` is ESSID-seeded** and
+still load-bearing (it is the AP's `/24`, shared by every occupant); only the `host` octet
+becomes the lease. So the module's contract splits rather than disappears: an ESSID→subnet
+function stays, the octet comes from the lease, and the hostname draw is untouched. It also
+remains the source of the preferred octet that seeds a NEW lease.
+
+##### Slice 3b-i: every address the SERVER resolves comes from the lease — ✅ COMPLETE (awaiting commit approval)
 
 **Class**: Behavior change.
-**Value**: Actor = any occupant. The address a player is issued, and the address every other
-player reaches them on, becomes the leased one.
-**Path**: the 11 `assignHomeNetwork` read sites resolve through the lease instead of deriving.
-**Scope (grep before starting — this list is from 2026-07-26)**: `core/scan/nmapScan.ts` (×2),
-`core/sessions/authCreateSessionSameLan.ts` (×2), `core/network/resolveOccupants.ts`,
-`core/scan/workstationPortResolver.ts`, `core/generation/generateHomeLan.ts`,
-`adapters/networkApi.ts`, `ui/env.ts`, `ui/state.ts`, `ui/connectionPersistence.ts`; plus 11
-wire-check scripts.
-**Shape**: each server handler already issues an occupancy query; add ONE
-`SELECT owner_key, octet FROM network_lan_leases WHERE essid = $1` per request and resolve
-addresses from that map, rather than N per-occupant derivations. The client receives its own
-leased address in the `registerNetwork` response instead of deriving it locally.
-**Doc corrections owed by this slice**: `20260621120000_home_network_occupants.sql` and the
-`minimize-api-projections` note in `resolveOccupants.ts` both justify NOT storing the LAN IP on
-the grounds that it re-derives from `(owner_key, essid)` and storing it "would only risk
-drift". Once the address is leased that rationale inverts — the lease is the truth and the
-derivation is the drift. Rewrite both, and `docs/cross-player-architecture.md:104`.
+**Value**: Actor = any occupant. The address every OTHER player reaches you on — in the
+occupant list, over same-LAN ssh, in the traces you leave, and through a NAT forward — is the
+one you hold a lease on. Two occupants can no longer answer to a single address.
+**Path**: five server-side readers resolve addresses from `network_lan_leases` instead of
+re-deriving them from `(owner_key, essid)`.
+
+**As built.**
+- New `core/network/lanAddress.ts`: `lanSubnetFor` (the ESSID-seeded `/24`, moved out of
+  `assignHomeNetwork`, which now calls it), `lanAddressFor` (total, for a known octet),
+  `leasedAddress` (the single place a missing lease becomes "no address"), and
+  `lanAddressesByOwner` (one ESSID's leases → `owner_key → Ipv4`, built off ONE subnet
+  computation per request).
+- `resolveOccupants`, `authCreateSessionSameLan`, `nmapScan` each gained a
+  `listLeasesByEssid` dep — ONE `SELECT owner_key, octet … WHERE essid = $1` per request,
+  issued BEHIND the LAN-boundary gate so no address reaches a non-occupant.
+- `resolvePublicScan` and `authCreateSessionPublic` gained a single-row `readLease`, since
+  the public path needs exactly the target owner's address. `buildWorkstationResolver` now
+  TAKES `lanIp: string | null` rather than deriving it, keeping `core/` synchronous.
+- Failure posture, uniform: an address that cannot be read is never guessed. Where the address
+  IS the answer (`resolveOccupants`, same-LAN connect, public gate) a lease-read failure is a
+  clean 500; where the trace is best-effort (`nmapScan`) it silently skips, exactly as an
+  occupancy-read failure already did.
+- Two gates now stand where one did: occupancy (are you PRESENT?) and lease (are you
+  ADDRESSED?). Both are load-bearing because a lease outlives occupancy — a disconnected
+  player still holds an address and must still be refused. Tests pin that case in both the
+  same-LAN connect and the scan.
+- 10 wire-checks re-pointed. The six that seed occupancy via `service_role` now seed the lease
+  alongside it (a join allocates the lease FIRST, so seeding one without the other described a
+  state the server never produces); the ones that join for real read the issued lease back
+  instead of re-deriving it; the three NAT-forward checks publish forwards at the leased
+  address. All of them now also clear `network_lan_leases` on setup/teardown — leases outlive
+  occupancy, so a stale one from a prior run holds an octet forever.
+
+**Evidence.** RED at each reader before its GREEN (4 → 5 → 4 → 4 failing, each on the address
+itself: leased `.2` expected, derived `.221` received). 1928 unit tests (was 1902, +26, none
+broken). Mutation on the 8 changed files: `homeNetwork` 100%, `workstationPortResolver` 100%,
+`resolveOccupants` 100% covered, `nmapScan` 100% covered, `authCreateSessionSameLan` 98.56%
+covered, `authCreateSessionPublic` 98.56%, `resolvePublicScan` 97.37% covered, `lanAddress`
+91.67%. Every survivor on a line this slice touched was killed or removed; the ONE remaining
+(`lanAddress.ts:38`, `octet === null ? null : …` → `false ? …`) is equivalent — a null octet
+would yield `192.168.N.null`, which no forward or target can name, so the behaviour is
+identical. The rest sit on pre-existing lines (`'success' : 'failure'`,
+`account === null || !passwordOk`, `vantage: 'external'`) untouched here. No-coverage mutants
+are the `?? []` fallbacks, which a list query cannot produce. 24/25 wire-checks green (the
+holdout is the long-standing `testUpsertPatch` 10/12 tombstone triage). Typecheck + lint clean.
+
+**Killing the survivors found real gaps, not test padding.** The occupancy gate in both the
+same-LAN connect and the scan survived deletion entirely, because the new lease gate returns
+the same 403 for the fixtures as written. It is genuinely load-bearing for a
+disconnected-but-leased player — a case no test covered. Likewise, `if (leases.error) return`
+survived because the fixture returned null data alongside the error; the test now returns ROWS
+with the error, pinning that a failed read is not trusted just because it handed something
+back.
+
+**Deferred to 3b-ii, and why (see the correction above).** `nmapScan`'s own-LAN `selfIp` stays
+derived: `generateHomeLan` seeds the caller's NPC filler AROUND the derived self octet, so the
+self-exclusion has to use the same value the generator did. It is the caller's private view of
+itself and reaches no other player.
+
+##### Slice 3b-ii: the player's own address is the leased one — NOT STARTED
+
+**Class**: Behavior change.
+**Scope**: `adapters/networkApi.ts:73`, `ui/env.ts:221`, `ui/state.ts:365`,
+`ui/connectionPersistence.ts:61`, `core/generation/generateHomeLan.ts` (+ its 8 callers, and
+the lease threading `lanHostIdentity`/`remoteHostId` need), `nmapScan.ts`'s own-LAN `selfIp`,
+and the `registerNetwork` response shape.
+**Doc corrections still owed**: `20260621120000_home_network_occupants.sql` (the LAN-IP
+projection rationale) and `docs/cross-player-architecture.md:104`. The
+`minimize-api-projections` note in `resolveOccupants.ts` was rewritten in 3b-i.
+**Offline posture (decided 2026-07-26): cache the lease, else fail.** The leased address is
+persisted client-side on each successful join. Reconnecting to a network the player already
+holds a lease on works with the server unreachable, and `restoreConnection` stays SYNCHRONOUS
+and offline by reading that cache. A first-ever join to a new ESSID with the server unreachable
+fails with a clear error — you cannot be allocated an address by a server you cannot reach.
+Rejected: falling back to the derivation, which would reinstate a second source of truth and
+let a player transiently hold a colliding address that changes under them on the next join.
+The cache is only ever a copy of a real lease, never an independent allocator.
+
+**Acceptance criteria (the five approved for 3b, marked with where each lands)**:
+- ✅ 3b-i — Two occupants whose derived octets COLLIDE reach each other on distinct LEASED
+  addresses, and the occupant list, LAN scan, same-LAN ssh and log traces all agree on those
+  addresses.
+- 🔜 3b-ii — A player's own address — in `nmcli`/`ifconfig`, in scan self-exclusion, and as the
+  source IP stamped on another player's `auth.log` — is the leased one. (The `auth.log` and
+  scan-trace source halves landed in 3b-i, since the server resolves them; `nmcli`/`ifconfig`
+  and self-exclusion are client-side and remain.)
+- ✅ 3b-i — A NAT forward published to a workstation's leased address resolves through the
+  public path; the public scan/ssh gate and the same-LAN path never disagree on that address
+  (both now read the same lease).
+- 🔜 3b-ii — Reconnecting to a known ESSID with the server unreachable restores the cached
+  leased address; a first join to a new ESSID with the server unreachable fails and leaves the
+  player disconnected rather than silently addressed.
+- ✅ 3b-i — `nmap` from inside the LAN lists every occupant at its leased address.
+
 **RED**: A behavior test that two occupants whose derived octets COLLIDE resolve to different
 addresses end to end, and that each reaches the other on its leased address.
-**GREEN**: The sweep. `assignHomeNetwork` stops deriving `localIp`.
+**GREEN**: The sweep. `assignHomeNetwork` stops deriving `localIp`; the ESSID→subnet half stays.
 **MUTATE**: Run on the changed handlers.
 **REFACTOR**: Assess whether `assignHomeNetwork` still earns its existence once `localIp` is
 gone from it (it would retain only the hostname draw).
-**Done when**: criteria 1–4 hold end to end, every same-LAN wire-check passes, human approves.
+**Done when**: all five acceptance criteria hold end to end, every same-LAN wire-check passes,
+the three doc corrections are made, human approves.
 
 ### Slice 4: Every occupant of an ESSID sees the same LAN population
 

@@ -28,6 +28,7 @@ import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { assignHomeNetwork } from '../network/homeNetwork';
+import { lanAddressesByOwner, type LanLeaseRow } from '../network/lanAddress';
 import {
   parseScanTarget,
   hostsInScanTarget,
@@ -83,6 +84,11 @@ export type NmapScanDeps = {
   readonly listOccupantsByEssid: (
     essid: string,
   ) => Promise<{ readonly data: readonly ScanOccupant[] | null; readonly error: unknown }>;
+  /** Every lease held on this ESSID, in ONE read: which fellow occupants the scanned
+   *  range actually covers, and the source address their traces carry. */
+  readonly listLeasesByEssid: (
+    essid: string,
+  ) => Promise<{ readonly data: readonly LanLeaseRow[] | null; readonly error: unknown }>;
   /** A scanned occupant's FULL workstation journal (scoped to machine_id, server order)
    *  replayed over its seeded base — drives the boot gate + the real-port read. */
   readonly findPatches: (query: {
@@ -204,7 +210,6 @@ const traceOccupants = async (
     readonly scannerKey: string;
     readonly essid: string;
     readonly target: ScanTarget | null;
-    readonly sourceIp: string;
     readonly time: number;
   },
 ): Promise<void> => {
@@ -215,11 +220,22 @@ const traceOccupants = async (
   // LAN boundary: only a live occupant of the ESSID may trace fellow occupants.
   if (!rows.some((row) => row.owner_key === args.scannerKey)) return;
 
+  // Both the addresses the range is matched against and the source the traces carry
+  // come from the leases. Best-effort like the occupancy read above: a lease failure
+  // simply leaves no cross-player traces rather than stamping a guessed address.
+  const leases = await deps.listLeasesByEssid(args.essid);
+  if (leases.error) return;
+  const addresses = lanAddressesByOwner(args.essid, leases.data ?? []);
+  const sourceIp = addresses.get(args.scannerKey);
+  if (sourceIp === undefined) return;
+
   for (const occupant of rows) {
     if (occupant.owner_key === args.scannerKey) continue;
-    const lanIp = assignHomeNetwork(occupant.owner_key, args.essid).localIp;
+    // No lease is no address on this LAN: there is nothing for the range to cover.
+    const lanIp = addresses.get(occupant.owner_key);
+    if (lanIp === undefined) continue;
     if (!octetInScanTarget(Number(lanIp.split('.')[3]), args.target)) continue;
-    await traceOneOccupant(deps, occupant, args.sourceIp, args.time);
+    await traceOneOccupant(deps, occupant, sourceIp, args.time);
   }
 };
 
@@ -237,6 +253,12 @@ export const handleNmapScan = async (
   // foreign target selects nothing (the command rejects these before calling; a
   // forged one simply finds no real hosts to record). The own workstation is
   // excluded — it is keyed by its workstation_id, not hostMachineId.
+  //
+  // This half is still DERIVED, and deliberately: `generateHomeLan` seeds the caller's
+  // NPC filler around the derived self octet, so the exclusion has to use the same
+  // value the generator did or it would stop matching. It is the caller's private view
+  // of itself — nothing another player reaches — and it moves onto the lease when the
+  // client learns its leased address and can pass it into the generator.
   const lan = generateHomeLan(publicKey, payload.essid);
   const selfIp = assignHomeNetwork(publicKey, payload.essid).localIp;
   const parsed = parseScanTarget(payload.target, lan.subnet);
@@ -255,14 +277,14 @@ export const handleNmapScan = async (
   }
 
   // A same-LAN scan also leaves a trace on REAL fellow occupants the target covers —
-  // owner-keyed on their box, with the scanner's own LAN IP (`selfIp`) as the source.
-  // Additive to the own-LAN sweep above; `hostsLogged` reports the caller's own-LAN
-  // count (the cross-player traces are a server-side side effect the client ignores).
+  // owner-keyed on their box, with the scanner's own LEASED LAN address as the source
+  // (resolved there, from the same read that resolves the occupants). Additive to the
+  // own-LAN sweep above; `hostsLogged` reports the caller's own-LAN count (the
+  // cross-player traces are a server-side side effect the client ignores).
   await traceOccupants(deps, {
     scannerKey: publicKey,
     essid: payload.essid,
     target: parsed.ok ? parsed.target : null,
-    sourceIp: selfIp,
     time: context.time,
   });
 

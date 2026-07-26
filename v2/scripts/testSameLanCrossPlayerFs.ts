@@ -26,7 +26,7 @@ import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign';
 import { generateIdentity } from '../src/core/identity/identity';
 import { computeWorkstationId } from '../src/core/identity/workstation';
-import { assignHomeNetwork } from '../src/core/network/homeNetwork';
+import { lanAddressFor } from '../src/core/network/lanAddress';
 import { formatPidfileContent } from '../src/core/services/pidfile';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
 import { md5 } from '../src/core/generation/md5';
@@ -74,7 +74,20 @@ const A_WS_NAME = 'skylab';
 const B_WS_NAME = 'nebuchadnezzar';
 const A_WS = computeWorkstationId(A_WS_NAME, alice.publicKeyHex);
 const B_WS = computeWorkstationId(B_WS_NAME, bob.publicKeyHex);
-const A_LAN = assignHomeNetwork(alice.publicKeyHex, ESSID).localIp;
+/** The address the server ISSUED this occupant on join — read back from the lease it
+ *  allocated, never re-derived. The lease is the address of record; deriving one here
+ *  would be asserting against a second source of truth. */
+const leasedAddress = async (owner: ReturnType<typeof generateIdentity>): Promise<string> => {
+  const { data } = await sr
+    .from('network_lan_leases')
+    .select('octet')
+    .eq('essid', ESSID)
+    .eq('owner_key', owner.publicKeyHex)
+    .maybeSingle();
+  const octet = (data as { octet: number } | null)?.octet;
+  if (octet === undefined) throw new Error(`no lan lease for ${owner.publicKeyHex.slice(0, 8)}`);
+  return lanAddressFor(ESSID, octet);
+};
 const GUEST_PW = workstationGuestPassword(alice.publicKeyHex);
 
 const WORLD_PID = { read: ['root', 'user', 'guest'], write: ['root'], execute: [] };
@@ -101,6 +114,7 @@ const join = (owner: ReturnType<typeof generateIdentity>, wsName: string) =>
 await sr.from('network_registry').delete().in('owner_key', [alice.publicKeyHex, bob.publicKeyHex]);
 await sr.from('network_public_ips').delete().eq('essid', ESSID);
 await sr.from('home_network_occupants').delete().eq('essid', ESSID);
+await sr.from('network_lan_leases').delete().eq('essid', ESSID);
 await sr.from('patches').delete().eq('machine_id', A_WS);
 await sr.from('sessions').delete().eq('player_key', bob.publicKeyHex);
 
@@ -108,6 +122,8 @@ await sr.from('sessions').delete().eq('player_key', bob.publicKeyHex);
 // (shared public_ip PK). Both join via the real endpoint, so the eviction is genuine.
 await post(NETWORK, join(alice, A_WS_NAME));
 await post(NETWORK, join(bob, B_WS_NAME));
+
+const A_LAN = await leasedAddress(alice);
 
 // A's own `sshd` opens port 22 — seed its pidfile (a fresh ws is dark until a service runs).
 await sr.from('patches').insert([
@@ -182,6 +198,7 @@ check(
 await sr.from('network_registry').delete().in('owner_key', [alice.publicKeyHex, bob.publicKeyHex]);
 await sr.from('network_public_ips').delete().eq('essid', ESSID);
 await sr.from('home_network_occupants').delete().eq('essid', ESSID);
+await sr.from('network_lan_leases').delete().eq('essid', ESSID);
 await sr.from('patches').delete().eq('machine_id', A_WS);
 await sr.from('sessions').delete().eq('player_key', bob.publicKeyHex);
 

@@ -8,8 +8,9 @@
  * live on the ESSID, requires the caller to be one of them (the LAN boundary — you
  * must be on the LAN to reach a box on it), then matches the target LAN IP to a FELLOW
  * occupant's row (self excluded — your own box is the own-LAN path). A's LAN IP is the
- * pure `assignHomeNetwork(owner_key, essid)` derivation, re-run here so a client can
- * neither claim an address nor frame another occupant.
+ * LEASE A holds on the ESSID, read server-side, so a client can neither claim an address
+ * nor frame another occupant — and, unlike the pure derivation this replaced, no two
+ * occupants can ever answer to the same target.
  *
  * Auth mirrors every cross-player path: materialize A's REAL workstation (the shared
  * generator's base + A's persisted journal), refuse a bricked box (`canBoot`) or one
@@ -22,7 +23,7 @@
 import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { assignHomeNetwork } from '../network/homeNetwork';
+import { lanAddressesByOwner, type LanLeaseRow } from '../network/lanAddress';
 import { materializeWorkstationFs, type OwnerPatchRow } from '../network/materializeWorkstationFs';
 import { readOpenPorts } from '../services/pidfile';
 import { canBoot } from '../boot/bootFiles';
@@ -67,6 +68,12 @@ export type AuthCreateSessionSameLanDeps = {
   readonly listOccupantsByEssid: (
     essid: string,
   ) => Promise<{ readonly data: readonly OccupantConnectRow[] | null; readonly error: unknown }>;
+  /** Every lease held on this ESSID, in ONE read: the addresses both halves of the
+   *  connect speak — the target the caller asked for, and the source stamped on the
+   *  trace it leaves. */
+  readonly listLeasesByEssid: (
+    essid: string,
+  ) => Promise<{ readonly data: readonly LanLeaseRow[] | null; readonly error: unknown }>;
   /** A's workstation FULL journal (scoped to machine_id, server order) replayed over
    *  the seeded base — drives the boot gate, the running-service check, and the passwd. */
   readonly findPatches: (query: {
@@ -107,7 +114,7 @@ const authCreateSessionSameLanSchema = z
  *  keystone: `writerKey` is the TARGET OWNER's key — the system owns its logs, so every
  *  attacker's line accretes into ONE row instead of colliding under last-write-wins; the
  *  attacker's identity lives in the line's source IP. That source is B's LAN IP — the
- *  pure `assignHomeNetwork(B, essid).localIp` (B is a verified occupant, so no lookup),
+ *  address B holds a LEASE on, read from the same lookup that resolved the target,
  *  unlike the public path whose source is B's server-side registry public IP — never the
  *  forgeable payload `source_ip`. Best-effort: a logging failure must never break (or
  *  fabricate) the auth. */
@@ -169,12 +176,29 @@ export const handleAuthCreateSessionSameLan = async (
     return { status: 403, body: { error: 'not_an_occupant' } };
   }
 
+  // ONE lease read serves both halves of the connect: which occupant answers to the
+  // target address, and what source address the trace carries. A failure is a clean
+  // 500 — an address that cannot be read is never derived as a fallback.
+  const leases = await deps.listLeasesByEssid(payload.essid);
+  if (leases.error) {
+    return { status: 500, body: { error: 'leases_lookup_failed' } };
+  }
+  const addresses = lanAddressesByOwner(payload.essid, leases.data ?? []);
+
+  // The caller's own address on this LAN — the source the trace is stamped with. Holding
+  // no lease means holding no address here, which is the same thing as not being on the
+  // LAN, so it fails the boundary rather than inventing a source to log.
+  const fromIp = addresses.get(publicKey);
+  if (fromIp === undefined) {
+    return { status: 403, body: { error: 'not_an_occupant' } };
+  }
+
   // Match the target LAN IP to a FELLOW occupant — self excluded: your own LAN IP is
-  // the own-LAN path, not the cross-player front door.
+  // the own-LAN path, not the cross-player front door. Matched on the LEASE, so a
+  // departed player's lease reaches nothing (occupancy is what makes a box present)
+  // and no two occupants can answer to one address.
   const target = rows.find(
-    (row) =>
-      row.owner_key !== publicKey &&
-      assignHomeNetwork(row.owner_key, payload.essid).localIp === payload.target_ip,
+    (row) => row.owner_key !== publicKey && addresses.get(row.owner_key) === payload.target_ip,
   );
   if (target === undefined) {
     return { status: 404, body: { error: 'host_unreachable' } };
@@ -215,11 +239,7 @@ export const handleAuthCreateSessionSameLan = async (
       machineId: target.workstation_machine_id,
       hostname: target.workstation_machine_name,
     },
-    {
-      outcome: passwordOk ? 'success' : 'failure',
-      user: payload.username,
-      fromIp: assignHomeNetwork(publicKey, payload.essid).localIp,
-    },
+    { outcome: passwordOk ? 'success' : 'failure', user: payload.username, fromIp },
   );
 
   if (account === null || !passwordOk) {

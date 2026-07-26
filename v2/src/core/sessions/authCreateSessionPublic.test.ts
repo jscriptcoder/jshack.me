@@ -60,22 +60,33 @@ const REGISTRY: RegistryTarget = {
   workstation_root_hash: md5('toor'),
 };
 const ADMIN_PW = seedApGatewayAdminPw(ESSID);
-// A's one workstation behind the NAT: the deterministic LAN IP a `rules.v4` forward
-// must target, and the seeded weak guest password the server recovers for the login.
-const WS_LAN_IP = assignHomeNetwork(OWNER.publicKeyHex, ESSID).localIp;
+// The address A's derivation OFFERS its workstation. A's LEASE is seeded from it, so
+// where nothing collided a `rules.v4` forward aimed here still reaches the box.
+const WS_DERIVED_LAN_IP = assignHomeNetwork(OWNER.publicKeyHex, ESSID).localIp;
+const WS_LAN_IP = WS_DERIVED_LAN_IP;
 const GUEST_PW = workstationGuestPassword(OWNER.publicKeyHex);
+
+const octetOf = (ip: string): number => Number(ip.split('.')[3]);
+const addressAt = (octet: number): string =>
+  `${WS_DERIVED_LAN_IP.split('.').slice(0, 3).join('.')}.${octet}`;
+/** An octet A's derivation never offered — where a REDRAW lands when the offered one
+ *  is already held by another occupant of the ESSID. */
+const WS_REDRAWN_OCTET = octetOf(WS_DERIVED_LAN_IP) === 7 ? 8 : 7;
+
+type LeaseResult = { data: number | null; error: unknown };
 
 /** A's `nano` edit of the router's NAT table: forward public `:2222` to the
  *  workstation's `:22` — the opt-in that exposes A's ws behind the public IP. */
-const routerForward: OwnerPatchRow = {
+const forwardTo = (internalIp: string): OwnerPatchRow => ({
   path: '/etc/iptables/rules.v4',
-  content: `forward 2222 to ${WS_LAN_IP}:22`,
+  content: `forward 2222 to ${internalIp}:22`,
   owner: 'root',
   permissions: null,
   node_type: 'file',
   updated_at: '2026-06-17T00:00:00.000Z',
   writer_key: OWNER.publicKeyHex,
-};
+});
+const routerForward: OwnerPatchRow = forwardTo(WS_LAN_IP);
 
 /** A started the workstation's sshd — its pidfile on the ws journal makes `:22` a
  *  live service (a fresh ws has an empty `/var/run`, so the forward is dark until). */
@@ -125,6 +136,7 @@ type LogOverrides = {
   readAuthLog?: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
   upsertPatch?: (row: PatchRow) => Promise<{ error: unknown }>;
   findRegistryByOwnerKey?: (ownerKey: string) => Promise<OwnerKeyResult>;
+  readLease?: (essid: string, ownerKey: string) => Promise<LeaseResult>;
 };
 
 const makeDeps = (
@@ -149,6 +161,11 @@ const makeDeps = (
     over.findRegistryByOwnerKey ??
       (async () => ({ data: { public_ip: SCANNER_PUBLIC_IP }, error: null })),
   );
+  // Default: the owner leases the octet its derivation offered — where nothing
+  // collided the two agree, so an existing forward keeps reaching the same box.
+  const readLease = vi.fn<(essid: string, ownerKey: string) => Promise<LeaseResult>>(
+    over.readLease ?? (async () => ({ data: octetOf(WS_DERIVED_LAN_IP), error: null })),
+  );
   const deps: AuthCreateSessionPublicDeps = {
     nonceStore: freshStore,
     findRegistryByPublicIp,
@@ -158,6 +175,7 @@ const makeDeps = (
     readAuthLog,
     upsertPatch,
     findRegistryByOwnerKey,
+    readLease,
   };
   return {
     deps,
@@ -167,6 +185,7 @@ const makeDeps = (
     readAuthLog,
     upsertPatch,
     findRegistryByOwnerKey,
+    readLease,
   };
 };
 
@@ -722,6 +741,84 @@ describe('handleAuthCreateSessionPublic', () => {
         body: { ok: true, userType: 'root', machine_id: ROUTER_ID },
       });
       expect(insertSession).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('the host behind the NAT is at its LEASED address', () => {
+    const redrawnLease = async () => ({ data: WS_REDRAWN_OCTET, error: null });
+
+    it('routes a forward aimed at the leased address to the workstation', async () => {
+      const attacker = generateIdentity();
+      const { deps } = makeDeps(
+        undefined,
+        undefined,
+        patchesByMachine({
+          [ROUTER_ID]: [forwardTo(addressAt(WS_REDRAWN_OCTET))],
+          [WS_ID]: [wsSshdUp],
+        }),
+        { readLease: redrawnLease },
+      );
+
+      const result = await handleAuthCreateSessionPublic(
+        envelope(attacker, { username: 'guest', password: GUEST_PW, port: 2222 }),
+        deps,
+      );
+
+      expect(result.status).toBe(200);
+      expect(result.body).toMatchObject({ machine_id: WS_ID });
+    });
+
+    it('finds no host behind a forward still aimed at the DERIVED address once the lease moved', async () => {
+      const attacker = generateIdentity();
+      const { deps, insertSession } = makeDeps(
+        undefined,
+        undefined,
+        patchesByMachine({ [ROUTER_ID]: [routerForward], [WS_ID]: [wsSshdUp] }),
+        { readLease: redrawnLease },
+      );
+
+      const result = await handleAuthCreateSessionPublic(
+        envelope(attacker, { username: 'guest', password: GUEST_PW, port: 2222 }),
+        deps,
+      );
+
+      expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+      expect(insertSession).not.toHaveBeenCalled();
+    });
+
+    it('finds no host behind the forward when the owner holds no lease at all', async () => {
+      const attacker = generateIdentity();
+      const { deps } = makeDeps(
+        undefined,
+        undefined,
+        patchesByMachine({ [ROUTER_ID]: [routerForward], [WS_ID]: [wsSshdUp] }),
+        { readLease: async () => ({ data: null, error: null }) },
+      );
+
+      const result = await handleAuthCreateSessionPublic(
+        envelope(attacker, { username: 'guest', password: GUEST_PW, port: 2222 }),
+        deps,
+      );
+
+      expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    });
+
+    it('reports a server error when the lease read fails — never guesses the address', async () => {
+      const attacker = generateIdentity();
+      const { deps, insertSession } = makeDeps(
+        undefined,
+        undefined,
+        patchesByMachine({ [ROUTER_ID]: [routerForward], [WS_ID]: [wsSshdUp] }),
+        { readLease: async () => ({ data: null, error: new Error('db down') }) },
+      );
+
+      const result = await handleAuthCreateSessionPublic(
+        envelope(attacker, { username: 'guest', password: GUEST_PW, port: 2222 }),
+        deps,
+      );
+
+      expect(result).toEqual({ status: 500, body: { error: 'lease_lookup_failed' } });
+      expect(insertSession).not.toHaveBeenCalled();
     });
   });
 });

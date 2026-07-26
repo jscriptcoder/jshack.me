@@ -27,7 +27,7 @@ import { signRequest } from '../src/core/signedRequest/sign';
 import { generateIdentity } from '../src/core/identity/identity';
 import { computeWorkstationId } from '../src/core/identity/workstation';
 import { computeApGatewayId } from '../src/core/identity/router';
-import { assignHomeNetwork } from '../src/core/network/homeNetwork';
+import { lanAddressFor } from '../src/core/network/lanAddress';
 import { formatPidfileContent } from '../src/core/services/pidfile';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
 import { md5 } from '../src/core/generation/md5';
@@ -93,7 +93,10 @@ const A_WS_NAME = 'skylab';
 const A_WS = computeWorkstationId(A_WS_NAME, alice.publicKeyHex);
 const A_ROUTER = computeApGatewayId(A_ESSID);
 const A_PUBLIC_IP = '203.0.113.93';
-const A_LAN = assignHomeNetwork(alice.publicKeyHex, A_ESSID).localIp; // A's ws LAN ip
+// A's workstation answers at the address A LEASES on its ESSID, so the NAT forward
+// below must name that address — a forward aimed anywhere else reaches no host.
+const A_OCTET = 11;
+const A_LAN = lanAddressFor(A_ESSID, A_OCTET); // A's ws LAN ip
 // B's + C's truthful source IPs: the public IPs in their seeded registry rows, which the
 // server recovers from each verified key via the registry — never a client claim. Explicit
 // constants, since this script seeds those rows directly (self-consistent with the asserts).
@@ -128,11 +131,15 @@ const registryRow = (
 // Clean slate, then seed the three registry rows (as each player's join would), A's
 // NAT forward + her workstation sshd pidfile (as A's own config writes would).
 await sr.from('network_registry').delete().in('public_ip', [A_PUBLIC_IP, B_PUBLIC_IP, C_PUBLIC_IP]);
+await sr.from('network_lan_leases').delete().eq('essid', A_ESSID);
 await sr.from('patches').delete().eq('machine_id', A_ROUTER);
 await sr.from('patches').delete().eq('machine_id', A_WS);
 for (const id of [bob, carol]) {
   await sr.from('sessions').delete().eq('player_key', id.publicKeyHex);
 }
+await sr
+  .from('network_lan_leases')
+  .insert({ essid: A_ESSID, owner_key: alice.publicKeyHex, octet: A_OCTET });
 await sr
   .from('network_registry')
   .insert([
@@ -267,6 +274,7 @@ check(
 
 // Cleanup.
 await sr.from('network_registry').delete().in('public_ip', [A_PUBLIC_IP, B_PUBLIC_IP, C_PUBLIC_IP]);
+await sr.from('network_lan_leases').delete().eq('essid', A_ESSID);
 await sr.from('patches').delete().eq('machine_id', A_ROUTER);
 await sr.from('patches').delete().eq('machine_id', A_WS);
 for (const id of [bob, carol]) {

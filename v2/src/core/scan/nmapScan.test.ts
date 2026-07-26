@@ -15,6 +15,7 @@ import { md5 } from '../generation/md5';
 import { formatNmapScanAggregate, KERN_LOG_OWNER, KERN_LOG_PERMISSIONS } from '../logging/kernLog';
 import { asGameTime, asPlayerKeyHex } from '../types';
 import type { ScanOccupant } from './nmapScan';
+import type { LanLeaseRow } from '../network/lanAddress';
 import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
 import type { PatchRow } from '../patches/upsertPatch';
 import type { NonceStore } from '../signedRequest/nonceStore';
@@ -38,6 +39,7 @@ const SOURCE_IP = '192.168.1.50';
 
 type OccupantsResult = { data: readonly ScanOccupant[] | null; error: unknown };
 type PatchesResult = { data: readonly OwnerPatchRow[] | null; error: unknown };
+type LeasesResult = { data: readonly LanLeaseRow[] | null; error: unknown };
 
 const makeDeps = (over: Partial<NmapScanDeps> = {}) => {
   const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async () => ({
@@ -58,20 +60,28 @@ const makeDeps = (over: Partial<NmapScanDeps> = {}) => {
   const findPatches = vi.fn<(query: { machine_id: string }) => Promise<PatchesResult>>(
     async () => ({ data: [], error: null }),
   );
+  // Default: no leases either, matching the empty occupancy above. Occupant tests
+  // supply leases for exactly the occupants they list.
+  const listLeasesByEssid = vi.fn<(essid: string) => Promise<LeasesResult>>(async () => ({
+    data: [],
+    error: null,
+  }));
   const deps: NmapScanDeps = {
     nonceStore: freshStore,
     now: () => FIXED_NOW,
     readLog,
     upsertPatch,
     listOccupantsByEssid,
+    listLeasesByEssid,
     findPatches,
     ...over,
   };
-  return { deps, upsertPatch, readLog, listOccupantsByEssid, findPatches };
+  return { deps, upsertPatch, readLog, listOccupantsByEssid, listLeasesByEssid, findPatches };
 };
 
 const subnetOf = (pubkey: string): string => generateHomeLan(pubkey, ESSID).subnet;
 const selfIpOf = (pubkey: string): string => assignHomeNetwork(pubkey, ESSID).localIp;
+const octetOf = (ip: string): number => Number(ip.split('.')[3]);
 
 /** Every host the server should log on for a full-range scan: all up hosts
  *  except the player's own workstation, in ascending-octet (lan) order. */
@@ -479,7 +489,24 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant (Story 7)', 
       aPatches?: readonly OwnerPatchRow[];
       caller?: 'bob' | 'stranger';
       listOccupantsByEssid?: NmapScanDeps['listOccupantsByEssid'];
+      listLeasesByEssid?: NmapScanDeps['listLeasesByEssid'];
       findPatches?: NmapScanDeps['findPatches'];
+      /** Octets to lease instead of the ones the derivation offered — the state after
+       *  the allocator redrew past an octet another occupant already held. */
+      redrawn?: { readonly alice: number; readonly bob: number };
+      /** Drop the caller's OCCUPANCY row while leaving its lease intact — a player who
+       *  disconnected. The lease is permanent; occupancy is not. */
+      callerOffLan?: boolean;
+      /** Report an error on the occupancy read while still handing back rows — a
+       *  failed read must not be trusted just because it returned something. */
+      occupancyReadFails?: boolean;
+      /** Exactly which leases the ESSID holds, given the generated identities. */
+      leases?: (ids: {
+        readonly alice: ReturnType<typeof generateIdentity>;
+        readonly bob: ReturnType<typeof generateIdentity>;
+      }) => readonly LanLeaseRow[];
+      /** Report an error on the lease read while still handing back rows. */
+      leaseReadFails?: boolean;
     } = {},
   ) => {
     const alice = generateIdentity();
@@ -490,9 +517,30 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant (Story 7)', 
     const occAlice = occupantRow(alice, aWs, 'skylab');
     const occBob = occupantRow(bob, bWs, 'nebuchadnezzar');
     const aPatches = over.aPatches ?? [wsSshdUp];
+    // Leases as the allocator seeds them — each occupant on the octet the derivation
+    // offered — unless the test asks for a redraw.
+    const leasedOctets = over.redrawn ?? {
+      alice: octetOf(selfIpOf(alice.publicKeyHex)),
+      bob: octetOf(selfIpOf(bob.publicKeyHex)),
+    };
+    // The lease reader deps actually get — returned below so a test can retarget it.
+    const listLeasesByEssid =
+      over.listLeasesByEssid ??
+      vi.fn(async () => ({
+        data: over.leases?.({ alice, bob }) ?? [
+          { owner_key: alice.publicKeyHex, octet: leasedOctets.alice },
+          { owner_key: bob.publicKeyHex, octet: leasedOctets.bob },
+        ],
+        error: over.leaseReadFails === true ? new Error('db down') : null,
+      }));
     const { deps, upsertPatch } = makeDeps({
       listOccupantsByEssid:
-        over.listOccupantsByEssid ?? vi.fn(async () => ({ data: [occAlice, occBob], error: null })),
+        over.listOccupantsByEssid ??
+        vi.fn(async () => ({
+          data: over.callerOffLan === true ? [occAlice] : [occAlice, occBob],
+          error: over.occupancyReadFails === true ? new Error('db down') : null,
+        })),
+      listLeasesByEssid,
       findPatches:
         over.findPatches ??
         vi.fn(async ({ machine_id }) => ({
@@ -501,9 +549,11 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant (Story 7)', 
         })),
     });
     const caller = over.caller === 'stranger' ? stranger : bob;
+    const subnet = subnetOf(alice.publicKeyHex);
     return {
       deps,
       upsertPatch,
+      listLeasesByEssid,
       alice,
       bob,
       caller,
@@ -512,8 +562,8 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant (Story 7)', 
       occAlice,
       occBob,
       aPatches,
-      aLan: assignHomeNetwork(alice.publicKeyHex, ESSID).localIp,
-      bLan: assignHomeNetwork(bob.publicKeyHex, ESSID).localIp,
+      aLan: `${subnet}.${leasedOctets.alice}`,
+      bLan: `${subnet}.${leasedOctets.bob}`,
     };
   };
 
@@ -608,9 +658,8 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant (Story 7)', 
   });
 
   it('skips occupant tracing without failing the scan when the occupancy lookup errors', async () => {
-    const ctx = setup({
-      listOccupantsByEssid: vi.fn(async () => ({ data: null, error: new Error('db down') })),
-    });
+    // Rows AND an error: a failed read is not trusted even when it hands back data.
+    const ctx = setup({ occupancyReadFails: true });
 
     const result = await handleNmapScan(envelope(ctx.bob, ctx.aLan), ctx.deps);
 
@@ -620,6 +669,84 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant (Story 7)', 
 
   it('skips an occupant whose journal lookup errors, without failing the scan', async () => {
     const ctx = setup({ findPatches: vi.fn(async () => ({ data: null, error: new Error('db down') })) });
+
+    const result = await handleNmapScan(envelope(ctx.bob, ctx.aLan), ctx.deps);
+
+    expect(result.status).toBe(200);
+    expect(traceOn(ctx.upsertPatch, ctx.aWs)).toBeUndefined();
+  });
+
+  /** Alice and Bob both on REDRAWN octets — the state after the allocator found the
+   *  octets their derivations offered already taken. `.7`/`.8` are outside the range
+   *  either derivation can produce for both at once, so a scan that reaches them can
+   *  only have resolved the lease. */
+  const REDRAWN = { alice: 7, bob: 8 };
+
+  it("traces an occupant at the octet it LEASED, not the one its derivation offered", async () => {
+    const ctx = setup({ redrawn: REDRAWN });
+
+    await handleNmapScan(envelope(ctx.bob, `${subnetOf(ctx.alice.publicKeyHex)}.7`), ctx.deps);
+
+    expect(traceOn(ctx.upsertPatch, ctx.aWs)).toBeDefined();
+  });
+
+  it("does not trace an occupant at its DERIVED octet once its lease moved elsewhere", async () => {
+    const ctx = setup({ redrawn: REDRAWN });
+    const derivedAliceIp = selfIpOf(ctx.alice.publicKeyHex);
+
+    await handleNmapScan(envelope(ctx.bob, derivedAliceIp), ctx.deps);
+
+    expect(traceOn(ctx.upsertPatch, ctx.aWs)).toBeUndefined();
+  });
+
+  it("stamps the caller's LEASED address as the trace source, not its derived one", async () => {
+    const ctx = setup({ redrawn: REDRAWN });
+
+    await handleNmapScan(envelope(ctx.bob, `${subnetOf(ctx.alice.publicKeyHex)}.7`), ctx.deps);
+
+    expect(traceOn(ctx.upsertPatch, ctx.aWs)?.content).toBe(
+      `${expectedOccupantLine(ctx.occAlice, ctx.aPatches, `${subnetOf(ctx.bob.publicKeyHex)}.8`)}\n`,
+    );
+  });
+
+  it('does not trace an occupant that holds no lease, even when the scanner holds one', async () => {
+    // Only the scanner is leased: the target occupies the LAN but holds no address.
+    const ctx = setup({
+      redrawn: REDRAWN,
+      leases: ({ bob }) => [{ owner_key: bob.publicKeyHex, octet: REDRAWN.bob }],
+    });
+
+    await handleNmapScan(envelope(ctx.bob, `${subnetOf(ctx.alice.publicKeyHex)}.1-254`), ctx.deps);
+
+    expect(traceOn(ctx.upsertPatch, ctx.aWs)).toBeUndefined();
+  });
+
+  it('traces nobody when the SCANNER holds no lease — there is no source address to stamp', async () => {
+    // Only the target is leased: the scanner is a live occupant with no address of its
+    // own, so a trace could only be written from an invented source.
+    const ctx = setup({
+      redrawn: REDRAWN,
+      leases: ({ alice }) => [{ owner_key: alice.publicKeyHex, octet: REDRAWN.alice }],
+    });
+
+    await handleNmapScan(envelope(ctx.bob, `${subnetOf(ctx.alice.publicKeyHex)}.1-254`), ctx.deps);
+
+    expect(traceOn(ctx.upsertPatch, ctx.aWs)).toBeUndefined();
+  });
+
+  it('traces nobody when the scanner left the LAN, even though its lease survives the disconnect', async () => {
+    // A lease outlives occupancy, so a disconnected player still holds an address. Being
+    // ADDRESSED is not being PRESENT: only a live occupant may scan the LAN.
+    const ctx = setup({ callerOffLan: true });
+
+    await handleNmapScan(envelope(ctx.bob, ctx.aLan), ctx.deps);
+
+    expect(traceOn(ctx.upsertPatch, ctx.aWs)).toBeUndefined();
+  });
+
+  it('skips occupant tracing without failing the scan when the lease lookup errors', async () => {
+    // Rows AND an error: a failed read is not trusted even when it hands back data.
+    const ctx = setup({ leaseReadFails: true });
 
     const result = await handleNmapScan(envelope(ctx.bob, ctx.aLan), ctx.deps);
 
