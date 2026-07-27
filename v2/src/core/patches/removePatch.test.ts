@@ -23,8 +23,8 @@ const ESSID = 'BEAN-THERE-WIFI';
 
 /** A REAL remote host on the signer's LAN — so L2 regeneration resolves the same
  *  FS the perms are walked over. Returns the coordinate machine_id + essid. */
-const remoteTarget = (publicKeyHex: string) => {
-  const host = generateHomeLan(publicKeyHex, ESSID)
+const remoteTarget = () => {
+  const host = generateHomeLan(ESSID)
     .hosts.filter((candidate) => candidate.kind === 'machine')
     .at(-1);
   if (host === undefined) throw new Error('no machine host on LAN');
@@ -171,7 +171,7 @@ describe('handleRemovePatch', () => {
 
   it('removes a node on a foreign machine when a root ssh session exists there', async () => {
     const id = generateIdentity();
-    const { machineId } = remoteTarget(id.publicKeyHex);
+    const { machineId } = remoteTarget();
     const envelope = signRequest(id, 'removePatch', {
       machine_id: machineId,
       path: '/etc/passwd',
@@ -193,7 +193,7 @@ describe('handleRemovePatch', () => {
 
   it('rejects a user ssh session removing a root-owned file on a foreign machine (403, L2)', async () => {
     const id = generateIdentity();
-    const { machineId } = remoteTarget(id.publicKeyHex);
+    const { machineId } = remoteTarget();
     const envelope = signRequest(id, 'removePatch', {
       machine_id: machineId,
       path: '/etc/passwd',
@@ -212,7 +212,7 @@ describe('handleRemovePatch', () => {
 
   it('returns 500 when the prior-patch fetch for the L2 check fails', async () => {
     const id = generateIdentity();
-    const { machineId } = remoteTarget(id.publicKeyHex);
+    const { machineId } = remoteTarget();
     const envelope = signRequest(id, 'removePatch', {
       machine_id: machineId,
       path: '/etc/passwd',

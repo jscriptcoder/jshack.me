@@ -22,8 +22,8 @@ const ESSID = 'BEAN-THERE-WIFI';
 /** A REAL remote host on the signer's deterministic LAN — so the L2 regeneration
  *  (`hostForMachineId` → `buildRemoteHostFs`) resolves the same FS the perms are
  *  walked over. Returns the coordinate machine_id the ssh session would carry. */
-const remoteTarget = (publicKeyHex: string) => {
-  const host = generateHomeLan(publicKeyHex, ESSID)
+const remoteTarget = () => {
+  const host = generateHomeLan(ESSID)
     .hosts.filter((candidate) => candidate.kind === 'machine')
     .at(-1);
   if (host === undefined) throw new Error('no machine host on LAN');
@@ -151,7 +151,7 @@ describe('handleUpsertPatch', () => {
 
   it('permits a root ssh session to write anywhere on a foreign machine', async () => {
     const id = generateIdentity();
-    const { machineId } = remoteTarget(id.publicKeyHex);
+    const { machineId } = remoteTarget();
     const envelope = signRequest(id, 'upsertPatch', {
       machine_id: machineId,
       path: '/etc/secret',
@@ -173,7 +173,7 @@ describe('handleUpsertPatch', () => {
 
   it('rejects a user ssh session overwriting a root-owned file (/etc/passwd) with 403 permission_denied', async () => {
     const id = generateIdentity();
-    const { machineId } = remoteTarget(id.publicKeyHex);
+    const { machineId } = remoteTarget();
     const envelope = signRequest(id, 'upsertPatch', {
       machine_id: machineId,
       path: '/etc/passwd',
@@ -195,7 +195,7 @@ describe('handleUpsertPatch', () => {
 
   it('treats a null prior-patch journal as an empty one (root write over the base FS proceeds)', async () => {
     const id = generateIdentity();
-    const { machineId } = remoteTarget(id.publicKeyHex);
+    const { machineId } = remoteTarget();
     const envelope = signRequest(id, 'upsertPatch', {
       machine_id: machineId,
       path: '/tmp/x',
@@ -215,7 +215,7 @@ describe('handleUpsertPatch', () => {
 
   it('permits a user ssh session to write the world-writable /tmp on a foreign machine', async () => {
     const id = generateIdentity();
-    const { machineId } = remoteTarget(id.publicKeyHex);
+    const { machineId } = remoteTarget();
     const envelope = signRequest(id, 'upsertPatch', {
       machine_id: machineId,
       path: '/tmp/scratch',
@@ -232,7 +232,7 @@ describe('handleUpsertPatch', () => {
 
   it('rejects a guest ssh session overwriting a root-owned file (403 permission_denied)', async () => {
     const id = generateIdentity();
-    const { machineId } = remoteTarget(id.publicKeyHex);
+    const { machineId } = remoteTarget();
     const envelope = signRequest(id, 'upsertPatch', {
       machine_id: machineId,
       path: '/etc/passwd',
@@ -249,7 +249,7 @@ describe('handleUpsertPatch', () => {
 
   it('walks the machine’s PRIOR patches when checking perms (a root-only file added later blocks a user)', async () => {
     const id = generateIdentity();
-    const { machineId } = remoteTarget(id.publicKeyHex);
+    const { machineId } = remoteTarget();
     // A root session earlier dropped a private key into the root-only /root dir.
     // Replaying that patch over the regenerated base is what makes /root traversed
     // (its ROOT_DIR perms enter the parent chain) — without it the path wouldn't
@@ -292,7 +292,7 @@ describe('handleUpsertPatch', () => {
 
   it('returns 500 when the prior-patch fetch for the L2 check fails', async () => {
     const id = generateIdentity();
-    const { machineId } = remoteTarget(id.publicKeyHex);
+    const { machineId } = remoteTarget();
     const envelope = signRequest(id, 'upsertPatch', {
       machine_id: machineId,
       path: '/tmp/x',
@@ -406,7 +406,7 @@ describe('handleUpsertPatch', () => {
 
   it('does not consult the registry for an NPC-host write (resolved on the caller’s own LAN)', async () => {
     const id = generateIdentity();
-    const { machineId } = remoteTarget(id.publicKeyHex);
+    const { machineId } = remoteTarget();
     const envelope = signRequest(id, 'upsertPatch', {
       machine_id: machineId,
       path: '/tmp/scratch',

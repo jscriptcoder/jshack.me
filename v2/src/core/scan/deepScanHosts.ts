@@ -72,7 +72,7 @@ export const resolveDeepScanHosts = (
     // resolves to its acl.conf box rather than aliasing the generic NPC tree.
     const identity =
       host.kind === 'machine'
-        ? { machineId: hostMachineId(host, essid), baseFs: buildDeepHostFs(ownerKeyHex, essid, host) }
+        ? { machineId: hostMachineId(host, essid), baseFs: buildDeepHostFs(essid, host) }
         : resolveDeepGatewayIdentity(ownerKeyHex, vantage.machineId, host.ip, host.kind);
     const ports = readOpenPorts(identity.baseFs).filter((openPort) => !deniedPorts.has(openPort.port));
     return { host, machineId: identity.machineId, ports };

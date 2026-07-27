@@ -29,6 +29,7 @@ import type { NonceStore } from '../src/core/signedRequest/nonceStore';
 import { allocatePublicIp } from '../src/core/network/allocatePublicIp';
 import { allocateLanLease, drawLanOctet } from '../src/core/network/allocateLanLease';
 import { assignHomeNetwork } from '../src/core/network/homeNetwork';
+import { generateHomeLan } from '../src/core/generation/generateHomeLan';
 import { generatePublicIp } from '../src/core/generation/ip';
 import { createPrng } from '../src/core/generation/prng';
 import { randomUUID } from 'node:crypto';
@@ -492,6 +493,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // switching the readers over relocates nobody. Retire this once nothing derives.
   const derivedOctetFor = (ownerKey: string, essid: string): number =>
     Number(assignHomeNetwork(ownerKey, essid).localIp.split('.')[3]);
+  // The ESSID's own generated hosts. Their octets are the one set an occupant may never
+  // be issued: the population is shared by everybody on the AP, so a lease landing on an
+  // NPC would delete that machine from every occupant's view — and orphan whatever has
+  // already been written to it — not merely hide it from the joiner.
+  const npcOctetsFor = (essid: string): ReadonlySet<number> =>
+    new Set(generateHomeLan(essid).hosts.map((host) => Number(host.ip.split('.')[3])));
   const { status, body } = await handleRegisterNetwork(req.body, {
     nonceStore: noopNonceStore,
     // A fresh random seed per draw so a redraw yields a DIFFERENT candidate (an
@@ -509,10 +516,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // draw, since a key-seeded redraw would return the same colliding octet forever.
     allocateLanLease: (essid: string, ownerKey: string) =>
       allocateLanLease(
-        { essid, ownerKey, preferredOctet: derivedOctetFor(ownerKey, essid) },
+        {
+          essid,
+          ownerKey,
+          preferredOctet: derivedOctetFor(ownerKey, essid),
+          excludedOctets: npcOctetsFor(essid),
+        },
         {
           readLease: readLanLease,
-          redrawOctet: () => drawLanOctet(createPrng(randomUUID())),
+          redrawOctet: (excluded) => drawLanOctet(createPrng(randomUUID()), excluded),
           claim: claimLanLease,
         },
       ),

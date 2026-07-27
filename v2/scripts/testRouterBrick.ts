@@ -307,7 +307,7 @@ check(
 //     seeded admin password → 404. Before this gate the own-LAN handler authenticated
 //     against the purely regenerated base FS, which cannot carry a /boot tombstone, so
 //     a bricked gateway kept serving ssh to every occupant of its own network.
-const gatewayHost = generateHomeLan(alice.publicKeyHex, ESSID).hosts.find(
+const gatewayHost = generateHomeLan(ESSID).hosts.find(
   (host) => Number(host.ip.split('.')[3]) === 1,
 );
 const a10 = await post(

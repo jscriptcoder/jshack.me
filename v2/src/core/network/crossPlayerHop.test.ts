@@ -31,7 +31,7 @@ describe('isCrossPlayerWorkstation', () => {
   });
 
   it('is false for a host that IS on your own LAN (an NPC ssh hop)', () => {
-    const lanHopId = hostMachineId(generateHomeLan(PUBKEY, ESSID).hosts.at(-1)!, ESSID);
+    const lanHopId = hostMachineId(generateHomeLan(ESSID).hosts.at(-1)!, ESSID);
     expect(
       isCrossPlayerWorkstation({ machineId: lanHopId, publicKeyHex: PUBKEY, essid: ESSID }),
     ).toBe(false);
@@ -68,11 +68,11 @@ describe('isCrossPlayerWorkstation', () => {
   // `hostForMachineId` alone misses them — they must still be own-LAN, or the UI serves
   // an empty cross-player tree instead of their real journal-replayed filesystem.
   const innerGatewayId = (): string => {
-    const inner = generateHomeLan(PUBKEY, ESSID).hosts.find(
+    const inner = generateHomeLan(ESSID).hosts.find(
       (host) => host.kind === 'router' && Number(host.ip.split('.')[3]) !== 1,
     );
     if (inner === undefined) throw new Error('no inner gateway on fixture LAN');
-    return machineIdForLanHost(inner, PUBKEY, ESSID);
+    return machineIdForLanHost(inner, ESSID);
   };
 
   it('is false for your OWN inner gateway (a second journal-backed router on your LAN)', () => {
@@ -82,11 +82,11 @@ describe('isCrossPlayerWorkstation', () => {
   });
 
   it('is false for your OWN switch (the second inner-gateway device kind)', () => {
-    const device = generateHomeLan(PUBKEY, ESSID).hosts.find((host) => host.kind === 'switch');
+    const device = generateHomeLan(ESSID).hosts.find((host) => host.kind === 'switch');
     if (device === undefined) throw new Error('no switch on fixture LAN');
     expect(
       isCrossPlayerWorkstation({
-        machineId: machineIdForLanHost(device, PUBKEY, ESSID),
+        machineId: machineIdForLanHost(device, ESSID),
         publicKeyHex: PUBKEY,
         essid: ESSID,
       }),

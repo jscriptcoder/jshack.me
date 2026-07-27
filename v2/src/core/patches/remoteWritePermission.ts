@@ -107,7 +107,7 @@ const resolveTargetBaseFs = async (args: {
   // (a `ssh root@<gateway>` hop), or an NPC sibling — rebuilds from the caller's own
   // key via the shared resolver, the SAME tree the client edits, so a root-tier
   // `rules.v4` write walks the real router perms.
-  const ownFs = ownLanBaseFsForMachineId(args.publicKey, args.session.essid, args.machineId);
+  const ownFs = ownLanBaseFsForMachineId(args.session.essid, args.machineId);
   if (ownFs !== null) {
     return { fs: ownFs, error: null };
   }

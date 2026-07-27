@@ -49,11 +49,11 @@ const octetOf = (host: LanHost): number => Number(host.ip.split('.')[3]);
 const playerWithAllRouterChain = (depth: number): Identity => {
   const isAllRouterChain = (identity: Identity): boolean => {
     if (seedNetworkDepth(identity.publicKeyHex, ESSID) !== depth) return false;
-    const inner = generateHomeLan(identity.publicKeyHex, ESSID).hosts.find(
+    const inner = generateHomeLan(ESSID).hosts.find(
       (host) => host.kind === 'router' && octetOf(host) !== 1,
     );
     if (inner === undefined) return false;
-    let parentId = computeInnerGatewayId(identity.publicKeyHex, octetOf(inner));
+    let parentId = computeInnerGatewayId(ESSID, octetOf(inner));
     for (let position = 1; position < depth; position++) {
       const child = generateDeepLayer(
         identity.publicKeyHex,
@@ -71,24 +71,24 @@ const playerWithAllRouterChain = (depth: number): Identity => {
   return found;
 };
 
-const innerGatewayOf = (pubkey: string, essid: string): LanHost => {
-  const gateway = generateHomeLan(pubkey, essid).hosts.find(
+const innerGatewayOf = ( essid: string): LanHost => {
+  const gateway = generateHomeLan(essid).hosts.find(
     (host) => host.kind === 'router' && octetOf(host) !== 1,
   );
   if (gateway === undefined) throw new Error('no inner gateway on LAN');
   return gateway;
 };
 
-const hostMatching = (pubkey: string, essid: string, predicate: (host: LanHost) => boolean): LanHost => {
-  const host = generateHomeLan(pubkey, essid).hosts.find(predicate);
+const hostMatching = ( essid: string, predicate: (host: LanHost) => boolean): LanHost => {
+  const host = generateHomeLan(essid).hosts.find(predicate);
   if (host === undefined) throw new Error('no matching host on LAN');
   return host;
 };
 
-const INNER = innerGatewayOf(PLAYER.publicKeyHex, ESSID);
-const EDGE = hostMatching(PLAYER.publicKeyHex, ESSID, (host) => octetOf(host) === 1);
-const SIBLING = hostMatching(PLAYER.publicKeyHex, ESSID, (host) => host.kind === 'machine');
-const INNER_GW_ID = computeInnerGatewayId(PLAYER.publicKeyHex, octetOf(INNER));
+const INNER = innerGatewayOf( ESSID);
+const EDGE = hostMatching( ESSID, (host) => octetOf(host) === 1);
+const SIBLING = hostMatching( ESSID, (host) => host.kind === 'machine');
+const INNER_GW_ID = computeInnerGatewayId(ESSID, octetOf(INNER));
 const DEEP_LAYER = generateDeepLayer(PLAYER.publicKeyHex, ESSID, {
   machineId: INNER_GW_ID,
   kind: 'router',
@@ -163,7 +163,7 @@ describe('handleResolveInnerGatewayScan', () => {
     });
     // The journal is read off the INNER GATEWAY's own machine id.
     expect(findPatches).toHaveBeenCalledWith({
-      machine_id: computeInnerGatewayId(PLAYER.publicKeyHex, octetOf(INNER)),
+      machine_id: computeInnerGatewayId(ESSID, octetOf(INNER)),
     });
   });
 
@@ -171,7 +171,7 @@ describe('handleResolveInnerGatewayScan', () => {
     // A switch is the second inner-gateway device type. It has no `rules.v4` at all,
     // so the external-vantage scan finds an empty forward table by construction: its
     // segment is dark from upstream with no forward mechanic to disable.
-    const innerSwitch = hostMatching(PLAYER.publicKeyHex, ESSID, (host) => host.kind === 'switch');
+    const innerSwitch = hostMatching( ESSID, (host) => host.kind === 'switch');
     const { deps, findPatches } = makeDeps();
 
     const result = await handleResolveInnerGatewayScan(envelope(innerSwitch.ip), deps);
@@ -181,7 +181,7 @@ describe('handleResolveInnerGatewayScan', () => {
       body: { ok: true, found: true, ports: [{ port: 22, service: 'ssh' }] },
     });
     expect(findPatches).toHaveBeenCalledWith({
-      machine_id: computeInnerGatewayId(PLAYER.publicKeyHex, octetOf(innerSwitch)),
+      machine_id: computeInnerGatewayId(ESSID, octetOf(innerSwitch)),
     });
   });
 
@@ -334,12 +334,12 @@ describe('handleResolveInnerGatewayScan — chained forward down a deeper chain'
   // inner should surface that chained port only while the WHOLE chain below stays live.
   const DEEP3 = playerWithAllRouterChain(3);
   const deep3Host = (predicate: (host: LanHost) => boolean): LanHost => {
-    const host = generateHomeLan(DEEP3.publicKeyHex, ESSID).hosts.find(predicate);
+    const host = generateHomeLan(ESSID).hosts.find(predicate);
     if (host === undefined) throw new Error('no matching host on the depth-3 LAN');
     return host;
   };
   const INNER3 = deep3Host((host) => host.kind === 'router' && octetOf(host) !== 1);
-  const INNER3_ID = computeInnerGatewayId(DEEP3.publicKeyHex, octetOf(INNER3));
+  const INNER3_ID = computeInnerGatewayId(ESSID, octetOf(INNER3));
   const L2CHILD = generateDeepLayer(
     DEEP3.publicKeyHex,
     ESSID,
@@ -538,12 +538,12 @@ describe('handleResolveInnerGatewayScan — depth-1 home (no child gateway to su
   // drops it and reports only the gateway's own :22.
   const SHALLOW = playerWithNetworkDepth(1);
   const shallowHost = (predicate: (host: LanHost) => boolean): LanHost => {
-    const host = generateHomeLan(SHALLOW.publicKeyHex, ESSID).hosts.find(predicate);
+    const host = generateHomeLan(ESSID).hosts.find(predicate);
     if (host === undefined) throw new Error('no matching host on shallow LAN');
     return host;
   };
   const SHALLOW_INNER = shallowHost((host) => host.kind === 'router' && octetOf(host) !== 1);
-  const SHALLOW_GATEWAY_ID = computeInnerGatewayId(SHALLOW.publicKeyHex, octetOf(SHALLOW_INNER));
+  const SHALLOW_GATEWAY_ID = computeInnerGatewayId(ESSID, octetOf(SHALLOW_INNER));
   const WOULD_BE_CHILD = generateDeepLayer(
     SHALLOW.publicKeyHex,
     ESSID,

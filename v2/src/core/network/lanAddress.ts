@@ -26,9 +26,14 @@ export type LanLeaseRow = {
 export const lanSubnetFor = (essid: string): number =>
   createPrng(`home-subnet-${essid}`).nextInt(0, 255);
 
+/** The AP's `/24` written as an address prefix (`192.168.29`) rather than as its third
+ *  octet — what a caller needs when it is forming many addresses on one subnet, or
+ *  reporting the subnet itself. One place knows how an ESSID's `/24` is spelled. */
+export const lanSubnetPrefix = (essid: string): string => `192.168.${lanSubnetFor(essid)}`;
+
 /** The address a leased octet names on an ESSID's `/24`. */
 export const lanAddressFor = (essid: string, octet: number): Ipv4 =>
-  `192.168.${lanSubnetFor(essid)}.${octet}`;
+  `${lanSubnetPrefix(essid)}.${octet}`;
 
 /** The address behind a single-occupant lease READ, which may find nothing: no lease is
  *  no address, so the caller falls through to "reaches no host" instead of forming a

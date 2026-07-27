@@ -67,11 +67,11 @@ const octetOf = (host: LanHost): number => Number(host.ip.split('.')[3]);
 const playerWithAllRouterChain = (depth: number): Identity => {
   const isAllRouterChain = (identity: Identity): boolean => {
     if (seedNetworkDepth(identity.publicKeyHex, ESSID) !== depth) return false;
-    const inner = generateHomeLan(identity.publicKeyHex, ESSID).hosts.find(
+    const inner = generateHomeLan(ESSID).hosts.find(
       (host) => host.kind === 'router' && octetOf(host) !== 1,
     );
     if (inner === undefined) return false;
-    let parentId = computeInnerGatewayId(identity.publicKeyHex, octetOf(inner));
+    let parentId = computeInnerGatewayId(ESSID, octetOf(inner));
     for (let position = 1; position < depth; position++) {
       const child = generateDeepLayer(
         identity.publicKeyHex,
@@ -90,7 +90,7 @@ const playerWithAllRouterChain = (depth: number): Identity => {
 };
 
 const hostMatching = (predicate: (host: LanHost) => boolean): LanHost => {
-  const host = generateHomeLan(PLAYER.publicKeyHex, ESSID).hosts.find(predicate);
+  const host = generateHomeLan(ESSID).hosts.find(predicate);
   if (host === undefined) throw new Error('no matching host on LAN');
   return host;
 };
@@ -99,11 +99,11 @@ const INNER = hostMatching((host) => host.kind === 'router' && octetOf(host) !==
 const EDGE = hostMatching((host) => octetOf(host) === 1);
 const SIBLING = hostMatching((host) => host.kind === 'machine');
 
-const GATEWAY_ID = computeInnerGatewayId(PLAYER.publicKeyHex, octetOf(INNER));
-const GATEWAY_ROOT_PW = seedInnerGatewayAdminPw(PLAYER.publicKeyHex, octetOf(INNER));
+const GATEWAY_ID = computeInnerGatewayId(ESSID, octetOf(INNER));
+const GATEWAY_ROOT_PW = seedInnerGatewayAdminPw(ESSID, octetOf(INNER));
 
 const DEEP = generateDeepLayer(PLAYER.publicKeyHex, ESSID, { machineId: GATEWAY_ID, kind: 'router' });
-const DEEP_FS: Directory = buildDeepHostFs(PLAYER.publicKeyHex, ESSID, DEEP.host);
+const DEEP_FS: Directory = buildDeepHostFs(ESSID, DEEP.host);
 const DEEP_ID = hostMachineId(DEEP.host, ESSID);
 
 /** Recover a generated account's plaintext password (the seeded weak pool is exported
@@ -371,12 +371,12 @@ describe('handleAuthCreateSessionInnerGateway — depth-1 home (the inner router
   // refused even with the (would-be) child's correct admin password.
   const SHALLOW = playerWithNetworkDepth(1);
   const shallowHost = (predicate: (host: LanHost) => boolean): LanHost => {
-    const host = generateHomeLan(SHALLOW.publicKeyHex, ESSID).hosts.find(predicate);
+    const host = generateHomeLan(ESSID).hosts.find(predicate);
     if (host === undefined) throw new Error('no matching host on shallow LAN');
     return host;
   };
   const SHALLOW_INNER = shallowHost((host) => host.kind === 'router' && octetOf(host) !== 1);
-  const SHALLOW_GATEWAY_ID = computeInnerGatewayId(SHALLOW.publicKeyHex, octetOf(SHALLOW_INNER));
+  const SHALLOW_GATEWAY_ID = computeInnerGatewayId(ESSID, octetOf(SHALLOW_INNER));
   const WOULD_BE_CHILD = generateDeepLayer(
     SHALLOW.publicKeyHex,
     ESSID,
@@ -435,11 +435,11 @@ describe('handleAuthCreateSessionInnerGateway — reach a deep SWITCH child gate
     for (let attempt = 0; attempt < 400; attempt += 1) {
       const candidate = generateIdentity();
       if (seedNetworkDepth(candidate.publicKeyHex, ESSID) < 2) continue;
-      const inner = generateHomeLan(candidate.publicKeyHex, ESSID).hosts.find(
+      const inner = generateHomeLan(ESSID).hosts.find(
         (host) => host.kind === 'router' && octetOf(host) !== 1,
       );
       if (inner === undefined) continue;
-      const innerId = computeInnerGatewayId(candidate.publicKeyHex, octetOf(inner));
+      const innerId = computeInnerGatewayId(ESSID, octetOf(inner));
       const child = generateDeepLayer(
         candidate.publicKeyHex,
         ESSID,
@@ -452,11 +452,11 @@ describe('handleAuthCreateSessionInnerGateway — reach a deep SWITCH child gate
   };
 
   const SW_OWNER = ownerWithSwitchChild();
-  const swInner = generateHomeLan(SW_OWNER.publicKeyHex, ESSID).hosts.find(
+  const swInner = generateHomeLan(ESSID).hosts.find(
     (host) => host.kind === 'router' && octetOf(host) !== 1,
   );
   if (swInner === undefined) throw new Error('no inner gateway on the switch-child LAN');
-  const SW_INNER_ID = computeInnerGatewayId(SW_OWNER.publicKeyHex, octetOf(swInner));
+  const SW_INNER_ID = computeInnerGatewayId(ESSID, octetOf(swInner));
   const swChild = generateDeepLayer(
     SW_OWNER.publicKeyHex,
     ESSID,
@@ -530,12 +530,12 @@ describe('handleAuthCreateSessionInnerGateway — chained reach down a deeper ch
   // Logging in to the inner at that port should walk the chain and land on the L3 gateway.
   const DEEP3 = playerWithAllRouterChain(3);
   const deep3Host = (predicate: (host: LanHost) => boolean): LanHost => {
-    const host = generateHomeLan(DEEP3.publicKeyHex, ESSID).hosts.find(predicate);
+    const host = generateHomeLan(ESSID).hosts.find(predicate);
     if (host === undefined) throw new Error('no matching host on the depth-3 LAN');
     return host;
   };
   const INNER3 = deep3Host((host) => host.kind === 'router' && octetOf(host) !== 1);
-  const INNER3_ID = computeInnerGatewayId(DEEP3.publicKeyHex, octetOf(INNER3));
+  const INNER3_ID = computeInnerGatewayId(ESSID, octetOf(INNER3));
 
   const L2 = generateDeepLayer(
     DEEP3.publicKeyHex,

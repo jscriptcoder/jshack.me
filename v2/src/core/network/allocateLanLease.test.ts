@@ -178,6 +178,74 @@ describe('allocateLanLease', () => {
     // if the loop stops one short) yet a 4th must not be needed.
     expect(result).toBe(113);
   });
+
+  it('never leases an octet the ESSID’s own NPCs occupy, even the preferred one', async () => {
+    const { claim, calls } = claimSequence([77]);
+
+    const result = await allocateLanLease(
+      { essid: ESSID, ownerKey: OWNER, preferredOctet: 84, excludedOctets: new Set([84]) },
+      { readLease: storedLease(null), redrawOctet: () => 77, claim },
+    );
+
+    // .84 is a generated host on this network. A lease there would put the occupant
+    // ON TOP of an NPC — and because the population is shared, that NPC would vanish
+    // for EVERY occupant of the AP, orphaning any journal already written to it.
+    // The preferred octet is skipped without ever being offered to the store.
+    expect(result).toBe(77);
+    expect(calls).toEqual([{ essid: ESSID, ownerKey: OWNER, octet: 77 }]);
+  });
+
+  it('does not spend a claim attempt on an excluded octet', async () => {
+    // A subnet dense with NPCs must not exhaust the attempt budget before it has
+    // tried a single free address: excluding a candidate is not a failed attempt.
+    const { claim, calls } = claimSequence([null, null, 91]);
+
+    const result = await allocateLanLease(
+      {
+        essid: ESSID,
+        ownerKey: OWNER,
+        preferredOctet: 84,
+        excludedOctets: new Set([84, 10, 20, 30]),
+      },
+      { readLease: storedLease(null), redrawOctet: redrawSequence([50, 60, 91]), claim, maxAttempts: 3 },
+    );
+
+    expect(result).toBe(91);
+    expect(calls.map((call) => call.octet)).toEqual([50, 60, 91]);
+  });
+
+  it('hands the exclusion set to the redraw, so a replacement is never an NPC either', async () => {
+    const offered: Array<ReadonlySet<number>> = [];
+    const { claim } = claimSequence([77]);
+
+    await allocateLanLease(
+      { essid: ESSID, ownerKey: OWNER, preferredOctet: 84, excludedOctets: new Set([84, 99]) },
+      {
+        readLease: storedLease(null),
+        redrawOctet: (excluded) => {
+          offered.push(excluded);
+          return 77;
+        },
+        claim,
+      },
+    );
+
+    // One place decides what is excluded. If the draw kept its own idea of the NPC
+    // set, the two could drift and a redraw could land on a host after all.
+    expect(offered).toEqual([new Set([84, 99])]);
+  });
+
+  it('returns an existing lease even when it sits on an excluded octet', async () => {
+    const result = await allocateLanLease(
+      { essid: ESSID, ownerKey: OWNER, preferredOctet: 84, excludedOctets: new Set([37, 84]) },
+      { readLease: storedLease(37), redrawOctet: failRedraw, claim: failClaim },
+    );
+
+    // Exclusion governs what may be ISSUED, not what is already held. A player who
+    // leased .37 before it became an NPC octet keeps its address rather than being
+    // silently relocated out from under a saved connection.
+    expect(result).toBe(37);
+  });
 });
 
 describe('drawLanOctet', () => {
@@ -201,5 +269,48 @@ describe('drawLanOctet', () => {
     // Guards the range test above: a constant draw would satisfy "always in
     // bounds" while making every occupant collide forever.
     expect(draws.size).toBeGreaterThan(200);
+  });
+
+  it('can reach both ends of the usable range', async () => {
+    const draws = new Set(
+      Array.from({ length: 2000 }, (_, index) => drawLanOctet(createPrng(`lan-octet-${index}`))),
+    );
+
+    // A pool built one short at either end still satisfies "in bounds" and "spread
+    // out" while quietly making two addresses unreachable forever.
+    expect(draws).toContain(2);
+    expect(draws).toContain(254);
+  });
+
+  it('never draws an excluded octet', async () => {
+    // The exclusion has to live in the DRAW, not in a filter applied afterwards:
+    // rejecting a bad draw would either cost an allocation attempt or loop. This is
+    // the real function the api wires in — the allocator tests above inject a fake
+    // redraw, so without this the exclusion could be deleted outright unnoticed.
+    const excluded = new Set([2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    const draws = Array.from({ length: 2000 }, (_, index) =>
+      drawLanOctet(createPrng(`lan-octet-${index}`), excluded),
+    );
+
+    expect(draws.some((octet) => excluded.has(octet))).toBe(false);
+    expect(draws.every((octet) => octet >= 2 && octet <= 254)).toBe(true);
+  });
+
+  it('still yields the one address left when everything else is excluded', async () => {
+    const allButOne = new Set(
+      Array.from({ length: 253 }, (_unused, index) => index + 2).filter((octet) => octet !== 137),
+    );
+
+    expect(drawLanOctet(createPrng('lan-octet-cornered'), allButOne)).toBe(137);
+  });
+
+  it('refuses to invent an address when the subnet has nothing left', async () => {
+    // A full subnet must fail loudly. Without the guard the empty-pool index read
+    // yields undefined and the caller leases a nonsense address.
+    const everything = new Set(Array.from({ length: 253 }, (_unused, index) => index + 2));
+
+    expect(() => drawLanOctet(createPrng('lan-octet-full'), everything)).toThrow(
+      /no usable LAN octet/,
+    );
   });
 });

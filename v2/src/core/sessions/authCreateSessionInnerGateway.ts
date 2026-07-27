@@ -198,7 +198,7 @@ const resolveAuthTarget = async (
   // The forward reaches the terminal NPC — auth against ITS /etc/passwd, land the
   // session on the NPC's coordinate-seeded id.
   if (served.internalIp === deep.host.ip) {
-    const deepFs = buildDeepHostFs(context.publicKey, context.essid, deep.host);
+    const deepFs = buildDeepHostFs(context.essid, deep.host);
     return servesInternalPort(deepFs, served.internalPort)
       ? {
           kind: 'target',
@@ -296,7 +296,7 @@ export const handleAuthCreateSessionInnerGateway = async (
 
   // The target must be a genuine inner gateway on the caller's OWN regenerated LAN —
   // the edge `.1`, a sibling, or an off-LAN address finds nothing (no journal read).
-  const gateway = innerGatewayAt(publicKey, payload.essid, payload.target);
+  const gateway = innerGatewayAt(payload.essid, payload.target);
   if (gateway === null) {
     return { status: 404, body: { error: 'host_unreachable' } };
   }
@@ -304,11 +304,7 @@ export const handleAuthCreateSessionInnerGateway = async (
   // The shared resolver maps the gateway to the SAME machine id + seeded base the
   // scan gate and the client use, so the journal it replays is the box everyone
   // agrees on.
-  const { machineId: gatewayMachineId, baseFs } = resolveLanHostIdentity(
-    gateway,
-    publicKey,
-    payload.essid,
-  );
+  const { machineId: gatewayMachineId, baseFs } = resolveLanHostIdentity(gateway, payload.essid);
   const patches = await deps.findPatches({ machine_id: gatewayMachineId });
   if (patches.error) {
     return { status: 500, body: { error: 'patches_lookup_failed' } };

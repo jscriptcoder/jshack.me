@@ -78,13 +78,20 @@ const octetOf = (ip: string): number => Number(ip.split('.')[3]);
 //     chain). A switch caps the chain short (5b.4d), so a bare depth-3 home no longer
 //     guarantees three router hops. ---
 const ESSID = 'ABSTERGO-NET';
+// The inner gateway belongs to the ACCESS POINT, so it is the same box for every
+// candidate — resolved once here rather than re-derived per identity below. What the
+// search is still varying is the DEPTH hanging off it, which is per-owner.
+const innerHost = generateHomeLan(ESSID).hosts.find(
+  (host) => host.kind === 'router' && octetOf(host.ip) !== 1,
+);
+if (innerHost === undefined) {
+  console.error('no inner gateway on the ESSID’s LAN');
+  process.exit(2);
+}
+const innerId = computeInnerGatewayId(ESSID, octetOf(innerHost.ip));
+
 const isAllRouterDepth3 = (candidate: ReturnType<typeof generateIdentity>): boolean => {
   if (seedNetworkDepth(candidate.publicKeyHex, ESSID) !== 3) return false;
-  const innerHost = generateHomeLan(candidate.publicKeyHex, ESSID).hosts.find(
-    (host) => host.kind === 'router' && octetOf(host.ip) !== 1,
-  );
-  if (innerHost === undefined) return false;
-  const innerId = computeInnerGatewayId(candidate.publicKeyHex, octetOf(innerHost.ip));
   const child = generateDeepLayer(
     candidate.publicKeyHex,
     ESSID,
@@ -107,15 +114,8 @@ if (alice === undefined) {
   process.exit(2);
 }
 
-const inner = generateHomeLan(alice.publicKeyHex, ESSID).hosts.find(
-  (host) => host.kind === 'router' && octetOf(host.ip) !== 1,
-);
-if (inner === undefined) {
-  console.error('no inner gateway on the generated LAN');
-  process.exit(2);
-}
-const INNER_IP = inner.ip;
-const INNER_GW_ID = computeInnerGatewayId(alice.publicKeyHex, octetOf(INNER_IP));
+const INNER_IP = innerHost.ip;
+const INNER_GW_ID = innerId;
 
 const l2child = generateDeepLayer(
   alice.publicKeyHex,

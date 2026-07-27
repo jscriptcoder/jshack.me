@@ -1,8 +1,14 @@
 /**
  * buildRemoteHostFs — the pure per-host filesystem generator for the LAN's NPC
- * machines (ssh epic). Deterministic from the identity pubkey + ESSID + the host,
- * so the same world re-rolls identically every scan, and a host you ssh into is
- * the same operable box every reload.
+ * machines (ssh epic). Deterministic from the ESSID + the host, so the same world
+ * re-rolls identically every scan, and a host you ssh into is the same operable box
+ * every reload — for every occupant of the network, not just for you.
+ *
+ * Keyed by the ESSID rather than by a viewer because a machine_id alone does not make
+ * two occupants agree on a box: the shared journal replays OVER this tree, so if the
+ * accounts, credentials, and running services were still drawn per viewer, one
+ * occupant's write would land on a machine the other does not have. Who the box is
+ * belongs to the box.
  *
  * Two layers ride on the same deterministic seed:
  *   - `/var/run/<pidfile>` for the services a host runs (Slice 2) — the SAME
@@ -95,17 +101,14 @@ export type HostService = { readonly spec: ServiceSpec; readonly port: number };
 
 /**
  * The services a host runs, with their listen ports — deterministic per
- * `(service, pubkey, ESSID, host)`. Each service rolls independently against its
+ * `(service, ESSID, host)`. Each service rolls independently against its
  * `placement`; a running service takes `defaultPort` unless a further roll under
- * `altPortChance` picks an `altPorts` entry.
+ * `altPortChance` picks an `altPorts` entry. Two occupants scanning one box must
+ * report the same open ports, so the roll cannot depend on who is scanning.
  */
-export const hostServices = (
-  seedPubkeyHex: string,
-  essid: string,
-  host: LanHost,
-): readonly HostService[] =>
+export const hostServices = (essid: string, host: LanHost): readonly HostService[] =>
   Object.values(SERVICE_CATALOG).flatMap((spec) => {
-    const prng = createPrng(`svc-${spec.service}-${seedPubkeyHex}-${essid}-${host.ip}`);
+    const prng = createPrng(`svc-${spec.service}-${essid}-${host.ip}`);
     if (prng.next() >= spec.placement) return [];
     const port =
       spec.altPorts.length > 0 && prng.next() < spec.altPortChance
@@ -116,16 +119,12 @@ export const hostServices = (
 
 /**
  * The generated base filesystem for `host` — a full operable Linux box, seeded
- * deterministically from `(pubkey, essid, host.ip)`. `/var/run` holds one pidfile
- * per running service (empty when the host runs none); the rest is the skeleton
- * `ssh`'s auth (reads `/etc/passwd`) and browse (`ls`/`cat` over the tree) consume.
+ * deterministically from `(essid, host.ip)`. `/var/run` holds one pidfile per running
+ * service (empty when the host runs none); the rest is the skeleton `ssh`'s auth
+ * (reads `/etc/passwd`) and browse (`ls`/`cat` over the tree) consume.
  */
-export const buildRemoteHostFs = (
-  seedPubkeyHex: string,
-  essid: string,
-  host: LanHost,
-): Directory => {
-  const prng = createPrng(`host-fs-${seedPubkeyHex}-${essid}-${host.ip}`);
+export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
+  const prng = createPrng(`host-fs-${essid}-${host.ip}`);
   const username = prng.pick(HOST_USERNAMES);
   const passwd = generatePasswd([
     {
@@ -158,7 +157,7 @@ export const buildRemoteHostFs = (
   ]);
 
   const pidfiles = Object.fromEntries(
-    hostServices(seedPubkeyHex, essid, host).map(
+    hostServices(essid, host).map(
       ({ spec, port }) =>
         [spec.pidfile, pidfile(formatPidfileContent(spec, port), spec.runUser)] as const,
     ),

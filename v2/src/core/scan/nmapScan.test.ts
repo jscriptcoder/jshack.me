@@ -79,7 +79,7 @@ const makeDeps = (over: Partial<NmapScanDeps> = {}) => {
   return { deps, upsertPatch, readLog, listOccupantsByEssid, listLeasesByEssid, findPatches };
 };
 
-const subnetOf = (pubkey: string): string => generateHomeLan(pubkey, ESSID).subnet;
+const subnetOf = (): string => generateHomeLan(ESSID).subnet;
 const selfIpOf = (pubkey: string): string => assignHomeNetwork(pubkey, ESSID).localIp;
 const octetOf = (ip: string): number => Number(ip.split('.')[3]);
 
@@ -87,7 +87,7 @@ const octetOf = (ip: string): number => Number(ip.split('.')[3]);
  *  except the player's own workstation, in ascending-octet (lan) order. */
 const loggedHostsOf = (pubkey: string): readonly LanHost[] => {
   const selfIp = selfIpOf(pubkey);
-  return generateHomeLan(pubkey, ESSID).hosts.filter((host) => host.ip !== selfIp);
+  return generateHomeLan(ESSID).hosts.filter((host) => host.ip !== selfIp);
 };
 
 /** The first generic NPC sibling (a `kind:'machine'` host that is not the player's
@@ -96,28 +96,28 @@ const firstSiblingOf = (pubkey: string): LanHost =>
   loggedHostsOf(pubkey).find((host) => host.kind === 'machine')!;
 
 /** The `.1` edge gateway host (the first `kind:'router'` host in octet order). */
-const gatewayOf = (pubkey: string): LanHost =>
-  generateHomeLan(pubkey, ESSID).hosts.find((host) => host.kind === 'router')!;
+const gatewayOf = (): LanHost =>
+  generateHomeLan(ESSID).hosts.find((host) => host.kind === 'router')!;
 
 /** The inner gateway — a SECOND router on the LAN, at a non-.1 octet. */
-const innerGatewayOf = (pubkey: string): LanHost =>
-  generateHomeLan(pubkey, ESSID).hosts.find(
+const innerGatewayOf = (): LanHost =>
+  generateHomeLan(ESSID).hosts.find(
     (host) => host.kind === 'router' && Number(host.ip.split('.')[3]) !== 1,
   )!;
 
 // The ports the server logs for a host, mirroring production's FS choice via the
 // shared resolver: the edge router and inner gateway read their real router base
 // FS; every NPC sibling reads its generic coordinate FS.
-const portsOf = (pubkey: string, host: LanHost): readonly number[] =>
-  readOpenPorts(resolveLanHostIdentity(host, pubkey, ESSID).baseFs).map((port) => port.port);
+const portsOf = ( host: LanHost): readonly number[] =>
+  readOpenPorts(resolveLanHostIdentity(host, ESSID).baseFs).map((port) => port.port);
 
 /** The kern.log line the server should stamp for a scan of `host` at FIXED_NOW. */
-const expectedKernLine = (pubkey: string, host: LanHost): string =>
+const expectedKernLine = (host: LanHost): string =>
   formatNmapScanAggregate({
     time: asGameTime(FIXED_NOW),
     hostname: host.hostname,
     sourceIp: SOURCE_IP,
-    probedPorts: portsOf(pubkey, host),
+    probedPorts: portsOf(host),
   });
 
 // A FIXED identity whose deterministic LAN gateway runs a service, so a test can
@@ -149,24 +149,42 @@ describe('handleNmapScan', () => {
     const { deps, upsertPatch } = makeDeps();
     const logged = loggedHostsOf(id.publicKeyHex);
 
-    const result = await handleNmapScan(envelope(id, `${subnetOf(id.publicKeyHex)}.1-254`), deps);
+    const result = await handleNmapScan(envelope(id, `${subnetOf()}.1-254`), deps);
 
     expect(result).toEqual({ status: 200, body: { ok: true, hostsLogged: logged.length } });
     expect(upsertPatch).toHaveBeenCalledTimes(logged.length);
     logged.forEach((host, index) => {
       // Each host logs on the id the shared resolver picks: the edge router, an
       // inner gateway, or a generic NPC sibling's coordinate id.
-      const expectedMachineId = resolveLanHostIdentity(host, id.publicKeyHex, ESSID).machineId;
+      const expectedMachineId = resolveLanHostIdentity(host, ESSID).machineId;
       expect(upsertPatch.mock.calls[index]![0]).toEqual({
         writer_key: id.publicKeyHex,
         machine_id: expectedMachineId,
         path: '/var/log/kern.log',
-        content: `${expectedKernLine(id.publicKeyHex, host)}\n`,
+        content: `${expectedKernLine(host)}\n`,
         owner: KERN_LOG_OWNER,
         permissions: KERN_LOG_PERMISSIONS,
         node_type: 'file',
       });
     });
+  });
+
+  it('records the same LAN for every occupant of an ESSID — same hosts, same ids, same names', async () => {
+    // The LAN belongs to the access point, not to whoever is looking at it. Two
+    // occupants sweeping the same /24 must therefore touch the same boxes: the same
+    // machine ids (so a write by one is a write the other can read) under the same
+    // hostnames. The scanner's key stays an input here — it is the verified signer —
+    // so this stays a real claim about two viewers rather than a tautology.
+    const sweep = async (id: ReturnType<typeof generateIdentity>) => {
+      const { deps, upsertPatch } = makeDeps();
+      await handleNmapScan(envelope(id, `${subnetOf()}.1-254`), deps);
+      return upsertPatch.mock.calls.map(([row]) => ({
+        machine_id: row.machine_id,
+        content: row.content,
+      }));
+    };
+
+    expect(await sweep(generateIdentity())).toEqual(await sweep(generateIdentity()));
   });
 
   it('logs exactly one line when scanning a single real host', async () => {
@@ -180,7 +198,7 @@ describe('handleNmapScan', () => {
     expect(upsertPatch).toHaveBeenCalledTimes(1);
     expect(upsertPatch.mock.calls[0]![0].machine_id).toBe(hostMachineId(host, ESSID));
     expect(upsertPatch.mock.calls[0]![0].content).toBe(
-      `${expectedKernLine(id.publicKeyHex, host)}\n`,
+      `${expectedKernLine(host)}\n`,
     );
   });
 
@@ -194,14 +212,14 @@ describe('handleNmapScan', () => {
     await handleNmapScan(envelope(id, host.ip), deps);
 
     expect(upsertPatch.mock.calls[0]![0].content).toBe(
-      `PRIOR LINE\n${expectedKernLine(id.publicKeyHex, host)}\n`,
+      `PRIOR LINE\n${expectedKernLine(host)}\n`,
     );
   });
 
   it('writes nothing when the single target octet has no host (host down)', async () => {
     const id = generateIdentity();
-    const subnet = subnetOf(id.publicKeyHex);
-    const taken = new Set(generateHomeLan(id.publicKeyHex, ESSID).hosts.map((host) => host.ip));
+    const subnet = subnetOf();
+    const taken = new Set(generateHomeLan(ESSID).hosts.map((host) => host.ip));
     const freeOctet = Array.from({ length: 253 }, (_, index) => index + 2).find(
       (octet) => !taken.has(`${subnet}.${octet}`),
     )!;
@@ -237,7 +255,7 @@ describe('handleNmapScan', () => {
   it('rejects a tampered envelope (payload changed after signing) without writing', async () => {
     const id = generateIdentity();
     const { deps, upsertPatch } = makeDeps();
-    const signed = envelope(id, `${subnetOf(id.publicKeyHex)}.1-254`);
+    const signed = envelope(id, `${subnetOf()}.1-254`);
     // Mutate the signed payload so the signature no longer matches it: the
     // structure stays valid (so it reaches the signature check) but verification
     // fails → 401, and nothing is written.
@@ -254,7 +272,7 @@ describe('handleNmapScan', () => {
     const { deps, upsertPatch } = makeDeps();
 
     const result = await handleNmapScan(
-      envelope(id, `${subnetOf(id.publicKeyHex)}.1-254`, { player_key: 'attacker-key' }),
+      envelope(id, `${subnetOf()}.1-254`, { player_key: 'attacker-key' }),
       deps,
     );
 
@@ -276,7 +294,7 @@ describe('handleNmapScan', () => {
   });
 
   it('lists the scanned host real open ports in the logged line', async () => {
-    const ports = portsOf(PORTED_IDENTITY.publicKeyHex, PORTED_HOST);
+    const ports = portsOf( PORTED_HOST);
     // Guards the fixture's premise: if generation ever stops giving this host a
     // service, this fails loudly instead of silently testing a 0-port line.
     expect(ports).toContainEqual(22);
@@ -285,7 +303,7 @@ describe('handleNmapScan', () => {
     await handleNmapScan(envelope(PORTED_IDENTITY, PORTED_HOST.ip), deps);
 
     const content = upsertPatch.mock.calls[0]![0].content;
-    expect(content).toBe(`${expectedKernLine(PORTED_IDENTITY.publicKeyHex, PORTED_HOST)}\n`);
+    expect(content).toBe(`${expectedKernLine(PORTED_HOST)}\n`);
     // The actual port numbers must reach the line (not, say, `undefined`).
     for (const port of ports) expect(content).toContain(String(port));
   });
@@ -340,7 +358,7 @@ const ROUTER_PORTS_IDENTITY: ReturnType<typeof generateIdentity> = {
 describe('handleNmapScan — own-LAN .1 scan → real router record (Story 6.4)', () => {
   it('logs the .1 gateway scan on computeApGatewayId(ESSID), not the dead-end hostMachineId', async () => {
     const id = generateIdentity();
-    const gateway = gatewayOf(id.publicKeyHex);
+    const gateway = gatewayOf();
     const { deps, upsertPatch } = makeDeps();
 
     await handleNmapScan(envelope(id, gateway.ip), deps);
@@ -367,27 +385,27 @@ describe('handleNmapScan — own-LAN .1 scan → real router record (Story 6.4)'
 
   it('logs the inner gateway scan on computeInnerGatewayId(caller), distinct from the edge router id', async () => {
     const id = generateIdentity();
-    const inner = innerGatewayOf(id.publicKeyHex);
+    const inner = innerGatewayOf();
     const octet = Number(inner.ip.split('.')[3]);
     const { deps, upsertPatch } = makeDeps();
 
     await handleNmapScan(envelope(id, inner.ip), deps);
 
-    const innerId = computeInnerGatewayId(id.publicKeyHex, octet);
+    const innerId = computeInnerGatewayId(ESSID, octet);
     // The trace lands on the inner gateway's OWN id — never the edge router's
     // (would alias) nor its dead-end coordinate record — listing its own sshd:22.
     expect(innerId).not.toBe(computeApGatewayId(ESSID));
     expect(innerId).not.toBe(hostMachineId(inner, ESSID));
     expect(upsertPatch).toHaveBeenCalledTimes(1);
     expect(upsertPatch.mock.calls[0]![0].machine_id).toBe(innerId);
-    expect(upsertPatch.mock.calls[0]![0].content).toBe(`${expectedKernLine(id.publicKeyHex, inner)}\n`);
+    expect(upsertPatch.mock.calls[0]![0].content).toBe(`${expectedKernLine(inner)}\n`);
   });
 
   it('logs the router scan with the router real ports (sshd:22), not the dead generic host FS', async () => {
     const id = ROUTER_PORTS_IDENTITY;
-    const gateway = gatewayOf(id.publicKeyHex);
+    const gateway = gatewayOf();
     const realPorts = readOpenPorts(buildApGatewayBaseFs(ESSID)).map((port) => port.port);
-    const genericPorts = readOpenPorts(buildRemoteHostFs(id.publicKeyHex, ESSID, gateway)).map(
+    const genericPorts = readOpenPorts(buildRemoteHostFs(ESSID, gateway)).map(
       (port) => port.port,
     );
     // Fixture premise: the router's own services (always sshd:22) genuinely DIFFER
@@ -399,7 +417,7 @@ describe('handleNmapScan — own-LAN .1 scan → real router record (Story 6.4)'
 
     await handleNmapScan(envelope(id, gateway.ip), deps);
 
-    expect(upsertPatch.mock.calls[0]![0].content).toBe(`${expectedKernLine(id.publicKeyHex, gateway)}\n`);
+    expect(upsertPatch.mock.calls[0]![0].content).toBe(`${expectedKernLine(gateway)}\n`);
   });
 
   it('does not log the player own workstation on the router record (self still skipped)', async () => {
@@ -549,7 +567,7 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant (Story 7)', 
         })),
     });
     const caller = over.caller === 'stranger' ? stranger : bob;
-    const subnet = subnetOf(alice.publicKeyHex);
+    const subnet = subnetOf();
     return {
       deps,
       upsertPatch,
@@ -594,7 +612,7 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant (Story 7)', 
 
   it('traces an occupant whose LAN IP falls inside a scanned range', async () => {
     const ctx = setup();
-    const subnet = subnetOf(ctx.bob.publicKeyHex);
+    const subnet = subnetOf();
 
     await handleNmapScan(envelope(ctx.bob, `${subnet}.1-254`), ctx.deps);
 
@@ -641,7 +659,7 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant (Story 7)', 
     const otherOctet = aOctet === 100 ? 101 : 100;
 
     await handleNmapScan(
-      envelope(ctx.bob, `${subnetOf(ctx.bob.publicKeyHex)}.${otherOctet}`),
+      envelope(ctx.bob, `${subnetOf()}.${otherOctet}`),
       ctx.deps,
     );
 
@@ -685,7 +703,7 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant (Story 7)', 
   it("traces an occupant at the octet it LEASED, not the one its derivation offered", async () => {
     const ctx = setup({ redrawn: REDRAWN });
 
-    await handleNmapScan(envelope(ctx.bob, `${subnetOf(ctx.alice.publicKeyHex)}.7`), ctx.deps);
+    await handleNmapScan(envelope(ctx.bob, `${subnetOf()}.7`), ctx.deps);
 
     expect(traceOn(ctx.upsertPatch, ctx.aWs)).toBeDefined();
   });
@@ -702,10 +720,10 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant (Story 7)', 
   it("stamps the caller's LEASED address as the trace source, not its derived one", async () => {
     const ctx = setup({ redrawn: REDRAWN });
 
-    await handleNmapScan(envelope(ctx.bob, `${subnetOf(ctx.alice.publicKeyHex)}.7`), ctx.deps);
+    await handleNmapScan(envelope(ctx.bob, `${subnetOf()}.7`), ctx.deps);
 
     expect(traceOn(ctx.upsertPatch, ctx.aWs)?.content).toBe(
-      `${expectedOccupantLine(ctx.occAlice, ctx.aPatches, `${subnetOf(ctx.bob.publicKeyHex)}.8`)}\n`,
+      `${expectedOccupantLine(ctx.occAlice, ctx.aPatches, `${subnetOf()}.8`)}\n`,
     );
   });
 
@@ -716,7 +734,7 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant (Story 7)', 
       leases: ({ bob }) => [{ owner_key: bob.publicKeyHex, octet: REDRAWN.bob }],
     });
 
-    await handleNmapScan(envelope(ctx.bob, `${subnetOf(ctx.alice.publicKeyHex)}.1-254`), ctx.deps);
+    await handleNmapScan(envelope(ctx.bob, `${subnetOf()}.1-254`), ctx.deps);
 
     expect(traceOn(ctx.upsertPatch, ctx.aWs)).toBeUndefined();
   });
@@ -729,7 +747,7 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant (Story 7)', 
       leases: ({ alice }) => [{ owner_key: alice.publicKeyHex, octet: REDRAWN.alice }],
     });
 
-    await handleNmapScan(envelope(ctx.bob, `${subnetOf(ctx.alice.publicKeyHex)}.1-254`), ctx.deps);
+    await handleNmapScan(envelope(ctx.bob, `${subnetOf()}.1-254`), ctx.deps);
 
     expect(traceOn(ctx.upsertPatch, ctx.aWs)).toBeUndefined();
   });

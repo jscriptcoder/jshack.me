@@ -37,21 +37,24 @@ const ESSID = 'BEAN-THERE-WIFI';
 // 2026-06-07 14:32:01 UTC — the server clock the kern.log line is stamped with.
 const FIXED_NOW = Date.UTC(2026, 5, 7, 14, 32, 1);
 
-// A FIXED identity (found once via a dev-time search, then hardcoded) whose
-// 'BEAN-THERE-WIFI' chain runs deep enough (depth 3) that its inner router fronts a
-// child gateway — so a pivot scan of the inner router's deep /24 touches BOTH the
-// terminal NPC and a child ROUTER gateway. Inner router 192.168.29.111; deep /24
-// 10.168.98 (NPC .49, child router .7).
+// The LAN is the access point's, so its inner router is 192.168.29.85 for EVERY
+// identity on this ESSID. What is still per-player is the chain hanging off it, which
+// is what these two fixtures select for.
+//
+// A FIXED identity (found once via a dev-time search, then hardcoded) whose chain runs
+// deep enough that the shared inner router fronts a child gateway — so a pivot scan of
+// its deep /24 touches BOTH the terminal NPC and a child ROUTER gateway. Deep /24
+// 10.185.85 (NPC .182, child router .212).
 const ROUTER_CHILD: ReturnType<typeof generateIdentity> = {
-  publicKeyHex: asPlayerKeyHex('cc69f6da35e154b0f7a50a24f265b4584048f5193e9b5fba5b97e425feb5f12f'),
-  privateKeyHex: '68b3cd0a3140a86aaf834454e288c7644909239124b39b26d939c4491efb8473',
+  publicKeyHex: asPlayerKeyHex('c5f198557ddbb348afb472f07b6c6b7f5d5146a9cb7c390e5d5f5bedb107b899'),
+  privateKeyHex: 'af99d372e96d0f968f9e3452d970354b937af8dc859c99f7850cb7a6440fa85c',
 };
-// A FIXED identity whose inner router (192.168.29.53) fronts a child SWITCH gateway
-// (10.223.250.32) — the case the shared resolution must route through the switch
-// base FS, not the NPC tree (a switch child must never alias an NPC).
+// A FIXED identity whose chain hangs a child SWITCH gateway (10.19.133.246) off that
+// same shared inner router — the case the shared resolution must route through the
+// switch base FS, not the NPC tree (a switch child must never alias an NPC).
 const SWITCH_CHILD: ReturnType<typeof generateIdentity> = {
-  publicKeyHex: asPlayerKeyHex('2f25ad9190e729486e1caff0a51bfe1c22bb5e5592c694487fbd15139cb2ccab'),
-  privateKeyHex: '69bef8a33e520f7d338de0728fbb69a7ae8bf74b0fc193474879a693c227300d',
+  publicKeyHex: asPlayerKeyHex('71b464730c30a57beb3d9e57dcaff6a758e4d340b4a3aaa3df024b2259d38a89'),
+  privateKeyHex: '2810dcd34cd4bfe27a0fdd13877e5fe4e7a621dae1531f65e794944bbaad1364',
 };
 
 type PatchesResult = { data: readonly OwnerPatchRow[] | null; error: unknown };
@@ -82,19 +85,19 @@ const octetOf = (host: LanHost): number => Number(host.ip.split('.')[3]);
 
 /** The inner ROUTER gateway's machine_id — the pivot vantage whose deep /24 carries
  *  a terminal NPC and (for these deep fixtures) a child gateway. */
-const innerRouterVantage = (pubkey: string): string => {
-  const inner = generateHomeLan(pubkey, ESSID).hosts.find(
+const innerRouterVantage = (): string => {
+  const inner = generateHomeLan(ESSID).hosts.find(
     (host) => host.kind === 'router' && octetOf(host) !== 1,
   )!;
-  return machineIdForLanHost(inner, pubkey, ESSID);
+  return machineIdForLanHost(inner, ESSID);
 };
 
 /** The inner SWITCH gateway's machine_id — a switch vantage whose deep /24 carries
  *  only a terminal NPC (a switch forwards nothing, so it fronts no child), filtered
  *  by the switch's own `/etc/switch/acl.conf`. */
-const innerSwitchVantage = (pubkey: string): string => {
-  const device = generateHomeLan(pubkey, ESSID).hosts.find((host) => host.kind === 'switch')!;
-  return machineIdForLanHost(device, pubkey, ESSID);
+const innerSwitchVantage = (): string => {
+  const device = generateHomeLan(ESSID).hosts.find((host) => host.kind === 'switch')!;
+  return machineIdForLanHost(device, ESSID);
 };
 
 type ExpectedDeepHost = { host: LanHost; machineId: string; ports: readonly number[] };
@@ -124,7 +127,7 @@ const expectedDeepLayer = (
   const hosts = layerHosts.map((host) => {
     const identity =
       host.kind === 'machine'
-        ? { machineId: hostMachineId(host, ESSID), baseFs: buildDeepHostFs(pubkey, ESSID, host) }
+        ? { machineId: hostMachineId(host, ESSID), baseFs: buildDeepHostFs(ESSID, host) }
         : resolveDeepGatewayIdentity(pubkey, vantage.machineId, host.ip, host.kind);
     const ports = readOpenPorts(identity.baseFs)
       .map((port) => port.port)
@@ -167,7 +170,7 @@ const envelope = (
 describe('handleNmapScanDeep', () => {
   it('traces every deep host on the inner-router vantage layer (NPC + child gateway)', async () => {
     const pubkey = ROUTER_CHILD.publicKeyHex;
-    const vantage = innerRouterVantage(pubkey);
+    const vantage = innerRouterVantage();
     const expected = expectedDeepLayer(pubkey, vantage);
     // Fixture premise: this vantage's layer really does hang a child gateway, so the
     // assertion below covers BOTH the NPC and the gateway resolution paths.
@@ -196,7 +199,7 @@ describe('handleNmapScanDeep', () => {
 
   it('sources every line from the fronting gateway downstream .1, never the home IP', async () => {
     const pubkey = ROUTER_CHILD.publicKeyHex;
-    const vantage = innerRouterVantage(pubkey);
+    const vantage = innerRouterVantage();
     const expected = expectedDeepLayer(pubkey, vantage);
     const { deps, upsertPatch } = makeDeps();
 
@@ -209,7 +212,7 @@ describe('handleNmapScanDeep', () => {
 
   it('logs exactly one line for a single-IP scan of the terminal NPC, listing its forced sshd:22', async () => {
     const pubkey = ROUTER_CHILD.publicKeyHex;
-    const vantage = innerRouterVantage(pubkey);
+    const vantage = innerRouterVantage();
     const expected = expectedDeepLayer(pubkey, vantage);
     const npc = expected.hosts.find((entry) => entry.host.kind === 'machine')!;
     expect(npc.ports).toContain(22);
@@ -226,7 +229,7 @@ describe('handleNmapScanDeep', () => {
 
   it('resolves a child SWITCH gateway through its switch base FS, not the NPC tree', async () => {
     const pubkey = SWITCH_CHILD.publicKeyHex;
-    const vantage = innerRouterVantage(pubkey);
+    const vantage = innerRouterVantage();
     const expected = expectedDeepLayer(pubkey, vantage);
     const child = expected.hosts.find((entry) => entry.host.kind === 'switch')!;
     // The child gateway resolves to its octet-keyed deep-gateway id (a switch box),
@@ -243,7 +246,7 @@ describe('handleNmapScanDeep', () => {
 
   it('appends after the existing log content rather than clobbering it', async () => {
     const pubkey = ROUTER_CHILD.publicKeyHex;
-    const vantage = innerRouterVantage(pubkey);
+    const vantage = innerRouterVantage();
     const expected = expectedDeepLayer(pubkey, vantage);
     const npc = expected.hosts.find((entry) => entry.host.kind === 'machine')!;
     const { deps, upsertPatch } = makeDeps({
@@ -259,7 +262,7 @@ describe('handleNmapScanDeep', () => {
 
   it('filters a port the switch vantage ACL denies, and re-opens it when the deny is gone', async () => {
     const pubkey = ROUTER_CHILD.publicKeyHex;
-    const vantage = innerSwitchVantage(pubkey);
+    const vantage = innerSwitchVantage();
     const expected = expectedDeepLayer(pubkey, vantage);
     const npc = expected.hosts.find((entry) => entry.host.kind === 'machine')!;
     expect(npc.ports).toContain(22);
@@ -286,7 +289,7 @@ describe('handleNmapScanDeep', () => {
     const pubkey = ROUTER_CHILD.publicKeyHex;
     // The edge .1 router is a real box but NOT a pivot vantage (it fronts no deep layer).
     const edgeId = computeApGatewayId(ESSID);
-    const expected = expectedDeepLayer(pubkey, innerRouterVantage(pubkey));
+    const expected = expectedDeepLayer(pubkey, innerRouterVantage());
     const { deps, upsertPatch } = makeDeps();
 
     const result = await handleNmapScanDeep(
@@ -299,8 +302,7 @@ describe('handleNmapScanDeep', () => {
   });
 
   it('records nothing for a target outside the vantage deep subnet', async () => {
-    const pubkey = ROUTER_CHILD.publicKeyHex;
-    const vantage = innerRouterVantage(pubkey);
+    const vantage = innerRouterVantage();
     const { deps, upsertPatch } = makeDeps();
 
     const result = await handleNmapScanDeep(envelope(ROUTER_CHILD, vantage, '192.168.29.1-254'), deps);
@@ -311,7 +313,7 @@ describe('handleNmapScanDeep', () => {
 
   it('does not fail the action when a per-host log write throws (best-effort)', async () => {
     const pubkey = ROUTER_CHILD.publicKeyHex;
-    const vantage = innerRouterVantage(pubkey);
+    const vantage = innerRouterVantage();
     const expected = expectedDeepLayer(pubkey, vantage);
     const { deps } = makeDeps({
       upsertPatch: vi.fn(async () => {
@@ -329,7 +331,7 @@ describe('handleNmapScanDeep', () => {
 
   it('surfaces a 500 — reading the vantage journal — when the switch vantage lookup errors', async () => {
     const pubkey = ROUTER_CHILD.publicKeyHex;
-    const vantage = innerSwitchVantage(pubkey);
+    const vantage = innerSwitchVantage();
     const expected = expectedDeepLayer(pubkey, vantage);
     const npc = expected.hosts.find((entry) => entry.host.kind === 'machine')!;
     const findPatches = vi.fn(async () => ({ data: null, error: new Error('db down') }));
@@ -345,7 +347,7 @@ describe('handleNmapScanDeep', () => {
 
   it('ignores the vantage journal for a ROUTER vantage — a findPatches error does not 500', async () => {
     const pubkey = ROUTER_CHILD.publicKeyHex;
-    const vantage = innerRouterVantage(pubkey);
+    const vantage = innerRouterVantage();
     const expected = expectedDeepLayer(pubkey, vantage);
     const findPatches = vi.fn(async () => ({ data: null, error: new Error('db down') }));
     const { deps } = makeDeps({ findPatches });
@@ -363,7 +365,7 @@ describe('handleNmapScanDeep', () => {
 
   it('rejects a tampered envelope without writing', async () => {
     const pubkey = ROUTER_CHILD.publicKeyHex;
-    const vantage = innerRouterVantage(pubkey);
+    const vantage = innerRouterVantage();
     const expected = expectedDeepLayer(pubkey, vantage);
     const signed = envelope(ROUTER_CHILD, vantage, `${expected.subnet}.1-254`);
     const tampered = { ...signed, payload: `${signed.payload} ` };
@@ -377,7 +379,7 @@ describe('handleNmapScanDeep', () => {
 
   it('rejects an envelope that smuggles a client-supplied player_key', async () => {
     const pubkey = ROUTER_CHILD.publicKeyHex;
-    const vantage = innerRouterVantage(pubkey);
+    const vantage = innerRouterVantage();
     const expected = expectedDeepLayer(pubkey, vantage);
     const { deps, upsertPatch } = makeDeps();
 

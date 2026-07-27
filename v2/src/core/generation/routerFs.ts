@@ -86,12 +86,14 @@ export const ROUTER_HOSTNAMES: readonly string[] = [
 export const seedApGatewayHostname = (essid: string): string =>
   createPrng(`ap-gw-host-${essid}`).pick(ROUTER_HOSTNAMES);
 
-/** The inner gateway's hostname, seeded from the owner key AND its LAN octet (the
+/** The inner gateway's hostname, seeded from the ESSID AND its LAN octet (the
  *  `inner-gw-host-` namespace — SEPARATE from the edge router's `router-host-` so a
- *  second router on the player's LAN draws its name independently). It reuses the
- *  router name pool because an inner gateway is still a router. */
-export const seedInnerGatewayHostname = (ownerKeyHex: string, octet: number): string =>
-  createPrng(`inner-gw-host-${ownerKeyHex}:${octet}`).pick(ROUTER_HOSTNAMES);
+ *  second router on the LAN draws its name independently). It reuses the router name
+ *  pool because an inner gateway is still a router. ESSID-keyed like everything else
+ *  about the box: an inner gateway stands on the access point's LAN, so every
+ *  occupant meets the same router under the same name. */
+export const seedInnerGatewayHostname = (essid: string, octet: number): string =>
+  createPrng(`inner-gw-host-${essid}:${octet}`).pick(ROUTER_HOSTNAMES);
 
 /** The fraction of routers that run their own `sshd`. Pinned to 1.0 for Story
  *  5.1 — every router bears `sshd:22`. The seam stays so a later story can make
@@ -240,21 +242,22 @@ export const buildApGatewayBaseFs = (essid: string): Directory =>
     hasSsh: seedApGatewayHasSsh(essid),
   });
 
-/** The inner gateway root ("admin") password, seeded from the owner key AND the
- *  gateway's LAN octet (the `inner-gw-admin-` namespace — SEPARATE from the edge
- *  router's `router-admin-`, so the two routers never share a credential). Weak by
- *  design (pool member) for the future cracker; the server recovers it by
- *  regenerating the owner's LAN, which fixes the octet. */
-export const seedInnerGatewayAdminPw = (ownerKeyHex: string, octet: number): string =>
-  createPrng(`inner-gw-admin-${ownerKeyHex}:${octet}`).pick(ROUTER_ADMIN_PASSWORDS);
+/** The inner gateway root ("admin") password, seeded from the ESSID AND the gateway's
+ *  LAN octet (the `inner-gw-admin-` namespace — SEPARATE from the edge router's
+ *  `router-admin-`, so the two routers never share a credential). Weak by design (pool
+ *  member) for the future cracker; the server recovers it from the ESSID, which fixes
+ *  the octet. The credential is keyed to the BOX, not to whoever cracked it: one
+ *  shared machine cannot have a different root password per occupant looking at it. */
+export const seedInnerGatewayAdminPw = (essid: string, octet: number): string =>
+  createPrng(`inner-gw-admin-${essid}:${octet}`).pick(ROUTER_ADMIN_PASSWORDS);
 
 /** Build an inner gateway's base FS — the same root-only router toolkit as the edge
  *  (`buildRouterBaseFsFromIdentity`), but the admin password is the octet-seeded
  *  inner credential (never the edge's) and `sshd` is always up: an inner gateway is
  *  a reachable target by design. */
-export const buildInnerGatewayBaseFs = (ownerKeyHex: string, octet: number): Directory =>
+export const buildInnerGatewayBaseFs = (essid: string, octet: number): Directory =>
   buildRouterBaseFsFromIdentity({
-    adminPwHash: md5(seedInnerGatewayAdminPw(ownerKeyHex, octet)),
+    adminPwHash: md5(seedInnerGatewayAdminPw(essid, octet)),
     hasSsh: true,
   });
 
@@ -307,8 +310,8 @@ export const buildDeepSwitchBaseFs = (
  *  `sshd` always up, but instead of a NAT `rules.v4` it owns an `/etc/switch/acl.conf`
  *  access-control list. A switch forwards nothing, so the segment behind it is dark
  *  from upstream by construction (no forward table at all). */
-export const buildSwitchBaseFs = (ownerKeyHex: string, octet: number): Directory =>
+export const buildSwitchBaseFs = (essid: string, octet: number): Directory =>
   buildGatewayBaseFs(
-    { adminPwHash: md5(seedInnerGatewayAdminPw(ownerKeyHex, octet)), hasSsh: true },
+    { adminPwHash: md5(seedInnerGatewayAdminPw(essid, octet)), hasSsh: true },
     { switch: dir({ 'acl.conf': file(ACL_CONF_SEED, GATEWAY_CONFIG_PERMISSIONS) }, TRAVERSABLE_DIR) },
   );

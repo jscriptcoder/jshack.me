@@ -73,9 +73,9 @@ const sshdPort = (fs: Directory): number | null => {
 const pickHosts = (): { sshHost: LanHost; noSshHost: LanHost } => {
   let sshHost: LanHost | undefined;
   let noSshHost: LanHost | undefined;
-  for (const host of generateHomeLan(PUBKEY, ESSID).hosts) {
+  for (const host of generateHomeLan(ESSID).hosts) {
     if (host.kind !== 'machine') continue;
-    const port = sshdPort(buildRemoteHostFs(PUBKEY, ESSID, host));
+    const port = sshdPort(buildRemoteHostFs(ESSID, host));
     if (port === 22 && sshHost === undefined) sshHost = host;
     if (port === null && noSshHost === undefined) noSshHost = host;
   }
@@ -316,7 +316,7 @@ describe('ssh', () => {
   });
 
   it('routes ssh to the .1 gateway to the OWN ROUTER — root session on computeApGatewayId, reachable on :22', async () => {
-    const gateway = generateHomeLan(PUBKEY, ESSID).hosts.find((host) => host.kind === 'router');
+    const gateway = generateHomeLan(ESSID).hosts.find((host) => host.kind === 'router');
     if (gateway === undefined) throw new Error('no gateway on LAN');
     const authenticate = vi.fn<(params: RemoteAuthParams) => Promise<RemoteAuthResult>>(
       async () => ({
@@ -349,7 +349,7 @@ describe('ssh', () => {
   });
 
   it('routes ssh to the INNER GATEWAY to its own router id — root session on computeInnerGatewayId, reachable on :22', async () => {
-    const inner = generateHomeLan(PUBKEY, ESSID).hosts.find(
+    const inner = generateHomeLan(ESSID).hosts.find(
       (host) => host.kind === 'router' && Number(host.ip.split('.')[3]) !== 1,
     );
     if (inner === undefined) throw new Error('no inner gateway on LAN');
@@ -374,7 +374,7 @@ describe('ssh', () => {
     // The hop lands on the INNER GATEWAY's distinct id — never the edge router's
     // (would alias) nor a coordinate sibling id.
     expect(onPush.mock.calls[0]![0]).toMatchObject({
-      machineId: computeInnerGatewayId(PUBKEY, octet),
+      machineId: computeInnerGatewayId(ESSID, octet),
       kind: 'ssh',
     });
     expect(onPush.mock.calls[0]![0].machineId).not.toBe(computeApGatewayId(ESSID));
@@ -382,7 +382,7 @@ describe('ssh', () => {
   });
 
   it('routes ssh to a SWITCH to its own inner-gateway id — root session on computeInnerGatewayId, reachable on :22', async () => {
-    const device = generateHomeLan(PUBKEY, ESSID).hosts.find((host) => host.kind === 'switch');
+    const device = generateHomeLan(ESSID).hosts.find((host) => host.kind === 'switch');
     if (device === undefined) throw new Error('no switch on LAN');
     const octet = Number(device.ip.split('.')[3]);
     const authenticate = vi.fn<(params: RemoteAuthParams) => Promise<RemoteAuthResult>>(async () => ({
@@ -405,7 +405,7 @@ describe('ssh', () => {
     // The hop lands on the switch's own octet-keyed inner-gateway id — never the
     // edge router's (would alias) nor a coordinate sibling id.
     expect(onPush.mock.calls[0]![0]).toMatchObject({
-      machineId: computeInnerGatewayId(PUBKEY, octet),
+      machineId: computeInnerGatewayId(ESSID, octet),
       kind: 'ssh',
     });
     expect(onPush.mock.calls[0]![0].machineId).not.toBe(computeApGatewayId(ESSID));
@@ -1033,7 +1033,7 @@ describe('ssh to a fellow occupant on the same LAN (Story 7)', () => {
  * untouched.
  */
 const DEEP_MACHINE_ID = 'iot-cam-deadbeef';
-const INNER_GATEWAY = generateHomeLan(PUBKEY, ESSID).hosts.find(
+const INNER_GATEWAY = generateHomeLan(ESSID).hosts.find(
   (host) => host.kind === 'router' && Number(host.ip.split('.')[3]) !== 1,
 );
 if (INNER_GATEWAY === undefined) throw new Error('no inner gateway on LAN');

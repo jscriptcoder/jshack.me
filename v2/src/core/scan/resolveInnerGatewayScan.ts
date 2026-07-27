@@ -107,7 +107,7 @@ const resolveGatewayExposedPorts = async (
   const forwards = parseForwardRules(readRulesV4(gatewayFs));
   // The terminal NPC's ports come straight off its regenerated tree.
   const targets = new Map<string, readonly OpenPort[]>([
-    [deep.host.ip, readOpenPorts(buildDeepHostFs(context.publicKey, context.essid, deep.host))],
+    [deep.host.ip, readOpenPorts(buildDeepHostFs(context.essid, deep.host))],
   ]);
   // Resolve the child gateway's exposed ports only when a forward actually points at it,
   // recursing one layer deeper so a chained forward is live only while the chain below is.
@@ -159,14 +159,14 @@ export const handleResolveInnerGatewayScan = async (
   }
   const { publicKey, payload } = verified;
 
-  const gateway = innerGatewayAt(publicKey, payload.essid, payload.target);
+  const gateway = innerGatewayAt(payload.essid, payload.target);
   if (gateway === null) {
     return HOST_DOWN;
   }
 
   // The shared resolver maps the gateway to the SAME machine id + seeded base FS the
   // client and the ssh gate use, so the scan reads the box everyone agrees on.
-  const { machineId, baseFs } = resolveLanHostIdentity(gateway, publicKey, payload.essid);
+  const { machineId, baseFs } = resolveLanHostIdentity(gateway, payload.essid);
   const patches = await deps.findPatches({ machine_id: machineId });
   if (patches.error) {
     return { status: 500, body: { error: 'patches_lookup_failed' } };

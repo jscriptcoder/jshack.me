@@ -41,9 +41,11 @@ const DEFAULT_MAX_ATTEMPTS = 8;
 export type AllocateLanLeaseDeps = {
   /** The octet already leased to this `(essid, owner_key)`, or null if none yet. */
   readonly readLease: (essid: string, ownerKey: string) => Promise<number | null>;
-  /** Draw a replacement octet after a collision (server randomness in production).
-   *  Never consulted while the preferred octet is still available. */
-  readonly redrawOctet: () => number;
+  /** Draw a replacement octet outside `excluded` (server randomness in production).
+   *  Never consulted while the preferred octet is still available and usable. The
+   *  allocator hands the exclusion set in rather than letting the draw hold its own
+   *  copy, so one place decides which octets are off-limits. */
+  readonly redrawOctet: (excluded: ReadonlySet<number>) => number;
   /**
    * Atomically bind `(essid, ownerKey) → octet`. Returns the octet now leased to the
    * occupant — the offered one if it stuck, or the one a concurrent write for the
@@ -58,20 +60,43 @@ export type LanLeaseRequest = {
   readonly essid: string;
   readonly ownerKey: string;
   readonly preferredOctet: number;
+  /** Octets no occupant may be issued: the ESSID's own generated hosts. The population
+   *  is shared by everyone on the AP, so an occupant leased on top of an NPC does not
+   *  merely hide it from itself — that machine disappears for every occupant, orphaning
+   *  any journal already written to it. */
+  readonly excludedOctets?: ReadonlySet<number>;
 };
 
-export const drawLanOctet = (prng: Prng): number => prng.nextInt(LAN_OCTET_MIN, LAN_OCTET_MAX);
+const NOTHING_EXCLUDED: ReadonlySet<number> = new Set();
+
+/** A uniformly drawn usable host octet that is not in `excluded`. Drawing from the
+ *  ALLOWED pool rather than rejecting afterwards is what keeps an exclusion from
+ *  costing an attempt: every draw is a candidate worth claiming. */
+export const drawLanOctet = (prng: Prng, excluded: ReadonlySet<number> = NOTHING_EXCLUDED): number => {
+  const usable = Array.from(
+    { length: LAN_OCTET_MAX - LAN_OCTET_MIN + 1 },
+    (_unused, index) => index + LAN_OCTET_MIN,
+  ).filter((octet) => !excluded.has(octet));
+  if (usable.length === 0) throw new Error('no usable LAN octet remains on this subnet');
+  return usable[prng.nextInt(0, usable.length - 1)]!;
+};
 
 export const allocateLanLease = async (
   request: LanLeaseRequest,
   deps: AllocateLanLeaseDeps,
 ): Promise<number> => {
+  // An address already held outranks the exclusion: it governs what may be ISSUED, not
+  // what is already in use, so a returning occupant is never relocated out from under
+  // a saved connection.
   const existing = await deps.readLease(request.essid, request.ownerKey);
   if (existing !== null) return existing;
 
+  const excluded = request.excludedOctets ?? NOTHING_EXCLUDED;
   const maxAttempts = deps.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
+  const preferredIsUsable = !excluded.has(request.preferredOctet);
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const candidate = attempt === 0 ? request.preferredOctet : deps.redrawOctet();
+    const candidate =
+      attempt === 0 && preferredIsUsable ? request.preferredOctet : deps.redrawOctet(excluded);
     const leased = await deps.claim(request.essid, request.ownerKey, candidate);
     if (leased !== null) return leased;
   }

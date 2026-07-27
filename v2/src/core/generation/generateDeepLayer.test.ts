@@ -36,7 +36,7 @@ describe('generateDeepLayer', () => {
   });
 
   it('addresses the deep layer as a 10.x /24, distinct from the home 192.168 /24', () => {
-    const home = generateHomeLan(PUBKEY, ESSID);
+    const home = generateHomeLan(ESSID);
     const deep = generateDeepLayer(PUBKEY, ESSID, ROUTER_GW);
 
     expect(deep.subnet.startsWith('10.')).toBe(true);
@@ -265,14 +265,14 @@ describe('buildDeepHostFs', () => {
       .map((octet) => generateDeepLayer(PUBKEY, ESSID, { machineId: `inner-gw-${octet}`, kind: 'router' }).host)
       .find(
         (host) =>
-          !readOpenPorts(buildRemoteHostFs(PUBKEY, ESSID, host)).some(
+          !readOpenPorts(buildRemoteHostFs(ESSID, host)).some(
             (openPort) => openPort.port === 22,
           ),
       );
     expect(deepHostWithoutRawSsh).toBeDefined();
     if (deepHostWithoutRawSsh === undefined) return;
 
-    const ports = readOpenPorts(buildDeepHostFs(PUBKEY, ESSID, deepHostWithoutRawSsh));
+    const ports = readOpenPorts(buildDeepHostFs(ESSID, deepHostWithoutRawSsh));
 
     expect(ports.some((openPort) => openPort.port === 22 && openPort.service === 'ssh')).toBe(true);
   });
@@ -280,7 +280,7 @@ describe('buildDeepHostFs', () => {
   it('carries the NPC box skeleton — a populated /etc/passwd for a later login', () => {
     const deep = generateDeepLayer(PUBKEY, ESSID, ROUTER_GW);
 
-    const fs = buildDeepHostFs(PUBKEY, ESSID, deep.host);
+    const fs = buildDeepHostFs(ESSID, deep.host);
     const etc = fs.entries.get('etc');
     const passwd = etc?.kind === 'directory' ? etc.entries.get('passwd') : undefined;
 

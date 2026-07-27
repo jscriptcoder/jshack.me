@@ -112,8 +112,8 @@ describe('enforceRemoteWriteL2 — own inner gateway', () => {
   const noRegistry = () => Promise.resolve({ data: null, error: null });
   const ESSID = 'HOME-WIFI';
 
-  const innerGatewayOctet = (pubkey: string): number => {
-    const inner = generateHomeLan(pubkey, ESSID).hosts.find(
+  const innerGatewayOctet = (): number => {
+    const inner = generateHomeLan(ESSID).hosts.find(
       (host) => host.kind === 'router' && Number(host.ip.split('.')[3]) !== 1,
     );
     if (inner === undefined) throw new Error('no inner gateway on LAN');
@@ -122,11 +122,11 @@ describe('enforceRemoteWriteL2 — own inner gateway', () => {
 
   it("allows a ROOT write to /etc/iptables/rules.v4 on the caller's own inner gateway", async () => {
     const owner = generateIdentity();
-    const octet = innerGatewayOctet(owner.publicKeyHex);
+    const octet = innerGatewayOctet();
 
     const denial = await enforceRemoteWriteL2({
       publicKey: owner.publicKeyHex,
-      machineId: computeInnerGatewayId(owner.publicKeyHex, octet),
+      machineId: computeInnerGatewayId(ESSID, octet),
       path: '/etc/iptables/rules.v4',
       session: { userType: 'root', essid: ESSID },
       listMachinePatches: noPriorPatches,
@@ -139,11 +139,11 @@ describe('enforceRemoteWriteL2 — own inner gateway', () => {
 
   it("denies a non-root tier writing the inner gateway's root-only rules.v4", async () => {
     const owner = generateIdentity();
-    const octet = innerGatewayOctet(owner.publicKeyHex);
+    const octet = innerGatewayOctet();
 
     const denial = await enforceRemoteWriteL2({
       publicKey: owner.publicKeyHex,
-      machineId: computeInnerGatewayId(owner.publicKeyHex, octet),
+      machineId: computeInnerGatewayId(ESSID, octet),
       path: '/etc/iptables/rules.v4',
       session: { userType: 'guest', essid: ESSID },
       listMachinePatches: noPriorPatches,
@@ -167,19 +167,19 @@ describe('enforceRemoteWriteL2 — own switch', () => {
   const noRegistry = () => Promise.resolve({ data: null, error: null });
   const ESSID = 'HOME-WIFI';
 
-  const switchOctet = (pubkey: string): number => {
-    const device = generateHomeLan(pubkey, ESSID).hosts.find((host) => host.kind === 'switch');
+  const switchOctet = (): number => {
+    const device = generateHomeLan(ESSID).hosts.find((host) => host.kind === 'switch');
     if (device === undefined) throw new Error('no switch on LAN');
     return Number(device.ip.split('.')[3]);
   };
 
   it("allows a ROOT write to /etc/switch/acl.conf on the caller's own switch", async () => {
     const owner = generateIdentity();
-    const octet = switchOctet(owner.publicKeyHex);
+    const octet = switchOctet();
 
     const denial = await enforceRemoteWriteL2({
       publicKey: owner.publicKeyHex,
-      machineId: computeInnerGatewayId(owner.publicKeyHex, octet),
+      machineId: computeInnerGatewayId(ESSID, octet),
       path: '/etc/switch/acl.conf',
       session: { userType: 'root', essid: ESSID },
       listMachinePatches: noPriorPatches,
@@ -192,11 +192,11 @@ describe('enforceRemoteWriteL2 — own switch', () => {
 
   it("denies a non-root tier writing the switch's root-only acl.conf", async () => {
     const owner = generateIdentity();
-    const octet = switchOctet(owner.publicKeyHex);
+    const octet = switchOctet();
 
     const denial = await enforceRemoteWriteL2({
       publicKey: owner.publicKeyHex,
-      machineId: computeInnerGatewayId(owner.publicKeyHex, octet),
+      machineId: computeInnerGatewayId(ESSID, octet),
       path: '/etc/switch/acl.conf',
       session: { userType: 'guest', essid: ESSID },
       listMachinePatches: noPriorPatches,
@@ -228,11 +228,11 @@ describe('enforceRemoteWriteL2 — own deep chain gateway', () => {
     for (let attempt = 0; attempt < 400; attempt += 1) {
       const candidate = generateIdentity();
       if (seedNetworkDepth(candidate.publicKeyHex, ESSID) < 2) continue;
-      const inner = generateHomeLan(candidate.publicKeyHex, ESSID).hosts.find(
+      const inner = generateHomeLan(ESSID).hosts.find(
         (host) => host.kind === 'router' && Number(host.ip.split('.')[3]) !== 1,
       );
       if (inner === undefined) continue;
-      const innerId = computeInnerGatewayId(candidate.publicKeyHex, Number(inner.ip.split('.')[3]));
+      const innerId = computeInnerGatewayId(ESSID, Number(inner.ip.split('.')[3]));
       const child = generateDeepLayer(
         candidate.publicKeyHex,
         ESSID,
@@ -245,11 +245,11 @@ describe('enforceRemoteWriteL2 — own deep chain gateway', () => {
   };
 
   const childGatewayId = (owner: ReturnType<typeof generateIdentity>): string => {
-    const inner = generateHomeLan(owner.publicKeyHex, ESSID).hosts.find(
+    const inner = generateHomeLan(ESSID).hosts.find(
       (host) => host.kind === 'router' && Number(host.ip.split('.')[3]) !== 1,
     );
     if (inner === undefined) throw new Error('no inner gateway on LAN');
-    const innerId = computeInnerGatewayId(owner.publicKeyHex, Number(inner.ip.split('.')[3]));
+    const innerId = computeInnerGatewayId(ESSID, Number(inner.ip.split('.')[3]));
     const child = generateDeepLayer(
       owner.publicKeyHex,
       ESSID,

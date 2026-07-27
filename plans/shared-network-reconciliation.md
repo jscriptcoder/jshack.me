@@ -5,13 +5,13 @@
 Slice 2 ✅ MERGED (PR #327, `88054bf`, v0.89.0),
 Slice 3a ✅ MERGED (PR #328, `6ae4109`, v0.90.0),
 Slice 3b-i ✅ MERGED (PR #329, `21e3f9e`, v0.91.0),
-Slice 3b-ii ✅ MERGED (PR #330, `879dcc4`, v0.92.0).
-**Now: Slice 4 — every occupant of an ESSID sees the SAME LAN population. In flight on
-`feat/shared-lan-population`, cut off `main` at `73f6340` (nothing else in flight). Start at
-the Slice 4 section below. Slice 3 is finished end to end: NO code path anywhere derives a
-player's LAN address. Slice 4 turns `generateHomeLan`'s per-viewer NPC draw into one shared
-ESSID-seeded population, which also deletes the reserved-octet vacancy 3b-ii deliberately left
-standing and the relocated-player displacement case recorded with it.**
+Slice 3b-ii ✅ MERGED (PR #330, `879dcc4`, v0.92.0),
+Slice 4 ✅ DONE on `feat/shared-lan-population` (v0.93.0, awaiting PR).
+**Next: Slice 5 — depth is shared. Slice 4 turned out WIDER than scoped (it had to take the L1
+gateway identity and the NPC filesystems with it — see its as-built), so Slice 5 is
+correspondingly NARROWER: strictly the deep chain BELOW L1, i.e. `seedNetworkDepth`,
+`generateDeepLayer`, `computeDeepGatewayId` and the deep base filesystems. Everything on the
+LAN itself — population, addresses, gateway boxes, NPC boxes — is already shared.**
 **Parent**: `plans/multiplayer-crossplayer-epic.md` item #5 (decision record; grilled & resolved 2026-07-25)
 **Follows**: item #4 (unique public-IP allocation, v0.87.0)
 **Precedes**: item #6 (procedural world expansion) — do NOT pull it in here
@@ -49,14 +49,20 @@ one shared gateway, one LAN population, and one set of deep chains — and delet
       plus the bricked box itself now refuses ssh from inside its own LAN. Visibility and
       crackability are client-side seeded and never touched the gateway; the rest is proven
       end to end by `testGatewayBrickLanAlive.ts`.)*
-- [ ] Two occupants of one ESSID never share a LAN address, and never land on an NPC's or the
-      gateway's address; a reconnecting occupant gets the same address it had before.
-- [ ] Two occupants of one ESSID see the **same** NPC hosts at the same addresses, and the
-      same deep chains behind the same inner gateways.
-- [ ] A file written to an NPC by one occupant is visible to another occupant of that ESSID
-      (today this happens ~1 in 6 times *by accident* — see the aliasing note in Slice 4).
-- [ ] Every occupant of a shared AP appears in every other occupant's `nmap` of the LAN — no
-      occupant is hidden by an octet-reservation rule.
+- [x] Two occupants of one ESSID never share a LAN address, and never land on an NPC's or the
+      gateway's address; a reconnecting occupant gets the same address it had before. *(Slices
+      3a + 4: `UNIQUE (essid, octet)` for occupant-vs-occupant, the NPC exclusion set for
+      occupant-vs-NPC, the `.1` octet CHECK for the gateway, and a permanent lease for the
+      return case.)*
+- [~] Two occupants of one ESSID see the **same** NPC hosts at the same addresses, and the
+      same deep chains behind the same inner gateways. *(Slice 4 did the hosts, their
+      addresses, their names, their machine ids AND their filesystems; the deep chains behind
+      the now-shared inner gateways are Slice 5.)*
+- [x] A file written to an NPC by one occupant is visible to another occupant of that ESSID.
+      *(Slice 4 — needed the NPC filesystems keyed `(essid, ip)` too, not just the id: the
+      journal replays over the base tree.)*
+- [x] Every occupant of a shared AP appears in every other occupant's `nmap` of the LAN — no
+      occupant is hidden by an octet-reservation rule. *(Slice 4 deleted the rule.)*
 - [ ] `network_registry` no longer exists; cross-player scan, session, FS-read, write, and
       source-IP-trace behavior is unchanged by its removal.
 - [ ] `npm run typecheck` and `npm run lint` pass; every affected `scripts/test*.ts`
@@ -754,6 +760,49 @@ for this** — it is a real bug being closed, and it deserves a test that would 
 **Done when**: criteria met, aliasing regression test present and passing, all LAN wire-checks
 pass, human approves the commit.
 
+**AS BUILT (v0.93.0).** RED at the layer that still has a viewer: `handleNmapScan` logs the
+same machine ids and the same lines for two different verified signers on one ESSID — it failed
+on hostnames, ids AND population before the change. `generateHomeLan(essid)` now takes no
+identity at all (the "same for everyone" claim became a tautology inside it, so the evidence
+lives at its consumers: the scan handler, `ownChainBaseFsForMachineId`, `hostForMachineId`).
+
+**Wider than planned, and necessarily so.** The plan scoped the generator; criterion 3 (a
+write by one occupant is visible to another) also required the BOXES to be shared:
+`buildRemoteHostFs` / `hostServices` / `buildDeepHostFs` were owner-seeded, so a shared
+`machine_id` still replayed a journal over a per-viewer tree — different accounts, different
+passwords, different open ports at one address. Keyed `(essid, ip)` now. The L1 gateway
+identity came along for a different reason: `generateHomeLan` builds the inner gateway's
+hostname, so dropping its key parameter forced `seedInnerGatewayHostname` onto the ESSID, and
+shipping a shared NAME over a per-player BOX would have been worse than either end state.
+`computeInnerGatewayId` / `buildInnerGatewayBaseFs` / `buildSwitchBaseFs` /
+`seedInnerGatewayAdminPw` moved with it. Slice 5 is correspondingly narrower: strictly the
+deep chain BELOW L1 (`seedNetworkDepth`, `generateDeepLayer`, `computeDeepGatewayId`).
+
+**Two rules deleted, and why they were only ever workarounds.** The gateway-octet reservation
+in `mergeLanOccupants` and the reserved-octet vacancy in the generator both existed because a
+per-viewer population is invisible to the allocator — there was nothing an allocation could
+avoid. With one shared population the allocator excludes NPC octets outright, so the collision
+does not arise and hiding an occupant buys nothing. The exclusion covers the preferred octet
+AND every redraw; `drawLanOctet` draws from the ALLOWED pool rather than rejecting afterwards,
+so an exclusion never consumes one of the 8 attempts. It governs what may be ISSUED, not what
+is held — an existing lease is returned untouched, so nobody is relocated out from under a
+saved connection.
+
+**Evidence.** 1961 unit tests (was 1945 at branch point, 1928 two slices ago). Mutation
+**100%** on `generateHomeLan`, `lanHostIdentity`, `remoteHostId`, `mergeLanOccupants`,
+`registerNetwork`, `allocateLanLease`, `lanAddress`. `remoteHostFs` 95.71% / `routerFs` 96.15%
+— all 7 survivors sit on lines this slice did not touch (the `hasSsh` knob is pinned to 1.0,
+so its mutants are equivalent by construction). **Wire-checks 26 scripts / 179 checks, all
+green**, including two new ones in `testLanLeaseAllocation`: a join whose derived octet is an
+NPC is leased elsewhere, and the address the join REPORTS is that relocated one. Local
+`network_lan_leases` truncated on request (none of the 7 rows actually collided with the new
+NPC sets, but they predate the exclusion).
+
+**Mutation earned its keep here.** The allocator's tests inject `redrawOctet`, so
+`drawLanOctet`'s exclusion filter — the whole point of the change — could be DELETED with the
+suite green. Nothing else would have caught it.
+
+
 ### Slice 5: Depth is shared — inner gateways and deep chains seed from the ESSID
 
 **Value**: Actor = any occupant. Deep chains stop being private per-player worlds behind
@@ -772,8 +821,13 @@ for every occupant, with deep traces attributed consistently.
   the source, unchanged from Story 5b.
 **RED**: A behavior test asserting two owner keys on one ESSID produce identical chains
 (ids, depth, gateway kinds); a shared-write visibility test.
-**GREEN**: Reseed `computeInnerGatewayId` / `computeDeepGatewayId` / `generateDeepLayer` /
-`seedNetworkDepth` and the switch-ACL seeding from the ESSID rather than the owner key.
+**GREEN**: Reseed `computeDeepGatewayId` / `generateDeepLayer` / `seedNetworkDepth` /
+`seedDeepGatewayAdminPw` / `buildDeepGatewayBaseFs` / `buildDeepSwitchBaseFs` and the
+switch-ACL seeding from the ESSID rather than the owner key. `computeInnerGatewayId` is
+already done — Slice 4 took the whole L1 gateway identity with it, so this slice starts
+strictly below L1. Note `buildDeepHostFs` is ALSO already `(essid, ip)`: the deep NPC's tree
+followed its coordinate-keyed `machine_id` in Slice 4, so only WHICH deep hosts a chain
+reaches is still private.
 **MUTATE**: Run on the chain identity + depth derivations.
 **KILL MUTANTS**: Address survivors in chain-key composition (parent id + octet must still
 prevent aliasing across branches).

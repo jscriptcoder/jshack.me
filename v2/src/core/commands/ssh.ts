@@ -283,9 +283,7 @@ const execute: Command['execute'] = async (env, args, flags) => {
 
   // Reachability is resolved from the deterministic generated world — no prompt
   // for a host that is down or not listening on the asked port.
-  const host = generateHomeLan(env.identity.publicKeyHex, essid).hosts.find(
-    (candidate) => candidate.ip === target.host,
-  );
+  const host = generateHomeLan(essid).hosts.find((candidate) => candidate.ip === target.host);
   if (host === undefined) {
     return connectError(target.host, port, 'No route to host');
   }
@@ -294,7 +292,7 @@ const execute: Command['execute'] = async (env, args, flags) => {
   // sibling. Reachability reads the FS; the hop is stamped with the same id the
   // server (resolving the same ip → host) lands the session on, so they never
   // disagree about which box you are on.
-  const { machineId, baseFs: hostFs } = resolveLanHostIdentity(host, env.identity.publicKeyHex, essid);
+  const { machineId, baseFs: hostFs } = resolveLanHostIdentity(host, essid);
   // A host not running ssh has a null port, which is `!== port` too — so the one
   // check covers both "no ssh service" and "listening on a different port".
   const runningPort = sshPortOf(hostFs);

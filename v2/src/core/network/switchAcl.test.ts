@@ -12,7 +12,8 @@ import { buildDirectory } from '../../test/factories/filesystem';
  * rejected) so a fat-fingered edit degrades gracefully rather than failing the file.
  */
 
-const SEED_A = '1'.repeat(64);
+// A switch and the AP gateway both seed off the network they stand on.
+const ESSID = 'BREW-AND-CODE';
 
 describe('parseAclDenies', () => {
   it('parses each `deny <port>` line to its port number', () => {
@@ -59,13 +60,13 @@ describe('parseAclDenies', () => {
 
 describe('readAclConf', () => {
   it('reads the seeded acl.conf content off a switch filesystem', () => {
-    const content = readAclConf(buildSwitchBaseFs(SEED_A, 80));
+    const content = readAclConf(buildSwitchBaseFs(ESSID, 80));
     expect(content.startsWith('#')).toBe(true);
     expect(parseAclDenies(content)).toEqual([8080]);
   });
 
   it('returns empty for a filesystem with no /etc/switch (a router has rules.v4, not an ACL)', () => {
-    expect(readAclConf(buildApGatewayBaseFs(SEED_A))).toBe('');
+    expect(readAclConf(buildApGatewayBaseFs(ESSID))).toBe('');
   });
 
   it('returns empty for a filesystem with no /etc at all', () => {

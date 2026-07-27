@@ -148,34 +148,34 @@ describe('nmap', () => {
     expect(text).toContain('iphone-188');
     // The generator supplies NPC filler only; the player is placed separately at the
     // address wlan0 holds, so the LAN is the filler plus one.
-    const lan = generateHomeLan(PUBKEY, 'BEAN-THERE-WIFI');
+    const lan = generateHomeLan('BEAN-THERE-WIFI');
     expect(text).toContain(`${lan.hosts.length + 1} hosts up`);
   });
 
   it('a range lists only the hosts whose last octet falls inside it', async () => {
-    const { text } = await drain(await nmap.execute(onlineEnv(), ['192.168.29.20-80'], new Map()));
+    const { text } = await drain(await nmap.execute(onlineEnv(), ['192.168.29.20-90'], new Map()));
 
-    // .25, .30, .70 and the switch at .80 are inside [20, 80]; .1, .188, .209,
-    // .245 are not.
-    expect(text).toContain('192.168.29.25');
-    expect(text).toContain('192.168.29.30');
-    expect(text).toContain('192.168.29.70');
-    expect(text).toContain('192.168.29.80'); // the switch is a scannable host
+    // .28, .74, the inner gateway at .85 and .87 are inside [20, 90]; .1, .149,
+    // .188 (self) and everything above are not.
+    expect(text).toContain('192.168.29.28');
+    expect(text).toContain('192.168.29.74');
+    expect(text).toContain('192.168.29.85'); // the inner gateway is a scannable host
+    expect(text).toContain('192.168.29.87');
     expect(text).not.toContain('192.168.29.1 '); // gateway (.1) excluded
     expect(text).not.toContain('192.168.29.188');
-    expect(text).not.toContain('192.168.29.209');
+    expect(text).not.toContain('192.168.29.149');
     expect(text).toContain('4 hosts up');
   });
 
   it('includes hosts sitting exactly on the range boundaries', async () => {
-    // .25 == start and .70 == end must both be included (inclusive bounds); .30
-    // sits between them.
-    const { text } = await drain(await nmap.execute(onlineEnv(), ['192.168.29.25-70'], new Map()));
+    // .28 == start and .87 == end must both be included (inclusive bounds); .74 and
+    // .85 sit between them.
+    const { text } = await drain(await nmap.execute(onlineEnv(), ['192.168.29.28-87'], new Map()));
 
-    expect(text).toContain('192.168.29.25');
-    expect(text).toContain('192.168.29.30');
-    expect(text).toContain('192.168.29.70');
-    expect(text).toContain('3 hosts up');
+    expect(text).toContain('192.168.29.28');
+    expect(text).toContain('192.168.29.74');
+    expect(text).toContain('192.168.29.87');
+    expect(text).toContain('4 hosts up');
   });
 
   it('includes the gateway when the range covers .1', async () => {
@@ -183,10 +183,9 @@ describe('nmap', () => {
 
     expect(text).toContain('192.168.29.1');
     expect(text).toContain('router');
-    expect(text).toContain('192.168.29.25'); // inner gateway
-    expect(text).toContain('192.168.29.30');
-    expect(text).not.toContain('192.168.29.70');
-    expect(text).toContain('3 hosts up');
+    expect(text).toContain('192.168.29.28');
+    expect(text).not.toContain('192.168.29.74');
+    expect(text).toContain('2 hosts up');
   });
 
   it('reports zero hosts for a valid range with nothing in it', async () => {
@@ -247,12 +246,12 @@ describe('nmap', () => {
 
   it('reports a single host that is up', async () => {
     const { text, exitCode } = await drain(
-      await nmap.execute(onlineEnv(), ['192.168.29.70'], new Map()),
+      await nmap.execute(onlineEnv(), ['192.168.29.74'], new Map()),
     );
 
     expect(exitCode).toBe(0);
-    expect(text).toContain('Starting Nmap scan — 192.168.29.70');
-    expect(text).toContain('Nmap scan report for workstation-70 (192.168.29.70)');
+    expect(text).toContain('Starting Nmap scan — 192.168.29.74');
+    expect(text).toContain('Nmap scan report for laptop-74 (192.168.29.74)');
     expect(text).toContain('Host is up.');
     expect(text).toContain('1 host up');
   });
@@ -260,12 +259,12 @@ describe('nmap', () => {
   it('accepts an A-A range, scanning the single octet it covers', async () => {
     // start === end must be a valid range (legacy allows it), not a usage error.
     const { text, exitCode } = await drain(
-      await nmap.execute(onlineEnv(), ['192.168.29.70-70'], new Map()),
+      await nmap.execute(onlineEnv(), ['192.168.29.74-74'], new Map()),
     );
 
     expect(exitCode).toBe(0);
-    expect(text).toContain('192.168.29.70');
-    expect(text).toContain('workstation-70');
+    expect(text).toContain('192.168.29.74');
+    expect(text).toContain('laptop-74');
     expect(text).toContain('1 hosts up');
   });
 
@@ -378,7 +377,7 @@ describe('nmap — self-host open ports (slice 1)', () => {
   /** The ssh port the GENERATOR gives `host`, or null when it runs no ssh. Lets
    *  the dispatch tests find a deterministic remote ssh / non-ssh host. */
   const generatedSshdPort = (host: LanHost): number | null => {
-    const fs: Directory = buildRemoteHostFs(PUBKEY, 'BEAN-THERE-WIFI', host);
+    const fs: Directory = buildRemoteHostFs('BEAN-THERE-WIFI', host);
     const varDir = fs.entries.get('var');
     const runDir = varDir?.kind === 'directory' ? varDir.entries.get('run') : undefined;
     const node = runDir?.kind === 'directory' ? runDir.entries.get('sshd.pid') : undefined;
@@ -386,10 +385,12 @@ describe('nmap — self-host open ports (slice 1)', () => {
   };
 
   const remoteHosts = (): readonly LanHost[] =>
-    generateHomeLan(PUBKEY, 'BEAN-THERE-WIFI').hosts.filter((host) => host.ip !== SELF_IP);
+    generateHomeLan('BEAN-THERE-WIFI').hosts.filter((host) => host.ip !== SELF_IP);
 
   it('shows a remote host’s OWN generated ssh port, not the workstation’s', async () => {
-    const sshHost = remoteHosts().find((host) => generatedSshdPort(host) !== null);
+    const sshHost = remoteHosts().find(
+      (host) => host.kind === 'machine' && generatedSshdPort(host) !== null,
+    );
     if (sshHost === undefined) throw new Error('expected a generated ssh host on the LAN');
     const port = generatedSshdPort(sshHost);
 
@@ -499,7 +500,7 @@ describe('nmap — self-host open ports (slice 1)', () => {
  */
 describe('nmap — scan logging (3a)', () => {
   const ESSID = 'BEAN-THERE-WIFI';
-  const subnet = generateHomeLan(PUBKEY, ESSID).subnet;
+  const subnet = generateHomeLan(ESSID).subnet;
 
   const envWithScan = (record: () => Promise<void>) =>
     mockCommandEnv({
@@ -721,7 +722,7 @@ describe('nmap — same-LAN occupant merge', () => {
   // What the viewer sees BEFORE the occupant overlay: the generated NPC filler with
   // the player placed at the address wlan0 holds (here the uncontested derived one,
   // which is what `onlineConnectivity` issues).
-  const baseLan = withSelfHost(generateHomeLan(PUBKEY, ESSID), own.localIp, own.hostname);
+  const baseLan = withSelfHost(generateHomeLan(ESSID), own.localIp, own.hostname);
 
   type Occupant = { workstation_machine_id: string; localIp: string; machineName: string };
 
@@ -739,7 +740,7 @@ describe('nmap — same-LAN occupant merge', () => {
   const sshNpcIp = (): string => {
     const host = baseLan.hosts.find((candidate) => {
       if (candidate.kind !== 'machine' || candidate.ip === SELF_IP) return false;
-      const fs: Directory = buildRemoteHostFs(PUBKEY, ESSID, candidate);
+      const fs: Directory = buildRemoteHostFs(ESSID, candidate);
       const varDir = fs.entries.get('var');
       const runDir = varDir?.kind === 'directory' ? varDir.entries.get('run') : undefined;
       return runDir?.kind === 'directory' && runDir.entries.has('sshd.pid');
@@ -769,9 +770,9 @@ describe('nmap — same-LAN occupant merge', () => {
   });
 
   it('drops the generated NPC on an octet collision with a machine — the occupant wins', async () => {
-    // .70 is the generated `workstation-70` (a machine); an occupant there REPLACES it.
+    // .74 is the generated `laptop-74` (a machine); an occupant there REPLACES it.
     const resolveOccupants = vi.fn(async () => [
-      { workstation_machine_id: 'skylab-aaaa', localIp: '192.168.29.70', machineName: 'alice-rig' },
+      { workstation_machine_id: 'skylab-aaaa', localIp: '192.168.29.74', machineName: 'alice-rig' },
     ]);
 
     const { text } = await drain(
@@ -779,41 +780,43 @@ describe('nmap — same-LAN occupant merge', () => {
     );
 
     expect(text).toContain('alice-rig');
-    expect(text).not.toContain('workstation-70');
+    expect(text).not.toContain('laptop-74');
     // No net host added — the NPC was replaced, not appended.
     expect(text).toContain(`${baseLan.hosts.length} hosts up`);
   });
 
-  it('reserves the inner gateway octet — an occupant that collides with it is omitted', async () => {
-    // .25 is the viewer's inner gateway (`fw-dmz`, a router) — their private depth entry.
-    // A fellow occupant landing on it is dropped from THIS view rather than drawn over the
-    // gateway (it stays attackable via its public IP); the gateway holds its slot.
+  it('shows an occupant that lands on the inner gateway octet — no occupant is hidden', async () => {
+    // .85 is the inner gateway (`core-rtr`, a router). It used to hold its slot and DROP
+    // a colliding occupant from this view, because the population was private and the
+    // viewer's own depth entry outranked one fellow player's visibility. Now the octet
+    // is excluded at lease time, so the collision cannot arise from allocation — and a
+    // player who is somehow there is a real machine answering at a real address, which
+    // is never something a scan may silently omit.
     const resolveOccupants = vi.fn(async () => [
-      { workstation_machine_id: 'skylab-aaaa', localIp: '192.168.29.25', machineName: 'alice-rig' },
+      { workstation_machine_id: 'skylab-aaaa', localIp: '192.168.29.85', machineName: 'alice-rig' },
     ]);
 
     const { text } = await drain(
       await nmap.execute(envWithOccupants(resolveOccupants), ['192.168.29.0-254'], new Map()),
     );
 
-    expect(text).toContain('fw-dmz');
-    expect(text).not.toContain('alice-rig');
-    // No net change — the occupant was dropped, the gateway kept.
+    expect(text).toContain('alice-rig');
+    expect(text).not.toContain('core-rtr');
     expect(text).toContain(`${baseLan.hosts.length} hosts up`);
   });
 
-  it('reserves the inner switch octet — an occupant that collides with it is omitted', async () => {
-    // .80 is the viewer's inner switch (`vpn-gw`) — the second gateway device kind.
+  it('shows an occupant that lands on the inner switch octet — no occupant is hidden', async () => {
+    // .213 is the inner switch (`pfsense01`), the second gateway device kind — same rule.
     const resolveOccupants = vi.fn(async () => [
-      { workstation_machine_id: 'skylab-aaaa', localIp: '192.168.29.80', machineName: 'alice-rig' },
+      { workstation_machine_id: 'skylab-aaaa', localIp: '192.168.29.213', machineName: 'alice-rig' },
     ]);
 
     const { text } = await drain(
       await nmap.execute(envWithOccupants(resolveOccupants), ['192.168.29.0-254'], new Map()),
     );
 
-    expect(text).toContain('vpn-gw');
-    expect(text).not.toContain('alice-rig');
+    expect(text).toContain('alice-rig');
+    expect(text).not.toContain('pfsense01');
     expect(text).toContain(`${baseLan.hosts.length} hosts up`);
   });
 
@@ -895,10 +898,10 @@ describe('nmap — same-LAN occupant merge', () => {
  */
 describe('nmap — own-LAN inner-gateway scan (5b.1b-i)', () => {
   const ESSID = 'BEAN-THERE-WIFI';
-  const lan = generateHomeLan(PUBKEY, ESSID);
+  const lan = generateHomeLan(ESSID);
 
   const innerGatewayOf = (essid: string): LanHost => {
-    const gateway = generateHomeLan(PUBKEY, essid).hosts.find(
+    const gateway = generateHomeLan(essid).hosts.find(
       (host) => host.kind === 'router' && Number(host.ip.split('.')[3]) !== 1,
     );
     if (gateway === undefined) throw new Error('no inner gateway on LAN');
@@ -950,7 +953,7 @@ describe('nmap — own-LAN inner-gateway scan (5b.1b-i)', () => {
   });
 
   const switchOf = (essid: string): LanHost => {
-    const device = generateHomeLan(PUBKEY, essid).hosts.find((host) => host.kind === 'switch');
+    const device = generateHomeLan(essid).hosts.find((host) => host.kind === 'switch');
     if (device === undefined) throw new Error('no switch on LAN');
     return device;
   };
@@ -1040,7 +1043,7 @@ describe('nmap — own router (.1) sameLAN scan (5.1.4)', () => {
   // rolls sshd on :2222, while the REAL router always runs sshd on :22 — so a .1
   // scan showing :22 (and not :2222) proves it resolves the router, not the gateway.
   const ROUTER_ESSID = 'XFINITY-1234';
-  const routerSubnet = generateHomeLan(PUBKEY, ROUTER_ESSID).subnet;
+  const routerSubnet = generateHomeLan(ROUTER_ESSID).subnet;
   const ROUTER_IP = `${routerSubnet}.1`;
 
   it('reports the real router’s own 22/tcp ssh, not the cosmetic gateway’s port', async () => {
@@ -1080,7 +1083,7 @@ describe('nmap — own router (.1) sameLAN scan (5.1.4)', () => {
  */
 describe('nmap — reachability-pivot from an inner gateway (5b.2)', () => {
   const ESSID = 'BEAN-THERE-WIFI';
-  const lan = generateHomeLan(PUBKEY, ESSID);
+  const lan = generateHomeLan(ESSID);
   const findHost = (predicate: (host: LanHost) => boolean): LanHost => {
     const host = lan.hosts.find(predicate);
     if (host === undefined) throw new Error('host not found on golden LAN');
@@ -1093,7 +1096,7 @@ describe('nmap — reachability-pivot from an inner gateway (5b.2)', () => {
   const SIBLING = findHost((host) => host.kind === 'machine');
   const SWITCH = findHost((host) => host.kind === 'switch');
 
-  const idOf = (host: LanHost): string => machineIdForLanHost(host, PUBKEY, ESSID);
+  const idOf = (host: LanHost): string => machineIdForLanHost(host, ESSID);
   const DEEP = generateDeepLayer(PUBKEY, ESSID, { machineId: idOf(INNER), kind: 'router' });
   // The switch fronts its OWN deep layer (keyed by its machine_id), disjoint from the router's.
   const SWITCH_DEEP = generateDeepLayer(PUBKEY, ESSID, { machineId: idOf(SWITCH), kind: 'switch' });
@@ -1217,14 +1220,14 @@ describe('nmap — reachability-pivot from an inner gateway (5b.2)', () => {
 
   it('still scans the upstream home /24 from the gateway vantage (deep branch falls through)', async () => {
     const { text, exitCode } = await drain(
-      await nmap.execute(vantageEnv(idOf(INNER)), [`${lan.subnet}.1-30`], new Map()),
+      await nmap.execute(vantageEnv(idOf(INNER)), [`${lan.subnet}.1-90`], new Map()),
     );
 
     expect(exitCode).toBe(0);
-    // The home LAN is unchanged from this vantage: .1/.25/.30 all still list.
-    expect(text).toContain(`${lan.subnet}.30`);
-    expect(text).toContain(`${lan.subnet}.25`);
-    expect(text).toContain('3 hosts up');
+    // The home LAN is unchanged from this vantage: .1/.28/.74/.85/.87 all still list.
+    expect(text).toContain(`${lan.subnet}.28`);
+    expect(text).toContain(`${lan.subnet}.85`);
+    expect(text).toContain('5 hosts up');
   });
 
   it('does NOT pivot from the edge .1 router — only an inner gateway exposes a deep layer', async () => {
@@ -1372,7 +1375,7 @@ describe('nmap — reachability-pivot from an inner gateway (5b.2)', () => {
  */
 describe('nmap — chain pivot to L3 from a deep child gateway (5b.4b)', () => {
   const ESSID = 'BEAN-THERE-WIFI';
-  const lan = generateHomeLan(PUBKEY, ESSID);
+  const lan = generateHomeLan(ESSID);
   const octetOf = (host: LanHost): number => Number(host.ip.split('.')[3]);
   const findHost = (predicate: (host: LanHost) => boolean): LanHost => {
     const host = lan.hosts.find(predicate);
@@ -1381,7 +1384,7 @@ describe('nmap — chain pivot to L3 from a deep child gateway (5b.4b)', () => {
   };
 
   const INNER = findHost((host) => host.kind === 'router' && octetOf(host) !== 1);
-  const INNER_ID = machineIdForLanHost(INNER, PUBKEY, ESSID);
+  const INNER_ID = machineIdForLanHost(INNER, ESSID);
 
   // L2 behind the inner router, and the child gateway (the chain door) it hangs.
   const L2 = generateDeepLayer(PUBKEY, ESSID, { machineId: INNER_ID, kind: 'router' });
@@ -1474,8 +1477,8 @@ describe('nmap — variable network depth (5b.4c-i)', () => {
   const DEPTH1_KEY = '0'.repeat(64);
   const DEPTH3_KEY = '03'.repeat(32);
 
-  const innerRouterOf = (key: string): LanHost => {
-    const host = generateHomeLan(key, ESSID).hosts.find(
+  const innerRouterOf = (): LanHost => {
+    const host = generateHomeLan(ESSID).hosts.find(
       (candidate) => candidate.kind === 'router' && octetOf(candidate) !== 1,
     );
     if (host === undefined) throw new Error('no inner router on the generated LAN');
@@ -1490,8 +1493,8 @@ describe('nmap — variable network depth (5b.4c-i)', () => {
     });
 
   it('depth-1 home: the inner router fronts a TERMINAL layer — pivot-scan lists only the NPC, no child gateway', async () => {
-    const inner = innerRouterOf(DEPTH1_KEY);
-    const innerId = machineIdForLanHost(inner, DEPTH1_KEY, ESSID);
+    const inner = innerRouterOf();
+    const innerId = machineIdForLanHost(inner, ESSID);
     const front = { machineId: innerId, kind: 'router' as const };
     // The NPC is depth-independent; the child gateway a depth-≥2 home WOULD hang must be
     // absent from a depth-1 scan — the layer stops here.
@@ -1510,8 +1513,8 @@ describe('nmap — variable network depth (5b.4c-i)', () => {
   });
 
   it('depth-3 home: from the L2 child gateway, pivot-scan lists the L3 NPC AND a deeper L3 child gateway', async () => {
-    const inner = innerRouterOf(DEPTH3_KEY);
-    const innerId = machineIdForLanHost(inner, DEPTH3_KEY, ESSID);
+    const inner = innerRouterOf();
+    const innerId = machineIdForLanHost(inner, ESSID);
     const l2 = generateDeepLayer(DEPTH3_KEY, ESSID, { machineId: innerId, kind: 'router' });
     const l2child = l2.childGateway;
     if (l2child === null) throw new Error('a depth-3 home must hang an L2 child gateway');
@@ -1531,8 +1534,8 @@ describe('nmap — variable network depth (5b.4c-i)', () => {
   });
 
   it('depth-3 home: the L3 child gateway (position 3) fronts a TERMINAL L4 — the chain walk recovers position 3', async () => {
-    const inner = innerRouterOf(DEPTH3_KEY);
-    const innerId = machineIdForLanHost(inner, DEPTH3_KEY, ESSID);
+    const inner = innerRouterOf();
+    const innerId = machineIdForLanHost(inner, ESSID);
     const l2 = generateDeepLayer(DEPTH3_KEY, ESSID, { machineId: innerId, kind: 'router' });
     const l2child = l2.childGateway;
     if (l2child === null) throw new Error('a depth-3 home must hang an L2 child gateway');
@@ -1572,11 +1575,11 @@ describe('nmap — pivot from a deep SWITCH child gateway, ACL-filtered (5b.4d)'
   const ESSID = 'BEAN-THERE-WIFI';
   const octetOf = (host: LanHost): number => Number(host.ip.split('.')[3]);
 
-  const inner = generateHomeLan(KEY, ESSID).hosts.find(
+  const inner = generateHomeLan(ESSID).hosts.find(
     (host) => host.kind === 'router' && octetOf(host) !== 1,
   );
   if (inner === undefined) throw new Error('no inner router on the deep-switch LAN');
-  const INNER_ID = machineIdForLanHost(inner, KEY, ESSID);
+  const INNER_ID = machineIdForLanHost(inner, ESSID);
   const switchChild = generateDeepLayer(
     KEY,
     ESSID,
