@@ -53,7 +53,7 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
   `assignHomeNetwork` returns `{localIp, hostname}` only — **no client-side public IP remains**.
   Wire-check: `scripts/testPublicIpAllocation.ts`.
 
-- **Shared-network reconciliation 🔨 IN PROGRESS** (epic doc item #5, grilled & resolved
+- **Shared-network reconciliation 🔨 IN PROGRESS (sharing work DONE at v0.94.0; only the registry removal remains)** (epic doc item #5, grilled & resolved
   2026-07-25). The ESSID becomes the seed for the whole LAN. Merged so far:
   - **Slice 1 (v0.88.0)** — one shared, contested AP gateway per ESSID; the per-player router
     retires. `computeApGatewayId(essid)`, ESSID-seeded hostname + admin password.
@@ -105,7 +105,7 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
     covering the preferred octet AND every redraw, with `drawLanOctet` drawing from the
     allowed pool so an exclusion never costs an attempt. Exclusion governs what may be
     ISSUED, not what is held: an existing lease is returned untouched.
-  - **Slice 5 (v0.94.0)** — the deep chain is shared too, so an ESSID's whole world is one
+  - **Slice 5 (v0.94.0, `2f79349`)** — the deep chain is shared too, so an ESSID's whole world is one
     world. `seedNetworkDepth(essid)`, `generateDeepLayer(essid, fronting, options)`,
     `computeDeepGatewayId(parent, octet)`, `seedDeepGatewayAdminPw(parent, octet)` and the deep
     base filesystems all dropped the owner key; **no generator in `core/` takes an identity any

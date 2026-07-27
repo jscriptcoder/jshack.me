@@ -7,12 +7,13 @@ Slice 3a ✅ MERGED (PR #328, `6ae4109`, v0.90.0),
 Slice 3b-i ✅ MERGED (PR #329, `21e3f9e`, v0.91.0),
 Slice 3b-ii ✅ MERGED (PR #330, `879dcc4`, v0.92.0),
 Slice 4 ✅ MERGED (PR #331, `6733821`, v0.93.0),
-Slice 5 ✅ BUILT (v0.94.0, on `feat/shared-deep-chains`, awaiting review).
-**Next: Slice 6a — re-home the registry-backed lookups. Slice 5 finished the sharing work: the
-whole world an ESSID generates, from its `/24` down to the last deep gateway, is now one world
-for every occupant, and no generator anywhere takes an owner key. What remains is the 6a/6b
-PAIR, which is a `reduce-system-complexity` program rather than behaviour change — read the
-Reduction Program section and 6a/6b below, in that order.**
+Slice 5 ✅ MERGED (PR #332, `2f79349`, v0.94.0).
+**Next: Slice 6a — re-home the registry-backed lookups. Nothing is in flight; `main` is clean at
+`2f79349`. Cut a branch, then start at the Reduction Program section and read 6a/6b in that
+order — this PAIR is `reduce-system-complexity` work, NOT behaviour change, so there is no RED
+to write and a fabricated one would be a process violation. Slice 5 finished the sharing work:
+the whole world an ESSID generates, from its `/24` down to the last deep gateway, is one world
+for every occupant, and no generator in `core/` takes an owner key.**
 **Parent**: `plans/multiplayer-crossplayer-epic.md` item #5 (decision record; grilled & resolved 2026-07-25)
 **Follows**: item #4 (unique public-IP allocation, v0.87.0)
 **Precedes**: item #6 (procedural world expansion) — do NOT pull it in here
@@ -876,7 +877,7 @@ generation vs. ACL/trace paths). Split on contact if it exceeds one PR — do no
 **Done when**: criteria met, `testDeepChainReach` / `testDeepSwitchChain` / `testDeepScanTrace`
 / `testInnerGatewayReach` / `testInnerGatewayScan` pass, human approves the commit.
 
-**AS BUILT (v0.94.0).** One PR after all — the As-found list held, and the surface came in
+**AS BUILT (v0.94.0, `2f79349`).** One PR after all — the As-found list held, and the surface came in
 smaller than Slice 4's. RED at the two layers that still have a viewer: `handleNmapScanDeep`
 (three signers, one chain door, one target — the second and third touched NOTHING, their deep
 `/24` being somewhere else entirely) and `enforceRemoteWriteL2` (a fellow occupant rooting the
