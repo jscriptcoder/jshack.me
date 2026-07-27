@@ -168,6 +168,26 @@ fallback.
   COLUMN essid TEXT`, so pre-existing rows carry null. Passing the session essid into
   `resolveCrossPlayerFs` treats null as unresolvable and lands on the existing fail-closed
   path. No compat burden pre-launch.
+- **G4 — the two stores have different LIFETIMES, and the registry's is the wrong one.**
+  Found during implementation, after the ledger above was written: `network_registry` rows are
+  never deleted, while `unregisterOccupant` deletes the occupancy row. Crucially,
+  `unregisterOccupant` fires from `nmcli disconnect` and `reboot` ALONE — never on logout, tab
+  close, or session end (`src/adapters/networkApi.ts:112`, `src/core/commands/nmcli.ts:156`,
+  `src/core/commands/reboot.ts:98`). So occupancy means "on this WiFi", not "currently
+  playing", and it is the CORRECT source of reachability per the new §7 invariant.
+  Consequence: a player who ran `nmcli disconnect` — whose machine has left the network and is
+  by the game's rule unreachable — is nevertheless still resolvable and attackable today
+  through the stale registry row, forwards included. Re-homing onto occupancy **fixes** that.
+  **This makes 6a a reduction PLUS one deliberate behaviour fix, so it owes a RED test** for
+  the one observable delta (a machine on no network resolves to nothing and fails closed). It
+  needs no schema change, no new column and no new table: everything else that makes a box
+  attackable — the patch journal that carries its hardening, the LAN lease, the public IP, the
+  ESSID-seeded gateway — is already permanent.
+
+**Class correction**: 6a is therefore **reduction transition + behaviour fix**, not a pure
+transition. `tdd` RED is NO LONGER `N/A` for the G4 delta specifically; it remains `N/A` for
+the re-homing itself, which is behaviour-preserving. 6b is unaffected and stays a terminal
+reduction.
 
 #### Scope correction this diagnosis forces
 
@@ -178,6 +198,44 @@ after it. 6b keeps the table, index, write path, type, and the §7 invariant tex
 
 Nothing in this diagnosis claims equivalence or realized reduction; 6a's mechanism gate stays
 pending until 6b.
+
+#### Slice 6a as-built (2026-07-27, v0.95.0)
+
+**Class as delivered**: reduction transition + one behaviour fix (G4). `behavior gate: pass`.
+`mechanism gate: pending — no net-reduction claim` (6b is terminal).
+
+What changed, against what the diagnosis predicted:
+
+- **Three lookups → one.** `findRegistryByPublicIp` now reads `network_public_ips` → essid →
+  `computeApGatewayId`; `findRegistryByOwnerKey` reads occupancy → essid → public IP;
+  `findRegistryByMachineId` is **deleted**, its workstation arm absorbed by the existing
+  `findOccupantWorkstationByMachineId` and its router arm replaced by the session's ESSID.
+  Eight `core/` modules lost a dep; the PR #306 fallback branch is gone as predicted.
+- **G2 revised by G4.** The ledger said read the actor's network from `network_lan_leases`
+  because occupancy is deleted on disconnect. Once the invariant landed — occupancy means "on
+  this WiFi" — that reasoning inverted: a player who disconnected genuinely has no home
+  network, so **occupancy is correct** and a lease would have kept a stale source IP alive.
+- **The diagnosis was wrong about one thing.** It claimed `remoteWritePermission` already
+  resolved gateways from the session and never reached the registry's router arm. True for
+  INNER gateways only: `lanBaseFsForMachineId` deliberately skips octet `.1`, so the AP
+  gateway had no own-LAN path and the registry WAS carrying it. Caught by a unit test going
+  red, not by review. Fixed with an explicit `computeApGatewayId(session.essid)` arm.
+- **An unpredicted shape change.** `RegistryLookup`/`RegistryTarget` gained a nested
+  `behindNat: NatHost | null`. The AP gateway is infrastructure and must answer whether or not
+  anyone is on the WiFi; only the host behind its NAT is contingent. The flat shape could not
+  express that without four independently-nullable fields. With nobody home, forwards reach
+  nothing and the scan/auth trace is skipped (there is no owner key to write it under) — the
+  same best-effort posture those writers already had.
+- **17 wire-check scripts seeded `network_registry` directly.** The plan scheduled that for
+  6b; it had to happen here, because 6a is where the reads moved.
+
+Evidence: RED first (`scripts/testDisconnectedUnreachable.ts`, 6 checks — the read returned
+200 and the write LANDED A ROW on a machine that had left the network; both now fail closed).
+**1961 unit tests green.** **Mutation: 0 survivors** across all five changed modules —
+`resolveCrossPlayerFs` (74 killed), `remoteWritePermission` (50, 100%), `resolvePublicScan`
+(80), `authCreateSessionPublic` (145), `authElevateSession` (75); residual non-100% scores are
+timeouts plus one no-coverage mutant, no survivors. **Wire-checks: 26 scripts / 180 checks, all
+green** (was 25/174). Typecheck + lint clean.
 
 ## Slices
 

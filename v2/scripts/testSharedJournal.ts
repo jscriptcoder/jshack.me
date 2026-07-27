@@ -19,7 +19,6 @@ import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign';
 import { generateIdentity } from '../src/core/identity/identity';
 import { computeWorkstationId } from '../src/core/identity/workstation';
-import { computeApGatewayId } from '../src/core/identity/router';
 import { md5 } from '../src/core/generation/md5';
 import { deserializeTree, type SerializedDirectory } from '../src/core/filesystem/treeCodec';
 import type { Directory, FileNode } from '../src/core/filesystem/types';
@@ -77,14 +76,16 @@ const NOTES = '/home/alice/notes.txt';
 const filePerms = { read: ['root', 'user'], write: ['root', 'user'], execute: [] };
 
 // A registered network so the owner can read its own box via resolveCrossPlayerFs.
-await sr.from('network_registry').delete().eq('public_ip', A_PUBLIC_IP);
+await sr.from('network_public_ips').delete().eq('public_ip', A_PUBLIC_IP);
+await sr.from('home_network_occupants').delete().eq('essid', 'BEAN-THERE-WIFI');
 await sr.from('patches').delete().eq('machine_id', A_MACHINE);
-await sr.from('network_registry').insert({
-  public_ip: A_PUBLIC_IP,
+// The join state a real `registerNetwork` writes: the AP's public IP, plus the owner
+// as an OCCUPANT of its ESSID — occupancy is what makes a box reachable.
+await sr.from('network_public_ips').insert({ essid: 'BEAN-THERE-WIFI', public_ip: A_PUBLIC_IP });
+await sr.from('home_network_occupants').insert({
+  essid: 'BEAN-THERE-WIFI',
   owner_key: alice.publicKeyHex,
   workstation_machine_id: A_MACHINE,
-  router_machine_id: computeApGatewayId('BEAN-THERE-WIFI'),
-  essid: 'BEAN-THERE-WIFI',
   workstation_username: 'alice',
   workstation_machine_name: 'skylab',
   workstation_root_hash: ROOT_HASH,
@@ -170,7 +171,8 @@ check(
 );
 
 // Cleanup.
-await sr.from('network_registry').delete().eq('public_ip', A_PUBLIC_IP);
+await sr.from('network_public_ips').delete().eq('public_ip', A_PUBLIC_IP);
+await sr.from('home_network_occupants').delete().eq('essid', 'BEAN-THERE-WIFI');
 await sr.from('patches').delete().eq('machine_id', A_MACHINE);
 
 const passed = results.filter((result) => result.pass).length;

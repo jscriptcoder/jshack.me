@@ -53,19 +53,26 @@ import type { PatchRow } from '../patches/upsertPatch';
 import type { Directory } from '../filesystem/types';
 import type { OpenPort } from '../services/pidfile';
 
-/** The registry fields the router scan needs. For the boot-state check + the
- *  router's own ports: which router the public IP maps to (`router_machine_id` — its
- *  journal scope) and the `owner_key` that seeds its base FS. For liveness-gating a
- *  NAT forward to the workstation behind NAT (Story 5.1.3b): the workstation's
- *  machine id (its journal scope), the `essid` (with `owner_key`, derives its LAN
- *  IP), and its identity (to reconstruct its tree). */
-export type RegistryLookup = {
-  readonly router_machine_id: string;
+/** The ONE host an AP's NAT forwards to: its machine id (the journal scope), the
+ *  `owner_key` (with the essid, finds its LAN lease) and the identity needed to
+ *  reconstruct its tree for the forward's liveness gate. */
+export type NatHost = {
   readonly owner_key: string;
   readonly workstation_machine_id: string;
-  readonly essid: string;
   readonly workstation_username: string;
   readonly workstation_root_hash: string;
+};
+
+/** What a public IP resolves to. The AP GATEWAY always exists — it is the access
+ *  point's own infrastructure rather than a machine that joins the network, so it
+ *  answers whether or not anyone is on the WiFi; `router_machine_id` is its journal
+ *  scope and the `essid` seeds its base FS. `behindNat` is the single host the NAT
+ *  forwards to, and is `null` when nobody is currently on the network — then the
+ *  gateway still answers on its own ports and every forward reaches nothing. */
+export type RegistryLookup = {
+  readonly router_machine_id: string;
+  readonly essid: string;
+  readonly behindNat: NatHost | null;
 };
 
 export type ResolvePublicScanDeps = {
@@ -129,19 +136,22 @@ const resolveForwardTargets = async (
   registry: RegistryLookup,
   routerFs: Directory,
 ): Promise<ForwardResolver | null> => {
-  if (parseForwardRules(readRulesV4(routerFs)).length === 0) {
+  // No forward rules, or nobody on the network to forward TO — either way every
+  // forward reaches nothing and no journal fetch is needed.
+  const behindNat = registry.behindNat;
+  if (behindNat === null || parseForwardRules(readRulesV4(routerFs)).length === 0) {
     return () => [];
   }
   const workstationPatches = await deps.findPatches({
-    machine_id: registry.workstation_machine_id,
+    machine_id: behindNat.workstation_machine_id,
   });
   if (workstationPatches.error) return null;
   // Where that box answers is its LEASE, not a re-derivation — so a forward is live
   // only when it names the address the same-LAN path would reach the box at.
-  const lease = await deps.readLease(registry.essid, registry.owner_key);
+  const lease = await deps.readLease(registry.essid, behindNat.owner_key);
   if (lease.error) return null;
   return buildWorkstationPortResolver({
-    registry,
+    registry: { ...behindNat, essid: registry.essid },
     workstationPatches: workstationPatches.data,
     lanIp: leasedAddress(registry.essid, lease.data),
   });
@@ -159,6 +169,12 @@ const logCrossPlayerScan = async (
   ports: readonly OpenPort[],
   sourceIp: string,
 ): Promise<void> => {
+  // The row is keyed by the writer, and the AP has no owner of its own, so the line
+  // accretes under the occupant behind its NAT. With nobody on the network there is no
+  // such key — the scan still reports truthfully, it just leaves no trace, which is the
+  // same best-effort posture as a failed write below.
+  const writerKey = registry.behindNat?.owner_key ?? null;
+  if (writerKey === null) return;
   const line = formatNmapScanAggregate({
     time: asGameTime(deps.now()),
     hostname: seedApGatewayHostname(registry.essid),
@@ -169,7 +185,7 @@ const logCrossPlayerScan = async (
     await appendMachineLog(
       { readLog: deps.readLog, upsertPatch: deps.upsertPatch },
       {
-        writerKey: registry.owner_key,
+        writerKey,
         machineId: registry.router_machine_id,
         path: KERN_LOG_PATH,
         owner: KERN_LOG_OWNER,

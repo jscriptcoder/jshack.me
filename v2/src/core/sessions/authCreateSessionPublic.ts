@@ -59,23 +59,31 @@ import type { Directory } from '../filesystem/types';
 import type { AuthSessionRow, HandlerResponse } from './authCreateSession';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
-/** The registry fields a cross-player login needs. The router arm uses `owner_key`
- *  (to reconstruct the router FS + recover its seeded admin password), the router's
- *  machine id (its journal scope AND the session target), and the `essid` the session
- *  lives on. The forward → workstation arm (Story 5.1.3c) additionally needs the
- *  workstation's machine id (its journal scope + session target) and the identity
- *  fields that rebuild its tree — making this a structural superset of the scan
- *  path's `WorkstationTarget`, so the shared resolver takes it verbatim. */
-export type RegistryTarget = {
+/** The ONE host an AP's NAT forwards a login to (Story 5.1.3c): its machine id (the
+ *  journal scope AND the session target), the `owner_key` that rebuilds its tree, and
+ *  the identity fields the reconstructed passwd is derived from. A structural superset
+ *  of the scan path's `WorkstationTarget` once the essid is added, so the shared
+ *  resolver takes it verbatim. */
+export type NatHost = {
   readonly owner_key: string;
-  readonly router_machine_id: string;
-  readonly essid: string;
   readonly workstation_machine_id: string;
   readonly workstation_username: string;
   /** The owner's player-chosen workstation hostname — the name a forwarded-port
    *  `auth.log` line (Story 6.2) carries, mirroring the router's seeded hostname. */
   readonly workstation_machine_name: string;
   readonly workstation_root_hash: string;
+};
+
+/** What a public IP a login targets resolves to. The AP GATEWAY always exists — it is
+ *  the access point's own infrastructure rather than a machine that joins the network —
+ *  so `router_machine_id` (its journal scope AND the port-22 session target) and the
+ *  `essid` (which seeds its FS and recovers its admin password) are always present.
+ *  `behindNat` is the single host a forwarded port reaches, `null` when nobody is
+ *  currently on the WiFi — then only the gateway itself can be logged into. */
+export type RegistryTarget = {
+  readonly router_machine_id: string;
+  readonly essid: string;
+  readonly behindNat: NatHost | null;
 };
 
 export type AuthCreateSessionPublicDeps = {
@@ -163,22 +171,25 @@ const resolveAuthTarget = async (
       hostname: seedApGatewayHostname(registry.essid),
     };
   }
-  if (served.kind === 'none') {
+  // No host behind the NAT — either the port serves nothing, or nobody is on the WiFi
+  // for a forward to reach in the first place.
+  const behindNat = registry.behindNat;
+  if (served.kind === 'none' || behindNat === null) {
     return { status: 404, body: { error: 'host_unreachable' } };
   }
 
   const workstationPatches = await deps.findPatches({
-    machine_id: registry.workstation_machine_id,
+    machine_id: behindNat.workstation_machine_id,
   });
   if (workstationPatches.error) {
     return { status: 500, body: { error: 'patches_lookup_failed' } };
   }
-  const lease = await deps.readLease(registry.essid, registry.owner_key);
+  const lease = await deps.readLease(registry.essid, behindNat.owner_key);
   if (lease.error) {
     return { status: 500, body: { error: 'lease_lookup_failed' } };
   }
   const workstationFs = buildWorkstationResolver({
-    registry,
+    registry: { ...behindNat, essid: registry.essid },
     workstationPatches: workstationPatches.data,
     lanIp: leasedAddress(registry.essid, lease.data),
   })(served.internalIp);
@@ -195,8 +206,8 @@ const resolveAuthTarget = async (
   }
   return {
     fs: workstationFs,
-    machineId: registry.workstation_machine_id,
-    hostname: registry.workstation_machine_name,
+    machineId: behindNat.workstation_machine_id,
+    hostname: behindNat.workstation_machine_name,
   };
 };
 
@@ -298,12 +309,19 @@ export const handleAuthCreateSessionPublic = async (
   // key (decision 1) on the resolved machine (router or workstation behind the NAT);
   // the source IP is the attacker's own home public IP, server-derived from their
   // verified key — never the payload's.
-  const sourceIp = await resolveCrossPlayerSourceIp(deps.findRegistryByOwnerKey, publicKey);
-  await logCrossPlayerAuth(deps, data.owner_key, target, {
-    outcome: passwordOk ? 'success' : 'failure',
-    user: payload.username,
-    fromIp: sourceIp,
-  });
+  // The row is keyed by the writer, and the AP has no owner of its own, so the line
+  // accretes under the occupant behind its NAT. With nobody on the network there is no
+  // such key — the login still resolves truthfully, it just leaves no trace, the same
+  // best-effort posture as a failed write.
+  const writerKey = data.behindNat?.owner_key ?? null;
+  if (writerKey !== null) {
+    const sourceIp = await resolveCrossPlayerSourceIp(deps.findRegistryByOwnerKey, publicKey);
+    await logCrossPlayerAuth(deps, writerKey, target, {
+      outcome: passwordOk ? 'success' : 'failure',
+      user: payload.username,
+      fromIp: sourceIp,
+    });
+  }
 
   if (account === null || !passwordOk) {
     return { status: 401, body: { error: 'invalid_credentials' } };

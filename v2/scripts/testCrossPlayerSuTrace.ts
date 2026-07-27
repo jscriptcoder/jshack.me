@@ -24,7 +24,6 @@ import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign';
 import { generateIdentity } from '../src/core/identity/identity';
 import { computeWorkstationId } from '../src/core/identity/workstation';
-import { computeApGatewayId } from '../src/core/identity/router';
 import { md5 } from '../src/core/generation/md5';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
@@ -82,16 +81,15 @@ const carol = generateIdentity();
 const A_ESSID = 'ABSTERGO-NET';
 const A_WS_NAME = 'skylab';
 const A_WS = computeWorkstationId(A_WS_NAME, alice.publicKeyHex);
-const A_ROUTER = computeApGatewayId(A_ESSID);
 const A_PUBLIC_IP = '203.0.113.94';
 const A_ROOT_PW = 'root-secret'; // matches the seeded workstation_root_hash below
 
-const registryRow = {
-  public_ip: A_PUBLIC_IP,
+// The join state a real `registerNetwork` writes: A as an OCCUPANT of its ESSID.
+// Occupancy is what makes A's box reachable at all.
+const occupantRow = {
+  essid: A_ESSID,
   owner_key: alice.publicKeyHex,
   workstation_machine_id: A_WS,
-  router_machine_id: A_ROUTER,
-  essid: A_ESSID,
   workstation_username: 'player',
   workstation_machine_name: A_WS_NAME,
   workstation_root_hash: md5(A_ROOT_PW),
@@ -99,12 +97,14 @@ const registryRow = {
 
 // Clean slate, then seed A's registry row (as A's join would). su needs no forward or
 // pidfile — it targets A's workstation directly by machine_id.
-await sr.from('network_registry').delete().eq('public_ip', A_PUBLIC_IP);
+await sr.from('network_public_ips').delete().eq('public_ip', A_PUBLIC_IP);
+await sr.from('home_network_occupants').delete().eq('essid', A_ESSID);
 await sr.from('patches').delete().eq('machine_id', A_WS);
 for (const id of [bob, carol]) {
   await sr.from('sessions').delete().eq('player_key', id.publicKeyHex);
 }
-await sr.from('network_registry').insert([registryRow]);
+await sr.from('network_public_ips').insert({ essid: A_ESSID, public_ip: A_PUBLIC_IP });
+await sr.from('home_network_occupants').insert([occupantRow]);
 
 const suElevate = (
   attacker: ReturnType<typeof generateIdentity>,
@@ -190,7 +190,8 @@ check(
 );
 
 // Cleanup.
-await sr.from('network_registry').delete().eq('public_ip', A_PUBLIC_IP);
+await sr.from('network_public_ips').delete().eq('public_ip', A_PUBLIC_IP);
+await sr.from('home_network_occupants').delete().eq('essid', A_ESSID);
 await sr.from('patches').delete().eq('machine_id', A_WS);
 for (const id of [bob, carol]) {
   await sr.from('sessions').delete().eq('player_key', id.publicKeyHex);

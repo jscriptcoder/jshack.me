@@ -15,7 +15,6 @@ import type {
 } from '../src/core/patches/authorizeMachineAccess';
 import type {
   ListMachinePatchesResult,
-  RegistryMachine,
   RegistryWorkstation,
 } from '../src/core/patches/remoteWritePermission';
 import type { Patch } from '../src/core/filesystem/applyPatches';
@@ -147,54 +146,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return { data: patches, error };
   };
 
-  // L2's cross-player branch (D6): reverse-look-up a registered FOREIGN machine by
-  // its machine_id so the handler can rebuild the OWNER's tree (the same identity the
-  // cross-player READ uses) and walk it at the session tier. The id may be A's
-  // workstation (Story 2/3) OR A's ROUTER (Story 5.2 — B `ssh root`'d into it), so
-  // look up BOTH columns and DISCRIMINATE. Two parameterized `.eq` lookups
-  // (workstation first, the common case) keep the attacker-controlled machine_id out
-  // of a string-interpolated `.or` filter. Returns null for an NPC host / unknown id —
-  // L2 then resolves via the caller's own LAN/router or fails closed.
-  const findRegistryByMachineId = async (machineId: string) => {
-    const byWorkstation = await supabase
-      .from('network_registry')
-      .select('owner_key, workstation_username, workstation_root_hash')
-      .eq('workstation_machine_id', machineId)
-      .maybeSingle();
-    if (byWorkstation.error) {
-      console.error('[patches] registry ws reverse-lookup error:', byWorkstation.error);
-      return { data: null, error: byWorkstation.error };
-    }
-    if (byWorkstation.data !== null) {
-      const ws = byWorkstation.data as {
-        owner_key: string;
-        workstation_username: string;
-        workstation_root_hash: string;
-      };
-      return { data: { kind: 'workstation', ...ws } as RegistryMachine, error: null };
-    }
-    const byRouter = await supabase
-      .from('network_registry')
-      .select('essid')
-      .eq('router_machine_id', machineId)
-      .maybeSingle();
-    if (byRouter.error) {
-      console.error('[patches] registry router reverse-lookup error:', byRouter.error);
-      return { data: null, error: byRouter.error };
-    }
-    const router = byRouter.data as { essid: string } | null;
-    return {
-      data:
-        router === null
-          ? null
-          : ({ kind: 'router', essid: router.essid } as RegistryMachine),
-      error: null,
-    };
-  };
-  // Same-LAN fallback for L2 when the registry misses: a shared-AP occupant evicted from
-  // network_registry (PK = the ESSID-shared public_ip, last-writer-wins) is still in
-  // home_network_occupants (PK (essid, owner_key)). One player on N APs has N rows with
-  // the SAME workstation_machine_id, so `.limit(1)`. Only ever resolves a workstation.
+  // L2's cross-player branch (D6): reverse-look-up a FOREIGN machine by its machine_id
+  // so the handler can rebuild the OWNER's tree (the same identity the cross-player READ
+  // uses) and walk it at the session tier. Occupancy answers both questions at once —
+  // whose box it is, and whether it is still on a WiFi at all, since a player who ran
+  // `nmcli disconnect` has no row and their machine is nobody's to write to. Returns
+  // null for an NPC host / unknown id, and every gateway on the session's own network is
+  // already resolved from the ESSID before this is reached. One player on N APs has N
+  // rows with the SAME workstation_machine_id, so `.limit(1)` picks any.
   const findOccupantWorkstationByMachineId = async (machineId: string) => {
     const { data, error } = await supabase
       .from('home_network_occupants')
@@ -249,7 +208,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       nonceStore: noopNonceStore,
       findActiveSession,
       listMachinePatches,
-      findRegistryByMachineId,
       findOccupantWorkstationByMachineId,
       deletePatchTree,
       upsertPatch,
@@ -388,7 +346,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     nonceStore: noopNonceStore,
     findActiveSession,
     listMachinePatches,
-    findRegistryByMachineId,
     findOccupantWorkstationByMachineId,
     upsertPatch,
   });

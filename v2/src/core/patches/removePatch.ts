@@ -33,7 +33,6 @@ import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { authorizeMachineAccess, type FindActiveSession } from './authorizeMachineAccess';
 import {
   enforceRemoteWriteL2,
-  type FindRegistryByMachineId,
   type FindOccupantWorkstationByMachineId,
   type ListMachinePatches,
 } from './remoteWritePermission';
@@ -52,7 +51,6 @@ export type RemovePatchDeps = {
   readonly listMachinePatches: ListMachinePatches;
   /** Reverse-look-up a registered foreign workstation by its machine_id — shared
    *  with the write path's L2 cross-player branch (D6). */
-  readonly findRegistryByMachineId: FindRegistryByMachineId;
   /** Same-LAN fallback for L2 when the registry misses (a shared-AP occupant evicted
    *  by a later joiner) — resolves the workstation from the occupancy table. */
   readonly findOccupantWorkstationByMachineId: FindOccupantWorkstationByMachineId;
@@ -106,7 +104,6 @@ export const handleRemovePatch = async (
     path: payload.path,
     session: access.session,
     listMachinePatches: deps.listMachinePatches,
-    findRegistryByMachineId: deps.findRegistryByMachineId,
     findOccupantWorkstationByMachineId: deps.findOccupantWorkstationByMachineId,
   });
   if (denial) {

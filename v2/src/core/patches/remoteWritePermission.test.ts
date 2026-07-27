@@ -3,7 +3,6 @@ import {
   buildRegisteredWorkstationFs,
   enforceRemoteWriteL2,
   type RegistryWorkstation,
-  type RegistryMachine,
 } from './remoteWritePermission';
 import { generateIdentity } from '../identity/identity';
 import { computeDeepGatewayId, computeInnerGatewayId, computeApGatewayId } from '../identity/router';
@@ -53,32 +52,28 @@ describe('buildRegisteredWorkstationFs', () => {
 });
 
 /**
- * The OWN-ROUTER L2 branch: A `ssh root@<subnet>.1` write to `rules.v4` is on a
- * journal-backed machine that is neither a LAN sibling nor a registered foreign
- * workstation. L2 must rebuild the ROUTER tree (from the caller's own key) and
- * walk it at the session tier. The `findRegistryByMachineId` stub here resolves
- * to NOTHING, so if the code fell through to the foreign-workstation branch the
- * base would be null and the write denied — a passing "allowed" proves the
- * own-router branch built the router tree.
+ * The AP GATEWAY L2 branch: a `ssh root@<subnet>.1` write to `rules.v4` lands on a
+ * journal-backed machine that is neither a LAN sibling (the LAN walker skips the `.1`
+ * octet on purpose — the gateway belongs to the access point, not to its LAN) nor
+ * anybody's workstation. L2 rebuilds the gateway tree from the ESSID its session names
+ * and walks it at the session tier. The occupancy stub here resolves to NOTHING, so if
+ * the code fell through to the foreign-workstation branch the base would be null and
+ * the write denied — a passing "allowed" proves the gateway branch built the tree.
  */
 describe('enforceRemoteWriteL2 — AP gateway', () => {
   const noPriorPatches = () => Promise.resolve({ data: [], error: null });
-  const noRegistry = () => Promise.resolve({ data: null, error: null });
+  const noOccupant = () => Promise.resolve({ data: null, error: null });
 
-  it('denies a write to an AP gateway that resolves to no registered network', async () => {
-    // The gateway is nobody's own box, so there is no own-machine branch to fall back
-    // on: with no registry row there is no tree to walk and the write fails closed,
-    // exactly as it would for any other unresolvable machine.
+  it("allows a root tier writing the gateway's rules.v4 on the network its session names", async () => {
     const denial = await enforceRemoteWriteL2({
       machineId: computeApGatewayId('HOME-WIFI'),
       path: '/etc/iptables/rules.v4',
       session: { userType: 'root', essid: 'HOME-WIFI' },
       listMachinePatches: noPriorPatches,
-      findRegistryByMachineId: noRegistry,
-      findOccupantWorkstationByMachineId: noRegistry,
+      findOccupantWorkstationByMachineId: noOccupant,
     });
 
-    expect(denial).toEqual({ status: 403, error: 'permission_denied' });
+    expect(denial).toBeNull();
   });
 
   it("denies a non-root tier writing the router's root-only rules.v4", async () => {
@@ -87,8 +82,7 @@ describe('enforceRemoteWriteL2 — AP gateway', () => {
       path: '/etc/iptables/rules.v4',
       session: { userType: 'guest', essid: 'HOME-WIFI' },
       listMachinePatches: noPriorPatches,
-      findRegistryByMachineId: noRegistry,
-      findOccupantWorkstationByMachineId: noRegistry,
+      findOccupantWorkstationByMachineId: noOccupant,
     });
 
     expect(denial).toEqual({ status: 403, error: 'permission_denied' });
@@ -104,7 +98,7 @@ describe('enforceRemoteWriteL2 — AP gateway', () => {
  */
 describe('enforceRemoteWriteL2 — own inner gateway', () => {
   const noPriorPatches = () => Promise.resolve({ data: [], error: null });
-  const noRegistry = () => Promise.resolve({ data: null, error: null });
+  const noOccupant = () => Promise.resolve({ data: null, error: null });
   const ESSID = 'HOME-WIFI';
 
   const innerGatewayOctet = (): number => {
@@ -123,8 +117,7 @@ describe('enforceRemoteWriteL2 — own inner gateway', () => {
       path: '/etc/iptables/rules.v4',
       session: { userType: 'root', essid: ESSID },
       listMachinePatches: noPriorPatches,
-      findRegistryByMachineId: noRegistry,
-      findOccupantWorkstationByMachineId: noRegistry,
+      findOccupantWorkstationByMachineId: noOccupant,
     });
 
     expect(denial).toBeNull();
@@ -138,8 +131,7 @@ describe('enforceRemoteWriteL2 — own inner gateway', () => {
       path: '/etc/iptables/rules.v4',
       session: { userType: 'guest', essid: ESSID },
       listMachinePatches: noPriorPatches,
-      findRegistryByMachineId: noRegistry,
-      findOccupantWorkstationByMachineId: noRegistry,
+      findOccupantWorkstationByMachineId: noOccupant,
     });
 
     expect(denial).toEqual({ status: 403, error: 'permission_denied' });
@@ -155,7 +147,7 @@ describe('enforceRemoteWriteL2 — own inner gateway', () => {
  */
 describe('enforceRemoteWriteL2 — own switch', () => {
   const noPriorPatches = () => Promise.resolve({ data: [], error: null });
-  const noRegistry = () => Promise.resolve({ data: null, error: null });
+  const noOccupant = () => Promise.resolve({ data: null, error: null });
   const ESSID = 'HOME-WIFI';
 
   const switchOctet = (): number => {
@@ -172,8 +164,7 @@ describe('enforceRemoteWriteL2 — own switch', () => {
       path: '/etc/switch/acl.conf',
       session: { userType: 'root', essid: ESSID },
       listMachinePatches: noPriorPatches,
-      findRegistryByMachineId: noRegistry,
-      findOccupantWorkstationByMachineId: noRegistry,
+      findOccupantWorkstationByMachineId: noOccupant,
     });
 
     expect(denial).toBeNull();
@@ -187,8 +178,7 @@ describe('enforceRemoteWriteL2 — own switch', () => {
       path: '/etc/switch/acl.conf',
       session: { userType: 'guest', essid: ESSID },
       listMachinePatches: noPriorPatches,
-      findRegistryByMachineId: noRegistry,
-      findOccupantWorkstationByMachineId: noRegistry,
+      findOccupantWorkstationByMachineId: noOccupant,
     });
 
     expect(denial).toEqual({ status: 403, error: 'permission_denied' });
@@ -205,7 +195,7 @@ describe('enforceRemoteWriteL2 — own switch', () => {
  */
 describe('enforceRemoteWriteL2 — a deep chain gateway', () => {
   const noPriorPatches = () => Promise.resolve({ data: [], error: null });
-  const noRegistry = () => Promise.resolve({ data: null, error: null });
+  const noOccupant = () => Promise.resolve({ data: null, error: null });
 
   // Depth is a per-network roll AND the inner router's deep child is a seeded
   // router-OR-switch; pick a NETWORK whose inner gateway hangs a child of the kind the test
@@ -238,8 +228,7 @@ describe('enforceRemoteWriteL2 — a deep chain gateway', () => {
       path: '/etc/iptables/rules.v4',
       session: { userType: 'root', essid: door.essid },
       listMachinePatches: noPriorPatches,
-      findRegistryByMachineId: noRegistry,
-      findOccupantWorkstationByMachineId: noRegistry,
+      findOccupantWorkstationByMachineId: noOccupant,
     });
 
     expect(denial).toBeNull();
@@ -253,8 +242,7 @@ describe('enforceRemoteWriteL2 — a deep chain gateway', () => {
       path: '/etc/iptables/rules.v4',
       session: { userType: 'guest', essid: door.essid },
       listMachinePatches: noPriorPatches,
-      findRegistryByMachineId: noRegistry,
-      findOccupantWorkstationByMachineId: noRegistry,
+      findOccupantWorkstationByMachineId: noOccupant,
     });
 
     expect(denial).toEqual({ status: 403, error: 'permission_denied' });
@@ -271,8 +259,7 @@ describe('enforceRemoteWriteL2 — a deep chain gateway', () => {
       path: '/etc/switch/acl.conf',
       session: { userType: 'root', essid: door.essid },
       listMachinePatches: noPriorPatches,
-      findRegistryByMachineId: noRegistry,
-      findOccupantWorkstationByMachineId: noRegistry,
+      findOccupantWorkstationByMachineId: noOccupant,
     });
 
     expect(denial).toBeNull();
@@ -286,8 +273,7 @@ describe('enforceRemoteWriteL2 — a deep chain gateway', () => {
       path: '/etc/switch/acl.conf',
       session: { userType: 'guest', essid: door.essid },
       listMachinePatches: noPriorPatches,
-      findRegistryByMachineId: noRegistry,
-      findOccupantWorkstationByMachineId: noRegistry,
+      findOccupantWorkstationByMachineId: noOccupant,
     });
 
     expect(denial).toEqual({ status: 403, error: 'permission_denied' });
@@ -306,35 +292,45 @@ describe('enforceRemoteWriteL2 — a deep chain gateway', () => {
 describe('enforceRemoteWriteL2 — foreign router (cross-player)', () => {
   const noPriorPatches = () => Promise.resolve({ data: [], error: null });
 
-  it("allows B's ROOT write to /etc/iptables/rules.v4 on A's registered router", async () => {
-    // The registry resolves the gateway's machine_id → a router-kind row carrying the
-    // ESSID (the seed its tree is rebuilt from — the AP owns it, so no player key).
-    const findRegistryByMachineId = (): Promise<{ data: RegistryMachine | null; error: unknown }> =>
-      Promise.resolve({ data: { kind: 'router', essid: 'HOME-WIFI' }, error: null });
+  const noOccupant = () => Promise.resolve({ data: null, error: null });
 
+  it("allows B's ROOT write to /etc/iptables/rules.v4 on a foreign AP's gateway", async () => {
+    // Standing on a gateway means having logged INTO it, and that login records the
+    // gateway's own network on the session — so the ESSID that rebuilds its tree is
+    // right there, with no lookup and nothing owning the box.
     const denial = await enforceRemoteWriteL2({
       machineId: computeApGatewayId('HOME-WIFI'),
       path: '/etc/iptables/rules.v4',
-      session: { userType: 'root', essid: 'B-WIFI' },
+      session: { userType: 'root', essid: 'HOME-WIFI' },
       listMachinePatches: noPriorPatches,
-      findRegistryByMachineId,
-      findOccupantWorkstationByMachineId: () => Promise.resolve({ data: null, error: null }),
+      findOccupantWorkstationByMachineId: noOccupant,
     });
 
     expect(denial).toBeNull();
   });
 
   it("denies a non-root write to the AP gateway's root-only rules.v4", async () => {
-    const findRegistryByMachineId = (): Promise<{ data: RegistryMachine | null; error: unknown }> =>
-      Promise.resolve({ data: { kind: 'router', essid: 'HOME-WIFI' }, error: null });
-
     const denial = await enforceRemoteWriteL2({
       machineId: computeApGatewayId('HOME-WIFI'),
       path: '/etc/iptables/rules.v4',
-      session: { userType: 'guest', essid: 'B-WIFI' },
+      session: { userType: 'guest', essid: 'HOME-WIFI' },
       listMachinePatches: noPriorPatches,
-      findRegistryByMachineId,
-      findOccupantWorkstationByMachineId: () => Promise.resolve({ data: null, error: null }),
+      findOccupantWorkstationByMachineId: noOccupant,
+    });
+
+    expect(denial).toEqual({ status: 403, error: 'permission_denied' });
+  });
+
+  it("denies a write to a gateway that is not the session's own network", async () => {
+    // The gateway id is a pure function of the ESSID, so a machine_id that is not this
+    // session's gateway resolves to nothing — a caller cannot reach across to another
+    // AP's gateway by claiming its id on a session opened somewhere else.
+    const denial = await enforceRemoteWriteL2({
+      machineId: computeApGatewayId('HOME-WIFI'),
+      path: '/etc/iptables/rules.v4',
+      session: { userType: 'root', essid: 'B-WIFI' },
+      listMachinePatches: noPriorPatches,
+      findOccupantWorkstationByMachineId: noOccupant,
     });
 
     expect(denial).toEqual({ status: 403, error: 'permission_denied' });
@@ -351,7 +347,7 @@ describe('enforceRemoteWriteL2 — foreign router (cross-player)', () => {
  */
 describe('enforceRemoteWriteL2 — same-LAN occupant fallback (cross-player)', () => {
   const noPriorPatches = () => Promise.resolve({ data: [], error: null });
-  const noRegistry = () => Promise.resolve({ data: null, error: null });
+  const noOccupant = () => Promise.resolve({ data: null, error: null });
   const occupantRow = (owner: ReturnType<typeof generateIdentity>) => () =>
     Promise.resolve({
       data: {
@@ -369,7 +365,6 @@ describe('enforceRemoteWriteL2 — same-LAN occupant fallback (cross-player)', (
       path: '/boot/vmlinuz',
       session: { userType: 'root', essid: 'SHARED-WIFI' },
       listMachinePatches: noPriorPatches,
-      findRegistryByMachineId: noRegistry,
       findOccupantWorkstationByMachineId: occupantRow(owner),
     });
 
@@ -383,7 +378,6 @@ describe('enforceRemoteWriteL2 — same-LAN occupant fallback (cross-player)', (
       path: '/boot/vmlinuz',
       session: { userType: 'guest', essid: 'SHARED-WIFI' },
       listMachinePatches: noPriorPatches,
-      findRegistryByMachineId: noRegistry,
       findOccupantWorkstationByMachineId: occupantRow(owner),
     });
 
@@ -397,8 +391,7 @@ describe('enforceRemoteWriteL2 — same-LAN occupant fallback (cross-player)', (
       path: '/boot/vmlinuz',
       session: { userType: 'root', essid: 'SHARED-WIFI' },
       listMachinePatches: noPriorPatches,
-      findRegistryByMachineId: noRegistry,
-      findOccupantWorkstationByMachineId: noRegistry,
+      findOccupantWorkstationByMachineId: noOccupant,
     });
 
     expect(denial).toEqual({ status: 403, error: 'permission_denied' });
@@ -411,7 +404,6 @@ describe('enforceRemoteWriteL2 — same-LAN occupant fallback (cross-player)', (
       path: '/boot/vmlinuz',
       session: { userType: 'root', essid: 'SHARED-WIFI' },
       listMachinePatches: noPriorPatches,
-      findRegistryByMachineId: noRegistry,
       findOccupantWorkstationByMachineId: () =>
         Promise.resolve({ data: null, error: new Error('db down') }),
     });

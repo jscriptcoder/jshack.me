@@ -67,13 +67,9 @@ const makeDeps = (
   lookup: () => Promise<LookupResult> = async () => ({ data: REGISTRY, error: null }),
   insert: () => Promise<{ error: unknown }> = async () => ({ error: null }),
   over: LogOverrides = {},
-  // The same-LAN fallback source: defaults to "no occupant" so the registry path is
-  // exercised exactly as before — only the shared-AP-eviction tests override it.
-  occupant: () => Promise<LookupResult> = async () => ({ data: null, error: null }),
 ) => {
-  const findRegistryByMachineId = vi.fn<(machineId: string) => Promise<LookupResult>>(lookup);
   const findOccupantWorkstationByMachineId =
-    vi.fn<(machineId: string) => Promise<LookupResult>>(occupant);
+    vi.fn<(machineId: string) => Promise<LookupResult>>(lookup);
   const insertSession = vi.fn<(row: SuSessionRow) => Promise<{ error: unknown }>>(insert);
   const readAuthLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
     over.readAuthLog ?? (async () => ({ data: null, error: null })),
@@ -83,7 +79,6 @@ const makeDeps = (
   );
   const deps: AuthElevateSessionDeps = {
     nonceStore: freshStore,
-    findRegistryByMachineId,
     findOccupantWorkstationByMachineId,
     insertSession,
     now: over.now ?? (() => FIXED_NOW),
@@ -92,7 +87,6 @@ const makeDeps = (
   };
   return {
     deps,
-    findRegistryByMachineId,
     findOccupantWorkstationByMachineId,
     insertSession,
     readAuthLog,
@@ -129,7 +123,7 @@ const expectedSuLine = (
 describe('handleAuthElevateSession', () => {
   it("elevates to root against the reconstructed workstation and inserts a su session on the owner's real machine id", async () => {
     const attacker = generateIdentity();
-    const { deps, findRegistryByMachineId, insertSession } = makeDeps();
+    const { deps, findOccupantWorkstationByMachineId, insertSession } = makeDeps();
 
     const result = await handleAuthElevateSession(
       envelope(attacker, { username: 'root', password: 'matrix1999' }),
@@ -138,7 +132,7 @@ describe('handleAuthElevateSession', () => {
 
     expect(result.status).toBe(200);
     expect(result.body).toMatchObject({ ok: true, userType: 'root' });
-    expect(findRegistryByMachineId).toHaveBeenCalledWith(MACHINE);
+    expect(findOccupantWorkstationByMachineId).toHaveBeenCalledWith(MACHINE);
     expect(insertSession).toHaveBeenCalledTimes(1);
     expect(insertSession.mock.calls[0]![0]).toMatchObject({
       session_id: 'su-root-1',
@@ -211,7 +205,7 @@ describe('handleAuthElevateSession', () => {
     expect(insertSession).not.toHaveBeenCalled();
   });
 
-  it('reports host_unreachable only when BOTH the registry and the occupancy fallback miss, without inserting', async () => {
+  it('reports host_unreachable when the target is on no network, without inserting', async () => {
     const attacker = generateIdentity();
     const { deps, insertSession, findOccupantWorkstationByMachineId } = makeDeps(async () => ({
       data: null,
@@ -228,17 +222,12 @@ describe('handleAuthElevateSession', () => {
     expect(insertSession).not.toHaveBeenCalled();
   });
 
-  it('elevates against the occupancy fallback when the registry has no row — a shared-AP occupant evicted by a later same-ESSID joiner', async () => {
-    // network_registry's PK is the ESSID-shared public_ip (last-writer-wins), so A's
-    // row is overwritten when a fellow occupant joins after them. The occupancy table
-    // (PK (essid, owner_key)) never loses A's row, so su still resolves A's box.
+  it('elevates against the occupant row that says whose box this is', async () => {
     const attacker = generateIdentity();
-    const { deps, insertSession, findOccupantWorkstationByMachineId } = makeDeps(
-      async () => ({ data: null, error: null }),
-      undefined,
-      {},
-      async () => ({ data: REGISTRY, error: null }),
-    );
+    const { deps, insertSession, findOccupantWorkstationByMachineId } = makeDeps(async () => ({
+      data: REGISTRY,
+      error: null,
+    }));
 
     const result = await handleAuthElevateSession(
       envelope(attacker, { username: 'root', password: 'matrix1999' }),
@@ -251,37 +240,7 @@ describe('handleAuthElevateSession', () => {
     expect(insertSession.mock.calls[0]![0]).toMatchObject({ machine_id: MACHINE, kind: 'su' });
   });
 
-  it('prefers the registry and never consults the occupancy fallback when the registry resolves', async () => {
-    const attacker = generateIdentity();
-    const { deps, findOccupantWorkstationByMachineId } = makeDeps();
-
-    await handleAuthElevateSession(
-      envelope(attacker, { username: 'root', password: 'matrix1999' }),
-      deps,
-    );
-
-    expect(findOccupantWorkstationByMachineId).not.toHaveBeenCalled();
-  });
-
-  it('reports a server error when the occupancy fallback lookup fails', async () => {
-    const attacker = generateIdentity();
-    const { deps, insertSession } = makeDeps(
-      async () => ({ data: null, error: null }),
-      undefined,
-      {},
-      async () => ({ data: null, error: new Error('db down') }),
-    );
-
-    const result = await handleAuthElevateSession(
-      envelope(attacker, { username: 'root', password: 'matrix1999' }),
-      deps,
-    );
-
-    expect(result).toEqual({ status: 500, body: { error: 'occupant_lookup_failed' } });
-    expect(insertSession).not.toHaveBeenCalled();
-  });
-
-  it('reports a server error when the registry lookup fails', async () => {
+  it('reports a server error when the occupancy lookup fails', async () => {
     const attacker = generateIdentity();
     const { deps, insertSession } = makeDeps(async () => ({
       data: null,
@@ -293,7 +252,7 @@ describe('handleAuthElevateSession', () => {
       deps,
     );
 
-    expect(result).toEqual({ status: 500, body: { error: 'registry_lookup_failed' } });
+    expect(result).toEqual({ status: 500, body: { error: 'occupant_lookup_failed' } });
     expect(insertSession).not.toHaveBeenCalled();
   });
 
@@ -311,7 +270,7 @@ describe('handleAuthElevateSession', () => {
 
   it('rejects an envelope that smuggles a client-supplied player_key without looking up or inserting', async () => {
     const attacker = generateIdentity();
-    const { deps, findRegistryByMachineId, insertSession } = makeDeps();
+    const { deps, findOccupantWorkstationByMachineId, insertSession } = makeDeps();
 
     const result = await handleAuthElevateSession(
       envelope(attacker, { username: 'root', password: 'matrix1999', player_key: 'attacker' }),
@@ -319,13 +278,13 @@ describe('handleAuthElevateSession', () => {
     );
 
     expect(result.status).toBe(400);
-    expect(findRegistryByMachineId).not.toHaveBeenCalled();
+    expect(findOccupantWorkstationByMachineId).not.toHaveBeenCalled();
     expect(insertSession).not.toHaveBeenCalled();
   });
 
   it('rejects an envelope that smuggles a client-supplied userType (the server derives the tier) without looking up or inserting', async () => {
     const attacker = generateIdentity();
-    const { deps, findRegistryByMachineId, insertSession } = makeDeps();
+    const { deps, findOccupantWorkstationByMachineId, insertSession } = makeDeps();
 
     const result = await handleAuthElevateSession(
       envelope(attacker, { username: 'root', password: 'matrix1999', userType: 'root' }),
@@ -333,7 +292,7 @@ describe('handleAuthElevateSession', () => {
     );
 
     expect(result.status).toBe(400);
-    expect(findRegistryByMachineId).not.toHaveBeenCalled();
+    expect(findOccupantWorkstationByMachineId).not.toHaveBeenCalled();
     expect(insertSession).not.toHaveBeenCalled();
   });
 
@@ -442,7 +401,7 @@ describe('handleAuthElevateSession', () => {
 
     it('rejects an envelope missing from_user without looking up, inserting, or logging', async () => {
       const attacker = generateIdentity();
-      const { deps, findRegistryByMachineId, insertSession, upsertPatch } = makeDeps();
+      const { deps, findOccupantWorkstationByMachineId, insertSession, upsertPatch } = makeDeps();
 
       const result = await handleAuthElevateSession(
         signRequest(attacker, 'suElevate', {
@@ -455,7 +414,7 @@ describe('handleAuthElevateSession', () => {
       );
 
       expect(result.status).toBe(400);
-      expect(findRegistryByMachineId).not.toHaveBeenCalled();
+      expect(findOccupantWorkstationByMachineId).not.toHaveBeenCalled();
       expect(insertSession).not.toHaveBeenCalled();
       expect(upsertPatch).not.toHaveBeenCalled();
     });

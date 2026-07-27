@@ -78,15 +78,11 @@ export type SuSessionRow = {
 
 export type AuthElevateSessionDeps = {
   readonly nonceStore: NonceStore;
-  readonly findRegistryByMachineId: (
-    machineId: string,
-  ) => Promise<{ readonly data: RegistryWorkstation | null; readonly error: unknown }>;
-  /** Same-LAN fallback when the WAN registry has no row for the machine. The registry's
-   *  PK is the ESSID-shared `public_ip` (last-writer-wins), so a fellow occupant who
-   *  joined a shared AP before a later joiner has been evicted from it — but never from
-   *  `home_network_occupants` (PK `(essid, owner_key)`, every occupant coexists), which
-   *  carries the same identity fields. Without this, a same-LAN `su` into an evicted
-   *  occupant fails to resolve A's box and collapses to 404 / auth failure. */
+  /** Whose workstation this is, from `home_network_occupants` (PK `(essid, owner_key)`),
+   *  which carries the identity fields the reconstructed passwd is derived from.
+   *  Occupancy means "this machine is on that WiFi", so a `su` into a box whose owner
+   *  has taken it off the network resolves to nothing and collapses to a 404 rather than
+   *  elevating on a machine nobody can reach. */
   readonly findOccupantWorkstationByMachineId: (
     machineId: string,
   ) => Promise<{ readonly data: RegistryWorkstation | null; readonly error: unknown }>;
@@ -173,21 +169,13 @@ export const handleAuthElevateSession = async (
   }
   const { publicKey, payload } = verified;
 
-  const registry = await deps.findRegistryByMachineId(payload.machine_id);
-  if (registry.error) {
-    return { status: 500, body: { error: 'registry_lookup_failed' } };
+  // Resolve A's box from occupancy, which is both its identity and its reachability: a
+  // machine on no WiFi is not there to elevate on.
+  const occupant = await deps.findOccupantWorkstationByMachineId(payload.machine_id);
+  if (occupant.error) {
+    return { status: 500, body: { error: 'occupant_lookup_failed' } };
   }
-
-  // Resolve A's box: the WAN registry first, then the same-LAN occupancy fallback (a
-  // shared-AP occupant evicted from the registry by a later joiner — see the dep doc).
-  let data: RegistryWorkstation | null = registry.data;
-  if (data === null) {
-    const occupant = await deps.findOccupantWorkstationByMachineId(payload.machine_id);
-    if (occupant.error) {
-      return { status: 500, body: { error: 'occupant_lookup_failed' } };
-    }
-    data = occupant.data;
-  }
+  const data: RegistryWorkstation | null = occupant.data;
   if (data === null) {
     return { status: 404, body: { error: 'host_unreachable' } };
   }

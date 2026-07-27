@@ -378,11 +378,27 @@ state costs you more than one wrong attempt.
 - **Game time is a SERVER authority** (ADR D13). A signed event is stamped with the server's
   own UTC clock; there is no forgeable client `gameTime()`. Future CVE eligibility gates on
   game time, so it must be unforgeable.
-- **Any cross-player by-`machine_id` resolver needs the occupancy fallback.** The
-  `network_registry` PK is the ESSID-shared `public_ip` (last-writer-wins), so a shared-AP
-  occupant can be evicted by a later joiner; resolvers fall back to `home_network_occupants`
-  (PK `(essid, owner_key)`). See `project_v2_crossplayer_remote_command_availability` history
-  / `cross-player-architecture.md`.
+- **Being on a WiFi is what makes a machine reachable — not whether a player is playing.**
+  A box joined to an ESSID is running and attackable around the clock; closing the browser,
+  logging out, or simply going away changes nothing. The ONLY thing that takes a machine off
+  a network is an explicit in-game `nmcli disconnect` (or `reboot`, which disconnects on the
+  way down), and a machine on no network is unreachable by every path — there is no "power
+  off" mechanic to distinguish. This is why the defender role works: a player hardens their
+  box (`rules.v4`, service state, `/etc/passwd`) and that hardening keeps standing while they
+  are away, because the patch journal is never cleaned up on disconnect and the LAN lease is
+  permanent. `home_network_occupants` is therefore the source of truth for reachability —
+  its rows mean "on this WiFi", not "currently at the keyboard", and no identity or
+  reachability lookup may gate on player presence.
+- **`home_network_occupants` is the single source for "whose machine is this, and is it
+  reachable".** Every cross-player by-`machine_id` resolver reads it and nothing else — there
+  is no registry to consult first and no fallback to arbitrate. Its row means "this machine is
+  on that WiFi", which is exactly the reachability test, so a machine with no row fails closed
+  everywhere. **AP gateways are the one exception, and they need no lookup at all**: a gateway
+  has no occupant (it belongs to the access point), its id is a pure function of the ESSID, and
+  the only way to touch one is to hold a session on it — so it is resolved from
+  `sessions.essid`, which also prevents reaching another network's gateway by claiming its id.
+  Note `lanBaseFsForMachineId` deliberately skips octet `.1`, so the gateway always needs its
+  own arm rather than falling out of the LAN walk. See `cross-player-architecture.md`.
 - **Known deferred gap (L3 smart-server):** a client with a valid keypair can mint an
   `effect_one_shot`/root session via `createSession` and call `exploitRead` directly,
   skipping the in-game CVE flow. Accepted per the security model; real fix = server-side

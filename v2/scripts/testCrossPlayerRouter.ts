@@ -108,7 +108,8 @@ const FORWARD_RULES = `# /etc/iptables/rules.v4 — NAT port-forward table\nforw
 // Clean slate, then seed A's registry row (as the join would) + B's ROOT session on
 // A's ROUTER (as the 5.1.2 `ssh root@<A.publicIp>` login would), D's guest session on
 // the router (the denial case), and B's guest session on A's WORKSTATION (regression).
-await sr.from('network_registry').delete().eq('public_ip', A_PUBLIC_IP);
+await sr.from('network_public_ips').delete().eq('public_ip', A_PUBLIC_IP);
+await sr.from('home_network_occupants').delete().eq('essid', ESSID);
 await sr.from('network_lan_leases').delete().eq('essid', ESSID);
 await sr.from('patches').delete().eq('machine_id', A_ROUTER);
 await sr.from('patches').delete().eq('machine_id', A_WS);
@@ -118,12 +119,13 @@ for (const id of [bob, carol, dave]) {
 await sr
   .from('network_lan_leases')
   .insert({ essid: ESSID, owner_key: alice.publicKeyHex, octet: A_OCTET });
-await sr.from('network_registry').insert({
-  public_ip: A_PUBLIC_IP,
+// The join state a real `registerNetwork` writes: the AP's public IP, plus the owner
+// as an OCCUPANT of its ESSID — occupancy is what makes a box reachable.
+await sr.from('network_public_ips').insert({ essid: ESSID, public_ip: A_PUBLIC_IP });
+await sr.from('home_network_occupants').insert({
+  essid: ESSID,
   owner_key: alice.publicKeyHex,
   workstation_machine_id: A_WS,
-  router_machine_id: A_ROUTER,
-  essid: ESSID,
   workstation_username: 'alice',
   workstation_machine_name: 'skylab',
   workstation_root_hash: ROOT_HASH,
@@ -291,7 +293,8 @@ check(
 );
 
 // Cleanup.
-await sr.from('network_registry').delete().eq('public_ip', A_PUBLIC_IP);
+await sr.from('network_public_ips').delete().eq('public_ip', A_PUBLIC_IP);
+await sr.from('home_network_occupants').delete().eq('essid', ESSID);
 await sr.from('network_lan_leases').delete().eq('essid', ESSID);
 await sr.from('patches').delete().eq('machine_id', A_ROUTER);
 await sr.from('patches').delete().eq('machine_id', A_WS);

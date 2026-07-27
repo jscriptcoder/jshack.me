@@ -50,14 +50,17 @@ const OWNER = generateIdentity();
 const ESSID = 'BEAN-THERE-WIFI';
 const ROUTER_ID = computeApGatewayId(ESSID);
 const WS_ID = 'workstation-a1b2c3d4';
-const REGISTRY: RegistryTarget = {
+const BEHIND_NAT = {
   owner_key: OWNER.publicKeyHex,
-  router_machine_id: ROUTER_ID,
-  essid: ESSID,
   workstation_machine_id: WS_ID,
   workstation_username: 'neo',
   workstation_machine_name: 'nebuchadnezzar',
   workstation_root_hash: md5('toor'),
+};
+const REGISTRY: RegistryTarget = {
+  router_machine_id: ROUTER_ID,
+  essid: ESSID,
+  behindNat: BEHIND_NAT,
 };
 const ADMIN_PW = seedApGatewayAdminPw(ESSID);
 // The address A's derivation OFFERS its workstation. A's LEASE is seeded from it, so
@@ -581,7 +584,7 @@ describe('handleAuthCreateSessionPublic', () => {
       expect(result.status).toBe(200);
       expect(upsertPatch).toHaveBeenCalledTimes(1);
       expect(upsertPatch.mock.calls[0]![0]).toEqual({
-        writer_key: REGISTRY.owner_key,
+        writer_key: BEHIND_NAT.owner_key,
         machine_id: ROUTER_ID,
         path: AUTH_LOG_PATH,
         content: `${expectedSshdLine(seedApGatewayHostname(ESSID), 'success', 'root')}\n`,
@@ -609,10 +612,10 @@ describe('handleAuthCreateSessionPublic', () => {
       expect(result.status).toBe(200);
       expect(upsertPatch).toHaveBeenCalledTimes(1);
       expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
-        writer_key: REGISTRY.owner_key,
+        writer_key: BEHIND_NAT.owner_key,
         machine_id: WS_ID,
         path: AUTH_LOG_PATH,
-        content: `${expectedSshdLine(REGISTRY.workstation_machine_name, 'success', 'guest')}\n`,
+        content: `${expectedSshdLine(BEHIND_NAT.workstation_machine_name, 'success', 'guest')}\n`,
       });
     });
 
