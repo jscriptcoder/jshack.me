@@ -398,7 +398,10 @@ state costs you more than one wrong attempt.
   the only way to touch one is to hold a session on it — so it is resolved from
   `sessions.essid`, which also prevents reaching another network's gateway by claiming its id.
   Note `lanBaseFsForMachineId` deliberately skips octet `.1`, so the gateway always needs its
-  own arm rather than falling out of the LAN walk. See `cross-player-architecture.md`.
+  own arm rather than falling out of the LAN walk. The table's PK is `(essid, owner_key)`,
+  which cannot serve that reverse lookup — `home_network_occupants_workstation_machine_id_idx`
+  exists for it and must survive any future reshaping of the table.
+  See `cross-player-architecture.md`.
 - **Known deferred gap (L3 smart-server):** a client with a valid keypair can mint an
   `effect_one_shot`/root session via `createSession` and call `exploitRead` directly,
   skipping the in-game CVE flow. Accepted per the security model; real fix = server-side
@@ -425,9 +428,15 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
 §"Remaining work"):
 
 - **Story-7 reconciliation** — DONE except WiFi density and presence/TTL, which stay deferred.
-  Delivered by `plans/shared-network-reconciliation.md`: unique per-ESSID public-IP allocation,
-  collision-free LAN leases, one shared AP gateway per ESSID, ESSID-seeded shared NPCs and deep
-  chains, and the removal of the store whose last-writer-wins PK caused the collisions.
+  Shipped v0.88.0 → v0.96.0: unique per-ESSID public-IP allocation, collision-free LAN leases,
+  one shared AP gateway per ESSID, ESSID-seeded shared NPCs and deep chains, and the removal of
+  the store whose last-writer-wins PK caused the collisions. As-built in §7 and
+  `cross-player-architecture.md`; the plan file was deleted on close-out.
+- **Wire-checks are not in CI** — all 26 run only by hand against a local `vercel dev` +
+  supabase, and they are the ONLY thing that proves `api/` runtime correctness (`tsc` cannot
+  see DB columns or constraints). A regression there ships green. Raised repeatedly and
+  deliberately not taken on yet; it needs a CI supabase + a way to boot the functions
+  headlessly, which is a piece of work in its own right rather than a config tweak.
 - **A NAT forward reaches only ONE occupant of a shared AP** — the public-IP lookup resolves
   the box behind the NAT to whichever occupant joined the ESSID most recently, so a forward
   naming any other occupant's leased address is dead. The fix is to resolve the forward's
