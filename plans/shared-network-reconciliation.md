@@ -9,16 +9,16 @@ Slice 3b-ii ✅ MERGED (PR #330, `879dcc4`, v0.92.0),
 Slice 4 ✅ MERGED (PR #331, `6733821`, v0.93.0),
 Slice 5 ✅ MERGED (PR #332, `2f79349`, v0.94.0),
 Slice 6a ✅ MERGED (PR #333, `f947db7`, v0.95.0).
-**Next: Slice 6b — the TERMINAL reduction, and the last slice on this plan. Nothing is in
-flight; `main` is clean at `f947db7`. Cut a branch, then read the Reduction Program section
-and 6a's as-built before 6b. `network_registry` is now written but NEVER READ, so 6b is pure
-deletion: the table, its index, the `registerNetwork` write, `NetworkRegistryRow`, and the
-remaining script references. This is the ONLY slice that may claim net reduction, and only
-after recounting the mechanism baseline recorded in the ledger. `tdd` RED is genuinely `N/A`
-here — nothing observable changes. WATCH OUT: the ~8 scripts still naming the table now do so
-in cleanup deletes OR in assertions ABOUT the registry itself (`testPublicIpAllocation` checks
-the IP is stamped into it; `testSameLanCrossPlayerFs` asserts the eviction precondition). Those
-assertions become MEANINGLESS, not merely unused — delete them, do not repoint them.**
+**IN FLIGHT: Slice 6b — the TERMINAL reduction, and the last slice on this plan. Branch
+`refactor/drop-network-registry`, cut off `main` at `46b37f5`. Read the Reduction Program
+section and 6a's as-built before touching anything. `network_registry` is now written but
+NEVER READ, so 6b is pure deletion: the table, its index, the `registerNetwork` write,
+`NetworkRegistryRow`, and the remaining script references. This is the ONLY slice that may
+claim net reduction, and only after recounting the mechanism baseline recorded in the ledger.
+`tdd` RED is genuinely `N/A` here — nothing observable changes. The as-found scope is
+re-verified in Slice 6b below (8 scripts, not the 17 counted before 6a) — read it, especially
+the four assertions that become MEANINGLESS rather than merely unused, and the missing index
+6a planned but never added.**
 **Parent**: `plans/multiplayer-crossplayer-epic.md` item #5 (decision record; grilled & resolved 2026-07-25)
 **Follows**: item #4 (unique public-IP allocation, v0.87.0)
 **Precedes**: item #6 (procedural world expansion) — do NOT pull it in here
@@ -107,7 +107,11 @@ pass unchanged in behavior, plus the full unit suite.
 **Mechanism gate**: Like-for-like accounting at Slice 6b — one table, one index, one
 migration's worth of write path, three dependency shapes collapsed to two sources, and one
 retired architecture invariant (`conventions-and-gotchas.md` §7 occupancy-fallback rule), with
-nothing equivalent reintroduced elsewhere.
+nothing equivalent reintroduced elsewhere. Two of those five were already realized inside 6a
+(the third dependency shape, `findRegistryByMachineId`, and the §7 invariant) — count them at
+6b as program totals, not as 6b work items, and do not double-count them as new removals.
+The `workstation_machine_id` index 6b adds on `home_network_occupants` replaces the registry
+index it drops; it is a swap, not an addition.
 
 ### Diagnosis + conservation ledger (2026-07-27, read-only — no code changed)
 
@@ -1111,18 +1115,61 @@ case that existed only to survive its last-writer-wins eviction.
 (table + index + write path + one dependency shape + one architecture invariant removed,
 nothing equivalent reintroduced); the 6a bridge is gone.
 **Acceptance criteria**:
-- `network_registry` and its index no longer exist; a migration drops them.
+- `network_registry` and its index no longer exist; a migration drops them and adds the
+  equivalent `workstation_machine_id` index on `home_network_occupants`.
 - `registerNetwork` no longer writes it; `NetworkRegistryRow` is gone.
-- The PR #306 occupancy-fallback special case is removed as a distinct concept — occupancy is
-  simply the source.
-- `conventions-and-gotchas.md` §7's "any cross-player by-`machine_id` resolver needs the
-  occupancy fallback" invariant is deleted, and §7 records the new single-source rule.
+- ~~The PR #306 occupancy-fallback special case is removed as a distinct concept~~ — **already
+  discharged in 6a**: the fallback was not narrowed but deleted outright, occupancy becoming the
+  only source. Nothing left to do here; recount it in the mechanism gate, do not re-remove it.
+- ~~`conventions-and-gotchas.md` §7's occupancy-fallback invariant is deleted, and §7 records
+  the new single-source rule~~ — **already discharged in 6a**. §7 now carries the reachability
+  rule (on a WiFi = attackable, playing or not). 6b only re-words the doc lines that still name
+  the table (see the as-found scope below).
 - Every wire-check and unit test passes unchanged in behavior.
 **Preservation baseline**: As 6a.
 **Preservation change**: Drop the table, index, write path, and type; delete the fallback
-branch; update all `scripts/test*.ts` that seed `network_registry` directly (**17 scripts
-reference it** as of 2026-07-27, not the 14 first estimated here — re-grep before scoping, the
-count has grown once already).
+branch; clear the remaining script references.
+
+**As-found scope (re-grepped 2026-07-27, after 6a merged — supersedes the pre-6a estimate of
+17 scripts).** 6a's re-home already cleared the seeds from 10 scripts. What is left:
+
+*Production — 3 sites.* `api/network.ts:414` (the upsert, the only write), plus the
+`NetworkRegistryRow` type it and `src/core/network/registerNetwork.ts` share. Zero reads
+anywhere. Three source comments name the table in passing and should be re-worded, not deleted
+(`registerNetwork.ts:52`, `resolveInnerGatewayScan.ts:21`, and the contrast paragraph in
+`supabase/migrations/20260621120000_home_network_occupants.sql`, which is history and stays).
+
+*Migrations — 2 to drop, 1 to add.* Drop `network_registry` and
+`network_registry_workstation_machine_id_idx`. **6a never added the `workstation_machine_id`
+index on `home_network_occupants` that its own Preservation-change line promised** — verified:
+`f947db7` touched no migration, and the occupants table's only index is its `(essid, owner_key)`
+PK. So the by-`machine_id` resolver has been sequentially scanning that table since 6a. Add it
+here, in the same migration that drops the registry's — that is the like-for-like swap the
+mechanism gate counts, not a new mechanism.
+
+*Scripts — 8 files.* Two kinds, and they need opposite treatment:
+
+- **Cleanup deletes (inert once the table is gone — just remove the line):**
+  `seedCrossPlayerTarget.ts:67`, `testGatewayBrickLanAlive.ts:128,321`,
+  `testLanLeaseAllocation.ts:171`, `testSameLanOccupancy.ts:95,168`,
+  `testPublicIpAllocation.ts:111`, `testSameLanCrossPlayerFs.ts:114,198`,
+  `testSameLanTrace.ts:131,233`.
+- **Assertions ABOUT the registry (MEANINGLESS once it is gone — delete the check, do not
+  repoint it):** `testPublicIpAllocation.ts:84` (asserts the allocated IP is stamped into
+  `network_registry.public_ip` — `network_public_ips` is the real store and is already checked
+  separately in that script; verify before deleting), `testSameLanCrossPlayerFs.ts:142-154`
+  (asserts the eviction precondition — the bug 6a fixed no longer has a precondition to state),
+  and `testDisconnectedUnreachable.ts:222-229` (asserts the stale ghost survives disconnect —
+  this was 6a's RED evidence; the ghost is what 6b deletes, so the check must go while the two
+  fail-closed checks around it stay). `testSameLanTrace.ts:145` is the last remaining INSERT —
+  it seeds a row nothing reads, so it and its `registryRow` fixture go with the rest.
+
+*Docs — 2 files.* `docs/cross-player-architecture.md:66,70-71` describes the registry as the
+live join record and must be rewritten to name `network_public_ips` + `home_network_occupants`.
+`docs/conventions-and-gotchas.md:121` (the remaining-work line), `:428` and `:437` (the deferred
+forward-reaches-one-occupant item, which explains itself in terms of the registry's PK) need
+re-wording so they survive the table's deletion.
+
 **MUTATE or alternate evidence**: `N/A` for mutation on deleted code; evidence is the passing
 wire-check suite plus the mechanism accounting.
 **Done when**: both gates pass, superseded machinery gone, docs updated, human approves.
