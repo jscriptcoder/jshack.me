@@ -73,11 +73,11 @@ type ExposedPorts =
   | { readonly kind: 'ports'; readonly ports: readonly OpenPort[] }
   | { readonly kind: 'lookup_failed' };
 
-/** The invariants every hop of the chain walk shares: the verified owner key + essid the
- *  deep layers regenerate from, the home's seeded chain depth (the bound that makes the
- *  walk finite), and the journal fetch that replays each child gateway. */
+/** The invariants every hop of the chain walk shares: the essid the deep layers
+ *  regenerate from, the network's seeded chain depth (the bound that makes the walk
+ *  finite), and the journal fetch that replays each child gateway. No identity: the chain
+ *  descends from a gateway the access point owns, so every occupant walks the same one. */
 type ChainContext = {
-  readonly publicKey: string;
   readonly essid: string;
   readonly depth: number;
   readonly findPatches: ResolveInnerGatewayScanDeps['findPatches'];
@@ -101,7 +101,7 @@ const resolveGatewayExposedPorts = async (
   frontingGateway: FrontingGateway,
   position: number,
 ): Promise<ExposedPorts> => {
-  const deep = generateDeepLayer(context.publicKey, context.essid, frontingGateway, {
+  const deep = generateDeepLayer(context.essid, frontingGateway, {
     hangsChild: position < context.depth,
   });
   const forwards = parseForwardRules(readRulesV4(gatewayFs));
@@ -114,7 +114,6 @@ const resolveGatewayExposedPorts = async (
   const childGateway = deep.childGateway;
   if (childGateway !== null && forwards.some((forward) => forward.internalIp === childGateway.ip)) {
     const hop = await resolveChildGatewayHop({
-      ownerKeyHex: context.publicKey,
       parentMachineId: frontingGateway.machineId,
       childIp: childGateway.ip,
       childKind: childGateway.kind,
@@ -157,7 +156,10 @@ export const handleResolveInnerGatewayScan = async (
   if (!verified.ok) {
     return { status: STATUS_BY_VERIFY_REASON[verified.reason], body: { error: verified.reason } };
   }
-  const { publicKey, payload } = verified;
+  // The verified signature is the whole of what the caller's identity decides here: the
+  // gateway and the chain behind it belong to the access point, so every occupant scanning
+  // this address is scanning one box.
+  const { payload } = verified;
 
   const gateway = innerGatewayAt(payload.essid, payload.target);
   if (gateway === null) {
@@ -187,9 +189,8 @@ export const handleResolveInnerGatewayScan = async (
   // failure mid-walk is a 500, kept distinct from a port that simply leads nowhere.
   const exposed = await resolveGatewayExposedPorts(
     {
-      publicKey,
       essid: payload.essid,
-      depth: seedNetworkDepth(publicKey, payload.essid),
+      depth: seedNetworkDepth(payload.essid),
       findPatches: deps.findPatches,
     },
     gatewayFs,

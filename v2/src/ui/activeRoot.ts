@@ -20,7 +20,7 @@
  * unchanged (by reference).
  */
 
-import { ownChainBaseFsForMachineId } from '../core/generation/lanHostIdentity';
+import { generatedBaseFsForMachineId } from '../core/generation/lanHostIdentity';
 import { isCrossPlayerWorkstation } from '../core/network/crossPlayerHop';
 import { applyPatches, type Patch } from '../core/filesystem/applyPatches';
 import type { Directory } from '../core/filesystem/types';
@@ -35,15 +35,15 @@ const baseFsFor = (args: {
 }): Directory => {
   if (args.session.machineId === args.ownWorkstationId) return args.ownBaseFs;
   if (args.essid === null) return args.ownBaseFs;
-  // Any machine the player OWNS in their generated world — a journal-backed edge router
-  // or inner gateway/switch (a `ssh root@<gateway>` hop), a deep chain door reached
-  // through a forward, a deep NPC behind one, or a regenerated NPC sibling — rebuilds its
-  // seeded base from the player's own key via the shared resolver, the same tree the
-  // server materializes, so a locally replayed journal (a `nano rules.v4` edit, a deep
-  // reach/scan trace) lands on it. Falls back to the own base when nothing matches (a
-  // defensive edge — a genuinely foreign box is fetched server-side, not here).
-  const ownFs = ownChainBaseFsForMachineId(args.publicKeyHex, args.essid, args.session.machineId);
-  return ownFs ?? args.ownBaseFs;
+  // Any machine the NETWORK generates — a journal-backed edge router or inner
+  // gateway/switch (a `ssh root@<gateway>` hop), a deep chain door reached through a
+  // forward, a deep NPC behind one, or an NPC sibling — rebuilds its seeded base from the
+  // ESSID via the shared resolver, the same tree the server materializes, so a locally
+  // replayed journal (a `nano rules.v4` edit, a deep reach/scan trace) lands on it — and
+  // on the same tree every other occupant replays. Falls back to the own base when nothing
+  // matches (a defensive edge — another player's box is fetched server-side, not here).
+  const generatedFs = generatedBaseFsForMachineId(args.essid, args.session.machineId);
+  return generatedFs ?? args.ownBaseFs;
 };
 
 export const resolveActiveRoot = (args: {

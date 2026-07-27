@@ -8,6 +8,7 @@ import {
 import { generateIdentity } from '../identity/identity';
 import { computeDeepGatewayId, computeInnerGatewayId, computeApGatewayId } from '../identity/router';
 import { generateHomeLan } from '../generation/generateHomeLan';
+import { crackableEssidPool } from '../generation/generateWifi';
 import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer';
 import { md5 } from '../generation/md5';
 import type { Directory, FileNode } from '../filesystem/types';
@@ -68,10 +69,7 @@ describe('enforceRemoteWriteL2 — AP gateway', () => {
     // The gateway is nobody's own box, so there is no own-machine branch to fall back
     // on: with no registry row there is no tree to walk and the write fails closed,
     // exactly as it would for any other unresolvable machine.
-    const caller = generateIdentity();
-
     const denial = await enforceRemoteWriteL2({
-      publicKey: caller.publicKeyHex,
       machineId: computeApGatewayId('HOME-WIFI'),
       path: '/etc/iptables/rules.v4',
       session: { userType: 'root', essid: 'HOME-WIFI' },
@@ -84,10 +82,7 @@ describe('enforceRemoteWriteL2 — AP gateway', () => {
   });
 
   it("denies a non-root tier writing the router's root-only rules.v4", async () => {
-    const owner = generateIdentity();
-
     const denial = await enforceRemoteWriteL2({
-      publicKey: owner.publicKeyHex,
       machineId: computeApGatewayId('HOME-WIFI'),
       path: '/etc/iptables/rules.v4',
       session: { userType: 'guest', essid: 'HOME-WIFI' },
@@ -121,11 +116,9 @@ describe('enforceRemoteWriteL2 — own inner gateway', () => {
   };
 
   it("allows a ROOT write to /etc/iptables/rules.v4 on the caller's own inner gateway", async () => {
-    const owner = generateIdentity();
     const octet = innerGatewayOctet();
 
     const denial = await enforceRemoteWriteL2({
-      publicKey: owner.publicKeyHex,
       machineId: computeInnerGatewayId(ESSID, octet),
       path: '/etc/iptables/rules.v4',
       session: { userType: 'root', essid: ESSID },
@@ -138,11 +131,9 @@ describe('enforceRemoteWriteL2 — own inner gateway', () => {
   });
 
   it("denies a non-root tier writing the inner gateway's root-only rules.v4", async () => {
-    const owner = generateIdentity();
     const octet = innerGatewayOctet();
 
     const denial = await enforceRemoteWriteL2({
-      publicKey: owner.publicKeyHex,
       machineId: computeInnerGatewayId(ESSID, octet),
       path: '/etc/iptables/rules.v4',
       session: { userType: 'guest', essid: ESSID },
@@ -174,11 +165,9 @@ describe('enforceRemoteWriteL2 — own switch', () => {
   };
 
   it("allows a ROOT write to /etc/switch/acl.conf on the caller's own switch", async () => {
-    const owner = generateIdentity();
     const octet = switchOctet();
 
     const denial = await enforceRemoteWriteL2({
-      publicKey: owner.publicKeyHex,
       machineId: computeInnerGatewayId(ESSID, octet),
       path: '/etc/switch/acl.conf',
       session: { userType: 'root', essid: ESSID },
@@ -191,11 +180,9 @@ describe('enforceRemoteWriteL2 — own switch', () => {
   });
 
   it("denies a non-root tier writing the switch's root-only acl.conf", async () => {
-    const owner = generateIdentity();
     const octet = switchOctet();
 
     const denial = await enforceRemoteWriteL2({
-      publicKey: owner.publicKeyHex,
       machineId: computeInnerGatewayId(ESSID, octet),
       path: '/etc/switch/acl.conf',
       session: { userType: 'guest', essid: ESSID },
@@ -209,65 +196,47 @@ describe('enforceRemoteWriteL2 — own switch', () => {
 });
 
 /**
- * The OWN DEEP-GATEWAY L2 branch: a chain door BELOW the home LAN (an L2+ gateway the
- * player reached through a forward on the inner gateway and rooted). It is the caller's
- * OWN box but NOT a `generateHomeLan` host, so it resolves via the deep-chain walk from
- * the caller's own key. Configuring its forwards (`nano rules.v4`) is how a player chains
- * deeper, so a root write there must be allowed; the registry stub resolves to NOTHING,
- * so an "allowed" proves the deep-chain resolver built the gateway tree, not a fall-through.
+ * The DEEP-GATEWAY L2 branch: a chain door BELOW the home LAN (an L2+ gateway reached
+ * through a forward on the inner gateway and rooted). It is not a `generateHomeLan` host,
+ * so it resolves via the deep-chain walk from the ESSID. Configuring its forwards
+ * (`nano rules.v4`) is how a player chains deeper, so a root write there must be allowed;
+ * the registry stub resolves to NOTHING, so an "allowed" proves the deep-chain resolver
+ * built the gateway tree rather than falling through to a foreign lookup.
  */
-describe('enforceRemoteWriteL2 — own deep chain gateway', () => {
+describe('enforceRemoteWriteL2 — a deep chain gateway', () => {
   const noPriorPatches = () => Promise.resolve({ data: [], error: null });
   const noRegistry = () => Promise.resolve({ data: null, error: null });
-  const ESSID = 'HOME-WIFI';
 
-  // Depth is a per-(key, essid) roll AND the inner router's deep child is a seeded
-  // router-OR-switch; pick an owner whose inner gateway hangs a child of the kind the test
+  // Depth is a per-network roll AND the inner router's deep child is a seeded
+  // router-OR-switch; pick a NETWORK whose inner gateway hangs a child of the kind the test
   // configures — a router exposes a NAT `rules.v4`, a switch an `acl.conf`.
-  const ownerWithInnerChildOfKind = (kind: 'router' | 'switch') => {
-    for (let attempt = 0; attempt < 400; attempt += 1) {
-      const candidate = generateIdentity();
-      if (seedNetworkDepth(candidate.publicKeyHex, ESSID) < 2) continue;
-      const inner = generateHomeLan(ESSID).hosts.find(
+  const chainDoorOfKind = (kind: 'router' | 'switch'): { essid: string; machineId: string } => {
+    for (const essid of crackableEssidPool) {
+      if (seedNetworkDepth(essid) < 2) continue;
+      const inner = generateHomeLan(essid).hosts.find(
         (host) => host.kind === 'router' && Number(host.ip.split('.')[3]) !== 1,
       );
       if (inner === undefined) continue;
-      const innerId = computeInnerGatewayId(ESSID, Number(inner.ip.split('.')[3]));
+      const innerId = computeInnerGatewayId(essid, Number(inner.ip.split('.')[3]));
       const child = generateDeepLayer(
-        candidate.publicKeyHex,
-        ESSID,
+        essid,
         { machineId: innerId, kind: 'router' },
         { hangsChild: true },
       ).childGateway;
-      if (child !== null && child.kind === kind) return candidate;
+      if (child !== null && child.kind === kind) {
+        return { essid, machineId: computeDeepGatewayId(innerId, Number(child.ip.split('.')[3])) };
+      }
     }
-    throw new Error(`no identity seeds an inner ${kind} child gateway`);
+    throw new Error(`no network seeds an inner ${kind} child gateway`);
   };
 
-  const childGatewayId = (owner: ReturnType<typeof generateIdentity>): string => {
-    const inner = generateHomeLan(ESSID).hosts.find(
-      (host) => host.kind === 'router' && Number(host.ip.split('.')[3]) !== 1,
-    );
-    if (inner === undefined) throw new Error('no inner gateway on LAN');
-    const innerId = computeInnerGatewayId(ESSID, Number(inner.ip.split('.')[3]));
-    const child = generateDeepLayer(
-      owner.publicKeyHex,
-      ESSID,
-      { machineId: innerId, kind: 'router' },
-      { hangsChild: true },
-    ).childGateway;
-    if (child === null) throw new Error('the inner gateway hangs no child');
-    return computeDeepGatewayId(owner.publicKeyHex, innerId, Number(child.ip.split('.')[3]));
-  };
-
-  it("allows a ROOT write to /etc/iptables/rules.v4 on the caller's own deep chain ROUTER gateway", async () => {
-    const owner = ownerWithInnerChildOfKind('router');
+  it('allows a ROOT write to /etc/iptables/rules.v4 on a deep chain ROUTER gateway', async () => {
+    const door = chainDoorOfKind('router');
 
     const denial = await enforceRemoteWriteL2({
-      publicKey: owner.publicKeyHex,
-      machineId: childGatewayId(owner),
+      machineId: door.machineId,
       path: '/etc/iptables/rules.v4',
-      session: { userType: 'root', essid: ESSID },
+      session: { userType: 'root', essid: door.essid },
       listMachinePatches: noPriorPatches,
       findRegistryByMachineId: noRegistry,
       findOccupantWorkstationByMachineId: noRegistry,
@@ -277,13 +246,12 @@ describe('enforceRemoteWriteL2 — own deep chain gateway', () => {
   });
 
   it("denies a non-root tier writing the deep ROUTER gateway's root-only rules.v4", async () => {
-    const owner = ownerWithInnerChildOfKind('router');
+    const door = chainDoorOfKind('router');
 
     const denial = await enforceRemoteWriteL2({
-      publicKey: owner.publicKeyHex,
-      machineId: childGatewayId(owner),
+      machineId: door.machineId,
       path: '/etc/iptables/rules.v4',
-      session: { userType: 'guest', essid: ESSID },
+      session: { userType: 'guest', essid: door.essid },
       listMachinePatches: noPriorPatches,
       findRegistryByMachineId: noRegistry,
       findOccupantWorkstationByMachineId: noRegistry,
@@ -296,13 +264,12 @@ describe('enforceRemoteWriteL2 — own deep chain gateway', () => {
     // A deep gateway seeded as a SWITCH owns an `acl.conf`, not a `rules.v4`. An "allowed"
     // proves the chain resolver built a SWITCH tree from the caller's key (the registry
     // stub resolves to nothing) — so a player can `nano` a rooted deep switch's ACL.
-    const owner = ownerWithInnerChildOfKind('switch');
+    const door = chainDoorOfKind('switch');
 
     const denial = await enforceRemoteWriteL2({
-      publicKey: owner.publicKeyHex,
-      machineId: childGatewayId(owner),
+      machineId: door.machineId,
       path: '/etc/switch/acl.conf',
-      session: { userType: 'root', essid: ESSID },
+      session: { userType: 'root', essid: door.essid },
       listMachinePatches: noPriorPatches,
       findRegistryByMachineId: noRegistry,
       findOccupantWorkstationByMachineId: noRegistry,
@@ -312,13 +279,12 @@ describe('enforceRemoteWriteL2 — own deep chain gateway', () => {
   });
 
   it("denies a non-root tier writing the deep SWITCH gateway's root-only acl.conf", async () => {
-    const owner = ownerWithInnerChildOfKind('switch');
+    const door = chainDoorOfKind('switch');
 
     const denial = await enforceRemoteWriteL2({
-      publicKey: owner.publicKeyHex,
-      machineId: childGatewayId(owner),
+      machineId: door.machineId,
       path: '/etc/switch/acl.conf',
-      session: { userType: 'guest', essid: ESSID },
+      session: { userType: 'guest', essid: door.essid },
       listMachinePatches: noPriorPatches,
       findRegistryByMachineId: noRegistry,
       findOccupantWorkstationByMachineId: noRegistry,
@@ -341,14 +307,12 @@ describe('enforceRemoteWriteL2 — foreign router (cross-player)', () => {
   const noPriorPatches = () => Promise.resolve({ data: [], error: null });
 
   it("allows B's ROOT write to /etc/iptables/rules.v4 on A's registered router", async () => {
-    const attacker = generateIdentity();
     // The registry resolves the gateway's machine_id → a router-kind row carrying the
     // ESSID (the seed its tree is rebuilt from — the AP owns it, so no player key).
     const findRegistryByMachineId = (): Promise<{ data: RegistryMachine | null; error: unknown }> =>
       Promise.resolve({ data: { kind: 'router', essid: 'HOME-WIFI' }, error: null });
 
     const denial = await enforceRemoteWriteL2({
-      publicKey: attacker.publicKeyHex,
       machineId: computeApGatewayId('HOME-WIFI'),
       path: '/etc/iptables/rules.v4',
       session: { userType: 'root', essid: 'B-WIFI' },
@@ -361,12 +325,10 @@ describe('enforceRemoteWriteL2 — foreign router (cross-player)', () => {
   });
 
   it("denies a non-root write to the AP gateway's root-only rules.v4", async () => {
-    const attacker = generateIdentity();
     const findRegistryByMachineId = (): Promise<{ data: RegistryMachine | null; error: unknown }> =>
       Promise.resolve({ data: { kind: 'router', essid: 'HOME-WIFI' }, error: null });
 
     const denial = await enforceRemoteWriteL2({
-      publicKey: attacker.publicKeyHex,
       machineId: computeApGatewayId('HOME-WIFI'),
       path: '/etc/iptables/rules.v4',
       session: { userType: 'guest', essid: 'B-WIFI' },
@@ -401,11 +363,8 @@ describe('enforceRemoteWriteL2 — same-LAN occupant fallback (cross-player)', (
     });
 
   it("rebuilds A's box from the occupancy fallback when the registry misses, allowing B's root write to /boot", async () => {
-    const attacker = generateIdentity();
     const owner = generateIdentity();
-
     const denial = await enforceRemoteWriteL2({
-      publicKey: attacker.publicKeyHex,
       machineId: 'skylab-deadbeef',
       path: '/boot/vmlinuz',
       session: { userType: 'root', essid: 'SHARED-WIFI' },
@@ -418,11 +377,8 @@ describe('enforceRemoteWriteL2 — same-LAN occupant fallback (cross-player)', (
   });
 
   it("still denies a guest write to A's root-only /boot when resolved via the fallback", async () => {
-    const attacker = generateIdentity();
     const owner = generateIdentity();
-
     const denial = await enforceRemoteWriteL2({
-      publicKey: attacker.publicKeyHex,
       machineId: 'skylab-deadbeef',
       path: '/boot/vmlinuz',
       session: { userType: 'guest', essid: 'SHARED-WIFI' },
@@ -435,10 +391,8 @@ describe('enforceRemoteWriteL2 — same-LAN occupant fallback (cross-player)', (
   });
 
   it('fails closed (403) when BOTH the registry and the occupancy fallback miss', async () => {
-    const attacker = generateIdentity();
 
     const denial = await enforceRemoteWriteL2({
-      publicKey: attacker.publicKeyHex,
       machineId: 'unknown-machine',
       path: '/boot/vmlinuz',
       session: { userType: 'root', essid: 'SHARED-WIFI' },
@@ -451,10 +405,8 @@ describe('enforceRemoteWriteL2 — same-LAN occupant fallback (cross-player)', (
   });
 
   it('500s (no false deny) when the occupancy fallback lookup errors', async () => {
-    const attacker = generateIdentity();
 
     const denial = await enforceRemoteWriteL2({
-      publicKey: attacker.publicKeyHex,
       machineId: 'skylab-deadbeef',
       path: '/boot/vmlinuz',
       session: { userType: 'root', essid: 'SHARED-WIFI' },

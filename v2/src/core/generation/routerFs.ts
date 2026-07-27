@@ -261,47 +261,36 @@ export const buildInnerGatewayBaseFs = (essid: string, octet: number): Directory
     hasSsh: true,
   });
 
-/** A DEEP gateway's root ("admin") password, seeded from the owner key, its PARENT
- *  gateway's machine_id, AND its octet (the `deep-gw-admin-` namespace — SEPARATE
- *  from the inner gateway's `inner-gw-admin-`). Keying on the parent keeps two deep
- *  gateways at the same octet behind different parents from ever sharing a
- *  credential; the server recovers it by walking the owner's chain, which fixes the
- *  parent + octet. Weak by design (pool member) for the future cracker. */
-export const seedDeepGatewayAdminPw = (
-  ownerKeyHex: string,
-  parentMachineId: string,
-  octet: number,
-): string =>
-  createPrng(`deep-gw-admin-${ownerKeyHex}:${parentMachineId}:${octet}`).pick(ROUTER_ADMIN_PASSWORDS);
+/** A DEEP gateway's root ("admin") password, seeded from its PARENT gateway's machine_id
+ *  AND its octet (the `deep-gw-admin-` namespace — SEPARATE from the inner gateway's
+ *  `inner-gw-admin-`). Keying on the parent keeps two deep gateways at the same octet
+ *  behind different parents from ever sharing a credential; the server recovers it by
+ *  walking the chain, which fixes the parent + octet. One password per door, not per
+ *  player: two occupants cracking the same chain door are cracking the same box. Weak by
+ *  design (pool member) for the future cracker. */
+export const seedDeepGatewayAdminPw = (parentMachineId: string, octet: number): string =>
+  createPrng(`deep-gw-admin-${parentMachineId}:${octet}`).pick(ROUTER_ADMIN_PASSWORDS);
 
 /** Build a deep gateway's base FS — the same root-only router toolkit as an inner
  *  gateway (NAT `rules.v4`, `sshd` always up: it forwards to its OWN deeper layer and
  *  is a reachable target by design), but the admin password is seeded off the unique
- *  deep discriminator (owner key + parent machine_id + octet), so it never aliases an
- *  inner gateway's credential even at a colliding octet. */
-export const buildDeepGatewayBaseFs = (
-  ownerKeyHex: string,
-  parentMachineId: string,
-  octet: number,
-): Directory =>
+ *  deep discriminator (parent machine_id + octet), so it never aliases an inner
+ *  gateway's credential even at a colliding octet. */
+export const buildDeepGatewayBaseFs = (parentMachineId: string, octet: number): Directory =>
   buildRouterBaseFsFromIdentity({
-    adminPwHash: md5(seedDeepGatewayAdminPw(ownerKeyHex, parentMachineId, octet)),
+    adminPwHash: md5(seedDeepGatewayAdminPw(parentMachineId, octet)),
     hasSsh: true,
   });
 
 /** Build a DEEP switch's base FS — a deep gateway seeded as a switch rather than a
  *  router. It is the deep counterpart of `buildSwitchBaseFs` (an `acl.conf` box, no NAT
  *  `rules.v4`, so it forwards nothing and caps the chain) but its admin password is the
- *  deep discriminator (owner key + parent machine_id + octet), REUSING
- *  `seedDeepGatewayAdminPw` — a given slot is one kind, so the deep namespace is
- *  unambiguous, the same way the inner switch reuses `inner-gw-admin-`. */
-export const buildDeepSwitchBaseFs = (
-  ownerKeyHex: string,
-  parentMachineId: string,
-  octet: number,
-): Directory =>
+ *  deep discriminator (parent machine_id + octet), REUSING `seedDeepGatewayAdminPw` — a
+ *  given slot is one kind, so the deep namespace is unambiguous, the same way the inner
+ *  switch reuses `inner-gw-admin-`. */
+export const buildDeepSwitchBaseFs = (parentMachineId: string, octet: number): Directory =>
   buildGatewayBaseFs(
-    { adminPwHash: md5(seedDeepGatewayAdminPw(ownerKeyHex, parentMachineId, octet)), hasSsh: true },
+    { adminPwHash: md5(seedDeepGatewayAdminPw(parentMachineId, octet)), hasSsh: true },
     { switch: dir({ 'acl.conf': file(ACL_CONF_SEED, GATEWAY_CONFIG_PERMISSIONS) }, TRAVERSABLE_DIR) },
   );
 

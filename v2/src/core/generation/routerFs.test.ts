@@ -219,64 +219,60 @@ describe('buildSwitchBaseFs', () => {
 });
 
 /**
- * A DEEP gateway hangs off a deeper layer, behind an inner gateway. Its admin
- * password is seeded from the owner key, its PARENT gateway's machine_id, AND its
- * octet, so two deep gateways at the same octet behind different parents never
- * share a credential — the chain (and later, branches) stay independent.
+ * A DEEP gateway hangs off a deeper layer, behind an inner gateway. Its admin password
+ * is seeded from its PARENT gateway's machine_id AND its octet, so two deep gateways at
+ * the same octet behind different parents never share a credential — the chain (and
+ * later, branches) stay independent. One password per door rather than per player: the
+ * chain descends from a gateway the access point owns, so two occupants cracking the
+ * same door are cracking the same box.
  */
 const PARENT_GW = computeInnerGatewayId(ESSID_A, 25);
 const OTHER_PARENT_GW = computeInnerGatewayId(ESSID_A, 70);
 
 describe('seedDeepGatewayAdminPw', () => {
-  it('is deterministic for the same owner key + parent + octet', () => {
-    expect(seedDeepGatewayAdminPw(SEED_A, PARENT_GW, 50)).toBe(
-      seedDeepGatewayAdminPw(SEED_A, PARENT_GW, 50),
-    );
+  it('is deterministic for the same parent + octet', () => {
+    expect(seedDeepGatewayAdminPw(PARENT_GW, 50)).toBe(seedDeepGatewayAdminPw(PARENT_GW, 50));
   });
 
   it('varies by PARENT, so two deep gateways behind different parents differ', () => {
     const parents = [PARENT_GW, OTHER_PARENT_GW, computeInnerGatewayId(ESSID_B, 25)];
-    const passwords = new Set(parents.map((parent) => seedDeepGatewayAdminPw(SEED_A, parent, 50)));
+    const passwords = new Set(parents.map((parent) => seedDeepGatewayAdminPw(parent, 50)));
     expect(passwords.size).toBeGreaterThan(1);
   });
 
   it('varies by octet behind the same parent', () => {
     const octets = [2, 50, 120, 200, 245];
-    const passwords = new Set(octets.map((octet) => seedDeepGatewayAdminPw(SEED_A, PARENT_GW, octet)));
+    const passwords = new Set(octets.map((octet) => seedDeepGatewayAdminPw(PARENT_GW, octet)));
     expect(passwords.size).toBeGreaterThan(1);
   });
 
-  it('always returns a non-empty password across many identities (every pool entry is real)', () => {
-    const keys = Array.from({ length: 40 }, (_unused, index) =>
-      (index + 1).toString(16).padStart(2, '0').repeat(32),
-    );
-    keys.forEach((key) => expect(seedDeepGatewayAdminPw(key, PARENT_GW, 50)).toMatch(/^\S+$/));
+  it('always returns a non-empty password across many doors (every pool entry is real)', () => {
+    const octets = Array.from({ length: 40 }, (_unused, index) => index + 2);
+    octets.forEach((octet) => expect(seedDeepGatewayAdminPw(PARENT_GW, octet)).toMatch(/^\S+$/));
   });
 });
 
 describe('buildDeepGatewayBaseFs', () => {
   it('is a root-only FS whose admin hash is the deep-gateway pw seeded off parent + octet', () => {
-    const rows = passwdRows(buildDeepGatewayBaseFs(SEED_A, PARENT_GW, 50));
+    const rows = passwdRows(buildDeepGatewayBaseFs(PARENT_GW, 50));
     expect(rows).toHaveLength(1);
     expect(rows[0]![0]).toBe('root');
-    expect(rows[0]![1]).toBe(md5(seedDeepGatewayAdminPw(SEED_A, PARENT_GW, 50)));
+    expect(rows[0]![1]).toBe(md5(seedDeepGatewayAdminPw(PARENT_GW, 50)));
   });
 
   it('runs sshd:22 — a deep gateway is a reachable target by design', () => {
-    expect(readOpenPorts(buildDeepGatewayBaseFs(SEED_A, PARENT_GW, 50))).toEqual([
+    expect(readOpenPorts(buildDeepGatewayBaseFs(PARENT_GW, 50))).toEqual([
       { port: 22, service: 'ssh' },
     ]);
   });
 
   it('seeds rules.v4 with no active forward (a router that forwards to its own deeper layer)', () => {
-    const rules = fileAt(buildDeepGatewayBaseFs(SEED_A, PARENT_GW, 50), ['etc', 'iptables'], 'rules.v4');
+    const rules = fileAt(buildDeepGatewayBaseFs(PARENT_GW, 50), ['etc', 'iptables'], 'rules.v4');
     expect(parseForwardRules(rules)).toEqual([]);
   });
 
-  it('is deterministic: same key+parent+octet yields a byte-identical tree', () => {
-    expect(buildDeepGatewayBaseFs(SEED_A, PARENT_GW, 50)).toEqual(
-      buildDeepGatewayBaseFs(SEED_A, PARENT_GW, 50),
-    );
+  it('is deterministic: same parent+octet yields a byte-identical tree', () => {
+    expect(buildDeepGatewayBaseFs(PARENT_GW, 50)).toEqual(buildDeepGatewayBaseFs(PARENT_GW, 50));
   });
 });
 

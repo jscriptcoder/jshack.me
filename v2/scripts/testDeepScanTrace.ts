@@ -27,6 +27,7 @@ import {
   computeInnerGatewayId,
 } from '../src/core/identity/router';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan';
+import { crackableEssidPool } from '../src/core/generation/generateWifi';
 import { generateDeepLayer, seedNetworkDepth } from '../src/core/generation/generateDeepLayer';
 import { hostMachineId } from '../src/core/generation/remoteHostId';
 
@@ -59,51 +60,49 @@ const post = async (endpoint: string, envelope: unknown): Promise<{ status: numb
 
 const octetOf = (ip: string): number => Number(ip.split('.')[3]);
 
-// --- The owner (alice). She scans her OWN deep chain; depth is single-player. Pick a
-//     depth>=2 home whose inner ROUTER fronts a child gateway (so a range scan of its
-//     deep /24 touches BOTH the NPC and the child) and that also carries an inner SWITCH
-//     (always present) for the ACL case. ---
-const ESSID = 'ABSTERGO-NET';
-// The LAN is the ACCESS POINT's now, so its inner gateways are the same whoever is
-// looking — resolved once, outside the identity search below. Only the DEPTH behind
-// them is still per-owner, which is all that search is still looking for.
-const lan = generateHomeLan(ESSID);
-const innerR = lan.hosts.find((host) => host.kind === 'router' && octetOf(host.ip) !== 1);
-const innerS = lan.hosts.find((host) => host.kind === 'switch');
-if (innerR === undefined || innerS === undefined) {
-  console.error('the ESSID’s LAN carries no inner router + switch to scan');
-  process.exit(2);
-}
-const INNER_R_ID = computeInnerGatewayId(ESSID, octetOf(innerR.ip));
-
-const suitable = (candidate: ReturnType<typeof generateIdentity>): boolean => {
-  if (seedNetworkDepth(candidate.publicKeyHex, ESSID) < 2) return false;
+// --- The network. Both the LAN and the chain behind it belong to the ACCESS POINT, so the
+//     shape under test is a property of the ESSID: search the crackable pool for a network
+//     of depth>=2 whose inner ROUTER fronts a child gateway (so a range scan of its deep /24
+//     touches BOTH the NPC and the child), and which also carries an inner SWITCH for the
+//     ACL case. ---
+const suitable = (essid: string): boolean => {
+  if (seedNetworkDepth(essid) < 2) return false;
+  const hosts = generateHomeLan(essid).hosts;
+  const router = hosts.find((host) => host.kind === 'router' && octetOf(host.ip) !== 1);
+  if (router === undefined || !hosts.some((host) => host.kind === 'switch')) return false;
   const child = generateDeepLayer(
-    candidate.publicKeyHex,
-    ESSID,
-    { machineId: INNER_R_ID, kind: 'router' },
+    essid,
+    { machineId: computeInnerGatewayId(essid, octetOf(router.ip)), kind: 'router' },
     { hangsChild: true },
   ).childGateway;
   return child !== null;
 };
-const alice = Array.from({ length: 400 }, () => generateIdentity()).find(suitable);
-if (alice === undefined) {
-  console.error('no identity seeds a depth>=2 home whose inner router fronts a child');
+const ESSID = crackableEssidPool.find(suitable);
+if (ESSID === undefined) {
+  console.error('no network in the crackable pool has a depth>=2 chain behind its inner router');
   process.exit(2);
 }
+
+// The acting player. Any identity does: the chain is the network's, so alice brings a
+// session and a signature, not a private world.
+const alice = generateIdentity();
+
+const lan = generateHomeLan(ESSID);
+const innerR = lan.hosts.find((host) => host.kind === 'router' && octetOf(host.ip) !== 1)!;
+const innerS = lan.hosts.find((host) => host.kind === 'switch')!;
+const INNER_R_ID = computeInnerGatewayId(ESSID, octetOf(innerR.ip));
+
 const rDeep = generateDeepLayer(
-  alice.publicKeyHex,
   ESSID,
   { machineId: INNER_R_ID, kind: 'router' },
   { hangsChild: true },
 );
 const R_NPC_ID = hostMachineId(rDeep.host, ESSID);
 const rChild = rDeep.childGateway!;
-const R_CHILD_ID = computeDeepGatewayId(alice.publicKeyHex, INNER_R_ID, octetOf(rChild.ip));
+const R_CHILD_ID = computeDeepGatewayId(INNER_R_ID, octetOf(rChild.ip));
 
 const INNER_S_ID = computeInnerGatewayId(ESSID, octetOf(innerS.ip));
 const sDeep = generateDeepLayer(
-  alice.publicKeyHex,
   ESSID,
   { machineId: INNER_S_ID, kind: 'switch' },
   { hangsChild: false },

@@ -82,46 +82,48 @@ describe('computeInnerGatewayId', () => {
 });
 
 describe('computeDeepGatewayId', () => {
-  // A gateway hanging off a DEEPER layer (behind an inner gateway): still the
-  // player's own device, but it must be unique across layers and branches, so it
-  // is keyed by the owner key, its PARENT gateway's machine_id, AND its octet on
-  // the deep /24. Two deep gateways at the same octet behind DIFFERENT parents must
-  // never collide — that is what lets a chain (and later, branches) stay distinct.
+  // A gateway hanging off a DEEPER layer (behind an inner gateway). It belongs to the
+  // NETWORK, like every gateway above it, but it must be unique across layers and
+  // branches — so it is keyed by its PARENT gateway's machine_id AND its octet on the
+  // deep /24. Two deep gateways at the same octet behind DIFFERENT parents must never
+  // collide: that is what lets a chain (and later, branches) stay distinct.
   const PARENT = computeInnerGatewayId(ESSID, 37);
   const OTHER_PARENT = computeInnerGatewayId(ESSID, 38);
 
   it('returns a `deep-gw-<8 hex>` id', () => {
-    expect(computeDeepGatewayId(KEY, PARENT, 50)).toMatch(/^deep-gw-[0-9a-f]{8}$/);
+    expect(computeDeepGatewayId(PARENT, 50)).toMatch(/^deep-gw-[0-9a-f]{8}$/);
   });
 
-  it('is deterministic for the same key + parent + octet', () => {
-    expect(computeDeepGatewayId(KEY, PARENT, 50)).toBe(computeDeepGatewayId(KEY, PARENT, 50));
+  it('is deterministic for the same parent + octet', () => {
+    expect(computeDeepGatewayId(PARENT, 50)).toBe(computeDeepGatewayId(PARENT, 50));
   });
 
   it('differs per octet behind the same parent', () => {
-    expect(computeDeepGatewayId(KEY, PARENT, 50)).not.toBe(computeDeepGatewayId(KEY, PARENT, 51));
+    expect(computeDeepGatewayId(PARENT, 50)).not.toBe(computeDeepGatewayId(PARENT, 51));
   });
 
   it('differs per PARENT at the same octet — distinct across layers/branches', () => {
-    expect(computeDeepGatewayId(KEY, PARENT, 50)).not.toBe(
-      computeDeepGatewayId(KEY, OTHER_PARENT, 50),
-    );
+    expect(computeDeepGatewayId(PARENT, 50)).not.toBe(computeDeepGatewayId(OTHER_PARENT, 50));
   });
 
-  it('differs for different owner keys', () => {
-    expect(computeDeepGatewayId(KEY, PARENT, 50)).not.toBe(
-      computeDeepGatewayId(OTHER_KEY, PARENT, 50),
+  it('separates one access point’s chain from another’s, through the parent', () => {
+    // Nothing in the deep id names an ESSID directly — it inherits one, because the chain
+    // descends from an inner gateway that is ESSID-keyed. Two networks therefore cannot
+    // share a deep box even at the same octet and the same depth.
+    expect(computeDeepGatewayId(computeInnerGatewayId(ESSID, 37), 50)).not.toBe(
+      computeDeepGatewayId(computeInnerGatewayId('OTHER-WIFI', 37), 50),
     );
   });
 
   it('never aliases an inner gateway, the edge router, or the parent itself', () => {
-    const deep = computeDeepGatewayId(KEY, PARENT, 50);
+    const deep = computeDeepGatewayId(PARENT, 50);
     expect(deep).not.toBe(computeInnerGatewayId(ESSID, 50));
     expect(deep).not.toBe(computeApGatewayId(ESSID));
     expect(deep).not.toBe(PARENT);
   });
 
-  it("is never recognised as the owner's own workstation", () => {
-    expect(isOwnWorkstation(computeDeepGatewayId(KEY, PARENT, 50), KEY)).toBe(false);
+  it('is never recognised as any player’s own workstation', () => {
+    expect(isOwnWorkstation(computeDeepGatewayId(PARENT, 50), KEY)).toBe(false);
+    expect(isOwnWorkstation(computeDeepGatewayId(PARENT, 50), OTHER_KEY)).toBe(false);
   });
 });

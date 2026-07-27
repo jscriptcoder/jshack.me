@@ -2,15 +2,17 @@ import { describe, expect, it } from 'vitest';
 import {
   baseFsForLanHost,
   machineIdForLanHost,
-  ownChainBaseFsForMachineId,
+  generatedBaseFsForMachineId,
+  resolveDeepGatewayIdentity,
 } from './lanHostIdentity';
+import { generateDeepLayer } from './generateDeepLayer';
+import { computeDeepGatewayId } from '../identity/router';
 import { generateHomeLan, type LanHost } from './generateHomeLan';
 import type { Directory } from '../filesystem/types';
 
-// Two representative Ed25519 pubkeys (64 hex chars). Any fixed pair works — the
-// contract under test is that the LAN's boxes do NOT vary with them.
-const OCCUPANT_KEY = 'a'.repeat(64);
-const OTHER_OCCUPANT_KEY = 'b'.repeat(64);
+// A representative Ed25519 pubkey (64 hex chars) — used only to spell an id this network
+// does NOT generate. Nothing on the LAN or in the chain below it varies with an identity.
+const FOREIGN_KEY = 'b'.repeat(64);
 const ESSID = 'BREW-AND-CODE';
 const OTHER_ESSID = 'NAKATOMI-PLAZA';
 
@@ -98,36 +100,16 @@ describe('every host on an AP’s LAN', () => {
 });
 
 describe('resolving a machine id back to its box', () => {
-  // This is where a viewer still exists to vary, so it is where "two occupants share
-  // one machine" is actually provable: occupant B resolves an id derived from the LAN
-  // and rebuilds the SAME tree occupant A would — which is what makes A's journal
-  // replay onto the box B is standing on.
-  it('gives two occupants of an ESSID the same tree for the same inner gateway', () => {
-    const gatewayId = machineIdForLanHost(innerGatewayOn(ESSID), ESSID);
-
-    expect(ownChainBaseFsForMachineId(OTHER_OCCUPANT_KEY, ESSID, gatewayId)).toEqual(
-      ownChainBaseFsForMachineId(OCCUPANT_KEY, ESSID, gatewayId),
-    );
-  });
-
-  it('gives two occupants of an ESSID the same tree for the same NPC sibling', () => {
-    const siblingId = machineIdForLanHost(siblingOn(ESSID), ESSID);
-
-    expect(ownChainBaseFsForMachineId(OTHER_OCCUPANT_KEY, ESSID, siblingId)).toEqual(
-      ownChainBaseFsForMachineId(OCCUPANT_KEY, ESSID, siblingId),
-    );
-  });
-
+  // A session carries a machine id and nothing else, so this is how any box in the
+  // generated world is recovered: LAN hosts, the gateways above them, and the chain
+  // hanging below. Everything it reaches is the NETWORK's, which is why it needs no
+  // identity — the one id it must NOT claim is another player's workstation.
   it('resolves an inner gateway and an NPC to trees that are not each other', () => {
-    // Guards the pair above against passing on two nulls: a resolution that found
-    // nothing would satisfy "both occupants agree" while proving nothing at all.
-    const gatewayFs = ownChainBaseFsForMachineId(
-      OCCUPANT_KEY,
+    const gatewayFs = generatedBaseFsForMachineId(
       ESSID,
       machineIdForLanHost(innerGatewayOn(ESSID), ESSID),
     );
-    const siblingFs = ownChainBaseFsForMachineId(
-      OCCUPANT_KEY,
+    const siblingFs = generatedBaseFsForMachineId(
       ESSID,
       machineIdForLanHost(siblingOn(ESSID), ESSID),
     );
@@ -135,5 +117,26 @@ describe('resolving a machine id back to its box', () => {
     expect(gatewayFs).not.toBeNull();
     expect(siblingFs).not.toBeNull();
     expect(gatewayFs).not.toEqual(siblingFs);
+  });
+
+  it('reaches down the chain, not just across the LAN', () => {
+    // A chain door is not a `generateHomeLan` host, so it resolves through the deep walk
+    // rather than the LAN lookup. Without this a rooted deep gateway would read as
+    // foreign and be served an empty tree instead of the box the player is standing on.
+    const innerId = machineIdForLanHost(innerGatewayOn(ESSID), ESSID);
+    const child = generateDeepLayer(ESSID, { machineId: innerId, kind: 'router' }).childGateway;
+    expect(child).not.toBeNull();
+    if (child === null) return;
+    const doorId = computeDeepGatewayId(innerId, octetOf(child));
+
+    expect(generatedBaseFsForMachineId(ESSID, doorId)).toEqual(
+      resolveDeepGatewayIdentity(innerId, child.ip, child.kind).baseFs,
+    );
+  });
+
+  it('claims nothing for an id the network does not generate', () => {
+    // The discriminator the cross-player check reads: a miss here is what routes a
+    // foreign WORKSTATION to the server instead of rebuilding it from a local seed.
+    expect(generatedBaseFsForMachineId(ESSID, `ed25519-${FOREIGN_KEY.slice(0, 8)}`)).toBeNull();
   });
 });

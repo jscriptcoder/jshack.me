@@ -184,12 +184,7 @@ const resolveDeepPivotScan = (
   rawTarget: string,
   vantage: PivotVantage,
 ): CommandResult | null => {
-  const resolution = resolveDeepScanHosts(
-    env.identity.publicKeyHex,
-    essid,
-    vantage,
-    env.fs.root(),
-  );
+  const resolution = resolveDeepScanHosts(essid, vantage, env.fs.root());
   const parsed = parseScanTarget(rawTarget, resolution.subnet);
   if (!parsed.ok) {
     return null;
@@ -257,11 +252,7 @@ const execute: Command['execute'] = async (env, args) => {
   // that gateway's downstream deep `/24` is directly scannable from here. A deep-subnet
   // target routes to the pivot scan; anything else falls through to the home path below
   // — so the upstream segment stays visible from the gateway too.
-  const pivotVantage = pivotVantageForMachineId(
-    env.identity.publicKeyHex,
-    essid,
-    env.session.machineId,
-  );
+  const pivotVantage = pivotVantageForMachineId(essid, env.session.machineId);
   if (pivotVantage !== null) {
     const pivotScan = resolveDeepPivotScan(env, essid, rawTarget, pivotVantage);
     if (pivotScan !== null) {

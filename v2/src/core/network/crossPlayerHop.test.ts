@@ -93,19 +93,19 @@ describe('isCrossPlayerWorkstation', () => {
     ).toBe(false);
   });
 
-  it('is false for a deep child gateway in your OWN chain (a forwarded chain door)', () => {
+  it('is false for a deep child gateway in the network chain (a forwarded chain door)', () => {
     const innerId = innerGatewayId();
-    const child = generateDeepLayer(PUBKEY, ESSID, { machineId: innerId, kind: 'router' }).childGateway;
+    const child = generateDeepLayer(ESSID, { machineId: innerId, kind: 'router' }).childGateway;
     if (child === null) throw new Error('fixture chain has no deep gateway');
-    const deepGatewayId = resolveDeepGatewayIdentity(PUBKEY, innerId, child.ip, child.kind).machineId;
+    const deepGatewayId = resolveDeepGatewayIdentity(innerId, child.ip, child.kind).machineId;
     expect(
       isCrossPlayerWorkstation({ machineId: deepGatewayId, publicKeyHex: PUBKEY, essid: ESSID }),
     ).toBe(false);
   });
 
-  it('is false for a deep NPC reachable in your OWN chain (a private per-viewer box)', () => {
+  it('is false for a deep NPC in the network chain — generated, so rebuilt locally', () => {
     const innerId = innerGatewayId();
-    const deepHost: LanHost = generateDeepLayer(PUBKEY, ESSID, {
+    const deepHost: LanHost = generateDeepLayer(ESSID, {
       machineId: innerId,
       kind: 'router',
     }).host;

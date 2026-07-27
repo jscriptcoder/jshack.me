@@ -22,7 +22,7 @@ import { applyPatches, type Patch } from '../filesystem/applyPatches';
 import { createFsView } from '../filesystem/fsView';
 import {
   chainGatewayBaseFsForMachineId,
-  ownLanBaseFsForMachineId,
+  lanBaseFsForMachineId,
 } from '../generation/lanHostIdentity';
 import { buildWorkstationBaseFsFromIdentity } from '../generation/workstationFs';
 import { buildApGatewayBaseFs } from '../generation/routerFs';
@@ -97,29 +97,24 @@ type ResolvedBase = { readonly fs: Directory | null; readonly error: unknown };
  *  else `fs: null` (unresolvable → fail closed). `error` surfaces a registry-lookup
  *  failure so the caller 500s rather than issuing a false deny. */
 const resolveTargetBaseFs = async (args: {
-  readonly publicKey: string;
   readonly machineId: string;
   readonly session: ActiveSession;
   readonly findRegistryByMachineId: FindRegistryByMachineId;
   readonly findOccupantWorkstationByMachineId: FindOccupantWorkstationByMachineId;
 }): Promise<ResolvedBase> => {
-  // Any host on the caller's OWN LAN — a journal-backed edge router or inner gateway
-  // (a `ssh root@<gateway>` hop), or an NPC sibling — rebuilds from the caller's own
-  // key via the shared resolver, the SAME tree the client edits, so a root-tier
-  // `rules.v4` write walks the real router perms.
-  const ownFs = ownLanBaseFsForMachineId(args.session.essid, args.machineId);
-  if (ownFs !== null) {
-    return { fs: ownFs, error: null };
+  // Any host on the session's LAN — a journal-backed edge router or inner gateway (a
+  // `ssh root@<gateway>` hop), or an NPC sibling — rebuilds from the ESSID via the shared
+  // resolver, the SAME tree the client edits, so a root-tier `rules.v4` write walks the
+  // real router perms.
+  const lanFs = lanBaseFsForMachineId(args.session.essid, args.machineId);
+  if (lanFs !== null) {
+    return { fs: lanFs, error: null };
   }
-  // A deep chain gateway (an L2+ chain door the player rooted through a forward) is the
-  // caller's own box but lives BELOW the home LAN, so it isn't a `generateHomeLan` host.
-  // Resolve it from the caller's own key so `nano rules.v4` on it walks the real router
-  // perms — the write that lets a player chain a forward one layer deeper.
-  const deepGatewayFs = chainGatewayBaseFsForMachineId(
-    args.publicKey,
-    args.session.essid,
-    args.machineId,
-  );
+  // A deep chain gateway (an L2+ chain door rooted through a forward) lives BELOW the home
+  // LAN, so it isn't a `generateHomeLan` host. Resolve it from the ESSID so `nano rules.v4`
+  // on it walks the real router perms — the write that lets a player chain a forward one
+  // layer deeper, on the box every other occupant of the network reaches too.
+  const deepGatewayFs = chainGatewayBaseFsForMachineId(args.session.essid, args.machineId);
   if (deepGatewayFs !== null) {
     return { fs: deepGatewayFs, error: null };
   }
@@ -153,7 +148,6 @@ const resolveTargetBaseFs = async (args: {
  * surface, or `null` to let the write through.
  */
 export const enforceRemoteWriteL2 = async (args: {
-  readonly publicKey: string;
   readonly machineId: string;
   readonly path: string;
   readonly session: ActiveSession | null;
@@ -167,7 +161,6 @@ export const enforceRemoteWriteL2 = async (args: {
   if (prior.error) return { status: 500, error: 'permission_check_failed' };
 
   const base = await resolveTargetBaseFs({
-    publicKey: args.publicKey,
     machineId: args.machineId,
     session: args.session,
     findRegistryByMachineId: args.findRegistryByMachineId,

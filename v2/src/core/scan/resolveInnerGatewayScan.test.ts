@@ -6,8 +6,8 @@ import {
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
+import { crackableEssidPool } from '../generation/generateWifi';
 import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer';
-import type { Identity } from '../commands/types';
 import { computeDeepGatewayId, computeInnerGatewayId } from '../identity/router';
 import type { OwnerPatchRow } from '../network/materializeWorkstationFs';
 import type { NonceStore } from '../signedRequest/nonceStore';
@@ -24,52 +24,53 @@ import type { NonceStore } from '../signedRequest/nonceStore';
  */
 
 const freshStore: NonceStore = async () => ({ fresh: true });
-const ESSID = 'BEAN-THERE-WIFI';
-
-/** A player whose home is seeded to EXACTLY `depth` layers. Depth is a per-(key, essid)
- *  roll, so pick deterministically rather than hoping a random identity lands at the
- *  depth a test needs. A depth-2 home is the shallowest whose inner router hangs a child
- *  gateway (the forward-to-child test needs the chain door); a depth-1 home hangs none. */
-const playerWithNetworkDepth = (depth: number): Identity => {
-  const found = Array.from({ length: 96 }, () => generateIdentity()).find(
-    (identity) => seedNetworkDepth(identity.publicKeyHex, ESSID) === depth,
-  );
-  if (found === undefined) throw new Error(`no identity seeds network depth ${depth}`);
-  return found;
-};
-const PLAYER = playerWithNetworkDepth(2);
-
 const octetOf = (host: LanHost): number => Number(host.ip.split('.')[3]);
 
-/** A player whose home is seeded to EXACTLY `depth` layers AND whose entire gateway chain
- *  is routers — every layer hangs a ROUTER child, so the chain runs the full `depth`
- *  gateways deep. The chained-forward tests need this: a switch caps the chain short (it
- *  forwards nothing), so a random depth-N home no longer guarantees N router hops. Picks
- *  deterministically by walking each candidate's seeded chain. */
-const playerWithAllRouterChain = (depth: number): Identity => {
-  const isAllRouterChain = (identity: Identity): boolean => {
-    if (seedNetworkDepth(identity.publicKeyHex, ESSID) !== depth) return false;
-    const inner = generateHomeLan(ESSID).hosts.find(
+/** A network seeded to EXACTLY `depth` layers. Depth is a per-network roll, so pick
+ *  deterministically rather than hoping an arbitrary ESSID lands at the depth a test
+ *  needs. A depth-2 network is the shallowest whose inner router hangs a child gateway
+ *  (the forward-to-child test needs the chain door); a depth-1 one hangs none. */
+const networkWithDepth = (depth: number): string => {
+  const found = crackableEssidPool.find((essid) => seedNetworkDepth(essid) === depth);
+  if (found === undefined) throw new Error(`no network seeds depth ${depth}`);
+  return found;
+};
+
+/** A network seeded to EXACTLY `depth` layers AND whose entire gateway chain is routers —
+ *  every layer hangs a ROUTER child, so the chain runs the full `depth` gateways deep. The
+ *  chained-forward tests need this: a switch caps the chain short (it forwards nothing), so
+ *  a depth-N network does not on its own guarantee N router hops. Picks deterministically
+ *  by walking each candidate's seeded chain. */
+const networkWithAllRouterChain = (depth: number): string => {
+  const isAllRouterChain = (essid: string): boolean => {
+    if (seedNetworkDepth(essid) !== depth) return false;
+    const inner = generateHomeLan(essid).hosts.find(
       (host) => host.kind === 'router' && octetOf(host) !== 1,
     );
     if (inner === undefined) return false;
-    let parentId = computeInnerGatewayId(ESSID, octetOf(inner));
+    let parentId = computeInnerGatewayId(essid, octetOf(inner));
     for (let position = 1; position < depth; position++) {
       const child = generateDeepLayer(
-        identity.publicKeyHex,
-        ESSID,
+        essid,
         { machineId: parentId, kind: 'router' },
         { hangsChild: true },
       ).childGateway;
       if (child === null || child.kind !== 'router') return false;
-      parentId = computeDeepGatewayId(identity.publicKeyHex, parentId, octetOf(child));
+      parentId = computeDeepGatewayId(parentId, octetOf(child));
     }
     return true;
   };
-  const found = Array.from({ length: 400 }, () => generateIdentity()).find(isAllRouterChain);
-  if (found === undefined) throw new Error(`no identity seeds an all-router depth-${depth} chain`);
+  const found = crackableEssidPool.find(isAllRouterChain);
+  if (found === undefined) throw new Error(`no network seeds an all-router depth-${depth} chain`);
   return found;
 };
+
+// The network under test: depth 2, so its inner router fronts a child gateway which in
+// turn fronts a TERMINAL layer — the shape most of these tests reason about.
+const ESSID = networkWithDepth(2);
+// The acting player. The world no longer varies with an identity; what a signer still
+// decides is whose signature the envelope carries.
+const PLAYER = generateIdentity();
 
 const innerGatewayOf = ( essid: string): LanHost => {
   const gateway = generateHomeLan(essid).hosts.find(
@@ -89,7 +90,7 @@ const INNER = innerGatewayOf( ESSID);
 const EDGE = hostMatching( ESSID, (host) => octetOf(host) === 1);
 const SIBLING = hostMatching( ESSID, (host) => host.kind === 'machine');
 const INNER_GW_ID = computeInnerGatewayId(ESSID, octetOf(INNER));
-const DEEP_LAYER = generateDeepLayer(PLAYER.publicKeyHex, ESSID, {
+const DEEP_LAYER = generateDeepLayer(ESSID, {
   machineId: INNER_GW_ID,
   kind: 'router',
 });
@@ -98,7 +99,7 @@ const DEEP_IP = DEEP_LAYER.host.ip;
  *  its `:22` must surface from the upstream scan so a reach to it passes its gate. */
 const CHILD = DEEP_LAYER.childGateway;
 if (CHILD === null) throw new Error('the inner router deep layer hangs no child gateway');
-const CHILD_ID = computeDeepGatewayId(PLAYER.publicKeyHex, INNER_GW_ID, octetOf(CHILD));
+const CHILD_ID = computeDeepGatewayId(INNER_GW_ID, octetOf(CHILD));
 
 /** A root `nano /etc/iptables/rules.v4` edit on the INNER GATEWAY's journal opening a
  *  NAT forward `2222 → <deep host>:22` — the opt-in that exposes the Layer-2 machine. */
@@ -327,30 +328,28 @@ describe('handleResolveInnerGatewayScan', () => {
 });
 
 describe('handleResolveInnerGatewayScan — chained forward down a deeper chain', () => {
-  // A depth-3 home runs a gateway chain three deep: the inner router fronts an L2 child
+  // A depth-3 network runs a gateway chain three deep: the inner router fronts an L2 child
   // gateway, which itself fronts an L3 child gateway. TWO chained forwards expose the L3
   // gateway end-to-end — the inner forwards a port to the L2 child, and the L2 child
   // forwards that same port on to the L3 gateway's own sshd. The upstream scan of the
   // inner should surface that chained port only while the WHOLE chain below stays live.
-  const DEEP3 = playerWithAllRouterChain(3);
+  const ESSID3 = networkWithAllRouterChain(3);
   const deep3Host = (predicate: (host: LanHost) => boolean): LanHost => {
-    const host = generateHomeLan(ESSID).hosts.find(predicate);
+    const host = generateHomeLan(ESSID3).hosts.find(predicate);
     if (host === undefined) throw new Error('no matching host on the depth-3 LAN');
     return host;
   };
   const INNER3 = deep3Host((host) => host.kind === 'router' && octetOf(host) !== 1);
-  const INNER3_ID = computeInnerGatewayId(ESSID, octetOf(INNER3));
+  const INNER3_ID = computeInnerGatewayId(ESSID3, octetOf(INNER3));
   const L2CHILD = generateDeepLayer(
-    DEEP3.publicKeyHex,
-    ESSID,
+    ESSID3,
     { machineId: INNER3_ID, kind: 'router' },
     { hangsChild: true },
   ).childGateway;
   if (L2CHILD === null) throw new Error('the depth-3 inner router fronts no L2 child gateway');
-  const L2CHILD_ID = computeDeepGatewayId(DEEP3.publicKeyHex, INNER3_ID, octetOf(L2CHILD));
+  const L2CHILD_ID = computeDeepGatewayId(INNER3_ID, octetOf(L2CHILD));
   const L3CHILD = generateDeepLayer(
-    DEEP3.publicKeyHex,
-    ESSID,
+    ESSID3,
     { machineId: L2CHILD_ID, kind: 'router' },
     { hangsChild: true },
   ).childGateway;
@@ -364,7 +363,7 @@ describe('handleResolveInnerGatewayScan — chained forward down a deeper chain'
     permissions: null,
     node_type: 'file',
     updated_at: '2026-06-17T00:00:01.000Z',
-    writer_key: DEEP3.publicKeyHex,
+    writer_key: PLAYER.publicKeyHex,
   };
   const l2ToL3: OwnerPatchRow = { ...innerForward, content: `forward ${CHAINED_PORT} to ${L3CHILD.ip}:22` };
   const l2Brick: OwnerPatchRow = {
@@ -374,12 +373,12 @@ describe('handleResolveInnerGatewayScan — chained forward down a deeper chain'
     permissions: null,
     node_type: null,
     updated_at: '2026-06-17T00:00:00.000Z',
-    writer_key: DEEP3.publicKeyHex,
+    writer_key: PLAYER.publicKeyHex,
   };
 
   const scanInner3 = (deps: ResolveInnerGatewayScanDeps) =>
     handleResolveInnerGatewayScan(
-      signRequest(DEEP3, 'resolveInnerGatewayScan', { essid: ESSID, target: INNER3.ip }),
+      signRequest(PLAYER, 'resolveInnerGatewayScan', { essid: ESSID3, target: INNER3.ip }),
       deps,
     );
 
@@ -460,7 +459,6 @@ describe('handleResolveInnerGatewayScan — the seeded depth + forward set bound
     // forward chain pointed at where a deeper home WOULD hang a third gateway reaches
     // nothing — the chained port stays dark.
     const grandchild = generateDeepLayer(
-      PLAYER.publicKeyHex,
       ESSID,
       { machineId: CHILD_ID, kind: 'router' },
       { hangsChild: true },
@@ -532,21 +530,20 @@ describe('handleResolveInnerGatewayScan — the seeded depth + forward set bound
   });
 });
 
-describe('handleResolveInnerGatewayScan — depth-1 home (no child gateway to surface)', () => {
-  // A depth-1 home's inner router fronts a single TERMINAL layer, so a forward to where a
-  // deeper home WOULD hang a child gateway points at a dark target — the upstream scan
+describe('handleResolveInnerGatewayScan — a depth-1 network (no child gateway to surface)', () => {
+  // A depth-1 network's inner router fronts a single TERMINAL layer, so a forward to where
+  // a deeper one WOULD hang a child gateway points at a dark target — the upstream scan
   // drops it and reports only the gateway's own :22.
-  const SHALLOW = playerWithNetworkDepth(1);
+  const SHALLOW_ESSID = networkWithDepth(1);
   const shallowHost = (predicate: (host: LanHost) => boolean): LanHost => {
-    const host = generateHomeLan(ESSID).hosts.find(predicate);
+    const host = generateHomeLan(SHALLOW_ESSID).hosts.find(predicate);
     if (host === undefined) throw new Error('no matching host on shallow LAN');
     return host;
   };
   const SHALLOW_INNER = shallowHost((host) => host.kind === 'router' && octetOf(host) !== 1);
-  const SHALLOW_GATEWAY_ID = computeInnerGatewayId(ESSID, octetOf(SHALLOW_INNER));
+  const SHALLOW_GATEWAY_ID = computeInnerGatewayId(SHALLOW_ESSID, octetOf(SHALLOW_INNER));
   const WOULD_BE_CHILD = generateDeepLayer(
-    SHALLOW.publicKeyHex,
-    ESSID,
+    SHALLOW_ESSID,
     { machineId: SHALLOW_GATEWAY_ID, kind: 'router' },
     { hangsChild: true },
   ).childGateway;
@@ -560,7 +557,7 @@ describe('handleResolveInnerGatewayScan — depth-1 home (no child gateway to su
       permissions: null,
       node_type: 'file',
       updated_at: '2026-06-17T00:00:01.000Z',
-      writer_key: SHALLOW.publicKeyHex,
+      writer_key: PLAYER.publicKeyHex,
     };
     const findPatches = vi.fn<(query: { machine_id: string }) => Promise<PatchesResult>>(async () => ({
       data: [forwardToWouldBeChild],
@@ -569,7 +566,7 @@ describe('handleResolveInnerGatewayScan — depth-1 home (no child gateway to su
     const deps: ResolveInnerGatewayScanDeps = { nonceStore: freshStore, findPatches };
 
     const result = await handleResolveInnerGatewayScan(
-      signRequest(SHALLOW, 'resolveInnerGatewayScan', { essid: ESSID, target: SHALLOW_INNER.ip }),
+      signRequest(PLAYER, 'resolveInnerGatewayScan', { essid: SHALLOW_ESSID, target: SHALLOW_INNER.ip }),
       deps,
     );
 

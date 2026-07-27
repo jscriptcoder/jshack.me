@@ -21,6 +21,7 @@ import { generateIdentity } from '../src/core/identity/identity';
 import { computeDeepGatewayId, computeInnerGatewayId } from '../src/core/identity/router';
 import { seedDeepGatewayAdminPw, seedInnerGatewayAdminPw } from '../src/core/generation/routerFs';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan';
+import { crackableEssidPool } from '../src/core/generation/generateWifi';
 import {
   generateDeepLayer,
   buildDeepHostFs,
@@ -69,17 +70,16 @@ const machineOf = (body: unknown): string | undefined =>
 const userTypeOf = (body: unknown): string | undefined =>
   (body as { userType?: string } | null)?.userType;
 
-// --- The owner (alice). She reaches her OWN deep layer; depth is single-player. Pick a
-//     depth-≥2 home so the inner router fronts a child gateway (the 2223 forward reaches
-//     it) — depth is a per-(key, essid) roll, so a random identity could front none. ---
-const ESSID = 'ABSTERGO-NET';
-const alice = Array.from({ length: 200 }, () => generateIdentity()).find(
-  (candidate) => seedNetworkDepth(candidate.publicKeyHex, ESSID) >= 2,
-);
-if (alice === undefined) {
-  console.error('no identity seeds a depth-≥2 home');
+// --- The network. Pick a depth-≥2 ESSID so its inner router fronts a child gateway (the
+//     2223 forward reaches it) — depth is a per-network roll, so an arbitrary ESSID could
+//     front none. The acting player is any identity: the chain belongs to the access point,
+//     so alice brings a session and a signature rather than a private world. ---
+const ESSID = crackableEssidPool.find((essid) => seedNetworkDepth(essid) >= 2);
+if (ESSID === undefined) {
+  console.error('no network in the crackable pool seeds a depth-≥2 chain');
   process.exit(2);
 }
+const alice = generateIdentity();
 
 const innerGateway = generateHomeLan(ESSID).hosts.find(
   (host) => host.kind === 'router' && Number(host.ip.split('.')[3]) !== 1,
@@ -93,7 +93,7 @@ const INNER_OCTET = Number(INNER_IP.split('.')[3]);
 const INNER_GW_ID = computeInnerGatewayId(ESSID, INNER_OCTET);
 const GATEWAY_ROOT_PW = seedInnerGatewayAdminPw(ESSID, INNER_OCTET);
 
-const deep = generateDeepLayer(alice.publicKeyHex, ESSID, { machineId: INNER_GW_ID, kind: 'router' });
+const deep = generateDeepLayer(ESSID, { machineId: INNER_GW_ID, kind: 'router' });
 const DEEP_IP = deep.host.ip;
 const DEEP_ID = hostMachineId(deep.host, ESSID);
 const guestAccount = accountIn(buildDeepHostFs(ESSID, deep.host), 'guest');
@@ -116,8 +116,8 @@ if (child === null) {
 }
 const CHILD_IP = child.ip;
 const CHILD_OCTET = Number(CHILD_IP.split('.')[3]);
-const CHILD_ID = computeDeepGatewayId(alice.publicKeyHex, INNER_GW_ID, CHILD_OCTET);
-const CHILD_ROOT_PW = seedDeepGatewayAdminPw(alice.publicKeyHex, INNER_GW_ID, CHILD_OCTET);
+const CHILD_ID = computeDeepGatewayId(INNER_GW_ID, CHILD_OCTET);
+const CHILD_ROOT_PW = seedDeepGatewayAdminPw(INNER_GW_ID, CHILD_OCTET);
 
 const RULES = '/etc/iptables/rules.v4';
 const VMLINUZ = '/boot/vmlinuz';

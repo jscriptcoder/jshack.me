@@ -124,11 +124,11 @@ type AuthResolution =
 
 const UNREACHABLE: AuthResolution = { kind: 'unreachable' };
 
-/** The invariants every hop of the chain walk shares: the verified owner key + essid the
- *  deep layers regenerate from, the home's seeded chain depth (the bound that makes the
- *  walk finite), and the journal fetch that replays each child gateway. */
+/** The invariants every hop of the chain walk shares: the essid the deep layers
+ *  regenerate from, the network's seeded chain depth (the bound that makes the walk
+ *  finite), and the journal fetch that replays each child gateway. No identity: the chain
+ *  descends from a gateway the access point owns, so every occupant walks the same one. */
 type ChainContext = {
-  readonly publicKey: string;
   readonly essid: string;
   readonly depth: number;
   readonly findPatches: AuthCreateSessionInnerGatewayDeps['findPatches'];
@@ -192,7 +192,7 @@ const resolveAuthTarget = async (
   }
   // The gateway forwards `port` onto its deep layer. Regenerate the layer; it hangs a
   // child gateway only while this gateway sits above the home's seeded depth.
-  const deep = generateDeepLayer(context.publicKey, context.essid, frontingGateway, {
+  const deep = generateDeepLayer(context.essid, frontingGateway, {
     hangsChild: position < context.depth,
   });
   // The forward reaches the terminal NPC — auth against ITS /etc/passwd, land the
@@ -215,7 +215,6 @@ const resolveAuthTarget = async (
   // child's own `:22` (land on the child) or another forward (continue the chain).
   if (deep.childGateway !== null && served.internalIp === deep.childGateway.ip) {
     const hop = await resolveChildGatewayHop({
-      ownerKeyHex: context.publicKey,
       parentMachineId: frontingGateway.machineId,
       childIp: deep.childGateway.ip,
       childKind: deep.childGateway.kind,
@@ -320,9 +319,8 @@ export const handleAuthCreateSessionInnerGateway = async (
 
   const resolution = await resolveAuthTarget(
     {
-      publicKey,
       essid: payload.essid,
-      depth: seedNetworkDepth(publicKey, payload.essid),
+      depth: seedNetworkDepth(payload.essid),
       findPatches: deps.findPatches,
     },
     gatewayFs,

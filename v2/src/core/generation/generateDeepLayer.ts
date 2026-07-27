@@ -62,14 +62,18 @@ type DeepLayerOptions = {
   readonly hangsChild: boolean;
 };
 
-/** How many deep layers hang behind a home's inner gateway, seeded deterministically
- *  from the owner key AND essid (the `network-depth-` namespace, reload-stable). Every
- *  home gets at least one deep layer (so no player is playground-less); the 1–3 range
- *  gives variety — some chains are a single terminal layer, some run three gateways
- *  deep. A gateway at chain position P fronts a child-bearing layer iff P < depth, so
- *  the inner gateway (position 1) hangs a child only when depth ≥ 2. */
-export const seedNetworkDepth = (ownerKeyHex: string, essid: string): number =>
-  createPrng(`network-depth-${ownerKeyHex}:${essid}`).nextInt(1, 3);
+/** How many deep layers hang behind an access point's inner gateway, seeded
+ *  deterministically from the ESSID (the `network-depth-` namespace, reload-stable).
+ *  Every network gets at least one deep layer (so no access point is playground-less);
+ *  the 1–3 range gives variety — some chains are a single terminal layer, some run three
+ *  gateways deep. A gateway at chain position P fronts a child-bearing layer iff
+ *  P < depth, so the inner gateway (position 1) hangs a child only when depth ≥ 2.
+ *
+ *  Seeded by the network rather than by a player because the chain descends from the
+ *  inner gateway, which the access point owns: two occupants walking down from one door
+ *  have to find a chain of one length, or they are not in the same place. */
+export const seedNetworkDepth = (essid: string): number =>
+  createPrng(`network-depth-${essid}`).nextInt(1, 3);
 
 /** The fraction of deep child gateways that are SWITCHES rather than routers. A
  *  switch forwards nothing, so it is a chain leaf — the rest are routers that
@@ -77,29 +81,26 @@ export const seedNetworkDepth = (ownerKeyHex: string, essid: string): number =>
  *  meaningful minority of layers are switch-capped. */
 const DEEP_SWITCH_PROBABILITY = 0.33;
 
-/** A deep child gateway's device kind, seeded from the owner key, its PARENT
- *  gateway's machine_id, AND its octet (the `deep-gw-kind-` namespace — SEPARATE from
- *  every existing deep-gateway seed, so adding it leaves the router topology
- *  byte-stable). A switch caps the chain here; a router continues it. Keying on the
- *  parent + octet keeps two deep gateways at the same octet behind different parents
- *  independent, the same discriminator the deep id + admin password already use. */
+/** A deep child gateway's device kind, seeded from its PARENT gateway's machine_id AND
+ *  its octet (the `deep-gw-kind-` namespace — SEPARATE from every existing deep-gateway
+ *  seed, so adding it leaves the router topology byte-stable). A switch caps the chain
+ *  here; a router continues it. Keying on the parent + octet keeps two deep gateways at
+ *  the same octet behind different parents independent, the same discriminator the deep
+ *  id + admin password already use. */
 const seedDeepGatewayKind = (
-  ownerKeyHex: string,
   parentMachineId: string,
   octet: number,
 ): Extract<LanHostKind, 'router' | 'switch'> =>
-  createPrng(`deep-gw-kind-${ownerKeyHex}:${parentMachineId}:${octet}`).next() <
-  DEEP_SWITCH_PROBABILITY
+  createPrng(`deep-gw-kind-${parentMachineId}:${octet}`).next() < DEEP_SWITCH_PROBABILITY
     ? 'switch'
     : 'router';
 
 export const generateDeepLayer = (
-  seedPubkeyHex: string,
   essid: string,
   frontingGateway: FrontingGateway,
   options: DeepLayerOptions = { hangsChild: true },
 ): DeepLayer => {
-  const prng = createPrng(`deep-layer-${seedPubkeyHex}-${essid}-${frontingGateway.machineId}`);
+  const prng = createPrng(`deep-layer-${essid}-${frontingGateway.machineId}`);
   const subnet = `10.${prng.nextInt(0, 255)}.${prng.nextInt(0, 255)}`;
   // .1 is the fronting gateway's downstream interface; the hosts avoid it (and
   // .0/.255). A single `pickN` keeps the NPC and child-gateway octets distinct, and
@@ -119,7 +120,7 @@ export const generateDeepLayer = (
       ? {
           ip: `${subnet}.${childOctet}`,
           hostname: `${prng.pick(ROUTER_HOSTNAMES)}-${childOctet}`,
-          kind: seedDeepGatewayKind(seedPubkeyHex, frontingGateway.machineId, childOctet),
+          kind: seedDeepGatewayKind(frontingGateway.machineId, childOctet),
         }
       : null;
   return { subnet, host, childGateway };

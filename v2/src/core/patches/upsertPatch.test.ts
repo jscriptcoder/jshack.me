@@ -11,6 +11,9 @@ import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
 import { computeWorkstationId } from '../identity/workstation';
 import { generateHomeLan } from '../generation/generateHomeLan';
+import { crackableEssidPool } from '../generation/generateWifi';
+import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer';
+import { computeDeepGatewayId, computeInnerGatewayId } from '../identity/router';
 import { hostMachineId } from '../generation/remoteHostId';
 import { md5 } from '../generation/md5';
 import type { UserType } from '../types';
@@ -106,6 +109,66 @@ const ownFields = (publicKeyHex: string) => ({
   path: '/home/alice/notes.txt',
   content: 'hello',
   owner: 'alice',
+});
+
+/** The chain door hanging behind an ESSID's inner router, and the network it belongs to.
+ *  Not a `generateHomeLan` host, so a write there exercises the deep-chain resolution
+ *  rather than the LAN lookup. */
+const chainDoor = (): { essid: string; machineId: string } => {
+  for (const essid of crackableEssidPool) {
+    if (seedNetworkDepth(essid) < 2) continue;
+    const inner = generateHomeLan(essid).hosts.find(
+      (host) => host.kind === 'router' && Number(host.ip.split('.')[3]) !== 1,
+    );
+    if (inner === undefined) continue;
+    const innerId = computeInnerGatewayId(essid, Number(inner.ip.split('.')[3]));
+    const child = generateDeepLayer(
+      essid,
+      { machineId: innerId, kind: 'router' },
+      { hangsChild: true },
+    ).childGateway;
+    if (child !== null && child.kind === 'router') {
+      return { essid, machineId: computeDeepGatewayId(innerId, Number(child.ip.split('.')[3])) };
+    }
+  }
+  throw new Error('no network seeds a deep router chain door');
+};
+
+describe('handleUpsertPatch — a chain door is the network’s, not its finder’s', () => {
+  it('accepts a rooted chain door’s forward from either occupant of the network', async () => {
+    // Two DIFFERENT verified signers, one rooted door, one machine id. Both writes must
+    // land, because both are configuring the same box: the chain descends from a gateway
+    // the access point owns, so whoever roots the door is configuring shared
+    // infrastructure. If the door resolved per player, the second signer would be walking
+    // a tree the first cannot see and the write would fail closed at 403.
+    const door = chainDoor();
+    const fields = {
+      machine_id: door.machineId,
+      path: '/etc/iptables/rules.v4',
+      content: '# NAT port-forward table\nforward 2224 to 10.0.0.9:22\n',
+      owner: 'root',
+      permissions: { read: ['root'], write: ['root'], execute: [] },
+      node_type: 'file',
+    };
+    const rootedDoor = makeDeps({ findActiveSession: remoteSession('root', door.essid) });
+    const rootedBySomeoneElse = makeDeps({
+      findActiveSession: remoteSession('root', door.essid),
+    });
+
+    const first = await handleUpsertPatch(signRequest(generateIdentity(), 'upsertPatch', fields), rootedDoor.deps);
+    const second = await handleUpsertPatch(
+      signRequest(generateIdentity(), 'upsertPatch', fields),
+      rootedBySomeoneElse.deps,
+    );
+
+    expect(first).toEqual({ status: 200, body: { ok: true } });
+    expect(second).toEqual({ status: 200, body: { ok: true } });
+    // And onto ONE machine record, so the second occupant's forward replays over the
+    // first's rather than into a private journal.
+    expect(rootedDoor.upsertPatch.mock.calls[0]?.[0].machine_id).toBe(
+      rootedBySomeoneElse.upsertPatch.mock.calls[0]?.[0].machine_id,
+    );
+  });
 });
 
 describe('handleUpsertPatch', () => {

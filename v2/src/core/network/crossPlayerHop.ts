@@ -1,12 +1,16 @@
 /**
- * isCrossPlayerWorkstation — the machine-level "am I standing on a box that is not
- * mine?" check. A machine is cross-player when it is neither the caller's OWN
- * workstation (identity-derived suffix match) nor ANY machine the caller owns in
- * their own generated world — a home-LAN host, an inner gateway/switch, a deep
- * chain door, or a deep NPC behind one (`ownChainBaseFsForMachineId` rebuilds its
- * tree). Recognizing the deep chain here is what stops your own gateway/deep boxes
- * from being misread as foreign and served an empty tree instead of their real
- * journal-replayed filesystem.
+ * isCrossPlayerWorkstation — the machine-level "am I standing on another PLAYER's
+ * box?" check. A machine is cross-player when it is neither the caller's OWN
+ * workstation (identity-derived suffix match) nor any machine the NETWORK generates
+ * — a home-LAN host, an inner gateway/switch, a deep chain door, or a deep NPC
+ * behind one (`generatedBaseFsForMachineId` rebuilds its tree). Recognizing the deep
+ * chain here is what stops a generated gateway/deep box from being misread as
+ * foreign and served an empty tree instead of its real journal-replayed filesystem.
+ *
+ * A generated box is shared, not owned: every occupant of the ESSID reaches the same
+ * one. What this check separates is generated-world boxes (rebuilt locally from the
+ * seed, then replayed) from another player's WORKSTATION (fetched server-side) — the
+ * only machine on the network that genuinely belongs to somebody.
  *
  * The AP gateway at `.1` is deliberately NOT exempt: it belongs to the access point
  * and is shared by every occupant, so it resolves through the server like any other
@@ -22,7 +26,7 @@
  */
 
 import { isOwnWorkstation } from '../identity/workstation';
-import { ownChainBaseFsForMachineId } from '../generation/lanHostIdentity';
+import { generatedBaseFsForMachineId } from '../generation/lanHostIdentity';
 
 export const isCrossPlayerWorkstation = (args: {
   readonly machineId: string;
@@ -31,4 +35,4 @@ export const isCrossPlayerWorkstation = (args: {
 }): boolean =>
   !isOwnWorkstation(args.machineId, args.publicKeyHex) &&
   args.essid !== null &&
-  ownChainBaseFsForMachineId(args.publicKeyHex, args.essid, args.machineId) === null;
+  generatedBaseFsForMachineId(args.essid, args.machineId) === null;

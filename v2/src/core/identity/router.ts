@@ -42,17 +42,18 @@ export const computeApGatewayId = (essid: string): string =>
 export const computeInnerGatewayId = (essid: string, octet: number): string =>
   `inner-gw-${deriveHostnameSuffix(`inner-gw:${essid}:${octet}`)}`;
 
-/** The machine_id for a gateway hanging off a DEEPER layer — a router the player
- *  owns that sits behind an inner gateway, fronting a layer further down. It must be
- *  unique across the whole chain (and, later, across branches), so it derives from a
- *  SEPARATE (`ed25519-deep-gw:`) namespace keyed by the owner key, its PARENT
- *  gateway's machine_id, AND its octet on the deep `/24`: two deep gateways at the
- *  same octet behind different parents therefore each get an independent suffix, and
- *  it can never alias the edge router, an inner gateway, or its own parent. The
- *  server recovers it by walking the owner's chain, which fixes the parent + octet. */
-export const computeDeepGatewayId = (
-  playerKeyHex: string,
-  parentMachineId: string,
-  octet: number,
-): string =>
-  `deep-gw-${deriveHostnameSuffix(`ed25519-deep-gw:${playerKeyHex}:${parentMachineId}:${octet}`)}`;
+/** The machine_id for a gateway hanging off a DEEPER layer — a router that sits behind
+ *  an inner gateway, fronting a layer further down. It must be unique across the whole
+ *  chain (and, later, across branches), so it derives from a SEPARATE (`deep-gw:`)
+ *  namespace keyed by its PARENT gateway's machine_id AND its octet on the deep `/24`:
+ *  two deep gateways at the same octet behind different parents therefore each get an
+ *  independent suffix, and it can never alias the edge router, an inner gateway, or its
+ *  own parent. The parent id is itself ESSID-derived all the way up to the inner gateway,
+ *  so one access point's chain can never collide with another's.
+ *
+ *  No owner key: the chain hangs off a gateway the access point owns, so every occupant
+ *  that walks down it must reach ONE machine with one journal. Keying it per player would
+ *  give each occupant a private world behind an address they all agree on. The namespace
+ *  is not an `ed25519-` one for the same reason — nothing here derives from a keypair. */
+export const computeDeepGatewayId = (parentMachineId: string, octet: number): string =>
+  `deep-gw-${deriveHostnameSuffix(`deep-gw:${parentMachineId}:${octet}`)}`;

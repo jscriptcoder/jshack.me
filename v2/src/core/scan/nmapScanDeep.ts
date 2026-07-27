@@ -117,14 +117,10 @@ export const handleNmapScanDeep = async (
   }
   const { publicKey, payload } = verified;
 
-  // The claimed vantage must be a genuine gateway in the caller's OWN deep chain — a
-  // forged or non-gateway machine_id resolves to nothing, so there is nothing to log.
-  // One walk yields both the vantage and its seeded base FS (the switch ACL surface).
-  const vantage = chainGatewayVantageForMachineId(
-    publicKey,
-    payload.essid,
-    payload.vantage_machine_id,
-  );
+  // The claimed vantage must be a genuine gateway in the NETWORK's deep chain — a forged
+  // or non-gateway machine_id resolves to nothing, so there is nothing to log. One walk
+  // yields both the vantage and its seeded base FS (the switch ACL surface).
+  const vantage = chainGatewayVantageForMachineId(payload.essid, payload.vantage_machine_id);
   if (vantage === null) {
     return OK_NOTHING;
   }
@@ -141,7 +137,7 @@ export const handleNmapScanDeep = async (
     vantageFs = materializeMachineFs(vantage.baseFs, patches.data);
   }
 
-  const resolution = resolveDeepScanHosts(publicKey, payload.essid, vantage, vantageFs);
+  const resolution = resolveDeepScanHosts(payload.essid, vantage, vantageFs);
   const parsed = parseScanTarget(payload.target, resolution.subnet);
   // The touched hosts ARE the resolved deep hosts whose octet the scan target covers —
   // filtered straight off the resolution, so the trace carries the same machine_id +
