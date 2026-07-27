@@ -4,7 +4,7 @@
 //
 // Net-new under test:
 //   - A signed `registerNetwork` join writes an occupancy row keyed (essid, owner_key)
-//     in addition to the WAN registry — every occupant of a shared ESSID coexists.
+//     in addition to the AP's public IP — every occupant of a shared ESSID coexists.
 //   - B (a live occupant of X) `resolveOccupants X` gets A's workstation_machine_id +
 //     A's RE-DERIVED LAN IP, with B itself excluded.
 //   - A non-occupant (C) is refused (403 not_an_occupant) — the LAN boundary (D11).

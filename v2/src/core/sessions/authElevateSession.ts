@@ -3,7 +3,7 @@
  * (Story 4, slice 1). Where `authCreateSessionPublic` resolves a foreign box by its
  * PUBLIC IP for the INITIAL ssh login, this elevates a session B ALREADY holds on
  * A's box: B (ssh'd in as guest) runs `su`, and this resolves A's registered
- * workstation by its `machine_id`, RECONSTRUCTS A's box from the registry-persisted
+ * workstation by its `machine_id`, RECONSTRUCTS A's box from the occupancy-persisted
  * identity (owner_key + username + md5(rootPassword)), and validates the typed
  * password against A's REAL `/etc/passwd`.
  *
@@ -45,12 +45,12 @@ import type { PatchRow } from '../patches/upsertPatch';
 import type { HandlerResponse } from './authCreateSession';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
-/** The registry fields a cross-player `su` elevation needs: who owns the box (to
+/** The occupancy fields a cross-player `su` elevation needs: who owns the box (to
  *  reconstruct its FS), the workstation's real machine id (the session target +
  *  the lookup key), the network the session lives on, and the persisted identity to
  *  rebuild `/etc/passwd`. (Where `authCreateSessionPublic` now resolves the ROUTER
  *  by port, `su` always targets the workstation B already stands on.) */
-export type RegistryWorkstation = {
+export type OccupantWorkstation = {
   readonly owner_key: string;
   readonly workstation_machine_id: string;
   readonly essid: string;
@@ -63,7 +63,7 @@ export type RegistryWorkstation = {
 
 /** The `sessions` row a cross-player `su` elevation inserts. Mirrors the ssh
  *  `AuthSessionRow` but `kind:'su'` — the credential is server-derived, the
- *  player_key server-stamped, and `essid` carried from the registry for parity
+ *  player_key server-stamped, and `essid` carried from the occupancy row for parity
  *  with the parent ssh row. */
 export type SuSessionRow = {
   readonly session_id: string;
@@ -85,7 +85,7 @@ export type AuthElevateSessionDeps = {
    *  elevating on a machine nobody can reach. */
   readonly findOccupantWorkstationByMachineId: (
     machineId: string,
-  ) => Promise<{ readonly data: RegistryWorkstation | null; readonly error: unknown }>;
+  ) => Promise<{ readonly data: OccupantWorkstation | null; readonly error: unknown }>;
   readonly insertSession: (row: SuSessionRow) => Promise<{ readonly error: unknown }>;
   /** The server's wall clock, epoch-ms (UTC) — stamps the auth.log trace line. */
   readonly now: () => number;
@@ -124,7 +124,7 @@ const authElevateSessionSchema = z
  *  failure must never break (or fabricate) the elevation. */
 const logCrossPlayerSu = async (
   deps: AuthElevateSessionDeps,
-  registry: RegistryWorkstation,
+  occupant: OccupantWorkstation,
   attempt: {
     readonly outcome: 'success' | 'failure';
     readonly targetUser: string;
@@ -136,7 +136,7 @@ const logCrossPlayerSu = async (
     outcome: attempt.outcome,
     targetUser: attempt.targetUser,
     fromUser: attempt.fromUser,
-    hostname: registry.workstation_machine_name,
+    hostname: occupant.workstation_machine_name,
     time: asGameTime(stamp),
     pid: derivePid(stamp),
   });
@@ -144,8 +144,8 @@ const logCrossPlayerSu = async (
     await appendMachineLog(
       { readLog: deps.readAuthLog, upsertPatch: deps.upsertPatch },
       {
-        writerKey: registry.owner_key,
-        machineId: registry.workstation_machine_id,
+        writerKey: occupant.owner_key,
+        machineId: occupant.workstation_machine_id,
         path: AUTH_LOG_PATH,
         owner: AUTH_LOG_OWNER,
         permissions: AUTH_LOG_PERMISSIONS,
@@ -175,7 +175,7 @@ export const handleAuthElevateSession = async (
   if (occupant.error) {
     return { status: 500, body: { error: 'occupant_lookup_failed' } };
   }
-  const data: RegistryWorkstation | null = occupant.data;
+  const data: OccupantWorkstation | null = occupant.data;
   if (data === null) {
     return { status: 404, body: { error: 'host_unreachable' } };
   }

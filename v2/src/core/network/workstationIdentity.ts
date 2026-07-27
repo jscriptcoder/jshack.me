@@ -1,5 +1,5 @@
 /**
- * workstationIdentityFields — derive the registry fields the server needs to
+ * workstationIdentityFields — derive the occupancy fields the server needs to
  * RECONSTRUCT a player's workstation for a cross-player reader (Story 2).
  *
  * A player's box is seeded from their Ed25519 pubkey PLUS their player-chosen

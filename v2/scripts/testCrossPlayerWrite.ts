@@ -4,12 +4,12 @@
 // ssh session on A's REGISTERED workstation writes a file on A's box through the
 // real /api/patches endpoint, and the change lands on A's shared journal attributed
 // to B — A sees it, and B's own cross-player read sees it. L2 walks A's
-// OWNER-materialized tree (rebuilt from the registry identity, decision D6) at B's
+// OWNER-materialized tree (rebuilt from the occupant's identity, decision D6) at B's
 // SERVER-session tier, so the guest-writable /tmp succeeds but a root-owned path is
 // denied with no row written. A caller with no session is rejected at L1.
 //
 // Drives the REAL migrated schema + glue end to end against a running `vercel dev`
-// + local supabase; seeds A's registry row + B's guest session via service_role.
+// + local supabase; seeds A's occupancy row + B's guest session via service_role.
 //
 // Usage (with v2 supabase + vercel dev running):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testCrossPlayerWrite.ts
@@ -86,7 +86,7 @@ const worldFile = {
   execute: [],
 };
 
-// Clean slate, then seed A's registry row (as the join would) + B's active guest
+// Clean slate, then seed A's occupancy row (as the join would) + B's active guest
 // session on A's workstation (as the 2b cross-player login would).
 await sr.from('network_public_ips').delete().eq('public_ip', A_PUBLIC_IP);
 await sr.from('home_network_occupants').delete().eq('essid', 'BEAN-THERE-WIFI');

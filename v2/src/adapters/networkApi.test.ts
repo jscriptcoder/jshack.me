@@ -25,7 +25,7 @@ import { asMachineId } from '../core/types';
  * skeleton. `joinHomeNetwork` registers the player's network on connect (so a
  * different identity can later resolve it by public IP) and returns the local
  * deterministic assignment; `resolvePublic` resolves an `nmap <public IP>` against
- * that registry, degrading to host-down on any failure so a hiccup reads as "down"
+ * the server, degrading to host-down on any failure so a hiccup reads as "down"
  * rather than crashing the scan.
  */
 
@@ -278,7 +278,7 @@ describe('resolvePublic', () => {
     expect(await resolvePublic(deps, '203.0.113.7')).toEqual({ found: true, ports });
   });
 
-  it('reports the host not found when the server resolves no registry row', async () => {
+  it('reports the host not found when the server resolves nothing at that IP', async () => {
     const deps = makeDeps(
       vi.fn(async () =>
         jsonResponse(200, { ok: true, found: false, ports: [] }),

@@ -15,7 +15,7 @@ import type {
 } from '../src/core/patches/authorizeMachineAccess';
 import type {
   ListMachinePatchesResult,
-  RegistryWorkstation,
+  OccupantWorkstation,
 } from '../src/core/patches/remoteWritePermission';
 import type { Patch } from '../src/core/filesystem/applyPatches';
 import type { FilePermissions } from '../src/core/filesystem/types';
@@ -162,7 +162,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .limit(1)
       .maybeSingle();
     if (error) console.error('[patches] occupant reverse-lookup error:', error);
-    return { data: data as RegistryWorkstation | null, error };
+    return { data: data as OccupantWorkstation | null, error };
   };
 
   if (actionOf(req.body) === 'listPatches') {

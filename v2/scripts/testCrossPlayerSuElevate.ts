@@ -3,7 +3,7 @@
 // The headline new behaviour: a SECOND identity (B), holding a guest cross-player
 // ssh session on A's REGISTERED workstation, escalates to root by POSTing `suElevate`
 // to /api/sessions with A's REAL root password. The server resolves A by machine_id,
-// rebuilds A's box from the registry identity, validates md5(pw) against A's real
+// rebuilds A's box from the occupant's identity, validates md5(pw) against A's real
 // /etc/passwd, and inserts a root-tier `kind:'su'` session row. Because L1's
 // findActiveSession returns the TOP of the stack (latest active row), B's subsequent
 // writes then authorize at ROOT — the SAME root-owned create that was 403 as guest
@@ -11,7 +11,7 @@
 // smuggled player_key is rejected before any lookup.
 //
 // Drives the REAL migrated schema + glue end to end against a running `vercel dev`
-// + local supabase; seeds A's registry row + B's guest session via service_role.
+// + local supabase; seeds A's occupancy row + B's guest session via service_role.
 //
 // Usage (with v2 supabase + vercel dev running):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testCrossPlayerSuElevate.ts
@@ -104,7 +104,7 @@ const suRowsForBob = async (): Promise<readonly { credentials: { userType: strin
   return (data ?? []) as readonly { credentials: { userType: string } }[];
 };
 
-// Clean slate, then seed A's registry row (as the join would) + B's active guest
+// Clean slate, then seed A's occupancy row (as the join would) + B's active guest
 // session on A (as the 2b cross-player ssh login would). The guest row is stamped
 // in the PAST so the su row (inserted live by suElevate) is unambiguously the top
 // of the stack that L1's findActiveSession returns.

@@ -2,7 +2,7 @@
  * `/etc/iptables/rules.v4` — the SINGLE parsed source of truth for a router's
  * NAT port forwards (Story 5.1). The owner edits this file (via `nano`) to opt a
  * workstation port in; the scan/ssh paths parse it to decide what the public IP
- * exposes. There is no separate registry `forward_table` — the file IS the table.
+ * exposes. There is no separate `forward_table` column — the file IS the table.
  *
  * Grammar is deliberately simplified (NOT real iptables-save), ported from legacy
  * `src/network/iptablesParser.ts`:
@@ -14,7 +14,7 @@
 import type { Directory } from '../filesystem/types';
 
 /** One parsed NAT forward: a public port DNAT'd to `internalIp:internalPort`.
- *  Distinct from the registry's `{ publicPort, targetMachineId }` shape — this
+ *  Distinct from the old `{ publicPort, targetMachineId }` shape — this
  *  is what a `rules.v4` line denotes. */
 export type NatForward = {
   readonly publicPort: number;

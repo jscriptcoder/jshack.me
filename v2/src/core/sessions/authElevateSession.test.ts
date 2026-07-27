@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   handleAuthElevateSession,
   type AuthElevateSessionDeps,
-  type RegistryWorkstation,
+  type OccupantWorkstation,
   type SuSessionRow,
 } from './authElevateSession';
 import { workstationGuestPassword } from '../generation/workstationFs';
@@ -42,7 +42,7 @@ const FIXED_NOW = Date.UTC(2026, 5, 19, 12, 0, 0);
 // A's identity → owner_key; the guest password is seeded from it, so the dev (and
 // a future cracker) recovers it via `workstationGuestPassword`.
 const OWNER = generateIdentity();
-const REGISTRY: RegistryWorkstation = {
+const OCCUPANT: OccupantWorkstation = {
   owner_key: OWNER.publicKeyHex,
   workstation_machine_id: MACHINE,
   essid: 'BEAN-THERE-WIFI',
@@ -52,7 +52,7 @@ const REGISTRY: RegistryWorkstation = {
 };
 const GUEST_PW = workstationGuestPassword(OWNER.publicKeyHex);
 
-type LookupResult = { data: RegistryWorkstation | null; error: unknown };
+type LookupResult = { data: OccupantWorkstation | null; error: unknown };
 
 /** Overrides for the system-logging deps (Story 6.3). Defaults: the fixed server
  *  clock, an empty auth.log (a resolved attempt appends one line), and a successful
@@ -64,7 +64,7 @@ type LogOverrides = {
 };
 
 const makeDeps = (
-  lookup: () => Promise<LookupResult> = async () => ({ data: REGISTRY, error: null }),
+  lookup: () => Promise<LookupResult> = async () => ({ data: OCCUPANT, error: null }),
   insert: () => Promise<{ error: unknown }> = async () => ({ error: null }),
   over: LogOverrides = {},
 ) => {
@@ -115,7 +115,7 @@ const expectedSuLine = (
     outcome,
     targetUser,
     fromUser,
-    hostname: REGISTRY.workstation_machine_name,
+    hostname: OCCUPANT.workstation_machine_name,
     time: asGameTime(FIXED_NOW),
     pid: derivePid(FIXED_NOW),
   });
@@ -225,7 +225,7 @@ describe('handleAuthElevateSession', () => {
   it('elevates against the occupant row that says whose box this is', async () => {
     const attacker = generateIdentity();
     const { deps, insertSession, findOccupantWorkstationByMachineId } = makeDeps(async () => ({
-      data: REGISTRY,
+      data: OCCUPANT,
       error: null,
     }));
 
@@ -344,7 +344,7 @@ describe('handleAuthElevateSession', () => {
       expect(result.status).toBe(200);
       expect(upsertPatch).toHaveBeenCalledTimes(1);
       expect(upsertPatch.mock.calls[0]![0]).toEqual({
-        writer_key: REGISTRY.owner_key,
+        writer_key: OCCUPANT.owner_key,
         machine_id: MACHINE,
         path: AUTH_LOG_PATH,
         content: `${expectedSuLine('success', 'root', 'guest')}\n`,

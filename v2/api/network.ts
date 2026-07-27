@@ -14,7 +14,7 @@ import { handleUnregisterOccupant } from '../src/core/network/unregisterOccupant
 import {
   handleResolvePublicScan,
   type NatHost,
-  type RegistryLookup,
+  type ApNetworkLookup,
 } from '../src/core/scan/resolvePublicScan';
 import { computeApGatewayId } from '../src/core/identity/router';
 import { handleResolveInnerGatewayScan } from '../src/core/scan/resolveInnerGatewayScan';
@@ -23,7 +23,7 @@ import {
   handleResolveCrossPlayerFs,
   type ActiveSession,
   type OwnerPatchRow,
-  type RegistryWorkstation,
+  type OccupantWorkstation,
 } from '../src/core/network/resolveCrossPlayerFs';
 import type { UserType } from '../src/core/types';
 import type { MachineLogReadQuery } from '../src/core/patches/appendMachineLog';
@@ -96,7 +96,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // boot-state check + its own sshd:22 port. Story 5.1.3b: the workstation fields
     // (machine id, essid, identity) let the handler liveness-gate a NAT forward to
     // the one workstation behind NAT.
-    const findRegistryByPublicIp = async (publicIp: string) => {
+    const findNetworkByPublicIp = async (publicIp: string) => {
       const network = await supabase
         .from('network_public_ips')
         .select('essid')
@@ -127,7 +127,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // not a machine that joins the network, so it exists whether or not anyone is on it.
       // With nobody home there is simply no host behind the NAT.
       const behindNat = occupant.data as NatHost | null;
-      const resolved: RegistryLookup = {
+      const resolved: ApNetworkLookup = {
         router_machine_id: computeApGatewayId(essid),
         essid,
         behindNat,
@@ -177,7 +177,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // disconnected has no home network and their source degrades to `unknown`. One
     // player may occupy several APs; the most-recently-joined is their current network
     // ("one network at a time"), hence the order+limit.
-    const findRegistryByOwnerKey = async (ownerKey: string) => {
+    const findHomeNetworkByOwnerKey = async (ownerKey: string) => {
       const occupancy = await supabase
         .from('home_network_occupants')
         .select('essid')
@@ -214,13 +214,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     };
     const { status, body } = await handleResolvePublicScan(req.body, {
       nonceStore: noopNonceStore,
-      findRegistryByPublicIp,
+      findNetworkByPublicIp,
       findPatches,
       readLease,
       now: () => Date.now(),
       readLog,
       upsertPatch,
-      findRegistryByOwnerKey,
+      findHomeNetworkByOwnerKey,
     });
     res.status(status).json(body);
     return;
@@ -256,7 +256,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // which doubles as the reachability test, since a row there means "this machine is
     // on that WiFi". One player on N APs has N rows with the SAME workstation_machine_id
     // (identity-derived) + identical identity fields, so `.limit(1)` picks any. The
-    // selected columns are exactly RegistryWorkstation. An AP GATEWAY has no occupancy
+    // selected columns are exactly OccupantWorkstation. An AP GATEWAY has no occupancy
     // row at all — it belongs to the access point, not to a player — so the handler
     // identifies it from the caller's own session instead.
     const findOccupantWorkstationByMachineId = async (machineId: string) => {
@@ -274,7 +274,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       } | null;
       return {
         data:
-          occupant === null ? null : ({ kind: 'workstation', ...occupant } as RegistryWorkstation),
+          occupant === null ? null : ({ kind: 'workstation', ...occupant } as OccupantWorkstation),
         error,
       };
     };

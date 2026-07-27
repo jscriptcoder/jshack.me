@@ -36,8 +36,7 @@ import type { PatchRow } from '../patches/upsertPatch';
  * through `machineServing`: a NAT-forwarded port reaches the one deep Layer-2 NPC
  * behind the gateway (auth against ITS `/etc/passwd`, session lands on the L2 host's
  * machine id); the gateway's own `:22` lands on the gateway; anything else is
- * unreachable. The deep layer stays private — nothing here touches the cross-player
- * registry.
+ * unreachable. The deep layer stays private — nothing here is reachable across players.
  */
 
 const freshStore: NonceStore = async () => ({ fresh: true });

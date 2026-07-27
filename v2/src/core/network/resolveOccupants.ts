@@ -1,7 +1,7 @@
 /**
  * handleResolveOccupants — the same-LAN occupant-list read (Story 7, slice 7.2a).
  *
- * Answers "who else is on ESSID X?" to a VERIFIED occupant. Where the WAN registry
+ * Answers "who else is on ESSID X?" to a VERIFIED occupant. Where the AP's public IP
  * keys on `public_ip` (last-writer-wins on a shared AP), occupancy keys on
  * `(essid, owner_key)` so every occupant coexists — this read is the cross-player
  * state the rest of Story 7 renders (the `nmap` merge, the same-LAN front door).

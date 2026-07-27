@@ -1,6 +1,6 @@
 // Wire-payload smoke for Story 5.3 — brick → dark, BOTH directions. Drives the REAL
 // /api/network + /api/sessions + /api/patches endpoints against a running `vercel dev`
-// + supabase, seeding A's registry + B's root sessions via service_role.
+// + supabase, seeding A's occupancy + B's root sessions via service_role.
 //
 // Net-new under test (the locally-untypechecked api/ runtime):
 //   - WS brick (Story 5.3, the new dark-gate): B (root on A's WORKSTATION) `rm
@@ -102,7 +102,7 @@ const FORWARD_RULES = `# /etc/iptables/rules.v4 — NAT port-forward table\nforw
 const ROUTER_ADMIN_PW = seedApGatewayAdminPw(ESSID);
 const WS_GUEST_PW = workstationGuestPassword(alice.publicKeyHex);
 
-// Clean slate, then seed A's registry row (as the join would) + B's ROOT sessions on
+// Clean slate, then seed A's occupancy row (as the join would) + B's ROOT sessions on
 // A's ROUTER and A's WORKSTATION (as the escalated `su root` would leave them).
 await sr.from('network_public_ips').delete().eq('public_ip', A_PUBLIC_IP);
 await sr.from('home_network_occupants').delete().eq('essid', ESSID);

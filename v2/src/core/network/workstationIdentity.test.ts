@@ -4,7 +4,7 @@ import { md5 } from '../generation/md5';
 import type { GameConfig } from '../gameConfig/gameConfig';
 
 /**
- * `workstationIdentityFields` derives the registry fields the server needs to
+ * `workstationIdentityFields` derives the occupancy fields the server needs to
  * RECONSTRUCT a player's workstation for a cross-player reader (Story 2): the
  * player-chosen `username`/`machineName`, plus the root password as an md5 HASH —
  * never the plaintext. The guest password is pubkey-seeded (server-recomputable),

@@ -65,7 +65,7 @@ if (process.argv[2] === 'clean') {
   await sr.from('patches').delete().eq('machine_id', A_MACHINE);
   await sr.from('patches').delete().eq('machine_id', A_ROUTER);
   await sr.from('network_public_ips').delete().eq('essid', ESSID);
-  console.log('cleaned A’s registry row, allocation + patches');
+  console.log('cleaned A’s occupancy row, allocation + patches');
   process.exit(0);
 }
 

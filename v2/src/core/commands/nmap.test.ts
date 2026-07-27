@@ -565,7 +565,7 @@ describe('nmap — scan logging (3a)', () => {
 /**
  * A public IP is a CROSS-PLAYER target (Story 1, slice 1a): rather than scanning
  * the player's own LAN, `nmap <public IP>` resolves the target server-side against
- * the public-IP registry (another identity's registered network) via
+ * the public-IP lookup (another identity's network) via
  * `env.scan.resolvePublic`. The real round-trip IS the latency, so there is no
  * fake per-row pacing. A public-prefixed RANGE is not a cross-player scan — only a
  * single public IP routes to the resolver; everything else stays the LAN path.

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   handleResolvePublicScan,
-  type RegistryLookup,
+  type ApNetworkLookup,
   type ResolvePublicScanDeps,
 } from './resolvePublicScan';
 import { signRequest } from '../signedRequest/sign';
@@ -23,7 +23,7 @@ import type { NonceStore } from '../signedRequest/nonceStore';
  * flips the resolved machine from the workstation to the ROUTER: a public IP maps
  * to the owner's router (its own seeded `sshd:22`), and the workstation is dark
  * behind NAT until a forward is configured (Story 5.1.3). The handler verifies the
- * caller's envelope, looks the target up in the registry, replays the ROUTER's
+ * caller's envelope, looks the target up by ESSID, replays the ROUTER's
  * journal over its seeded base to ask `canBoot` (a bricked router goes dark), and
  * reports the router's open ports via the single `scanResult` total function.
  */
@@ -33,11 +33,11 @@ const TARGET = '203.0.113.7';
 const ESSID = 'CoffeeShopWiFi';
 // 2026-06-19 12:00:00 UTC — the server clock the kern.log trace is stamped with.
 const FIXED_NOW = Date.UTC(2026, 5, 19, 12, 0, 0);
-// B's (the scanner's) home public IP, as the registry returns it for B's owner key.
+// B's (the scanner's) home public IP, as the server resolves it from B's owner key.
 // Server-derived; NEVER the client-supplied `source_ip`.
 const SCANNER_PUBLIC_IP = '198.51.100.22';
 // A real identity so the router's seeded admin password / sshd presence recover
-// from the owner key; the registry now also carries what materializing the
+// from the owner key; the lookup now also carries what materializing the
 // workstation behind a NAT forward needs (machine id, essid, ws identity).
 const OWNER = generateIdentity();
 const BEHIND_NAT = {
@@ -46,7 +46,7 @@ const BEHIND_NAT = {
   workstation_username: 'neo',
   workstation_root_hash: md5('toor'),
 };
-const REGISTERED: RegistryLookup = {
+const REGISTERED: ApNetworkLookup = {
   router_machine_id: computeApGatewayId(ESSID),
   essid: ESSID,
   behindNat: BEHIND_NAT,
@@ -115,20 +115,20 @@ const bootTombstone: OwnerPatchRow = {
   writer_key: OWNER.publicKeyHex,
 };
 
-type LookupResult = { data: RegistryLookup | null; error: unknown };
+type LookupResult = { data: ApNetworkLookup | null; error: unknown };
 type PatchesResult = { data: readonly OwnerPatchRow[] | null; error: unknown };
 type OwnerKeyResult = { data: { public_ip: string } | null; error: unknown };
 
 type LeaseResult = { data: number | null; error: unknown };
 
 /** Overrides for the system-logging + source-IP deps (Story 6.1). Defaults: an
- *  empty log (a host-up scan appends one line), a successful write, a registry that
+ *  empty log (a host-up scan appends one line), a successful write, a lookup that
  *  resolves the scanner's owner key to `SCANNER_PUBLIC_IP`, and a target owner whose
  *  lease sits on the octet its derivation offered. */
 type LogOverrides = {
   readLog?: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
   upsertPatch?: (row: PatchRow) => Promise<{ error: unknown }>;
-  findRegistryByOwnerKey?: (ownerKey: string) => Promise<OwnerKeyResult>;
+  findHomeNetworkByOwnerKey?: (ownerKey: string) => Promise<OwnerKeyResult>;
   readLease?: (essid: string, ownerKey: string) => Promise<LeaseResult>;
 };
 
@@ -140,7 +140,7 @@ const makeDeps = (
   }),
   over: LogOverrides = {},
 ) => {
-  const findRegistryByPublicIp = vi.fn<(publicIp: string) => Promise<LookupResult>>(lookup);
+  const findNetworkByPublicIp = vi.fn<(publicIp: string) => Promise<LookupResult>>(lookup);
   const findPatches = vi.fn<(query: { machine_id: string }) => Promise<PatchesResult>>(patches);
   const readLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
     over.readLog ?? (async () => ({ data: null, error: null })),
@@ -148,8 +148,8 @@ const makeDeps = (
   const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(
     over.upsertPatch ?? (async () => ({ error: null })),
   );
-  const findRegistryByOwnerKey = vi.fn<(ownerKey: string) => Promise<OwnerKeyResult>>(
-    over.findRegistryByOwnerKey ??
+  const findHomeNetworkByOwnerKey = vi.fn<(ownerKey: string) => Promise<OwnerKeyResult>>(
+    over.findHomeNetworkByOwnerKey ??
       (async () => ({ data: { public_ip: SCANNER_PUBLIC_IP }, error: null })),
   );
   // Default: the owner leases the octet its derivation offered — where nothing
@@ -159,22 +159,22 @@ const makeDeps = (
   );
   const deps: ResolvePublicScanDeps = {
     nonceStore: freshStore,
-    findRegistryByPublicIp,
+    findNetworkByPublicIp,
     findPatches,
     now: () => FIXED_NOW,
     readLog,
     upsertPatch,
-    findRegistryByOwnerKey,
+    findHomeNetworkByOwnerKey,
     readLease,
   };
   return {
     deps,
     readLease,
-    findRegistryByPublicIp,
+    findNetworkByPublicIp,
     findPatches,
     readLog,
     upsertPatch,
-    findRegistryByOwnerKey,
+    findHomeNetworkByOwnerKey,
   };
 };
 
@@ -198,7 +198,7 @@ const envelope = (
 describe('handleResolvePublicScan', () => {
   it("resolves a registered public IP to the ROUTER's own sshd:22 (workstation dark behind NAT)", async () => {
     const id = generateIdentity();
-    const { deps, findRegistryByPublicIp, findPatches } = makeDeps(async () => ({
+    const { deps, findNetworkByPublicIp, findPatches } = makeDeps(async () => ({
       data: REGISTERED,
       error: null,
     }));
@@ -210,7 +210,7 @@ describe('handleResolvePublicScan', () => {
       status: 200,
       body: { ok: true, found: true, ports: [{ port: 22, service: 'ssh' }] },
     });
-    expect(findRegistryByPublicIp).toHaveBeenCalledWith(TARGET);
+    expect(findNetworkByPublicIp).toHaveBeenCalledWith(TARGET);
     // The journal is read off the ROUTER machine, not the workstation.
     expect(findPatches).toHaveBeenCalledWith({ machine_id: REGISTERED.router_machine_id });
   });
@@ -338,34 +338,34 @@ describe('handleResolvePublicScan', () => {
     const result = await handleResolvePublicScan(envelope(id, '203.0.113.99'), deps);
 
     expect(result).toEqual({ status: 200, body: { ok: true, found: false, ports: [] } });
-    // No registry row → no router to check; the journal read is skipped.
+    // No network row → no router to check; the journal read is skipped.
     expect(findPatches).not.toHaveBeenCalled();
   });
 
-  it('reports a server error when the registry lookup fails', async () => {
+  it('reports a server error when the network lookup fails', async () => {
     const id = generateIdentity();
     const { deps } = makeDeps(async () => ({ data: null, error: new Error('db down') }));
 
     const result = await handleResolvePublicScan(envelope(id, TARGET), deps);
 
-    expect(result).toEqual({ status: 500, body: { error: 'registry_lookup_failed' } });
+    expect(result).toEqual({ status: 500, body: { error: 'network_lookup_failed' } });
   });
 
-  it('rejects a tampered envelope without looking up the registry', async () => {
+  it('rejects a tampered envelope without looking anything up', async () => {
     const id = generateIdentity();
-    const { deps, findRegistryByPublicIp } = makeDeps();
+    const { deps, findNetworkByPublicIp } = makeDeps();
     const signed = envelope(id, TARGET);
     const tampered = { ...signed, payload: `${signed.payload} ` };
 
     const result = await handleResolvePublicScan(tampered, deps);
 
     expect(result).toEqual({ status: 401, body: { error: 'signature_invalid' } });
-    expect(findRegistryByPublicIp).not.toHaveBeenCalled();
+    expect(findNetworkByPublicIp).not.toHaveBeenCalled();
   });
 
   it('rejects an envelope that smuggles a client-supplied player_key', async () => {
     const id = generateIdentity();
-    const { deps, findRegistryByPublicIp } = makeDeps();
+    const { deps, findNetworkByPublicIp } = makeDeps();
 
     const result = await handleResolvePublicScan(
       envelope(id, TARGET, { player_key: 'attacker' }),
@@ -373,17 +373,17 @@ describe('handleResolvePublicScan', () => {
     );
 
     expect(result.status).toBe(400);
-    expect(findRegistryByPublicIp).not.toHaveBeenCalled();
+    expect(findNetworkByPublicIp).not.toHaveBeenCalled();
   });
 
   it('rejects an envelope missing the target', async () => {
     const id = generateIdentity();
-    const { deps, findRegistryByPublicIp } = makeDeps();
+    const { deps, findNetworkByPublicIp } = makeDeps();
 
     const result = await handleResolvePublicScan(signRequest(id, 'resolvePublicScan', {}), deps);
 
     expect(result.status).toBe(400);
-    expect(findRegistryByPublicIp).not.toHaveBeenCalled();
+    expect(findNetworkByPublicIp).not.toHaveBeenCalled();
   });
 
   // Story 6.1: a host-up cross-player scan leaves a truthful kern.log trace on the
@@ -432,9 +432,9 @@ describe('handleResolvePublicScan', () => {
       );
     });
 
-    it("uses B's REGISTRY public IP as the source, ignoring a client-supplied source_ip", async () => {
+    it("uses B's OCCUPANT public IP as the source, ignoring a client-supplied source_ip", async () => {
       const scanner = generateIdentity();
-      const { deps, upsertPatch, findRegistryByOwnerKey } = makeDeps(async () => ({
+      const { deps, upsertPatch, findHomeNetworkByOwnerKey } = makeDeps(async () => ({
         data: REGISTERED,
         error: null,
       }));
@@ -442,19 +442,19 @@ describe('handleResolvePublicScan', () => {
       await handleResolvePublicScan(envelope(scanner, TARGET, { source_ip: '10.0.0.66' }), deps);
 
       // The lookup is keyed by the SCANNER's verified key, not the target owner.
-      expect(findRegistryByOwnerKey).toHaveBeenCalledWith(scanner.publicKeyHex);
+      expect(findHomeNetworkByOwnerKey).toHaveBeenCalledWith(scanner.publicKeyHex);
       const content = upsertPatch.mock.calls[0]![0].content;
       expect(content).toContain(`from ${SCANNER_PUBLIC_IP}`);
       expect(content).not.toContain('10.0.0.66');
     });
 
-    it("falls back to 'unknown' source when B has no registry row, still logging and succeeding", async () => {
+    it("falls back to 'unknown' source when B has no home network, still logging and succeeding", async () => {
       const scanner = generateIdentity();
       const { deps, upsertPatch } = makeDeps(
         async () => ({ data: REGISTERED, error: null }),
         undefined,
         {
-          findRegistryByOwnerKey: async () => ({ data: null, error: null }),
+          findHomeNetworkByOwnerKey: async () => ({ data: null, error: null }),
         },
       );
 

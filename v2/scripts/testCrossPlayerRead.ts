@@ -7,7 +7,7 @@
 // three tiers: owner (full), active guest session (walker filter), no session
 // (externally-observable allowlist only).
 //
-// Seeds A's registry row + patches (guest-readable loot, a user-only secret, the
+// Seeds A's occupancy row + patches (guest-readable loot, a user-only secret, the
 // sshd pidfile) and B's guest session directly via service_role, then drives the
 // real endpoint. Self-cleaning.
 //
@@ -74,7 +74,7 @@ const ROOT_HASH = md5('alice-root-secret');
 const worldReadable = { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] };
 const userOnly = { read: ['root', 'user'], write: ['root'], execute: ['root'] };
 
-// Seed A's registry row (as 2a's join would persist it).
+// Seed A's occupancy row (as 2a's join would persist it).
 await sr.from('network_public_ips').delete().eq('public_ip', A_PUBLIC_IP);
 await sr.from('home_network_occupants').delete().eq('essid', 'BEAN-THERE-WIFI');
 // The join state a real `registerNetwork` writes: the AP's public IP, plus the owner

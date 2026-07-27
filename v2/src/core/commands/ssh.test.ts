@@ -474,7 +474,7 @@ describe('ssh', () => {
 /**
  * `ssh <user>@<public IP>` (Story 2, slice 2b) — cross-player login. A public IP
  * isn't on the player's own LAN, so it routes server-side: reachability comes from
- * `env.scan.resolvePublic` (Story 1b's registry resolution, reused) and auth from
+ * `env.scan.resolvePublic` (the public-IP resolution, reused) and auth from
  * `env.ssh.authenticatePublic`, which lands a session on the OWNER's REAL
  * workstation id (the name in that id drives the prompt hostname). The own-LAN path
  * is untouched.
@@ -578,7 +578,7 @@ describe('ssh to a public IP (cross-player)', () => {
     expect(authenticatePublic.mock.calls[0]![0]).toMatchObject({ port: 2222 });
   });
 
-  it('routes a public IP through resolvePublic (the registry), not the own-LAN host path', async () => {
+  it('routes a public IP through resolvePublic (the cross-player path), not the own-LAN host path', async () => {
     const resolvePublic = vi.fn(async () => ({
       found: true,
       ports: [{ port: 22, service: 'ssh' }],

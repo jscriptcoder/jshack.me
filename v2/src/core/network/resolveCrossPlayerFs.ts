@@ -37,10 +37,10 @@ import type { NonceStore } from '../signedRequest/nonceStore';
 
 export type { OwnerPatchRow } from './materializeWorkstationFs';
 
-/** The registry fields needed to reconstruct the owner's WORKSTATION (decision D2):
+/** The occupancy fields needed to reconstruct the owner's WORKSTATION (decision D2):
  *  whose box it is (guest-password + world seed) and the player-chosen identity the
  *  FS generator stamps into `/etc/passwd`. */
-export type RegistryWorkstation = {
+export type OccupantWorkstation = {
   readonly kind: 'workstation';
   readonly owner_key: string;
   readonly workstation_username: string;
@@ -50,7 +50,7 @@ export type RegistryWorkstation = {
 /** The fields needed to reconstruct the access point's GATEWAY. Its base is seeded
  *  from the ESSID ALONE (admin password + sshd presence derive from it), because the
  *  gateway belongs to the AP and not to any occupant, so this carries only that. */
-export type RegistryRouter = {
+export type ApGateway = {
   readonly kind: 'router';
   readonly essid: string;
 };
@@ -58,7 +58,7 @@ export type RegistryRouter = {
 /** A machine another player can reach — an occupant's workstation OR an AP gateway.
  *  The caller (B) holds only a `machine_id` from the login and can't know which it
  *  is, so the handler discriminates and materializes the matching base. */
-export type RegistryMachine = RegistryWorkstation | RegistryRouter;
+export type ReachableMachine = OccupantWorkstation | ApGateway;
 
 /** The caller's active session on the target — the SERVER-authoritative tier the read
  *  filter runs at, plus the ESSID the target was generated for. The ESSID is what
@@ -76,7 +76,7 @@ export type ResolveCrossPlayerFsDeps = {
    *  WORKSTATION — an AP gateway has no occupant and is resolved from the session. */
   readonly findOccupantWorkstationByMachineId: (
     machineId: string,
-  ) => Promise<{ readonly data: RegistryWorkstation | null; readonly error: unknown }>;
+  ) => Promise<{ readonly data: OccupantWorkstation | null; readonly error: unknown }>;
   readonly findActiveSession: (query: {
     readonly player_key: string;
     readonly machine_id: string;
@@ -98,7 +98,7 @@ export type HandlerResponse = {
 /** The AP gateway of the ESSID a session was opened on, when that is what the claimed
  *  machine is. `computeApGatewayId` is total and injective enough for this: a machine
  *  id that does not equal the ESSID's own gateway id is simply not that gateway. */
-const apGatewayFor = (machineId: string, essid: string | null): RegistryRouter | null =>
+const apGatewayFor = (machineId: string, essid: string | null): ApGateway | null =>
   essid !== null && computeApGatewayId(essid) === machineId ? { kind: 'router', essid } : null;
 
 // Loose so the envelope fields pass through; the refine keeps the codebase-wide
@@ -146,7 +146,7 @@ export const handleResolveCrossPlayerFs = async (
   // session is what identifies it. The gateway id is a pure function of the ESSID, so
   // a machine_id that is not that ESSID's gateway resolves to nothing and cannot be
   // forged into one.
-  const machine: RegistryMachine | null =
+  const machine: ReachableMachine | null =
     occupant.data ?? apGatewayFor(payload.machine_id, session?.data?.essid ?? null);
   if (machine === null) {
     return { status: 404, body: { error: 'host_unreachable' } };

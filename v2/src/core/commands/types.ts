@@ -242,12 +242,12 @@ export type RemoteAuthResult =
     };
 
 /** What `ssh` hands to `env.ssh.authenticatePublic` to log into ANOTHER player's
- *  workstation by its PUBLIC IP (Story 2). The server resolves the registry, rebuilds
+ *  workstation by its PUBLIC IP (Story 2). The server resolves the public IP, rebuilds
  *  the owner's box, and validates against its real `/etc/passwd`. Unlike the LAN
  *  path there is no `essid` — the target is resolved server-side from the public IP. */
 export type PublicAuthParams = {
   readonly sessionId: string;
-  /** The target PUBLIC IP (resolved server-side via the registry). */
+  /** The target PUBLIC IP (resolved server-side to its AP). */
   readonly target: string;
   readonly username: string;
   readonly password: string;
@@ -271,7 +271,7 @@ export type PublicAuthResult =
 /** What `ssh` hands to `env.ssh.authenticateSameLan` to log into a FELLOW OCCUPANT's
  *  workstation by its LAN IP over shared WiFi (Story 7). Unlike the public path the
  *  target is on the same LAN — no router/NAT — so the server resolves it through the
- *  ESSID occupancy (`essid` + `targetIp`), not the registry. Like the public path it
+ *  ESSID occupancy (`essid` + `targetIp`), not a public IP. Like the public path it
  *  carries a `port` and lands on the OWNER's real workstation id (hence `PublicAuthResult`). */
 export type SameLanAuthParams = {
   readonly sessionId: string;
@@ -291,7 +291,7 @@ export type SameLanAuthParams = {
  *  depth). Unlike the public/same-LAN paths the target is the player's own gateway: the
  *  server regenerates it from the verified pubkey + `essid`, routes the forwarded `port`
  *  through its `machineServing`, and lands the session on the DEEP HOST's id (hence
- *  `PublicAuthResult`). The deep layer is private — no registry, no occupancy. */
+ *  `PublicAuthResult`). The deep layer is private — no cross-player lookup, no occupancy. */
 export type InnerGatewayAuthParams = {
   readonly sessionId: string;
   readonly essid: string;

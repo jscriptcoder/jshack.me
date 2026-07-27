@@ -4,7 +4,7 @@ import type { ActiveSessionQuery, FindActiveSessionResult } from './authorizeMac
 import type {
   FindOccupantWorkstationByMachineId,
   ListMachinePatchesResult,
-  RegistryWorkstation,
+  OccupantWorkstation,
 } from './remoteWritePermission';
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
@@ -37,21 +37,21 @@ const remoteSession =
   async (): Promise<FindActiveSessionResult> => ({ data: { userType, essid }, error: null });
 
 /** A registered FOREIGN player workstation (A's box): A's identity → A's
- *  workstation machine_id, plus the registry row the L2 reverse-lookup returns so
+ *  workstation machine_id, plus the occupancy row the L2 reverse-lookup returns so
  *  the cross-player write rebuilds A's tree from the OWNER's identity (decision D6).
  *  Its machine_id is an `ed25519:`-suffixed workstation id, so it never matches an
  *  NPC host on the caller's LAN — `hostForMachineId` misses and L2 falls to the
- *  registry. */
-const registeredWorkstation = () => {
+ *  occupancy lookup. */
+const occupantWorkstation = () => {
   const owner = generateIdentity();
   const machineId = computeWorkstationId('skylab', owner.publicKeyHex);
-  const registry: { kind: 'workstation' } & RegistryWorkstation = {
+  const occupant: { kind: 'workstation' } & OccupantWorkstation = {
     kind: 'workstation',
     owner_key: owner.publicKeyHex,
     workstation_username: 'alice',
     workstation_root_hash: md5('hunter2'),
   };
-  return { owner, machineId, registry };
+  return { owner, machineId, occupant };
 };
 
 const makeDeps = (over: Partial<UpsertPatchDeps> = {}) => {
@@ -368,7 +368,7 @@ describe('handleUpsertPatch', () => {
   it('denies the write when the target resolves as neither an NPC host nor a registered workstation (fail closed)', async () => {
     const id = generateIdentity();
     // A coordinate machine_id that no host on the regenerated LAN matches, and the
-    // registry (default) returns null too — so neither resolution recovers a tree.
+    // occupancy lookup (default) returns null too — so neither resolution recovers a tree.
     const envelope = signRequest(id, 'upsertPatch', {
       machine_id: 'ghost-00000000',
       path: '/tmp/x',
@@ -392,7 +392,7 @@ describe('handleUpsertPatch', () => {
 
   it("permits a guest cross-player session to write /tmp on a foreign player's workstation", async () => {
     const visitor = generateIdentity();
-    const { machineId, registry } = registeredWorkstation();
+    const { machineId, occupant } = occupantWorkstation();
     const envelope = signRequest(visitor, 'upsertPatch', {
       machine_id: machineId,
       path: '/tmp/pwned',
@@ -403,7 +403,7 @@ describe('handleUpsertPatch', () => {
     // functions actually wired into `deps` (an `over` replaces the default spy).
     const findActiveSession = vi.fn(remoteSession('guest'));
     const findOccupantWorkstationByMachineId = vi.fn<FindOccupantWorkstationByMachineId>(
-      async () => ({ data: registry, error: null }),
+      async () => ({ data: occupant, error: null }),
     );
     const { deps, upsertPatch } = makeDeps({ findActiveSession, findOccupantWorkstationByMachineId });
 
@@ -424,7 +424,7 @@ describe('handleUpsertPatch', () => {
     });
   });
 
-  it('does not consult the registry for an NPC-host write (resolved on the caller’s own LAN)', async () => {
+  it('does not consult occupancy for an NPC-host write (resolved on the caller’s own LAN)', async () => {
     const id = generateIdentity();
     const { machineId } = remoteTarget();
     const envelope = signRequest(id, 'upsertPatch', {
@@ -447,7 +447,7 @@ describe('handleUpsertPatch', () => {
 
   it('denies a guest cross-player session writing a root-owned path on a foreign workstation (walked against A’s tree)', async () => {
     const visitor = generateIdentity();
-    const { machineId, registry } = registeredWorkstation();
+    const { machineId, occupant } = occupantWorkstation();
     const envelope = signRequest(visitor, 'upsertPatch', {
       machine_id: machineId,
       path: '/etc/passwd',
@@ -456,20 +456,20 @@ describe('handleUpsertPatch', () => {
     });
     const { deps, upsertPatch } = makeDeps({
       findActiveSession: remoteSession('guest'),
-      findOccupantWorkstationByMachineId: async () => ({ data: registry, error: null }),
+      findOccupantWorkstationByMachineId: async () => ({ data: occupant, error: null }),
     });
 
     const result = await handleUpsertPatch(envelope, deps);
 
-    // The registry-resolved tree is walked at the GUEST tier — /etc/passwd is not
+    // The occupancy-resolved tree is walked at the GUEST tier — /etc/passwd is not
     // guest-writable, so the gate denies (kills a mutant that skips the walk).
     expect(result).toEqual({ status: 403, body: { error: 'permission_denied' } });
     expect(upsertPatch).not.toHaveBeenCalled();
   });
 
-  it('walks the registry-resolved tree at the SESSION tier, not a hardcoded guest (a root session may write /etc)', async () => {
+  it('walks the occupancy-resolved tree at the SESSION tier, not a hardcoded guest (a root session may write /etc)', async () => {
     const visitor = generateIdentity();
-    const { machineId, registry } = registeredWorkstation();
+    const { machineId, occupant } = occupantWorkstation();
     const envelope = signRequest(visitor, 'upsertPatch', {
       machine_id: machineId,
       path: '/etc/passwd',
@@ -478,7 +478,7 @@ describe('handleUpsertPatch', () => {
     });
     const { deps, upsertPatch } = makeDeps({
       findActiveSession: remoteSession('root'),
-      findOccupantWorkstationByMachineId: async () => ({ data: registry, error: null }),
+      findOccupantWorkstationByMachineId: async () => ({ data: occupant, error: null }),
     });
 
     const result = await handleUpsertPatch(envelope, deps);
@@ -491,7 +491,7 @@ describe('handleUpsertPatch', () => {
 
   it('denies a guest cross-player session creating a file UNDER a root-only dir on a foreign workstation (parent not traversable)', async () => {
     const visitor = generateIdentity();
-    const { machineId, registry } = registeredWorkstation();
+    const { machineId, occupant } = occupantWorkstation();
     const envelope = signRequest(visitor, 'upsertPatch', {
       machine_id: machineId,
       path: '/root/implant',
@@ -500,7 +500,7 @@ describe('handleUpsertPatch', () => {
     });
     const { deps, upsertPatch } = makeDeps({
       findActiveSession: remoteSession('guest'),
-      findOccupantWorkstationByMachineId: async () => ({ data: registry, error: null }),
+      findOccupantWorkstationByMachineId: async () => ({ data: occupant, error: null }),
     });
 
     const result = await handleUpsertPatch(envelope, deps);
@@ -517,16 +517,16 @@ describe('handleUpsertPatch', () => {
 
   it("denies a guest cross-player session creating a file inside A's OWN home dir", async () => {
     const visitor = generateIdentity();
-    const { machineId, registry } = registeredWorkstation();
+    const { machineId, occupant } = occupantWorkstation();
     const envelope = signRequest(visitor, 'upsertPatch', {
       machine_id: machineId,
-      path: `/home/${registry.workstation_username}/secret`,
+      path: `/home/${occupant.workstation_username}/secret`,
       content: 'in your home',
       owner: 'guest',
     });
     const { deps, upsertPatch } = makeDeps({
       findActiveSession: remoteSession('guest'),
-      findOccupantWorkstationByMachineId: async () => ({ data: registry, error: null }),
+      findOccupantWorkstationByMachineId: async () => ({ data: occupant, error: null }),
     });
 
     const result = await handleUpsertPatch(envelope, deps);
@@ -537,34 +537,34 @@ describe('handleUpsertPatch', () => {
     expect(upsertPatch).not.toHaveBeenCalled();
   });
 
-  it("walks A's REGISTRY-built tree, not a caller regeneration: a session may create under A's home dir (which exists only because the tree is A's)", async () => {
+  it("walks A's OCCUPANCY-built tree, not a caller regeneration: a session may create under A's home dir (which exists only because the tree is A's)", async () => {
     const visitor = generateIdentity();
-    const { machineId, registry } = registeredWorkstation();
+    const { machineId, occupant } = occupantWorkstation();
     const envelope = signRequest(visitor, 'upsertPatch', {
       machine_id: machineId,
-      path: `/home/${registry.workstation_username}/notes.txt`,
+      path: `/home/${occupant.workstation_username}/notes.txt`,
       content: 'created under A home',
       owner: 'user',
     });
     const { deps, upsertPatch } = makeDeps({
       findActiveSession: remoteSession('user'),
-      findOccupantWorkstationByMachineId: async () => ({ data: registry, error: null }),
+      findOccupantWorkstationByMachineId: async () => ({ data: occupant, error: null }),
     });
 
     const result = await handleUpsertPatch(envelope, deps);
 
-    // `/home/alice` exists ONLY because the tree is materialized from A's REGISTRY
+    // `/home/alice` exists ONLY because the tree is materialized from A's occupancy row
     // identity (username 'alice'). A user-tier session can create inside it
     // (HOME_DIR is user-writable). Had L2 regenerated from the CALLER's identity,
     // `/home/alice` wouldn't exist and the create would be DENIED (no container) —
     // so an ALLOW here proves A's tree is walked, not the caller's.
     expect(result).toEqual({ status: 200, body: { ok: true } });
     expect(upsertPatch.mock.calls[0]![0].path).toBe(
-      `/home/${registry.workstation_username}/notes.txt`,
+      `/home/${occupant.workstation_username}/notes.txt`,
     );
   });
 
-  it('returns 500 when the registry reverse-lookup fails (not a false allow or deny)', async () => {
+  it('returns 500 when the occupancy reverse-lookup fails (not a false allow or deny)', async () => {
     const id = generateIdentity();
     const envelope = signRequest(id, 'upsertPatch', {
       machine_id: 'darkstar-12345678',

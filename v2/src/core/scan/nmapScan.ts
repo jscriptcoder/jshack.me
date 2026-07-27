@@ -58,7 +58,7 @@ import type { NonceStore } from '../signedRequest/nonceStore';
 /** The occupancy fields a same-LAN scan trace needs: whose row it is (the LAN-boundary
  *  gate + self-exclusion + LAN-IP match), the workstation the trace lands on + its
  *  hostname for the line, and the identity fields that rebuild the box to read its real
- *  open ports. A structural superset of `RegistryWorkstation`, so it feeds
+ *  open ports. A structural superset of `OccupantWorkstation`, so it feeds
  *  `materializeWorkstationFs` directly. */
 export type ScanOccupant = {
   readonly owner_key: string;

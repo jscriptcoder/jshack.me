@@ -2,7 +2,7 @@
  * handleAuthCreateSessionPublic — the server-side gate for a CROSS-PLAYER ssh login
  * (Story 2 → reshaped for Story 5.1.2: routing by DESTINATION PORT). A different
  * identity's `ssh [-p port] <user>@<A.publicIp>` resolves A's public IP in the
- * registry (Story 1), then materializes A's ROUTER — the distinct, seeded box that
+ * public-IP lookup, then materializes A's ROUTER — the distinct, seeded box that
  * bears the public IP — and decides which machine the requested port reaches:
  *
  *   - a port the ROUTER itself serves (its seeded `sshd:22`) → log in ON the router,
@@ -46,7 +46,7 @@ import {
 import { derivePid } from '../logging/syslog';
 import {
   resolveCrossPlayerSourceIp,
-  type FindRegistryByOwnerKey,
+  type FindHomeNetworkByOwnerKey,
 } from '../logging/crossPlayerSourceIp';
 import {
   appendMachineLog,
@@ -80,7 +80,7 @@ export type NatHost = {
  *  `essid` (which seeds its FS and recovers its admin password) are always present.
  *  `behindNat` is the single host a forwarded port reaches, `null` when nobody is
  *  currently on the WiFi — then only the gateway itself can be logged into. */
-export type RegistryTarget = {
+export type ApNetworkLookup = {
   readonly router_machine_id: string;
   readonly essid: string;
   readonly behindNat: NatHost | null;
@@ -88,9 +88,9 @@ export type RegistryTarget = {
 
 export type AuthCreateSessionPublicDeps = {
   readonly nonceStore: NonceStore;
-  readonly findRegistryByPublicIp: (
+  readonly findNetworkByPublicIp: (
     publicIp: string,
-  ) => Promise<{ readonly data: RegistryTarget | null; readonly error: unknown }>;
+  ) => Promise<{ readonly data: ApNetworkLookup | null; readonly error: unknown }>;
   /** The ROUTER's FULL patch journal (scoped to `machine_id`, server order) so the
    *  gate can replay it over the seeded router base and ask `canBoot`: a bricked
    *  router (a `/boot` tombstone) takes the public IP dark, so the login is refused
@@ -109,7 +109,7 @@ export type AuthCreateSessionPublicDeps = {
   /** Resolve the ATTACKER's (caller's) own home public IP from their verified owner
    *  key — the truthful source IP of the login, server-derived so a client cannot
    *  forge it or frame another network. `null` (no home network) → source unknown. */
-  readonly findRegistryByOwnerKey: FindRegistryByOwnerKey;
+  readonly findHomeNetworkByOwnerKey: FindHomeNetworkByOwnerKey;
   /** The LAN octet the TARGET owner leases on its own ESSID — the address the one
    *  host behind its NAT answers to. `null` data means no lease, so the forward
    *  reaches nothing; the same read the same-LAN path resolves addresses from, so the
@@ -160,20 +160,20 @@ type AuthTarget = {
  */
 const resolveAuthTarget = async (
   deps: AuthCreateSessionPublicDeps,
-  registry: RegistryTarget,
+  network: ApNetworkLookup,
   served: ServedMachine,
   routerFs: Directory,
 ): Promise<AuthTarget | HandlerResponse> => {
   if (served.kind === 'router') {
     return {
       fs: routerFs,
-      machineId: registry.router_machine_id,
-      hostname: seedApGatewayHostname(registry.essid),
+      machineId: network.router_machine_id,
+      hostname: seedApGatewayHostname(network.essid),
     };
   }
   // No host behind the NAT — either the port serves nothing, or nobody is on the WiFi
   // for a forward to reach in the first place.
-  const behindNat = registry.behindNat;
+  const behindNat = network.behindNat;
   if (served.kind === 'none' || behindNat === null) {
     return { status: 404, body: { error: 'host_unreachable' } };
   }
@@ -184,14 +184,14 @@ const resolveAuthTarget = async (
   if (workstationPatches.error) {
     return { status: 500, body: { error: 'patches_lookup_failed' } };
   }
-  const lease = await deps.readLease(registry.essid, behindNat.owner_key);
+  const lease = await deps.readLease(network.essid, behindNat.owner_key);
   if (lease.error) {
     return { status: 500, body: { error: 'lease_lookup_failed' } };
   }
   const workstationFs = buildWorkstationResolver({
-    registry: { ...behindNat, essid: registry.essid },
+    target: { ...behindNat, essid: network.essid },
     workstationPatches: workstationPatches.data,
-    lanIp: leasedAddress(registry.essid, lease.data),
+    lanIp: leasedAddress(network.essid, lease.data),
   })(served.internalIp);
   // The forward points at no host (a stray internal IP), or its internal service
   // isn't listening (the workstation never started that daemon): a dark DNAT target.
@@ -266,9 +266,9 @@ export const handleAuthCreateSessionPublic = async (
   }
   const { publicKey, payload } = verified;
 
-  const { data, error } = await deps.findRegistryByPublicIp(payload.target);
+  const { data, error } = await deps.findNetworkByPublicIp(payload.target);
   if (error) {
-    return { status: 500, body: { error: 'registry_lookup_failed' } };
+    return { status: 500, body: { error: 'network_lookup_failed' } };
   }
   if (data === null) {
     return { status: 404, body: { error: 'host_unreachable' } };
@@ -315,7 +315,7 @@ export const handleAuthCreateSessionPublic = async (
   // best-effort posture as a failed write.
   const writerKey = data.behindNat?.owner_key ?? null;
   if (writerKey !== null) {
-    const sourceIp = await resolveCrossPlayerSourceIp(deps.findRegistryByOwnerKey, publicKey);
+    const sourceIp = await resolveCrossPlayerSourceIp(deps.findHomeNetworkByOwnerKey, publicKey);
     await logCrossPlayerAuth(deps, writerKey, target, {
       outcome: passwordOk ? 'success' : 'failure',
       user: payload.username,

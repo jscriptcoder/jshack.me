@@ -13,8 +13,8 @@
  */
 
 import {
-  buildRegisteredWorkstationFs,
-  type RegistryWorkstation,
+  buildOccupantWorkstationFs,
+  type OccupantWorkstation,
 } from '../patches/remoteWritePermission';
 import { materializeMachineFs, type OwnerPatchRow } from './materializeMachineFs';
 import type { Directory } from '../filesystem/types';
@@ -27,6 +27,6 @@ export type { OwnerPatchRow };
 /** Rebuild A's REAL box: the shared generator's baseline (D6) with the machine's
  *  persisted patch journal replayed over it. */
 export const materializeWorkstationFs = (
-  registry: RegistryWorkstation,
+  occupant: OccupantWorkstation,
   patches: readonly OwnerPatchRow[] | null,
-): Directory => materializeMachineFs(buildRegisteredWorkstationFs(registry), patches);
+): Directory => materializeMachineFs(buildOccupantWorkstationFs(occupant), patches);

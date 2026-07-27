@@ -23,7 +23,7 @@ import { materializeWorkstationFs, type OwnerPatchRow } from '../network/materia
 import { readOpenPorts, type OpenPort } from '../services/pidfile';
 import { canBoot } from '../boot/bootFiles';
 
-/** The registry identity needed to reconstruct the one workstation behind a player's
+/** The persisted identity needed to reconstruct the one workstation behind an AP's
  *  router: the tree comes from the owner's identity (the same base every cross-player
  *  path replays over). Where that box ANSWERS is its lease, supplied separately. */
 export type WorkstationTarget = {
@@ -47,12 +47,12 @@ export type WorkstationTarget = {
  * closes over the tree, so a multi-forward scan doesn't rebuild it per call.
  */
 export const buildWorkstationResolver = (args: {
-  readonly registry: WorkstationTarget;
+  readonly target: WorkstationTarget;
   readonly workstationPatches: readonly OwnerPatchRow[] | null;
   readonly lanIp: string | null;
 }): ((internalIp: string) => Directory | null) => {
   const { lanIp } = args;
-  const workstationFs = materializeWorkstationFs(args.registry, args.workstationPatches);
+  const workstationFs = materializeWorkstationFs(args.target, args.workstationPatches);
   // The role-based dark-gate behind the NAT: a bricked workstation (a /boot tombstone)
   // can't come up, so the forward reaches a dead host — it answers nothing even if a
   // stale sshd pidfile lingers. The tree is materialized once, so check boot once.
@@ -63,7 +63,7 @@ export const buildWorkstationResolver = (args: {
 };
 
 export const buildWorkstationPortResolver = (args: {
-  readonly registry: WorkstationTarget;
+  readonly target: WorkstationTarget;
   readonly workstationPatches: readonly OwnerPatchRow[] | null;
   readonly lanIp: string | null;
 }): ((internalIp: string) => readonly OpenPort[]) => {

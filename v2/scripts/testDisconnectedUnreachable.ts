@@ -147,8 +147,9 @@ const clean = async () => {
 // Clean slate.
 await clean();
 
-// B joins FIRST, A SECOND — so the registry row (PK = the shared public_ip) is A's, and
-// the ghost this pins belongs to the player who will disconnect.
+// B joins FIRST, A SECOND — see the join-order note above: A is the later joiner, so a
+// store that kept only the latest occupant would still be holding exactly the player
+// this check then disconnects.
 await post(NETWORK, join(bob, B_WS_NAME));
 await post(NETWORK, join(alice, A_WS_NAME));
 

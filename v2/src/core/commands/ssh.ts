@@ -68,7 +68,7 @@ const homeFor = (username: string, userType: UserType): string =>
   userType === 'root' ? '/root' : `/home/${username}`;
 
 /** Cross-player login to a PUBLIC IP (Story 2): the target isn't on the player's
- *  own LAN, so reachability comes from the registry via `env.scan.resolvePublic`
+ *  own LAN, so reachability comes from the server via `env.scan.resolvePublic`
  *  (host up? ssh on the asked port?) and auth from `env.ssh.authenticatePublic`,
  *  which lands the session on the OWNER's real workstation id — whose name drives
  *  the prompt hostname. */
@@ -267,7 +267,7 @@ const execute: Command['execute'] = async (env, args, flags) => {
   const essid = wlan0.association.essid;
   const sourceIp = wlan0.ipv4;
 
-  // A public IP isn't on the player's own LAN — route it cross-player (registry
+  // A public IP isn't on the player's own LAN — route it cross-player (server-side lookup
   // resolution + cross-player auth) instead of the deterministic own-LAN path.
   if (isPublicIp(target.host)) {
     return executePublicLogin(env, target, port, sourceIp);

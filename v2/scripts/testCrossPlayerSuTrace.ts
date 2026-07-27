@@ -95,7 +95,7 @@ const occupantRow = {
   workstation_root_hash: md5(A_ROOT_PW),
 };
 
-// Clean slate, then seed A's registry row (as A's join would). su needs no forward or
+// Clean slate, then seed A's occupancy row (as A's join would). su needs no forward or
 // pidfile — it targets A's workstation directly by machine_id.
 await sr.from('network_public_ips').delete().eq('public_ip', A_PUBLIC_IP);
 await sr.from('home_network_occupants').delete().eq('essid', A_ESSID);
