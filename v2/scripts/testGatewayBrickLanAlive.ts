@@ -125,7 +125,6 @@ const join = (owner: ReturnType<typeof generateIdentity>, wsName: string) =>
 await sr.from('network_public_ips').delete().eq('essid', ESSID);
 await sr.from('home_network_occupants').delete().eq('essid', ESSID);
 await sr.from('network_lan_leases').delete().eq('essid', ESSID);
-await sr.from('network_registry').delete().eq('essid', ESSID);
 await sr.from('patches').delete().eq('machine_id', GATEWAY);
 await sr.from('patches').delete().eq('machine_id', A_WS);
 for (const id of [alice, bob, carol, dave]) {
@@ -318,7 +317,6 @@ check(
 await sr.from('network_public_ips').delete().eq('essid', ESSID);
 await sr.from('home_network_occupants').delete().eq('essid', ESSID);
 await sr.from('network_lan_leases').delete().eq('essid', ESSID);
-await sr.from('network_registry').delete().eq('essid', ESSID);
 await sr.from('patches').delete().eq('machine_id', GATEWAY);
 await sr.from('patches').delete().eq('machine_id', A_WS);
 for (const id of [alice, bob, carol, dave]) {

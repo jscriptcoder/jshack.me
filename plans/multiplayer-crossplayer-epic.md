@@ -847,7 +847,10 @@ scoped owner decision, not a gap). None blocks the shipped cross-player PvP loop
    depth, DHCP addressing, WAN-only brick, the aliasing fix). Only the `network_registry` removal (decision 7)
    conserves behaviour, so **`reduce-system-complexity` governs that slice pair specifically**, not the item.
    Multi-slice walking skeleton: shared gateway → brick semantics → addressing → shared NPC population → shared
-   depth → registry removal. **Planned: `plans/shared-network-reconciliation.md`** (7 slices, awaiting approval).
+   depth → registry removal. **✅ BUILT, PRs #326–#334 (v0.88.0 → v0.96.0)** — nine slices in the end, not seven:
+   addressing split into the lease allocator and its two consumers, and the registry pair became 6a (re-home the
+   lookups) + 6b (drop the table). The plan file was deleted on close-out; the as-built lives in
+   `v2/docs/cross-player-architecture.md` and `v2/docs/conventions-and-gotchas.md` §1 and §7.
 6. **Procedural world expansion — GRILLED & RESOLVED 2026-07-25, follows item #5.** Split OUT of #5 deliberately:
    the reconciliation depends only on the ESSID being the seed, not on the world being big, and doing it first is
    cheaper to VERIFY (today's 50-entry pool + `INJECT_MAX = 3` makes encounters frequent, so the shared-LAN
@@ -879,13 +882,18 @@ scoped owner decision, not a gap). None blocks the shipped cross-player PvP loop
 7. **Still deferred, untouched by the above** — **WiFi-strength = density**, **presence/TTL heartbeat**
    (occupancy is connection-state-based, no last-seen), and **matchmaking** beyond the rendezvous note in #6.
 
-**Next action (updated 2026-07-25):** **item #4 (unique public-IP allocation) ✅ DONE (PRs #322–#325);
-item #5 (shared-network reconciliation) and item #6 (procedural world) are GRILLED & RESOLVED** — decision
-records above, no open questions. **#5 is PLANNED and is the next thing to build** —
-`plans/shared-network-reconciliation.md` holds 7 PR-sized slices (awaiting approval); `tdd` governs the
-behaviour-changing slices and `reduce-system-complexity` governs the registry-removal pair only. #6 follows #5.
-#2 (pivot/hop source-IP masking) remains unplanned and still needs its own `grill-me`. As-built foundation to
-read first: `v2/docs/cross-player-architecture.md`.
+**Next action (updated 2026-07-27):** **item #4 (unique public-IP allocation) ✅ DONE (PRs #322–#325) and
+item #5 (shared-network reconciliation) ✅ DONE (PRs #326–#334, v0.88.0 → v0.96.0).** The ESSID is now the
+seed for the whole network: one shared AP gateway per ESSID, collision-free LAN leases, shared NPCs and deep
+chains, and `network_registry` deleted outright — occupancy is the single source of who is reachable. Its
+plan file was deleted on close-out; the as-built lives in `v2/docs/cross-player-architecture.md` and
+`v2/docs/conventions-and-gotchas.md`.
+
+**#6 (procedural world expansion) is GRILLED & RESOLVED and is the next thing to build** — decision record
+above, no open questions; it needs `planning` to turn it into slices. #2 (pivot/hop source-IP masking)
+remains unplanned and still needs its own `grill-me`. Two items from #5's work are logged in the
+conventions doc's deferred backlog rather than here: a NAT forward still reaches only ONE occupant of a
+shared AP (a behaviour change owing RED), and the wire-checks still are not in CI.
 
 ### Story 7 — starting context (for `grill-me`)
 

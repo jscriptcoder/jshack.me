@@ -497,7 +497,7 @@ describe('buildWorkstationBaseFs', () => {
 
 /**
  * Cross-player reconstruction (Story 2): a DIFFERENT identity's server-side read
- * of A's box rebuilds it from the registry-persisted identity (owner_key +
+ * of A's box rebuilds it from the occupancy-persisted identity (owner_key +
  * username + md5(rootPassword)) — A's plaintext config never leaves A's browser.
  * The reconstructed box must be byte-identical to the one A sees, or a cross-player
  * read would diverge from reality.

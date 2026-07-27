@@ -9,7 +9,7 @@
  *     with nothing to be addressed with unless this network was already joined once —
  *     in which case the remembered address stands and the reconnect works offline.
  *   - `resolvePublic` backs `env.scan.resolvePublic`: it resolves an
- *     `nmap <public IP>` against the registry, degrading to host-down on any
+ *     `nmap <public IP>` server-side, degrading to host-down on any
  *     non-ok/thrown response so a server hiccup reads as "down" rather than
  *     crashing the scan.
  *

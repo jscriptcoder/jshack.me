@@ -4,7 +4,7 @@
 //
 // Net-new under test:
 //   - A signed `registerNetwork` join writes an occupancy row keyed (essid, owner_key)
-//     in addition to the WAN registry — every occupant of a shared ESSID coexists.
+//     in addition to the AP's public IP — every occupant of a shared ESSID coexists.
 //   - B (a live occupant of X) `resolveOccupants X` gets A's workstation_machine_id +
 //     A's RE-DERIVED LAN IP, with B itself excluded.
 //   - A non-occupant (C) is refused (403 not_an_occupant) — the LAN boundary (D11).
@@ -89,10 +89,8 @@ const occupantsOf = (body: unknown): readonly WireOccupant[] =>
 
 // Clean slate.
 await sr.from('home_network_occupants').delete().eq('essid', X_ESSID);
-// A + B both join the real endpoint, so their registry rows bear the SERVER-ALLOCATED
-// public IP — clean up by owner_key (and drop the ESSID's allocation) rather than a
-// now-stale derived address.
-await sr.from('network_registry').delete().in('owner_key', [alice.publicKeyHex, bob.publicKeyHex]);
+// The ESSID's public IP is server-allocated, so drop the allocation itself rather
+// than trying to name a now-stale derived address.
 await sr.from('network_public_ips').delete().eq('essid', X_ESSID);
 
 // === 1. A's signed join writes an occupancy row keyed (essid, owner_key). ===
@@ -163,9 +161,8 @@ check(
   `status=${d7.status}`,
 );
 
-// Cleanup (registry by owner_key — the rows bear the server-allocated public IP).
+// Cleanup.
 await sr.from('home_network_occupants').delete().eq('essid', X_ESSID);
-await sr.from('network_registry').delete().in('owner_key', [alice.publicKeyHex, bob.publicKeyHex]);
 await sr.from('network_public_ips').delete().eq('essid', X_ESSID);
 
 const passed = results.filter((result) => result.pass).length;

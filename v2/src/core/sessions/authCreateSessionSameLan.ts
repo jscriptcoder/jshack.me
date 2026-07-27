@@ -4,7 +4,7 @@
  * DIRECTLY over the shared LAN — no router, no NAT, no forward (the contrast with
  * `authCreateSessionPublic`, which routes a public IP through A's router).
  *
- * Reachability is the OCCUPANCY table, not the WAN registry: the server reads who is
+ * Reachability is the OCCUPANCY table, not the AP's public IP: the server reads who is
  * live on the ESSID, requires the caller to be one of them (the LAN boundary — you
  * must be on the LAN to reach a box on it), then matches the target LAN IP to a FELLOW
  * occupant's row (self excluded — your own box is the own-LAN path). A's LAN IP is the
@@ -49,7 +49,7 @@ import type { NonceStore } from '../signedRequest/nonceStore';
 /** The occupancy fields a same-LAN connect needs: whose row it is (the LAN-boundary
  *  gate + self-exclusion + LAN-IP match), the workstation the session lands on, and the
  *  identity fields that rebuild A's tree to validate the password against. A structural
- *  superset of `RegistryWorkstation`, so it feeds `materializeWorkstationFs` directly. */
+ *  superset of `OccupantWorkstation`, so it feeds `materializeWorkstationFs` directly. */
 export type OccupantConnectRow = {
   readonly owner_key: string;
   readonly workstation_machine_id: string;
@@ -115,7 +115,7 @@ const authCreateSessionSameLanSchema = z
  *  attacker's line accretes into ONE row instead of colliding under last-write-wins; the
  *  attacker's identity lives in the line's source IP. That source is B's LAN IP — the
  *  address B holds a LEASE on, read from the same lookup that resolved the target,
- *  unlike the public path whose source is B's server-side registry public IP — never the
+ *  unlike the public path whose source is B's server-resolved home public IP — never the
  *  forgeable payload `source_ip`. Best-effort: a logging failure must never break (or
  *  fabricate) the auth. */
 const logSameLanAuth = async (

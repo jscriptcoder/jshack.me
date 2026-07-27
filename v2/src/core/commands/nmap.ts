@@ -122,7 +122,7 @@ async function* scanSingle(
 }
 
 /** A public-IP scan is a CROSS-PLAYER target: it resolves server-side against the
- *  public-IP registry rather than the player's own LAN. The round-trip itself is
+ *  public-IP lookup rather than the player's own LAN. The round-trip itself is
  *  the latency, so there is no per-row `env.sleep` pacing here. */
 async function* scanPublic(env: CommandEnv, target: string): AsyncIterable<TerminalLine> {
   yield text(`Starting Nmap scan — ${target}`);
@@ -238,7 +238,7 @@ const execute: Command['execute'] = async (env, args) => {
   }
 
   // A public IP is another player's network — resolve it server-side against the
-  // public-IP registry instead of scanning our own LAN. Only a single public IP
+  // public-IP lookup instead of scanning our own LAN. Only a single public IP
   // routes here; a range or a private/own-subnet address falls through to the LAN
   // path below (which scans it or reports it out of range).
   if (isPublicIp(rawTarget)) {

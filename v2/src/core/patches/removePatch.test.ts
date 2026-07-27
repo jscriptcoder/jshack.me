@@ -4,7 +4,7 @@ import type { ActiveSessionQuery, FindActiveSessionResult } from './authorizeMac
 import type {
   FindOccupantWorkstationByMachineId,
   ListMachinePatchesResult,
-  RegistryWorkstation,
+  OccupantWorkstation,
 } from './remoteWritePermission';
 import type { PatchRow } from './upsertPatch';
 import { signRequest } from '../signedRequest/sign';
@@ -35,21 +35,21 @@ const remoteSession = (userType: UserType): FindActiveSessionResult => ({
 });
 
 /** A registered FOREIGN player workstation (A's box): A's identity → A's
- *  workstation machine_id, plus the registry row the L2 reverse-lookup returns so
+ *  workstation machine_id, plus the occupancy row the L2 reverse-lookup returns so
  *  a cross-player rm walks A's tree rebuilt from the OWNER's identity (D6). Its
  *  machine_id is an `ed25519:`-suffixed workstation id, so it never matches an NPC
  *  host on the caller's LAN — `hostForMachineId` misses and L2 falls to the
- *  registry. */
-const registeredWorkstation = () => {
+ *  occupancy lookup. */
+const occupantWorkstation = () => {
   const owner = generateIdentity();
   const machineId = computeWorkstationId('skylab', owner.publicKeyHex);
-  const registry: { kind: 'workstation' } & RegistryWorkstation = {
+  const occupant: { kind: 'workstation' } & OccupantWorkstation = {
     kind: 'workstation',
     owner_key: owner.publicKeyHex,
     workstation_username: 'alice',
     workstation_root_hash: md5('hunter2'),
   };
-  return { owner, machineId, registry };
+  return { owner, machineId, occupant };
 };
 
 /** Keeps the spies (so call-arg assertions work) while letting each test set the
@@ -62,7 +62,7 @@ const makeDeps = (
     readonly upsertError?: unknown;
     readonly activeSession?: FindActiveSessionResult;
     readonly machinePatches?: ListMachinePatchesResult;
-    readonly occupant?: RegistryWorkstation | null;
+    readonly occupant?: OccupantWorkstation | null;
   } = {},
 ) => {
   const deletePatchTree = vi.fn<RemovePatchDeps['deletePatchTree']>(async () => ({
@@ -335,16 +335,16 @@ describe('handleRemovePatch', () => {
 
   // ---- Cross-player rm: B deletes on A's REGISTERED workstation (decision D6). ----
 
-  it('tombstones a guest-writable file on a foreign player workstation (resolved via the registry)', async () => {
+  it('tombstones a guest-writable file on a foreign player workstation (resolved from occupancy)', async () => {
     const visitor = generateIdentity();
-    const { machineId, registry } = registeredWorkstation();
+    const { machineId, occupant } = occupantWorkstation();
     const envelope = signRequest(visitor, 'removePatch', {
       machine_id: machineId,
       path: '/tmp/pwned',
       owner: 'guest',
     });
     const { deps, deletePatchTree, upsertPatch, findOccupantWorkstationByMachineId, findActiveSession } =
-      makeDeps({ activeSession: remoteSession('guest'), occupant: registry });
+      makeDeps({ activeSession: remoteSession('guest'), occupant });
 
     const result = await handleRemovePatch(envelope, deps);
 
@@ -358,7 +358,7 @@ describe('handleRemovePatch', () => {
     expect(row.writer_key).toBe(visitor.publicKeyHex);
     expect(row.machine_id).toBe(machineId);
     expect(row.path).toBe('/tmp/pwned');
-    // The foreign workstation is resolved via the registry reverse-lookup, and the
+    // The foreign workstation is resolved by the occupancy reverse-lookup, and the
     // tier comes from the visitor's SERVER session — never a client claim.
     expect(findOccupantWorkstationByMachineId).toHaveBeenCalledWith(machineId);
     expect(findActiveSession).toHaveBeenCalledWith({
@@ -367,12 +367,12 @@ describe('handleRemovePatch', () => {
     });
   });
 
-  it("tombstones via the OCCUPANCY fallback when the registry has no row — a root rm of A's /boot bricks a same-LAN occupant evicted from the registry", async () => {
+  it("tombstones a root rm of a fellow occupant's /boot — bricking A from inside the shared LAN", async () => {
     const visitor = generateIdentity();
-    const { machineId, registry } = registeredWorkstation();
-    // B is root on A (same-LAN su) and deletes A's kernel. A's row was evicted from
-    // network_registry by a later same-ESSID joiner, so the write path resolves A's box
-    // from the occupancy fallback — without it the brick would falsely 403.
+    const { machineId, occupant } = occupantWorkstation();
+    // B is root on A (same-LAN su) and deletes A's kernel. The write path resolves A's
+    // box from A's occupancy row, which exists for every occupant of the ESSID no matter
+    // who joined when — without that resolution the brick would falsely 403.
     const envelope = signRequest(visitor, 'removePatch', {
       machine_id: machineId,
       path: '/boot/vmlinuz',
@@ -380,7 +380,7 @@ describe('handleRemovePatch', () => {
     });
     const { deps, upsertPatch, findOccupantWorkstationByMachineId } = makeDeps({
       activeSession: remoteSession('root'),
-      occupant: registry,
+      occupant,
     });
 
     const result = await handleRemovePatch(envelope, deps);
@@ -394,7 +394,7 @@ describe('handleRemovePatch', () => {
 
   it('denies a guest cross-player rm of a root-owned file on a foreign workstation (403, no tombstone)', async () => {
     const visitor = generateIdentity();
-    const { machineId, registry } = registeredWorkstation();
+    const { machineId, occupant } = occupantWorkstation();
     const envelope = signRequest(visitor, 'removePatch', {
       machine_id: machineId,
       path: '/etc/passwd',
@@ -402,12 +402,12 @@ describe('handleRemovePatch', () => {
     });
     const { deps, deletePatchTree, upsertPatch } = makeDeps({
       activeSession: remoteSession('guest'),
-      occupant: registry,
+      occupant,
     });
 
     const result = await handleRemovePatch(envelope, deps);
 
-    // /etc/passwd is not guest-writable on A's registry-built tree → L2 denies the
+    // /etc/passwd is not guest-writable on A's occupancy-built tree → L2 denies the
     // unlink before any delete/tombstone runs; nothing lands on A's journal.
     expect(result).toEqual({ status: 403, body: { error: 'permission_denied' } });
     expect(deletePatchTree).not.toHaveBeenCalled();

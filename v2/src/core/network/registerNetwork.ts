@@ -1,12 +1,11 @@
 /**
- * handleRegisterNetwork — the server-side join action (Story 1, slice 1a).
+ * handleRegisterNetwork — the server-side join action.
  *
  * When a player connects to a cracked AP, the client's `env.homeNetwork.join`
- * round-trip lands here: it verifies the signed envelope and upserts ONE
- * public-IP registry row so a DIFFERENT identity can later resolve this network
- * by its public IP (`resolvePublicScan`). Today `nmap` only reaches a player's
- * own regenerated LAN; this registry is what makes one identity's scan resolve
- * against another's machine server-side.
+ * round-trip lands here: it verifies the signed envelope, allocates the addresses
+ * the join needs, and records the player as an occupant of the ESSID. Occupancy is
+ * what makes one identity's box reachable by another's `nmap`/`ssh` — every
+ * cross-player resolver answers from this row plus the ESSID's public IP.
  *
  * Server-stamped, never client-claimed:
  *   - `public_ip` is allocated server-side per ESSID (a globally-unique WAN address
@@ -14,45 +13,31 @@
  *     foreign IP.
  *   - `owner_key` is the verified Ed25519 pubkey, never a payload claim.
  *
- * The gateway is a DISTINCT machine: `router_machine_id` is
- * `computeApGatewayId(essid)` — the ACCESS POINT's own seeded box, which bears the
- * public IP and runs its own `sshd`. Keyed by the ESSID rather than the joiner, so
- * every occupant registers the SAME gateway and they all sit behind one NAT on one
- * public address. NAT forwards are NOT stored here; the gateway's
- * `/etc/iptables/rules.v4` is the single parsed source of truth (the old
- * degenerate `forward_table` is gone).
+ * The AP's gateway is a DISTINCT machine and is NOT recorded here: its id derives
+ * from the ESSID (`computeApGatewayId`), so every occupant resolves the SAME gateway
+ * and they all sit behind one NAT on one public address. NAT forwards are not stored
+ * either; the gateway's `/etc/iptables/rules.v4` is the single parsed source of truth.
  */
 
 import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { computeApGatewayId } from '../identity/router';
 import { lanAddressFor } from './lanAddress';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
-/** A row in the public-IP registry: `public_ip → network/router/machines`. The
- *  `workstation_*` identity fields (Story 2) let the server RECONSTRUCT the owner's
- *  box for a cross-player reader: `username`/`machine_name` are player-chosen;
+/** An occupancy row: the join records the player as a live occupant of the ESSID's
+ *  LAN, keyed `(essid, owner_key)` so every occupant of a shared AP coexists. This is
+ *  the only place a player's workstation identity survives, and it is what every
+ *  cross-player resolver reads: `username`/`machine_name` are player-chosen and
  *  `root_hash` is `md5(rootPassword)` (the client hashes — the server never sees
- *  plaintext). The guest password is pubkey-seeded, so it is recomputed from
- *  `owner_key` and not stored. */
-export type NetworkRegistryRow = {
-  readonly public_ip: string;
-  readonly owner_key: string;
-  readonly workstation_machine_id: string;
-  readonly router_machine_id: string;
-  readonly essid: string;
-  readonly workstation_username: string;
-  readonly workstation_machine_name: string;
-  readonly workstation_root_hash: string;
-};
-
-/** An occupancy row: the same join that writes the WAN registry also records the
- *  player as a live occupant of the ESSID's LAN (Story 7, PK `(essid, owner_key)`).
- *  Unlike `network_registry` (PK `public_ip`, last-writer-wins on a shared AP), this
- *  table is the only place each occupant's workstation identity survives — the
- *  same-LAN connect handler (7.4) auths against it directly. LAN IP/hostname are NOT
- *  stored: they re-derive from `(owner_key, essid)` (`minimize-api-projections`). */
+ *  plaintext), which together let the server RECONSTRUCT the box for a foreign
+ *  reader. The guest password is pubkey-seeded, so it recomputes from `owner_key` and
+ *  is not stored; LAN IP and hostname likewise re-derive from `(owner_key, essid)`
+ *  (`minimize-api-projections`).
+ *
+ *  The row's LIFETIME is the reachability rule: it exists exactly while the machine
+ *  is on the WiFi, so deleting it on `nmcli disconnect` is what takes the box out of
+ *  reach. Nothing about it tracks whether a player is at the keyboard. */
 export type HomeNetworkOccupantRow = {
   readonly essid: string;
   readonly owner_key: string;
@@ -74,7 +59,6 @@ export type RegisterNetworkDeps = {
    *  uniqueness that guarantees it is a database constraint. Composed in the api/
    *  adapter from `allocateLanLease` over the `network_lan_leases` store. */
   readonly allocateLanLease: (essid: string, ownerKey: string) => Promise<number>;
-  readonly upsertRegistry: (row: NetworkRegistryRow) => Promise<{ readonly error: unknown }>;
   readonly upsertOccupant: (row: HomeNetworkOccupantRow) => Promise<{ readonly error: unknown }>;
 };
 
@@ -109,13 +93,14 @@ export const handleRegisterNetwork = async (
   }
   const { publicKey, payload } = verified;
 
-  // The public IP is allocated server-side per ESSID — a globally-unique WAN
-  // address belonging to the AP, so every occupant registers the same one under
-  // their own owner_key. Allocation precedes the writes; a failure (store error /
-  // exhaustion) is a clean 500, never a partial journal write.
-  let publicIp: string;
+  // The public IP is allocated server-side per ESSID — one globally-unique WAN
+  // address belonging to the AP, drawn on the first join and recalled on every later
+  // one. The join itself has no use for the address; what it needs is for the
+  // allocation to have HAPPENED, because that stored row is what a foreign scanner
+  // resolves this AP by. A failure (store error / exhaustion) is a clean 500, never a
+  // join that leaves the network unreachable from outside.
   try {
-    publicIp = await deps.allocatePublicIp(payload.essid);
+    await deps.allocatePublicIp(payload.essid);
   } catch {
     return { status: 500, body: { error: 'allocation_failed' } };
   }
@@ -131,25 +116,8 @@ export const handleRegisterNetwork = async (
     return { status: 500, body: { error: 'lease_allocation_failed' } };
   }
 
-  const row: NetworkRegistryRow = {
-    public_ip: publicIp,
-    owner_key: publicKey,
-    workstation_machine_id: payload.workstation_machine_id,
-    router_machine_id: computeApGatewayId(payload.essid),
-    essid: payload.essid,
-    workstation_username: payload.workstation_username,
-    workstation_machine_name: payload.workstation_machine_name,
-    workstation_root_hash: payload.workstation_root_hash,
-  };
-
-  const { error } = await deps.upsertRegistry(row);
-  if (error) {
-    return { status: 500, body: { error: 'registry_write_failed' } };
-  }
-
-  // The same join records the player as a live occupant of the ESSID's LAN. Keyed by
-  // (essid, owner_key) so every occupant coexists (Story 7) — distinct from the WAN
-  // registry's single per-public-IP row.
+  // Both addresses are held, so record the player as a live occupant of the ESSID's
+  // LAN. Keyed by (essid, owner_key) so every occupant of a shared AP coexists.
   const occupant: HomeNetworkOccupantRow = {
     essid: payload.essid,
     owner_key: publicKey,

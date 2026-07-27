@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   handleAuthCreateSessionPublic,
   type AuthCreateSessionPublicDeps,
-  type RegistryTarget,
+  type ApNetworkLookup,
 } from './authCreateSessionPublic';
 import type { AuthSessionRow } from './authCreateSession';
 import { md5 } from '../generation/md5';
@@ -28,7 +28,7 @@ import type { NonceStore } from '../signedRequest/nonceStore';
 /**
  * `handleAuthCreateSessionPublic` is the cross-player ssh-login gate, reshaped for
  * Story 5.1.2: it routes by DESTINATION PORT. A different identity's
- * `ssh [-p port] <user>@<A.publicIp>` resolves A's public IP in the registry,
+ * `ssh [-p port] <user>@<A.publicIp>` resolves A's public IP to the AP that bears it,
  * materializes A's ROUTER (the box bearing the public IP, root-only, seeded admin
  * password recoverable from the owner key), and — for a port the router itself
  * serves (its `:22`) — validates the password against the router's `/etc/passwd`
@@ -41,7 +41,7 @@ const freshStore: NonceStore = async () => ({ fresh: true });
 const TARGET = '203.0.113.7';
 // 2026-06-19 12:00:00 UTC — the server clock the auth.log line is stamped with.
 const FIXED_NOW = Date.UTC(2026, 5, 19, 12, 0, 0);
-// B's (the attacker's) home public IP, as the registry returns it for B's owner key.
+// B's (the attacker's) home public IP, as the server resolves it from B's owner key.
 // Server-derived; NEVER the client-supplied `source_ip`.
 const SCANNER_PUBLIC_IP = '198.51.100.22';
 // A's identity → owner_key. The AP gateway's admin password + sshd presence seed
@@ -57,7 +57,7 @@ const BEHIND_NAT = {
   workstation_machine_name: 'nebuchadnezzar',
   workstation_root_hash: md5('toor'),
 };
-const REGISTRY: RegistryTarget = {
+const OCCUPANT: ApNetworkLookup = {
   router_machine_id: ROUTER_ID,
   essid: ESSID,
   behindNat: BEHIND_NAT,
@@ -126,24 +126,24 @@ const bootTombstone: OwnerPatchRow = {
   writer_key: OWNER.publicKeyHex,
 };
 
-type LookupResult = { data: RegistryTarget | null; error: unknown };
+type LookupResult = { data: ApNetworkLookup | null; error: unknown };
 type PatchesResult = { data: readonly OwnerPatchRow[] | null; error: unknown };
 type OwnerKeyResult = { data: { public_ip: string } | null; error: unknown };
 
 /** Overrides for the system-logging + source-IP deps (Story 6.2). Defaults: the
  *  fixed server clock, an empty auth.log (a reachable attempt appends one line), a
- *  successful write, and a registry that resolves the attacker's owner key to
+ *  successful write, and a lookup that resolves the attacker's owner key to
  *  `SCANNER_PUBLIC_IP`. */
 type LogOverrides = {
   now?: () => number;
   readAuthLog?: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
   upsertPatch?: (row: PatchRow) => Promise<{ error: unknown }>;
-  findRegistryByOwnerKey?: (ownerKey: string) => Promise<OwnerKeyResult>;
+  findHomeNetworkByOwnerKey?: (ownerKey: string) => Promise<OwnerKeyResult>;
   readLease?: (essid: string, ownerKey: string) => Promise<LeaseResult>;
 };
 
 const makeDeps = (
-  lookup: () => Promise<LookupResult> = async () => ({ data: REGISTRY, error: null }),
+  lookup: () => Promise<LookupResult> = async () => ({ data: OCCUPANT, error: null }),
   insert: () => Promise<{ error: unknown }> = async () => ({ error: null }),
   patches: (query: { machine_id: string }) => Promise<PatchesResult> = async () => ({
     data: [],
@@ -151,7 +151,7 @@ const makeDeps = (
   }),
   over: LogOverrides = {},
 ) => {
-  const findRegistryByPublicIp = vi.fn<(publicIp: string) => Promise<LookupResult>>(lookup);
+  const findNetworkByPublicIp = vi.fn<(publicIp: string) => Promise<LookupResult>>(lookup);
   const findPatches = vi.fn<(query: { machine_id: string }) => Promise<PatchesResult>>(patches);
   const insertSession = vi.fn<(row: AuthSessionRow) => Promise<{ error: unknown }>>(insert);
   const readAuthLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
@@ -160,8 +160,8 @@ const makeDeps = (
   const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(
     over.upsertPatch ?? (async () => ({ error: null })),
   );
-  const findRegistryByOwnerKey = vi.fn<(ownerKey: string) => Promise<OwnerKeyResult>>(
-    over.findRegistryByOwnerKey ??
+  const findHomeNetworkByOwnerKey = vi.fn<(ownerKey: string) => Promise<OwnerKeyResult>>(
+    over.findHomeNetworkByOwnerKey ??
       (async () => ({ data: { public_ip: SCANNER_PUBLIC_IP }, error: null })),
   );
   // Default: the owner leases the octet its derivation offered — where nothing
@@ -171,23 +171,23 @@ const makeDeps = (
   );
   const deps: AuthCreateSessionPublicDeps = {
     nonceStore: freshStore,
-    findRegistryByPublicIp,
+    findNetworkByPublicIp,
     findPatches,
     insertSession,
     now: over.now ?? (() => FIXED_NOW),
     readAuthLog,
     upsertPatch,
-    findRegistryByOwnerKey,
+    findHomeNetworkByOwnerKey,
     readLease,
   };
   return {
     deps,
-    findRegistryByPublicIp,
+    findNetworkByPublicIp,
     findPatches,
     insertSession,
     readAuthLog,
     upsertPatch,
-    findRegistryByOwnerKey,
+    findHomeNetworkByOwnerKey,
     readLease,
   };
 };
@@ -222,7 +222,7 @@ const expectedSshdLine = (
 describe('handleAuthCreateSessionPublic', () => {
   it("authenticates root against the reconstructed router (default port 22) and inserts a session on the router's machine id", async () => {
     const attacker = generateIdentity();
-    const { deps, findRegistryByPublicIp, findPatches, insertSession } = makeDeps();
+    const { deps, findNetworkByPublicIp, findPatches, insertSession } = makeDeps();
 
     const result = await handleAuthCreateSessionPublic(
       envelope(attacker, { username: 'root', password: ADMIN_PW }),
@@ -231,7 +231,7 @@ describe('handleAuthCreateSessionPublic', () => {
 
     expect(result.status).toBe(200);
     expect(result.body).toMatchObject({ ok: true, userType: 'root', machine_id: ROUTER_ID });
-    expect(findRegistryByPublicIp).toHaveBeenCalledWith(TARGET);
+    expect(findNetworkByPublicIp).toHaveBeenCalledWith(TARGET);
     // The journal is read off the ROUTER machine, not the workstation.
     expect(findPatches).toHaveBeenCalledWith({ machine_id: ROUTER_ID });
     expect(insertSession).toHaveBeenCalledTimes(1);
@@ -447,7 +447,7 @@ describe('handleAuthCreateSessionPublic', () => {
   it('refuses login to a bricked router (a /boot tombstone) as host_unreachable, before the password is checked and without inserting', async () => {
     const attacker = generateIdentity();
     const { deps, findPatches, insertSession } = makeDeps(
-      async () => ({ data: REGISTRY, error: null }),
+      async () => ({ data: OCCUPANT, error: null }),
       undefined,
       async () => ({ data: [bootTombstone], error: null }),
     );
@@ -481,7 +481,7 @@ describe('handleAuthCreateSessionPublic', () => {
     expect(insertSession).not.toHaveBeenCalled();
   });
 
-  it('reports a server error when the registry lookup fails', async () => {
+  it('reports a server error when the network lookup fails', async () => {
     const attacker = generateIdentity();
     const { deps } = makeDeps(async () => ({ data: null, error: new Error('db down') }));
 
@@ -490,7 +490,7 @@ describe('handleAuthCreateSessionPublic', () => {
       deps,
     );
 
-    expect(result).toEqual({ status: 500, body: { error: 'registry_lookup_failed' } });
+    expect(result).toEqual({ status: 500, body: { error: 'network_lookup_failed' } });
   });
 
   it('reports a server error when the boot-state patch lookup fails, without inserting', async () => {
@@ -523,7 +523,7 @@ describe('handleAuthCreateSessionPublic', () => {
 
   it('rejects an envelope that smuggles a client-supplied player_key without looking up or inserting', async () => {
     const attacker = generateIdentity();
-    const { deps, findRegistryByPublicIp, insertSession } = makeDeps();
+    const { deps, findNetworkByPublicIp, insertSession } = makeDeps();
 
     const result = await handleAuthCreateSessionPublic(
       envelope(attacker, { username: 'root', password: ADMIN_PW, player_key: 'attacker' }),
@@ -531,7 +531,7 @@ describe('handleAuthCreateSessionPublic', () => {
     );
 
     expect(result.status).toBe(400);
-    expect(findRegistryByPublicIp).not.toHaveBeenCalled();
+    expect(findNetworkByPublicIp).not.toHaveBeenCalled();
     expect(insertSession).not.toHaveBeenCalled();
   });
 
@@ -635,9 +635,9 @@ describe('handleAuthCreateSessionPublic', () => {
       );
     });
 
-    it("uses B's REGISTRY public IP as the source, ignoring the client source_ip", async () => {
+    it("uses B's OCCUPANT public IP as the source, ignoring the client source_ip", async () => {
       const attacker = generateIdentity();
-      const { deps, upsertPatch, findRegistryByOwnerKey } = makeDeps();
+      const { deps, upsertPatch, findHomeNetworkByOwnerKey } = makeDeps();
 
       await handleAuthCreateSessionPublic(
         envelope(attacker, { username: 'root', password: ADMIN_PW, source_ip: '10.0.0.66' }),
@@ -645,16 +645,16 @@ describe('handleAuthCreateSessionPublic', () => {
       );
 
       // The lookup is keyed by the ATTACKER's verified key, not the target owner.
-      expect(findRegistryByOwnerKey).toHaveBeenCalledWith(attacker.publicKeyHex);
+      expect(findHomeNetworkByOwnerKey).toHaveBeenCalledWith(attacker.publicKeyHex);
       const content = upsertPatch.mock.calls[0]![0].content;
       expect(content).toContain(`from ${SCANNER_PUBLIC_IP}`);
       expect(content).not.toContain('10.0.0.66');
     });
 
-    it("falls back to 'unknown' source when B has no registry row, still logging and authenticating", async () => {
+    it("falls back to 'unknown' source when B has no home network, still logging and authenticating", async () => {
       const attacker = generateIdentity();
       const { deps, upsertPatch } = makeDeps(undefined, undefined, undefined, {
-        findRegistryByOwnerKey: async () => ({ data: null, error: null }),
+        findHomeNetworkByOwnerKey: async () => ({ data: null, error: null }),
       });
 
       const result = await handleAuthCreateSessionPublic(

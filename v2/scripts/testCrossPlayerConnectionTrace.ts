@@ -1,7 +1,7 @@
 // Wire-payload smoke for Story 6.2 — a cross-player ssh login leaves a truthful
 // auth.log trace on the TARGET's shared record. Drives the REAL /api/sessions
 // endpoint (authCreateSessionPublic) against a running `vercel dev` + supabase,
-// seeding the registry rows + the NAT forward via service_role (as A's join/config
+// seeding the occupancy rows + the NAT forward via service_role (as A's join/config
 // would).
 //
 // Net-new under test (the locally-untypechecked api/ runtime):
@@ -9,7 +9,7 @@
 //     from <B's home public IP>` line lands on A's ROUTER auth.log, keyed by A's
 //     OWNER writer_key (decision 1), naming A's seeded router hostname.
 //   - A wrong password → `Failed password …` line still lands (sshd logs both); 401.
-//   - The source IP is SERVER-DERIVED from B's verified key (B's registry public IP),
+//   - The source IP is SERVER-DERIVED from B's verified key (B's home network's public IP),
 //     NOT the client `source_ip` — a forged `source_ip` in the payload is ignored.
 //   - Keystone: a SECOND attacker (C) accretes its own line into the SAME owner-keyed
 //     row instead of collapsing it under the last-write-wins fold.
@@ -97,8 +97,8 @@ const A_PUBLIC_IP = '203.0.113.93';
 // below must name that address — a forward aimed anywhere else reaches no host.
 const A_OCTET = 11;
 const A_LAN = lanAddressFor(A_ESSID, A_OCTET); // A's ws LAN ip
-// B's + C's truthful source IPs: the public IPs in their seeded registry rows, which the
-// server recovers from each verified key via the registry — never a client claim. Explicit
+// B's + C's truthful source IPs: the public IPs in their seeded occupancy rows, which the
+// server recovers from each verified key via their home network — never a client claim. Explicit
 // constants, since this script seeds those rows directly (self-consistent with the asserts).
 const B_PUBLIC_IP = '198.51.100.93';
 const C_PUBLIC_IP = '192.0.2.93';
@@ -128,7 +128,7 @@ const occupantRow = (
   workstation_root_hash: md5('root-secret'),
 });
 
-// Clean slate, then seed the three registry rows (as each player's join would), A's
+// Clean slate, then seed the three players' occupancy rows (as each player's join would), A's
 // NAT forward + her workstation sshd pidfile (as A's own config writes would).
 await sr.from('network_public_ips').delete().in('public_ip', [A_PUBLIC_IP, B_PUBLIC_IP, C_PUBLIC_IP]);
 await sr.from('home_network_occupants').delete().in('essid', [A_ESSID, B_ESSID, C_ESSID]);
@@ -227,7 +227,7 @@ const s3 = await post(
 );
 const log3 = await readAuthLog(A_ROUTER, alice.publicKeyHex);
 check(
-  'a client-supplied source_ip is ignored — lines carry B’s registry IP, not the forged one',
+  'a client-supplied source_ip is ignored — lines carry B’s home public IP, not the forged one',
   s3.status === 200 && log3.includes(`from ${B_PUBLIC_IP}`) && !log3.includes('10.6.6.6'),
   `status=${s3.status} forgedPresent=${log3.includes('10.6.6.6')}`,
 );

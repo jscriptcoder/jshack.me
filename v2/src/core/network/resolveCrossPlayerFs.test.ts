@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   handleResolveCrossPlayerFs,
   type ActiveSession,
-  type RegistryWorkstation,
+  type OccupantWorkstation,
   type ResolveCrossPlayerFsDeps,
   type OwnerPatchRow,
 } from './resolveCrossPlayerFs';
@@ -30,7 +30,7 @@ import type { NonceStore } from '../signedRequest/nonceStore';
 const freshStore: NonceStore = async () => ({ fresh: true });
 const MACHINE_ID = 'skylab-deadbeef';
 const OWNER_KEY = 'a'.repeat(64);
-const REGISTERED: RegistryWorkstation = {
+const REGISTERED: OccupantWorkstation = {
   kind: 'workstation',
   owner_key: OWNER_KEY,
   workstation_username: 'alice',
@@ -68,7 +68,7 @@ const OWNER_PATCHES: readonly OwnerPatchRow[] = [
   ownerRow({ path: '/srv/secret.txt', content: 'TOP_SECRET', permissions: userOnly }),
 ];
 
-type OccupantResult = { data: RegistryWorkstation | null; error: unknown };
+type OccupantResult = { data: OccupantWorkstation | null; error: unknown };
 type SessionResult = { data: ActiveSession | null; error: unknown };
 type PatchesResult = { data: readonly OwnerPatchRow[] | null; error: unknown };
 
@@ -198,7 +198,7 @@ describe('handleResolveCrossPlayerFs', () => {
     const passwd = get(tree, 'etc', 'passwd');
     expect(passwd?.kind).toBe('file');
     // The passwd reflects A's PERSISTED identity (username + root hash), proving the
-    // box is rebuilt from the registry row, not from empty/defaulted fields.
+    // box is rebuilt from the occupancy row, not from empty/defaulted fields.
     expect(passwd?.kind === 'file' ? passwd.content : '').toContain('alice');
     expect(passwd?.kind === 'file' ? passwd.content : '').toContain(
       REGISTERED.workstation_root_hash,

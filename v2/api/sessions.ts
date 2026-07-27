@@ -8,7 +8,7 @@ import {
 import {
   handleAuthCreateSessionPublic,
   type NatHost,
-  type RegistryTarget,
+  type ApNetworkLookup,
 } from '../src/core/sessions/authCreateSessionPublic';
 import { computeApGatewayId } from '../src/core/identity/router';
 import {
@@ -20,7 +20,7 @@ import { handleAuthCreateSessionInnerGateway } from '../src/core/sessions/authCr
 import type { OwnerPatchRow } from '../src/core/network/materializeWorkstationFs';
 import {
   handleAuthElevateSession,
-  type RegistryWorkstation,
+  type OccupantWorkstation,
   type SuSessionRow,
 } from '../src/core/sessions/authElevateSession';
 import {
@@ -174,13 +174,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (actionOf(req.body) === 'authCreateSessionPublic') {
-    // Cross-PLAYER ssh login (Story 5.1.2): resolve the target PUBLIC IP in the
-    // registry, then the handler materializes the owner's ROUTER and routes by
+    // Cross-PLAYER ssh login: resolve the target PUBLIC IP to its AP, then
+    // the handler materializes the owner's ROUTER and routes by
     // destination port — port 22 lands on the router itself (validated against its
     // seeded admin password). Story 6.2: a reachable attempt now leaves an auth.log
     // trace on the owner's shared record (router or workstation behind the NAT),
     // written under the OWNER's writer_key so multi-attacker rows don't collide.
-    const findRegistryByPublicIp = async (publicIp: string) => {
+    const findNetworkByPublicIp = async (publicIp: string) => {
       const network = await supabase
         .from('network_public_ips')
         .select('essid')
@@ -210,7 +210,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // The gateway is the access point's own infrastructure, so it answers on :22
       // whether or not anyone is on the WiFi; with nobody home the NAT forwards to
       // no host and only the gateway itself can be logged into.
-      const resolved: RegistryTarget = {
+      const resolved: ApNetworkLookup = {
         router_machine_id: computeApGatewayId(essid),
         essid,
         behindNat: occupant.data as NatHost | null,
@@ -262,7 +262,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // their verified owner key (never the client `source_ip`). One player may carry
     // rows for several APs they've joined; the most-recently-updated is their current
     // network ("one network at a time"). owner_key is not the PK, hence the order+limit.
-    const findRegistryByOwnerKey = async (ownerKey: string) => {
+    const findHomeNetworkByOwnerKey = async (ownerKey: string) => {
       const occupancy = await supabase
         .from('home_network_occupants')
         .select('essid')
@@ -298,13 +298,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     };
     const { status, body } = await handleAuthCreateSessionPublic(req.body, {
       nonceStore: noopNonceStore,
-      findRegistryByPublicIp,
+      findNetworkByPublicIp,
       findPatches,
       insertSession: insertSessionPublic,
       now: () => Date.now(),
       readAuthLog,
       upsertPatch: upsertPatchPublic,
-      findRegistryByOwnerKey,
+      findHomeNetworkByOwnerKey,
       readLease,
     });
     res.status(status).json(body);
@@ -398,7 +398,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // host. The handler regenerates the gateway from the verified key + essid, replays
     // its journal (to read the forward + boot state), and routes the forwarded port to
     // the deep NPC — validating the password against ITS /etc/passwd before this insert.
-    // Own-keyed + private: no registry, no occupancy, no trace.
+    // Own-keyed + private: no network lookup, no occupancy, no trace.
     const findPatches = async ({ machine_id }: { machine_id: string }) => {
       const { data, error } = await supabase
         .from('patches')
@@ -471,7 +471,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .limit(1)
         .maybeSingle();
       if (error) console.error('[sessions] su-elevate occupant lookup error:', error);
-      return { data: data as RegistryWorkstation | null, error };
+      return { data: data as OccupantWorkstation | null, error };
     };
     const insertSuSession = async (row: SuSessionRow) => {
       const { error } = await supabase.from('sessions').insert(row);

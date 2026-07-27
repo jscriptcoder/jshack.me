@@ -23,7 +23,7 @@
  * Mirrors `authCreateSessionPublic` (port-routed via `machineServing`) but own-keyed
  * + octet-targeted, with the internal target a box on the deep chain instead of the
  * owner's workstation. The deep layers stay PRIVATE: every gateway is the caller's own
- * box (regenerated from their key), nothing here touches the cross-player registry.
+ * box (regenerated from their key), nothing here touches the cross-player lookup.
  * Unknown-user and wrong-password collapse to one 401; a child-journal fetch failure
  * mid-walk is a 500, kept distinct from a port that simply leads nowhere.
  */

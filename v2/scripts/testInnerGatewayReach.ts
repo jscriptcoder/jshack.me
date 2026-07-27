@@ -8,7 +8,7 @@
 // regenerates the gateway from the verified pubkey + essid, replays its journal
 // (canBoot gate), routes the forwarded port via machineServing onto the deep NPC,
 // validates the password against ITS /etc/passwd, and inserts a session on the DEEP
-// host's machine id — not the gateway's. The deep layer stays private (no registry).
+// host's machine id — not the gateway's. The deep layer stays private.
 //
 // Usage (with v2 supabase + vercel dev running):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testInnerGatewayReach.ts

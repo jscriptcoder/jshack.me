@@ -51,7 +51,7 @@ export type RemovePatchDeps = {
   readonly listMachinePatches: ListMachinePatches;
   /** Reverse-look-up a registered foreign workstation by its machine_id — shared
    *  with the write path's L2 cross-player branch (D6). */
-  /** Same-LAN fallback for L2 when the registry misses (a shared-AP occupant evicted
+  /** Same-LAN fallback for L2 when no occupancy row exists (a shared-AP occupant evicted
    *  by a later joiner) — resolves the workstation from the occupancy table. */
   readonly findOccupantWorkstationByMachineId: FindOccupantWorkstationByMachineId;
   /** Delete the row at `path` AND every row beneath it (`path/...`). */

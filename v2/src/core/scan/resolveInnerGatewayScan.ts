@@ -8,17 +8,18 @@
  * in a gateway's `/etc/iptables/rules.v4` on its SERVER-side journal (the player
  * edits it with `nano` after rooting the gateway), so the scan can't be computed
  * from the client's static world — the server regenerates the gateway from the
- * VERIFIED pubkey + essid, replays its journal, asks `canBoot` (a bricked gateway
- * takes the deep entrance dark), and reports its own `sshd:22` plus any LIVE forward
- * via the single `scanResult` total function.
+ * ESSID, replays its journal, asks `canBoot` (a bricked gateway takes the deep
+ * entrance dark), and reports its own `sshd:22` plus any LIVE forward via the single
+ * `scanResult` total function.
  *
  * A forward to the terminal NPC is live only while that NPC serves the internal port;
  * a forward to the CHILD GATEWAY that fronts the next layer down is resolved by
  * recursing into the child's OWN exposed ports (the same upstream scan, one layer
  * deeper), so a CHAINED forward surfaces only while the whole chain below it stays
- * live — a bricked or dead-ended intermediate takes the chained port dark. The deep
- * layers stay PRIVATE: every gateway is the caller's own box (regenerated from their
- * key), nothing here touches the cross-player `network_registry`.
+ * live — a bricked or dead-ended intermediate takes the chained port dark. Every box
+ * down the chain is seeded from the ESSID, so all occupants of an AP walk the SAME
+ * deep layers; what makes this an OWN-LAN scan is that the caller is standing on
+ * Layer 1 of that network, not that the boxes below belong to them.
  */
 
 import { z } from 'zod';

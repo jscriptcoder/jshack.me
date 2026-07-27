@@ -1,13 +1,13 @@
 // Wire-payload smoke for Story 6.1 — a cross-player public scan leaves a truthful
 // kern.log trace on the TARGET's shared ROUTER record. Drives the REAL /api/network
-// endpoint against a running `vercel dev` + supabase, seeding the registry rows via
+// endpoint against a running `vercel dev` + supabase, seeding the occupancy rows via
 // service_role (as the join would).
 //
 // Net-new under test (the locally-untypechecked api/ runtime):
 //   - B `nmap <A.publicIp>` (host up) → ONE `[iptables] Port scan from <B's home
 //     public IP>` line lands on A's ROUTER kern.log, keyed by A's OWNER writer_key
 //     (decision 1), naming A's seeded router hostname, with the ports B saw.
-//   - The source IP is SERVER-DERIVED from B's verified key (B's registry public IP),
+//   - The source IP is SERVER-DERIVED from B's verified key (B's home network's public IP),
 //     NOT the client `source_ip` — a forged `source_ip` in the payload is ignored.
 //   - Keystone: a SECOND scanner (C) accretes its own line into the SAME row instead
 //     of collapsing it under the last-write-wins fold — both source IPs coexist.
@@ -83,14 +83,14 @@ const B_ESSID = 'BLUE-SUN-CAFE';
 const C_ESSID = 'CYBERDYNE-GUEST';
 const A_ROUTER = computeApGatewayId(A_ESSID);
 const A_PUBLIC_IP = '203.0.113.92';
-// B's + C's truthful source IPs: the public IPs in their seeded registry rows, which the
-// server recovers from each verified key via the registry — never a client claim. Explicit
+// B's + C's truthful source IPs: the public IPs in their seeded occupancy rows, which the
+// server recovers from each verified key via their home network — never a client claim. Explicit
 // constants, since this script seeds those rows directly (self-consistent with the asserts).
 const B_PUBLIC_IP = '198.51.100.92';
 const C_PUBLIC_IP = '192.0.2.92';
 const A_ROUTER_HOST = seedApGatewayHostname(A_ESSID);
 
-// Clean slate, then seed the three registry rows (as each player's join would).
+// Clean slate, then seed the three players' occupancy rows (as each player's join would).
 await sr.from('network_public_ips').delete().in('public_ip', [A_PUBLIC_IP, B_PUBLIC_IP, C_PUBLIC_IP]);
 await sr.from('home_network_occupants').delete().in('essid', [A_ESSID, B_ESSID, C_ESSID]);
 await sr.from('patches').delete().eq('machine_id', A_ROUTER);
@@ -146,7 +146,7 @@ await post(
 );
 const log2 = await readRouterKernLog(A_ROUTER, alice.publicKeyHex);
 check(
-  'a client-supplied source_ip is ignored — the line carries B’s registry IP, not the forged one',
+  'a client-supplied source_ip is ignored — the line carries B’s home public IP, not the forged one',
   log2.includes(`Port scan from ${B_PUBLIC_IP}`) && !log2.includes('10.6.6.6'),
   `line=${log2.trim().split('\n').slice(-1)[0] ?? '(empty)'}`,
 );

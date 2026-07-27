@@ -43,11 +43,11 @@ export type ListMachinePatches = (query: {
   readonly machine_id: string;
 }) => Promise<ListMachinePatchesResult>;
 
-/** The registry identity of a registered foreign WORKSTATION — the fields needed to
+/** The persisted identity of a foreign player's WORKSTATION — the fields needed to
  *  rebuild the OWNER's box for the cross-player L2 perm check (decision D6). Mirrors
- *  the cross-player READ's registry row so the write walks the SAME tree the read
+ *  the cross-player READ's occupancy lookup so the write walks the SAME tree the read
  *  materializes. */
-export type RegistryWorkstation = {
+export type OccupantWorkstation = {
   readonly owner_key: string;
   readonly workstation_username: string;
   readonly workstation_root_hash: string;
@@ -61,16 +61,16 @@ export type RegistryWorkstation = {
  *  resolved above it, from the ESSID itself. */
 export type FindOccupantWorkstationByMachineId = (
   machineId: string,
-) => Promise<{ readonly data: RegistryWorkstation | null; readonly error: unknown }>;
+) => Promise<{ readonly data: OccupantWorkstation | null; readonly error: unknown }>;
 
-/** Rebuild a registered foreign workstation's base FS from its registry identity row
+/** Rebuild a foreign player's workstation base FS from its occupancy row
  *  — from the OWNER's identity (decision D6), so the cross-player write L2 walks the
  *  SAME tree the cross-player read materializes, never a caller regeneration. */
-export const buildRegisteredWorkstationFs = (registry: RegistryWorkstation): Directory =>
+export const buildOccupantWorkstationFs = (occupant: OccupantWorkstation): Directory =>
   buildWorkstationBaseFsFromIdentity({
-    ownerKeyHex: registry.owner_key,
-    username: registry.workstation_username,
-    rootPasswordHash: registry.workstation_root_hash,
+    ownerKeyHex: occupant.owner_key,
+    username: occupant.workstation_username,
+    rootPasswordHash: occupant.workstation_root_hash,
   });
 
 /** A 403/500 the caller should return verbatim, or `null` when the write may
@@ -80,8 +80,8 @@ export type L2Denial = { readonly status: number; readonly error: string };
 type ResolvedBase = { readonly fs: Directory | null; readonly error: unknown };
 
 /** Resolve the target's base FS for the L2 perm check: an NPC host on the caller's
- *  own LAN (pure), else a registered foreign workstation via the registry (D6),
- *  else `fs: null` (unresolvable → fail closed). `error` surfaces a registry-lookup
+ *  own LAN (pure), else a foreign player's workstation via occupancy (D6),
+ *  else `fs: null` (unresolvable → fail closed). `error` surfaces a lookup
  *  failure so the caller 500s rather than issuing a false deny. */
 const resolveTargetBaseFs = async (args: {
   readonly machineId: string;
@@ -121,7 +121,7 @@ const resolveTargetBaseFs = async (args: {
   const occupant = await args.findOccupantWorkstationByMachineId(args.machineId);
   if (occupant.error) return { fs: null, error: occupant.error };
   if (occupant.data === null) return { fs: null, error: null };
-  return { fs: buildRegisteredWorkstationFs(occupant.data), error: null };
+  return { fs: buildOccupantWorkstationFs(occupant.data), error: null };
 };
 
 /**

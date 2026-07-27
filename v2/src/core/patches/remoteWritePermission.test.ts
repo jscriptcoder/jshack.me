@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
-  buildRegisteredWorkstationFs,
+  buildOccupantWorkstationFs,
   enforceRemoteWriteL2,
-  type RegistryWorkstation,
+  type OccupantWorkstation,
 } from './remoteWritePermission';
 import { generateIdentity } from '../identity/identity';
 import { computeDeepGatewayId, computeInnerGatewayId, computeApGatewayId } from '../identity/router';
@@ -13,8 +13,8 @@ import { md5 } from '../generation/md5';
 import type { Directory, FileNode } from '../filesystem/types';
 
 /**
- * `buildRegisteredWorkstationFs` rebuilds a registered FOREIGN workstation's base
- * FS from its registry identity row — from the OWNER's identity (decision D6) — so
+ * `buildOccupantWorkstationFs` rebuilds a registered FOREIGN workstation's base
+ * FS from its occupancy row — from the OWNER's identity (decision D6) — so
  * the cross-player WRITE L2 walks the SAME tree the cross-player READ materializes,
  * never a caller regeneration. A wrong field mapping would check perms against the
  * wrong box, so these prove the owner's chosen username + root hash land in the
@@ -29,16 +29,16 @@ const get = (tree: Directory, ...segments: readonly string[]): FileNode | undefi
   return node;
 };
 
-describe('buildRegisteredWorkstationFs', () => {
-  it("rebuilds the owner's box from the registry identity (username + root hash in passwd)", () => {
+describe('buildOccupantWorkstationFs', () => {
+  it("rebuilds the owner's box from the occupant's identity (username + root hash in passwd)", () => {
     const owner = generateIdentity();
-    const registry: RegistryWorkstation = {
+    const occupant: OccupantWorkstation = {
       owner_key: owner.publicKeyHex,
       workstation_username: 'alice',
       workstation_root_hash: md5('hunter2'),
     };
 
-    const tree = buildRegisteredWorkstationFs(registry);
+    const tree = buildOccupantWorkstationFs(occupant);
 
     // The owner's chosen username has a home dir...
     expect(get(tree, 'home', 'alice')?.kind).toBe('directory');
@@ -93,7 +93,7 @@ describe('enforceRemoteWriteL2 — AP gateway', () => {
  * The OWN INNER-GATEWAY L2 branch: a SECOND own-LAN router (a non-`.1` gateway) is
  * journal-backed exactly like the edge. A root `rules.v4` write there must rebuild
  * the inner gateway's seeded tree (from the caller's own key + octet) and walk it at
- * the session tier. The registry stub resolves to NOTHING, so an "allowed" proves the
+ * the session tier. The occupancy stub resolves to NOTHING, so an "allowed" proves the
  * own-LAN resolver built the inner gateway tree rather than failing closed.
  */
 describe('enforceRemoteWriteL2 — own inner gateway', () => {
@@ -142,7 +142,7 @@ describe('enforceRemoteWriteL2 — own inner gateway', () => {
  * The OWN SWITCH L2 branch: a switch is the second inner-gateway device type, also
  * journal-backed and reachable on its own machine id. A root `acl.conf` write there
  * must rebuild the switch's seeded tree (its root-only `/etc/switch/acl.conf`) and
- * walk it at the session tier. The registry stub resolves to NOTHING, so an "allowed"
+ * walk it at the session tier. The occupancy stub resolves to NOTHING, so an "allowed"
  * proves the own-LAN resolver built the SWITCH tree (not a router/workstation).
  */
 describe('enforceRemoteWriteL2 — own switch', () => {
@@ -190,7 +190,7 @@ describe('enforceRemoteWriteL2 — own switch', () => {
  * through a forward on the inner gateway and rooted). It is not a `generateHomeLan` host,
  * so it resolves via the deep-chain walk from the ESSID. Configuring its forwards
  * (`nano rules.v4`) is how a player chains deeper, so a root write there must be allowed;
- * the registry stub resolves to NOTHING, so an "allowed" proves the deep-chain resolver
+ * the occupancy stub resolves to NOTHING, so an "allowed" proves the deep-chain resolver
  * built the gateway tree rather than falling through to a foreign lookup.
  */
 describe('enforceRemoteWriteL2 — a deep chain gateway', () => {
@@ -250,7 +250,7 @@ describe('enforceRemoteWriteL2 — a deep chain gateway', () => {
 
   it("allows a ROOT write to /etc/switch/acl.conf on the caller's own deep chain SWITCH gateway", async () => {
     // A deep gateway seeded as a SWITCH owns an `acl.conf`, not a `rules.v4`. An "allowed"
-    // proves the chain resolver built a SWITCH tree from the caller's key (the registry
+    // proves the chain resolver built a SWITCH tree from the ESSID (the occupancy
     // stub resolves to nothing) — so a player can `nano` a rooted deep switch's ACL.
     const door = chainDoorOfKind('switch');
 
@@ -284,7 +284,7 @@ describe('enforceRemoteWriteL2 — a deep chain gateway', () => {
  * The FOREIGN-ROUTER L2 branch (Story 5.2): B (a DIFFERENT identity) `ssh root`'d
  * into A's router and writes A's `rules.v4`. The target is neither B's own router
  * (`isOwnRouter` is A's, not B's) nor a LAN sibling — it's a registered foreign
- * ROUTER, so L2 must rebuild A's ROUTER tree (from the registry's `owner_key`) and
+ * ROUTER, so L2 must rebuild A's ROUTER tree (from the resolved `owner_key`) and
  * walk it at the session tier. If the code resolved a workstation instead, the
  * router-only `/etc/iptables` dir would be absent → creating `rules.v4` would have
  * no container → denied, so a passing "allowed" proves the router tree was built.
@@ -338,14 +338,14 @@ describe('enforceRemoteWriteL2 — foreign router (cross-player)', () => {
 });
 
 /**
- * The SAME-LAN occupant fallback (cross-player): B and A occupy one ESSID, so A's row
- * was evicted from network_registry (PK = the shared public_ip, last-writer-wins) when
- * B joined after A. The occupancy table (PK (essid, owner_key)) still has A, so L2 must
- * rebuild A's WORKSTATION from the occupant row and walk its real perms — otherwise B's
- * root-tier write to A (e.g. deleting /boot) would falsely 403, breaking the same-LAN
- * brick the session + su already permit.
+ * Writing to a FELLOW OCCUPANT of the same ESSID. B and A are both on one AP, so L2
+ * rebuilds A's WORKSTATION from A's occupancy row — the only record of who A is — and
+ * walks its real perms. Occupancy is keyed (essid, owner_key), so every occupant of a
+ * shared AP has a row and none evicts another; without this resolution B's root-tier
+ * write to A (e.g. deleting /boot) would falsely 403, breaking the same-LAN brick the
+ * session + su already permit.
  */
-describe('enforceRemoteWriteL2 — same-LAN occupant fallback (cross-player)', () => {
+describe('enforceRemoteWriteL2 — writing to a fellow occupant (cross-player)', () => {
   const noPriorPatches = () => Promise.resolve({ data: [], error: null });
   const noOccupant = () => Promise.resolve({ data: null, error: null });
   const occupantRow = (owner: ReturnType<typeof generateIdentity>) => () =>
@@ -354,11 +354,11 @@ describe('enforceRemoteWriteL2 — same-LAN occupant fallback (cross-player)', (
         owner_key: owner.publicKeyHex,
         workstation_username: 'alice',
         workstation_root_hash: md5('hunter2'),
-      } as RegistryWorkstation,
+      } as OccupantWorkstation,
       error: null,
     });
 
-  it("rebuilds A's box from the occupancy fallback when the registry misses, allowing B's root write to /boot", async () => {
+  it("rebuilds A's box from A's occupancy row, allowing B's root write to /boot", async () => {
     const owner = generateIdentity();
     const denial = await enforceRemoteWriteL2({
       machineId: 'skylab-deadbeef',
@@ -371,7 +371,7 @@ describe('enforceRemoteWriteL2 — same-LAN occupant fallback (cross-player)', (
     expect(denial).toBeNull();
   });
 
-  it("still denies a guest write to A's root-only /boot when resolved via the fallback", async () => {
+  it("still denies a guest write to A's root-only /boot, resolved the same way", async () => {
     const owner = generateIdentity();
     const denial = await enforceRemoteWriteL2({
       machineId: 'skylab-deadbeef',
@@ -384,7 +384,7 @@ describe('enforceRemoteWriteL2 — same-LAN occupant fallback (cross-player)', (
     expect(denial).toEqual({ status: 403, error: 'permission_denied' });
   });
 
-  it('fails closed (403) when BOTH the registry and the occupancy fallback miss', async () => {
+  it('fails closed (403) when the machine occupies no network at all', async () => {
 
     const denial = await enforceRemoteWriteL2({
       machineId: 'unknown-machine',
@@ -397,7 +397,7 @@ describe('enforceRemoteWriteL2 — same-LAN occupant fallback (cross-player)', (
     expect(denial).toEqual({ status: 403, error: 'permission_denied' });
   });
 
-  it('500s (no false deny) when the occupancy fallback lookup errors', async () => {
+  it('500s (no false deny) when the occupancy lookup errors', async () => {
 
     const denial = await enforceRemoteWriteL2({
       machineId: 'skylab-deadbeef',

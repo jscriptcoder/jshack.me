@@ -4,9 +4,9 @@
  *
  * The actor's truthful source IP is their OWN home public IP, looked up server-side
  * from their VERIFIED owner key — never a client-supplied `source_ip`, which is
- * forgeable (a client could otherwise frame another network). A missing registry row
- * (no home network) or a lookup error degrades to `unknown`; the action it traces
- * stands regardless.
+ * forgeable (a client could otherwise frame another network). An actor on no home
+ * network, or a lookup error, degrades to `unknown`; the action it traces stands
+ * regardless.
  *
  * Shared by every cross-player trace writer — the scan `kern.log` line
  * (`resolvePublicScan`) and the ssh `auth.log` line (`authCreateSessionPublic`) —
@@ -19,17 +19,17 @@
  * pivot-aware resolver for the future vantage switch — this is the SERVER-side
  * derivation from the verified owner key.
  *
- * Pure/framework-agnostic (core/): the registry lookup is injected.
+ * Pure/framework-agnostic (core/): the network lookup is injected.
  */
 
-export type FindRegistryByOwnerKey = (
+export type FindHomeNetworkByOwnerKey = (
   ownerKey: string,
 ) => Promise<{ readonly data: { readonly public_ip: string } | null; readonly error: unknown }>;
 
 export const resolveCrossPlayerSourceIp = async (
-  findRegistryByOwnerKey: FindRegistryByOwnerKey,
+  findHomeNetworkByOwnerKey: FindHomeNetworkByOwnerKey,
   actorKey: string,
 ): Promise<string> => {
-  const { data, error } = await findRegistryByOwnerKey(actorKey);
+  const { data, error } = await findHomeNetworkByOwnerKey(actorKey);
   return error || data === null ? 'unknown' : data.public_ip;
 };

@@ -18,12 +18,12 @@ import type { OwnerPatchRow } from '../network/materializeWorkstationFs';
 const OWNER = generateIdentity();
 const ESSID = 'CoffeeShopWiFi';
 
-const registry = (over: Partial<ReturnType<typeof baseRegistry>> = {}) => ({
-  ...baseRegistry(),
+const target = (over: Partial<ReturnType<typeof baseTarget>> = {}) => ({
+  ...baseTarget(),
   ...over,
 });
 
-const baseRegistry = () => ({
+const baseTarget = () => ({
   owner_key: OWNER.publicKeyHex,
   essid: ESSID,
   workstation_username: 'neo',
@@ -63,7 +63,7 @@ const bootTombstone: OwnerPatchRow = {
 describe('buildWorkstationPortResolver', () => {
   it("returns the workstation's open ports for its own LAN IP when its sshd is up", () => {
     const resolve = buildWorkstationPortResolver({
-      registry: registry(),
+      target: target(),
       workstationPatches: [sshdUp],
       lanIp: wsLanIp,
     });
@@ -73,7 +73,7 @@ describe('buildWorkstationPortResolver', () => {
 
   it('returns nothing for the LAN IP when the workstation sshd is down (empty journal)', () => {
     const resolve = buildWorkstationPortResolver({
-      registry: registry(),
+      target: target(),
       workstationPatches: [],
       lanIp: wsLanIp,
     });
@@ -83,7 +83,7 @@ describe('buildWorkstationPortResolver', () => {
 
   it('returns nothing for the LAN IP when the workstation is bricked, even though its sshd pidfile lingers', () => {
     const resolve = buildWorkstationPortResolver({
-      registry: registry(),
+      target: target(),
       workstationPatches: [sshdUp, bootTombstone],
       lanIp: wsLanIp,
     });
@@ -95,7 +95,7 @@ describe('buildWorkstationPortResolver', () => {
 
   it('returns nothing for an internal IP that is not the workstation (dead forward)', () => {
     const resolve = buildWorkstationPortResolver({
-      registry: registry(),
+      target: target(),
       workstationPatches: [sshdUp],
       lanIp: wsLanIp,
     });
@@ -105,7 +105,7 @@ describe('buildWorkstationPortResolver', () => {
 
   it('treats a null journal as no running services', () => {
     const resolve = buildWorkstationPortResolver({
-      registry: registry(),
+      target: target(),
       workstationPatches: null,
       lanIp: wsLanIp,
     });

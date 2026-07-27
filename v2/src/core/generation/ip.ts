@@ -7,7 +7,7 @@
  * range or loopback by construction (no validation pass needed).
  *
  * Legacy carried a `usedIps` collision-avoidance loop for batch allocation; it
- * is dropped here until an IP registry needs it (single allocation today).
+ * is dropped here until an IP allocator needs it (single allocation today).
  */
 
 import type { Prng } from './prng';

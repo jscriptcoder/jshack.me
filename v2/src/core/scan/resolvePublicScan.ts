@@ -5,7 +5,7 @@
  * Today `nmap` only reaches a player's OWN regenerated LAN; a public IP is "out of
  * range". This handler is what makes one identity's `nmap <public IP>` resolve
  * against ANOTHER identity's machine: it verifies the caller's signed envelope and
- * looks the target up in the public-IP registry written on join
+ * looks the target up by the public IP allocated to an ESSID on join
  * (`registerNetwork`). The caller's identity is authenticated (envelope + replay
  * guard) but not otherwise consulted — any authenticated player may scan any
  * public IP, exactly like the real internet.
@@ -41,7 +41,7 @@ import {
 } from '../logging/kernLog';
 import {
   resolveCrossPlayerSourceIp,
-  type FindRegistryByOwnerKey,
+  type FindHomeNetworkByOwnerKey,
 } from '../logging/crossPlayerSourceIp';
 import {
   appendMachineLog,
@@ -69,7 +69,7 @@ export type NatHost = {
  *  scope and the `essid` seeds its base FS. `behindNat` is the single host the NAT
  *  forwards to, and is `null` when nobody is currently on the network — then the
  *  gateway still answers on its own ports and every forward reaches nothing. */
-export type RegistryLookup = {
+export type ApNetworkLookup = {
   readonly router_machine_id: string;
   readonly essid: string;
   readonly behindNat: NatHost | null;
@@ -77,9 +77,9 @@ export type RegistryLookup = {
 
 export type ResolvePublicScanDeps = {
   readonly nonceStore: NonceStore;
-  readonly findRegistryByPublicIp: (
+  readonly findNetworkByPublicIp: (
     publicIp: string,
-  ) => Promise<{ readonly data: RegistryLookup | null; readonly error: unknown }>;
+  ) => Promise<{ readonly data: ApNetworkLookup | null; readonly error: unknown }>;
   /** Read the resolved ROUTER's FULL patch journal (scoped to `machine_id`) so the
    *  scan can replay it over the seeded router base — both to ask `canBoot` (a
    *  `/boot` tombstone takes the public IP dark) and to materialize the tree
@@ -97,7 +97,7 @@ export type ResolvePublicScanDeps = {
   /** Resolve the SCANNER's (caller's) own home public IP from their verified owner
    *  key — the truthful source IP of the scan, server-derived so a client cannot
    *  forge it or frame another network. `null` (no home network) → source unknown. */
-  readonly findRegistryByOwnerKey: FindRegistryByOwnerKey;
+  readonly findHomeNetworkByOwnerKey: FindHomeNetworkByOwnerKey;
   /** The LAN octet the TARGET owner leases on its own ESSID — the address the one host
    *  behind its NAT answers to. `null` data means no lease, so every forward reaches
    *  nothing; the same read the same-LAN path resolves addresses from, so a forward and
@@ -133,12 +133,12 @@ type ForwardResolver = (internalIp: string) => readonly OpenPort[];
 
 const resolveForwardTargets = async (
   deps: ResolvePublicScanDeps,
-  registry: RegistryLookup,
+  network: ApNetworkLookup,
   routerFs: Directory,
 ): Promise<ForwardResolver | null> => {
   // No forward rules, or nobody on the network to forward TO — either way every
   // forward reaches nothing and no journal fetch is needed.
-  const behindNat = registry.behindNat;
+  const behindNat = network.behindNat;
   if (behindNat === null || parseForwardRules(readRulesV4(routerFs)).length === 0) {
     return () => [];
   }
@@ -148,12 +148,12 @@ const resolveForwardTargets = async (
   if (workstationPatches.error) return null;
   // Where that box answers is its LEASE, not a re-derivation — so a forward is live
   // only when it names the address the same-LAN path would reach the box at.
-  const lease = await deps.readLease(registry.essid, behindNat.owner_key);
+  const lease = await deps.readLease(network.essid, behindNat.owner_key);
   if (lease.error) return null;
   return buildWorkstationPortResolver({
-    registry: { ...behindNat, essid: registry.essid },
+    target: { ...behindNat, essid: network.essid },
     workstationPatches: workstationPatches.data,
-    lanIp: leasedAddress(registry.essid, lease.data),
+    lanIp: leasedAddress(network.essid, lease.data),
   });
 };
 
@@ -165,7 +165,7 @@ const resolveForwardTargets = async (
  *  never break (or fabricate) the scan. */
 const logCrossPlayerScan = async (
   deps: ResolvePublicScanDeps,
-  registry: RegistryLookup,
+  network: ApNetworkLookup,
   ports: readonly OpenPort[],
   sourceIp: string,
 ): Promise<void> => {
@@ -173,11 +173,11 @@ const logCrossPlayerScan = async (
   // accretes under the occupant behind its NAT. With nobody on the network there is no
   // such key — the scan still reports truthfully, it just leaves no trace, which is the
   // same best-effort posture as a failed write below.
-  const writerKey = registry.behindNat?.owner_key ?? null;
+  const writerKey = network.behindNat?.owner_key ?? null;
   if (writerKey === null) return;
   const line = formatNmapScanAggregate({
     time: asGameTime(deps.now()),
-    hostname: seedApGatewayHostname(registry.essid),
+    hostname: seedApGatewayHostname(network.essid),
     sourceIp,
     probedPorts: ports.map((openPort) => openPort.port),
   });
@@ -186,7 +186,7 @@ const logCrossPlayerScan = async (
       { readLog: deps.readLog, upsertPatch: deps.upsertPatch },
       {
         writerKey,
-        machineId: registry.router_machine_id,
+        machineId: network.router_machine_id,
         path: KERN_LOG_PATH,
         owner: KERN_LOG_OWNER,
         permissions: KERN_LOG_PERMISSIONS,
@@ -209,9 +209,9 @@ export const handleResolvePublicScan = async (
     return { status: STATUS_BY_VERIFY_REASON[verified.reason], body: { error: verified.reason } };
   }
 
-  const { data, error } = await deps.findRegistryByPublicIp(verified.payload.target);
+  const { data, error } = await deps.findNetworkByPublicIp(verified.payload.target);
   if (error) {
-    return { status: 500, body: { error: 'registry_lookup_failed' } };
+    return { status: 500, body: { error: 'network_lookup_failed' } };
   }
   if (data === null) {
     return { status: 200, body: { ok: true, found: false, ports: [] } };
@@ -242,7 +242,7 @@ export const handleResolvePublicScan = async (
   // Host-up: leave a truthful kern.log trace on the TARGET's shared router record
   // (decision 1: written under the owner's key). The source IP is the scanner's own
   // home public IP, server-derived from their verified key — never the payload's.
-  const sourceIp = await resolveCrossPlayerSourceIp(deps.findRegistryByOwnerKey, verified.publicKey);
+  const sourceIp = await resolveCrossPlayerSourceIp(deps.findHomeNetworkByOwnerKey, verified.publicKey);
   await logCrossPlayerScan(deps, data, ports, sourceIp);
 
   return { status: 200, body: { ok: true, found: true, ports } };

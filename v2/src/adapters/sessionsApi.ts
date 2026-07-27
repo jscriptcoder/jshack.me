@@ -129,7 +129,7 @@ export const authCreateServerSession = async (
 };
 
 /** Authenticate a CROSS-PLAYER ssh login server-side (Story 2): the server resolves
- *  the target PUBLIC IP in the registry, rebuilds the owner's workstation, validates
+ *  the target PUBLIC IP to its AP, rebuilds the owner's workstation, validates
  *  the password against its `/etc/passwd`, and on success persists the `kind:'ssh'`
  *  session on the owner's REAL machine id (returned as `machineId` for the prompt
  *  + the hop chain). 401 → bad password/unknown user; 404 → the IP isn't registered.

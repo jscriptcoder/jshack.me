@@ -1,10 +1,10 @@
 // Wire-payload smoke for Story 5.2 — B attacks A's ROUTER (cross-player router
 // takeover). Drives the REAL /api/network + /api/patches endpoints against a running
-// `vercel dev` + supabase, seeding A's registry + B's sessions via service_role.
+// `vercel dev` + supabase, seeding A's occupancy + B's sessions via service_role.
 //
 // Net-new under test (the locally-untypechecked api/ runtime):
 //   - Slice 5.2.1 READ: resolveCrossPlayerFs resolves a ROUTER machine_id (the
-//     discriminated registry reverse-lookup matching router_machine_id) and
+//     discriminated reverse-lookup matching router_machine_id) and
 //     materializes the ROUTER tree (rules.v4 present, root-only appliance → no guest).
 //   - Slice 5.2.2 WRITE: upsertPatch on A's router id takes the L2 foreign-router
 //     branch (buildRouterBaseFs(owner_key)), so B (root) writes A's rules.v4; it
@@ -105,7 +105,7 @@ const WORLD_PID = { read: ['root', 'user', 'guest'], write: ['root'], execute: [
 // B's edit: open a forward exposing A's workstation sshd on the public :2222.
 const FORWARD_RULES = `# /etc/iptables/rules.v4 — NAT port-forward table\nforward 2222 to ${A_LAN}:22\n`;
 
-// Clean slate, then seed A's registry row (as the join would) + B's ROOT session on
+// Clean slate, then seed A's occupancy row (as the join would) + B's ROOT session on
 // A's ROUTER (as the 5.1.2 `ssh root@<A.publicIp>` login would), D's guest session on
 // the router (the denial case), and B's guest session on A's WORKSTATION (regression).
 await sr.from('network_public_ips').delete().eq('public_ip', A_PUBLIC_IP);

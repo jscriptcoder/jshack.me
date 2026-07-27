@@ -168,7 +168,6 @@ const allKeys = [alice.publicKeyHex, squatter.publicKeyHex, ...raceKeys];
 const cleanup = async () => {
   await sr.from('network_lan_leases').delete().in('essid', [SOLO_ESSID, RACE_ESSID]);
   await sr.from('network_public_ips').delete().in('essid', [SOLO_ESSID, RACE_ESSID]);
-  await sr.from('network_registry').delete().in('owner_key', allKeys);
   await sr.from('home_network_occupants').delete().in('owner_key', allKeys);
   await sr.from('patches').delete().eq('machine_id', computeApGatewayId(SOLO_ESSID));
   await sr.from('patches').delete().eq('machine_id', computeApGatewayId(RACE_ESSID));

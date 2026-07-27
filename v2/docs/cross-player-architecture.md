@@ -14,8 +14,8 @@ turns three things shared and server-authoritative:
 
 1. A **shared machine record** — a machine's filesystem patches key on `machine_id`, with
    the writing player demoted from _identity_ to _provenance_.
-2. A **public-IP registry** — `public IP → network → router → machines`, server-persisted
-   and queryable, so a _different_ identity's scan resolves to real machines server-side.
+2. **Server-side network lookup** — `public IP → ESSID → gateway + occupants`, persisted and
+   queryable, so a _different_ identity's scan resolves to real machines server-side.
 3. A **server-side read filter** — the wire is pruned to the caller's tier before it leaves.
 
 **Trust boundary:** the Vercel function + Supabase RLS (service-role only), never the client.
@@ -62,13 +62,17 @@ RLS denies anon/authenticated entirely; only the service-role function touches t
   breaks auth/L1/L2. `isOwnWorkstation(machineId, pubkey)` matches that suffix. Because the
   id already encodes the owner, `(machine_id, …)` is a sound shared key and never merges two
   players' (or per-viewer NPC) boxes.
-- **Public IP** = ESSID-seeded, from a fixed prefix allowlist (`core/generation/ip.ts`,
-  `isPublicIp`). Joining a home network registers a row in **`network_registry`** (PK
-  `public_ip`): `owner_key`, `workstation_machine_id` (indexed), `router_machine_id`
-  (= `computeRouterId(owner_key)` — a DISTINCT machine, Story 5.1.1b), `essid`,
-  `workstation_username`, `workstation_machine_name`, `workstation_root_hash`
-  (`core/network/registerNetwork.ts`, migrations `20260613000000_network_registry.sql` +
-  `20260617000000_drop_network_registry_forward_table.sql`).
+- **Public IP** = one server-allocated address per ESSID, drawn from a fixed prefix
+  allowlist (`core/generation/ip.ts`, `isPublicIp`) and stored in **`network_public_ips`**
+  (PK `essid`, `public_ip` UNIQUE). Joining allocates it if the ESSID has none, then
+  recalls it forever after, so every occupant of an AP shares one WAN address.
+- **Who is on an AP** = **`home_network_occupants`** (PK `(essid, owner_key)`, plus an index
+  on `workstation_machine_id` for the reverse lookup): `workstation_machine_id`,
+  `workstation_username`, `workstation_machine_name`, `workstation_root_hash`. Written on
+  join, deleted on `nmcli disconnect` — so its rows mean "this machine is on this WiFi", and
+  every cross-player resolver reads it (`core/network/registerNetwork.ts`, migrations
+  `20260621120000_home_network_occupants.sql` + `20260625000000_network_public_ips.sql`).
+  The AP's gateway is not stored at all: `computeApGatewayId(essid)` derives it.
 - **NAT (Story 5.1):** the router is a real, journal-backed machine
   (`router_machine_id = computeRouterId(owner_key)`, `core/identity/router.ts`) that bears the
   public IP and runs its own seeded `sshd:22`. Forwards are NOT a registry column — they parse
@@ -120,7 +124,7 @@ internalPort}`; else `none` (router-own wins a same-port tie). It shares `readRu
   validate against the router's seeded admin password and land the session on
   **`router_machine_id`**; a **forwarded port (Story 5.1.3c)** → the workstation behind the
   router (below); neither → `404 host_unreachable` (so an unforwarded `-p 2222` is refused before
-  any password check — the opt-in default). The registry projection here now carries the
+  any password check — the opt-in default). The lookup projection here now carries the
   workstation fields too (`{ owner_key, router_machine_id, essid, workstation_machine_id,
 workstation_username, workstation_root_hash }`) — a structural superset of the scan path's
   `WorkstationTarget`. The client never claims a tier.
@@ -191,7 +195,7 @@ bricking are Story 4 (they use the obtained root password).
 ## 5. The read path (3-tier filter)
 
 `core/network/resolveCrossPlayerFs.ts` serves A's filesystem to B. B has neither A's seed nor
-A's rows, so the **server** is the only party that can materialize A's box: registry
+A's rows, so the **server** is the only party that can materialize A's box: occupancy
 reverse-lookup → rebuild A's baseline from the owner's identity → replay A's machine-scoped
 journal (chronologically) → **prune to the caller's tier** → serialize and ship. Since Story 5.2
 the reverse-lookup is **discriminated** (`RegistryMachine = workstation | router`, matching both
@@ -259,7 +263,7 @@ escalate on A's box and permanently brick it.
   gate) is the in-game trigger: it forces a cold boot of the current machine (own box via `env.fs`,
   cross-player via the server-served tree) and then disconnects from the rebooted box.
 - **A bricked box goes dark to others:** the two public-IP server gates materialize the target and
-  ask `canBoot` BEFORE doing their work (same registry-rebuild + journal replay the read path uses).
+  ask `canBoot` BEFORE doing their work (same lookup-then-rebuild + journal replay the read path uses).
   Post-5.1.1b/5.1.2 both gates key on the **router** (`core/network/materializeRouterFs.ts`) — it
   is the public face — so bricking the router alone takes the whole public IP dark: `resolvePublicScan`
   → host-down / no ports (even with lingering `/var/run` pidfiles); `authCreateSessionPublic` →
@@ -419,7 +423,7 @@ mitigation is a server-side game-logic re-run.
 | Write handler          | `core/patches/upsertPatch.ts`                                                      |
 | Remove (tombstone)     | `core/patches/removePatch.ts`                                                      |
 | L1 session gate        | `core/patches/authorizeMachineAccess.ts`                                           |
-| L2 walker + registry   | `core/patches/remoteWritePermission.ts`                                            |
+| L2 walker + occupancy  | `core/patches/remoteWritePermission.ts`                                            |
 | Read filter (3-tier)   | `core/patches/readFilter.ts`                                                       |
 | Cross-player read      | `core/network/resolveCrossPlayerFs.ts`                                             |
 | Shared materialize     | `core/network/materializeWorkstationFs.ts`                                         |

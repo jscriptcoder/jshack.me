@@ -8,7 +8,7 @@
 // kernel is gone:
 //   - POST /api/network  (resolvePublicScan)        → host-down / no ports
 //   - POST /api/sessions (authCreateSessionPublic)   → 404 host_unreachable
-// api/ runtime correctness (column names, the narrowed registry select, real signed
+// api/ runtime correctness (column names, the narrowed occupancy select, real signed
 // envelopes) isn't covered by typecheck or unit tests, so this drives the REAL
 // endpoints against a running `vercel dev`: first a HEALTHY A answers (router :22
 // scan + root login; an unforwarded -p 2222 is host_unreachable), then a
