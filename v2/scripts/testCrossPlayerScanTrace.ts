@@ -91,29 +91,31 @@ const C_PUBLIC_IP = '192.0.2.92';
 const A_ROUTER_HOST = seedApGatewayHostname(A_ESSID);
 
 // Clean slate, then seed the three registry rows (as each player's join would).
-await sr.from('network_registry').delete().in('public_ip', [A_PUBLIC_IP, B_PUBLIC_IP, C_PUBLIC_IP]);
+await sr.from('network_public_ips').delete().in('public_ip', [A_PUBLIC_IP, B_PUBLIC_IP, C_PUBLIC_IP]);
+await sr.from('home_network_occupants').delete().in('essid', [A_ESSID, B_ESSID, C_ESSID]);
 await sr.from('patches').delete().eq('machine_id', A_ROUTER);
-const registryRow = (
-  publicIp: string,
-  owner: ReturnType<typeof generateIdentity>,
-  essid: string,
-  wsName: string,
-) => ({
-  public_ip: publicIp,
+// The join state a real `registerNetwork` writes for each player: their AP's public IP,
+// plus themselves as an OCCUPANT of its ESSID. Occupancy is what makes a box reachable,
+// and it is where the scanner's own source IP is derived from.
+const occupantRow = (owner: ReturnType<typeof generateIdentity>, essid: string, wsName: string) => ({
+  essid,
   owner_key: owner.publicKeyHex,
   workstation_machine_id: computeWorkstationId(wsName, owner.publicKeyHex),
-  router_machine_id: computeApGatewayId(essid),
-  essid,
   workstation_username: 'player',
   workstation_machine_name: wsName,
   workstation_root_hash: md5('root-secret'),
 });
+await sr.from('network_public_ips').insert([
+  { essid: A_ESSID, public_ip: A_PUBLIC_IP },
+  { essid: B_ESSID, public_ip: B_PUBLIC_IP },
+  { essid: C_ESSID, public_ip: C_PUBLIC_IP },
+]);
 await sr
-  .from('network_registry')
+  .from('home_network_occupants')
   .insert([
-    registryRow(A_PUBLIC_IP, alice, A_ESSID, 'skylab'),
-    registryRow(B_PUBLIC_IP, bob, B_ESSID, 'nebuchadnezzar'),
-    registryRow(C_PUBLIC_IP, carol, C_ESSID, 'serenity'),
+    occupantRow(alice, A_ESSID, 'skylab'),
+    occupantRow(bob, B_ESSID, 'nebuchadnezzar'),
+    occupantRow(carol, C_ESSID, 'serenity'),
   ]);
 
 // === 1. B scans A (host up) → one kern.log line on A's ROUTER under A's writer_key. ===
@@ -169,7 +171,8 @@ check(
 );
 
 // Cleanup.
-await sr.from('network_registry').delete().in('public_ip', [A_PUBLIC_IP, B_PUBLIC_IP, C_PUBLIC_IP]);
+await sr.from('network_public_ips').delete().in('public_ip', [A_PUBLIC_IP, B_PUBLIC_IP, C_PUBLIC_IP]);
+await sr.from('home_network_occupants').delete().in('essid', [A_ESSID, B_ESSID, C_ESSID]);
 await sr.from('patches').delete().eq('machine_id', A_ROUTER);
 
 const passed = results.filter((result) => result.pass).length;

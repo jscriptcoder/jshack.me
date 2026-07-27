@@ -8,12 +8,14 @@ Slice 3b-i ✅ MERGED (PR #329, `21e3f9e`, v0.91.0),
 Slice 3b-ii ✅ MERGED (PR #330, `879dcc4`, v0.92.0),
 Slice 4 ✅ MERGED (PR #331, `6733821`, v0.93.0),
 Slice 5 ✅ MERGED (PR #332, `2f79349`, v0.94.0).
-**Next: Slice 6a — re-home the registry-backed lookups. Nothing is in flight; `main` is clean at
-`2f79349`. Cut a branch, then start at the Reduction Program section and read 6a/6b in that
-order — this PAIR is `reduce-system-complexity` work, NOT behaviour change, so there is no RED
-to write and a fabricated one would be a process violation. Slice 5 finished the sharing work:
-the whole world an ESSID generates, from its `/24` down to the last deep gateway, is one world
-for every occupant, and no generator in `core/` takes an owner key.**
+**Next: Slice 6a — re-home the registry-backed lookups. IN FLIGHT on branch
+`refactor/registry-lookup-rehome`, cut from `main` at `4815cfd`; nothing implemented yet. Start
+at the Reduction Program section and read 6a/6b in that order — this PAIR is
+`reduce-system-complexity` work, NOT behaviour change, so there is no RED to write and a
+fabricated one would be a process violation. The FIRST act of 6a is the diagnosis +
+conservation ledger, recorded back into this file. Slice 5 finished the sharing work: the whole
+world an ESSID generates, from its `/24` down to the last deep gateway, is one world for every
+occupant, and no generator in `core/` takes an owner key.**
 **Parent**: `plans/multiplayer-crossplayer-epic.md` item #5 (decision record; grilled & resolved 2026-07-25)
 **Follows**: item #4 (unique public-IP allocation, v0.87.0)
 **Precedes**: item #6 (procedural world expansion) — do NOT pull it in here
@@ -103,6 +105,137 @@ pass unchanged in behavior, plus the full unit suite.
 migration's worth of write path, three dependency shapes collapsed to two sources, and one
 retired architecture invariant (`conventions-and-gotchas.md` §7 occupancy-fallback rule), with
 nothing equivalent reintroduced elsewhere.
+
+### Diagnosis + conservation ledger (2026-07-27, read-only — no code changed)
+
+**Mode**: diagnosis. **Artifact class**: diagnosis for the transition slice 6a; terminal slice
+is 6b. **Excluded**: everything outside the three lookups — the join write path, allocation,
+patches, and every own-LAN resolver are untouched by 6a.
+
+#### Behavior and guarantee ledger
+
+| # | Behavior | Class | Trigger | Conserved outcome | Evidence | Fidelity gap |
+|---|---|---|---|---|---|---|
+| B1 | A public IP resolves to the AP gateway; its journal decides `canBoot` and its ports | documented contract | `nmap <public ip>` | Same gateway machine id, same ports, bricked → dark | `testPublicIpAllocation`, `testRouterBrick`, `testBrickedDark` | none — see M1 |
+| B2 | A NAT forward is live only while the box behind it serves the port at its leased address | documented contract | same | Same live/dead verdict per forward | `testCrossPlayerRead`, UI smoke | **G1** — *which* box, below |
+| B3 | Public `ssh <public ip>` auths against the box behind the forward, or the gateway at `:22` | documented contract | `ssh` to a public IP | Same auth verdict, same session `essid` | `testCrossPlayerRead/Write/SuElevate` | **G1** |
+| B4 | A cross-player trace records the actor's own home public IP as source | relied-upon | any cross-player scan/ssh/su | Same source IP string, `unknown` when none | `testCrossPlayerScanTrace`, `testCrossPlayerConnectionTrace`, `testCrossPlayerSuTrace` | **G2** |
+| B5 | A held `machine_id` resolves to its owner's workstation tree for read/write/elevate | documented contract | cross-player read, write, `su` | Same tree, same tier, same 403s | `testCrossPlayerRead/Write`, `testSameLanCrossPlayerFs` | none |
+| B6 | A held `machine_id` that is an AP gateway resolves to the ESSID-seeded gateway tree | documented contract | `ssh root@<gateway>` then read/write | Same tree, same perms | `testCrossPlayerRouter`, `testSharedJournal` | **G3** |
+| B7 | An occupant evicted from `network_registry` by a later joiner is still resolvable | relied-upon (PR #306) | same-LAN cross-player write | Unchanged | `testSameLanCrossPlayerFs` | none — becomes the only path |
+
+#### Whole-mechanism baseline (same scope + counting method to be re-run at 6b)
+
+| Dimension | Before | Target after 6b | Method |
+|---|---|---|---|
+| Structure | 4 tables read on these paths (`network_registry`, `network_public_ips`, `home_network_occupants`, `network_lan_leases`); 1 index; 3 dependency shapes; 8 `core/` consumer modules; 3 `api/` routes | 3 tables; 0 registry index; 2 shapes; 8 modules; 3 routes | `grep -rl` over `v2/{src,api}`, table list from `supabase/migrations/` |
+| Control | `findRegistryByMachineId` = 2 sequential `.eq` lookups + a discriminant, plus a 3rd fallback query on miss | 1 lookup, no fallback branch, no discriminant | count of awaited queries + branches in the adapter |
+| State and time | Registry row is last-writer-wins per `public_ip` and persists after disconnect; occupancy is per-occupant and deleted on disconnect | one lifetime rule per fact | migration comments + `registerNetwork` |
+| Variability and operations | 1 write path (`upsertRegistry`), 1 architecture invariant (§7 occupancy fallback), 17 wire-check scripts seeding the table | 0 / 0 / 0 | `grep -rl network_registry` |
+
+#### Minimum-mechanism sketch
+
+Every column the three lookups read is already derivable or already stored:
+
+- **`router_machine_id`** — `registerNetwork` writes `computeApGatewayId(essid)`. Pure function of the ESSID since Slice 1, so it is a *stored derivation*, not a fact. `network_public_ips` maps `public_ip → essid`. **No lookup needed.**
+- **`essid`** — `network_public_ips` (PK `essid`, `public_ip UNIQUE`) answers both directions.
+- **`owner_key` + `workstation_*`** — `home_network_occupants` holds these per occupant, with every occupant coexisting. The existing PR #306 fallback already reads exactly the `RegistryWorkstation` shape from it.
+- **The gateway's reverse lookup (`router_machine_id → essid`)** is the one thing occupancy cannot answer, and **it should not need answering**: a caller can only read or write a gateway while holding a session on it, and `sessions.essid` already records which network the target was generated for. `remoteWritePermission` already resolves gateways this way (`lanBaseFsForMachineId(session.essid, …)`) and never reaches the registry's router arm. `resolveCrossPlayerFs` is the sole consumer that still needs it, only because its `ActiveSession` is narrowed to `{ userType }` while its adapter already queries the very session row that carries `essid`.
+
+**Shortest path**: `public_ip →(network_public_ips) essid → computeApGatewayId` for the gateway;
+`machine_id →(home_network_occupants) owner identity` for a workstation; `session.essid` for a
+gateway the caller stands on. Two tables, three single-column lookups, no discriminant, no
+fallback.
+
+#### Decisions — resolved 2026-07-27, 6a is authorized to implement
+
+- **G1 — which box is behind the NAT: conserve last-writer-wins.**
+  `findRegistryByPublicIp` returns exactly one occupant's identity, and on a shared AP that is
+  *whoever joined last*. A forward naming any other occupant's leased address is dead today.
+  Occupancy holds all N, so re-homing had a fork; the arbitrariness is **conserved**, not
+  fixed, by reading `home_network_occupants WHERE essid = $1 ORDER BY updated_at DESC LIMIT 1`.
+  This keeps 6a a true behaviour-preserving transition and leaves the wire-checks unchanged as
+  its behaviour gate. The alternative — resolving the forward's `internalIp` through
+  `network_lan_leases` to whichever occupant leases that octet — makes currently-dead forwards
+  live, which is a behaviour change owing RED under `tdd`. **Deferred to its own item** (logged
+  in the deferred backlog); it must NOT ride inside this reduction.
+- **G2 — source IP after disconnect: read `network_lan_leases`, not occupancy.** Registry rows
+  persist; occupancy rows are deleted on disconnect, so re-homing B4 onto occupancy would
+  silently turn a disconnected actor's trace source into `unknown`. Leases are permanent and
+  keyed `(essid, owner_key)` — the same lifetime as the registry row being replaced — so the
+  sticky "your home network" behaviour is conserved exactly.
+- **G3 — a null `sessions.essid` is unresolvable.** The column was added by `ALTER TABLE … ADD
+  COLUMN essid TEXT`, so pre-existing rows carry null. Passing the session essid into
+  `resolveCrossPlayerFs` treats null as unresolvable and lands on the existing fail-closed
+  path. No compat burden pre-launch.
+- **G4 — the two stores have different LIFETIMES, and the registry's is the wrong one.**
+  Found during implementation, after the ledger above was written: `network_registry` rows are
+  never deleted, while `unregisterOccupant` deletes the occupancy row. Crucially,
+  `unregisterOccupant` fires from `nmcli disconnect` and `reboot` ALONE — never on logout, tab
+  close, or session end (`src/adapters/networkApi.ts:112`, `src/core/commands/nmcli.ts:156`,
+  `src/core/commands/reboot.ts:98`). So occupancy means "on this WiFi", not "currently
+  playing", and it is the CORRECT source of reachability per the new §7 invariant.
+  Consequence: a player who ran `nmcli disconnect` — whose machine has left the network and is
+  by the game's rule unreachable — is nevertheless still resolvable and attackable today
+  through the stale registry row, forwards included. Re-homing onto occupancy **fixes** that.
+  **This makes 6a a reduction PLUS one deliberate behaviour fix, so it owes a RED test** for
+  the one observable delta (a machine on no network resolves to nothing and fails closed). It
+  needs no schema change, no new column and no new table: everything else that makes a box
+  attackable — the patch journal that carries its hardening, the LAN lease, the public IP, the
+  ESSID-seeded gateway — is already permanent.
+
+**Class correction**: 6a is therefore **reduction transition + behaviour fix**, not a pure
+transition. `tdd` RED is NO LONGER `N/A` for the G4 delta specifically; it remains `N/A` for
+the re-homing itself, which is behaviour-preserving. 6b is unaffected and stays a terminal
+reduction.
+
+#### Scope correction this diagnosis forces
+
+The plan assigned the PR #306 occupancy-fallback removal to **6b**. It belongs to **6a**: once
+`findRegistryByMachineId`'s workstation arm reads occupancy directly, the fallback is not a
+fallback — it is the only path, and the branch disappears as part of the re-homing rather than
+after it. 6b keeps the table, index, write path, type, and the §7 invariant text.
+
+Nothing in this diagnosis claims equivalence or realized reduction; 6a's mechanism gate stays
+pending until 6b.
+
+#### Slice 6a as-built (2026-07-27, v0.95.0)
+
+**Class as delivered**: reduction transition + one behaviour fix (G4). `behavior gate: pass`.
+`mechanism gate: pending — no net-reduction claim` (6b is terminal).
+
+What changed, against what the diagnosis predicted:
+
+- **Three lookups → one.** `findRegistryByPublicIp` now reads `network_public_ips` → essid →
+  `computeApGatewayId`; `findRegistryByOwnerKey` reads occupancy → essid → public IP;
+  `findRegistryByMachineId` is **deleted**, its workstation arm absorbed by the existing
+  `findOccupantWorkstationByMachineId` and its router arm replaced by the session's ESSID.
+  Eight `core/` modules lost a dep; the PR #306 fallback branch is gone as predicted.
+- **G2 revised by G4.** The ledger said read the actor's network from `network_lan_leases`
+  because occupancy is deleted on disconnect. Once the invariant landed — occupancy means "on
+  this WiFi" — that reasoning inverted: a player who disconnected genuinely has no home
+  network, so **occupancy is correct** and a lease would have kept a stale source IP alive.
+- **The diagnosis was wrong about one thing.** It claimed `remoteWritePermission` already
+  resolved gateways from the session and never reached the registry's router arm. True for
+  INNER gateways only: `lanBaseFsForMachineId` deliberately skips octet `.1`, so the AP
+  gateway had no own-LAN path and the registry WAS carrying it. Caught by a unit test going
+  red, not by review. Fixed with an explicit `computeApGatewayId(session.essid)` arm.
+- **An unpredicted shape change.** `RegistryLookup`/`RegistryTarget` gained a nested
+  `behindNat: NatHost | null`. The AP gateway is infrastructure and must answer whether or not
+  anyone is on the WiFi; only the host behind its NAT is contingent. The flat shape could not
+  express that without four independently-nullable fields. With nobody home, forwards reach
+  nothing and the scan/auth trace is skipped (there is no owner key to write it under) — the
+  same best-effort posture those writers already had.
+- **17 wire-check scripts seeded `network_registry` directly.** The plan scheduled that for
+  6b; it had to happen here, because 6a is where the reads moved.
+
+Evidence: RED first (`scripts/testDisconnectedUnreachable.ts`, 6 checks — the read returned
+200 and the write LANDED A ROW on a machine that had left the network; both now fail closed).
+**1961 unit tests green.** **Mutation: 0 survivors** across all five changed modules —
+`resolveCrossPlayerFs` (74 killed), `remoteWritePermission` (50, 100%), `resolvePublicScan`
+(80), `authCreateSessionPublic` (145), `authElevateSession` (75); residual non-100% scores are
+timeouts plus one no-coverage mutant, no survivors. **Wire-checks: 26 scripts / 180 checks, all
+green** (was 25/174). Typecheck + lint clean.
 
 ## Slices
 
@@ -932,6 +1065,13 @@ unreachable.
 observable results — the necessary, independently verifiable step before the table can go.
 **Path**: The three lookup shapes (`findRegistryByPublicIp`, `findRegistryByOwnerKey`,
 `findRegistryByMachineId`) read `network_public_ips` + `home_network_occupants` instead.
+**As-found scope (verified 2026-07-27, before any change)**: exactly three lookup shapes exist
+— `findRegistryByMachineId` (84 references), `findRegistryByPublicIp` (26),
+`findRegistryByOwnerKey` (26). Eight `core/` modules take one as an injected dep:
+`resolvePublicScan`, `authCreateSessionPublic`, `authElevateSession`, `resolveCrossPlayerFs`,
+`remoteWritePermission`, `upsertPatch`, `removePatch`, `crossPlayerSourceIp`. Three `api/`
+routes wire them: `network.ts`, `patches.ts`, `sessions.ts`. The ledger produced at the start
+of this slice supersedes this note if it finds more.
 **Class**: Reduction transition.
 **Required implementation skills**: `reduce-system-complexity` (governing), plus `testing` and
 `mutation-testing` for preservation evidence. `tdd` RED is **`N/A`** — no behavior changes;
@@ -977,8 +1117,9 @@ nothing equivalent reintroduced); the 6a bridge is gone.
 - Every wire-check and unit test passes unchanged in behavior.
 **Preservation baseline**: As 6a.
 **Preservation change**: Drop the table, index, write path, and type; delete the fallback
-branch; update all `scripts/test*.ts` that seed `network_registry` directly (**14 scripts
-reference it** — grep before scoping).
+branch; update all `scripts/test*.ts` that seed `network_registry` directly (**17 scripts
+reference it** as of 2026-07-27, not the 14 first estimated here — re-grep before scoping, the
+count has grown once already).
 **MUTATE or alternate evidence**: `N/A` for mutation on deleted code; evidence is the passing
 wire-check suite plus the mechanism accounting.
 **Done when**: both gates pass, superseded machinery gone, docs updated, human approves.

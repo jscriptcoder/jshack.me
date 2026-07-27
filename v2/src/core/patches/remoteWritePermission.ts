@@ -9,11 +9,12 @@
  * is resolved two ways:
  *   1. an NPC host on the CALLER's own regenerated LAN (`hostForMachineId` →
  *      `buildRemoteHostFs`) — an ssh hop to a generated machine, pure;
- *   2. a registered FOREIGN player workstation, rebuilt from the OWNER's identity
- *      via the registry (decision D6) — a cross-player write to another player's
- *      box. `hostForMachineId` misses (it's not on the caller's LAN), so we
- *      reverse-look-up the registry and rebuild A's tree the SAME way the
- *      cross-player READ does, then walk it at the session tier.
+ *   2. a FOREIGN player workstation, rebuilt from the OWNER's identity held in
+ *      `home_network_occupants` (decision D6) — a cross-player write to another
+ *      player's box. The own-LAN resolvers miss (it's not on the caller's LAN), so we
+ *      reverse-look-up occupancy and rebuild A's tree the SAME way the cross-player
+ *      READ does, then walk it at the session tier. Occupancy doubles as the
+ *      reachability test: a machine taken off the WiFi resolves to nothing.
  * A target that resolves as neither can't be perm-checked, so the write is denied
  * (fail closed). Own-workstation writes never reach here (L1 bypasses L2).
  */
@@ -26,6 +27,7 @@ import {
 } from '../generation/lanHostIdentity';
 import { buildWorkstationBaseFsFromIdentity } from '../generation/workstationFs';
 import { buildApGatewayBaseFs } from '../generation/routerFs';
+import { computeApGatewayId } from '../identity/router';
 import { asAbsPath } from '../types';
 import type { Directory } from '../filesystem/types';
 import type { ActiveSession } from './authorizeMachineAccess';
@@ -51,27 +53,12 @@ export type RegistryWorkstation = {
   readonly workstation_root_hash: string;
 };
 
-/** A registered machine resolved by machine_id for the L2 perm check — a player's
- *  WORKSTATION, or the AP GATEWAY someone has `ssh root`'d into. The caller holds
- *  only the machine_id and can't know which, so the reverse-lookup discriminates and
- *  the walker rebuilds the matching tree. The gateway base is seeded from the ESSID
- *  alone, so its arm carries only that. Per-module (mirrors
- *  `resolveCrossPlayerFs`'s `RegistryMachine`). */
-export type RegistryMachine =
-  | ({ readonly kind: 'workstation' } & RegistryWorkstation)
-  | { readonly kind: 'router'; readonly essid: string };
-
-export type FindRegistryByMachineId = (
-  machineId: string,
-) => Promise<{ readonly data: RegistryMachine | null; readonly error: unknown }>;
-
-/** Same-LAN fallback when the registry has no row for the machine. The registry's PK is
- *  the ESSID-shared `public_ip` (last-writer-wins), so a fellow occupant who joined a
- *  shared AP before a later joiner is evicted from it — but never from
- *  `home_network_occupants` (PK `(essid, owner_key)`), which carries the identity fields
- *  needed to rebuild A's tree. Only ever a WORKSTATION — routers live solely in the
- *  registry. Without it a same-LAN cross-player write to an evicted occupant (e.g. a
- *  root `rm /boot`) can't resolve A's tree and falsely fails closed (403). */
+/** Whose workstation this is, from `home_network_occupants` (PK `(essid, owner_key)`),
+ *  which carries the identity fields needed to rebuild A's tree. Occupancy means "this
+ *  machine is on that WiFi" — exactly the condition that makes a box writable — so a
+ *  player who ran `nmcli disconnect` resolves to nothing here and the write fails
+ *  closed. Only ever a WORKSTATION: every gateway on the session's own ESSID is already
+ *  resolved above it, from the ESSID itself. */
 export type FindOccupantWorkstationByMachineId = (
   machineId: string,
 ) => Promise<{ readonly data: RegistryWorkstation | null; readonly error: unknown }>;
@@ -99,13 +86,21 @@ type ResolvedBase = { readonly fs: Directory | null; readonly error: unknown };
 const resolveTargetBaseFs = async (args: {
   readonly machineId: string;
   readonly session: ActiveSession;
-  readonly findRegistryByMachineId: FindRegistryByMachineId;
   readonly findOccupantWorkstationByMachineId: FindOccupantWorkstationByMachineId;
 }): Promise<ResolvedBase> => {
   // Any host on the session's LAN — a journal-backed edge router or inner gateway (a
   // `ssh root@<gateway>` hop), or an NPC sibling — rebuilds from the ESSID via the shared
   // resolver, the SAME tree the client edits, so a root-tier `rules.v4` write walks the
   // real router perms.
+  // The AP gateway at `.1`. The LAN walker deliberately skips that octet — the gateway
+  // belongs to the access point rather than sitting on its LAN as a host — so it gets
+  // its own arm. Standing on it means holding a session opened against it, and that
+  // session records the ESSID, which is the whole seed its tree needs. The id is a pure
+  // function of the ESSID, so a gateway on any OTHER network cannot be reached by
+  // claiming its id here.
+  if (computeApGatewayId(args.session.essid) === args.machineId) {
+    return { fs: buildApGatewayBaseFs(args.session.essid), error: null };
+  }
   const lanFs = lanBaseFsForMachineId(args.session.essid, args.machineId);
   if (lanFs !== null) {
     return { fs: lanFs, error: null };
@@ -118,22 +113,11 @@ const resolveTargetBaseFs = async (args: {
   if (deepGatewayFs !== null) {
     return { fs: deepGatewayFs, error: null };
   }
-  const registry = await args.findRegistryByMachineId(args.machineId);
-  if (registry.error) return { fs: null, error: registry.error };
-  if (registry.data !== null) {
-    // A registered foreign ROUTER (B `ssh root`'d into A's router) rebuilds from the
-    // owner's key alone; a foreign workstation from its persisted identity (D6). Both
-    // rebuild the OWNER's tree, so the write walks the SAME perms the owner sees —
-    // never a caller regeneration (Story 5.2).
-    const fs =
-      registry.data.kind === 'router'
-        ? buildApGatewayBaseFs(registry.data.essid)
-        : buildRegisteredWorkstationFs(registry.data);
-    return { fs, error: null };
-  }
-  // Registry miss → same-LAN occupancy fallback: a shared-AP occupant evicted from the
-  // registry by a later joiner (see the dep doc). Always a workstation. A genuine miss
-  // here (no occupant either) leaves `fs: null` → the caller fails the write closed.
+  // Not a machine the session's own network generates, so it is another player's
+  // workstation. Occupancy is both the identity source and the reachability test: it
+  // rebuilds the OWNER's tree (D6), so the write walks the SAME perms the owner sees
+  // rather than a caller regeneration — and a machine whose owner has taken it off the
+  // WiFi resolves to nothing, leaving `fs: null` so the caller fails the write closed.
   const occupant = await args.findOccupantWorkstationByMachineId(args.machineId);
   if (occupant.error) return { fs: null, error: occupant.error };
   if (occupant.data === null) return { fs: null, error: null };
@@ -152,7 +136,6 @@ export const enforceRemoteWriteL2 = async (args: {
   readonly path: string;
   readonly session: ActiveSession | null;
   readonly listMachinePatches: ListMachinePatches;
-  readonly findRegistryByMachineId: FindRegistryByMachineId;
   readonly findOccupantWorkstationByMachineId: FindOccupantWorkstationByMachineId;
 }): Promise<L2Denial | null> => {
   if (args.session === null) return null;
@@ -163,7 +146,6 @@ export const enforceRemoteWriteL2 = async (args: {
   const base = await resolveTargetBaseFs({
     machineId: args.machineId,
     session: args.session,
-    findRegistryByMachineId: args.findRegistryByMachineId,
     findOccupantWorkstationByMachineId: args.findOccupantWorkstationByMachineId,
   });
   if (base.error) return { status: 500, error: 'permission_check_failed' };

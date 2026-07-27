@@ -3,10 +3,8 @@ import { handleRemovePatch, type RemovePatchDeps } from './removePatch';
 import type { ActiveSessionQuery, FindActiveSessionResult } from './authorizeMachineAccess';
 import type {
   FindOccupantWorkstationByMachineId,
-  FindRegistryByMachineId,
   ListMachinePatchesResult,
   RegistryWorkstation,
-  RegistryMachine,
 } from './remoteWritePermission';
 import type { PatchRow } from './upsertPatch';
 import { signRequest } from '../signedRequest/sign';
@@ -64,7 +62,6 @@ const makeDeps = (
     readonly upsertError?: unknown;
     readonly activeSession?: FindActiveSessionResult;
     readonly machinePatches?: ListMachinePatchesResult;
-    readonly registry?: RegistryMachine | null;
     readonly occupant?: RegistryWorkstation | null;
   } = {},
 ) => {
@@ -83,14 +80,8 @@ const makeDeps = (
   const listMachinePatches = vi.fn<() => Promise<ListMachinePatchesResult>>(
     async () => over.machinePatches ?? { data: [], error: null },
   );
-  // Default: not a registered foreign workstation (an NPC host or unknown id);
-  // cross-player rm tests override this with A's registry row.
-  const findRegistryByMachineId = vi.fn<FindRegistryByMachineId>(async () => ({
-    data: over.registry ?? null,
-    error: null,
-  }));
-  // Default: not a same-LAN occupant either (a registry miss fails closed); the
-  // shared-AP-eviction test overrides this with A's occupancy row.
+  // Default: not an occupant's workstation (an NPC host, an unknown id, or a machine
+  // whose owner has left the WiFi); cross-player rm tests override this with A's row.
   const findOccupantWorkstationByMachineId = vi.fn<FindOccupantWorkstationByMachineId>(
     async () => ({
       data: over.occupant ?? null,
@@ -101,7 +92,6 @@ const makeDeps = (
     nonceStore: over.nonceStore ?? freshStore,
     findActiveSession,
     listMachinePatches,
-    findRegistryByMachineId,
     findOccupantWorkstationByMachineId,
     deletePatchTree,
     upsertPatch,
@@ -112,7 +102,6 @@ const makeDeps = (
     upsertPatch,
     findActiveSession,
     listMachinePatches,
-    findRegistryByMachineId,
     findOccupantWorkstationByMachineId,
   };
 };
@@ -354,8 +343,8 @@ describe('handleRemovePatch', () => {
       path: '/tmp/pwned',
       owner: 'guest',
     });
-    const { deps, deletePatchTree, upsertPatch, findRegistryByMachineId, findActiveSession } =
-      makeDeps({ activeSession: remoteSession('guest'), registry });
+    const { deps, deletePatchTree, upsertPatch, findOccupantWorkstationByMachineId, findActiveSession } =
+      makeDeps({ activeSession: remoteSession('guest'), occupant: registry });
 
     const result = await handleRemovePatch(envelope, deps);
 
@@ -371,7 +360,7 @@ describe('handleRemovePatch', () => {
     expect(row.path).toBe('/tmp/pwned');
     // The foreign workstation is resolved via the registry reverse-lookup, and the
     // tier comes from the visitor's SERVER session — never a client claim.
-    expect(findRegistryByMachineId).toHaveBeenCalledWith(machineId);
+    expect(findOccupantWorkstationByMachineId).toHaveBeenCalledWith(machineId);
     expect(findActiveSession).toHaveBeenCalledWith({
       player_key: visitor.publicKeyHex,
       machine_id: machineId,
@@ -391,7 +380,6 @@ describe('handleRemovePatch', () => {
     });
     const { deps, upsertPatch, findOccupantWorkstationByMachineId } = makeDeps({
       activeSession: remoteSession('root'),
-      registry: null,
       occupant: registry,
     });
 
@@ -414,7 +402,7 @@ describe('handleRemovePatch', () => {
     });
     const { deps, deletePatchTree, upsertPatch } = makeDeps({
       activeSession: remoteSession('guest'),
-      registry,
+      occupant: registry,
     });
 
     const result = await handleRemovePatch(envelope, deps);

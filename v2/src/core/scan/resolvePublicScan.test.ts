@@ -40,13 +40,16 @@ const SCANNER_PUBLIC_IP = '198.51.100.22';
 // from the owner key; the registry now also carries what materializing the
 // workstation behind a NAT forward needs (machine id, essid, ws identity).
 const OWNER = generateIdentity();
-const REGISTERED: RegistryLookup = {
-  router_machine_id: computeApGatewayId(ESSID),
+const BEHIND_NAT = {
   owner_key: OWNER.publicKeyHex,
   workstation_machine_id: 'workstation-a1b2c3d4',
-  essid: ESSID,
   workstation_username: 'neo',
   workstation_root_hash: md5('toor'),
+};
+const REGISTERED: RegistryLookup = {
+  router_machine_id: computeApGatewayId(ESSID),
+  essid: ESSID,
+  behindNat: BEHIND_NAT,
 };
 
 /** The address A's derivation OFFERS its workstation. A's LEASE is seeded from it, so
@@ -94,7 +97,7 @@ const wsSshdUp: OwnerPatchRow = {
 const patchesByMachine =
   (router: readonly OwnerPatchRow[], workstation: readonly OwnerPatchRow[]) =>
   async ({ machine_id }: { machine_id: string }): Promise<PatchesResult> =>
-    machine_id === REGISTERED.workstation_machine_id
+    machine_id === BEHIND_NAT.workstation_machine_id
       ? { data: workstation, error: null }
       : { data: router, error: null };
 
@@ -234,7 +237,7 @@ describe('handleResolvePublicScan', () => {
       },
     });
     // The forward's liveness is gated on the WORKSTATION journal, read separately.
-    expect(findPatches).toHaveBeenCalledWith({ machine_id: REGISTERED.workstation_machine_id });
+    expect(findPatches).toHaveBeenCalledWith({ machine_id: BEHIND_NAT.workstation_machine_id });
   });
 
   it('hides a forwarded port when the workstation behind it is down', async () => {
@@ -281,7 +284,7 @@ describe('handleResolvePublicScan', () => {
     // A fresh box exposes only the router; the workstation behind NAT is never touched.
     expect(findPatches).toHaveBeenCalledWith({ machine_id: REGISTERED.router_machine_id });
     expect(findPatches).not.toHaveBeenCalledWith({
-      machine_id: REGISTERED.workstation_machine_id,
+      machine_id: BEHIND_NAT.workstation_machine_id,
     });
     expect(findPatches).toHaveBeenCalledTimes(1);
   });
@@ -291,7 +294,7 @@ describe('handleResolvePublicScan', () => {
     const { deps } = makeDeps(
       async () => ({ data: REGISTERED, error: null }),
       async ({ machine_id }) =>
-        machine_id === REGISTERED.workstation_machine_id
+        machine_id === BEHIND_NAT.workstation_machine_id
           ? { data: null, error: new Error('ws db down') }
           : { data: [routerForward], error: null },
     );
@@ -402,7 +405,7 @@ describe('handleResolvePublicScan', () => {
       });
       expect(upsertPatch).toHaveBeenCalledTimes(1);
       expect(upsertPatch.mock.calls[0]![0]).toEqual({
-        writer_key: REGISTERED.owner_key,
+        writer_key: BEHIND_NAT.owner_key,
         machine_id: REGISTERED.router_machine_id,
         path: '/var/log/kern.log',
         content: `${expectedKernLine(SCANNER_PUBLIC_IP, [22])}\n`,

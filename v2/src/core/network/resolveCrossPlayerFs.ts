@@ -7,12 +7,13 @@
  * A's seed nor A's patch rows, so the server is the only party that can materialize
  * A's box.
  *
- * Flow: verify the envelope → reverse-look-up the registry by `workstation_machine_id`
- * (the caller holds A's id from the 2b login) for A's persisted identity → rebuild A's
- * baseline from the identity (shared generator, decision D6) + replay A's OWN patch
+ * Flow: verify the envelope → reverse-look-up the OCCUPANCY table by
+ * `workstation_machine_id` (the caller holds A's id from the 2b login) for A's identity
+ * → rebuild A's baseline from it (shared generator, decision D6) + replay A's OWN patch
  * rows (scoped to `owner_key`, never the caller's per-viewer rows) → prune to the
- * caller's TIER → ship the serialized tree. The tier is SERVER-derived, never a
- * client claim:
+ * caller's TIER → ship the serialized tree. Occupancy is the reachability test: it means
+ * "this machine is on that WiFi", so a box whose owner ran `nmcli disconnect` resolves to
+ * nothing and this fails closed. The tier is SERVER-derived, never a client claim:
  *   - tier 1 (owner): caller's verified pubkey == owner_key → the FULL tree
  *     (ownership trumps any session; the session table is not consulted);
  *   - tier 2 (active session): pruned by the shared read walker at the session tier;
@@ -28,6 +29,7 @@ import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { materializeWorkstationFs, type OwnerPatchRow } from './materializeWorkstationFs';
 import { materializeApGatewayFs } from './materializeRouterFs';
+import { computeApGatewayId } from '../identity/router';
 import { filterTreeForRead, filterTreeToAllowlist } from '../patches/readFilter';
 import { serializeTree } from '../filesystem/treeCodec';
 import type { UserType } from '../types';
@@ -45,37 +47,33 @@ export type RegistryWorkstation = {
   readonly workstation_root_hash: string;
 };
 
-/** The registry fields needed to reconstruct the access point's GATEWAY. Its base
- *  is seeded from the ESSID ALONE (admin password + sshd presence derive from it),
- *  because the gateway belongs to the AP and not to any occupant, so this carries
- *  only that. */
+/** The fields needed to reconstruct the access point's GATEWAY. Its base is seeded
+ *  from the ESSID ALONE (admin password + sshd presence derive from it), because the
+ *  gateway belongs to the AP and not to any occupant, so this carries only that. */
 export type RegistryRouter = {
   readonly kind: 'router';
   readonly essid: string;
 };
 
-/** A registered machine behind a public IP — the owner's workstation OR its router.
+/** A machine another player can reach — an occupant's workstation OR an AP gateway.
  *  The caller (B) holds only a `machine_id` from the login and can't know which it
- *  is, so the reverse-lookup discriminates and the handler materializes the matching
- *  base (Story 5.2). */
+ *  is, so the handler discriminates and materializes the matching base. */
 export type RegistryMachine = RegistryWorkstation | RegistryRouter;
 
-/** The caller's active session on the target — the SERVER-authoritative tier the
- *  read filter runs at. */
-export type ActiveSession = { readonly userType: UserType };
+/** The caller's active session on the target — the SERVER-authoritative tier the read
+ *  filter runs at, plus the ESSID the target was generated for. The ESSID is what
+ *  identifies an AP GATEWAY: a gateway has no occupancy row (nobody owns it), and the
+ *  only way to hold a session on one is to have logged into it, so the session itself
+ *  records which access point it belongs to. `null` on rows that predate the column. */
+export type ActiveSession = { readonly userType: UserType; readonly essid: string | null };
 
 export type ResolveCrossPlayerFsDeps = {
   readonly nonceStore: NonceStore;
-  readonly findRegistryByMachineId: (
-    machineId: string,
-  ) => Promise<{ readonly data: RegistryMachine | null; readonly error: unknown }>;
-  /** Same-LAN fallback when the WAN registry has no row for the machine. The registry's
-   *  PK is the ESSID-shared `public_ip` (last-writer-wins), so a fellow occupant who
-   *  joined a shared AP before a later joiner has been evicted from it — but never from
-   *  `home_network_occupants` (PK `(essid, owner_key)`, every occupant coexists). That
-   *  table is the never-overwritten "this `workstation_machine_id` is owner X" record and
-   *  its row is a structural superset of `RegistryWorkstation`, so it materializes the
-   *  box identically. Only ever a WORKSTATION — routers live solely in the registry. */
+  /** Whose workstation this is, from `home_network_occupants` (PK `(essid, owner_key)`).
+   *  Occupancy means "this machine is on that WiFi", which is exactly what makes a box
+   *  reachable: a player who ran `nmcli disconnect` has taken their machine off the
+   *  network and must resolve to nothing here, so the read fails closed. Only ever a
+   *  WORKSTATION — an AP gateway has no occupant and is resolved from the session. */
   readonly findOccupantWorkstationByMachineId: (
     machineId: string,
   ) => Promise<{ readonly data: RegistryWorkstation | null; readonly error: unknown }>;
@@ -96,6 +94,12 @@ export type HandlerResponse = {
   readonly status: number;
   readonly body: Record<string, unknown>;
 };
+
+/** The AP gateway of the ESSID a session was opened on, when that is what the claimed
+ *  machine is. `computeApGatewayId` is total and injective enough for this: a machine
+ *  id that does not equal the ESSID's own gateway id is simply not that gateway. */
+const apGatewayFor = (machineId: string, essid: string | null): RegistryRouter | null =>
+  essid !== null && computeApGatewayId(essid) === machineId ? { kind: 'router', essid } : null;
 
 // Loose so the envelope fields pass through; the refine keeps the codebase-wide
 // posture that a client never claims identity (the caller is the verified pubkey).
@@ -118,37 +122,34 @@ export const handleResolveCrossPlayerFs = async (
   }
   const { publicKey, payload } = verified;
 
-  const registry = await deps.findRegistryByMachineId(payload.machine_id);
-  if (registry.error) {
-    return { status: 500, body: { error: 'registry_lookup_failed' } };
-  }
-
-  // Resolve the target box: the WAN registry first (workstation or router), then the
-  // same-LAN occupancy fallback (a shared-AP occupant evicted from the registry by a
-  // later joiner — see the dep doc). Only a true miss in BOTH is unreachable.
-  let machine: RegistryMachine | null = registry.data;
-  if (machine === null) {
-    const occupant = await deps.findOccupantWorkstationByMachineId(payload.machine_id);
-    if (occupant.error) {
-      return { status: 500, body: { error: 'occupant_lookup_failed' } };
-    }
-    machine = occupant.data;
-  }
-  if (machine === null) {
-    return { status: 404, body: { error: 'host_unreachable' } };
+  const occupant = await deps.findOccupantWorkstationByMachineId(payload.machine_id);
+  if (occupant.error) {
+    return { status: 500, body: { error: 'occupant_lookup_failed' } };
   }
 
   // Tier 1 — the owner reads its own box in full; ownership trumps any session tier,
   // so we never consult the session table for the owner. The AP gateway has NO owner
   // (it belongs to the access point, not to an occupant), so every caller on it —
   // including occupants of its own ESSID — falls through to the session tiers.
-  const isOwner = machine.kind !== 'router' && publicKey === machine.owner_key;
+  const isOwner = occupant.data !== null && publicKey === occupant.data.owner_key;
 
   const session = isOwner
     ? null
     : await deps.findActiveSession({ player_key: publicKey, machine_id: payload.machine_id });
   if (session !== null && session.error) {
     return { status: 500, body: { error: 'session_lookup_failed' } };
+  }
+
+  // An occupant's workstation, else the AP gateway the caller's own session says this
+  // is. A gateway has no occupancy row (it belongs to the access point, not to a
+  // player), and the only way to hold a session on one is to have logged in, so the
+  // session is what identifies it. The gateway id is a pure function of the ESSID, so
+  // a machine_id that is not that ESSID's gateway resolves to nothing and cannot be
+  // forged into one.
+  const machine: RegistryMachine | null =
+    occupant.data ?? apGatewayFor(payload.machine_id, session?.data?.essid ?? null);
+  if (machine === null) {
+    return { status: 404, body: { error: 'host_unreachable' } };
   }
 
   const patches = await deps.findPatches({

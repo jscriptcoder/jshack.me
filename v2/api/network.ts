@@ -12,14 +12,18 @@ import {
   type OccupiedEssidRow,
 } from '../src/core/network/resolveOccupiedEssids';
 import { handleUnregisterOccupant } from '../src/core/network/unregisterOccupant';
-import { handleResolvePublicScan, type RegistryLookup } from '../src/core/scan/resolvePublicScan';
+import {
+  handleResolvePublicScan,
+  type NatHost,
+  type RegistryLookup,
+} from '../src/core/scan/resolvePublicScan';
+import { computeApGatewayId } from '../src/core/identity/router';
 import { handleResolveInnerGatewayScan } from '../src/core/scan/resolveInnerGatewayScan';
 import type { OwnerPatchRow as MachinePatchRow } from '../src/core/network/materializeMachineFs';
 import {
   handleResolveCrossPlayerFs,
   type ActiveSession,
   type OwnerPatchRow,
-  type RegistryMachine,
   type RegistryWorkstation,
 } from '../src/core/network/resolveCrossPlayerFs';
 import type { UserType } from '../src/core/types';
@@ -93,15 +97,42 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // (machine id, essid, identity) let the handler liveness-gate a NAT forward to
     // the one workstation behind NAT.
     const findRegistryByPublicIp = async (publicIp: string) => {
-      const { data, error } = await supabase
-        .from('network_registry')
-        .select(
-          'router_machine_id, owner_key, workstation_machine_id, essid, workstation_username, workstation_root_hash',
-        )
+      const network = await supabase
+        .from('network_public_ips')
+        .select('essid')
         .eq('public_ip', publicIp)
         .maybeSingle();
-      if (error) console.error('[network] registry lookup error:', error);
-      return { data: data as RegistryLookup | null, error };
+      if (network.error) {
+        console.error('[network] public-ip lookup error:', network.error);
+        return { data: null, error: network.error };
+      }
+      const essid = (network.data as { essid: string } | null)?.essid ?? null;
+      if (essid === null) return { data: null, error: null };
+      // Which box is behind the NAT. One AP has many occupants but the NAT resolves a
+      // single host, so the most recently joined occupant is it — the same one the
+      // ESSID-shared registry row used to name, now read from the table that also knows
+      // when a machine has left the WiFi.
+      const occupant = await supabase
+        .from('home_network_occupants')
+        .select('owner_key, workstation_machine_id, workstation_username, workstation_root_hash')
+        .eq('essid', essid)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (occupant.error) {
+        console.error('[network] scan occupant lookup error:', occupant.error);
+        return { data: null, error: occupant.error };
+      }
+      // The AP itself always answers: a gateway is the access point's own infrastructure,
+      // not a machine that joins the network, so it exists whether or not anyone is on it.
+      // With nobody home there is simply no host behind the NAT.
+      const behindNat = occupant.data as NatHost | null;
+      const resolved: RegistryLookup = {
+        router_machine_id: computeApGatewayId(essid),
+        essid,
+        behindNat,
+      };
+      return { data: resolved, error: null };
     };
     // The resolved ROUTER's FULL journal (scoped to router_machine_id, server order)
     // so the handler can replay it over the seeded router base — to ask `canBoot`
@@ -141,16 +172,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return { error };
     };
     // The SCANNER's own home public IP — the truthful source IP, server-derived from
-    // their verified owner key (never the client `source_ip`). One player may carry
-    // rows for several APs they've joined; the most-recently-updated is their current
-    // network ("one network at a time"). owner_key is not the PK, hence the order+limit.
+    // their verified owner key (never the client `source_ip`). Read from occupancy, so
+    // the address they scan from is a network they are actually ON: a player who has
+    // disconnected has no home network and their source degrades to `unknown`. One
+    // player may occupy several APs; the most-recently-joined is their current network
+    // ("one network at a time"), hence the order+limit.
     const findRegistryByOwnerKey = async (ownerKey: string) => {
-      const { data, error } = await supabase
-        .from('network_registry')
-        .select('public_ip')
+      const occupancy = await supabase
+        .from('home_network_occupants')
+        .select('essid')
         .eq('owner_key', ownerKey)
         .order('updated_at', { ascending: false })
         .limit(1)
+        .maybeSingle();
+      if (occupancy.error) {
+        console.error('[network] scanner source-ip occupancy error:', occupancy.error);
+        return { data: null, error: occupancy.error };
+      }
+      const essid = (occupancy.data as { essid: string } | null)?.essid ?? null;
+      if (essid === null) return { data: null, error: null };
+      const { data, error } = await supabase
+        .from('network_public_ips')
+        .select('public_ip')
+        .eq('essid', essid)
         .maybeSingle();
       if (error) console.error('[network] scanner source-ip lookup error:', error);
       return { data: data as { public_ip: string } | null, error };
@@ -208,54 +252,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (actionOf(req.body) === 'resolveCrossPlayerFs') {
     // Cross-player READ: the caller (B) holds an active session on ANOTHER identity's
-    // (A's) machine and fetches A's filtered FS. The held `machine_id` may be A's
-    // workstation (Story 2) OR A's router (Story 5.2 — B `ssh root`'d into it), so
-    // reverse-look-up BOTH columns and DISCRIMINATE. Two parameterized `.eq` lookups
-    // (workstation first, the common case) keep the attacker-controlled machine_id
-    // out of a string-interpolated `.or` filter; the registry PK is public_ip, so each
-    // rides the respective machine_id index.
-    const findRegistryByMachineId = async (machineId: string) => {
-      const byWorkstation = await supabase
-        .from('network_registry')
-        .select('owner_key, workstation_username, workstation_root_hash')
-        .eq('workstation_machine_id', machineId)
-        .maybeSingle();
-      if (byWorkstation.error) {
-        console.error('[network] registry ws reverse-lookup error:', byWorkstation.error);
-        return { data: null, error: byWorkstation.error };
-      }
-      if (byWorkstation.data !== null) {
-        const ws = byWorkstation.data as {
-          owner_key: string;
-          workstation_username: string;
-          workstation_root_hash: string;
-        };
-        return { data: { kind: 'workstation', ...ws } as RegistryMachine, error: null };
-      }
-      const byRouter = await supabase
-        .from('network_registry')
-        .select('essid')
-        .eq('router_machine_id', machineId)
-        .maybeSingle();
-      if (byRouter.error) {
-        console.error('[network] registry router reverse-lookup error:', byRouter.error);
-        return { data: null, error: byRouter.error };
-      }
-      const router = byRouter.data as { essid: string } | null;
-      return {
-        data:
-          router === null
-            ? null
-            : ({ kind: 'router', essid: router.essid } as RegistryMachine),
-        error: null,
-      };
-    };
-    // Same-LAN fallback: the WAN registry's PK is the ESSID-shared public_ip
-    // (last-writer-wins), so a fellow occupant who joined a shared AP before a later
-    // joiner is no longer in `network_registry` — but is still in `home_network_occupants`
-    // (PK (essid, owner_key), every occupant coexists). One player on N APs has N rows
-    // with the SAME workstation_machine_id (identity-derived) + identical identity fields,
-    // so `.limit(1)` picks any. The selected columns are exactly RegistryWorkstation.
+    // (A's) machine and fetches A's filtered FS. Whose box it is comes from occupancy —
+    // which doubles as the reachability test, since a row there means "this machine is
+    // on that WiFi". One player on N APs has N rows with the SAME workstation_machine_id
+    // (identity-derived) + identical identity fields, so `.limit(1)` picks any. The
+    // selected columns are exactly RegistryWorkstation. An AP GATEWAY has no occupancy
+    // row at all — it belongs to the access point, not to a player — so the handler
+    // identifies it from the caller's own session instead.
     const findOccupantWorkstationByMachineId = async (machineId: string) => {
       const { data, error } = await supabase
         .from('home_network_occupants')
@@ -276,7 +279,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       };
     };
     // The caller's active (un-ended) session on the target — the SERVER source of the
-    // read tier, scoped to the verified player_key the handler supplies.
+    // read tier, scoped to the verified player_key the handler supplies. The row's
+    // `essid` comes along because it is what identifies an AP GATEWAY: a gateway has no
+    // occupancy row, and holding a session on one means you logged into it, so the
+    // session records which access point it is. Null on rows predating the column.
     const findActiveSession = async ({
       player_key,
       machine_id,
@@ -286,7 +292,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }) => {
       const { data, error } = await supabase
         .from('sessions')
-        .select('credentials')
+        .select('credentials, essid')
         .eq('player_key', player_key)
         .eq('machine_id', machine_id)
         .is('ended_at', null)
@@ -294,10 +300,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .limit(1)
         .maybeSingle();
       if (error) console.error('[network] session lookup error:', error);
-      const session = data as { credentials: { userType: UserType } } | null;
+      const session = data as {
+        credentials: { userType: UserType };
+        essid: string | null;
+      } | null;
       return {
         data:
-          session === null ? null : ({ userType: session.credentials.userType } as ActiveSession),
+          session === null
+            ? null
+            : ({ userType: session.credentials.userType, essid: session.essid } as ActiveSession),
         error,
       };
     };
@@ -317,7 +328,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     };
     const { status, body } = await handleResolveCrossPlayerFs(req.body, {
       nonceStore: noopNonceStore,
-      findRegistryByMachineId,
       findOccupantWorkstationByMachineId,
       findActiveSession,
       findPatches,

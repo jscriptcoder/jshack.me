@@ -112,17 +112,17 @@ const WORLD_PID = { read: ['root', 'user', 'guest'], write: ['root'], execute: [
 // A's opt-in forward: expose the workstation sshd on the public :2222.
 const FORWARD_RULES = `# /etc/iptables/rules.v4 — NAT port-forward table\nforward 2222 to ${A_LAN}:22\n`;
 
-const registryRow = (
-  publicIp: string,
+// The join state a real `registerNetwork` writes for each player: themselves as an
+// OCCUPANT of their ESSID. Occupancy is what makes a box reachable, and it is where
+// each actor's own source IP is derived from.
+const occupantRow = (
   owner: ReturnType<typeof generateIdentity>,
   essid: string,
   wsName: string,
 ) => ({
-  public_ip: publicIp,
+  essid,
   owner_key: owner.publicKeyHex,
   workstation_machine_id: computeWorkstationId(wsName, owner.publicKeyHex),
-  router_machine_id: computeApGatewayId(essid),
-  essid,
   workstation_username: 'player',
   workstation_machine_name: wsName,
   workstation_root_hash: md5('root-secret'),
@@ -130,7 +130,8 @@ const registryRow = (
 
 // Clean slate, then seed the three registry rows (as each player's join would), A's
 // NAT forward + her workstation sshd pidfile (as A's own config writes would).
-await sr.from('network_registry').delete().in('public_ip', [A_PUBLIC_IP, B_PUBLIC_IP, C_PUBLIC_IP]);
+await sr.from('network_public_ips').delete().in('public_ip', [A_PUBLIC_IP, B_PUBLIC_IP, C_PUBLIC_IP]);
+await sr.from('home_network_occupants').delete().in('essid', [A_ESSID, B_ESSID, C_ESSID]);
 await sr.from('network_lan_leases').delete().eq('essid', A_ESSID);
 await sr.from('patches').delete().eq('machine_id', A_ROUTER);
 await sr.from('patches').delete().eq('machine_id', A_WS);
@@ -140,12 +141,17 @@ for (const id of [bob, carol]) {
 await sr
   .from('network_lan_leases')
   .insert({ essid: A_ESSID, owner_key: alice.publicKeyHex, octet: A_OCTET });
+await sr.from('network_public_ips').insert([
+  { essid: A_ESSID, public_ip: A_PUBLIC_IP },
+  { essid: B_ESSID, public_ip: B_PUBLIC_IP },
+  { essid: C_ESSID, public_ip: C_PUBLIC_IP },
+]);
 await sr
-  .from('network_registry')
+  .from('home_network_occupants')
   .insert([
-    registryRow(A_PUBLIC_IP, alice, A_ESSID, A_WS_NAME),
-    registryRow(B_PUBLIC_IP, bob, B_ESSID, 'nebuchadnezzar'),
-    registryRow(C_PUBLIC_IP, carol, C_ESSID, 'serenity'),
+    occupantRow(alice, A_ESSID, A_WS_NAME),
+    occupantRow(bob, B_ESSID, 'nebuchadnezzar'),
+    occupantRow(carol, C_ESSID, 'serenity'),
   ]);
 await sr.from('patches').insert([
   {
@@ -273,7 +279,8 @@ check(
 );
 
 // Cleanup.
-await sr.from('network_registry').delete().in('public_ip', [A_PUBLIC_IP, B_PUBLIC_IP, C_PUBLIC_IP]);
+await sr.from('network_public_ips').delete().in('public_ip', [A_PUBLIC_IP, B_PUBLIC_IP, C_PUBLIC_IP]);
+await sr.from('home_network_occupants').delete().in('essid', [A_ESSID, B_ESSID, C_ESSID]);
 await sr.from('network_lan_leases').delete().eq('essid', A_ESSID);
 await sr.from('patches').delete().eq('machine_id', A_ROUTER);
 await sr.from('patches').delete().eq('machine_id', A_WS);

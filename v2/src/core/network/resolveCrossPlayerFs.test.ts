@@ -3,8 +3,6 @@ import {
   handleResolveCrossPlayerFs,
   type ActiveSession,
   type RegistryWorkstation,
-  type RegistryRouter,
-  type RegistryMachine,
   type ResolveCrossPlayerFsDeps,
   type OwnerPatchRow,
 } from './resolveCrossPlayerFs';
@@ -12,6 +10,7 @@ import { deserializeTree } from '../filesystem/treeCodec';
 import type { Directory, FileNode } from '../filesystem/types';
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
+import { computeApGatewayId } from '../identity/router';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
 /**
@@ -30,7 +29,6 @@ import type { NonceStore } from '../signedRequest/nonceStore';
 
 const freshStore: NonceStore = async () => ({ fresh: true });
 const MACHINE_ID = 'skylab-deadbeef';
-const ROUTER_MACHINE_ID = 'router-deadbeef';
 const OWNER_KEY = 'a'.repeat(64);
 const REGISTERED: RegistryWorkstation = {
   kind: 'workstation',
@@ -38,10 +36,10 @@ const REGISTERED: RegistryWorkstation = {
   workstation_username: 'alice',
   workstation_root_hash: '5f4dcc3b5aa765d61d8327deb882cf99',
 };
-const REGISTERED_ROUTER: RegistryRouter = {
-  kind: 'router',
-  essid: 'BEAN-THERE-WIFI',
-};
+const ROUTER_ESSID = 'BEAN-THERE-WIFI';
+/** The AP gateway's real id. It is a pure function of the ESSID, which is what lets a
+ *  caller's session identify the gateway without any stored row. */
+const AP_GATEWAY_ID = computeApGatewayId(ROUTER_ESSID);
 
 // A guest-readable file A created (a real persisted patch) and a user-only one —
 // the tier filter must keep the first for a guest reader and drop the second.
@@ -70,43 +68,35 @@ const OWNER_PATCHES: readonly OwnerPatchRow[] = [
   ownerRow({ path: '/srv/secret.txt', content: 'TOP_SECRET', permissions: userOnly }),
 ];
 
-type RegistryResult = { data: RegistryMachine | null; error: unknown };
 type OccupantResult = { data: RegistryWorkstation | null; error: unknown };
 type SessionResult = { data: ActiveSession | null; error: unknown };
 type PatchesResult = { data: readonly OwnerPatchRow[] | null; error: unknown };
 
 const makeDeps = (
   over: {
-    registry?: () => Promise<RegistryResult>;
     occupant?: () => Promise<OccupantResult>;
     session?: () => Promise<SessionResult>;
     patches?: () => Promise<PatchesResult>;
   } = {},
 ) => {
-  const findRegistryByMachineId = vi.fn<(machineId: string) => Promise<RegistryResult>>(
-    over.registry ?? (async () => ({ data: REGISTERED, error: null })),
-  );
-  // The same-LAN fallback source: defaults to "no occupant" so the registry path is
-  // exercised exactly as before — only the shared-AP-eviction tests override it.
+  // Whose box this is — and, by saying it is on a WiFi at all, whether it is reachable.
   const findOccupantWorkstationByMachineId = vi.fn<(machineId: string) => Promise<OccupantResult>>(
-    over.occupant ?? (async () => ({ data: null, error: null })),
+    over.occupant ?? (async () => ({ data: REGISTERED, error: null })),
   );
   const findActiveSession = vi.fn<
     (query: { player_key: string; machine_id: string }) => Promise<SessionResult>
-  >(over.session ?? (async () => ({ data: { userType: 'guest' }, error: null })));
+  >(over.session ?? (async () => ({ data: { userType: 'guest', essid: null }, error: null })));
   const findPatches = vi.fn<(query: { machine_id: string }) => Promise<PatchesResult>>(
     over.patches ?? (async () => ({ data: OWNER_PATCHES, error: null })),
   );
   const deps: ResolveCrossPlayerFsDeps = {
     nonceStore: freshStore,
-    findRegistryByMachineId,
     findOccupantWorkstationByMachineId,
     findActiveSession,
     findPatches,
   };
   return {
     deps,
-    findRegistryByMachineId,
     findOccupantWorkstationByMachineId,
     findActiveSession,
     findPatches,
@@ -144,13 +134,15 @@ describe('handleResolveCrossPlayerFs', () => {
     expect(loot?.kind === 'file' ? loot.content : null).toBe('OWNED_BY_A');
   });
 
-  it('serves A’s ROUTER tree for a router registry row — rules.v4 + journal replay at the root tier', async () => {
+  it('serves the AP GATEWAY tree the caller’s session names — rules.v4 + journal replay at the root tier', async () => {
     const id = generateIdentity();
     const rootOnly = { read: ['root'], write: ['root'], execute: [] } as const;
-    // B holds a ROOT session on A's router (the only way onto a root-only appliance).
+    // B holds a ROOT session on the AP's gateway (the only way onto a root-only
+    // appliance), and that session records which access point it is — nothing owns a
+    // gateway, so there is no occupancy row to find it by.
     const { deps } = makeDeps({
-      registry: async () => ({ data: REGISTERED_ROUTER, error: null }),
-      session: async () => ({ data: { userType: 'root' }, error: null }),
+      occupant: async () => ({ data: null, error: null }),
+      session: async () => ({ data: { userType: 'root', essid: ROUTER_ESSID }, error: null }),
       patches: async () => ({
         data: [
           ownerRow({
@@ -163,7 +155,7 @@ describe('handleResolveCrossPlayerFs', () => {
       }),
     });
 
-    const result = await handleResolveCrossPlayerFs(envelope(id, ROUTER_MACHINE_ID), deps);
+    const result = await handleResolveCrossPlayerFs(envelope(id, AP_GATEWAY_ID), deps);
     const tree = treeOf(result);
 
     expect(result.status).toBe(200);
@@ -197,7 +189,7 @@ describe('handleResolveCrossPlayerFs', () => {
   it('filters at the SESSION’s tier, not a hardcoded guest — a user session sees passwd + user files', async () => {
     const id = generateIdentity();
     const { deps } = makeDeps({
-      session: async () => ({ data: { userType: 'user' }, error: null }),
+      session: async () => ({ data: { userType: 'user', essid: null }, error: null }),
     });
 
     const result = await handleResolveCrossPlayerFs(envelope(id), deps);
@@ -360,8 +352,8 @@ describe('handleResolveCrossPlayerFs', () => {
     const id = generateIdentity();
     const rootOnly = { read: ['root'], write: ['root'], execute: ['root'] } as const;
     const { deps, findActiveSession } = makeDeps({
-      // The caller IS the owner: registry.owner_key == the verified caller pubkey.
-      registry: async () => ({ data: { ...REGISTERED, owner_key: id.publicKeyHex }, error: null }),
+      // The caller IS the owner: the occupant row's owner_key == the verified pubkey.
+      occupant: async () => ({ data: { ...REGISTERED, owner_key: id.publicKeyHex }, error: null }),
       patches: async () => ({
         data: [
           ownerRow({ path: '/root/.wallet', content: 'PRIVKEY', permissions: rootOnly }),
@@ -383,29 +375,28 @@ describe('handleResolveCrossPlayerFs', () => {
     expect(findActiveSession).not.toHaveBeenCalled();
   });
 
-  it('reports a machine unreachable only when BOTH the registry and the occupancy fallback miss, without checking the session', async () => {
+  it('reports a machine on no network unreachable, even to a caller holding a session on it', async () => {
+    // No occupancy row means the machine is on no WiFi — its owner disconnected, or it
+    // was never there. A session is not enough to reach it: sessions outlive the
+    // machine leaving the network, so the box must still resolve on its own.
     const id = generateIdentity();
-    const { deps, findActiveSession, findOccupantWorkstationByMachineId } = makeDeps({
-      registry: async () => ({ data: null, error: null }),
+    const { deps, findOccupantWorkstationByMachineId } = makeDeps({
       occupant: async () => ({ data: null, error: null }),
+      session: async () => ({ data: { userType: 'root', essid: 'SOME-OTHER-WIFI' }, error: null }),
     });
 
     const result = await handleResolveCrossPlayerFs(envelope(id), deps);
 
     expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
     expect(findOccupantWorkstationByMachineId).toHaveBeenCalledWith(MACHINE_ID);
-    expect(findActiveSession).not.toHaveBeenCalled();
   });
 
-  it('falls back to the occupancy table when the WAN registry has no row — a shared-AP occupant evicted by a later same-ESSID joiner', async () => {
+  it('serves a fellow occupant a world-readable /bin, so ls/cat/su resolve their binaries', async () => {
     const id = generateIdentity();
-    // network_registry's PK is the ESSID-shared public_ip (last-writer-wins), so a
-    // fellow occupant who joined the AP earlier has been overwritten there. The
-    // occupancy table (PK (essid, owner_key)) never loses the row, so the box still
-    // resolves — and its world-readable /bin survives the guest filter, which is what
-    // makes ls/cat/su resolve their binaries again (the same-LAN command-not-found bug).
+    // The world-readable /bin must survive the guest filter — that is what makes
+    // ls/cat/su find their binaries on a box you have ssh'd into (the same-LAN
+    // command-not-found bug).
     const { deps, findOccupantWorkstationByMachineId } = makeDeps({
-      registry: async () => ({ data: null, error: null }),
       occupant: async () => ({ data: REGISTERED, error: null }),
       patches: async () => ({ data: [], error: null }),
     });
@@ -420,19 +411,9 @@ describe('handleResolveCrossPlayerFs', () => {
     expect(findOccupantWorkstationByMachineId).toHaveBeenCalledWith(MACHINE_ID);
   });
 
-  it('prefers the registry and never consults the occupancy fallback when the registry resolves', async () => {
-    const id = generateIdentity();
-    const { deps, findOccupantWorkstationByMachineId } = makeDeps();
-
-    await handleResolveCrossPlayerFs(envelope(id), deps);
-
-    expect(findOccupantWorkstationByMachineId).not.toHaveBeenCalled();
-  });
-
   it('reports a server error when the occupancy fallback lookup fails', async () => {
     const id = generateIdentity();
     const { deps } = makeDeps({
-      registry: async () => ({ data: null, error: null }),
       occupant: async () => ({ data: null, error: new Error('db down') }),
     });
 
@@ -463,15 +444,15 @@ describe('handleResolveCrossPlayerFs', () => {
     expect(get(treeOf(result), 'bin')?.kind).toBe('directory');
   });
 
-  it('reports a server error when the registry lookup fails', async () => {
+  it('reports a server error when the occupancy lookup fails', async () => {
     const id = generateIdentity();
     const { deps } = makeDeps({
-      registry: async () => ({ data: null, error: new Error('db down') }),
+      occupant: async () => ({ data: null, error: new Error('db down') }),
     });
 
     const result = await handleResolveCrossPlayerFs(envelope(id), deps);
 
-    expect(result).toEqual({ status: 500, body: { error: 'registry_lookup_failed' } });
+    expect(result).toEqual({ status: 500, body: { error: 'occupant_lookup_failed' } });
   });
 
   it('reports a server error when the session lookup fails', async () => {
@@ -498,19 +479,19 @@ describe('handleResolveCrossPlayerFs', () => {
 
   it('rejects a tampered envelope without any lookup', async () => {
     const id = generateIdentity();
-    const { deps, findRegistryByMachineId } = makeDeps();
+    const { deps, findOccupantWorkstationByMachineId } = makeDeps();
     const signed = envelope(id);
     const tampered = { ...signed, payload: `${signed.payload} ` };
 
     const result = await handleResolveCrossPlayerFs(tampered, deps);
 
     expect(result).toEqual({ status: 401, body: { error: 'signature_invalid' } });
-    expect(findRegistryByMachineId).not.toHaveBeenCalled();
+    expect(findOccupantWorkstationByMachineId).not.toHaveBeenCalled();
   });
 
   it('rejects an envelope that smuggles a client-supplied player_key', async () => {
     const id = generateIdentity();
-    const { deps, findRegistryByMachineId } = makeDeps();
+    const { deps, findOccupantWorkstationByMachineId } = makeDeps();
 
     const result = await handleResolveCrossPlayerFs(
       envelope(id, MACHINE_ID, { player_key: 'x' }),
@@ -518,12 +499,12 @@ describe('handleResolveCrossPlayerFs', () => {
     );
 
     expect(result.status).toBe(400);
-    expect(findRegistryByMachineId).not.toHaveBeenCalled();
+    expect(findOccupantWorkstationByMachineId).not.toHaveBeenCalled();
   });
 
   it('rejects an envelope missing the machine_id', async () => {
     const id = generateIdentity();
-    const { deps, findRegistryByMachineId } = makeDeps();
+    const { deps, findOccupantWorkstationByMachineId } = makeDeps();
 
     const result = await handleResolveCrossPlayerFs(
       signRequest(id, 'resolveCrossPlayerFs', {}),
@@ -531,6 +512,6 @@ describe('handleResolveCrossPlayerFs', () => {
     );
 
     expect(result.status).toBe(400);
-    expect(findRegistryByMachineId).not.toHaveBeenCalled();
+    expect(findOccupantWorkstationByMachineId).not.toHaveBeenCalled();
   });
 });

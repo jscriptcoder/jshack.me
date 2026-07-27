@@ -3,7 +3,6 @@ import { handleUpsertPatch, type PatchRow, type UpsertPatchDeps } from './upsert
 import type { ActiveSessionQuery, FindActiveSessionResult } from './authorizeMachineAccess';
 import type {
   FindOccupantWorkstationByMachineId,
-  FindRegistryByMachineId,
   ListMachinePatchesResult,
   RegistryWorkstation,
 } from './remoteWritePermission';
@@ -70,14 +69,9 @@ const makeDeps = (over: Partial<UpsertPatchDeps> = {}) => {
     data: [],
     error: null,
   }));
-  // Default: the target is NOT a registered foreign workstation (an NPC host or an
-  // unknown id). Cross-player-write tests override this with A's registry row.
-  const findRegistryByMachineId = vi.fn<FindRegistryByMachineId>(async () => ({
-    data: null,
-    error: null,
-  }));
-  // Default: not a same-LAN occupant either (so a registry miss fails closed). The
-  // shared-AP-eviction test overrides this with A's occupancy row.
+  // Default: the target is not an occupant's workstation (an NPC host, an unknown id,
+  // or a machine whose owner has left the WiFi). Cross-player-write tests override this
+  // with A's occupancy row.
   const findOccupantWorkstationByMachineId = vi.fn<FindOccupantWorkstationByMachineId>(
     async () => ({
       data: null,
@@ -89,7 +83,6 @@ const makeDeps = (over: Partial<UpsertPatchDeps> = {}) => {
     upsertPatch,
     findActiveSession,
     listMachinePatches,
-    findRegistryByMachineId,
     findOccupantWorkstationByMachineId,
     ...over,
   };
@@ -98,7 +91,6 @@ const makeDeps = (over: Partial<UpsertPatchDeps> = {}) => {
     upsertPatch,
     findActiveSession,
     listMachinePatches,
-    findRegistryByMachineId,
     findOccupantWorkstationByMachineId,
   };
 };
@@ -383,56 +375,22 @@ describe('handleUpsertPatch', () => {
       content: 'y',
       owner: 'user',
     });
-    const { deps, upsertPatch, findRegistryByMachineId, findOccupantWorkstationByMachineId } =
-      makeDeps({
-        findActiveSession: remoteSession('user'),
-      });
+    const { deps, upsertPatch, findOccupantWorkstationByMachineId } = makeDeps({
+      findActiveSession: remoteSession('user'),
+    });
 
     const result = await handleUpsertPatch(envelope, deps);
 
     expect(result).toEqual({ status: 403, body: { error: 'permission_denied' } });
     expect(upsertPatch).not.toHaveBeenCalled();
-    // Both resolution sources ARE attempted before failing closed — the registry, then
-    // the same-LAN occupancy fallback — proving an NPC miss doesn't short-circuit the
-    // cross-player branch and the fallback dep is actually threaded through.
-    expect(findRegistryByMachineId).toHaveBeenCalledWith('ghost-00000000');
+    // The occupancy resolution IS attempted before failing closed, proving an NPC miss
+    // doesn't short-circuit the cross-player branch and the dep is threaded through.
     expect(findOccupantWorkstationByMachineId).toHaveBeenCalledWith('ghost-00000000');
   });
 
-  it('permits a cross-player write resolved via the OCCUPANCY fallback when the registry has no row (shared-AP eviction)', async () => {
-    const visitor = generateIdentity();
-    const { machineId, registry } = registeredWorkstation();
-    const envelope = signRequest(visitor, 'upsertPatch', {
-      machine_id: machineId,
-      path: '/tmp/pwned',
-      content: 'owned via the LAN',
-      owner: 'guest',
-    });
-    // A's row was evicted from network_registry (a later same-ESSID joiner), but A is
-    // still a live occupant — so the write resolves A's box from the occupancy fallback.
-    const findRegistryByMachineId = vi.fn<FindRegistryByMachineId>(async () => ({
-      data: null,
-      error: null,
-    }));
-    const findOccupantWorkstationByMachineId = vi.fn<FindOccupantWorkstationByMachineId>(
-      async () => ({ data: registry, error: null }),
-    );
-    const { deps, upsertPatch } = makeDeps({
-      findActiveSession: remoteSession('guest'),
-      findRegistryByMachineId,
-      findOccupantWorkstationByMachineId,
-    });
+  // ---- Cross-player WRITE: B writes A's workstation (decision D6). ----
 
-    const result = await handleUpsertPatch(envelope, deps);
-
-    expect(result).toEqual({ status: 200, body: { ok: true } });
-    expect(upsertPatch.mock.calls[0]![0].machine_id).toBe(machineId);
-    expect(findOccupantWorkstationByMachineId).toHaveBeenCalledWith(machineId);
-  });
-
-  // ---- Cross-player WRITE: B writes A's REGISTERED workstation (decision D6). ----
-
-  it('permits a guest cross-player session to write /tmp on a foreign player workstation (resolved via the registry)', async () => {
+  it("permits a guest cross-player session to write /tmp on a foreign player's workstation", async () => {
     const visitor = generateIdentity();
     const { machineId, registry } = registeredWorkstation();
     const envelope = signRequest(visitor, 'upsertPatch', {
@@ -444,11 +402,10 @@ describe('handleUpsertPatch', () => {
     // Explicit spies for the overridden deps so the call-arg assertions hit the
     // functions actually wired into `deps` (an `over` replaces the default spy).
     const findActiveSession = vi.fn(remoteSession('guest'));
-    const findRegistryByMachineId = vi.fn<FindRegistryByMachineId>(async () => ({
-      data: registry,
-      error: null,
-    }));
-    const { deps, upsertPatch } = makeDeps({ findActiveSession, findRegistryByMachineId });
+    const findOccupantWorkstationByMachineId = vi.fn<FindOccupantWorkstationByMachineId>(
+      async () => ({ data: registry, error: null }),
+    );
+    const { deps, upsertPatch } = makeDeps({ findActiveSession, findOccupantWorkstationByMachineId });
 
     const result = await handleUpsertPatch(envelope, deps);
 
@@ -457,8 +414,8 @@ describe('handleUpsertPatch', () => {
     expect(row.writer_key).toBe(visitor.publicKeyHex);
     expect(row.machine_id).toBe(machineId);
     expect(row.path).toBe('/tmp/pwned');
-    // The foreign workstation is resolved via the registry reverse-lookup...
-    expect(findRegistryByMachineId).toHaveBeenCalledWith(machineId);
+    // The foreign workstation is resolved from occupancy...
+    expect(findOccupantWorkstationByMachineId).toHaveBeenCalledWith(machineId);
     // ...and the tier is taken from the visitor's SERVER session, scoped to the
     // verified pubkey + target machine — never a client claim.
     expect(findActiveSession).toHaveBeenCalledWith({
@@ -476,7 +433,7 @@ describe('handleUpsertPatch', () => {
       content: 'mine',
       owner: 'user',
     });
-    const { deps, upsertPatch, findRegistryByMachineId } = makeDeps({
+    const { deps, upsertPatch, findOccupantWorkstationByMachineId } = makeDeps({
       findActiveSession: remoteSession('user'),
     });
 
@@ -484,8 +441,8 @@ describe('handleUpsertPatch', () => {
 
     expect(result).toEqual({ status: 200, body: { ok: true } });
     expect(upsertPatch).toHaveBeenCalledTimes(1);
-    // An NPC host resolves on the caller's own LAN — the registry is never consulted.
-    expect(findRegistryByMachineId).not.toHaveBeenCalled();
+    // An NPC host resolves on the caller's own LAN — occupancy is never consulted.
+    expect(findOccupantWorkstationByMachineId).not.toHaveBeenCalled();
   });
 
   it('denies a guest cross-player session writing a root-owned path on a foreign workstation (walked against A’s tree)', async () => {
@@ -499,7 +456,7 @@ describe('handleUpsertPatch', () => {
     });
     const { deps, upsertPatch } = makeDeps({
       findActiveSession: remoteSession('guest'),
-      findRegistryByMachineId: async () => ({ data: registry, error: null }),
+      findOccupantWorkstationByMachineId: async () => ({ data: registry, error: null }),
     });
 
     const result = await handleUpsertPatch(envelope, deps);
@@ -521,7 +478,7 @@ describe('handleUpsertPatch', () => {
     });
     const { deps, upsertPatch } = makeDeps({
       findActiveSession: remoteSession('root'),
-      findRegistryByMachineId: async () => ({ data: registry, error: null }),
+      findOccupantWorkstationByMachineId: async () => ({ data: registry, error: null }),
     });
 
     const result = await handleUpsertPatch(envelope, deps);
@@ -543,7 +500,7 @@ describe('handleUpsertPatch', () => {
     });
     const { deps, upsertPatch } = makeDeps({
       findActiveSession: remoteSession('guest'),
-      findRegistryByMachineId: async () => ({ data: registry, error: null }),
+      findOccupantWorkstationByMachineId: async () => ({ data: registry, error: null }),
     });
 
     const result = await handleUpsertPatch(envelope, deps);
@@ -569,7 +526,7 @@ describe('handleUpsertPatch', () => {
     });
     const { deps, upsertPatch } = makeDeps({
       findActiveSession: remoteSession('guest'),
-      findRegistryByMachineId: async () => ({ data: registry, error: null }),
+      findOccupantWorkstationByMachineId: async () => ({ data: registry, error: null }),
     });
 
     const result = await handleUpsertPatch(envelope, deps);
@@ -591,7 +548,7 @@ describe('handleUpsertPatch', () => {
     });
     const { deps, upsertPatch } = makeDeps({
       findActiveSession: remoteSession('user'),
-      findRegistryByMachineId: async () => ({ data: registry, error: null }),
+      findOccupantWorkstationByMachineId: async () => ({ data: registry, error: null }),
     });
 
     const result = await handleUpsertPatch(envelope, deps);
@@ -617,7 +574,7 @@ describe('handleUpsertPatch', () => {
     });
     const { deps, upsertPatch } = makeDeps({
       findActiveSession: remoteSession('guest'),
-      findRegistryByMachineId: async () => ({ data: null, error: { message: 'db down' } }),
+      findOccupantWorkstationByMachineId: async () => ({ data: null, error: { message: 'db down' } }),
     });
 
     const result = await handleUpsertPatch(envelope, deps);
