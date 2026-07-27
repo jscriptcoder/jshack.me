@@ -7,12 +7,13 @@ Slice 3a ✅ MERGED (PR #328, `6ae4109`, v0.90.0),
 Slice 3b-i ✅ MERGED (PR #329, `21e3f9e`, v0.91.0),
 Slice 3b-ii ✅ MERGED (PR #330, `879dcc4`, v0.92.0),
 Slice 4 ✅ MERGED (PR #331, `6733821`, v0.93.0).
-**Next: Slice 5 — depth is shared. Nothing is in flight; `main` is clean at `6733821`. Cut a
-branch, then start at the Slice 5 section below. Slice 4 turned out WIDER than scoped (it had to take the L1
-gateway identity and the NPC filesystems with it — see its as-built), so Slice 5 is
-correspondingly NARROWER: strictly the deep chain BELOW L1, i.e. `seedNetworkDepth`,
-`generateDeepLayer`, `computeDeepGatewayId` and the deep base filesystems. Everything on the
-LAN itself — population, addresses, gateway boxes, NPC boxes — is already shared.**
+**Now: Slice 5 — depth is shared. IN FLIGHT on `feat/shared-deep-chains`, cut off `main` at
+`4b0e839`; nothing implemented yet. Start at the Slice 5 section below, and read its "As found"
+list first — it is the exact remaining owner-keyed surface, verified against the tree at the
+branch point. Slice 4 turned out WIDER than scoped (it had to take the L1 gateway identity and
+the NPC filesystems with it — see its as-built), so Slice 5 is correspondingly NARROWER:
+strictly the deep chain BELOW L1. Everything on the LAN itself — population, addresses, gateway
+boxes, NPC boxes — is already shared.**
 **Parent**: `plans/multiplayer-crossplayer-epic.md` item #5 (decision record; grilled & resolved 2026-07-25)
 **Follows**: item #4 (unique public-IP allocation, v0.87.0)
 **Precedes**: item #6 (procedural world expansion) — do NOT pull it in here
@@ -820,6 +821,43 @@ for every occupant, with deep traces attributed consistently.
 - A deep-layer write by one occupant is visible to the other.
 - Deep `auth.log` / `kern.log` traces still record the fronting gateway's `<deep subnet>.1` as
   the source, unchanged from Story 5b.
+**As found** (verified against the tree at `4b0e839`, so the slice starts from fact rather than
+from Slice 4's forecast). The owner key survives in exactly six places below L1, and nowhere
+else:
+- `seedNetworkDepth(ownerKeyHex, essid)` — `generateDeepLayer.ts:71`, namespace
+  `network-depth-`. How many layers hang behind the inner gateway.
+- `generateDeepLayer(seedPubkeyHex, essid, frontingGateway, options)` — `generateDeepLayer.ts:96`,
+  namespace `deep-layer-`. The layer's `10.x.y` subnet, its NPC host, its child gateway's octet
+  and hostname.
+- `seedDeepGatewayKind(ownerKeyHex, parentMachineId, octet)` — `generateDeepLayer.ts:86`,
+  namespace `deep-gw-kind-`. Private to the module; router-vs-switch, i.e. whether the chain
+  continues.
+- `computeDeepGatewayId(...)` — `identity/router.ts:53`.
+- `seedDeepGatewayAdminPw(ownerKeyHex, parentMachineId, octet)` — `routerFs.ts:271`, namespace
+  `deep-gw-admin-`; consumed by `buildDeepGatewayBaseFs` (`:283`) and `buildDeepSwitchBaseFs`
+  (`:299`).
+- The eight chain walkers in `lanHostIdentity.ts` that thread the key through:
+  `resolveDeepGatewayIdentity` (`:109`), `chainFrom` (`:170`, private),
+  `homeChainGateways` (`:210`, private), `pivotVantageForMachineId` (`:239`),
+  `chainGatewayVantageForMachineId` (`:258`), `chainGatewayBaseFsForMachineId` (`:276`),
+  `deepHostBaseFsForMachineId` (`:290`, private), `ownChainBaseFsForMachineId` (`:315`).
+
+**Why the cut is clean.** Every one of those seeds is keyed on the PARENT's `machineId`, and the
+chain's root parent is the inner gateway — which Slice 4 already made `computeInnerGatewayId(essid,
+octet)`. So the parent id is shared from the top down, and the owner key is the only remaining
+per-player input anywhere in the chain. Drop it and the whole chain aligns; there is no second
+divergence hiding underneath. `buildDeepHostFs` is ALSO already `(essid, ip)`, so only WHICH deep
+hosts a chain reaches is still private — not what is on them.
+
+**Watch the walkers, not just the seeds.** The six seeds are a mechanical rekey; the risk sits in
+`lanHostIdentity.ts`, where dropping a parameter from eight mutually-recursive functions is how an
+aliasing bug gets introduced silently. Keep `parentMachineId + octet` in every composed key — that
+pair is what stops two deep gateways at the same octet behind different parents from colliding,
+and it is the only thing that does once the key is gone. `deepHostBaseFsForMachineId` already
+matches on `hostMachineId(layer.host, essid)` and builds `buildDeepHostFs(essid, layer.host)`, so
+the deep NPC's identity and tree are shared ALREADY — it takes the key only to walk the chain that
+finds it, which is exactly the residue this slice removes.
+
 **RED**: A behavior test asserting two owner keys on one ESSID produce identical chains
 (ids, depth, gateway kinds); a shared-write visibility test.
 **GREEN**: Reseed `computeDeepGatewayId` / `generateDeepLayer` / `seedNetworkDepth` /
