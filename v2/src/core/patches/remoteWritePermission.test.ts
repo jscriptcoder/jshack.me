@@ -338,14 +338,14 @@ describe('enforceRemoteWriteL2 — foreign router (cross-player)', () => {
 });
 
 /**
- * The SAME-LAN occupant fallback (cross-player): B and A occupy one ESSID, so A's row
- * was evicted from network_registry (PK = the shared public_ip, last-writer-wins) when
- * B joined after A. The occupancy table (PK (essid, owner_key)) still has A, so L2 must
- * rebuild A's WORKSTATION from the occupant row and walk its real perms — otherwise B's
- * root-tier write to A (e.g. deleting /boot) would falsely 403, breaking the same-LAN
- * brick the session + su already permit.
+ * Writing to a FELLOW OCCUPANT of the same ESSID. B and A are both on one AP, so L2
+ * rebuilds A's WORKSTATION from A's occupancy row — the only record of who A is — and
+ * walks its real perms. Occupancy is keyed (essid, owner_key), so every occupant of a
+ * shared AP has a row and none evicts another; without this resolution B's root-tier
+ * write to A (e.g. deleting /boot) would falsely 403, breaking the same-LAN brick the
+ * session + su already permit.
  */
-describe('enforceRemoteWriteL2 — same-LAN occupant fallback (cross-player)', () => {
+describe('enforceRemoteWriteL2 — writing to a fellow occupant (cross-player)', () => {
   const noPriorPatches = () => Promise.resolve({ data: [], error: null });
   const noOccupant = () => Promise.resolve({ data: null, error: null });
   const occupantRow = (owner: ReturnType<typeof generateIdentity>) => () =>
@@ -358,7 +358,7 @@ describe('enforceRemoteWriteL2 — same-LAN occupant fallback (cross-player)', (
       error: null,
     });
 
-  it("rebuilds A's box from the occupancy fallback when the registry misses, allowing B's root write to /boot", async () => {
+  it("rebuilds A's box from A's occupancy row, allowing B's root write to /boot", async () => {
     const owner = generateIdentity();
     const denial = await enforceRemoteWriteL2({
       machineId: 'skylab-deadbeef',
@@ -371,7 +371,7 @@ describe('enforceRemoteWriteL2 — same-LAN occupant fallback (cross-player)', (
     expect(denial).toBeNull();
   });
 
-  it("still denies a guest write to A's root-only /boot when resolved via the fallback", async () => {
+  it("still denies a guest write to A's root-only /boot, resolved the same way", async () => {
     const owner = generateIdentity();
     const denial = await enforceRemoteWriteL2({
       machineId: 'skylab-deadbeef',
@@ -384,7 +384,7 @@ describe('enforceRemoteWriteL2 — same-LAN occupant fallback (cross-player)', (
     expect(denial).toEqual({ status: 403, error: 'permission_denied' });
   });
 
-  it('fails closed (403) when BOTH the registry and the occupancy fallback miss', async () => {
+  it('fails closed (403) when the machine occupies no network at all', async () => {
 
     const denial = await enforceRemoteWriteL2({
       machineId: 'unknown-machine',
@@ -397,7 +397,7 @@ describe('enforceRemoteWriteL2 — same-LAN occupant fallback (cross-player)', (
     expect(denial).toEqual({ status: 403, error: 'permission_denied' });
   });
 
-  it('500s (no false deny) when the occupancy fallback lookup errors', async () => {
+  it('500s (no false deny) when the occupancy lookup errors', async () => {
 
     const denial = await enforceRemoteWriteL2({
       machineId: 'skylab-deadbeef',

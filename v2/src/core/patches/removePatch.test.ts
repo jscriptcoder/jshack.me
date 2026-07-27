@@ -358,7 +358,7 @@ describe('handleRemovePatch', () => {
     expect(row.writer_key).toBe(visitor.publicKeyHex);
     expect(row.machine_id).toBe(machineId);
     expect(row.path).toBe('/tmp/pwned');
-    // The foreign workstation is resolved via the registry reverse-lookup, and the
+    // The foreign workstation is resolved by the occupancy reverse-lookup, and the
     // tier comes from the visitor's SERVER session — never a client claim.
     expect(findOccupantWorkstationByMachineId).toHaveBeenCalledWith(machineId);
     expect(findActiveSession).toHaveBeenCalledWith({
@@ -367,12 +367,12 @@ describe('handleRemovePatch', () => {
     });
   });
 
-  it("tombstones via the OCCUPANCY fallback when the registry has no row — a root rm of A's /boot bricks a same-LAN occupant evicted from the registry", async () => {
+  it("tombstones a root rm of a fellow occupant's /boot — bricking A from inside the shared LAN", async () => {
     const visitor = generateIdentity();
     const { machineId, registry } = registeredWorkstation();
-    // B is root on A (same-LAN su) and deletes A's kernel. A's row was evicted from
-    // network_registry by a later same-ESSID joiner, so the write path resolves A's box
-    // from the occupancy fallback — without it the brick would falsely 403.
+    // B is root on A (same-LAN su) and deletes A's kernel. The write path resolves A's
+    // box from A's occupancy row, which exists for every occupant of the ESSID no matter
+    // who joined when — without that resolution the brick would falsely 403.
     const envelope = signRequest(visitor, 'removePatch', {
       machine_id: machineId,
       path: '/boot/vmlinuz',

@@ -1,8 +1,8 @@
 // Wire-payload smoke for Slice 7.5a — a same-WiFi LAN connect (and the su that follows)
 // leaves a truthful trace on the TARGET's shared WORKSTATION auth.log, sourced from the
 // attacker's LAN IP. Drives the REAL /api/sessions endpoints (authCreateSessionSameLan +
-// suElevate) against a running `vercel dev` + supabase, seeding A's occupancy + registry
-// rows + A's sshd pidfile via service_role (as A's and B's joins + A's `sshd` would).
+// suElevate) against a running `vercel dev` + supabase, seeding A's and B's occupancy +
+// lease rows and A's sshd pidfile via service_role (as their joins + A's `sshd` would).
 //
 // Net-new under test (the locally-untypechecked api/ runtime):
 //   - B (a live occupant of X) `ssh guest@<A's LAN IP>` (correct pw) → ONE `Accepted
@@ -24,7 +24,6 @@ import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign';
 import { generateIdentity } from '../src/core/identity/identity';
 import { computeWorkstationId } from '../src/core/identity/workstation';
-import { computeApGatewayId } from '../src/core/identity/router';
 import { lanAddressFor } from '../src/core/network/lanAddress';
 import { formatPidfileContent } from '../src/core/services/pidfile';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
@@ -87,7 +86,6 @@ const ESSID = 'SAME-LAN-TRACE-WIFI';
 const A_WS_NAME = 'skylab';
 const B_WS_NAME = 'nebuchadnezzar';
 const A_WS = computeWorkstationId(A_WS_NAME, alice.publicKeyHex);
-const A_ROUTER = computeApGatewayId(ESSID);
 // Occupants are reachable at the address they LEASE, so the seeding below issues
 // leases and these are the addresses those leases name.
 const A_OCTET = 11;
@@ -110,25 +108,11 @@ const occupancyRow = (owner: ReturnType<typeof generateIdentity>, wsName: string
   workstation_root_hash: md5(A_ROOT_PW),
 });
 
-// A's registry row — what the su path resolves by machine_id (the WiFi join upserts both
-// the occupancy AND the registry; this wire-check seeds both so the su half can run). The
-// public_ip is just this row's PK here — an explicit constant the seed + cleanup share.
-const registryRow = {
-  public_ip: '198.51.100.41',
-  owner_key: alice.publicKeyHex,
-  workstation_machine_id: A_WS,
-  router_machine_id: A_ROUTER,
-  essid: ESSID,
-  workstation_username: 'player',
-  workstation_machine_name: A_WS_NAME,
-  workstation_root_hash: md5(A_ROOT_PW),
-};
-
-// Clean slate, then seed A's + B's occupancy rows, A's registry row, and A's workstation
-// sshd pidfile (a fresh ws is dark until its `sshd` starts).
+// Clean slate, then seed A's + B's occupancy rows and A's workstation sshd pidfile (a
+// fresh ws is dark until its `sshd` starts). Occupancy is all the su path needs to
+// resolve A by machine_id and rebuild its /etc/passwd.
 await sr.from('home_network_occupants').delete().eq('essid', ESSID);
 await sr.from('network_lan_leases').delete().eq('essid', ESSID);
-await sr.from('network_registry').delete().eq('public_ip', registryRow.public_ip);
 await sr.from('patches').delete().eq('machine_id', A_WS);
 for (const id of [bob, carol]) {
   await sr.from('sessions').delete().eq('player_key', id.publicKeyHex);
@@ -142,7 +126,6 @@ await sr.from('network_lan_leases').insert([
   { essid: ESSID, owner_key: alice.publicKeyHex, octet: A_OCTET },
   { essid: ESSID, owner_key: bob.publicKeyHex, octet: B_OCTET },
 ]);
-await sr.from('network_registry').insert([registryRow]);
 await sr.from('patches').insert([
   {
     machine_id: A_WS,
@@ -230,7 +213,6 @@ check(
 // Cleanup.
 await sr.from('home_network_occupants').delete().eq('essid', ESSID);
 await sr.from('network_lan_leases').delete().eq('essid', ESSID);
-await sr.from('network_registry').delete().eq('public_ip', registryRow.public_ip);
 await sr.from('patches').delete().eq('machine_id', A_WS);
 for (const id of [bob, carol]) {
   await sr.from('sessions').delete().eq('player_key', id.publicKeyHex);

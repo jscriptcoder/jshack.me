@@ -4,29 +4,26 @@
 // is an explicit in-game `nmcli disconnect`. A machine on no network is unreachable by
 // every cross-player path.
 //
-// The bug this pins: `network_registry` rows are keyed on the ESSID-shared `public_ip`
-// and are NEVER deleted, while `nmcli disconnect` removes the occupancy row. So the
-// registry keeps a GHOST of a player who has left the network, and every resolver that
-// consults it keeps serving that player's box to attackers who should no longer be able
-// to reach it.
+// The bug this pins: a resolver that answers from a store which is never emptied keeps
+// serving a player who has LEFT the network. `nmcli disconnect` removes the occupancy
+// row and nothing else, so occupancy is the only store whose contents mean "reachable".
 //
-// Join ORDER matters: the registry's PK is the shared public_ip, so the LAST joiner owns
-// the row. A joins second precisely so the ghost is A's — otherwise A would be absent
-// from the registry for the unrelated reason that a later joiner evicted them, and the
-// checks below would pass without proving anything.
+// Join ORDER is kept deliberate — B first, A second — because the original defect
+// depended on it: identity used to live in a store keyed by the ESSID-shared public IP,
+// where the last joiner won. Joining A second means A is the occupant every such store
+// would still be holding, so the fail-closed checks below cannot pass by accident.
 //
 // Drives the REAL endpoints against a running `vercel dev` + supabase:
-//   - B then A join the same ESSID via /api/network (registerNetwork); A holds the
-//     registry row.
+//   - B then A join the same ESSID via /api/network (registerNetwork).
 //   - B `ssh guest@<A's LAN IP>` via /api/sessions (authCreateSessionSameLan).
 //   - B reads and writes A's box while A is ON the network — both succeed.
-//   - A runs `nmcli disconnect` (unregisterOccupant), leaving the registry ghost behind.
+//   - A runs `nmcli disconnect` (unregisterOccupant).
 //   - B's read and write of A must now BOTH fail closed. B's session is untouched and
 //     still valid; what has gone is A's machine, not B's credential.
 //
 // Net-new under test (the locally-untypechecked api/ runtime): that the by-machine_id
 // resolvers behind resolveCrossPlayerFs and the patch-write L2 answer from occupancy —
-// which means "on this WiFi" — rather than from the never-deleted registry.
+// which means "on this WiFi" — and from nothing that outlives a disconnect.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testDisconnectedUnreachable.ts
@@ -140,10 +137,6 @@ const writeAsBob = (path: string) =>
   );
 
 const clean = async () => {
-  await sr
-    .from('network_registry')
-    .delete()
-    .in('owner_key', [alice.publicKeyHex, bob.publicKeyHex]);
   await sr.from('network_public_ips').delete().eq('essid', ESSID);
   await sr.from('home_network_occupants').delete().eq('essid', ESSID);
   await sr.from('network_lan_leases').delete().eq('essid', ESSID);
@@ -210,7 +203,7 @@ check(
   `status=${s3.status}`,
 );
 
-// === 4. A runs `nmcli disconnect`. The occupancy row goes; the registry keeps a GHOST. ===
+// === 4. A runs `nmcli disconnect` — the one action that takes a machine off a WiFi. ===
 await post(NETWORK, signRequest(alice, 'unregisterOccupant', { essid: ESSID }));
 const occAfter = await sr
   .from('home_network_occupants')
@@ -218,15 +211,10 @@ const occAfter = await sr
   .eq('essid', ESSID)
   .eq('owner_key', alice.publicKeyHex)
   .maybeSingle();
-const ghost = await sr
-  .from('network_registry')
-  .select('workstation_machine_id')
-  .eq('workstation_machine_id', A_WS)
-  .maybeSingle();
 check(
-  'nmcli disconnect removes A from occupancy while network_registry keeps a stale ghost',
-  occAfter.data === null && ghost.data !== null,
-  `occupant=${occAfter.data !== null} registry-ghost=${ghost.data !== null}`,
+  'nmcli disconnect removes A from occupancy, so A is on no network at all',
+  occAfter.data === null,
+  `occupant=${occAfter.data !== null}`,
 );
 
 // === 5. A's machine has left the network, so B can no longer READ it. ===

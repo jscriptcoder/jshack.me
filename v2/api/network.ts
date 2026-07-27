@@ -3,7 +3,6 @@ import { createClient } from '@supabase/supabase-js';
 import {
   handleRegisterNetwork,
   type HomeNetworkOccupantRow,
-  type NetworkRegistryRow,
 } from '../src/core/network/registerNetwork';
 import { handleResolveOccupants, type OccupantListRow } from '../src/core/network/resolveOccupants';
 import type { LanLeaseRow } from '../src/core/network/lanAddress';
@@ -38,16 +37,17 @@ import { generatePublicIp } from '../src/core/generation/ip';
 import { createPrng } from '../src/core/generation/prng';
 import { randomUUID } from 'node:crypto';
 
-// Vercel adapter for POST /api/network — the cross-player public-IP registry.
+// Vercel adapter for POST /api/network — joining an AP, and reaching what is on it.
 //
-// Two signed actions share this endpoint, routed on the (unverified) payload
+// Every signed action shares this endpoint, routed on the (unverified) payload
 // `action`; each handler re-verifies the envelope itself, so routing on the raw
-// action is safe:
-//   - registerNetwork: upsert the caller's network on join (owner_key + public_ip
-//     server-stamped; one row per public IP)
+// action is safe. `registerNetwork` is the fallthrough. The two that define the
+// shape of the rest:
+//   - registerNetwork: allocate the ESSID's public IP and the caller's LAN lease,
+//     then record the caller as an occupant (owner_key server-stamped)
 //   - resolvePublicScan: resolve a DIFFERENT identity's nmap of a public IP to the
-//     owner's ROUTER (a distinct machine bearing the public IP) — host up/down +
-//     the router's open ports (its seeded sshd:22, read off the materialized tree)
+//     AP's GATEWAY (a distinct ESSID-seeded machine bearing that IP) — host up/down
+//     + its open ports (its seeded sshd:22, read off the materialized tree)
 //
 // Logic lives in core/ handlers (unit + mutation tested); this file stays a thin
 // Supabase adapter. It's typechecked via tsconfig.node.json (`npm run typecheck`),
@@ -109,9 +109,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const essid = (network.data as { essid: string } | null)?.essid ?? null;
       if (essid === null) return { data: null, error: null };
       // Which box is behind the NAT. One AP has many occupants but the NAT resolves a
-      // single host, so the most recently joined occupant is it — the same one the
-      // ESSID-shared registry row used to name, now read from the table that also knows
-      // when a machine has left the WiFi.
+      // single host, so the most recently joined occupant is it. Occupancy is the read
+      // because it is the only table that knows when a machine has LEFT the WiFi — a
+      // box that disconnected is not behind anyone's NAT.
       const occupant = await supabase
         .from('home_network_occupants')
         .select('owner_key, workstation_machine_id, workstation_username, workstation_root_hash')
@@ -231,7 +231,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // so a NAT forward to the deep layer is visible. The forward lives on the gateway's
     // server-side journal, so read its patch rows (scoped to machine_id, server order)
     // to replay over the seeded gateway base — for `canBoot` + the live `rules.v4`. No
-    // registry lookup: the gateway is the caller's own box, regenerated from their key.
+    // occupancy lookup: the gateway is seeded from the ESSID, not owned by a player.
     const findPatches = async ({ machine_id }: { machine_id: string }) => {
       const { data, error } = await supabase
         .from('patches')
@@ -408,16 +408,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  // .upsert resolves the public_ip PK conflict as an update — re-joining the same
-  // AP refreshes the owner/workstation rather than erroring.
-  const upsertRegistry = async (row: NetworkRegistryRow) => {
-    const { error } = await supabase.from('network_registry').upsert(row);
-    if (error) console.error('[network] registry upsert error:', error);
-    return { error };
-  };
-  // The same join also records the player as a live occupant of the ESSID's LAN. The
+  // The join records the player as a live occupant of the ESSID's LAN. The
   // (essid, owner_key) PK conflict resolves as an update — re-joining refreshes the row
-  // rather than erroring (every occupant coexists, unlike the per-public-IP registry).
+  // rather than erroring, and every occupant of a shared AP coexists.
   const upsertOccupant = async (row: HomeNetworkOccupantRow) => {
     const { error } = await supabase
       .from('home_network_occupants')
@@ -538,7 +531,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           claim: claimLanLease,
         },
       ),
-    upsertRegistry,
     upsertOccupant,
   });
   res.status(status).json(body);

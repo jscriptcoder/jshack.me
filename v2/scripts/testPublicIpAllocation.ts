@@ -4,9 +4,8 @@
 // directly via service_role.
 //
 // Net-new under test (the locally-untypechecked api/ runtime + the migration):
-//   - Joining an ESSID allocates + stores a public IP in `network_public_ips` and
-//     stamps the SAME address into `network_registry.public_ip` (no longer the old
-//     deterministic derive).
+//   - Joining an ESSID allocates + stores a public IP in `network_public_ips` — the
+//     single store for the address (no longer the old deterministic derive).
 //   - Re-joining the same ESSID is idempotent — the stored IP is unchanged.
 //   - Two different ESSIDs get two DISTINCT IPs.
 //   - The claim primitive (`INSERT … ON CONFLICT (essid) DO NOTHING`): a cross-ESSID
@@ -79,15 +78,6 @@ const storedIpFor = async (essid: string): Promise<string | null> => {
   return (data as { public_ip: string } | null)?.public_ip ?? null;
 };
 
-const registryIpFor = async (ownerKey: string): Promise<string | null> => {
-  const { data } = await sr
-    .from('network_registry')
-    .select('public_ip')
-    .eq('owner_key', ownerKey)
-    .maybeSingle();
-  return (data as { public_ip: string } | null)?.public_ip ?? null;
-};
-
 // The exact upsert the api/ adapter's `claim` issues — replicated here to assert the
 // DB-level contract the redraw/adopt logic leans on.
 const claimViaSr = async (essid: string, ip: string) =>
@@ -108,7 +98,6 @@ const FRESH_IP = '198.51.100.222';
 // Clean slate.
 const cleanup = async () => {
   await sr.from('network_public_ips').delete().in('essid', [A_ESSID, B_ESSID, C_ESSID]);
-  await sr.from('network_registry').delete().in('owner_key', [alice.publicKeyHex, bob.publicKeyHex]);
   await sr
     .from('home_network_occupants')
     .delete()
@@ -117,17 +106,13 @@ const cleanup = async () => {
 };
 await cleanup();
 
-// === 1. Joining ESSID A allocates + persists a public IP, stamped into the registry. ===
+// === 1. Joining ESSID A allocates + persists a routable public IP for that ESSID. ===
 const r1 = await post(registerEnvelope(alice, A_ESSID, 'skylab'));
 const aStored = await storedIpFor(A_ESSID);
-const aRegistry = await registryIpFor(alice.publicKeyHex);
 check(
-  'join allocates a routable public IP and stamps the SAME address into the registry',
-  r1.status === 200 &&
-    aStored !== null &&
-    isPublicIp(aStored) &&
-    aStored === aRegistry,
-  `status=${r1.status} allocated=${aStored} registry=${aRegistry}`,
+  'join allocates a routable public IP and stores it against the ESSID',
+  r1.status === 200 && aStored !== null && isPublicIp(aStored),
+  `status=${r1.status} allocated=${aStored}`,
 );
 
 // === 2. Re-joining ESSID A is idempotent — the stored IP is unchanged. ===

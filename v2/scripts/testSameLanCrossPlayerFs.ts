@@ -1,21 +1,21 @@
-// Wire-payload smoke for the same-LAN cross-player FS read fallback. Reproduces the
-// Story-7 capstone bug: a fellow occupant B who `ssh`'d into A over the shared LAN saw
-// `ls`/`cat`/`su` report "command not found", because the WAN registry (PK = the
-// ESSID-shared public_ip, last-writer-wins) had A's row OVERWRITTEN by a later joiner,
-// so the cross-player FS read 404'd and B's served root was empty.
+// Wire-payload smoke for the same-LAN cross-player FS read: every occupant of a shared
+// AP is reachable, no matter who joined first. This pins the fix for a bug where a
+// fellow occupant B who `ssh`'d into A over the shared LAN saw `ls`/`cat`/`su` report
+// "command not found" — A's identity was held in a store keyed by the ESSID-shared
+// public IP, so a later joiner overwrote it, the cross-player FS read 404'd, and B's
+// served root came back empty.
 //
 // Drives the REAL endpoints against a running `vercel dev` + supabase:
-//   - A then B JOIN the same ESSID via /api/network (registerNetwork). Because the
-//     public_ip is essid-derived, B's join EVICTS A from network_registry — the precise
-//     production condition (confirmed by check 1).
+//   - A then B JOIN the same ESSID via /api/network (registerNetwork). Join ORDER is
+//     the point: A goes first, so anything that keeps only the latest joiner loses A.
 //   - B `ssh guest@<A's LAN IP>` via /api/sessions (authCreateSessionSameLan) → a guest
 //     session lands on A's workstation id.
 //   - B resolveCrossPlayerFs(A's ws id) via /api/network → 200, and the served tree
-//     carries A's world-readable /bin/ls. BEFORE the fix this was 404/empty (the bug);
-//     AFTER it, the occupancy table (never overwritten) resolves A's box.
+//     carries A's world-readable /bin/ls.
 //
-// Net-new under test (the locally-untypechecked api/ runtime): the
-// findOccupantWorkstationByMachineId fallback wired into the resolveCrossPlayerFs action.
+// Net-new under test (the locally-untypechecked api/ runtime): that
+// findOccupantWorkstationByMachineId — keyed (essid, owner_key), so occupants coexist —
+// is what the resolveCrossPlayerFs action resolves A's box from.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testSameLanCrossPlayerFs.ts
@@ -73,7 +73,6 @@ const ESSID = 'CROSSFS-LAN-WIFI';
 const A_WS_NAME = 'skylab';
 const B_WS_NAME = 'nebuchadnezzar';
 const A_WS = computeWorkstationId(A_WS_NAME, alice.publicKeyHex);
-const B_WS = computeWorkstationId(B_WS_NAME, bob.publicKeyHex);
 /** The address the server ISSUED this occupant on join — read back from the lease it
  *  allocated, never re-derived. The lease is the address of record; deriving one here
  *  would be asserting against a second source of truth. */
@@ -111,15 +110,14 @@ const join = (owner: ReturnType<typeof generateIdentity>, wsName: string) =>
   });
 
 // Clean slate.
-await sr.from('network_registry').delete().in('owner_key', [alice.publicKeyHex, bob.publicKeyHex]);
 await sr.from('network_public_ips').delete().eq('essid', ESSID);
 await sr.from('home_network_occupants').delete().eq('essid', ESSID);
 await sr.from('network_lan_leases').delete().eq('essid', ESSID);
 await sr.from('patches').delete().eq('machine_id', A_WS);
 await sr.from('sessions').delete().eq('player_key', bob.publicKeyHex);
 
-// A joins FIRST, then B joins the SAME ESSID — B's registry upsert overwrites A's row
-// (shared public_ip PK). Both join via the real endpoint, so the eviction is genuine.
+// A joins FIRST, then B joins the SAME ESSID. Both go through the real endpoint, so if
+// anything on the join path kept only the latest occupant, A would genuinely be gone.
 await post(NETWORK, join(alice, A_WS_NAME));
 await post(NETWORK, join(bob, B_WS_NAME));
 
@@ -139,33 +137,16 @@ await sr.from('patches').insert([
   },
 ]);
 
-// === 1. The bug precondition: A is EVICTED from network_registry by B's later join. ===
-const regForA = await sr
-  .from('network_registry')
-  .select('workstation_machine_id')
-  .eq('workstation_machine_id', A_WS)
-  .maybeSingle();
-const regForB = await sr
-  .from('network_registry')
-  .select('workstation_machine_id')
-  .eq('workstation_machine_id', B_WS)
-  .maybeSingle();
-check(
-  'a later same-ESSID joiner evicts the earlier occupant from network_registry (shared public_ip)',
-  regForA.data === null && (regForB.data as { workstation_machine_id?: string } | null) !== null,
-  `registry-has-A=${regForA.data !== null} registry-has-B=${regForB.data !== null}`,
-);
-
-// === 2. ...but both remain live occupants (the never-overwritten table). ===
+// === 1. Both joiners are live occupants — a later joiner displaces nobody. ===
 const occ = await sr.from('home_network_occupants').select('owner_key').eq('essid', ESSID);
 check(
-  'both players remain in home_network_occupants (PK (essid, owner_key))',
+  'both players are occupants of the shared ESSID (PK (essid, owner_key))',
   (occ.data ?? []).length === 2,
   `occupants=${(occ.data ?? []).length}`,
 );
 
-// === 3. B (occupant) ssh guest@<A's LAN IP> → 200, guest session on A's workstation. ===
-const s3 = await post(
+// === 2. B (occupant) ssh guest@<A's LAN IP> → 200, guest session on A's workstation. ===
+const s2 = await post(
   SESSIONS,
   signRequest(bob, 'authCreateSessionSameLan', {
     session_id: 'crossfs-b-1',
@@ -175,27 +156,26 @@ const s3 = await post(
     password: GUEST_PW,
   }),
 );
-const landed = (s3.body as { machine_id?: string }).machine_id;
+const landed = (s2.body as { machine_id?: string }).machine_id;
 check(
   'B authenticates same-LAN and lands a guest session on A’s workstation id',
-  s3.status === 200 && landed === A_WS,
-  `status=${s3.status} machine_id=${landed}`,
+  s2.status === 200 && landed === A_WS,
+  `status=${s2.status} machine_id=${landed}`,
 );
 
-// === 4. THE FIX: B's cross-player FS read of A resolves via the occupancy fallback,
-//        and the served tree carries A's world-readable /bin/ls (so ls/cat/su run). ===
-const s4 = await post(NETWORK, signRequest(bob, 'resolveCrossPlayerFs', { machine_id: A_WS }));
-const body4 = s4.body as { ok?: boolean; tree?: SerializedDirectory };
-const tree = s4.status === 200 && body4.tree ? deserializeTree(body4.tree) : null;
+// === 3. B's cross-player FS read of A resolves from A's occupancy row, and the served
+//        tree carries A's world-readable /bin/ls (so ls/cat/su run). ===
+const s3 = await post(NETWORK, signRequest(bob, 'resolveCrossPlayerFs', { machine_id: A_WS }));
+const body3 = s3.body as { ok?: boolean; tree?: SerializedDirectory };
+const tree = s3.status === 200 && body3.tree ? deserializeTree(body3.tree) : null;
 const ls = tree ? get(tree, 'bin', 'ls') : undefined;
 check(
-  'B’s cross-player read of A resolves via the occupancy fallback and serves A’s /bin/ls',
-  s4.status === 200 && body4.ok === true && ls?.kind === 'file',
-  `status=${s4.status} ok=${body4.ok} bin/ls=${ls?.kind ?? 'absent'}`,
+  'B’s cross-player read of A resolves from A’s occupancy row and serves A’s /bin/ls',
+  s3.status === 200 && body3.ok === true && ls?.kind === 'file',
+  `status=${s3.status} ok=${body3.ok} bin/ls=${ls?.kind ?? 'absent'}`,
 );
 
 // Cleanup.
-await sr.from('network_registry').delete().in('owner_key', [alice.publicKeyHex, bob.publicKeyHex]);
 await sr.from('network_public_ips').delete().eq('essid', ESSID);
 await sr.from('home_network_occupants').delete().eq('essid', ESSID);
 await sr.from('network_lan_leases').delete().eq('essid', ESSID);

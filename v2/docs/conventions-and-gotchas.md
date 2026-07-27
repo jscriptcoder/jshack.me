@@ -118,13 +118,13 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
     the only machine that genuinely belongs to a person, another player's workstation.
     `enforceRemoteWriteL2` lost its `publicKey` (identity is L1's question), which moved the
     shared-write evidence up to `handleUpsertPatch` where a verified signer still exists.
-  Remaining: 6a/6b (**`network_registry` deleted outright** — its content
-  is derivable or already in `network_public_ips` / `home_network_occupants`; **this retires
-  the "occupancy fallback" invariant in §7 below**). Sliced in
-  `plans/shared-network-reconciliation.md`: `tdd` governs the behaviour-changing slices;
-  `reduce-system-complexity` governs the registry-removal pair only. A follow-up item then
-  makes the ESSID space procedurally generated and large, and tunes the occupied-ESSID
-  injector down.
+  - **Slices 6a + 6b** — the registry table is **gone**. 6a re-homed every cross-player lookup
+    onto `network_public_ips` + `home_network_occupants` and fixed the bug that fell out of it
+    (a machine that had left the WiFi stayed readable AND writable); 6b dropped the table, its
+    index, and its write, swapping the reverse-lookup index onto `home_network_occupants`.
+    `reduce-system-complexity` governed the pair, `tdd` the behaviour-changing slices before
+    them. A follow-up item then makes the ESSID space procedurally generated and large, and
+    tunes the occupied-ESSID injector down.
 
 **Current version: 0.94.0.**
 
@@ -424,18 +424,20 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
 **Story-5b / multiplayer deferred** (detail in `plans/multiplayer-crossplayer-epic.md`
 §"Remaining work"):
 
-- **Story-7 reconciliation** — a **unique-public-IP allocation service** (v2's `public_ip`
-  is ESSID-deterministic so shared-AP occupants collide under `network_registry`'s
-  last-writer-wins; the by-`machine_id` resolvers survive it via the occupancy fallback, but
-  the registry itself is unreconciled); DHCP host-octet collision-free allocation;
-  shared-router-per-ESSID; ESSID-seeded shared NPCs; WiFi density; presence/TTL.
+- **Story-7 reconciliation** — DONE except WiFi density and presence/TTL, which stay deferred.
+  Delivered by `plans/shared-network-reconciliation.md`: unique per-ESSID public-IP allocation,
+  collision-free LAN leases, one shared AP gateway per ESSID, ESSID-seeded shared NPCs and deep
+  chains, and the removal of the store whose last-writer-wins PK caused the collisions.
 - **A NAT forward reaches only ONE occupant of a shared AP** — the public-IP lookup resolves
   the box behind the NAT to whichever occupant joined the ESSID most recently, so a forward
   naming any other occupant's leased address is dead. The fix is to resolve the forward's
   internal IP through `network_lan_leases` to whoever actually leases that octet, which makes
   every occupant forward-reachable. **A behaviour change owing RED under `tdd`** — deliberately
-  kept out of the `network_registry` reduction (which conserves the arbitrariness) so that
-  reduction stays behaviour-preserving. Surfaced by the Slice 6a diagnosis, 2026-07-27.
+  kept out of the registry reduction (which conserved the arbitrariness rather than fixing it)
+  so that reduction stayed behaviour-preserving. This one now bites harder than it reads: a
+  defender who hardens their box and leaves it on the WiFi can still be unreachable through
+  their own forward simply because somebody joined the AP after them. Surfaced by the Slice 6a
+  diagnosis, 2026-07-27.
 - **Pivot / operate-from-a-hop** beyond what 5b shipped; ssh-from-a-pivot.
 - **Replay/nonce store** — built then REVERTED (ship-first): narrow value in this threat
   model (TLS wire + player holds the key → just re-signs with a fresh nonce; only blocks

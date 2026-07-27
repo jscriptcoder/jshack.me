@@ -64,7 +64,6 @@ const storedIpFor = async (essid: string): Promise<string | null> => {
 if (process.argv[2] === 'clean') {
   await sr.from('patches').delete().eq('machine_id', A_MACHINE);
   await sr.from('patches').delete().eq('machine_id', A_ROUTER);
-  await sr.from('network_registry').delete().eq('owner_key', alice.publicKeyHex);
   await sr.from('network_public_ips').delete().eq('essid', ESSID);
   console.log('cleaned A’s registry row, allocation + patches');
   process.exit(0);
