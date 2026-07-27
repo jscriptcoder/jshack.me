@@ -7,15 +7,18 @@ Slice 3a ✅ MERGED (PR #328, `6ae4109`, v0.90.0),
 Slice 3b-i ✅ MERGED (PR #329, `21e3f9e`, v0.91.0),
 Slice 3b-ii ✅ MERGED (PR #330, `879dcc4`, v0.92.0),
 Slice 4 ✅ MERGED (PR #331, `6733821`, v0.93.0),
-Slice 5 ✅ MERGED (PR #332, `2f79349`, v0.94.0).
-**Next: Slice 6a — re-home the registry-backed lookups. IN FLIGHT on branch
-`refactor/registry-lookup-rehome`, cut from `main` at `4815cfd`; nothing implemented yet. Start
-at the Reduction Program section and read 6a/6b in that order — this PAIR is
-`reduce-system-complexity` work, NOT behaviour change, so there is no RED to write and a
-fabricated one would be a process violation. The FIRST act of 6a is the diagnosis +
-conservation ledger, recorded back into this file. Slice 5 finished the sharing work: the whole
-world an ESSID generates, from its `/24` down to the last deep gateway, is one world for every
-occupant, and no generator in `core/` takes an owner key.**
+Slice 5 ✅ MERGED (PR #332, `2f79349`, v0.94.0),
+Slice 6a ✅ MERGED (PR #333, `f947db7`, v0.95.0).
+**Next: Slice 6b — the TERMINAL reduction, and the last slice on this plan. Nothing is in
+flight; `main` is clean at `f947db7`. Cut a branch, then read the Reduction Program section
+and 6a's as-built before 6b. `network_registry` is now written but NEVER READ, so 6b is pure
+deletion: the table, its index, the `registerNetwork` write, `NetworkRegistryRow`, and the
+remaining script references. This is the ONLY slice that may claim net reduction, and only
+after recounting the mechanism baseline recorded in the ledger. `tdd` RED is genuinely `N/A`
+here — nothing observable changes. WATCH OUT: the ~8 scripts still naming the table now do so
+in cleanup deletes OR in assertions ABOUT the registry itself (`testPublicIpAllocation` checks
+the IP is stamped into it; `testSameLanCrossPlayerFs` asserts the eviction precondition). Those
+assertions become MEANINGLESS, not merely unused — delete them, do not repoint them.**
 **Parent**: `plans/multiplayer-crossplayer-epic.md` item #5 (decision record; grilled & resolved 2026-07-25)
 **Follows**: item #4 (unique public-IP allocation, v0.87.0)
 **Precedes**: item #6 (procedural world expansion) — do NOT pull it in here
@@ -199,7 +202,7 @@ after it. 6b keeps the table, index, write path, type, and the §7 invariant tex
 Nothing in this diagnosis claims equivalence or realized reduction; 6a's mechanism gate stays
 pending until 6b.
 
-#### Slice 6a as-built (2026-07-27, v0.95.0)
+#### Slice 6a as-built — ✅ MERGED (PR #333, `f947db7`, v0.95.0)
 
 **Class as delivered**: reduction transition + one behaviour fix (G4). `behavior gate: pass`.
 `mechanism gate: pending — no net-reduction claim` (6b is terminal).
