@@ -6,8 +6,9 @@ Slice 2 ✅ MERGED (PR #327, `88054bf`, v0.89.0),
 Slice 3a ✅ MERGED (PR #328, `6ae4109`, v0.90.0),
 Slice 3b-i ✅ MERGED (PR #329, `21e3f9e`, v0.91.0),
 Slice 3b-ii ✅ MERGED (PR #330, `879dcc4`, v0.92.0),
-Slice 4 ✅ DONE on `feat/shared-lan-population` (v0.93.0, awaiting PR).
-**Next: Slice 5 — depth is shared. Slice 4 turned out WIDER than scoped (it had to take the L1
+Slice 4 ✅ MERGED (PR #331, `6733821`, v0.93.0).
+**Next: Slice 5 — depth is shared. Nothing is in flight; `main` is clean at `6733821`. Cut a
+branch, then start at the Slice 5 section below. Slice 4 turned out WIDER than scoped (it had to take the L1
 gateway identity and the NPC filesystems with it — see its as-built), so Slice 5 is
 correspondingly NARROWER: strictly the deep chain BELOW L1, i.e. `seedNetworkDepth`,
 `generateDeepLayer`, `computeDeepGatewayId` and the deep base filesystems. Everything on the

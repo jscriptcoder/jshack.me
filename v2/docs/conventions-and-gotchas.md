@@ -87,7 +87,7 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
     stays clear) rather than silently addressing the player. `env.homeNetwork.join` returns
     `HomeNetworkAssignment | null` and both unwired fallbacks return null — nothing in the
     client allocates an address any more.
-  - **Slice 4 (v0.93.0)** — every occupant of an ESSID sees the SAME LAN. `generateHomeLan`
+  - **Slice 4 (v0.93.0, `6733821`)** — every occupant of an ESSID sees the SAME LAN. `generateHomeLan`
     takes only the ESSID (no identity at all) and reads `lanSubnetPrefix` directly, so one
     population stands on the AP's `/24` for everybody. The L1 gateway devices moved with it:
     `computeInnerGatewayId` / `buildInnerGatewayBaseFs` / `buildSwitchBaseFs` /
