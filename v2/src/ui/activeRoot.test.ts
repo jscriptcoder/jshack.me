@@ -220,14 +220,14 @@ describe('resolveActiveRoot', () => {
   // than fall back to the own workstation base, or the deep loop has no filesystem to stand on.
   const deepChainDoor = () => {
     const innerId = computeInnerGatewayId(ESSID, innerGatewayOctet());
-    const child = generateDeepLayer(PUBKEY, ESSID, { machineId: innerId, kind: 'router' }).childGateway;
+    const child = generateDeepLayer(ESSID, { machineId: innerId, kind: 'router' }).childGateway;
     if (child === null) throw new Error('fixture chain has no deep gateway');
-    return resolveDeepGatewayIdentity(PUBKEY, innerId, child.ip, child.kind);
+    return resolveDeepGatewayIdentity(innerId, child.ip, child.kind);
   };
 
   const deepNpcHost = () => {
     const innerId = computeInnerGatewayId(ESSID, innerGatewayOctet());
-    return generateDeepLayer(PUBKEY, ESSID, { machineId: innerId, kind: 'router' }).host;
+    return generateDeepLayer(ESSID, { machineId: innerId, kind: 'router' }).host;
   };
 
   it('returns the DEEP GATEWAY tree for a session on a chain door, not the own base', () => {

@@ -38,12 +38,11 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
   <.1>`); a pivot `nmap` fires a fire-and-forget `nmapScanDeep` (on `/api/patches`) that
   appends `kern.log` per touched deep host through the shared `core/scan/deepScanHosts`
   resolver (client render + server trace can't drift; a switch vantage records post-ACL
-  ports). **Octet reservation**: `mergeLanOccupants` reserves the inner gateway/switch
-  octets — a same-LAN occupant that collides with one is omitted from that viewer's `nmap`
-  (your private depth entry outranks one occupant's visibility; the occupant stays
-  attackable via its public IP). Depth is **single-player / per-player NPC**; cross-player /
-  ESSID-shared depth + a fixed-IP mission catalog remain deferred (epic doc). Pivot
-  **source-IP masking** is still deferred — see `plans/multiplayer-crossplayer-epic.md`.
+  ports). ⚠️ Two claims here were **superseded by shared-network reconciliation** (below):
+  the **octet reservation** in `mergeLanOccupants` is gone (Slice 4), and depth is no longer
+  per-player — chains are **ESSID-shared** (Slice 5), so the "cross-player depth deferred"
+  note no longer applies. A fixed-IP mission catalog is still deferred (epic doc), as is
+  pivot **source-IP masking** — see `plans/multiplayer-crossplayer-epic.md`.
 
 - **Unique public-IP allocation ✅ COMPLETE (v0.87.0).** A network's WAN address is now
   **server-issued and stored**, not derived: `network_public_ips(essid PK, public_ip UNIQUE)`
@@ -106,7 +105,20 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
     covering the preferred octet AND every redraw, with `drawLanOctet` drawing from the
     allowed pool so an exclusion never costs an attempt. Exclusion governs what may be
     ISSUED, not what is held: an existing lease is returned untouched.
-  Remaining: 5 (shared depth), 6a/6b (**`network_registry` deleted outright** — its content
+  - **Slice 5 (v0.94.0)** — the deep chain is shared too, so an ESSID's whole world is one
+    world. `seedNetworkDepth(essid)`, `generateDeepLayer(essid, fronting, options)`,
+    `computeDeepGatewayId(parent, octet)`, `seedDeepGatewayAdminPw(parent, octet)` and the deep
+    base filesystems all dropped the owner key; **no generator in `core/` takes an identity any
+    more**. Nothing gained an ESSID parameter it lacked — the parent id is ESSID-derived up to
+    the inner gateway, so the chain inherits network separation rather than restating it, and
+    `parentMachineId + octet` remains the whole anti-aliasing discriminator. Two names went with
+    the concept: `ownLanBaseFsForMachineId` → `lanBaseFsForMachineId`, and
+    `ownChainBaseFsForMachineId` → **`generatedBaseFsForMachineId`** — that one is the
+    cross-player discriminator, and what it separates is now boxes the NETWORK generates from
+    the only machine that genuinely belongs to a person, another player's workstation.
+    `enforceRemoteWriteL2` lost its `publicKey` (identity is L1's question), which moved the
+    shared-write evidence up to `handleUpsertPatch` where a verified signer still exists.
+  Remaining: 6a/6b (**`network_registry` deleted outright** — its content
   is derivable or already in `network_public_ips` / `home_network_occupants`; **this retires
   the "occupancy fallback" invariant in §7 below**). Sliced in
   `plans/shared-network-reconciliation.md`: `tdd` governs the behaviour-changing slices;
@@ -114,7 +126,7 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
   makes the ESSID space procedurally generated and large, and tunes the occupied-ESSID
   injector down.
 
-**Current version: 0.93.0.**
+**Current version: 0.94.0.**
 
 To pick up the next slice: read the relevant `plans/*.md` TOP BLOCK (live status +
 as-built), then the cross-player architecture doc if the work touches cross-player paths.
@@ -248,6 +260,18 @@ hand-mutating the line and running the test file.
 **Do NOT run Stryker and the v2 dev server at the same time.** A concurrent `vercel:dev`
 (vite/3100) makes Stryker report **false survivors** (verify by hand-mutating) and silently
 reloads the live app mid-E2E (resetting `su` elevation). Stop one before the other.
+
+**Do not EDIT source while a Stryker run is in flight either** — same family as the rule
+above. A run whose dry run overlapped an edit died with `There were failed tests in the
+initial test run` naming a test that passes cleanly on its own. Treat a dry-run failure whose
+test passes standalone as tooling noise from a moving tree, not a real regression: leave the
+tree alone and re-run.
+
+**"Unreachable in the product" is not the same as equivalent.** `deniedPortsFor`'s
+`vantage.kind === 'switch'` survived because a router's tree carries no `acl.conf` in
+practice, so always reading it changes nothing. But the discriminant is a real rule — a router
+FORWARDS rather than filters — and a test can state it directly by handing a router vantage a
+tree that does carry the file. Prefer stating the rule over arguing the input can't occur.
 
 ---
 

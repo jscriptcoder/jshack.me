@@ -18,7 +18,8 @@ import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
 import { seedApGatewayHostname } from '../generation/routerFs';
 import { machineIdForLanHost } from '../generation/lanHostIdentity';
-import { generateDeepLayer } from '../generation/generateDeepLayer';
+import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer';
+import { crackableEssidPool } from '../generation/generateWifi';
 import { computeDeepGatewayId } from '../identity/router';
 import type { Directory } from '../filesystem/types';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
@@ -1097,9 +1098,9 @@ describe('nmap — reachability-pivot from an inner gateway (5b.2)', () => {
   const SWITCH = findHost((host) => host.kind === 'switch');
 
   const idOf = (host: LanHost): string => machineIdForLanHost(host, ESSID);
-  const DEEP = generateDeepLayer(PUBKEY, ESSID, { machineId: idOf(INNER), kind: 'router' });
+  const DEEP = generateDeepLayer(ESSID, { machineId: idOf(INNER), kind: 'router' });
   // The switch fronts its OWN deep layer (keyed by its machine_id), disjoint from the router's.
-  const SWITCH_DEEP = generateDeepLayer(PUBKEY, ESSID, { machineId: idOf(SWITCH), kind: 'switch' });
+  const SWITCH_DEEP = generateDeepLayer(ESSID, { machineId: idOf(SWITCH), kind: 'switch' });
   const deepHostOctet = octetOf(DEEP.host);
   // An address with no host on it — distinct from BOTH the NPC and the child gateway.
   const deepChildOctet = DEEP.childGateway ? octetOf(DEEP.childGateway) : -1;
@@ -1251,7 +1252,7 @@ describe('nmap — reachability-pivot from an inner gateway (5b.2)', () => {
     // guarding against a non-gateway pivot is the gateway filter + the child-id match.
     // A sibling's own would-be deep host must stay out of range — only a real inner
     // gateway or a real deep child gateway is ever a pivot vantage.
-    const siblingDeep = generateDeepLayer(PUBKEY, ESSID, { machineId: idOf(SIBLING), kind: 'router' });
+    const siblingDeep = generateDeepLayer(ESSID, { machineId: idOf(SIBLING), kind: 'router' });
 
     const result = await nmap.execute(vantageEnv(idOf(SIBLING)), [siblingDeep.host.ip], new Map());
     if (result.kind !== 'sync') throw new Error('expected sync result');
@@ -1373,8 +1374,11 @@ describe('nmap — reachability-pivot from an inner gateway (5b.2)', () => {
  * (no further child), the bound that keeps the chain finite. From any shallower
  * vantage the L3 /24 is out of range — strictly one layer down per hop.
  */
-describe('nmap — chain pivot to L3 from a deep child gateway (5b.4b)', () => {
-  const ESSID = 'BEAN-THERE-WIFI';
+describe('nmap — chain pivot to L3 from a deep child gateway', () => {
+  // A depth-2 network: the inner router hangs the L2 chain door, and the layer BEHIND that
+  // door is terminal — which is the bound this suite is about.
+  const ESSID = crackableEssidPool.find((essid) => seedNetworkDepth(essid) === 2);
+  if (ESSID === undefined) throw new Error('no network seeds a depth-2 chain');
   const lan = generateHomeLan(ESSID);
   const octetOf = (host: LanHost): number => Number(host.ip.split('.')[3]);
   const findHost = (predicate: (host: LanHost) => boolean): LanHost => {
@@ -1387,14 +1391,13 @@ describe('nmap — chain pivot to L3 from a deep child gateway (5b.4b)', () => {
   const INNER_ID = machineIdForLanHost(INNER, ESSID);
 
   // L2 behind the inner router, and the child gateway (the chain door) it hangs.
-  const L2 = generateDeepLayer(PUBKEY, ESSID, { machineId: INNER_ID, kind: 'router' });
+  const L2 = generateDeepLayer(ESSID, { machineId: INNER_ID, kind: 'router' });
   const CHILD = L2.childGateway;
   if (CHILD === null) throw new Error('the inner router deep layer hangs no child gateway');
-  const CHILD_ID = computeDeepGatewayId(PUBKEY, INNER_ID, octetOf(CHILD));
+  const CHILD_ID = computeDeepGatewayId(INNER_ID, octetOf(CHILD));
 
   // L3 hangs behind the child gateway, keyed by ITS id, and is TERMINAL (no L4 child).
   const L3 = generateDeepLayer(
-    PUBKEY,
     ESSID,
     { machineId: CHILD_ID, kind: 'router' },
     { hangsChild: false },
@@ -1459,51 +1462,57 @@ describe('nmap — chain pivot to L3 from a deep child gateway (5b.4b)', () => {
 });
 
 /**
- * Variable network depth: the chain length is seeded per home (`seedNetworkDepth`),
+ * Variable network depth: the chain length is seeded per NETWORK (`seedNetworkDepth`),
  * and a gateway at chain position P fronts a child-bearing layer only while P < depth.
- * So a shallow (depth-1) home's inner router fronts a single terminal layer, while a
- * deep (depth-3) home runs two nested child gateways — and a pivot scan reveals exactly
+ * So a shallow (depth-1) network's inner router fronts a single terminal layer, while a
+ * deep (depth-3) one runs two nested child gateways — and a pivot scan reveals exactly
  * the layer the vantage's seeded position dictates, recovered by walking the chain.
  */
-describe('nmap — variable network depth (5b.4c-i)', () => {
-  const ESSID = 'BEAN-THERE-WIFI';
+describe('nmap — variable network depth', () => {
   const octetOf = (host: LanHost): number => Number(host.ip.split('.')[3]);
 
-  // Fixture keys captured from `seedNetworkDepth` for this essid: an all-zero key seeds
-  // a depth-1 home, `03` repeated seeds a depth-3 home whose WHOLE gateway chain is
-  // routers — every layer hangs a router child, so the chain runs three gateways deep (a
-  // switch would cap it short). The canonical 'a'×64 is depth 2, exercised by the 5b.2 /
-  // 5b.4b suites above.
-  const DEPTH1_KEY = '0'.repeat(64);
-  const DEPTH3_KEY = '03'.repeat(32);
-
-  const innerRouterOf = (): LanHost => {
-    const host = generateHomeLan(ESSID).hosts.find(
+  const innerRouterIdOf = (essid: string): string => {
+    const host = generateHomeLan(essid).hosts.find(
       (candidate) => candidate.kind === 'router' && octetOf(candidate) !== 1,
     );
     if (host === undefined) throw new Error('no inner router on the generated LAN');
-    return host;
+    return machineIdForLanHost(host, essid);
   };
 
-  const vantageEnv = (key: string, machineId: string) =>
+  // Which networks these are is itself seeded, so search rather than hardcode: one whose
+  // inner router fronts a single TERMINAL layer, and one whose WHOLE gateway chain is
+  // routers three deep (a switch would cap it short).
+  const DEPTH1_ESSID = crackableEssidPool.find((essid) => seedNetworkDepth(essid) === 1);
+  if (DEPTH1_ESSID === undefined) throw new Error('no network seeds a depth-1 chain');
+  const DEPTH3_ESSID = crackableEssidPool.find((essid) => {
+    if (seedNetworkDepth(essid) !== 3) return false;
+    const l2 = generateDeepLayer(essid, { machineId: innerRouterIdOf(essid), kind: 'router' })
+      .childGateway;
+    if (l2 === null || l2.kind !== 'router') return false;
+    const l2Id = computeDeepGatewayId(innerRouterIdOf(essid), octetOf(l2));
+    const l3 = generateDeepLayer(essid, { machineId: l2Id, kind: 'router' }).childGateway;
+    return l3 !== null && l3.kind === 'router';
+  });
+  if (DEPTH3_ESSID === undefined) throw new Error('no network seeds an all-router depth-3 chain');
+
+  const vantageEnv = (essid: string, machineId: string) =>
     mockCommandEnv({
-      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(key) }),
-      network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex('a'.repeat(64)) }),
+      network: mockNetworkViewFromConnectivity(onlineConnectivity(essid)),
       session: mockSession({ machineId: asMachineId(machineId) }),
     });
 
-  it('depth-1 home: the inner router fronts a TERMINAL layer — pivot-scan lists only the NPC, no child gateway', async () => {
-    const inner = innerRouterOf();
-    const innerId = machineIdForLanHost(inner, ESSID);
+  it('depth-1 network: the inner router fronts a TERMINAL layer — pivot-scan lists only the NPC, no child gateway', async () => {
+    const innerId = innerRouterIdOf(DEPTH1_ESSID);
     const front = { machineId: innerId, kind: 'router' as const };
-    // The NPC is depth-independent; the child gateway a depth-≥2 home WOULD hang must be
+    // The NPC is depth-independent; the child gateway a depth-≥2 network WOULD hang must be
     // absent from a depth-1 scan — the layer stops here.
-    const terminal = generateDeepLayer(DEPTH1_KEY, ESSID, front, { hangsChild: false });
-    const wouldBeChild = generateDeepLayer(DEPTH1_KEY, ESSID, front, { hangsChild: true }).childGateway;
+    const terminal = generateDeepLayer(DEPTH1_ESSID, front, { hangsChild: false });
+    const wouldBeChild = generateDeepLayer(DEPTH1_ESSID, front, { hangsChild: true }).childGateway;
     if (wouldBeChild === null) throw new Error('expected a would-be child gateway to assert absence of');
 
     const { text, exitCode } = await drain(
-      await nmap.execute(vantageEnv(DEPTH1_KEY, innerId), [`${terminal.subnet}.1-254`], new Map()),
+      await nmap.execute(vantageEnv(DEPTH1_ESSID, innerId), [`${terminal.subnet}.1-254`], new Map()),
     );
 
     expect(exitCode).toBe(0);
@@ -1512,19 +1521,18 @@ describe('nmap — variable network depth (5b.4c-i)', () => {
     expect(text).not.toContain(wouldBeChild.ip);
   });
 
-  it('depth-3 home: from the L2 child gateway, pivot-scan lists the L3 NPC AND a deeper L3 child gateway', async () => {
-    const inner = innerRouterOf();
-    const innerId = machineIdForLanHost(inner, ESSID);
-    const l2 = generateDeepLayer(DEPTH3_KEY, ESSID, { machineId: innerId, kind: 'router' });
+  it('depth-3 network: from the L2 child gateway, pivot-scan lists the L3 NPC AND a deeper L3 child gateway', async () => {
+    const innerId = innerRouterIdOf(DEPTH3_ESSID);
+    const l2 = generateDeepLayer(DEPTH3_ESSID, { machineId: innerId, kind: 'router' });
     const l2child = l2.childGateway;
-    if (l2child === null) throw new Error('a depth-3 home must hang an L2 child gateway');
-    const l2childId = computeDeepGatewayId(DEPTH3_KEY, innerId, octetOf(l2child));
-    const l3 = generateDeepLayer(DEPTH3_KEY, ESSID, { machineId: l2childId, kind: 'router' });
+    if (l2child === null) throw new Error('a depth-3 network must hang an L2 child gateway');
+    const l2childId = computeDeepGatewayId(innerId, octetOf(l2child));
+    const l3 = generateDeepLayer(DEPTH3_ESSID, { machineId: l2childId, kind: 'router' });
     const l3child = l3.childGateway;
-    if (l3child === null) throw new Error('a depth-3 home must hang an L3 child gateway behind the L2 child');
+    if (l3child === null) throw new Error('a depth-3 network must hang an L3 child gateway behind the L2 child');
 
     const { text, exitCode } = await drain(
-      await nmap.execute(vantageEnv(DEPTH3_KEY, l2childId), [`${l3.subnet}.1-254`], new Map()),
+      await nmap.execute(vantageEnv(DEPTH3_ESSID, l2childId), [`${l3.subnet}.1-254`], new Map()),
     );
 
     expect(exitCode).toBe(0);
@@ -1533,24 +1541,23 @@ describe('nmap — variable network depth (5b.4c-i)', () => {
     expect(text).toContain('Nmap done — 2 hosts up');
   });
 
-  it('depth-3 home: the L3 child gateway (position 3) fronts a TERMINAL L4 — the chain walk recovers position 3', async () => {
-    const inner = innerRouterOf();
-    const innerId = machineIdForLanHost(inner, ESSID);
-    const l2 = generateDeepLayer(DEPTH3_KEY, ESSID, { machineId: innerId, kind: 'router' });
+  it('depth-3 network: the L3 child gateway (position 3) fronts a TERMINAL L4 — the chain walk recovers position 3', async () => {
+    const innerId = innerRouterIdOf(DEPTH3_ESSID);
+    const l2 = generateDeepLayer(DEPTH3_ESSID, { machineId: innerId, kind: 'router' });
     const l2child = l2.childGateway;
-    if (l2child === null) throw new Error('a depth-3 home must hang an L2 child gateway');
-    const l2childId = computeDeepGatewayId(DEPTH3_KEY, innerId, octetOf(l2child));
-    const l3 = generateDeepLayer(DEPTH3_KEY, ESSID, { machineId: l2childId, kind: 'router' });
+    if (l2child === null) throw new Error('a depth-3 network must hang an L2 child gateway');
+    const l2childId = computeDeepGatewayId(innerId, octetOf(l2child));
+    const l3 = generateDeepLayer(DEPTH3_ESSID, { machineId: l2childId, kind: 'router' });
     const l3child = l3.childGateway;
-    if (l3child === null) throw new Error('a depth-3 home must hang an L3 child gateway');
-    const l3childId = computeDeepGatewayId(DEPTH3_KEY, l2childId, octetOf(l3child));
+    if (l3child === null) throw new Error('a depth-3 network must hang an L3 child gateway');
+    const l3childId = computeDeepGatewayId(l2childId, octetOf(l3child));
     const front = { machineId: l3childId, kind: 'router' as const };
-    const l4 = generateDeepLayer(DEPTH3_KEY, ESSID, front, { hangsChild: false });
-    const wouldBeL4Child = generateDeepLayer(DEPTH3_KEY, ESSID, front, { hangsChild: true }).childGateway;
+    const l4 = generateDeepLayer(DEPTH3_ESSID, front, { hangsChild: false });
+    const wouldBeL4Child = generateDeepLayer(DEPTH3_ESSID, front, { hangsChild: true }).childGateway;
     if (wouldBeL4Child === null) throw new Error('expected a would-be L4 child gateway to assert absence of');
 
     const { text, exitCode } = await drain(
-      await nmap.execute(vantageEnv(DEPTH3_KEY, l3childId), [`${l4.subnet}.1-254`], new Map()),
+      await nmap.execute(vantageEnv(DEPTH3_ESSID, l3childId), [`${l4.subnet}.1-254`], new Map()),
     );
 
     expect(exitCode).toBe(0);
@@ -1568,34 +1575,41 @@ describe('nmap — variable network depth (5b.4c-i)', () => {
  * deny line re-opens it. Same mechanic as the L1 switch (5b.3b), one layer deeper —
  * proving the chain walk resolves a DEEP switch as a switch vantage, not a router.
  */
-describe('nmap — pivot from a deep SWITCH child gateway, ACL-filtered (5b.4d)', () => {
-  // '02'×32 seeds a depth-3 home whose inner router's first deep child is a SWITCH (a
-  // chain leaf), so the switch sits one layer down — reached + rooted through a forward.
-  const KEY = '02'.repeat(32);
-  const ESSID = 'BEAN-THERE-WIFI';
+describe('nmap — pivot from a deep SWITCH child gateway, ACL-filtered', () => {
   const octetOf = (host: LanHost): number => Number(host.ip.split('.')[3]);
 
-  const inner = generateHomeLan(ESSID).hosts.find(
-    (host) => host.kind === 'router' && octetOf(host) !== 1,
-  );
-  if (inner === undefined) throw new Error('no inner router on the deep-switch LAN');
-  const INNER_ID = machineIdForLanHost(inner, ESSID);
+  const innerRouterIdOn = (essid: string): string | null => {
+    const host = generateHomeLan(essid).hosts.find(
+      (candidate) => candidate.kind === 'router' && octetOf(candidate) !== 1,
+    );
+    return host === undefined ? null : machineIdForLanHost(host, essid);
+  };
+
+  // A network whose inner router's first deep child seeds as a SWITCH (a chain leaf), so
+  // the switch sits one layer down — reached + rooted through a forward. Which network
+  // that is depends on the ESSID, so search for it rather than pinning one.
+  const ESSID = crackableEssidPool.find((essid) => {
+    const innerId = innerRouterIdOn(essid);
+    if (innerId === null || seedNetworkDepth(essid) < 2) return false;
+    return (
+      generateDeepLayer(essid, { machineId: innerId, kind: 'router' }, { hangsChild: true })
+        .childGateway?.kind === 'switch'
+    );
+  });
+  if (ESSID === undefined) throw new Error('no network hangs a switch child off its inner router');
+  const INNER_ID = innerRouterIdOn(ESSID)!;
   const switchChild = generateDeepLayer(
-    KEY,
     ESSID,
     { machineId: INNER_ID, kind: 'router' },
     { hangsChild: true },
-  ).childGateway;
-  if (switchChild === null || switchChild.kind !== 'switch') {
-    throw new Error('the inner router hangs no switch child');
-  }
-  const SWITCH_ID = computeDeepGatewayId(KEY, INNER_ID, octetOf(switchChild));
+  ).childGateway!;
+  const SWITCH_ID = computeDeepGatewayId(INNER_ID, octetOf(switchChild));
   // The deep layer the switch itself fronts — its own /24, keyed by the switch's id.
-  const SWITCH_DEEP = generateDeepLayer(KEY, ESSID, { machineId: SWITCH_ID, kind: 'switch' });
+  const SWITCH_DEEP = generateDeepLayer(ESSID, { machineId: SWITCH_ID, kind: 'switch' });
 
   const vantageEnv = (machineId: string, fs?: Directory) =>
     mockCommandEnv({
-      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(KEY) }),
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex('a'.repeat(64)) }),
       network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
       session: mockSession({ machineId: asMachineId(machineId) }),
       ...(fs ? { fs: mockFsViewFromTree(fs) } : {}),
@@ -1621,6 +1635,24 @@ describe('nmap — pivot from a deep SWITCH child gateway, ACL-filtered (5b.4d)'
     );
     expect(text).toContain('22/tcp   open  ssh');
     expect(text).toContain('Nmap done — 1 host up');
+  });
+
+  it('leaves a ROUTER vantage unfiltered — filtering is what a switch does instead of forwarding', async () => {
+    // The very acl.conf that silences :22 below the switch means nothing one layer up. A
+    // router forwards its downstream rather than filtering it, so the deny list is read only
+    // when the vantage IS a switch — not whenever a tree happens to carry the file.
+    const routerLayer = generateDeepLayer(ESSID, { machineId: INNER_ID, kind: 'router' });
+
+    const { text, exitCode } = await drain(
+      await nmap.execute(
+        vantageEnv(INNER_ID, switchFsDenying(22)),
+        [routerLayer.host.ip],
+        new Map(),
+      ),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(text).toContain('22/tcp   open  ssh');
   });
 
   it('hides a deep port the switch ACL denies, and re-opens it when the deny line is gone', async () => {

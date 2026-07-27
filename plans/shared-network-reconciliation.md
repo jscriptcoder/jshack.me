@@ -6,14 +6,13 @@ Slice 2 ✅ MERGED (PR #327, `88054bf`, v0.89.0),
 Slice 3a ✅ MERGED (PR #328, `6ae4109`, v0.90.0),
 Slice 3b-i ✅ MERGED (PR #329, `21e3f9e`, v0.91.0),
 Slice 3b-ii ✅ MERGED (PR #330, `879dcc4`, v0.92.0),
-Slice 4 ✅ MERGED (PR #331, `6733821`, v0.93.0).
-**Now: Slice 5 — depth is shared. IN FLIGHT on `feat/shared-deep-chains`, cut off `main` at
-`4b0e839`; nothing implemented yet. Start at the Slice 5 section below, and read its "As found"
-list first — it is the exact remaining owner-keyed surface, verified against the tree at the
-branch point. Slice 4 turned out WIDER than scoped (it had to take the L1 gateway identity and
-the NPC filesystems with it — see its as-built), so Slice 5 is correspondingly NARROWER:
-strictly the deep chain BELOW L1. Everything on the LAN itself — population, addresses, gateway
-boxes, NPC boxes — is already shared.**
+Slice 4 ✅ MERGED (PR #331, `6733821`, v0.93.0),
+Slice 5 ✅ BUILT (v0.94.0, on `feat/shared-deep-chains`, awaiting review).
+**Next: Slice 6a — re-home the registry-backed lookups. Slice 5 finished the sharing work: the
+whole world an ESSID generates, from its `/24` down to the last deep gateway, is now one world
+for every occupant, and no generator anywhere takes an owner key. What remains is the 6a/6b
+PAIR, which is a `reduce-system-complexity` program rather than behaviour change — read the
+Reduction Program section and 6a/6b below, in that order.**
 **Parent**: `plans/multiplayer-crossplayer-epic.md` item #5 (decision record; grilled & resolved 2026-07-25)
 **Follows**: item #4 (unique public-IP allocation, v0.87.0)
 **Precedes**: item #6 (procedural world expansion) — do NOT pull it in here
@@ -56,10 +55,10 @@ one shared gateway, one LAN population, and one set of deep chains — and delet
       3a + 4: `UNIQUE (essid, octet)` for occupant-vs-occupant, the NPC exclusion set for
       occupant-vs-NPC, the `.1` octet CHECK for the gateway, and a permanent lease for the
       return case.)*
-- [~] Two occupants of one ESSID see the **same** NPC hosts at the same addresses, and the
+- [x] Two occupants of one ESSID see the **same** NPC hosts at the same addresses, and the
       same deep chains behind the same inner gateways. *(Slice 4 did the hosts, their
-      addresses, their names, their machine ids AND their filesystems; the deep chains behind
-      the now-shared inner gateways are Slice 5.)*
+      addresses, their names, their machine ids AND their filesystems; Slice 5 did the chains
+      behind them — depth, subnets, gateway kinds, ids and credentials.)*
 - [x] A file written to an NPC by one occupant is visible to another occupant of that ESSID.
       *(Slice 4 — needed the NPC filesystems keyed `(essid, ip)` too, not just the id: the
       journal replays over the base tree.)*
@@ -794,8 +793,9 @@ saved connection.
 **100%** on `generateHomeLan`, `lanHostIdentity`, `remoteHostId`, `mergeLanOccupants`,
 `registerNetwork`, `allocateLanLease`, `lanAddress`. `remoteHostFs` 95.71% / `routerFs` 96.15%
 — all 7 survivors sit on lines this slice did not touch (the `hasSsh` knob is pinned to 1.0,
-so its mutants are equivalent by construction). **Wire-checks 26 scripts / 179 checks, all
-green**, including two new ones in `testLanLeaseAllocation`: a join whose derived octet is an
+so its mutants are equivalent by construction). **Wire-checks all green** (the "26 scripts /
+179 checks" first recorded here was a miscount — the tree held 25 scripts at `6733821`),
+including two new ones in `testLanLeaseAllocation`: a join whose derived octet is an
 NPC is leased elsewhere, and the address the join REPORTS is that relocated one. Local
 `network_lan_leases` truncated on request (none of the 7 rows actually collided with the new
 NPC sets, but they predate the exclusion).
@@ -875,6 +875,55 @@ prevent aliasing across branches).
 generation vs. ACL/trace paths). Split on contact if it exceeds one PR — do not force it.
 **Done when**: criteria met, `testDeepChainReach` / `testDeepSwitchChain` / `testDeepScanTrace`
 / `testInnerGatewayReach` / `testInnerGatewayScan` pass, human approves the commit.
+
+**AS BUILT (v0.94.0).** One PR after all — the As-found list held, and the surface came in
+smaller than Slice 4's. RED at the two layers that still have a viewer: `handleNmapScanDeep`
+(three signers, one chain door, one target — the second and third touched NOTHING, their deep
+`/24` being somewhere else entirely) and `enforceRemoteWriteL2` (a fellow occupant rooting the
+same door got `403 permission_denied`).
+
+**The six seeds, rekeyed.** `seedNetworkDepth(essid)`, `generateDeepLayer(essid, fronting,
+options)`, `seedDeepGatewayKind(parent, octet)`, `computeDeepGatewayId(parent, octet)`,
+`seedDeepGatewayAdminPw(parent, octet)` and the two deep base filesystems. `computeDeepGatewayId`
+also dropped its `ed25519-` namespace prefix — nothing there derives from a keypair any more,
+the same correction Slice 4 made to `inner-gw:`. Nothing gained an ESSID parameter it did not
+already have: the parent id is ESSID-derived up to the inner gateway, so the chain inherits
+network separation rather than restating it.
+
+**Two names retired with the concept.** `ownLanBaseFsForMachineId` → `lanBaseFsForMachineId`
+and `ownChainBaseFsForMachineId` → `generatedBaseFsForMachineId`. The second one mattered:
+it IS the cross-player discriminator (`isCrossPlayerWorkstation` treats a non-null result as
+"not foreign"), and after this slice nothing it resolves is owned by anyone. What it actually
+separates is boxes the NETWORK generates from the one kind of machine that genuinely belongs to
+a person — another player's workstation. `homeChainGateways` → `chainGateways` for the same
+reason.
+
+**A parameter went dead, and the evidence moved.** With L2 resolving from the ESSID,
+`enforceRemoteWriteL2` no longer had any use for `publicKey` — identity is L1's question — so
+it left the signature, along with `ChainContext.publicKey` in both chain handlers. That turned
+the RED into a tautology at that layer, so the shared-write claim moved UP to
+`handleUpsertPatch`, which still verifies a signed envelope: two different signers write the
+same rooted chain door and both land, on one machine record. Same lesson as Slice 4 — when the
+viewer leaves a function, the evidence has to leave with it.
+
+**Wire-checks: identity search became ESSID search.** Five scripts picked an identity whose
+chain had the shape under test (`seedNetworkDepth(key, essid) === 3`, a switch child, and so
+on). That shape is now a property of the network, so they search `crackableEssidPool` instead
+and the acting player is any `generateIdentity()`. The unit tests took the same turn: fixtures
+named for a chain shape are ESSIDs now, and the two goldens in `generateDeepLayer.test.ts`
+re-pinned (subnet `10.252.148`, depth 3).
+
+**Evidence.** 1964 unit tests (1961 at branch point). Mutation **100%** on all five changed
+seams — `generateDeepLayer`, `lanHostIdentity`, `identity/router`, `childGatewayHop`,
+`deepScanHosts` — 227 mutants, zero survivors. The one survivor the first run found was
+`deniedPortsFor`'s `vantage.kind === 'switch'`, on a line this slice did not touch: a router's
+tree carries no `acl.conf`, so always reading it changes nothing in practice. Killed anyway, by
+stating the rule the discriminant exists for (a router FORWARDS rather than filters) — hand the
+router vantage a tree that DOES carry the file and its downstream must stay unfiltered.
+**Wire-checks: 25 scripts / 174 checks, all green**, including all five deep-chain scripts.
+Typecheck + lint clean. Orphaned `deep-gw-%` journal rows cleared locally (8 rows; no session
+held one) — every deep gateway's id changed, so anything written under an old one was
+unreachable.
 
 ### Slice 6a: Registry-backed lookups re-home onto the network and occupancy tables
 

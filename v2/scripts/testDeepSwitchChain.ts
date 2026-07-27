@@ -22,6 +22,7 @@ import { generateIdentity } from '../src/core/identity/identity';
 import { computeDeepGatewayId, computeInnerGatewayId } from '../src/core/identity/router';
 import { seedDeepGatewayAdminPw } from '../src/core/generation/routerFs';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan';
+import { crackableEssidPool } from '../src/core/generation/generateWifi';
 import { generateDeepLayer, seedNetworkDepth } from '../src/core/generation/generateDeepLayer';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
@@ -69,38 +70,37 @@ const portsOf = (body: unknown): readonly number[] =>
 
 const octetOf = (ip: string): number => Number(ip.split('.')[3]);
 
-// --- The owner (alice). Pick an identity whose inner router's first deep child is a
-//     SWITCH (a chain leaf): depth >= 2 so the inner hangs a child, and that child seeds
-//     as a switch rather than a router. ---
-const ESSID = 'ABSTERGO-NET';
-const innerSwitchChild = (candidate: ReturnType<typeof generateIdentity>) => {
-  if (seedNetworkDepth(candidate.publicKeyHex, ESSID) < 2) return null;
-  const innerHost = generateHomeLan(ESSID).hosts.find(
+// --- The network. Pick an ESSID whose inner router's first deep child is a SWITCH (a chain
+//     leaf): depth >= 2 so the inner hangs a child, and that child seeds as a switch rather
+//     than a router. The chain hangs off a gateway the access point owns, so the shape is a
+//     property of the network — the same one for every occupant. ---
+const innerSwitchChild = (essid: string) => {
+  if (seedNetworkDepth(essid) < 2) return null;
+  const innerHost = generateHomeLan(essid).hosts.find(
     (host) => host.kind === 'router' && octetOf(host.ip) !== 1,
   );
   if (innerHost === undefined) return null;
-  const innerId = computeInnerGatewayId(ESSID, octetOf(innerHost.ip));
+  const innerId = computeInnerGatewayId(essid, octetOf(innerHost.ip));
   const child = generateDeepLayer(
-    candidate.publicKeyHex,
-    ESSID,
+    essid,
     { machineId: innerId, kind: 'router' },
     { hangsChild: true },
   ).childGateway;
   if (child === null || child.kind !== 'switch') return null;
-  return { innerIp: innerHost.ip, innerId, switchIp: child.ip };
+  return { essid, innerIp: innerHost.ip, innerId, switchIp: child.ip };
 };
 
-const found = Array.from({ length: 400 }, () => generateIdentity())
-  .map((candidate) => ({ candidate, layout: innerSwitchChild(candidate) }))
-  .find((entry) => entry.layout !== null);
-if (found === undefined || found.layout === null) {
-  console.error('no identity seeds an inner router -> switch child home');
+const found = crackableEssidPool.map(innerSwitchChild).find((layout) => layout !== null);
+if (found === undefined || found === null) {
+  console.error('no network in the crackable pool seeds an inner router -> switch child chain');
   process.exit(2);
 }
-const alice = found.candidate;
-const { innerIp: INNER_IP, innerId: INNER_GW_ID, switchIp: SWITCH_IP } = found.layout;
-const SWITCH_ID = computeDeepGatewayId(alice.publicKeyHex, INNER_GW_ID, octetOf(SWITCH_IP));
-const SWITCH_ROOT_PW = seedDeepGatewayAdminPw(alice.publicKeyHex, INNER_GW_ID, octetOf(SWITCH_IP));
+// The acting player. Any identity does: the chain is the network's, so alice brings a
+// session and a signature, not a private world.
+const alice = generateIdentity();
+const { essid: ESSID, innerIp: INNER_IP, innerId: INNER_GW_ID, switchIp: SWITCH_IP } = found;
+const SWITCH_ID = computeDeepGatewayId(INNER_GW_ID, octetOf(SWITCH_IP));
+const SWITCH_ROOT_PW = seedDeepGatewayAdminPw(INNER_GW_ID, octetOf(SWITCH_IP));
 
 const RULES = '/etc/iptables/rules.v4';
 const ACL = '/etc/switch/acl.conf';

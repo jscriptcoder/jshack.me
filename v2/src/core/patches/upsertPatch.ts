@@ -111,7 +111,6 @@ export const handleUpsertPatch = async (
   // L2: a remote write is further constrained to the login's tier (own-box
   // bypasses — `access.session` is null there).
   const denial = await enforceRemoteWriteL2({
-    publicKey,
     machineId: payload.machine_id,
     path: payload.path,
     session: access.session,

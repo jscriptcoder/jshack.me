@@ -63,7 +63,8 @@ const portsOf = (body: unknown): readonly number[] =>
 
 const foundOf = (body: unknown): boolean => (body as { found?: boolean } | null)?.found === true;
 
-// --- The owner (alice). She scans her OWN inner gateway; depth is single-player. ---
+// --- The acting player scans the network's inner gateway. Both the gateway and the layer
+//     behind it belong to the access point, so alice brings only a signature. ---
 const alice = generateIdentity();
 const ESSID = 'ABSTERGO-NET';
 
@@ -77,7 +78,7 @@ if (innerGateway === undefined) {
 const INNER_IP = innerGateway.ip;
 const INNER_OCTET = Number(INNER_IP.split('.')[3]);
 const INNER_GW_ID = computeInnerGatewayId(ESSID, INNER_OCTET);
-const DEEP_IP = generateDeepLayer(alice.publicKeyHex, ESSID, {
+const DEEP_IP = generateDeepLayer(ESSID, {
   machineId: INNER_GW_ID,
   kind: 'router',
 }).host.ip;

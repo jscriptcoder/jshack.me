@@ -1,6 +1,6 @@
 /**
  * resolveChildGatewayHop — descend into the CHILD GATEWAY that fronts the next layer
- * down a home's deep chain. Both the ssh reach (`authCreateSessionInnerGateway`) and the
+ * down a network's deep chain. Both the ssh reach (`authCreateSessionInnerGateway`) and the
  * upstream scan (`resolveInnerGatewayScan`) walk that chain hop by hop, and both resolve
  * a child the same way: derive its identity from the parent gateway + the child's deep
  * IP, replay its OWN journal over its seeded base, and boot-gate it. Keeping that in one
@@ -32,18 +32,12 @@ export type FindPatches = (query: {
 }) => Promise<{ readonly data: readonly OwnerPatchRow[] | null; readonly error: unknown }>;
 
 export const resolveChildGatewayHop = async (args: {
-  readonly ownerKeyHex: string;
   readonly parentMachineId: string;
   readonly childIp: string;
   readonly childKind: LanHostKind;
   readonly findPatches: FindPatches;
 }): Promise<ChildGatewayHop> => {
-  const child = resolveDeepGatewayIdentity(
-    args.ownerKeyHex,
-    args.parentMachineId,
-    args.childIp,
-    args.childKind,
-  );
+  const child = resolveDeepGatewayIdentity(args.parentMachineId, args.childIp, args.childKind);
   const childPatches = await args.findPatches({ machine_id: child.machineId });
   if (childPatches.error) {
     return { kind: 'lookup_failed' };

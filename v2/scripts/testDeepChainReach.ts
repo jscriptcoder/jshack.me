@@ -25,6 +25,7 @@ import { generateIdentity } from '../src/core/identity/identity';
 import { computeDeepGatewayId, computeInnerGatewayId } from '../src/core/identity/router';
 import { seedDeepGatewayAdminPw } from '../src/core/generation/routerFs';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan';
+import { crackableEssidPool } from '../src/core/generation/generateWifi';
 import { generateDeepLayer, seedNetworkDepth } from '../src/core/generation/generateDeepLayer';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
@@ -72,78 +73,69 @@ const portsOf = (body: unknown): readonly number[] =>
 
 const octetOf = (ip: string): number => Number(ip.split('.')[3]);
 
-// --- The owner (alice). She reaches her OWN deep chain; depth is single-player. Pick a
-//     depth-3 identity whose chain is ALL ROUTERS — every layer hangs a router child, so
+// --- The network. The chain belongs to the ACCESS POINT, so the shape under test is a
+//     property of the ESSID, not of who is standing on it: search the crackable pool for a
+//     network whose chain is depth-3 and ALL ROUTERS — every layer hangs a router child, so
 //     the inner router fronts an L2 child that itself fronts an L3 gateway (the two-forward
-//     chain). A switch caps the chain short (5b.4d), so a bare depth-3 home no longer
-//     guarantees three router hops. ---
-const ESSID = 'ABSTERGO-NET';
-// The inner gateway belongs to the ACCESS POINT, so it is the same box for every
-// candidate — resolved once here rather than re-derived per identity below. What the
-// search is still varying is the DEPTH hanging off it, which is per-owner.
-const innerHost = generateHomeLan(ESSID).hosts.find(
-  (host) => host.kind === 'router' && octetOf(host.ip) !== 1,
-);
-if (innerHost === undefined) {
-  console.error('no inner gateway on the ESSID’s LAN');
-  process.exit(2);
-}
-const innerId = computeInnerGatewayId(ESSID, octetOf(innerHost.ip));
-
-const isAllRouterDepth3 = (candidate: ReturnType<typeof generateIdentity>): boolean => {
-  if (seedNetworkDepth(candidate.publicKeyHex, ESSID) !== 3) return false;
-  const child = generateDeepLayer(
-    candidate.publicKeyHex,
-    ESSID,
-    { machineId: innerId, kind: 'router' },
-    { hangsChild: true },
-  ).childGateway;
-  if (child === null || child.kind !== 'router') return false;
-  const childId = computeDeepGatewayId(candidate.publicKeyHex, innerId, octetOf(child.ip));
-  const grandchild = generateDeepLayer(
-    candidate.publicKeyHex,
-    ESSID,
-    { machineId: childId, kind: 'router' },
-    { hangsChild: true },
-  ).childGateway;
-  return grandchild !== null && grandchild.kind === 'router';
+//     chain). A switch caps the chain short, so a bare depth-3 network does not on its own
+//     guarantee three router hops. ---
+type ChainFixture = {
+  readonly essid: string;
+  readonly innerIp: string;
+  readonly innerId: string;
+  readonly l2Ip: string;
+  readonly l2Id: string;
+  readonly l3Ip: string;
+  readonly l3Id: string;
+  /** The `/24` the L2 child fronts — its downstream `.1` is the source a trace on the L3
+   *  gateway records. */
+  readonly l3Subnet: string;
 };
-const alice = Array.from({ length: 400 }, () => generateIdentity()).find(isAllRouterDepth3);
-if (alice === undefined) {
-  console.error('no identity seeds an all-router depth-3 home');
+
+const allRouterDepth3 = (essid: string): ChainFixture | null => {
+  if (seedNetworkDepth(essid) !== 3) return null;
+  const inner = generateHomeLan(essid).hosts.find(
+    (host) => host.kind === 'router' && octetOf(host.ip) !== 1,
+  );
+  if (inner === undefined) return null;
+  const innerId = computeInnerGatewayId(essid, octetOf(inner.ip));
+  const l2 = generateDeepLayer(essid, { machineId: innerId, kind: 'router' }, { hangsChild: true })
+    .childGateway;
+  if (l2 === null || l2.kind !== 'router') return null;
+  const l2Id = computeDeepGatewayId(innerId, octetOf(l2.ip));
+  const l3Layer = generateDeepLayer(essid, { machineId: l2Id, kind: 'router' }, { hangsChild: true });
+  const l3 = l3Layer.childGateway;
+  if (l3 === null || l3.kind !== 'router') return null;
+  return {
+    essid,
+    innerIp: inner.ip,
+    innerId,
+    l2Ip: l2.ip,
+    l2Id,
+    l3Ip: l3.ip,
+    l3Id: computeDeepGatewayId(l2Id, octetOf(l3.ip)),
+    l3Subnet: l3Layer.subnet,
+  };
+};
+
+const chain = crackableEssidPool.map(allRouterDepth3).find((found) => found !== null);
+if (chain === undefined || chain === null) {
+  console.error('no network in the crackable pool seeds an all-router depth-3 chain');
   process.exit(2);
 }
 
-const INNER_IP = innerHost.ip;
-const INNER_GW_ID = innerId;
+// The acting player. Any identity does now: the chain is the network's, so what alice
+// brings is a session and a signature, not a private world.
+const alice = generateIdentity();
 
-const l2child = generateDeepLayer(
-  alice.publicKeyHex,
-  ESSID,
-  { machineId: INNER_GW_ID, kind: 'router' },
-  { hangsChild: true },
-).childGateway;
-if (l2child === null) {
-  console.error('the inner router fronts no L2 child gateway');
-  process.exit(2);
-}
-const L2CHILD_IP = l2child.ip;
-const L2CHILD_ID = computeDeepGatewayId(alice.publicKeyHex, INNER_GW_ID, octetOf(L2CHILD_IP));
-
-const l3layer = generateDeepLayer(
-  alice.publicKeyHex,
-  ESSID,
-  { machineId: L2CHILD_ID, kind: 'router' },
-  { hangsChild: true },
-);
-const l3child = l3layer.childGateway;
-if (l3child === null) {
-  console.error('the L2 child fronts no L3 gateway');
-  process.exit(2);
-}
-const L3CHILD_IP = l3child.ip;
-const L3CHILD_ID = computeDeepGatewayId(alice.publicKeyHex, L2CHILD_ID, octetOf(L3CHILD_IP));
-const L3CHILD_ROOT_PW = seedDeepGatewayAdminPw(alice.publicKeyHex, L2CHILD_ID, octetOf(L3CHILD_IP));
+const ESSID = chain.essid;
+const INNER_IP = chain.innerIp;
+const INNER_GW_ID = chain.innerId;
+const L2CHILD_IP = chain.l2Ip;
+const L2CHILD_ID = chain.l2Id;
+const L3CHILD_IP = chain.l3Ip;
+const L3CHILD_ID = chain.l3Id;
+const L3CHILD_ROOT_PW = seedDeepGatewayAdminPw(L2CHILD_ID, octetOf(L3CHILD_IP));
 
 const RULES = '/etc/iptables/rules.v4';
 const VMLINUZ = '/boot/vmlinuz';
@@ -278,7 +270,7 @@ check(
 const l3AuthLog = await readAuthLog(L3CHILD_ID);
 check(
   'deep-reach trace: the L3 gateway auth.log records the accepted login from the gateway .1',
-  l3AuthLog.includes(`Accepted password for root from ${l3layer.subnet}.1`),
+  l3AuthLog.includes(`Accepted password for root from ${chain.l3Subnet}.1`),
   `auth.log=${JSON.stringify(l3AuthLog)}`,
 );
 

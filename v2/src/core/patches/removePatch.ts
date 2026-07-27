@@ -102,7 +102,6 @@ export const handleRemovePatch = async (
   // L2: removing (unlinking) a node on a remote host needs write permission at
   // the login's tier, same as a write (own-box bypasses — session is null).
   const denial = await enforceRemoteWriteL2({
-    publicKey,
     machineId: payload.machine_id,
     path: payload.path,
     session: access.session,

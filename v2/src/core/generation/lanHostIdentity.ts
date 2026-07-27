@@ -99,26 +99,25 @@ export const resolveLanHostIdentity = (host: LanHost, essid: string): LanHostIde
 });
 
 /** A deep CHILD GATEWAY's storage identity — its machine_id + seeded base FS — from the
- *  owner key, the machine_id of the gateway that FRONTS its parent layer, the child's own
- *  deep IP, and its device `kind`. The child is keyed off its parent so two children at
- *  the same octet behind different gateways never alias. The `machine_id` is kind-agnostic
- *  (a slot is one kind), but the base FS branches: a switch is an `acl.conf` box that
- *  forwards nothing, a router a NAT `rules.v4` one. One place owns the octet parse + the
- *  kind branch so the reach gate, the upstream-scan port resolver, and the pivot scan
- *  can't disagree on which box the chain door is. */
+ *  machine_id of the gateway that FRONTS its parent layer, the child's own deep IP, and
+ *  its device `kind`. The child is keyed off its parent so two children at the same octet
+ *  behind different gateways never alias. The `machine_id` is kind-agnostic (a slot is one
+ *  kind), but the base FS branches: a switch is an `acl.conf` box that forwards nothing, a
+ *  router a NAT `rules.v4` one. One place owns the octet parse + the kind branch so the
+ *  reach gate, the upstream-scan port resolver, and the pivot scan can't disagree on which
+ *  box the chain door is. */
 export const resolveDeepGatewayIdentity = (
-  ownerKeyHex: string,
   parentMachineId: string,
   childIp: string,
   kind: LanHostKind,
 ): LanHostIdentity => {
   const octet = Number(childIp.split('.')[3]);
   return {
-    machineId: computeDeepGatewayId(ownerKeyHex, parentMachineId, octet),
+    machineId: computeDeepGatewayId(parentMachineId, octet),
     baseFs:
       kind === 'switch'
-        ? buildDeepSwitchBaseFs(ownerKeyHex, parentMachineId, octet)
-        : buildDeepGatewayBaseFs(ownerKeyHex, parentMachineId, octet),
+        ? buildDeepSwitchBaseFs(parentMachineId, octet)
+        : buildDeepGatewayBaseFs(parentMachineId, octet),
   };
 };
 
@@ -132,7 +131,7 @@ export const resolveDeepGatewayIdentity = (
  *  viewer, so it must resolve through the shared server-side path like any other
  *  contested box. Matching it here would let each occupant rebuild it from their own
  *  regeneration and never see another occupant's writes to it. */
-export const ownLanBaseFsForMachineId = (essid: string, machineId: string): Directory | null => {
+export const lanBaseFsForMachineId = (essid: string, machineId: string): Directory | null => {
   const host = generateHomeLan(essid).hosts.find(
     (candidate) =>
       lanHostOctet(candidate) !== 1 && machineIdForLanHost(candidate, essid) === machineId,
@@ -168,7 +167,6 @@ type ChainVantage = {
  *  each layer, so behind a router the chain is exactly `depth` gateways long; the
  *  recursion is bounded by `depth` because the position strictly increases each level. */
 const chainFrom = (
-  ownerKeyHex: string,
   essid: string,
   gateway: { readonly machineId: string; readonly kind: LanHostKind; readonly baseFs: Directory },
   position: number,
@@ -177,7 +175,6 @@ const chainFrom = (
   const hangsChild = position < depth;
   const here: ChainVantage = { ...gateway, hangsChild };
   const child = generateDeepLayer(
-    ownerKeyHex,
     essid,
     { machineId: gateway.machineId, kind: gateway.kind },
     { hangsChild },
@@ -185,16 +182,10 @@ const chainFrom = (
   if (child === null) {
     return [here];
   }
-  const childIdentity = resolveDeepGatewayIdentity(
-    ownerKeyHex,
-    gateway.machineId,
-    child.ip,
-    child.kind,
-  );
+  const childIdentity = resolveDeepGatewayIdentity(gateway.machineId, child.ip, child.kind);
   return [
     here,
     ...chainFrom(
-      ownerKeyHex,
       essid,
       { machineId: childIdentity.machineId, kind: child.kind, baseFs: childIdentity.baseFs },
       position + 1,
@@ -203,17 +194,18 @@ const chainFrom = (
   ];
 };
 
-/** Every gateway in the player's OWN home deep chain — each L1 inner gateway (router or
- *  switch) and every deep child gateway below a router, walked to the seeded depth. One
- *  walk feeds both the pivot vantage (a scan's downstream segment) and the deep-gateway
- *  base-FS resolution (the L2 write target), so the two can't disagree on the chain shape. */
-const homeChainGateways = (ownerKeyHex: string, essid: string): readonly ChainVantage[] => {
-  const depth = seedNetworkDepth(ownerKeyHex, essid);
+/** Every gateway in the NETWORK's deep chain — each L1 inner gateway (router or switch)
+ *  and every deep child gateway below a router, walked to the seeded depth. One walk feeds
+ *  both the pivot vantage (a scan's downstream segment) and the deep-gateway base-FS
+ *  resolution (the L2 write target), so the two can't disagree on the chain shape. Nothing
+ *  here takes an identity: the chain descends from gateways the access point owns, so it
+ *  is the same chain for every occupant. */
+const chainGateways = (essid: string): readonly ChainVantage[] => {
+  const depth = seedNetworkDepth(essid);
   return generateHomeLan(essid)
     .hosts.filter(isInnerGateway)
     .flatMap((gateway) =>
       chainFrom(
-        ownerKeyHex,
         essid,
         {
           machineId: machineIdForLanHost(gateway, essid),
@@ -231,17 +223,16 @@ const homeChainGateways = (ownerKeyHex: string, essid: string): readonly ChainVa
  *  workstation. A vantage is any gateway in the home's deep chain — an L1 inner gateway
  *  (router or switch) on the home LAN, or any deep child gateway reached down the chain.
  *  Each L1 inner gateway's chain is walked down to its seeded depth, and the matched
- *  vantage carries whether the layer it fronts hangs a child — so a depth-1 inner gateway
- *  fronts a terminal layer, while a deeper home's gateways keep fronting child-bearing
+ *  vantage carries whether the layer it fronts hangs a child — so on a depth-1 network the
+ *  inner gateway fronts a terminal layer, while a deeper one keeps fronting child-bearing
  *  layers until the depth bound. The machine_id-keyed counterpart of `innerGatewayAt` (a
  *  session carries an id, not an address); a pivot scan reads the vantage to resolve the
  *  downstream segment. */
 export const pivotVantageForMachineId = (
-  ownerKeyHex: string,
   essid: string,
   machineId: string,
 ): PivotVantage | null => {
-  const match = chainGatewayVantageForMachineId(ownerKeyHex, essid, machineId);
+  const match = chainGatewayVantageForMachineId(essid, machineId);
   return match === null ? null : { machineId: match.machineId, kind: match.kind, hangsChild: match.hangsChild };
 };
 
@@ -256,46 +247,39 @@ export type ChainGatewayVantage = PivotVantage & { readonly baseFs: Directory };
  *  from, so a caller that needs BOTH (the deep scan trace) resolves them together and
  *  can't land in a half-resolved state. */
 export const chainGatewayVantageForMachineId = (
-  ownerKeyHex: string,
   essid: string,
   machineId: string,
 ): ChainGatewayVantage | null => {
-  const match = homeChainGateways(ownerKeyHex, essid).find(
-    (vantage) => vantage.machineId === machineId,
-  );
+  const match = chainGateways(essid).find((vantage) => vantage.machineId === machineId);
   return match === undefined
     ? null
     : { machineId, kind: match.kind, hangsChild: match.hangsChild, baseFs: match.baseFs };
 };
 
-/** The seeded base FS of a gateway in the player's OWN home deep chain whose machine_id
- *  matches — an L1 inner gateway or a deep child gateway below it. The L2 write path
- *  resolves a deep gateway this way so a player who roots a chain door
- *  (`ssh root@<inner>:<fwd>`) can configure ITS forwards (`nano rules.v4`), the same as
- *  the edge or an inner gateway. Returns null when no chain gateway matches. */
+/** The seeded base FS of a gateway in the network's deep chain whose machine_id matches —
+ *  an L1 inner gateway or a deep child gateway below it. The L2 write path resolves a deep
+ *  gateway this way so a player who roots a chain door (`ssh root@<inner>:<fwd>`) can
+ *  configure ITS forwards (`nano rules.v4`), the same as the edge or an inner gateway. Any
+ *  occupant that roots the door resolves the same tree, so the forwards one of them writes
+ *  are the forwards the next one reads. Returns null when no chain gateway matches. */
 export const chainGatewayBaseFsForMachineId = (
-  ownerKeyHex: string,
   essid: string,
   machineId: string,
 ): Directory | null => {
-  const match = chainGatewayVantageForMachineId(ownerKeyHex, essid, machineId);
+  const match = chainGatewayVantageForMachineId(essid, machineId);
   return match === null ? null : match.baseFs;
 };
 
-/** The seeded base FS of a DEEP NPC reachable in the player's own chain whose coordinate
- *  machine_id matches — the single reachable host on each deep layer (`buildDeepHostFs`,
- *  `sshd` guaranteed up). Walks every fronting gateway in the chain and regenerates the
- *  layer it fronts; the layer's NPC is byte-stable, so the matched host rebuilds the same
- *  tree the deep reach/scan traces were written onto. Returns null when no deep NPC matches. */
-const deepHostBaseFsForMachineId = (
-  ownerKeyHex: string,
-  essid: string,
-  machineId: string,
-): Directory | null => {
-  for (const gateway of homeChainGateways(ownerKeyHex, essid)) {
+/** The seeded base FS of a DEEP NPC in the network's chain whose coordinate machine_id
+ *  matches — the single reachable host on each deep layer (`buildDeepHostFs`, `sshd`
+ *  guaranteed up). Walks every fronting gateway in the chain and regenerates the layer it
+ *  fronts; the layer's NPC is byte-stable, so the matched host rebuilds the same tree the
+ *  deep reach/scan traces were written onto. Returns null when no deep NPC matches. */
+const deepHostBaseFsForMachineId = (essid: string, machineId: string): Directory | null => {
+  for (const gateway of chainGateways(essid)) {
     // Only the layer's NPC is needed, and it is byte-stable whether or not the layer
     // hangs a child — so the `hangsChild` option is irrelevant here and left at default.
-    const layer = generateDeepLayer(ownerKeyHex, essid, {
+    const layer = generateDeepLayer(essid, {
       machineId: gateway.machineId,
       kind: gateway.kind,
     });
@@ -306,17 +290,18 @@ const deepHostBaseFsForMachineId = (
   return null;
 };
 
-/** The seeded base FS of ANY machine the player owns in their generated world — a home-LAN
- *  host (edge router, inner gateway, switch, NPC sibling), a deep child gateway down the
- *  chain, or a deep NPC behind a gateway — recovered from its machine_id alone. The single
- *  "is this MY box, and what is its tree?" resolver: the FS dispatch builds an own machine's
- *  tree from it, and the cross-player check treats a non-null result as own (so it is never
- *  served an empty foreign tree). Returns null only for a genuinely foreign / unknown id. */
-export const ownChainBaseFsForMachineId = (
-  ownerKeyHex: string,
+/** The seeded base FS of ANY machine the NETWORK generates — a home-LAN host (edge router,
+ *  inner gateway, switch, NPC sibling), a deep child gateway down the chain, or a deep NPC
+ *  behind a gateway — recovered from its machine_id alone. The single "is this a box this
+ *  network makes, and what is its tree?" resolver: the FS dispatch builds a generated
+ *  machine's tree from it, and the cross-player check treats a non-null result as generated
+ *  (so it is never served an empty foreign tree). Returns null only for an id this network
+ *  does not generate — in practice another PLAYER's workstation, which is the one kind of
+ *  box that is genuinely somebody's. */
+export const generatedBaseFsForMachineId = (
   essid: string,
   machineId: string,
 ): Directory | null =>
-  ownLanBaseFsForMachineId(essid, machineId) ??
-  chainGatewayBaseFsForMachineId(ownerKeyHex, essid, machineId) ??
-  deepHostBaseFsForMachineId(ownerKeyHex, essid, machineId);
+  lanBaseFsForMachineId(essid, machineId) ??
+  chainGatewayBaseFsForMachineId(essid, machineId) ??
+  deepHostBaseFsForMachineId(essid, machineId);

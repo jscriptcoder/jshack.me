@@ -53,13 +53,11 @@ const deniedPortsFor = (vantage: PivotVantage, vantageFs: Directory): ReadonlySe
     : new Set<number>();
 
 export const resolveDeepScanHosts = (
-  ownerKeyHex: string,
   essid: string,
   vantage: PivotVantage,
   vantageFs: Directory,
 ): DeepScanResolution => {
   const deep = generateDeepLayer(
-    ownerKeyHex,
     essid,
     { machineId: vantage.machineId, kind: vantage.kind },
     { hangsChild: vantage.hangsChild },
@@ -73,7 +71,7 @@ export const resolveDeepScanHosts = (
     const identity =
       host.kind === 'machine'
         ? { machineId: hostMachineId(host, essid), baseFs: buildDeepHostFs(essid, host) }
-        : resolveDeepGatewayIdentity(ownerKeyHex, vantage.machineId, host.ip, host.kind);
+        : resolveDeepGatewayIdentity(vantage.machineId, host.ip, host.kind);
     const ports = readOpenPorts(identity.baseFs).filter((openPort) => !deniedPorts.has(openPort.port));
     return { host, machineId: identity.machineId, ports };
   });
