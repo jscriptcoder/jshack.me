@@ -413,6 +413,13 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   last-writer-wins; the by-`machine_id` resolvers survive it via the occupancy fallback, but
   the registry itself is unreconciled); DHCP host-octet collision-free allocation;
   shared-router-per-ESSID; ESSID-seeded shared NPCs; WiFi density; presence/TTL.
+- **A NAT forward reaches only ONE occupant of a shared AP** — the public-IP lookup resolves
+  the box behind the NAT to whichever occupant joined the ESSID most recently, so a forward
+  naming any other occupant's leased address is dead. The fix is to resolve the forward's
+  internal IP through `network_lan_leases` to whoever actually leases that octet, which makes
+  every occupant forward-reachable. **A behaviour change owing RED under `tdd`** — deliberately
+  kept out of the `network_registry` reduction (which conserves the arbitrariness) so that
+  reduction stays behaviour-preserving. Surfaced by the Slice 6a diagnosis, 2026-07-27.
 - **Pivot / operate-from-a-hop** beyond what 5b shipped; ssh-from-a-pivot.
 - **Replay/nonce store** — built then REVERTED (ship-first): narrow value in this threat
   model (TLS wire + player holds the key → just re-signs with a fresh nonce; only blocks

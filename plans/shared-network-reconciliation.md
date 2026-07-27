@@ -106,6 +106,79 @@ migration's worth of write path, three dependency shapes collapsed to two source
 retired architecture invariant (`conventions-and-gotchas.md` §7 occupancy-fallback rule), with
 nothing equivalent reintroduced elsewhere.
 
+### Diagnosis + conservation ledger (2026-07-27, read-only — no code changed)
+
+**Mode**: diagnosis. **Artifact class**: diagnosis for the transition slice 6a; terminal slice
+is 6b. **Excluded**: everything outside the three lookups — the join write path, allocation,
+patches, and every own-LAN resolver are untouched by 6a.
+
+#### Behavior and guarantee ledger
+
+| # | Behavior | Class | Trigger | Conserved outcome | Evidence | Fidelity gap |
+|---|---|---|---|---|---|---|
+| B1 | A public IP resolves to the AP gateway; its journal decides `canBoot` and its ports | documented contract | `nmap <public ip>` | Same gateway machine id, same ports, bricked → dark | `testPublicIpAllocation`, `testRouterBrick`, `testBrickedDark` | none — see M1 |
+| B2 | A NAT forward is live only while the box behind it serves the port at its leased address | documented contract | same | Same live/dead verdict per forward | `testCrossPlayerRead`, UI smoke | **G1** — *which* box, below |
+| B3 | Public `ssh <public ip>` auths against the box behind the forward, or the gateway at `:22` | documented contract | `ssh` to a public IP | Same auth verdict, same session `essid` | `testCrossPlayerRead/Write/SuElevate` | **G1** |
+| B4 | A cross-player trace records the actor's own home public IP as source | relied-upon | any cross-player scan/ssh/su | Same source IP string, `unknown` when none | `testCrossPlayerScanTrace`, `testCrossPlayerConnectionTrace`, `testCrossPlayerSuTrace` | **G2** |
+| B5 | A held `machine_id` resolves to its owner's workstation tree for read/write/elevate | documented contract | cross-player read, write, `su` | Same tree, same tier, same 403s | `testCrossPlayerRead/Write`, `testSameLanCrossPlayerFs` | none |
+| B6 | A held `machine_id` that is an AP gateway resolves to the ESSID-seeded gateway tree | documented contract | `ssh root@<gateway>` then read/write | Same tree, same perms | `testCrossPlayerRouter`, `testSharedJournal` | **G3** |
+| B7 | An occupant evicted from `network_registry` by a later joiner is still resolvable | relied-upon (PR #306) | same-LAN cross-player write | Unchanged | `testSameLanCrossPlayerFs` | none — becomes the only path |
+
+#### Whole-mechanism baseline (same scope + counting method to be re-run at 6b)
+
+| Dimension | Before | Target after 6b | Method |
+|---|---|---|---|
+| Structure | 4 tables read on these paths (`network_registry`, `network_public_ips`, `home_network_occupants`, `network_lan_leases`); 1 index; 3 dependency shapes; 8 `core/` consumer modules; 3 `api/` routes | 3 tables; 0 registry index; 2 shapes; 8 modules; 3 routes | `grep -rl` over `v2/{src,api}`, table list from `supabase/migrations/` |
+| Control | `findRegistryByMachineId` = 2 sequential `.eq` lookups + a discriminant, plus a 3rd fallback query on miss | 1 lookup, no fallback branch, no discriminant | count of awaited queries + branches in the adapter |
+| State and time | Registry row is last-writer-wins per `public_ip` and persists after disconnect; occupancy is per-occupant and deleted on disconnect | one lifetime rule per fact | migration comments + `registerNetwork` |
+| Variability and operations | 1 write path (`upsertRegistry`), 1 architecture invariant (§7 occupancy fallback), 17 wire-check scripts seeding the table | 0 / 0 / 0 | `grep -rl network_registry` |
+
+#### Minimum-mechanism sketch
+
+Every column the three lookups read is already derivable or already stored:
+
+- **`router_machine_id`** — `registerNetwork` writes `computeApGatewayId(essid)`. Pure function of the ESSID since Slice 1, so it is a *stored derivation*, not a fact. `network_public_ips` maps `public_ip → essid`. **No lookup needed.**
+- **`essid`** — `network_public_ips` (PK `essid`, `public_ip UNIQUE`) answers both directions.
+- **`owner_key` + `workstation_*`** — `home_network_occupants` holds these per occupant, with every occupant coexisting. The existing PR #306 fallback already reads exactly the `RegistryWorkstation` shape from it.
+- **The gateway's reverse lookup (`router_machine_id → essid`)** is the one thing occupancy cannot answer, and **it should not need answering**: a caller can only read or write a gateway while holding a session on it, and `sessions.essid` already records which network the target was generated for. `remoteWritePermission` already resolves gateways this way (`lanBaseFsForMachineId(session.essid, …)`) and never reaches the registry's router arm. `resolveCrossPlayerFs` is the sole consumer that still needs it, only because its `ActiveSession` is narrowed to `{ userType }` while its adapter already queries the very session row that carries `essid`.
+
+**Shortest path**: `public_ip →(network_public_ips) essid → computeApGatewayId` for the gateway;
+`machine_id →(home_network_occupants) owner identity` for a workstation; `session.essid` for a
+gateway the caller stands on. Two tables, three single-column lookups, no discriminant, no
+fallback.
+
+#### Decisions — resolved 2026-07-27, 6a is authorized to implement
+
+- **G1 — which box is behind the NAT: conserve last-writer-wins.**
+  `findRegistryByPublicIp` returns exactly one occupant's identity, and on a shared AP that is
+  *whoever joined last*. A forward naming any other occupant's leased address is dead today.
+  Occupancy holds all N, so re-homing had a fork; the arbitrariness is **conserved**, not
+  fixed, by reading `home_network_occupants WHERE essid = $1 ORDER BY updated_at DESC LIMIT 1`.
+  This keeps 6a a true behaviour-preserving transition and leaves the wire-checks unchanged as
+  its behaviour gate. The alternative — resolving the forward's `internalIp` through
+  `network_lan_leases` to whichever occupant leases that octet — makes currently-dead forwards
+  live, which is a behaviour change owing RED under `tdd`. **Deferred to its own item** (logged
+  in the deferred backlog); it must NOT ride inside this reduction.
+- **G2 — source IP after disconnect: read `network_lan_leases`, not occupancy.** Registry rows
+  persist; occupancy rows are deleted on disconnect, so re-homing B4 onto occupancy would
+  silently turn a disconnected actor's trace source into `unknown`. Leases are permanent and
+  keyed `(essid, owner_key)` — the same lifetime as the registry row being replaced — so the
+  sticky "your home network" behaviour is conserved exactly.
+- **G3 — a null `sessions.essid` is unresolvable.** The column was added by `ALTER TABLE … ADD
+  COLUMN essid TEXT`, so pre-existing rows carry null. Passing the session essid into
+  `resolveCrossPlayerFs` treats null as unresolvable and lands on the existing fail-closed
+  path. No compat burden pre-launch.
+
+#### Scope correction this diagnosis forces
+
+The plan assigned the PR #306 occupancy-fallback removal to **6b**. It belongs to **6a**: once
+`findRegistryByMachineId`'s workstation arm reads occupancy directly, the fallback is not a
+fallback — it is the only path, and the branch disappears as part of the re-homing rather than
+after it. 6b keeps the table, index, write path, type, and the §7 invariant text.
+
+Nothing in this diagnosis claims equivalence or realized reduction; 6a's mechanism gate stays
+pending until 6b.
+
 ## Slices
 
 Walking-skeleton order: shared gateway → brick semantics → addressing → shared population →
