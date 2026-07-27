@@ -78,29 +78,30 @@ describe('mergeLanOccupants', () => {
     expect(merged.hosts.find((entry) => entry.ip === `${SUBNET}.200`)?.hostname).toBe('bob-rig');
   });
 
-  it('keeps the inner gateway and OMITS an occupant that collides with it', () => {
-    // The inner gateway is the player's private depth entry — a busy AP must not eat it.
+  it('lets an occupant win over the inner gateway — no occupant is hidden', () => {
+    // The gateway used to hold its octet and drop the occupant, protecting the viewer's
+    // own depth entry. That only made sense while the population was private to the
+    // viewer and no allocator could see it. The octet is now excluded at lease time,
+    // so this collision does not arise from allocation — and a player answering at an
+    // address must not be invisible to a scan of that address.
     const generated = lan([host(1, 'router-x', 'router'), host(25, 'inner-gw', 'router'), host(50, 'self-box')]);
 
     const merged = mergeLanOccupants(generated, [occupant(25, 'alice-rig')]);
 
-    // The gateway holds its octet; the colliding occupant is not drawn on this LAN.
     const onTwentyFive = merged.hosts.filter((entry) => entry.ip === `${SUBNET}.25`);
-    expect(onTwentyFive).toEqual([host(25, 'inner-gw', 'router')]);
-    expect(merged.hosts).not.toContainEqual({ ip: `${SUBNET}.25`, hostname: 'alice-rig', kind: 'machine' });
+    expect(onTwentyFive).toEqual([{ ip: `${SUBNET}.25`, hostname: 'alice-rig', kind: 'machine' }]);
   });
 
-  it('keeps the inner switch and OMITS an occupant that collides with it', () => {
+  it('lets an occupant win over the inner switch — the second gateway kind is no different', () => {
     const generated = lan([host(1, 'router-x', 'router'), host(80, 'sw-80', 'switch'), host(50, 'self-box')]);
 
     const merged = mergeLanOccupants(generated, [occupant(80, 'alice-rig')]);
 
     const onEighty = merged.hosts.filter((entry) => entry.ip === `${SUBNET}.80`);
-    expect(onEighty).toEqual([host(80, 'sw-80', 'switch')]);
-    expect(merged.hosts).not.toContainEqual({ ip: `${SUBNET}.80`, hostname: 'alice-rig', kind: 'machine' });
+    expect(onEighty).toEqual([{ ip: `${SUBNET}.80`, hostname: 'alice-rig', kind: 'machine' }]);
   });
 
-  it('reserves gateway/switch octets yet still lets occupants win over generated machines', () => {
+  it('resolves every collision the same way, whatever kind the generated host is', () => {
     const generated = lan([
       host(1, 'router-x', 'router'),
       host(25, 'inner-gw', 'router'),
@@ -110,34 +111,30 @@ describe('mergeLanOccupants', () => {
     ]);
 
     const merged = mergeLanOccupants(generated, [
-      occupant(25, 'gw-crasher'), // collides with the gateway → omitted
-      occupant(70, 'alice-rig'), // collides with a generated machine → occupant wins
+      occupant(25, 'gw-crasher'), // collides with a router → occupant wins
+      occupant(70, 'alice-rig'), // collides with a machine → occupant wins
       occupant(200, 'bob-rig'), // free octet → added
     ]);
 
-    // Gateway and switch survive on their own octets.
-    expect(merged.hosts.find((entry) => entry.ip === `${SUBNET}.25`)).toEqual(host(25, 'inner-gw', 'router'));
-    expect(merged.hosts.find((entry) => entry.ip === `${SUBNET}.80`)).toEqual(host(80, 'sw-80', 'switch'));
-    expect(merged.hosts).not.toContainEqual({ ip: `${SUBNET}.25`, hostname: 'gw-crasher', kind: 'machine' });
-    // The machine-colliding occupant still wins; the NPC is dropped.
-    expect(merged.hosts.find((entry) => entry.ip === `${SUBNET}.70`)).toEqual({
-      ip: `${SUBNET}.70`,
-      hostname: 'alice-rig',
-      kind: 'machine',
-    });
+    for (const [octet, name] of [
+      [25, 'gw-crasher'],
+      [70, 'alice-rig'],
+      [200, 'bob-rig'],
+    ] as const) {
+      expect(merged.hosts.find((entry) => entry.ip === `${SUBNET}.${octet}`)).toEqual({
+        ip: `${SUBNET}.${octet}`,
+        hostname: name,
+        kind: 'machine',
+      });
+    }
+    expect(merged.hosts).not.toContainEqual(host(25, 'inner-gw', 'router'));
     expect(merged.hosts).not.toContainEqual(host(70, 'desktop-70'));
-    // The free-octet occupant is added.
-    expect(merged.hosts.find((entry) => entry.ip === `${SUBNET}.200`)?.hostname).toBe('bob-rig');
+    // The uncontested switch and gateway keep their slots.
+    expect(merged.hosts.find((entry) => entry.ip === `${SUBNET}.80`)).toEqual(host(80, 'sw-80', 'switch'));
     expect(octetsOf(merged)).toEqual([1, 25, 50, 70, 80, 200]);
   });
 });
 
-/**
- * `withSelfHost` places the VIEWER's own host on the generated filler at the address
- * wlan0 holds — its lease. The generator does not place the player (it is a pure
- * identity+ESSID derivation with no view of the lease store), and the two disagree
- * for a player the server relocated off a contested octet.
- */
 describe('withSelfHost', () => {
   it('keeps the hosts in ascending octet order with the player spliced into place', () => {
     const generated = lan([host(1, 'gw', 'router'), host(20, 'tablet-20'), host(90, 'laptop-90')]);
@@ -159,7 +156,7 @@ describe('withSelfHost', () => {
 
     const placed = withSelfHost(generated, `${SUBNET}.40`, 'iphone-40');
 
-    // The lease is the authority on who answers at an address — unlike a fellow
+    // The lease is the authority on who answers at an address â€” unlike a fellow
     // occupant, the viewer cannot be omitted from its own LAN.
     expect(placed.hosts).toEqual([
       host(1, 'gw', 'router'),

@@ -269,13 +269,11 @@ const execute: Command['execute'] = async (env, args) => {
     }
   }
 
-  // The generator supplies the NPC filler only. The player's own host is placed at
-  // the address `wlan0` actually holds — the LEASE the join issued — so a player the
-  // server relocated off a contested octet is scanned where it really lives instead
-  // of where the derivation guessed. A generated host on that octet yields: the lease
-  // is the authority on who answers there.
+  // The generator supplies the AP's shared NPC filler only. The player's own host is
+  // placed at the address `wlan0` actually holds — the LEASE the join issued — which
+  // is the one part of this LAN that belongs to the viewer rather than to the network.
   const baseLan = withSelfHost(
-    generateHomeLan(env.identity.publicKeyHex, essid),
+    generateHomeLan(essid),
     wlan0.ipv4,
     assignHomeNetwork(env.identity.publicKeyHex, essid).hostname,
   );
@@ -339,7 +337,7 @@ const execute: Command['execute'] = async (env, args) => {
     const hostFs =
       host.ip === selfIp
         ? env.fs.root()
-        : buildRemoteHostFs(env.identity.publicKeyHex, essid, host);
+        : buildRemoteHostFs(essid, host);
     return readOpenPorts(hostFs);
   };
 

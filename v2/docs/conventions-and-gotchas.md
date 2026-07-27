@@ -87,8 +87,26 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
     stays clear) rather than silently addressing the player. `env.homeNetwork.join` returns
     `HomeNetworkAssignment | null` and both unwired fallbacks return null — nothing in the
     client allocates an address any more.
-  Remaining: 4 (shared LAN
-  population), 5 (shared depth), 6a/6b (**`network_registry` deleted outright** — its content
+  - **Slice 4 (v0.93.0)** — every occupant of an ESSID sees the SAME LAN. `generateHomeLan`
+    takes only the ESSID (no identity at all) and reads `lanSubnetPrefix` directly, so one
+    population stands on the AP's `/24` for everybody. The L1 gateway devices moved with it:
+    `computeInnerGatewayId` / `buildInnerGatewayBaseFs` / `buildSwitchBaseFs` /
+    `seedInnerGatewayHostname` / `seedInnerGatewayAdminPw` are now keyed `(essid, octet)`, so
+    two occupants reach ONE inner gateway with one journal and one root password. So are the
+    NPC boxes themselves — `buildRemoteHostFs` / `hostServices` / `buildDeepHostFs` are keyed
+    `(essid, ip)`: sharing a `machine_id` is not enough, because the journal replays over the
+    base tree, and a per-viewer tree meant one occupant's write landed on a machine the other
+    did not have. This closes the `hostMachineId` **aliasing bug** (two occupants' same-octet
+    NPCs collided onto one id from a 6-name pool roughly 1 in 6 draws, quietly sharing a
+    journal between boxes that were not the same box). Two rules died with it: the
+    **gateway-octet reservation** in `mergeLanOccupants` (an occupant is never hidden now —
+    the occupant wins over any generated host, whatever kind) and the **reserved-octet
+    vacancy** in the generator. Both were only ever workarounds for a population no allocator
+    could see; `allocateLanLease` now takes the ESSID's NPC octets as an **exclusion set**
+    covering the preferred octet AND every redraw, with `drawLanOctet` drawing from the
+    allowed pool so an exclusion never costs an attempt. Exclusion governs what may be
+    ISSUED, not what is held: an existing lease is returned untouched.
+  Remaining: 5 (shared depth), 6a/6b (**`network_registry` deleted outright** — its content
   is derivable or already in `network_public_ips` / `home_network_occupants`; **this retires
   the "occupancy fallback" invariant in §7 below**). Sliced in
   `plans/shared-network-reconciliation.md`: `tdd` governs the behaviour-changing slices;
@@ -96,7 +114,7 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
   makes the ESSID space procedurally generated and large, and tunes the occupied-ESSID
   injector down.
 
-**Current version: 0.91.0.**
+**Current version: 0.93.0.**
 
 To pick up the next slice: read the relevant `plans/*.md` TOP BLOCK (live status +
 as-built), then the cross-player architecture doc if the work touches cross-player paths.
@@ -198,6 +216,18 @@ Provably-equivalent mutant classes — accept (don't chase) when they recur:
 - Plus per-slice equivalents documented in the relevant plan (e.g. discriminant-by-exclusion
   arms, a default value washed out downstream).
 
+**An injected fake can hide the real collaborator completely.** The lease allocator's tests
+inject `redrawOctet`, so `drawLanOctet`'s NPC-exclusion `.filter(...)` — the entire point of
+the change — could be DELETED with the whole suite green. Mutation was the only thing that
+found it. Whenever a dep is faked in every test of its consumer, the real implementation needs
+its own direct test, or it is effectively unverified.
+
+**Assert over the whole record when a field is drawn from a small pool.** "A different seed
+re-rolls the credentials" compared ONE `root` hash out of a ten-word password pool, so it
+failed roughly one ESSID pair in ten — a real flake dressed up as a regression. Comparing the
+whole `/etc/passwd` makes the same claim with three independent draws behind it. Any golden
+pinned to a single pick from a short pool has this problem.
+
 **A survivor masked by a LATER call is untested, not equivalent.** `withSelfHost`'s sort
 survived because `mergeLanOccupants` re-sorts downstream — the mutant is invisible through
 the consumer, but the module's own documented invariant (`HomeLan` = ascending octet order)
@@ -232,6 +262,18 @@ reloads the live app mid-E2E (resetting `su` elevation). Stop one before the oth
   ```
   Then `npm run vercel:dev`, and confirm `/api/<fn>` returns non-502 (a 400 to an empty
   `{}` body = serving).
+- **A same-arity signature change is INVISIBLE to `tsc`.** Re-keying
+  `computeInnerGatewayId(ownerKey, octet)` to `(essid, octet)` still typechecks at every call
+  site, because a key and an ESSID are both `string`. The compiler is a reliable sweep only for
+  arity changes; for a same-arity re-key, grep every call site — otherwise the wrong argument
+  silently computes a wrong id, and the failure surfaces as ~35 unrelated-looking test
+  failures. The same trap sits in the `scripts/` wire-checks, which `tsc -b` does cover but
+  cannot help with here.
+- **Don't run Stryker and `npm run lint` / `vercel dev` at the same time.** The in-flight
+  `.stryker-tmp/sandbox-*` is inside the lint root, so `npm run lint` reports hundreds of
+  `@ts-nocheck` errors from generated code that vanish when the run finishes; the same sandbox
+  churn can crash `vercel dev`'s functions (`exit code 3221225794` = Windows
+  `STATUS_DLL_INIT_FAILED`). Both clear up on their own — re-check before believing either.
 - **`vercel dev` injects cloud-scoped env vars at runtime.** If a local function sees cloud
   values despite `.env.development.local`, suspect Vercel's "Development" scope first — uncheck
   Development on local-only vars so `vercel dev` doesn't inject them.

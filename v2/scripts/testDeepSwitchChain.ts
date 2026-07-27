@@ -75,11 +75,11 @@ const octetOf = (ip: string): number => Number(ip.split('.')[3]);
 const ESSID = 'ABSTERGO-NET';
 const innerSwitchChild = (candidate: ReturnType<typeof generateIdentity>) => {
   if (seedNetworkDepth(candidate.publicKeyHex, ESSID) < 2) return null;
-  const innerHost = generateHomeLan(candidate.publicKeyHex, ESSID).hosts.find(
+  const innerHost = generateHomeLan(ESSID).hosts.find(
     (host) => host.kind === 'router' && octetOf(host.ip) !== 1,
   );
   if (innerHost === undefined) return null;
-  const innerId = computeInnerGatewayId(candidate.publicKeyHex, octetOf(innerHost.ip));
+  const innerId = computeInnerGatewayId(ESSID, octetOf(innerHost.ip));
   const child = generateDeepLayer(
     candidate.publicKeyHex,
     ESSID,

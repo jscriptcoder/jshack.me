@@ -150,7 +150,7 @@ export const handleAuthCreateSession = async (
 
   // Resolve the target on the caller's OWN regenerated LAN: gives the host needed
   // to rebuild its FS, and proves target_ip is a real reachable host.
-  const host = generateHomeLan(publicKey, payload.essid).hosts.find(
+  const host = generateHomeLan(payload.essid).hosts.find(
     (candidate) => candidate.ip === payload.target_ip,
   );
   if (host === undefined) {
@@ -162,7 +162,7 @@ export const handleAuthCreateSession = async (
   // host to its machine id + seeded FS: the edge router (`.1`), an inner gateway, or
   // a coordinate-seeded sibling — the same mapping the client uses, so the session
   // lands on the box both agree on.
-  const { machineId, baseFs } = resolveLanHostIdentity(host, publicKey, payload.essid);
+  const { machineId, baseFs } = resolveLanHostIdentity(host, payload.essid);
 
   // Replay the host's journal over its seeded base so the gate reads the box's REAL
   // state rather than the pristine regeneration. A read failure is a 500: never a

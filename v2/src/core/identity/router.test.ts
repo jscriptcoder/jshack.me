@@ -43,40 +43,41 @@ describe('computeApGatewayId', () => {
 });
 
 describe('computeInnerGatewayId', () => {
-  // A deeper-layer gateway hanging off the player's own LAN. It is the player's
-  // OWN device, but it must NOT alias the edge router (`computeApGatewayId`) — so it
-  // lives in its own key+octet namespace. The octet is load-bearing: two inner
-  // gateways at different octets must never collide.
+  // A deeper-layer gateway on an access point's LAN. It belongs to the NETWORK, like
+  // the edge gateway it must never alias — so it lives in its own essid+octet
+  // namespace. The octet is load-bearing: two inner gateways at different octets must
+  // never collide. Keying it per player would give each occupant a private copy of a
+  // box they can all reach at one address.
   it('returns an `inner-gw-<8 hex>` id', () => {
-    expect(computeInnerGatewayId(KEY, 37)).toMatch(/^inner-gw-[0-9a-f]{8}$/);
+    expect(computeInnerGatewayId(ESSID, 37)).toMatch(/^inner-gw-[0-9a-f]{8}$/);
   });
 
-  it('is deterministic for the same key + octet', () => {
-    expect(computeInnerGatewayId(KEY, 37)).toBe(computeInnerGatewayId(KEY, 37));
+  it('is deterministic for the same ESSID + octet', () => {
+    expect(computeInnerGatewayId(ESSID, 37)).toBe(computeInnerGatewayId(ESSID, 37));
   });
 
   it('differs from the AP gateway id (never aliases the edge)', () => {
-    expect(computeInnerGatewayId(KEY, 37)).not.toBe(computeApGatewayId(ESSID));
+    expect(computeInnerGatewayId(ESSID, 37)).not.toBe(computeApGatewayId(ESSID));
   });
 
   it('differs per octet, so two inner gateways never alias', () => {
-    expect(computeInnerGatewayId(KEY, 37)).not.toBe(computeInnerGatewayId(KEY, 38));
+    expect(computeInnerGatewayId(ESSID, 37)).not.toBe(computeInnerGatewayId(ESSID, 38));
   });
 
-  it('differs for different keys at the same octet', () => {
-    expect(computeInnerGatewayId(KEY, 37)).not.toBe(computeInnerGatewayId(OTHER_KEY, 37));
+  it('differs per network at the same octet, so two APs never share an inner gateway', () => {
+    expect(computeInnerGatewayId(ESSID, 37)).not.toBe(computeInnerGatewayId(OTHER_ESSID, 37));
   });
 
   it('is distinct from a coordinate-seeded NPC sibling id', () => {
     // An NPC sibling lives in the `host:<essid>:<ip>` coordinate namespace; the
-    // inner gateway lives in the `ed25519-inner-gw:` key namespace — they can
+    // inner gateway lives in the `inner-gw:<essid>:<octet>` namespace — they can
     // never collide even when an NPC happens to share the gateway's octet.
     const sibling: LanHost = { ip: '192.168.29.37', hostname: 'desktop-37', kind: 'machine' };
-    expect(computeInnerGatewayId(KEY, 37)).not.toBe(hostMachineId(sibling, 'BEAN-THERE-WIFI'));
+    expect(computeInnerGatewayId(ESSID, 37)).not.toBe(hostMachineId(sibling, 'BEAN-THERE-WIFI'));
   });
 
   it("is never recognised as the owner's own workstation", () => {
-    expect(isOwnWorkstation(computeInnerGatewayId(KEY, 37), KEY)).toBe(false);
+    expect(isOwnWorkstation(computeInnerGatewayId(ESSID, 37), KEY)).toBe(false);
   });
 });
 
@@ -86,8 +87,8 @@ describe('computeDeepGatewayId', () => {
   // is keyed by the owner key, its PARENT gateway's machine_id, AND its octet on
   // the deep /24. Two deep gateways at the same octet behind DIFFERENT parents must
   // never collide — that is what lets a chain (and later, branches) stay distinct.
-  const PARENT = computeInnerGatewayId(KEY, 37);
-  const OTHER_PARENT = computeInnerGatewayId(KEY, 38);
+  const PARENT = computeInnerGatewayId(ESSID, 37);
+  const OTHER_PARENT = computeInnerGatewayId(ESSID, 38);
 
   it('returns a `deep-gw-<8 hex>` id', () => {
     expect(computeDeepGatewayId(KEY, PARENT, 50)).toMatch(/^deep-gw-[0-9a-f]{8}$/);
@@ -115,7 +116,7 @@ describe('computeDeepGatewayId', () => {
 
   it('never aliases an inner gateway, the edge router, or the parent itself', () => {
     const deep = computeDeepGatewayId(KEY, PARENT, 50);
-    expect(deep).not.toBe(computeInnerGatewayId(KEY, 50));
+    expect(deep).not.toBe(computeInnerGatewayId(ESSID, 50));
     expect(deep).not.toBe(computeApGatewayId(ESSID));
     expect(deep).not.toBe(PARENT);
   });

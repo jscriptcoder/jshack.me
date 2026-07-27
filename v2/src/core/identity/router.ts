@@ -30,16 +30,17 @@ import { deriveHostnameSuffix } from './workstation';
 export const computeApGatewayId = (essid: string): string =>
   `ap-gw-${deriveHostnameSuffix(`ap-gw:${essid}`)}`;
 
-/** The machine_id for a deeper-layer gateway hanging off the player's OWN LAN — a
- *  router the player owns, but which must NOT alias the edge router. It derives
- *  from a SEPARATE (`ed25519-inner-gw:`) namespace keyed by BOTH the owner key and
- *  the gateway's LAN octet: the octet-less edge router (`computeRouterId`) and a
- *  second inner gateway at another octet therefore each get an independent suffix,
- *  and an NPC sibling that happens to share the octet (the coordinate `host:`
- *  namespace) can never collide either. Like the edge router, the server recovers
- *  this id by regenerating the owner's LAN, which fixes the octet. */
-export const computeInnerGatewayId = (playerKeyHex: string, octet: number): string =>
-  `inner-gw-${deriveHostnameSuffix(`ed25519-inner-gw:${playerKeyHex}:${octet}`)}`;
+/** The machine_id for a deeper-layer gateway on an AP's LAN — a router that fronts
+ *  the deeper layers, and which must NOT alias the edge router. It derives from a
+ *  SEPARATE (`inner-gw:`) namespace keyed by BOTH the ESSID and the gateway's LAN
+ *  octet: the octet-less edge router (`computeApGatewayId`) and a second inner gateway
+ *  at another octet therefore each get an independent suffix, and an NPC sibling that
+ *  happens to share the octet (the coordinate `host:` namespace) can never collide
+ *  either. Keyed by the ESSID rather than by a player, for the same reason the edge
+ *  gateway is: the box stands on the access point's LAN, so every occupant that reaches
+ *  it must reach ONE machine with one journal — not a private copy per viewer. */
+export const computeInnerGatewayId = (essid: string, octet: number): string =>
+  `inner-gw-${deriveHostnameSuffix(`inner-gw:${essid}:${octet}`)}`;
 
 /** The machine_id for a gateway hanging off a DEEPER layer — a router the player
  *  owns that sits behind an inner gateway, fronting a layer further down. It must be

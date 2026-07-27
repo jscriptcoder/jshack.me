@@ -49,21 +49,30 @@ describe('hostMachineId', () => {
 
 describe('hostForMachineId (reverse resolver)', () => {
   it('round-trips: an id minted from a LAN host resolves back to that exact host', () => {
-    const lan = generateHomeLan(PUBKEY, ESSID);
+    const lan = generateHomeLan(ESSID);
     const target = lan.hosts.at(-1)!; // any host on the regenerated LAN
     const id = hostMachineId(target, ESSID);
-    expect(hostForMachineId(PUBKEY, ESSID, id)).toEqual(target);
+    expect(hostForMachineId(ESSID, id)).toEqual(target);
   });
 
   it('returns null for an id that matches no host on the current LAN', () => {
-    expect(hostForMachineId(PUBKEY, ESSID, 'ghost-00000000')).toBeNull();
+    expect(hostForMachineId(ESSID, 'ghost-00000000')).toBeNull();
   });
 
-  it('returns null when the id is resolved against a different identity’s LAN', () => {
-    const lan = generateHomeLan(PUBKEY, ESSID);
-    const id = hostMachineId(lan.hosts.at(-1)!, ESSID);
-    // Another player's LAN sits on a different subnet, so that coordinate id is
-    // absent — the resolver must not hallucinate a match.
-    expect(hostForMachineId('b'.repeat(64), ESSID, id)).toBeNull();
+  it('returns null when the id is resolved against a different network’s LAN', () => {
+    const id = hostMachineId(generateHomeLan(ESSID).hosts.at(-1)!, ESSID);
+    // Another access point's LAN sits on a different subnet with its own population,
+    // so that coordinate id is absent — the resolver must not hallucinate a match.
+    expect(hostForMachineId('NAKATOMI-PLAZA', id)).toBeNull();
+  });
+
+  it('resolves an id to the same host for every occupant of the network', () => {
+    // The reverse lookup used to regenerate the LOOKER's private LAN, so one occupant's
+    // id landed on a different machine — or on nothing — for anybody else. Two NPCs at
+    // one octet could even mint the SAME id from a 6-name pool, quietly sharing a
+    // journal between two boxes that were not the same box.
+    const target = generateHomeLan(ESSID).hosts.at(-1)!;
+
+    expect(hostForMachineId(ESSID, hostMachineId(target, ESSID))).toEqual(target);
   });
 });

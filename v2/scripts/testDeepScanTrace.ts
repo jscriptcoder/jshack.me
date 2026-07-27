@@ -64,20 +64,24 @@ const octetOf = (ip: string): number => Number(ip.split('.')[3]);
 //     deep /24 touches BOTH the NPC and the child) and that also carries an inner SWITCH
 //     (always present) for the ACL case. ---
 const ESSID = 'ABSTERGO-NET';
-const innerRouterOf = (pubkey: string) =>
-  generateHomeLan(pubkey, ESSID).hosts.find((host) => host.kind === 'router' && octetOf(host.ip) !== 1);
-const innerSwitchOf = (pubkey: string) =>
-  generateHomeLan(pubkey, ESSID).hosts.find((host) => host.kind === 'switch');
+// The LAN is the ACCESS POINT's now, so its inner gateways are the same whoever is
+// looking — resolved once, outside the identity search below. Only the DEPTH behind
+// them is still per-owner, which is all that search is still looking for.
+const lan = generateHomeLan(ESSID);
+const innerR = lan.hosts.find((host) => host.kind === 'router' && octetOf(host.ip) !== 1);
+const innerS = lan.hosts.find((host) => host.kind === 'switch');
+if (innerR === undefined || innerS === undefined) {
+  console.error('the ESSID’s LAN carries no inner router + switch to scan');
+  process.exit(2);
+}
+const INNER_R_ID = computeInnerGatewayId(ESSID, octetOf(innerR.ip));
+
 const suitable = (candidate: ReturnType<typeof generateIdentity>): boolean => {
   if (seedNetworkDepth(candidate.publicKeyHex, ESSID) < 2) return false;
-  const innerR = innerRouterOf(candidate.publicKeyHex);
-  const innerS = innerSwitchOf(candidate.publicKeyHex);
-  if (innerR === undefined || innerS === undefined) return false;
-  const innerRId = computeInnerGatewayId(candidate.publicKeyHex, octetOf(innerR.ip));
   const child = generateDeepLayer(
     candidate.publicKeyHex,
     ESSID,
-    { machineId: innerRId, kind: 'router' },
+    { machineId: INNER_R_ID, kind: 'router' },
     { hangsChild: true },
   ).childGateway;
   return child !== null;
@@ -87,9 +91,6 @@ if (alice === undefined) {
   console.error('no identity seeds a depth>=2 home whose inner router fronts a child');
   process.exit(2);
 }
-
-const innerR = innerRouterOf(alice.publicKeyHex)!;
-const INNER_R_ID = computeInnerGatewayId(alice.publicKeyHex, octetOf(innerR.ip));
 const rDeep = generateDeepLayer(
   alice.publicKeyHex,
   ESSID,
@@ -100,8 +101,7 @@ const R_NPC_ID = hostMachineId(rDeep.host, ESSID);
 const rChild = rDeep.childGateway!;
 const R_CHILD_ID = computeDeepGatewayId(alice.publicKeyHex, INNER_R_ID, octetOf(rChild.ip));
 
-const innerS = innerSwitchOf(alice.publicKeyHex)!;
-const INNER_S_ID = computeInnerGatewayId(alice.publicKeyHex, octetOf(innerS.ip));
+const INNER_S_ID = computeInnerGatewayId(ESSID, octetOf(innerS.ip));
 const sDeep = generateDeepLayer(
   alice.publicKeyHex,
   ESSID,

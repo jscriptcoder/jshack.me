@@ -107,10 +107,10 @@ const ADMIN_PW = seedApGatewayAdminPw(ESSID);
 const VMLINUZ = '/boot/vmlinuz';
 const WORLD_PID = { read: ['root', 'user', 'guest'], write: ['root'], execute: [] };
 
-/** The `.1` of the caller's own generated LAN — the shared AP gateway. */
-const gatewayIpFor = (ownerKeyHex: string): string =>
-  generateHomeLan(ownerKeyHex, ESSID).hosts.find((host) => Number(host.ip.split('.')[3]) === 1)
-    ?.ip ?? '';
+/** The `.1` of the ESSID's LAN — the shared AP gateway, the same address for every
+ *  occupant. */
+const AP_GATEWAY_IP =
+  generateHomeLan(ESSID).hosts.find((host) => Number(host.ip.split('.')[3]) === 1)?.ip ?? '';
 
 const join = (owner: ReturnType<typeof generateIdentity>, wsName: string) =>
   signRequest(owner, 'registerNetwork', {
@@ -192,7 +192,7 @@ const l0 = await post(
   signRequest(alice, 'authCreateSession', {
     session_id: `a-gw-baseline-${ESSID}`,
     essid: ESSID,
-    target_ip: gatewayIpFor(alice.publicKeyHex),
+    target_ip: AP_GATEWAY_IP,
     username: 'root',
     password: ADMIN_PW,
     parent_session_id: null,
@@ -248,7 +248,7 @@ const l1 = await post(
   signRequest(alice, 'authCreateSession', {
     session_id: `a-gw-dark-${ESSID}`,
     essid: ESSID,
-    target_ip: gatewayIpFor(alice.publicKeyHex),
+    target_ip: AP_GATEWAY_IP,
     username: 'root',
     password: ADMIN_PW,
     parent_session_id: null,

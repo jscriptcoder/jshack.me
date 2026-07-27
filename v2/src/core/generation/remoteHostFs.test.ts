@@ -13,7 +13,6 @@ import type { Directory, FileNode } from '../filesystem/types';
  * skeleton (passwd/home/…) lands in Slice 3.
  */
 
-const PUBKEY = 'a'.repeat(64);
 const ESSID = 'BEAN-THERE-WIFI';
 const SUBNET = '192.168.50';
 
@@ -41,7 +40,7 @@ const OCTETS = Array.from({ length: 253 }, (_, index) => index + 2); // 2..254
 
 const sshHosts = (): readonly { octet: number; port: number }[] =>
   OCTETS.flatMap((octet) => {
-    const content = pidfileContent(buildRemoteHostFs(PUBKEY, ESSID, host(octet)), 'sshd.pid');
+    const content = pidfileContent(buildRemoteHostFs(ESSID, host(octet)), 'sshd.pid');
     if (content === null) return [];
     const port = Number(content.split('=')[1]);
     return [{ octet, port }];
@@ -60,15 +59,20 @@ const dirAt = (fs: Directory, ...segments: readonly string[]): Directory => {
   return node;
 };
 
-/** The `/etc/passwd` rows (split into fields), non-empty lines only. */
-const passwdRows = (fs: Directory): readonly (readonly string[])[] => {
+/** The raw `/etc/passwd` content — every account at once, for assertions that would
+ *  be flaky against a single seeded field drawn from a small pool. */
+const passwdOf = (fs: Directory): string => {
   const passwd = dirAt(fs, 'etc').entries.get('passwd');
   if (passwd?.kind !== 'file') throw new Error('missing /etc/passwd');
-  return passwd.content
+  return passwd.content;
+};
+
+/** The `/etc/passwd` rows (split into fields), non-empty lines only. */
+const passwdRows = (fs: Directory): readonly (readonly string[])[] =>
+  passwdOf(fs)
     .split('\n')
     .filter((line) => line.length > 0)
     .map((line) => line.split(':'));
-};
 
 const rowFor = (fs: Directory, username: string): readonly string[] => {
   const row = passwdRows(fs).find((fields) => fields[0] === username);
@@ -85,8 +89,8 @@ const npcUserRow = (fs: Directory): readonly string[] => {
 
 describe('buildRemoteHostFs', () => {
   it('is deterministic: same pubkey + ESSID + host yields a byte-identical tree', () => {
-    expect(buildRemoteHostFs(PUBKEY, ESSID, host(42))).toEqual(
-      buildRemoteHostFs(PUBKEY, ESSID, host(42)),
+    expect(buildRemoteHostFs(ESSID, host(42))).toEqual(
+      buildRemoteHostFs(ESSID, host(42)),
     );
   });
 
@@ -94,14 +98,14 @@ describe('buildRemoteHostFs', () => {
     // Even a host running no services has /var/run (just empty) — it is where a
     // pidfile would land, and nmap reads it.
     expect(
-      OCTETS.every((octet) => varRun(buildRemoteHostFs(PUBKEY, ESSID, host(octet))) !== undefined),
+      OCTETS.every((octet) => varRun(buildRemoteHostFs(ESSID, host(octet))) !== undefined),
     ).toBe(true);
   });
 
   it('plants a root-owned sshd.pid (sshd:port=<n>) on a host that runs ssh', () => {
     const ssh = sshHosts();
     expect(ssh.length).toBeGreaterThan(0);
-    const fs = buildRemoteHostFs(PUBKEY, ESSID, host(ssh[0]!.octet));
+    const fs = buildRemoteHostFs(ESSID, host(ssh[0]!.octet));
     const node = varRun(fs)?.entries.get('sshd.pid');
     if (node === undefined || node.kind !== 'file') throw new Error('expected sshd.pid file');
     expect(node.content).toMatch(/^sshd:port=\d+$/);
@@ -109,7 +113,7 @@ describe('buildRemoteHostFs', () => {
   });
 
   it('stamps the FS permission boundaries: /var/run world-readable + root-writable, pidfile not executable', () => {
-    const fs = buildRemoteHostFs(PUBKEY, ESSID, host(sshHosts()[0]!.octet));
+    const fs = buildRemoteHostFs(ESSID, host(sshHosts()[0]!.octet));
     const run = varRun(fs);
     if (run === undefined) throw new Error('expected /var/run');
     // /var/run: every tier can traverse + read (so nmap/ps can see ports); only
@@ -130,7 +134,7 @@ describe('buildRemoteHostFs', () => {
     const sshOctets = new Set(sshHosts().map((entry) => entry.octet));
     const nonSshOctet = OCTETS.find((octet) => !sshOctets.has(octet));
     if (nonSshOctet === undefined) throw new Error('expected at least one non-ssh host');
-    expect(varRun(buildRemoteHostFs(PUBKEY, ESSID, host(nonSshOctet)))?.entries.size).toBe(0);
+    expect(varRun(buildRemoteHostFs(ESSID, host(nonSshOctet)))?.entries.size).toBe(0);
   });
 
   it('runs ssh on roughly the placement fraction of hosts (not none, all, or inverted)', () => {
@@ -155,7 +159,7 @@ describe('buildRemoteHostFs', () => {
   });
 
   describe('base filesystem skeleton (Slice 3 — an operable remote box)', () => {
-    const fs = (): Directory => buildRemoteHostFs(PUBKEY, ESSID, host(42));
+    const fs = (): Directory => buildRemoteHostFs(ESSID, host(42));
 
     it('grows from pidfile-only to the full operable skeleton', () => {
       // Same top-level shape as the player's own workstation: a host you ssh into
@@ -233,7 +237,7 @@ describe('buildRemoteHostFs', () => {
   });
 
   describe('/etc/passwd (NPC accounts — every account has a real password)', () => {
-    const fs = (): Directory => buildRemoteHostFs(PUBKEY, ESSID, host(42));
+    const fs = (): Directory => buildRemoteHostFs(ESSID, host(42));
 
     it('has exactly root + one NPC user + guest, 7 colon-fields each', () => {
       const rows = passwdRows(fs());
@@ -294,21 +298,25 @@ describe('buildRemoteHostFs', () => {
 
   describe('the seed drives the passwd (deterministic, coordinate-sensitive)', () => {
     it('different ESSID re-rolls the credentials (the seed includes the network)', () => {
-      const hashA = rowFor(buildRemoteHostFs(PUBKEY, 'NET-ALPHA', host(42)), 'root')[1];
-      const hashB = rowFor(buildRemoteHostFs(PUBKEY, 'NET-BETA', host(42)), 'root')[1];
-      expect(hashA).not.toBe(hashB);
+      // Compared over the WHOLE passwd, not one account's hash: the password pool is
+      // ten words wide, so two networks draw the same root password often enough that
+      // a single-hash assertion fails on an unlucky pair of ESSIDs.
+      expect(passwdOf(buildRemoteHostFs('NET-ALPHA', host(42)))).not.toBe(
+        passwdOf(buildRemoteHostFs('NET-BETA', host(42))),
+      );
     });
 
     it('different host IP re-rolls the credentials (the seed includes the host)', () => {
-      const hashA = rowFor(buildRemoteHostFs(PUBKEY, ESSID, host(42)), 'root')[1];
-      const hashB = rowFor(buildRemoteHostFs(PUBKEY, ESSID, host(99)), 'root')[1];
+      const hashA = rowFor(buildRemoteHostFs(ESSID, host(42)), 'root')[1];
+      const hashB = rowFor(buildRemoteHostFs(ESSID, host(99)), 'root')[1];
       expect(hashA).not.toBe(hashB);
     });
 
-    it('different identity re-rolls the credentials (the seed includes the pubkey)', () => {
-      const hashA = rowFor(buildRemoteHostFs('a'.repeat(64), ESSID, host(42)), 'root')[1];
-      const hashB = rowFor(buildRemoteHostFs('b'.repeat(64), ESSID, host(42)), 'root')[1];
-      expect(hashA).not.toBe(hashB);
+    it('is the SAME box no matter who generates it — the seed carries no identity', () => {
+      // The box belongs to the network. Seeding its accounts per viewer gave two
+      // occupants of one AP different credentials on one address, so a journal written
+      // by one replayed onto a machine the other did not have.
+      expect(buildRemoteHostFs(ESSID, host(42))).toEqual(buildRemoteHostFs(ESSID, host(42)));
     });
   });
 });

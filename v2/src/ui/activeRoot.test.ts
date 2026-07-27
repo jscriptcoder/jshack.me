@@ -86,17 +86,17 @@ describe('resolveActiveRoot', () => {
   });
 
   it('returns the remote host tree for an ssh session, recovered from its machine_id', () => {
-    const host = generateHomeLan(PUBKEY, ESSID).hosts.at(-1)!;
+    const host = generateHomeLan(ESSID).hosts.at(-1)!;
     const machineId = hostMachineId(host, ESSID);
 
     const root = resolveActiveRoot(args({ session: session(machineId, 'ssh') }));
 
-    expect(root).toEqual(buildRemoteHostFs(PUBKEY, ESSID, host));
+    expect(root).toEqual(buildRemoteHostFs(ESSID, host));
     expect(root).not.toBe(ownBaseFs);
   });
 
   it('replays the active journal over the REMOTE base for an ssh session (write observability)', () => {
-    const host = generateHomeLan(PUBKEY, ESSID).hosts.at(-1)!;
+    const host = generateHomeLan(ESSID).hosts.at(-1)!;
     const machineId = hostMachineId(host, ESSID);
 
     const root = resolveActiveRoot(
@@ -109,7 +109,7 @@ describe('resolveActiveRoot', () => {
   });
 
   it('falls back to the own base when there is no network to resolve a remote against', () => {
-    const machineId = hostMachineId(generateHomeLan(PUBKEY, ESSID).hosts.at(-1)!, ESSID);
+    const machineId = hostMachineId(generateHomeLan(ESSID).hosts.at(-1)!, ESSID);
     expect(resolveActiveRoot(args({ session: session(machineId, 'ssh'), essid: null }))).toBe(
       ownBaseFs,
     );
@@ -139,7 +139,7 @@ describe('resolveActiveRoot', () => {
   // AP gateway at `.1` — but this one IS the player's own device, so a session on its
   // id must rebuild ITS seeded tree so a `nano rules.v4` edit is visible after refresh.
   const innerGatewayOctet = (): number => {
-    const inner = generateHomeLan(PUBKEY, ESSID).hosts.find(
+    const inner = generateHomeLan(ESSID).hosts.find(
       (host) => host.kind === 'router' && Number(host.ip.split('.')[3]) !== 1,
     );
     if (inner === undefined) throw new Error('no inner gateway on LAN');
@@ -158,10 +158,10 @@ describe('resolveActiveRoot', () => {
   it('returns the INNER GATEWAY tree for a session on its id, not the own base', () => {
     const octet = innerGatewayOctet();
     const root = resolveActiveRoot(
-      args({ session: session(computeInnerGatewayId(PUBKEY, octet), 'ssh') }),
+      args({ session: session(computeInnerGatewayId(ESSID, octet), 'ssh') }),
     );
 
-    expect(root).toEqual(buildInnerGatewayBaseFs(PUBKEY, octet));
+    expect(root).toEqual(buildInnerGatewayBaseFs(ESSID, octet));
     expect(root).not.toBe(ownBaseFs);
   });
 
@@ -169,7 +169,7 @@ describe('resolveActiveRoot', () => {
     const octet = innerGatewayOctet();
     const root = resolveActiveRoot(
       args({
-        session: session(computeInnerGatewayId(PUBKEY, octet), 'ssh'),
+        session: session(computeInnerGatewayId(ESSID, octet), 'ssh'),
         patches: [writePatch('/etc/iptables/rules.v4', 'forward 2222 to 10.0.0.5:22\n')],
       }),
     );
@@ -185,7 +185,7 @@ describe('resolveActiveRoot', () => {
   // exactly like the inner router — a session on its id must rebuild ITS seeded tree
   // (an `acl.conf` box) so a `nano acl.conf` edit is visible and survives a refresh.
   const switchOctet = (): number => {
-    const device = generateHomeLan(PUBKEY, ESSID).hosts.find((host) => host.kind === 'switch');
+    const device = generateHomeLan(ESSID).hosts.find((host) => host.kind === 'switch');
     if (device === undefined) throw new Error('no switch on LAN');
     return Number(device.ip.split('.')[3]);
   };
@@ -193,10 +193,10 @@ describe('resolveActiveRoot', () => {
   it('returns the SWITCH tree for a session on its id, not the own base', () => {
     const octet = switchOctet();
     const root = resolveActiveRoot(
-      args({ session: session(computeInnerGatewayId(PUBKEY, octet), 'ssh') }),
+      args({ session: session(computeInnerGatewayId(ESSID, octet), 'ssh') }),
     );
 
-    expect(root).toEqual(buildSwitchBaseFs(PUBKEY, octet));
+    expect(root).toEqual(buildSwitchBaseFs(ESSID, octet));
     expect(root).not.toBe(ownBaseFs);
   });
 
@@ -204,7 +204,7 @@ describe('resolveActiveRoot', () => {
     const octet = switchOctet();
     const root = resolveActiveRoot(
       args({
-        session: session(computeInnerGatewayId(PUBKEY, octet), 'ssh'),
+        session: session(computeInnerGatewayId(ESSID, octet), 'ssh'),
         patches: [writePatch('/etc/switch/acl.conf', '# default policy: ALLOW\n')],
       }),
     );
@@ -219,14 +219,14 @@ describe('resolveActiveRoot', () => {
   // forward — so a session on one must rebuild ITS seeded tree (with its toolchain) rather
   // than fall back to the own workstation base, or the deep loop has no filesystem to stand on.
   const deepChainDoor = () => {
-    const innerId = computeInnerGatewayId(PUBKEY, innerGatewayOctet());
+    const innerId = computeInnerGatewayId(ESSID, innerGatewayOctet());
     const child = generateDeepLayer(PUBKEY, ESSID, { machineId: innerId, kind: 'router' }).childGateway;
     if (child === null) throw new Error('fixture chain has no deep gateway');
     return resolveDeepGatewayIdentity(PUBKEY, innerId, child.ip, child.kind);
   };
 
   const deepNpcHost = () => {
-    const innerId = computeInnerGatewayId(PUBKEY, innerGatewayOctet());
+    const innerId = computeInnerGatewayId(ESSID, innerGatewayOctet());
     return generateDeepLayer(PUBKEY, ESSID, { machineId: innerId, kind: 'router' }).host;
   };
 
@@ -242,7 +242,7 @@ describe('resolveActiveRoot', () => {
     const host = deepNpcHost();
     const root = resolveActiveRoot(args({ session: session(hostMachineId(host, ESSID), 'ssh') }));
 
-    expect(root).toEqual(buildDeepHostFs(PUBKEY, ESSID, host));
+    expect(root).toEqual(buildDeepHostFs(ESSID, host));
     expect(root).not.toBe(ownBaseFs);
   });
 
@@ -270,7 +270,7 @@ describe('isCrossPlayerHop', () => {
   });
 
   it('is false for an ssh session on a host that IS on your own LAN', () => {
-    const host = generateHomeLan(PUBKEY, ESSID).hosts.at(-1)!;
+    const host = generateHomeLan(ESSID).hosts.at(-1)!;
     const lanHopId = hostMachineId(host, ESSID);
     expect(isCrossPlayerHop(session(lanHopId, 'ssh'), ESSID, PUBKEY)).toBe(false);
   });

@@ -86,8 +86,8 @@ const expectedSshdLine = (
   });
 
 /** A real machine host on the signer's deterministic LAN to ssh into. */
-const targetHostFor = (pubkey: string): LanHost => {
-  const machine = generateHomeLan(pubkey, ESSID)
+const targetHostFor = (): LanHost => {
+  const machine = generateHomeLan(ESSID)
     .hosts.filter((host) => host.kind === 'machine')
     .at(-1);
   if (machine === undefined) throw new Error('no machine host on LAN');
@@ -96,15 +96,15 @@ const targetHostFor = (pubkey: string): LanHost => {
 
 /** The `.1` gateway (the player's own router) on the signer's LAN. The first
  *  router in octet order is always the edge gateway at .1. */
-const routerHostFor = (pubkey: string): LanHost => {
-  const router = generateHomeLan(pubkey, ESSID).hosts.find((host) => host.kind === 'router');
+const routerHostFor = (): LanHost => {
+  const router = generateHomeLan(ESSID).hosts.find((host) => host.kind === 'router');
   if (router === undefined) throw new Error('no router host on LAN');
   return router;
 };
 
 /** The inner gateway — a SECOND router on the signer's LAN, at a non-.1 octet. */
-const innerGatewayHostFor = (pubkey: string): LanHost => {
-  const inner = generateHomeLan(pubkey, ESSID).hosts.find(
+const innerGatewayHostFor = (): LanHost => {
+  const inner = generateHomeLan(ESSID).hosts.find(
     (host) => host.kind === 'router' && Number(host.ip.split('.')[3]) !== 1,
   );
   if (inner === undefined) throw new Error('no inner gateway on LAN');
@@ -157,7 +157,7 @@ const validEnvelope = (
   username: string,
   over: Record<string, unknown> = {},
 ) => {
-  const fs = buildRemoteHostFs(id.publicKeyHex, ESSID, host);
+  const fs = buildRemoteHostFs(ESSID, host);
   return signRequest(
     id,
     'authCreateSession',
@@ -168,7 +168,7 @@ const validEnvelope = (
 describe('handleAuthCreateSession', () => {
   it('validates the root password against the regenerated passwd and inserts an ssh session', async () => {
     const id = generateIdentity();
-    const host = targetHostFor(id.publicKeyHex);
+    const host = targetHostFor();
     const { deps, insertSession } = makeDeps();
 
     const result = await handleAuthCreateSession(validEnvelope(id, host, 'root'), deps);
@@ -192,8 +192,8 @@ describe('handleAuthCreateSession', () => {
 
   it('server-derives userType "user" for the non-root account', async () => {
     const id = generateIdentity();
-    const host = targetHostFor(id.publicKeyHex);
-    const username = npcUsername(buildRemoteHostFs(id.publicKeyHex, ESSID, host));
+    const host = targetHostFor();
+    const username = npcUsername(buildRemoteHostFs(ESSID, host));
     const { deps, insertSession } = makeDeps();
 
     const result = await handleAuthCreateSession(validEnvelope(id, host, username), deps);
@@ -204,7 +204,7 @@ describe('handleAuthCreateSession', () => {
 
   it('server-derives userType "guest" for the guest account', async () => {
     const id = generateIdentity();
-    const host = targetHostFor(id.publicKeyHex);
+    const host = targetHostFor();
     const { deps, insertSession } = makeDeps();
 
     const result = await handleAuthCreateSession(validEnvelope(id, host, 'guest'), deps);
@@ -215,7 +215,7 @@ describe('handleAuthCreateSession', () => {
 
   it('rejects a wrong password with 401 invalid_credentials and never inserts', async () => {
     const id = generateIdentity();
-    const host = targetHostFor(id.publicKeyHex);
+    const host = targetHostFor();
     const envelope = signRequest(
       id,
       'authCreateSession',
@@ -231,7 +231,7 @@ describe('handleAuthCreateSession', () => {
 
   it('rejects an unknown username with the SAME 401 invalid_credentials (no user enumeration)', async () => {
     const id = generateIdentity();
-    const host = targetHostFor(id.publicKeyHex);
+    const host = targetHostFor();
     const envelope = signRequest(
       id,
       'authCreateSession',
@@ -262,8 +262,8 @@ describe('handleAuthCreateSession', () => {
 
   it('defaults parent_session_id and source_ip to null when omitted', async () => {
     const id = generateIdentity();
-    const host = targetHostFor(id.publicKeyHex);
-    const fs = buildRemoteHostFs(id.publicKeyHex, ESSID, host);
+    const host = targetHostFor();
+    const fs = buildRemoteHostFs(ESSID, host);
     const {
       parent_session_id: _p,
       source_ip: _s,
@@ -298,7 +298,7 @@ describe('handleAuthCreateSession', () => {
 
   it('rejects a client-supplied player_key with 400 payload_invalid and never inserts', async () => {
     const id = generateIdentity();
-    const host = targetHostFor(id.publicKeyHex);
+    const host = targetHostFor();
     const envelope = signRequest(
       id,
       'authCreateSession',
@@ -314,7 +314,7 @@ describe('handleAuthCreateSession', () => {
 
   it('rejects a tampered signature with 401 signature_invalid and never inserts', async () => {
     const id = generateIdentity();
-    const host = targetHostFor(id.publicKeyHex);
+    const host = targetHostFor();
     const envelope = validEnvelope(id, host, 'root');
     const { deps, insertSession } = makeDeps();
 
@@ -329,7 +329,7 @@ describe('handleAuthCreateSession', () => {
 
   it('returns 500 when the insert fails', async () => {
     const id = generateIdentity();
-    const host = targetHostFor(id.publicKeyHex);
+    const host = targetHostFor();
     const { deps } = makeDeps({ insertSession: async () => ({ error: { message: 'db down' } }) });
 
     const result = await handleAuthCreateSession(validEnvelope(id, host, 'root'), deps);
@@ -339,7 +339,7 @@ describe('handleAuthCreateSession', () => {
 
   it('lands an sshd "Accepted password" line on the REMOTE host\'s auth.log on success', async () => {
     const id = generateIdentity();
-    const host = targetHostFor(id.publicKeyHex);
+    const host = targetHostFor();
     const { deps, upsertPatch } = makeDeps();
 
     await handleAuthCreateSession(validEnvelope(id, host, 'root'), deps);
@@ -360,7 +360,7 @@ describe('handleAuthCreateSession', () => {
 
   it('lands an sshd "Failed password" line on the remote auth.log for a wrong password', async () => {
     const id = generateIdentity();
-    const host = targetHostFor(id.publicKeyHex);
+    const host = targetHostFor();
     const envelope = signRequest(
       id,
       'authCreateSession',
@@ -379,7 +379,7 @@ describe('handleAuthCreateSession', () => {
 
   it('appends the line after the existing auth.log content (read-modify-write)', async () => {
     const id = generateIdentity();
-    const host = targetHostFor(id.publicKeyHex);
+    const host = targetHostFor();
     const { deps, upsertPatch } = makeDeps({
       readAuthLog: async () => ({ data: { content: 'PRIOR LINE\n' }, error: null }),
     });
@@ -393,7 +393,7 @@ describe('handleAuthCreateSession', () => {
 
   it('reads and writes the auth.log on the remote machine, not the attacker workstation', async () => {
     const id = generateIdentity();
-    const host = targetHostFor(id.publicKeyHex);
+    const host = targetHostFor();
     const { deps, readAuthLog } = makeDeps();
 
     await handleAuthCreateSession(validEnvelope(id, host, 'root'), deps);
@@ -407,7 +407,7 @@ describe('handleAuthCreateSession', () => {
 
   it('carries the caller source_ip into the auth.log line', async () => {
     const id = generateIdentity();
-    const host = targetHostFor(id.publicKeyHex);
+    const host = targetHostFor();
     const { deps, upsertPatch } = makeDeps();
 
     await handleAuthCreateSession(validEnvelope(id, host, 'root', { source_ip: '10.9.8.7' }), deps);
@@ -417,8 +417,8 @@ describe('handleAuthCreateSession', () => {
 
   it('logs "from unknown" when no source_ip is supplied', async () => {
     const id = generateIdentity();
-    const host = targetHostFor(id.publicKeyHex);
-    const fs = buildRemoteHostFs(id.publicKeyHex, ESSID, host);
+    const host = targetHostFor();
+    const fs = buildRemoteHostFs(ESSID, host);
     const { source_ip: _drop, ...noSource } = basePayload({
       target_ip: host.ip,
       username: 'root',
@@ -433,7 +433,7 @@ describe('handleAuthCreateSession', () => {
 
   it('does not append a line when the auth.log read fails (read-modify-write bails)', async () => {
     const id = generateIdentity();
-    const host = targetHostFor(id.publicKeyHex);
+    const host = targetHostFor();
     const { deps, upsertPatch } = makeDeps({
       readAuthLog: async () => ({ data: null, error: { message: 'read failed' } }),
     });
@@ -462,7 +462,7 @@ describe('handleAuthCreateSession', () => {
 
   it('does not let a logging failure break (or fabricate) a successful auth', async () => {
     const id = generateIdentity();
-    const host = targetHostFor(id.publicKeyHex);
+    const host = targetHostFor();
     const { deps, insertSession } = makeDeps({
       upsertPatch: async () => {
         throw new Error('log write exploded');
@@ -480,7 +480,7 @@ describe('handleAuthCreateSession', () => {
   // the SEEDED ADMIN PW and land on `computeApGatewayId`, not a regenerated sibling.
   it('logs into the OWN ROUTER at .1 with the seeded admin pw — root session on the router id', async () => {
     const id = generateIdentity();
-    const router = routerHostFor(id.publicKeyHex);
+    const router = routerHostFor();
     const envelope = signRequest(
       id,
       'authCreateSession',
@@ -504,7 +504,7 @@ describe('handleAuthCreateSession', () => {
 
   it('rejects a wrong router admin password with 401 and never inserts', async () => {
     const id = generateIdentity();
-    const router = routerHostFor(id.publicKeyHex);
+    const router = routerHostFor();
     const envelope = signRequest(
       id,
       'authCreateSession',
@@ -524,11 +524,11 @@ describe('handleAuthCreateSession', () => {
 
   it('rejects a guest login on the router even with the would-be NPC password (router is root-only)', async () => {
     const id = generateIdentity();
-    const router = routerHostFor(id.publicKeyHex);
+    const router = routerHostFor();
     // The password a generic machine FS WOULD seed for `guest` at this coordinate —
     // accepting it would prove the handler built a sibling machine FS, not the
     // root-only router FS, for a `.1` target.
-    const wouldBeGuestPw = passwordFor(buildRemoteHostFs(id.publicKeyHex, ESSID, router), 'guest');
+    const wouldBeGuestPw = passwordFor(buildRemoteHostFs(ESSID, router), 'guest');
     const envelope = signRequest(
       id,
       'authCreateSession',
@@ -547,7 +547,7 @@ describe('handleAuthCreateSession', () => {
   // edge router — proving the two routers no longer alias.
   it('logs into the INNER GATEWAY with its own octet-seeded admin pw — root session on a distinct id', async () => {
     const id = generateIdentity();
-    const inner = innerGatewayHostFor(id.publicKeyHex);
+    const inner = innerGatewayHostFor();
     const octet = Number(inner.ip.split('.')[3]);
     const envelope = signRequest(
       id,
@@ -555,7 +555,7 @@ describe('handleAuthCreateSession', () => {
       basePayload({
         target_ip: inner.ip,
         username: 'root',
-        password: seedInnerGatewayAdminPw(id.publicKeyHex, octet),
+        password: seedInnerGatewayAdminPw(ESSID, octet),
       }),
     );
     const { deps, insertSession } = makeDeps();
@@ -564,14 +564,14 @@ describe('handleAuthCreateSession', () => {
 
     expect(result).toEqual({ status: 200, body: { ok: true, userType: 'root' } });
     const row = insertSession.mock.calls[0]![0];
-    expect(row.machine_id).toBe(computeInnerGatewayId(id.publicKeyHex, octet));
+    expect(row.machine_id).toBe(computeInnerGatewayId(ESSID, octet));
     expect(row.machine_id).not.toBe(computeApGatewayId(ESSID));
     expect(row.credentials).toEqual({ username: 'root', userType: 'root' });
   });
 
   it('rejects a wrong admin password on the inner gateway with 401 and never inserts', async () => {
     const id = generateIdentity();
-    const inner = innerGatewayHostFor(id.publicKeyHex);
+    const inner = innerGatewayHostFor();
     const envelope = signRequest(
       id,
       'authCreateSession',
@@ -591,19 +591,19 @@ describe('handleAuthCreateSession', () => {
   // /etc/passwd, never an alias.
   it('logs into a SWITCH with its octet-seeded admin pw — root session on a distinct inner-gateway id', async () => {
     const id = generateIdentity();
-    const device = generateHomeLan(id.publicKeyHex, ESSID).hosts.find(
+    const device = generateHomeLan(ESSID).hosts.find(
       (host) => host.kind === 'switch',
     );
     if (device === undefined) throw new Error('no switch on LAN');
     const octet = Number(device.ip.split('.')[3]);
-    const innerOctet = Number(innerGatewayHostFor(id.publicKeyHex).ip.split('.')[3]);
+    const innerOctet = Number(innerGatewayHostFor().ip.split('.')[3]);
     const envelope = signRequest(
       id,
       'authCreateSession',
       basePayload({
         target_ip: device.ip,
         username: 'root',
-        password: seedInnerGatewayAdminPw(id.publicKeyHex, octet),
+        password: seedInnerGatewayAdminPw(ESSID, octet),
       }),
     );
     const { deps, insertSession } = makeDeps();
@@ -612,15 +612,15 @@ describe('handleAuthCreateSession', () => {
 
     expect(result).toEqual({ status: 200, body: { ok: true, userType: 'root' } });
     const row = insertSession.mock.calls[0]![0];
-    expect(row.machine_id).toBe(computeInnerGatewayId(id.publicKeyHex, octet));
+    expect(row.machine_id).toBe(computeInnerGatewayId(ESSID, octet));
     expect(row.machine_id).not.toBe(computeApGatewayId(ESSID));
-    expect(row.machine_id).not.toBe(computeInnerGatewayId(id.publicKeyHex, innerOctet));
+    expect(row.machine_id).not.toBe(computeInnerGatewayId(ESSID, innerOctet));
     expect(row.credentials).toEqual({ username: 'root', userType: 'root' });
   });
 
   it('rejects a wrong admin password on the switch with 401 and never inserts', async () => {
     const id = generateIdentity();
-    const device = generateHomeLan(id.publicKeyHex, ESSID).hosts.find(
+    const device = generateHomeLan(ESSID).hosts.find(
       (host) => host.kind === 'switch',
     );
     if (device === undefined) throw new Error('no switch on LAN');
@@ -669,7 +669,7 @@ describe('handleAuthCreateSession — a bricked own-LAN host is dark from inside
 
   it('refuses ssh to a bricked AP gateway even with the correct seeded admin password', async () => {
     const id = generateIdentity();
-    const router = routerHostFor(id.publicKeyHex);
+    const router = routerHostFor();
     const envelope = signRequest(
       id,
       'authCreateSession',
@@ -691,7 +691,7 @@ describe('handleAuthCreateSession — a bricked own-LAN host is dark from inside
 
   it('reads the journal of the machine the target resolves to — the gateway id, not a sibling', async () => {
     const id = generateIdentity();
-    const router = routerHostFor(id.publicKeyHex);
+    const router = routerHostFor();
     const envelope = signRequest(
       id,
       'authCreateSession',
@@ -710,7 +710,7 @@ describe('handleAuthCreateSession — a bricked own-LAN host is dark from inside
 
   it('refuses ssh to a bricked NPC host on the LAN — the same defect, any host kind', async () => {
     const id = generateIdentity();
-    const host = targetHostFor(id.publicKeyHex);
+    const host = targetHostFor();
     const { deps, insertSession } = makeDeps({
       findPatches: async () => ({ data: [bootTombstone(id.publicKeyHex)], error: null }),
     });
@@ -723,7 +723,7 @@ describe('handleAuthCreateSession — a bricked own-LAN host is dark from inside
 
   it('leaves no auth.log line on a bricked host — a dark box records nothing', async () => {
     const id = generateIdentity();
-    const host = targetHostFor(id.publicKeyHex);
+    const host = targetHostFor();
     const { deps, upsertPatch } = makeDeps({
       findPatches: async () => ({ data: [bootTombstone(id.publicKeyHex)], error: null }),
     });
@@ -735,7 +735,7 @@ describe('handleAuthCreateSession — a bricked own-LAN host is dark from inside
 
   it('still logs in when the journal carries writes that are NOT a boot tombstone', async () => {
     const id = generateIdentity();
-    const host = targetHostFor(id.publicKeyHex);
+    const host = targetHostFor();
     const unrelatedWrite: OwnerPatchRow = {
       path: '/home/notes.txt',
       content: 'a write that leaves the kernel intact',
@@ -757,7 +757,7 @@ describe('handleAuthCreateSession — a bricked own-LAN host is dark from inside
 
   it('fails the login with 500 when the journal read errors — never a false login or false dark', async () => {
     const id = generateIdentity();
-    const host = targetHostFor(id.publicKeyHex);
+    const host = targetHostFor();
     const { deps, insertSession } = makeDeps({
       findPatches: async () => ({ data: null, error: new Error('journal unavailable') }),
     });

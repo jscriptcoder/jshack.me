@@ -132,7 +132,7 @@ const logHostScan = async (
   // `hostMachineId` is a dead-end nobody reads, and the generic FS would log "ports
   // none" for a box visibly running ssh); a generic NPC sibling keeps its coordinate
   // path. The writer stays the caller, who is the owner on this own-LAN path.
-  const { machineId, baseFs: hostFs } = resolveLanHostIdentity(host, context.publicKey, context.essid);
+  const { machineId, baseFs: hostFs } = resolveLanHostIdentity(host, context.essid);
   const ports = readOpenPorts(hostFs);
   const line = formatNmapScanAggregate({
     time: asGameTime(context.time),
@@ -253,7 +253,7 @@ export const handleNmapScan = async (
   // forged one simply finds no real hosts to record). The caller's own workstation
   // needs no exclusion here: the generator places NPC filler only — the player is
   // added client-side at its leased address — so it was never in this list.
-  const lan = generateHomeLan(publicKey, payload.essid);
+  const lan = generateHomeLan(payload.essid);
   const parsed = parseScanTarget(payload.target, lan.subnet);
   const hosts = parsed.ok ? hostsInScanTarget(lan, parsed.target) : [];
 

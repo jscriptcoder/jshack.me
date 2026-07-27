@@ -16,6 +16,9 @@
 //     signal the allocator maps to null), while a same-occupant re-claim is
 //     swallowed and leaves the leased octet untouched.
 //   - The octet CHECK refuses the AP gateway's `.1`.
+//   - A join whose DERIVED octet is one of the ESSID's NPC hosts is relocated off it,
+//     and the address the join reports back is that relocated one. A lease on an NPC
+//     would delete that machine for every occupant of the AP, not just the joiner.
 //   - The existing per-ESSID public-IP allocation is unbroken by the new step.
 //
 // Usage (with v2 supabase + vercel dev running):
@@ -29,6 +32,7 @@ import { generateIdentity } from '../src/core/identity/identity';
 import { computeWorkstationId } from '../src/core/identity/workstation';
 import { computeApGatewayId } from '../src/core/identity/router';
 import { assignHomeNetwork } from '../src/core/network/homeNetwork';
+import { generateHomeLan } from '../src/core/generation/generateHomeLan';
 import { md5 } from '../src/core/generation/md5';
 
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
@@ -108,7 +112,33 @@ const derivedOctet = (ownerKey: string, essid: string): number =>
 const SOLO_ESSID = 'LEASE-TEST-NET';
 const RACE_ESSID = 'LEASE-RACE-NET';
 
-const alice = generateIdentity();
+// The ESSID's generated hosts: the octets no occupant may ever be issued. Shared by
+// every occupant of the AP, so a lease landing on one deletes that machine from
+// EVERYONE's view and orphans anything already written to it.
+const npcOctets = (essid: string): ReadonlySet<number> =>
+  new Set(generateHomeLan(essid).hosts.map((host) => Number(host.ip.split('.')[3])));
+
+const SOLO_NPCS = npcOctets(SOLO_ESSID);
+
+// An identity whose derivation lands on FREE ground, so check 1 can assert the lease
+// really is seeded from the derivation rather than accidentally passing on a redraw.
+const findIdentityDeriving = (essid: string, wantNpc: boolean) => {
+  for (let attempt = 0; attempt < 4000; attempt += 1) {
+    const identity = generateIdentity();
+    if (npcOctets(essid).has(derivedOctet(identity.publicKeyHex, essid)) === wantNpc) {
+      return identity;
+    }
+  }
+  return null;
+};
+
+const alice = findIdentityDeriving(SOLO_ESSID, false);
+// An identity whose derivation lands ON an NPC — the case the exclusion exists for.
+const squatter = findIdentityDeriving(SOLO_ESSID, true);
+if (alice === null || squatter === null) {
+  console.error('Could not find identities deriving on/off the NPC set');
+  process.exit(1);
+}
 
 // Search for two identities whose PURE DERIVATIONS collide on the race ESSID — the
 // exact situation that silently gave two occupants one address before this slice.
@@ -133,7 +163,7 @@ if (collision === null) {
 }
 
 const raceKeys = [collision.first.publicKeyHex, collision.second.publicKeyHex];
-const allKeys = [alice.publicKeyHex, ...raceKeys];
+const allKeys = [alice.publicKeyHex, squatter.publicKeyHex, ...raceKeys];
 
 const cleanup = async () => {
   await sr.from('network_lan_leases').delete().in('essid', [SOLO_ESSID, RACE_ESSID]);
@@ -244,6 +274,33 @@ check(
   'the join still allocates one shared public IP per ESSID alongside the per-occupant lease',
   (publicIpRow as { public_ip: string } | null)?.public_ip !== undefined,
   `publicIp=${(publicIpRow as { public_ip: string } | null)?.public_ip ?? 'none'}`,
+);
+
+// === 11. A derivation that lands on an NPC is relocated off it. ===
+// Before the population was shared this could not even be defined: every viewer drew
+// a different NPC set, so there was nothing for an allocator to avoid. Now the set is
+// the network's, and a lease on one of its octets would delete that host for every
+// occupant of the AP.
+const squatterDerived = derivedOctet(squatter.publicKeyHex, SOLO_ESSID);
+const squatterJoin = await post(registerEnvelope(squatter, SOLO_ESSID, 'nomad'));
+const squatterLeased = await leasedOctetFor(SOLO_ESSID, squatter.publicKeyHex);
+check(
+  'a join whose derived octet is an NPC is leased somewhere else entirely',
+  squatterJoin.status === 200 &&
+    squatterLeased !== null &&
+    squatterLeased !== squatterDerived &&
+    !SOLO_NPCS.has(squatterLeased),
+  `derived=.${squatterDerived} (an NPC) leased=.${squatterLeased ?? 'none'} npcs=${[...SOLO_NPCS].join(',')}`,
+);
+
+// === 12. The address the join REPORTS is the leased one, and it is off the NPC set. ===
+const reportedIp = (squatterJoin.body as { local_ip?: string } | null)?.local_ip;
+check(
+  'the join reports the leased address back to the client, clear of every NPC',
+  reportedIp !== undefined &&
+    Number(reportedIp.split('.')[3]) === squatterLeased &&
+    !SOLO_NPCS.has(Number(reportedIp.split('.')[3])),
+  `local_ip=${reportedIp ?? 'none'} leased=.${squatterLeased ?? 'none'}`,
 );
 
 await cleanup();

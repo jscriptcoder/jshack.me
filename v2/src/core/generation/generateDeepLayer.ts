@@ -145,9 +145,13 @@ const FORCE_SSHD_PATCH: Patch = {
 /** The deep host's full operable filesystem — the shared NPC box skeleton
  *  (`buildRemoteHostFs`: `/etc/passwd`, toolchain, `/boot`) with `sshd:22`
  *  guaranteed up, so it is always reachable through a forward (and, later,
- *  loggable into via its own `/etc/passwd`). */
-export const buildDeepHostFs = (
-  seedPubkeyHex: string,
-  essid: string,
-  host: LanHost,
-): Directory => applyPatches(buildRemoteHostFs(seedPubkeyHex, essid, host), [FORCE_SSHD_PATCH]);
+ *  loggable into via its own `/etc/passwd`).
+ *
+ *  Keyed by `(essid, deep ip)` like the skeleton it builds on — which is also what
+ *  keys this host's machine_id (`hostMachineId`). The tree and the id now agree on
+ *  what identifies the box; while the tree was seeded per viewer they did not, and a
+ *  journal could be replayed over a different machine than the one it was written on.
+ *  WHICH deep hosts a player reaches is still private: the layer they hang off is
+ *  owner-seeded until the deep chain is shared. */
+export const buildDeepHostFs = (essid: string, host: LanHost): Directory =>
+  applyPatches(buildRemoteHostFs(essid, host), [FORCE_SSHD_PATCH]);

@@ -67,7 +67,7 @@ const foundOf = (body: unknown): boolean => (body as { found?: boolean } | null)
 const alice = generateIdentity();
 const ESSID = 'ABSTERGO-NET';
 
-const innerGateway = generateHomeLan(alice.publicKeyHex, ESSID).hosts.find(
+const innerGateway = generateHomeLan(ESSID).hosts.find(
   (host) => host.kind === 'router' && Number(host.ip.split('.')[3]) !== 1,
 );
 if (innerGateway === undefined) {
@@ -76,7 +76,7 @@ if (innerGateway === undefined) {
 }
 const INNER_IP = innerGateway.ip;
 const INNER_OCTET = Number(INNER_IP.split('.')[3]);
-const INNER_GW_ID = computeInnerGatewayId(alice.publicKeyHex, INNER_OCTET);
+const INNER_GW_ID = computeInnerGatewayId(ESSID, INNER_OCTET);
 const DEEP_IP = generateDeepLayer(alice.publicKeyHex, ESSID, {
   machineId: INNER_GW_ID,
   kind: 'router',

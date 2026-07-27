@@ -60,50 +60,42 @@ export const isInnerGateway = (host: LanHost): boolean =>
  *  inner gateway — the edge `.1`, an ordinary sibling, and an off-LAN address all
  *  yield null. Shared by the server scan + ssh-reach gates so a forged or mis-routed
  *  target finds nothing the same way in both. */
-export const innerGatewayAt = (
-  ownerKeyHex: string,
-  essid: string,
-  target: string,
-): LanHost | null => {
-  const host = generateHomeLan(ownerKeyHex, essid).hosts.find(
-    (candidate) => candidate.ip === target,
-  );
+export const innerGatewayAt = (essid: string, target: string): LanHost | null => {
+  const host = generateHomeLan(essid).hosts.find((candidate) => candidate.ip === target);
   return host !== undefined && isInnerGateway(host) ? host : null;
 };
 
 /** A LAN host's storage machine_id — without building its FS (the cheap half, used
- *  by the reverse lookup to match an id against the regenerated LAN). */
-export const machineIdForLanHost = (host: LanHost, ownerKeyHex: string, essid: string): string => {
+ *  by the reverse lookup to match an id against the regenerated LAN). Every kind is
+ *  keyed by the ESSID: each of these boxes stands on the access point's LAN, so all
+ *  its occupants must resolve one machine record rather than a private copy each. */
+export const machineIdForLanHost = (host: LanHost, essid: string): string => {
   const octet = lanHostOctet(host);
   if (host.kind === 'router') {
-    return octet === 1 ? computeApGatewayId(essid) : computeInnerGatewayId(ownerKeyHex, octet);
+    return octet === 1 ? computeApGatewayId(essid) : computeInnerGatewayId(essid, octet);
   }
   if (host.kind === 'switch') {
-    return computeInnerGatewayId(ownerKeyHex, octet);
+    return computeInnerGatewayId(essid, octet);
   }
   return hostMachineId(host, essid);
 };
 
 /** A LAN host's seeded base filesystem — the edge router, an inner gateway, a switch,
  *  or a coordinate-seeded NPC tree. */
-export const baseFsForLanHost = (host: LanHost, ownerKeyHex: string, essid: string): Directory => {
+export const baseFsForLanHost = (host: LanHost, essid: string): Directory => {
   const octet = lanHostOctet(host);
   if (host.kind === 'router') {
-    return octet === 1 ? buildApGatewayBaseFs(essid) : buildInnerGatewayBaseFs(ownerKeyHex, octet);
+    return octet === 1 ? buildApGatewayBaseFs(essid) : buildInnerGatewayBaseFs(essid, octet);
   }
   if (host.kind === 'switch') {
-    return buildSwitchBaseFs(ownerKeyHex, octet);
+    return buildSwitchBaseFs(essid, octet);
   }
-  return buildRemoteHostFs(ownerKeyHex, essid, host);
+  return buildRemoteHostFs(essid, host);
 };
 
-export const resolveLanHostIdentity = (
-  host: LanHost,
-  ownerKeyHex: string,
-  essid: string,
-): LanHostIdentity => ({
-  machineId: machineIdForLanHost(host, ownerKeyHex, essid),
-  baseFs: baseFsForLanHost(host, ownerKeyHex, essid),
+export const resolveLanHostIdentity = (host: LanHost, essid: string): LanHostIdentity => ({
+  machineId: machineIdForLanHost(host, essid),
+  baseFs: baseFsForLanHost(host, essid),
 });
 
 /** A deep CHILD GATEWAY's storage identity — its machine_id + seeded base FS — from the
@@ -140,17 +132,12 @@ export const resolveDeepGatewayIdentity = (
  *  viewer, so it must resolve through the shared server-side path like any other
  *  contested box. Matching it here would let each occupant rebuild it from their own
  *  regeneration and never see another occupant's writes to it. */
-export const ownLanBaseFsForMachineId = (
-  ownerKeyHex: string,
-  essid: string,
-  machineId: string,
-): Directory | null => {
-  const host = generateHomeLan(ownerKeyHex, essid).hosts.find(
+export const ownLanBaseFsForMachineId = (essid: string, machineId: string): Directory | null => {
+  const host = generateHomeLan(essid).hosts.find(
     (candidate) =>
-      lanHostOctet(candidate) !== 1 &&
-      machineIdForLanHost(candidate, ownerKeyHex, essid) === machineId,
+      lanHostOctet(candidate) !== 1 && machineIdForLanHost(candidate, essid) === machineId,
   );
-  return host === undefined ? null : baseFsForLanHost(host, ownerKeyHex, essid);
+  return host === undefined ? null : baseFsForLanHost(host, essid);
 };
 
 /** The gateway behind which a pivot scan resolves the deep layer the active shell can
@@ -222,16 +209,16 @@ const chainFrom = (
  *  base-FS resolution (the L2 write target), so the two can't disagree on the chain shape. */
 const homeChainGateways = (ownerKeyHex: string, essid: string): readonly ChainVantage[] => {
   const depth = seedNetworkDepth(ownerKeyHex, essid);
-  return generateHomeLan(ownerKeyHex, essid)
+  return generateHomeLan(essid)
     .hosts.filter(isInnerGateway)
     .flatMap((gateway) =>
       chainFrom(
         ownerKeyHex,
         essid,
         {
-          machineId: machineIdForLanHost(gateway, ownerKeyHex, essid),
+          machineId: machineIdForLanHost(gateway, essid),
           kind: gateway.kind,
-          baseFs: baseFsForLanHost(gateway, ownerKeyHex, essid),
+          baseFs: baseFsForLanHost(gateway, essid),
         },
         1,
         depth,
@@ -313,7 +300,7 @@ const deepHostBaseFsForMachineId = (
       kind: gateway.kind,
     });
     if (hostMachineId(layer.host, essid) === machineId) {
-      return buildDeepHostFs(ownerKeyHex, essid, layer.host);
+      return buildDeepHostFs(essid, layer.host);
     }
   }
   return null;
@@ -330,6 +317,6 @@ export const ownChainBaseFsForMachineId = (
   essid: string,
   machineId: string,
 ): Directory | null =>
-  ownLanBaseFsForMachineId(ownerKeyHex, essid, machineId) ??
+  ownLanBaseFsForMachineId(essid, machineId) ??
   chainGatewayBaseFsForMachineId(ownerKeyHex, essid, machineId) ??
   deepHostBaseFsForMachineId(ownerKeyHex, essid, machineId);

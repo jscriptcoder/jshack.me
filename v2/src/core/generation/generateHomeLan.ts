@@ -1,23 +1,30 @@
 /**
- * generateHomeLan — pure NPC topology for the player's connected home LAN, behind
+ * generateHomeLan — pure NPC topology for an ACCESS POINT's LAN, behind
  * `nmap <subnet>`: the AP gateway at `.1`, an inner gateway, a switch, and sibling
- * machines. Same identity + ESSID ⇒ same LAN, every reload.
+ * machines. Seeded by the ESSID ALONE, so every occupant of a network sees one
+ * population: the same machines, at the same addresses, under the same names.
+ *
+ * The LAN belongs to the access point, not to whoever is looking at it. Seeding it
+ * per viewer made each occupant's `nmap` a private illusion — two players standing
+ * on one `/24` disagreed about what was on it, and a file one of them wrote to an
+ * NPC was invisible to the other because their "same" host was a different machine.
  *
  * It does NOT place the player. A player's own address is the one it holds a LEASE
  * on — server-issued at join, carried on `wlan0` — while this module is a pure
- * function of identity + ESSID with no view of the lease store. So the own-view
- * caller appends its own host at the address the interface actually holds, the same
- * way `mergeLanOccupants` overlays fellow occupants. Every other consumer (the
- * server scan, the ssh reach gates, the inner-gateway lookups) only ever wanted the
- * NPC filler, so none of them needs a lease read to agree with the client.
+ * function of the ESSID with no view of the lease store. So the own-view caller
+ * appends its own host at the address the interface actually holds, the same way
+ * `mergeLanOccupants` overlays fellow occupants. Every other consumer (the server
+ * scan, the ssh reach gates, the inner-gateway lookups) only ever wanted the NPC
+ * filler, so none of them needs a lease read to agree with the client.
  *
- * The derived octet is still held OUT of the draw as a reserved hole. `allocateLanLease`
- * offers that octet first, so for every player whose preferred octet was free the
- * lease lands exactly in the vacancy and no NPC ever squats the player's address.
+ * Nothing here is held vacant for the player. The allocator excludes these octets
+ * when it issues a lease, so an occupant can never be placed on top of an NPC —
+ * which is the only reason a reservation existed while the population was private.
  */
 
 import { createPrng } from './prng';
-import { assignHomeNetwork, DEVICE_TYPES } from '../network/homeNetwork';
+import { DEVICE_TYPES } from '../network/homeNetwork';
+import { lanSubnetPrefix } from '../network/lanAddress';
 import { seedApGatewayHostname, seedInnerGatewayHostname } from './routerFs';
 import type { Ipv4 } from '../network/interfaces';
 
@@ -42,12 +49,8 @@ const HOST_COUNT_MAX = 8;
 
 const lastOctet = (host: LanHost): number => Number(host.ip.split('.')[3]);
 
-export const generateHomeLan = (seedPubkeyHex: string, essid: string): HomeLan => {
-  const { localIp } = assignHomeNetwork(seedPubkeyHex, essid);
-  const subnet = localIp.split('.').slice(0, 3).join('.');
-  // The octet the lease allocator offers this player first — kept vacant so the
-  // player's leased host has somewhere to land without displacing an NPC.
-  const reservedOctet = Number(localIp.split('.')[3]);
+export const generateHomeLan = (essid: string): HomeLan => {
+  const subnet = lanSubnetPrefix(essid);
 
   // The `.1` is the ACCESS POINT's gateway, not the viewer's own box, so its name
   // seeds off the ESSID — every occupant sees the same gateway under the same name,
@@ -59,22 +62,20 @@ export const generateHomeLan = (seedPubkeyHex: string, essid: string): HomeLan =
     kind: 'router',
   };
 
-  // Seeded by identity+ESSID like the assignment (own namespace to keep the draw
-  // order independent). Usable host octets are 2..254 minus the reserved one;
-  // .1 (gateway) is already excluded by starting at 2. A SINGLE `pickN` covers the
-  // inner gateway plus every sibling, so its without-replacement guarantee makes
-  // all of them distinct from each other (and from `.1`/self) with no rejection
-  // loop. The first octet drawn becomes the inner gateway — a second router that
-  // fronts the player's deeper layers — and the rest are ordinary machines.
-  const prng = createPrng(`home-lan-${seedPubkeyHex}-${essid}`);
+  // Seeded by the ESSID alone (own namespace to keep the draw order independent of
+  // the subnet's). Usable host octets are 2..254; .1 (the gateway) is excluded by
+  // starting at 2. A SINGLE `pickN` covers the inner gateway plus every sibling, so
+  // its without-replacement guarantee makes all of them distinct from each other and
+  // from `.1` with no rejection loop. The first octet drawn becomes the inner gateway
+  // — a second router that fronts the deeper layers — and the rest are ordinary
+  // machines.
+  const prng = createPrng(`home-lan-${essid}`);
   const count = prng.nextInt(HOST_COUNT_MIN, HOST_COUNT_MAX);
-  const usableOctets = Array.from({ length: 253 }, (_, index) => index + 2).filter(
-    (octet) => octet !== reservedOctet,
-  );
+  const usableOctets = Array.from({ length: 253 }, (_, index) => index + 2);
   const [gatewayOctet, ...siblingOctets] = prng.pickN(usableOctets, count + 1);
   const innerGateway: LanHost = {
     ip: `${subnet}.${gatewayOctet}`,
-    hostname: seedInnerGatewayHostname(seedPubkeyHex, gatewayOctet),
+    hostname: seedInnerGatewayHostname(essid, gatewayOctet),
     kind: 'router',
   };
   const siblings: readonly LanHost[] = siblingOctets.map(
@@ -96,7 +97,7 @@ export const generateHomeLan = (seedPubkeyHex: string, essid: string): HomeLan =
   );
   const innerSwitch: LanHost = {
     ip: `${subnet}.${switchOctet}`,
-    hostname: seedInnerGatewayHostname(seedPubkeyHex, switchOctet),
+    hostname: seedInnerGatewayHostname(essid, switchOctet),
     kind: 'switch',
   };
 
