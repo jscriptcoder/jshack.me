@@ -8,12 +8,14 @@ Slice 3b-i ✅ MERGED (PR #329, `21e3f9e`, v0.91.0),
 Slice 3b-ii ✅ MERGED (PR #330, `879dcc4`, v0.92.0),
 Slice 4 ✅ MERGED (PR #331, `6733821`, v0.93.0),
 Slice 5 ✅ MERGED (PR #332, `2f79349`, v0.94.0).
-**Next: Slice 6a — re-home the registry-backed lookups. Nothing is in flight; `main` is clean at
-`2f79349`. Cut a branch, then start at the Reduction Program section and read 6a/6b in that
-order — this PAIR is `reduce-system-complexity` work, NOT behaviour change, so there is no RED
-to write and a fabricated one would be a process violation. Slice 5 finished the sharing work:
-the whole world an ESSID generates, from its `/24` down to the last deep gateway, is one world
-for every occupant, and no generator in `core/` takes an owner key.**
+**Next: Slice 6a — re-home the registry-backed lookups. IN FLIGHT on branch
+`refactor/registry-lookup-rehome`, cut from `main` at `4815cfd`; nothing implemented yet. Start
+at the Reduction Program section and read 6a/6b in that order — this PAIR is
+`reduce-system-complexity` work, NOT behaviour change, so there is no RED to write and a
+fabricated one would be a process violation. The FIRST act of 6a is the diagnosis +
+conservation ledger, recorded back into this file. Slice 5 finished the sharing work: the whole
+world an ESSID generates, from its `/24` down to the last deep gateway, is one world for every
+occupant, and no generator in `core/` takes an owner key.**
 **Parent**: `plans/multiplayer-crossplayer-epic.md` item #5 (decision record; grilled & resolved 2026-07-25)
 **Follows**: item #4 (unique public-IP allocation, v0.87.0)
 **Precedes**: item #6 (procedural world expansion) — do NOT pull it in here
@@ -932,6 +934,13 @@ unreachable.
 observable results — the necessary, independently verifiable step before the table can go.
 **Path**: The three lookup shapes (`findRegistryByPublicIp`, `findRegistryByOwnerKey`,
 `findRegistryByMachineId`) read `network_public_ips` + `home_network_occupants` instead.
+**As-found scope (verified 2026-07-27, before any change)**: exactly three lookup shapes exist
+— `findRegistryByMachineId` (84 references), `findRegistryByPublicIp` (26),
+`findRegistryByOwnerKey` (26). Eight `core/` modules take one as an injected dep:
+`resolvePublicScan`, `authCreateSessionPublic`, `authElevateSession`, `resolveCrossPlayerFs`,
+`remoteWritePermission`, `upsertPatch`, `removePatch`, `crossPlayerSourceIp`. Three `api/`
+routes wire them: `network.ts`, `patches.ts`, `sessions.ts`. The ledger produced at the start
+of this slice supersedes this note if it finds more.
 **Class**: Reduction transition.
 **Required implementation skills**: `reduce-system-complexity` (governing), plus `testing` and
 `mutation-testing` for preservation evidence. `tdd` RED is **`N/A`** — no behavior changes;
@@ -977,8 +986,9 @@ nothing equivalent reintroduced); the 6a bridge is gone.
 - Every wire-check and unit test passes unchanged in behavior.
 **Preservation baseline**: As 6a.
 **Preservation change**: Drop the table, index, write path, and type; delete the fallback
-branch; update all `scripts/test*.ts` that seed `network_registry` directly (**14 scripts
-reference it** — grep before scoping).
+branch; update all `scripts/test*.ts` that seed `network_registry` directly (**17 scripts
+reference it** as of 2026-07-27, not the 14 first estimated here — re-grep before scoping, the
+count has grown once already).
 **MUTATE or alternate evidence**: `N/A` for mutation on deleted code; evidence is the passing
 wire-check suite plus the mechanism accounting.
 **Done when**: both gates pass, superseded machinery gone, docs updated, human approves.
