@@ -6,12 +6,12 @@ Slice 2 ✅ MERGED (PR #327, `88054bf`, v0.89.0),
 Slice 3a ✅ MERGED (PR #328, `6ae4109`, v0.90.0),
 Slice 3b-i ✅ MERGED (PR #329, `21e3f9e`, v0.91.0),
 Slice 3b-ii ✅ MERGED (PR #330, `879dcc4`, v0.92.0).
-**Next: Slice 4 — every occupant of an ESSID sees the SAME LAN population. Nothing is in
-flight; `main` is clean at `879dcc4`. Cut a branch, then start at the Slice 4 section below.
-Slice 3 is finished end to end: NO code path anywhere derives a player's LAN address. Slice 4
-turns `generateHomeLan`'s per-viewer NPC draw into one shared ESSID-seeded population, which
-also deletes the reserved-octet vacancy 3b-ii deliberately left standing and the
-relocated-player displacement case recorded with it.**
+**Now: Slice 4 — every occupant of an ESSID sees the SAME LAN population. In flight on
+`feat/shared-lan-population`, cut off `main` at `73f6340` (nothing else in flight). Start at
+the Slice 4 section below. Slice 3 is finished end to end: NO code path anywhere derives a
+player's LAN address. Slice 4 turns `generateHomeLan`'s per-viewer NPC draw into one shared
+ESSID-seeded population, which also deletes the reserved-octet vacancy 3b-ii deliberately left
+standing and the relocated-player displacement case recorded with it.**
 **Parent**: `plans/multiplayer-crossplayer-epic.md` item #5 (decision record; grilled & resolved 2026-07-25)
 **Follows**: item #4 (unique public-IP allocation, v0.87.0)
 **Precedes**: item #6 (procedural world expansion) — do NOT pull it in here
@@ -287,11 +287,13 @@ Slice 4 reseeds that generator off the ESSID alone, which is the first point the
 so the exclusion belongs there. Until then, an occupant landing on an NPC's octet is resolved
 where it already is: `mergeLanOccupants` drops the generated host and the occupant wins.
 
-**Scope note — `generateHomeLan`'s signature changes here, not in Slice 4.** It currently calls
-`assignHomeNetwork` to obtain `localIp` and filters that octet out of its usable pool. Once the
-address is a lease rather than a derivation, the leased octet has to be passed in. That is the
-same call-site sweep Slice 4 was scoped for, so part of Slice 4's cost migrates forward into
-this slice; grep before scoping either one.
+**Scope note — ~~`generateHomeLan`'s signature changes here, not in Slice 4~~. It was predicted
+that once the address became a lease, the leased octet would have to be passed in, migrating
+part of Slice 4's call-site sweep forward into this slice. That did NOT happen** (as built,
+3b-ii): the generator stopped placing the player altogether rather than being told where it
+sits, so it still takes `(seedPubkeyHex, essid)` and still derives a *reserved* octet from
+`assignHomeNetwork` to hold vacant. The player is placed afterwards by `withSelfHost`, from the
+lease. The full call-site sweep therefore remains Slice 4's cost, undiminished.
 
 ### `evaluate-existing-solutions` preflight (2026-07-26) — status: proposed
 
@@ -728,9 +730,17 @@ behavior change, not a reduction program — it is removed because its cause is 
 **RED**: A behavior test asserting two distinct owner keys on one ESSID generate identical
 host lists; and a test asserting an occupant previously hidden by the reservation rule is now
 visible.
-**GREEN**: Reseed `generateHomeLan` from the ESSID and drop the per-player seed parameter
-(**14 production call sites + 5 scripts** — grep before scoping, per the project convention);
-delete the octet-reservation branch in `mergeLanOccupants`.
+**GREEN**: Reseed `generateHomeLan` from the ESSID and drop the per-player seed parameter;
+delete the octet-reservation branch in `mergeLanOccupants`. Also delete the reserved-octet
+vacancy: once the NPC set is ESSID-seeded it becomes the allocator's exclusion set, so no
+occupant can be offered an NPC's octet and nothing needs holding open.
+**Sweep, counted on `73f6340`** (re-grep before starting — this is a snapshot, not a promise):
+8 production call sites across 6 files (`commands/nmap`, `commands/ssh`,
+`generation/lanHostIdentity` ×3, `generation/remoteHostId`, `scan/nmapScan`,
+`sessions/authCreateSession`), 9 call sites across 7 `scripts/test*.ts`, and 78 across unit
+tests. A further ~13 modules import only the `HomeLan`/`LanHost` types and are untouched by a
+seed change. The unit-test sites dominate the mechanical cost; most pass a pubkey purely to
+satisfy the signature and simply lose the argument.
 **MUTATE**: Run on `generateHomeLan` and `mergeLanOccupants`.
 **KILL MUTANTS**: Address survivors around occupant/NPC precedence on collision.
 **REFACTOR**: Assess — this slice deletes a rule rather than adding one; check the merge
