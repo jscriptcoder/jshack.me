@@ -1,5 +1,9 @@
 # Epic Story-Split: Multiplayer / Cross-player (v2)
 
+> **Picking this up cold? Jump to "Next action" near the end of this file** — it names the two
+> live candidates for the next slice and what each needs before planning. Everything above it is
+> shipped history and decision records. Last updated 2026-07-28 (v0.99.0, PR #339).
+
 **Status**: **Stories 1 + 2 + 3 + 4 SHIPPED & MERGED.** Story 1 (1a #234 `df95ad6`; 1b #235 `ff5342a`, v0.55.0) —
 the cross-player public-IP loop is live: crack → connect (register) → `nmap <public IP>` → another
 player's REAL open ports, resolved server-side against the registry. **Story 2 (2a #237 · 2b #238
@@ -889,13 +893,29 @@ chains, and `network_registry` deleted outright — occupancy is the single sour
 plan file was deleted on close-out; the as-built lives in `v2/docs/cross-player-architecture.md` and
 `v2/docs/conventions-and-gotchas.md`.
 
-**#6 (procedural world expansion) is GRILLED & RESOLVED and is the next thing to build** — decision record
-above, no open questions; it needs `planning` to turn it into slices. #2 (pivot/hop source-IP masking)
-remains unplanned and still needs its own `grill-me`. The last behavioural gap left by #5 — a NAT
-forward reaching only ONE occupant of a shared AP — was closed at **v0.99.0**, finishing decision 1
-("the gateway's ports are its own `sshd` ∪ EVERY occupant's forwards"): a forward's internal IP
-resolves through `network_lan_leases` to whoever leases it. One item from #5's work is still logged
-in the conventions doc's deferred backlog rather than here: the wire-checks are not in CI.
+**Next action (updated 2026-07-28, after v0.99.0 / PR #339).** The last behavioural gap left by #5 — a
+NAT forward reaching only ONE occupant of a shared AP — is **closed at v0.99.0**, finishing decision 1
+("the gateway's ports are its own `sshd` ∪ EVERY occupant's forwards"): a forward's internal IP resolves
+through `network_lan_leases` to whoever leases it. Item #5 is therefore fully done, decisions 1–9.
+
+**Two candidates for the next slice — pick one before planning:**
+
+1. **The shared-file write-wipe (NEW, found by the v0.99.0 Act 4 browser run).** A session on a foreign
+   machine never learns another occupant wrote to it (the `patches-changed` channel is workstation-scoped),
+   so `nano`'s whole-buffer save over a stale buffer DELETES the other occupant's rules — reproduced end
+   to end on a shared AP gateway, and visible from outside as a vanished forward. **This is defender-facing
+   data loss on the shared-world surface #5 just finished building**, which is the argument for taking it
+   first. It needs a DECISION before RED, not just a patch — four shapes with real trade-offs (a
+   machine-scoped invalidation channel / an editor-open refetch / an optimistic-concurrency reject on a
+   stale base / a line-merge save). Full repro, journal rows and the trade-offs:
+   `v2/docs/e2e-shared-network-verification.md` §6 and the conventions deferred backlog. Start with
+   `grill-me` on the four shapes, then `planning`.
+2. **#6 (procedural world expansion)** — GRILLED & RESOLVED, decision record above, no open questions;
+   needs `planning` to turn it into slices. Cheaper to plan, but note it makes shared-AP encounters RARER,
+   which lowers the odds of anyone hitting (1) in the wild without fixing it.
+
+#2 (pivot/hop source-IP masking) remains unplanned and still needs its own `grill-me`. One item from #5's
+work stays in the conventions doc's deferred backlog rather than here: the wire-checks are not in CI.
 
 ### Story 7 — starting context (for `grill-me`)
 
