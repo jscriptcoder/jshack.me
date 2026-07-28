@@ -1,4 +1,4 @@
-import { createEffect, For, Show } from 'solid-js';
+import { createEffect, For, onCleanup, onMount, Show } from 'solid-js';
 import type { TerminalLine } from '../../core/commands/types';
 import { formatPrompt } from '../../core/shell/prompt';
 import { BANNER } from '../banner';
@@ -15,6 +15,7 @@ import {
   promptTier,
   promptUsername,
   runInput,
+  runningCommand,
   saveEditor,
   scrollback,
   setEditorMode,
@@ -23,6 +24,7 @@ import {
   tabComplete,
 } from '../state';
 import { Nano } from './Nano';
+import { TerminalLoading } from './TerminalLoading';
 
 const LINE_BASE = 'whitespace-pre-wrap break-words';
 
@@ -49,18 +51,36 @@ export const Terminal = () => {
   let output: HTMLDivElement | undefined;
   let inputEl: HTMLInputElement | undefined;
 
+  // The label for the busy bar, or null when the prompt should be live. A
+  // command blocked on an interactive prompt (su's password) is still running,
+  // but it is waiting on the PLAYER — so the prompt wins and stays typeable.
+  const busyLabel = (): string | null => (pendingPrompt() ? null : runningCommand());
+
   // Keep the newest output in view as the scrollback grows.
   createEffect(() => {
     scrollback();
     if (output) output.scrollTop = output.scrollHeight;
   });
 
-  // Keep the prompt focused. Runs on first mount, and again whenever a
-  // full-screen overlay (nano, future apps) closes — `editorMode → null`
-  // re-mounts the input, and this re-points the cursor at it — so the player
-  // never has to click to resume typing after an editor or an async command.
+  // Keep the prompt focused. Runs on first mount, and again whenever the input
+  // comes back after being swapped out — for a full-screen overlay (nano, future
+  // apps) or for the busy bar — so the player never has to click to resume
+  // typing after an editor or a long-running command.
   createEffect(() => {
-    if (editorMode() === null) inputEl?.focus();
+    if (editorMode() === null && busyLabel() === null) inputEl?.focus();
+  });
+
+  // While the busy bar stands in for the prompt there is no focused input to
+  // carry a keystroke, so the interrupt is caught at the window instead. Guarded
+  // on the same derivation that swaps the bar in, so exactly one of the two
+  // handlers is ever live and Ctrl-C can't both cancel a prompt and abort a run.
+  onMount(() => {
+    const onWindowKeyDown = (event: KeyboardEvent) => {
+      if (busyLabel() === null) return;
+      if (event.key === 'c' && event.ctrlKey && abortRunning()) event.preventDefault();
+    };
+    window.addEventListener('keydown', onWindowKeyDown);
+    onCleanup(() => window.removeEventListener('keydown', onWindowKeyDown));
   });
 
   // Click-to-refocus: a plain click anywhere in the terminal returns focus to
@@ -142,21 +162,28 @@ export const Terminal = () => {
               {(line) => <div class={`${LINE_BASE} ${LINE_COLOR[line.kind]}`}>{line.content}</div>}
             </For>
           </div>
-          <div class="flex items-baseline gap-2">
-            <span class="whitespace-pre text-[var(--theme-text-bright)]">{livePrompt()}</span>
-            <input
-              ref={inputEl}
-              aria-label="terminal input"
-              type={pendingPrompt()?.masked ? 'password' : 'text'}
-              class="flex-1 border-none bg-transparent p-0 text-inherit caret-[var(--theme-caret)] outline-none [font:inherit]"
-              autocomplete="off"
-              autocapitalize="off"
-              spellcheck={false}
-              value={input()}
-              onInput={(event) => setInput(event.currentTarget.value)}
-              onKeyDown={onKeyDown}
-            />
-          </div>
+          <Show
+            when={busyLabel()}
+            fallback={
+              <div class="flex items-baseline gap-2">
+                <span class="whitespace-pre text-[var(--theme-text-bright)]">{livePrompt()}</span>
+                <input
+                  ref={inputEl}
+                  aria-label="terminal input"
+                  type={pendingPrompt()?.masked ? 'password' : 'text'}
+                  class="flex-1 border-none bg-transparent p-0 text-inherit caret-[var(--theme-caret)] outline-none [font:inherit]"
+                  autocomplete="off"
+                  autocapitalize="off"
+                  spellcheck={false}
+                  value={input()}
+                  onInput={(event) => setInput(event.currentTarget.value)}
+                  onKeyDown={onKeyDown}
+                />
+              </div>
+            }
+          >
+            {(label) => <TerminalLoading commandName={label()} />}
+          </Show>
         </main>
       }
     >
