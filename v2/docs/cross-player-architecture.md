@@ -96,49 +96,55 @@ internalPort}`; else `none` (router-own wins a same-port tie). It shares `readRu
 
 ## 3. Reachability & cross-player login
 
-- **Scan (Story 5.1.1b + 5.1.3b):** `nmap <A's public IP>` from B routes to a signed `resolvePublicScan`
-  (`core/scan/resolvePublicScan.ts`). The server resolves the public IP to A's **router**
-  (`router_machine_id`), materializes it (seeded base + journal replay —
-  `core/network/materializeRouterFs.ts`), checks `canBoot` (a bricked router takes the whole
-  IP dark), and returns its open ports via `scanResult` (external vantage): the router's own
-  seeded `sshd:22` plus any live forwards. The workstation is dark behind NAT until A opts a
-  forward in. **5.1.3b** wires `scanResult`'s injected `resolveTargetPorts`: the pure
-  `core/scan/workstationPortResolver.ts` `buildWorkstationPortResolver` maps a forward's
-  `internalIp` to A's one workstation behind NAT (its LAN address, read from A's LEASE on the
-  ESSID — never derived, so the public path and the same-LAN path can never disagree about
-  where A's box is), materializes it (`materializeWorkstationFs`), and reads
-  its open ports — so a forward (mapped to its public port) is shown **iff** the target port is up
-  (a fresh ws has an empty `/var/run` → dark until A starts `sshd`). Since 5.1.3c this port reader
-  is a thin wrapper over `buildWorkstationResolver` (returning the materialized `Directory | null`),
-  the SAME internalIp→ws lookup the forwarded-port login reuses for passwd + liveness — one
-  materialization, two readers, never a drift between what a scan shows and what a login checks. The handler parses `rules.v4`
-  only to gate the prefetch: a fresh box (no forward) skips the second journal read entirely; the
-  `RegistryLookup` projection gained the workstation fields (machine id, essid, identity) for this.
-- **Login (Story 5.1.2 — routes by destination port):** `ssh [-p port] <user>@<A's public IP>`
-  takes the cross-player branch in `core/commands/ssh.ts` (`executePublicLogin`): reachability
-  via `resolvePublic`, then `authenticatePublic` carries the **destination port** (default 22).
-  Server-side, `authCreateSessionPublic` (`core/sessions/authCreateSessionPublic.ts`)
-  materializes A's **router**, boot-gates it, and consults `machineServing` to resolve the
-  destination port to an auth target via one `resolveAuthTarget` (the router and forward arms
-  share a single `{ fs, machineId }` → passwd-check → insert tail): a router-own port (`:22`) →
-  validate against the router's seeded admin password and land the session on
-  **`router_machine_id`**; a **forwarded port (Story 5.1.3c)** → the workstation behind the
-  router (below); neither → `404 host_unreachable` (so an unforwarded `-p 2222` is refused before
-  any password check — the opt-in default). The lookup projection here now carries the
-  workstation fields too (`{ owner_key, router_machine_id, essid, workstation_machine_id,
-workstation_username, workstation_root_hash }`) — a structural superset of the scan path's
-  `WorkstationTarget`. The client never claims a tier.
-- **Forwarded-port login (Story 5.1.3c):** when `machineServing` returns a `forward`,
-  `resolveAuthTarget` fetches the **workstation** journal (the existing `findPatches` dep, scoped
-  to `workstation_machine_id`) and resolves the forward's `internalIp` → A's one workstation via
-  the shared `buildWorkstationResolver` (`core/scan/workstationPortResolver.ts`, returning the
-  materialized `Directory | null` — the SAME lookup the scan's port resolver wraps). A forward
-  that reaches no host, or whose internal port isn't being served (a dark DNAT target — `sshd`
-  down, or on a different port), → `404 host_unreachable` before any password check. Otherwise the
-  password is validated against the **workstation's** `/etc/passwd` (a weak `guest` account exists)
-  and the session lands on **`workstation_machine_id`**. The router's boot/dark gate stays upstream
-  on the public IP. Confirmed live end-to-end: B's `ssh guest@<A.publicIp> -p 2222` → `guest@<A's
-ws>` → `su root` → reads A's `/etc/passwd` (tier-gated cross-player read).
+- **Scan:** `nmap <public IP>` from an outsider routes to a signed `resolvePublicScan`
+  (`core/scan/resolvePublicScan.ts`). The server resolves the public IP to its **ESSID**
+  (`network_public_ips`) and from there to the AP's shared **gateway** — a machine id that is a
+  pure function of the ESSID, so no ownership lookup is involved. It materializes the gateway
+  (seeded base + journal replay — `core/network/materializeRouterFs.ts`), checks `canBoot` (a
+  bricked gateway takes the whole IP dark), and returns its open ports via `scanResult` (external
+  vantage): the gateway's own seeded `sshd:22` plus every live forward. Occupants are dark behind
+  NAT until one opts a forward in.
+  `scanResult`'s injected `resolveTargetPorts` is where the forwards resolve: an AP has **no single
+  host behind its NAT**, so the handler reads the ESSID's leases and its occupancy, matches each
+  forward's `internalIp` to the occupant LEASING that address (the same lease read the same-LAN
+  path resolves addresses from, so the two can never disagree about where a box is), fetches that
+  box's journal, and hands `core/network/natHosts.ts` the materialized trees. A forward is shown
+  **iff** its own target box is up and serving the internal port (a fresh box has an empty
+  `/var/run` → dark until its owner starts `sshd`), independently of every other occupant's.
+  Both halves of the match are load-bearing: the LEASE says which address a box answers to,
+  OCCUPANCY says the box is still on the WiFi — so a forward naming an unleased address, or one
+  whose holder has run `nmcli disconnect`, reaches nothing. `rules.v4` is parsed first purely to
+  shed work: an AP that forwards nothing skips the occupancy read and every journal fetch, and
+  only the boxes a forward actually names are read.
+- **Login (routes by destination port):** `ssh [-p port] <user>@<public IP>` takes the
+  cross-player branch in `core/commands/ssh.ts` (`executePublicLogin`): reachability via
+  `resolvePublic`, then `authenticatePublic` carries the **destination port** (default 22).
+  Server-side, `authCreateSessionPublic` (`core/sessions/authCreateSessionPublic.ts`) materializes
+  the AP's **gateway**, boot-gates it, and consults `machineServing` to route the destination port
+  (both arms share a single `{ fs, machineId, hostname, logWriterKey }` → passwd-check → insert
+  tail): a gateway-own port (`:22`) → validate against the ESSID-seeded admin password and land
+  the session on the **gateway's** machine id; a **forwarded port** → the occupant behind it
+  (below); neither → `404 host_unreachable` before any occupancy or lease work (so an unforwarded
+  `-p 2222` is refused before any password check — the opt-in default). The client never claims a
+  tier.
+- **Forwarded-port login:** when `machineServing` returns a `forward`, the gate resolves its
+  `internalIp` through the ESSID's leases + occupancy to the occupant answering at that address —
+  the same lookup the scan resolves ports through — then fetches THAT box's journal and rebuilds
+  it via `bootableOccupantFs` (`core/network/natHosts.ts`). A forward that reaches no host, whose
+  target is bricked, or whose internal port isn't being served (a dark DNAT target — `sshd` down,
+  or on a different port) → `404 host_unreachable` before any password check. Otherwise the
+  password is validated against **that occupant's** `/etc/passwd` (a weak `guest` account exists)
+  and the session lands on their `workstation_machine_id`. So two forwards on one gateway reach
+  two different boxes with two different credentials, and one occupant's password does not open
+  another's forward. The gateway's boot/dark gate stays upstream on the public IP.
+- **Whose row the gateway's own logs land in:** the gateway belongs to the access point, not to a
+  player, so it has no owner key — but `patches` rows are keyed `(machine_id, path, writer_key)`
+  and a log patch carries the whole file, so a writer key that moves splits the log across rows
+  and the newer row erases the older one on replay. `core/logging/apGatewayLogWriter.ts` picks the
+  **lowest octet leased on the ESSID**: leases are permanent and outlive occupancy, so the row
+  never moves, and it does not depend on the order the store returns rows in. An ESSID nobody has
+  ever leased an address on keeps no log at all. A forwarded-port login logs on the box it
+  reached, under that occupant's own key.
 - **Own-LAN router login (Story 5.1.3a):** A's own `ssh root@<subnet>.1` (the `.1` gateway,
   `kind:'router'`) takes the own-LAN branch of `ssh.ts`, but reachability and the hop's machine id
   come from the router (`buildRouterBaseFs` / `computeRouterId`), not a regenerated sibling.
@@ -271,9 +277,9 @@ escalate on A's box and permanently brick it.
   `authElevateSession`, still rebuilds the **workstation** B stands on via `materializeWorkstationFs`.)
   A dead box can't be scanned or logged into no matter the credentials.
 - **The dark-gate is role-based, at the workstation level too (Story 5.3):**
-  `dark-gate(addr) = canBoot(machineServing(addr))`. The shared `buildWorkstationResolver`
-  (`core/scan/workstationPortResolver.ts` — the ONE internal-IP→workstation lookup both the public
-  scan and the public ssh gate read) returns `null` when the materialized workstation can't boot, so
+  `dark-gate(addr) = canBoot(machineServing(addr))`. The shared `bootableOccupantFs`
+  (`core/network/natHosts.ts` — the ONE rebuild both the public scan and the public ssh gate read a
+  box behind a forward through) returns `null` when the materialized workstation can't boot, so
   a bricked workstation **behind a NAT forward** drops its forwarded port from `resolvePublicScan`
   and `404`s an `authCreateSessionPublic` to that port — even with a lingering `sshd` pidfile. Because
   the router is gated upstream by its own `canBoot`, **bricking the workstation only removes its
@@ -369,8 +375,8 @@ scans / refuses logins for everyone.
 router as a real journal-backed machine + public-IP scan/login routed through it (5.1.1a/b, 5.1.2),
 A's own-LAN `ssh root@.1` + `nano /etc/iptables/rules.v4` persisting to the shared router journal
 (5.1.3a), B's scan reflecting A's forward (5.1.3b — `resolveTargetPorts` wired + liveness-gated), B's
-`-p 2222` → **workstation** auth (5.1.3c — forward→ws via `resolveAuthTarget` + the shared
-`buildWorkstationResolver`), and A's own-LAN `nmap <subnet>.1` resolving the real router via
+`-p 2222` → **workstation** auth (5.1.3c — forward→ws via the shared
+`bootableOccupantFs`), and A's own-LAN `nmap <subnet>.1` resolving the real router via
 `scanResult` sameLAN (5.1.4 — `.1` no longer cosmetic; forwards excluded LAN-side, closing the
 dual-homed scar). The full decision-8 cross-player loop is confirmed live (agent-browser vs
 `vercel dev`+Supabase: B cross-network `nmap` → `:22`+`:2222`, `ssh guest -p 2222` → A's ws, `su root`
@@ -391,8 +397,8 @@ A's public scan reflects the change. The full loop is confirmed live (agent-brow
 **Story 5.3** (router brick → whole public IP dark) is ✅ **COMPLETE**, finishing the Story-5
 cross-player home-NAT arc. The router-brick → whole-IP-dark path was already shipped (both public
 gates `canBoot`-gate the router); 5.3 verified it end-to-end **and** generalized the dark-gate to the
-**workstation behind the NAT**: the shared `buildWorkstationResolver` now returns `null` for a bricked
-workstation, so its forwarded port drops from the scan and `404`s ssh-via-forward, while the router
+**box behind the NAT**: the shared `bootableOccupantFs` returns `null` for a bricked occupant, so
+its forwarded port drops from the scan and `404`s ssh-via-forward, while the gateway
 keeps answering its own — `dark-gate(addr) = canBoot(machineServing(addr))` realised at both roles
 (decision #10). Confirmed live (agent-browser vs `vercel dev`+Supabase: B cross-network bricks A's
 router → `nmap <A.publicIp>` "Host seems down", `ssh` "No route to host"; and
@@ -429,7 +435,8 @@ mitigation is a server-side game-logic re-run.
 | Shared materialize     | `core/network/materializeWorkstationFs.ts`                                         |
 | Registry write         | `core/network/registerNetwork.ts`                                                  |
 | Public scan resolve    | `core/scan/resolvePublicScan.ts`                                                   |
-| Forward→ws resolve     | `core/scan/workstationPortResolver.ts` (`buildWorkstationResolver` + port wrapper) |
+| Forward→occupant resolve | `core/network/natHosts.ts` (`bootableOccupantFs` + `natPortResolver`)            |
+| AP log writer key      | `core/logging/apGatewayLogWriter.ts` (`apGatewayLogWriterKey`)                      |
 | su elevation (server)  | `core/sessions/authElevateSession.ts`                                              |
 | Public ssh gate        | `core/sessions/authCreateSessionPublic.ts`                                         |
 | Trace append primitive | `core/patches/appendMachineLog.ts`                                                 |

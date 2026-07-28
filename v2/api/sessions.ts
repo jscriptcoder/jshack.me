@@ -7,7 +7,7 @@ import {
 } from '../src/core/sessions/authCreateSession';
 import {
   handleAuthCreateSessionPublic,
-  type NatHost,
+  type NatOccupantRow,
   type ApNetworkLookup,
 } from '../src/core/sessions/authCreateSessionPublic';
 import { computeApGatewayId } from '../src/core/identity/router';
@@ -174,12 +174,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (actionOf(req.body) === 'authCreateSessionPublic') {
-    // Cross-PLAYER ssh login: resolve the target PUBLIC IP to its AP, then
-    // the handler materializes the owner's ROUTER and routes by
-    // destination port — port 22 lands on the router itself (validated against its
-    // seeded admin password). Story 6.2: a reachable attempt now leaves an auth.log
-    // trace on the owner's shared record (router or workstation behind the NAT),
-    // written under the OWNER's writer_key so multi-attacker rows don't collide.
+    // Cross-PLAYER ssh login: resolve the target PUBLIC IP to its AP, then the handler
+    // materializes the ESSID's shared GATEWAY and routes by destination port — port 22
+    // lands on the gateway itself (validated against its ESSID-seeded admin password),
+    // a NAT-forwarded port on whichever occupant LEASES the address that forward names.
+    // A reachable attempt leaves an auth.log trace on the machine it reached, written
+    // under the key that owns that machine's logs so multi-attacker rows don't collide.
     const findNetworkByPublicIp = async (publicIp: string) => {
       const network = await supabase
         .from('network_public_ips')
@@ -192,28 +192,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
       const essid = (network.data as { essid: string } | null)?.essid ?? null;
       if (essid === null) return { data: null, error: null };
-      // The one host behind the AP's NAT: its most recently joined occupant, read from
-      // the table that also knows when a machine has left the WiFi.
-      const occupant = await supabase
-        .from('home_network_occupants')
-        .select(
-          'owner_key, workstation_machine_id, workstation_username, workstation_machine_name, workstation_root_hash',
-        )
-        .eq('essid', essid)
-        .order('updated_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (occupant.error) {
-        console.error('[sessions] public auth occupant lookup error:', occupant.error);
-        return { data: null, error: occupant.error };
-      }
       // The gateway is the access point's own infrastructure, so it answers on :22
-      // whether or not anyone is on the WiFi; with nobody home the NAT forwards to
-      // no host and only the gateway itself can be logged into.
+      // whether or not anyone is on the WiFi; its id derives from the ESSID.
       const resolved: ApNetworkLookup = {
         router_machine_id: computeApGatewayId(essid),
         essid,
-        behindNat: occupant.data as NatHost | null,
       };
       return { data: resolved, error: null };
     };
@@ -284,28 +267,41 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (error) console.error('[sessions] public auth source-ip lookup error:', error);
       return { data: data as { public_ip: string } | null, error };
     };
-    // Where the ONE host behind the target's NAT answers: its owner's lease on its own
-    // ESSID, so the public gate and the same-LAN path resolve that box to one address.
-    const readLease = async (essid: string, ownerKey: string) => {
+    // Who a forward can land a login on: every occupant currently ON the ESSID, with the
+    // identity fields that rebuild each box and the machine name its trace line carries.
+    // Occupancy is also the reachability test — a machine whose owner ran
+    // `nmcli disconnect` has no row, so no forward reaches it.
+    const listOccupantsByEssid = async (essid: string) => {
+      const { data, error } = await supabase
+        .from('home_network_occupants')
+        .select(
+          'owner_key, workstation_machine_id, workstation_machine_name, workstation_username, workstation_root_hash',
+        )
+        .eq('essid', essid);
+      if (error) console.error('[sessions] public auth occupant list error:', error);
+      return { data: data as readonly NatOccupantRow[] | null, error };
+    };
+    // Every lease on the ESSID in ONE read — where each occupant answers, so the public
+    // gate and the same-LAN path resolve one box to one address.
+    const listLeasesByEssid = async (essid: string) => {
       const { data, error } = await supabase
         .from('network_lan_leases')
-        .select('octet')
-        .eq('essid', essid)
-        .eq('owner_key', ownerKey)
-        .maybeSingle();
-      if (error) console.error('[sessions] public auth lan-lease read error:', error);
-      return { data: (data as { octet: number } | null)?.octet ?? null, error };
+        .select('owner_key, octet')
+        .eq('essid', essid);
+      if (error) console.error('[sessions] public auth lan-lease list error:', error);
+      return { data: data as readonly LanLeaseRow[] | null, error };
     };
     const { status, body } = await handleAuthCreateSessionPublic(req.body, {
       nonceStore: noopNonceStore,
       findNetworkByPublicIp,
       findPatches,
+      listOccupantsByEssid,
+      listLeasesByEssid,
       insertSession: insertSessionPublic,
       now: () => Date.now(),
       readAuthLog,
       upsertPatch: upsertPatchPublic,
       findHomeNetworkByOwnerKey,
-      readLease,
     });
     res.status(status).json(body);
     return;

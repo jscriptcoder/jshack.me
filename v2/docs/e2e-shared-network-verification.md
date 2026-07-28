@@ -5,9 +5,15 @@ v0.88.0 → v0.96.0) as a real player would, in a real browser, against `vercel 
 local supabase.
 
 **Last executed in full: 2026-07-28 against v0.96.0.** All six acts passed. Supporting
-gates on the same tree: 1958 unit tests / 122 files, and 26 wire-check scripts /
+gates on that tree: 1958 unit tests / 122 files, and 26 wire-check scripts /
 179 checks. Two runbook errors found and corrected in place (the `nmap` CIDR form, and
 the assumption that any L1 NPC is sshable), plus one real client defect recorded in §6.
+
+**Act 4 re-run 2026-07-28 against v0.99.0, all four checks passed** — a NAT forward now
+reaches whichever occupant LEASES the address it names, so every occupant is
+forward-reachable and the "publish for the later joiner" workaround is gone. That run also
+found a **new client defect: a stale shared-file buffer silently deletes another
+occupant's rules** (§6). Acts 1–3, 5 and 6 were not re-run on that tree.
 
 **Load [`.claude/skills/v2-e2e/SKILL.md`](../../.claude/skills/v2-e2e/SKILL.md) before
 running any `agent-browser` command.** It owns the preflight, the DOM quirks, and the
@@ -25,7 +31,7 @@ pieces compose through the real UI.
 | Layer | Command | Covers |
 |---|---|---|
 | Unit | `npm test -- --run` | 1958 tests: generators, resolvers, handlers, permission walks |
-| Wire | 26 `scripts/test*.ts` | 179 checks: every `api/` path against real supabase |
+| Wire | 27 `scripts/test*.ts` | every `api/` path against real supabase |
 | **Browser** | **this document** | **the playable loop: discovery → crack → join → see each other → attack** |
 
 Run the first two first. If either is red, stop — a browser failure on top of a red
@@ -39,7 +45,9 @@ for s in $(ls scripts/test*.ts | sed 's|scripts/||;s|\.ts$||'); do
 done
 ```
 
-Expected: `1958 passed`, and 26 lines each reading `N/N checks passed` (179 total).
+Expected: the unit suite fully green, and one line per script each reading
+`N/N checks passed` — any `0/N` or a missing line is a red gate, whatever the totals are
+on the tree you are on.
 
 ### The claims this browser run owns
 
@@ -316,15 +324,30 @@ As **C**: `apt install nmap` (after `su root`), then `nmap <public IP of X>`.
 | Reaching the forward lands on A | `ssh guest@<public IP> -p <forwarded port>` → a session on **A's** workstation |
 
 **Proves:** the public face of a shared AP, and the NAT forward loop.
-**Confirmed 2026-07-28.** With A (first joiner) and B (second) both running `sshd` and
-both forwards published on the same gateway, an outsider's `nmap` of the public IP showed
-`22` (the gateway's own sshd) and **B's port only**; A's forward never appeared, and
-`ssh -p <B's port> guest@<public IP>` landed on **B's** workstation. Exactly the
-limitation below — publish for the later joiner when you want to see a forward work.
-**Known limitation, do not treat as a failure:** a forward reaches **only one occupant**
-— whoever joined most recently. If A joined first and B second, A's forward is dead by
-design. This is logged in `conventions-and-gotchas.md` §9 and owes RED under `tdd`. To
-see the forward work, publish it for the **later** joiner, or have A rejoin after B.
+
+**Fixed at v0.99.0 — the check to run now.** The 2026-07-28 run found that with A (first
+joiner) and B (second) both running `sshd` and both forwards published on the same
+gateway, the outsider's `nmap` showed `22` and **B's port only**; A's forward never
+appeared, and `ssh -p <B's port>` landed on B. A forward resolved to whichever occupant
+joined the ESSID most recently, so everyone else's was dead.
+
+A forward now resolves through `network_lan_leases` to whoever holds the address it
+names. Publish one for **each** of A and B — both edit the SAME `rules.v4` on the shared
+gateway, one line each — and expect:
+
+| Check | Expect | v0.99.0 |
+|---|---|---|
+| Both forwards visible | C's `nmap <public IP>` lists `22`, A's port AND B's port | ✅ `22, 2222, 3333` |
+| Each lands on its own box | `ssh guest@<public IP> -p <A's port>` → A's workstation; `-p <B's port>` → B's | ✅ `guest@skylab` / `guest@logos` |
+| Credentials don't cross | A's guest password on B's port → `Permission denied` | ✅ |
+| Leaving closes only your own door | A `nmcli disconnect` → A's port vanishes from C's scan, B's still answers | ✅ `22, 3333`; `-p 2222` → `Connection refused` |
+
+A's port coming back when A rejoins is the same check from the other side, and A returns
+to the **same address** (the permanent lease) — worth doing in the same pass, it is free.
+
+Wire-checked by `scripts/testSharedApForwards.ts` (8/8), which covers the same four
+claims at the API layer. What the browser adds is the **`nano` co-edit** — and that is
+where the run found §6's defect, so do not skip it.
 
 ---
 
@@ -390,10 +413,56 @@ result, open a fresh one.
 | A claim fails in browser **and** its wire-check fails | server bug — fix at `api/` or `core/`, wire-check first |
 | Browser fails, wire-check passes | UI/adapter bug, or you tested as the wrong player (§3) |
 | A shared box reads empty/stale right after `ssh` | fixed at v0.98.0 (below) — on an older build, re-read after ~10 s |
+| A shared file is missing an edit another occupant just made | OPEN defect (below) — a session never learns of a foreign write; re-`ssh` to refresh, and do NOT save an editor over it |
 | `network "X" not found` | B's scan does not contain X — re-`airdump` (§4), it re-rolls |
 | Empty foreign tree after a successful `ssh` | the hop resolved but the fetch did not — check `/api/network` in `agent-browser console` |
 | Everything 502s | port squatter — the skill's §1 kill, then restart |
 | Results contradict the code you just read | version banner ≠ `v2/package.json` — stale orphaned server |
+
+### OPEN at v0.99.0: saving a shared file deletes another occupant's edits
+
+Found by the v0.99.0 Act 4 re-run, in the `nano` co-edit half. **Not caused by the NAT
+forward change — but that change is what makes it reachable**, because until v0.99.0 only
+one occupant's forward worked, so nobody had a reason to co-edit one gateway.
+
+A session standing on a FOREIGN machine fetches that machine's journal on the hop, and
+refetches after its own writes. Nothing else invalidates it: the `patches-changed` sync
+channel is **workstation-scoped** (own box only), so a player on a shared gateway never
+learns another occupant wrote to it. `nano` then saves the **whole buffer**, and the
+journal replays last-writer-wins — so the stale buffer becomes the newest row and the
+newer rules vanish.
+
+Reproduced end to end, both occupants root on one AP gateway:
+
+```
+B (on the gateway):  nano rules.v4 → append `forward 4444 to <B>:22` → ^O ^X → cat shows 3 forwards
+A (session opened BEFORE that write):  nano rules.v4 → buffer holds only 2 forwards
+A:                   append a comment → ^O ^X
+C (outsider):        nmap <public IP> → 22, 2222, 3333.   B's 4444 is GONE from the world.
+```
+
+The `patches` rows show it plainly — A's row is newer and simply does not contain B's line:
+
+```
+3d5386c5  16:08:37   … forward 2222 … ~ forward 3333 … ~ forward 4444 …
+a9dc9916  16:09:20   … forward 2222 … ~ forward 3333 … ~ # alice was here
+```
+
+Two boundaries worth knowing: a **fresh `ssh` hop does refresh** the view (A re-hopped and
+saw B's line), and repeated `cat` within the existing session does **not** — A re-read
+twice over ~12 s and stayed stale. So the staleness is per-session and permanent until the
+next hop, unlike the v0.98.0 race below which self-healed.
+
+This is the hazard the v0.98.0 note predicted ("nano saves the WHOLE buffer … silently
+wiping them from a shared gateway"); v0.98.0 closed the *hop-race* source of staleness,
+not this one. It applies to any shared machine, not only the AP gateway.
+
+**Not yet fixed — it needs a decision, not just a patch.** The candidates: invalidate on a
+cross-player write (needs a machine-scoped sync channel, today's is workstation-scoped);
+refetch the journal when an editor OPENS a foreign file (cheap, narrow, doesn't fix a
+concurrent save); reject a save whose base revision is stale (optimistic concurrency — the
+honest fix, but it needs an in-game failure mode); or line-merge instead of whole-buffer
+save (changes what `nano` means). Logged in `conventions-and-gotchas.md` §9.
 
 ### Fixed at v0.98.0: the journal lagged an `ssh` hop
 
@@ -502,14 +571,15 @@ If Act 5 ran, `npx supabase db reset` — X's gateway is permanently bricked oth
 | Item #5 acceptance criterion | Act | Also proven by |
 |---|---|---|
 | Same AP gateway for every occupant | 3 | `testCrossPlayerRouter`, `testSharedJournal` |
-| Forward visible + reaches the publisher | 4 | `testCrossPlayerRouter` |
+| Forward visible + reaches the publisher | 4 | `testCrossPlayerRouter`, `testSharedApForwards` |
+| EVERY occupant's forward works, not just one | 4 | `testSharedApForwards` |
 | No implicit gateway access | 3 | `testGatewayBrickLanAlive` |
 | Brick = WAN dark, LAN alive | 5 | `testGatewayBrickLanAlive`, `testRouterBrick`, `testBrickedDark` |
 | No address collisions; stable on rejoin | 2, 6 | `testLanLeaseAllocation` |
 | Same NPCs, same deep chains | 2, 3 | `testDeepChainReach`, `testDeepSwitchChain` |
 | NPC writes shared between occupants | 3 | `testSameLanCrossPlayerFs` |
 | Every occupant visible to every other | 2 | `testSameLanOccupancy` |
-| Registry gone, behaviour unchanged | all | the full 26-script suite |
+| Registry gone, behaviour unchanged | all | the full wire-check suite |
 | Disconnected = unreachable | 6 | `testDisconnectedUnreachable` |
 
 Not covered here and still open: **deep-chain pivots through a shared chain** (Acts stop

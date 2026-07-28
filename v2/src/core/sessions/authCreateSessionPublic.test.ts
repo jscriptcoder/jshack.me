@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   handleAuthCreateSessionPublic,
-  type AuthCreateSessionPublicDeps,
   type ApNetworkLookup,
+  type AuthCreateSessionPublicDeps,
+  type NatOccupantRow,
 } from './authCreateSessionPublic';
 import type { AuthSessionRow } from './authCreateSession';
 import { md5 } from '../generation/md5';
@@ -11,7 +12,7 @@ import { workstationGuestPassword } from '../generation/workstationFs';
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
 import { computeApGatewayId } from '../identity/router';
-import { assignHomeNetwork } from '../network/homeNetwork';
+import { lanAddressFor, type LanLeaseRow } from '../network/lanAddress';
 import type { OwnerPatchRow } from '../network/materializeWorkstationFs';
 import { asGameTime } from '../types';
 import {
@@ -26,96 +27,99 @@ import type { PatchRow } from '../patches/upsertPatch';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
 /**
- * `handleAuthCreateSessionPublic` is the cross-player ssh-login gate, reshaped for
- * Story 5.1.2: it routes by DESTINATION PORT. A different identity's
- * `ssh [-p port] <user>@<A.publicIp>` resolves A's public IP to the AP that bears it,
- * materializes A's ROUTER (the box bearing the public IP, root-only, seeded admin
- * password recoverable from the owner key), and — for a port the router itself
- * serves (its `:22`) — validates the password against the router's `/etc/passwd`
- * and inserts the session on the ROUTER's machine id. A forwarded/unmatched port is
- * `host_unreachable` (the forward → workstation path is Story 5.1.3). A bricked
- * router takes the public IP dark before any password is checked.
+ * `handleAuthCreateSessionPublic` is the cross-player ssh-login gate: it routes by
+ * DESTINATION PORT behind an AP's public IP. A port the shared GATEWAY itself serves
+ * (its seeded `:22`) lands on the gateway, validated against its ESSID-seeded admin
+ * password. A NAT-forwarded port lands on the occupant who LEASES the address that
+ * forward names — so every occupant of a shared AP can publish a working forward, and
+ * two forwards on one gateway reach two different boxes. Anything else is unreachable.
+ *
+ * A bricked gateway takes the whole public IP dark before any password is checked.
  */
 
 const freshStore: NonceStore = async () => ({ fresh: true });
 const TARGET = '203.0.113.7';
+const ESSID = 'BEAN-THERE-WIFI';
 // 2026-06-19 12:00:00 UTC — the server clock the auth.log line is stamped with.
 const FIXED_NOW = Date.UTC(2026, 5, 19, 12, 0, 0);
-// B's (the attacker's) home public IP, as the server resolves it from B's owner key.
+// The attacker's home public IP, as the server resolves it from their owner key.
 // Server-derived; NEVER the client-supplied `source_ip`.
-const SCANNER_PUBLIC_IP = '198.51.100.22';
-// A's identity → owner_key. The AP gateway's admin password + sshd presence seed
-// from the ESSID alone, so the server recovers them for any occupant's login.
-const OWNER = generateIdentity();
-const ESSID = 'BEAN-THERE-WIFI';
-const ROUTER_ID = computeApGatewayId(ESSID);
-const WS_ID = 'workstation-a1b2c3d4';
-const BEHIND_NAT = {
-  owner_key: OWNER.publicKeyHex,
-  workstation_machine_id: WS_ID,
-  workstation_username: 'neo',
+const ATTACKER_PUBLIC_IP = '198.51.100.22';
+
+// Two identities on ONE access point. The gateway's admin password seeds from the
+// ESSID alone; each occupant's own accounts seed from that occupant's owner key.
+const ALICE = generateIdentity();
+const BOB = generateIdentity();
+
+const AP_GATEWAY_ID = computeApGatewayId(ESSID);
+const ALICE_WS = 'workstation-a1b2c3d4';
+const BOB_WS = 'workstation-b5c6d7e8';
+// Alice holds the LOWER address — she joined first and the allocator offered it. Bob's
+// lease is higher, which is exactly the case the old "one host behind the NAT" lookup
+// could not reach.
+const ALICE_OCTET = 84;
+const BOB_OCTET = 112;
+const ALICE_LAN_IP = lanAddressFor(ESSID, ALICE_OCTET);
+const BOB_LAN_IP = lanAddressFor(ESSID, BOB_OCTET);
+
+const aliceOccupant: NatOccupantRow = {
+  owner_key: ALICE.publicKeyHex,
+  workstation_machine_id: ALICE_WS,
   workstation_machine_name: 'nebuchadnezzar',
+  workstation_username: 'neo',
   workstation_root_hash: md5('toor'),
 };
-const OCCUPANT: ApNetworkLookup = {
-  router_machine_id: ROUTER_ID,
-  essid: ESSID,
-  behindNat: BEHIND_NAT,
+const bobOccupant: NatOccupantRow = {
+  owner_key: BOB.publicKeyHex,
+  workstation_machine_id: BOB_WS,
+  workstation_machine_name: 'logos',
+  workstation_username: 'trinity',
+  workstation_root_hash: md5('root2'),
 };
+const BOTH_OCCUPANTS: readonly NatOccupantRow[] = [aliceOccupant, bobOccupant];
+const BOTH_LEASES: readonly LanLeaseRow[] = [
+  { owner_key: ALICE.publicKeyHex, octet: ALICE_OCTET },
+  { owner_key: BOB.publicKeyHex, octet: BOB_OCTET },
+];
+
+const REGISTERED: ApNetworkLookup = { router_machine_id: AP_GATEWAY_ID, essid: ESSID };
 const ADMIN_PW = seedApGatewayAdminPw(ESSID);
-// The address A's derivation OFFERS its workstation. A's LEASE is seeded from it, so
-// where nothing collided a `rules.v4` forward aimed here still reaches the box.
-const WS_DERIVED_LAN_IP = assignHomeNetwork(OWNER.publicKeyHex, ESSID).localIp;
-const WS_LAN_IP = WS_DERIVED_LAN_IP;
-const GUEST_PW = workstationGuestPassword(OWNER.publicKeyHex);
+const ALICE_GUEST_PW = workstationGuestPassword(ALICE.publicKeyHex);
+const BOB_GUEST_PW = workstationGuestPassword(BOB.publicKeyHex);
 
-const octetOf = (ip: string): number => Number(ip.split('.')[3]);
-const addressAt = (octet: number): string =>
-  `${WS_DERIVED_LAN_IP.split('.').slice(0, 3).join('.')}.${octet}`;
-/** An octet A's derivation never offered — where a REDRAW lands when the offered one
- *  is already held by another occupant of the ESSID. */
-const WS_REDRAWN_OCTET = octetOf(WS_DERIVED_LAN_IP) === 7 ? 8 : 7;
-
-type LeaseResult = { data: number | null; error: unknown };
-
-/** A's `nano` edit of the router's NAT table: forward public `:2222` to the
- *  workstation's `:22` — the opt-in that exposes A's ws behind the public IP. */
-const forwardTo = (internalIp: string): OwnerPatchRow => ({
+/** A root `nano /etc/iptables/rules.v4` edit on the GATEWAY's journal — the opt-in that
+ *  exposes a box behind the NAT. One file, one journal, every occupant's forwards. */
+const forwards = (...lines: readonly string[]): OwnerPatchRow => ({
   path: '/etc/iptables/rules.v4',
-  content: `forward 2222 to ${internalIp}:22`,
+  content: lines.join('\n'),
   owner: 'root',
   permissions: null,
   node_type: 'file',
   updated_at: '2026-06-17T00:00:00.000Z',
-  writer_key: OWNER.publicKeyHex,
+  writer_key: ALICE.publicKeyHex,
 });
-const routerForward: OwnerPatchRow = forwardTo(WS_LAN_IP);
+const forwardTo = (publicPort: number, internalIp: string, internalPort = 22): string =>
+  `forward ${publicPort} to ${internalIp}:${internalPort}`;
+const aliceForward = forwards(forwardTo(2222, ALICE_LAN_IP));
+const bobForward = forwards(forwardTo(3333, BOB_LAN_IP));
+const bothForwards = forwards(forwardTo(2222, ALICE_LAN_IP), forwardTo(3333, BOB_LAN_IP));
 
-/** A started the workstation's sshd — its pidfile on the ws journal makes `:22` a
- *  live service (a fresh ws has an empty `/var/run`, so the forward is dark until). */
-const wsSshdUp: OwnerPatchRow = {
+/** An occupant started their sshd — the pidfile on that workstation's journal makes
+ *  `:22` a live service (a fresh box has an empty `/var/run`, so a forward to it is
+ *  dark until). */
+const sshdUp: OwnerPatchRow = {
   path: '/var/run/sshd.pid',
   content: 'sshd:port=22',
   owner: 'root',
   permissions: null,
   node_type: 'file',
   updated_at: '2026-06-17T00:00:00.000Z',
-  writer_key: OWNER.publicKeyHex,
+  writer_key: ALICE.publicKeyHex,
 };
 
-/** Route the per-machine journal read by `machine_id`: the router's forward table
- *  vs the workstation's running-service pidfiles live on different machines. */
-const patchesByMachine =
-  (byId: Readonly<Record<string, readonly OwnerPatchRow[]>>) =>
-  async ({ machine_id }: { machine_id: string }): Promise<PatchesResult> => ({
-    data: byId[machine_id] ?? [],
-    error: null,
-  });
-
 /** A root `rm /boot/vmlinuz` tombstone — replayed over a machine's seeded base, it
- *  deletes the kernel so `canBoot` reports that box bricked. Dropped on the ROUTER's
- *  journal it takes the whole public IP dark; dropped on the WORKSTATION's journal it
- *  drops only the forward behind the NAT (the router still answers its own ports). */
+ *  deletes the kernel so `canBoot` reports that box bricked. On the GATEWAY's journal it
+ *  takes the whole public IP dark; on an occupant's it darkens only that box. */
 const bootTombstone: OwnerPatchRow = {
   path: '/boot/vmlinuz',
   content: null,
@@ -123,37 +127,55 @@ const bootTombstone: OwnerPatchRow = {
   permissions: null,
   node_type: null,
   updated_at: '2026-06-17T00:00:00.000Z',
-  writer_key: OWNER.publicKeyHex,
+  writer_key: ALICE.publicKeyHex,
 };
 
 type LookupResult = { data: ApNetworkLookup | null; error: unknown };
 type PatchesResult = { data: readonly OwnerPatchRow[] | null; error: unknown };
+type OccupantsResult = { data: readonly NatOccupantRow[] | null; error: unknown };
+type LeasesResult = { data: readonly LanLeaseRow[] | null; error: unknown };
 type OwnerKeyResult = { data: { public_ip: string } | null; error: unknown };
 
-/** Overrides for the system-logging + source-IP deps (Story 6.2). Defaults: the
- *  fixed server clock, an empty auth.log (a reachable attempt appends one line), a
- *  successful write, and a lookup that resolves the attacker's owner key to
- *  `SCANNER_PUBLIC_IP`. */
-type LogOverrides = {
+/** Route the per-machine journal read by `machine_id`: the gateway's forward table and
+ *  each occupant's running services live on different machines. */
+const patchesByMachine =
+  (byId: Readonly<Record<string, readonly OwnerPatchRow[]>>) =>
+  async ({ machine_id }: { machine_id: string }): Promise<PatchesResult> => ({
+    data: byId[machine_id] ?? [],
+    error: null,
+  });
+
+/** Defaults: the AP is registered with both occupants on it, holding the leases the
+ *  allocator issued them; every journal is empty; the insert succeeds; the attacker's
+ *  source IP resolves; the target's auth.log starts empty and the append succeeds. */
+type AuthOverrides = {
+  lookup?: (publicIp: string) => Promise<LookupResult>;
+  patches?: (query: { machine_id: string }) => Promise<PatchesResult>;
+  listOccupantsByEssid?: (essid: string) => Promise<OccupantsResult>;
+  listLeasesByEssid?: (essid: string) => Promise<LeasesResult>;
+  insert?: (row: AuthSessionRow) => Promise<{ error: unknown }>;
   now?: () => number;
   readAuthLog?: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
   upsertPatch?: (row: PatchRow) => Promise<{ error: unknown }>;
   findHomeNetworkByOwnerKey?: (ownerKey: string) => Promise<OwnerKeyResult>;
-  readLease?: (essid: string, ownerKey: string) => Promise<LeaseResult>;
 };
 
-const makeDeps = (
-  lookup: () => Promise<LookupResult> = async () => ({ data: OCCUPANT, error: null }),
-  insert: () => Promise<{ error: unknown }> = async () => ({ error: null }),
-  patches: (query: { machine_id: string }) => Promise<PatchesResult> = async () => ({
-    data: [],
-    error: null,
-  }),
-  over: LogOverrides = {},
-) => {
-  const findNetworkByPublicIp = vi.fn<(publicIp: string) => Promise<LookupResult>>(lookup);
-  const findPatches = vi.fn<(query: { machine_id: string }) => Promise<PatchesResult>>(patches);
-  const insertSession = vi.fn<(row: AuthSessionRow) => Promise<{ error: unknown }>>(insert);
+const makeDeps = (over: AuthOverrides = {}) => {
+  const findNetworkByPublicIp = vi.fn<(publicIp: string) => Promise<LookupResult>>(
+    over.lookup ?? (async () => ({ data: REGISTERED, error: null })),
+  );
+  const findPatches = vi.fn<(query: { machine_id: string }) => Promise<PatchesResult>>(
+    over.patches ?? (async () => ({ data: [], error: null })),
+  );
+  const listOccupantsByEssid = vi.fn<(essid: string) => Promise<OccupantsResult>>(
+    over.listOccupantsByEssid ?? (async () => ({ data: BOTH_OCCUPANTS, error: null })),
+  );
+  const listLeasesByEssid = vi.fn<(essid: string) => Promise<LeasesResult>>(
+    over.listLeasesByEssid ?? (async () => ({ data: BOTH_LEASES, error: null })),
+  );
+  const insertSession = vi.fn<(row: AuthSessionRow) => Promise<{ error: unknown }>>(
+    over.insert ?? (async () => ({ error: null })),
+  );
   const readAuthLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
     over.readAuthLog ?? (async () => ({ data: null, error: null })),
   );
@@ -162,33 +184,30 @@ const makeDeps = (
   );
   const findHomeNetworkByOwnerKey = vi.fn<(ownerKey: string) => Promise<OwnerKeyResult>>(
     over.findHomeNetworkByOwnerKey ??
-      (async () => ({ data: { public_ip: SCANNER_PUBLIC_IP }, error: null })),
-  );
-  // Default: the owner leases the octet its derivation offered — where nothing
-  // collided the two agree, so an existing forward keeps reaching the same box.
-  const readLease = vi.fn<(essid: string, ownerKey: string) => Promise<LeaseResult>>(
-    over.readLease ?? (async () => ({ data: octetOf(WS_DERIVED_LAN_IP), error: null })),
+      (async () => ({ data: { public_ip: ATTACKER_PUBLIC_IP }, error: null })),
   );
   const deps: AuthCreateSessionPublicDeps = {
     nonceStore: freshStore,
     findNetworkByPublicIp,
     findPatches,
+    listOccupantsByEssid,
+    listLeasesByEssid,
     insertSession,
     now: over.now ?? (() => FIXED_NOW),
     readAuthLog,
     upsertPatch,
     findHomeNetworkByOwnerKey,
-    readLease,
   };
   return {
     deps,
     findNetworkByPublicIp,
     findPatches,
+    listOccupantsByEssid,
+    listLeasesByEssid,
     insertSession,
     readAuthLog,
     upsertPatch,
     findHomeNetworkByOwnerKey,
-    readLease,
   };
 };
 
@@ -201,14 +220,14 @@ const envelope = (id: ReturnType<typeof generateIdentity>, fields: Record<string
     ...fields,
   });
 
-/** The sshd auth.log line the server is expected to stamp for a cross-player attempt
- *  at `FIXED_NOW`, given the resolved machine's hostname + outcome + user. The source
- *  IP defaults to B's server-derived home public IP. */
+/** The sshd auth.log line the server is expected to stamp for a cross-player attempt at
+ *  `FIXED_NOW`, given the resolved machine's hostname + outcome + user. The source IP
+ *  defaults to the attacker's server-derived home public IP. */
 const expectedSshdLine = (
   hostname: string,
   outcome: 'success' | 'failure',
   user: string,
-  fromIp: string = SCANNER_PUBLIC_IP,
+  fromIp: string = ATTACKER_PUBLIC_IP,
 ): string =>
   formatSshdAuthLine({
     outcome,
@@ -220,7 +239,7 @@ const expectedSshdLine = (
   });
 
 describe('handleAuthCreateSessionPublic', () => {
-  it("authenticates root against the reconstructed router (default port 22) and inserts a session on the router's machine id", async () => {
+  it("authenticates root against the shared AP gateway (default port 22) and inserts a session on the gateway's machine id", async () => {
     const attacker = generateIdentity();
     const { deps, findNetworkByPublicIp, findPatches, insertSession } = makeDeps();
 
@@ -230,20 +249,20 @@ describe('handleAuthCreateSessionPublic', () => {
     );
 
     expect(result.status).toBe(200);
-    expect(result.body).toMatchObject({ ok: true, userType: 'root', machine_id: ROUTER_ID });
+    expect(result.body).toMatchObject({ ok: true, userType: 'root', machine_id: AP_GATEWAY_ID });
     expect(findNetworkByPublicIp).toHaveBeenCalledWith(TARGET);
-    // The journal is read off the ROUTER machine, not the workstation.
-    expect(findPatches).toHaveBeenCalledWith({ machine_id: ROUTER_ID });
+    // The journal is read off the GATEWAY machine, not any occupant's.
+    expect(findPatches).toHaveBeenCalledWith({ machine_id: AP_GATEWAY_ID });
     expect(insertSession).toHaveBeenCalledTimes(1);
     expect(insertSession.mock.calls[0]![0]).toMatchObject({
       session_id: 'ssh-root-1',
       player_key: attacker.publicKeyHex,
-      machine_id: ROUTER_ID,
+      machine_id: AP_GATEWAY_ID,
       credentials: { username: 'root', userType: 'root' },
       parent_session_id: 'seed-session',
       source_ip: '192.168.1.5',
       kind: 'ssh',
-      essid: 'BEAN-THERE-WIFI',
+      essid: ESSID,
     });
   });
 
@@ -260,12 +279,12 @@ describe('handleAuthCreateSessionPublic', () => {
     expect(insertSession).not.toHaveBeenCalled();
   });
 
-  it('rejects a non-root user as invalid_credentials (the router is a root-only appliance)', async () => {
+  it('rejects a non-root user as invalid_credentials (the gateway is a root-only appliance)', async () => {
     const attacker = generateIdentity();
     const { deps, insertSession } = makeDeps();
 
-    // The router has no guest/user account — only root. A correct workstation guest
-    // password is meaningless here; `guest` is simply not an account on the router.
+    // The gateway has no guest/user account — only root. A correct workstation guest
+    // password is meaningless here; `guest` is simply not an account on it.
     const result = await handleAuthCreateSessionPublic(
       envelope(attacker, { username: 'guest', password: ADMIN_PW }),
       deps,
@@ -275,11 +294,11 @@ describe('handleAuthCreateSessionPublic', () => {
     expect(insertSession).not.toHaveBeenCalled();
   });
 
-  it('reports an unforwarded destination port as host_unreachable, before the password is checked and without reading the workstation journal or inserting', async () => {
+  it('reports an unforwarded destination port as host_unreachable, before the password is checked and without asking who is on the AP', async () => {
     const attacker = generateIdentity();
-    const { deps, findPatches, insertSession } = makeDeps();
+    const { deps, findPatches, listOccupantsByEssid, insertSession } = makeDeps();
 
-    // -p 2222 with the opt-in default (no forward configured): the router serves no
+    // -p 2222 with the opt-in default (no forward configured): the gateway serves no
     // such port. A CORRECT admin password must NOT matter — routing decides first.
     const result = await handleAuthCreateSessionPublic(
       envelope(attacker, { username: 'root', password: ADMIN_PW, port: 2222 }),
@@ -287,189 +306,277 @@ describe('handleAuthCreateSessionPublic', () => {
     );
 
     expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
-    // An unserved port is NOT a forward: the gate must not read the workstation
-    // journal (only the router's, for the boot gate) — it short-circuits at routing.
-    expect(findPatches).not.toHaveBeenCalledWith({ machine_id: WS_ID });
+    // An unserved port is NOT a forward: the gate short-circuits at routing, without
+    // reading any occupant's journal or even enumerating the AP.
+    expect(findPatches).toHaveBeenCalledTimes(1);
+    expect(listOccupantsByEssid).not.toHaveBeenCalled();
     expect(insertSession).not.toHaveBeenCalled();
   });
 
-  it("routes a NAT-forwarded port to the workstation: validates the guest password against ITS passwd and opens a session on the workstation's machine id", async () => {
-    const attacker = generateIdentity();
-    const { deps, findPatches, insertSession } = makeDeps(
-      undefined,
-      undefined,
-      patchesByMachine({ [ROUTER_ID]: [routerForward], [WS_ID]: [wsSshdUp] }),
-    );
+  describe('a forward lands on the occupant who leases the address it names', () => {
+    it("routes a forwarded port to that occupant's box, validated against ITS passwd", async () => {
+      const attacker = generateIdentity();
+      const { deps, findPatches, insertSession } = makeDeps({
+        patches: patchesByMachine({ [AP_GATEWAY_ID]: [aliceForward], [ALICE_WS]: [sshdUp] }),
+      });
 
-    const result = await handleAuthCreateSessionPublic(
-      envelope(attacker, { username: 'guest', password: GUEST_PW, port: 2222 }),
-      deps,
-    );
+      const result = await handleAuthCreateSessionPublic(
+        envelope(attacker, { username: 'guest', password: ALICE_GUEST_PW, port: 2222 }),
+        deps,
+      );
 
-    expect(result.status).toBe(200);
-    expect(result.body).toMatchObject({ ok: true, userType: 'guest', machine_id: WS_ID });
-    // The journal is read off BOTH the router (forward table + boot gate) AND the
-    // workstation (its running services + passwd) — the forward bridges the two.
-    expect(findPatches).toHaveBeenCalledWith({ machine_id: ROUTER_ID });
-    expect(findPatches).toHaveBeenCalledWith({ machine_id: WS_ID });
-    expect(insertSession.mock.calls[0]![0]).toMatchObject({
-      session_id: 'ssh-root-1',
-      player_key: attacker.publicKeyHex,
-      machine_id: WS_ID,
-      credentials: { username: 'guest', userType: 'guest' },
-      kind: 'ssh',
-      essid: ESSID,
+      expect(result.status).toBe(200);
+      expect(result.body).toMatchObject({ ok: true, userType: 'guest', machine_id: ALICE_WS });
+      // The journal is read off BOTH the gateway (forward table + boot gate) AND the
+      // occupant's box (its running services + passwd) — the forward bridges the two.
+      expect(findPatches).toHaveBeenCalledWith({ machine_id: AP_GATEWAY_ID });
+      expect(findPatches).toHaveBeenCalledWith({ machine_id: ALICE_WS });
+      expect(insertSession.mock.calls[0]![0]).toMatchObject({
+        machine_id: ALICE_WS,
+        credentials: { username: 'guest', userType: 'guest' },
+        kind: 'ssh',
+        essid: ESSID,
+      });
+    });
+
+    it('routes a forward published by an occupant who joined LATER than another — the AP has no single host behind its NAT', async () => {
+      const attacker = generateIdentity();
+      const { deps, insertSession } = makeDeps({
+        patches: patchesByMachine({ [AP_GATEWAY_ID]: [bobForward], [BOB_WS]: [sshdUp] }),
+      });
+
+      const result = await handleAuthCreateSessionPublic(
+        envelope(attacker, { username: 'guest', password: BOB_GUEST_PW, port: 3333 }),
+        deps,
+      );
+
+      expect(result.status).toBe(200);
+      expect(result.body).toMatchObject({ machine_id: BOB_WS });
+      expect(insertSession.mock.calls[0]![0]).toMatchObject({ machine_id: BOB_WS });
+    });
+
+    it('routes two forwards on ONE gateway to two different boxes, each with its own credentials', async () => {
+      const attacker = generateIdentity();
+      const patches = patchesByMachine({
+        [AP_GATEWAY_ID]: [bothForwards],
+        [ALICE_WS]: [sshdUp],
+        [BOB_WS]: [sshdUp],
+      });
+
+      const onAlice = await handleAuthCreateSessionPublic(
+        envelope(attacker, { username: 'guest', password: ALICE_GUEST_PW, port: 2222 }),
+        makeDeps({ patches }).deps,
+      );
+      const onBob = await handleAuthCreateSessionPublic(
+        envelope(attacker, { username: 'guest', password: BOB_GUEST_PW, port: 3333 }),
+        makeDeps({ patches }).deps,
+      );
+
+      expect(onAlice.body).toMatchObject({ machine_id: ALICE_WS });
+      expect(onBob.body).toMatchObject({ machine_id: BOB_WS });
+    });
+
+    it("refuses one occupant's credentials on another occupant's forwarded port", async () => {
+      const attacker = generateIdentity();
+      const { deps, insertSession } = makeDeps({
+        patches: patchesByMachine({
+          [AP_GATEWAY_ID]: [bothForwards],
+          [ALICE_WS]: [sshdUp],
+          [BOB_WS]: [sshdUp],
+        }),
+      });
+
+      // Bob's guest password against the forward that lands on ALICE's box: the passwd
+      // checked is the box the forward reaches, so this is simply a wrong password.
+      const result = await handleAuthCreateSessionPublic(
+        envelope(attacker, { username: 'guest', password: BOB_GUEST_PW, port: 2222 }),
+        deps,
+      );
+
+      expect(result).toEqual({ status: 401, body: { error: 'invalid_credentials' } });
+      expect(insertSession).not.toHaveBeenCalled();
+    });
+
+    it('reports a forward aimed at an address nobody on the AP leases as host_unreachable', async () => {
+      const attacker = generateIdentity();
+      const strayForward = forwards(forwardTo(2222, lanAddressFor(ESSID, 251)));
+      const { deps, insertSession } = makeDeps({
+        patches: patchesByMachine({ [AP_GATEWAY_ID]: [strayForward], [ALICE_WS]: [sshdUp] }),
+      });
+
+      const result = await handleAuthCreateSessionPublic(
+        envelope(attacker, { username: 'guest', password: ALICE_GUEST_PW, port: 2222 }),
+        deps,
+      );
+
+      expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+      expect(insertSession).not.toHaveBeenCalled();
+    });
+
+    it('reports a forward aimed at a lease whose holder has left the WiFi as host_unreachable — a lease outlives occupancy, reachability does not', async () => {
+      const attacker = generateIdentity();
+      const { deps } = makeDeps({
+        patches: patchesByMachine({ [AP_GATEWAY_ID]: [bobForward], [BOB_WS]: [sshdUp] }),
+        listOccupantsByEssid: async () => ({ data: [aliceOccupant], error: null }),
+      });
+
+      const result = await handleAuthCreateSessionPublic(
+        envelope(attacker, { username: 'guest', password: BOB_GUEST_PW, port: 3333 }),
+        deps,
+      );
+
+      expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    });
+
+    it('reports a forward aimed at an occupant who holds no lease at all as host_unreachable', async () => {
+      const attacker = generateIdentity();
+      const { deps } = makeDeps({
+        patches: patchesByMachine({ [AP_GATEWAY_ID]: [bobForward], [BOB_WS]: [sshdUp] }),
+        listLeasesByEssid: async () => ({
+          data: [{ owner_key: ALICE.publicKeyHex, octet: ALICE_OCTET }],
+          error: null,
+        }),
+      });
+
+      const result = await handleAuthCreateSessionPublic(
+        envelope(attacker, { username: 'guest', password: BOB_GUEST_PW, port: 3333 }),
+        deps,
+      );
+
+      expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    });
+
+    it('reports a forwarded port as host_unreachable when that box never started sshd, before the password is checked', async () => {
+      const attacker = generateIdentity();
+      const { deps, insertSession } = makeDeps({
+        patches: patchesByMachine({ [AP_GATEWAY_ID]: [aliceForward], [ALICE_WS]: [] }),
+      });
+
+      // A CORRECT guest password — liveness must win regardless, proving the routing
+      // refuses a dark target before (and independent of) password validation.
+      const result = await handleAuthCreateSessionPublic(
+        envelope(attacker, { username: 'guest', password: ALICE_GUEST_PW, port: 2222 }),
+        deps,
+      );
+
+      expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+      expect(insertSession).not.toHaveBeenCalled();
+    });
+
+    it("reports a forwarded port as host_unreachable when the box serves a DIFFERENT port than the forward's internal target", async () => {
+      const attacker = generateIdentity();
+      // The forward targets `:22`, but sshd is bound to 2222 — the DNAT target port is
+      // not listening even though the box has an open port. Liveness must check the
+      // forward's specific internal port, not merely "any service is up".
+      const sshdOnOtherPort: OwnerPatchRow = { ...sshdUp, content: 'sshd:port=2222' };
+      const { deps, insertSession } = makeDeps({
+        patches: patchesByMachine({
+          [AP_GATEWAY_ID]: [aliceForward],
+          [ALICE_WS]: [sshdOnOtherPort],
+        }),
+      });
+
+      const result = await handleAuthCreateSessionPublic(
+        envelope(attacker, { username: 'guest', password: ALICE_GUEST_PW, port: 2222 }),
+        deps,
+      );
+
+      expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+      expect(insertSession).not.toHaveBeenCalled();
+    });
+
+    it('refuses a forwarded port to a BRICKED box as host_unreachable, even with its sshd up and a correct password', async () => {
+      const attacker = generateIdentity();
+      const { deps, insertSession } = makeDeps({
+        patches: patchesByMachine({
+          [AP_GATEWAY_ID]: [aliceForward],
+          [ALICE_WS]: [sshdUp, bootTombstone],
+        }),
+      });
+
+      const result = await handleAuthCreateSessionPublic(
+        envelope(attacker, { username: 'guest', password: ALICE_GUEST_PW, port: 2222 }),
+        deps,
+      );
+
+      expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+      expect(insertSession).not.toHaveBeenCalled();
+    });
+
+    it("reports a server error when the target box's journal lookup fails, without inserting", async () => {
+      const attacker = generateIdentity();
+      const { deps, insertSession } = makeDeps({
+        patches: async ({ machine_id }) =>
+          machine_id === ALICE_WS
+            ? { data: null, error: new Error('db down') }
+            : { data: [aliceForward], error: null },
+      });
+
+      const result = await handleAuthCreateSessionPublic(
+        envelope(attacker, { username: 'guest', password: ALICE_GUEST_PW, port: 2222 }),
+        deps,
+      );
+
+      expect(result).toEqual({ status: 500, body: { error: 'patches_lookup_failed' } });
+      expect(insertSession).not.toHaveBeenCalled();
+    });
+
+    it('reports a server error when the occupant list lookup fails — never guesses who is behind a forward', async () => {
+      const attacker = generateIdentity();
+      const { deps, insertSession } = makeDeps({
+        patches: patchesByMachine({ [AP_GATEWAY_ID]: [aliceForward], [ALICE_WS]: [sshdUp] }),
+        listOccupantsByEssid: async () => ({ data: null, error: new Error('db down') }),
+      });
+
+      const result = await handleAuthCreateSessionPublic(
+        envelope(attacker, { username: 'guest', password: ALICE_GUEST_PW, port: 2222 }),
+        deps,
+      );
+
+      expect(result).toEqual({ status: 500, body: { error: 'occupants_lookup_failed' } });
+      expect(insertSession).not.toHaveBeenCalled();
+    });
+
+    it('reports a server error when the lease lookup fails — never guesses an address', async () => {
+      const attacker = generateIdentity();
+      const { deps, insertSession } = makeDeps({
+        patches: patchesByMachine({ [AP_GATEWAY_ID]: [aliceForward], [ALICE_WS]: [sshdUp] }),
+        listLeasesByEssid: async () => ({ data: null, error: new Error('db down') }),
+      });
+
+      const result = await handleAuthCreateSessionPublic(
+        envelope(attacker, { username: 'guest', password: ALICE_GUEST_PW, port: 2222 }),
+        deps,
+      );
+
+      expect(result).toEqual({ status: 500, body: { error: 'leases_lookup_failed' } });
+      expect(insertSession).not.toHaveBeenCalled();
     });
   });
 
-  it('rejects a wrong workstation password on a forwarded port as invalid_credentials without inserting', async () => {
+  it('refuses login to a bricked gateway (a /boot tombstone) as host_unreachable, before the password is checked and without inserting', async () => {
     const attacker = generateIdentity();
-    const { deps, insertSession } = makeDeps(
-      undefined,
-      undefined,
-      patchesByMachine({ [ROUTER_ID]: [routerForward], [WS_ID]: [wsSshdUp] }),
-    );
+    const { deps, findPatches, insertSession } = makeDeps({
+      patches: async () => ({ data: [bootTombstone], error: null }),
+    });
 
-    const result = await handleAuthCreateSessionPublic(
-      envelope(attacker, { username: 'guest', password: 'not-the-guest-pw', port: 2222 }),
-      deps,
-    );
-
-    expect(result).toEqual({ status: 401, body: { error: 'invalid_credentials' } });
-    expect(insertSession).not.toHaveBeenCalled();
-  });
-
-  it('reports a forwarded port as host_unreachable when the workstation sshd is down, before the password is checked and without inserting', async () => {
-    const attacker = generateIdentity();
-    // The forward is configured on the router, but the workstation never started
-    // sshd (empty ws journal → empty /var/run): the DNAT target is not listening.
-    const { deps, insertSession } = makeDeps(
-      undefined,
-      undefined,
-      patchesByMachine({ [ROUTER_ID]: [routerForward], [WS_ID]: [] }),
-    );
-
-    // A CORRECT guest password — liveness must win regardless, proving the routing
-    // refuses a dark target before (and independent of) password validation.
-    const result = await handleAuthCreateSessionPublic(
-      envelope(attacker, { username: 'guest', password: GUEST_PW, port: 2222 }),
-      deps,
-    );
-
-    expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
-    expect(insertSession).not.toHaveBeenCalled();
-  });
-
-  it('reports a forward to a non-existent internal host as host_unreachable without inserting', async () => {
-    const attacker = generateIdentity();
-    // A fat-fingered forward targeting an IP that is not A's one workstation: the
-    // DNAT resolves to no host, so the public port reaches nothing.
-    const strayForward: OwnerPatchRow = {
-      ...routerForward,
-      content: 'forward 2222 to 192.168.99.99:22',
-    };
-    const { deps, insertSession } = makeDeps(
-      undefined,
-      undefined,
-      patchesByMachine({ [ROUTER_ID]: [strayForward], [WS_ID]: [wsSshdUp] }),
-    );
-
-    const result = await handleAuthCreateSessionPublic(
-      envelope(attacker, { username: 'guest', password: GUEST_PW, port: 2222 }),
-      deps,
-    );
-
-    expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
-    expect(insertSession).not.toHaveBeenCalled();
-  });
-
-  it("reports a forwarded port as host_unreachable when the workstation serves a DIFFERENT port than the forward's internal target, without inserting", async () => {
-    const attacker = generateIdentity();
-    // The forward targets the ws `:22`, but the ws sshd is bound to 2222 — the DNAT
-    // target port is not listening even though the ws has an open port. Liveness must
-    // check the forward's specific internal port, not merely "any service is up".
-    const wsSshdOnOtherPort: OwnerPatchRow = { ...wsSshdUp, content: 'sshd:port=2222' };
-    const { deps, insertSession } = makeDeps(
-      undefined,
-      undefined,
-      patchesByMachine({ [ROUTER_ID]: [routerForward], [WS_ID]: [wsSshdOnOtherPort] }),
-    );
-
-    const result = await handleAuthCreateSessionPublic(
-      envelope(attacker, { username: 'guest', password: GUEST_PW, port: 2222 }),
-      deps,
-    );
-
-    expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
-    expect(insertSession).not.toHaveBeenCalled();
-  });
-
-  it('refuses a forwarded port to a BRICKED workstation as host_unreachable, even with its sshd up and a correct password, without inserting', async () => {
-    const attacker = generateIdentity();
-    // The forward is live (router forward + ws sshd pidfile present), but the
-    // workstation has been bricked (a /boot tombstone). A bricked box behind the NAT
-    // can't come up, so the forward reaches a dead host — refused regardless of a
-    // CORRECT guest password, proving the boot gate wins over liveness + credentials.
-    const { deps, insertSession } = makeDeps(
-      undefined,
-      undefined,
-      patchesByMachine({ [ROUTER_ID]: [routerForward], [WS_ID]: [wsSshdUp, bootTombstone] }),
-    );
-
-    const result = await handleAuthCreateSessionPublic(
-      envelope(attacker, { username: 'guest', password: GUEST_PW, port: 2222 }),
-      deps,
-    );
-
-    expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
-    expect(insertSession).not.toHaveBeenCalled();
-  });
-
-  it('reports a server error when the workstation journal lookup fails, without inserting', async () => {
-    const attacker = generateIdentity();
-    // Router journal (forward + boot) succeeds; the SECOND lookup — the ws journal —
-    // fails, so the gate 500s rather than auth against an unknown ws state.
-    const patches = async ({ machine_id }: { machine_id: string }): Promise<PatchesResult> =>
-      machine_id === WS_ID
-        ? { data: null, error: new Error('db down') }
-        : { data: [routerForward], error: null };
-    const { deps, insertSession } = makeDeps(undefined, undefined, patches);
-
-    const result = await handleAuthCreateSessionPublic(
-      envelope(attacker, { username: 'guest', password: GUEST_PW, port: 2222 }),
-      deps,
-    );
-
-    expect(result).toEqual({ status: 500, body: { error: 'patches_lookup_failed' } });
-    expect(insertSession).not.toHaveBeenCalled();
-  });
-
-  it('refuses login to a bricked router (a /boot tombstone) as host_unreachable, before the password is checked and without inserting', async () => {
-    const attacker = generateIdentity();
-    const { deps, findPatches, insertSession } = makeDeps(
-      async () => ({ data: OCCUPANT, error: null }),
-      undefined,
-      async () => ({ data: [bootTombstone], error: null }),
-    );
-
-    // A CORRECT admin password — the brick must win regardless, proving the boot
-    // check short-circuits before (and independent of) password validation.
+    // A CORRECT admin password — the brick must win regardless, proving the boot check
+    // short-circuits before (and independent of) password validation.
     const result = await handleAuthCreateSessionPublic(
       envelope(attacker, { username: 'root', password: ADMIN_PW }),
       deps,
     );
 
     expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
-    expect(findPatches).toHaveBeenCalledWith({ machine_id: ROUTER_ID });
+    expect(findPatches).toHaveBeenCalledWith({ machine_id: AP_GATEWAY_ID });
     expect(insertSession).not.toHaveBeenCalled();
   });
 
   it('reports host_unreachable for an unregistered public IP without inserting or reading the journal', async () => {
     const attacker = generateIdentity();
-    const { deps, findPatches, insertSession } = makeDeps(async () => ({
-      data: null,
-      error: null,
-    }));
+    const { deps, findPatches, insertSession } = makeDeps({
+      lookup: async () => ({ data: null, error: null }),
+    });
 
     const result = await handleAuthCreateSessionPublic(
       envelope(attacker, { username: 'root', password: ADMIN_PW }),
@@ -483,7 +590,7 @@ describe('handleAuthCreateSessionPublic', () => {
 
   it('reports a server error when the network lookup fails', async () => {
     const attacker = generateIdentity();
-    const { deps } = makeDeps(async () => ({ data: null, error: new Error('db down') }));
+    const { deps } = makeDeps({ lookup: async () => ({ data: null, error: new Error('db down') }) });
 
     const result = await handleAuthCreateSessionPublic(
       envelope(attacker, { username: 'root', password: ADMIN_PW }),
@@ -495,10 +602,9 @@ describe('handleAuthCreateSessionPublic', () => {
 
   it('reports a server error when the boot-state patch lookup fails, without inserting', async () => {
     const attacker = generateIdentity();
-    const { deps, insertSession } = makeDeps(undefined, undefined, async () => ({
-      data: null,
-      error: new Error('db down'),
-    }));
+    const { deps, insertSession } = makeDeps({
+      patches: async () => ({ data: null, error: new Error('db down') }),
+    });
 
     const result = await handleAuthCreateSessionPublic(
       envelope(attacker, { username: 'root', password: ADMIN_PW }),
@@ -511,7 +617,7 @@ describe('handleAuthCreateSessionPublic', () => {
 
   it('reports a server error when the session insert fails', async () => {
     const attacker = generateIdentity();
-    const { deps } = makeDeps(undefined, async () => ({ error: new Error('insert boom') }));
+    const { deps } = makeDeps({ insert: async () => ({ error: new Error('insert boom') }) });
 
     const result = await handleAuthCreateSessionPublic(
       envelope(attacker, { username: 'root', password: ADMIN_PW }),
@@ -564,15 +670,15 @@ describe('handleAuthCreateSessionPublic', () => {
     expect(insertSession).not.toHaveBeenCalled();
   });
 
-  // Story 6.2: a reachable cross-player ssh attempt leaves a truthful auth.log trace
-  // on the TARGET's shared record. Keystone (decision 1): the line is written under
-  // the TARGET OWNER's writer_key (the system owns its logs) so multi-attacker rows
-  // don't collapse under the last-write-wins fold — the attacker's identity lives in
-  // the line content (source IP), never in writer_key. A router-served port logs on
-  // the ROUTER record (seeded hostname); a NAT-forwarded port logs on the WORKSTATION
-  // record (its machine name). Every 404 host_unreachable logs nothing.
-  describe('cross-player connection trace (Story 6.2)', () => {
-    it("appends ONE auth.log 'Accepted' line on the ROUTER record under the OWNER's writer_key for a :22 login", async () => {
+  // A reachable cross-player ssh attempt leaves a truthful auth.log trace on the shared
+  // record of the machine it reached. The keystone: the line is NOT written under the
+  // attacker's key — the system owns its logs, so every attacker's line accretes into
+  // ONE row instead of colliding under the last-write-wins fold; the attacker's identity
+  // lives in the line content (source IP). A gateway-served port logs on the GATEWAY
+  // record (its ESSID-seeded hostname); a forwarded port logs on the machine the forward
+  // reached (its machine name). Every 404 host_unreachable logs nothing.
+  describe('cross-player connection trace', () => {
+    it("appends ONE auth.log 'Accepted' line on the GATEWAY record for a :22 login", async () => {
       const attacker = generateIdentity();
       const { deps, upsertPatch } = makeDeps();
 
@@ -584,38 +690,53 @@ describe('handleAuthCreateSessionPublic', () => {
       expect(result.status).toBe(200);
       expect(upsertPatch).toHaveBeenCalledTimes(1);
       expect(upsertPatch.mock.calls[0]![0]).toEqual({
-        writer_key: BEHIND_NAT.owner_key,
-        machine_id: ROUTER_ID,
+        writer_key: ALICE.publicKeyHex,
+        machine_id: AP_GATEWAY_ID,
         path: AUTH_LOG_PATH,
         content: `${expectedSshdLine(seedApGatewayHostname(ESSID), 'success', 'root')}\n`,
         owner: AUTH_LOG_OWNER,
         permissions: AUTH_LOG_PERMISSIONS,
         node_type: 'file',
       });
-      // The provenance is the OWNER, never the attacker — the keystone.
+      // The provenance is never the attacker — the keystone.
       expect(upsertPatch.mock.calls[0]![0].writer_key).not.toBe(attacker.publicKeyHex);
     });
 
-    it('appends the line on the WORKSTATION record (its machine name) for a forwarded :2222 login', async () => {
+    it("accretes the gateway's log under ONE row whatever order the leases come back in", async () => {
       const attacker = generateIdentity();
-      const { deps, upsertPatch } = makeDeps(
-        undefined,
-        undefined,
-        patchesByMachine({ [ROUTER_ID]: [routerForward], [WS_ID]: [wsSshdUp] }),
+      const { deps, upsertPatch } = makeDeps({
+        listLeasesByEssid: async () => ({ data: [...BOTH_LEASES].reverse(), error: null }),
+      });
+
+      await handleAuthCreateSessionPublic(
+        envelope(attacker, { username: 'root', password: ADMIN_PW }),
+        deps,
       );
 
+      // The gateway belongs to nobody, so its log has to accrete under SOME occupant's
+      // row — and it must be the same one every time. A writer_key that moves splits the
+      // log across rows, and the later row erases the earlier one on replay.
+      expect(upsertPatch.mock.calls[0]![0].writer_key).toBe(ALICE.publicKeyHex);
+    });
+
+    it("logs a forwarded login on the record of the box it REACHED, under that occupant's key", async () => {
+      const attacker = generateIdentity();
+      const { deps, upsertPatch } = makeDeps({
+        patches: patchesByMachine({ [AP_GATEWAY_ID]: [bobForward], [BOB_WS]: [sshdUp] }),
+      });
+
       const result = await handleAuthCreateSessionPublic(
-        envelope(attacker, { username: 'guest', password: GUEST_PW, port: 2222 }),
+        envelope(attacker, { username: 'guest', password: BOB_GUEST_PW, port: 3333 }),
         deps,
       );
 
       expect(result.status).toBe(200);
       expect(upsertPatch).toHaveBeenCalledTimes(1);
       expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
-        writer_key: BEHIND_NAT.owner_key,
-        machine_id: WS_ID,
+        writer_key: BOB.publicKeyHex,
+        machine_id: BOB_WS,
         path: AUTH_LOG_PATH,
-        content: `${expectedSshdLine(BEHIND_NAT.workstation_machine_name, 'success', 'guest')}\n`,
+        content: `${expectedSshdLine(bobOccupant.workstation_machine_name, 'success', 'guest')}\n`,
       });
     });
 
@@ -635,7 +756,7 @@ describe('handleAuthCreateSessionPublic', () => {
       );
     });
 
-    it("uses B's OCCUPANT public IP as the source, ignoring the client source_ip", async () => {
+    it("uses the attacker's OCCUPANT public IP as the source, ignoring the client source_ip", async () => {
       const attacker = generateIdentity();
       const { deps, upsertPatch, findHomeNetworkByOwnerKey } = makeDeps();
 
@@ -644,16 +765,16 @@ describe('handleAuthCreateSessionPublic', () => {
         deps,
       );
 
-      // The lookup is keyed by the ATTACKER's verified key, not the target owner.
+      // The lookup is keyed by the ATTACKER's verified key, not any occupant.
       expect(findHomeNetworkByOwnerKey).toHaveBeenCalledWith(attacker.publicKeyHex);
       const content = upsertPatch.mock.calls[0]![0].content;
-      expect(content).toContain(`from ${SCANNER_PUBLIC_IP}`);
+      expect(content).toContain(`from ${ATTACKER_PUBLIC_IP}`);
       expect(content).not.toContain('10.0.0.66');
     });
 
-    it("falls back to 'unknown' source when B has no home network, still logging and authenticating", async () => {
+    it("falls back to 'unknown' source when the attacker has no home network, still logging and authenticating", async () => {
       const attacker = generateIdentity();
-      const { deps, upsertPatch } = makeDeps(undefined, undefined, undefined, {
+      const { deps, upsertPatch } = makeDeps({
         findHomeNetworkByOwnerKey: async () => ({ data: null, error: null }),
       });
 
@@ -668,9 +789,24 @@ describe('handleAuthCreateSessionPublic', () => {
       );
     });
 
+    it('authenticates but leaves no trace on an AP nobody has ever leased an address on', async () => {
+      const attacker = generateIdentity();
+      const { deps, upsertPatch } = makeDeps({
+        listLeasesByEssid: async () => ({ data: [], error: null }),
+      });
+
+      const result = await handleAuthCreateSessionPublic(
+        envelope(attacker, { username: 'root', password: ADMIN_PW }),
+        deps,
+      );
+
+      expect(result.status).toBe(200);
+      expect(upsertPatch).not.toHaveBeenCalled();
+    });
+
     it('writes no auth.log line for an unregistered public IP (404, nothing to log on)', async () => {
       const attacker = generateIdentity();
-      const { deps, upsertPatch } = makeDeps(async () => ({ data: null, error: null }));
+      const { deps, upsertPatch } = makeDeps({ lookup: async () => ({ data: null, error: null }) });
 
       const result = await handleAuthCreateSessionPublic(
         envelope(attacker, { username: 'root', password: ADMIN_PW }),
@@ -681,12 +817,11 @@ describe('handleAuthCreateSessionPublic', () => {
       expect(upsertPatch).not.toHaveBeenCalled();
     });
 
-    it('writes no auth.log line for a bricked router (whole public IP dark)', async () => {
+    it('writes no auth.log line for a bricked gateway (whole public IP dark)', async () => {
       const attacker = generateIdentity();
-      const { deps, upsertPatch } = makeDeps(undefined, undefined, async () => ({
-        data: [bootTombstone],
-        error: null,
-      }));
+      const { deps, upsertPatch } = makeDeps({
+        patches: async () => ({ data: [bootTombstone], error: null }),
+      });
 
       const result = await handleAuthCreateSessionPublic(
         envelope(attacker, { username: 'root', password: ADMIN_PW }),
@@ -701,7 +836,7 @@ describe('handleAuthCreateSessionPublic', () => {
       const attacker = generateIdentity();
       const { deps, upsertPatch } = makeDeps();
 
-      // -p 2222 with the opt-in default (no forward): the router serves no such port.
+      // -p 2222 with the opt-in default (no forward): the gateway serves no such port.
       const result = await handleAuthCreateSessionPublic(
         envelope(attacker, { username: 'root', password: ADMIN_PW, port: 2222 }),
         deps,
@@ -713,7 +848,7 @@ describe('handleAuthCreateSessionPublic', () => {
 
     it('skips the write when the auth.log read fails (RMW bails), and still authenticates', async () => {
       const attacker = generateIdentity();
-      const { deps, upsertPatch } = makeDeps(undefined, undefined, undefined, {
+      const { deps, upsertPatch } = makeDeps({
         readAuthLog: async () => ({ data: null, error: new Error('log read down') }),
       });
 
@@ -728,7 +863,7 @@ describe('handleAuthCreateSessionPublic', () => {
 
     it('returns the auth result even when the log write throws (best-effort logging)', async () => {
       const attacker = generateIdentity();
-      const { deps, insertSession } = makeDeps(undefined, undefined, undefined, {
+      const { deps, insertSession } = makeDeps({
         upsertPatch: async () => {
           throw new Error('write blew up');
         },
@@ -741,87 +876,9 @@ describe('handleAuthCreateSessionPublic', () => {
 
       expect(result).toEqual({
         status: 200,
-        body: { ok: true, userType: 'root', machine_id: ROUTER_ID },
+        body: { ok: true, userType: 'root', machine_id: AP_GATEWAY_ID },
       });
       expect(insertSession).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  describe('the host behind the NAT is at its LEASED address', () => {
-    const redrawnLease = async () => ({ data: WS_REDRAWN_OCTET, error: null });
-
-    it('routes a forward aimed at the leased address to the workstation', async () => {
-      const attacker = generateIdentity();
-      const { deps } = makeDeps(
-        undefined,
-        undefined,
-        patchesByMachine({
-          [ROUTER_ID]: [forwardTo(addressAt(WS_REDRAWN_OCTET))],
-          [WS_ID]: [wsSshdUp],
-        }),
-        { readLease: redrawnLease },
-      );
-
-      const result = await handleAuthCreateSessionPublic(
-        envelope(attacker, { username: 'guest', password: GUEST_PW, port: 2222 }),
-        deps,
-      );
-
-      expect(result.status).toBe(200);
-      expect(result.body).toMatchObject({ machine_id: WS_ID });
-    });
-
-    it('finds no host behind a forward still aimed at the DERIVED address once the lease moved', async () => {
-      const attacker = generateIdentity();
-      const { deps, insertSession } = makeDeps(
-        undefined,
-        undefined,
-        patchesByMachine({ [ROUTER_ID]: [routerForward], [WS_ID]: [wsSshdUp] }),
-        { readLease: redrawnLease },
-      );
-
-      const result = await handleAuthCreateSessionPublic(
-        envelope(attacker, { username: 'guest', password: GUEST_PW, port: 2222 }),
-        deps,
-      );
-
-      expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
-      expect(insertSession).not.toHaveBeenCalled();
-    });
-
-    it('finds no host behind the forward when the owner holds no lease at all', async () => {
-      const attacker = generateIdentity();
-      const { deps } = makeDeps(
-        undefined,
-        undefined,
-        patchesByMachine({ [ROUTER_ID]: [routerForward], [WS_ID]: [wsSshdUp] }),
-        { readLease: async () => ({ data: null, error: null }) },
-      );
-
-      const result = await handleAuthCreateSessionPublic(
-        envelope(attacker, { username: 'guest', password: GUEST_PW, port: 2222 }),
-        deps,
-      );
-
-      expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
-    });
-
-    it('reports a server error when the lease read fails — never guesses the address', async () => {
-      const attacker = generateIdentity();
-      const { deps, insertSession } = makeDeps(
-        undefined,
-        undefined,
-        patchesByMachine({ [ROUTER_ID]: [routerForward], [WS_ID]: [wsSshdUp] }),
-        { readLease: async () => ({ data: null, error: new Error('db down') }) },
-      );
-
-      const result = await handleAuthCreateSessionPublic(
-        envelope(attacker, { username: 'guest', password: GUEST_PW, port: 2222 }),
-        deps,
-      );
-
-      expect(result).toEqual({ status: 500, body: { error: 'lease_lookup_failed' } });
-      expect(insertSession).not.toHaveBeenCalled();
     });
   });
 });

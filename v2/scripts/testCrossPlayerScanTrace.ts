@@ -93,6 +93,7 @@ const A_ROUTER_HOST = seedApGatewayHostname(A_ESSID);
 // Clean slate, then seed the three players' occupancy rows (as each player's join would).
 await sr.from('network_public_ips').delete().in('public_ip', [A_PUBLIC_IP, B_PUBLIC_IP, C_PUBLIC_IP]);
 await sr.from('home_network_occupants').delete().in('essid', [A_ESSID, B_ESSID, C_ESSID]);
+await sr.from('network_lan_leases').delete().in('essid', [A_ESSID, B_ESSID, C_ESSID]);
 await sr.from('patches').delete().eq('machine_id', A_ROUTER);
 // The join state a real `registerNetwork` writes for each player: their AP's public IP,
 // plus themselves as an OCCUPANT of its ESSID. Occupancy is what makes a box reachable,
@@ -117,6 +118,14 @@ await sr
     occupantRow(bob, B_ESSID, 'nebuchadnezzar'),
     occupantRow(carol, C_ESSID, 'serenity'),
   ]);
+// The lease the join allocates BEFORE it writes the occupancy row. It is what fixes each
+// occupant's LAN address — and on the AP itself, which occupant's row its ownerless
+// system logs accrete under (the lowest octet leased, so the row never moves).
+await sr.from('network_lan_leases').insert([
+  { essid: A_ESSID, owner_key: alice.publicKeyHex, octet: 21 },
+  { essid: B_ESSID, owner_key: bob.publicKeyHex, octet: 22 },
+  { essid: C_ESSID, owner_key: carol.publicKeyHex, octet: 23 },
+]);
 
 // === 1. B scans A (host up) → one kern.log line on A's ROUTER under A's writer_key. ===
 const s1 = await post(NETWORK, signRequest(bob, 'resolvePublicScan', { target: A_PUBLIC_IP }));
@@ -170,9 +179,11 @@ check(
   `found=${foundOf(s4.body)} logUnchanged=${before === after}`,
 );
 
-// Cleanup.
+// Cleanup. The lease table is permanent by design, so a re-run would otherwise find the
+// octets already held.
 await sr.from('network_public_ips').delete().in('public_ip', [A_PUBLIC_IP, B_PUBLIC_IP, C_PUBLIC_IP]);
 await sr.from('home_network_occupants').delete().in('essid', [A_ESSID, B_ESSID, C_ESSID]);
+await sr.from('network_lan_leases').delete().in('essid', [A_ESSID, B_ESSID, C_ESSID]);
 await sr.from('patches').delete().eq('machine_id', A_ROUTER);
 
 const passed = results.filter((result) => result.pass).length;

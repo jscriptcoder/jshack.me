@@ -891,9 +891,11 @@ plan file was deleted on close-out; the as-built lives in `v2/docs/cross-player-
 
 **#6 (procedural world expansion) is GRILLED & RESOLVED and is the next thing to build** — decision record
 above, no open questions; it needs `planning` to turn it into slices. #2 (pivot/hop source-IP masking)
-remains unplanned and still needs its own `grill-me`. Two items from #5's work are logged in the
-conventions doc's deferred backlog rather than here: a NAT forward still reaches only ONE occupant of a
-shared AP (a behaviour change owing RED), and the wire-checks still are not in CI.
+remains unplanned and still needs its own `grill-me`. The last behavioural gap left by #5 — a NAT
+forward reaching only ONE occupant of a shared AP — was closed at **v0.99.0**, finishing decision 1
+("the gateway's ports are its own `sshd` ∪ EVERY occupant's forwards"): a forward's internal IP
+resolves through `network_lan_leases` to whoever leases it. One item from #5's work is still logged
+in the conventions doc's deferred backlog rather than here: the wire-checks are not in CI.
 
 ### Story 7 — starting context (for `grill-me`)
 
