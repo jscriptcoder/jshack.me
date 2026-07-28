@@ -24,6 +24,14 @@ const runCommand = (value: string) => {
 
 const inputField = () => screen.getByRole('textbox', { name: /terminal input/i });
 
+/** The prompt is swapped out for the busy bar while a command runs, so it only
+ *  returns once the shell is genuinely idle — which is a beat AFTER a streamed
+ *  command's last output line paints. Await it (having first awaited that line,
+ *  or this resolves against the prompt the command hasn't taken yet) before
+ *  submitting the next command. */
+const awaitPrompt = (timeout = 4000) =>
+  screen.findByRole('textbox', { name: /terminal input/i }, { timeout });
+
 describe('Terminal', () => {
   it('shows the JSHACK.ME banner with the current version and help hint on boot', () => {
     renderTerminal();
@@ -233,6 +241,7 @@ describe('Terminal', () => {
     await screen.findByText((content) => content.includes('monitor mode enabled on wlan0'));
     runCommand('airdump');
     await screen.findByText((content) => content.includes('Scan complete'), {}, { timeout: 8000 });
+    await awaitPrompt();
     const bssidRow = screen.getAllByText((content) =>
       /^[0-9A-F]{2}(:[0-9A-F]{2}){5}\s+-\d+/.test(content),
     )[0]!;
@@ -241,10 +250,66 @@ describe('Terminal', () => {
     runCommand(`aircrack ${bssid}`);
     // Let the crack begin (the capture preamble streams before the first pause).
     await screen.findByText((content) => content.includes('Opening capture file'));
-    fireEvent.keyDown(inputField(), { key: 'c', ctrlKey: true });
+    // The busy bar names the COMMAND, not the whole line — no bssid in it.
+    const busyBar = screen.getByTestId('terminal-loading');
+    expect(busyBar).toHaveTextContent('aircrack...');
+    expect(busyBar).not.toHaveTextContent(bssid);
+    // The prompt is swapped for the busy spinner while the crack runs, so the
+    // interrupt arrives at the document, not at the (unmounted) input.
+    fireEvent.keyDown(document, { key: 'c', ctrlKey: true });
 
     expect(await screen.findByText('^C')).toBeInTheDocument();
     expect(screen.queryByText(/KEY FOUND/)).not.toBeInTheDocument();
+  });
+
+  describe('busy indicator', () => {
+    it('swaps the prompt for a spinner naming the running command, then hands it back focused', async () => {
+      // One streamed command, whole lifecycle: the shell must LOOK busy for as
+      // long as it is busy (the scan paces its rows over real time), and the
+      // player must be able to type again the moment it isn't — without clicking.
+      renderTerminal();
+      runCommand('airmon start wlan0');
+      await screen.findByText((content) => content.includes('monitor mode enabled on wlan0'));
+
+      // Submitted with stray leading whitespace — the bar still names the command.
+      runCommand('  airdump');
+
+      expect(await screen.findByTestId('terminal-loading')).toHaveTextContent('airdump...');
+      expect(screen.queryByLabelText(/terminal input/i)).not.toBeInTheDocument();
+
+      // With no input to swallow them, stray keystrokes reach the window — only
+      // Ctrl-C may interrupt, so typing ahead must not kill the scan.
+      fireEvent.keyDown(document, { key: 'a' });
+      fireEvent.keyDown(document, { key: 'v', ctrlKey: true });
+
+      await screen.findByText(/^Scan complete/, {}, { timeout: 8000 });
+      const field = await awaitPrompt();
+
+      expect(screen.queryByTestId('terminal-loading')).not.toBeInTheDocument();
+      expect(document.activeElement).toBe(field);
+    });
+
+    it('keeps the prompt typeable while a running command waits on a password', async () => {
+      // `su` is still running here — but it is blocked on the player, so the
+      // spinner must stand aside and let the password be typed.
+      renderTerminal();
+      runCommand('su');
+      expect(await screen.findByText('Password:')).toBeInTheDocument();
+
+      expect(screen.queryByTestId('terminal-loading')).not.toBeInTheDocument();
+      expect(screen.getByLabelText(/terminal input/i)).toBeInTheDocument();
+    });
+
+    it('leaves no spinner behind when a prompt-blocked command is cancelled', async () => {
+      renderTerminal();
+      runCommand('su');
+      await screen.findByText('Password:');
+
+      fireEvent.keyDown(screen.getByLabelText(/terminal input/i), { key: 'c', ctrlKey: true });
+
+      expect(await screen.findByRole('textbox', { name: /terminal input/i })).toBeInTheDocument();
+      expect(screen.queryByTestId('terminal-loading')).not.toBeInTheDocument();
+    });
   });
 
   it('cracks a WiFi AP, connects with nmcli, goes online, and stays online across a reload', async () => {
@@ -267,11 +332,11 @@ describe('Terminal', () => {
       const power = Number(/\s(-\d+)\s/.exec(content.trim())?.[1]);
       return match[2] !== '<hidden>' && power >= -80;
     };
-    const rows = await screen.findAllByText(
-      (content) => isCrackable(content),
-      {},
-      { timeout: 4000 },
-    );
+    // Let the scan run to completion — the busy bar holds the prompt until it
+    // does, and every row is on screen by then.
+    await screen.findByText(/^Scan complete/, {}, { timeout: 4000 });
+    await awaitPrompt();
+    const rows = screen.getAllByText((content) => isCrackable(content));
     const parsed = crackableRow.exec(rows[0]!.textContent!.trim())!;
     const bssid = parsed[1]!.trim();
     const essid = parsed[2]!.trim();
@@ -283,6 +348,7 @@ describe('Terminal', () => {
       { timeout: 4000 },
     );
     const password = /KEY FOUND! \[ (.+) \]/.exec(keyRow.textContent!)![1]!.trim();
+    await awaitPrompt();
 
     // Monitor mode and an association are mutually exclusive, so leave monitor
     // mode before connecting (nmcli refuses otherwise).
@@ -296,6 +362,7 @@ describe('Terminal', () => {
       { timeout: 4000 },
     );
     const assignedIp = /assigned (192\.168\.\d+\.\d+)/.exec(connectedRow.textContent!)![1]!;
+    await awaitPrompt();
 
     // Online proof: ifconfig now shows wlan0 carrying the assigned IP.
     runCommand('ifconfig');

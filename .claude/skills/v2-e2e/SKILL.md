@@ -70,6 +70,17 @@ agent-browser snapshot -i                              # interactive refs (@e1, 
 - **Two players = two sessions.** `--session alice` / `--session bob` give isolated
   `localStorage`, so both identities stay alive and you switch with the flag. Prefer this over
   the `localStorage.clear()` recipe in §5, which destroys the first player and cannot alternate.
+- **`eval` reuses ONE execution context, so `const`/`let` leak across calls.** A second `eval`
+  declaring the same name dies with `SyntaxError: Identifier 'x' has already been declared` —
+  and if you redirected output, it looks like the command silently did nothing. Wrap every
+  `eval` body in an IIFE: `(() => { … })()`.
+- **Each CLI call costs ~1-2 s, so anything short is over before you can look at it.** A
+  transient state (a spinner, a busy bar, a streamed command under ~2 s) will be gone by the
+  time a follow-up `eval`/`screenshot` lands, which reads exactly like a broken feature. Drive
+  AND observe inside a single async IIFE that polls, e.g. dispatch the command, then
+  `for (…) { await new Promise(r => setTimeout(r, 100)); samples.push(…) }` and return the
+  samples. To photograph a transient state, widen it first — queue the same command several
+  times in one synchronous block (they serialize on `commandChain`) and then screenshot.
 - **There is no `agent-browser text` command.** Read the terminal with:
   ```bash
   agent-browser eval "document.body.innerText.slice(-800)"

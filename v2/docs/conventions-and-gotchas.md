@@ -310,7 +310,16 @@ tree that does carry the file. Prefer stating the rule over arguing the input ca
   import edits can ship a PascalCase filename with lowercase imports; `tsc`/tests pass on
   Windows but break on Linux/Vercel. Grep-verify import casing after any case rename.
 - **The terminal runs commands SERIALLY** (`runInput` → `commandChain` in `ui/state.ts`). Do
-  NOT reintroduce concurrent `runInput` — it races on a stale FS view.
+  NOT reintroduce concurrent `runInput` — it races on a stale FS view. Since the busy bar
+  landed, the prompt input is UNMOUNTED for the whole of `executeLine`, so type-ahead is no
+  longer reachable from the UI at all; `commandChain` stays as the guarantee for programmatic
+  submissions (and for the microtask between submit and execute).
+- **A command is still running after its last output line paints.** `executeLine` streams the
+  final line, then awaits `exitCode()` — so a Terminal test that submits the next command
+  straight after `findByText(<last line>)` now hits the busy bar instead of an input and fails
+  with "unable to find role textbox". Await the prompt's RETURN as well (`awaitPrompt()` in
+  `Terminal.test.tsx`), and await it AFTER the output line — called immediately after
+  `runCommand` it resolves against the prompt the command has not taken over yet.
 - **A wire-check clean-slate must clear PERMANENT tables, not just the per-session ones.**
   `network_lan_leases` and `network_public_ips` deliberately outlive occupancy, so a script
   that only deletes `home_network_occupants` leaves a lease holding an octet forever. Every

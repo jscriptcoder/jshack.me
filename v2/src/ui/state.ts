@@ -200,7 +200,13 @@ const [editorMode, setEditorMode] = createSignal<{
   readonly content: string;
 } | null>(null);
 
-export { cwd, editorMode, input, scrollback, setEditorMode, setInput };
+// The name of the command currently executing, or null when the shell is idle.
+// Drives the busy bar that stands in for the prompt while a command runs — set
+// for the WHOLE of `executeLine`, so every awaited server round-trip inside a
+// command counts as busy, not just a streamed one.
+const [runningCommand, setRunningCommand] = createSignal<string | null>(null);
+
+export { cwd, editorMode, input, runningCommand, scrollback, setEditorMode, setInput };
 
 /** The active session (top of stack), or undefined before `startGame`. */
 const activeSession = (): Session | undefined => sessionStack().at(-1);
@@ -670,6 +676,11 @@ export const startGame = (gameConfig: GameConfig): void => {
   setPatches([]);
   setCommandHistory([]);
   setHistoryNav(idleNav());
+  // A new game comes up at a live prompt: unwind any prompt the previous one was
+  // blocked on (rejecting it, so the orphaned command doesn't hang) and drop the
+  // busy bar, or the fresh terminal would open masked or spinning.
+  cancelPrompt();
+  setRunningCommand(null);
 
   // Cross-tab sync: a write in another tab of this browser (same identity, same
   // workstation) hints us to re-pull the journal, so our next command reflects
@@ -797,6 +808,13 @@ export const runInput = (): Promise<void> => {
   return run;
 };
 
+/** The command name to label the busy bar with — the first word of the line, or
+ *  null for a blank submission (nothing ran, so nothing is busy). */
+const commandNameOf = (line: string): string | null => {
+  const name = line.trim().split(/\s+/)[0];
+  return name === undefined || name === '' ? null : name;
+};
+
 const executeLine = async (line: string): Promise<void> => {
   // Session + patch client are read at EXECUTION time (chain order), so a queued
   // command sees the state left by the one before it (e.g. an `ssh` hop's session).
@@ -821,6 +839,7 @@ const executeLine = async (line: string): Promise<void> => {
   // command's `env.sleep` and unwinds a streamed command mid-flight.
   const controller = new AbortController();
   activeRun = controller;
+  setRunningCommand(commandNameOf(line));
 
   const env = buildCommandEnv({
     identity: requireIdentity(),
@@ -894,6 +913,7 @@ const executeLine = async (line: string): Promise<void> => {
     }
   } finally {
     activeRun = undefined;
+    setRunningCommand(null);
   }
 };
 
