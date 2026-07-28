@@ -13,7 +13,7 @@ import {
 import { handleUnregisterOccupant } from '../src/core/network/unregisterOccupant';
 import {
   handleResolvePublicScan,
-  type NatHost,
+  type NatOccupantRow,
   type ApNetworkLookup,
 } from '../src/core/scan/resolvePublicScan';
 import { computeApGatewayId } from '../src/core/identity/router';
@@ -91,11 +91,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (actionOf(req.body) === 'resolvePublicScan') {
     // Resolve the TARGET public IP (another identity's network) — no caller
     // scoping: any authenticated player may scan any public IP, like the internet.
-    // Story 5.1.1b: a public IP maps to the owner's ROUTER (a distinct machine) —
-    // its machine id (journal scope) + owner_key seed the router base for the
-    // boot-state check + its own sshd:22 port. Story 5.1.3b: the workstation fields
-    // (machine id, essid, identity) let the handler liveness-gate a NAT forward to
-    // the one workstation behind NAT.
+    // A public IP belongs to the ESSID's shared GATEWAY, a distinct machine whose id
+    // derives from the ESSID: its journal drives the boot-state check, its own sshd:22,
+    // and the forward table the handler liveness-gates each occupant's box against.
     const findNetworkByPublicIp = async (publicIp: string) => {
       const network = await supabase
         .from('network_public_ips')
@@ -108,29 +106,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
       const essid = (network.data as { essid: string } | null)?.essid ?? null;
       if (essid === null) return { data: null, error: null };
-      // Which box is behind the NAT. One AP has many occupants but the NAT resolves a
-      // single host, so the most recently joined occupant is it. Occupancy is the read
-      // because it is the only table that knows when a machine has LEFT the WiFi — a
-      // box that disconnected is not behind anyone's NAT.
-      const occupant = await supabase
-        .from('home_network_occupants')
-        .select('owner_key, workstation_machine_id, workstation_username, workstation_root_hash')
-        .eq('essid', essid)
-        .order('updated_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (occupant.error) {
-        console.error('[network] scan occupant lookup error:', occupant.error);
-        return { data: null, error: occupant.error };
-      }
       // The AP itself always answers: a gateway is the access point's own infrastructure,
       // not a machine that joins the network, so it exists whether or not anyone is on it.
-      // With nobody home there is simply no host behind the NAT.
-      const behindNat = occupant.data as NatHost | null;
       const resolved: ApNetworkLookup = {
         router_machine_id: computeApGatewayId(essid),
         essid,
-        behindNat,
       };
       return { data: resolved, error: null };
     };
@@ -199,24 +179,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (error) console.error('[network] scanner source-ip lookup error:', error);
       return { data: data as { public_ip: string } | null, error };
     };
-    // Where the ONE host behind the target's NAT answers: its owner's lease on its own
-    // ESSID. Read here so a forward is live only when it names the same address the
-    // same-LAN path reaches that box at.
-    const readLease = async (essid: string, ownerKey: string) => {
+    // Who a forward can reach: every occupant currently ON the ESSID, with the identity
+    // fields that rebuild each box. Occupancy is also the reachability test — a machine
+    // whose owner ran `nmcli disconnect` has no row, so no forward reaches it.
+    const listOccupantsByEssid = async (essid: string) => {
+      const { data, error } = await supabase
+        .from('home_network_occupants')
+        .select('owner_key, workstation_machine_id, workstation_username, workstation_root_hash')
+        .eq('essid', essid);
+      if (error) console.error('[network] scan occupant list error:', error);
+      return { data: data as readonly NatOccupantRow[] | null, error };
+    };
+    // Every lease on the ESSID in ONE read — where each occupant answers, so a forward
+    // is live only when it names the same address the same-LAN path reaches that box at.
+    const listLeasesByEssid = async (essid: string) => {
       const { data, error } = await supabase
         .from('network_lan_leases')
-        .select('octet')
-        .eq('essid', essid)
-        .eq('owner_key', ownerKey)
-        .maybeSingle();
-      if (error) console.error('[network] scan lan-lease read error:', error);
-      return { data: (data as { octet: number } | null)?.octet ?? null, error };
+        .select('owner_key, octet')
+        .eq('essid', essid);
+      if (error) console.error('[network] scan lan-lease list error:', error);
+      return { data: data as readonly LanLeaseRow[] | null, error };
     };
     const { status, body } = await handleResolvePublicScan(req.body, {
       nonceStore: noopNonceStore,
       findNetworkByPublicIp,
       findPatches,
-      readLease,
+      listOccupantsByEssid,
+      listLeasesByEssid,
       now: () => Date.now(),
       readLog,
       upsertPatch,

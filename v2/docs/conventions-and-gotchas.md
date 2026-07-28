@@ -72,7 +72,9 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
     `nmapScan` take one `listLeasesByEssid` read behind the LAN-boundary gate;
     `resolvePublicScan` / `authCreateSessionPublic` take a single-row `readLease` and
     `buildWorkstationResolver` now TAKES `lanIp` rather than deriving it, so the NAT-forward
-    gate and the same-LAN path can never disagree on where a box is.
+    gate and the same-LAN path can never disagree on where a box is. ⚠️ The public half was
+    **superseded at v0.99.0** (below): those two now take the ESSID-wide `listLeasesByEssid`
+    like their same-LAN siblings, and `buildWorkstationResolver` is gone.
   - **Slice 3b-ii (v0.92.0, `879dcc4`)** — the player's OWN address is the leased one, and the client
     stops deriving addresses entirely. `registerNetwork` RETURNS the leased `local_ip`, so
     the join is what issues an address; `generateHomeLan` no longer places the player at all
@@ -126,7 +128,20 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
     them. A follow-up item then makes the ESSID space procedurally generated and large, and
     tunes the occupied-ESSID injector down.
 
-**Current version: 0.98.0.**
+- **Every occupant of a shared AP is forward-reachable ✅ (v0.99.0).** The last piece of item #5's
+  decision 1 ("the gateway's ports are its own `sshd` ∪ EVERY occupant's forwards"), deliberately
+  left out of the registry reduction so that stayed behaviour-preserving. `ApNetworkLookup` is now
+  just `{ router_machine_id, essid }` — the AP itself — and both public paths
+  (`resolvePublicScan`, `authCreateSessionPublic`) resolve a forward's `internalIp` by matching it
+  against `lanAddressesByOwner(essid, leases)` over the ESSID's current occupants. The shared pure
+  half moved to `core/network/natHosts.ts` (`bootableOccupantFs` + `natPortResolver`), replacing
+  the single-host `workstationPortResolver`. Two forced consequences: the ownerless gateway's own
+  `kern.log`/`auth.log` rows now key on a STABLE writer (`core/logging/apGatewayLogWriter.ts` —
+  the lowest octet leased on the ESSID) instead of the most recent joiner, which was silently
+  truncating those logs every time somebody joined; and a forwarded-port login now logs under the
+  key of the box it actually reached.
+
+**Current version: 0.99.0.**
 
 To pick up the next slice: read the relevant `plans/*.md` TOP BLOCK (live status +
 as-built), then the cross-player architecture doc if the work touches cross-player paths.
@@ -441,21 +456,33 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   one shared AP gateway per ESSID, ESSID-seeded shared NPCs and deep chains, and the removal of
   the store whose last-writer-wins PK caused the collisions. As-built in §7 and
   `cross-player-architecture.md`; the plan file was deleted on close-out.
-- **Wire-checks are not in CI** — all 26 run only by hand against a local `vercel dev` +
+- **Wire-checks are not in CI** — all 27 run only by hand against a local `vercel dev` +
   supabase, and they are the ONLY thing that proves `api/` runtime correctness (`tsc` cannot
   see DB columns or constraints). A regression there ships green. Raised repeatedly and
   deliberately not taken on yet; it needs a CI supabase + a way to boot the functions
   headlessly, which is a piece of work in its own right rather than a config tweak.
-- **A NAT forward reaches only ONE occupant of a shared AP** — the public-IP lookup resolves
-  the box behind the NAT to whichever occupant joined the ESSID most recently, so a forward
-  naming any other occupant's leased address is dead. The fix is to resolve the forward's
-  internal IP through `network_lan_leases` to whoever actually leases that octet, which makes
-  every occupant forward-reachable. **A behaviour change owing RED under `tdd`** — deliberately
-  kept out of the registry reduction (which conserved the arbitrariness rather than fixing it)
-  so that reduction stayed behaviour-preserving. This one now bites harder than it reads: a
-  defender who hardens their box and leaves it on the WiFi can still be unreachable through
-  their own forward simply because somebody joined the AP after them. Surfaced by the Slice 6a
-  diagnosis, 2026-07-27.
+- ~~**A NAT forward reaches only ONE occupant of a shared AP**~~ — **FIXED at v0.99.0.** The
+  public paths no longer resolve "the box behind the NAT" at all: a forward's `internalIp` is
+  matched against the ESSID's `network_lan_leases` + `home_network_occupants`, so it lands on
+  whoever actually leases that address. Every occupant is forward-reachable, two forwards on one
+  gateway reach two different boxes with two different credentials, and each is gated on its own
+  target's liveness. As-built in `cross-player-architecture.md` §3; wire-check
+  `scripts/testSharedApForwards.ts`.
+- **Saving a shared file deletes another occupant's edits (OPEN, found 2026-07-28 at v0.99.0).**
+  A session on a FOREIGN machine fetches its journal on the hop and refetches after its OWN
+  writes — nothing else invalidates it, because the `patches-changed` sync channel is
+  workstation-scoped. So a player standing on a shared gateway never learns another occupant
+  wrote to it, `nano` saves the WHOLE buffer, and last-writer-wins replay drops the newer rules.
+  Reproduced live and end-to-end: B added a third forward, A (session opened before that write)
+  saved a stale buffer, and an outsider's `nmap` of the public IP lost B's port. A fresh `ssh`
+  hop refreshes the view; repeated reads inside the existing session do not, so unlike the
+  v0.98.0 race this does NOT self-heal. Not caused by the NAT-forward change, but made reachable
+  by it — before v0.99.0 only one occupant's forward worked, so nobody co-edited a gateway.
+  **Needs a decision before RED**, four shapes with real trade-offs: a machine-scoped
+  invalidation channel; a refetch when an editor opens a foreign file; an optimistic-concurrency
+  reject on a stale-base save (the honest fix, needs an in-game failure mode); or a line-merge
+  save (changes what `nano` means). Full repro + journal rows in
+  `e2e-shared-network-verification.md` §6.
 - **Two journal fetches for the SAME machine can still land out of order.** Fixed at v0.98.0:
   `refetchPatches` drops a late answer for a machine the player has LEFT, so a hop no longer
   paints the box you came from over the box you are on. What the machine-scoped guard does not
