@@ -56,6 +56,20 @@ agent-browser snapshot -i                              # interactive refs (@e1, 
 
 - **`--headed` is silently ignored if a daemon is already running.** You get a headless browser
   and no error. Always `close --all` first when the user wants to watch.
+- **`open` often never returns.** It blocks until the harness backgrounds it, but the page IS
+  loaded. Do not wait on it or retry — confirm and move on:
+  ```bash
+  agent-browser --session <name> eval "location.href"
+  ```
+- **`close --all` may need running twice.** Those backgrounded `open` commands hold handles, so
+  the first close can report success while `session list` still shows sessions. Re-run until
+  `session list` says `No active sessions`.
+- **Snapshot refs go stale after any DOM change.** `@e2` on the start screen is a different
+  element from `@e2` on the form. Re-run `snapshot -i` after every click before using a ref, or
+  `fill` fails with `Unknown ref: e3`.
+- **Two players = two sessions.** `--session alice` / `--session bob` give isolated
+  `localStorage`, so both identities stay alive and you switch with the flag. Prefer this over
+  the `localStorage.clear()` recipe in §5, which destroys the first player and cannot alternate.
 - **There is no `agent-browser text` command.** Read the terminal with:
   ```bash
   agent-browser eval "document.body.innerText.slice(-800)"
@@ -159,6 +173,13 @@ additionally need the env:
 npx dotenv -e .env.development.local -- npx tsx ./q.tmp.ts
 ```
 
+For a plain table read, skip the temp file — query the container directly. **`supabase db psql
+-c` does not exist** (CLI 2.95: `unknown shorthand flag: 'c'`); go through docker:
+
+```bash
+docker exec supabase_db_jshack-me-v2 psql -U postgres -tAc "select * from home_network_occupants"
+```
+
 Useful lookups: `workstationGuestPassword(ownerKey)`, `assignHomeNetwork(ownerKey, essid)` →
 `{ localIp, hostname }` (no `publicIp` — public IPs are server-allocated), and the
 `network_public_ips` table for an ESSID's actual public IP. Cross-check any derived `localIp`
@@ -193,5 +214,10 @@ code to the next session.
 Add a recipe whenever you reach a state that cost you more than one wrong attempt. Keep the
 shape: **target state → numbered commands → the trap in each**. Traps are the value; a bare
 command list will be re-derived correctly anyway, but an ordering trap costs a full cycle every
-time. Candidates not yet written: a bricked box, a deep-chain pivot, a same-LAN two-occupant
-encounter.
+time.
+
+**A bricked gateway and a multi-occupant same-LAN encounter are now written up** — as full
+journeys rather than recipes — in [`v2/docs/e2e-shared-network-verification.md`](../../../v2/docs/e2e-shared-network-verification.md),
+which also carries the two-player mechanics, the ESSID-discovery constraint, and a known
+client defect worth not misreading as a test failure. Read it before driving any
+cross-player scenario. Still unwritten: a deep-chain pivot.
