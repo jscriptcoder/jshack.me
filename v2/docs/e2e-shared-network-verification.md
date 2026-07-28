@@ -64,8 +64,8 @@ These are the item-#5 acceptance criteria that only a real two-player journey sh
 
 Follow the skill's §1 in full, then two additions specific to this run:
 
-**Confirm the version banner reads `0.96.0`.** Anything lower is a stale orphaned
-server serving pre-6b code, and every registry claim below would be meaningless.
+**Confirm the version banner matches `v2/package.json`.** Anything lower is a stale
+orphaned server serving older code, and every claim below would be meaningless.
 
 **Start from a clean world.** The shared-AP assertions are about *who is on a network*,
 and a leftover occupant from an earlier session will make a two-player scan read as
@@ -389,16 +389,17 @@ result, open a fresh one.
 |---|---|
 | A claim fails in browser **and** its wire-check fails | server bug — fix at `api/` or `core/`, wire-check first |
 | Browser fails, wire-check passes | UI/adapter bug, or you tested as the wrong player (§3) |
-| A shared box reads empty/stale right after `ssh` | **known client defect** — re-read after ~10 s (below) |
+| A shared box reads empty/stale right after `ssh` | fixed at v0.98.0 (below) — on an older build, re-read after ~10 s |
 | `network "X" not found` | B's scan does not contain X — re-`airdump` (§4), it re-rolls |
 | Empty foreign tree after a successful `ssh` | the hop resolved but the fetch did not — check `/api/network` in `agent-browser console` |
 | Everything 502s | port squatter — the skill's §1 kill, then restart |
-| Results contradict the code you just read | version banner ≠ `0.96.0` — stale orphaned server |
+| Results contradict the code you just read | version banner ≠ `v2/package.json` — stale orphaned server |
 
-### Known client defect: the journal lags an `ssh` hop
+### Fixed at v0.98.0: the journal lagged an `ssh` hop
 
-Reproduced on 2026-07-28, v0.96.0. After `ssh`ing onto a shared generated box, the same
-session shows two different trees:
+Reproduced on 2026-07-28, v0.96.0; fixed the same day. Kept here because the shape recurs:
+any late answer applied without asking who it was for can paint one machine over another.
+After `ssh`ing onto a shared generated box, the same session showed two different trees:
 
 ```
 root@inner-gw:/root# ls /tmp          # immediately after the hop
@@ -411,18 +412,23 @@ every writer's rows, and replaying them offline over `generatedBaseFsForMachineI
 produces the correct tree — the file and the edit both materialize. Only the browser is
 behind.
 
-`refreshServedRoot` drops a late result when the player has since hopped
-(`if (activeSession()?.machineId !== active.machineId) return;`). `refetchPatches` has
-**no such guard** — it calls `setPatches` unconditionally when its fetch resolves — so
-concurrent refetches from a quick hop can land out of order and leave the previous
-machine's journal (or an empty one) in place.
+`refreshServedRoot` already dropped a late result when the player had since hopped
+(`if (activeSession()?.machineId !== active.machineId) return;`). `refetchPatches` had
+**no such guard** — it called `setPatches` unconditionally when its fetch resolved — so
+the two refetches a hop fires could land out of order and leave the previous machine's
+journal (or an empty one) in place.
 
-**Why it matters beyond a confusing read:** `nano` saves the *whole buffer*. Opening an
+**Why it mattered beyond a confusing read:** `nano` saves the *whole buffer*. Opening an
 editor during the stale window and saving would write back a tree missing the other
-occupants' rules, silently wiping them from a shared gateway. Always confirm the buffer
-contains the writes you expect before saving on a shared box.
+occupants' rules, silently wiping them from a shared gateway.
 
-Owed: a RED test at the UI layer, then the same stale-result guard on `refetchPatches`.
+The fix carries `refetchPatches`' own deps through its await and applies the answer only
+while the player still stands on that machine — the same rule as its sibling. Covered by
+`ui/state.test.ts` ("patch journal across a machine change"), which rehydrates onto a hop
+with the own box's journal held open, then releases it. One residue is deliberately left:
+two fetches for the SAME machine can still land out of order (own box only, self-healing) —
+see the deferred backlog in `conventions-and-gotchas.md` for why the obvious counter-based
+fix is not a drop-in.
 
 ---
 

@@ -126,7 +126,7 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
     them. A follow-up item then makes the ESSID space procedurally generated and large, and
     tunes the occupied-ESSID injector down.
 
-**Current version: 0.94.0.**
+**Current version: 0.98.0.**
 
 To pick up the next slice: read the relevant `plans/*.md` TOP BLOCK (live status +
 as-built), then the cross-player architecture doc if the work touches cross-player paths.
@@ -456,22 +456,16 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   defender who hardens their box and leaves it on the WiFi can still be unreachable through
   their own forward simply because somebody joined the AP after them. Surfaced by the Slice 6a
   diagnosis, 2026-07-27.
-- **The patch journal lags an `ssh` hop, so a shared box reads stale right after landing.**
-  Reproduced 2026-07-28 on v0.96.0: `ls /tmp` on a shared inner gateway returned empty
-  immediately after the hop and the fellow occupant's file ~12 s later, same session, nothing
-  else done. The server is NOT at fault — a signed `listPatches` for that machine returns 200
-  with every writer's rows, and replaying them offline over `generatedBaseFsForMachineId(...)`
-  materializes the correct tree. Only the browser is behind. Cause: `refreshServedRoot` drops a
-  late result when the player has since hopped
-  (`if (activeSession()?.machineId !== active.machineId) return;`) but `refetchPatches` has no
-  such guard — it calls `setPatches` unconditionally when its fetch resolves — so the
-  back-to-back refetches a quick hop fires can land out of order and leave the previous
-  machine's journal (or an empty one) in place. **Worse than a confusing read:** `nano` saves
-  the WHOLE buffer, so opening an editor inside the stale window and saving writes back a tree
-  missing the other occupants' rules, silently wiping them from a shared gateway. Owes RED at
-  the UI layer (jsdom + `@solidjs/testing-library`), then the same stale-result guard on
-  `refetchPatches`. Full write-up incl. the reproduction in
-  `e2e-shared-network-verification.md` §6.
+- **Two journal fetches for the SAME machine can still land out of order.** Fixed at v0.98.0:
+  `refetchPatches` drops a late answer for a machine the player has LEFT, so a hop no longer
+  paints the box you came from over the box you are on. What the machine-scoped guard does not
+  cover is two in-flight fetches for one machine — a cross-tab `patches-changed` hint racing a
+  write's own reconciliation — where the older answer landing last leaves `patches()` one write
+  behind until the next refetch. Own-box only (the sync channel is workstation-scoped) and
+  self-healing, so it was left. The obvious fix — a monotonic "newest issued fetch wins"
+  counter — is NOT a drop-in: it would also discard the reconciliation `wrapWithRefetch`
+  awaits, breaking the documented promise that a command's write is visible to the next line it
+  runs. Any fix has to keep that one.
 - **OPEN DESIGN QUESTION: an established session is never re-validated against its route.**
   Reachability is decided once, at connect time; from then on `authorizeMachineAccess` only
   asks "does this player hold an active session on this machine?", never "does the path still

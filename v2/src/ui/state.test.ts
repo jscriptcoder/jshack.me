@@ -1,4 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { generateHomeLan } from '../core/generation/generateHomeLan';
+import { machineIdForLanHost } from '../core/generation/lanHostIdentity';
+import { lanLeaseCacheIn } from '../core/network/lanLeaseCache';
+import { CONNECTED_ESSID_KEY } from './connectionPersistence';
 
 /**
  * Regression guard for the module-top-level init bug (see intro-screen plan).
@@ -155,6 +159,140 @@ describe('resolveBootCheck', () => {
     const state = await import('./state');
 
     await expect(state.resolveBootCheck()).resolves.toEqual({ ok: true });
+  });
+});
+
+/**
+ * The patch journal is per-machine, and the player moves between machines while a
+ * fetch for one of them is still in flight — a reload lands straight back on an ssh
+ * hop, and every hop swaps the journal under whatever was already asked for. The
+ * journal the player SEES must belong to the machine they are standing on, whatever
+ * order the answers come back in.
+ *
+ * Getting this wrong is worse than a confusing `ls`: `nano` saves the whole buffer,
+ * so an editor opened over another machine's tree writes back a file stripped of
+ * every row the real one holds — silently wiping a shared box's config. Reproduced
+ * live on a shared gateway before the guard existed
+ * (`docs/e2e-shared-network-verification.md`).
+ */
+describe('patch journal across a machine change', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const ESSID = 'ferro-cafe';
+  const LAN = generateHomeLan(ESSID);
+  const REMOTE_HOST = LAN.hosts.find((host) => host.kind === 'machine');
+  if (REMOTE_HOST === undefined) throw new Error(`no ordinary host generated on ${ESSID}`);
+  const REMOTE_MACHINE_ID = machineIdForLanHost(REMOTE_HOST, ESSID);
+
+  const OWN_BOX_FILE = 'note-on-my-own-box';
+  const REMOTE_FILE = 'shared-config';
+
+  /** Let every answer already in flight land: a macrotask turn runs only once the
+   *  microtask queue — where the fetch/decode/apply chain lives — has drained. */
+  const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
+  const patchRow = (name: string) => ({
+    path: `/tmp/${name}`,
+    content: 'contents',
+    owner: 'root',
+  });
+
+  const hopSessionRow = {
+    session_id: 'ssh-hop-1',
+    machine_id: REMOTE_MACHINE_ID,
+    credentials: { username: 'root', userType: 'root' },
+    parent_session_id: null,
+    source_ip: null,
+    kind: 'ssh',
+    created_at: '2026-01-01T00:00:00.000Z',
+  };
+
+  /**
+   * Start the game already connected to `ESSID` and already holding an ssh session
+   * on a host of that LAN — the state a reload rehydrates into. Startup asks for the
+   * OWN box's journal first, then rehydrates onto the hop and asks for that one;
+   * `ownJournalHeld` decides which of the two answers comes back last.
+   */
+  const startOnRehydratedHop = async (options: { readonly ownJournalHeld: boolean }) => {
+    vi.resetModules();
+    const store = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => store.set(key, value),
+      removeItem: (key: string) => store.delete(key),
+    };
+    storage.setItem(CONNECTED_ESSID_KEY, ESSID);
+    lanLeaseCacheIn(storage).remember(ESSID, `${LAN.subnet}.77`);
+    vi.stubGlobal('localStorage', storage);
+
+    let openOwnJournalGate = (): void => undefined;
+    const ownJournalGate = options.ownJournalHeld
+      ? new Promise<void>((resolve) => {
+          openOwnJournalGate = resolve;
+        })
+      : Promise.resolve();
+    let markOwnJournalAnswered = (): void => undefined;
+    const ownJournalAnswered = new Promise<void>((resolve) => {
+      markOwnJournalAnswered = resolve;
+    });
+
+    const json = (body: unknown) => ({ ok: true, status: 200, json: async () => body });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: { body?: string }) => {
+        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<string, unknown>;
+        if (fields.action === 'listSessions') return json({ sessions: [hopSessionRow] });
+        if (fields.action !== 'listPatches') return json({});
+        if (fields.machine_id === REMOTE_MACHINE_ID) {
+          return json({ patches: [patchRow(REMOTE_FILE)] });
+        }
+        await ownJournalGate;
+        markOwnJournalAnswered();
+        return json({ patches: [patchRow(OWN_BOX_FILE)] });
+      }),
+    );
+
+    const state = await import('./state');
+    state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
+    // Let the own box answer, then wait until it actually HAS — an absence
+    // assertion made before the stale answer arrives would pass for free.
+    const releaseOwnJournal = async (): Promise<void> => {
+      openOwnJournalGate();
+      await ownJournalAnswered;
+      await settle();
+    };
+    return { state, releaseOwnJournal };
+  };
+
+  /** What `ls /tmp` shows the player right now, on whichever box they stand. */
+  const listTmp = async (state: typeof import('./state')) => {
+    state.setInput('ls /tmp');
+    await state.runInput();
+    return state
+      .scrollback()
+      .map((line) => line.content)
+      .join('\n');
+  };
+
+  it('shows the hopped machine’s journal once the reload lands on the hop', async () => {
+    const { state, releaseOwnJournal } = await startOnRehydratedHop({ ownJournalHeld: false });
+    await vi.waitFor(() => expect(state.promptHost()).toBe(REMOTE_HOST.hostname));
+    await releaseOwnJournal();
+
+    expect(await listTmp(state)).toContain(REMOTE_FILE);
+  });
+
+  it('ignores a journal answer for the machine the player has already left', async () => {
+    const { state, releaseOwnJournal } = await startOnRehydratedHop({ ownJournalHeld: true });
+    await vi.waitFor(() => expect(state.promptHost()).toBe(REMOTE_HOST.hostname));
+
+    // The own box finally answers — but the player is standing somewhere else now,
+    // so its files must not appear, and the hop's journal must survive intact.
+    await releaseOwnJournal();
+
+    const listing = await listTmp(state);
+    expect(listing).not.toContain(OWN_BOX_FILE);
+    expect(listing).toContain(REMOTE_FILE);
   });
 });
 
