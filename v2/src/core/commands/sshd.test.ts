@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { asAbsPath, type UserType } from '../types';
-import type { CommandResult, PatchResult } from './types';
+import type { CommandResult, PatchResult, TerminalLine } from './types';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
@@ -16,6 +16,10 @@ import { sshd } from './sshd';
  * see port 22 open. It is root-only (a daemon needs root), refuses to start when
  * already running, and validates the optional port. The tests capture every
  * `patches.write` so "refused ⇒ nothing written" is provable.
+ *
+ * Starting the daemon STREAMS: the announcement must reach the terminal while
+ * the start is still pending, so the tests drain the stream rather than reading
+ * a collected line set — and a refusal, which does no work at all, stays sync.
  */
 
 const NO_FLAGS = new Map<string, string | true>();
@@ -64,30 +68,66 @@ const syncResult = (
   return { text: result.lines.map((line) => line.content).join('\n'), exitCode: result.exitCode };
 };
 
+/** Drain a streamed result to its lines + exit code. A streamed command is LAZY:
+ *  none of its work runs until something consumes the lines. */
+const streamResult = async (
+  result: CommandResult,
+): Promise<{
+  readonly lines: readonly TerminalLine[];
+  readonly text: string;
+  readonly exitCode: number;
+}> => {
+  if (result.kind !== 'async') throw new Error('async expected');
+  const lines: TerminalLine[] = [];
+  for await (const line of result.lines) lines.push(line);
+  return {
+    lines,
+    text: lines.map((line) => line.content).join('\n'),
+    exitCode: await result.exitCode(),
+  };
+};
+
+/** The FIRST streamed line, pulled without draining the rest — leaving the
+ *  command suspended mid-flight so the world it hasn't touched yet is
+ *  inspectable. */
+const firstStreamedLine = async (result: CommandResult): Promise<TerminalLine | undefined> => {
+  if (result.kind !== 'async') throw new Error('async expected');
+  for await (const line of result.lines) return line;
+  return undefined;
+};
+
 describe('sshd', () => {
+  it('announces the daemon start before the pidfile is written', async () => {
+    const { env, writes } = sshdEnv();
+
+    const first = await firstStreamedLine(await sshd.execute(env, [], NO_FLAGS));
+
+    // The player must see the daemon starting WHILE it starts, not after: the
+    // announcement is out before the write that actually opens the port.
+    expect(first).toEqual({ kind: 'text', content: 'Starting OpenSSH server...' });
+    expect(writes).toEqual([]);
+  });
+
   it('starts on the default port, writing /var/run/sshd.pid as a new file', async () => {
     const { env, writes } = sshdEnv();
 
-    const result = await sshd.execute(env, [], NO_FLAGS);
+    const { lines, exitCode } = await streamResult(await sshd.execute(env, [], NO_FLAGS));
 
     expect(writes).toEqual([
       { path: '/var/run/sshd.pid', content: 'sshd:port=22', options: { isNew: true } },
     ]);
     // Exact output: a success renders as plain `text` lines with the daemon banner.
-    expect(result).toEqual({
-      kind: 'sync',
-      lines: [
-        { kind: 'text', content: 'Starting OpenSSH server...' },
-        { kind: 'text', content: 'Server listening on 0.0.0.0 port 22.' },
-      ],
-      exitCode: 0,
-    });
+    expect(lines).toEqual([
+      { kind: 'text', content: 'Starting OpenSSH server...' },
+      { kind: 'text', content: 'Server listening on 0.0.0.0 port 22.' },
+    ]);
+    expect(exitCode).toBe(0);
   });
 
   it('starts on a given port, writing that port into the pidfile', async () => {
     const { env, writes } = sshdEnv();
 
-    const { text, exitCode } = syncResult(await sshd.execute(env, ['2222'], NO_FLAGS));
+    const { text, exitCode } = await streamResult(await sshd.execute(env, ['2222'], NO_FLAGS));
 
     expect(writes[0].content).toBe('sshd:port=2222');
     expect(text).toContain('port 2222');
@@ -163,20 +203,24 @@ describe('sshd', () => {
     const lowEnv = sshdEnv();
     const highEnv = sshdEnv();
 
-    await sshd.execute(lowEnv.env, ['1'], NO_FLAGS);
-    await sshd.execute(highEnv.env, ['65535'], NO_FLAGS);
+    await streamResult(await sshd.execute(lowEnv.env, ['1'], NO_FLAGS));
+    await streamResult(await sshd.execute(highEnv.env, ['65535'], NO_FLAGS));
 
     expect(lowEnv.writes[0].content).toBe('sshd:port=1');
     expect(highEnv.writes[0].content).toBe('sshd:port=65535');
   });
 
-  it('reports a write failure as an error, surfacing the reason', async () => {
+  it('reports a write failure as an error after the announcement, surfacing the reason', async () => {
     const { env } = sshdEnv({ writeResult: { ok: false, error: 'network_error' } });
 
-    const { text, exitCode } = syncResult(await sshd.execute(env, [], NO_FLAGS));
+    const { lines, exitCode } = await streamResult(await sshd.execute(env, [], NO_FLAGS));
 
-    expect(text).toContain('sshd:');
-    expect(text).toContain('I/O error');
+    // The announcement is already out when the start fails, so the failure
+    // follows it rather than replacing it — and it renders red.
+    expect(lines).toEqual([
+      { kind: 'text', content: 'Starting OpenSSH server...' },
+      { kind: 'error', content: 'sshd: I/O error' },
+    ]);
     expect(exitCode).toBe(1);
   });
 
@@ -199,7 +243,7 @@ describe('sshd', () => {
       },
     });
 
-    const { exitCode } = syncResult(await sshd.execute(env, [], NO_FLAGS));
+    const { exitCode } = await streamResult(await sshd.execute(env, [], NO_FLAGS));
 
     expect(exitCode).toBe(0);
     expect(writes).toEqual([

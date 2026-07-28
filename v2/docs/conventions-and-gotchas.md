@@ -188,6 +188,21 @@ as-built), then the cross-player architecture doc if the work touches cross-play
   codebase-wide before scoping.
 - **Real network latency over fake delays.** When real server round-trips replace fake
   `setTimeout` pacing, take them; don't stack fake on top of real.
+- **A command that does slow work streams its progress.** If the work takes real time (a
+  server round-trip) — or its real-world counterpart does — the command returns
+  `kind: 'async'` and announces each step BEFORE doing it, so the announcement paints while
+  the work is pending instead of narrating work already finished. A line ending in `...`
+  means "happening now"; the arrival of the NEXT line is what reports it finished; the last
+  step is reported by the prompt coming back. **No `Done` / completion marker on the
+  in-flight line** — real `apt` gets away with `Reading package lists... Done` only because
+  it rewrites the line it already printed, and a terminal that only appends can't. Pace the
+  steps with `env.sleep` (abort-aware, so Ctrl-C unwinds mid-sequence). Build the result with
+  `streamedResult` from `core/commands/streaming.ts`: it forwards an
+  `AsyncGenerator<TerminalLine, number>` and captures the generator's RETURN as the exit code,
+  which a bare `for await` would throw away. Where a gate sits decides its shape — a refusal
+  that never reached the slow work (apt's root/offline checks) stays `kind: 'sync'` with no
+  preamble, while a failure only discoverable AFTER the work started (an unknown package)
+  lands beneath the announcements the player has already seen.
 - **No `/etc/shadow`.** In-game passwords live inline in `/etc/passwd`. `/etc/shadow` does
   not exist in this game — don't reference it in design or code.
 - **Prefer fire-and-forget server calls** alongside existing optimistic state setters over
@@ -216,6 +231,14 @@ as-built), then the cross-player architecture doc if the work touches cross-play
   silently. Watch the network tab.
 - **No metadata-existence tests** (`expect(cmd.name).toBe('foo')`). DO test metadata
   *preservation* through wrappers/HOFs and *consumption* by other commands (help/man).
+- **A streamed (`kind: 'async'`) command is LAZY — `await command.execute(...)` performs
+  NOTHING.** Its body doesn't start until something consumes the lines, so a test that
+  executes and then asserts on `patches.write` calls sees an empty spy and passes or fails
+  for the wrong reason. Drain the stream first. In the game every consumer already drains
+  (the terminal renders each line as it arrives; a pipe or redirect collects them first), so
+  this bites only in tests. The upside: pulling just the FIRST line leaves the command
+  suspended mid-flight, which is how "the announcement is out before the work happens" is
+  provable at all.
 - **A `makeDeps(over)` helper must RETURN the mock that actually landed in `deps`.** The
   common shape — build default `vi.fn`s, then `{...defaults, ...over}` — returns the *default*
   mock even when `over` replaced it. A later `ctx.someDep.mockImplementation(...)` then

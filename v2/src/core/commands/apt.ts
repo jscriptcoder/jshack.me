@@ -13,19 +13,28 @@
  * user-tier player could never run — and apt-installed tools must be runnable by
  * the player, not just root. This mirrors the system-binary perm shape.
  *
- * Slice 1 ships `install` only; `list` lands in a later slice (unknown ops fall
- * through to the apt-style "Invalid operation" error).
+ * Reaching the repo STREAMS its steps (see `streaming.ts`) so the player watches
+ * apt work rather than reading a report of work already done. Where a gate
+ * refuses decides its shape: root and connectivity are checked BEFORE the repo
+ * is touched, so they refuse sync with no preamble, while an unknown package is
+ * only discoverable by reading the lists — so it reports beneath the preamble,
+ * as real apt does.
  */
 
 import { asAbsPath } from '../types';
 import type { FilePermissions } from '../filesystem/types';
-import type { Command, CommandEnv, CommandResult, PatchResult } from './types';
+import type { Command, CommandEnv, CommandResult, PatchResult, TerminalLine } from './types';
 import { BINARY_STUB } from '../generation/binaries';
 import { LIBRARY_PERMS } from '../generation/libraries';
 import type { SystemLibrary } from '../generation/libraries';
 import { APT_PACKAGES } from './aptPackages';
 import { libraryDeps } from './libraryDeps';
 import { binaryExists } from './availability';
+import { errorLine, streamedResult, text } from './streaming';
+
+/** Beat between apt's steps, so reaching the repo takes visible time even when
+ *  the writes behind it return instantly. */
+const STEP_DELAY_MS = 300;
 
 const USAGE = [
   'apt: usage:',
@@ -51,16 +60,10 @@ const errorResult = (lines: readonly string[]): CommandResult => ({
   exitCode: APT_ERROR,
 });
 
-const okResult = (lines: readonly string[]): CommandResult => ({
-  kind: 'sync',
-  lines: lines.map((content) => ({ kind: 'text', content })),
-  exitCode: 0,
-});
-
 /** The apt-style failure for a rejected write during install (binary or lib),
  *  so both write paths report the same shape. */
-const installFailure = (packageName: string, error: string): CommandResult =>
-  errorResult([`E: Failed to install ${packageName} (${error})`]);
+const installFailureLine = (packageName: string, error: string): TerminalLine =>
+  errorLine(`E: Failed to install ${packageName} (${error})`);
 
 /** The apt-style "no network" failure, shared by `install` and `list` (both are
  *  online-gated). */
@@ -116,23 +119,74 @@ export const installPackageLibraries = async (
 const packageInstalled = (env: CommandEnv, pkg: (typeof APT_PACKAGES)[number]): boolean =>
   binaryExists(env, pkg.binaries?.[0] ?? pkg.name);
 
+async function* listPackages(
+  env: CommandEnv,
+  flags: ReadonlyMap<string, string | true>,
+): AsyncGenerator<TerminalLine, number> {
+  yield text('Listing...');
+  await env.sleep(STEP_DELAY_MS);
+
+  const installedOnly = flags.has('--installed') || flags.has('-i');
+  yield* APT_PACKAGES.flatMap((pkg) => {
+    const installed = packageInstalled(env, pkg);
+    if (installedOnly && !installed) return [];
+    return [text(`  ${pkg.name}${installed ? ' [installed]' : ''}`)];
+  });
+  return 0;
+}
+
+/** The repo half of `install`, once the caller has cleared the root and
+ *  connectivity gates. Every step is announced before it happens; a failure
+ *  lands beneath the announcements the player has already seen rather than
+ *  replacing them. */
+async function* installPackage(
+  env: CommandEnv,
+  packageName: string,
+): AsyncGenerator<TerminalLine, number> {
+  yield text('Reading package lists...');
+  await env.sleep(STEP_DELAY_MS);
+  yield text('Building dependency tree...');
+  await env.sleep(STEP_DELAY_MS);
+
+  const binaries = binariesFor(packageName);
+  if (binaries === undefined) {
+    yield errorLine(`E: Unable to locate package ${packageName}`);
+    return APT_ERROR;
+  }
+
+  yield text('The following NEW packages will be installed:');
+  yield text(`  ${packageName}`);
+  await env.sleep(STEP_DELAY_MS);
+  yield text(`Setting up ${packageName} ...`);
+
+  for (const binary of binaries) {
+    const result = await env.patches.write(asAbsPath(`/usr/bin/${binary}`), BINARY_STUB, {
+      isNew: true,
+      permissions: INSTALLED_BINARY_PERMS,
+    });
+    if (!result.ok) {
+      yield installFailureLine(packageName, result.error);
+      return APT_ERROR;
+    }
+  }
+
+  const libResult = await installPackageLibraries(env, binaries);
+  if (!libResult.ok) {
+    yield installFailureLine(packageName, libResult.error);
+    return APT_ERROR;
+  }
+
+  return 0;
+}
+
 const handleList = (env: CommandEnv, flags: ReadonlyMap<string, string | true>): CommandResult => {
   if (!env.network.isOnline()) {
     return offlineError();
   }
-  const installedOnly = flags.has('--installed') || flags.has('-i');
-  const rows = APT_PACKAGES.flatMap((pkg) => {
-    const installed = packageInstalled(env, pkg);
-    if (installedOnly && !installed) return [];
-    return [`  ${pkg.name}${installed ? ' [installed]' : ''}`];
-  });
-  return okResult(['Listing...', ...rows]);
+  return streamedResult(listPackages(env, flags));
 };
 
-const handleInstall = async (
-  env: CommandEnv,
-  packageName: string | undefined,
-): Promise<CommandResult> => {
+const handleInstall = (env: CommandEnv, packageName: string | undefined): CommandResult => {
   if (env.session.userType !== 'root') {
     return errorResult([
       'E: Could not open lock file /var/lib/dpkg/lock-frontend - open (13: Permission denied)',
@@ -145,34 +199,7 @@ const handleInstall = async (
   if (packageName === undefined) {
     return errorResult(['E: No package specified.', ...USAGE]);
   }
-
-  const binaries = binariesFor(packageName);
-  if (binaries === undefined) {
-    return errorResult([`E: Unable to locate package ${packageName}`]);
-  }
-
-  for (const binary of binaries) {
-    const result = await env.patches.write(asAbsPath(`/usr/bin/${binary}`), BINARY_STUB, {
-      isNew: true,
-      permissions: INSTALLED_BINARY_PERMS,
-    });
-    if (!result.ok) {
-      return installFailure(packageName, result.error);
-    }
-  }
-
-  const libResult = await installPackageLibraries(env, binaries);
-  if (!libResult.ok) {
-    return installFailure(packageName, libResult.error);
-  }
-
-  return okResult([
-    'Reading package lists... Done',
-    'Building dependency tree... Done',
-    'The following NEW packages will be installed:',
-    `  ${packageName}`,
-    `Setting up ${packageName} ...`,
-  ]);
+  return streamedResult(installPackage(env, packageName));
 };
 
 const execute: Command['execute'] = async (env, args, flags) => {
