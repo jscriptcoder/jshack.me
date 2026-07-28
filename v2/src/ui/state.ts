@@ -475,10 +475,19 @@ export const promptUsername = (): string => activeSession()?.username ?? config?
 /** Active tier — drives the prompt symbol (`#` for root after `su`, else `$`). */
 export const promptTier = (): UserType => activeSession()?.userType ?? 'user';
 
-/** Re-pull the own-workstation journal and replace the local view. */
+/** Re-pull the ACTIVE machine's journal and replace the local view. A late result
+ *  is dropped if the player has since hopped to another machine — a journal belongs
+ *  to exactly one box, so the answer for the box we left must never paint over the
+ *  one we now stand on (`refreshServedRoot` guards its own fetch the same way).
+ *  Without this, a hop's two back-to-back refetches can land out of order and leave
+ *  a foreign tree in `patches()` — which `nano`, saving the WHOLE buffer, would then
+ *  write back over the real file. */
 const refetchPatches = async (): Promise<void> => {
-  if (patchClientDeps === undefined) return;
-  setPatches(await fetchOwnPatches(patchClientDeps));
+  const deps = patchClientDeps;
+  if (deps === undefined) return;
+  const journal = await fetchOwnPatches(deps);
+  if (patchClientDeps?.machineId !== deps.machineId) return;
+  setPatches(journal);
 };
 
 /** Rebuild the hop chain from the server's active sessions so a `su` elevation
