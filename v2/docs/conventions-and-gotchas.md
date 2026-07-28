@@ -447,6 +447,42 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   defender who hardens their box and leaves it on the WiFi can still be unreachable through
   their own forward simply because somebody joined the AP after them. Surfaced by the Slice 6a
   diagnosis, 2026-07-27.
+- **The patch journal lags an `ssh` hop, so a shared box reads stale right after landing.**
+  Reproduced 2026-07-28 on v0.96.0: `ls /tmp` on a shared inner gateway returned empty
+  immediately after the hop and the fellow occupant's file ~12 s later, same session, nothing
+  else done. The server is NOT at fault — a signed `listPatches` for that machine returns 200
+  with every writer's rows, and replaying them offline over `generatedBaseFsForMachineId(...)`
+  materializes the correct tree. Only the browser is behind. Cause: `refreshServedRoot` drops a
+  late result when the player has since hopped
+  (`if (activeSession()?.machineId !== active.machineId) return;`) but `refetchPatches` has no
+  such guard — it calls `setPatches` unconditionally when its fetch resolves — so the
+  back-to-back refetches a quick hop fires can land out of order and leave the previous
+  machine's journal (or an empty one) in place. **Worse than a confusing read:** `nano` saves
+  the WHOLE buffer, so opening an editor inside the stale window and saving writes back a tree
+  missing the other occupants' rules, silently wiping them from a shared gateway. Owes RED at
+  the UI layer (jsdom + `@solidjs/testing-library`), then the same stale-result guard on
+  `refetchPatches`. Full write-up incl. the reproduction in
+  `e2e-shared-network-verification.md` §6.
+- **OPEN DESIGN QUESTION: an established session is never re-validated against its route.**
+  Reachability is decided once, at connect time; from then on `authorizeMachineAccess` only
+  asks "does this player hold an active session on this machine?", never "does the path still
+  exist?". The gateway's `canBoot` gate is consulted by scans but not by live sessions.
+  Observed 2026-07-28 in the browser E2E: an OUTSIDER (joined to a different ESSID) entered an
+  occupant's box through the AP's NAT forward, and an occupant then bricked that AP gateway.
+  The outsider kept the shell, ran commands, watched the public IP go dark from the inside, and
+  the session row closed with `end_reason = user_exit` — the brick never touched it. Same shape
+  as `nmcli disconnect`, which removes occupancy (new reach fails) without tearing down a
+  session already open on the departing box: topology changes govern NEW connections only.
+  **This is a design decision, not merely a defect** — "you are already inside, the door closing
+  behind you doesn't eject you" is defensible. But it costs the defender their most natural
+  panic move: bricking your own router when you notice an intruder currently does nothing to
+  them, and hands them a foothold nobody outside can scan or reach. If it is taken, the data
+  needed is already persisted: `sessions.source_ip` outside the target's `/24` identifies a
+  session that arrived through the NAT, and `parent_session_id` gives the hop chain for the
+  deep-chain case. Three shapes: leave it; evict off-LAN-sourced sessions when the tombstone
+  lands; or re-validate lazily on the next authorized action (preferred — server-authoritative,
+  no fan-out or background job, and it matches how the public scan already asks `canBoot` at
+  scan time rather than precomputing darkness). Decide the behaviour before writing RED.
 - **Pivot / operate-from-a-hop** beyond what 5b shipped; ssh-from-a-pivot.
 - **Replay/nonce store** — built then REVERTED (ship-first): narrow value in this threat
   model (TLS wire + player holds the key → just re-signs with a fresh nonce; only blocks
