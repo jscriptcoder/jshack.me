@@ -17,17 +17,27 @@
  * The already-running check reads the pidfile via `fs.stat` (the raw node,
  * bypassing the caller's read perms) — a daemon checks its own pidfile regardless
  * of who invoked it.
+ *
+ * Bringing the daemon up STREAMS (see `streaming.ts`): the start is announced
+ * before the write that opens the port, so the player watches it come up rather
+ * than being told afterwards. The gates above refuse instantly and never reached
+ * the daemon, so they stay sync.
  */
 
-import type { Command, CommandEnv, CommandResult, PatchResult } from './types';
+import type { Command, CommandEnv, CommandResult, PatchResult, TerminalLine } from './types';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { formatPidfileContent, parsePidfilePort, pidfilePath } from '../services/pidfile';
+import { errorLine, streamedResult, text } from './streaming';
 
 const SSH = SERVICE_CATALOG.ssh;
 const PIDFILE_PATH = pidfilePath(SSH);
 
 const PORT_MIN = 1;
 const PORT_MAX = 65535;
+
+/** Beat between the start announcement and the port coming up, so the daemon
+ *  visibly takes a moment even when the write returns instantly. */
+const STARTUP_DELAY_MS = 400;
 
 /** patches.write failures, mapped to a daemon-style reason. */
 const WRITE_ERROR: Record<Extract<PatchResult, { ok: false }>['error'], string> = {
@@ -59,6 +69,22 @@ const runningPort = (env: CommandEnv): number | null => {
   return parsePidfilePort(node.content) ?? SSH.defaultPort;
 };
 
+async function* start(env: CommandEnv, port: number): AsyncGenerator<TerminalLine, number> {
+  yield text('Starting OpenSSH server...');
+  await env.sleep(STARTUP_DELAY_MS);
+
+  const result = await env.patches.write(PIDFILE_PATH, formatPidfileContent(SSH, port), {
+    isNew: true,
+  });
+  if (!result.ok) {
+    yield errorLine(`sshd: ${WRITE_ERROR[result.error]}`);
+    return 1;
+  }
+
+  yield text(`Server listening on 0.0.0.0 port ${port}.`);
+  return 0;
+}
+
 const execute: Command['execute'] = async (env, args) => {
   if (env.session.userType !== 'root') {
     return errorResult('sshd: must be run as root');
@@ -74,21 +100,7 @@ const execute: Command['execute'] = async (env, args) => {
     return errorResult(`sshd: already running on port ${already}`);
   }
 
-  const result = await env.patches.write(PIDFILE_PATH, formatPidfileContent(SSH, port), {
-    isNew: true,
-  });
-  if (!result.ok) {
-    return errorResult(`sshd: ${WRITE_ERROR[result.error]}`);
-  }
-
-  return {
-    kind: 'sync',
-    lines: [
-      { kind: 'text', content: 'Starting OpenSSH server...' },
-      { kind: 'text', content: `Server listening on 0.0.0.0 port ${port}.` },
-    ],
-    exitCode: 0,
-  };
+  return streamedResult(start(env, port));
 };
 
 export const sshd: Command = {
