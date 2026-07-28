@@ -80,7 +80,9 @@ actually gone before trusting anything else:
 
 ```bash
 # expect: relation "network_registry" does not exist
-npx supabase db psql -c 'select 1 from network_registry limit 1' 2>&1 | tail -2
+# `supabase db psql -c` does NOT exist (CLI 2.95: "unknown shorthand flag: 'c'").
+# Go through the container instead — this is the reliable way to query local supabase.
+docker exec supabase_db_jshack-me-v2 psql -U postgres -c 'select 1 from network_registry limit 1' 2>&1 | head -2
 ```
 
 ---
@@ -447,11 +449,25 @@ The WiFi password itself is `passwordForEssid` in `core/generation/generateWifi.
 exported — read it from the `aircrack` output, or from `wifiNetworks()` in the page via
 `agent-browser eval`).
 
-DB queries need the env:
+For a plain read, skip the temp file entirely and query the container directly — far
+quicker, and it needs no env:
+
+```bash
+docker exec supabase_db_jshack-me-v2 psql -U postgres -tAc \
+  "select essid, octet, left(owner_key,12) from network_lan_leases order by octet"
+```
+
+Use a `tsx` temp file when the query needs signing or core imports (it needs the env):
 
 ```bash
 npx dotenv -e .env.development.local -- npx tsx ./q.tmp.ts
 ```
+
+Signing one as a live player is the sharpest way to split a client bug from a server bug:
+lift `jshack.identity` out of `localStorage`, `signRequest(identity, 'listPatches', {...})`,
+and compare what the server returns against what the terminal shows. That is exactly how
+the §6 defect was isolated. Note `signRequest` takes `(identity, action, fields)` —
+positional, not one options object.
 
 Useful reads: `network_public_ips` (an ESSID's public IP), `home_network_occupants`
 (who is on it, and the identity fields), `network_lan_leases` (who holds which octet).
