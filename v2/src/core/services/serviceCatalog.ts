@@ -46,4 +46,17 @@ export const SERVICE_CATALOG = {
     altPorts: [2222, 8022],
     altPortChance: 0.2,
   },
+  // One row for the web, not one per server program: `nginx` and `apache2` are two
+  // ways to open the SAME port, so they share this identity and cannot both bind it.
+  // Rarer than ssh — a box you can log into is ordinary, a box that publishes
+  // something is a lead worth following.
+  http: {
+    service: 'http',
+    pidfile: 'nginx.pid',
+    defaultPort: 80,
+    runUser: 'root',
+    placement: 0.3,
+    altPorts: [8080, 8000],
+    altPortChance: 0.25,
+  },
 } as const satisfies Record<string, ServiceSpec>;

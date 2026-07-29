@@ -51,6 +51,7 @@ import {
   TRAVERSABLE_DIR,
 } from './baseFs';
 import { md5 } from './md5';
+import { pickWebPage } from './pools/webPages';
 import { AUTH_LOG_PERMISSIONS } from '../logging/authLog';
 import { KERN_LOG_PERMISSIONS } from '../logging/kernLog';
 import type { Directory, FileEntry, FilePermissions } from '../filesystem/types';
@@ -64,6 +65,14 @@ const PIDFILE_PERMS: FilePermissions = {
 };
 
 const pidfile = (content: string, owner: string): FileEntry => file(content, PIDFILE_PERMS, owner);
+
+/** A served page: readable by anyone (that is what publishing it means), written
+ *  only by root, never executed. */
+const WEB_PAGE_PERMS: FilePermissions = {
+  read: ['root', 'user', 'guest'],
+  write: ['root'],
+  execute: [],
+};
 
 // --- NPC account content (seeded; cracking these is a later epic) ---
 
@@ -120,8 +129,9 @@ export const hostServices = (essid: string, host: LanHost): readonly HostService
 /**
  * The generated base filesystem for `host` — a full operable Linux box, seeded
  * deterministically from `(essid, host.ip)`. `/var/run` holds one pidfile per running
- * service (empty when the host runs none); the rest is the skeleton `ssh`'s auth
- * (reads `/etc/passwd`) and browse (`ls`/`cat` over the tree) consume.
+ * service (empty when the host runs none); `/var/www/html` appears only on a host
+ * that serves the web, holding the page a reader gets back; the rest is the skeleton
+ * `ssh`'s auth (reads `/etc/passwd`) and browse (`ls`/`cat` over the tree) consume.
  */
 export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
   const prng = createPrng(`host-fs-${essid}-${host.ip}`);
@@ -156,12 +166,36 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
     },
   ]);
 
+  const services = hostServices(essid, host);
   const pidfiles = Object.fromEntries(
-    hostServices(essid, host).map(
+    services.map(
       ({ spec, port }) =>
         [spec.pidfile, pidfile(formatPidfileContent(spec, port), spec.runUser)] as const,
     ),
   );
+
+  // A web root exists only where something serves it. Stamping an empty `/var/www`
+  // on every box would publish a directory nobody is listening on — and the
+  // externally-readable allowlist covers `/var/www/**`, so absence here is what
+  // keeps a non-serving host from exposing anything at all.
+  const webRoot = services.some(({ spec }) => spec === SERVICE_CATALOG.http)
+    ? {
+        www: dir(
+          {
+            html: dir(
+              {
+                'index.html': file(
+                  pickWebPage({ seed: `web-page-${essid}-${host.ip}`, hostname: host.hostname }),
+                  WEB_PAGE_PERMS,
+                ),
+              },
+              TRAVERSABLE_DIR,
+            ),
+          },
+          TRAVERSABLE_DIR,
+        ),
+      }
+    : {};
 
   return dir(
     {
@@ -189,6 +223,7 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
             TRAVERSABLE_DIR,
           ),
           run: dir(pidfiles, TRAVERSABLE_DIR),
+          ...webRoot,
         },
         TRAVERSABLE_DIR,
       ),

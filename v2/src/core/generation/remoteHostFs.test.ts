@@ -46,6 +46,14 @@ const sshHosts = (): readonly { octet: number; port: number }[] =>
     return [{ octet, port }];
   });
 
+const httpHosts = (): readonly { octet: number; port: number }[] =>
+  OCTETS.flatMap((octet) => {
+    const content = pidfileContent(buildRemoteHostFs(ESSID, host(octet)), 'nginx.pid');
+    if (content === null) return [];
+    const port = Number(content.split('=')[1]);
+    return [{ octet, port }];
+  });
+
 /** Navigate to a directory by path segments (readable, no optional chaining). */
 const dirAt = (fs: Directory, ...segments: readonly string[]): Directory => {
   let node: FileNode = fs;
@@ -156,6 +164,122 @@ describe('buildRemoteHostFs', () => {
     const alt = ports.filter((port) => port !== 22).length;
     expect(standard).toBeGreaterThan(alt); // mostly :22
     expect(alt).toBeGreaterThan(0); // but at least one non-standard
+  });
+
+  describe('the web surface (a host running a web server has a page to serve)', () => {
+    /** The served page of a host, or null when it has no web root. */
+    const servedPage = (fs: Directory): string | null => {
+      const varDir = fs.entries.get('var');
+      if (varDir === undefined || varDir.kind !== 'directory') return null;
+      const www = varDir.entries.get('www');
+      if (www === undefined || www.kind !== 'directory') return null;
+      const html = www.entries.get('html');
+      if (html === undefined || html.kind !== 'directory') return null;
+      const index = html.entries.get('index.html');
+      return index !== undefined && index.kind === 'file' ? index.content : null;
+    };
+
+    /** A host's page with its own name substituted back out, so two hosts drawing
+     *  the SAME template compare equal — the interpolated hostname would otherwise
+     *  make every page look unique and hide a pool that never varies. */
+    const servedTemplate = (octet: number): string | null => {
+      const page = servedPage(buildRemoteHostFs(ESSID, host(octet)));
+      return page === null ? null : page.replace(new RegExp(`host-${octet}`, 'g'), '{{hostname}}');
+    };
+
+    it('plants a root-owned nginx.pid and a page at /var/www/html/index.html', () => {
+      // A web server is the one door that needs no credential, so the page IS the
+      // reachable content: the pidfile opens the port, the web root holds what a
+      // reader gets back.
+      const web = httpHosts();
+      expect(web.length).toBeGreaterThan(0);
+      const fs = buildRemoteHostFs(ESSID, host(web[0]!.octet));
+
+      const pid = varRun(fs)?.entries.get('nginx.pid');
+      if (pid === undefined || pid.kind !== 'file') throw new Error('expected nginx.pid file');
+      expect(pid.content).toMatch(/^nginx:port=\d+$/);
+      expect(pid.owner).toBe('root');
+
+      const index = dirAt(fs, 'var', 'www', 'html').entries.get('index.html');
+      if (index?.kind !== 'file') throw new Error('missing /var/www/html/index.html');
+      expect(index.content.length).toBeGreaterThan(0);
+    });
+
+    it('serves a page that names the host serving it', () => {
+      const octet = httpHosts()[0]!.octet;
+      const page = servedPage(buildRemoteHostFs(ESSID, host(octet)));
+      expect(page).toContain(`host-${octet}`);
+      expect(page).not.toContain('{{hostname}}'); // every placeholder substituted
+    });
+
+    it('draws pages from a pool, so the LAN does not serve one page everywhere', () => {
+      // Every page in the pool is reachable across this deterministic 253-host
+      // sample. Asserting the exact width excludes both a draw that never varies
+      // (1 template) and a pool that silently loses an entry.
+      const templates = new Set(httpHosts().map(({ octet }) => servedTemplate(octet)));
+      expect(templates.size).toBe(4);
+    });
+
+    it('plants no /var/www on a host that runs another service but serves no web', () => {
+      // Absence is the protection: `/var/www/**` is externally readable, so a host
+      // with no web server must have no web root rather than an empty one. Checked
+      // against a host that DOES run something (ssh) as well as one running nothing —
+      // the web root has to follow the http service specifically, not the mere
+      // presence of a daemon.
+      const webOctets = new Set(httpHosts().map(({ octet }) => octet));
+      const hasNoWebRoot = (octet: number): boolean => {
+        const varDir = buildRemoteHostFs(ESSID, host(octet)).entries.get('var');
+        if (varDir === undefined || varDir.kind !== 'directory') throw new Error('expected /var');
+        return !varDir.entries.has('www');
+      };
+
+      const sshOnly = sshHosts().find(({ octet }) => !webOctets.has(octet));
+      if (sshOnly === undefined) throw new Error('expected an ssh-but-not-web host');
+      expect(hasNoWebRoot(sshOnly.octet)).toBe(true);
+
+      const sshOctets = new Set(sshHosts().map(({ octet }) => octet));
+      const serviceless = OCTETS.find((octet) => !webOctets.has(octet) && !sshOctets.has(octet));
+      if (serviceless === undefined) throw new Error('expected a serviceless host');
+      expect(hasNoWebRoot(serviceless)).toBe(true);
+    });
+
+    it('publishes the page: world-readable, root-write-only, never executable', () => {
+      const fs = buildRemoteHostFs(ESSID, host(httpHosts()[0]!.octet));
+      const html = dirAt(fs, 'var', 'www', 'html');
+      expect(html.perms).toEqual({
+        read: ['root', 'user', 'guest'],
+        write: ['root'],
+        execute: ['root', 'user', 'guest'],
+      });
+      const index = html.entries.get('index.html');
+      if (index?.kind !== 'file') throw new Error('missing index.html');
+      expect(index.owner).toBe('root');
+      expect(index.perms).toEqual({
+        read: ['root', 'user', 'guest'],
+        write: ['root'],
+        execute: [],
+      });
+    });
+
+    it('serves the web from fewer hosts than it offers ssh (publishing is rarer than being reachable)', () => {
+      const web = httpHosts().length;
+      // 96 of 253 here (~38% — PRNG noise around the 0.3 target) against ssh's 117.
+      // The band brackets that while excluding the mutants that matter: skip-none
+      // (253), skip-all (0), and a flipped threshold (~157). The comparison against
+      // ssh pins the ordering, so raising `placement` to ssh's 0.4 fails too.
+      expect(web).toBeLessThan(sshHosts().length);
+      expect(web).toBeGreaterThan(50);
+      expect(web).toBeLessThan(130);
+    });
+
+    it('puts most web hosts on :80, a seeded minority on a non-standard port', () => {
+      const ports = httpHosts().map((entry) => entry.port);
+      expect(ports.every((port) => port === 80 || port === 8080 || port === 8000)).toBe(true);
+      const standard = ports.filter((port) => port === 80).length;
+      const alt = ports.filter((port) => port !== 80).length;
+      expect(standard).toBeGreaterThan(alt); // mostly :80
+      expect(alt).toBeGreaterThan(0); // but at least one non-standard
+    });
   });
 
   describe('base filesystem skeleton (Slice 3 — an operable remote box)', () => {
