@@ -1,7 +1,7 @@
 # Plan: An editor save never destroys content the player was not shown
 
 **Branch**: feat/modified-since-open
-**Status**: Slice 1 complete (awaiting commit approval) · Slice 2 not started
+**Status**: Slice 1 committed, in review · Slice 2 not started
 **Version at start**: 0.100.0 → **0.101.0 at slice 1**
 
 ## Slice 1 — as built
