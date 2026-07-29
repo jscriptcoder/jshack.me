@@ -49,7 +49,23 @@ const ATTACKER_PUBLIC_IP = '198.51.100.22';
 // Two identities on ONE access point. The gateway's admin password seeds from the
 // ESSID alone; each occupant's own accounts seed from that occupant's owner key.
 const ALICE = generateIdentity();
-const BOB = generateIdentity();
+
+/** An identity whose guest password is NOT `password`. Tests below turn on one
+ *  occupant's credential being WRONG on the other occupant's box, so Alice and Bob
+ *  must differ. The guest pool is eight words wide and these identities are random,
+ *  so two independent draws collide about one run in eight — which failed those tests
+ *  for a reason they were not testing. Drawing again removes the coincidence without
+ *  weakening what they assert. */
+const identityWithGuestPasswordOtherThan = (
+  password: string,
+): ReturnType<typeof generateIdentity> => {
+  const candidate = generateIdentity();
+  return workstationGuestPassword(candidate.publicKeyHex) === password
+    ? identityWithGuestPasswordOtherThan(password)
+    : candidate;
+};
+
+const BOB = identityWithGuestPasswordOtherThan(workstationGuestPassword(ALICE.publicKeyHex));
 
 const AP_GATEWAY_ID = computeApGatewayId(ESSID);
 const ALICE_WS = 'workstation-a1b2c3d4';
