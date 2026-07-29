@@ -614,7 +614,10 @@ const log: LogApi = {
  *  (wrapped with refetch, so an immediate `cat` reflects the save). Returns the
  *  `PatchResult` so the editor can surface a denied/failed save. A null editor or
  *  un-started game degrades to a `no_session` result rather than throwing. */
-export const saveEditor = async (content: string): Promise<PatchResult> => {
+export const saveEditor = async (
+  content: string,
+  options?: { readonly overwriteUnseen?: boolean },
+): Promise<PatchResult> => {
   const mode = editorMode();
   const activePatchApi = patchApi;
   if (mode === null || activePatchApi === undefined) {
@@ -624,7 +627,10 @@ export const saveEditor = async (content: string): Promise<PatchResult> => {
   const isNew = fsView.stat(mode.path) === null;
   const result = await activePatchApi.write(mode.path, content, {
     isNew,
-    baseContent: mode.content,
+    // Forcing the overwrite names NO base rather than a different one: an absent
+    // base is the unconditional write `>` and `touch` already use, whereas any
+    // base at all — including '' — would be compared and could be refused again.
+    ...(options?.overwriteUnseen === true ? {} : { baseContent: mode.content }),
   });
   // Ctrl-O keeps the editor open, so what was just written becomes the base the
   // NEXT write-out is judged against — otherwise a second save would still claim

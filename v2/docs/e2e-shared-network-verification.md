@@ -12,8 +12,9 @@ the assumption that any L1 NPC is sshable), plus one real client defect recorded
 **Act 4 re-run 2026-07-28 against v0.99.0, all four checks passed** — a NAT forward now
 reaches whichever occupant LEASES the address it names, so every occupant is
 forward-reachable and the "publish for the later joiner" workaround is gone. That run also
-found a **new client defect: a stale shared-file buffer silently deletes another
-occupant's rules** (§6). Acts 1–3, 5 and 6 were not re-run on that tree.
+found a **client defect: a stale shared-file buffer silently deleted another occupant's
+rules** — ~~fixed at v0.101.0/v0.102.0~~, see §6. Acts 1–3, 5 and 6 were not re-run on that
+tree.
 
 **Load [`.claude/skills/v2-e2e/SKILL.md`](../../.claude/skills/v2-e2e/SKILL.md) before
 running any `agent-browser` command.** It owns the preflight, the DOM quirks, and the
@@ -413,13 +414,13 @@ result, open a fresh one.
 | A claim fails in browser **and** its wire-check fails | server bug — fix at `api/` or `core/`, wire-check first |
 | Browser fails, wire-check passes | UI/adapter bug, or you tested as the wrong player (§3) |
 | A shared box reads empty/stale right after `ssh` | fixed at v0.98.0 (below) — on an older build, re-read after ~10 s |
-| A shared file is missing an edit another occupant just made | OPEN defect (below) — a session never learns of a foreign write; re-`ssh` to refresh, and do NOT save an editor over it |
+| A shared file is missing an edit another occupant just made | Expected — a session still never learns of a foreign write; re-`ssh` to refresh. Saving over it is now safe: the editor asks first (below) |
 | `network "X" not found` | B's scan does not contain X — re-`airdump` (§4), it re-rolls |
 | Empty foreign tree after a successful `ssh` | the hop resolved but the fetch did not — check `/api/network` in `agent-browser console` |
 | Everything 502s | port squatter — the skill's §1 kill, then restart |
 | Results contradict the code you just read | version banner ≠ `v2/package.json` — stale orphaned server |
 
-### OPEN at v0.99.0: saving a shared file deletes another occupant's edits
+### Fixed at v0.101.0 + v0.102.0: saving a shared file deleted another occupant's edits
 
 Found by the v0.99.0 Act 4 re-run, in the `nano` co-edit half. **Not caused by the NAT
 forward change — but that change is what makes it reachable**, because until v0.99.0 only
@@ -457,12 +458,39 @@ This is the hazard the v0.98.0 note predicted ("nano saves the WHOLE buffer … 
 wiping them from a shared gateway"); v0.98.0 closed the *hop-race* source of staleness,
 not this one. It applies to any shared machine, not only the AP gateway.
 
-**Not yet fixed — it needs a decision, not just a patch.** The candidates: invalidate on a
-cross-player write (needs a machine-scoped sync channel, today's is workstation-scoped);
-refetch the journal when an editor OPENS a foreign file (cheap, narrow, doesn't fix a
-concurrent save); reject a save whose base revision is stale (optimistic concurrency — the
-honest fix, but it needs an in-game failure mode); or line-merge instead of whole-buffer
-save (changes what `nano` means). Logged in `conventions-and-gotchas.md` §9.
+**Fixed by optimistic concurrency on a content hash, server-side.** A save carries a
+fingerprint of the content the editor was SHOWN; the server compares it against the row a
+reader would materialize (`orderPatchesForReplay`, `writer_key` tiebreak included) and
+answers `409 modified_since_open` when they differ. Nano turns that into GNU nano's own
+question — `File was modified since you opened it, continue saving? (y/n)` — where `y`
+re-sends with no fingerprint at all, which is the unconditional write path. Last-writer-wins
+is deliberately preserved: **you can still delete another occupant's rule, you just cannot do
+it blind.** `>`, `touch`, `apt` and the sshd pidfile never showed the player content, carry no
+fingerprint, and are unaffected by construction rather than by a special case.
+
+**The staleness itself is NOT fixed, and is not meant to be.** A session standing on a shared
+machine still never learns of a foreign write — verified again below, where A's editor opened
+on a 5-line buffer while the world held 6. What changed is that the stale buffer can no longer
+destroy anything silently. An editor-open refetch and a machine-scoped invalidation channel
+both stay deferred (`conventions-and-gotchas.md` §9); rejections are therefore routine rather
+than rare, which is accepted.
+
+Re-verified end to end on 2026-07-29 at v0.102.0, three real players, same shape as the repro
+above:
+
+```
+B (root on the gateway):  nano rules.v4 → append `forward 4444 to 192.168.167.19:22` → ^O ^X
+A (session opened BEFORE that write):  nano rules.v4 → buffer holds 5 lines, no 4444
+A:                        append a comment → ^O → ASKED
+A:                        n            → buffer intact, journal untouched (one row, B's)
+C (outsider on ACME-CORP):  nmap 203.97.86.63 → 22, 4444.   B's forward still answers.
+A:                        ^O → ASKED → y  → [ Wrote 6 lines ], A's row now newest
+C:                        nmap 203.97.86.63 → 22 only.      B's forward gone, deliberately.
+```
+
+One trap worth keeping: **a forward only answers if its target box is listening.** B's 4444
+was absent from C's first scan until B ran `sshd` on their own box — the forward resolves the
+lease, then gates on the target's liveness. That is correct behaviour, not a failed check.
 
 ### Fixed at v0.98.0: the journal lagged an `ssh` hop
 

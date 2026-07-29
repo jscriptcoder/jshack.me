@@ -141,7 +141,23 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
   truncating those logs every time somebody joined; and a forwarded-port login now logs under the
   key of the box it actually reached.
 
-**Current version: 0.99.0.**
+- **An editor save never destroys unseen content ✅ (v0.101.0 server, v0.102.0 confirm).** Closes
+  the write-wipe found by the v0.99.0 Act 4 run. `PatchApi.write` takes the content the caller was
+  SHOWN; the adapter fingerprints it (`core/patches/contentHash.ts`, shared by both ends so they
+  cannot drift) and sends `base_hash`. `handleUpsertPatch` compares it against
+  `orderPatchesForReplay(rows for that path).at(-1)` — the row a READER materializes, `writer_key`
+  tiebreak included, or the guard would reject saves that raced nothing — and answers `409
+  modified_since_open`. Three placement decisions are load-bearing: the check runs **after** the
+  L1/L2 gates (a caller who may not write the path must not learn somebody is editing it); the dep
+  is **path-scoped**, not the machine-wide L2 list, because own-box writes bypass L2 entirely and
+  the list is not already on that path; and an **absent** fingerprint is an unconditional write, so
+  `>`/`touch`/`apt`/sshd are exempt by construction rather than by a special case. Nano turns the
+  409 into GNU nano's own `(y/n)` question, takes the textarea read-only while it stands, and `y`
+  re-sends with **no** fingerprint. A landed save advances the base to what it wrote (`^O` keeps
+  the editor open); a refused one leaves it alone. Wire-check `scripts/testModifiedSinceOpen.ts`;
+  three-player browser verification in `e2e-shared-network-verification.md` §6.
+
+**Current version: 0.102.0.**
 
 To pick up the next slice: read the relevant `plans/*.md` TOP BLOCK (live status +
 as-built), then the cross-player architecture doc if the work touches cross-player paths.
@@ -491,21 +507,27 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   gateway reach two different boxes with two different credentials, and each is gated on its own
   target's liveness. As-built in `cross-player-architecture.md` §3; wire-check
   `scripts/testSharedApForwards.ts`.
-- **Saving a shared file deletes another occupant's edits (OPEN, found 2026-07-28 at v0.99.0).**
-  A session on a FOREIGN machine fetches its journal on the hop and refetches after its OWN
-  writes — nothing else invalidates it, because the `patches-changed` sync channel is
-  workstation-scoped. So a player standing on a shared gateway never learns another occupant
-  wrote to it, `nano` saves the WHOLE buffer, and last-writer-wins replay drops the newer rules.
-  Reproduced live and end-to-end: B added a third forward, A (session opened before that write)
-  saved a stale buffer, and an outsider's `nmap` of the public IP lost B's port. A fresh `ssh`
-  hop refreshes the view; repeated reads inside the existing session do not, so unlike the
-  v0.98.0 race this does NOT self-heal. Not caused by the NAT-forward change, but made reachable
-  by it — before v0.99.0 only one occupant's forward worked, so nobody co-edited a gateway.
-  **Needs a decision before RED**, four shapes with real trade-offs: a machine-scoped
-  invalidation channel; a refetch when an editor opens a foreign file; an optimistic-concurrency
-  reject on a stale-base save (the honest fix, needs an in-game failure mode); or a line-merge
-  save (changes what `nano` means). Full repro + journal rows in
-  `e2e-shared-network-verification.md` §6.
+- ~~**Saving a shared file deletes another occupant's edits**~~ — **FIXED at v0.101.0 (server
+  refusal) + v0.102.0 (the y/n confirm).** An editor save carries a sha256 of the content it was
+  SHOWN; the server compares it against the row a reader materializes and answers `409
+  modified_since_open`, and nano asks GNU nano's own question rather than reporting an error.
+  Last-writer-wins is preserved on purpose — a deliberate clobber is one keystroke, a blind one
+  is impossible. An absent fingerprint means an unconditional write, so `>`, `touch`, `apt` and
+  the sshd pidfile are exempt by construction. As-built in §1; repro, the fix and the three-player
+  re-verification in `e2e-shared-network-verification.md` §6.
+- **A shared-file view is still stale, deliberately.** The fix above stops the *destruction*, not
+  the staleness: a session on a foreign machine still never learns of a foreign write, because
+  the `patches-changed` channel remains workstation-scoped. So refusals are ROUTINE, not rare —
+  a co-edited gateway will ask most times. Two cheaper-looking fixes were considered and left:
+  a refetch when an editor OPENS a foreign file (narrow — does not help a concurrent save), and
+  a machine-scoped invalidation channel (needs Supabase Realtime plus a publish-authorization
+  model that does not exist). Revisit if the asking becomes annoying in play.
+- **`echo x > rules.v4` is still an unguarded wipe vector.** A redirect carries no base
+  fingerprint by design — it truncates by definition, and the player was never shown the
+  content — so it overwrites a co-occupant's rules with no question asked. Deliberate by nature
+  and arguably correct (that is what `>` means), but it is the one remaining way to destroy
+  another occupant's edit without being told. Left open rather than fixed, because guarding it
+  would mean `>` no longer means truncate.
 - **Two journal fetches for the SAME machine can still land out of order.** Fixed at v0.98.0:
   `refetchPatches` drops a late answer for a machine the player has LEFT, so a hop no longer
   paints the box you came from over the box you are on. What the machine-scoped guard does not
