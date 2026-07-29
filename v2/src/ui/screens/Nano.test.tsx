@@ -85,6 +85,23 @@ describe('Nano editor', () => {
     expect(editor()).toHaveValue('edited but not saveable');
   });
 
+  it('tells the player the file changed underneath them, and keeps the buffer', async () => {
+    // Distinct wording from a denial or an I/O failure: nothing is wrong with the
+    // player or the network — somebody else edited the file since it was opened.
+    const onSave = vi.fn(async () => ({ ok: false, error: 'modified_since_open' }) as PatchResult);
+    renderNano({ content: 'two forwards', onSave });
+
+    fireEvent.input(editor(), { target: { value: 'two forwards\n# alice was here' } });
+    fireEvent.keyDown(editor(), { key: 'o', ctrlKey: true });
+
+    expect(
+      await screen.findByText(
+        '[ Error writing /home/alice/notes.txt: File was modified since you opened it ]',
+      ),
+    ).toBeInTheDocument();
+    expect(editor()).toHaveValue('two forwards\n# alice was here');
+  });
+
   it('reports an I/O error when the save fails on the network', async () => {
     const onSave = vi.fn(async () => ({ ok: false, error: 'network_error' }) as PatchResult);
     renderNano({ onSave });

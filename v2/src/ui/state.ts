@@ -622,7 +622,15 @@ export const saveEditor = async (content: string): Promise<PatchResult> => {
   }
   const fsView = createFsView(activeRoot(), { userType: requireSession().userType, cwd });
   const isNew = fsView.stat(mode.path) === null;
-  return activePatchApi.write(mode.path, content, { isNew });
+  const result = await activePatchApi.write(mode.path, content, {
+    isNew,
+    baseContent: mode.content,
+  });
+  // Ctrl-O keeps the editor open, so what was just written becomes the base the
+  // NEXT write-out is judged against — otherwise a second save would still claim
+  // the pre-save content and be refused against the row this one just created.
+  if (result.ok) setEditorMode({ path: mode.path, content });
+  return result;
 };
 
 /** Whether the player's OWN workstation can boot — the brick check the boot

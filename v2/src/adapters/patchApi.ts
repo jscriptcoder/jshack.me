@@ -15,6 +15,7 @@
  */
 
 import { signRequest } from '../core/signedRequest/sign';
+import { contentHash } from '../core/patches/contentHash';
 import {
   defaultDirectoryPermissions,
   defaultFilePermissions,
@@ -68,11 +69,13 @@ const post = async (
 };
 
 /** Map an upsert response to the command contract's PatchResult. 403 is the
- *  own-workstation/L1 rejection (no_session); anything else non-ok is treated
- *  as a transport-level failure. */
+ *  own-workstation/L1 rejection (no_session); 409 is the refusal to overwrite
+ *  content the writer was not shown; anything else non-ok is treated as a
+ *  transport-level failure. */
 const toPatchResult = (response: Response): PatchResult => {
   if (response.ok) return { ok: true };
   if (response.status === 403) return { ok: false, error: 'no_session' };
+  if (response.status === 409) return { ok: false, error: 'modified_since_open' };
   return { ok: false, error: 'network_error' };
 };
 
@@ -94,7 +97,11 @@ export const createPatchApi = (deps: PatchClientDeps): PatchApi => ({
   write: (
     path: AbsPath,
     content: string,
-    options?: { readonly isNew?: boolean; readonly permissions?: FilePermissions },
+    options?: {
+      readonly isNew?: boolean;
+      readonly permissions?: FilePermissions;
+      readonly baseContent?: string;
+    },
   ) =>
     upsert(deps, {
       machine_id: deps.machineId,
@@ -104,6 +111,12 @@ export const createPatchApi = (deps: PatchClientDeps): PatchApi => ({
       permissions: options?.permissions ?? defaultFilePermissions(deps.tier),
       node_type: 'file',
       ...(options?.isNew ? { is_new: true } : {}),
+      // Only a caller that was shown the file names a base; the fingerprint (not
+      // the content) travels, and its ABSENCE is what keeps every other write path
+      // unconditional.
+      ...(options?.baseContent === undefined
+        ? {}
+        : { base_hash: contentHash(options.baseContent) }),
     }),
 
   // Deletion is server-authoritative (delete-row vs tombstone decided from the

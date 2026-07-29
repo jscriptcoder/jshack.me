@@ -18,6 +18,8 @@ import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { authorizeMachineAccess, type FindActiveSession } from './authorizeMachineAccess';
+import { contentHash } from './contentHash';
+import { orderPatchesForReplay } from './orderPatchesForReplay';
 import {
   enforceRemoteWriteL2,
   type FindOccupantWorkstationByMachineId,
@@ -45,10 +47,31 @@ export type PatchRow = {
   readonly node_type?: 'file' | 'directory';
 };
 
+/** One persisted row for a single path: the content a reader would materialize
+ *  from it, plus what the replay order is decided on. */
+export type PathPatchRow = {
+  readonly content: string | null;
+  readonly updated_at: string;
+  readonly writer_key: string;
+};
+
+export type ListPathPatchesResult = {
+  readonly data: readonly PathPatchRow[] | null;
+  readonly error: unknown;
+};
+
 export type UpsertPatchDeps = {
   readonly nonceStore: NonceStore;
   readonly findActiveSession: FindActiveSession;
   readonly listMachinePatches: ListMachinePatches;
+  /** Every writer's rows for the ONE path being written — how the save's claimed
+   *  base is checked against what the machine actually holds. Path-scoped rather
+   *  than reusing the machine-wide L2 read, which an own-workstation write never
+   *  performs. */
+  readonly listPathPatches: (query: {
+    readonly machine_id: string;
+    readonly path: string;
+  }) => Promise<ListPathPatchesResult>;
   /** Reverse-look-up a registered foreign workstation by its machine_id — the L2
    *  cross-player branch (D6) rebuilds the owner's tree from this. */
   /** Same-LAN fallback for L2 when no occupancy row exists (a shared-AP occupant evicted
@@ -82,8 +105,47 @@ const upsertPatchSchema = z
     permissions: permissionsSchema.optional(),
     is_new: z.boolean().optional(),
     node_type: z.enum(['file', 'directory']).optional(),
+    /** The fingerprint of the content this save was written against. Optional:
+     *  a caller that was never shown content to overwrite (a `>` redirect,
+     *  `touch`) sends none and writes unconditionally. */
+    base_hash: z.string().min(1).optional(),
   })
   .refine((payload) => !('player_key' in payload) && !('writer_key' in payload));
+
+/** Refuse a save that would replace content its author was never shown — an
+ *  editor holding a buffer from before another occupant wrote the same file.
+ *
+ *  The row compared against is the one a READER materializes (`orderPatchesForReplay`,
+ *  same-instant ties broken on writer_key), because that is what the player was
+ *  looking at; picking any other row would reject saves that raced nothing. No
+ *  rows means nobody has written the path since the world was generated, and the
+ *  generated filesystem is the same for every viewer, so there is nothing unseen.
+ *  A deletion marker holds no content to compare: the save agrees with the world
+ *  only if it too expects the file to be absent. */
+const rejectModifiedSinceOpen = async (
+  payload: {
+    readonly machine_id: string;
+    readonly path: string;
+    readonly base_hash?: string | undefined;
+    readonly is_new?: boolean | undefined;
+  },
+  listPathPatches: UpsertPatchDeps['listPathPatches'],
+): Promise<HandlerResponse | undefined> => {
+  if (payload.base_hash === undefined) return undefined;
+  const { data, error } = await listPathPatches({
+    machine_id: payload.machine_id,
+    path: payload.path,
+  });
+  if (error) return { status: 500, body: { error: 'base_check_failed' } };
+  const materialized = orderPatchesForReplay(data ?? []).at(-1);
+  if (materialized === undefined) return undefined;
+  const stillHoldsWhatTheAuthorSaw =
+    materialized.content === null
+      ? payload.is_new === true
+      : contentHash(materialized.content) === payload.base_hash;
+  if (stillHoldsWhatTheAuthorSaw) return undefined;
+  return { status: 409, body: { error: 'modified_since_open' } };
+};
 
 export const handleUpsertPatch = async (
   body: unknown,
@@ -117,6 +179,13 @@ export const handleUpsertPatch = async (
   });
   if (denial) {
     return { status: denial.status, body: { error: denial.error } };
+  }
+
+  // After the permission gates, never before: a caller who may not write this
+  // path at all must not learn whether somebody else has been editing it.
+  const modified = await rejectModifiedSinceOpen(payload, deps.listPathPatches);
+  if (modified) {
+    return modified;
   }
 
   const { error } = await deps.upsertPatch({

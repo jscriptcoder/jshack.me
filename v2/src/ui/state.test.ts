@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { generateHomeLan } from '../core/generation/generateHomeLan';
 import { machineIdForLanHost } from '../core/generation/lanHostIdentity';
 import { lanLeaseCacheIn } from '../core/network/lanLeaseCache';
+import { contentHash } from '../core/patches/contentHash';
 import { CONNECTED_ESSID_KEY } from './connectionPersistence';
 
 /**
@@ -308,7 +309,7 @@ describe('patch journal across a machine change', () => {
 describe('nano editor mode', () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  const startEditorGame = async () => {
+  const startEditorGame = async (options: { readonly refuseWrites?: boolean } = {}) => {
     vi.resetModules();
     const store = new Map<string, string>();
     vi.stubGlobal('localStorage', {
@@ -321,6 +322,15 @@ describe('nano editor mode', () => {
       'fetch',
       vi.fn(async (_url: string, init?: { body?: string }) => {
         if (init?.body !== undefined) requestBodies.push(init.body);
+        // Only the WRITE is refused: the journal and session reads the editor
+        // rides on still have to answer, or the game never reaches a buffer.
+        const isWrite =
+          init?.body !== undefined &&
+          (JSON.parse(JSON.parse(init.body).payload) as { action?: string }).action ===
+            'upsertPatch';
+        if (options.refuseWrites === true && isWrite) {
+          return { ok: false, status: 409, json: async () => ({ error: 'modified_since_open' }) };
+        }
         return { ok: true, status: 200, json: async () => ({ patches: [], sessions: [] }) };
       }),
     );
@@ -382,5 +392,49 @@ describe('nano editor mode', () => {
     expect(write?.path).toBe('/tmp/fresh.txt');
     expect(write?.content).toBe('hello world');
     expect(write?.is_new).toBe(true);
+  });
+
+  it('saveEditor names the content the editor opened with, so an unseen write can be refused', async () => {
+    const { state, lastWrite } = await startEditorGame();
+    state.setInput('nano /etc/passwd');
+    await state.runInput();
+    const opened = state.editorMode()?.content ?? '';
+
+    await state.saveEditor('root:x:0:0::/root:/bin/sh\n');
+
+    // The base is what was OPENED, never the buffer being written — the server
+    // compares it against what the machine holds to decide whether this save
+    // would destroy somebody else's edit.
+    expect(lastWrite()?.base_hash).toBe(contentHash(opened));
+    expect(opened).not.toBe('root:x:0:0::/root:/bin/sh\n');
+  });
+
+  it('advances the base once a save lands, so a second write-out is not refused as stale', async () => {
+    // Ctrl-O keeps the editor open. Without this, the second save would still
+    // claim the pre-save content as its base and the server would reject it
+    // against the row the first save had just written.
+    const { state, lastWrite } = await startEditorGame();
+    state.setInput('nano /etc/passwd');
+    await state.runInput();
+
+    await state.saveEditor('first pass\n');
+    await state.saveEditor('second pass\n');
+
+    expect(lastWrite()?.base_hash).toBe(contentHash('first pass\n'));
+  });
+
+  it('leaves the base alone when a save is refused, since nothing was written', async () => {
+    // A refused save changed nothing on the machine, so the next attempt must
+    // still be judged against what the player was actually shown — advancing to
+    // an unwritten buffer would claim a version the machine never held.
+    const { state, lastWrite } = await startEditorGame({ refuseWrites: true });
+    state.setInput('nano /etc/passwd');
+    await state.runInput();
+    const opened = state.editorMode()?.content ?? '';
+
+    await state.saveEditor('first attempt\n');
+    await state.saveEditor('second attempt\n');
+
+    expect(lastWrite()?.base_hash).toBe(contentHash(opened));
   });
 });

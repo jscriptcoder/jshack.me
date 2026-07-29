@@ -27,11 +27,14 @@ const lineCount = (content: string): number => (content === '' ? 0 : content.spl
 
 /** Map a failed save to nano's status-line reason, reusing the same wording as
  *  the `>` redirect write path (`runLine.ts`): an auth/permission rejection reads
- *  "Permission denied", a transport failure reads "I/O error". */
+ *  "Permission denied", a transport failure reads "I/O error". A refused
+ *  overwrite is neither — the write was allowed, but somebody else edited the
+ *  file after this editor opened it. */
 const SAVE_ERROR_REASON: Record<Extract<PatchResult, { ok: false }>['error'], string> = {
   no_session: 'Permission denied',
   permission_denied: 'Permission denied',
   network_error: 'I/O error',
+  modified_since_open: 'File was modified since you opened it',
 };
 
 export const Nano = (props: NanoProps) => {

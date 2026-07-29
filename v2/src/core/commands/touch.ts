@@ -23,6 +23,7 @@ const PATCH_ERROR_MESSAGE: Record<Extract<PatchResult, { ok: false }>['error'], 
   no_session: 'Permission denied',
   permission_denied: 'Permission denied',
   network_error: 'I/O error',
+  modified_since_open: 'File changed on disk',
 };
 
 const cannotTouch = (target: string, reason: string): string =>
