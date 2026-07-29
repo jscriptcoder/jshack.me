@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import { handleUpsertPatch, type PatchRow, type UpsertPatchDeps } from './upsertPatch';
+import {
+  handleUpsertPatch,
+  type ListPathPatchesResult,
+  type PatchRow,
+  type UpsertPatchDeps,
+} from './upsertPatch';
+import { contentHash } from './contentHash';
 import type { ActiveSessionQuery, FindActiveSessionResult } from './authorizeMachineAccess';
 import type {
   FindOccupantWorkstationByMachineId,
@@ -54,8 +60,26 @@ const occupantWorkstation = () => {
   return { owner, machineId, occupant };
 };
 
+/** A persisted row for one path, as the base-content check reads it: the content
+ *  a reader would materialize plus what `orderPatchesForReplay` orders on. */
+const pathRow = (
+  content: string | null,
+  over: Partial<{ updated_at: string; writer_key: string }> = {},
+) => ({
+  content,
+  updated_at: '2026-07-28T16:08:37.000000+00:00',
+  writer_key: 'writer-1',
+  ...over,
+});
+
 const makeDeps = (over: Partial<UpsertPatchDeps> = {}) => {
   const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async () => ({
+    error: null,
+  }));
+  // Default: nobody has written this path, so a save can never be overwriting
+  // content its author was not shown.
+  const listPathPatches = vi.fn<() => Promise<ListPathPatchesResult>>(async () => ({
+    data: [],
     error: null,
   }));
   // Default: no active session on the queried machine. Foreign-machine tests
@@ -83,6 +107,7 @@ const makeDeps = (over: Partial<UpsertPatchDeps> = {}) => {
     upsertPatch,
     findActiveSession,
     listMachinePatches,
+    listPathPatches,
     findOccupantWorkstationByMachineId,
     ...over,
   };
@@ -91,6 +116,7 @@ const makeDeps = (over: Partial<UpsertPatchDeps> = {}) => {
     upsertPatch,
     findActiveSession,
     listMachinePatches,
+    listPathPatches,
     findOccupantWorkstationByMachineId,
   };
 };
@@ -767,5 +793,235 @@ describe('handleUpsertPatch', () => {
 
     expect(result.status).toBe(500);
     expect(result.body).toEqual({ error: 'upsert_failed' });
+  });
+});
+
+describe('handleUpsertPatch — a save never overwrites content its author was not shown', () => {
+  const RULES = '/etc/iptables/rules.v4';
+  const TWO_FORWARDS = '# NAT port-forward table\nforward 2222 to 192.168.1.20:22\n';
+  const THREE_FORWARDS = `${TWO_FORWARDS}forward 4444 to 192.168.1.31:22\n`;
+
+  it('rejects a save whose opened content is no longer what the machine holds', async () => {
+    // Two occupants root on one shared gateway: the other appended a third forward
+    // after this editor opened, so writing the whole buffer back would delete it.
+    const id = generateIdentity();
+    const door = chainDoor();
+    const envelope = signRequest(id, 'upsertPatch', {
+      machine_id: door.machineId,
+      path: RULES,
+      content: `${TWO_FORWARDS}# alice was here\n`,
+      owner: 'root',
+      base_hash: contentHash(TWO_FORWARDS),
+    });
+    const { deps, upsertPatch } = makeDeps({
+      findActiveSession: remoteSession('root', door.essid),
+      // Answers only for the file actually being written: a guard that asked about
+      // some other path — or machine — would see no rows here and wave the save
+      // through, so the refusal proves it consulted the right coordinates.
+      listPathPatches: async ({ machine_id, path }) =>
+        machine_id === door.machineId && path === RULES
+          ? { data: [pathRow(THREE_FORWARDS)], error: null }
+          : { data: [], error: null },
+    });
+
+    const result = await handleUpsertPatch(envelope, deps);
+
+    expect(result).toEqual({ status: 409, body: { error: 'modified_since_open' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('persists that same save once its base is what the machine holds', async () => {
+    // Identical to the rejection above but for the base the editor opened against,
+    // so that 409 cannot be passing because the guard was never reached or because
+    // something else blocked the write.
+    const id = generateIdentity();
+    const door = chainDoor();
+    const envelope = signRequest(id, 'upsertPatch', {
+      machine_id: door.machineId,
+      path: RULES,
+      content: `${THREE_FORWARDS}# alice was here\n`,
+      owner: 'root',
+      base_hash: contentHash(THREE_FORWARDS),
+    });
+    const { deps, upsertPatch } = makeDeps({
+      findActiveSession: remoteSession('root', door.essid),
+      listPathPatches: async () => ({ data: [pathRow(THREE_FORWARDS)], error: null }),
+    });
+
+    const result = await handleUpsertPatch(envelope, deps);
+
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    expect(upsertPatch.mock.calls[0]![0].content).toBe(`${THREE_FORWARDS}# alice was here\n`);
+  });
+
+  it('guards the writer’s own workstation on the same terms', async () => {
+    // A cross-player attacker writing your box is exactly the case worth guarding,
+    // so the rule knows nothing about whose machine this is.
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'upsertPatch', {
+      ...ownFields(id.publicKeyHex),
+      base_hash: contentHash('what the editor opened'),
+    });
+    const { deps, upsertPatch } = makeDeps({
+      listPathPatches: async () => ({ data: [pathRow('what someone else wrote since')], error: null }),
+    });
+
+    const result = await handleUpsertPatch(envelope, deps);
+
+    expect(result).toEqual({ status: 409, body: { error: 'modified_since_open' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('persists a save that names no base, whatever the machine holds', async () => {
+    // A redirect, `touch`, `apt` or the sshd pidfile never showed the player any
+    // content to overwrite — `>` means truncate-and-replace — so they carry no base
+    // and are never rejected.
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'upsertPatch', ownFields(id.publicKeyHex));
+    const { deps, upsertPatch } = makeDeps({
+      listPathPatches: async () => ({ data: [pathRow('written by somebody else')], error: null }),
+    });
+
+    const result = await handleUpsertPatch(envelope, deps);
+
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    expect(upsertPatch).toHaveBeenCalledTimes(1);
+  });
+
+  it('persists a save to a path nobody has written yet', async () => {
+    // No rows means nothing has been written since the world was generated, so
+    // there is no unseen write — the base filesystem is the same for every viewer.
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'upsertPatch', {
+      ...ownFields(id.publicKeyHex),
+      base_hash: contentHash('the generated content'),
+    });
+    const { deps, upsertPatch } = makeDeps();
+
+    const result = await handleUpsertPatch(envelope, deps);
+
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    expect(upsertPatch).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats a null base lookup as a path nobody has written', async () => {
+    // An empty match comes back as null data with NO error. That is "no rows",
+    // not a failure, and must not become a refusal.
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'upsertPatch', {
+      ...ownFields(id.publicKeyHex),
+      base_hash: contentHash('the generated content'),
+    });
+    const { deps, upsertPatch } = makeDeps({
+      listPathPatches: async () => ({ data: null, error: null }),
+    });
+
+    const result = await handleUpsertPatch(envelope, deps);
+
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    expect(upsertPatch).toHaveBeenCalledTimes(1);
+  });
+
+  it('persists a save that expects an absent file when the file is indeed deleted', async () => {
+    // A deletion marker means the path is gone. An editor opened on a file that
+    // does not exist saves it as new, and agrees with the world.
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'upsertPatch', {
+      ...ownFields(id.publicKeyHex),
+      is_new: true,
+      base_hash: contentHash(''),
+    });
+    const { deps, upsertPatch } = makeDeps({
+      listPathPatches: async () => ({ data: [pathRow(null)], error: null }),
+    });
+
+    const result = await handleUpsertPatch(envelope, deps);
+
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    expect(upsertPatch).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a save that expects an existing file when it was deleted underneath', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'upsertPatch', {
+      ...ownFields(id.publicKeyHex),
+      base_hash: contentHash('the content the editor opened'),
+    });
+    const { deps, upsertPatch } = makeDeps({
+      listPathPatches: async () => ({ data: [pathRow(null)], error: null }),
+    });
+
+    const result = await handleUpsertPatch(envelope, deps);
+
+    expect(result).toEqual({ status: 409, body: { error: 'modified_since_open' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('compares against the row a reader materializes when two writers share a timestamp', async () => {
+    // The read path breaks a same-instant tie on writer_key, so the guard must ask
+    // the same question — otherwise it compares against a row the player was never
+    // shown and rejects a save that raced nothing.
+    const id = generateIdentity();
+    const rows = [
+      pathRow('the older writer’s content', { writer_key: 'aaa' }),
+      pathRow('what a reader actually sees', { writer_key: 'bbb' }),
+    ];
+    const against = (base: string) =>
+      signRequest(id, 'upsertPatch', {
+        ...ownFields(id.publicKeyHex),
+        base_hash: contentHash(base),
+      });
+    const listPathPatches = async () => ({ data: rows, error: null });
+
+    const materialized = await handleUpsertPatch(
+      against('what a reader actually sees'),
+      makeDeps({ listPathPatches }).deps,
+    );
+    const shadowed = await handleUpsertPatch(
+      against('the older writer’s content'),
+      makeDeps({ listPathPatches }).deps,
+    );
+
+    expect(materialized).toEqual({ status: 200, body: { ok: true } });
+    expect(shadowed).toEqual({ status: 409, body: { error: 'modified_since_open' } });
+  });
+
+  it('denies an unauthorized write before it can learn the file changed', async () => {
+    // Ordering matters: a caller who may not write the path at all must not be told
+    // whether somebody else has been editing it.
+    const visitor = generateIdentity();
+    const { machineId, essid } = remoteTarget();
+    const envelope = signRequest(visitor, 'upsertPatch', {
+      machine_id: machineId,
+      path: '/etc/passwd',
+      content: 'guest::0:0::/root:/bin/bash',
+      owner: 'guest',
+      base_hash: contentHash('whatever the editor opened'),
+    });
+    const { deps, upsertPatch } = makeDeps({
+      findActiveSession: remoteSession('guest', essid),
+      listPathPatches: async () => ({ data: [pathRow('changed since')], error: null }),
+    });
+
+    const result = await handleUpsertPatch(envelope, deps);
+
+    expect(result).toEqual({ status: 403, body: { error: 'permission_denied' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('returns 500 when the base lookup fails, rather than writing over unseen content', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'upsertPatch', {
+      ...ownFields(id.publicKeyHex),
+      base_hash: contentHash('the content the editor opened'),
+    });
+    const { deps, upsertPatch } = makeDeps({
+      listPathPatches: async () => ({ data: null, error: { message: 'db down' } }),
+    });
+
+    const result = await handleUpsertPatch(envelope, deps);
+
+    expect(result).toEqual({ status: 500, body: { error: 'base_check_failed' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
   });
 });

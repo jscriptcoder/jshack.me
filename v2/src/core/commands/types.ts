@@ -130,7 +130,17 @@ export type PatchApi = {
   readonly write: (
     path: AbsPath,
     content: string,
-    options?: { readonly isNew?: boolean; readonly permissions?: FilePermissions },
+    options?: {
+      readonly isNew?: boolean;
+      readonly permissions?: FilePermissions;
+      /** The content this write was composed against, for a caller that was SHOWN
+       *  the file first (an editor). The write is then refused if the machine no
+       *  longer holds it, so a stale buffer cannot silently delete another
+       *  occupant's edits. Callers with nothing to overwrite — a `>` redirect
+       *  truncates by definition, `touch` and `apt` create — omit it and write
+       *  unconditionally. */
+      readonly baseContent?: string;
+    },
   ) => Promise<PatchResult>;
   readonly remove: (path: AbsPath) => Promise<PatchResult>;
   readonly mkdir: (path: AbsPath) => Promise<PatchResult>;
@@ -140,7 +150,11 @@ export type PatchResult =
   | { readonly ok: true }
   | {
       readonly ok: false;
-      readonly error: 'no_session' | 'permission_denied' | 'network_error';
+      readonly error:
+        | 'no_session'
+        | 'permission_denied'
+        | 'network_error'
+        | 'modified_since_open';
     };
 
 export type NetworkView = {

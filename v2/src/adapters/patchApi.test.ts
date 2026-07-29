@@ -14,6 +14,7 @@ import {
   defaultDirectoryPermissions,
   defaultFilePermissions,
 } from '../core/filesystem/defaultPermissions';
+import { contentHash } from '../core/patches/contentHash';
 import { asAbsPath, asMachineId, type UserType } from '../core/types';
 
 const ENDPOINT = 'http://test.local/api/patches';
@@ -155,6 +156,45 @@ describe('createPatchApi.write and remove', () => {
     const verified = await verifyPayload(sentEnvelope(fetchSpy));
     if (!verified.ok) throw new Error('expected verified envelope');
     expect(verified.payload).toMatchObject({ action: 'upsertPatch', content: '', is_new: true });
+  });
+
+  it('write fingerprints the content the caller was written against', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    await createPatchApi(deps).write(asAbsPath('/etc/iptables/rules.v4'), 'edited', {
+      baseContent: 'what the editor opened',
+    });
+
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected verified envelope');
+    expect(verified.payload).toMatchObject({ base_hash: contentHash('what the editor opened') });
+  });
+
+  it('write omits the fingerprint when the caller was shown nothing to overwrite', async () => {
+    // A `>` redirect, `touch`, `apt` or the sshd pidfile: an absent base_hash is
+    // what makes those writes unconditional.
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    await createPatchApi(deps).write(asAbsPath('/home/alice/notes.txt'), 'hello');
+
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected verified envelope');
+    expect(Object.keys(verified.payload as object)).not.toContain('base_hash');
+  });
+
+  it('maps a 409 to a modified_since_open PatchResult', async () => {
+    // Distinct from the 500-and-anything-else network_error below: the editor has
+    // to tell "the file changed underneath you" apart from "the write failed".
+    const fetchSpy = vi.fn(async () => jsonResponse(409, { error: 'modified_since_open' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    const result = await createPatchApi(deps).write(asAbsPath('/etc/iptables/rules.v4'), 'edited', {
+      baseContent: 'stale',
+    });
+
+    expect(result).toEqual({ ok: false, error: 'modified_since_open' });
   });
 
   it('remove sends a removePatch request (server decides delete vs tombstone)', async () => {

@@ -1,6 +1,11 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
-import { handleUpsertPatch, type PatchRow } from '../src/core/patches/upsertPatch';
+import {
+  handleUpsertPatch,
+  type ListPathPatchesResult,
+  type PatchRow,
+  type PathPatchRow,
+} from '../src/core/patches/upsertPatch';
 import { handleListPatches, type ListPatchesQuery } from '../src/core/patches/listPatches';
 import { handleRemovePatch, type PatchTreeQuery } from '../src/core/patches/removePatch';
 import { handleAppendAuthLog, type AuthLogContentQuery } from '../src/core/patches/appendAuthLog';
@@ -342,10 +347,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
+  // Every writer's rows for the ONE path being written, so a save that names the
+  // content it was written against can be checked against what the machine now
+  // holds. Path-scoped: the machine-wide L2 read above is skipped entirely for an
+  // own-workstation write, and this check applies to every machine alike. The sort
+  // keys come back with the rows — the handler picks the row a reader materializes.
+  const listPathPatches = async ({
+    machine_id,
+    path,
+  }: {
+    readonly machine_id: string;
+    readonly path: string;
+  }): Promise<ListPathPatchesResult> => {
+    const { data, error } = await supabase
+      .from('patches')
+      .select('content, updated_at, writer_key')
+      .eq('machine_id', machine_id)
+      .eq('path', path);
+    if (error) console.error('[patches] base-content lookup error:', error);
+    return { data: data as readonly PathPatchRow[] | null, error };
+  };
+
   const { status, body } = await handleUpsertPatch(req.body, {
     nonceStore: noopNonceStore,
     findActiveSession,
     listMachinePatches,
+    listPathPatches,
     findOccupantWorkstationByMachineId,
     upsertPatch,
   });

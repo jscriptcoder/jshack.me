@@ -44,6 +44,7 @@ const WRITE_ERROR: Record<Extract<PatchResult, { ok: false }>['error'], string> 
   no_session: 'Permission denied',
   permission_denied: 'Permission denied',
   network_error: 'I/O error',
+  modified_since_open: 'File changed on disk',
 };
 
 const errorResult = (content: string): CommandResult => ({
