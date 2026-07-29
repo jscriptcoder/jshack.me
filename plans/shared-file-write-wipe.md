@@ -1,10 +1,10 @@
 # Plan: An editor save never destroys content the player was not shown
 
-**Branch**: feat/modified-since-open
-**Status**: Slice 1 committed, in review · Slice 2 not started
-**Version at start**: 0.100.0 → **0.101.0 at slice 1**
+**Branch**: feat/overwrite-unseen-confirm (slice 2) · slice 1 shipped on feat/modified-since-open
+**Status**: Slice 1 **merged** (#342, 61b1e07, v0.101.0) · Slice 2 not started
+**Version at start**: 0.100.0 → **0.101.0 at slice 1** → 0.102.0 at slice 2
 
-## Slice 1 — as built
+## Slice 1 — as built (merged)
 
 Merged shape: `core/patches/contentHash.ts` (sha256 hex, shared by both ends); `base_hash` as an
 optional upsert field; `rejectModifiedSinceOpen` in `handleUpsertPatch`, placed **after** the L1/L2
@@ -134,21 +134,23 @@ than the one the player was actually shown, turning the guard into a source of f
 
 ## Acceptance Criteria
 
-- [ ] A save whose opened content no longer matches what the world holds writes **nothing**, and the
-      other occupant's content survives — visible from outside (their NAT forward still answers).
-- [ ] The player is told the file was modified since they opened it, naming the file.
-- [ ] A save whose opened content still matches succeeds exactly as before.
-- [ ] Two consecutive `^O` saves in one editor session both succeed (the base advances on save).
+- [x] A save whose opened content no longer matches what the world holds writes **nothing**, and the
+      other occupant's content survives — proven in the journal by the slice 1 wire-check. The
+      *visible from outside* half (their NAT forward still answers an outsider's `nmap`) is slice 2's
+      browser E2E.
+- [x] The player is told the file was modified since they opened it, naming the file.
+- [x] A save whose opened content still matches succeeds exactly as before.
+- [x] Two consecutive `^O` saves in one editor session both succeed (the base advances on save).
 - [ ] Confirming the prompt overwrites deliberately: the write lands and the other occupant's line is
       gone.
 - [ ] Declining the prompt leaves the buffer intact and writes nothing.
-- [ ] `>`, `touch`, `apt` and `sshd` writes are unaffected — they carry no base and are never rejected.
-- [ ] The guard applies on the player's own workstation and on a foreign machine alike, with no
+- [x] `>`, `touch`, `apt` and `sshd` writes are unaffected — they carry no base and are never rejected.
+- [x] The guard applies on the player's own workstation and on a foreign machine alike, with no
       own-vs-foreign branch in the code.
 
 ## Slices
 
-### Slice 1: A save is rejected when the file changed since the editor opened it
+### Slice 1: A save is rejected when the file changed since the editor opened it — DONE (#342)
 
 **Value**: A player editing a shared file can no longer silently destroy another occupant's rules —
 the defect's actual harm. The overwrite path is not yet available, so a player who *wants* to
