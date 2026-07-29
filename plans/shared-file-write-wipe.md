@@ -1,10 +1,49 @@
 # Plan: An editor save never destroys content the player was not shown
 
-**Branch**: feat/modified-since-open
-**Status**: Slice 1 committed, in review · Slice 2 not started
-**Version at start**: 0.100.0 → **0.101.0 at slice 1**
+**Branch**: feat/overwrite-unseen-confirm (slice 2) · slice 1 shipped on feat/modified-since-open
+**Status**: Slice 1 **merged** (#342, 61b1e07, v0.101.0) · Slice 2 **complete, awaiting commit approval**
+**Version at start**: 0.100.0 → **0.101.0 at slice 1** → **0.102.0 at slice 2**
 
-## Slice 1 — as built
+## Slice 2 — as built
+
+`confirms`/`declines` predicates + a `confirmingOverwrite` signal in `Nano.tsx`; a branch ahead of the
+two chords that owns the keyboard while the question stands; `readOnly` bound to it; an
+`overwriteUnseen` option on `saveEditor` that omits `baseContent` (and therefore `base_hash`) entirely.
+No server change, no new wire-check.
+
+Four things the implementation forced that the plan did not anticipate:
+
+- **The save has two call sites, not one shared helper with an optional argument.** `onSave(content)`
+  and `onSave(content, { overwriteUnseen: true })` are separate calls because
+  `toHaveBeenCalledWith(content)` fails against a call of `(content, undefined)` — routing both through
+  one call site would have silently broken slice 1's assertion. The result handling is shared instead.
+- **"Typing cannot reach the buffer" is not testable by typing.** jsdom does not perform the browser's
+  text insertion, so `fireEvent.input` + assert-unchanged passes against NO implementation at all. The
+  guarantee is asserted on the textarea's `readonly` state, which is what actually implements it.
+- **The status line needed `role="status"` to make its ABSENCE observable.** Two mutants
+  (`setStatus('')` → non-empty, and the signal's initial `''` → non-empty) are unkillable without a way
+  to ask "is any status showing?". The role is correct ARIA for the element, so this is a real
+  improvement rather than test plumbing — but it was driven by a mutant, and its own RED came from the
+  positive twin (a successful save's status IS the status region).
+- **The forced save is not privileged.** A `permission_denied` on the retry reports through the status
+  line rather than re-asking; the question is only ever about unseen content.
+
+Evidence: 2021 unit tests green; `tsc -b` and `eslint` clean; Stryker **96.70%** on `Nano.tsx` (88
+killed, 3 survived, 0 no-coverage) and **92.31%** on `saveEditor`'s range (24 killed, 2 survived, 0
+no-coverage, down from 4 uncovered). Eight survivors killed, five of them pre-existing gaps this work
+surfaced: an ordinary keystroke was not pinned as neither-save-nor-exit, an emptied buffer reported one
+line instead of zero, `no_session` had no wording test, and `saveEditor`'s early return was entirely
+uncovered. Accepted survivors: `textarea?.focus()` (the ref is always set by `onMount`),
+`spellcheck={false}` (presentational), and `SAVE_ERROR_REASON.modified_since_open` (unreachable by
+design — predicted before RED), plus two pre-existing in `saveEditor` (`mode === null || false` needs a
+non-null editor with no patch API, which cannot occur; and `createFsView`'s options object, which needs
+a userType-dependent stat).
+
+Browser E2E: three real players at v0.102.0, both halves confirmed — declined save left the outsider's
+`nmap` showing B's forward, confirmed save removed it. Transcript in
+`v2/docs/e2e-shared-network-verification.md` §6.
+
+## Slice 1 — as built (merged)
 
 Merged shape: `core/patches/contentHash.ts` (sha256 hex, shared by both ends); `base_hash` as an
 optional upsert field; `rejectModifiedSinceOpen` in `handleUpsertPatch`, placed **after** the L1/L2
@@ -134,21 +173,23 @@ than the one the player was actually shown, turning the guard into a source of f
 
 ## Acceptance Criteria
 
-- [ ] A save whose opened content no longer matches what the world holds writes **nothing**, and the
-      other occupant's content survives — visible from outside (their NAT forward still answers).
-- [ ] The player is told the file was modified since they opened it, naming the file.
-- [ ] A save whose opened content still matches succeeds exactly as before.
-- [ ] Two consecutive `^O` saves in one editor session both succeed (the base advances on save).
-- [ ] Confirming the prompt overwrites deliberately: the write lands and the other occupant's line is
+- [x] A save whose opened content no longer matches what the world holds writes **nothing**, and the
+      other occupant's content survives — proven in the journal by the slice 1 wire-check. The
+      *visible from outside* half (their NAT forward still answers an outsider's `nmap`) is slice 2's
+      browser E2E.
+- [x] The player is told the file was modified since they opened it, naming the file.
+- [x] A save whose opened content still matches succeeds exactly as before.
+- [x] Two consecutive `^O` saves in one editor session both succeed (the base advances on save).
+- [x] Confirming the prompt overwrites deliberately: the write lands and the other occupant's line is
       gone.
-- [ ] Declining the prompt leaves the buffer intact and writes nothing.
-- [ ] `>`, `touch`, `apt` and `sshd` writes are unaffected — they carry no base and are never rejected.
-- [ ] The guard applies on the player's own workstation and on a foreign machine alike, with no
+- [x] Declining the prompt leaves the buffer intact and writes nothing.
+- [x] `>`, `touch`, `apt` and `sshd` writes are unaffected — they carry no base and are never rejected.
+- [x] The guard applies on the player's own workstation and on a foreign machine alike, with no
       own-vs-foreign branch in the code.
 
 ## Slices
 
-### Slice 1: A save is rejected when the file changed since the editor opened it
+### Slice 1: A save is rejected when the file changed since the editor opened it — DONE (#342)
 
 **Value**: A player editing a shared file can no longer silently destroy another occupant's rules —
 the defect's actual harm. The overwrite path is not yet available, so a player who *wants* to
@@ -230,20 +271,39 @@ persisted, other occupant's line gone. `n` → status clears, buffer intact, not
 **Reduction program**: `N/A`.
 **Transition/terminal evidence**: `N/A`.
 
-**Acceptance criteria** (present and confirm before writing code):
-- A rejected save puts nano into a confirm state whose text matches GNU nano's:
-  `File <path> was modified since you opened it, continue saving? (y/n)`.
-- `y` writes the buffer and the write lands; the confirm state clears; the base advances to what was
-  just written.
-- `n` clears the confirm state, writes nothing, and leaves the buffer exactly as it was.
-- While the confirm is up, ordinary typing does not edit the buffer, and `^X` does not exit.
+**Acceptance criteria** (confirmed 2026-07-29 — the three open calls are resolved below):
+- A rejected save puts nano into a confirm state reading **`File was modified since you opened it,
+  continue saving? (y/n)`** — real GNU nano's wording, **without** the path. The header bar names the
+  file permanently and only one file is ever open, so repeating it is noise. (This supersedes the
+  earlier draft of this criterion, which named the path and contradicted decision 4.)
+- **The confirm replaces the error status line**; the two are never shown together. One message, as
+  real nano does. Consequence to expect, not to fix: `SAVE_ERROR_REASON.modified_since_open` becomes
+  unreachable through `^O`, since a forced save carries no base and cannot be refused for that reason.
+  It stays in the map because the `Record` is exhaustive over the union, and its wording — shipped one
+  slice ago — is effectively superseded here.
+- `y` **or `Y`** re-sends the SAME buffer with the force option; the write lands; the confirm clears;
+  the status reads `[ Wrote N lines ]`; the base advances to what was just written, so an immediate
+  second `^O` is not refused against the row this save created.
+- `n`, **`N`, `Esc` or `^C`** clears the confirm, writes nothing, and leaves the buffer byte-identical.
+  Any other key leaves the confirm up.
+- While the confirm is up, ordinary typing does not reach the buffer, `^X` does not exit, and `^O`
+  does not re-fire the save.
+- `saveEditor` with the force option omits `base_hash` **entirely** — not an empty string, which the
+  server would compare and reject.
+- A forced save that fails for a different reason (permission, network) reports through the ordinary
+  status line, not the confirm.
 - No server change: the forced save is the existing no-hash request.
 
 **RED**: `Nano` component tests (jsdom + `@solidjs/testing-library`, **not** Browser Mode) — a
-`modified_since_open` result renders the confirm; `y` calls `onSave` a second time with the force
-option and the buffer unchanged; `n` calls it not at all and leaves the buffer intact; keys are
-captured while the confirm is up. Plus `ui/state.test.ts`: `saveEditor` with the force option omits
-the base hash entirely.
+`modified_since_open` result renders the confirm **and no error status line**; `y` calls `onSave` a
+second time with the force option and the same buffer; `n` calls it not at all and leaves the buffer
+intact; the uppercase and `Esc`/`^C` answers; an unrecognised key leaves the confirm up; typing, `^X`
+and `^O` are captured while it is up. Plus `ui/state.test.ts`: `saveEditor` with the force option
+omits the base hash entirely.
+
+Per the conventions' absence-test warning, every "does not happen" here (`n` writes nothing; typing
+does not reach the buffer) needs its positive twin on the same setup, or it passes by never arriving
+at the code.
 **GREEN**: A confirm signal local to `Nano.tsx`; a key handler branch ahead of the chords; an
 `overwriteUnseen` option on `saveEditor` that omits `base_hash`.
 **MUTATE**: Run Stryker on the touched UI/state modules. Expect survivors on presentational strings —

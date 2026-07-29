@@ -898,21 +898,19 @@ NAT forward reaching only ONE occupant of a shared AP — is **closed at v0.99.0
 ("the gateway's ports are its own `sshd` ∪ EVERY occupant's forwards"): a forward's internal IP resolves
 through `network_lan_leases` to whoever leases it. Item #5 is therefore fully done, decisions 1–9.
 
-**Two candidates for the next slice — pick one before planning:**
+~~**Candidate 1: the shared-file write-wipe.**~~ **DONE at v0.101.0 + v0.102.0** (PR #342 and its
+follow-up). Grilled to a decision — optimistic concurrency on a **content hash**, enforced
+**server-side**, keeping last-writer-wins as the world model — then shipped in two slices: the server
+refusal, then nano's `(y/n)` confirm. An attacker can still delete a defender's forward; it now costs
+one informed keystroke instead of happening invisibly. As-built in `v2/docs/conventions-and-gotchas.md`
+§1; the three-player browser re-verification is in `v2/docs/e2e-shared-network-verification.md` §6.
+The *staleness* is untouched and deliberate — see the two follow-ups now in the conventions backlog
+(routine refusals; `echo x > rules.v4` as the remaining unguarded wipe vector).
 
-1. **The shared-file write-wipe (NEW, found by the v0.99.0 Act 4 browser run).** A session on a foreign
-   machine never learns another occupant wrote to it (the `patches-changed` channel is workstation-scoped),
-   so `nano`'s whole-buffer save over a stale buffer DELETES the other occupant's rules — reproduced end
-   to end on a shared AP gateway, and visible from outside as a vanished forward. **This is defender-facing
-   data loss on the shared-world surface #5 just finished building**, which is the argument for taking it
-   first. It needs a DECISION before RED, not just a patch — four shapes with real trade-offs (a
-   machine-scoped invalidation channel / an editor-open refetch / an optimistic-concurrency reject on a
-   stale base / a line-merge save). Full repro, journal rows and the trade-offs:
-   `v2/docs/e2e-shared-network-verification.md` §6 and the conventions deferred backlog. Start with
-   `grill-me` on the four shapes, then `planning`.
-2. **#6 (procedural world expansion)** — GRILLED & RESOLVED, decision record above, no open questions;
-   needs `planning` to turn it into slices. Cheaper to plan, but note it makes shared-AP encounters RARER,
-   which lowers the odds of anyone hitting (1) in the wild without fixing it.
+**Next action (updated 2026-07-29): #6 (procedural world expansion)** — GRILLED & RESOLVED, decision
+record above, no open questions; needs `planning` to turn it into slices. Note it makes shared-AP
+encounters RARER, which is now a content trade-off rather than a risk, since the data-loss defect it
+would have masked is fixed.
 
 #2 (pivot/hop source-IP masking) remains unplanned and still needs its own `grill-me`. One item from #5's
 work stays in the conventions doc's deferred backlog rather than here: the wire-checks are not in CI.

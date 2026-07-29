@@ -437,4 +437,30 @@ describe('nano editor mode', () => {
 
     expect(lastWrite()?.base_hash).toBe(contentHash(opened));
   });
+
+  it('refuses a save when no editor is open, rather than throwing', async () => {
+    // `saveEditor` is exported, so it is reachable with no buffer behind it — a
+    // stale keystroke arriving after the editor closed, say. It reports a lost
+    // session and writes nothing.
+    const { state, lastWrite } = await startEditorGame();
+
+    const result = await state.saveEditor('content with nowhere to go\n');
+
+    expect(result).toEqual({ ok: false, error: 'no_session' });
+    expect(lastWrite()).toBeUndefined();
+  });
+
+  it('sends no base at all when the player forces the overwrite', async () => {
+    // Forcing is not "name a different base" — it is naming NONE, which is the
+    // unconditional write the server already accepts for `>` and `touch`. A
+    // base of '' would be a base like any other, compared and refused.
+    const { state, lastWrite } = await startEditorGame({ refuseWrites: true });
+    state.setInput('nano /etc/passwd');
+    await state.runInput();
+
+    await state.saveEditor('clobbered\n', { overwriteUnseen: true });
+
+    expect('base_hash' in (lastWrite() ?? {})).toBe(false);
+    expect(lastWrite()?.content).toBe('clobbered\n');
+  });
 });
