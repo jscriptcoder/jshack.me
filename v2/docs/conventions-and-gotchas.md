@@ -159,6 +159,10 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
 
 **Current version: 0.102.0.**
 
+**Next epic — legacy parity, NOT STARTED:** `plans/legacy-parity-epic.md` — every remaining
+way into a machine (doors → discovery → CVE vulnerabilities), grilled to nine locked
+decisions. The ship gate is legacy parity **minus missions**; missions are a post-ship epic.
+
 To pick up the next slice: read the relevant `plans/*.md` TOP BLOCK (live status +
 as-built), then the cross-player architecture doc if the work touches cross-player paths.
 
