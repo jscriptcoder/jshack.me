@@ -232,20 +232,39 @@ persisted, other occupant's line gone. `n` → status clears, buffer intact, not
 **Reduction program**: `N/A`.
 **Transition/terminal evidence**: `N/A`.
 
-**Acceptance criteria** (present and confirm before writing code):
-- A rejected save puts nano into a confirm state whose text matches GNU nano's:
-  `File <path> was modified since you opened it, continue saving? (y/n)`.
-- `y` writes the buffer and the write lands; the confirm state clears; the base advances to what was
-  just written.
-- `n` clears the confirm state, writes nothing, and leaves the buffer exactly as it was.
-- While the confirm is up, ordinary typing does not edit the buffer, and `^X` does not exit.
+**Acceptance criteria** (confirmed 2026-07-29 — the three open calls are resolved below):
+- A rejected save puts nano into a confirm state reading **`File was modified since you opened it,
+  continue saving? (y/n)`** — real GNU nano's wording, **without** the path. The header bar names the
+  file permanently and only one file is ever open, so repeating it is noise. (This supersedes the
+  earlier draft of this criterion, which named the path and contradicted decision 4.)
+- **The confirm replaces the error status line**; the two are never shown together. One message, as
+  real nano does. Consequence to expect, not to fix: `SAVE_ERROR_REASON.modified_since_open` becomes
+  unreachable through `^O`, since a forced save carries no base and cannot be refused for that reason.
+  It stays in the map because the `Record` is exhaustive over the union, and its wording — shipped one
+  slice ago — is effectively superseded here.
+- `y` **or `Y`** re-sends the SAME buffer with the force option; the write lands; the confirm clears;
+  the status reads `[ Wrote N lines ]`; the base advances to what was just written, so an immediate
+  second `^O` is not refused against the row this save created.
+- `n`, **`N`, `Esc` or `^C`** clears the confirm, writes nothing, and leaves the buffer byte-identical.
+  Any other key leaves the confirm up.
+- While the confirm is up, ordinary typing does not reach the buffer, `^X` does not exit, and `^O`
+  does not re-fire the save.
+- `saveEditor` with the force option omits `base_hash` **entirely** — not an empty string, which the
+  server would compare and reject.
+- A forced save that fails for a different reason (permission, network) reports through the ordinary
+  status line, not the confirm.
 - No server change: the forced save is the existing no-hash request.
 
 **RED**: `Nano` component tests (jsdom + `@solidjs/testing-library`, **not** Browser Mode) — a
-`modified_since_open` result renders the confirm; `y` calls `onSave` a second time with the force
-option and the buffer unchanged; `n` calls it not at all and leaves the buffer intact; keys are
-captured while the confirm is up. Plus `ui/state.test.ts`: `saveEditor` with the force option omits
-the base hash entirely.
+`modified_since_open` result renders the confirm **and no error status line**; `y` calls `onSave` a
+second time with the force option and the same buffer; `n` calls it not at all and leaves the buffer
+intact; the uppercase and `Esc`/`^C` answers; an unrecognised key leaves the confirm up; typing, `^X`
+and `^O` are captured while it is up. Plus `ui/state.test.ts`: `saveEditor` with the force option
+omits the base hash entirely.
+
+Per the conventions' absence-test warning, every "does not happen" here (`n` writes nothing; typing
+does not reach the buffer) needs its positive twin on the same setup, or it passes by never arriving
+at the code.
 **GREEN**: A confirm signal local to `Nano.tsx`; a key handler branch ahead of the chords; an
 `overwriteUnseen` option on `saveEditor` that omits `base_hash`.
 **MUTATE**: Run Stryker on the touched UI/state modules. Expect survivors on presentational strings —
