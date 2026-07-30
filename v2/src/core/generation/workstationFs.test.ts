@@ -123,7 +123,11 @@ describe('buildWorkstationBaseFs', () => {
     expect(dirAt(fs, 'tmp').entries.size).toBe(0);
     expect([...dirAt(fs, 'var').entries.keys()].sort()).toEqual(['log', 'run', 'www']);
     expect([...dirAt(fs, 'var', 'www').entries.keys()]).toEqual(['html']);
-    expect([...dirAt(fs, 'var', 'log').entries.keys()].sort()).toEqual(['auth.log', 'kern.log']);
+    expect([...dirAt(fs, 'var', 'log').entries.keys()].sort()).toEqual([
+      'access.log',
+      'auth.log',
+      'kern.log',
+    ]);
     expect(dirAt(fs, 'var', 'run').entries.size).toBe(0);
   });
 
@@ -147,6 +151,29 @@ describe('buildWorkstationBaseFs', () => {
       if (node.kind !== 'file') throw new Error('expected file');
       // World-readable so the defender can `cat` it; only root writes it (su's
       // system-tier append models a setuid-root syslog write).
+      expect(node.owner).toBe('root');
+      expect(node.perms.read).toEqual(['root', 'user', 'guest']);
+      expect(node.perms.write).toEqual(['root']);
+    });
+  });
+
+  describe('/var/log/access.log', () => {
+    const accessLog = (): FileEntry => {
+      const node = dirAt(buildWorkstationBaseFs(SEED_A, getConfig()), 'var', 'log').entries.get(
+        'access.log',
+      );
+      if (node?.kind !== 'file') throw new Error('missing /var/log/access.log file');
+      return node;
+    };
+
+    it('starts empty (no entries until someone fetches a page)', () => {
+      expect(accessLog().content).toBe('');
+    });
+
+    it('is root-owned and world-readable, but never player-writable', () => {
+      // Readable by anyone who is ON the box — getting on the box is the gate. Written
+      // by root alone: a visitor who could edit it would erase the record of their visit.
+      const node = accessLog();
       expect(node.owner).toBe('root');
       expect(node.perms.read).toEqual(['root', 'user', 'guest']);
       expect(node.perms.write).toEqual(['root']);

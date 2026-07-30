@@ -31,6 +31,7 @@ import {
   TMP_DIR,
   TRAVERSABLE_DIR,
 } from './baseFs';
+import { ACCESS_LOG_PERMISSIONS } from '../logging/accessLog';
 import { AUTH_LOG_PERMISSIONS } from '../logging/authLog';
 import { KERN_LOG_PERMISSIONS } from '../logging/kernLog';
 import { formatPidfileContent } from '../services/pidfile';
@@ -196,6 +197,7 @@ const buildGatewayBaseFs = (
         {
           log: dir(
             {
+              'access.log': file('', ACCESS_LOG_PERMISSIONS),
               'auth.log': file('', AUTH_LOG_PERMISSIONS),
               'kern.log': file('', KERN_LOG_PERMISSIONS),
             },

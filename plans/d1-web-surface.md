@@ -1,8 +1,10 @@
 # Plan: D1 — the web surface (serve a page, a stranger reads it)
 
-**Branch**: slice 4 needs a fresh branch off `main`.
-**Status**: Active — **slices 1–3 of 4 SHIPPED** (v0.104.0 #344 → `c54caa7`; v0.105.0 #345 →
-`9b05f6f`; v0.106.0 #346 → `c408fb2`). **Slice 4 is next, not started.**
+**Branch**: `feat/web-access-log` (cut off `main` at `221fe07` for slice 4).
+**Status**: Active — **slices 1–3 of 5 SHIPPED** (v0.104.0 #344 → `c54caa7`; v0.105.0 #345 →
+`9b05f6f`; v0.106.0 #346 → `c408fb2`). **Slice 4 is next, not started.** Slice 4b was added
+2026-07-30 when the own-LAN logging question was settled (see below) — it is a real slice, not a
+deferral.
 **Epic**: [`legacy-parity-epic.md`](./legacy-parity-epic.md) Phase 1, slice D1 (the first slice of
 the whole epic)
 
@@ -139,12 +141,14 @@ presence, proven through the registry.
       `resolveWebPath`)*
 - [ ] The owner of a fetched page reads the hit in `/var/log/access.log`, with the requester's
       server-derived source IP and the requested path
+- [ ] A fetch on the player's OWN LAN is logged too — on a generated host's `access.log` (readable
+      once the player gets in) and on the player's own box when they fetch themselves
 - [ ] All gates green: `npm run typecheck`, `npm run lint`, full test suite; version bumped in
       `v2/package.json` + `package-lock.json`
 
 ## Slices
 
-Four slices, each one PR. Every slice is a **behavior change** — RED-GREEN with mutation
+Five slices, each one PR. Every slice is a **behavior change** — RED-GREEN with mutation
 evidence, per the epic's per-slice contract.
 
 ---
@@ -331,12 +335,28 @@ allowlist application — both are security-load-bearing, so kill them and keep 
 | Whose key | The **owner's** — the reached occupant's `owner_key`, already in scope in `resolveForwardTarget`. For the GATEWAY arm there is no owner: reuse `apGatewayLogWriterKey(leases)`, as the ssh gate does (and note the gateway arm currently reads no leases — deviation 2 of slice 3 — so it must start, or skip logging) |
 | Source IP | `resolveCrossPlayerSourceIp(findHomeNetworkByOwnerKey, publicKey)` — the handler currently destructures only `payload`; it needs `publicKey` too |
 | New deps | `now`, `readLog`, `upsertPatch`, `findHomeNetworkByOwnerKey` — copy the shapes from `AuthCreateSessionPublicDeps` and their `api/network.ts` adapters verbatim |
-| Dead surface to resolve | `LogApi.appendAccessLog` — use or delete (see slice 3 as-built) |
+| Dead surface to resolve | `LogApi.appendAccessLog` — **belongs to 4b, and its signature is WRONG.** It is typed `(target: MachineId, line: string)`: a client-composed LINE would let the caller dictate the timestamp and the source IP, which is exactly what this slice forbids. `AuthLogEvent` (`types.ts:225`) carries no timestamp for that reason. 4b replaces it with an event-shaped seam; slice 4 leaves it alone |
 | Wire-check | EXTEND `scripts/testHttpFetch.ts`; its `seed()` helper already fails loudly, keep it that way |
 
-**Decide before RED:** whether an OWN-LAN `curl` also logs. `nmap` logs own-LAN scans (Story
-6.4), so symmetry says yes — but own-LAN curl is a pure client path with no server round-trip,
-so it would need one. Cheapest honest answer may be "cross-player only, and say so".
+**Settled 2026-07-30 — own-LAN `curl` DOES log, in slice 4b.** The question was answered from
+realism: an access log belongs to the SERVER, not the network path. nginx writes a line for every
+request it serves — localhost, LAN peer, or the far side of the internet; the origin only decides
+what lands in the source-IP field. So all three cases log, and "no server round-trip" was never a
+reason not to: `nmap` fires `scan.record` (`nmap.ts:291`) from a scan that resolved entirely
+client-side, and the server regenerates the LAN to stamp each host. `curl` does the same.
+
+Split across two slices because they are different work, not because one is optional:
+
+- **Slice 4 (this one)**: the cross-player fetch. An append inside a handler that has already
+  resolved its target.
+- **Slice 4b**: own-LAN — both a generated NPC host AND the player's own box. Needs a NEW signed
+  action, handler, adapter and wire-check, mirroring `handleNmapScan` end to end.
+
+**Also settled: a 404 IS logged.** A reached server that answers "no such page" still answered —
+realistically that is the most interesting line in the file, because a wall of them is what a
+directory brute-force looks like. `gobuster` arrives in D2 and its whole defender-side tell is
+404s in this file, so the formatter carries the STATUS from the start. Only a target that was
+never reached (every `host_unreachable` cause) leaves no line.
 
 **Actor / trigger / outcome**: player A → `cat /var/log/access.log` → B's source IP and the path
 B requested.
@@ -356,10 +376,11 @@ tier-2 served tree.
   identity lives in the line content, never in `writer_key`)
 - **Server-derived source IP** via `resolveCrossPlayerSourceIp`; a client-supplied source is
   ignored
+- A **status code** in the line (200 and 404 both log; see the settled decision above)
 - Best-effort: a logging failure never breaks or fabricates the fetch
 
-**Defers**: own-LAN curl logging (decide at planning — likely symmetric, following `nmap`'s
-own-LAN pattern), log rotation.
+**Defers**: own-LAN curl logging (**slice 4b**, not a deferral of the question — the question is
+settled), log rotation.
 
 **RED**: a behavior test that a cross-player fetch appends one line under the owner's key with the
 server-derived IP and requested path; that a failed/unreachable fetch logs nothing; that a
@@ -372,6 +393,65 @@ keystone, so it must die.
 
 ---
 
+### ⏭ Slice 4b (NOT STARTED — after slice 4): An own-LAN fetch is logged too
+
+**Actor / trigger / outcome**: player → `curl http://<a LAN host>` → breaks into that host later →
+`cat /var/log/access.log` and finds their own earlier fetch. And `curl http://<own IP>` → the line
+lands on their own box, where they can read it immediately.
+**Value**: the log stops being a cross-player-only artefact. It is the same file wherever you read
+it, which is the point of it being the *server's* log. It also gives the player the one place they
+can see what an access log looks like **before** anyone attacks them.
+**Path**: `curl`'s own-LAN branch (`targetFs`, `curl.ts:91`) → fire-and-forget signed action →
+**new handler**: regenerate the caller's LAN from the verified pubkey + essid → resolve the target
+IP to either the caller's own workstation (via their `network_lan_leases` address) or a generated
+NPC host (via `resolveLanHostIdentity`) → `appendMachineLog`.
+**Class**: Behavior change.
+**Required implementation skills**: `tdd`, `testing`, `mutation-testing`; `refactoring` assessed.
+**Wire-check**: **required** — a new `scripts/` check, or an extension of `testHttpFetch.ts`.
+
+**This slice is `handleNmapScan` again, with a different line.** Read `core/scan/nmapScan.ts`
+before starting; it answers most of the design questions already, and its module doc explains why.
+
+**Includes**:
+- A new signed action + handler mirroring `handleNmapScan`: the client sends `essid`, target IP
+  and path; the SERVER decides which machine the line lands on. The client never names a machine
+  id — same rule as the cross-player path, for the same reason
+- The self-fetch case: the caller's own workstation, resolved server-side from the verified pubkey
+  (`nmapScan.ts:12` skips self-scan because the generic remote-log path is keyed by `hostMachineId`
+  and cannot address a workstation — the cross-player handler CAN, so the self case is reachable
+  here in a way it was not for `nmap`)
+- Replace `LogApi.appendAccessLog(target, line)` with an **event-shaped** seam (no client
+  timestamp, no client source IP), mirroring `appendAuthLog`. Deleting the old signature is part
+  of this slice
+- `curl`'s own-LAN branch fires it fire-and-forget (`void … .catch(() => undefined)`, exactly as
+  `nmap.ts:291` does) — the fetch must not wait on, or fail with, the log write
+
+**Writer key — simpler here than in slice 4, and worth stating so nobody looks for a bug:** the
+**caller's** key in BOTH cases. A generated NPC host has no owner, so it is per-viewer keyed
+(`nmapScan.ts:147` does exactly this); the player's own box IS owned by the caller. So 4b never
+needs the owner-vs-caller distinction — which is precisely why slice 4 is where that keystone gets
+proven.
+
+**Defers**: logging a fetch of an NPC host by a player who is not on that LAN (there is no such
+path); log rotation.
+
+**RED**: a behavior test that an own-LAN fetch of a generated host appends one line to THAT host's
+`access.log` under the caller's key with the caller's LAN IP and the requested path; that a
+self-fetch lands on the caller's own workstation; that a fetch of a host that is not serving
+(no line, because nothing answered); that a 404 on a real server DOES log with its status; and
+that a client-supplied machine id or timestamp cannot influence where the line lands or what it
+says.
+**GREEN**: the action, the handler, the adapter wiring, and the `curl` call site.
+**MUTATE**: Stryker. Expect survivors on the self-vs-NPC target resolution and on the
+fire-and-forget path (a `void`ed promise is easy to test into a false green — assert the seam was
+called with the resolved values, not that the fetch succeeded).
+**REFACTOR**: by now there are three log formatters and two LAN-regenerating handlers. Assess a
+shared shape for real this time; note that `nmapScan.ts` and this handler differ only in what they
+resolve and what they write.
+**Done when**: AC 9 passes, mutation report clean, wire-check green, human approves the commit.
+
+---
+
 ## Pre-PR Quality Gate (every slice)
 
 1. Mutation testing run and survivors addressed (or reviewed `N/A` with alternate evidence)
@@ -379,7 +459,7 @@ keystone, so it must die.
 3. `npm run typecheck` + `npm run lint` green, full suite passing
 4. Version bumped in `v2/package.json` **and** `package-lock.json`
    (`npm install --package-lock-only`)
-5. Slices 3–4: wire-check run live against `vercel dev` + supabase
+5. Slices 3, 4, 4b: wire-check run live against `vercel dev` + supabase
 6. Browser confirmation for the player-facing behaviour (`v2-e2e` skill) before D1 closes
 
 ## On D1 close-out
@@ -390,7 +470,9 @@ keystone, so it must die.
   Deferred to close-out rather than per-slice because it needs the game up, and a live dev server
   makes Stryker report false survivors (§5 of the conventions doc), so it wants its own pass. The
   slice-2 path to walk: `apt install nginx` → `su` → `nginx` → `curl http://<own IP>` → `nano` the
-  page → `curl` again and see the edit.
+  page → `curl` again and see the edit. After 4b that same walk continues into
+  `cat /var/log/access.log`, where the player's own fetches are now waiting — which makes it the
+  single best demo of the whole D1 surface.
 - Extract the shared online → `wlan0` → essid preamble (see "Known duplication" above) as a
   separate behaviour-preserving commit. **Slice 3 has landed, so this is now decidable**: `curl`
   needs `isOnline` + `wlan0` for BOTH branches but the `essid` only for the own-LAN one, so the
