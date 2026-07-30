@@ -298,6 +298,27 @@ failed roughly one ESSID pair in ten — a real flake dressed up as a regression
 whole `/etc/passwd` makes the same claim with three independent draws behind it. Any golden
 pinned to a single pick from a short pool has this problem.
 
+**A test that mints a RANDOM identity and asserts against SEEDED world state is flaky by
+construction.** `generateIdentity()` draws fresh keys every run, while the world (NPC accounts,
+LAN octets, hostnames) is seeded from the ESSID. Wherever those two spaces can collide, the test
+fails at a rate set by the smaller one:
+
+- guest passwords come from an **8-word** pool, so two random identities share one about **1 run
+  in 8** — which broke "Bob's password is refused on Alice's box": on a collision it was not a
+  wrong password at all.
+- a player's LAN octet is drawn from their pubkey while ~10 of 253 octets hold generated hosts,
+  so **~1 run in 25** puts a real NPC at the "self" address — which broke `nmapScan`'s
+  self-exclusion count (`hostsLogged: 1`, not 0).
+
+Fix by **drawing again** — recurse until the candidate identity does not collide — so the
+failure mode is gone by construction rather than merely rarer. That is different from the
+small-pool remedy below, which widens the ASSERTION; here the nondeterminism is in the fixture.
+Both instances above passed 8-10 consecutive isolated runs, so treat "it passes now" as no
+evidence. Other files mint identities the same way (`resolvePublicScan`, `natHosts`,
+`authCreateSessionSameLan`, `createSession`) and are latent until an assertion depends on the
+draw; at least one further instance has been observed in a full-suite run without being
+pinned to a file.
+
 **A survivor masked by a LATER call is untested, not equivalent.** `withSelfHost`'s sort
 survived because `mergeLanOccupants` re-sorts downstream — the mutant is invisible through
 the consumer, but the module's own documented invariant (`HomeLan` = ascending octet order)
