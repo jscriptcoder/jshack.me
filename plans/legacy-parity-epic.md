@@ -309,10 +309,15 @@ picked, never the shape of what is stamped or how a door authorizes.
 
 ## Next action
 
-**D1 is planned and approved** — see [`d1-web-surface.md`](./d1-web-surface.md) for its four
-slices. Next up is **D1 slice 1: a player reads a web page served by a host on their LAN**
-(`SERVICE_CATALOG.http` row + generated pages + `curl` + `ping`), on branch
-`feat/web-http-surface`.
+**D1 is in flight** — see [`d1-web-surface.md`](./d1-web-surface.md). **Slices 1–3 of 5 are
+shipped** (#344 `c54caa7`, #345 `9b05f6f`, #346 `c408fb2`): a host serves a page, the player runs
+their own web server, and a stranger reads a player's page across the network with no session and
+no credential.
+
+Next up is **D1 slice 4: a defender sees who fetched their page** (`/var/log/access.log`,
+owner-keyed writer, server-derived source IP), on branch `feat/web-access-log`. Then **slice 4b**,
+added 2026-07-30: the same log for an own-LAN fetch, including the player fetching themselves —
+because an access log belongs to the server, not the network path.
 
 Per slice, before any code: load `tdd`, `testing`, `mutation-testing`, `refactoring`; run full
 RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR; present before starting the next. Any `api/` change
