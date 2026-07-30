@@ -12,12 +12,14 @@
  * exists but serves nothing refuses the connection rather than returning an empty
  * page, so "unreachable" and "nothing there" stay distinguishable.
  *
- * Only the player's own LAN resolves here. Reaching another player's box by its
- * public IP is a server round-trip (the target's journal lives server-side), which
- * arrives with the cross-player slice.
+ * Only the player's own LAN resolves here — including their own address, which reads
+ * their live filesystem rather than a generated one (see `targetFs`). Reaching
+ * another player's box by its public IP is a server round-trip (the target's journal
+ * lives server-side), which arrives with the cross-player slice.
  */
 
-import type { Command, CommandResult, TerminalLine } from './types';
+import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
+import type { Directory } from '../filesystem/types';
 import { generateHomeLan } from '../generation/generateHomeLan';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
 import { createFsView } from '../filesystem/fsView';
@@ -61,6 +63,36 @@ async function* responseLines(
   for (const line of content.split('\n')) yield text(line);
 }
 
+/**
+ * The filesystem behind `target`, or null when nothing on the LAN answers to that
+ * address.
+ *
+ * The player's own address resolves to their LIVE tree, NOT to a generated one:
+ * their box is the only host on the network whose filesystem is real, so pointing
+ * the host generator at their own IP would fabricate an NPC page for a box that may
+ * publish nothing at all. Reading the live tree is also what makes an edit visible
+ * — `nano` on the page changes what a fetch returns, because it is the same tree.
+ *
+ * Everything downstream is identical for both: a generated host's tree and the
+ * player's own are both just trees, so the port check, the web-root confinement,
+ * and the read all stay in one place.
+ */
+const targetFs = ({
+  env,
+  essid,
+  ownIp,
+  target,
+}: {
+  readonly env: CommandEnv;
+  readonly essid: string;
+  readonly ownIp: string;
+  readonly target: string;
+}): Directory | null => {
+  if (target === ownIp) return env.fs.root();
+  const host = generateHomeLan(essid).hosts.find((candidate) => candidate.ip === target);
+  return host === undefined ? null : buildRemoteHostFs(essid, host);
+};
+
 const execute: Command['execute'] = async (env, args, flags) => {
   const raw = args[0];
   if (raw === undefined) {
@@ -86,15 +118,11 @@ const execute: Command['execute'] = async (env, args, flags) => {
   }
 
   const essid = wlan0.association.essid;
-  const host = generateHomeLan(essid).hosts.find((candidate) => candidate.ip === url.host);
-  if (host === undefined) {
+  const hostFs = targetFs({ env, essid, ownIp: wlan0.ipv4, target: url.host });
+  if (hostFs === null) {
     return error(`curl: (6) Could not resolve host: ${url.host}`);
   }
 
-  // The target's own filesystem — deterministic from the network + the host, the
-  // same tree `nmap` read its ports from, so what a scan advertised is what a fetch
-  // finds.
-  const hostFs = buildRemoteHostFs(essid, host);
   const listening = readOpenPorts(hostFs).some(
     (entry) => entry.port === url.port && entry.service === SERVICE_CATALOG.http.service,
   );
@@ -139,7 +167,7 @@ export const curl: Command = {
   manual: {
     synopsis: 'curl [-i] <url>',
     description:
-      'Fetch a URL over HTTP and print what the server returns. Reaches hosts on your own network, e.g. "curl http://192.168.1.5". A web server publishes only its document root, so nothing else on the target is readable this way. Requires a network connection.',
+      'Fetch a URL over HTTP and print what the server returns. Reaches hosts on your own network, e.g. "curl http://192.168.1.5", including your own address once you are running a web server. A web server publishes only its document root, so nothing else on the target is readable this way. Requires a network connection.',
     arguments: [
       {
         name: 'url',

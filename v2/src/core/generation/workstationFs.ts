@@ -39,6 +39,7 @@ import {
   SHELL,
   TMP_DIR,
   TRAVERSABLE_DIR,
+  WEB_PAGE_FILE,
 } from './baseFs';
 import { md5 } from './md5';
 import { AUTH_LOG_PERMISSIONS } from '../logging/authLog';
@@ -58,6 +59,28 @@ const GUEST_PASSWORDS: readonly string[] = [
   'trustno1',
   'sunshine',
 ];
+
+/**
+ * The page a player's box serves before they have written one of their own.
+ *
+ * FIXED, not drawn from the NPC page pool: those pages leak invented versions and
+ * paths as recon material, which would be a lie about the player's own box and
+ * would hand their attackers hints the box does not actually have. A stock
+ * default is also what a real freshly-installed server ships.
+ *
+ * It names its own path because that is the one thing the player needs to know to
+ * replace it, and nothing else in the game would tell them.
+ */
+const DEFAULT_PAGE = [
+  '<html>',
+  '<head><title>It works!</title></head>',
+  '<body>',
+  '<h1>It works!</h1>',
+  '<p>This is the default page served from /var/www/html/index.html.</p>',
+  '<p>Edit that file to publish something of your own.</p>',
+  '</body>',
+  '</html>',
+].join('\n');
 
 /** The guest account's plaintext password — seeded from the owner's pubkey ALONE
  *  (the `workstation-` namespace). Owner-key-only so the SERVER can recover it for
@@ -131,7 +154,10 @@ export const buildWorkstationBaseFsFromIdentity = (identity: {
       // `/var/log/auth.log` exists empty from boot so `su` appends to a real
       // file (and `cat` works before the first switch); `/var/log/kern.log` the
       // same for an inbound scan's iptables line. `/var/run` exists empty so
-      // `sshd` can drop its pidfile there.
+      // `sshd` can drop its pidfile there. `/var/www/html/index.html` exists from
+      // boot for the same reason: a freshly started web server must have
+      // something to serve, and the player needs a real file to edit rather than
+      // having to guess the path and create it.
       var: dir(
         {
           log: dir(
@@ -142,6 +168,10 @@ export const buildWorkstationBaseFsFromIdentity = (identity: {
             TRAVERSABLE_DIR,
           ),
           run: dir({}, TRAVERSABLE_DIR),
+          www: dir(
+            { html: dir({ 'index.html': file(DEFAULT_PAGE, WEB_PAGE_FILE) }, TRAVERSABLE_DIR) },
+            TRAVERSABLE_DIR,
+          ),
         },
         TRAVERSABLE_DIR,
       ),

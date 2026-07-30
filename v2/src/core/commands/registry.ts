@@ -40,6 +40,7 @@ import { ssh } from './ssh';
 import { sshd } from './sshd';
 import { su } from './su';
 import { touch } from './touch';
+import { apache2, nginx } from './webServer';
 import { isAlwaysAvailable, wrapWithBinaryCheck } from './availability';
 import { wrapWithLibraryCheck } from './libraryDeps';
 import type { Command } from './types';
@@ -48,6 +49,7 @@ const builtins: readonly Command[] = [
   aircrack,
   airdump,
   airmon,
+  apache2,
   apt,
   cat,
   cd,
@@ -62,6 +64,7 @@ const builtins: readonly Command[] = [
   man,
   mkdir,
   nano,
+  nginx,
   nmap,
   nmcli,
   ping,

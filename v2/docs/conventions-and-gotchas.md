@@ -157,11 +157,19 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
   the editor open); a refused one leaves it alone. Wire-check `scripts/testModifiedSinceOpen.ts`;
   three-player browser verification in `e2e-shared-network-verification.md` §6.
 
-**Current version: 0.102.0.**
+**Current version: 0.104.0.**
 
-**Next epic — legacy parity, NOT STARTED:** `plans/legacy-parity-epic.md` — every remaining
+**Current epic — legacy parity, IN PROGRESS:** `plans/legacy-parity-epic.md` — every remaining
 way into a machine (doors → discovery → CVE vulnerabilities), grilled to nine locked
 decisions. The ship gate is legacy parity **minus missions**; missions are a post-ship epic.
+
+- **D1 (the web surface) — slice 1 of 4 ✅ SHIPPED (v0.104.0, #344).** The first door since
+  `ssh`, and the only one that opens with **no credential**: a generated LAN host rolls the
+  `http` service, `nmap` labels its port, and `curl http://<its IP>` returns its seeded page
+  (`curl -i` for headers). `ping` answers reachability, seeded per address. **Nothing outside
+  `/var/www/html` is fetchable** — that confinement lives in `core/network/http.ts`
+  (`resolveWebPath`), NOT in the filesystem walker; see §7. Live plan for slices 2–4:
+  `plans/d1-web-surface.md`.
 
 To pick up the next slice: read the relevant `plans/*.md` TOP BLOCK (live status +
 as-built), then the cross-player architecture doc if the work touches cross-player paths.
@@ -443,6 +451,17 @@ state costs you more than one wrong attempt.
 
 ## 7. Architecture invariants
 
+- **HTTP confines itself to the document root — the filesystem walker must never be trusted
+  to do it.** `resolveWebPath` (`core/network/http.ts`) NORMALIZES the request path and returns
+  `null` when it escapes `/var/www/html`. It looks redundant, because `fsView.read` resolves
+  through `segmentsOf` and so treats `..` as a literal directory name that never exists — but
+  that is an accident of which path helper is on the read path, not a guarantee: `resolveAbsPath`
+  normalizes everywhere else (it is how `cd ..` works). Three `..` above the web root is `/`,
+  which puts `/etc/passwd` one hop from a caller holding **no session on the box at all**. If a
+  walker ever starts normalizing, this function is the only thing standing in the way. An
+  escaping path must report the SAME 404 a missing file does — confirming a traversal was
+  spotted is itself a hint. Every HTTP reader shares this one function, so the client `curl` and
+  the (coming) cross-player server handler cannot disagree about what a URL may name.
 - **The wire IS the threat surface.** The trust boundary is the Vercel function + Supabase
   RLS, never the client (Burp/ZAP/a custom client are all the same threat). Patch validation
   is zero-trust; identity is proven by a **signed Ed25519 envelope** on every request, and a

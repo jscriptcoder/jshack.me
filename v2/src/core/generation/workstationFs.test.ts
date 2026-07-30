@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { GameConfig } from '../gameConfig/gameConfig';
 import type { Directory, FileEntry, FileNode } from '../filesystem/types';
 import { canRead, canWrite } from '../filesystem/walker';
+import { resolveWebPath, WEB_ROOT } from '../network/http';
 import {
   buildWorkstationBaseFs,
   buildWorkstationBaseFsFromIdentity,
@@ -44,6 +45,17 @@ const dirAt = (fs: Directory, ...segments: readonly string[]): Directory => {
     node = next;
   }
   if (node.kind !== 'directory') throw new Error('target is not a directory');
+  return node;
+};
+
+/** The FILE at an absolute path; throws if it is missing or a directory. Lets a
+ *  test address a node by the same path string the rest of the game uses. */
+const fileAt = (fs: Directory, path: string): FileEntry => {
+  const segments = path.split('/').filter((segment) => segment !== '');
+  const name = segments[segments.length - 1];
+  const parent = dirAt(fs, ...segments.slice(0, -1));
+  const node = parent.entries.get(name);
+  if (node?.kind !== 'file') throw new Error(`missing file "${path}"`);
   return node;
 };
 
@@ -109,7 +121,8 @@ describe('buildWorkstationBaseFs', () => {
     expect(dirAt(fs, 'home', 'alice').entries.size).toBe(0);
     expect(dirAt(fs, 'root').entries.size).toBe(0);
     expect(dirAt(fs, 'tmp').entries.size).toBe(0);
-    expect([...dirAt(fs, 'var').entries.keys()].sort()).toEqual(['log', 'run']);
+    expect([...dirAt(fs, 'var').entries.keys()].sort()).toEqual(['log', 'run', 'www']);
+    expect([...dirAt(fs, 'var', 'www').entries.keys()]).toEqual(['html']);
     expect([...dirAt(fs, 'var', 'log').entries.keys()].sort()).toEqual(['auth.log', 'kern.log']);
     expect(dirAt(fs, 'var', 'run').entries.size).toBe(0);
   });
@@ -285,6 +298,82 @@ describe('buildWorkstationBaseFs', () => {
         write: ['root'],
         execute: ['root', 'user', 'guest'],
       });
+    });
+  });
+
+  describe('/var/www/html web root (what a running web server publishes)', () => {
+    const baseFs = (): Directory => buildWorkstationBaseFs(SEED_A, getConfig());
+
+    it('ships a default page at exactly the path an HTTP request for / resolves to', () => {
+      // Generation and serving must agree on WHERE the page lives, so the path is
+      // taken from the HTTP layer rather than spelled out again here: put the file
+      // one directory off and this fails.
+      const requested = resolveWebPath('/');
+      if (requested === null) throw new Error('/ must resolve inside the web root');
+
+      const page = fileAt(baseFs(), requested);
+
+      expect(page.owner).toBe('root');
+      expect(page.content.length).toBeGreaterThan(0);
+    });
+
+    it('tells the player which file to edit to publish something of their own', () => {
+      // The default page is the player's first sight of their own web surface; a
+      // page that says nothing leaves them with no way to find the file.
+      const page = fileAt(baseFs(), `${WEB_ROOT}/index.html`);
+
+      expect(page.content).toContain(`${WEB_ROOT}/index.html`);
+    });
+
+    it('ships the default page as multi-line HTML that closes its tags', () => {
+      // `curl` emits one terminal line per source line, so a page collapsed onto a
+      // single line renders as one wrapped blob — and an unclosed document is
+      // simply broken HTML for the player to inherit.
+      const lines = fileAt(baseFs(), `${WEB_ROOT}/index.html`).content.split('\n');
+
+      expect(lines.length).toBeGreaterThan(1);
+      expect(lines[0]).toBe('<html>');
+      expect(lines[lines.length - 1]).toBe('</html>');
+    });
+
+    it('makes the page world-readable, root-write-only and not executable', () => {
+      // World-readable because a published page is public by definition, and the
+      // same posture a generated NPC host uses — one web permission model, so an
+      // own box and an NPC box cannot disagree about what publishing means.
+      expect(fileAt(baseFs(), `${WEB_ROOT}/index.html`).perms).toEqual({
+        read: ['root', 'user', 'guest'],
+        write: ['root'],
+        execute: [],
+      });
+    });
+
+    it('lets only root edit the page — the same privilege that starts the server', () => {
+      const fs = baseFs();
+      const chain = [fs.perms, dirAt(fs, 'var').perms, dirAt(fs, 'var', 'www').perms];
+      const page = fileAt(fs, `${WEB_ROOT}/index.html`);
+
+      // You must `su` to publish, exactly as you must `su` to start nginx — one
+      // privilege for the whole capability rather than two half-permissions.
+      expect(canWrite('root', page.perms, [...chain, dirAt(fs, 'var', 'www', 'html').perms]).allowed).toBe(
+        true,
+      );
+      expect(canWrite('user', page.perms, [...chain, dirAt(fs, 'var', 'www', 'html').perms]).allowed).toBe(
+        false,
+      );
+      expect(
+        canWrite('guest', page.perms, [...chain, dirAt(fs, 'var', 'www', 'html').perms]).allowed,
+      ).toBe(false);
+    });
+
+    it('makes /var/www and /var/www/html world-traversable so a reader can reach the page', () => {
+      const traversable = {
+        read: ['root', 'user', 'guest'],
+        write: ['root'],
+        execute: ['root', 'user', 'guest'],
+      };
+
+      expect(dirAt(baseFs(), 'var', 'www').perms).toEqual(traversable);
+      expect(dirAt(baseFs(), 'var', 'www', 'html').perms).toEqual(traversable);
     });
   });
 
