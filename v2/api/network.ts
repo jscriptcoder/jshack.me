@@ -16,6 +16,11 @@ import {
   type NatOccupantRow,
   type ApNetworkLookup,
 } from '../src/core/scan/resolvePublicScan';
+import {
+  handleResolveHttpFetch,
+  type ApNetworkLookup as HttpApNetworkLookup,
+  type HttpFetchOccupant,
+} from '../src/core/network/resolveHttpFetch';
 import { computeApGatewayId } from '../src/core/identity/router';
 import { handleResolveInnerGatewayScan } from '../src/core/scan/resolveInnerGatewayScan';
 import type { OwnerPatchRow as MachinePatchRow } from '../src/core/network/materializeMachineFs';
@@ -210,6 +215,72 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       readLog,
       upsertPatch,
       findHomeNetworkByOwnerKey,
+    });
+    res.status(status).json(body);
+    return;
+  }
+
+  if (actionOf(req.body) === 'resolveHttpFetch') {
+    // Cross-player web FETCH: the caller holds no session and offers no credential —
+    // a web server publishes its document root to anyone who can reach the port, so
+    // reachability is the whole gate. Same resolution chain as the public scan/ssh
+    // (public IP → ESSID → gateway → forward → the occupant leasing that address), so
+    // the three can never disagree about which box answers a port. Only the file's
+    // CONTENT crosses back, and which file that is was decided server-side.
+    const findNetworkByPublicIp = async (publicIp: string) => {
+      const network = await supabase
+        .from('network_public_ips')
+        .select('essid')
+        .eq('public_ip', publicIp)
+        .maybeSingle();
+      if (network.error) {
+        console.error('[network] http-fetch public-ip lookup error:', network.error);
+        return { data: null, error: network.error };
+      }
+      const essid = (network.data as { essid: string } | null)?.essid ?? null;
+      if (essid === null) return { data: null, error: null };
+      const resolved: HttpApNetworkLookup = {
+        router_machine_id: computeApGatewayId(essid),
+        essid,
+      };
+      return { data: resolved, error: null };
+    };
+    // Per-machine journal: the gateway's (boot state + the live forward table), then
+    // the reached box's (its running services and the page itself).
+    const findPatches = async ({ machine_id }: { machine_id: string }) => {
+      const { data, error } = await supabase
+        .from('patches')
+        .select('path, content, owner, permissions, node_type, updated_at, writer_key')
+        .eq('machine_id', machine_id)
+        .order('updated_at', { ascending: true })
+        .order('writer_key', { ascending: true });
+      if (error) console.error('[network] http-fetch journal lookup error:', error);
+      return { data: data as readonly OwnerPatchRow[] | null, error };
+    };
+    // Who a forward can reach: every occupant currently ON the ESSID, with the identity
+    // fields that rebuild each box from its OWNER's identity.
+    const listOccupantsByEssid = async (essid: string) => {
+      const { data, error } = await supabase
+        .from('home_network_occupants')
+        .select('owner_key, workstation_machine_id, workstation_username, workstation_root_hash')
+        .eq('essid', essid);
+      if (error) console.error('[network] http-fetch occupant list error:', error);
+      return { data: data as readonly HttpFetchOccupant[] | null, error };
+    };
+    const listLeasesByEssid = async (essid: string) => {
+      const { data, error } = await supabase
+        .from('network_lan_leases')
+        .select('owner_key, octet')
+        .eq('essid', essid);
+      if (error) console.error('[network] http-fetch lan-lease list error:', error);
+      return { data: data as readonly LanLeaseRow[] | null, error };
+    };
+    const { status, body } = await handleResolveHttpFetch(req.body, {
+      nonceStore: noopNonceStore,
+      findNetworkByPublicIp,
+      findPatches,
+      listOccupantsByEssid,
+      listLeasesByEssid,
     });
     res.status(status).json(body);
     return;

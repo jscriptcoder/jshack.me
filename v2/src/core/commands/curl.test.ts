@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { curl } from './curl';
-import type { CommandResult } from './types';
+import type { CommandResult, PublicFetchParams, PublicFetchResult } from './types';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
   mockIdentity,
   mockNetworkView,
   mockNetworkViewFromConnectivity,
+  mockRemoteApi,
 } from '../../test/factories/commandEnv';
 import { applyPatches, type Patch } from '../filesystem/applyPatches';
 import { defaultFilePermissions } from '../filesystem/defaultPermissions';
@@ -530,5 +531,125 @@ describe('curl against the player own address', () => {
     expect(wrongPort.text).toContain('Connection refused');
     expect(rightPort.exitCode).toBe(0);
     expect(rightPort.text).toContain('It works!');
+  });
+});
+
+describe('curl across the network, at another player public IP', () => {
+  const THEIR_PUBLIC_IP = '203.0.113.7';
+  const THEIR_PAGE = '<h1>welcome to nebuchadnezzar</h1>';
+
+  /** Run `curl <url>` with the cross-network fetch stubbed, capturing what the client
+   *  asked the server for — the request is the contract, so a test can prove the client
+   *  hands over the RAW url path rather than resolving a file itself. */
+  const fetchAcross = async (
+    result: PublicFetchResult,
+    ...args: readonly string[]
+  ): Promise<{ readonly drained: Drained; readonly asked: readonly PublicFetchParams[] }> => {
+    const asked: PublicFetchParams[] = [];
+    const env = mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+      remote: {
+        ...mockRemoteApi(),
+        fetchPublic: async (params) => {
+          asked.push(params);
+          return result;
+        },
+      },
+    });
+    return { drained: await drain(await curl.execute(env, args, new Map())), asked };
+  };
+
+  const served = (content: string): PublicFetchResult => ({ ok: true, content });
+  const failed = (error: 'host_unreachable' | 'not_found' | 'network_error'): PublicFetchResult => ({
+    ok: false,
+    error,
+  });
+
+  it('prints the page the server resolved, with no session and no credential', async () => {
+    const { drained } = await fetchAcross(served(THEIR_PAGE), `http://${THEIR_PUBLIC_IP}`);
+
+    expect(drained.exitCode).toBe(0);
+    expect(drained.text).toContain('welcome to nebuchadnezzar');
+  });
+
+  it('asks the server for the raw url path, never a resolved file path', async () => {
+    const { asked } = await fetchAcross(
+      served(THEIR_PAGE),
+      `http://${THEIR_PUBLIC_IP}:8080/status.html`,
+    );
+
+    expect(asked).toEqual([
+      { target: THEIR_PUBLIC_IP, port: 8080, path: '/status.html' },
+    ]);
+  });
+
+  it('defaults to the web port and the document root when the url names neither', async () => {
+    const { asked } = await fetchAcross(served(THEIR_PAGE), `http://${THEIR_PUBLIC_IP}`);
+
+    expect(asked).toEqual([{ target: THEIR_PUBLIC_IP, port: HTTP_DEFAULT_PORT, path: '/' }]);
+  });
+
+  it('reports a connection refusal for a target that is dark, bricked or unforwarded', async () => {
+    const { drained } = await fetchAcross(failed('host_unreachable'), `http://${THEIR_PUBLIC_IP}`);
+
+    expect(drained.exitCode).toBe(1);
+    expect(drained.text).toContain('Connection refused');
+    expect(drained.kinds).toEqual(['error']);
+  });
+
+  it('reports a 404 for a path the target does not publish', async () => {
+    const { drained } = await fetchAcross(
+      failed('not_found'),
+      `http://${THEIR_PUBLIC_IP}/secret.html`,
+    );
+
+    expect(drained.exitCode).toBe(1);
+    expect(drained.text).toContain('404');
+  });
+
+  it('distinguishes a server that could not be reached from a target that refused', async () => {
+    const { drained } = await fetchAcross(failed('network_error'), `http://${THEIR_PUBLIC_IP}`);
+
+    expect(drained.exitCode).toBe(1);
+    expect(drained.text).toContain('Network error');
+  });
+
+  it('renders response headers for a cross-network fetch under -i', async () => {
+    const env = mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+      remote: { ...mockRemoteApi(), fetchPublic: async () => served(THEIR_PAGE) },
+    });
+
+    const { text } = await drain(
+      await curl.execute(env, [`http://${THEIR_PUBLIC_IP}`], new Map([['-i', true]])),
+    );
+
+    expect(text).toContain('HTTP/1.1 200 OK');
+    expect(text).toContain(`Content-Length: ${THEIR_PAGE.length}`);
+    expect(text).toContain('welcome to nebuchadnezzar');
+  });
+
+  it('never reaches the network while offline', async () => {
+    const asked: PublicFetchParams[] = [];
+    const offline = mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      remote: {
+        ...mockRemoteApi(),
+        fetchPublic: async (params) => {
+          asked.push(params);
+          return served(THEIR_PAGE);
+        },
+      },
+    });
+
+    const { text, exitCode } = await drain(
+      await curl.execute(offline, [`http://${THEIR_PUBLIC_IP}`], new Map()),
+    );
+
+    expect(exitCode).toBe(1);
+    expect(text).toContain('network is unreachable');
+    expect(asked).toEqual([]);
   });
 });

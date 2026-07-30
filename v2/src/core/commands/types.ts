@@ -189,12 +189,34 @@ export type OutputSink = {
  *  its own discriminated error type (per decisions.md D5). */
 export type RemoteApi = {
   readonly listPatches: (machineIds: readonly MachineId[]) => Promise<RemoteListPatchesResult>;
+  /** Fetch one file over HTTP from a machine behind ANOTHER player's public IP —
+   *  the credential-free door, so there is no session to carry. Load-bearing: the
+   *  target's journal lives server-side, so its page cannot be computed locally. */
+  readonly fetchPublic: (params: PublicFetchParams) => Promise<PublicFetchResult>;
   // More methods added as commands need them. The spike doesn't exercise this.
 };
 
 export type RemoteListPatchesResult =
   | { readonly ok: true; readonly patches: readonly unknown[] }
   | { readonly ok: false; readonly error: 'network_error' | 'unauthorized' };
+
+/** What `curl` hands the cross-network fetch. `path` is the URL path AS WRITTEN, not a
+ *  file path: which file (if any) it names under the target's document root is the
+ *  server's decision, so a client can never point at a file on another player's box. */
+export type PublicFetchParams = {
+  readonly target: string;
+  readonly port: number;
+  readonly path: string;
+};
+
+/** `host_unreachable` is a connect-level refusal with every cause collapsed (no such
+ *  address, dark, bricked, unforwarded, nothing serving the web) — the server withholds
+ *  which gate stopped it. `not_found` is the reached server's 404. `network_error` is
+ *  OUR side failing to complete the round-trip, which is a different sentence to the
+ *  player: the target never answered because we never asked. */
+export type PublicFetchResult =
+  | { readonly ok: true; readonly content: string }
+  | { readonly ok: false; readonly error: 'host_unreachable' | 'not_found' | 'network_error' };
 
 /** The su user-switch event a command hands to `log.appendAuthLog`. Carries no
  *  timestamp: the SERVER stamps the time (UTC) when it records the line, so a

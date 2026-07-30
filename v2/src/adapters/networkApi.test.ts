@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import {
+  fetchPublicPage,
   joinHomeNetwork,
   leaveHomeNetwork,
   resolveCrossPlayerFs,
@@ -583,5 +584,90 @@ describe('resolveCrossPlayerFs', () => {
     );
 
     expect(await resolveCrossPlayerFs(deps, MACHINE_ID)).toBeNull();
+  });
+});
+
+describe('fetchPublicPage', () => {
+  const PARAMS = { target: '203.0.113.7', port: 80, path: '/status.html' };
+
+  it('signs a resolveHttpFetch request and returns the page the server served', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, content: '<h1>hi</h1>' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await fetchPublicPage(deps, PARAMS)).toEqual({ ok: true, content: '<h1>hi</h1>' });
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected verified envelope');
+    expect(verified.payload).toMatchObject({ action: 'resolveHttpFetch', ...PARAMS });
+  });
+
+  it('passes an empty page through as a page, not as a failure', async () => {
+    const deps = makeDeps(
+      vi.fn(async () => jsonResponse(200, { ok: true, content: '' })) as unknown as typeof fetch,
+    );
+
+    expect(await fetchPublicPage(deps, PARAMS)).toEqual({ ok: true, content: '' });
+  });
+
+  it('reports the target unreachable when the server refuses to reach it', async () => {
+    const deps = makeDeps(
+      vi.fn(async () =>
+        jsonResponse(404, { error: 'host_unreachable' }),
+      ) as unknown as typeof fetch,
+    );
+
+    expect(await fetchPublicPage(deps, PARAMS)).toEqual({
+      ok: false,
+      error: 'host_unreachable',
+    });
+  });
+
+  it('reports a 404 from a target that was reached', async () => {
+    const deps = makeDeps(
+      vi.fn(async () => jsonResponse(404, { error: 'not_found' })) as unknown as typeof fetch,
+    );
+
+    expect(await fetchPublicPage(deps, PARAMS)).toEqual({ ok: false, error: 'not_found' });
+  });
+
+  it('blames our own side, not the target, when the server itself fails', async () => {
+    // A 500 is OUR outage. Reporting it as `host_unreachable` would tell the player
+    // their target is dark, which is a different — and false — claim about the world.
+    const deps = makeDeps(
+      vi.fn(async () =>
+        jsonResponse(500, { error: 'network_lookup_failed' }),
+      ) as unknown as typeof fetch,
+    );
+
+    expect(await fetchPublicPage(deps, PARAMS)).toEqual({ ok: false, error: 'network_error' });
+  });
+
+  it('trusts only a body that claims success, whatever content rides along', async () => {
+    // A 200 whose body does not say `ok` is not a page we may print, even when it carries
+    // a content-shaped string. The claim is what makes it a served page.
+    const deps = makeDeps(
+      vi.fn(async () =>
+        jsonResponse(200, { ok: false, content: '<h1>not really served</h1>' }),
+      ) as unknown as typeof fetch,
+    );
+
+    expect(await fetchPublicPage(deps, PARAMS)).toEqual({ ok: false, error: 'network_error' });
+  });
+
+  it('never prints a blank page from a 200 it cannot read', async () => {
+    const deps = makeDeps(
+      vi.fn(async () => jsonResponse(200, { ok: true })) as unknown as typeof fetch,
+    );
+
+    expect(await fetchPublicPage(deps, PARAMS)).toEqual({ ok: false, error: 'network_error' });
+  });
+
+  it('treats a thrown fetch (offline) as our own failure to ask', async () => {
+    const deps = makeDeps(
+      vi.fn(async () => {
+        throw new Error('offline');
+      }) as unknown as typeof fetch,
+    );
+
+    expect(await fetchPublicPage(deps, PARAMS)).toEqual({ ok: false, error: 'network_error' });
   });
 });

@@ -1,6 +1,6 @@
 # Plan: D1 — the web surface (serve a page, a stranger reads it)
 
-**Branch**: next slice needs a fresh branch off `main`.
+**Branch**: `feat/web-cross-player-fetch` (slice 3, cut off `main` at `7c65c89`).
 **Status**: Active — **slices 1–2 of 4 SHIPPED** (v0.104.0 #344 → `c54caa7`; v0.105.0 #345 →
 `9b05f6f`). **Slice 3 is next, not started.**
 **Epic**: [`legacy-parity-epic.md`](./legacy-parity-epic.md) Phase 1, slice D1 (the first slice of

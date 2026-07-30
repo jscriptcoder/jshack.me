@@ -142,6 +142,11 @@ export type BuildCommandEnvArgs = {
    *  adapter (signed round-trip). Optional here: absent, it defaults to an empty list,
    *  since injection is ADDITIVE (a scan still works, it just discovers nothing). */
   readonly onScanResolveOccupiedEssids?: ScanApi['resolveOccupiedEssids'];
+  /** The cross-network page-fetch seam — backs `env.remote.fetchPublic`. The UI wires it
+   *  to the `fetchPublicPage` adapter (signed round-trip). Optional here for terse test
+   *  setups; the UI always passes the real one. Load-bearing: absent it, a `curl` at a
+   *  public IP hits the loud stub rather than quietly reporting a dark target. */
+  readonly onHttpFetchPublic?: RemoteApi['fetchPublic'];
   /** The home-network join seam — backs `env.homeNetwork.join`. The UI wires it to
    *  the `joinHomeNetwork` adapter, which registers the network server-side and carries
    *  back the address the server leased. Optional here: when absent nothing can ISSUE an
@@ -196,7 +201,6 @@ const outputSinkFrom = (emit: (line: TerminalLine) => void): OutputSink => ({
   dim: (content) => emit({ kind: 'dim', content }),
 });
 
-const remoteStub = (): RemoteApi => ({ listPatches: notWired('remote.listPatches') });
 
 export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   identity: args.identity,
@@ -208,7 +212,10 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   network: networkView(args.session, args.connectivity, args.wifiNetworks, args.rescanWifi),
   output: args.onOutputLine ? outputSinkFrom(args.onOutputLine) : outputStub(),
   patches: args.patches,
-  remote: remoteStub(),
+  remote: {
+    listPatches: notWired('remote.listPatches'),
+    fetchPublic: args.onHttpFetchPublic ?? notWired('remote.fetchPublic'),
+  },
   log: args.log,
   // The home-network join: the UI wires `onHomeNetworkJoin` to the `joinHomeNetwork`
   // adapter, which registers the network server-side AND carries back the address the
