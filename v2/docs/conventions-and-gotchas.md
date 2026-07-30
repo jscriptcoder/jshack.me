@@ -157,19 +157,23 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
   the editor open); a refused one leaves it alone. Wire-check `scripts/testModifiedSinceOpen.ts`;
   three-player browser verification in `e2e-shared-network-verification.md` §6.
 
-**Current version: 0.104.0.**
+**Current version: 0.105.0.**
 
 **Current epic — legacy parity, IN PROGRESS:** `plans/legacy-parity-epic.md` — every remaining
 way into a machine (doors → discovery → CVE vulnerabilities), grilled to nine locked
 decisions. The ship gate is legacy parity **minus missions**; missions are a post-ship epic.
 
-- **D1 (the web surface) — slice 1 of 4 ✅ SHIPPED (v0.104.0, #344).** The first door since
-  `ssh`, and the only one that opens with **no credential**: a generated LAN host rolls the
-  `http` service, `nmap` labels its port, and `curl http://<its IP>` returns its seeded page
-  (`curl -i` for headers). `ping` answers reachability, seeded per address. **Nothing outside
-  `/var/www/html` is fetchable** — that confinement lives in `core/network/http.ts`
-  (`resolveWebPath`), NOT in the filesystem walker; see §7. Live plan for slices 2–4:
-  `plans/d1-web-surface.md`.
+- **D1 (the web surface) — slices 1–2 of 4 ✅ SHIPPED (v0.104.0 #344, v0.105.0 #345).** The
+  first door since `ssh`, and the only one that opens with **no credential**. Slice 1: a
+  generated LAN host rolls the `http` service, `nmap` labels its port, and `curl http://<its
+  IP>` returns its seeded page (`curl -i` for headers); `ping` answers reachability, seeded
+  per address. Slice 2: the player runs their own server — `nginx`/`apache2` are **two names
+  for one capability** (both write `/var/run/nginx.pid`, so the second is refused and told a
+  web server is already up rather than which program), root-only, and `curl` on the player's
+  own address reads their **live** tree so a `nano` edit changes what a fetch returns.
+  **Nothing outside `/var/www/html` is fetchable** — that confinement lives in
+  `core/network/http.ts` (`resolveWebPath`), NOT in the filesystem walker; see §7. Live plan
+  for slices 3–4: `plans/d1-web-surface.md`.
 
 To pick up the next slice: read the relevant `plans/*.md` TOP BLOCK (live status +
 as-built), then the cross-player architecture doc if the work touches cross-player paths.
@@ -354,6 +358,22 @@ initial test run` naming a test that passes cleanly on its own. Treat a dry-run 
 test passes standalone as tooling noise from a moving tree, not a real regression: leave the
 tree alone and re-run.
 
+**An accepted "equivalent" mutant EXPIRES when a new caller reaches it.** `curl`'s
+`{ userType: 'root' }` read was classified equivalent in the web surface's first slice, on the
+sound reasoning that served pages are world-readable. The next slice added the player's own box
+and quietly broke it: a file created under the web root is created BY root, and `patchApi.write`
+stamps the creating tier's defaults (`defaultFilePermissions('root')` → `read: ['root']` only),
+so reading as the caller would 404 a page the player had just published. Nothing about the read
+changed; the WORLD around it did. Re-run mutation over an unchanged file whenever a new path
+starts calling it, and treat each inherited classification as a claim about today's callers only.
+
+**Stryker TIMEOUTS count toward the score, and their count drifts between runs.** The same
+unchanged file reported 23 then 28 timeouts on consecutive runs here, moving four mutants from
+`timeout` into `survived` and turning a "100%" into a visible survivor list. So a bare 100% means
+"no survivors *identified this run*", not "no survivors". When a score matters — a keystone gate,
+a security-load-bearing branch — read the survivor LIST, and be suspicious of a file whose
+timeout bucket is a large fraction of its mutants.
+
 **"Unreachable in the product" is not the same as equivalent.** `deniedPortsFor`'s
 `vantage.kind === 'switch'` survived because a router's tree carries no `acl.conf` in
 practice, so always reading it changes nothing. But the discriminant is a real rule — a router
@@ -524,6 +544,18 @@ state costs you more than one wrong attempt.
 - Commit messages end with the `Co-Authored-By` trailer; PR bodies end with the Claude Code
   generation trailer (see root `.claude/CLAUDE.md` harness rules).
 - Cut a branch per slice off `main`; never commit straight to `main` for code.
+- **`git pull --ff-only` prints "Already up to date" when local is AHEAD of origin, not only
+  when it is level.** A docs commit made on `main` at the end of one session was never pushed;
+  the next session's `/continue` ran `git pull --ff-only`, read "Already up to date" as "in
+  sync", and cut the slice branch off the unpushed commit. The squash-merge then folded that
+  commit into the PR (so nothing was lost) but left local `main` diverged by one commit each
+  way, and `gh pr merge`'s own post-merge pull died with `fatal: Not possible to fast-forward`
+  **after** the remote merge had already succeeded — which reads like a failed merge and is not
+  one. Check `git status -sb` (or `git rev-list --left-right --count main...origin/main`), which
+  distinguish ahead from level; and if that error appears, confirm with
+  `gh pr view <#> --json state,mergeCommit` before touching anything. The recovery is
+  `git reset --hard origin/main`, but verify first that the squash really contains the orphaned
+  commit (`git diff origin/main <sha>` should show only later additions).
 
 ---
 

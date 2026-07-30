@@ -1,8 +1,8 @@
 # Plan: D1 — the web surface (serve a page, a stranger reads it)
 
-**Branch**: `feat/web-own-server` (slice 2). Slice 1 shipped from `feat/web-http-surface`.
-**Status**: Active — **slice 1 of 4 SHIPPED** (v0.104.0, #344, squashed to `c54caa7`).
-**Slice 2 branch is cut; no code written yet — its acceptance criteria need confirming first.**
+**Branch**: next slice needs a fresh branch off `main`.
+**Status**: Active — **slices 1–2 of 4 SHIPPED** (v0.104.0 #344 → `c54caa7`; v0.105.0 #345 →
+`9b05f6f`). **Slice 3 is next, not started.**
 **Epic**: [`legacy-parity-epic.md`](./legacy-parity-epic.md) Phase 1, slice D1 (the first slice of
 the whole epic)
 
@@ -51,7 +51,7 @@ epic will be amended on close-out.
 
 D1 ships `curl` as the HTTP client. That is enough to prove the surface.
 
-## As-built after slice 1 (read this before slice 2)
+## As-built after slice 1
 
 What shipped, and the four things that differ from the plan below:
 
@@ -71,22 +71,64 @@ What shipped, and the four things that differ from the plan below:
 Residual mutants deliberately left (all classified): `wlan0.kind !== 'wireless'` and
 `wlan0.ipv4 === null` in `curl`/`ping` are type-narrowing clauses for states the game cannot
 construct (a null `ipv4` already fails the `isOnline` gate); the `parseHttpUrl` regex-group guard
-is unreachable; `{ userType: 'root' }` → `{}` is equivalent because served pages are
-world-readable.
+is unreachable. ~~`{ userType: 'root' }` → `{}` is equivalent because served pages are
+world-readable~~ — **that classification was WRONG and slice 2 killed the mutant; see below.**
 
 **Known duplication, deliberately not yet extracted:** `curl`, `ping` and `nmap` each open with
 the same online → `wlan0` → essid preamble (three copies). Every remaining door needs it. Extract
 once ~4 real callers exist so the seam is shaped by them, as its own behaviour-preserving commit.
+
+## As-built after slice 2 (read this before slice 3)
+
+**Shipped** (v0.105.0, #345 → `9b05f6f`): `commands/webServer.ts` exporting `nginx` + `apache2`
+(both registered); `/var/www/html/index.html` in `buildWorkstationBaseFs`; `WEB_PAGE_FILE` in
+`baseFs.ts`; `curl`'s own-address resolution. Mutation: `webServer.ts` 100%,
+`workstationFs.ts` 100%, `curl.ts` 95.42%. 2114 tests green.
+
+What differs from the plan, and what slice 3 must know:
+
+1. **The "ports below 1024 need root" rule is DROPPED, not deferred.** The root gate refuses every
+   non-root caller before the port is parsed, so the rule was an unreachable branch and an
+   unkillable mutant. Root or nothing. Do not reintroduce it for another daemon without first
+   giving that daemon a reason to admit a non-root caller at all.
+2. **The two programs are ONE identity, enforced by the shared pidfile.** `apache2` over a running
+   `nginx` is refused with `web server already running on port N` — naming the conflict, because
+   `apache2: already running` would be false. Both write `/var/run/nginx.pid`, so the player sees
+   nginx's pidfile even if they started apache2: accepted, and the `Server:` header says `nginx`
+   for the same reason.
+3. **The default page is FIXED, not drawn from `pools/webPages.ts`.** Those pages leak invented
+   versions and paths as recon material; on the player's own box that would be a lie, and would
+   hand their attackers hints the box does not have. The page names its own path, since nothing
+   else in the game tells the player which file to edit.
+4. **`curl` resolves the own address to `env.fs.root()` — the LIVE tree** (`targetFs` in
+   `curl.ts`), never a generated one. Their box is the only host on the network whose files are
+   real; generating one would fabricate a page for a box that may publish nothing. This is also
+   what makes a `nano` edit visible: same tree.
+5. **A mutation classification EXPIRED.** Slice 1 called `{ userType: 'root' }` → `{}` equivalent
+   because served pages are world-readable. Own-box pages break that: a file created under the web
+   root is created BY root, and `patchApi.write` stamps the creating tier's defaults
+   (`defaultFilePermissions('root')` → `read: ['root']`), so reading as the CALLER would 404 a page
+   the player had just published. **Slice 3's server-side read must be the server's too**, not the
+   requester's — the requester has no account on that box at all. Now a §4 convention.
+
+**Deliberately not built:** `curl http://localhost` / `127.0.0.1` does not resolve — only the
+box's LAN address does. A player will type it; no AC asked for it. Cheap to add whenever it
+annoys someone (`targetFs` is the one place that needs to know).
+
+**Still nothing consumes `Command.availability` or `Command.tier`** (verified by grep). Both are
+declarative, so their mutants survive and a test asserting them pins data rather than behaviour —
+one such test was written for `nginx` and then deleted. The observable gate is the binary's FS
+presence, proven through the registry.
 
 ## Acceptance Criteria
 
 - [x] A generated host on the player's LAN runs an HTTP service, visible as `:80` in `nmap`, and
       `curl http://<its LAN IP>` returns its generated page
 - [x] `ping <host>` reports reachability for a host that exists and failure for one that does not
-- [ ] A player can start `nginx` (or `apache2`) as root on their own machine; it refuses a
+- [x] A player can start `nginx` (or `apache2`) as root on their own machine; it refuses a
       non-root caller, refuses if already running (reporting the running port), and refuses an
       invalid port
-- [ ] After starting it, the player's own `/var/www/html/index.html` is served over `curl`, and
+- [x] After starting it, the player's own `/var/www/html/index.html` is served over `curl`, and
       editing that file with `nano` changes what `curl` returns
 - [ ] Another player who has forwarded `:80` is readable cross-network: `curl http://<their
       public IP>` returns their page **with no session and no credential**
@@ -155,22 +197,14 @@ the start, so slice 3's server handler shares it rather than duplicating.
 
 ---
 
-### ⏭ Slice 2 (NEXT — not started): A player runs their own web server
+### ✅ Slice 2 (SHIPPED v0.105.0): A player runs their own web server
 
-**Start here.** Client-only, no `api/`, no wire-check. Reuse: `sshd.ts` for the daemon shape,
-`resolveWebPath` for anything path-related, and the `webPages.ts` pool if the default page should
-be drawn rather than fixed. Note slice 1 did NOT teach `curl` to resolve the player's own address
-— it resolves through `generateHomeLan` only, deliberately, because the own box's FS is
-`env.fs.root()` rather than a generated tree, and pointing the generator at your own IP would
-FABRICATE a page. Wiring that self case is part of this slice.
+**Delivered**: `commands/webServer.ts` (`nginx` + `apache2`, one identity behind
+`/var/run/nginx.pid`, root-only, streamed startup); the web root in `buildWorkstationBaseFs` with
+a fixed default page; `WEB_PAGE_FILE` shared out of `baseFs.ts`; `curl`'s own-address resolution
+against the live tree. See "As-built after slice 2" above for the five deviations.
 
-**Grounding re-verified at branch cut (2026-07-30):**
-
-| Fact | Where | Consequence |
-|---|---|---|
-| `apache2` and `nginx` already have `APT_PACKAGES` rows | `commands/aptPackages.ts:41-42` | No packaging work — availability gating already exists |
-| `buildWorkstationBaseFs` has a `/var` tree but **no `www` child** | `generation/workstationFs.ts:135` | The web root is a genuine addition here, not a re-permission |
-| `ping` already resolves the player's own address via `withSelfHost` | `commands/ping.ts` | The self case has a working precedent in this codebase — `curl` is the one that lacks it |
+**Original plan for reference:**
 
 **Actor / trigger / outcome**: player → `nginx` → their own `:80` opens and serves their page.
 **Value**: the defender half — exposure becomes a deliberate choice, and it creates the target
@@ -209,7 +243,17 @@ daemon-start shape; only if it genuinely reduces duplication.
 
 ---
 
-### Slice 3: A stranger reads a player's page across the network
+### ⏭ Slice 3 (NEXT — not started): A stranger reads a player's page across the network
+
+**Start here.** The first slice of D1 that touches `api/`, so it is the first needing a live
+wire-check. Three things from slices 1–2 are load-bearing here and must be REUSED, not
+re-derived:
+
+| Reuse | Why re-deriving it is a bug |
+|---|---|
+| `resolveWebPath` (`core/network/http.ts`) | It IS the document-root confinement (§7 invariant). A second normalizer server-side is a second chance to get it wrong, on the path where the caller has no session at all |
+| Reading as the SERVER, not the requester | Slice 2 proved a published page can be root-readable only; reading as the requester would 404 the owner's own page. The requester has no account on that box |
+| `natHosts.ts` (`bootableOccupantFs` + `natPortResolver`) | So scan, ssh, and http can never disagree about which box sits behind a forward |
 
 **Actor / trigger / outcome**: player B → `curl http://<A's public IP>` → A's page, with **no
 session and no credential**.
@@ -294,11 +338,16 @@ keystone, so it must die.
 
 - Add the `lynx` slice to the epic's Phase 1 table (it is named in D1's *Defers* but has no row
   of its own yet)
-- Run the browser confirmation (`v2-e2e` skill) — **still outstanding from slice 1**. Deferred to
-  close-out rather than per-slice because it needs the game up, and a live dev server makes
-  Stryker report false survivors (§5 of the conventions doc), so it wants its own pass.
+- Run the browser confirmation (`v2-e2e` skill) — **still outstanding from slices 1 and 2**.
+  Deferred to close-out rather than per-slice because it needs the game up, and a live dev server
+  makes Stryker report false survivors (§5 of the conventions doc), so it wants its own pass. The
+  slice-2 path to walk: `apt install nginx` → `su` → `nginx` → `curl http://<own IP>` → `nano` the
+  page → `curl` again and see the edit.
 - Extract the shared online → `wlan0` → essid preamble (see "Known duplication" above) as a
-  separate behaviour-preserving commit
+  separate behaviour-preserving commit. Slice 3 adds a public-IP branch to `curl`, so decide the
+  seam AFTER it lands rather than before.
+- Decide whether `curl http://localhost` / `127.0.0.1` should resolve (slice 2 left it out; a
+  player will type it). One place knows: `targetFs` in `curl.ts`.
 - Update `conventions-and-gotchas.md` §1 with the D1 completion, then delete this plan file
 
 (The routing correction and the `lynx`/`gobuster` placement are already written into the epic.)
