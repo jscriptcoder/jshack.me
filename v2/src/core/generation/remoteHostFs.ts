@@ -53,6 +53,7 @@ import {
 } from './baseFs';
 import { md5 } from './md5';
 import { pickWebPage } from './pools/webPages';
+import { ACCESS_LOG_PERMISSIONS } from '../logging/accessLog';
 import { AUTH_LOG_PERMISSIONS } from '../logging/authLog';
 import { KERN_LOG_PERMISSIONS } from '../logging/kernLog';
 import type { Directory, FileEntry, FilePermissions } from '../filesystem/types';
@@ -168,11 +169,13 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
     ),
   );
 
+  const serves = services.some(({ spec }) => spec === SERVICE_CATALOG.http);
+
   // A web root exists only where something serves it. Stamping an empty `/var/www`
   // on every box would publish a directory nobody is listening on — and the
   // externally-readable allowlist covers `/var/www/**`, so absence here is what
   // keeps a non-serving host from exposing anything at all.
-  const webRoot = services.some(({ spec }) => spec === SERVICE_CATALOG.http)
+  const webRoot = serves
     ? {
         www: dir(
           {
@@ -213,6 +216,10 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
             {
               'auth.log': file('', AUTH_LOG_PERMISSIONS),
               'kern.log': file('', KERN_LOG_PERMISSIONS),
+              // The access log follows the http service, like the web root: a box
+              // nothing can fetch never has a line written, so an empty file would
+              // be furniture — and furniture that claims the box once served.
+              ...(serves ? { 'access.log': file('', ACCESS_LOG_PERMISSIONS) } : {}),
             },
             TRAVERSABLE_DIR,
           ),

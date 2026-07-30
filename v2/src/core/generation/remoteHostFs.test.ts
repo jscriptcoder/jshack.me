@@ -243,6 +243,36 @@ describe('buildRemoteHostFs', () => {
       expect(hasNoWebRoot(serviceless)).toBe(true);
     });
 
+    it('plants /var/log/access.log empty on a serving host (the fetch line appends there)', () => {
+      const fs = buildRemoteHostFs(ESSID, host(httpHosts()[0]!.octet));
+      const node = dirAt(fs, 'var', 'log').entries.get('access.log');
+      if (node?.kind !== 'file') throw new Error('missing /var/log/access.log');
+      expect(node.content).toBe('');
+      expect(node.owner).toBe('root');
+      // Readable by anyone who gets ON the box, writable only by the daemon's account:
+      // a visitor must never be able to edit away the record of their own visit.
+      expect(node.perms.read).toEqual(['root', 'user', 'guest']);
+      expect(node.perms.write).toEqual(['root']);
+    });
+
+    it('plants no access.log on a host that serves no web', () => {
+      // It follows the http service, exactly as the web root above does: a box nothing
+      // can fetch can never have a line written, so an empty file there is furniture —
+      // and furniture that tells a visitor the box once served something it does not.
+      const webOctets = new Set(httpHosts().map(({ octet }) => octet));
+      const hasNoAccessLog = (octet: number): boolean =>
+        !dirAt(buildRemoteHostFs(ESSID, host(octet)), 'var', 'log').entries.has('access.log');
+
+      const sshOnly = sshHosts().find(({ octet }) => !webOctets.has(octet));
+      if (sshOnly === undefined) throw new Error('expected an ssh-but-not-web host');
+      expect(hasNoAccessLog(sshOnly.octet)).toBe(true);
+
+      const sshOctets = new Set(sshHosts().map(({ octet }) => octet));
+      const serviceless = OCTETS.find((octet) => !webOctets.has(octet) && !sshOctets.has(octet));
+      if (serviceless === undefined) throw new Error('expected a serviceless host');
+      expect(hasNoAccessLog(serviceless)).toBe(true);
+    });
+
     it('publishes the page: world-readable, root-write-only, never executable', () => {
       const fs = buildRemoteHostFs(ESSID, host(httpHosts()[0]!.octet));
       const html = dirAt(fs, 'var', 'www', 'html');

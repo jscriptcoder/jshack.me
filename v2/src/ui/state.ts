@@ -66,6 +66,7 @@ import {
   fetchOwnPatches,
   postAuthLog,
   recordDeepScan,
+  recordLanFetch,
   recordScan,
   type PatchClientDeps,
 } from '../adapters/patchApi';
@@ -616,7 +617,19 @@ const log: LogApi = {
     await refetchPatches();
     syncChannel?.broadcast({ type: 'patches-changed', machineId: patchClientDeps.machineId });
   },
-  appendAccessLog: async () => undefined,
+  // The line lands on the box that SERVED the fetch, so only fetching the player's OWN
+  // address touches their journal — reconcile just that case, or an immediate
+  // `cat /var/log/access.log` would not show the visit they just paid themselves.
+  // Refetching after every fetch of a neighbour would re-pull an unchanged journal.
+  appendAccessLog: async (fetched) => {
+    const deps = patchClientDeps;
+    if (deps === undefined) return;
+    await recordLanFetch(deps, fetched);
+    const wlan0 = connectivity().interfaces.get('wlan0');
+    if (wlan0 === undefined || wlan0.kind !== 'wireless' || wlan0.ipv4 !== fetched.target) return;
+    await refetchPatches();
+    syncChannel?.broadcast({ type: 'patches-changed', machineId: deps.machineId });
+  },
 };
 
 /** Persist the editor buffer to the file currently open in `nano`. Resolves

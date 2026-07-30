@@ -160,7 +160,11 @@ const envelope = (
 
 describe('handleNmapScan', () => {
   it('appends one kern.log line to every up host in a full-range scan, skipping the own host', async () => {
-    const id = generateIdentity();
+    // Draws off the generated LAN like its siblings: an identity whose own address
+    // collides with a generated host makes `loggedHostsOf` drop a host the server
+    // never dropped, and the count assertion below fails on the coincidence rather
+    // than on the behaviour it describes.
+    const id = identityOffTheGeneratedLan();
     const { deps, upsertPatch } = makeDeps();
     const logged = loggedHostsOf(id.publicKeyHex);
 

@@ -184,6 +184,27 @@ const execute: Command['execute'] = async (env, args, flags) => {
     return connectError(url.host, url.port, 'Connection refused');
   }
 
+  // Something answered, so the box that answered records the hit — the server resolves
+  // which machine that is and writes its /var/log/access.log itself. Above this line
+  // nothing was reached, and an access log belongs to a server that handled a request.
+  //
+  // Fire-and-forget: the page renders alongside the round-trip rather than waiting on
+  // it, and neither a failed write nor an unwired seam can break a fetch that already
+  // succeeded.
+  try {
+    void env.log
+      .appendAccessLog({
+        essid,
+        target: url.host,
+        port: url.port,
+        path: url.path,
+        sourceIp: wlan0.ipv4,
+      })
+      .catch(() => undefined);
+  } catch {
+    // best-effort: logging must not surface to the fetch.
+  }
+
   // A path that climbs out of the published directory names nothing, and says so the
   // same way a missing file does — telling a caller their traversal was SPOTTED is
   // itself a hint worth withholding.

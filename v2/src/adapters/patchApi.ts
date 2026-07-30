@@ -23,6 +23,7 @@ import {
 import type { Patch } from '../core/filesystem/applyPatches';
 import type { FilePermissions } from '../core/filesystem/types';
 import type {
+  AccessLogFetch,
   AuthLogEvent,
   DeepScanRecordParams,
   Identity,
@@ -167,6 +168,29 @@ export const postAuthLog = async (
     );
   } catch {
     return { ok: false, error: 'network_error' };
+  }
+};
+
+/** Fire the server-internal own-LAN fetch log: the server resolves WHICH box answered
+ *  from the (verified pubkey, essid, target) — the caller's own workstation or a
+ *  generated sibling — reads the page itself, and writes that box's
+ *  `/var/log/access.log`. The client only names what it fetched. Best-effort +
+ *  fire-and-forget, like `recordScan`: a failure resolves silently so logging never
+ *  breaks (or delays) the fetch. */
+export const recordLanFetch = async (
+  deps: PatchClientDeps,
+  fetched: AccessLogFetch,
+): Promise<void> => {
+  try {
+    await post(deps, 'recordLanFetch', {
+      essid: fetched.essid,
+      target: fetched.target,
+      port: fetched.port,
+      path: fetched.path,
+      source_ip: fetched.sourceIp,
+    });
+  } catch {
+    // best-effort: a logging failure must not surface to the fetch.
   }
 };
 
