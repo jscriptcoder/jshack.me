@@ -430,9 +430,37 @@ keystone, so it must die.
 
 ---
 
-### ⏭ Slice 4b (NEXT — not started): An own-LAN fetch is logged too
+### ⏭ Slice 4b (IN FLIGHT — `feat/own-lan-access-log`): An own-LAN fetch is logged too
 
-**Start here.** The last D1 slice. What slice 4 hands it:
+**Built, gates green, wire-check pending.** `core/network/recordLanFetch.ts`
+(`handleRecordLanFetch`, action `recordLanFetch`) + its route in `api/patches.ts` beside
+`nmapScan`; `recordLanFetch` in `adapters/patchApi.ts`; `LogApi.appendAccessLog` reshaped to take
+an `AccessLogFetch`; `access.log` seeded on http-rolling generated hosts; `curl`'s own-LAN branch
+fires it fire-and-forget. 130 files / 2210 tests green. Mutation: `recordLanFetch.ts` **97.94%**,
+`remoteHostFs.ts` **100%**, `curl.ts` **98.74%**.
+
+Four things worth recording while they are fresh:
+
+1. **The dangerous confusion this slice can produce is occupant-vs-address, and mutation is what
+   surfaced it.** The caller is usually a registered occupant WITH a workstation, so the occupancy
+   lookup will happily hand back their own box for a fetch of a neighbour. Two mutants lived in
+   that gap: dropping the "is this address mine?" lease check entirely, and
+   `.find(row => row.owner_key === callerKey)` → `.find(() => true)` — the latter survived only
+   because every self-fetch test listed exactly ONE occupant. On a two-player LAN it would file
+   the line on the wrong player's box. Both are now covered.
+2. **`curl.ts`'s mutation score RECOVERED to 98.74%** from slice 3's 82.17%, without its logic
+   being touched beyond the new call site. Slice 3 recorded the fall as timeouts collapsing 29 → 2
+   and unmasking metadata-block survivors; the new tests re-cover them. The only two left are the
+   slice-1 classified type-narrowing clauses.
+3. **An errored read is not trusted for the rows it also returned.** The three guards
+   (`leases.error` / `occupants.error` / `patches.error`) are unkillable against a store that
+   returns `data: null` on error — `?? []` reaches the same answer — so each test now returns rows
+   AND an error, which is the claim actually worth making.
+4. **The same two `?? []` equivalent mutants as slice 4 remain**, for the same reason: a
+   `"Stryker was here"` element yields `undefined` for whichever field the consumer reads
+   (`.owner_key`, `.octet`), so the computed answer is identical to the empty array's.
+
+**Original plan for reference. What slice 4 handed it:**
 
 | Hand-off | Detail |
 |---|---|

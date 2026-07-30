@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { curl } from './curl';
-import type { CommandResult, PublicFetchParams, PublicFetchResult } from './types';
+import type {
+  AccessLogFetch,
+  CommandResult,
+  PublicFetchParams,
+  PublicFetchResult,
+} from './types';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
@@ -140,6 +145,91 @@ const unoccupiedIp = (): string => {
   if (free === undefined) throw new Error('expected a free address on the subnet');
   return free;
 };
+
+/** Run `curl` against an online player, capturing what it reported to the access-log
+ *  seam. `failing` makes that seam reject, so a test can prove the fetch does not
+ *  depend on it. */
+const runReporting = async (
+  args: readonly string[],
+  options: { readonly failing?: boolean } = {},
+): Promise<{ readonly drained: Drained; readonly reported: readonly AccessLogFetch[] }> => {
+  const reported: AccessLogFetch[] = [];
+  const env = mockCommandEnv({
+    identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+    network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+    log: {
+      appendAuthLog: async () => undefined,
+      appendAccessLog: async (fetched) => {
+        reported.push(fetched);
+        if (options.failing === true) throw new Error('server unreachable');
+      },
+    },
+  });
+  return { drained: await drain(await curl.execute(env, args, new Map())), reported };
+};
+
+describe('curl leaves a trace on the box it fetched', () => {
+  it('reports the fetch so the server can write that box access.log', async () => {
+    const { host, port } = webHostOnLan();
+
+    const { reported } = await runReporting([`http://${host.ip}:${port}/index.html`]);
+
+    // The client names WHAT it fetched and where from. It never names the machine,
+    // the time, the status or the size — the server resolves those itself.
+    expect(reported).toEqual([
+      {
+        essid: ESSID,
+        target: host.ip,
+        port,
+        path: '/index.html',
+        sourceIp: assignHomeNetwork(PUBKEY, ESSID).localIp,
+      },
+    ]);
+  });
+
+  it('reports a miss as readily as a hit — the 404 is the interesting line', async () => {
+    const { host, port } = webHostOnLan();
+
+    const { drained, reported } = await runReporting([`http://${host.ip}:${port}/nothing-here`]);
+
+    expect(drained.exitCode).not.toBe(0);
+    expect(reported).toHaveLength(1);
+    expect(reported[0]!.path).toBe('/nothing-here');
+  });
+
+  it('reports a traversal attempt, which is the fetch worth recording most', async () => {
+    const { host, port } = webHostOnLan();
+
+    const { reported } = await runReporting([`http://${host.ip}:${port}/../../etc/passwd`]);
+
+    expect(reported).toHaveLength(1);
+    expect(reported[0]!.path).toBe('/../../etc/passwd');
+  });
+
+  it('reports nothing when nothing answered', async () => {
+    // No server, no log: an access log belongs to a web server that handled a
+    // request, and neither of these reached one.
+    const { host } = webHostOnLan();
+    const ssh = sshHostOnLan();
+
+    const closed = await runReporting([`http://${host.ip}:9999`]);
+    const wrongService = await runReporting([`http://${ssh.host.ip}:${ssh.port}`]);
+    const nobody = await runReporting([`http://${unoccupiedIp()}`]);
+
+    expect(closed.reported).toEqual([]);
+    expect(wrongService.reported).toEqual([]);
+    expect(nobody.reported).toEqual([]);
+  });
+
+  it('serves the page even when the report fails — the trace is best-effort', async () => {
+    const { host, port } = webHostOnLan();
+
+    const { drained } = await runReporting([`http://${host.ip}:${port}`], { failing: true });
+
+    expect(drained.exitCode).toBe(0);
+    expect(drained.text).toContain('<html>');
+  });
+});
 
 describe('curl', () => {
   it('returns the page a host on the LAN serves', async () => {

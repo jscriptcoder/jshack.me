@@ -230,9 +230,29 @@ export type AuthLogEvent = {
   readonly hostname: string;
 };
 
+/** The own-LAN fetch `curl` hands to `log.appendAccessLog` so the box that served it
+ *  records the hit. Carries no machine id, no timestamp, no status and no size: the
+ *  SERVER resolves which box answered — the caller's own workstation or a generated
+ *  sibling — and reads the page itself, so a crafted request can never author a line
+ *  claiming something was served that never was.
+ *
+ *  `sourceIp` IS the client's, unlike the cross-player path where the server derives
+ *  it. On this path the row is one only the caller can ever read (a generated host's
+ *  log is per-viewer) or one they already control at root (their own box), so there is
+ *  nothing a forged address could buy. */
+export type AccessLogFetch = {
+  readonly essid: string;
+  /** The LAN address fetched — the server resolves which machine holds it. */
+  readonly target: string;
+  readonly port: number;
+  /** The url path AS WRITTEN; the server confines it to the document root itself. */
+  readonly path: string;
+  readonly sourceIp: string;
+};
+
 export type LogApi = {
   readonly appendAuthLog: (event: AuthLogEvent) => Promise<void>;
-  readonly appendAccessLog: (target: MachineId, line: string) => Promise<void>;
+  readonly appendAccessLog: (fetched: AccessLogFetch) => Promise<void>;
 };
 
 /** Join a home network by ESSID, returning the LAN address the player was ISSUED —

@@ -10,6 +10,10 @@ import { handleListPatches, type ListPatchesQuery } from '../src/core/patches/li
 import { handleRemovePatch, type PatchTreeQuery } from '../src/core/patches/removePatch';
 import { handleAppendAuthLog, type AuthLogContentQuery } from '../src/core/patches/appendAuthLog';
 import { handleNmapScan, type ScanOccupant } from '../src/core/scan/nmapScan';
+import {
+  handleRecordLanFetch,
+  type FetchOccupant,
+} from '../src/core/network/recordLanFetch';
 import type { LanLeaseRow } from '../src/core/network/lanAddress';
 import { handleNmapScanDeep } from '../src/core/scan/nmapScanDeep';
 import type { OwnerPatchRow } from '../src/core/network/materializeWorkstationFs';
@@ -241,6 +245,67 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       now: () => Date.now(),
       readAuthLog,
       upsertPatch,
+    });
+    res.status(status).json(body);
+    return;
+  }
+
+  if (actionOf(req.body) === 'recordLanFetch') {
+    // An own-LAN `curl` records ONE access.log line on the box that answered it,
+    // server-internal: the handler resolves WHICH box that is (the caller's own
+    // workstation when they fetched their own leased address, else a generated
+    // sibling), reads the page itself, and stamps time/status/size. The client names
+    // only what it fetched. Same read-modify-write `patches`-table shapes as the scan
+    // and auth.log appenders around it.
+    const readLog = async ({ writer_key, machine_id, path }: MachineLogReadQuery) => {
+      const { data, error } = await supabase
+        .from('patches')
+        .select('content')
+        .eq('writer_key', writer_key)
+        .eq('machine_id', machine_id)
+        .eq('path', path)
+        .maybeSingle();
+      if (error) console.error('[patches] access-log read error:', error);
+      return { data, error };
+    };
+    // The caller's own occupancy row rebuilds their box; their lease says which
+    // address is theirs, so a self-fetch is recognised from the target alone.
+    const listOccupantsByEssid = async (essid: string) => {
+      const { data, error } = await supabase
+        .from('home_network_occupants')
+        .select(
+          'owner_key, workstation_machine_id, workstation_username, workstation_root_hash',
+        )
+        .eq('essid', essid);
+      if (error) console.error('[patches] fetch-log occupant list error:', error);
+      return { data: data as readonly FetchOccupant[] | null, error };
+    };
+    const listLeasesByEssid = async (essid: string) => {
+      const { data, error } = await supabase
+        .from('network_lan_leases')
+        .select('owner_key, octet')
+        .eq('essid', essid);
+      if (error) console.error('[patches] fetch-log lan-lease list error:', error);
+      return { data: data as readonly LanLeaseRow[] | null, error };
+    };
+    const findPatches = async ({ machine_id }: { machine_id: string }) => {
+      const { data, error } = await supabase
+        .from('patches')
+        .select('path, content, owner, permissions, node_type, updated_at, writer_key')
+        .eq('machine_id', machine_id)
+        .order('updated_at', { ascending: true })
+        .order('writer_key', { ascending: true });
+      if (error) console.error('[patches] fetch-log own journal lookup error:', error);
+      return { data: data as readonly OwnerPatchRow[] | null, error };
+    };
+    const { status, body } = await handleRecordLanFetch(req.body, {
+      nonceStore: noopNonceStore,
+      now: () => Date.now(),
+      readLog,
+      upsertPatch,
+      listOccupantsByEssid,
+      listLeasesByEssid,
+      findPatches,
     });
     res.status(status).json(body);
     return;
