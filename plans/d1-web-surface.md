@@ -1,7 +1,8 @@
 # Plan: D1 — the web surface (serve a page, a stranger reads it)
 
 **Branch**: `feat/web-http-surface`
-**Status**: Active — plan approved 2026-07-29; slice 1 is next, no code written yet
+**Status**: Active — **slice 1 of 4 SHIPPED** (v0.104.0, #344, squashed to `c54caa7`).
+**Slice 2 is next, not started.**
 **Epic**: [`legacy-parity-epic.md`](./legacy-parity-epic.md) Phase 1, slice D1 (the first slice of
 the whole epic)
 
@@ -50,11 +51,38 @@ epic will be amended on close-out.
 
 D1 ships `curl` as the HTTP client. That is enough to prove the surface.
 
+## As-built after slice 1 (read this before slice 2)
+
+What shipped, and the four things that differ from the plan below:
+
+1. **The web-root confinement moved to the HTTP layer.** `resolveWebPath` normalizes and returns
+   `null` on escape. The traversal test PASSED on first write, which was the finding: `fsView.read`
+   walks via `segmentsOf` and never normalizes, so `..` was a literal directory name that never
+   existed — but `resolveAbsPath` normalizes everywhere else. The web root was protected only by
+   which helper happened to be on the read path. Now an invariant in
+   `conventions-and-gotchas.md` §7. **Slice 3's handler must reuse this function, not re-derive it.**
+2. **No `Date:` header** (the plan asked for one). It needs an authoritative clock; game time is
+   server-side and an own-LAN fetch has no round-trip, so any date would be the client inventing
+   game time. `Server:` carries **no version** — that belongs to `nmap -sV`/V1.
+3. **`serviceCatalog.ts` generates ZERO mutants** (data-only `as const`), so the `http` row's
+   evidence is behavioural only. Mutation score will silently ignore every future service row.
+4. **Two pre-existing flakes fixed** en route, class recorded in §4 of the conventions doc.
+
+Residual mutants deliberately left (all classified): `wlan0.kind !== 'wireless'` and
+`wlan0.ipv4 === null` in `curl`/`ping` are type-narrowing clauses for states the game cannot
+construct (a null `ipv4` already fails the `isOnline` gate); the `parseHttpUrl` regex-group guard
+is unreachable; `{ userType: 'root' }` → `{}` is equivalent because served pages are
+world-readable.
+
+**Known duplication, deliberately not yet extracted:** `curl`, `ping` and `nmap` each open with
+the same online → `wlan0` → essid preamble (three copies). Every remaining door needs it. Extract
+once ~4 real callers exist so the seam is shaped by them, as its own behaviour-preserving commit.
+
 ## Acceptance Criteria
 
-- [ ] A generated host on the player's LAN runs an HTTP service, visible as `:80` in `nmap`, and
+- [x] A generated host on the player's LAN runs an HTTP service, visible as `:80` in `nmap`, and
       `curl http://<its LAN IP>` returns its generated page
-- [ ] `ping <host>` reports reachability for a host that exists and failure for one that does not
+- [x] `ping <host>` reports reachability for a host that exists and failure for one that does not
 - [ ] A player can start `nginx` (or `apache2`) as root on their own machine; it refuses if
       already running, refuses a non-root caller, and refuses a port below 1024 without root
 - [ ] After starting it, the player's own `/var/www/html/index.html` is served over `curl`, and
@@ -63,8 +91,9 @@ D1 ships `curl` as the HTTP client. That is enough to prove the surface.
       public IP>` returns their page **with no session and no credential**
 - [ ] A target that is dark, bricked, or has no forward returns a connection failure, not a page,
       and leaks nothing
-- [ ] Nothing outside `/var/www` is reachable over HTTP — a path traversal or a request for
-      `/etc/passwd` returns 404, not file content
+- [x] Nothing outside `/var/www` is reachable over HTTP — a path traversal or a request for
+      `/etc/passwd` returns 404, not file content *(own-LAN; slice 3 must hold the same line
+      server-side)*
 - [ ] The owner of a fetched page reads the hit in `/var/log/access.log`, with the requester's
       server-derived source IP and the requested path
 - [ ] All gates green: `npm run typecheck`, `npm run lint`, full test suite; version bumped in
@@ -77,7 +106,15 @@ evidence, per the epic's per-slice contract.
 
 ---
 
-### Slice 1: A player reads a web page served by a host on their LAN
+### ✅ Slice 1 (SHIPPED v0.104.0): A player reads a web page served by a host on their LAN
+
+**Delivered**: `SERVICE_CATALOG.http` row; `buildRemoteHostFs` stamps `/var/www/html/index.html`
+only on hosts that rolled the service (absence is the protection — the tier-3 allowlist covers
+`/var/www/**`); `generation/pools/webPages.ts` with its own PRNG draw so it cannot re-roll
+accounts and ports; `core/network/http.ts`; `curl [-i]`; `ping <host> [count]`; both registered.
+Mutation 97.63% (235 killed / 6 classified survivors), 2072 tests green.
+
+**Original plan for reference:**
 
 **Actor / trigger / outcome**: player → `curl http://<LAN IP>` → the generated page prints.
 **Value**: real recon content on day one, and it proves the whole service chain end-to-end with
@@ -117,7 +154,14 @@ the start, so slice 3's server handler shares it rather than duplicating.
 
 ---
 
-### Slice 2: A player runs their own web server
+### ⏭ Slice 2 (NEXT — not started): A player runs their own web server
+
+**Start here.** Client-only, no `api/`, no wire-check. Reuse: `sshd.ts` for the daemon shape,
+`resolveWebPath` for anything path-related, and the `webPages.ts` pool if the default page should
+be drawn rather than fixed. Note slice 1 did NOT teach `curl` to resolve the player's own address
+— it resolves through `generateHomeLan` only, deliberately, because the own box's FS is
+`env.fs.root()` rather than a generated tree, and pointing the generator at your own IP would
+FABRICATE a page. Wiring that self case is part of this slice.
 
 **Actor / trigger / outcome**: player → `nginx` → their own `:80` opens and serves their page.
 **Value**: the defender half — exposure becomes a deliberate choice, and it creates the target
@@ -237,7 +281,12 @@ keystone, so it must die.
 
 - Add the `lynx` slice to the epic's Phase 1 table (it is named in D1's *Defers* but has no row
   of its own yet)
-- Delete this plan file
+- Run the browser confirmation (`v2-e2e` skill) — **still outstanding from slice 1**. Deferred to
+  close-out rather than per-slice because it needs the game up, and a live dev server makes
+  Stryker report false survivors (§5 of the conventions doc), so it wants its own pass.
+- Extract the shared online → `wlan0` → essid preamble (see "Known duplication" above) as a
+  separate behaviour-preserving commit
+- Update `conventions-and-gotchas.md` §1 with the D1 completion, then delete this plan file
 
 (The routing correction and the `lynx`/`gobuster` placement are already written into the epic.)
 
