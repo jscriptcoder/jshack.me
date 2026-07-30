@@ -83,6 +83,21 @@ const subnetOf = (): string => generateHomeLan(ESSID).subnet;
 const selfIpOf = (pubkey: string): string => assignHomeNetwork(pubkey, ESSID).localIp;
 const octetOf = (ip: string): number => Number(ip.split('.')[3]);
 
+/** An identity whose own LAN address is NOT one a generated host already holds.
+ *
+ *  The player's octet is drawn from their (random) pubkey while the NPC octets are
+ *  drawn from the ESSID, so roughly one identity in twenty-five lands on top of a
+ *  generated host. That collision puts a REAL host at the "self" address, which is a
+ *  different scenario from the one a self-exclusion test means to describe — so draw
+ *  again rather than let the coincidence read as a failure. */
+const identityOffTheGeneratedLan = (): ReturnType<typeof generateIdentity> => {
+  const taken = new Set(generateHomeLan(ESSID).hosts.map((host) => host.ip));
+  const candidate = generateIdentity();
+  return taken.has(selfIpOf(candidate.publicKeyHex))
+    ? identityOffTheGeneratedLan()
+    : candidate;
+};
+
 /** Every host the server should log on for a full-range scan: all up hosts
  *  except the player's own workstation, in ascending-octet (lan) order. */
 const loggedHostsOf = (pubkey: string): readonly LanHost[] => {
@@ -232,7 +247,7 @@ describe('handleNmapScan', () => {
   });
 
   it('skips the player own workstation (it is keyed by a different machine_id)', async () => {
-    const id = generateIdentity();
+    const id = identityOffTheGeneratedLan();
     const selfIp = selfIpOf(id.publicKeyHex);
     const { deps, upsertPatch } = makeDeps();
 
