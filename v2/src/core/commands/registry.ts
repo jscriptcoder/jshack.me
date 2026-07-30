@@ -18,6 +18,7 @@ import { airmon } from './airmon';
 import { apt } from './apt';
 import { cat } from './cat';
 import { cd } from './cd';
+import { curl } from './curl';
 import { echo } from './echo';
 import { exit } from './exit';
 import { grep } from './grep';
@@ -30,6 +31,7 @@ import { mkdir } from './mkdir';
 import { nano } from './nano';
 import { nmap } from './nmap';
 import { nmcli } from './nmcli';
+import { ping } from './ping';
 import { pwd } from './pwd';
 import { reboot } from './reboot';
 import { reset } from './reset';
@@ -49,6 +51,7 @@ const builtins: readonly Command[] = [
   apt,
   cat,
   cd,
+  curl,
   echo,
   exit,
   grep,
@@ -61,6 +64,7 @@ const builtins: readonly Command[] = [
   nano,
   nmap,
   nmcli,
+  ping,
   pwd,
   reboot,
   reset,
