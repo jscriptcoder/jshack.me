@@ -3,10 +3,17 @@ import { curl } from './curl';
 import type { CommandResult } from './types';
 import {
   mockCommandEnv,
+  mockFsViewFromTree,
   mockIdentity,
   mockNetworkView,
   mockNetworkViewFromConnectivity,
 } from '../../test/factories/commandEnv';
+import { applyPatches, type Patch } from '../filesystem/applyPatches';
+import { defaultFilePermissions } from '../filesystem/defaultPermissions';
+import type { Directory } from '../filesystem/types';
+import { buildWorkstationBaseFs } from '../generation/workstationFs';
+import { formatPidfileContent } from '../services/pidfile';
+import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
 import { assignHomeNetwork } from '../network/homeNetwork';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
@@ -399,5 +406,129 @@ describe('curl', () => {
       expect(exitCode).toBe(1);
       expect(text).toContain('unreachable');
     });
+  });
+});
+
+describe('curl against the player own address', () => {
+  const OWN_IP = assignHomeNetwork(PUBKEY, ESSID).localIp;
+
+  /** The player's own box as generated, plus any patches — applied through the
+   *  SAME `applyPatches` the game uses, so a pidfile written by `nginx` and a page
+   *  edited with `nano` reach the tree the way they really would. */
+  const ownBox = (...patches: readonly Patch[]): Directory =>
+    applyPatches(
+      buildWorkstationBaseFs(PUBKEY, {
+        machineName: 'workstation',
+        username: 'alice',
+        rootPassword: 'hunter2',
+      }),
+      patches,
+    );
+
+  /** What `nginx` leaves behind when it starts on the default port. */
+  const WEB_SERVER_RUNNING: Patch = {
+    path: '/var/run/nginx.pid',
+    content: formatPidfileContent(SERVICE_CATALOG.http, HTTP_DEFAULT_PORT),
+    owner: 'root',
+  };
+
+  const publishedPage = (content: string): Patch => ({
+    path: '/var/www/html/index.html',
+    content,
+    owner: 'root',
+  });
+
+  /** `curl` run by an online player standing on the given own-box tree. */
+  const fetchOwn = async (tree: Directory, ...args: readonly string[]): Promise<Drained> =>
+    drain(
+      await curl.execute(
+        mockCommandEnv({
+          identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+          network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+          fs: mockFsViewFromTree(tree, { userType: 'user', cwd: () => asAbsPath('/') }),
+        }),
+        args,
+        new Map(),
+      ),
+    );
+
+  it('serves the box own default page once a web server is running', async () => {
+    const { text, exitCode } = await fetchOwn(ownBox(WEB_SERVER_RUNNING), `http://${OWN_IP}`);
+
+    expect(exitCode).toBe(0);
+    expect(text).toContain('It works!');
+  });
+
+  it('refuses the connection when no web server is running, rather than inventing a page', async () => {
+    // The own address must resolve to the player's REAL filesystem. Pointing the
+    // host generator at it would fabricate an NPC page for a box that publishes
+    // nothing — so "nothing is running" has to look like a refused connection.
+    const { text, exitCode } = await fetchOwn(ownBox(), `http://${OWN_IP}`);
+
+    expect(exitCode).toBe(1);
+    expect(text).toContain('Connection refused');
+    expect(text).not.toContain('It works!');
+  });
+
+  it('returns what the player published, not the page the box shipped with', async () => {
+    const edited = ownBox(WEB_SERVER_RUNNING, publishedPage('<h1>alice was here</h1>'));
+
+    const { text, exitCode } = await fetchOwn(edited, `http://${OWN_IP}`);
+
+    expect(exitCode).toBe(0);
+    expect(text).toContain('alice was here');
+    expect(text).not.toContain('It works!');
+  });
+
+  it('serves a page the player created, which only root can read', async () => {
+    // A file created under the web root is created BY root (nothing else may write
+    // there), and a write stamps the creating tier's default permissions — which for
+    // root means root-readable ONLY. The server therefore has to read as ITSELF:
+    // read as whoever ran `curl` and a page the player just published would 404.
+    const tree = ownBox(WEB_SERVER_RUNNING, {
+      path: '/var/www/html/about.html',
+      content: '<h1>about alice</h1>',
+      owner: 'root',
+      permissions: defaultFilePermissions('root'),
+    });
+    // The premise, stated rather than assumed: as the caller, this file is unreadable.
+    expect(createFsView(tree, { userType: 'user' }).read(asAbsPath('/var/www/html/about.html'))).toEqual(
+      { ok: false, error: 'permission_denied' },
+    );
+
+    const { text, exitCode } = await fetchOwn(tree, `http://${OWN_IP}/about.html`);
+
+    expect(exitCode).toBe(0);
+    expect(text).toContain('about alice');
+  });
+
+  it('keeps the document root on the own box too — a traversal to /etc/passwd is a 404', async () => {
+    // The own box holds the player's real password hashes, and the server reads as
+    // root, so ONLY the web-root confinement stands between a request path and
+    // /etc/passwd. It must hold identically here and on a generated host.
+    const { text, exitCode } = await fetchOwn(
+      ownBox(WEB_SERVER_RUNNING),
+      `http://${OWN_IP}/../../etc/passwd`,
+    );
+
+    expect(exitCode).toBe(1);
+    expect(text).toContain('404');
+    expect(text).not.toContain('root:');
+  });
+
+  it('honours the port the web server actually opened', async () => {
+    const onAlternatePort = ownBox({
+      path: '/var/run/nginx.pid',
+      content: formatPidfileContent(SERVICE_CATALOG.http, 8080),
+      owner: 'root',
+    });
+
+    const wrongPort = await fetchOwn(onAlternatePort, `http://${OWN_IP}`);
+    const rightPort = await fetchOwn(onAlternatePort, `http://${OWN_IP}:8080`);
+
+    expect(wrongPort.exitCode).toBe(1);
+    expect(wrongPort.text).toContain('Connection refused');
+    expect(rightPort.exitCode).toBe(0);
+    expect(rightPort.text).toContain('It works!');
   });
 });

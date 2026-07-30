@@ -44,6 +44,16 @@ export const TMP_DIR: FilePermissions = {
   write: ['root', 'user', 'guest'],
   execute: ['root', 'user', 'guest'],
 };
+/** A page under `/var/www`: world-readable because publishing IS making it
+ *  public, root-only write because starting the server is already root's job, and
+ *  never executable — a served page is data, and the web surface has no CGI. Both
+ *  box generators share it so publishing means the same thing on the player's box
+ *  and on a generated host. */
+export const WEB_PAGE_FILE: FilePermissions = {
+  read: ['root', 'user', 'guest'],
+  write: ['root'],
+  execute: [],
+};
 /** `/boot/{vmlinuz,initrd.img}`: world-readable, root-only write, root-only
  *  execute. Only root can delete a boot file — and that deletion IS the brick
  *  (the box can't come up without it; see `core/boot/bootFiles.ts`). */

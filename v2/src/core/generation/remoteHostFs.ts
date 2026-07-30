@@ -49,6 +49,7 @@ import {
   SHELL,
   TMP_DIR,
   TRAVERSABLE_DIR,
+  WEB_PAGE_FILE,
 } from './baseFs';
 import { md5 } from './md5';
 import { pickWebPage } from './pools/webPages';
@@ -66,13 +67,6 @@ const PIDFILE_PERMS: FilePermissions = {
 
 const pidfile = (content: string, owner: string): FileEntry => file(content, PIDFILE_PERMS, owner);
 
-/** A served page: readable by anyone (that is what publishing it means), written
- *  only by root, never executed. */
-const WEB_PAGE_PERMS: FilePermissions = {
-  read: ['root', 'user', 'guest'],
-  write: ['root'],
-  execute: [],
-};
 
 // --- NPC account content (seeded; cracking these is a later epic) ---
 
@@ -186,7 +180,7 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
               {
                 'index.html': file(
                   pickWebPage({ seed: `web-page-${essid}-${host.ip}`, hostname: host.hostname }),
-                  WEB_PAGE_PERMS,
+                  WEB_PAGE_FILE,
                 ),
               },
               TRAVERSABLE_DIR,
