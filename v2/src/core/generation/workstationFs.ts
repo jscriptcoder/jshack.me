@@ -42,6 +42,7 @@ import {
   WEB_PAGE_FILE,
 } from './baseFs';
 import { md5 } from './md5';
+import { ACCESS_LOG_PERMISSIONS } from '../logging/accessLog';
 import { AUTH_LOG_PERMISSIONS } from '../logging/authLog';
 import { KERN_LOG_PERMISSIONS } from '../logging/kernLog';
 
@@ -153,15 +154,17 @@ export const buildWorkstationBaseFsFromIdentity = (identity: {
       ),
       // `/var/log/auth.log` exists empty from boot so `su` appends to a real
       // file (and `cat` works before the first switch); `/var/log/kern.log` the
-      // same for an inbound scan's iptables line. `/var/run` exists empty so
-      // `sshd` can drop its pidfile there. `/var/www/html/index.html` exists from
-      // boot for the same reason: a freshly started web server must have
-      // something to serve, and the player needs a real file to edit rather than
-      // having to guess the path and create it.
+      // same for an inbound scan's iptables line, and `/var/log/access.log` for
+      // an inbound web hit. `/var/run` exists empty so `sshd` can drop its
+      // pidfile there. `/var/www/html/index.html` exists from boot for the same
+      // reason: a freshly started web server must have something to serve, and
+      // the player needs a real file to edit rather than having to guess the
+      // path and create it.
       var: dir(
         {
           log: dir(
             {
+              'access.log': file('', ACCESS_LOG_PERMISSIONS),
               'auth.log': file('', AUTH_LOG_PERMISSIONS),
               'kern.log': file('', KERN_LOG_PERMISSIONS),
             },

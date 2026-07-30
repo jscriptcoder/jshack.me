@@ -16,8 +16,14 @@ import { defaultFilePermissions } from '../filesystem/defaultPermissions';
 import { formatPidfileContent } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { HTTP_DEFAULT_PORT } from './http';
+import { ACCESS_LOG_PATH } from '../logging/accessLog';
 import { asAbsPath } from '../types';
 import type { NonceStore } from '../signedRequest/nonceStore';
+import type {
+  MachineLogReadQuery,
+  MachineLogReadResult,
+} from '../patches/appendMachineLog';
+import type { PatchRow } from '../patches/upsertPatch';
 
 /**
  * `handleResolveHttpFetch` is the credential-free cross-player door: a fetch carries no
@@ -139,11 +145,23 @@ const patchesByMachine =
     error: null,
   });
 
+/** The universe clock at the moment the server records a hit — fixed so the rendered
+ *  timestamp is asserted literally rather than recomputed by the test. */
+const FETCH_TIME = Date.UTC(2026, 6, 30, 13, 55, 36);
+/** Bob's OWN home public IP: what the server derives for him from his verified key,
+ *  and the only address the line may carry. */
+const BOB_PUBLIC_IP = '198.51.100.22';
+
+type HomeNetworkResult = { data: { readonly public_ip: string } | null; error: unknown };
+
 type FetchOverrides = {
   lookup?: (publicIp: string) => Promise<LookupResult>;
   patches?: (query: { machine_id: string }) => Promise<PatchesResult>;
   listOccupantsByEssid?: (essid: string) => Promise<OccupantsResult>;
   listLeasesByEssid?: (essid: string) => Promise<LeasesResult>;
+  readLog?: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
+  upsertPatch?: (row: PatchRow) => Promise<{ error: unknown }>;
+  findHomeNetworkByOwnerKey?: (ownerKey: string) => Promise<HomeNetworkResult>;
 };
 
 const makeDeps = (over: FetchOverrides = {}) => {
@@ -159,14 +177,36 @@ const makeDeps = (over: FetchOverrides = {}) => {
   const listLeasesByEssid = vi.fn<(essid: string) => Promise<LeasesResult>>(
     over.listLeasesByEssid ?? (async () => ({ data: BOTH_LEASES, error: null })),
   );
+  const readLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
+    over.readLog ?? (async () => ({ data: null, error: null })),
+  );
+  const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(
+    over.upsertPatch ?? (async () => ({ error: null })),
+  );
+  const findHomeNetworkByOwnerKey = vi.fn<(ownerKey: string) => Promise<HomeNetworkResult>>(
+    over.findHomeNetworkByOwnerKey ?? (async () => ({ data: { public_ip: BOB_PUBLIC_IP }, error: null })),
+  );
   const deps: ResolveHttpFetchDeps = {
     nonceStore: freshStore,
     findNetworkByPublicIp,
     findPatches,
     listOccupantsByEssid,
     listLeasesByEssid,
+    now: () => FETCH_TIME,
+    readLog,
+    upsertPatch,
+    findHomeNetworkByOwnerKey,
   };
-  return { deps, findNetworkByPublicIp, findPatches, listOccupantsByEssid, listLeasesByEssid };
+  return {
+    deps,
+    findNetworkByPublicIp,
+    findPatches,
+    listOccupantsByEssid,
+    listLeasesByEssid,
+    readLog,
+    upsertPatch,
+    findHomeNetworkByOwnerKey,
+  };
 };
 
 const envelope = (fields: Record<string, unknown> = {}) =>
@@ -548,5 +588,268 @@ describe('the envelope', () => {
     });
 
     expect((await handleResolveHttpFetch(claiming, deps)).status).toBe(400);
+  });
+});
+
+/**
+ * The defender's half of the credential-free door. A web server that anyone may read
+ * without identifying themselves would be silent surveillance-proof cover, so the hit
+ * is recorded on the machine that served it — the log belongs to the SERVER, which is
+ * why the requester never has to be anyone for a line to appear.
+ *
+ * Two rules carry the security weight, and both are mutation targets:
+ *
+ *   - the line is written under the TARGET OWNER's key, never the requester's, so every
+ *     stranger's hits accrete into ONE row instead of colliding under the last-write-wins
+ *     fold — and so a requester can never wipe the evidence by writing their own row;
+ *   - the source IP is derived server-side from the VERIFIED key, so a client cannot
+ *     frame another network by asserting one.
+ */
+describe('the fetched machine records the hit', () => {
+  const accessLine = (fields: {
+    readonly sourceIp?: string;
+    readonly path?: string;
+    readonly status?: number;
+    readonly size?: number;
+  }) =>
+    `${fields.sourceIp ?? BOB_PUBLIC_IP} - - [30/Jul/2026:13:55:36 +0000] "GET ${fields.path ?? '/'} HTTP/1.1" ${fields.status ?? 200} ${fields.size ?? 0}`;
+
+  it('appends one line under the OWNER key, with the server-derived source IP and the requested path', async () => {
+    const { deps, upsertPatch, findHomeNetworkByOwnerKey } = makeDeps({ patches: aliceServing() });
+
+    expect(await handleResolveHttpFetch(envelope(), deps)).toEqual({
+      status: 200,
+      body: { ok: true, content: ALICE_PAGE },
+    });
+
+    // The source IP is looked up for BOB — the verified caller — not for the target.
+    expect(findHomeNetworkByOwnerKey).toHaveBeenCalledWith(BOB.publicKeyHex);
+    expect(upsertPatch).toHaveBeenCalledTimes(1);
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        writer_key: ALICE.publicKeyHex,
+        machine_id: ALICE_WS,
+        path: ACCESS_LOG_PATH,
+        content: `${accessLine({ size: ALICE_PAGE.length })}\n`,
+      }),
+    );
+  });
+
+  it('records the path that was asked for, not the file that answered', async () => {
+    const { deps, upsertPatch } = makeDeps({
+      patches: aliceServing(publishedPage('<h1>status: green</h1>', 'status.html')),
+    });
+
+    await handleResolveHttpFetch(envelope({ path: '/status.html' }), deps);
+
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: `${accessLine({ path: '/status.html', size: '<h1>status: green</h1>'.length })}\n`,
+      }),
+    );
+  });
+
+  it('records a 404 too — a wall of them is what a directory sweep looks like', async () => {
+    const { deps, upsertPatch } = makeDeps({ patches: aliceServing() });
+
+    expect(await handleResolveHttpFetch(envelope({ path: '/admin.php' }), deps)).toEqual({
+      status: 404,
+      body: { error: 'not_found' },
+    });
+
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        writer_key: ALICE.publicKeyHex,
+        machine_id: ALICE_WS,
+        content: `${accessLine({ path: '/admin.php', status: 404 })}\n`,
+      }),
+    );
+  });
+
+  it('accretes onto the existing log rather than replacing it', async () => {
+    const previous = '203.0.113.9 - - [29/Jul/2026:09:00:00 +0000] "GET / HTTP/1.1" 200 12\n';
+    const { deps, upsertPatch } = makeDeps({
+      patches: aliceServing(),
+      readLog: async () => ({ data: { content: previous }, error: null }),
+    });
+
+    await handleResolveHttpFetch(envelope(), deps);
+
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: `${previous}${accessLine({ size: ALICE_PAGE.length })}\n`,
+      }),
+    );
+  });
+
+  it('reads the existing log under the OWNER key too — or the append would fork the row', async () => {
+    const { deps, readLog } = makeDeps({ patches: aliceServing() });
+
+    await handleResolveHttpFetch(envelope(), deps);
+
+    expect(readLog).toHaveBeenCalledWith({
+      writer_key: ALICE.publicKeyHex,
+      machine_id: ALICE_WS,
+      path: ACCESS_LOG_PATH,
+    });
+  });
+
+  it('ignores a client-supplied source IP — a caller cannot frame another network', async () => {
+    const { deps, upsertPatch } = makeDeps({ patches: aliceServing() });
+
+    await handleResolveHttpFetch(envelope({ source_ip: '10.0.0.66' }), deps);
+
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({ content: `${accessLine({ size: ALICE_PAGE.length })}\n` }),
+    );
+  });
+
+  it('records an actor with no home network as `unknown` rather than dropping the line', async () => {
+    const { deps, upsertPatch } = makeDeps({
+      patches: aliceServing(),
+      findHomeNetworkByOwnerKey: async () => ({ data: null, error: null }),
+    });
+
+    await handleResolveHttpFetch(envelope(), deps);
+
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: `${accessLine({ sourceIp: 'unknown', size: ALICE_PAGE.length })}\n`,
+      }),
+    );
+  });
+
+  it('logs the GATEWAY arm under the AP log-writer key when the gateway serves its own page', async () => {
+    // The AP has no owner, so its log accretes under the lowest-octet lease holder —
+    // the same stable key the ssh gate uses, so both logs land in one row.
+    const { deps, upsertPatch } = makeDeps({
+      patches: patchesByMachine({
+        [AP_GATEWAY_ID]: [webServerUp(), publishedPage('<h1>router</h1>')],
+      }),
+    });
+
+    expect(await handleResolveHttpFetch(envelope(), deps)).toEqual({
+      status: 200,
+      body: { ok: true, content: '<h1>router</h1>' },
+    });
+
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        writer_key: ALICE.publicKeyHex,
+        machine_id: AP_GATEWAY_ID,
+        path: ACCESS_LOG_PATH,
+        content: `${accessLine({ size: '<h1>router</h1>'.length })}\n`,
+      }),
+    );
+  });
+
+  it('keeps no gateway log on an ESSID nobody has ever leased', async () => {
+    const gatewayOnly = patchesByMachine({
+      [AP_GATEWAY_ID]: [webServerUp(), publishedPage('<h1>router</h1>')],
+    });
+    // Both shapes an empty lease table arrives in — no rows, and no result at all.
+    const emptyLeases: readonly LeasesResult[] = [
+      { data: [], error: null },
+      { data: null, error: null },
+    ];
+
+    for (const leases of emptyLeases) {
+      const { deps, upsertPatch } = makeDeps({
+        patches: gatewayOnly,
+        listLeasesByEssid: async () => leases,
+      });
+
+      expect((await handleResolveHttpFetch(envelope(), deps)).status).toBe(200);
+      expect(upsertPatch).not.toHaveBeenCalled();
+    }
+  });
+
+  it('serves the gateway page even when the lease read fails — the log is not the product', async () => {
+    // Leases decide reachability on the FORWARD arm, where a failed read is a 500. Here
+    // they only key the log, so the same failure costs the line and nothing else.
+    const { deps, upsertPatch } = makeDeps({
+      patches: patchesByMachine({
+        [AP_GATEWAY_ID]: [webServerUp(), publishedPage('<h1>router</h1>')],
+      }),
+      listLeasesByEssid: async () => ({ data: null, error: new Error('leases unavailable') }),
+    });
+
+    expect(await handleResolveHttpFetch(envelope(), deps)).toEqual({
+      status: 200,
+      body: { ok: true, content: '<h1>router</h1>' },
+    });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('leaves no trace on a target that was never reached', async () => {
+    // Every `host_unreachable` cause must be equally silent: a line on the box would tell
+    // a defender they were probed through a door that did not open, and the prober's own
+    // reachability answer already collapses them.
+    const unreachable: readonly (readonly [string, FetchOverrides])[] = [
+      ['no such public IP', { lookup: async () => ({ data: null, error: null }) }],
+      [
+        'no forward and no gateway service',
+        { patches: patchesByMachine({ [AP_GATEWAY_ID]: [] }) },
+      ],
+      [
+        'forwarded to a box that is not serving the web',
+        {
+          patches: patchesByMachine({
+            [AP_GATEWAY_ID]: [forwards(forwardTo(HTTP_DEFAULT_PORT, ALICE_LAN_IP, HTTP_DEFAULT_PORT))],
+            [ALICE_WS]: [sshdUp, publishedPage(ALICE_PAGE)],
+          }),
+        },
+      ],
+      [
+        'forwarded to a bricked box',
+        {
+          patches: patchesByMachine({
+            [AP_GATEWAY_ID]: [forwards(forwardTo(HTTP_DEFAULT_PORT, ALICE_LAN_IP, HTTP_DEFAULT_PORT))],
+            [ALICE_WS]: [webServerUp(), publishedPage(ALICE_PAGE), bootTombstone],
+          }),
+        },
+      ],
+    ];
+
+    for (const [cause, overrides] of unreachable) {
+      const { deps, upsertPatch } = makeDeps(overrides);
+
+      expect((await handleResolveHttpFetch(envelope(), deps)).body, cause).toEqual({
+        error: 'host_unreachable',
+      });
+      expect(upsertPatch, cause).not.toHaveBeenCalled();
+    }
+  });
+
+  it('serves the page even when the log cannot be written', async () => {
+    // Best-effort: the fetch is the product, the log is the record of it. A logging
+    // failure must never turn a served page into an error the requester can detect —
+    // that would leak the defender's storage state to an anonymous stranger.
+    const { deps } = makeDeps({
+      patches: aliceServing(),
+      upsertPatch: async () => {
+        throw new Error('journal unavailable');
+      },
+    });
+
+    expect(await handleResolveHttpFetch(envelope(), deps)).toEqual({
+      status: 200,
+      body: { ok: true, content: ALICE_PAGE },
+    });
+  });
+
+  it('serves the page, and writes nothing, when the existing log cannot be read', async () => {
+    // A contentless write over a log that merely failed to read would erase the very
+    // evidence this slice exists to keep.
+    const { deps, upsertPatch } = makeDeps({
+      patches: aliceServing(),
+      readLog: async () => ({ data: null, error: new Error('read failed') }),
+    });
+
+    expect(await handleResolveHttpFetch(envelope(), deps)).toEqual({
+      status: 200,
+      body: { ok: true, content: ALICE_PAGE },
+    });
+    expect(upsertPatch).not.toHaveBeenCalled();
   });
 });

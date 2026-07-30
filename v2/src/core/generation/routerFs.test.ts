@@ -371,9 +371,9 @@ describe('buildRouterBaseFsFromIdentity', () => {
     expect(node.perms).toEqual({ read: ['root'], write: ['root'], execute: [] });
   });
 
-  it('ships empty /var/log/{auth,kern}.log for ssh-auth and scan logging', () => {
+  it('ships empty /var/log/{access,auth,kern}.log for web-hit, ssh-auth and scan logging', () => {
     const log = dirAt(routerFs(), 'var', 'log');
-    ['auth.log', 'kern.log'].forEach((name) => {
+    ['access.log', 'auth.log', 'kern.log'].forEach((name) => {
       const node = log.entries.get(name);
       if (node?.kind !== 'file') throw new Error(`missing /var/log/${name}`);
       expect(node.content).toBe('');

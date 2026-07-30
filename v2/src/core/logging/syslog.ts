@@ -11,7 +11,9 @@
 
 import type { GameTime } from '../types';
 
-const MONTHS = [
+/** Shared with the access-log renderer, which needs the same month names in a
+ *  different arrangement (`DD/MMM/YYYY`) — one table, so no log file can drift. */
+export const MONTHS = [
   'Jan',
   'Feb',
   'Mar',

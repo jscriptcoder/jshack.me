@@ -16,6 +16,10 @@
 //     `/etc/passwd` and the traversal that reaches it returns 404 with no content.
 //   - Every unreachable cause collapses to one `host_unreachable`: no forward, a bricked
 //     box, an occupant who left the WiFi, and a forward onto a non-web port.
+//   - The hit is recorded on the machine that served it, in the TARGET OWNER's journal
+//     row — which only the database can settle, since `writer_key` is a column `tsc`
+//     cannot see. A fetcher who held their own row could rewrite the record of their
+//     own visit, so the negative half (B holds NO row) is checked too.
 //
 // Usage (with v2 supabase + vercel dev running):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testHttpFetch.ts
@@ -31,6 +35,7 @@ import { lanAddressFor } from '../src/core/network/lanAddress';
 import { formatPidfileContent } from '../src/core/services/pidfile';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
 import { HTTP_DEFAULT_PORT } from '../src/core/network/http';
+import { ACCESS_LOG_PATH } from '../src/core/logging/accessLog';
 import { md5 } from '../src/core/generation/md5';
 
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
@@ -350,6 +355,59 @@ check(
   'a tampered envelope is refused before anything is resolved',
   rejected.status === 401 && errorOf(rejected.body) === 'signature_invalid',
   `status=${rejected.status} error=${errorOf(rejected.body) ?? '-'}`,
+);
+
+// === 9. The defender's record. Every check above that REACHED A's box left a line;
+// every unreachable one left nothing. Only the database can settle which ROW they
+// landed in, which is the whole keystone — `tsc` cannot see a writer_key. ===
+const accessLogRow = async (writerKey: string) => {
+  const { data, error } = await sr
+    .from('patches')
+    .select('content')
+    .eq('machine_id', A_WS)
+    .eq('path', ACCESS_LOG_PATH)
+    .eq('writer_key', writerKey)
+    .maybeSingle();
+  if (error) {
+    console.error('FATAL: access.log read failed:', error.message);
+    process.exit(1);
+  }
+  return (data as { content: string | null } | null)?.content ?? null;
+};
+
+const ownerLog = await accessLogRow(alice.publicKeyHex);
+const fetcherLog = await accessLogRow(bob.publicKeyHex);
+const logLines = (ownerLog ?? '').split('\n').filter((line) => line.length > 0);
+
+check(
+  'the hits accrete under the OWNER’s key — and B, who made every one of them, holds no row at all',
+  ownerLog !== null && fetcherLog === null,
+  `owner row=${ownerLog === null ? 'missing' : 'present'} fetcher row=${fetcherLog === null ? 'absent' : 'PRESENT'}`,
+);
+
+check(
+  'exactly the five fetches that reached A’s box are recorded — the unreachable ones left nothing',
+  logLines.length === 5,
+  `lines=${logLines.length}`,
+);
+
+check(
+  'every line carries B’s server-derived public IP, never a LAN address or a client claim',
+  logLines.length > 0 && logLines.every((line) => line.startsWith(`${B_PUBLIC_IP} - - [`)),
+  `lines=${JSON.stringify(logLines.slice(0, 2))}`,
+);
+
+check(
+  'a served page and a 404 are both recorded, with the path as REQUESTED',
+  logLines.some((line) => line.includes('"GET / HTTP/1.1" 200 ')) &&
+    logLines.some((line) => line.includes('"GET /nothing-here.html HTTP/1.1" 404 0')),
+  `lines=${JSON.stringify(logLines)}`,
+);
+
+check(
+  'a traversal attempt is recorded verbatim — the raw path is exactly what a defender needs to see',
+  logLines.some((line) => line.includes('"GET /../../../etc/passwd HTTP/1.1" 404 0')),
+  `lines=${JSON.stringify(logLines)}`,
 );
 
 await clean();

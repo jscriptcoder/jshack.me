@@ -275,12 +275,62 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (error) console.error('[network] http-fetch lan-lease list error:', error);
       return { data: data as readonly LanLeaseRow[] | null, error };
     };
+    // The access-log row as it stands, read under the TARGET OWNER's key — the same key
+    // the append writes back, or the read-modify-write would fork the file per visitor.
+    const readLog = async ({ writer_key, machine_id, path }: MachineLogReadQuery) => {
+      const { data, error } = await supabase
+        .from('patches')
+        .select('content')
+        .eq('writer_key', writer_key)
+        .eq('machine_id', machine_id)
+        .eq('path', path)
+        .maybeSingle();
+      if (error) console.error('[network] http-fetch access-log read error:', error);
+      return { data: data as { content: string | null } | null, error };
+    };
+    const upsertPatch = async (row: PatchRow) => {
+      const { error } = await supabase
+        .from('patches')
+        .upsert(row, { onConflict: 'machine_id,path,writer_key' });
+      if (error) console.error('[network] http-fetch access-log upsert error:', error);
+      return { error };
+    };
+    // The REQUESTER's own home public IP — the truthful source IP, server-derived from
+    // their verified key. Identical derivation to the scan's, for the same reason: the
+    // address they arrive from is a network they are actually ON, and a disconnected
+    // player's source degrades to `unknown` rather than being taken from the client.
+    const findHomeNetworkByOwnerKey = async (ownerKey: string) => {
+      const occupancy = await supabase
+        .from('home_network_occupants')
+        .select('essid')
+        .eq('owner_key', ownerKey)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (occupancy.error) {
+        console.error('[network] http-fetch source-ip occupancy error:', occupancy.error);
+        return { data: null, error: occupancy.error };
+      }
+      const essid = (occupancy.data as { essid: string } | null)?.essid ?? null;
+      if (essid === null) return { data: null, error: null };
+      const { data, error } = await supabase
+        .from('network_public_ips')
+        .select('public_ip')
+        .eq('essid', essid)
+        .maybeSingle();
+      if (error) console.error('[network] http-fetch source-ip lookup error:', error);
+      return { data: data as { public_ip: string } | null, error };
+    };
     const { status, body } = await handleResolveHttpFetch(req.body, {
       nonceStore: noopNonceStore,
       findNetworkByPublicIp,
       findPatches,
       listOccupantsByEssid,
       listLeasesByEssid,
+      now: () => Date.now(),
+      readLog,
+      upsertPatch,
+      findHomeNetworkByOwnerKey,
     });
     res.status(status).json(body);
     return;
