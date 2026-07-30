@@ -1,10 +1,10 @@
 # Plan: D1 — the web surface (serve a page, a stranger reads it)
 
-**Branch**: `feat/web-access-log` (cut off `main` at `221fe07` for slice 4).
-**Status**: Active — **slices 1–3 of 5 SHIPPED** (v0.104.0 #344 → `c54caa7`; v0.105.0 #345 →
-`9b05f6f`; v0.106.0 #346 → `c408fb2`). **Slice 4 is next, not started.** Slice 4b was added
-2026-07-30 when the own-LAN logging question was settled (see below) — it is a real slice, not a
-deferral.
+**Branch**: `feat/own-lan-access-log` (cut off `main` at `2030004` for slice 4b).
+**Status**: Active — **slices 1–4 of 5 SHIPPED** (v0.104.0 #344 → `c54caa7`; v0.105.0 #345 →
+`9b05f6f`; v0.106.0 #346 → `c408fb2`; v0.107.0 #347 → `2030004`). **Slice 4b is next, not
+started — it is the LAST slice.** It was added 2026-07-30 when the own-LAN logging question was
+settled (see slice 4) — a real slice, not a deferral.
 **Epic**: [`legacy-parity-epic.md`](./legacy-parity-epic.md) Phase 1, slice D1 (the first slice of
 the whole epic)
 
@@ -139,7 +139,7 @@ presence, proven through the registry.
 - [x] Nothing outside `/var/www` is reachable over HTTP — a path traversal or a request for
       `/etc/passwd` returns 404, not file content *(own-LAN AND server-side, through the one
       `resolveWebPath`)*
-- [ ] The owner of a fetched page reads the hit in `/var/log/access.log`, with the requester's
+- [x] The owner of a fetched page reads the hit in `/var/log/access.log`, with the requester's
       server-derived source IP and the requested path
 - [ ] A fetch on the player's OWN LAN is logged too — on a generated host's `access.log` (readable
       once the player gets in) and on the player's own box when they fetch themselves
@@ -325,9 +325,46 @@ allowlist application — both are security-load-bearing, so kill them and keep 
 
 ---
 
-### ⏭ Slice 4 (NEXT — not started): A defender sees who fetched their page
+### ✅ Slice 4 (SHIPPED v0.107.0): A defender sees who fetched their page
 
-**Start here.** The last D1 slice. What slice 3 hands it:
+**Delivered**: `core/logging/accessLog.ts` (Apache Combined formatter + the `ACCESS_LOG_*`
+storage identity); `MONTHS` exported out of `syslog.ts`; `access.log` seeded empty from boot in
+`buildWorkstationBaseFs` and `buildRouterFs`; four new deps (`now`, `readLog`, `upsertPatch`,
+`findHomeNetworkByOwnerKey`) threaded into `resolveHttpFetch` and its `api/network.ts` route;
+`scripts/testHttpFetch.ts` extended to **17/17 live** (was 12). 2179 tests green. Mutation:
+`accessLog.ts` **100%**, `resolveHttpFetch.ts` **97.92%**.
+
+What differs from the plan, and what slice 4b must know:
+
+1. **The gateway arm's lease read is deliberately BEST-EFFORT, unlike the forward arm's.** Slice
+   3's hand-off said the gateway arm "must start reading leases, or skip logging". It reads them
+   — but a failed read yields `logWriterKey: null` and the fetch still serves the page. The
+   forward arm's occupant lookup is load-bearing (no occupant ⇒ no target ⇒ no page); the
+   gateway's is only asking *whose row to write into*, and losing a log line is not a reason to
+   fail a request the server can answer. `apGatewayLogWriterKey` returning `null` on an unleased
+   ESSID is the same posture: **the AP simply keeps no log**.
+2. **A path traversal is logged VERBATIM, as requested, not as resolved.** `resolveWebPath`
+   returns `null` and the fetch 404s, but the line records `/../../etc/passwd` exactly as the
+   caller typed it. That is the whole value of the field to a defender: the resolved path would
+   say nothing happened.
+3. **Three surviving mutants are provably equivalent, not unaudited.** All are
+   `X.data ?? []` → `X.data ?? ["Stryker was here"]`. Each consumer reads a field off the element
+   (`.octet`, `.owner_key`); a junk string yields `undefined` for that field, so the computed
+   answer is byte-identical. Recorded here so nobody re-litigates them at the next mutation run.
+4. **A fixed test clock hid a real gap, and mutation found it.** `accessLog.ts` first came back
+   78.95% with four `padStart(2, '0')` → `padStart(2, "")` survivors: the whole suite used
+   `13:55:36` on the 30th, where every component is two digits, so the padding was never
+   exercised. A single-digit hour would have rendered `4:07:09` and no test would have noticed.
+   **General lesson for any formatter test: pick a clock whose fields need padding.**
+5. **The refactor was assessed and DECLINED.** The three log formatters share only the syslog
+   line shape, which is already extracted; `accessLog` is Apache CLF — structurally different
+   knowledge that would evolve independently. The identical permission triples are each
+   independently justified. Slice 4b's REFACTOR step should re-ask about the two
+   LAN-regenerating *handlers*, which is a different question.
+
+**Original plan for reference:**
+
+What slice 3 handed it:
 
 | Hand-off | Detail |
 |---|---|
@@ -393,7 +430,18 @@ keystone, so it must die.
 
 ---
 
-### ⏭ Slice 4b (NOT STARTED — after slice 4): An own-LAN fetch is logged too
+### ⏭ Slice 4b (NEXT — not started): An own-LAN fetch is logged too
+
+**Start here.** The last D1 slice. What slice 4 hands it:
+
+| Hand-off | Detail |
+|---|---|
+| The formatter | `formatAccessLogLine(AccessLogEvent)` in `core/logging/accessLog.ts` — done, 100% mutation, and event-shaped already (no client timestamp, no client source IP). 4b composes it server-side exactly as slice 4 does; it writes no new formatter |
+| The storage identity | `ACCESS_LOG_PATH` / `ACCESS_LOG_OWNER` / `ACCESS_LOG_PERMISSIONS`, shared by the boot seed and the appender so they cannot drift |
+| **Missing seed** | `buildRemoteHostFs` has **no `access.log`** — deliberately left for this slice, since nothing wrote to a generated NPC host until now. Workstation and router already have it. Adding it there is 4b's first change |
+| The append primitive | `appendMachineLog` — a FAILED read bails without writing, so a log that merely failed to read is never clobbered |
+| Source IP | NOT `resolveCrossPlayerSourceIp` — that resolves a *cross-player* public IP. On the caller's own LAN the source is their **LAN** address, which the server already regenerates; `handleNmapScan` is the model |
+| Dead surface to kill | `LogApi.appendAccessLog(target: MachineId, line: string)` — still present in `core/commands/types.ts:235`, stubbed in `ui/state.ts:619` + `test/factories/commandEnv.ts:104` + two test files, **no caller anywhere**. Its `line` parameter is the wrong shape (see slice 4's rationale). Replacing it is part of this slice |
 
 **Actor / trigger / outcome**: player → `curl http://<a LAN host>` → breaks into that host later →
 `cat /var/log/access.log` and finds their own earlier fetch. And `curl http://<own IP>` → the line
@@ -412,7 +460,56 @@ NPC host (via `resolveLanHostIdentity`) → `appendMachineLog`.
 **This slice is `handleNmapScan` again, with a different line.** Read `core/scan/nmapScan.ts`
 before starting; it answers most of the design questions already, and its module doc explains why.
 
+**Acceptance criteria — confirmed 2026-07-30, before RED:**
+
+1. **The NPC case.** `curl http://<a LAN host serving http>` appends exactly ONE line to *that
+   host's* `/var/log/access.log`, under the **caller's** writer key, carrying the caller's LAN IP
+   and the requested path. Observable when the player later gets into that host and `cat`s it.
+2. **The self case.** `curl http://<own LAN IP>` appends the line to the caller's OWN workstation,
+   readable immediately with `cat /var/log/access.log` — no break-in. This is the player's only
+   way to see what an access log looks like *before* anyone attacks them.
+3. **A 404 logs**, with status `404` and size `0`; a traversal logs the path **verbatim as
+   requested**, not as resolved (slice 4's rule, unchanged).
+4. **Only a reached server logs.** A LAN host that resolves but is not serving http leaves no
+   line; a host that does not resolve leaves none. The SERVER re-checks this against the tree it
+   resolved — it does not take the client's word that something answered.
+5. **The client dictates nothing but the target.** No machine id, no timestamp, no status and no
+   size cross the wire. The server resolves which machine the line lands on (own workstation from
+   the verified pubkey, NPC host via `resolveLanHostIdentity`), reads the tree, and computes
+   status and size itself.
+6. **Best-effort.** `curl`'s output is byte-identical whether the log write succeeds, fails, or
+   the seam is unwired.
+7. **`LogApi.appendAccessLog(target, line)` is deleted** and replaced by the event-shaped seam,
+   along with all four stubs.
+8. **`/var/log/access.log` seeded** in `buildRemoteHostFs`, http-rolling hosts only.
+9. **Gates**: typecheck, lint, full suite, mutation report, version bumped in both package files,
+   wire-check run LIVE.
+
+**Settled with those criteria — the source IP is CLIENT-supplied here, unlike slice 4.** Found by
+reading `nmapScan.ts` end to end: it SPLITS. `traceOccupants` (writing on a real other player's
+box) resolves the scanner's address from `network_lan_leases` server-side, but `logHostScan`
+(writing on the caller's regenerated NPC host) takes `payload.source_ip ?? 'unknown'`. Both of 4b's
+targets fall on the second side of that split, so it mirrors `nmap`. The reason it is safe here and
+was not in slice 4: an NPC host's row is per-viewer keyed, so the only reader of that line is the
+person who wrote it; and the player's own box is one `su` away from `nano /var/log/access.log`
+anyway — forging the field grants no capability they do not already have. Deriving it server-side
+would cost a lease read and add a "no lease ⇒ no line" failure mode to buy nothing. In slice 4 the
+source is ANOTHER player, who must never be able to author their own trace — hence the difference.
+
+**Known divergence, accepted rather than fixed:** on the self case the server reads the
+JOURNAL-materialized tree while the client reads the LIVE one, so a `nano` edit that has not landed
+server-side yet means the logged size can trail what the player just saw. The alternative is the
+client sending the size, which breaks criterion 5. Recorded so this is a decision, not a bug
+someone rediscovers later.
+
 **Includes**:
+- `/var/log/access.log` seeded empty in `buildRemoteHostFs` (workstation + router already have it
+  from slice 4), **only on hosts that rolled the http service** (settled 2026-07-30). It sits
+  under the same condition as the `/var/www/html/index.html` line directly above it in the same
+  generator: a box that can never be fetched can never have a line written, so an empty file
+  there would be furniture. Note this differs from the workstation, where the file is
+  unconditional — a player can `apt install nginx` at any moment, so their box is always
+  web-capable; a generated host's service set is fixed at generation
 - A new signed action + handler mirroring `handleNmapScan`: the client sends `essid`, target IP
   and path; the SERVER decides which machine the line lands on. The client never names a machine
   id — same rule as the cross-player path, for the same reason
@@ -420,9 +517,10 @@ before starting; it answers most of the design questions already, and its module
   (`nmapScan.ts:12` skips self-scan because the generic remote-log path is keyed by `hostMachineId`
   and cannot address a workstation — the cross-player handler CAN, so the self case is reachable
   here in a way it was not for `nmap`)
-- Replace `LogApi.appendAccessLog(target, line)` with an **event-shaped** seam (no client
-  timestamp, no client source IP), mirroring `appendAuthLog`. Deleting the old signature is part
-  of this slice
+- Replace `LogApi.appendAccessLog(target, line)` with an **event-shaped** seam — no client
+  timestamp, no client status, no client size, and no client machine id; the source IP is the one
+  field the client does supply (see the settled decision above). Deleting the old signature and
+  its four stubs is part of this slice
 - `curl`'s own-LAN branch fires it fire-and-forget (`void … .catch(() => undefined)`, exactly as
   `nmap.ts:291` does) — the fetch must not wait on, or fail with, the log write
 
@@ -466,7 +564,7 @@ resolve and what they write.
 
 - Add the `lynx` slice to the epic's Phase 1 table (it is named in D1's *Defers* but has no row
   of its own yet)
-- Run the browser confirmation (`v2-e2e` skill) — **still outstanding from slices 1 and 2**.
+- Run the browser confirmation (`v2-e2e` skill) — **still outstanding across slices 1–4**.
   Deferred to close-out rather than per-slice because it needs the game up, and a live dev server
   makes Stryker report false survivors (§5 of the conventions doc), so it wants its own pass. The
   slice-2 path to walk: `apt install nginx` → `su` → `nginx` → `curl http://<own IP>` → `nano` the
