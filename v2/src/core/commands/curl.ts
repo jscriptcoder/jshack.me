@@ -12,10 +12,15 @@
  * exists but serves nothing refuses the connection rather than returning an empty
  * page, so "unreachable" and "nothing there" stay distinguishable.
  *
- * Only the player's own LAN resolves here — including their own address, which reads
- * their live filesystem rather than a generated one (see `targetFs`). Reaching
- * another player's box by its public IP is a server round-trip (the target's journal
- * lives server-side), which arrives with the cross-player slice.
+ * Two kinds of target, split by the address itself. An address on the player's own LAN
+ * resolves locally — including their own, which reads their live filesystem rather than a
+ * generated one (see `targetFs`). A PUBLIC address is another player's, and resolves
+ * through the server (see `fetchAcrossNetwork`): their journal lives server-side, so
+ * their page cannot be rebuilt from this client's world.
+ *
+ * The local path reads the file itself; the cross-network path asks for it and is handed
+ * content. What the two share is the response: both hand the same `responseLines` the
+ * same string, so a page looks the same however far away it was.
  */
 
 import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
@@ -25,7 +30,8 @@ import { buildRemoteHostFs } from '../generation/remoteHostFs';
 import { createFsView } from '../filesystem/fsView';
 import { readOpenPorts } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { parseHttpUrl, resolveWebPath } from '../network/http';
+import { parseHttpUrl, resolveWebPath, type ParsedUrl } from '../network/http';
+import { isPublicIp } from '../generation/ip';
 
 const error = (message: string): CommandResult => ({
   kind: 'sync',
@@ -42,6 +48,11 @@ const USAGE = 'curl: usage: curl <url> (e.g. http://192.168.1.5)';
 const UNREACHABLE = 'curl: (7) Failed to connect — network is unreachable';
 
 const NOT_FOUND = 'curl: (22) The requested URL returned error: 404';
+
+/** How a failed connect reads, whichever side of the network the target is on — one
+ *  sentence shape, so "refused" means the same thing on the LAN and across the world. */
+const connectError = (host: string, port: number, reason: string): CommandResult =>
+  error(`curl: (7) Failed to connect to ${host} port ${port}: ${reason}`);
 
 /** The daemon behind the web service — what the `Server:` header advertises. No
  *  version: what version a service runs is what `nmap -sV` and the vulnerability
@@ -93,6 +104,42 @@ const targetFs = ({
   return host === undefined ? null : buildRemoteHostFs(essid, host);
 };
 
+/** The response, once some target has produced content — identical whether the file came
+ *  off a tree on this LAN or off a machine the server materialized. */
+const respond = (content: string, includeHeaders: boolean): CommandResult => ({
+  kind: 'async',
+  lines: responseLines(content, includeHeaders),
+  exitCode: async () => 0,
+});
+
+/**
+ * Fetch from ANOTHER player's public IP — a server round-trip, because the target's
+ * journal lives server-side and its page cannot be rebuilt from this client's world.
+ *
+ * The url path goes over as written. Resolving it to a file is the server's job: this
+ * client has no business naming a path on someone else's box, and the document-root
+ * confinement has to hold against clients that were never this one.
+ */
+const fetchAcrossNetwork = async (
+  env: CommandEnv,
+  url: ParsedUrl,
+  includeHeaders: boolean,
+): Promise<CommandResult> => {
+  const fetched = await env.remote.fetchPublic({
+    target: url.host,
+    port: url.port,
+    path: url.path,
+  });
+  if (!fetched.ok) {
+    // A reached server saying "no such page" is a 404; everything else is a connect
+    // failure — the target refused, or we never got to ask.
+    if (fetched.error === 'not_found') return error(NOT_FOUND);
+    const reason = fetched.error === 'host_unreachable' ? 'Connection refused' : 'Network error';
+    return connectError(url.host, url.port, reason);
+  }
+  return respond(fetched.content, includeHeaders);
+};
+
 const execute: Command['execute'] = async (env, args, flags) => {
   const raw = args[0];
   if (raw === undefined) {
@@ -117,6 +164,13 @@ const execute: Command['execute'] = async (env, args, flags) => {
     return error(UNREACHABLE);
   }
 
+  // A public address is not on this LAN by construction, so it can only be reached the
+  // way the internet is reached — through the server. Gated on being online first: the
+  // player needs a connection either way.
+  if (isPublicIp(url.host)) {
+    return fetchAcrossNetwork(env, url, flags.has('-i'));
+  }
+
   const essid = wlan0.association.essid;
   const hostFs = targetFs({ env, essid, ownIp: wlan0.ipv4, target: url.host });
   if (hostFs === null) {
@@ -127,9 +181,7 @@ const execute: Command['execute'] = async (env, args, flags) => {
     (entry) => entry.port === url.port && entry.service === SERVICE_CATALOG.http.service,
   );
   if (!listening) {
-    return error(
-      `curl: (7) Failed to connect to ${url.host} port ${url.port}: Connection refused`,
-    );
+    return connectError(url.host, url.port, 'Connection refused');
   }
 
   // A path that climbs out of the published directory names nothing, and says so the
@@ -148,11 +200,7 @@ const execute: Command['execute'] = async (env, args, flags) => {
     return error(NOT_FOUND);
   }
 
-  return {
-    kind: 'async',
-    lines: responseLines(served.content, flags.has('-i')),
-    exitCode: async () => 0,
-  };
+  return respond(served.content, flags.has('-i'));
 };
 
 export const curl: Command = {
@@ -167,7 +215,7 @@ export const curl: Command = {
   manual: {
     synopsis: 'curl [-i] <url>',
     description:
-      'Fetch a URL over HTTP and print what the server returns. Reaches hosts on your own network, e.g. "curl http://192.168.1.5", including your own address once you are running a web server. A web server publishes only its document root, so nothing else on the target is readable this way. Requires a network connection.',
+      'Fetch a URL over HTTP and print what the server returns. Reaches hosts on your own network, e.g. "curl http://192.168.1.5", including your own address once you are running a web server, and any public IP that forwards its web port. No login is needed: a web server publishes its document root to whoever asks, and nothing else on the target is readable this way. Requires a network connection.',
     arguments: [
       {
         name: 'url',
@@ -181,6 +229,10 @@ export const curl: Command = {
       {
         command: 'curl http://192.168.1.5:8080/status',
         description: 'Fetch a path from a server on a non-standard port',
+      },
+      {
+        command: 'curl http://203.0.113.7',
+        description: "Fetch another player's page across the network — no login needed",
       },
     ],
   },

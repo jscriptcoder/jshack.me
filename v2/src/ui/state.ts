@@ -28,6 +28,8 @@ import type {
   InnerGatewayAuthParams,
   PublicAuthResult,
   PatchResult,
+  PublicFetchParams,
+  PublicFetchResult,
   PublicScanResolution,
   DeepScanRecordParams,
   RemoteAuthParams,
@@ -80,6 +82,7 @@ import {
   type SessionsClientDeps,
 } from '../adapters/sessionsApi';
 import {
+  fetchPublicPage,
   joinHomeNetwork,
   leaveHomeNetwork,
   resolveCrossPlayerFs,
@@ -341,6 +344,14 @@ const resolvePublicFn = (target: string): Promise<PublicScanResolution> =>
   networkClientDeps === undefined
     ? Promise.resolve({ found: false, ports: [] })
     : resolvePublic(networkClientDeps, target);
+
+/** Fetch a page from behind another player's public IP (backs `env.remote.fetchPublic`).
+ *  Before `startGame` wires the network client there is nothing to ask, so the failure is
+ *  ours — `network_error`, not a claim that the target is dark. */
+const fetchPublicPageFn = (params: PublicFetchParams): Promise<PublicFetchResult> =>
+  networkClientDeps === undefined
+    ? Promise.resolve({ ok: false, error: 'network_error' })
+    : fetchPublicPage(networkClientDeps, params);
 
 /** Resolve an own-LAN `nmap <inner gateway IP>` server-side (backs
  *  `env.scan.resolveInnerGateway`). Host-down until `startGame` wires the network
@@ -891,6 +902,7 @@ const executeLine = async (line: string): Promise<void> => {
     onScanResolveInnerGateway: resolveInnerGatewayFn,
     onScanResolveOccupants: resolveOccupantsFn,
     onScanResolveOccupiedEssids: resolveOccupiedEssidsFn,
+    onHttpFetchPublic: fetchPublicPageFn,
     onHomeNetworkJoin: joinHomeNetworkFn,
     onHomeNetworkLeave: leaveHomeNetworkFn,
     // The sessions below the active one — what `exit` consults to decide

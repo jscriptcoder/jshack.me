@@ -26,7 +26,12 @@ import { deserializeTree, type SerializedDirectory } from '../core/filesystem/tr
 import type { HomeNetworkAssignment } from '../core/network/homeNetwork';
 import type { GameConfig } from '../core/gameConfig/gameConfig';
 import type { Directory } from '../core/filesystem/types';
-import type { Identity, PublicScanResolution } from '../core/commands/types';
+import type {
+  Identity,
+  PublicFetchParams,
+  PublicFetchResult,
+  PublicScanResolution,
+} from '../core/commands/types';
 import type { OccupantProjection } from '../core/network/resolveOccupants';
 import type { Ipv4 } from '../core/network/interfaces';
 import type { MachineId } from '../core/types';
@@ -178,6 +183,42 @@ export const resolvePublic = async (
     return { found: resolved.found === true, ports: resolved.ports ?? [] };
   } catch {
     return { found: false, ports: [] };
+  }
+};
+
+/**
+ * Fetch one page from a machine behind another player's public IP (backs
+ * `env.remote.fetchPublic`).
+ *
+ * The three outcomes are kept apart on purpose, because they are three different
+ * sentences to the player. A refusal from the TARGET (dark, bricked, unforwarded,
+ * nothing serving the web) is `host_unreachable`. A reached server's 404 is
+ * `not_found`. Anything else — a 500, an unverifiable envelope, a malformed body, a
+ * thrown request — is `network_error`: OUR side failed to complete the round-trip, and
+ * reporting that as a refusal would blame the target for our own outage.
+ */
+export const fetchPublicPage = async (
+  deps: NetworkClientDeps,
+  params: PublicFetchParams,
+): Promise<PublicFetchResult> => {
+  try {
+    const response = await post(deps, 'resolveHttpFetch', { ...params });
+    const body: unknown = await response.json();
+    if (!response.ok) {
+      const failed = body as { readonly error?: string };
+      if (failed.error === 'not_found') return { ok: false, error: 'not_found' };
+      if (failed.error === 'host_unreachable') return { ok: false, error: 'host_unreachable' };
+      return { ok: false, error: 'network_error' };
+    }
+    const resolved = body as { readonly ok?: boolean; readonly content?: string };
+    // A 200 we cannot read is not a page. Reporting it as an empty one would print a
+    // blank response as though the target had served it.
+    if (resolved.ok !== true || typeof resolved.content !== 'string') {
+      return { ok: false, error: 'network_error' };
+    }
+    return { ok: true, content: resolved.content };
+  } catch {
+    return { ok: false, error: 'network_error' };
   }
 };
 

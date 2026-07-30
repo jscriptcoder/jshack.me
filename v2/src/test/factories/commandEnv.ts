@@ -94,6 +94,9 @@ export const mockNetworkViewFromConnectivity = (state: ConnectivityState): Netwo
 
 export const mockRemoteApi = (): RemoteApi => ({
   listPatches: NOT_IMPLEMENTED('remote.listPatches'),
+  // Load-bearing (its result IS the fetched page), so it throws until a test stubs the
+  // resolution — an own-LAN fetch must never reach it.
+  fetchPublic: NOT_IMPLEMENTED('remote.fetchPublic'),
 });
 
 export const mockLogApi = (): LogApi => ({
