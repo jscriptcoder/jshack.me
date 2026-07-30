@@ -157,23 +157,26 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
   the editor open); a refused one leaves it alone. Wire-check `scripts/testModifiedSinceOpen.ts`;
   three-player browser verification in `e2e-shared-network-verification.md` §6.
 
-**Current version: 0.105.0.**
+**Current version: 0.106.0.**
 
 **Current epic — legacy parity, IN PROGRESS:** `plans/legacy-parity-epic.md` — every remaining
 way into a machine (doors → discovery → CVE vulnerabilities), grilled to nine locked
 decisions. The ship gate is legacy parity **minus missions**; missions are a post-ship epic.
 
-- **D1 (the web surface) — slices 1–2 of 4 ✅ SHIPPED (v0.104.0 #344, v0.105.0 #345).** The
-  first door since `ssh`, and the only one that opens with **no credential**. Slice 1: a
-  generated LAN host rolls the `http` service, `nmap` labels its port, and `curl http://<its
-  IP>` returns its seeded page (`curl -i` for headers); `ping` answers reachability, seeded
-  per address. Slice 2: the player runs their own server — `nginx`/`apache2` are **two names
-  for one capability** (both write `/var/run/nginx.pid`, so the second is refused and told a
-  web server is already up rather than which program), root-only, and `curl` on the player's
-  own address reads their **live** tree so a `nano` edit changes what a fetch returns.
+- **D1 (the web surface) — slices 1–3 of 4 ✅ SHIPPED (v0.104.0 #344, v0.105.0 #345,
+  v0.106.0 #346).** The first door since `ssh`, and the only one that opens with **no
+  credential**. Slice 1: a generated LAN host rolls the `http` service, `nmap` labels its
+  port, and `curl http://<its IP>` returns its seeded page (`curl -i` for headers); `ping`
+  answers reachability, seeded per address. Slice 2: the player runs their own server —
+  `nginx`/`apache2` are **two names for one capability** (both write `/var/run/nginx.pid`, so
+  the second is refused and told a web server is already up rather than which program),
+  root-only, and `curl` on the player's own address reads their **live** tree so a `nano`
+  edit changes what a fetch returns. Slice 3: **cross-player** — `curl http://<their public
+  IP>` returns the page behind that NAT forward with **no session and no password**, via
+  `core/network/resolveHttpFetch.ts` (wire-check `scripts/testHttpFetch.ts`, 12/12 live).
   **Nothing outside `/var/www/html` is fetchable** — that confinement lives in
   `core/network/http.ts` (`resolveWebPath`), NOT in the filesystem walker; see §7. Live plan
-  for slices 3–4: `plans/d1-web-surface.md`.
+  for slice 4 (`access.log`): `plans/d1-web-surface.md`.
 
 To pick up the next slice: read the relevant `plans/*.md` TOP BLOCK (live status +
 as-built), then the cross-player architecture doc if the work touches cross-player paths.
@@ -374,6 +377,24 @@ unchanged file reported 23 then 28 timeouts on consecutive runs here, moving fou
 a security-load-bearing branch — read the survivor LIST, and be suspicious of a file whose
 timeout bucket is a large fraction of its mutants.
 
+**A file's score can DROP with no change to that file, and the lower number is the true one.**
+`curl.ts` went 98.73% → 82.17% between two runs in the same slice: its timeouts collapsed 29 → 2,
+so ~27 mutants that had been scoring as *killed by timeout* ran to completion and survived. The
+trigger was unrelated — adding tests elsewhere changed the per-test coverage mapping (2.86 →
+23.48 tests per mutant). **Never report a score movement as a regression before diffing the
+survivor LINE NUMBERS against what the slice actually touched.** Here every survivor sat in the
+`Command` metadata block or in two long-classified narrowing clauses, and none in the new code —
+so the honest sentence is "the timeouts were masking these", not "this slice weakened the tests".
+
+**A `Command`'s declarative block is an accepted survivor class — with ONE exception worth
+knowing.** `description`, `tier`, `availability`, `manual.*` and `arguments[]` have no production
+consumer (verified by grep), so their mutants survive and a test asserting them pins data rather
+than behaviour. But **`flags` IS consumed** — `runLine.ts` parses argv against it, so
+`flags: { '-i': 'boolean' }` → `{}` would send `curl -i http://x` off to fetch the URL `-i`.
+It survives only because command tests call `command.execute(env, args, flagMap)` directly and
+hand-build the flag map, bypassing the parser entirely. **Any claim about flag PARSING needs a
+`runLine`-level test**; the command's own test file structurally cannot make it.
+
 **"Unreachable in the product" is not the same as equivalent.** `deniedPortsFor`'s
 `vantage.kind === 'switch'` survived because a router's tree carries no `acl.conf` in
 practice, so always reading it changes nothing. But the discriminant is a real rule — a router
@@ -458,7 +479,25 @@ real endpoints against `vercel dev` + local supabase.
   Exits 0 on all-pass.
 - The script seeds the DB via the service-role client, drives the endpoints, asserts, and
   cleans up. Examples: `testDeepChainReach.ts`, `testDeepSwitchChain.ts`,
-  `testSameLanConnect.ts`, `testRouterBrick.ts`.
+  `testSameLanConnect.ts`, `testRouterBrick.ts`, `testHttpFetch.ts`.
+
+**SEED INSERTS MUST FAIL LOUDLY — a rejected seed is a check that tests nothing.** A bare
+`await sr.from('patches').insert([...])` swallows its error, so a row the schema refuses leaves
+the scenario un-built while the check still runs and "passes" against the *unmodified* world.
+This cost real time in `testHttpFetch.ts`: two bricking checks returned 200 because the tombstone
+rows were rejected and nothing was ever bricked. Wrap every seed so a failure exits:
+
+```ts
+const seed = async (table: string, rows: readonly Record<string, unknown>[], label: string) => {
+  const { error } = await sr.from(table).insert(rows);
+  if (error) { console.error(`FATAL: ${table} insert (${label}) failed:`, error.message); process.exit(1); }
+};
+```
+
+**The specific trap behind that one: a `/boot` tombstone keeps `node_type: 'file'`.** `content:
+null` is the deletion marker; `node_type` is NOT NULL, so an explicit `null` there is a rejected
+row rather than a brick. (`testBrickedDark.ts` says so in a comment — worth reading before
+hand-rolling tombstone rows.)
 
 Live browser E2E (agent-browser vs `vercel dev`) is covered by the project skill
 **`v2-e2e`** (`.claude/skills/v2-e2e/SKILL.md`) — load it before writing any agent-browser

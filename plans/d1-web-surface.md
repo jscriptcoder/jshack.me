@@ -1,8 +1,8 @@
 # Plan: D1 — the web surface (serve a page, a stranger reads it)
 
-**Branch**: `feat/web-cross-player-fetch` (slice 3, cut off `main` at `7c65c89`).
-**Status**: Active — **slices 1–2 of 4 SHIPPED** (v0.104.0 #344 → `c54caa7`; v0.105.0 #345 →
-`9b05f6f`). **Slice 3 is next, not started.**
+**Branch**: slice 4 needs a fresh branch off `main`.
+**Status**: Active — **slices 1–3 of 4 SHIPPED** (v0.104.0 #344 → `c54caa7`; v0.105.0 #345 →
+`9b05f6f`; v0.106.0 #346 → `c408fb2`). **Slice 4 is next, not started.**
 **Epic**: [`legacy-parity-epic.md`](./legacy-parity-epic.md) Phase 1, slice D1 (the first slice of
 the whole epic)
 
@@ -78,7 +78,7 @@ world-readable~~ — **that classification was WRONG and slice 2 killed the muta
 the same online → `wlan0` → essid preamble (three copies). Every remaining door needs it. Extract
 once ~4 real callers exist so the seam is shaped by them, as its own behaviour-preserving commit.
 
-## As-built after slice 2 (read this before slice 3)
+## As-built after slice 2
 
 **Shipped** (v0.105.0, #345 → `9b05f6f`): `commands/webServer.ts` exporting `nginx` + `apache2`
 (both registered); `/var/www/html/index.html` in `buildWorkstationBaseFs`; `WEB_PAGE_FILE` in
@@ -130,13 +130,13 @@ presence, proven through the registry.
       invalid port
 - [x] After starting it, the player's own `/var/www/html/index.html` is served over `curl`, and
       editing that file with `nano` changes what `curl` returns
-- [ ] Another player who has forwarded `:80` is readable cross-network: `curl http://<their
+- [x] Another player who has forwarded `:80` is readable cross-network: `curl http://<their
       public IP>` returns their page **with no session and no credential**
-- [ ] A target that is dark, bricked, or has no forward returns a connection failure, not a page,
+- [x] A target that is dark, bricked, or has no forward returns a connection failure, not a page,
       and leaks nothing
 - [x] Nothing outside `/var/www` is reachable over HTTP — a path traversal or a request for
-      `/etc/passwd` returns 404, not file content *(own-LAN; slice 3 must hold the same line
-      server-side)*
+      `/etc/passwd` returns 404, not file content *(own-LAN AND server-side, through the one
+      `resolveWebPath`)*
 - [ ] The owner of a fetched page reads the hit in `/var/log/access.log`, with the requester's
       server-derived source IP and the requested path
 - [ ] All gates green: `npm run typecheck`, `npm run lint`, full test suite; version bumped in
@@ -243,17 +243,50 @@ daemon-start shape; only if it genuinely reduces duplication.
 
 ---
 
-### ⏭ Slice 3 (NEXT — not started): A stranger reads a player's page across the network
+### ✅ Slice 3 (SHIPPED v0.106.0): A stranger reads a player's page across the network
 
-**Start here.** The first slice of D1 that touches `api/`, so it is the first needing a live
-wire-check. Three things from slices 1–2 are load-bearing here and must be REUSED, not
-re-derived:
+**Delivered**: `core/network/resolveHttpFetch.ts` (the handler) + its route in `api/network.ts`;
+`RemoteApi.fetchPublic` on the command env, wired adapter → `ui/env.ts` → `ui/state.ts`;
+`curl`'s `isPublicIp` branch; `scripts/testHttpFetch.ts` (**12/12 live**). 2160 tests green.
+Mutation: `networkApi.ts` 100%, `resolveHttpFetch.ts` 98.35%, `curl.ts` 82.17% (see deviation 5).
 
-| Reuse | Why re-deriving it is a bug |
-|---|---|
-| `resolveWebPath` (`core/network/http.ts`) | It IS the document-root confinement (§7 invariant). A second normalizer server-side is a second chance to get it wrong, on the path where the caller has no session at all |
-| Reading as the SERVER, not the requester | Slice 2 proved a published page can be root-readable only; reading as the requester would 404 the owner's own page. The requester has no account on that box |
-| `natHosts.ts` (`bootableOccupantFs` + `natPortResolver`) | So scan, ssh, and http can never disagree about which box sits behind a forward |
+All three reuses above held as planned. What differs, and what slice 4 must know:
+
+1. **`host_unreachable` vs `not_found` is the security split, and it is deliberate.** Every
+   connect-level cause collapses into `host_unreachable` (unknown IP, bricked gateway, bricked
+   occupant, forward to an unleased address, occupant off the WiFi, no forward, nothing serving
+   the web) so a prober cannot tell which gate stopped it. `not_found` is the reached server's
+   404 — it admits a web server is there, which answering the port admits anyway. **Do not
+   collapse these further, and do not add a third.**
+2. **The liveness check is SERVICE-specific, and hoisted to cover both arms.** Reaching a
+   listening daemon is not reaching a web server: a forward onto `sshd`, or the gateway's own
+   `:22`, refuses exactly like a closed port. `authCreateSessionPublic` checks "any service on
+   that port" inside its forward arm; this handler checks "the **http** service" once, after
+   resolving either arm.
+3. **The gateway arm is REAL and tested, not dead.** An AP gateway's base FS has no `/var/www`
+   at all, but a root session on it can publish one via the journal — so `machineServing` →
+   `router` serves the GATEWAY's own page, and a router-own port beats a forward on the same
+   port (the same rule ssh routes by). Mutation testing is what proved this arm was previously
+   indistinguishable from the forward arm.
+4. **The payload carries the RAW url path, and `path` is required.** The server resolves it
+   through `resolveWebPath`; a client never names a file on another player's box. Requiring the
+   field is load-bearing — defaulting it would let a caller omit the one field the confinement
+   is applied to.
+5. **`curl.ts`'s mutation score FELL to 82.17% without its logic changing** — its timeouts
+   collapsed 29 → 2, so ~27 previously-"killed by timeout" mutants ran to completion and
+   survived. Every survivor is in the `Command` metadata block or the two classified slice-1
+   narrowing clauses; **none in slice 3's code**. Now a §4 convention.
+6. **The tier-3 allowlist is deliberately NOT applied here.** The plan asked for it as
+   defence-in-depth, but with `resolveWebPath` confining the path server-side there is no input
+   that reaches the read outside `/var/www/html` — so the allowlist could never change an
+   answer, and its mutants could never die. One tested confinement beats two, one of which is
+   unfalsifiable machinery. Revisit only if the server ever returns a TREE rather than one file.
+
+**Found en route, for slice 4:** `LogApi.appendAccessLog(target, line)` already exists
+(`core/commands/types.ts`) and is stubbed in `ui/state.ts` with **no caller anywhere** — dead
+speculative surface predating this epic. Slice 4 either uses it or deletes it.
+
+**Original plan for reference:**
 
 **Actor / trigger / outcome**: player B → `curl http://<A's public IP>` → A's page, with **no
 session and no credential**.
@@ -288,7 +321,22 @@ allowlist application — both are security-load-bearing, so kill them and keep 
 
 ---
 
-### Slice 4: A defender sees who fetched their page
+### ⏭ Slice 4 (NEXT — not started): A defender sees who fetched their page
+
+**Start here.** The last D1 slice. What slice 3 hands it:
+
+| Hand-off | Detail |
+|---|---|
+| The append site | `handleResolveHttpFetch` in `core/network/resolveHttpFetch.ts`, **after** a successful resolve — the point where a target is known reachable. Every `host_unreachable` above it logs nothing, matching `authCreateSessionPublic` (no reachable machine ⇒ nothing to log on) |
+| Whose key | The **owner's** — the reached occupant's `owner_key`, already in scope in `resolveForwardTarget`. For the GATEWAY arm there is no owner: reuse `apGatewayLogWriterKey(leases)`, as the ssh gate does (and note the gateway arm currently reads no leases — deviation 2 of slice 3 — so it must start, or skip logging) |
+| Source IP | `resolveCrossPlayerSourceIp(findHomeNetworkByOwnerKey, publicKey)` — the handler currently destructures only `payload`; it needs `publicKey` too |
+| New deps | `now`, `readLog`, `upsertPatch`, `findHomeNetworkByOwnerKey` — copy the shapes from `AuthCreateSessionPublicDeps` and their `api/network.ts` adapters verbatim |
+| Dead surface to resolve | `LogApi.appendAccessLog` — use or delete (see slice 3 as-built) |
+| Wire-check | EXTEND `scripts/testHttpFetch.ts`; its `seed()` helper already fails loudly, keep it that way |
+
+**Decide before RED:** whether an OWN-LAN `curl` also logs. `nmap` logs own-LAN scans (Story
+6.4), so symmetry says yes — but own-LAN curl is a pure client path with no server round-trip,
+so it would need one. Cheapest honest answer may be "cross-player only, and say so".
 
 **Actor / trigger / outcome**: player A → `cat /var/log/access.log` → B's source IP and the path
 B requested.
@@ -344,8 +392,13 @@ keystone, so it must die.
   slice-2 path to walk: `apt install nginx` → `su` → `nginx` → `curl http://<own IP>` → `nano` the
   page → `curl` again and see the edit.
 - Extract the shared online → `wlan0` → essid preamble (see "Known duplication" above) as a
-  separate behaviour-preserving commit. Slice 3 adds a public-IP branch to `curl`, so decide the
-  seam AFTER it lands rather than before.
+  separate behaviour-preserving commit. **Slice 3 has landed, so this is now decidable**: `curl`
+  needs `isOnline` + `wlan0` for BOTH branches but the `essid` only for the own-LAN one, so the
+  seam is "online + addressed wlan0" and the essid read stays at the own-LAN call site.
+- Add a `runLine`-level test for `curl -i` so the `flags` declaration is covered. Slice 3's
+  mutation run showed `flags: { '-i': 'boolean' }` → `{}` surviving: it IS consumed (by the argv
+  parser) but command tests hand-build the flag map and bypass it. Pre-existing since slice 1,
+  surfaced only when timeouts stopped masking it. See §4 of the conventions doc.
 - Decide whether `curl http://localhost` / `127.0.0.1` should resolve (slice 2 left it out; a
   player will type it). One place knows: `targetFs` in `curl.ts`.
 - Update `conventions-and-gotchas.md` §1 with the D1 completion, then delete this plan file
