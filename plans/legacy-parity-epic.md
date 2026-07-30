@@ -227,6 +227,7 @@ POST-SHIP — MISSIONS
 | **D3** | **A player moves files without a shell** | `vsftpd` daemon + catalog row + placement; `ftp <host> [user] [pw]` + FTP mode command set (`get`/`put`/`ls`/`cd`/`lls`/`lcd`/`lpwd`/`quit`); `scp`; `vsftpd.log` trace. **No content generator** — the target's FS is the content | Virtual users (`virtual_users.conf`) | B `hydra`s ftp creds → `ftp <host>` → `get` a file → `put` one the owner then sees; the session authorizes at its tier through L1/L2 exactly as ssh does (decision 2) |
 | **D4** | **A defender controls what their box exposes** | `systemctl start/stop/status`; `ps`; `kill`; symmetric pidfile open/close semantics; `chmod` folds in | — | A `systemctl stop sshd` → pidfile gone → B's scan drops `:22` and ssh-via-forward `404`s; A `ps` lists what is running; A restarts it and reachability returns |
 | **D5** | **A player plants a backdoor and re-enters through it** | `nc <host> <port>` → restricted NC shell (no PATH); `nc -l <port>` listener with owner metadata in the pidfile; **backdoor chain forwarding** — append a `forward` on every gateway out to the public edge and report the reachable address | Exploit-planted backdoors (Phase 3) | B (inside a host) `nc -l 4444` → forward auto-appended → B leaves, `nc <public IP> <fwd>` → lands as the listener's owner; the defender greps `rules.v4` and finds the breadcrumb |
+| **D5b** | **NPC machines have a kind, and it shows** | A real role model, widening `LanHost.kind` (today `'machine' \| 'router' \| 'switch'`, `generateHomeLan.ts:31`) toward legacy's nine — webserver, database, mailserver, fileserver, iot, dns, switch, router, workstation; role-driven hostnames (today `DEVICE_TYPES` is consumer devices — `desktop-7`, `iphone-12` — and golden-locked at `homeNetwork.ts:30`); **role-weighted service placement** (a database box almost always runs mysql; a phone almost never runs nginx); role-keyed content pools, starting with the web pages D1 ships flat | Mission-specific roles (post-ship) | `nmap` a LAN and the boxes read as a *population*: `web-04` serves nginx and a corporate portal, `db-11` runs mysql, `cam-31` is an IoT box with a camera panel. A player can tell what a box probably is before touching it |
 | **D6** | **A player reads a machine's database** | `mysqld` catalog row + placement; **generated schema + data** (legacy `generateDatabase.ts`, `pools/database.ts`); `mysql <host> <user> [pw]` → `mysql>` prompt (parser/formatter/executor); hydra `mysql` service | Writes/`UPDATE` — decide at planning | B `hydra <host> mysql` → creds → `SHOW TABLES` / `SELECT` returns generated data worth reading |
 | **D7** | **A player reads a machine's key-value store** | `redis` catalog row + placement; generated data (`generateRedisData.ts`, `pools/redis.ts`); `rediscli <host> [pw]` → `redis>` prompt | — | B `rediscli <host>` → `KEYS *` / `GET` |
 | **D8** | **A player reconfigures a device without holding a shell on it** | `snmpwalk <host> [community]` (public = basic, RW = full); `snmpset <host> <community> <oid=value>`; `snmpd.conf` firewall + ACL OID parsers → live port overrides; hydra community strings | — | B `snmpwalk` with `public` → basic info; B cracks the RW community → `snmpset firewallSSH permit` → port 22 opens **without B ever logging in** |
@@ -251,6 +252,13 @@ POST-SHIP — MISSIONS
 
 **V2 needs its own `grill-me` and sub-split before planning** — it is the largest item in the
 epic by a wide margin and the only one that materially changes the security posture.
+
+**D5b must land before D6** (placement is recommended, not locked): role-weighted placement is
+what makes "find a database box" mean something, rather than a flat probability sprinkling mysql
+across a LAN of phones. It also **must land before ship** — it re-rolls the generated world, and
+the no-backward-compat licence sunsets at multiplayer announce. Every earlier door stays
+role-agnostic, so D5b is additive to all of them: it changes which content and services get
+picked, never the shape of what is stamped or how a door authorizes.
 
 ---
 

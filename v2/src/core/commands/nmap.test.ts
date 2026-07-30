@@ -16,6 +16,7 @@ import { assignHomeNetwork } from '../network/homeNetwork';
 import { withSelfHost } from '../network/mergeLanOccupants';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
+import { readOpenPorts } from '../services/pidfile';
 import { seedApGatewayHostname } from '../generation/routerFs';
 import { machineIdForLanHost } from '../generation/lanHostIdentity';
 import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer';
@@ -375,15 +376,24 @@ describe('nmap — self-host open ports (slice 1)', () => {
     expect(text).not.toContain('22/tcp');
   });
 
-  /** The ssh port the GENERATOR gives `host`, or null when it runs no ssh. Lets
-   *  the dispatch tests find a deterministic remote ssh / non-ssh host. */
-  const generatedSshdPort = (host: LanHost): number | null => {
+  /** The port the GENERATOR opens on `host` for the service behind `pidfileName`, or
+   *  null when it does not run that service. Lets the dispatch tests find a
+   *  deterministic remote host that does — or does not — run a given service. */
+  const generatedPort = (host: LanHost, pidfileName: string): number | null => {
     const fs: Directory = buildRemoteHostFs('BEAN-THERE-WIFI', host);
     const varDir = fs.entries.get('var');
     const runDir = varDir?.kind === 'directory' ? varDir.entries.get('run') : undefined;
-    const node = runDir?.kind === 'directory' ? runDir.entries.get('sshd.pid') : undefined;
+    const node = runDir?.kind === 'directory' ? runDir.entries.get(pidfileName) : undefined;
     return node?.kind === 'file' ? Number(node.content.split('=')[1]) : null;
   };
+
+  const generatedSshdPort = (host: LanHost): number | null => generatedPort(host, 'sshd.pid');
+
+  /** How many ports the GENERATOR opens on `host`. "Runs no service" has to be
+   *  asked of every service, not just ssh — a host with no sshd may still serve
+   *  the web, so this stays honest as the catalog grows. */
+  const generatedPortCount = (host: LanHost): number =>
+    readOpenPorts(buildRemoteHostFs('BEAN-THERE-WIFI', host)).length;
 
   const remoteHosts = (): readonly LanHost[] =>
     generateHomeLan('BEAN-THERE-WIFI').hosts.filter((host) => host.ip !== SELF_IP);
@@ -406,9 +416,27 @@ describe('nmap — self-host open ports (slice 1)', () => {
     expect(text).not.toContain('9999/tcp');
   });
 
+  it('labels a generated host’s web port http, so a scan says what is worth reading', async () => {
+    const webHost = remoteHosts().find(
+      (host) => host.kind === 'machine' && generatedPort(host, 'nginx.pid') !== null,
+    );
+    if (webHost === undefined) throw new Error('expected a generated web host on the LAN');
+    const port = generatedPort(webHost, 'nginx.pid');
+
+    // The workstation runs sshd on :9999; scanning the remote must report the
+    // REMOTE's web port, never the workstation's.
+    const env = envWithVarRun({ 'sshd.pid': 'sshd:port=9999' });
+
+    const { text } = await drain(await nmap.execute(env, [webHost.ip], new Map()));
+
+    expect(text).toContain(`${port}/tcp`);
+    expect(text).toContain('http');
+    expect(text).not.toContain('9999/tcp');
+  });
+
   it('shows no ports for a remote host the generator gives no service', async () => {
-    const bareHost = remoteHosts().find((host) => generatedSshdPort(host) === null);
-    if (bareHost === undefined) throw new Error('expected a generated non-ssh host on the LAN');
+    const bareHost = remoteHosts().find((host) => generatedPortCount(host) === 0);
+    if (bareHost === undefined) throw new Error('expected a generated serviceless host on the LAN');
 
     // The workstation itself IS running sshd — proving its services are not
     // attributed to a different host.

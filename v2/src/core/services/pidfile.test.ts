@@ -39,6 +39,7 @@ describe('service pidfile format', () => {
 
   it('maps a /var/run pidfile name back to its service spec, and unknown names to undefined', () => {
     expect(serviceByPidfileName('sshd.pid')).toBe(ssh);
-    expect(serviceByPidfileName('nginx.pid')).toBeUndefined();
+    expect(serviceByPidfileName('nginx.pid')).toBe(SERVICE_CATALOG.http);
+    expect(serviceByPidfileName('nonesuch.pid')).toBeUndefined();
   });
 });
