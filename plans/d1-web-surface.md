@@ -1,8 +1,8 @@
 # Plan: D1 — the web surface (serve a page, a stranger reads it)
 
-**Branch**: `feat/web-http-surface`
+**Branch**: `feat/web-own-server` (slice 2). Slice 1 shipped from `feat/web-http-surface`.
 **Status**: Active — **slice 1 of 4 SHIPPED** (v0.104.0, #344, squashed to `c54caa7`).
-**Slice 2 is next, not started.**
+**Slice 2 branch is cut; no code written yet — its acceptance criteria need confirming first.**
 **Epic**: [`legacy-parity-epic.md`](./legacy-parity-epic.md) Phase 1, slice D1 (the first slice of
 the whole epic)
 
@@ -83,8 +83,9 @@ once ~4 real callers exist so the seam is shaped by them, as its own behaviour-p
 - [x] A generated host on the player's LAN runs an HTTP service, visible as `:80` in `nmap`, and
       `curl http://<its LAN IP>` returns its generated page
 - [x] `ping <host>` reports reachability for a host that exists and failure for one that does not
-- [ ] A player can start `nginx` (or `apache2`) as root on their own machine; it refuses if
-      already running, refuses a non-root caller, and refuses a port below 1024 without root
+- [ ] A player can start `nginx` (or `apache2`) as root on their own machine; it refuses a
+      non-root caller, refuses if already running (reporting the running port), and refuses an
+      invalid port
 - [ ] After starting it, the player's own `/var/www/html/index.html` is served over `curl`, and
       editing that file with `nano` changes what `curl` returns
 - [ ] Another player who has forwarded `:80` is readable cross-network: `curl http://<their
@@ -163,6 +164,14 @@ be drawn rather than fixed. Note slice 1 did NOT teach `curl` to resolve the pla
 `env.fs.root()` rather than a generated tree, and pointing the generator at your own IP would
 FABRICATE a page. Wiring that self case is part of this slice.
 
+**Grounding re-verified at branch cut (2026-07-30):**
+
+| Fact | Where | Consequence |
+|---|---|---|
+| `apache2` and `nginx` already have `APT_PACKAGES` rows | `commands/aptPackages.ts:41-42` | No packaging work — availability gating already exists |
+| `buildWorkstationBaseFs` has a `/var` tree but **no `www` child** | `generation/workstationFs.ts:135` | The web root is a genuine addition here, not a re-permission |
+| `ping` already resolves the player's own address via `withSelfHost` | `commands/ping.ts` | The self case has a working precedent in this codebase — `curl` is the one that lacks it |
+
 **Actor / trigger / outcome**: player → `nginx` → their own `:80` opens and serves their page.
 **Value**: the defender half — exposure becomes a deliberate choice, and it creates the target
 slice 3 needs.
@@ -176,7 +185,11 @@ own FS.
 - `nginx [port]` and `apache2 [port]` commands, mirroring `sshd.ts` exactly (root gate,
   already-running gate reading the pidfile via `fs.stat`, port validation, streamed startup,
   `WRITE_ERROR` mapping)
-- **Ports below 1024 require root** (Unix rule; legacy's stated behaviour)
+- **Root or nothing** — the "ports below 1024 require root" rule this plan originally carried is
+  DROPPED (decided 2026-07-30). `sshd`'s root gate fires before the port is even parsed, so a
+  non-root caller can never reach a port check; mirroring `sshd` and keeping the rule would have
+  written an unreachable branch and an unkillable mutant. A high port is refused for the same
+  reason as a low one: you are not root
 - `/var/www/html/index.html` with a default page in the **workstation** base FS
   (`buildWorkstationBaseFs`), owned appropriately so the player can `nano` it
 - Both daemons share one pidfile/service identity so they cannot both bind `:80`
@@ -185,11 +198,11 @@ own FS.
 **Defers**: `systemctl stop` (that is D4), multi-port/multi-line pidfiles, HTTPS on 443.
 
 **RED**: a behavior test that a non-root caller is refused, that a root caller's `nginx` writes
-the pidfile and opens `:80`, that a second `nginx` refuses, and that `curl` then returns the
-player's own page.
-**GREEN**: the two commands + the base-FS web root.
-**MUTATE**: Stryker on the changed files. Expect survivors on the 1024 boundary and the
-already-running short-circuit — kill both.
+the pidfile and opens `:80`, that a second `nginx` refuses, that `apache2` cannot start over a
+running `nginx` (the shared identity), and that `curl` then returns the player's own page.
+**GREEN**: the two commands + the base-FS web root + `curl`'s self-address case.
+**MUTATE**: Stryker on the changed files. Expect survivors on the port bounds (`1`/`65535`), the
+already-running short-circuit, and the self-vs-LAN routing branch in `curl` — kill each.
 **REFACTOR**: if `sshd.ts` and the new daemons share more than their gates, extract the common
 daemon-start shape; only if it genuinely reduces duplication.
 **Done when**: ACs 3–4 pass, mutation report clean, human approves the commit.
