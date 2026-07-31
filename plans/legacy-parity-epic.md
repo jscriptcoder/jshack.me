@@ -4,8 +4,8 @@
 > Split authored 2026-07-29 (`story-splitting`), then grilled to nine locked decisions
 > (`grill-me`, same day).
 
-**Status**: **D1 shipped** (2026-07-31, v0.109.0 — see "Next action"). D2 is next and is being
-split before it is planned. Everything from D1b onward is still split-and-grilled only.
+**Status**: **D1 shipped** (v0.109.0); **D2 in progress — D2.1 shipped** (v0.111.0), D2.2 next
+(see "Next action"). Everything else is split-and-grilled only.
 
 **Ship gate**: **all doors + hydra + discovery + the CVE system, minus missions.** Missions are
 a **post-ship epic** — the infrastructure this epic builds is what makes them cheap.
@@ -199,8 +199,11 @@ procedural CVE timeline (`publishedAt`/`patchDelay`), `apt upgrade`/pinning, scr
 PHASE 1 — THE DOORS  (near-term focus)
   D1  web (apache2/nginx + generated pages + curl)     ✔ SHIPPED v0.109.0
   D1b lynx (browser screen)      \  fast-follows, any time
-  D1c gobuster (path brute-force) /  D1c needs D2.1's extraFiles seam
-  D2  hydra + the wordlist system (+ john)             ← SPLIT, D2.1 next
+  D1c gobuster (path brute-force) /  UNBLOCKED — D2.1 shipped the extraFiles seam
+  D2  hydra + the wordlist system (+ john)             ← IN PROGRESS
+      D2.1 hydra vs an own-LAN NPC host                ✔ SHIPPED v0.111.0
+      D2.2 not every account falls                     ← NEXT
+      D2.3–D2.6 (trace, cross-player, john, growth)
   D3  ftp / scp
   D4  daemon control (systemctl / ps / kill)
   D5  nc connect + nc -l backdoor
@@ -227,8 +230,8 @@ POST-SHIP — MISSIONS
 |---|---|---|---|---|
 | **D1** ✔ | **A player serves a web page and a stranger reads it** — SHIPPED | `apache2`/`nginx` daemons (pidfile → port, root for <1024); `SERVICE_CATALOG` http row + generation placement; generated page content (legacy `pools/web.ts`); `/var/www/html` in base FSs; `curl [-i]`; the request pipeline (parse → NAT/DNS resolve → static file); `access.log` trace; `ping` folds in. **A new server handler resolves (public IP, port, path)** — `resolveCrossPlayerFs` is keyed by a `machine_id` obtained from a login, and `curl` has no login | `lynx` (own slice, fast-follow — a full overlay browser screen, UI work of a different size); `gobuster` (→ D1c, which needs the `extraFiles` seam D2.1 builds); `-X POST`; request handlers; HTTPS specifics | B `curl http://<A pub IP>` → A's page, **with no session and no credential** (tier 3 already allows it); `nmap` shows `:80` on NPC hosts running http; A reads B's hit in `/var/log/access.log` |
 | **D1b** | **A player browses a page instead of reading its source** | `lynx <url>` as a full overlay browser SCREEN (legacy carried `LynxBrowser.tsx` + `lynx/render.ts` + `lynx/fetch.ts`): render HTML to text, follow links, keyboard navigation, quit back to the terminal. Reuses D1 whole — `parseHttpUrl`, `resolveWebPath`, the own-LAN/public split, and the same `access.log` trace, so a browsed page is logged exactly like a curled one | Forms/POST; images; CSS; multi-tab | A player `lynx http://<host>` → the page renders as text with its links numbered → following a link fetches the next page → the target's `access.log` shows one line per page viewed |
-| **D1c** | **A player finds the pages a server never linked** | `gobuster <url>` + its `dirlist.txt`, shipped by the `extraFiles` seam **D2.1 builds**; hits and misses both land in the target's `access.log`, so the defender's tell is the 404 wall D1 already records | Vhost/DNS modes; extensions | A player `gobuster http://<host>` → finds an unlinked path → `curl`s it; the target's `access.log` shows the sweep as a run of 404s with one 200 |
-| **D2** | **A player cracks a credential instead of being told it** — **SPLIT** into D2.1–D2.6, see [`d2-credential-layer.md`](./d2-credential-layer.md) | `hydra <host> [service] [user]`; `apt install hydra` ships `passwords.txt` via `extraFiles`; the two-pool split + per-account probability in `buildRemoteHostFs`; uncrackable pool into `secrets.ts`; wordlist-as-sole-gate; server-side md5 batch matching for cross-player; `john`; hydra trace on the target's `auth.log` | ftp/mysql/snmp as hydra *services* — each arrives with its door; **`gobuster`** (→ D1c, 2026-07-31) | B `hydra <NPC host> ssh` → cracks the user account → `ssh` succeeds; a low-probability NPC root cracks, most don't; a player's chosen root password never cracks; A appends a harvested password to `passwords.txt` via `nano` and a previously-failing crack now succeeds |
+| **D1c** | **A player finds the pages a server never linked** — **UNBLOCKED** | `gobuster <url>` + its `dirlist.txt`, shipped by the `extraFiles` seam **D2.1 shipped** (add a catalog row, no new mechanism); hits and misses both land in the target's `access.log`, so the defender's tell is the 404 wall D1 already records | Vhost/DNS modes; extensions | A player `gobuster http://<host>` → finds an unlinked path → `curl`s it; the target's `access.log` shows the sweep as a run of 404s with one 200 |
+| **D2** | **A player cracks a credential instead of being told it** — **SPLIT** into D2.1–D2.6, see [`d2-credential-layer.md`](./d2-credential-layer.md); **D2.1 ✔ SHIPPED v0.111.0**, D2.2 next | ~~`hydra <host> [service] [user]`~~ ✔; ~~`apt install hydra` ships `passwords.txt` via `extraFiles`~~ ✔; the two-pool split + per-account probability in `buildRemoteHostFs`; uncrackable pool into `secrets.ts`; wordlist-as-sole-gate; server-side md5 batch matching for cross-player; `john`; hydra trace on the target's `auth.log` | ftp/mysql/snmp as hydra *services* — each arrives with its door; **`gobuster`** (→ D1c, 2026-07-31) | B `hydra <NPC host> ssh` → cracks the user account → `ssh` succeeds; a low-probability NPC root cracks, most don't; a player's chosen root password never cracks; A appends a harvested password to `passwords.txt` via `nano` and a previously-failing crack now succeeds |
 | **D3** | **A player moves files without a shell** | `vsftpd` daemon + catalog row + placement; `ftp <host> [user] [pw]` + FTP mode command set (`get`/`put`/`ls`/`cd`/`lls`/`lcd`/`lpwd`/`quit`); `scp`; `vsftpd.log` trace. **No content generator** — the target's FS is the content | Virtual users (`virtual_users.conf`) | B `hydra`s ftp creds → `ftp <host>` → `get` a file → `put` one the owner then sees; the session authorizes at its tier through L1/L2 exactly as ssh does (decision 2) |
 | **D4** | **A defender controls what their box exposes** | `systemctl start/stop/status`; `ps`; `kill`; symmetric pidfile open/close semantics; `chmod` folds in | — | A `systemctl stop sshd` → pidfile gone → B's scan drops `:22` and ssh-via-forward `404`s; A `ps` lists what is running; A restarts it and reachability returns |
 | **D5** | **A player plants a backdoor and re-enters through it** | `nc <host> <port>` → restricted NC shell (no PATH); `nc -l <port>` listener with owner metadata in the pidfile; **backdoor chain forwarding** — append a `forward` on every gateway out to the public edge and report the reachable address | Exploit-planted backdoors (Phase 3) | B (inside a host) `nc -l 4444` → forward auto-appended → B leaves, `nc <public IP> <fwd>` → lands as the listener's owner; the defender greps `rules.v4` and finds the breadcrumb |
@@ -282,8 +285,14 @@ picked, never the shape of what is stamped or how a door authorizes.
    `sshd` today) and generated onto NPC hosts via `placement`. Correct unless stated otherwise.
 4. **Phase 2 contents** — the owner has a shape in mind (common networks discoverable because
    they run websites). Worth its own grilling when Phase 2 starts.
-5. **Probability knob values** for the crackable/uncrackable draw — tuning, set at **D2.2**
-   planning (the slice that introduces the two pools).
+5. ~~**Probability knob values** for the crackable/uncrackable draw~~ — **RESOLVED 2026-07-31 at
+   D2.2 planning.** Guest **100%**, NPC user **70%**, NPC root **12%**, gateway root **40%** —
+   about one crackable root per 8-host LAN, with the gateway the best root odds in the game
+   (decision 1 names it the pre-CVE root target). "Rare" is measured across a **population** of
+   generated hosts, since a generation-time probability is a property of the world, not of one
+   box. Planning also found a **third** pool the split missed: every gateway already draws from
+   `ROUTER_ADMIN_PASSWORDS`, two of whose eight words ship in the default wordlist, so ~25% of
+   gateways crack today by accident. See [`d2-2-two-password-pools.md`](./d2-2-two-password-pools.md).
 
 ## Parking lot
 
@@ -326,20 +335,33 @@ that box's `/var/log/access.log` — owner-keyed writer, server-derived source I
 and 404s alike, traversals recorded verbatim. Its plan file has been deleted; the as-built lives in
 `conventions-and-gotchas.md` §1 and the full journey in `e2e-shared-network-verification.md` §7.
 
-**Next up: D2 — a player cracks a credential instead of being told it.** It is the natural
-successor: D1 deliberately took the one door that needs NO authorization, so D2 is where the
-credential layer arrives (`hydra`, `john`, the `extraFiles` wordlist seam).
+**D2.1 is COMPLETE** (2026-07-31, v0.111.0). Two slices — #351 `4627621` (`apt` installs a
+package's data files) and #352 `b227a0b` (hydra + the server-side crack). Its plan file has been
+deleted; the as-built is `conventions-and-gotchas.md` §1. **A player can now earn a credential
+in-game** — `apt install hydra` → `hydra <LAN host> ssh` → `ssh` in with what came back. `ssh` had
+been decorative outside tests since it shipped, because nothing could produce a password for it.
 
-**D2 has been SPLIT** (2026-07-31) into six candidates — see
-[`d2-credential-layer.md`](./d2-credential-layer.md). Start at **D2.1: a player cracks an NPC
-host on their own LAN and logs in with what they cracked** — it is the only slice with a
-reachable input, because `john` has no hashes to steal until hydra opens the first door. Two
-findings from that split are load-bearing and are cheaper to read there than to rediscover:
-`ssh` authenticates server-side across four reachability seams (so hydra does too), and
-`/etc/passwd` is deliberately off the tier-3 allowlist (so no client-side shortcut exists).
+**Next up: D2.2 — not every account falls.** Today the pool is single and the default wordlist
+covers it, so *everything* cracks. That was deliberate — it isolates the crack machinery from the
+crack policy, so a failed crack during D2.1 could only mean the machinery was broken. D2.2 splits
+the pools, moves the uncrackable half behind the `secrets.ts` codec, and adds the per-account
+probability knobs. **It is the slice that turns a working mechanism into a game.**
 
-**D1b (`lynx`)** and **D1c (`gobuster`)** are fast-follows whenever wanted. D1b reuses D1 whole;
-D1c additionally needs the `extraFiles` seam that D2.1 builds, so it follows D2.1.
+**D2.2 is PLANNED** — [`d2-2-two-password-pools.md`](./d2-2-two-password-pools.md), two slices.
+The knob values are settled (open branch 5, above). Two things that plan carries forward:
+
+1. **A third pool the split missed.** Every gateway — AP, inner, deep — is already a hydra target
+   and draws its admin password from `ROUTER_ADMIN_PASSWORDS`, two of whose eight words ship in
+   the default wordlist. ~25% of gateways crack today, by pool overlap rather than by design.
+   That is why D2.2 is two slices, and it also makes `defaultWordlist.ts`'s docstring wrong.
+2. **`__encoded.ts` crosses to the server for the first time.** Verified 2026-07-31: the encoded
+   secrets have never been loaded server-side — the only non-test importer is `generateWifi.ts`,
+   reached solely from `src/ui/state.ts`. D2.2 makes every host-regenerating function depend on a
+   gitignored, build-generated file. The build chain looks correct; it has never been exercised,
+   and it fails only in production. Prove it with the wire-check, don't reason about it.
+
+**D1b (`lynx`)** and **D1c (`gobuster`)** are fast-follows whenever wanted — and D1c is now
+**unblocked**, since D2.1 shipped the `extraFiles` seam it was waiting on. Both reuse D1 whole.
 
 Per slice, before any code: load `tdd`, `testing`, `mutation-testing`, `refactoring`; run full
 RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR; present before starting the next. Any `api/` change
