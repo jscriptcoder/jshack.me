@@ -407,6 +407,59 @@ result, open a fresh one.
 
 ---
 
+### Act 7 — the web surface, end to end (D1)
+
+**Executed in full 2026-07-31 against v0.108.0. All checks passed.** This is the D1
+browser confirmation, kept here because it is the same two-player machinery as the acts
+above with a different door. It covers both halves of the access log, which is the part
+no wire-check can show as a *journey*.
+
+#### Own-LAN half (one identity)
+
+`airmon start wlan0` → `airdump` → `aircrack <BSSID>` → `airmon stop wlan0` → `nmcli
+connect` → `su root` → `apt install nginx` → `nginx` → `curl http://<own IP>` → `nano
+/var/www/html/index.html` → `curl` again → `cat /var/log/access.log`.
+
+| Check | Result |
+|---|---|
+| The edit is live | `curl` returns the edited page — same tree, not a regenerated one |
+| The self-fetch is logged, readable at once | two lines, no break-in needed |
+| The size TRACKS the edit | `200 212` then `200 80` — the server read the real tree each time, and 80 is exactly the edited page's length |
+| A generated host's page is real recon | versions, `/metrics`, a leaked `<!-- TODO: remove debug endpoints -->` |
+| The port is honoured | `curl http://<host>` on a host serving `:8080` is REFUSED; `:8080` returns the page. A refusal here is correct, not a bug |
+| A fetched NPC host keeps the record | `ssh root@<host>` (creds recovered offline, §7) → its `access.log` holds all four of your fetches |
+| The traversal is verbatim | `"GET /../../etc/passwd HTTP/1.1" 404 0` — as typed, not as resolved |
+| `curl -i` works | status line + `Server: nginx` + `Content-Length`, no `Date:` (deliberate) |
+
+#### Cross-player half (two identities, two networks)
+
+A on `ROBOVAC-AP`, B on `ABSTERGO-NET` — **different networks**, which is the point.
+A: `nginx` → `nano` a page → `ssh root@<subnet>.1` (gateway pw offline, §7) → `nano
+/etc/iptables/rules.v4` → append `forward 80 to <A's LAN IP>:80`. Get A's public IP from
+`network_public_ips`. Then B: `curl http://<A's public IP>`.
+
+| Check | Result |
+|---|---|
+| B reads A's page with **no session and no credential** | ✅ A's page, from another network |
+| B's probes are refused, not leaked | `/admin/config.php` and `/../../etc/passwd` both bare 404 |
+| An unforwarded public IP and an unknown one are INDISTINGUISHABLE | both `Connection refused` — the collapsed `host_unreachable` doing its job |
+| A's log names B by **public** IP | `203.4.16.180`, ABSTERGO-NET's WAN address — B never sent it, the server derived it |
+| One row, one writer key | the row is keyed to **A's owner key**, not B's; B's identity lives only in the source-IP field, where B cannot rewrite it |
+| Own-LAN and cross-player lines interleave in ONE file | A's own `192.168.210.120` lines sit beside B's `203.4.16.180` lines — the same file wherever you read it |
+
+**Two traps this run found, both now in the skill's §7:** a shell command typed one beat
+before `nano` closed was saved INTO the NAT rule (dead forward, file still looked right),
+and `press Control+o/x` stopped registering mid-session.
+
+**One behaviour worth not misreading as a bug.** A's terminal showed only her OWN line
+until she ran something else. B's fetches were already persisted correctly — nothing
+pushes to A's client, because the `patches-changed` channel is workstation-scoped and
+BroadcastChannel is same-browser only. A defender gets no live tail. That is the accepted
+staleness in `conventions-and-gotchas.md` §"deferred backlog", where the decision against
+Supabase Realtime and the cheaper pull-shaped alternative are both recorded.
+
+---
+
 ## 6. What a failure means
 
 | Symptom | Look at |

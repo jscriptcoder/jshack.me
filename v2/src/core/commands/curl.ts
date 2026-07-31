@@ -32,6 +32,7 @@ import { readOpenPorts } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { parseHttpUrl, resolveWebPath, type ParsedUrl } from '../network/http';
 import { isPublicIp } from '../generation/ip';
+import { connectedWlan0, LOOPBACK_IPV4 } from '../network/interfaces';
 
 const error = (message: string): CommandResult => ({
   kind: 'sync',
@@ -48,6 +49,12 @@ const USAGE = 'curl: usage: curl <url> (e.g. http://192.168.1.5)';
 const UNREACHABLE = 'curl: (7) Failed to connect — network is unreachable';
 
 const NOT_FOUND = 'curl: (22) The requested URL returned error: 404';
+
+/** The names a box answers to for ITSELF. A player testing their own web server types
+ *  `localhost` long before they type the address they were leased, and every real box
+ *  answers to both — so a failure here would read as a broken server rather than a
+ *  missing alias. The address comes from `interfaces`, which already owns it. */
+const LOOPBACK_NAMES: readonly string[] = ['localhost', LOOPBACK_IPV4];
 
 /** How a failed connect reads, whichever side of the network the target is on — one
  *  sentence shape, so "refused" means the same thing on the LAN and across the world. */
@@ -151,16 +158,8 @@ const execute: Command['execute'] = async (env, args, flags) => {
     return error(`curl: (3) URL rejected: ${raw}`);
   }
 
-  if (!env.network.isOnline()) {
-    return error(UNREACHABLE);
-  }
-  const wlan0 = env.network.interfaces().find((iface) => iface.name === 'wlan0');
-  if (
-    wlan0 === undefined ||
-    wlan0.kind !== 'wireless' ||
-    wlan0.association === null ||
-    wlan0.ipv4 === null
-  ) {
+  const wlan0 = connectedWlan0(env.network);
+  if (wlan0 === null) {
     return error(UNREACHABLE);
   }
 
@@ -172,7 +171,13 @@ const execute: Command['execute'] = async (env, args, flags) => {
   }
 
   const essid = wlan0.association.essid;
-  const hostFs = targetFs({ env, essid, ownIp: wlan0.ipv4, target: url.host });
+  // The names a box answers to for ITSELF all resolve to the ONE address it was
+  // leased, before anything else looks at the target. That keeps the tree, the port
+  // check, and the trace the server writes talking about one machine under one name —
+  // `localhost` cannot end up disagreeing with the LAN address about the same box.
+  const isLoopback = LOOPBACK_NAMES.includes(url.host);
+  const targetAddress = isLoopback ? wlan0.ipv4 : url.host;
+  const hostFs = targetFs({ env, essid, ownIp: wlan0.ipv4, target: targetAddress });
   if (hostFs === null) {
     return error(`curl: (6) Could not resolve host: ${url.host}`);
   }
@@ -195,10 +200,14 @@ const execute: Command['execute'] = async (env, args, flags) => {
     void env.log
       .appendAccessLog({
         essid,
-        target: url.host,
+        // The RESOLVED address, never the typed name: the server finds the machine by
+        // the address it leased, and `localhost` names no machine to anyone but us.
+        target: targetAddress,
         port: url.port,
         path: url.path,
-        sourceIp: wlan0.ipv4,
+        // A request that arrived over loopback says so, as a real server's log does —
+        // the box is both ends of it.
+        sourceIp: isLoopback ? LOOPBACK_IPV4 : wlan0.ipv4,
       })
       .catch(() => undefined);
   } catch {

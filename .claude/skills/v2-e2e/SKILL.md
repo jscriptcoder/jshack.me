@@ -206,6 +206,33 @@ against the live `ifconfig`. Delete the temp file when done.
 - **nano** is a `<textarea>` that auto-focuses when the editor opens. Type directly; read
   `.value` to verify the buffer, because the rendered body is canvas-like and `innerText` shows
   only the chrome. Save with `Control+o`, exit with `Control+x`.
+- **NEVER issue the next `keyboard type` until the editor is GONE.** `^X` is not instant, and
+  while the textarea still holds focus your next shell command is typed *into the buffer* and
+  saved with it. This is silent and it corrupts data: a `cat /etc/iptables/rules.v4` typed one
+  beat early landed inside a NAT rule as
+  `forward 80 to 192.168.210.120:80cat /etc/iptables/rules.v4`, which fails the `$`-anchored
+  parser, so the forward was dead while the file still *looked* almost right. Poll, never sleep:
+  ```bash
+  until agent-browser eval "(() => document.querySelector('textarea') === null)()" | grep -q true; do sleep 2; done
+  ```
+  Read the file back through the game afterwards — a trailing line with no newline runs into the
+  next prompt on screen, so the corruption reads as a rendering artifact if you only glance.
+- **`press Control+o` / `Control+x` can stop registering** after a run of other key presses
+  (`Control+End` then many `Backspace`s did it). The editor just sits there with no status line,
+  which looks like a hung save. Dispatch the chord natively instead — same workaround as the lost
+  Enter in §5:
+  ```js
+  (() => { const ta = document.querySelector('textarea'); ta.focus();
+    ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'o', ctrlKey: true, bubbles: true, cancelable: true })); })()
+  ```
+  `^O` writes **without** exiting (correct nano behaviour), and its "wrote N lines" status is
+  transient — so absence of a status line is not evidence the save failed. Confirm against the
+  journal instead: `docker exec supabase_db_jshack-me-v2 psql -U postgres -tAc "select content from patches where path = '…'"`.
+- **The terminal `<input>` can silently lose focus** when a second headed session is open, and
+  then `keyboard type` goes nowhere: no error, no characters, and the `until` loop you wrapped it
+  in spins until it times out. Focus explicitly before typing in a two-player run —
+  `eval "(() => document.querySelector('input').focus())()"` — and verify with
+  `eval "(() => document.querySelector('input').value)()"` before pressing Enter.
 - Read all terminal output through `document.body.innerText` — it is plain text.
 
 ---
