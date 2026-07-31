@@ -285,13 +285,14 @@ picked, never the shape of what is stamped or how a door authorizes.
    `sshd` today) and generated onto NPC hosts via `placement`. Correct unless stated otherwise.
 4. **Phase 2 contents** — the owner has a shape in mind (common networks discoverable because
    they run websites). Worth its own grilling when Phase 2 starts.
-5. **Probability knob values** for the crackable/uncrackable draw — **the one open decision
-   blocking the next slice.** Set at **D2.2** planning (the slice that introduces the two pools).
-   Decision 6 fixes the *shape* — guest always crackable, NPC user high, NPC root low — but not
-   the numbers, and the acceptance criteria are claims about the numbers ("day-one rooting
-   happens but is rare"), so they cannot be written until the numbers exist. Note that a
-   probability rolled at generation is a property of the **world**: "rare" is only observable
-   across a population of hosts, so decide at planning whether the test scans one LAN or many.
+5. ~~**Probability knob values** for the crackable/uncrackable draw~~ — **RESOLVED 2026-07-31 at
+   D2.2 planning.** Guest **100%**, NPC user **70%**, NPC root **12%**, gateway root **40%** —
+   about one crackable root per 8-host LAN, with the gateway the best root odds in the game
+   (decision 1 names it the pre-CVE root target). "Rare" is measured across a **population** of
+   generated hosts, since a generation-time probability is a property of the world, not of one
+   box. Planning also found a **third** pool the split missed: every gateway already draws from
+   `ROUTER_ADMIN_PASSWORDS`, two of whose eight words ship in the default wordlist, so ~25% of
+   gateways crack today by accident. See [`d2-2-two-password-pools.md`](./d2-2-two-password-pools.md).
 
 ## Parking lot
 
@@ -346,17 +347,18 @@ crack policy, so a failed crack during D2.1 could only mean the machinery was br
 the pools, moves the uncrackable half behind the `secrets.ts` codec, and adds the per-account
 probability knobs. **It is the slice that turns a working mechanism into a game.**
 
-**Two things to settle before D2.2's RED**, both recorded in
-[`d2-credential-layer.md`](./d2-credential-layer.md)'s "Next step":
+**D2.2 is PLANNED** — [`d2-2-two-password-pools.md`](./d2-2-two-password-pools.md), two slices.
+The knob values are settled (open branch 5, above). Two things that plan carries forward:
 
-1. **The knob values** — open branch 5, a product call, and the acceptance criteria are claims
-   about them. Also decide what "rare" is measured over: a generation-time probability is a
-   property of the world, not of a host.
-2. **Whether `__encoded.ts` survives the Vercel function bundle.** Verified 2026-07-31: the
-   encoded secrets have never been loaded server-side — the only non-test importer is
-   `generateWifi.ts`, reached solely from `src/ui/state.ts`. D2.2 makes every host-regenerating
-   function depend on a gitignored, build-generated file. The build chain looks correct; it has
-   never been exercised, and it fails only in production. Prove it, don't reason about it.
+1. **A third pool the split missed.** Every gateway — AP, inner, deep — is already a hydra target
+   and draws its admin password from `ROUTER_ADMIN_PASSWORDS`, two of whose eight words ship in
+   the default wordlist. ~25% of gateways crack today, by pool overlap rather than by design.
+   That is why D2.2 is two slices, and it also makes `defaultWordlist.ts`'s docstring wrong.
+2. **`__encoded.ts` crosses to the server for the first time.** Verified 2026-07-31: the encoded
+   secrets have never been loaded server-side — the only non-test importer is `generateWifi.ts`,
+   reached solely from `src/ui/state.ts`. D2.2 makes every host-regenerating function depend on a
+   gitignored, build-generated file. The build chain looks correct; it has never been exercised,
+   and it fails only in production. Prove it with the wire-check, don't reason about it.
 
 **D1b (`lynx`)** and **D1c (`gobuster`)** are fast-follows whenever wanted — and D1c is now
 **unblocked**, since D2.1 shipped the `extraFiles` seam it was waiting on. Both reuse D1 whole.

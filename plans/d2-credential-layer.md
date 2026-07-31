@@ -176,17 +176,19 @@ until D2.5 is green** — planning it as a slice up front invents work that find
 
 ## Next step
 
-Load `planning` for **D2.2 — not every account falls** — alone.
+**D2.2 is PLANNED** — see [`d2-2-two-password-pools.md`](./d2-2-two-password-pools.md). Two
+slices: NPC accounts get the pools and the curve, then the gateway pool joins the same policy.
 
-**It carries one unresolved decision.** The probability knob *values* (epic open branch 5) are
-deliberately not set anywhere: D2.2's planning is where they get chosen, and they are a product
-call, not a derivation. Settle them before RED, because the acceptance criteria are statements
-about them ("a day-one root crack is rare", "guest always falls").
+The knob values (epic open branch 5) are **settled**: guest 100%, NPC user 70%, NPC root 12%,
+gateway root 40%. "Rare" is measured across a **population** of generated hosts — a
+generation-time probability is a property of the world, not of one box — and the plan prefers an
+exact count over a fixed seed set to a tolerance band, because a band wide enough to be stable is
+usually too wide to kill a knob mutant.
 
-The second question D2.2 must answer is what "rare" is measured over. A per-account probability
-rolled at generation is a property of the **world**, so a claim like *"most NPC roots hold"* is
-only testable across a population of generated hosts, not against one. Decide at planning
-whether the acceptance test scans a LAN, or many.
+Planning also turned up a third pool the split did not know about: **every gateway is already a
+hydra target**, drawing from `ROUTER_ADMIN_PASSWORDS`, two of whose eight words are in the shipped
+wordlist — so ~25% of gateways crack today by accident. That is why D2.2 is two slices rather than
+one. Details in the plan's findings.
 
 Per the epic, before any code in a slice: load `tdd`, `testing`, `mutation-testing`,
 `refactoring`; run full RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR; present before the next slice
