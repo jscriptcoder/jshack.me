@@ -9,19 +9,17 @@
  * `nano`, and grows it by appending passwords they harvest. This module only
  * decides what they START with.
  *
- * The starting list is currently FLAT — it covers every password a generated
- * account can draw, so every generated account falls. That is deliberate and
- * temporary: it isolates the cracking machinery from the probability policy that
- * follows, so a crack that fails can only mean the machinery is broken. What it
- * does NOT cover is the AP gateway's seeded admin password, which is generated
- * per ESSID rather than drawn from a pool — taking the gateway stays a crack
- * rather than a birthright.
+ * What it covers is exactly the CRACKABLE pool, and never the uncrackable one
+ * (`generation/passwordPools.ts`). Those two relations are the difficulty curve:
+ * an account that drew crackable must fall, and one that drew uncrackable must
+ * hold until its password is harvested and appended by hand. A single word
+ * leaking across softens the curve with nothing to see — no error, no wrong
+ * output, just a game that is easier than its knobs claim.
  */
 
 import { asAbsPath, type AbsPath } from '../types';
 import type { FilePermissions } from '../filesystem/types';
-import { GUEST_PASSWORDS } from '../generation/workstationFs';
-import { WEAK_PASSWORDS } from '../generation/remoteHostFs';
+import { CRACKABLE_PASSWORDS } from '../generation/passwordPools';
 
 /** Where the wordlist lives, and where every tool that consults one looks for it.
  *  Matches the real Debian/Kali location so a player's instinct is right. */
@@ -62,11 +60,12 @@ const COMMON_PASSWORDS: readonly string[] = [
   'batman',
 ];
 
-/** Every password the default install can crack: the generated pools first (what
- *  actually opens a door today), then the common-list padding. Deduped — the
- *  guest and NPC pools overlap, and a repeated word is wasted work on every run. */
+/** Every password the default install can crack: the crackable pool (what
+ *  actually opens a door), then the common-list padding. Deduped — a repeated
+ *  word is wasted work on every run. The uncrackable pool is absent by
+ *  construction: it is not imported here, so it cannot leak in by accident. */
 export const DEFAULT_WORDLIST: readonly string[] = [
-  ...new Set([...GUEST_PASSWORDS, ...WEAK_PASSWORDS, ...COMMON_PASSWORDS]),
+  ...new Set([...CRACKABLE_PASSWORDS, ...COMMON_PASSWORDS]),
 ];
 
 /** Render a wordlist as file content: one password per line, no trailing blank —

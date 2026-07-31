@@ -1,16 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import { buildRemoteHostFs } from './remoteHostFs';
 import { md5 } from './md5';
+import { DEFAULT_WORDLIST } from '../wordlist/defaultWordlist';
 import type { LanHost } from './generateHomeLan';
 import type { Directory, FileNode } from '../filesystem/types';
 
 /**
  * `buildRemoteHostFs` is the pure per-host filesystem generator for the LAN's
- * NPC machines (ssh epic, Slice 2). Deterministic from the identity pubkey +
- * ESSID + the host, it plants `/var/run/<pidfile>` for the services a host
- * rolls — today only ssh, on a seeded ~40% of hosts, mostly on :22 with an
- * occasional non-standard port. Slice 2 emits ONLY `/var/run`; the rest of the
- * skeleton (passwd/home/…) lands in Slice 3.
+ * NPC machines. Deterministic from the ESSID + the host, it emits a full
+ * operable box: `/var/run/<pidfile>` per running service, `/etc/passwd` with
+ * real credentials, a web root on a host that serves one, and the log files
+ * traces append to.
+ *
+ * Its accounts are what `hydra` attacks and `ssh` validates, so the passwords it
+ * stamps decide the difficulty curve — see the population tests at the bottom.
  */
 
 const ESSID = 'BEAN-THERE-WIFI';
@@ -447,6 +450,105 @@ describe('buildRemoteHostFs', () => {
         write: ['root', 'user'],
         execute: ['root', 'user'],
       });
+    });
+  });
+
+  describe('the difficulty curve (not every account falls to the starting wordlist)', () => {
+    /**
+     * Whether an account is crackable is decided at GENERATION, by a per-account
+     * roll between a pool the starter wordlist covers and one it does not. That
+     * makes it a property of the WORLD rather than of any one box — so "rare" is
+     * only observable across a population, and a single host proves nothing.
+     *
+     * Eight networks x 253 octets. The whole sample regenerates in well under a
+     * second, and it is deterministic: these counts are fixed, not sampled.
+     */
+    const POPULATION_ESSIDS: readonly string[] = [
+      'BEAN-THERE-WIFI',
+      'SHINRA-5G',
+      'ACME-CORP',
+      'WEYLAND-NET',
+      'CRACK-ME-WIFI',
+      'HYDRA-CRACK-WIFI',
+      'FETCH-LOG-WIFI',
+      'TYRELL-NET',
+    ];
+
+    /** Every password the shipped wordlist holds, by hash — exactly the test
+     *  `hydra` applies to an account. An account "falls" when its hash is here. */
+    const wordlistHashes = new Set(DEFAULT_WORDLIST.map(md5));
+
+    /** How many accounts of each role, across the whole population, hold a password
+     *  the player's STARTING wordlist would recover.
+     *
+     *  Computed ONCE for the whole suite. Regenerating the population per test is
+     *  fast in a normal run but slow enough under mutation instrumentation to race
+     *  Stryker's timeout — which silently turns a surviving mutant into a "killed
+     *  by timeout" and makes the score depend on machine speed rather than on the
+     *  tests. Deterministic and read-only, so sharing it couples nothing. */
+    const curve = ((): {
+      readonly root: number;
+      readonly user: number;
+      readonly guest: number;
+      readonly hostsPerRole: number;
+    } => {
+      const counts = { root: 0, user: 0, guest: 0 };
+      let hostsPerRole = 0;
+      for (const essid of POPULATION_ESSIDS) {
+        for (const octet of OCTETS) {
+          hostsPerRole++;
+          for (const fields of passwdRows(buildRemoteHostFs(essid, host(octet)))) {
+            if (!wordlistHashes.has(fields[1] ?? '')) continue;
+            const name = fields[0];
+            if (name === 'root') counts.root++;
+            else if (name === 'guest') counts.guest++;
+            else counts.user++;
+          }
+        }
+      }
+      return { ...counts, hostsPerRole };
+    })();
+
+    it('leaves most NPC root accounts holding — day-one rooting happens, but is a find', () => {
+      // This deterministic 2024-host sample yields 240 crackable roots (11.9%,
+      // against a 12% knob) — about one per 8-host LAN. The band brackets that
+      // while excluding the mutants that matter: every root crackable (2024 — the
+      // state before this behaviour existed), none (0), a flipped roll comparison
+      // (~1781), and the root/user knobs wired to each other's accounts (1422).
+      const { root, hostsPerRole } = curve;
+
+      expect(root).toBeGreaterThan(Math.round(hostsPerRole * 0.09));
+      expect(root).toBeLessThan(Math.round(hostsPerRole * 0.15));
+    });
+
+    it('lets most NPC user accounts fall — a swept LAN yields footholds', () => {
+      // The same sample yields 1422 crackable user accounts (70.3%, against a 70%
+      // knob). The band excludes all-crackable (2024), none (0), a flipped roll
+      // comparison (~602), and the swapped knobs (240).
+      const { user, hostsPerRole } = curve;
+
+      expect(user).toBeGreaterThan(Math.round(hostsPerRole * 0.63));
+      expect(user).toBeLessThan(Math.round(hostsPerRole * 0.77));
+    });
+
+    it('leaves EVERY guest account crackable — no tolerance, it is the always-open door', () => {
+      // Not a probability. A defender's chosen root password is safe until the CVE
+      // phase, so guest is the only way into a player's box and the whole
+      // cross-player loop rests on it. This is a conserved property, not new
+      // behaviour: it holds today and must survive the pools being split.
+      const { guest, hostsPerRole } = curve;
+
+      expect(guest).toBe(hostsPerRole);
+    });
+
+    it('orders the curve guest > user > root, so the roles are not interchangeable', () => {
+      // The single assertion that catches the knobs being wired to the wrong
+      // accounts. Each individual band would still pass if root and user swapped
+      // knobs AND the bands were read independently — this one would not.
+      const { root, user, guest } = curve;
+
+      expect(guest).toBeGreaterThan(user);
+      expect(user).toBeGreaterThan(root);
     });
   });
 

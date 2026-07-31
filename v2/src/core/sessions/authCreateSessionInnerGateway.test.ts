@@ -17,7 +17,7 @@ import { seedDeepGatewayAdminPw, seedInnerGatewayAdminPw } from '../generation/r
 import { hostMachineId } from '../generation/remoteHostId';
 import { accountIn } from './passwdAccount';
 import { md5 } from '../generation/md5';
-import { WEAK_PASSWORDS } from '../generation/remoteHostFs';
+import { ALL_GENERATED_PASSWORDS } from '../generation/passwordPools';
 import type { OwnerPatchRow } from '../network/materializeMachineFs';
 import type { AuthSessionRow } from './authCreateSession';
 import type { NonceStore } from '../signedRequest/nonceStore';
@@ -111,7 +111,7 @@ const DEEP_ID = hostMachineId(DEEP.host, ESSID);
 const recover = (fs: Directory, username: string): { password: string; userType: string } => {
   const account = accountIn(fs, username);
   if (account === null) throw new Error(`no ${username} account`);
-  const password = WEAK_PASSWORDS.find((candidate) => md5(candidate) === account.hash);
+  const password = ALL_GENERATED_PASSWORDS.find((candidate) => md5(candidate) === account.hash);
   if (password === undefined) throw new Error(`cannot recover ${username} password`);
   return { password, userType: account.userType };
 };
@@ -127,7 +127,7 @@ if (CHILD === null) throw new Error('the inner router deep layer hangs no child 
 const CHILD_OCTET = octetOf(CHILD);
 const CHILD_ID = computeDeepGatewayId(GATEWAY_ID, CHILD_OCTET);
 // The child gateway's admin password is the SEED plaintext directly (a `ROUTER_ADMIN_
-// PASSWORDS` pool member, disjoint from the workstation `WEAK_PASSWORDS` `recover`
+// PASSWORDS` pool member, disjoint from the account pools `recover`
 // searches) — its base FS hashes it, exactly as the gateway-port-22 test uses
 // `GATEWAY_ROOT_PW` for the inner gateway's own root login.
 const CHILD_ROOT_PW = seedDeepGatewayAdminPw(GATEWAY_ID, CHILD_OCTET);

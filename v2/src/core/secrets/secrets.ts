@@ -8,10 +8,77 @@
  * Each value is a single string so the codec can encode it as one blob; arrays
  * are JSON-stringified and the consumer `JSON.parse`s after decoding.
  *
- * Scope (WiFi connectivity arc): `WIFI_PASSWORDS` only — the crackable-AP pool
- * `generateWifi` draws from. Other legacy pools port in when their feature lands.
+ * Scope: `WIFI_PASSWORDS` (the crackable-AP pool `generateWifi` draws from) and
+ * `UNCRACKABLE_PASSWORDS` (the account passwords the shipped wordlist does NOT
+ * cover). Other legacy pools port in when their feature lands.
  */
 export const secrets = {
+  /**
+   * Account passwords that are NOT in the wordlist `apt install hydra` ships, so
+   * an account that draws one holds against a default install. They live here
+   * rather than in a plain module for one reason: printed in the bundle they
+   * would be a lookup table for the whole game, and a player who grepped for
+   * them would skip the progression entirely.
+   *
+   * Long on purpose. Wordlist growth is the progression — harvest a plaintext,
+   * append it, widen your coverage across every machine that drew the same word
+   * — and that is only a progression while the pool is big enough for each find
+   * to be a real but partial gain.
+   *
+   * Deliberately idiosyncratic rather than merely long: these read like
+   * passwords somebody chose, which is exactly why a generic wordlist misses
+   * them. The crackable pool is the opposite by design — obvious and guessable.
+   */
+  UNCRACKABLE_PASSWORDS: JSON.stringify([
+    'brightw4ter',
+    'copperfield7',
+    'zulu-tango-9',
+    'marmalade22',
+    'nightjar!7',
+    'oxide_flux',
+    'penumbra31',
+    'quartzite8',
+    'ravenglass5',
+    'saltmarsh4',
+    'tessellate9',
+    'umbra_9x',
+    'vantablack1',
+    'wolfram74',
+    'xenolith3',
+    'yardarm55',
+    'zephyrus12',
+    'alabaster6',
+    'basalt_rim',
+    'cinderfall2',
+    'driftwood81',
+    'elderflower',
+    'fathomless2',
+    'gallowglass',
+    'hinterland7',
+    'ironmonger4',
+    'juniper_ash',
+    'kestrelwing',
+    'lodestone19',
+    'millrace33',
+    'nimbostrat8',
+    'obsidian_k',
+    'palisade46',
+    'quillfeather',
+    'rimefrost8',
+    'stormglass5',
+    'thornfield2',
+    'undertow_11',
+    'verdigris7',
+    'wanderlust9',
+    'xylophage6',
+    'yellowhammr',
+    'zircon_88',
+    'ambergris4',
+    'bellwether6',
+    'chandlery3',
+    'dovetail_7',
+    'errantry15',
+  ]),
   WIFI_PASSWORDS: JSON.stringify([
     'sunshine2024',
     'football99',
