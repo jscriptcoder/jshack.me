@@ -36,6 +36,7 @@ import { pwd } from './pwd';
 import { reboot } from './reboot';
 import { reset } from './reset';
 import { rm } from './rm';
+import { hydra } from './hydra';
 import { ssh } from './ssh';
 import { sshd } from './sshd';
 import { su } from './su';
@@ -72,6 +73,7 @@ const builtins: readonly Command[] = [
   reboot,
   reset,
   rm,
+  hydra,
   ssh,
   sshd,
   su,

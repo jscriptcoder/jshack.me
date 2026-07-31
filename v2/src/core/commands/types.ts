@@ -408,6 +408,38 @@ export type SuApi = {
   readonly elevate: (params: SuElevateParams) => Promise<RemoteAuthResult>;
 };
 
+/** What `hydra` hands the crack action. `callerMachineId` names the box whose
+ *  wordlist is consulted — the server verifies it belongs to the caller rather
+ *  than trusting it, so it is a lookup key, not a privilege claim. `username`
+ *  absent means sweep every account the target has. */
+export type HydraCrackParams = {
+  readonly essid: string;
+  readonly target: string;
+  readonly service: string;
+  readonly username: string | undefined;
+  readonly callerMachineId: string;
+};
+
+export type HydraCrackResult =
+  | {
+      readonly ok: true;
+      /** The port the service was actually found listening on. */
+      readonly port: number;
+      readonly cracked: readonly { readonly username: string; readonly password: string }[];
+      /** False when the caller has no wordlist file — distinct from a wordlist
+       *  that simply matched nothing, which is a hardened target rather than a
+       *  broken setup. */
+      readonly wordlistFound: boolean;
+    }
+  | { readonly ok: false; readonly error: string };
+
+/** The credential-cracking seam, backed by the signed `hydraCrack` endpoint. What
+ *  is crackable is decided server-side against the same `/etc/passwd` `ssh` reads,
+ *  so the two tools can never disagree about a credential. */
+export type HydraApi = {
+  readonly crack: (params: HydraCrackParams) => Promise<HydraCrackResult>;
+};
+
 /** What `nmap` hands to the scan action so the server can record the scan on each
  *  host it touched. The server regenerates the LAN + hosts from the verified
  *  pubkey + essid and writes `/var/log/kern.log` itself — the client never names a
@@ -507,6 +539,7 @@ export type CommandEnv = {
   readonly ssh: SshApi;
   readonly su: SuApi;
   readonly scan: ScanApi;
+  readonly hydra: HydraApi;
 
   /** Mutate the shell's cwd. UI layer owns the underlying signal; commands
    *  call this when they need to move (`cd`). FsView's `cwd()` reflects

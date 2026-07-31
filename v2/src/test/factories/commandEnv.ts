@@ -24,6 +24,7 @@ import type {
   Session,
   SshApi,
   SuApi,
+  HydraApi,
 } from '../../core/commands/types';
 import { basename, dirname } from '../../core/filesystem/path';
 import { canWrite } from '../../core/filesystem/walker';
@@ -132,6 +133,14 @@ export const mockSuApi = (overrides: Partial<SuApi> = {}): SuApi => ({
   ...overrides,
 });
 
+/** The crack seam. Load-bearing — `hydra` has no answer of its own to fall back
+ *  on, so an unstubbed call must be loud rather than silently reporting nothing
+ *  cracked, which is indistinguishable from a strong password. */
+export const mockHydraApi = (overrides: Partial<HydraApi> = {}): HydraApi => ({
+  crack: NOT_IMPLEMENTED('hydra.crack'),
+  ...overrides,
+});
+
 /** A scan seam whose `record` no-ops by default (logging is best-effort and
  *  fire-and-forget, so it must not throw the way a load-bearing seam does) and
  *  whose `resolvePublic` throws unless overridden (it is load-bearing — its result
@@ -171,6 +180,7 @@ export const mockCommandEnv = (overrides: Partial<CommandEnv> = {}): CommandEnv 
   homeNetwork: mockHomeNetwork(),
   ssh: mockSshApi(),
   su: mockSuApi(),
+  hydra: mockHydraApi(),
   scan: mockScanApi(),
   setCwd: () => undefined,
   setInterface: () => undefined,

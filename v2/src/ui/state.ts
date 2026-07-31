@@ -38,6 +38,8 @@ import type {
   ScanRecordParams,
   Session,
   SuElevateParams,
+  HydraCrackParams,
+  HydraCrackResult,
   TerminalLine,
 } from '../core/commands/types';
 import type { GameConfig } from '../core/gameConfig/gameConfig';
@@ -77,6 +79,7 @@ import {
   authCreateServerSessionPublic,
   authCreateServerSessionSameLan,
   authElevateServerSession,
+  crackCredentials,
   createServerSession,
   endServerSession,
   listServerSessions,
@@ -328,6 +331,13 @@ const suElevate = (params: SuElevateParams): Promise<RemoteAuthResult> =>
   sessionsClientDeps === undefined
     ? Promise.resolve({ ok: false, error: 'network_error' })
     : authElevateServerSession(sessionsClientDeps, params);
+
+/** Crack credentials on an own-LAN host server-side (backs `env.hydra.crack`).
+ *  Degrades to a network error before `startGame` wires the sessions client. */
+const hydraCrack = (params: HydraCrackParams): Promise<HydraCrackResult> =>
+  sessionsClientDeps === undefined
+    ? Promise.resolve({ ok: false, error: 'network_error' })
+    : crackCredentials(sessionsClientDeps, params);
 
 /** Record an nmap scan server-side (backs `env.scan.record`). Best-effort and a
  *  no-op until `startGame` wires the patch client; the scan stands regardless. */
@@ -909,6 +919,7 @@ const executeLine = async (line: string): Promise<void> => {
     onSshAuthenticateSameLan: sshAuthenticateSameLan,
     onSshAuthenticateInnerGateway: sshAuthenticateInnerGateway,
     onSuElevate: suElevate,
+    onHydraCrack: hydraCrack,
     onScanRecord: recordScanFn,
     onScanRecordDeep: recordDeepScanFn,
     onScanResolvePublic: resolvePublicFn,
