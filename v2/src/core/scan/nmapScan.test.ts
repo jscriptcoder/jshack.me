@@ -440,7 +440,11 @@ describe('handleNmapScan — own-LAN .1 scan → real router record (Story 6.4)'
   });
 
   it('does not log the player own workstation on the router record (self still skipped)', async () => {
-    const id = generateIdentity();
+    // Draws off the generated LAN for the same reason as the sibling test above:
+    // an identity whose octet lands on a real host makes "scan yourself" a
+    // different scenario entirely, and the coincidence reads as a failure of
+    // self-exclusion rather than as the collision it is.
+    const id = identityOffTheGeneratedLan();
     const selfIp = selfIpOf(id.publicKeyHex);
     const { deps, upsertPatch } = makeDeps();
 
