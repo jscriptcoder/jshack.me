@@ -50,11 +50,46 @@ export type WirelessInterface = {
 
 export type NetworkInterface = LoopbackInterface | EthernetInterface | WirelessInterface;
 
+/** A `wlan0` that can actually reach something: wireless, associated with an AP, and
+ *  holding an address. The narrowed nulls are the point — a caller that has one of
+ *  these needs no further checks to read its `essid` or its `ipv4`. */
+export type ConnectedWlan0 = WirelessInterface & {
+  readonly association: WirelessAssociation;
+  readonly ipv4: Ipv4;
+};
+
+/**
+ * The connected `wlan0`, or null when this machine cannot reach a network.
+ *
+ * Every network command opens by asking the same question — is there a LAN under us? —
+ * and four things can answer no: offline, no `wlan0` at all, associated with nothing,
+ * or associated but never issued an address (the lease is server-allocated, so an
+ * addressless association is genuinely not on the network). Callers collapse all four
+ * into ONE message on purpose: which gate stopped you is not something the player
+ * needs, and four sentences would invite them to debug the simulation.
+ *
+ * Takes the two readers it uses rather than the whole command env, so it stays a
+ * network fact rather than a command one.
+ */
+export const connectedWlan0 = (network: {
+  readonly isOnline: () => boolean;
+  readonly interfaces: () => readonly NetworkInterface[];
+}): ConnectedWlan0 | null => {
+  if (!network.isOnline()) return null;
+  const wlan0 = network.interfaces().find((iface) => iface.name === 'wlan0');
+  if (wlan0 === undefined || wlan0.kind !== 'wireless') return null;
+  const { association, ipv4 } = wlan0;
+  if (association === null || ipv4 === null) return null;
+  return { ...wlan0, association, ipv4 };
+};
+
 export type ConnectivityState = {
   readonly interfaces: ReadonlyMap<string, NetworkInterface>;
 };
 
-const LOOPBACK_IPV4 = '127.0.0.1';
+/** The address a machine reaches ITSELF on. Exported because `curl` resolves it as a
+ *  name for the player's own box, and one loopback address is enough for the world. */
+export const LOOPBACK_IPV4 = '127.0.0.1';
 
 /** One locally-administered MAC: `02:` (the locally-administered-unicast
  *  prefix) followed by five seeded octets, lowercase hex. */

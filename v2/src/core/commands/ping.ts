@@ -21,6 +21,7 @@ import { withSelfHost } from '../network/mergeLanOccupants';
 import { assignHomeNetwork } from '../network/homeNetwork';
 import { createPrng } from '../generation/prng';
 import { errorLine, streamedResult, text } from './streaming';
+import { connectedWlan0 } from '../network/interfaces';
 
 const error = (message: string): CommandResult => ({
   kind: 'sync',
@@ -95,16 +96,8 @@ const execute: Command['execute'] = async (env, args) => {
     return error(`ping: bad number of packets to transmit: ${args[1]}`);
   }
 
-  if (!env.network.isOnline()) {
-    return error(UNREACHABLE);
-  }
-  const wlan0 = env.network.interfaces().find((iface) => iface.name === 'wlan0');
-  if (
-    wlan0 === undefined ||
-    wlan0.kind !== 'wireless' ||
-    wlan0.association === null ||
-    wlan0.ipv4 === null
-  ) {
+  const wlan0 = connectedWlan0(env.network);
+  if (wlan0 === null) {
     return error(UNREACHABLE);
   }
 
