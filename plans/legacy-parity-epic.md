@@ -2,9 +2,10 @@
 
 > **Picking this up cold? Read "Locked decisions" then jump to "Next action" at the end.**
 > Split authored 2026-07-29 (`story-splitting`), then grilled to nine locked decisions
-> (`grill-me`, same day). Nothing planned yet — no slice has entered `planning`.
+> (`grill-me`, same day).
 
-**Status**: split authored + grilled. **No slice started.**
+**Status**: **D1 shipped** (2026-07-31, v0.109.0 — see "Next action"). D2 is next and is being
+split before it is planned. Everything from D1b onward is still split-and-grilled only.
 
 **Ship gate**: **all doors + hydra + discovery + the CVE system, minus missions.** Missions are
 a **post-ship epic** — the infrastructure this epic builds is what makes them cheap.
@@ -196,8 +197,10 @@ procedural CVE timeline (`publishedAt`/`patchDelay`), `apt upgrade`/pinning, scr
 
 ```
 PHASE 1 — THE DOORS  (near-term focus)
-  D1  web (apache2/nginx + generated pages + curl)     ← FIRST
-  D2  hydra + the wordlist system (+ john)
+  D1  web (apache2/nginx + generated pages + curl)     ✔ SHIPPED v0.109.0
+  D1b lynx (browser screen)      \  fast-follows, any time
+  D1c gobuster (path brute-force) /  D1c needs D2.1's extraFiles seam
+  D2  hydra + the wordlist system (+ john)             ← SPLIT, D2.1 next
   D3  ftp / scp
   D4  daemon control (systemctl / ps / kill)
   D5  nc connect + nc -l backdoor
@@ -222,9 +225,10 @@ POST-SHIP — MISSIONS
 
 | # | Slice (actor + action + scope) | Includes | Defers | Acceptance examples |
 |---|---|---|---|---|
-| **D1** | **A player serves a web page and a stranger reads it** | `apache2`/`nginx` daemons (pidfile → port, root for <1024); `SERVICE_CATALOG` http row + generation placement; generated page content (legacy `pools/web.ts`); `/var/www/html` in base FSs; `curl [-i]`; the request pipeline (parse → NAT/DNS resolve → static file); `access.log` trace; `ping` folds in. **A new server handler resolves (public IP, port, path)** — `resolveCrossPlayerFs` is keyed by a `machine_id` obtained from a login, and `curl` has no login | `lynx` (own slice, fast-follow — a full overlay browser screen, UI work of a different size); `gobuster` (→ D2, needs the same `extraFiles` seam); `-X POST`; request handlers; HTTPS specifics | B `curl http://<A pub IP>` → A's page, **with no session and no credential** (tier 3 already allows it); `nmap` shows `:80` on NPC hosts running http; A reads B's hit in `/var/log/access.log` |
+| **D1** ✔ | **A player serves a web page and a stranger reads it** — SHIPPED | `apache2`/`nginx` daemons (pidfile → port, root for <1024); `SERVICE_CATALOG` http row + generation placement; generated page content (legacy `pools/web.ts`); `/var/www/html` in base FSs; `curl [-i]`; the request pipeline (parse → NAT/DNS resolve → static file); `access.log` trace; `ping` folds in. **A new server handler resolves (public IP, port, path)** — `resolveCrossPlayerFs` is keyed by a `machine_id` obtained from a login, and `curl` has no login | `lynx` (own slice, fast-follow — a full overlay browser screen, UI work of a different size); `gobuster` (→ D1c, which needs the `extraFiles` seam D2.1 builds); `-X POST`; request handlers; HTTPS specifics | B `curl http://<A pub IP>` → A's page, **with no session and no credential** (tier 3 already allows it); `nmap` shows `:80` on NPC hosts running http; A reads B's hit in `/var/log/access.log` |
 | **D1b** | **A player browses a page instead of reading its source** | `lynx <url>` as a full overlay browser SCREEN (legacy carried `LynxBrowser.tsx` + `lynx/render.ts` + `lynx/fetch.ts`): render HTML to text, follow links, keyboard navigation, quit back to the terminal. Reuses D1 whole — `parseHttpUrl`, `resolveWebPath`, the own-LAN/public split, and the same `access.log` trace, so a browsed page is logged exactly like a curled one | Forms/POST; images; CSS; multi-tab | A player `lynx http://<host>` → the page renders as text with its links numbered → following a link fetches the next page → the target's `access.log` shows one line per page viewed |
-| **D2** | **A player cracks a credential instead of being told it** | `hydra <host> [service] [user]`; `apt install hydra` ships `passwords.txt` via `extraFiles`; the two-pool split + per-account probability in `buildRemoteHostFs`; uncrackable pool into `secrets.ts`; wordlist-as-sole-gate; server-side md5 batch matching for cross-player; `john`; hydra trace on the target's `auth.log`; **`gobuster`** — the same `extraFiles` seam ships its `dirlist.txt`, so it is built once | ftp/mysql/snmp as hydra *services* — each arrives with its door | B `hydra <NPC host> ssh` → cracks the user account → `ssh` succeeds; a low-probability NPC root cracks, most don't; a player's chosen root password never cracks; A appends a harvested password to `passwords.txt` via `nano` and a previously-failing crack now succeeds |
+| **D1c** | **A player finds the pages a server never linked** | `gobuster <url>` + its `dirlist.txt`, shipped by the `extraFiles` seam **D2.1 builds**; hits and misses both land in the target's `access.log`, so the defender's tell is the 404 wall D1 already records | Vhost/DNS modes; extensions | A player `gobuster http://<host>` → finds an unlinked path → `curl`s it; the target's `access.log` shows the sweep as a run of 404s with one 200 |
+| **D2** | **A player cracks a credential instead of being told it** — **SPLIT** into D2.1–D2.6, see [`d2-credential-layer.md`](./d2-credential-layer.md) | `hydra <host> [service] [user]`; `apt install hydra` ships `passwords.txt` via `extraFiles`; the two-pool split + per-account probability in `buildRemoteHostFs`; uncrackable pool into `secrets.ts`; wordlist-as-sole-gate; server-side md5 batch matching for cross-player; `john`; hydra trace on the target's `auth.log` | ftp/mysql/snmp as hydra *services* — each arrives with its door; **`gobuster`** (→ D1c, 2026-07-31) | B `hydra <NPC host> ssh` → cracks the user account → `ssh` succeeds; a low-probability NPC root cracks, most don't; a player's chosen root password never cracks; A appends a harvested password to `passwords.txt` via `nano` and a previously-failing crack now succeeds |
 | **D3** | **A player moves files without a shell** | `vsftpd` daemon + catalog row + placement; `ftp <host> [user] [pw]` + FTP mode command set (`get`/`put`/`ls`/`cd`/`lls`/`lcd`/`lpwd`/`quit`); `scp`; `vsftpd.log` trace. **No content generator** — the target's FS is the content | Virtual users (`virtual_users.conf`) | B `hydra`s ftp creds → `ftp <host>` → `get` a file → `put` one the owner then sees; the session authorizes at its tier through L1/L2 exactly as ssh does (decision 2) |
 | **D4** | **A defender controls what their box exposes** | `systemctl start/stop/status`; `ps`; `kill`; symmetric pidfile open/close semantics; `chmod` folds in | — | A `systemctl stop sshd` → pidfile gone → B's scan drops `:22` and ssh-via-forward `404`s; A `ps` lists what is running; A restarts it and reachability returns |
 | **D5** | **A player plants a backdoor and re-enters through it** | `nc <host> <port>` → restricted NC shell (no PATH); `nc -l <port>` listener with owner metadata in the pidfile; **backdoor chain forwarding** — append a `forward` on every gateway out to the public edge and report the reachable address | Exploit-planted backdoors (Phase 3) | B (inside a host) `nc -l 4444` → forward auto-appended → B leaves, `nc <public IP> <fwd>` → lands as the listener's owner; the defender greps `rules.v4` and finds the breadcrumb |
@@ -267,15 +271,19 @@ picked, never the shape of what is stamped or how a door authorizes.
 
 1. **`nc -l` semantics (D5)** — a session with no credential, whose user is asserted by the
    pidfile. The one place decision 2 deliberately left open. Resolve at D5's planning.
-2. ~~**Where `lynx` and `gobuster` sit**~~ — **RESOLVED 2026-07-29.** Neither rides with D1.
-   `lynx` becomes its own fast-follow slice (a full overlay browser screen — legacy carried
-   `LynxBrowser.tsx` + `lynx/render.ts` + `lynx/fetch.ts`). `gobuster` moves into **D2**, where
-   the `apt install` → `extraFiles` seam is built once for `passwords.txt` and serves both.
+2. ~~**Where `lynx` and `gobuster` sit**~~ — **RESOLVED 2026-07-29, gobuster REVISED
+   2026-07-31.** Neither rides with D1. `lynx` becomes its own fast-follow slice (a full overlay
+   browser screen — legacy carried `LynxBrowser.tsx` + `lynx/render.ts` + `lynx/fetch.ts`).
+   `gobuster` was originally moved into D2 for the shared `apt install` → `extraFiles` seam;
+   D2's split found that seam is *all* it shares with the credential layer, so it becomes
+   **D1c** instead — it brute-forces paths, not credentials, and its whole defender-side tell is
+   a wall of 404s in the `access.log` D1 shipped. D2.1 still builds the seam.
 3. **Exposure defaults** — derived, not decided: new services are **opt-in** for players (like
    `sshd` today) and generated onto NPC hosts via `placement`. Correct unless stated otherwise.
 4. **Phase 2 contents** — the owner has a shape in mind (common networks discoverable because
    they run websites). Worth its own grilling when Phase 2 starts.
-5. **Probability knob values** for the crackable/uncrackable draw — tuning, set at D2 planning.
+5. **Probability knob values** for the crackable/uncrackable draw — tuning, set at **D2.2**
+   planning (the slice that introduces the two pools).
 
 ## Parking lot
 
@@ -320,14 +328,18 @@ and 404s alike, traversals recorded verbatim. Its plan file has been deleted; th
 
 **Next up: D2 — a player cracks a credential instead of being told it.** It is the natural
 successor: D1 deliberately took the one door that needs NO authorization, so D2 is where the
-credential layer arrives (`hydra`, `john`, the `extraFiles` wordlist seam) and it carries
-`gobuster` with it — whose whole defender-side tell is a wall of 404s in the `access.log` D1 just
-built. **D1b (`lynx`)** is a fast-follow whenever it is wanted; it reuses D1 whole and adds only
-the browser screen.
+credential layer arrives (`hydra`, `john`, the `extraFiles` wordlist seam).
 
-Before either, run `story-splitting`/`planning` on the chosen slice — D2 is visibly larger than D1
-was (a credential layer, two tools, a data-file seam and a trace) and should be split before it is
-planned.
+**D2 has been SPLIT** (2026-07-31) into six candidates — see
+[`d2-credential-layer.md`](./d2-credential-layer.md). Start at **D2.1: a player cracks an NPC
+host on their own LAN and logs in with what they cracked** — it is the only slice with a
+reachable input, because `john` has no hashes to steal until hydra opens the first door. Two
+findings from that split are load-bearing and are cheaper to read there than to rediscover:
+`ssh` authenticates server-side across four reachability seams (so hydra does too), and
+`/etc/passwd` is deliberately off the tier-3 allowlist (so no client-side shortcut exists).
+
+**D1b (`lynx`)** and **D1c (`gobuster`)** are fast-follows whenever wanted. D1b reuses D1 whole;
+D1c additionally needs the `extraFiles` seam that D2.1 builds, so it follows D2.1.
 
 Per slice, before any code: load `tdd`, `testing`, `mutation-testing`, `refactoring`; run full
 RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR; present before starting the next. Any `api/` change
