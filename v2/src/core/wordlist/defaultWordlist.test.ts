@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { GUEST_PASSWORDS } from '../generation/workstationFs';
 import { CRACKABLE_PASSWORDS, UNCRACKABLE_PASSWORDS } from '../generation/passwordPools';
 import { seedApGatewayAdminPw } from '../generation/routerFs';
 import {
@@ -38,12 +37,6 @@ describe('the default wordlist', () => {
     const leaked = UNCRACKABLE_PASSWORDS.filter((password) => DEFAULT_WORDLIST.includes(password));
 
     expect(leaked).toEqual([]);
-  });
-
-  it("covers every password a player's own guest account can draw", () => {
-    const missing = GUEST_PASSWORDS.filter((password) => !DEFAULT_WORDLIST.includes(password));
-
-    expect(missing).toEqual([]);
   });
 
   it('does not hand over the gateway on these particular networks', () => {

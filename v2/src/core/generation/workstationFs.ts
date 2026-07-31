@@ -42,26 +42,12 @@ import {
   WEB_PAGE_FILE,
 } from './baseFs';
 import { md5 } from './md5';
+import { CRACK_CHANCE, drawPassword } from './passwordPools';
 import { ACCESS_LOG_PERMISSIONS } from '../logging/accessLog';
 import { AUTH_LOG_PERMISSIONS } from '../logging/authLog';
 import { KERN_LOG_PERMISSIONS } from '../logging/kernLog';
 
 // --- Player workstation composer ---
-
-/** Weak guest passwords the seeded PRNG picks from, mirroring legacy
- *  `generateLocalhost`. Exported so the shipped wordlist can be proven to cover
- *  every password a guest account can actually hold — membership in that list is
- *  what decides whether an account is crackable. */
-export const GUEST_PASSWORDS: readonly string[] = [
-  'guest',
-  'password',
-  'letmein',
-  'changeme',
-  'welcome1',
-  'qwerty123',
-  'trustno1',
-  'sunshine',
-];
 
 /**
  * The page a player's box serves before they have written one of their own.
@@ -86,11 +72,15 @@ const DEFAULT_PAGE = [
 ].join('\n');
 
 /** The guest account's plaintext password — seeded from the owner's pubkey ALONE
- *  (the `workstation-` namespace). Owner-key-only so the SERVER can recover it for
- *  a cross-player auth (Story 2) without the owner's config, and a future cracker
- *  can match it against GUEST_PASSWORDS. */
+ *  (the `workstation-` namespace), so the SERVER can recover it for a cross-player
+ *  auth without the owner's config.
+ *
+ *  Always drawn from the CRACKABLE pool, through the same knob every other guest
+ *  account uses. That is the one account a defender cannot harden before the CVE
+ *  phase, and it is deliberately so: their chosen root password stays safe, and
+ *  guest is the door that makes cross-player play exist at all. */
 export const workstationGuestPassword = (ownerKeyHex: string): string =>
-  createPrng(`workstation-${ownerKeyHex}`).pick(GUEST_PASSWORDS);
+  drawPassword(createPrng(`workstation-${ownerKeyHex}`), CRACK_CHANCE.guest);
 
 /**
  * Build the player's own-workstation base filesystem from the IDENTITY the server
