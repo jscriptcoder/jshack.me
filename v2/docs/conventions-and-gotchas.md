@@ -157,7 +157,7 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
   the editor open); a refused one leaves it alone. Wire-check `scripts/testModifiedSinceOpen.ts`;
   three-player browser verification in `e2e-shared-network-verification.md` §6.
 
-**Current version: 0.109.0.**
+**Current version: 0.111.0.**
 
 **Current epic — legacy parity, IN PROGRESS:** `plans/legacy-parity-epic.md` — every remaining
 way into a machine (doors → discovery → CVE vulnerabilities), grilled to nine locked
@@ -191,6 +191,38 @@ decisions. The ship gate is legacy parity **minus missions**; missions are a pos
   - **Wire-checks:** `scripts/testHttpFetch.ts` (17/17) and `scripts/testLanFetchLog.ts` (8/8).
     **Browser-verified end to end** 2026-07-31, both the own-LAN and the two-player
     forward loops — `e2e-shared-network-verification.md` §7.
+
+- **D2 (the credential layer) 🔨 IN PROGRESS — D2.1 ✅ (v0.111.0).** Split into six candidates in
+  `plans/d2-credential-layer.md`; D2.1's own plan file is deleted and this is its as-built. Two
+  slices — v0.110.0 #351, v0.111.0 #352.
+  - **The first credential earned in-game.** `apt install hydra` → `hydra <LAN host> ssh` →
+    a `login:`/`password:` line → `ssh` in with it. `ssh` shipped long ago but took a password no
+    player could obtain, so v2's only door was decorative outside tests. This opens it.
+  - **`apt` installs data files, not just binaries.** `AptPackage.extraFiles` (path + content +
+    permissions) writes through the same journal as everything else, so the wordlist at
+    `/usr/share/wordlists/passwords.txt` is an ordinary file — `cat`-able, `nano`-editable, and
+    lootable off a box you break into. `apt` scaffolds only the **missing** ancestors: every
+    `mkdir` is a permanent journal row, so `mkdir`-ing an existing `/usr` would leave a no-op row
+    on the player's box forever. (`patches.write` does NOT create parents — `fsView.ts` refuses
+    with `parent_not_traversable`; replay scaffolds, but authorization refuses before replay.)
+  - **The crack is server-side, and reads a FILE.** `core/sessions/hydraCrack.ts` mirrors
+    `handleAuthCreateSession`'s preamble (regenerate the LAN → resolve the host → materialize its
+    journal → `canBoot` → open ports), then sweeps `/etc/passwd` against the caller's own
+    wordlist, read from **their own journal** by `machine_id` after `isOwnWorkstation` — never
+    from a client claim, and never from an imported constant. Reading the file is what makes
+    "grow your wordlist" (D2.6) free rather than a rewrite.
+  - **hydra and `ssh` cannot disagree** — both resolve the same `/etc/passwd`, server-side,
+    through the same reachability rules. A crack from a locally regenerated baseline would hand
+    the player a password `ssh` then rejects, which reads as a broken game.
+  - **Deliberately no `auth.log` line.** `handleAuthCreateSession` logs unconditionally;
+    `handleHydraCrack` is a near-copy that does not, and says so in the code so the omission does
+    not read as an oversight. The defender's view of a sweep is **D2.3**.
+  - **The pool is still flat** — effectively everything falls. That is an accepted checkpoint,
+    not a ship state: it isolates the machinery from the policy, so a failed crack can only mean
+    the machinery is broken. **D2.2** is what makes it a game.
+  - **Wire-check:** `scripts/testHydraOwnLan.ts` (8/8). Its load-bearing check is the one that
+    withholds a single password: with a full wordlist everything cracks, so a handler ignoring the
+    list entirely passes every other assertion in the file.
 
 To pick up the next slice: read the relevant `plans/*.md` TOP BLOCK (live status +
 as-built), then the cross-player architecture doc if the work touches cross-player paths.
