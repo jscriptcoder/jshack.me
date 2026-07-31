@@ -21,13 +21,13 @@
  * as real apt does.
  */
 
-import { asAbsPath } from '../types';
+import { asAbsPath, type AbsPath } from '../types';
 import type { FilePermissions } from '../filesystem/types';
 import type { Command, CommandEnv, CommandResult, PatchResult, TerminalLine } from './types';
 import { BINARY_STUB } from '../generation/binaries';
 import { LIBRARY_PERMS } from '../generation/libraries';
 import type { SystemLibrary } from '../generation/libraries';
-import { APT_PACKAGES } from './aptPackages';
+import { APT_PACKAGES, type AptExtraFile } from './aptPackages';
 import { libraryDeps } from './libraryDeps';
 import { binaryExists } from './availability';
 import { errorLine, streamedResult, text } from './streaming';
@@ -73,13 +73,18 @@ const offlineError = (): CommandResult =>
     'E: Failed to fetch — are you connected to a network?',
   ]);
 
-/** The binaries a package ships, or undefined if the package isn't in the
- *  catalog. A package whose `binaries` is omitted ships a single binary that
- *  matches its name. */
-const binariesFor = (packageName: string): readonly string[] | undefined => {
+/** What a package installs, or undefined if it isn't in the catalog. A package
+ *  whose `binaries` is omitted ships a single binary matching its name; one whose
+ *  `extraFiles` is omitted ships no data files. Resolved in ONE lookup so the
+ *  caller cannot end up asking about a package it has already failed to find. */
+const contentsOf = (
+  packageName: string,
+):
+  | { readonly binaries: readonly string[]; readonly extraFiles: readonly AptExtraFile[] }
+  | undefined => {
   const pkg = APT_PACKAGES.find((candidate) => candidate.name === packageName);
   if (pkg === undefined) return undefined;
-  return pkg.binaries ?? [pkg.name];
+  return { binaries: pkg.binaries ?? [pkg.name], extraFiles: pkg.extraFiles ?? [] };
 };
 
 /**
@@ -112,6 +117,51 @@ export const installPackageLibraries = async (
   }
   return { ok: true };
 };
+
+/** The ancestor directories of `path`, outermost first — `/usr/share/wordlists/x`
+ *  yields `/usr`, `/usr/share`, `/usr/share/wordlists`. */
+const ancestorsOf = (path: AbsPath): readonly AbsPath[] => {
+  const segments = path.split('/').filter((segment) => segment !== '');
+  return segments
+    .slice(0, -1)
+    .map((_, index) => asAbsPath(`/${segments.slice(0, index + 1).join('/')}`));
+};
+
+/**
+ * Install a package's data files. Each one's MISSING containing directories are
+ * created first, because a write into a directory that does not exist is REFUSED
+ * — the permission walker has no container to gate the create against — and
+ * nothing on a fresh workstation creates `/usr/share`. Directories that already
+ * exist are left alone: every mkdir is a persisted journal row, and one that
+ * recreates `/usr` would sit on the player's box forever doing nothing.
+ *
+ * Announced before each write: a file that appears with no line explaining it
+ * reads as something the game did behind the player's back.
+ *
+ * Takes the files rather than a package name — like `installPackageLibraries`
+ * takes its dep map — so the multi-file and rejected-write paths are exercisable
+ * against a fixture. No catalog package ships two data files today, and inventing
+ * one to reach those paths would be content written for a test.
+ */
+export async function* installExtraFiles(
+  env: CommandEnv,
+  extraFiles: readonly AptExtraFile[],
+): AsyncGenerator<TerminalLine, PatchResult> {
+  for (const extraFile of extraFiles) {
+    for (const ancestor of ancestorsOf(extraFile.path)) {
+      if (env.fs.stat(ancestor) !== null) continue;
+      const result = await env.patches.mkdir(ancestor);
+      if (!result.ok) return result;
+    }
+    yield text(`Installing ${extraFile.path} ...`);
+    const result = await env.patches.write(extraFile.path, extraFile.content, {
+      isNew: true,
+      permissions: extraFile.permissions,
+    });
+    if (!result.ok) return result;
+  }
+  return { ok: true };
+}
 
 /** A package is "installed" when its first binary is present on the machine —
  *  the same proxy legacy used (a multi-binary package is judged by its lead
@@ -148,11 +198,12 @@ async function* installPackage(
   yield text('Building dependency tree...');
   await env.sleep(STEP_DELAY_MS);
 
-  const binaries = binariesFor(packageName);
-  if (binaries === undefined) {
+  const contents = contentsOf(packageName);
+  if (contents === undefined) {
     yield errorLine(`E: Unable to locate package ${packageName}`);
     return APT_ERROR;
   }
+  const { binaries, extraFiles } = contents;
 
   yield text('The following NEW packages will be installed:');
   yield text(`  ${packageName}`);
@@ -173,6 +224,12 @@ async function* installPackage(
   const libResult = await installPackageLibraries(env, binaries);
   if (!libResult.ok) {
     yield installFailureLine(packageName, libResult.error);
+    return APT_ERROR;
+  }
+
+  const extraResult = yield* installExtraFiles(env, extraFiles);
+  if (!extraResult.ok) {
+    yield installFailureLine(packageName, extraResult.error);
     return APT_ERROR;
   }
 
