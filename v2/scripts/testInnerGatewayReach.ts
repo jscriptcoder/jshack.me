@@ -30,7 +30,7 @@ import {
 import { hostMachineId } from '../src/core/generation/remoteHostId';
 import { accountIn } from '../src/core/sessions/passwdAccount';
 import { md5 } from '../src/core/generation/md5';
-import { WEAK_PASSWORDS } from '../src/core/generation/remoteHostFs';
+import { ALL_GENERATED_PASSWORDS } from '../src/core/generation/passwordPools';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
@@ -101,7 +101,9 @@ if (guestAccount === null) {
   console.error('no guest account on the deep host');
   process.exit(2);
 }
-const DEEP_GUEST_PW = WEAK_PASSWORDS.find((candidate) => md5(candidate) === guestAccount.hash);
+const DEEP_GUEST_PW = ALL_GENERATED_PASSWORDS.find(
+  (candidate) => md5(candidate) === guestAccount.hash,
+);
 if (DEEP_GUEST_PW === undefined) {
   console.error('cannot recover the deep host guest password');
   process.exit(2);

@@ -4,7 +4,8 @@ import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
 import { computeWorkstationId } from '../identity/workstation';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { hostServices, WEAK_PASSWORDS } from '../generation/remoteHostFs';
+import { hostServices } from '../generation/remoteHostFs';
+import { ALL_GENERATED_PASSWORDS } from '../generation/passwordPools';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { WORDLIST_PATH, formatWordlist } from '../wordlist/defaultWordlist';
@@ -59,7 +60,7 @@ const sshlessHostOn = (essid: string): LanHost => {
 
 /** Every account on a generated host draws from this pool, so matching against it
  *  recovers the real plaintexts a test needs to build wordlists from. */
-const KNOWN_POOL = WEAK_PASSWORDS;
+const KNOWN_POOL = ALL_GENERATED_PASSWORDS;
 
 /** Every account on a host paired with its real plaintext, recovered by matching
  *  the stored md5 against a candidate list — exactly what the handler must do. */

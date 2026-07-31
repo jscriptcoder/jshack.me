@@ -27,12 +27,14 @@ import { signRequest } from '../src/core/signedRequest/sign';
 import { generateIdentity } from '../src/core/identity/identity';
 import { computeWorkstationId } from '../src/core/identity/workstation';
 import { generateHomeLan, type LanHost } from '../src/core/generation/generateHomeLan';
-import { hostServices, WEAK_PASSWORDS } from '../src/core/generation/remoteHostFs';
+import { hostServices } from '../src/core/generation/remoteHostFs';
+import { ALL_GENERATED_PASSWORDS } from '../src/core/generation/passwordPools';
 import { resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
 import { accountsIn } from '../src/core/sessions/passwdAccount';
 import { md5 } from '../src/core/generation/md5';
 import {
+  DEFAULT_WORDLIST,
   WORDLIST_PATH,
   WORDLIST_PERMISSIONS,
   formatWordlist,
@@ -74,23 +76,53 @@ const attackerMachine = computeWorkstationId('cracklab', attacker.publicKeyHex);
 const runsSsh = (host: LanHost): boolean =>
   hostServices(ESSID, host).some(({ spec }) => spec === SERVICE_CATALOG.ssh);
 
+type NamedCredential = { readonly username: string; readonly password: string };
+
+/** Every account on a host with its real plaintext. Matched against BOTH pools:
+ *  an account now draws from either, so searching the crackable pool alone would
+ *  quietly drop the holdouts — and the checks below exist to find those. */
+const credentialsOn = (host: LanHost): readonly NamedCredential[] => {
+  const { baseFs } = resolveLanHostIdentity(host, ESSID);
+  return accountsIn(baseFs).flatMap((account) => {
+    const password = ALL_GENERATED_PASSWORDS.find((candidate) => md5(candidate) === account.hash);
+    return password === undefined ? [] : [{ username: account.username, password }];
+  });
+};
+
+const inStarterWordlist = (credential: NamedCredential): boolean =>
+  DEFAULT_WORDLIST.includes(credential.password);
+
+/** A usable target runs ssh AND holds at least one account the starter wordlist
+ *  covers and at least one it does not. Both halves are load-bearing: the covered
+ *  accounts prove a sweep reports what it should, the holdout proves it withholds
+ *  what it should. A host with no holdout cannot fail the check that matters. */
+const usableTarget = (host: LanHost): boolean => {
+  if (host.kind !== 'machine' || !runsSsh(host)) return false;
+  const credentials = credentialsOn(host);
+  return (
+    credentials.some(inStarterWordlist) &&
+    credentials.some((credential) => !inStarterWordlist(credential))
+  );
+};
+
 const lan = generateHomeLan(ESSID);
-const target = lan.hosts.find((host) => host.kind === 'machine' && runsSsh(host));
+const target = lan.hosts.find(usableTarget);
 const sshless = lan.hosts.find((host) => host.kind === 'machine' && !runsSsh(host));
 
 if (target === undefined || sshless === undefined) {
   console.error(
-    `ESSID ${ESSID} lacks a usable pair (ssh host: ${target?.ip ?? 'none'}, ssh-less host: ${sshless?.ip ?? 'none'}).`,
+    `ESSID ${ESSID} lacks a usable pair (usable ssh host: ${target?.ip ?? 'none'}, ssh-less host: ${sshless?.ip ?? 'none'}).`,
   );
-  console.error('Pick another ESSID — this is the trap slice 4 of D1 lost a cycle to.');
+  console.error(
+    'A usable target needs ssh, one starter-wordlist account, and one holdout. Pick another ESSID —',
+  );
+  console.error('this is the trap slice 4 of D1 lost a cycle to.');
   process.exit(2);
 }
 
-const { baseFs } = resolveLanHostIdentity(target, ESSID);
-const accounts = accountsIn(baseFs).flatMap((account) => {
-  const password = WEAK_PASSWORDS.find((candidate) => md5(candidate) === account.hash);
-  return password === undefined ? [] : [{ username: account.username, password }];
-});
+const accounts = credentialsOn(target);
+const starterAccounts = accounts.filter(inStarterWordlist);
+const holdoutAccounts = accounts.filter((credential) => !inStarterWordlist(credential));
 const listeningPort = hostServices(ESSID, target).find(
   ({ spec }) => spec === SERVICE_CATALOG.ssh,
 )?.port;
@@ -138,8 +170,46 @@ const crackedIn = (body: unknown): readonly { username: string; password: string
 
 const main = async () => {
   console.log(`Target ${target.ip} (${target.hostname}) on ${ESSID}, ssh :${listeningPort}`);
-  console.log(`Accounts recoverable from the pool: ${accounts.map((a) => a.username).join(', ')}`);
+  console.log(`All accounts:   ${accounts.map((entry) => entry.username).join(', ')}`);
+  console.log(`Starter covers: ${starterAccounts.map((entry) => entry.username).join(', ')}`);
+  console.log(`Holds out:      ${holdoutAccounts.map((entry) => entry.username).join(', ')}`);
   await clearWordlist();
+
+  // 0. THE DIFFICULTY CURVE, end to end against the real endpoint. The starter
+  //    wordlist is what a player actually has after `apt install hydra`, so this
+  //    is the only check here that measures the game as shipped: the accounts it
+  //    covers fall, and the ones it does not are withheld even though the server
+  //    knows their plaintext perfectly well.
+  await seedWordlist(DEFAULT_WORDLIST);
+  const starter = await post(crackEnvelope());
+  const starterCracked = crackedIn(starter.body);
+  const starterNames = starterCracked.map((entry) => entry.username).sort();
+  check(
+    'the starter wordlist cracks exactly the accounts it covers',
+    starter.status === 200 &&
+      JSON.stringify(starterNames) ===
+        JSON.stringify(starterAccounts.map((entry) => entry.username).sort()),
+    `cracked ${starterNames.join(',') || 'none'}; expected ${starterAccounts.map((entry) => entry.username).join(',')}`,
+  );
+  check(
+    'an account outside the starter wordlist HOLDS against a default install',
+    !starterCracked.some((entry) =>
+      holdoutAccounts.some((holdout) => holdout.username === entry.username),
+    ),
+    `holdouts ${holdoutAccounts.map((entry) => entry.username).join(',')}; cracked ${starterNames.join(',') || 'none'}`,
+  );
+
+  // 0b. Growing the list is the progression: append one harvested password and the
+  //     account that held now falls. Proven here rather than argued, because the
+  //     server reads the FILE per run — nothing is compiled in or cached.
+  const harvested = holdoutAccounts[0]!;
+  await seedWordlist([...DEFAULT_WORDLIST, harvested.password]);
+  const grown = await post(crackEnvelope());
+  check(
+    'appending a harvested password makes the account that held fall',
+    crackedIn(grown.body).some((entry) => entry.username === harvested.username),
+    `harvested ${harvested.username}; cracked ${crackedIn(grown.body).map((entry) => entry.username).join(',') || 'none'}`,
+  );
 
   // 1. A wordlist holding everything cracks everything.
   await seedWordlist(accounts.map((account) => account.password));

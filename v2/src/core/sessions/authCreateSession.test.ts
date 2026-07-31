@@ -7,7 +7,8 @@ import {
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { buildRemoteHostFs, WEAK_PASSWORDS } from '../generation/remoteHostFs';
+import { buildRemoteHostFs } from '../generation/remoteHostFs';
+import { ALL_GENERATED_PASSWORDS } from '../generation/passwordPools';
 import { seedInnerGatewayAdminPw, seedApGatewayAdminPw } from '../generation/routerFs';
 import { hostMachineId } from '../generation/remoteHostId';
 import { computeInnerGatewayId, computeApGatewayId } from '../identity/router';
@@ -127,7 +128,7 @@ const passwdRows = (fs: Directory): readonly (readonly string[])[] => {
 const passwordFor = (fs: Directory, username: string): string => {
   const row = passwdRows(fs).find((fields) => fields[0] === username);
   if (row === undefined) throw new Error(`no passwd row for ${username}`);
-  const plain = WEAK_PASSWORDS.find((candidate) => md5(candidate) === row[1]);
+  const plain = ALL_GENERATED_PASSWORDS.find((candidate) => md5(candidate) === row[1]);
   if (plain === undefined) throw new Error(`could not recover password for ${username}`);
   return plain;
 };

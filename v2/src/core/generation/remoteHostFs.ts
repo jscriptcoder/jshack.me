@@ -52,6 +52,7 @@ import {
   WEB_PAGE_FILE,
 } from './baseFs';
 import { md5 } from './md5';
+import { CRACK_CHANCE, drawPassword } from './passwordPools';
 import { pickWebPage } from './pools/webPages';
 import { ACCESS_LOG_PERMISSIONS } from '../logging/accessLog';
 import { AUTH_LOG_PERMISSIONS } from '../logging/authLog';
@@ -81,24 +82,6 @@ const HOST_USERNAMES: readonly string[] = [
   'operator',
   'support',
   'backup',
-];
-
-/** Weak passwords the seeded PRNG picks from for each NPC account — just data,
- *  mirroring the workstation guest-password pool (a later hydra/wordlist epic is
- *  how a player would actually obtain one). Exported so credential-validating code
- *  (and its tests) can recover a host's plaintext password by matching md5 hashes
- *  against this known pool. */
-export const WEAK_PASSWORDS: readonly string[] = [
-  'guest',
-  'password',
-  'letmein',
-  'changeme',
-  'welcome1',
-  'qwerty123',
-  'trustno1',
-  'sunshine',
-  'admin123',
-  'root1234',
 ];
 
 export type HostService = { readonly spec: ServiceSpec; readonly port: number };
@@ -134,7 +117,7 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
   const passwd = generatePasswd([
     {
       username: 'root',
-      passwordHash: md5(prng.pick(WEAK_PASSWORDS)),
+      passwordHash: md5(drawPassword(prng, CRACK_CHANCE.npcRoot)),
       uid: 0,
       gid: 0,
       gecos: 'root',
@@ -143,7 +126,7 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
     },
     {
       username,
-      passwordHash: md5(prng.pick(WEAK_PASSWORDS)),
+      passwordHash: md5(drawPassword(prng, CRACK_CHANCE.npcUser)),
       uid: 1000,
       gid: 1000,
       gecos: username,
@@ -152,7 +135,7 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
     },
     {
       username: 'guest',
-      passwordHash: md5(prng.pick(WEAK_PASSWORDS)),
+      passwordHash: md5(drawPassword(prng, CRACK_CHANCE.guest)),
       uid: 1001,
       gid: 1001,
       gecos: 'guest',
