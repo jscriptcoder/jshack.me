@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { curl } from './curl';
+import { runCommandLine } from '../shell/runLine';
 import type {
   AccessLogFetch,
   CommandResult,
@@ -548,6 +549,105 @@ describe('curl against the player own address', () => {
 
     expect(exitCode).toBe(0);
     expect(text).toContain('It works!');
+  });
+
+  it('honours -i typed on a real command line, not just handed in as a flag map', async () => {
+    // Every other test here hands `execute` a pre-built flag map, which skips the argv
+    // parser entirely — so the `flags` declaration that TELLS the parser `-i` takes no
+    // value was never exercised. Undeclared, `-i` would be parsed as a positional and
+    // become the URL, and the fetch would fail on the argument rather than print
+    // headers. Going through `runCommandLine` is what proves the declaration is wired.
+    const env = mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+      fs: mockFsViewFromTree(ownBox(WEB_SERVER_RUNNING), {
+        userType: 'user',
+        cwd: () => asAbsPath('/'),
+      }),
+    });
+
+    const { text, exitCode } = await drain(
+      await runCommandLine(env, `curl -i http://${OWN_IP}`, new Map([['curl', curl]])),
+    );
+
+    expect(exitCode).toBe(0);
+    // Whole lines, not substrings: `toContain('Server: nginx')` also passes for
+    // `Server: nginx.pid`, which is what the header would say if the pidfile suffix
+    // stopped being stripped.
+    expect(text.split('\n')).toContain('HTTP/1.1 200 OK');
+    expect(text.split('\n')).toContain('Server: nginx');
+    expect(text).toContain('It works!');
+  });
+
+  it('reaches the box by its loopback names as readily as by its LAN address', async () => {
+    // A player testing their own server types `localhost` before they type the address
+    // they were leased — every real box answers to it, so a failure to resolve here
+    // reads as a broken web server rather than a missing alias.
+    for (const loopback of ['localhost', '127.0.0.1']) {
+      const { text, exitCode } = await fetchOwn(ownBox(WEB_SERVER_RUNNING), `http://${loopback}`);
+
+      expect(exitCode).toBe(0);
+      expect(text).toContain('It works!');
+    }
+  });
+
+  it('reports a loopback fetch against the box own address, saying it came from loopback', async () => {
+    const reported: AccessLogFetch[] = [];
+    const env = mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+      fs: mockFsViewFromTree(ownBox(WEB_SERVER_RUNNING), {
+        userType: 'user',
+        cwd: () => asAbsPath('/'),
+      }),
+      log: {
+        appendAuthLog: async () => undefined,
+        appendAccessLog: async (fetched) => {
+          reported.push(fetched);
+        },
+      },
+    });
+
+    await drain(await curl.execute(env, ['http://localhost'], new Map()));
+
+    // The server finds the machine by the address it LEASED — `localhost` names no
+    // machine to anybody but us — while the line still records where it came from.
+    expect(reported).toEqual([
+      {
+        essid: ESSID,
+        target: OWN_IP,
+        port: HTTP_DEFAULT_PORT,
+        path: '/',
+        sourceIp: '127.0.0.1',
+      },
+    ]);
+  });
+
+  it('serves the SAME live tree over loopback that the LAN address serves', async () => {
+    // Not a second route to a regenerated box: a page edited with `nano` has to be
+    // what loopback returns, or the two names would disagree about one machine.
+    const edited = ownBox(WEB_SERVER_RUNNING, publishedPage('<h1>alice was here</h1>'));
+
+    const { text } = await fetchOwn(edited, 'http://localhost');
+
+    expect(text).toContain('alice was here');
+  });
+
+  it('refuses loopback when no web server is running, exactly as the LAN address does', async () => {
+    const { text, exitCode } = await fetchOwn(ownBox(), 'http://localhost');
+
+    expect(exitCode).toBe(1);
+    expect(text).toContain('Connection refused');
+  });
+
+  it('keeps the document root on loopback too — a traversal is still a 404', async () => {
+    const { text, exitCode } = await fetchOwn(
+      ownBox(WEB_SERVER_RUNNING),
+      'http://127.0.0.1/../../etc/passwd',
+    );
+
+    expect(exitCode).not.toBe(0);
+    expect(text).not.toContain('root:');
   });
 
   it('refuses the connection when no web server is running, rather than inventing a page', async () => {
