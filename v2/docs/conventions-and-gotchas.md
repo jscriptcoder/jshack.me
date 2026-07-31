@@ -157,26 +157,40 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
   the editor open); a refused one leaves it alone. Wire-check `scripts/testModifiedSinceOpen.ts`;
   three-player browser verification in `e2e-shared-network-verification.md` §6.
 
-**Current version: 0.106.0.**
+**Current version: 0.109.0.**
 
 **Current epic — legacy parity, IN PROGRESS:** `plans/legacy-parity-epic.md` — every remaining
 way into a machine (doors → discovery → CVE vulnerabilities), grilled to nine locked
 decisions. The ship gate is legacy parity **minus missions**; missions are a post-ship epic.
 
-- **D1 (the web surface) — slices 1–3 of 4 ✅ SHIPPED (v0.104.0 #344, v0.105.0 #345,
-  v0.106.0 #346).** The first door since `ssh`, and the only one that opens with **no
-  credential**. Slice 1: a generated LAN host rolls the `http` service, `nmap` labels its
-  port, and `curl http://<its IP>` returns its seeded page (`curl -i` for headers); `ping`
-  answers reachability, seeded per address. Slice 2: the player runs their own server —
-  `nginx`/`apache2` are **two names for one capability** (both write `/var/run/nginx.pid`, so
-  the second is refused and told a web server is already up rather than which program),
-  root-only, and `curl` on the player's own address reads their **live** tree so a `nano`
-  edit changes what a fetch returns. Slice 3: **cross-player** — `curl http://<their public
-  IP>` returns the page behind that NAT forward with **no session and no password**, via
-  `core/network/resolveHttpFetch.ts` (wire-check `scripts/testHttpFetch.ts`, 12/12 live).
-  **Nothing outside `/var/www/html` is fetchable** — that confinement lives in
-  `core/network/http.ts` (`resolveWebPath`), NOT in the filesystem walker; see §7. Live plan
-  for slice 4 (`access.log`): `plans/d1-web-surface.md`.
+- **D1 (the web surface) ✅ COMPLETE (v0.109.0).** Five slices — v0.104.0 #344, v0.105.0 #345,
+  v0.106.0 #346, v0.107.0 #347, v0.108.0 #348 — plus the v0.109.0 close-out. The plan file is
+  deleted; this is its as-built.
+  - **The door.** A generated LAN host rolls the `http` service, `nmap` labels its port, and
+    `curl http://<its IP>` returns its seeded page (`curl -i` for headers). `ping` answers
+    reachability, seeded per address. The first door since `ssh`, and the only one that opens
+    with **no credential** at all.
+  - **The player's own server.** `nginx`/`apache2` are **two names for one capability** — both
+    write `/var/run/nginx.pid`, so the second is refused and told a web server is already up
+    rather than which program. Root-only. `curl` on the player's own address (or `localhost` /
+    `127.0.0.1`) reads their **live** tree, so a `nano` edit changes what a fetch returns.
+  - **Cross-player.** `curl http://<their public IP>` returns the page behind that NAT forward
+    with **no session and no password**, via `core/network/resolveHttpFetch.ts`.
+  - **The defender's record.** Every fetch that REACHED a server writes an Apache-combined line
+    to that box's `/var/log/access.log`. Cross-player it is **owner-keyed** with a
+    **server-derived** source IP (`core/network/resolveHttpFetch.ts`); own-LAN it is
+    caller-keyed via a separate signed action (`core/network/recordLanFetch.ts`), because a
+    generated host has no owner and the player's own box is theirs already. 200s and 404s log
+    alike, and **a traversal is recorded verbatim as requested, not as resolved** — the
+    resolved path would say nothing happened, and a wall of 404s is what `gobuster` will look
+    like from the defender's chair in D2.
+  - **The confinement.** **Nothing outside `/var/www/html` is fetchable**, and that lives in
+    `core/network/http.ts` (`resolveWebPath`), NOT in the filesystem walker — see §7. The
+    server reads the document root as ITSELF, never as the requester, or a page the player just
+    published at root tier would 404 (see §4).
+  - **Wire-checks:** `scripts/testHttpFetch.ts` (17/17) and `scripts/testLanFetchLog.ts` (8/8).
+    **Browser-verified end to end** 2026-07-31, both the own-LAN and the two-player
+    forward loops — `e2e-shared-network-verification.md` §7.
 
 To pick up the next slice: read the relevant `plans/*.md` TOP BLOCK (live status +
 as-built), then the cross-player architecture doc if the work touches cross-player paths.
@@ -635,8 +649,41 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   the `patches-changed` channel remains workstation-scoped. So refusals are ROUTINE, not rare —
   a co-edited gateway will ask most times. Two cheaper-looking fixes were considered and left:
   a refetch when an editor OPENS a foreign file (narrow — does not help a concurrent save), and
-  a machine-scoped invalidation channel (needs Supabase Realtime plus a publish-authorization
-  model that does not exist). Revisit if the asking becomes annoying in play.
+  a machine-scoped invalidation channel — **now decided against, see below.**
+- **DECIDED 2026-07-31: no Supabase Realtime. The staleness is accepted; a fresher READ is the
+  approved direction if we ever fix it.** Three reasons, in order of weight:
+  1. **Legacy shipped this and it leaked.** Broadcasting patch changes let a player read, from
+     the browser's Network tab, what other players were changing on machines they were not on
+     and had no permission to see. Legacy's fix was to send the broadcast back EMPTY for an
+     unauthorized subscriber — which is the tell: the push had already degraded into a bare
+     hint, and the hint still needed authorizing.
+  2. **There is no identity for RLS to key on.** Realtime's `postgres_changes` evaluates RLS for
+     the *subscribing* identity, but a player here is an Ed25519 keypair the API layer verifies
+     per request — not a Supabase auth user. Every browser would subscribe as the same anon
+     role, so no policy can express "only occupants of this ESSID". That is a mismatch between
+     two identity systems, not a config gap. The bridgeable form is Realtime **Broadcast** on
+     per-machine topics with API-issued subscription tokens — buildable, but a subsystem with
+     its own auth surface.
+  3. **It would be the first direct client↔DB channel.** `@supabase/supabase-js` is imported
+     ONLY in `api/*` under `service_role`; the browser holds no database connection at all and
+     every read is a signed request the server authorizes. That invariant is cheap to keep and
+     expensive to restore. Even a data-free hint leaks the existence of a change on a box you
+     cannot see.
+- **The staleness is worse for LOGS than the entry above implies, and D1 made that plain.** The
+  co-edit case is a genuine race and rare. A defender's log is not a race: **every** cross-player
+  trace is invisible until the defender happens to do something that triggers a refetch, because
+  the server writes it on their behalf and nothing tells them. That is `/var/log/kern.log`
+  (someone scanned you), `auth.log` (someone tried to log in) and now `access.log` (someone
+  fetched or probed your page) — all three, 100% of the time. Verified live 2026-07-31: a player
+  was fetched and traversal-probed from another network four times and her terminal showed
+  nothing until she ran an unrelated command. Nothing is lost — the rows are correct in the
+  journal — so this is read freshness, not data.
+  **If we fix it, the approved shape is a PULL, not a push:** refetch the journal before reading
+  a file the server may have written behind your back (the three paths already exist as
+  `ACCESS_LOG_PATH` / `AUTH_LOG_PATH` / `KERN_LOG_PATH`, and `refetchPatches` is already written
+  and already called on every write). That needs **no new authorization model** — it is the
+  existing signed `listPatches` for your OWN machine — and costs one round trip on
+  `cat /var/log/*`. Do not re-open Realtime for this.
 - **`echo x > rules.v4` is still an unguarded wipe vector.** A redirect carries no base
   fingerprint by design — it truncates by definition, and the player was never shown the
   content — so it overwrites a co-occupant's rules with no question asked. Deliberate by nature

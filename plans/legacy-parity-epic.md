@@ -223,6 +223,7 @@ POST-SHIP — MISSIONS
 | # | Slice (actor + action + scope) | Includes | Defers | Acceptance examples |
 |---|---|---|---|---|
 | **D1** | **A player serves a web page and a stranger reads it** | `apache2`/`nginx` daemons (pidfile → port, root for <1024); `SERVICE_CATALOG` http row + generation placement; generated page content (legacy `pools/web.ts`); `/var/www/html` in base FSs; `curl [-i]`; the request pipeline (parse → NAT/DNS resolve → static file); `access.log` trace; `ping` folds in. **A new server handler resolves (public IP, port, path)** — `resolveCrossPlayerFs` is keyed by a `machine_id` obtained from a login, and `curl` has no login | `lynx` (own slice, fast-follow — a full overlay browser screen, UI work of a different size); `gobuster` (→ D2, needs the same `extraFiles` seam); `-X POST`; request handlers; HTTPS specifics | B `curl http://<A pub IP>` → A's page, **with no session and no credential** (tier 3 already allows it); `nmap` shows `:80` on NPC hosts running http; A reads B's hit in `/var/log/access.log` |
+| **D1b** | **A player browses a page instead of reading its source** | `lynx <url>` as a full overlay browser SCREEN (legacy carried `LynxBrowser.tsx` + `lynx/render.ts` + `lynx/fetch.ts`): render HTML to text, follow links, keyboard navigation, quit back to the terminal. Reuses D1 whole — `parseHttpUrl`, `resolveWebPath`, the own-LAN/public split, and the same `access.log` trace, so a browsed page is logged exactly like a curled one | Forms/POST; images; CSS; multi-tab | A player `lynx http://<host>` → the page renders as text with its links numbered → following a link fetches the next page → the target's `access.log` shows one line per page viewed |
 | **D2** | **A player cracks a credential instead of being told it** | `hydra <host> [service] [user]`; `apt install hydra` ships `passwords.txt` via `extraFiles`; the two-pool split + per-account probability in `buildRemoteHostFs`; uncrackable pool into `secrets.ts`; wordlist-as-sole-gate; server-side md5 batch matching for cross-player; `john`; hydra trace on the target's `auth.log`; **`gobuster`** — the same `extraFiles` seam ships its `dirlist.txt`, so it is built once | ftp/mysql/snmp as hydra *services* — each arrives with its door | B `hydra <NPC host> ssh` → cracks the user account → `ssh` succeeds; a low-probability NPC root cracks, most don't; a player's chosen root password never cracks; A appends a harvested password to `passwords.txt` via `nano` and a previously-failing crack now succeeds |
 | **D3** | **A player moves files without a shell** | `vsftpd` daemon + catalog row + placement; `ftp <host> [user] [pw]` + FTP mode command set (`get`/`put`/`ls`/`cd`/`lls`/`lcd`/`lpwd`/`quit`); `scp`; `vsftpd.log` trace. **No content generator** — the target's FS is the content | Virtual users (`virtual_users.conf`) | B `hydra`s ftp creds → `ftp <host>` → `get` a file → `put` one the owner then sees; the session authorizes at its tier through L1/L2 exactly as ssh does (decision 2) |
 | **D4** | **A defender controls what their box exposes** | `systemctl start/stop/status`; `ps`; `kill`; symmetric pidfile open/close semantics; `chmod` folds in | — | A `systemctl stop sshd` → pidfile gone → B's scan drops `:22` and ssh-via-forward `404`s; A `ps` lists what is running; A restarts it and reachability returns |
@@ -309,17 +310,24 @@ picked, never the shape of what is stamped or how a door authorizes.
 
 ## Next action
 
-**D1 is in flight** — see [`d1-web-surface.md`](./d1-web-surface.md). **Slices 1–4 of 5 are
-shipped** (#344 `c54caa7`, #345 `9b05f6f`, #346 `c408fb2`, #347 `2030004`): a host serves a page,
-the player runs their own web server, a stranger reads a player's page across the network with no
-session and no credential, and the owner reads that hit in `/var/log/access.log` — owner-keyed
-writer, server-derived source IP, 200s and 404s alike.
+**D1 is COMPLETE** (2026-07-31, v0.109.0). Five slices shipped — #344 `c54caa7`, #345 `9b05f6f`,
+#346 `c408fb2`, #347 `2030004`, #348 `de357ca` — plus the close-out. A host serves a page; the
+player runs their own web server and edits what it serves; a stranger reads that page across the
+network **with no session and no credential**; and every fetch that reached a server is written to
+that box's `/var/log/access.log` — owner-keyed writer, server-derived source IP cross-player, 200s
+and 404s alike, traversals recorded verbatim. Its plan file has been deleted; the as-built lives in
+`conventions-and-gotchas.md` §1 and the full journey in `e2e-shared-network-verification.md` §7.
 
-Next up is the LAST D1 slice, **4b: an own-LAN fetch is logged too**, on branch
-`feat/own-lan-access-log` — a generated host on the player's LAN, and the player fetching
-themselves. It is `handleNmapScan` again with a different line: a new signed action whose server
-resolves which machine the line lands on, so the client never names one. Added 2026-07-30, because
-an access log belongs to the server, not the network path.
+**Next up: D2 — a player cracks a credential instead of being told it.** It is the natural
+successor: D1 deliberately took the one door that needs NO authorization, so D2 is where the
+credential layer arrives (`hydra`, `john`, the `extraFiles` wordlist seam) and it carries
+`gobuster` with it — whose whole defender-side tell is a wall of 404s in the `access.log` D1 just
+built. **D1b (`lynx`)** is a fast-follow whenever it is wanted; it reuses D1 whole and adds only
+the browser screen.
+
+Before either, run `story-splitting`/`planning` on the chosen slice — D2 is visibly larger than D1
+was (a credential layer, two tools, a data-file seam and a trace) and should be split before it is
+planned.
 
 Per slice, before any code: load `tdd`, `testing`, `mutation-testing`, `refactoring`; run full
 RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR; present before starting the next. Any `api/` change
