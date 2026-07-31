@@ -15,6 +15,8 @@ import {
   SYSTEM_UTILITY_NAMES,
 } from './binaries';
 import { md5 } from './md5';
+import { CRACKABLE_PASSWORDS } from './passwordPools';
+import { DEFAULT_WORDLIST } from '../wordlist/defaultWordlist';
 
 /**
  * Story 1: the player's own-workstation base filesystem is generated
@@ -83,13 +85,14 @@ describe('buildWorkstationBaseFs', () => {
 
   it('derives the guest hash reproducibly from the seed (pins the whole seed→passwd pipeline)', () => {
     // Golden values lock the deterministic derivation end to end: the
-    // `workstation-` seed namespace (decision 1/6), the PRNG, the guest-password
-    // pool order, and md5. SEED_A selects 'password' → md5('password').
+    // `workstation-` seed namespace, the PRNG, the crackable-pool order, and
+    // md5. SEED_A selects 'root1234', SEED_B selects 'password' — two distinct
+    // words, so a pool that collapsed to a single entry would fail here.
     expect(passwdRow(buildWorkstationBaseFs(SEED_A, getConfig()), 'guest')[1]).toBe(
-      '5f4dcc3b5aa765d61d8327deb882cf99',
+      'aabb2100033f0352fe7458e412495148',
     );
     expect(passwdRow(buildWorkstationBaseFs(SEED_B, getConfig()), 'guest')[1]).toBe(
-      '3fc0a7acf087f549ac2b266baf94b8b1',
+      '5f4dcc3b5aa765d61d8327deb882cf99',
     );
   });
 
@@ -661,5 +664,30 @@ describe('workstationGuestPassword', () => {
 
   it('is owner-key specific — different identities get different guest passwords', () => {
     expect(workstationGuestPassword(SEED_A)).not.toBe(workstationGuestPassword(SEED_B));
+  });
+
+  it('draws from the crackable pool, reaching every word in it', () => {
+    // A workstation guest is the only way into a player's box before the CVE
+    // phase, so it draws from the SAME crackable pool every other guest account
+    // does — not a private near-copy of it. A second list that merely overlaps
+    // is a curve nobody chose: it drifts silently the moment one is edited.
+    const drawn = new Set(
+      Array.from({ length: 400 }, (_, index) =>
+        workstationGuestPassword(index.toString(16).padStart(64, '0')),
+      ),
+    );
+
+    expect([...drawn].sort()).toEqual([...CRACKABLE_PASSWORDS].sort());
+  });
+
+  it('is always covered by the wordlist a player starts with', () => {
+    // The end-to-end version of the promise, stated where the generator lives:
+    // whatever a workstation stamps on guest, a default `apt install hydra`
+    // must be able to recover. This is what makes cross-player play possible.
+    const uncovered = Array.from({ length: 400 }, (_, index) =>
+      workstationGuestPassword(index.toString(16).padStart(64, '0')),
+    ).filter((password) => !DEFAULT_WORDLIST.includes(password));
+
+    expect(uncovered).toEqual([]);
   });
 });
