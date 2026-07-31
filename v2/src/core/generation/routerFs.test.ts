@@ -23,6 +23,7 @@ import { md5 } from './md5';
 import { readOpenPorts } from '../services/pidfile';
 import { parseForwardRules } from '../network/iptablesRules';
 import { parseAclDenies } from '../network/switchAcl';
+import { DEFAULT_WORDLIST } from '../wordlist/defaultWordlist';
 
 // Two distinct valid 64-hex pubkeys — the owner-key seed source.
 // Owner keys — still what a DEEP gateway (below the shared LAN) and a workstation
@@ -140,10 +141,15 @@ describe('seedInnerGatewayAdminPw', () => {
     networks.forEach((essid) => expect(seedInnerGatewayAdminPw(essid, 25)).toMatch(/^\S+$/));
   });
 
-  it('is pinned per ESSID+octet (golden) — locks the inner-gw-admin- namespace, pool and pick', () => {
+  it('is pinned per ESSID+octet (golden) — locks the inner-gw-admin- namespace, roll and pick', () => {
     // Captured from the seeded generator; hardcoded (not recomputed via the fn) so a
     // mutated namespace/pool/index shifts the value and fails here deterministically.
-    expect(seedInnerGatewayAdminPw(ESSID_A, 25)).toBe('netgear');
+    //
+    // This network's gateway drew the UNCRACKABLE half — somebody changed the
+    // factory password — which is why the value does not read like a router. It
+    // also pins the roll: were the crack chance mutated to always take the
+    // crackable branch, this would come back a router default instead.
+    expect(seedInnerGatewayAdminPw(ESSID_A, 25)).toBe('copperfield7');
   });
 });
 
@@ -249,6 +255,86 @@ describe('seedDeepGatewayAdminPw', () => {
   it('always returns a non-empty password across many doors (every pool entry is real)', () => {
     const octets = Array.from({ length: 40 }, (_unused, index) => index + 2);
     octets.forEach((octet) => expect(seedDeepGatewayAdminPw(PARENT_GW, octet)).toMatch(/^\S+$/));
+  });
+});
+
+describe('the gateway difficulty curve (a gateway is the best root target in the game)', () => {
+  /**
+   * A gateway's root password is the pre-vulnerability route to root: an NPC's
+   * root account almost always holds, so the door a player is meant to hunt is
+   * the router. That intent is a RATE, and a rate is only observable across a
+   * population — one gateway proves nothing.
+   *
+   * The rate must also be DELIBERATE. Before this behaviour existed a gateway
+   * cracked about a quarter of the time purely because two words of the router
+   * pool happened to ship in the starter wordlist — a number nobody chose, and
+   * one that would drift with any unrelated edit to either list.
+   *
+   * 2000 doors per gateway kind, deterministic: these counts are fixed, not
+   * sampled. All three kinds are measured because they are three separate call
+   * sites, and a knob applied to only one of them is exactly the defect a single
+   * population test would miss.
+   *
+   * The size is not arbitrary. These seeds differ by a few characters, so their
+   * FNV-1a hashes are correlated and the observed rate converges far slower than
+   * an independent sample would: at 400 doors the three kinds spread 35.8% /
+   * 43.5% / 37.0% around a 40% knob, at 2000 they sit 37.0% / 38.9% / 38.7%, and
+   * only by 20000 do they reach 39.4-40.0%. The knob is honest — a fresh
+   * stream's first draw is uniform to within 0.3pp when the seeds are unrelated.
+   * A smaller population here would be measuring the seed strings, not the knob.
+   */
+  const NETWORKS: readonly string[] = Array.from(
+    { length: 2000 },
+    (_unused, index) => `NET-${index}`,
+  );
+
+  /** Spread the doors across the addressable range rather than clustering them
+   *  on one octet, so a per-octet artefact cannot masquerade as the rate. */
+  const octetFor = (index: number): number => 2 + (index % 253);
+
+  /** Exactly the test `hydra` applies: a password falls when the player's
+   *  starting wordlist holds it. */
+  const covered = new Set(DEFAULT_WORDLIST);
+
+  /** Computed ONCE for the whole block. Regenerating per test is fast normally
+   *  but slow enough under mutation instrumentation to race Stryker's timeout,
+   *  which silently converts a survivor into a "killed by timeout" and makes the
+   *  score depend on machine speed. Deterministic and read-only. */
+  const crackable = ((): { readonly ap: number; readonly inner: number; readonly deep: number } => {
+    const rate = (passwords: readonly string[]): number =>
+      passwords.filter((password) => covered.has(password)).length;
+    return {
+      ap: rate(NETWORKS.map(seedApGatewayAdminPw)),
+      inner: rate(NETWORKS.map((essid, index) => seedInnerGatewayAdminPw(essid, octetFor(index)))),
+      deep: rate(
+        NETWORKS.map((_unused, index) => seedDeepGatewayAdminPw(`gw-${index}`, octetFor(index))),
+      ),
+    };
+  })();
+
+  const DOORS = 2000;
+  // Observed: 740 / 778 / 774 (37.0%, 38.9%, 38.7%) against a 40% knob. The band
+  // brackets those with room for the correlated-seed drift described above, and
+  // still excludes every mutant that matters: a roll that always takes the
+  // crackable branch (2000), one that never does (0), the accidental pool-overlap
+  // rate this behaviour replaces (~500), and any other knob in the table wired
+  // here by mistake — npcRoot (~240), npcUser (~1400), guest (2000).
+  const FLOOR = Math.round(DOORS * 0.35);
+  const CEILING = Math.round(DOORS * 0.45);
+
+  it('hands over the AP gateway at a rate somebody CHOSE, not one the wordlists collided into', () => {
+    expect(crackable.ap).toBeGreaterThan(FLOOR);
+    expect(crackable.ap).toBeLessThan(CEILING);
+  });
+
+  it('applies the same odds to an inner gateway — depth changes the route, not the lock', () => {
+    expect(crackable.inner).toBeGreaterThan(FLOOR);
+    expect(crackable.inner).toBeLessThan(CEILING);
+  });
+
+  it('applies the same odds to a deep gateway, so a chain does not get harder as it descends', () => {
+    expect(crackable.deep).toBeGreaterThan(FLOOR);
+    expect(crackable.deep).toBeLessThan(CEILING);
   });
 });
 

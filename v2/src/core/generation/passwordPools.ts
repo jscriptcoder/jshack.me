@@ -34,6 +34,17 @@ export const CRACKABLE_PASSWORDS: readonly string[] = [
   'sunshine',
   'admin123',
   'root1234',
+  // Router factory defaults. One pool serves accounts and gateways alike: the
+  // roll decides WHETHER a door falls, and a themed pool per door kind would
+  // only decide what the plaintext reads like once it already has. Keeping these
+  // in means a cracked gateway still often prints something router-shaped.
+  'admin',
+  'root123',
+  'toor',
+  'default',
+  'cisco',
+  'linksys',
+  'netgear',
 ];
 
 /**
@@ -51,10 +62,10 @@ export const UNCRACKABLE_PASSWORDS: readonly string[] = JSON.parse(
 ) as readonly string[];
 
 /**
- * Every password a generated account can hold. The reverse lookup (hash back to
- * plaintext) that credential-validating code and its tests need — a generated
- * account draws from either pool, so matching against one alone silently misses
- * half the world.
+ * Every password anything in the generated world can hold. The reverse lookup
+ * (hash back to plaintext) that credential-validating code and its tests need —
+ * a generated door draws from either pool, so matching against one alone
+ * silently misses half the world rather than failing loudly.
  */
 export const ALL_GENERATED_PASSWORDS: readonly string[] = [
   ...CRACKABLE_PASSWORDS,
@@ -74,20 +85,24 @@ export const ALL_GENERATED_PASSWORDS: readonly string[] = [
  * - `npcRoot` is deliberately near the floor — roughly one crackable root per
  *   eight-host LAN, so day-one rooting happens and still feels like a find. It
  *   is also what makes the gateway worth hunting.
+ * - `gateway` is the best root odds in the game and sits well above `npcRoot`,
+ *   because the router is the door a player is MEANT to hunt before the
+ *   vulnerability phase exists. Still a crack rather than a birthright: most of
+ *   a sweep's gateways hold.
  */
 export const CRACK_CHANCE = {
   guest: 1,
   npcUser: 0.7,
   npcRoot: 0.12,
+  gateway: 0.4,
 } as const;
 
 /**
- * One account's password: crackable with probability `crackChance`, otherwise
- * not. Always consumes exactly two draws from `prng` whichever branch it takes,
- * so a caller's later draws stay put when a chance is retuned.
+ * One door's password: crackable with probability `crackChance`, otherwise not.
+ * Always consumes exactly two draws from `prng` whichever branch it takes, so a
+ * caller's later draws stay put when a chance is retuned.
  */
 export const drawPassword = (prng: Prng, crackChance: number): string => {
   const crackable = prng.next() < crackChance;
-  const pool = crackable ? CRACKABLE_PASSWORDS : UNCRACKABLE_PASSWORDS;
-  return prng.pick(pool);
+  return prng.pick(crackable ? CRACKABLE_PASSWORDS : UNCRACKABLE_PASSWORDS);
 };

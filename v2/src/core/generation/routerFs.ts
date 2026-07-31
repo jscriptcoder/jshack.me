@@ -13,6 +13,7 @@
 import type { Directory, FileNode, FilePermissions } from '../filesystem/types';
 import { createPrng } from './prng';
 import { md5 } from './md5';
+import { CRACK_CHANCE, drawPassword } from './passwordPools';
 import {
   createBinaryEntries,
   LOCALHOST_PREINSTALLED_TOOLS,
@@ -37,26 +38,15 @@ import { KERN_LOG_PERMISSIONS } from '../logging/kernLog';
 import { formatPidfileContent } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 
-/** Weak, router-default-style admin passwords — disjoint from the workstation
- *  guest pool so a router credential can never collide with a guest one. The
- *  seeded PRNG picks one; a future cracker matches against this set. */
-const ROUTER_ADMIN_PASSWORDS: readonly string[] = [
-  'admin',
-  'admin123',
-  'root123',
-  'toor',
-  'default',
-  'cisco',
-  'linksys',
-  'netgear',
-];
-
 /** The AP gateway's root account plaintext password, seeded from the ESSID alone
  *  (the `ap-gw-admin-` namespace) so every occupant of the access point faces the
- *  same credential and the server can recover it for cross-player auth. Weak by
- *  design (pool member): taking the gateway is a crack, not a birthright. */
+ *  same credential and the server can recover it for cross-player auth.
+ *
+ *  Crackable at the gateway rate — the best root odds in the game, and a rate
+ *  somebody chose: before this the answer was whatever fraction of the router
+ *  pool happened to also ship in the starter wordlist. */
 export const seedApGatewayAdminPw = (essid: string): string =>
-  createPrng(`ap-gw-admin-${essid}`).pick(ROUTER_ADMIN_PASSWORDS);
+  drawPassword(createPrng(`ap-gw-admin-${essid}`), CRACK_CHANCE.gateway);
 
 /** Router display names, ported verbatim from the legacy generator
  *  (`hostnamesByRole.router`). A router is just another machine with NAT config,
@@ -246,12 +236,13 @@ export const buildApGatewayBaseFs = (essid: string): Directory =>
 
 /** The inner gateway root ("admin") password, seeded from the ESSID AND the gateway's
  *  LAN octet (the `inner-gw-admin-` namespace — SEPARATE from the edge router's
- *  `router-admin-`, so the two routers never share a credential). Weak by design (pool
- *  member) for the future cracker; the server recovers it from the ESSID, which fixes
- *  the octet. The credential is keyed to the BOX, not to whoever cracked it: one
- *  shared machine cannot have a different root password per occupant looking at it. */
+ *  `router-admin-`, so the two routers never share a credential). Crackable at the same
+ *  gateway rate as the edge — descending a chain changes the route to a door, not the
+ *  lock on it; the server recovers it from the ESSID, which fixes the octet. The
+ *  credential is keyed to the BOX, not to whoever cracked it: one shared machine cannot
+ *  have a different root password per occupant looking at it. */
 export const seedInnerGatewayAdminPw = (essid: string, octet: number): string =>
-  createPrng(`inner-gw-admin-${essid}:${octet}`).pick(ROUTER_ADMIN_PASSWORDS);
+  drawPassword(createPrng(`inner-gw-admin-${essid}:${octet}`), CRACK_CHANCE.gateway);
 
 /** Build an inner gateway's base FS — the same root-only router toolkit as the edge
  *  (`buildRouterBaseFsFromIdentity`), but the admin password is the octet-seeded
@@ -268,10 +259,10 @@ export const buildInnerGatewayBaseFs = (essid: string, octet: number): Directory
  *  `inner-gw-admin-`). Keying on the parent keeps two deep gateways at the same octet
  *  behind different parents from ever sharing a credential; the server recovers it by
  *  walking the chain, which fixes the parent + octet. One password per door, not per
- *  player: two occupants cracking the same chain door are cracking the same box. Weak by
- *  design (pool member) for the future cracker. */
+ *  player: two occupants cracking the same chain door are cracking the same box.
+ *  Crackable at the same gateway rate as every other depth. */
 export const seedDeepGatewayAdminPw = (parentMachineId: string, octet: number): string =>
-  createPrng(`deep-gw-admin-${parentMachineId}:${octet}`).pick(ROUTER_ADMIN_PASSWORDS);
+  drawPassword(createPrng(`deep-gw-admin-${parentMachineId}:${octet}`), CRACK_CHANCE.gateway);
 
 /** Build a deep gateway's base FS — the same root-only router toolkit as an inner
  *  gateway (NAT `rules.v4`, `sshd` always up: it forwards to its OWN deeper layer and

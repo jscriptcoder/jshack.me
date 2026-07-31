@@ -86,13 +86,13 @@ describe('buildWorkstationBaseFs', () => {
   it('derives the guest hash reproducibly from the seed (pins the whole seed→passwd pipeline)', () => {
     // Golden values lock the deterministic derivation end to end: the
     // `workstation-` seed namespace, the PRNG, the crackable-pool order, and
-    // md5. SEED_A selects 'root1234', SEED_B selects 'password' — two distinct
+    // md5. SEED_A selects 'linksys', SEED_B selects 'letmein' — two distinct
     // words, so a pool that collapsed to a single entry would fail here.
     expect(passwdRow(buildWorkstationBaseFs(SEED_A, getConfig()), 'guest')[1]).toBe(
-      'aabb2100033f0352fe7458e412495148',
+      '0c4c43c0a94fc3d2210fa58dca6e09da',
     );
     expect(passwdRow(buildWorkstationBaseFs(SEED_B, getConfig()), 'guest')[1]).toBe(
-      '5f4dcc3b5aa765d61d8327deb882cf99',
+      '0d107d09f5bbe40cade3de5c71e9e9b7',
     );
   });
 
