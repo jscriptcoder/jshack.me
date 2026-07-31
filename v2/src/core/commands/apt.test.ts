@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BINARY_STUB } from '../generation/binaries';
 import type { SystemLibrary } from '../generation/libraries';
-import type { FilePermissions } from '../filesystem/types';
+import type { Directory, FilePermissions } from '../filesystem/types';
 import { asAbsPath, type UserType } from '../types';
 import type { CommandResult, PatchResult, TerminalLine } from './types';
 import {
@@ -12,8 +12,13 @@ import {
   mockSession,
 } from '../../test/factories/commandEnv';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { apt, installPackageLibraries } from './apt';
+import { apt, installExtraFiles, installPackageLibraries } from './apt';
 import { APT_PACKAGES } from './aptPackages';
+import {
+  DEFAULT_WORDLIST,
+  formatWordlist,
+  WORDLIST_PERMISSIONS as WORDLIST_PERMS,
+} from '../wordlist/defaultWordlist';
 
 /**
  * `apt install` is the reachability mechanism: as root + online, it writes a
@@ -63,25 +68,56 @@ type AptEnvOpts = {
   readonly online?: boolean;
   readonly userType?: UserType;
   readonly writeResult?: PatchResult;
+  /** Fails ONLY the writes whose path matches, leaving the rest to succeed — so a
+   *  failure partway through a multi-step install is exercisable. */
+  readonly failWritesTo?: string;
+  readonly mkdirResult?: PatchResult;
 };
 
-/** An env whose `patches.write` is a spy: it records each call and returns a
- *  configurable result, so installs are observable and a rejected write is
- *  exercisable. Defaults: root + online + writes succeed. */
+/** One filesystem operation apt performed, in the order it performed them.
+ *  Directory creation and file writes share this list because their ORDER is the
+ *  contract: a write into a directory that does not exist yet is refused. */
+type Operation =
+  | { readonly kind: 'mkdir'; readonly path: string }
+  | { readonly kind: 'write'; readonly path: string };
+
+/** An env whose `patches` mutations are spies: each call is recorded and returns
+ *  a configurable result, so installs are observable and a rejected write is
+ *  exercisable. Defaults: root + online + everything succeeds. */
+/** The directories a real workstation already has where apt writes. `/usr/bin`
+ *  exists on every box; `/usr/share` does NOT (asserted in `workstationFs.test`,
+ *  where `/usr` holds exactly `bin` and `sbin`), which is why a data file's
+ *  ancestors have to be created and a binary's do not. */
+const installedBoxTree = (): Directory =>
+  buildDirectory({
+    usr: buildDirectory({ bin: buildDirectory({}), sbin: buildDirectory({}) }),
+    lib: buildDirectory({}),
+  });
+
 const aptEnv = (opts: AptEnvOpts = {}) => {
   const writes: WriteCall[] = [];
+  const operations: Operation[] = [];
   const env = mockCommandEnv({
     session: mockSession({ userType: opts.userType ?? 'root' }),
+    fs: mockFsViewFromTree(installedBoxTree()),
     network: mockNetworkView({ isOnline: () => opts.online ?? true }),
     patches: {
       ...mockPatchApi(),
       write: async (path, content, options) => {
         writes.push({ path, content, options });
+        operations.push({ kind: 'write', path });
+        if (opts.failWritesTo !== undefined) {
+          return opts.failWritesTo === path ? { ok: false, error: 'permission_denied' } : { ok: true };
+        }
         return opts.writeResult ?? { ok: true };
+      },
+      mkdir: async (path) => {
+        operations.push({ kind: 'mkdir', path });
+        return opts.mkdirResult ?? { ok: true };
       },
     },
   });
-  return { env, writes };
+  return { env, writes, operations };
 };
 
 const syncResult = (
@@ -125,6 +161,17 @@ const firstStreamedLine = async (result: CommandResult): Promise<TerminalLine | 
   if (result.kind !== 'async') throw new Error('async expected');
   for await (const line of result.lines) return line;
   return undefined;
+};
+
+/** Drain the extra-file installer to its return value. It is a generator: the
+ *  writes only happen as the lines are consumed. */
+const drainExtraFiles = async (
+  installer: AsyncGenerator<TerminalLine, PatchResult>,
+): Promise<PatchResult> => {
+  for (;;) {
+    const step = await installer.next();
+    if (step.done === true) return step.value;
+  }
 };
 
 describe('apt', () => {
@@ -279,6 +326,132 @@ describe('apt', () => {
         'E: Failed to install nmap (permission_denied)',
       ]);
       expect(exitCode).toBe(100);
+    });
+
+    /**
+     * Some packages ship DATA, not just binaries: hydra without a wordlist is a
+     * tool with nothing to try. `extraFiles` is that seam — the package names the
+     * files it installs alongside its binaries, and apt places them like any other
+     * file on the box, so the player can read and edit what they got.
+     *
+     * The ordering assertions are not fussiness. A write whose containing
+     * directory does not exist is REFUSED (`fsView`: a deeper-missing path has no
+     * container, so there is nowhere to create the entry), and nothing on a fresh
+     * workstation creates `/usr/share`. Directories first, or the install fails.
+     */
+    describe('extra files', () => {
+      it('installs the wordlist hydra ships, world-readable and not executable', async () => {
+        const { env, writes } = aptEnv();
+
+        const { exitCode } = await streamResult(
+          await apt.execute(env, ['install', 'hydra'], NO_FLAGS),
+        );
+
+        const wordlist = writes.find(
+          (write) => write.path === '/usr/share/wordlists/passwords.txt',
+        );
+        expect(wordlist).toEqual({
+          path: '/usr/share/wordlists/passwords.txt',
+          content: formatWordlist(DEFAULT_WORDLIST),
+          // Readable by every tier so a guest-tier hydra can consult it, writable
+          // only by root so appending a harvested password is a deliberate act,
+          // and NEVER executable — it is data the tools read, not a program.
+          options: { isNew: true, permissions: WORDLIST_PERMS },
+        });
+        expect(exitCode).toBe(0);
+      });
+
+      it('creates the containing directories before writing into them', async () => {
+        const { env, operations } = aptEnv();
+
+        await streamResult(await apt.execute(env, ['install', 'hydra'], NO_FLAGS));
+
+        // `/usr` already exists on the box, so it is left alone — every mkdir is
+        // a persisted journal row, and one that recreates an existing directory
+        // would sit on the player's box forever doing nothing. `/usr/share` and
+        // the wordlists directory below it DO have to be made: a write into a
+        // missing directory is refused before it ever reaches the journal.
+        expect(operations).toEqual([
+          { kind: 'write', path: '/usr/bin/hydra' },
+          { kind: 'mkdir', path: '/usr/share' },
+          { kind: 'mkdir', path: '/usr/share/wordlists' },
+          { kind: 'write', path: '/usr/share/wordlists/passwords.txt' },
+        ]);
+      });
+
+      it('writes no extra files for a package that ships none', async () => {
+        const { env, writes } = aptEnv();
+
+        await streamResult(await apt.execute(env, ['install', 'nmap'], NO_FLAGS));
+
+        expect(writes.map((write) => write.path)).toEqual(['/usr/bin/nmap']);
+      });
+
+      it('announces the extra file, rather than writing it silently', async () => {
+        const { env } = aptEnv();
+
+        const { lines } = await streamResult(
+          await apt.execute(env, ['install', 'hydra'], NO_FLAGS),
+        );
+
+        // The player watches apt work — a file that appears with no line
+        // explaining it reads as something the game did behind their back.
+        expect(lines.map((line) => line.content)).toContain(
+          'Installing /usr/share/wordlists/passwords.txt ...',
+        );
+      });
+
+      it('installs every extra file a package ships, not just the first', async () => {
+        // A successful write must not end the walk. With hydra shipping exactly
+        // one data file, a "return after the first" bug is invisible through the
+        // real catalog — so the two-file case is driven against a fixture.
+        const { env, writes } = aptEnv();
+        const extras = [
+          { path: asAbsPath('/usr/share/wordlists/a.txt'), content: 'alpha', permissions: WORDLIST_PERMS },
+          { path: asAbsPath('/usr/share/wordlists/b.txt'), content: 'bravo', permissions: WORDLIST_PERMS },
+        ];
+
+        const result = await drainExtraFiles(installExtraFiles(env, extras));
+
+        expect(result).toEqual({ ok: true });
+        expect(writes.map((write) => write.path)).toEqual([
+          '/usr/share/wordlists/a.txt',
+          '/usr/share/wordlists/b.txt',
+        ]);
+      });
+
+      it('stops at a rejected directory creation, without writing into it', async () => {
+        // The directory is what makes the write possible at all, so a refused
+        // mkdir must abort rather than push on and blame the write that follows.
+        const { env, operations } = aptEnv({ mkdirResult: { ok: false, error: 'permission_denied' } });
+        const extras = [
+          {
+            path: asAbsPath('/usr/share/wordlists/passwords.txt'),
+            content: 'alpha',
+            permissions: WORDLIST_PERMS,
+          },
+        ];
+
+        const result = await drainExtraFiles(installExtraFiles(env, extras));
+
+        expect(result).toEqual({ ok: false, error: 'permission_denied' });
+        expect(operations).toEqual([{ kind: 'mkdir', path: '/usr/share' }]);
+      });
+
+      it("reports a rejected extra-file write in apt's failure shape", async () => {
+        const { env } = aptEnv({ failWritesTo: '/usr/share/wordlists/passwords.txt' });
+
+        const { lines, exitCode } = await streamResult(
+          await apt.execute(env, ['install', 'hydra'], NO_FLAGS),
+        );
+
+        // The same shape the binary and library writes already use, so a player
+        // reads one failure format regardless of which step broke.
+        expect(lines.map((line) => line.content)).toContain(
+          'E: Failed to install hydra (permission_denied)',
+        );
+        expect(exitCode).toBe(100);
+      });
     });
   });
 

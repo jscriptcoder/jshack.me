@@ -48,9 +48,11 @@ import { KERN_LOG_PERMISSIONS } from '../logging/kernLog';
 
 // --- Player workstation composer ---
 
-/** Weak guest passwords (cracking is a later epic — these are just data the
- *  seeded PRNG picks from, mirroring legacy `generateLocalhost`). */
-const GUEST_PASSWORDS: readonly string[] = [
+/** Weak guest passwords the seeded PRNG picks from, mirroring legacy
+ *  `generateLocalhost`. Exported so the shipped wordlist can be proven to cover
+ *  every password a guest account can actually hold — membership in that list is
+ *  what decides whether an account is crackable. */
+export const GUEST_PASSWORDS: readonly string[] = [
   'guest',
   'password',
   'letmein',
