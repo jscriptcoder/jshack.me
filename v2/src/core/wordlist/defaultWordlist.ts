@@ -11,10 +11,13 @@
  *
  * What it covers is exactly the CRACKABLE pool, and never the uncrackable one
  * (`generation/passwordPools.ts`). Those two relations are the difficulty curve:
- * an account that drew crackable must fall, and one that drew uncrackable must
- * hold until its password is harvested and appended by hand. A single word
- * leaking across softens the curve with nothing to see — no error, no wrong
- * output, just a game that is easier than its knobs claim.
+ * a door that drew crackable must fall, and one that drew uncrackable must hold
+ * until its password is harvested and appended by hand. A single word leaking
+ * across softens the curve with nothing to see — no error, no wrong output, just
+ * a game that is easier than its knobs claim.
+ *
+ * "Door", not "account": gateways draw from the same two pools at their own
+ * rate, so this one file decides what falls everywhere in the game.
  */
 
 import { asAbsPath, type AbsPath } from '../types';
@@ -36,7 +39,11 @@ export const WORDLIST_PERMISSIONS: FilePermissions = {
 
 /** Passwords beyond the generated pools — the common-list padding that makes the
  *  file read like a real wordlist rather than a key to this specific world. They
- *  crack nothing today; they are what an attacker would actually try first. */
+ *  crack nothing; they are what an attacker would actually try first.
+ *
+ *  `admin` used to live here and did NOT crack nothing — it is a router factory
+ *  default, so the padding was quietly opening gateways. It now sits in the
+ *  crackable router pool, where that job is stated. */
 const COMMON_PASSWORDS: readonly string[] = [
   '123456',
   '12345678',
@@ -47,7 +54,6 @@ const COMMON_PASSWORDS: readonly string[] = [
   'master',
   'football',
   'iloveyou',
-  'admin',
   'welcome',
   'login',
   'passw0rd',

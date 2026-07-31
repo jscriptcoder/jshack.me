@@ -353,6 +353,16 @@ the change — could be DELETED with the whole suite green. Mutation was the onl
 found it. Whenever a dep is faked in every test of its consumer, the real implementation needs
 its own direct test, or it is effectively unverified.
 
+**A population test over SYSTEMATIC seeds converges far slower than the sample size suggests.**
+Measuring a probability knob across `NET-0`, `NET-1`, … looks like an n=400 sample and is not:
+those strings differ by a few characters, so their FNV-1a hashes are correlated. A 0.40 knob read
+35.8% / 43.5% / 37.0% across three seed namespaces at 400 draws, 37.0% / 38.9% / 38.7% at 2000,
+and only reached 39.4-40.0% at 20000. The roll itself is fine — a fresh stream's FIRST draw is
+uniform to within 0.3pp when seeds are unrelated (verified across four seed shapes × three
+thresholds), so **do not "fix" an off-target rate by tuning the knob**. Either sample an order of
+magnitude harder than feels necessary, or accept a band wide enough to hold the drift and say so
+in the test.
+
 **Assert over the whole record when a field is drawn from a small pool.** "A different seed
 re-rolls the credentials" compared ONE `root` hash out of a ten-word password pool, so it
 failed roughly one ESSID pair in ten — a real flake dressed up as a regression. Comparing the
@@ -370,6 +380,14 @@ fails at a rate set by the smaller one:
 - a player's LAN octet is drawn from their pubkey while ~10 of 253 octets hold generated hosts,
   so **~1 run in 25** puts a real NPC at the "self" address — which broke `nmapScan`'s
   self-exclusion count (`hostsLogged: 1`, not 0).
+
+**One of those latent instances has now been found**, and it cost a full gate cycle: `nmapScan`'s
+"self still skipped" test called `generateIdentity()` directly while a sibling test in the SAME
+file already used the `identityOffTheGeneratedLan()` helper written for exactly this. It failed
+two consecutive Stryker dry runs while the full suite passed 13/13 — which reads like "the mutation
+run broke something" and is really the 1-in-25 collision landing twice. When a dry run fails on a
+test that passes standalone, check whether that test mints a random identity BEFORE assuming a
+moving tree or tooling noise.
 
 Fix by **drawing again** — recurse until the candidate identity does not collide — so the
 failure mode is gone by construction rather than merely rarer. That is different from the
@@ -440,6 +458,35 @@ than behaviour. But **`flags` IS consumed** — `runLine.ts` parses argv against
 It survives only because command tests call `command.execute(env, args, flagMap)` directly and
 hand-build the flag map, bypassing the parser entirely. **Any claim about flag PARSING needs a
 `runLine`-level test**; the command's own test file structurally cannot make it.
+
+**The default 5s timeout was inflating scores here, so `stryker.config.json` now sets
+`timeoutMS: 30000`.** This is the concrete instance behind the two timeout warnings below, and it
+was large: `routerFs.ts` reported **95.83% with 46 timeouts against 46 kills**, and re-running the
+same unchanged code at `--timeoutMS 60000` gave **87.50%** — timeouts fell 46 → 10 and survivors
+rose **4 → 12**. Eight mutants scoring as "killed by timeout" were genuine survivors. The same run
+turned `passwordPools.ts` from a clean 100% into 95.83% with one real (equivalent) survivor.
+
+Two things make this file class prone to it: Stryker counts a timeout as a KILL, and `routerFs.ts`
+is **64% static mutants** (module-level constants — hostname pools, config seeds, permission
+objects), each of which forces a full module reload. Stryker warns about this itself and suggests
+`ignoreStatic`. **Treat any file whose timeout bucket approaches its kill count as unscored** until
+you re-run it with a raised timeout; the lower number is the true one.
+
+**`prng.next() < chance` → `<=` is a provably equivalent mutant, and will be until a knob becomes
+an exact multiple of 2^-32.** `next()` returns `k / 4294967296` for an integer `k` in
+`[0, 2^32-1]`, so the two operators differ only when a draw lands EXACTLY on the threshold. No
+current `CRACK_CHANCE` value is reachable: `1` would need `k = 2^32` (one past the maximum), and
+`0.7` / `0.12` / `0.4` all give a non-integer `k`. Re-check this if a knob is ever set to a dyadic
+rational like `0.5` (`k = 2147483648`) — then the mutant becomes killable in principle, though only
+by a 1-in-4-billion draw.
+
+**Stryker writes NO `mutation.json` unless you ask for it, and a stale one will answer instead.**
+`stryker.config.json`'s `reporters` is `["html", "clear-text", "progress"]` — no `json`. So a
+`reports/mutation/mutation.json` found on disk is whatever the last run that *did* request it left
+behind, possibly weeks old and about entirely different files. It is read-plausible and wrong:
+here it listed survivors in `apt.ts`/`sshd.ts` during a run scoped to the password pools. Pass
+`--reporters json,clear-text` on any run whose survivor list you intend to read programmatically,
+and sanity-check that the files named in the report are the files you mutated.
 
 **"Unreachable in the product" is not the same as equivalent.** `deniedPortsFor`'s
 `vantage.kind === 'switch'` survived because a router's tree carries no `acl.conf` in
@@ -629,6 +676,15 @@ state costs you more than one wrong attempt.
 - Commit messages end with the `Co-Authored-By` trailer; PR bodies end with the Claude Code
   generation trailer (see root `.claude/CLAUDE.md` harness rules).
 - Cut a branch per slice off `main`; never commit straight to `main` for code.
+- **Do not stack a PR on a branch that will be squash-merged with `--delete-branch`.** Merging
+  the base deletes its branch, and GitHub then **closes** the stacked PR instead of retargeting
+  it — a closed PR whose base is gone cannot be reopened (`Cannot change the base branch of a
+  closed pull request`) and cannot be rebased in place. Squash makes it worse: the base's commits
+  never become ancestors of `main`, so a naive reopen would show the base's work as new. Recovery
+  is `git rebase --onto origin/main <old-base-sha>`, verify the tree is byte-identical
+  (`git diff <pre-rebase-sha> HEAD` empty), re-run the gates on the new base, `push
+  --force-with-lease`, and open a replacement PR. Prefer avoiding it: merge the base **without**
+  `--delete-branch`, or just wait and branch the follow-up off the merged `main`.
 - **`git pull --ff-only` prints "Already up to date" when local is AHEAD of origin, not only
   when it is level.** A docs commit made on `main` at the end of one session was never pushed;
   the next session's `/continue` ran `git pull --ff-only`, read "Already up to date" as "in

@@ -9,8 +9,9 @@
  * are JSON-stringified and the consumer `JSON.parse`s after decoding.
  *
  * Scope: `WIFI_PASSWORDS` (the crackable-AP pool `generateWifi` draws from) and
- * `UNCRACKABLE_PASSWORDS` (the account passwords the shipped wordlist does NOT
- * cover). Other legacy pools port in when their feature lands.
+ * `UNCRACKABLE_PASSWORDS` (every password the shipped wordlist does NOT cover —
+ * accounts and gateway admins alike). Other legacy pools port in when their
+ * feature lands.
  */
 export const secrets = {
   /**

@@ -39,21 +39,19 @@ describe('the default wordlist', () => {
     expect(leaked).toEqual([]);
   });
 
-  it('does not hand over the gateway on these particular networks', () => {
-    // ⚠️ NARROW ON PURPOSE, and weaker than it looks. The gateway password is a
-    // draw from the router admin pool, and two of that pool's words DO ship in
-    // this list — measured, ~24% of networks hand their gateway over on day one.
-    // These three ESSIDs simply happen to draw words that are not covered.
+  it('decides a real network\'s gateway both ways — some hand it over, some do not', () => {
+    // Both branches reached through the REAL seeding path rather than through the
+    // pool constants, which is what the set relations above already cover. Named
+    // networks, so a change that quietly collapses the roll one way shows up here
+    // as a concrete gateway changing hands rather than as a shifted percentage.
     //
-    // So this proves a fact about three networks, NOT the general claim its
-    // predecessor made ("does NOT cover the AP gateway admin password"). The
-    // real assertion — a deliberate gateway crack rate rather than an accident
-    // of pool overlap — arrives with the gateway knob.
-    const gatewayPasswords = ['SHINRA-5G', 'ACME-CORP', 'WEYLAND-NET'].map(seedApGatewayAdminPw);
+    // The rate itself is asserted where it belongs — over a population, in the
+    // router generator's own tests.
+    const verdicts = ['ACME-CORP', 'TYRELL-NET', 'BREW-AND-CODE', 'SHINRA-5G'].map((essid) =>
+      DEFAULT_WORDLIST.includes(seedApGatewayAdminPw(essid)) ? 'falls' : 'holds',
+    );
 
-    const covered = gatewayPasswords.filter((password) => DEFAULT_WORDLIST.includes(password));
-
-    expect(covered).toEqual([]);
+    expect(verdicts).toEqual(['falls', 'falls', 'holds', 'holds']);
   });
 
   it('pads with words that crack nothing, so the file is not an answer key', () => {
