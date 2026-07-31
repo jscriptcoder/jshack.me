@@ -15,6 +15,7 @@
  * `fetchImpl` is injected so tests drive the wire shape without a network.
  */
 
+import { z } from 'zod';
 import { signRequest } from '../core/signedRequest/sign';
 import {
   asEpochMs,
@@ -34,10 +35,20 @@ import type {
   SameLanAuthParams,
   Session,
   SuElevateParams,
+  HydraCrackParams,
+  HydraCrackResult,
 } from '../core/commands/types';
 import type { SessionSummary } from '../core/sessions/listSessions';
 
 const DEFAULT_ENDPOINT = '/api/sessions';
+
+/** The crack response, validated at the trust boundary rather than cast: the
+ *  cracked list drives what the player is told they can log in with. */
+const crackResponseSchema = z.object({
+  port: z.number().int(),
+  cracked: z.array(z.object({ username: z.string(), password: z.string() })),
+  wordlistFound: z.boolean(),
+});
 
 export type SessionsClientDeps = {
   readonly identity: Identity;
@@ -310,5 +321,45 @@ export const listServerSessions = async (deps: SessionsClientDeps): Promise<read
     return rows.map((row) => summaryToSession(deps, row));
   } catch {
     return [];
+  }
+};
+
+/**
+ * Crack account passwords on a network service — the signed `hydraCrack`
+ * round-trip behind `env.hydra.crack`.
+ *
+ * The response carries only what the caller's own wordlist could already have
+ * produced, so nothing here needs hiding from the player. Errors are passed
+ * through by name rather than collapsed: `hydra` tells the player which of "no
+ * route", "nothing listening" and "no wordlist" happened, because they are three
+ * different things to go and fix.
+ */
+export const crackCredentials = async (
+  deps: SessionsClientDeps,
+  params: HydraCrackParams,
+): Promise<HydraCrackResult> => {
+  try {
+    const response = await post(deps, 'hydraCrack', {
+      essid: params.essid,
+      target_ip: params.target,
+      service: params.service,
+      ...(params.username === undefined ? {} : { username: params.username }),
+      caller_machine_id: params.callerMachineId,
+    });
+    const body: unknown = await response.json().catch(() => null);
+    if (!response.ok) {
+      const error = (body as { error?: unknown } | null)?.error;
+      return { ok: false, error: typeof error === 'string' ? error : 'network_error' };
+    }
+    const parsed = crackResponseSchema.safeParse(body);
+    if (!parsed.success) return { ok: false, error: 'network_error' };
+    return {
+      ok: true,
+      port: parsed.data.port,
+      cracked: parsed.data.cracked,
+      wordlistFound: parsed.data.wordlistFound,
+    };
+  } catch {
+    return { ok: false, error: 'network_error' };
   }
 };

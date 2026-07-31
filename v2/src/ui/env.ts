@@ -25,6 +25,7 @@ import type {
   ScanApi,
   Session,
   SshApi,
+  HydraApi,
   SuApi,
   TerminalLine,
 } from '../core/commands/types';
@@ -111,6 +112,10 @@ export type BuildCommandEnvArgs = {
    *  UI wires it to the `authCreateServerSessionInnerGateway` adapter (signed
    *  `authCreateSessionInnerGateway` round-trip). Optional here for terse test setups. */
   readonly onSshAuthenticateInnerGateway?: SshApi['authenticateInnerGateway'];
+  /** The credential-cracking seam — backs `env.hydra.crack`. The UI wires it to the
+   *  `crackCredentials` adapter (signed `hydraCrack` round-trip). Optional here for
+   *  terse test setups; the UI always passes the real one. */
+  readonly onHydraCrack?: HydraApi['crack'];
   /** The cross-player `su`-elevation seam — backs `env.su.elevate`. The UI wires it
    *  to the `authElevateServerSession` adapter (signed `suElevate` round-trip).
    *  Optional here: only a cross-player hop's `su` calls it, so own-box/test setups
@@ -237,6 +242,9 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   },
   su: {
     elevate: args.onSuElevate ?? notWired('su.elevate'),
+  },
+  hydra: {
+    crack: args.onHydraCrack ?? notWired('hydra.crack'),
   },
   scan: {
     record: args.onScanRecord ?? notWired('scan.record'),

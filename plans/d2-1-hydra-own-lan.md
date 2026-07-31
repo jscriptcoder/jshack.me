@@ -1,6 +1,6 @@
 # Plan: D2.1 — a player cracks an NPC host on their own LAN
 
-**Status**: Active — awaiting AC confirmation on Slice 1.
+**Status**: Slice 1 **SHIPPED** (2026-07-31, v0.110.0, PR #351 → `4627621`). Slice 2 in progress.
 **Parent**: [`d2-credential-layer.md`](./d2-credential-layer.md) (split) →
 [`legacy-parity-epic.md`](./legacy-parity-epic.md) (epic, Phase 1).
 **Branches**: `feat/apt-extra-files` (slice 1), `feat/hydra-own-lan` (slice 2).
@@ -31,11 +31,17 @@ password no player can obtain, so v2's only door has been decorative outside tes
 - [ ] The crack is decided **server-side** — a client that lies about its own wordlist or its
       own machine gets nothing it could not have obtained honestly
 
-## Two design decisions to confirm before Slice 2's RED
+## Two design decisions — SETTLED (owner, 2026-07-31)
 
-Both are recorded here rather than settled silently. Slice 1 is unaffected by either.
+Both recommendations were taken. The reasoning is kept below because it is the reasoning a
+later slice would otherwise re-litigate.
 
-### A. Where the server gets the caller's wordlist — **recommend: from the journal**
+1. **The server reads the caller's wordlist from their own journal.** The client sends its own
+   `machine_id`; the server verifies it with `isOwnWorkstation` and replays that machine's
+   patches. The wordlist is never a client claim.
+2. **With no user named, hydra sweeps every account on the box**, reporting each one that falls.
+
+### A. Where the server gets the caller's wordlist — **from the journal**
 
 The crack must run server-side (the split's finding 1), so the server needs the caller's
 wordlist. Two ways:
@@ -54,7 +60,7 @@ the in-game action the mechanic intends, and is the same path an honest `nano` a
 also makes the file the single source of truth on **both** the local and cross-player paths, which
 is what the split's finding 4 asks for.
 
-### B. What hydra attacks when no user is named — **recommend: every account on the box**
+### B. What hydra attacks when no user is named — **every account on the box**
 
 `hydra <host> [service] [user]`. With `user` given, attack that account only. Without it, sweep
 every account in the target's `/etc/passwd` and report each one that falls. That matches legacy's
@@ -120,11 +126,16 @@ permissions must be asserted as a whole value, not by one field.
 things that merely look alike. Lean toward leaving them separate; they have different perms,
 different failure text, and no reason to change together.
 
-**Known unknown to resolve at RED**: whether `env.patches.write` creates missing parent
-directories. `/usr/share` does not exist anywhere in `workstationFs.ts`. If it does not, this
-slice also seeds the directory — cheap, but find out before writing the test, not after.
+**Known unknown — RESOLVED, and it had a second half.** `patches.write` does NOT create parent
+directories: `fsView.ts:107` refuses a write whose container is missing (`parent_not_traversable`).
+Replay (`applyPatches`) scaffolds parents, but authorization refuses before replay ever runs. The
+half the plan did not anticipate: every `mkdir` is a persisted journal row, so scaffolding `/usr`
+— which already exists — would leave a permanent no-op row on the player's box, once per
+extra-file package, forever. apt therefore creates only the MISSING ancestors, following
+`installPackageLibraries`' existing skip-if-present precedent.
 
-**Done when**: all six criteria pass, mutation reviewed, human approves the commit.
+**Done when**: all six criteria pass, mutation reviewed, human approves the commit. ✔ **DONE** —
+mutation 97.14% total / 98.55% covered over the changed ranges, no survivors of this slice's code.
 
 ---
 

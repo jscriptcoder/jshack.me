@@ -17,6 +17,7 @@ import {
 } from '../src/core/sessions/authCreateSessionSameLan';
 import type { LanLeaseRow } from '../src/core/network/lanAddress';
 import { handleAuthCreateSessionInnerGateway } from '../src/core/sessions/authCreateSessionInnerGateway';
+import { handleHydraCrack } from '../src/core/sessions/hydraCrack';
 import type { OwnerPatchRow } from '../src/core/network/materializeWorkstationFs';
 import {
   handleAuthElevateSession,
@@ -440,6 +441,43 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       now: () => Date.now(),
       readAuthLog,
       upsertPatch: upsertInnerGatewayAuthLog,
+    });
+    res.status(status).json(body);
+    return;
+  }
+
+  if (actionOf(req.body) === 'hydraCrack') {
+    // Credential sweep against an own-LAN host. No session is created and nothing
+    // is written — the handler only READS: the target's journal (to see its real
+    // passwd and what it is actually running) and the caller's own wordlist patch.
+    // The wordlist exists solely as a patch (apt wrote it; no base FS carries it),
+    // so this one row IS the file, and reading it beats trusting a list the client
+    // could have posted.
+    const findPatches = async ({ machine_id }: { machine_id: string }) => {
+      const { data, error } = await supabase
+        .from('patches')
+        .select('path, content, owner, permissions, node_type, updated_at, writer_key')
+        .eq('machine_id', machine_id)
+        .order('updated_at', { ascending: true })
+        .order('writer_key', { ascending: true });
+      if (error) console.error('[sessions] hydra target journal lookup error:', error);
+      return { data: data as readonly OwnerPatchRow[] | null, error };
+    };
+    const readWordlist = async ({ writer_key, machine_id, path }: MachineLogReadQuery) => {
+      const { data, error } = await supabase
+        .from('patches')
+        .select('content')
+        .eq('writer_key', writer_key)
+        .eq('machine_id', machine_id)
+        .eq('path', path)
+        .maybeSingle();
+      if (error) console.error('[sessions] hydra wordlist read error:', error);
+      return { data, error };
+    };
+    const { status, body } = await handleHydraCrack(req.body, {
+      nonceStore: noopNonceStore,
+      findPatches,
+      readWordlist,
     });
     res.status(status).json(body);
     return;
