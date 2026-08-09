@@ -18,6 +18,7 @@ import {
 import type { LanLeaseRow } from '../src/core/network/lanAddress';
 import { handleAuthCreateSessionInnerGateway } from '../src/core/sessions/authCreateSessionInnerGateway';
 import { handleHydraCrack } from '../src/core/sessions/hydraCrack';
+import { handleHydraCrackPublic } from '../src/core/sessions/hydraCrackPublic';
 import type { OwnerPatchRow } from '../src/core/network/materializeWorkstationFs';
 import {
   handleAuthElevateSession,
@@ -541,6 +542,150 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findActiveSession,
       findPatches,
       listPathPatches,
+      readAuthLog,
+      upsertPatch,
+    });
+    res.status(status).json(body);
+    return;
+  }
+
+  if (actionOf(req.body) === 'hydraCrackPublic') {
+    // CROSS-PLAYER credential sweep. The target is a PUBLIC IP, so it names an access
+    // point rather than a machine: the shared resolver materializes that AP's gateway
+    // and routes by destination port, which is the same resolution `ssh` authenticates
+    // through -- so a password this reports is one `ssh` then accepts. No session is
+    // created. The one WRITE is the trace, and it lands on whichever box was reached,
+    // under the key that owns THAT machine's logs, at the attacker's server-derived
+    // home address rather than anything the client claimed.
+    const findNetworkByPublicIp = async (publicIp: string) => {
+      const network = await supabase
+        .from('network_public_ips')
+        .select('essid')
+        .eq('public_ip', publicIp)
+        .maybeSingle();
+      if (network.error) {
+        console.error('[sessions] hydra public-ip lookup error:', network.error);
+        return { data: null, error: network.error };
+      }
+      const essid = (network.data as { essid: string } | null)?.essid ?? null;
+      if (essid === null) return { data: null, error: null };
+      const resolved: ApNetworkLookup = {
+        router_machine_id: computeApGatewayId(essid),
+        essid,
+      };
+      return { data: resolved, error: null };
+    };
+    const findPatches = async ({ machine_id }: { machine_id: string }) => {
+      const { data, error } = await supabase
+        .from('patches')
+        .select('path, content, owner, permissions, node_type, updated_at, writer_key')
+        .eq('machine_id', machine_id)
+        .order('updated_at', { ascending: true })
+        .order('writer_key', { ascending: true });
+      if (error) console.error('[sessions] hydra public target journal error:', error);
+      return { data: data as readonly OwnerPatchRow[] | null, error };
+    };
+    const listOccupantsByEssid = async (essid: string) => {
+      const { data, error } = await supabase
+        .from('home_network_occupants')
+        .select(
+          'owner_key, workstation_machine_id, workstation_machine_name, workstation_username, workstation_root_hash',
+        )
+        .eq('essid', essid);
+      if (error) console.error('[sessions] hydra public occupant list error:', error);
+      return { data: data as readonly NatOccupantRow[] | null, error };
+    };
+    const listLeasesByEssid = async (essid: string) => {
+      const { data, error } = await supabase
+        .from('network_lan_leases')
+        .select('owner_key, octet')
+        .eq('essid', essid);
+      if (error) console.error('[sessions] hydra public lan-lease list error:', error);
+      return { data: data as readonly LanLeaseRow[] | null, error };
+    };
+    const findActiveSession = async ({
+      player_key,
+      machine_id,
+    }: ActiveSessionQuery): Promise<FindActiveSessionResult> => {
+      const { data, error } = await supabase
+        .from('sessions')
+        .select('credentials, essid')
+        .eq('player_key', player_key)
+        .eq('machine_id', machine_id)
+        .is('ended_at', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) console.error('[sessions] hydra public active-session error:', error);
+      if (data === null) return { data: null, error };
+      const row = data as { credentials: { userType: UserType }; essid: string };
+      return { data: { userType: row.credentials.userType, essid: row.essid }, error };
+    };
+    const listPathPatches = async ({
+      machine_id,
+      path,
+    }: {
+      readonly machine_id: string;
+      readonly path: string;
+    }): Promise<ListPathPatchesResult> => {
+      const { data, error } = await supabase
+        .from('patches')
+        .select('content, updated_at, writer_key')
+        .eq('machine_id', machine_id)
+        .eq('path', path);
+      if (error) console.error('[sessions] hydra public wordlist read error:', error);
+      return { data: data as readonly PathPatchRow[] | null, error };
+    };
+    const findHomeNetworkByOwnerKey = async (ownerKey: string) => {
+      const occupancy = await supabase
+        .from('home_network_occupants')
+        .select('essid')
+        .eq('owner_key', ownerKey)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (occupancy.error) {
+        console.error('[sessions] hydra public source-ip occupancy error:', occupancy.error);
+        return { data: null, error: occupancy.error };
+      }
+      const essid = (occupancy.data as { essid: string } | null)?.essid ?? null;
+      if (essid === null) return { data: null, error: null };
+      const { data, error } = await supabase
+        .from('network_public_ips')
+        .select('public_ip')
+        .eq('essid', essid)
+        .maybeSingle();
+      if (error) console.error('[sessions] hydra public source-ip lookup error:', error);
+      return { data: data as { public_ip: string } | null, error };
+    };
+    const readAuthLog = async ({ writer_key, machine_id, path }: MachineLogReadQuery) => {
+      const { data, error } = await supabase
+        .from('patches')
+        .select('content')
+        .eq('writer_key', writer_key)
+        .eq('machine_id', machine_id)
+        .eq('path', path)
+        .maybeSingle();
+      if (error) console.error('[sessions] hydra public auth-log read error:', error);
+      return { data, error };
+    };
+    const upsertPatch = async (row: PatchRow) => {
+      const { error } = await supabase
+        .from('patches')
+        .upsert(row, { onConflict: 'machine_id,path,writer_key' });
+      if (error) console.error('[sessions] hydra public auth-log upsert error:', error);
+      return { error };
+    };
+    const { status, body } = await handleHydraCrackPublic(req.body, {
+      nonceStore: noopNonceStore,
+      now: () => Date.now(),
+      findNetworkByPublicIp,
+      findPatches,
+      listOccupantsByEssid,
+      listLeasesByEssid,
+      findActiveSession,
+      listPathPatches,
+      findHomeNetworkByOwnerKey,
       readAuthLog,
       upsertPatch,
     });

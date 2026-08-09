@@ -9,7 +9,13 @@ import {
 import { buildColdStartConnectivity } from '../network/interfaces';
 import { asMachineId, asPlayerKeyHex, type MachineId } from '../types';
 import { computeWorkstationId } from '../identity/workstation';
-import type { CommandResult, HydraCrackParams, HydraCrackResult, TerminalLine } from './types';
+import type {
+  CommandResult,
+  HydraCrackParams,
+  HydraCrackPublicParams,
+  HydraCrackResult,
+  TerminalLine,
+} from './types';
 import type { ConnectivityState, NetworkInterface } from '../network/interfaces';
 
 /**
@@ -51,13 +57,16 @@ const hydraEnv = (opts: EnvOpts = {}) => {
   const crack = vi.fn<(params: HydraCrackParams) => Promise<HydraCrackResult>>(
     async () => opts.result ?? { ok: true, port: 22, cracked: [], wordlistFound: true },
   );
+  const crackPublic = vi.fn<(params: HydraCrackPublicParams) => Promise<HydraCrackResult>>(
+    async () => opts.result ?? { ok: true, port: 22, cracked: [], wordlistFound: true },
+  );
   const env = mockCommandEnv({
     identity: { publicKeyHex: asPlayerKeyHex(OWNER_KEY), privateKeyHex: 'b'.repeat(64) },
     session: mockSession({ machineId: opts.machineId ?? asMachineId(WORKSTATION_ID) }),
     network: mockNetworkViewFromConnectivity(opts.connectivity ?? connectedState()),
-    hydra: mockHydraApi({ crack }),
+    hydra: mockHydraApi({ crack, crackPublic }),
   });
-  return { env, crack };
+  return { env, crack, crackPublic };
 };
 
 const drain = async (
@@ -284,6 +293,34 @@ describe('hydra', () => {
     expect(text).toContain('not connected to a network');
     expect(kinds).toEqual(['error']);
     expect(crack).not.toHaveBeenCalled();
+  });
+
+  it('routes a public IP to the cross-player action, which names no source address', async () => {
+    // A public IP is not on the player's own LAN, so it resolves the way `ssh`
+    // resolves one: server-side, against the access point that bears it. The
+    // address the target records is derived there too — this call carries none,
+    // because a log line on a foreign box is evidence rather than decoration.
+    const { env, crack, crackPublic } = hydraEnv();
+
+    await drain(await hydra.execute(env, ['203.0.113.7'], new Map()));
+
+    expect(crack).not.toHaveBeenCalled();
+    expect(crackPublic).toHaveBeenCalledWith({
+      essid: ESSID,
+      target: '203.0.113.7',
+      service: 'ssh',
+      username: undefined,
+      callerMachineId: WORKSTATION_ID,
+    });
+  });
+
+  it('keeps a private address on the own-LAN action', async () => {
+    const { env, crack, crackPublic } = hydraEnv();
+
+    await drain(await hydra.execute(env, ['192.168.4.31'], new Map()));
+
+    expect(crackPublic).not.toHaveBeenCalled();
+    expect(crack).toHaveBeenCalledTimes(1);
   });
 
   it('runs from whatever machine the player is standing on', async () => {

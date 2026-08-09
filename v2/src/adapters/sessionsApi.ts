@@ -36,6 +36,7 @@ import type {
   Session,
   SuElevateParams,
   HydraCrackParams,
+  HydraCrackPublicParams,
   HydraCrackResult,
 } from '../core/commands/types';
 import type { SessionSummary } from '../core/sessions/listSessions';
@@ -347,20 +348,54 @@ export const crackCredentials = async (
       caller_machine_id: params.callerMachineId,
       source_ip: params.sourceIp,
     });
-    const body: unknown = await response.json().catch(() => null);
-    if (!response.ok) {
-      const error = (body as { error?: unknown } | null)?.error;
-      return { ok: false, error: typeof error === 'string' ? error : 'network_error' };
-    }
-    const parsed = crackResponseSchema.safeParse(body);
-    if (!parsed.success) return { ok: false, error: 'network_error' };
-    return {
-      ok: true,
-      port: parsed.data.port,
-      cracked: parsed.data.cracked,
-      wordlistFound: parsed.data.wordlistFound,
-    };
+    return await crackOutcome(response);
   } catch {
     return { ok: false, error: 'network_error' };
   }
+};
+
+/**
+ * Crack account passwords behind a PUBLIC IP — the signed `hydraCrackPublic`
+ * round-trip behind `env.hydra.crackPublic`.
+ *
+ * Deliberately carries no source address. The target here belongs to somebody
+ * else, so the line their `auth.log` records is evidence, and the server derives
+ * it from the verified key instead of believing this request.
+ */
+export const crackCredentialsPublic = async (
+  deps: SessionsClientDeps,
+  params: HydraCrackPublicParams,
+): Promise<HydraCrackResult> => {
+  try {
+    const response = await post(deps, 'hydraCrackPublic', {
+      essid: params.essid,
+      target: params.target,
+      service: params.service,
+      ...(params.username === undefined ? {} : { username: params.username }),
+      caller_machine_id: params.callerMachineId,
+    });
+    return await crackOutcome(response);
+  } catch {
+    return { ok: false, error: 'network_error' };
+  }
+};
+
+/** Both crack actions answer in the same shape, and both pass an error through by
+ *  NAME rather than collapsing it: `hydra` tells the player which of "no route",
+ *  "nothing listening" and "no wordlist" happened, because they are three different
+ *  things to go and fix. */
+const crackOutcome = async (response: Response): Promise<HydraCrackResult> => {
+  const body: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const error = (body as { error?: unknown } | null)?.error;
+    return { ok: false, error: typeof error === 'string' ? error : 'network_error' };
+  }
+  const parsed = crackResponseSchema.safeParse(body);
+  if (!parsed.success) return { ok: false, error: 'network_error' };
+  return {
+    ok: true,
+    port: parsed.data.port,
+    cracked: parsed.data.cracked,
+    wordlistFound: parsed.data.wordlistFound,
+  };
 };

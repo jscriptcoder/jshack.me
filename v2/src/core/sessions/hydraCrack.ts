@@ -52,32 +52,22 @@ import {
   type FindActiveSession,
 } from '../patches/authorizeMachineAccess';
 import { readOpenPorts } from '../services/pidfile';
-import { md5 } from '../generation/md5';
 import { WORDLIST_PATH } from '../wordlist/defaultWordlist';
 import {
   AUTH_LOG_OWNER,
   AUTH_LOG_PATH,
   AUTH_LOG_PERMISSIONS,
-  formatSshdAuthLine,
 } from '../logging/authLog';
-import { derivePid } from '../logging/syslog';
-import { asGameTime } from '../types';
-import { accountsIn, type NamedPasswdAccount } from './passwdAccount';
+import { accountsIn } from './passwdAccount';
+import { sweepAccounts, wordlistOn } from '../wordlist/passwordSweep';
 import {
   appendMachineLog,
   type MachineLogReadQuery,
   type MachineLogReadResult,
 } from '../patches/appendMachineLog';
-import { orderPatchesForReplay } from '../patches/orderPatchesForReplay';
-import type { ListPathPatchesResult, PathPatchRow } from '../patches/upsertPatch';
-import type { LanHost } from '../generation/generateHomeLan';
+import type { ListPathPatchesResult } from '../patches/upsertPatch';
 import type { PatchRow } from '../patches/upsertPatch';
 import type { NonceStore } from '../signedRequest/nonceStore';
-
-export type CrackedCredential = {
-  readonly username: string;
-  readonly password: string;
-};
 
 export type HydraCrackDeps = {
   readonly nonceStore: NonceStore;
@@ -127,75 +117,6 @@ const hydraCrackSchema = z
     source_ip: z.string().min(1).nullable().optional(),
   })
   .refine((payload) => !('player_key' in payload));
-
-/** The wordlist file as the box holds it: every writer's row at the path replayed
- *  in chronological order, the last write winning. A winning row with no content
- *  is a deletion, so a removed file reads as absent rather than empty — which is
- *  what makes `apt install hydra` a real recovery rather than a no-op. */
-const wordlistOn = (rows: readonly PathPatchRow[] | null): string | null =>
-  orderPatchesForReplay(rows ?? []).at(-1)?.content ?? null;
-
-/** Split a wordlist file into candidate passwords. Blank lines are dropped: an
- *  editor leaves a trailing newline behind, and "the empty password" is not
- *  something the player typed into their list. No generated account hashes to
- *  `md5('')`, so today this changes no outcome — it keeps the file's meaning
- *  honest rather than fixing a bug. */
-const wordsIn = (content: string): readonly string[] =>
-  content.split('\n').filter((word) => word.length > 0);
-
-/** The accounts this run attacks: the one named, or every account the box has.
- *  A named account that does not exist yields nothing to try — the same silence a
- *  real sweep gives, revealing no account list. */
-const accountsUnderAttack = (
-  accounts: readonly NamedPasswdAccount[],
-  username: string | undefined,
-): readonly NamedPasswdAccount[] =>
-  username === undefined ? accounts : accounts.filter((account) => account.username === username);
-
-/** How a sweep went against one account: where in the wordlist its password was
- *  found, or -1 when the list does not hold it. One number answers both questions
- *  the handler has — whether the account fell (the gate: no word, no crack,
- *  however weak the real password is) and how many passwords were TRIED before it
- *  did, which is what the defender's log records. */
-type AccountSweep = {
-  readonly account: NamedPasswdAccount;
-  readonly matchedAt: number;
-};
-
-const sweepAccount = (account: NamedPasswdAccount, words: readonly string[]): AccountSweep => ({
-  account,
-  matchedAt: words.findIndex((word) => md5(word) === account.hash),
-});
-
-const credentialFrom = (
-  { account, matchedAt }: AccountSweep,
-  words: readonly string[],
-): CrackedCredential | null => {
-  const password = matchedAt === -1 ? undefined : words[matchedAt];
-  return password === undefined ? null : { username: account.username, password };
-};
-
-/** The sweep as the TARGET saw it: one line per password tried, in the order they
- *  were tried, `Accepted` for the one that matched and `Failed` for the rest.
- *  An account that fell records only the words that came before its match — the
- *  rest were never sent. */
-const traceOf = (
-  sweeps: readonly AccountSweep[],
-  words: readonly string[],
-  attack: { readonly host: LanHost; readonly fromIp: string; readonly stamp: number },
-): readonly string[] =>
-  sweeps.flatMap(({ account, matchedAt }) =>
-    Array.from({ length: matchedAt === -1 ? words.length : matchedAt + 1 }, (_unused, attempt) =>
-      formatSshdAuthLine({
-        outcome: attempt === matchedAt ? 'success' : 'failure',
-        user: account.username,
-        fromIp: attack.fromIp,
-        hostname: attack.host.hostname,
-        time: asGameTime(attack.stamp),
-        pid: derivePid(attack.stamp),
-      }),
-    ),
-  );
 
 /** Land the whole sweep on the target's auth.log as ONE append — a per-line write
  *  would re-read and re-upsert the entire log for every password tried. Same
@@ -309,18 +230,17 @@ export const handleHydraCrack = async (
     return { status: 200, body: { port: open.port, cracked: [], wordlistFound: false } };
   }
 
-  const words = wordsIn(content);
-  const sweeps = accountsUnderAttack(accountsIn(hostFs), payload.username).map((account) =>
-    sweepAccount(account, words),
-  );
-  const cracked = sweeps.flatMap((sweep) => {
-    const credential = credentialFrom(sweep, words);
-    return credential === null ? [] : [credential];
+  const { cracked, trace } = sweepAccounts({
+    accounts: accountsIn(hostFs),
+    username: payload.username,
+    wordlist: content,
+    hostname: host.hostname,
+    fromIp,
+    stamp: deps.now(),
   });
 
   // Nothing tried, nothing recorded — an empty wordlist or a named account that
   // does not exist leaves the box's log exactly as it found it.
-  const trace = traceOf(sweeps, words, { host, fromIp, stamp: deps.now() });
   if (trace.length > 0) {
     await recordSweep(deps, { writerKey: publicKey, machineId }, trace);
   }

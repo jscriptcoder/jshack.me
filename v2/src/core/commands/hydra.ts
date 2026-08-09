@@ -24,6 +24,7 @@
 
 import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
 import { connectedWlan0 } from '../network/interfaces';
+import { isPublicIp } from '../generation/ip';
 
 const error = (message: string): CommandResult => ({
   kind: 'sync',
@@ -68,14 +69,13 @@ async function* attack(
   yield text('Loading /usr/share/wordlists/passwords.txt ...');
   await env.sleep(STEP_DELAY_MS);
 
-  const result = await env.hydra.crack({
-    essid,
-    target,
-    service,
-    username,
-    callerMachineId,
-    sourceIp,
-  });
+  // A public IP is not a host on the player's own LAN: it names an ACCESS POINT,
+  // and the port decides what behind it is reached — so it resolves server-side,
+  // exactly as `ssh` resolves one. That action derives the source address itself,
+  // because a trace on a foreign box is the defender's only evidence.
+  const result = isPublicIp(target)
+    ? await env.hydra.crackPublic({ essid, target, service, username, callerMachineId })
+    : await env.hydra.crack({ essid, target, service, username, callerMachineId, sourceIp });
 
   if (!result.ok) {
     yield { kind: 'error', content: `hydra: ${REFUSALS[result.error] ?? result.error}` };
@@ -141,15 +141,21 @@ export const hydra: Command = {
       'wordlist (/usr/share/wordlists/passwords.txt) against the service. With no user ' +
       'named, every account on the target is attacked. A password that is not in your ' +
       'wordlist will never be found, however weak it is — grow the list by editing it ' +
-      'with nano as you harvest passwords elsewhere.',
+      'with nano as you harvest passwords elsewhere. A public IP is the access point ' +
+      'that bears it, so attacking one attacks that network’s gateway.',
     arguments: [
-      { name: 'host', description: 'Target host IP on your network', required: true },
+      {
+        name: 'host',
+        description: 'Target host IP — one on your network, or a public IP',
+        required: true,
+      },
       { name: 'service', description: 'The service to attack (default ssh)' },
       { name: 'user', description: 'Attack only this account instead of every account' },
     ],
     examples: [
       { command: 'hydra 192.168.1.5', description: 'Attack every account over ssh' },
       { command: 'hydra 192.168.1.5 ssh root', description: 'Attack only the root account' },
+      { command: 'hydra 203.0.113.7', description: "Attack a stranger's gateway over ssh" },
     ],
   },
   execute,
