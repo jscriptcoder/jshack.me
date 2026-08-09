@@ -566,8 +566,30 @@ tree that does carry the file. Prefer stating the rule over arguing the input ca
 caught by `tsc`, so each `api/` path has a `scripts/test*.ts` wire-check that drives the
 real endpoints against `vercel dev` + local supabase.
 
-- Prereqs: local supabase (`http://localhost:54321`) + `vercel dev` (port 3100) both up
-  (see the 3100 gotcha above). "Serving" = an empty `{}` POST returns 400 (not 502/000).
+- Prereqs: local supabase (`http://127.0.0.1:54421`, per `supabase/config.toml`) + `vercel dev`
+  (port 3100) both up (see the 3100 gotcha above). "Serving" = an empty `{}` POST returns 400
+  (not 502/000).
+
+**Windows can silently reserve supabase's whole port block.** Symptom: `npx supabase start`
+reports success and `npx supabase status` prints the usual URLs, but every request to the REST
+API returns `000`/`fetch failed` — and `docker ps --format '{{.Names}}\t{{.Ports}}'` shows the
+containers with **no host port mapping at all** (`8000/tcp`, not `0.0.0.0:54421->8000/tcp`). A
+restart then fails outright with *"bind: An attempt was made to access a socket in a way
+forbidden by its access permissions."*
+
+Cause is not Docker: Hyper-V/WinNAT grabs dynamic TCP ranges at boot, and `54352-54451` covers
+every port in `config.toml` (54420-54429). Confirm with:
+
+```powershell
+netsh interface ipv4 show excludedportrange protocol=tcp
+```
+
+Two fixes. The proper one is `net stop winnat; net start winnat` from an **elevated** shell,
+which releases the reservations. Without elevation, temporarily remap the ports in
+`supabase/config.toml` **and** `SUPABASE_URL` in `.env.development.local` to a block above the
+highest excluded range (55600+ was clear), `supabase start`, **restart `vercel dev`** so it picks
+up the new URL, run the check, then restore both files. Back them up first — reverting from
+memory is how a temp port ends up committed.
 - Run: `npx dotenv -e .env.development.local -- npx tsx scripts/<name>.ts` (from `v2/`).
   Exits 0 on all-pass.
 - The script seeds the DB via the service-role client, drives the endpoints, asserts, and

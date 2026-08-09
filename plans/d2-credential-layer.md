@@ -1,6 +1,9 @@
 # D2 split — a player cracks a credential instead of being told it
 
-> **Status: D2.1 ✅ SHIPPED (v0.111.0). D2.2 ✅ SHIPPED (v0.113.0). D2.3 or D2.5 next.**
+> **Status: D2.1 ✅ SHIPPED (v0.111.0). D2.2 ✅ SHIPPED (v0.113.0). D2.3 SELECTED NEXT — planned in
+> [`d2-3-defender-sees-the-sweep.md`](./d2-3-defender-sees-the-sweep.md), branch
+> `feat/defender-sees-the-sweep`, awaiting acceptance-criteria approval. D2.5 (`john`) waits for it
+> — see the grounding section below for why the split's ordering was wrong.**
 > Authored 2026-07-31 (`story-splitting`), grounded against the shipped code (every file:line
 > below was read, not recalled). Parent: [`legacy-parity-epic.md`](./legacy-parity-epic.md)
 > Phase 1, D2.
@@ -129,9 +132,9 @@ lands *after* hydra, not before.
 |---|---|---|---|---|---|---|
 | **D2.1** ✔ | **A player cracks an NPC host on their own LAN and logs in with it** — **SHIPPED v0.111.0** (#351 `4627621`, #352 `b227a0b`) | The first credential earned in-game. Turns `ssh` from decorative into playable | `extraFiles` on `AptPackage` + apt's install loop writes them; `/usr/share/wordlists/passwords.txt` shipped by `apt install hydra`; `hydra <host> [service] [user]` streaming like `aircrack`; a signed same-LAN crack action mirroring `authCreateSessionSameLan`'s reachability; hydra reads the **file** (finding 4) | Every other reachability; the two-pool policy; the defender's trace; `john` | `apt install hydra` → `cat /usr/share/wordlists/passwords.txt` lists words → `hydra 192.168.x.y ssh` → prints a cracked account → `ssh` with it **succeeds** → a wrong password still fails | **Demo-quality, not ship-quality** — with one flat pool, *everything* cracks. See the open question |
 | **D2.2** ✔ | **Not every account falls** — **SHIPPED v0.113.0** (#354 `f9ad49b`, #356 `3af0b92`, #357 `f69b05d`) | The difficulty curve — decision 6's "crackable is membership in *your* wordlist", made real | `core/generation/passwordPools.ts` owns one crackable pool, one uncrackable pool (behind `secrets.ts` → `__encoded.ts`), the `CRACK_CHANCE` table and `drawPassword`; `WEAK_PASSWORDS`, `GUEST_PASSWORDS` and `ROUTER_ADMIN_PASSWORDS` all retired into it | — | A day-one root crack happens but is rare across a scanned LAN; a player's chosen workstation root password **never** cracks; guest always does | Shipped. Re-rolled the generated world (free pre-launch) |
-| **D2.3** | **The defender sees the attempt** | The attacker stops being invisible. Same actor-flip that made D1's slice 4 worth its own PR | N `Failed password for <user> from <ip>` + the accepted line, into the target's `/var/log/auth.log`; owner-keyed writer; **server-derived** source IP | Rate limiting; lockout; alerting | A runs `hydra` at an NPC host; the box's `auth.log` shows the failed sweep and the one success, at the attacker's real LAN IP | Ships |
+| **D2.3** ▶ | **The defender sees the attempt** — **PLANNED**, [`d2-3-defender-sees-the-sweep.md`](./d2-3-defender-sees-the-sweep.md) | The attacker stops being invisible. Same actor-flip that made D1's slice 4 worth its own PR | N `Failed password for <user> from <ip>` + the accepted line, into the target's `/var/log/auth.log`; owner-keyed writer; **server-derived** source IP | Rate limiting; lockout; alerting | A runs `hydra` at an NPC host; the box's `auth.log` shows the failed sweep and the one success, at the attacker's real LAN IP | Ships |
 | **D2.4** | **A player cracks a stranger's box across the network** | Cracking reaches other players — the epic's actual point | hydra over the `public` and `innerGateway` reachability seams, matching `ssh`'s remaining variants; server reads the caller's own wordlist from their persisted patches | — | B `hydra <A's public IP> ssh` → cracks A's **guest** account → `ssh` in → A's `auth.log` carries the sweep | Ships. **Needs a `scripts/test*.ts` wire-check** and two identities |
-| **D2.5** | **A player cracks a stolen hash offline** | Loot becomes capability. The first thing worth stealing that is not a file you read | `john <hash>`; matches against the same wordlist file; the `/etc/passwd` → hash → plaintext → `su` chain | Hash formats beyond md5; `--show`; pot file | B is `guest` on a cracked NPC box → `cat /etc/passwd` → `john <root hash>` → plaintext → `su root` succeeds | Ships |
+| **D2.5** | **A player cracks a stolen hash offline** | Loot becomes capability — and, once D2.3 ships, the **silent** way to do it | `john`; matches against the same wordlist file; the `/etc/passwd` → hash → plaintext → `su` chain | Hash formats beyond md5; `--show`; pot file | B ssh's into a cracked NPC box as a **user**-tier account (guest cannot read passwd — finding 1) → `cat /etc/passwd` → `john <root hash>` → plaintext → `su root` succeeds | **Blocked on D2.3** for its value, not its build — see grounding |
 | **D2.6** | **A player grows their wordlist and cracks what they could not before** | Decision 6's progression loop, closed | Harvest → `nano` append → the previously-failing crack now succeeds. **Probably free** if D2.1 honours finding 4 | — | A password harvested from box X is appended by hand, and box Y — which drew the same password — now cracks | Ships |
 
 ### D2.6 may be an acceptance test, not a slice
@@ -220,12 +223,71 @@ and a grep of the bundle found the uncrackable pool **0 times** against a cracka
 **2**. Wire-checks then passed live — `testHydraOwnLan.ts` 11/11 and `testInnerGatewayReach.ts`
 8/8, the latter authenticating as root on an inner *and* a deep child gateway.
 
+## D2.5 grounding, read 2026-08-09 — two findings, and the second reorders the split
+
+Both verified in the shipped code before writing a line of `john`. The first corrects D2.5's
+acceptance example; the second questions whether D2.5 should go next at all.
+
+### 1. The split's own acceptance example cannot happen — **guest cannot read `/etc/passwd`**
+
+`baseFs.ts:26-32` sets the file to `read: ['root', 'user']` and says why outright: *"passwords
+live inline (no /etc/shadow), so leaking passwd is a real privilege boundary; guest must not read
+it."* Row D2.5 reads *"B is `guest` on a cracked NPC box → `cat /etc/passwd`"* — that `cat` is
+denied. The loot path is a cracked **user** account (`npcUser`, 0.70), never a guest one, so
+`john` sits behind the routine hydra win rather than the guaranteed one. **Rewrite the row before
+planning.**
+
+### 2. `john` as specified cracks nothing hydra has not already cracked
+
+`hydraCrack.ts:176` sweeps `accountsIn(hostFs)` — *every* account in the target's passwd — against
+the caller's own wordlist whenever no username is given. `john` would match the same hashes,
+against the same file, with the same `md5`. For any host a player can hydra, the two return an
+identical set of plaintexts: `john <hash from that host>` is a slower way to read what hydra
+already printed.
+
+And today there is no hash hydra cannot reach:
+
+- NPC hosts carry no loot file — `remoteHostFs.ts:180-210` is passwd, empty logs, pidfiles and an
+  optional `index.html`, nothing else.
+- The AP gateway's passwd is root-only and one line.
+- A cross-player box only ever yields a **guest** session, which finding 1 blocks from reading
+  passwd at all.
+
+So the split's stated reason for D2.5 — *"root accounts genuinely hold, so a stolen root hash is a
+real next move"* — does not survive contact with the code. When root holds, it holds against
+`john` too: same wordlist, same hash function. D2.2 changed how often a root falls; it did not give
+`john` anything hydra lacks.
+
+**What would make `john` non-redundant**, one of:
+
+- **Ship D2.3 first.** `hydraCrack.ts` deliberately writes no trace *yet* (its own docstring:
+  *"NOT here: the attempt's auth.log trace … the defender's view of it is its own slice"*). Once a
+  sweep costs the attacker a visible `Failed password` wall, `john` becomes the **silent**
+  alternative — and its value is legible with no new content and no new generation.
+- **Generate loot hydra cannot reach** — a hash in a file rather than in a live host's passwd
+  (legacy's `john /tmp/backup_hashes.txt`). That is new generated content and a slice of its own.
+
+### Also confirmed while grounding
+
+- **`john` is already an apt package** (`aptPackages.ts:49`, binary only) — the `command not
+  found. Install with: apt install john` path works today; only the command is missing.
+- **`su` is fully shipped** (`su.ts`), prompts, and compares `md5(typed)` against the passwd hash
+  (`su.ts:201`) — so the hash → plaintext → `su root` chain needs nothing but `john` itself.
+- **`>` redirect exists** (`shell/pipeline.ts`, `shell/runLine.ts`), so a player *can* park looted
+  rows in a file on their own box without `scp`. Legacy's `john <file>` shape stays open.
+- **`john` must be localhost-only in practice**: the wordlist is a patch on the player's own box
+  (`hydraCrack.ts:161`), so standing on a remote host there is no list to read.
+
 ## Next step
 
-**D2.3** (the defender sees the sweep land in `auth.log`) or **D2.5** (`john`). D2.5 is the more
-interesting of the two now: root accounts actually hold, so a stolen root hash is a real next move
-rather than a redundant one — and D2.6 likely collapses into an acceptance test the moment it
-lands, per finding 4.
+**D2.3 is selected and planned** — [`d2-3-defender-sees-the-sweep.md`](./d2-3-defender-sees-the-sweep.md),
+branch `feat/defender-sees-the-sweep`. It makes the sweep loud, which is what gives `john` a reason
+to exist that is not "a slower hydra".
+
+**Then D2.5.** Re-plan it after D2.3 ships, and fix row D2.5's acceptance example first (finding 1
+above). Its shape is otherwise cheap: `john` is already an apt package, `su` already validates
+`md5(typed)` against the passwd hash, and no `api/` change is needed — an offline crack is the one
+tool in this epic that never talks to the server.
 
 Per the epic, before any code in a slice: load `tdd`, `testing`, `mutation-testing`,
 `refactoring`; run full RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR; present before the next slice

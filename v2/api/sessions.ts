@@ -447,12 +447,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (actionOf(req.body) === 'hydraCrack') {
-    // Credential sweep against an own-LAN host. No session is created and nothing
-    // is written — the handler only READS: the target's journal (to see its real
-    // passwd and what it is actually running) and the caller's own wordlist patch.
-    // The wordlist exists solely as a patch (apt wrote it; no base FS carries it),
-    // so this one row IS the file, and reading it beats trusting a list the client
-    // could have posted.
+    // Credential sweep against an own-LAN host. No session is created. The handler
+    // READS the target's journal (to see its real passwd and what it is actually
+    // running) and the caller's own wordlist patch — the wordlist exists solely as
+    // a patch (apt wrote it; no base FS carries it), so this one row IS the file,
+    // and reading it beats trusting a list the client could have posted. The one
+    // WRITE is the trace it leaves on the target: a sweep is the noisiest thing a
+    // player can do to a box, and the box's occupant reads it back from auth.log.
     const findPatches = async ({ machine_id }: { machine_id: string }) => {
       const { data, error } = await supabase
         .from('patches')
@@ -474,10 +475,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (error) console.error('[sessions] hydra wordlist read error:', error);
       return { data, error };
     };
+    // The trace half — same `patches`-table shapes as the own-LAN ssh appender
+    // above, and the same read-modify-write bypassing L1/L2: the target's sshd
+    // records the sweep it just handled, so the write is the system's rather than
+    // the player's.
+    const readAuthLog = async ({ writer_key, machine_id, path }: MachineLogReadQuery) => {
+      const { data, error } = await supabase
+        .from('patches')
+        .select('content')
+        .eq('writer_key', writer_key)
+        .eq('machine_id', machine_id)
+        .eq('path', path)
+        .maybeSingle();
+      if (error) console.error('[sessions] hydra auth-log read error:', error);
+      return { data, error };
+    };
+    const upsertPatch = async (row: PatchRow) => {
+      const { error } = await supabase.from('patches').upsert(row);
+      if (error) console.error('[sessions] hydra auth-log upsert error:', error);
+      return { error };
+    };
     const { status, body } = await handleHydraCrack(req.body, {
       nonceStore: noopNonceStore,
+      now: () => Date.now(),
       findPatches,
       readWordlist,
+      readAuthLog,
+      upsertPatch,
     });
     res.status(status).json(body);
     return;

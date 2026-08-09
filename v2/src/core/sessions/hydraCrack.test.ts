@@ -11,9 +11,17 @@ import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { WORDLIST_PATH, formatWordlist } from '../wordlist/defaultWordlist';
 import { accountsIn } from './passwdAccount';
 import { md5 } from '../generation/md5';
-import { asAbsPath } from '../types';
+import {
+  AUTH_LOG_OWNER,
+  AUTH_LOG_PATH,
+  AUTH_LOG_PERMISSIONS,
+  formatSshdAuthLine,
+} from '../logging/authLog';
+import { derivePid } from '../logging/syslog';
+import { asAbsPath, asGameTime } from '../types';
 import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
 import type { OwnerPatchRow } from '../network/materializeMachineFs';
+import type { PatchRow } from '../patches/upsertPatch';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
 /**
@@ -35,6 +43,10 @@ import type { NonceStore } from '../signedRequest/nonceStore';
 const freshStore: NonceStore = async () => ({ fresh: true });
 const ESSID = 'BEAN-THERE-WIFI';
 const WORKSTATION = 'skylab';
+// 2026-08-09 11:04:07 UTC — the server clock every trace line in these tests is
+// stamped with.
+const FIXED_NOW = Date.UTC(2026, 7, 9, 11, 4, 7);
+const ATTACKER_IP = '192.168.1.50';
 
 /** A LAN host that actually runs ssh — the sweep needs a service to attack. */
 const sshHostOn = (essid: string): LanHost => {
@@ -89,13 +101,22 @@ const makeDeps = (over: DepOverrides = {}) => {
       error: null,
     }),
   );
+  const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async () => ({
+    error: null,
+  }));
+  const readAuthLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
+    async () => ({ data: null, error: null }),
+  );
   const deps: HydraCrackDeps = {
     nonceStore: freshStore,
+    now: () => FIXED_NOW,
     findPatches,
     readWordlist,
+    readAuthLog,
+    upsertPatch,
     ...over,
   };
-  return { deps, findPatches, readWordlist };
+  return { deps, findPatches, readWordlist, readAuthLog, upsertPatch };
 };
 
 type CrackRequest = {
@@ -104,6 +125,7 @@ type CrackRequest = {
   readonly service?: string;
   readonly username?: string;
   readonly caller_machine_id?: string;
+  readonly source_ip?: string | null;
 };
 
 const signedCrack = (identity: ReturnType<typeof generateIdentity>, request: CrackRequest) =>
@@ -114,7 +136,48 @@ const signedCrack = (identity: ReturnType<typeof generateIdentity>, request: Cra
     ...(request.username === undefined ? {} : { username: request.username }),
     caller_machine_id:
       request.caller_machine_id ?? computeWorkstationId(WORKSTATION, identity.publicKeyHex),
+    source_ip: request.source_ip === undefined ? ATTACKER_IP : request.source_ip,
   });
+
+/** One line the sweep is expected to leave on the target's auth.log. */
+const traceLine = (
+  outcome: 'success' | 'failure',
+  user: string,
+  host: LanHost,
+  fromIp = ATTACKER_IP,
+): string =>
+  formatSshdAuthLine({
+    outcome,
+    user,
+    fromIp,
+    hostname: host.hostname,
+    time: asGameTime(FIXED_NOW),
+    pid: derivePid(FIXED_NOW),
+  });
+
+/** The lines a sweep actually wrote, in order — the content of the single patch
+ *  the handler upserts, minus the trailing newline the appender adds. */
+const writtenLines = (upsertPatch: { readonly mock: { readonly calls: readonly PatchRow[][] } }) => {
+  const row = upsertPatch.mock.calls[0]?.[0];
+  return (row?.content ?? '').split('\n').filter((line) => line.length > 0);
+};
+
+/** Every account on a host, in `/etc/passwd` order — the order a sweep attacks
+ *  them in, and so the order their trace lines must appear in. */
+const accountNamesOn = (host: LanHost): readonly string[] =>
+  accountsIn(resolveLanHostIdentity(host, ESSID).baseFs).map((account) => account.username);
+
+/** An account whose password no OTHER account on the box shares, so a wordlist
+ *  holding it cracks exactly one account and the expected trace stays exact. */
+const soleHolderOf = (
+  accounts: readonly { readonly username: string; readonly password: string }[],
+): { readonly username: string; readonly password: string } => {
+  const sole = accounts.find(
+    (account) => accounts.filter((other) => other.password === account.password).length === 1,
+  );
+  if (sole === undefined) throw new Error('every password on this host is shared');
+  return sole;
+};
 
 describe('handleHydraCrack', () => {
   it('reports every account whose password is in the wordlist', async () => {
@@ -299,8 +362,27 @@ describe('handleHydraCrack', () => {
 
     const response = await handleHydraCrack({ ...envelope, signature: 'f'.repeat(128) }, deps);
 
-    expect(response.status).toBe(401);
+    // Named, not just refused: `hydra` reports the server's reason to the player,
+    // and a nameless refusal reaches them as a generic network error.
+    expect(response).toEqual({ status: 401, body: { error: 'signature_invalid' } });
     expect(readWordlist).not.toHaveBeenCalled();
+    expect(findPatches).not.toHaveBeenCalled();
+  });
+
+  it('refuses a payload that names no target', async () => {
+    // The payload is a trust boundary: an absent target must be rejected as a
+    // malformed request, not resolved into "no such host" further down.
+    const identity = generateIdentity();
+    const { deps, findPatches } = makeDeps({ wordlist: [] });
+    const envelope = signRequest(identity, 'hydraCrack', {
+      essid: ESSID,
+      service: 'ssh',
+      caller_machine_id: computeWorkstationId(WORKSTATION, identity.publicKeyHex),
+    });
+
+    const response = await handleHydraCrack(envelope, deps);
+
+    expect(response).toEqual({ status: 400, body: { error: 'payload_invalid' } });
     expect(findPatches).not.toHaveBeenCalled();
   });
 
@@ -378,5 +460,229 @@ describe('handleHydraCrack', () => {
     );
 
     expect(response).toEqual({ status: 500, body: { error: 'patches_lookup_failed' } });
+  });
+});
+
+/**
+ * The defender's half. A sweep is the noisiest thing a player can do to a box, and
+ * until now it was the only thing that left no mark — `ssh` logged every attempt
+ * while hydra tried a whole wordlist against every account in silence.
+ *
+ * The trace is per PASSWORD TRIED, not per account, because the volume IS the
+ * behaviour: a sweep must read as a sweep in the log, and that visible cost is what
+ * an offline cracker later buys its way out of. An attempt that stopped early —
+ * the word matched — records only the words that came before it.
+ *
+ * Nothing is written for a sweep that never touched the box. An unreachable, dead
+ * or serviceless host must not be probeable through its own log.
+ */
+describe('the trace a hydra sweep leaves on its target', () => {
+  it('records every password tried against an account that held', async () => {
+    const identity = generateIdentity();
+    const host = sshHostOn(ESSID);
+    const words = ['no-such-word', 'nor-this-one'];
+    const { deps, upsertPatch } = makeDeps({ wordlist: words });
+
+    await handleHydraCrack(signedCrack(identity, { target_ip: host.ip }), deps);
+
+    expect(writtenLines(upsertPatch)).toEqual(
+      accountNamesOn(host).flatMap((name) => words.map(() => traceLine('failure', name, host))),
+    );
+    // One sweep is one append: a line-by-line write would re-read and re-upsert the
+    // whole log for every password tried.
+    expect(upsertPatch).toHaveBeenCalledTimes(1);
+  });
+
+  it('records the account that fell as Accepted, after only the words tried before it', async () => {
+    const identity = generateIdentity();
+    const host = sshHostOn(ESSID);
+    const target = soleHolderOf(accountsWithPasswords(host, KNOWN_POOL));
+    // The match sits in the MIDDLE of the list: a sweep that carried on past it
+    // would record the trailing word too, and the defender would read attempts the
+    // attacker never made.
+    const { deps, upsertPatch } = makeDeps({
+      wordlist: ['no-such-word', target.password, 'never-reached'],
+    });
+
+    await handleHydraCrack(signedCrack(identity, { target_ip: host.ip }), deps);
+
+    expect(writtenLines(upsertPatch)).toEqual(
+      accountNamesOn(host).flatMap((name) =>
+        name === target.username
+          ? [traceLine('failure', name, host), traceLine('success', name, host)]
+          : [
+              traceLine('failure', name, host),
+              traceLine('failure', name, host),
+              traceLine('failure', name, host),
+            ],
+      ),
+    );
+  });
+
+  it('traces only the named account when a username is given', async () => {
+    // A sweep that never attacked an account must not fabricate attempts against
+    // it — the log is the defender's evidence of what actually happened.
+    const identity = generateIdentity();
+    const host = sshHostOn(ESSID);
+    const target = soleHolderOf(accountsWithPasswords(host, KNOWN_POOL));
+    const { deps, upsertPatch } = makeDeps({ wordlist: ['no-such-word'] });
+
+    await handleHydraCrack(
+      signedCrack(identity, { target_ip: host.ip, username: target.username }),
+      deps,
+    );
+
+    expect(writtenLines(upsertPatch)).toEqual([traceLine('failure', target.username, host)]);
+  });
+
+  it("records the address the attacker's machine connected from", async () => {
+    const identity = generateIdentity();
+    const host = sshHostOn(ESSID);
+    const elsewhere = '192.168.1.77';
+    const { deps, upsertPatch } = makeDeps({ wordlist: ['no-such-word'] });
+
+    await handleHydraCrack(
+      signedCrack(identity, { target_ip: host.ip, source_ip: elsewhere }),
+      deps,
+    );
+
+    expect(writtenLines(upsertPatch)).toEqual(
+      accountNamesOn(host).map((name) => traceLine('failure', name, host, elsewhere)),
+    );
+  });
+
+  it('records an unknown source when the attempt carried no address', async () => {
+    // A missing address is not a reason to drop the trace: the defender still
+    // learns their box was swept, exactly as `ssh` reports an unknown origin.
+    const identity = generateIdentity();
+    const host = sshHostOn(ESSID);
+    const { deps, upsertPatch } = makeDeps({ wordlist: ['no-such-word'] });
+
+    await handleHydraCrack(signedCrack(identity, { target_ip: host.ip, source_ip: null }), deps);
+
+    expect(writtenLines(upsertPatch)).toEqual(
+      accountNamesOn(host).map((name) => traceLine('failure', name, host, 'unknown')),
+    );
+  });
+
+  it("lands on the TARGET's auth.log, root-owned and readable by every tier", async () => {
+    // World-readable is the whole point: a guest-tier occupant must be able to
+    // `cat` the attack. Root-write keeps it a system write, not a player one.
+    const identity = generateIdentity();
+    const host = sshHostOn(ESSID);
+    const { machineId } = resolveLanHostIdentity(host, ESSID);
+    const { deps, upsertPatch } = makeDeps({ wordlist: ['no-such-word'] });
+
+    await handleHydraCrack(signedCrack(identity, { target_ip: host.ip }), deps);
+
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        writer_key: identity.publicKeyHex,
+        machine_id: machineId,
+        path: AUTH_LOG_PATH,
+        owner: AUTH_LOG_OWNER,
+        permissions: AUTH_LOG_PERMISSIONS,
+        node_type: 'file',
+      }),
+    );
+  });
+
+  it('appends to what the log already holds', async () => {
+    // A sweep after an ssh login must not erase the login — and a second sweep
+    // must not erase the first.
+    const identity = generateIdentity();
+    const host = sshHostOn(ESSID);
+    const earlier = 'Aug  9 10:00:00 box sshd[100]: Accepted password for guest from 192.168.1.9\n';
+    const { deps, upsertPatch } = makeDeps({
+      wordlist: ['no-such-word'],
+      readAuthLog: async () => ({ data: { content: earlier }, error: null }),
+    });
+
+    await handleHydraCrack(signedCrack(identity, { target_ip: host.ip }), deps);
+
+    expect(upsertPatch.mock.calls[0]?.[0].content).toBe(
+      `${earlier}${accountNamesOn(host)
+        .map((name) => traceLine('failure', name, host))
+        .join('\n')}\n`,
+    );
+  });
+
+  it('writes nothing when the sweep never reached the box', async () => {
+    // Unreachable, serviceless and bricked all refuse before anything is attacked.
+    // A log line would tell an attacker the box exists, and tell its owner they
+    // were attacked when they were not.
+    const identity = generateIdentity();
+    const unreachable = makeDeps({ wordlist: ['no-such-word'] });
+    const serviceless = makeDeps({ wordlist: ['no-such-word'] });
+    const bricked = makeDeps({
+      wordlist: ['no-such-word'],
+      findPatches: async () => ({
+        data: [
+          {
+            path: asAbsPath('/boot/vmlinuz'),
+            content: null,
+            owner: 'root',
+            permissions: null,
+            node_type: 'file',
+            updated_at: '2026-08-09T00:00:00Z',
+            writer_key: 'a'.repeat(64),
+          } as OwnerPatchRow,
+        ],
+        error: null,
+      }),
+    });
+
+    await handleHydraCrack(signedCrack(identity, { target_ip: '10.99.99.99' }), unreachable.deps);
+    await handleHydraCrack(
+      signedCrack(identity, { target_ip: sshlessHostOn(ESSID).ip }),
+      serviceless.deps,
+    );
+    await handleHydraCrack(signedCrack(identity, { target_ip: sshHostOn(ESSID).ip }), bricked.deps);
+
+    expect(unreachable.upsertPatch).not.toHaveBeenCalled();
+    expect(serviceless.upsertPatch).not.toHaveBeenCalled();
+    expect(bricked.upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('writes nothing when the caller has no wordlist to try', async () => {
+    // No list, no attempt — a trace here would report a sweep that never ran.
+    const identity = generateIdentity();
+    const host = sshHostOn(ESSID);
+    const { deps, upsertPatch } = makeDeps({ wordlist: null });
+
+    await handleHydraCrack(signedCrack(identity, { target_ip: host.ip }), deps);
+
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('writes nothing when the wordlist is empty', async () => {
+    // The file exists but holds no words: the sweep found the list and tried
+    // nothing, which is still nothing to record.
+    const identity = generateIdentity();
+    const host = sshHostOn(ESSID);
+    const { deps, upsertPatch } = makeDeps({ wordlist: [] });
+
+    await handleHydraCrack(signedCrack(identity, { target_ip: host.ip }), deps);
+
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('still reports the cracked credentials when the log write fails', async () => {
+    // Logging is best-effort: a broken journal must never swallow the result of an
+    // attack that really happened.
+    const identity = generateIdentity();
+    const host = sshHostOn(ESSID);
+    const everything = accountsWithPasswords(host, KNOWN_POOL);
+    const { deps } = makeDeps({
+      wordlist: everything.map((account) => account.password),
+      upsertPatch: async () => {
+        throw new Error('journal down');
+      },
+    });
+
+    const response = await handleHydraCrack(signedCrack(identity, { target_ip: host.ip }), deps);
+
+    expect(response.status).toBe(200);
+    expect(response.body.cracked).toEqual(everything);
   });
 });

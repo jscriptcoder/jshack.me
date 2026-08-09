@@ -98,6 +98,21 @@ const identityOffTheGeneratedLan = (): ReturnType<typeof generateIdentity> => {
     : candidate;
 };
 
+/** An identity whose own derived octet is none of `avoid`.
+ *
+ *  A test that leases occupants onto FIXED octets is describing "the lease moved
+ *  away from what the derivation offered". An identity whose derivation happens to
+ *  land on one of those same octets describes the opposite, and reads as a failure
+ *  rather than as the coincidence it is. No constant is safe by construction:
+ *  derived octets are uniform across the whole 2-254 range, so any chosen pair is
+ *  hit by roughly one draw in 250. */
+const identityOffOctets = (avoid: readonly number[]): ReturnType<typeof generateIdentity> => {
+  const candidate = generateIdentity();
+  return avoid.includes(octetOf(selfIpOf(candidate.publicKeyHex)))
+    ? identityOffOctets(avoid)
+    : candidate;
+};
+
 /** Every host the server should log on for a full-range scan: all up hosts
  *  except the player's own workstation, in ascending-octet (lan) order. */
 const loggedHostsOf = (pubkey: string): readonly LanHost[] => {
@@ -550,8 +565,11 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant (Story 7)', 
       leaseReadFails?: boolean;
     } = {},
   ) => {
-    const alice = generateIdentity();
-    const bob = generateIdentity();
+    // Redrawn leases sit on fixed octets, and a derivation that lands on one of them
+    // would put the occupant back where the test says it is NOT.
+    const avoidOctets = over.redrawn === undefined ? [] : [over.redrawn.alice, over.redrawn.bob];
+    const alice = identityOffOctets(avoidOctets);
+    const bob = identityOffOctets(avoidOctets);
     const stranger = generateIdentity();
     const aWs = `workstation-${alice.publicKeyHex.slice(0, 8)}`;
     const bWs = `workstation-${bob.publicKeyHex.slice(0, 8)}`;
@@ -718,9 +736,9 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant (Story 7)', 
   });
 
   /** Alice and Bob both on REDRAWN octets — the state after the allocator found the
-   *  octets their derivations offered already taken. `.7`/`.8` are outside the range
-   *  either derivation can produce for both at once, so a scan that reaches them can
-   *  only have resolved the lease. */
+   *  octets their derivations offered already taken. `setup` draws identities whose
+   *  derivations avoid these two, so a scan that reaches `.7`/`.8` can only have
+   *  resolved the lease. */
   const REDRAWN = { alice: 7, bob: 8 };
 
   it("traces an occupant at the octet it LEASED, not the one its derivation offered", async () => {

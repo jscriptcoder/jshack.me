@@ -16,6 +16,13 @@
 //     player cannot read a wordlist off another player's box.
 //   - A target that is not a host on the LAN → 404 host_unreachable.
 //   - A host running no ssh → 404 service_not_running.
+//   - The TRACE the sweep leaves on the target: a row at (target, /var/log/auth.log,
+//     attacker key), root-owned and world-readable, holding one line per password
+//     TRIED — `Accepted` for the account that fell, `Failed` for the rest — and
+//     naming the attacker's address. A second sweep APPENDS to it, and a refused
+//     sweep writes nothing at all. This is the half `tsc` cannot see: the column
+//     names, the upsert conflict target and the permissions JSON shape are only
+//     proven by a real round-trip.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testHydraOwnLan.ts
@@ -39,6 +46,7 @@ import {
   WORDLIST_PERMISSIONS,
   formatWordlist,
 } from '../src/core/wordlist/defaultWordlist';
+import { AUTH_LOG_OWNER, AUTH_LOG_PATH } from '../src/core/logging/authLog';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;
@@ -127,14 +135,55 @@ const listeningPort = hostServices(ESSID, target).find(
   ({ spec }) => spec === SERVICE_CATALOG.ssh,
 )?.port;
 
+const ATTACKER_IP = '192.168.1.50';
+const targetMachine = resolveLanHostIdentity(target, ESSID).machineId;
+
 const crackEnvelope = (over: Record<string, unknown> = {}) =>
   signRequest(attacker, 'hydraCrack', {
     essid: ESSID,
     target_ip: target.ip,
     service: 'ssh',
     caller_machine_id: attackerMachine,
+    source_ip: ATTACKER_IP,
     ...over,
   });
+
+/** The trace row the sweep is expected to leave on the TARGET — keyed the way the
+ *  appender writes it, so a wrong key here reads as "no trace at all". */
+const readTrace = async (): Promise<{
+  readonly content: string;
+  readonly owner: string | null;
+  readonly permissions: unknown;
+  readonly nodeType: string | null;
+} | null> => {
+  const { data, error } = await sr
+    .from('patches')
+    .select('content, owner, permissions, node_type')
+    .eq('machine_id', targetMachine)
+    .eq('path', AUTH_LOG_PATH)
+    .eq('writer_key', attacker.publicKeyHex)
+    .maybeSingle();
+  if (error) throw new Error(`auth.log read failed: ${error.message}`);
+  if (data === null) return null;
+  return {
+    content: data.content ?? '',
+    owner: data.owner,
+    permissions: data.permissions,
+    nodeType: data.node_type,
+  };
+};
+
+const clearTrace = async () => {
+  await sr
+    .from('patches')
+    .delete()
+    .eq('machine_id', targetMachine)
+    .eq('path', AUTH_LOG_PATH)
+    .eq('writer_key', attacker.publicKeyHex);
+};
+
+const traceLines = (content: string): readonly string[] =>
+  content.split('\n').filter((line) => line.length > 0);
 
 /** Seed the attacker's wordlist exactly as `apt install hydra` writes it. */
 const seedWordlist = async (words: readonly string[]) => {
@@ -286,6 +335,73 @@ const main = async () => {
     `status ${noService.status}, body ${JSON.stringify(noService.body)}`,
   );
 
+  // 8. THE DEFENDER'S HALF. Everything above is what the ATTACKER learns; this is
+  //    what the box's occupant reads back afterwards.
+  await clearTrace();
+  const fallen = accounts.find(
+    (candidate) => accounts.filter((other) => other.password === candidate.password).length === 1,
+  );
+  if (fallen === undefined) throw new Error('no account on this host holds a unique password');
+  // The match sits in the MIDDLE: a sweep that carried on past it would record a
+  // password the attacker never sent.
+  const sweepWords = ['zzz-not-a-password', fallen.password, 'never-reached'];
+  const expectedLines = accounts.reduce((total, account) => {
+    const matchedAt = sweepWords.indexOf(account.password);
+    return total + (matchedAt === -1 ? sweepWords.length : matchedAt + 1);
+  }, 0);
+
+  await seedWordlist(sweepWords);
+  await post(crackEnvelope());
+  const trace = await readTrace();
+  const lines = traceLines(trace?.content ?? '');
+  const accepted = lines.filter((line) => line.includes('Accepted password'));
+  check(
+    'a sweep leaves one auth.log line per password TRIED',
+    lines.length === expectedLines,
+    `${lines.length} lines over ${accounts.length} accounts (expected ${expectedLines})`,
+  );
+  check(
+    'the account that fell is Accepted and nothing else is',
+    accepted.length === 1 &&
+      accepted[0].includes(`Accepted password for ${fallen.username} from ${ATTACKER_IP}`),
+    `accepted: ${accepted.join(' | ') || 'none'}`,
+  );
+  check(
+    "every line names the attacker's address",
+    lines.length > 0 && lines.every((line) => line.includes(`from ${ATTACKER_IP}`)),
+    `${lines.filter((line) => line.includes(`from ${ATTACKER_IP}`)).length}/${lines.length} lines`,
+  );
+  const perms = trace?.permissions as Record<string, readonly string[]> | null | undefined;
+  check(
+    'the trace is a root-owned file every tier can read',
+    trace?.owner === AUTH_LOG_OWNER &&
+      trace?.nodeType === 'file' &&
+      perms?.read?.includes('guest') === true &&
+      JSON.stringify(perms?.write) === JSON.stringify(['root']),
+    `owner ${trace?.owner}, node_type ${trace?.nodeType}, perms ${JSON.stringify(perms)}`,
+  );
+
+  // A second sweep must APPEND. The read-modify-write against the real table is
+  // exactly what a local typecheck cannot prove.
+  await post(crackEnvelope());
+  const twice = traceLines((await readTrace())?.content ?? '');
+  check(
+    'a second sweep appends rather than replacing the first',
+    twice.length === expectedLines * 2,
+    `${twice.length} lines after two sweeps (expected ${expectedLines * 2})`,
+  );
+
+  // 9. A sweep that never reached the box leaves nothing behind — a log line would
+  //    tell its owner they were attacked when they were not.
+  await clearTrace();
+  await post(crackEnvelope({ target_ip: '10.99.99.99' }));
+  check(
+    'a refused sweep writes no trace at all',
+    (await readTrace()) === null,
+    'no auth.log row after an unreachable target',
+  );
+
+  await clearTrace();
   await clearWordlist();
 
   const failed = results.filter((result) => !result.pass).length;
