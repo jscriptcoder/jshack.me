@@ -356,6 +356,42 @@ on your LAN to derive an honest source address. D2.4 is where that changes.
 what lets a guest-tier tool consult one. The tier lens governs the *rule*; for this particular file
 it resolves to "everyone standing here".
 
+## Locked decision (owner, 2026-08-09) — a player's box is a box too
+
+**A wordlist on another player's machine is an ordinary file on that machine.** If B is standing on
+A's box and adds words, edits, corrupts or deletes the list, then that is what gets read there —
+by B, by A, by whoever stands there next — exactly as for any other file with changes. There is no
+"whose list is this" question to answer: the machine owns its journal, and the tier you hold decides
+what you may do to it. The NPC rule above was never NPC-specific; **every** box is one box.
+
+**Grounded 2026-08-09 — the read already does this, and the write is already gated correctly.**
+Verified in the shipped code, not recalled:
+
+- `hydraCrack.ts:296-307` reads `caller_machine_id`'s rows at `WORDLIST_PATH` and replays every
+  writer's, last write winning, a deletion reading as absent. No writer scoping, no ownership
+  scoping — it does not know or care whose box it is. **So the rule needs no new mechanism.**
+- Writes are constrained server-side, not just in the UI: `upsertPatch.ts:171-182` runs
+  `enforceRemoteWriteL2`, which limits a remote write to the login's tier, and
+  `WORDLIST_PERMISSIONS.write` is `['root']` (`defaultWordlist.ts:34-38`).
+
+**So what B can actually do on A's box falls out of the difficulty curve rather than a rule.** A
+cross-player ssh grants the account's own tier (`authCreateSessionPublic.ts:353`), and on a player's
+workstation root and user are player-chosen — never crackable — while guest is the always-open door.
+B therefore lands as **guest**: free to *read* A's curated wordlist and attack with it, unable to
+touch it. Corrupting A's list needs root on A's box, which means harvesting A's root password
+somewhere and `su`-ing — a real achievement, not a walk-in. That is the intended shape, and it
+arrives free.
+
+**Two consequences worth naming.** A's curated wordlist becomes a weapon for whoever stands on A's
+box — the same loot logic as an NPC box, now pointed at a player. And A can pre-emptively `rm` their
+own list so an intruder finds no tool there, which is an emergent defensive move nobody designed.
+Both are accepted.
+
+**What this leaves for D2.4**: only the *standing* check. `hydraCrack.ts:263` refuses any caller it
+cannot place on the generated LAN (`caller_not_on_lan`), and another player's workstation is not a
+host on your LAN. Lifting that means deriving the address the server-authoritative way — which D2.4
+owed anyway (D2.3's note). One change, not two.
+
 ## What D2.5 settled, beyond its own row
 
 **`john`'s argument is a FILE, and that choice is load-bearing for later.** `john <file>` is legacy
@@ -434,14 +470,17 @@ line that run produced is the whole feature in one string — signed on a workst
 
 ## Next step
 
-**D2.4 (cross-player hydra) and D2.6 (wordlist growth) are what remain.** Three things carried over:
+**D2.4 (cross-player hydra) and D2.6 (wordlist growth) are what remain.** D2.4 is cut as
+`feat/crack-a-strangers-box` and **planned into five slices** (2026-08-09) at
+[`d2-4-cross-player-hydra.md`](./d2-4-cross-player-hydra.md) — read its grounding before touching
+the row below, which its finding 1 corrects. Three things carried over:
 
 - **D2.4 must switch to server-derived source IP** (D2.3's note) — on another player's box there is
   somebody to frame, so `resolveCrossPlayerSourceIp` applies rather than `payload.source_ip`.
-- **The shared-wordlist rule does not reach players' boxes yet.** Another player's workstation is not
-  a host on your generated LAN, so standing on one is refused by `caller_not_on_lan`. D2.4 is where
-  that changes — and it is the same slice that must derive the address anyway, so the two belong
-  together rather than as two passes over one handler.
+- **The shared-wordlist RULE already reaches players' boxes; the standing check does not.** The
+  read is machine-scoped and ownership-blind already (see the locked decision above), so D2.4 owes
+  no wordlist work — only the `caller_not_on_lan` refusal at `hydraCrack.ts:263`, which is the same
+  line that must derive the address anyway. One change over one handler, not two passes.
 - **D2.6 may be a characterisation test, not a slice.** Both tools now read the FILE rather than a
   constant, which is the condition the split named. Confirm before planning it as work.
 

@@ -116,6 +116,7 @@ export type BuildCommandEnvArgs = {
    *  `crackCredentials` adapter (signed `hydraCrack` round-trip). Optional here for
    *  terse test setups; the UI always passes the real one. */
   readonly onHydraCrack?: HydraApi['crack'];
+  readonly onHydraCrackPublic?: HydraApi['crackPublic'];
   /** The cross-player `su`-elevation seam — backs `env.su.elevate`. The UI wires it
    *  to the `authElevateServerSession` adapter (signed `suElevate` round-trip).
    *  Optional here: only a cross-player hop's `su` calls it, so own-box/test setups
@@ -245,6 +246,7 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   },
   hydra: {
     crack: args.onHydraCrack ?? notWired('hydra.crack'),
+    crackPublic: args.onHydraCrackPublic ?? notWired('hydra.crackPublic'),
   },
   scan: {
     record: args.onScanRecord ?? notWired('scan.record'),

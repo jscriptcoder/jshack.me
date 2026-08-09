@@ -437,11 +437,27 @@ export type HydraCrackResult =
     }
   | { readonly ok: false; readonly error: string };
 
-/** The credential-cracking seam, backed by the signed `hydraCrack` endpoint. What
+/** What `hydra` hands the CROSS-PLAYER crack action. No `sourceIp`: the address a
+ *  foreign target records is derived server-side from the verified key, because a
+ *  log line on somebody else's box is evidence and a client could otherwise frame
+ *  another network. `target` is a public IP, which names an access point — the
+ *  default port reaches its gateway rather than any player's workstation. */
+export type HydraCrackPublicParams = {
+  readonly essid: string;
+  readonly target: string;
+  readonly service: string;
+  readonly username: string | undefined;
+  readonly callerMachineId: string;
+};
+
+/** The credential-cracking seam, backed by the signed `hydraCrack` endpoints. What
  *  is crackable is decided server-side against the same `/etc/passwd` `ssh` reads,
- *  so the two tools can never disagree about a credential. */
+ *  so the two tools can never disagree about a credential. The split mirrors
+ *  `SshApi`'s: reachability decides the action, and each one resolves its target
+ *  the same way its `ssh` counterpart does. */
 export type HydraApi = {
   readonly crack: (params: HydraCrackParams) => Promise<HydraCrackResult>;
+  readonly crackPublic: (params: HydraCrackPublicParams) => Promise<HydraCrackResult>;
 };
 
 /** What `nmap` hands to the scan action so the server can record the scan on each

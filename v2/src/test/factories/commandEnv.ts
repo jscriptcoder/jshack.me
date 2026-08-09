@@ -138,6 +138,7 @@ export const mockSuApi = (overrides: Partial<SuApi> = {}): SuApi => ({
  *  cracked, which is indistinguishable from a strong password. */
 export const mockHydraApi = (overrides: Partial<HydraApi> = {}): HydraApi => ({
   crack: NOT_IMPLEMENTED('hydra.crack'),
+  crackPublic: NOT_IMPLEMENTED('hydra.crackPublic'),
   ...overrides,
 });
 

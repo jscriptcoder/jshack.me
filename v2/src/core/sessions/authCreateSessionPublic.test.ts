@@ -1,10 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   handleAuthCreateSessionPublic,
-  type ApNetworkLookup,
   type AuthCreateSessionPublicDeps,
-  type NatOccupantRow,
 } from './authCreateSessionPublic';
+import type { ApNetworkLookup, NatOccupantRow } from '../network/resolvePublicTarget';
 import type { AuthSessionRow } from './authCreateSession';
 import { md5 } from '../generation/md5';
 import { seedApGatewayAdminPw, seedApGatewayHostname } from '../generation/routerFs';
