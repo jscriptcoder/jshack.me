@@ -5,8 +5,8 @@
 > (`grill-me`, same day).
 
 **Status**: **D1 shipped** (v0.109.0); **D2 in progress — D2.1 shipped** (v0.111.0), **D2.2
-shipped** (v0.113.0), **D2.3 selected and planned** (2026-08-09, see "Next action"). Everything
-else is split-and-grilled only.
+shipped** (v0.113.0), **D2.3 shipped** (v0.114.0), **D2.5 (`john`) next** (see "Next action").
+Everything else is split-and-grilled only.
 
 **Ship gate**: **all doors + hydra + discovery + the CVE system, minus missions.** Missions are
 a **post-ship epic** — the infrastructure this epic builds is what makes them cheap.
@@ -366,19 +366,33 @@ Three things it settled that outlive it:
    samples and only 39.4-40.0% at 20000. Never tune a knob to close that gap — the roll is uniform
    to within 0.3pp on unrelated seeds.
 
-**Next up: D2.3 — the defender sees the sweep.** Planned in
-[`d2-3-defender-sees-the-sweep.md`](./d2-3-defender-sees-the-sweep.md), branch
-`feat/defender-sees-the-sweep`, awaiting acceptance-criteria approval.
+**D2.3 is COMPLETE** (2026-08-09, v0.114.0). One PR — #358 `bae79f8`. Its plan file has been
+deleted; the as-built lives in [`d2-credential-layer.md`](./d2-credential-layer.md). **A sweep is
+now the loudest thing a player can do to a box**: the target records one `auth.log` line per
+password *tried*, `Accepted` for the one that matched and nothing after it, and writes nothing at
+all when the sweep never reached the box.
 
-**The split's ordering was wrong, and grounding caught it.** D2.5 (`john`) was slated next on the
-reasoning that D2.2 made root accounts hold, so a stolen root hash is a real next move. The code
-says otherwise: `hydraCrack.ts:176` already sweeps **every** account in a target's `/etc/passwd`
-against the caller's own wordlist, so `john` on any hydra-reachable hash returns exactly what hydra
-already printed — same list, same `md5`, same answer. When root holds, it holds against `john` too.
-D2.3 is what fixes that: once a sweep costs the attacker a wall of `Failed password` lines, `john`
-becomes the **silent** alternative rather than a slower hydra. Full finding, plus a second one
-(guest cannot read `/etc/passwd`, so D2.5's acceptance example is unbuildable as written), in
-[`d2-credential-layer.md`](./d2-credential-layer.md).
+**The split's ordering was wrong, and grounding caught it before any code.** D2.5 (`john`) was
+slated next on the reasoning that D2.2 made root accounts hold, so a stolen root hash is a real next
+move. The code said otherwise: `hydraCrack.ts:176` already sweeps **every** account in a target's
+`/etc/passwd` against the caller's own wordlist, so `john` on any hydra-reachable hash returns
+exactly what hydra already printed — same list, same `md5`. When root holds, it holds against `john`
+too. Building D2.3 first is what gives `john` something hydra lacks: silence.
+
+Two things it settled that outlive it:
+
+1. **Volume is the behaviour.** Per-password, not per-account — a summary line would make a
+   three-account sweep quieter than three ordinary ssh logins. ~110 lines per sweep, written as one
+   append. Unbounded log growth is the attacker's accepted cost.
+2. **Same-LAN traces trust the client's source IP, cross-player traces do not.** hydra now matches
+   `ssh` on the LAN (`payload.source_ip`); the server-authoritative
+   `resolveCrossPlayerSourceIp` stays for the cross-player writers. **D2.4 must switch.**
+
+**Next up: D2.5 (`john`).** Nothing is planned yet and no branch is cut. It needs no `api/` change
+and therefore no wire-check — the one tool in this epic that never talks to the server. Before
+planning, read the two open questions in the split's "Next step": guest cannot read `/etc/passwd`
+(so the loot path is a cracked **user** account), and `john`'s argument shape is undecided —
+legacy took a file, but the wordlist lives only on the player's own box.
 
 **D1b (`lynx`)** and **D1c (`gobuster`)** are fast-follows whenever wanted — and D1c is now
 **unblocked**, since D2.1 shipped the `extraFiles` seam it was waiting on. Both reuse D1 whole.

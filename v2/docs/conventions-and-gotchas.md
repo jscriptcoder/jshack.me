@@ -347,6 +347,15 @@ Provably-equivalent mutant classes — accept (don't chase) when they recur:
 - Plus per-slice equivalents documented in the relevant plan (e.g. discriminant-by-exclusion
   arms, a default value washed out downstream).
 
+**Put the interesting element in the MIDDLE of the fixture, never at the end.** A test that
+asserts "the search stops as soon as it matches" proves nothing when the match is the last item:
+stop-early and scan-everything produce identical output, and the boundary mutant survives. This
+hid a real gap in hydra's sweep trace — with the matching password last in a two-word list,
+`matchedAt + 1` mutated to `words.length` and the whole suite stayed green. Adding a third word
+*after* the match killed it instantly. The same shape applies to `find`/`findIndex`/`some`/
+`indexOf` and to any early-`return` in a loop: the fixture needs an element the correct
+implementation must never reach.
+
 **An injected fake can hide the real collaborator completely.** The lease allocator's tests
 inject `redrawOctet`, so `drawLanOctet`'s NPC-exclusion `.filter(...)` — the entire point of
 the change — could be DELETED with the whole suite green. Mutation was the only thing that
