@@ -1,12 +1,28 @@
 # D2 split — a player cracks a credential instead of being told it
 
-> **Status: D2.1 ✅ SHIPPED (2026-07-31, v0.111.0). D2.2 is next.** Authored 2026-07-31
-> (`story-splitting`), grounded against the shipped code (every file:line below was read, not
-> recalled). Parent: [`legacy-parity-epic.md`](./legacy-parity-epic.md) Phase 1, D2.
+> **Status: D2.1 ✅ SHIPPED (v0.111.0). D2.2 ✅ SHIPPED (v0.113.0). D2.3 or D2.5 next.**
+> Authored 2026-07-31 (`story-splitting`), grounded against the shipped code (every file:line
+> below was read, not recalled). Parent: [`legacy-parity-epic.md`](./legacy-parity-epic.md)
+> Phase 1, D2.
 >
-> D2.1's plan file has been deleted on close-out; its as-built is
-> [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §1. Findings 1–4 below
-> were all confirmed by building it — read them before planning any later slice.
+> Both shipped plans' files have been deleted on close-out; their as-built lives in
+> [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) and in the D2.2 row
+> below. Findings 1–5 were all confirmed by building them — read them before planning a later
+> slice.
+>
+> **The difficulty curve as shipped** — the whole credential layer reduces to this table, and
+> nothing else in the game decides what falls:
+>
+> | knob | value | measured | role |
+> |---|---|---|---|
+> | `guest` | 1.00 | 100% | the always-open door; the cross-player loop rests on it |
+> | `npcUser` | 0.70 | 70.3% | the routine win: sweep a LAN, get footholds |
+> | `gateway` | 0.40 | 37.0-38.9% | the pre-vulnerability route to root, at every depth |
+> | `npcRoot` | 0.12 | 11.9% | ~one crackable root per eight-host LAN |
+>
+> Measured over 2024 generated hosts and 2000 doors per gateway kind. The gateway figures sit
+> below the knob because systematically-generated seeds converge slowly — see the population
+> warning below before "correcting" one.
 
 ## Parent
 
@@ -112,7 +128,7 @@ lands *after* hydra, not before.
 | # | Slice | Value | Includes | Defers | Acceptance examples | Release constraint |
 |---|---|---|---|---|---|---|
 | **D2.1** ✔ | **A player cracks an NPC host on their own LAN and logs in with it** — **SHIPPED v0.111.0** (#351 `4627621`, #352 `b227a0b`) | The first credential earned in-game. Turns `ssh` from decorative into playable | `extraFiles` on `AptPackage` + apt's install loop writes them; `/usr/share/wordlists/passwords.txt` shipped by `apt install hydra`; `hydra <host> [service] [user]` streaming like `aircrack`; a signed same-LAN crack action mirroring `authCreateSessionSameLan`'s reachability; hydra reads the **file** (finding 4) | Every other reachability; the two-pool policy; the defender's trace; `john` | `apt install hydra` → `cat /usr/share/wordlists/passwords.txt` lists words → `hydra 192.168.x.y ssh` → prints a cracked account → `ssh` with it **succeeds** → a wrong password still fails | **Demo-quality, not ship-quality** — with one flat pool, *everything* cracks. See the open question |
-| **D2.2** | **Not every account falls** | The difficulty curve — decision 6's "crackable is membership in *your* wordlist", made real | `WEAK_PASSWORDS` + `GUEST_PASSWORDS` converge into crackable/uncrackable pools; uncrackable pool into `secrets.ts` → `__encoded.ts` (decision 7); per-account probability in `buildRemoteHostFs` (NPC user: high; NPC root: low); guest always crackable | Probability *values* (open branch 5 — tune here) | A day-one root crack happens but is rare across a scanned LAN; a player's chosen workstation root password **never** cracks; guest always does | Ships. Re-rolls the generated world (fine pre-launch) |
+| **D2.2** ✔ | **Not every account falls** — **SHIPPED v0.113.0** (#354 `f9ad49b`, #356 `3af0b92`, #357 `f69b05d`) | The difficulty curve — decision 6's "crackable is membership in *your* wordlist", made real | `core/generation/passwordPools.ts` owns one crackable pool, one uncrackable pool (behind `secrets.ts` → `__encoded.ts`), the `CRACK_CHANCE` table and `drawPassword`; `WEAK_PASSWORDS`, `GUEST_PASSWORDS` and `ROUTER_ADMIN_PASSWORDS` all retired into it | — | A day-one root crack happens but is rare across a scanned LAN; a player's chosen workstation root password **never** cracks; guest always does | Shipped. Re-rolled the generated world (free pre-launch) |
 | **D2.3** | **The defender sees the attempt** | The attacker stops being invisible. Same actor-flip that made D1's slice 4 worth its own PR | N `Failed password for <user> from <ip>` + the accepted line, into the target's `/var/log/auth.log`; owner-keyed writer; **server-derived** source IP | Rate limiting; lockout; alerting | A runs `hydra` at an NPC host; the box's `auth.log` shows the failed sweep and the one success, at the attacker's real LAN IP | Ships |
 | **D2.4** | **A player cracks a stranger's box across the network** | Cracking reaches other players — the epic's actual point | hydra over the `public` and `innerGateway` reachability seams, matching `ssh`'s remaining variants; server reads the caller's own wordlist from their persisted patches | — | B `hydra <A's public IP> ssh` → cracks A's **guest** account → `ssh` in → A's `auth.log` carries the sweep | Ships. **Needs a `scripts/test*.ts` wire-check** and two identities |
 | **D2.5** | **A player cracks a stolen hash offline** | Loot becomes capability. The first thing worth stealing that is not a file you read | `john <hash>`; matches against the same wordlist file; the `/etc/passwd` → hash → plaintext → `su` chain | Hash formats beyond md5; `--show`; pot file | B is `guest` on a cracked NPC box → `cat /etc/passwd` → `john <root hash>` → plaintext → `su root` succeeds | Ships |
@@ -141,10 +157,16 @@ until D2.5 is green** — planning it as a slice up front invents work that find
   the same way, server-side, through the same reachability rules. A hydra that cracks from a
   locally regenerated baseline will hand the player a password `ssh` then rejects — and the
   player will read that as a broken game, not a stale cache.
-- ⚠️ **This is the state the game is in right now**: not broken but flat — every account falls,
-  because the pool is single and the default wordlist covers it. A known-good *checkpoint*, not a
-  ship point. **D2.2 is what makes it a game**, and until it lands, do not read a successful crack
-  as evidence the difficulty curve works.
+- ✅ **The flat-pool interlude is over.** D2.1 shipped a world where every account fell — a
+  known-good checkpoint, not a ship point. D2.2 supplied the policy, so a successful crack is now
+  evidence about a *rolled* account rather than about everything.
+- ⚠️ **A rate is only observable across a POPULATION, and systematic seeds converge slowly.**
+  Crackability is decided at generation, so one box proves nothing about a knob. Worse, sampling
+  with `NET-0`, `NET-1`, … is not the sample size it looks like: those strings differ by a few
+  characters, so their FNV-1a hashes correlate. A 0.40 knob read 35.8-43.5% at 400 doors,
+  37.0-38.9% at 2000, and only reached 39.4-40.0% at 20000. **Do not tune a knob to close that
+  gap** — a fresh stream's first draw is uniform to within 0.3pp on unrelated seeds. Sample harder
+  or widen the band and say why in the test.
 - ⚠️ **Decision 7's accepted cost applies from D2.2 onward.** The uncrackable pool rides
   `contentCodec.ts`, which documents itself as *"OBFUSCATION, NOT SECRECY — the key sits in the
   shipped bundle."* A determined reader recovers the pool. Recorded, accepted, revisited at
@@ -174,43 +196,48 @@ until D2.5 is green** — planning it as a slice up front invents work that find
    seam with the credential layer; its target, its content and its trace are all D1's web
    surface. D2.1 still builds the seam — gobuster just consumes it later, from the web epic.
 
+## What D2.2 settled, beyond its own row
+
+**The third pool the split missed is gone.** Planning found that every gateway was already a hydra
+target, drawing from an unmentioned `ROUTER_ADMIN_PASSWORDS` whose eight words included two the
+shipped wordlist covered — so gateways cracked at a measured 23.8% by pure accident. That is why
+D2.2 ran as two slices. `ROUTER_ADMIN_PASSWORDS` no longer exists: its factory defaults were
+folded into the single crackable pool and gateways now draw at their own knob.
+
+**One pool pair, not one per door kind.** The plan called for themed crackable/uncrackable halves
+for routers. Review killed both: the uncrackable half is invisible until harvested (so its flavour
+buys nothing observable, and a second one would split wordlist growth into two progressions), and
+once that half is shared, a separate crackable half makes the two pool pairs identical. The
+abstraction collapsed to `drawPassword(prng, crackChance)` over two module-level pools. Cost: a
+cracked gateway can print `sunshine` rather than `netgear`. Cheap to reverse pre-launch.
+
+**✅ The `__encoded.ts` server-side risk is discharged.** Decision 7 put the uncrackable pool in
+the gitignored, build-generated `__encoded.ts`, and D2.2 was the first time that file crossed to
+the server (`api/sessions.ts` → `hydraCrack` / `authCreateSession` → `remoteHostFs`). The failure
+mode would have been a runtime import error in production only, invisible to every local gate.
+Proved rather than reasoned: `__encoded.ts` deleted, `npm run build` regenerated it via `prebuild`,
+and a grep of the bundle found the uncrackable pool **0 times** against a crackable control word at
+**2**. Wire-checks then passed live — `testHydraOwnLan.ts` 11/11 and `testInnerGatewayReach.ts`
+8/8, the latter authenticating as root on an inner *and* a deep child gateway.
+
 ## Next step
 
-**D2.2 is PLANNED** — see [`d2-2-two-password-pools.md`](./d2-2-two-password-pools.md). Two
-slices: NPC accounts get the pools and the curve, then the gateway pool joins the same policy.
-
-The knob values (epic open branch 5) are **settled**: guest 100%, NPC user 70%, NPC root 12%,
-gateway root 40%. "Rare" is measured across a **population** of generated hosts — a
-generation-time probability is a property of the world, not of one box — and the plan prefers an
-exact count over a fixed seed set to a tolerance band, because a band wide enough to be stable is
-usually too wide to kill a knob mutant.
-
-Planning also turned up a third pool the split did not know about: **every gateway is already a
-hydra target**, drawing from `ROUTER_ADMIN_PASSWORDS`, two of whose eight words are in the shipped
-wordlist — so ~25% of gateways crack today by accident. That is why D2.2 is two slices rather than
-one. Details in the plan's findings.
+**D2.3** (the defender sees the sweep land in `auth.log`) or **D2.5** (`john`). D2.5 is the more
+interesting of the two now: root accounts actually hold, so a stolen root hash is a real next move
+rather than a redundant one — and D2.6 likely collapses into an acceptance test the moment it
+lands, per finding 4.
 
 Per the epic, before any code in a slice: load `tdd`, `testing`, `mutation-testing`,
 `refactoring`; run full RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR; present before the next slice
 starts.
 
-### ⚠️ D2.2 adds no endpoint, but it is NOT client-only — check this before assuming no wire-check
+### ⚠️ Known gaps left behind, worth a short PR
 
-Decision 7 puts the uncrackable pool in `secrets.ts` → the **gitignored, build-generated**
-`__encoded.ts`. Verified 2026-07-31: that file is reached today from exactly one non-test
-importer, `generateWifi.ts`, itself imported only by `src/ui/state.ts` — so the encoded secrets
-have **never been loaded server-side**.
-
-D2.2 changes that. The pools live in `remoteHostFs.ts`, which `api/sessions.ts` reaches
-transitively through both `hydraCrack` and `authCreateSession`. The moment the uncrackable pool
-moves behind the codec, every Vercel function that regenerates a host depends on a file that is
-**not in git** and exists only because `prebuild`/`pretypecheck` run `npm run encode`.
-
-The build script chain looks right (`prebuild: npm run encode`), so this may well just work — but
-it has never been exercised, and the failure mode is a runtime import error in production only,
-which no local gate catches. **Prove it live with a wire-check** rather than reasoning about the
-script chain. That is cheaper than the alternative: `ssh` and `hydra` both breaking in production
-while every local gate stays green.
+D2.2's honest mutation run (once a raised timeout stopped scoring timeouts as kills) exposed **9
+genuine survivors in code it never touched**: the `RULES_V4_SEED` / `ACL_CONF_SEED` header lines
+and their `join('\n')` separator, and `buildDeepSwitchBaseFs`'s config subtree mutating to `{}`.
+The tests assert those files *parse*, so blanking the header a player reads with `cat`, or building
+a deep switch with no `acl.conf`, goes unnoticed. Not blocking anything; small and well understood.
 
 ---
 *Split artifact. Delete once every slice above is shipped or re-sited.*

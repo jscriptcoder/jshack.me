@@ -4,8 +4,9 @@
 > Split authored 2026-07-29 (`story-splitting`), then grilled to nine locked decisions
 > (`grill-me`, same day).
 
-**Status**: **D1 shipped** (v0.109.0); **D2 in progress — D2.1 shipped** (v0.111.0), D2.2 next
-(see "Next action"). Everything else is split-and-grilled only.
+**Status**: **D1 shipped** (v0.109.0); **D2 in progress — D2.1 shipped** (v0.111.0), **D2.2
+shipped** (v0.113.0), D2.3 or D2.5 next (see "Next action"). Everything else is
+split-and-grilled only.
 
 **Ship gate**: **all doors + hydra + discovery + the CVE system, minus missions.** Missions are
 a **post-ship epic** — the infrastructure this epic builds is what makes them cheap.
@@ -202,8 +203,8 @@ PHASE 1 — THE DOORS  (near-term focus)
   D1c gobuster (path brute-force) /  UNBLOCKED — D2.1 shipped the extraFiles seam
   D2  hydra + the wordlist system (+ john)             ← IN PROGRESS
       D2.1 hydra vs an own-LAN NPC host                ✔ SHIPPED v0.111.0
-      D2.2 not every account falls                     ← NEXT
-      D2.3–D2.6 (trace, cross-player, john, growth)
+      D2.2 not every account falls                     ✔ SHIPPED v0.113.0
+      D2.3–D2.6 (trace, cross-player, john, growth)   ← NEXT
   D3  ftp / scp
   D4  daemon control (systemctl / ps / kill)
   D5  nc connect + nc -l backdoor
@@ -290,9 +291,11 @@ picked, never the shape of what is stamped or how a door authorizes.
    about one crackable root per 8-host LAN, with the gateway the best root odds in the game
    (decision 1 names it the pre-CVE root target). "Rare" is measured across a **population** of
    generated hosts, since a generation-time probability is a property of the world, not of one
-   box. Planning also found a **third** pool the split missed: every gateway already draws from
-   `ROUTER_ADMIN_PASSWORDS`, two of whose eight words ship in the default wordlist, so ~25% of
-   gateways crack today by accident. See [`d2-2-two-password-pools.md`](./d2-2-two-password-pools.md).
+   box. Planning also found a **third** pool the split missed: every gateway drew from
+   `ROUTER_ADMIN_PASSWORDS`, two of whose eight words shipped in the default wordlist, so 23.8% of
+   gateways cracked by accident. **All four knobs are now shipped and measured** (guest 100%,
+   npcUser 70.3%, gateway 37.0-38.9%, npcRoot 11.9%); `ROUTER_ADMIN_PASSWORDS` is retired. See
+   [`d2-credential-layer.md`](./d2-credential-layer.md).
 
 ## Parking lot
 
@@ -341,24 +344,32 @@ deleted; the as-built is `conventions-and-gotchas.md` §1. **A player can now ea
 in-game** — `apt install hydra` → `hydra <LAN host> ssh` → `ssh` in with what came back. `ssh` had
 been decorative outside tests since it shipped, because nothing could produce a password for it.
 
-**Next up: D2.2 — not every account falls.** Today the pool is single and the default wordlist
-covers it, so *everything* cracks. That was deliberate — it isolates the crack machinery from the
-crack policy, so a failed crack during D2.1 could only mean the machinery was broken. D2.2 splits
-the pools, moves the uncrackable half behind the `secrets.ts` codec, and adds the per-account
-probability knobs. **It is the slice that turns a working mechanism into a game.**
+**D2.2 is COMPLETE** (2026-07-31, v0.113.0). Three PRs — #354 `f9ad49b` (two pools + the account
+curve), #356 `3af0b92` (the duplicate guest pool retired) and #357 `f69b05d` (the gateway knob).
+Its plan file has been deleted; the as-built lives in
+[`d2-credential-layer.md`](./d2-credential-layer.md). **The mechanism is now a game**: every door
+draws from one crackable pool and one uncrackable pool, and four knobs are the entire difficulty
+curve — guest 1.00, npcUser 0.70, gateway 0.40, npcRoot 0.12.
 
-**D2.2 is PLANNED** — [`d2-2-two-password-pools.md`](./d2-2-two-password-pools.md), two slices.
-The knob values are settled (open branch 5, above). Two things that plan carries forward:
+Three things it settled that outlive it:
 
-1. **A third pool the split missed.** Every gateway — AP, inner, deep — is already a hydra target
-   and draws its admin password from `ROUTER_ADMIN_PASSWORDS`, two of whose eight words ship in
-   the default wordlist. ~25% of gateways crack today, by pool overlap rather than by design.
-   That is why D2.2 is two slices, and it also makes `defaultWordlist.ts`'s docstring wrong.
-2. **`__encoded.ts` crosses to the server for the first time.** Verified 2026-07-31: the encoded
-   secrets have never been loaded server-side — the only non-test importer is `generateWifi.ts`,
-   reached solely from `src/ui/state.ts`. D2.2 makes every host-regenerating function depend on a
-   gitignored, build-generated file. The build chain looks correct; it has never been exercised,
-   and it fails only in production. Prove it with the wire-check, don't reason about it.
+1. **The third pool is gone.** `ROUTER_ADMIN_PASSWORDS` is retired, not split: its factory
+   defaults folded into the single crackable pool, so gateways draw at their own knob instead of
+   cracking 23.8% of the time by wordlist overlap. One pool pair serves every door kind — a themed
+   router pool bought flavour only in the half a player never sees, and would have split wordlist
+   growth into two progressions.
+2. **`__encoded.ts` reaches the server safely.** Proved rather than reasoned: the file was deleted,
+   `npm run build` regenerated it via `prebuild`, and the bundle grep found the uncrackable pool 0
+   times against a crackable control at 2. Both wire-checks then passed live.
+3. **A rate needs a bigger population than it looks.** Systematically-generated seeds
+   (`NET-0`, `NET-1`, …) have correlated FNV-1a hashes, so a 0.40 knob read 35.8-43.5% at 400
+   samples and only 39.4-40.0% at 20000. Never tune a knob to close that gap — the roll is uniform
+   to within 0.3pp on unrelated seeds.
+
+**Next up: D2.3 or D2.5.** D2.3 gives the defender the sweep in their `auth.log`; D2.5 lands
+`john`. D2.5 is now the more interesting: root accounts genuinely hold, so a stolen root hash is a
+real next move rather than a redundant one — and D2.6 likely collapses into an acceptance test the
+moment it ships.
 
 **D1b (`lynx`)** and **D1c (`gobuster`)** are fast-follows whenever wanted — and D1c is now
 **unblocked**, since D2.1 shipped the `extraFiles` seam it was waiting on. Both reuse D1 whole.
