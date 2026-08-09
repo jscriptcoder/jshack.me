@@ -1,8 +1,8 @@
 # D2 split — a player cracks a credential instead of being told it
 
 > **Status: D2.1 ✅ SHIPPED (v0.111.0). D2.2 ✅ SHIPPED (v0.113.0). D2.3 ✅ SHIPPED (v0.114.0).
-> D2.5 (`john`) next — and it finally has a reason to exist. Read the grounding section below
-> before planning it: one of its two findings breaks D2.5's acceptance example as written.**
+> D2.5 (`john`) next — and it finally has a reason to exist. Its row below is already corrected
+> for the grounding's first finding; the one open question is `john`'s argument shape.**
 > Authored 2026-07-31 (`story-splitting`), grounded against the shipped code (every file:line
 > below was read, not recalled). Parent: [`legacy-parity-epic.md`](./legacy-parity-epic.md)
 > Phase 1, D2.
@@ -301,6 +301,30 @@ best-effort `appendMachineLog` call. Extraction is earned by the codebase and wa
 out of D2.3 — it would open six files that behaviour change had no reason to touch. **Open
 follow-up**, pure behaviour-preserving.
 
+## Locked decision (owner, 2026-08-09) — tools run where you stand
+
+**`hydra`, `john` and `apt install` must all work on an NPC box, and a player must be able to
+carry things from their home box onto one.** The player's machine is a place they operate *from*,
+not the only place the toolchain exists. Ordinary tier gates still apply — `apt` needs root on
+whatever box you are standing on, exactly as real apt does — but there is to be no "this is not
+your machine" refusal on top of them.
+
+**The shipped code contradicts this in one place.** `hydra.ts:101` gates the whole command on
+`isOwnWorkstation(env.session.machineId, …)` and errors `hydra: command not available on this
+machine`; the server agrees, because the client passes `env.session.machineId` as
+`caller_machine_id` and `hydraCrack.ts:211` re-checks it. So hydra is workstation-only today, at
+both ends. Lifting that means hydra reads the wordlist from the box it is standing on, which is a
+behaviour change with a server half — **its own slice, not a line in D2.5**.
+
+**What this settles for D2.5 right now**: `john` must NOT copy hydra's gate. It reads
+`/usr/share/wordlists/passwords.txt` through the ordinary filesystem view of the CURRENT machine.
+On the player's own box that is their list; on an NPC box it is "no wordlist here" until they can
+bring one over. No special-casing, and the principle costs nothing to honour today.
+
+**Deferred, not dropped**: carrying the list to an NPC box needs `scp` (D3 — `ftp` is a catalog
+entry at `aptPackages.ts:51` with no command behind it, and there is no `scp` at all). Sequencing
+that is a separate conversation.
+
 ## Next step
 
 **D2.5 (`john`) — now worth building.** With the sweep loud, an offline crack is the *silent*
@@ -309,15 +333,20 @@ alternative rather than a slower hydra. Its shape is cheap: `john` is already an
 and **no `api/` change is needed** — an offline crack is the one tool in this epic that never talks
 to the server, so no wire-check either.
 
-Two things to settle at planning, both from the grounding section above:
+**Planned 2026-08-09 → [`d2-5-john-offline-crack.md`](./d2-5-john-offline-crack.md)**, one slice,
+awaiting owner confirmation of its acceptance criteria. Both questions this section left open are
+settled there:
 
-1. **Fix the acceptance example first.** Guest cannot read `/etc/passwd`, so the loot path is a
-   cracked **user**-tier account (`npcUser`, 0.70), not a guest one.
-2. **Decide `john`'s argument.** Legacy took a file (`john /etc/passwd`, `src/commands/john.ts`),
-   but `john` must be localhost-only — the wordlist is a patch on the player's own box — so the
-   player is never standing on the box whose passwd they just read. Either they carry the hash back
-   as an argument, or they park the rows in a file on their own box (`>` redirect and `nano` both
-   exist). Legacy parity argues for the file; the collapsed version is the hash.
+1. **The acceptance example is fixed** — the loot path is a cracked **user**-tier account
+   (`npcUser`, 0.70), because guest cannot read `/etc/passwd`.
+2. **`john`'s argument is a FILE** (`john <file>`, legacy parity). It works today by copy-paste, and
+   it is the same command the player will run *on* an NPC box once `scp` lands and the wordlist can
+   travel — so one shape serves both, and the localhost-only framing above is retired by the locked
+   decision.
+
+Planning also turned up a live bug in the progression loop: **`apt install` re-writes a package's
+`extraFiles` unconditionally** (`apt.ts:230`, no already-installed short-circuit), so reinstalling
+hydra silently wipes a curated `passwords.txt`. Out of scope for D2.5, logged as the next small PR.
 
 Per the epic, before any code in a slice: load `tdd`, `testing`, `mutation-testing`,
 `refactoring`; run full RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR; present before the next slice

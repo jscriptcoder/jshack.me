@@ -77,3 +77,9 @@ export const DEFAULT_WORDLIST: readonly string[] = [
 /** Render a wordlist as file content: one password per line, no trailing blank —
  *  a blank line would match an empty password. */
 export const formatWordlist = (words: readonly string[]): string => words.join('\n');
+
+/** Read file content back into candidate passwords. Blank lines are dropped: an
+ *  editor leaves a trailing newline behind, and "the empty password" is not
+ *  something the player typed into their list. */
+export const parseWordlist = (content: string): readonly string[] =>
+  content.split('\n').filter((word) => word.length > 0);
