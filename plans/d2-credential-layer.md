@@ -434,7 +434,9 @@ line that run produced is the whole feature in one string — signed on a workst
 
 ## Next step
 
-**D2.4 (cross-player hydra) and D2.6 (wordlist growth) are what remain.** Three things carried over:
+**D2.4 (cross-player hydra) and D2.6 (wordlist growth) are what remain.** D2.4 is cut as
+`feat/crack-a-strangers-box` (2026-08-09) but **not yet planned into slices**. Three things carried
+over:
 
 - **D2.4 must switch to server-derived source IP** (D2.3's note) — on another player's box there is
   somebody to frame, so `resolveCrossPlayerSourceIp` applies rather than `payload.source_ip`.

@@ -433,12 +433,14 @@ Three things it settled that outlive it:
    (`ui/env.ts:179-192`). The essid is still right; `wlan0.ipv4` is not. Any future command that
    reads `env.network` from a hop inherits this trap.
 
-**Next up: D2.4 (cross-player hydra) and D2.6 (wordlist growth)** — nothing planned, no branch cut.
-D2.4 now carries an extra reason to exist: the shared-wordlist rule stops at NPC boxes and
-gateways, and reaching a player's box needs the same server-derived address D2.4 already owed.
-D2.6 may collapse into a characterisation test now that both tools read the file rather than a
-constant. Lower priority: `AvailabilityRule` is declared on ten commands and read by nothing —
-hydra's declaration is now truthful, but the field is still inert. Enforce it or delete it.
+**Next up: D2.4 (cross-player hydra), on `feat/crack-a-strangers-box` — branch cut 2026-08-09, not
+yet planned into slices.** D2.4 now carries an extra reason to exist: the shared-wordlist rule stops
+at NPC boxes and gateways, and reaching a player's box needs the same server-derived address D2.4
+already owed — one handler, two jobs, so they belong in one slice rather than two passes. **D2.6**
+(wordlist growth) may collapse into a characterisation test now that both tools read the file rather
+than a constant — confirm before planning it as work. Lower priority: `AvailabilityRule` is declared
+on ten commands and read by nothing — hydra's declaration is now truthful, but the field is still
+inert. Enforce it or delete it.
 
 **D1b (`lynx`)** and **D1c (`gobuster`)** are fast-follows whenever wanted — and D1c is now
 **unblocked**, since D2.1 shipped the `extraFiles` seam it was waiting on. Both reuse D1 whole.
