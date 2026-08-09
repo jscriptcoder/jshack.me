@@ -1,8 +1,8 @@
 # D2 split — a player cracks a credential instead of being told it
 
 > **Status: D2.1 ✅ SHIPPED (v0.111.0). D2.2 ✅ SHIPPED (v0.113.0). D2.3 ✅ SHIPPED (v0.114.0).
-> D2.5 (`john`) next — and it finally has a reason to exist. Its row below is already corrected
-> for the grounding's first finding; the one open question is `john`'s argument shape.**
+> D2.5 ✅ SHIPPED (v0.115.0). D2.4 (cross-player hydra) and D2.6 (wordlist growth) remain —
+> and D2.6 may be a characterisation test rather than a slice, now that both tools read the file.**
 > Authored 2026-07-31 (`story-splitting`), grounded against the shipped code (every file:line
 > below was read, not recalled). Parent: [`legacy-parity-epic.md`](./legacy-parity-epic.md)
 > Phase 1, D2.
@@ -133,7 +133,7 @@ lands *after* hydra, not before.
 | **D2.2** ✔ | **Not every account falls** — **SHIPPED v0.113.0** (#354 `f9ad49b`, #356 `3af0b92`, #357 `f69b05d`) | The difficulty curve — decision 6's "crackable is membership in *your* wordlist", made real | `core/generation/passwordPools.ts` owns one crackable pool, one uncrackable pool (behind `secrets.ts` → `__encoded.ts`), the `CRACK_CHANCE` table and `drawPassword`; `WEAK_PASSWORDS`, `GUEST_PASSWORDS` and `ROUTER_ADMIN_PASSWORDS` all retired into it | — | A day-one root crack happens but is rare across a scanned LAN; a player's chosen workstation root password **never** cracks; guest always does | Shipped. Re-rolled the generated world (free pre-launch) |
 | **D2.3** ✔ | **The defender sees the attempt** — **SHIPPED v0.114.0** (#358 `bae79f8`) | The attacker stops being invisible. Same actor-flip that made D1's slice 4 worth its own PR | One `Failed password for <user> from <ip>` per password **TRIED** plus the accepted line, into the target's `/var/log/auth.log`; owner-keyed writer; one append per sweep; client-supplied source IP, matching `ssh` on the LAN | Rate limiting; lockout; alerting; cross-player (D2.4) | A runs `hydra` at an NPC host; the box's `auth.log` shows the failed sweep and the one success, at the attacker's real LAN IP | Shipped |
 | **D2.4** | **A player cracks a stranger's box across the network** | Cracking reaches other players — the epic's actual point | hydra over the `public` and `innerGateway` reachability seams, matching `ssh`'s remaining variants; server reads the caller's own wordlist from their persisted patches | — | B `hydra <A's public IP> ssh` → cracks A's **guest** account → `ssh` in → A's `auth.log` carries the sweep | Ships. **Needs a `scripts/test*.ts` wire-check** and two identities |
-| **D2.5** | **A player cracks a stolen hash offline** | Loot becomes capability — and, once D2.3 ships, the **silent** way to do it | `john`; matches against the same wordlist file; the `/etc/passwd` → hash → plaintext → `su` chain | Hash formats beyond md5; `--show`; pot file | B ssh's into a cracked NPC box as a **user**-tier account (guest cannot read passwd — finding 1) → `cat /etc/passwd` → `john <root hash>` → plaintext → `su root` succeeds | **Blocked on D2.3** for its value, not its build — see grounding |
+| **D2.5** ✔ | **A player cracks a stolen hash offline** — **SHIPPED v0.115.0** (#359 `aa70cfc`) | Loot becomes capability, and the **silent** way to do it now that D2.3 made the sweep loud | `john <file>`; reads the file AND the shared wordlist from the current machine; no server call at all | Hash formats beyond md5; `--show`; pot file; bare-hash arguments | B ssh's into a cracked NPC box as a **user**-tier account (guest cannot read passwd — finding 1) → `cat /etc/passwd` → carries the rows home → `john hashes.txt` → plaintext → `su root` succeeds | Shipped |
 | **D2.6** | **A player grows their wordlist and cracks what they could not before** | Decision 6's progression loop, closed | Harvest → `nano` append → the previously-failing crack now succeeds. **Probably free** if D2.1 honours finding 4 | — | A password harvested from box X is appended by hand, and box Y — which drew the same password — now cracks | Ships |
 
 ### D2.6 may be an acceptance test, not a slice
@@ -325,28 +325,68 @@ bring one over. No special-casing, and the principle costs nothing to honour tod
 entry at `aptPackages.ts:51` with no command behind it, and there is no `scp` at all). Sequencing
 that is a separate conversation.
 
+## What D2.5 settled, beyond its own row
+
+**`john`'s argument is a FILE, and that choice is load-bearing for later.** `john <file>` is legacy
+parity, it works today by copy-paste (`cat /etc/passwd` on the cracked box → `nano` at home), and it
+is the *same* command the player will run standing *on* an NPC box once `scp` lets the wordlist
+travel. One shape serves both, so nothing has to be redesigned. A bare-hash argument was rejected
+for exactly that reason — it is a second shape the end-state does not want.
+
+**One wordlist, not one per tool.** `john` ships no `extraFiles` of its own and reads the shared
+`/usr/share/wordlists/passwords.txt` that `apt install hydra` installs. Two lists would split
+D2.6's progression into two, and a second package writing the same path would be a second way to
+trigger the `apt` bug below.
+
+**`john` needs no gate, and that is the whole cost of the "tools run where you stand" principle.**
+It reads the current machine through `env.fs`, so it works on any box that has a wordlist on it,
+with no `isOwnWorkstation` check to write now or remove later. Contrast hydra, which still refuses.
+
+**`AvailabilityRule` is declared on ten commands and read by nothing.** `types.ts:632` defines
+`localhost-only` / `any-machine` / `installed-package`; `registry.ts` wraps only with
+`wrapWithBinaryCheck` + `wrapWithLibraryCheck`, and no test asserts a behavioural consequence. So
+`apt` is *declared* `localhost-only` yet already runs on NPC boxes gated only by root — the
+principle was half-true already — and hydra's real restriction is its hand-written check, not its
+declaration. Either enforce the field or delete it; it is a reduction candidate, not a behaviour
+change.
+
+**Mutation: 109 mutants, 84 killed, 25 survived — all 25 inside the declarative `manual` block**
+(survivors start at line 151; the last executable line is 147). 84/84 logic mutants killed. Three
+real gaps the first run (70.8%) exposed:
+
+1. **A blank-line filter that was dead** against the missing-hash guard downstream — a blank line
+   has no `:`, so six mutants over it survived. The comment half *was* load-bearing, but only for a
+   comment containing a colon, which no test had.
+2. **`cracked += 1` → `-= 1` survived** because `toContain('1/2 …')` also matches `'-1/2 …'`. A
+   substring assertion cannot catch a sign error; the fix was one test asserting the complete line
+   sequence, which also killed both unasserted blank separators.
+3. **`username === undefined` was dead code** — `String.split` always returns at least one element.
+   Verified not type-required with `tsc -b --force`, then deleted rather than filed as equivalent.
+
+**Read a survivor's `location` span before blaming the harness.** Stryker mutates sub-expressions
+and reports only the swapped fragment, so a `=> "false"` on a two-operand condition replaced just
+the first operand. Hand-testing the whole condition as `if (false)` killed it and looked like a
+false positive twice over. It was not. Recorded in
+[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §4.
+
 ## Next step
 
-**D2.5 (`john`) — now worth building.** With the sweep loud, an offline crack is the *silent*
-alternative rather than a slower hydra. Its shape is cheap: `john` is already an apt package
-(`aptPackages.ts:49`), `su` already validates `md5(typed)` against the passwd hash (`su.ts:201`),
-and **no `api/` change is needed** — an offline crack is the one tool in this epic that never talks
-to the server, so no wire-check either.
+**D2.4 (cross-player hydra) and D2.6 (wordlist growth) are what remain.** Two things carried over:
 
-**Planned 2026-08-09 → [`d2-5-john-offline-crack.md`](./d2-5-john-offline-crack.md)**, one slice,
-awaiting owner confirmation of its acceptance criteria. Both questions this section left open are
-settled there:
+- **D2.4 must switch to server-derived source IP** (D2.3's note) — on another player's box there is
+  somebody to frame, so `resolveCrossPlayerSourceIp` applies rather than `payload.source_ip`.
+- **D2.6 may be a characterisation test, not a slice.** Both tools now read the FILE rather than a
+  constant, which is the condition the split named. Confirm before planning it as work.
 
-1. **The acceptance example is fixed** — the loot path is a cracked **user**-tier account
-   (`npcUser`, 0.70), because guest cannot read `/etc/passwd`.
-2. **`john`'s argument is a FILE** (`john <file>`, legacy parity). It works today by copy-paste, and
-   it is the same command the player will run *on* an NPC box once `scp` lands and the wordlist can
-   travel — so one shape serves both, and the localhost-only framing above is retired by the locked
-   decision.
+**Two follow-ups are worth taking first, in this order:**
 
-Planning also turned up a live bug in the progression loop: **`apt install` re-writes a package's
-`extraFiles` unconditionally** (`apt.ts:230`, no already-installed short-circuit), so reinstalling
-hydra silently wipes a curated `passwords.txt`. Out of scope for D2.5, logged as the next small PR.
+1. 🐛 **`apt install` re-writes a package's `extraFiles` unconditionally** (`apt.ts:230`, no
+   already-installed short-circuit), so reinstalling hydra silently wipes a curated
+   `passwords.txt`. It now threatens two tools instead of one, and the progression loop rests on
+   that file. Small and isolated.
+2. **Lift hydra's workstation-only gate** (`hydra.ts:101`, mirrored server-side at
+   `hydraCrack.ts:211`) — the owner's locked principle. Has a server half, so it needs a
+   wire-check.
 
 Per the epic, before any code in a slice: load `tdd`, `testing`, `mutation-testing`,
 `refactoring`; run full RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR; present before the next slice

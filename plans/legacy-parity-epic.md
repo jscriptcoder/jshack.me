@@ -5,8 +5,8 @@
 > (`grill-me`, same day).
 
 **Status**: **D1 shipped** (v0.109.0); **D2 in progress — D2.1 shipped** (v0.111.0), **D2.2
-shipped** (v0.113.0), **D2.3 shipped** (v0.114.0), **D2.5 (`john`) next** (see "Next action").
-Everything else is split-and-grilled only.
+shipped** (v0.113.0), **D2.3 shipped** (v0.114.0), **D2.5 shipped** (v0.115.0); **D2.4 + D2.6
+next** (see "Next action"). Everything else is split-and-grilled only.
 
 **Ship gate**: **all doors + hydra + discovery + the CVE system, minus missions.** Missions are
 a **post-ship epic** — the infrastructure this epic builds is what makes them cheap.
@@ -205,8 +205,8 @@ PHASE 1 — THE DOORS  (near-term focus)
       D2.1 hydra vs an own-LAN NPC host                ✔ SHIPPED v0.111.0
       D2.2 not every account falls                     ✔ SHIPPED v0.113.0
       D2.3 the defender sees the sweep                 ✔ SHIPPED v0.114.0
-      D2.5 john — the silent crack                     ← NEXT (ahead of D2.4)
-      D2.4 / D2.6 (cross-player, wordlist growth)
+      D2.5 john — the silent crack                     ✔ SHIPPED v0.115.0
+      D2.4 / D2.6 (cross-player, wordlist growth)      ← NEXT
   D3  ftp / scp
   D4  daemon control (systemctl / ps / kill)
   D5  nc connect + nc -l backdoor
@@ -390,11 +390,24 @@ Two things it settled that outlive it:
    `ssh` on the LAN (`payload.source_ip`); the server-authoritative
    `resolveCrossPlayerSourceIp` stays for the cross-player writers. **D2.4 must switch.**
 
-**Next up: D2.5 (`john`).** Nothing is planned yet and no branch is cut. It needs no `api/` change
-and therefore no wire-check — the one tool in this epic that never talks to the server. Before
-planning, read the two open questions in the split's "Next step": guest cannot read `/etc/passwd`
-(so the loot path is a cracked **user** account), and `john`'s argument shape is undecided —
-legacy took a file, but the wordlist lives only on the player's own box.
+**D2.5 is COMPLETE** (2026-08-09, v0.115.0). One PR — #359 `aa70cfc`. Its plan file has been
+deleted; the as-built lives in [`d2-credential-layer.md`](./d2-credential-layer.md). **`john <file>`
+finds exactly what hydra finds and leaves no trace doing it** — same list, same `md5`, but no packet
+at the box the hashes came from. It reads both the file and the shared wordlist from whichever
+machine the player is standing on, and needs no `api/` change, so there is no wire-check either.
+
+**A locked principle arrived with it, from the owner: tools run where you stand.** `hydra`, `john`
+and `apt install` must all work on an NPC box, and a player must be able to carry things from home
+onto one. Ordinary tier gates still apply — `apt` needs root on that box, as real apt does — but no
+"this is not your machine" refusal on top. `john` honours it for free. **`hydra` violates it**
+(`hydra.ts:101`, mirrored at `hydraCrack.ts:211`) and lifting that is its own slice, with a server
+half. Carrying a wordlist onto a box additionally needs `scp` (D3).
+
+**Next up: D2.4 (cross-player hydra) and D2.6 (wordlist growth)** — nothing planned, no branch cut.
+D2.6 may collapse into a characterisation test now that both tools read the file rather than a
+constant. Two smaller follow-ups are worth taking first: 🐛 `apt install` re-writes a package's
+`extraFiles` unconditionally (`apt.ts:230`), so reinstalling hydra silently wipes a curated
+`passwords.txt`; and `AvailabilityRule` is declared on ten commands and read by nothing.
 
 **D1b (`lynx`)** and **D1c (`gobuster`)** are fast-follows whenever wanted — and D1c is now
 **unblocked**, since D2.1 shipped the `extraFiles` seam it was waiting on. Both reuse D1 whole.
