@@ -176,7 +176,33 @@ human approves the commit.
 
 ---
 
-### Slice 2: A player cracks the gateway behind a stranger's public IP
+### Slice 2: A player cracks the gateway behind a stranger's public IP — ✔ DONE (v0.119.0, `c9958b7`)
+
+**As built.** `hydraCrackPublic` + an `isPublicIp` dispatch mirroring `ssh.ts:272`. All six
+acceptance criteria hold. **Wire-check 8/8 live**, including the layer's central claim: the password
+hydra reported was posted to `authCreateSessionPublic`, which accepted it and landed a root session
+on the gateway — hydra and `ssh` agreeing on a cross-player target, proven rather than argued.
+
+**The sweep-and-trace half moved to `core/wordlist/passwordSweep.ts`** (one exported
+`sweepAccounts`), so both hydra paths share one rule. A second copy would become a second difficulty
+curve. hydraCrack's 35 tests stayed green across the move, which is what made it safe.
+
+**Mutation: `hydraCrackPublic` 100% (88/88).** The first run scored 72.7% with 11 uncovered, and the
+gaps were real refusals rather than mutant noise — an invalid signature, `service_not_running`, a
+wordlist the store could not read, plus the empty-trace and nobody-to-log-under paths.
+`passwordSweep` 94.6%: its three survivors are the SAME equivalent classes §4 already records, moved
+with the code. `hydra.ts` gained no survivor in the new dispatch.
+
+**A fixture caught a real misunderstanding**: making the attacker the lease holder on the target AP
+failed the "never writes under the attacker's key" test — correctly, because the ownerless gateway's
+stable log key IS the lowest-octet lease holder. The wire-check now asserts the same against the
+real table.
+
+**Follow-up, deliberately not taken**: the new `api/sessions.ts` route copies nine dep builders that
+already exist verbatim in sibling blocks — that file now holds ~6 spellings of `findPatches`. The
+strongest `api/` reduction candidate on the board, and a much better-scoped PR than a slice.
+
+### Slice 2 (original plan text)
 
 **Value**: the first credential ever earned against a box outside the player's own generated world —
 and against the best root target in the game (finding 1). A cracked AP gateway is an entrance to a
