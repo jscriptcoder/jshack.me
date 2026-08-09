@@ -72,6 +72,12 @@ type AptEnvOpts = {
    *  failure partway through a multi-step install is exercisable. */
   readonly failWritesTo?: string;
   readonly mkdirResult?: PatchResult;
+  /** Content already sitting at the wordlist path — the state of a box whose
+   *  owner has grown their list by hand. */
+  readonly curatedWordlist?: string;
+  /** Binaries already in `/usr/bin`, so a reinstall of an installed package is
+   *  exercisable. */
+  readonly installedBinaries?: readonly string[];
 };
 
 /** One filesystem operation apt performed, in the order it performed them.
@@ -88,9 +94,23 @@ type Operation =
  *  exists on every box; `/usr/share` does NOT (asserted in `workstationFs.test`,
  *  where `/usr` holds exactly `bin` and `sbin`), which is why a data file's
  *  ancestors have to be created and a binary's do not. */
-const installedBoxTree = (): Directory =>
+const installedBoxTree = (opts: AptEnvOpts = {}): Directory =>
   buildDirectory({
-    usr: buildDirectory({ bin: buildDirectory({}), sbin: buildDirectory({}) }),
+    usr: buildDirectory({
+      bin: buildDirectory(
+        Object.fromEntries((opts.installedBinaries ?? []).map((name) => [name, buildFile('#!bin')])),
+      ),
+      sbin: buildDirectory({}),
+      ...(opts.curatedWordlist === undefined
+        ? {}
+        : {
+            share: buildDirectory({
+              wordlists: buildDirectory({
+                'passwords.txt': buildFile(opts.curatedWordlist),
+              }),
+            }),
+          }),
+    }),
     lib: buildDirectory({}),
   });
 
@@ -99,7 +119,7 @@ const aptEnv = (opts: AptEnvOpts = {}) => {
   const operations: Operation[] = [];
   const env = mockCommandEnv({
     session: mockSession({ userType: opts.userType ?? 'root' }),
-    fs: mockFsViewFromTree(installedBoxTree()),
+    fs: mockFsViewFromTree(installedBoxTree(opts)),
     network: mockNetworkView({ isOnline: () => opts.online ?? true }),
     patches: {
       ...mockPatchApi(),
@@ -376,6 +396,61 @@ describe('apt', () => {
           { kind: 'mkdir', path: '/usr/share' },
           { kind: 'mkdir', path: '/usr/share/wordlists' },
           { kind: 'write', path: '/usr/share/wordlists/passwords.txt' },
+        ]);
+      });
+
+      /**
+       * The wordlist is not apt's file once it lands — it is the player's, and
+       * growing it by hand IS the progression the whole credential layer rests
+       * on. An install that rewrote it would silently destroy every password
+       * harvested since, with nothing on screen to say so.
+       *
+       * Which is why "already installed, do nothing" is the WRONG fix: both
+       * `hydra` and `john` tell a player with no wordlist to reinstall hydra to
+       * get one back. That recovery has to keep working, so the rule is per-file
+       * — present is left alone, absent is written.
+       */
+      it('leaves a wordlist the player has grown where it is', async () => {
+        const { env, writes } = aptEnv({
+          curatedWordlist: 'letmein\nharvested-from-the-box-at-192.168.4.31\n',
+        });
+
+        const { exitCode } = await streamResult(
+          await apt.execute(env, ['install', 'hydra'], NO_FLAGS),
+        );
+
+        expect(writes.map((write) => write.path)).toEqual(['/usr/bin/hydra']);
+        expect(exitCode).toBe(0);
+      });
+
+      it('says the wordlist was kept, rather than leaving the player guessing', async () => {
+        const { env } = aptEnv({ curatedWordlist: 'letmein\n' });
+
+        const { lines } = await streamResult(
+          await apt.execute(env, ['install', 'hydra'], NO_FLAGS),
+        );
+
+        expect(lines.map((line) => line.content)).toContain(
+          '/usr/share/wordlists/passwords.txt already exists, keeping your copy',
+        );
+      });
+
+      it('restores a wordlist the player deleted, even with hydra still installed', async () => {
+        // The recovery path both tools point at. The binary is present, so this
+        // is a reinstall — but the data file is gone and has to come back.
+        const { env, writes } = aptEnv({ installedBinaries: ['hydra'] });
+
+        await streamResult(await apt.execute(env, ['install', 'hydra'], NO_FLAGS));
+
+        // The binary is rewritten with the stub it already held — harmless, and
+        // out of scope here; what matters is that the data file comes back.
+        expect(writes).toEqual([
+          { path: '/usr/bin/hydra', content: BINARY_STUB, options: expect.anything() },
+          {
+            path: '/usr/share/wordlists/passwords.txt',
+            content: formatWordlist(DEFAULT_WORDLIST),
+            options: { isNew: true, permissions: WORDLIST_PERMS },
+          },
         ]);
       });
 
