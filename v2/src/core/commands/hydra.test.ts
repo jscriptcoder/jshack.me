@@ -151,7 +151,18 @@ describe('hydra', () => {
       service: 'ssh',
       username: 'root',
       callerMachineId: WORKSTATION_ID,
+      sourceIp: '192.168.4.50',
     });
+  });
+
+  it("names the address the attack comes from, so the target's log can record it", async () => {
+    // The same address `ssh` reports for a login from this machine: a sweep and a
+    // login from one box must not appear to the defender as two different callers.
+    const { env, crack } = hydraEnv();
+
+    await drain(await hydra.execute(env, ['192.168.4.31'], new Map()));
+
+    expect(crack).toHaveBeenCalledWith(expect.objectContaining({ sourceIp: '192.168.4.50' }));
   });
 
   it('attacks ssh and every account when neither is named', async () => {

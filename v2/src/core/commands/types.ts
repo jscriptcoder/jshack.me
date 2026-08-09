@@ -418,6 +418,10 @@ export type HydraCrackParams = {
   readonly service: string;
   readonly username: string | undefined;
   readonly callerMachineId: string;
+  /** The address the sweep originates from (the player's wlan0 LAN IP), or null.
+   *  The target's auth.log records it, exactly as it records an `ssh` login's — a
+   *  sweep and a login from one machine must not read as two different callers. */
+  readonly sourceIp: string | null;
 };
 
 export type HydraCrackResult =

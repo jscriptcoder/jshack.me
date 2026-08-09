@@ -50,6 +50,7 @@ async function* attack(
   username: string | undefined,
   callerMachineId: string,
   essid: string,
+  sourceIp: string | null,
 ): AsyncIterable<TerminalLine> {
   yield text(`Hydra starting attack on ${service}://${target}`);
   await env.sleep(STEP_DELAY_MS);
@@ -68,6 +69,7 @@ async function* attack(
     service,
     username,
     callerMachineId,
+    sourceIp,
   });
 
   if (!result.ok) {
@@ -119,6 +121,7 @@ const execute: Command['execute'] = async (env, args) => {
       username,
       env.session.machineId,
       wlan0.association.essid,
+      wlan0.ipv4,
     ),
     exitCode: async () => 0,
   };
