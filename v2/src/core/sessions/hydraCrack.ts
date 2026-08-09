@@ -11,13 +11,20 @@
  * patched the passwd, and would hand the player a credential `ssh` then rejects —
  * which reads as a broken game, not a stale cache.
  *
- * The wordlist is read from the CALLER'S OWN journal, never from the request. The
- * list is the whole mechanic — membership in it is what makes a password
- * crackable — so accepting it as a client claim would let one unlogged request
- * carry a pool recovered from the shipped bundle. Read from the journal, growing
- * your coverage means really writing to your own box, which is the in-game action
- * the mechanic is built around. The wordlist exists ONLY as a patch (apt wrote it;
- * no base filesystem carries it), so one row IS the file.
+ * The wordlist is read from the JOURNAL of the machine the caller is standing on,
+ * never from the request. The list is the whole mechanic — membership in it is
+ * what makes a password crackable — so accepting it as a client claim would let
+ * one unlogged request carry a pool recovered from the shipped bundle. Read from
+ * the journal, growing your coverage means really writing to a box, which is the
+ * in-game action the mechanic is built around.
+ *
+ * That read is MACHINE-scoped, not writer-scoped: a file belongs to the box it is
+ * on, so the list the tools use is the one the last writer left there, whoever
+ * that was — the same rule `cat` gets from the materialized tree. Anything else
+ * would let a player read a wordlist plainly present on their screen while the
+ * tool insisted there was none. The wordlist exists ONLY as a patch (apt wrote it;
+ * no base filesystem carries it), so the winning row IS the file, and a deletion
+ * row is the file being gone.
  *
  * Reachability mirrors `authCreateSession` exactly — unknown host, bricked box,
  * service not listening — so a dead machine is dark to every tool rather than
@@ -57,6 +64,8 @@ import {
   type MachineLogReadQuery,
   type MachineLogReadResult,
 } from '../patches/appendMachineLog';
+import { orderPatchesForReplay } from '../patches/orderPatchesForReplay';
+import type { ListPathPatchesResult, PathPatchRow } from '../patches/upsertPatch';
 import type { LanHost } from '../generation/generateHomeLan';
 import type { PatchRow } from '../patches/upsertPatch';
 import type { NonceStore } from '../signedRequest/nonceStore';
@@ -76,9 +85,14 @@ export type HydraCrackDeps = {
   readonly findPatches: (query: {
     readonly machine_id: string;
   }) => Promise<{ readonly data: readonly OwnerPatchRow[] | null; readonly error: unknown }>;
-  /** The CALLER's own wordlist patch. The wordlist only ever exists as a patch
-   *  (apt wrote it; no base FS carries it), so the row IS the file. */
-  readonly readWordlist: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
+  /** Every writer's rows at the wordlist path on the machine the caller is
+   *  standing on. Machine-scoped, exactly like the read behind a save's
+   *  base-content check: the file belongs to the box, not to whoever wrote it
+   *  last. The handler picks the row a reader materializes. */
+  readonly listPathPatches: (query: {
+    readonly machine_id: string;
+    readonly path: string;
+  }) => Promise<ListPathPatchesResult>;
   /** The TARGET's current auth.log content — the read half of the system-written
    *  trace, so a sweep appends to the box's history instead of replacing it. */
   readonly readAuthLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
@@ -105,6 +119,13 @@ const hydraCrackSchema = z
     source_ip: z.string().min(1).nullable().optional(),
   })
   .refine((payload) => !('player_key' in payload));
+
+/** The wordlist file as the box holds it: every writer's row at the path replayed
+ *  in chronological order, the last write winning. A winning row with no content
+ *  is a deletion, so a removed file reads as absent rather than empty — which is
+ *  what makes `apt install hydra` a real recovery rather than a no-op. */
+const wordlistOn = (rows: readonly PathPatchRow[] | null): string | null =>
+  orderPatchesForReplay(rows ?? []).at(-1)?.content ?? null;
 
 /** Split a wordlist file into candidate passwords. Blank lines are dropped: an
  *  editor leaves a trailing newline behind, and "the empty password" is not
@@ -242,8 +263,7 @@ export const handleHydraCrack = async (
     return { status: 404, body: { error: 'service_not_running' } };
   }
 
-  const wordlist = await deps.readWordlist({
-    writer_key: publicKey,
+  const wordlist = await deps.listPathPatches({
     machine_id: payload.caller_machine_id,
     path: WORDLIST_PATH,
   });
@@ -251,10 +271,10 @@ export const handleHydraCrack = async (
     return { status: 500, body: { error: 'wordlist_lookup_failed' } };
   }
 
-  // A missing row is a real state, not an error: the wordlist is an ordinary file
-  // on the player's own box and root can remove it. Say so, rather than reporting
-  // an empty sweep that looks like a hardened target.
-  const content = wordlist.data?.content ?? null;
+  // A missing file is a real state, not an error: the wordlist is an ordinary
+  // file and root can remove it. Say so, rather than reporting an empty sweep
+  // that looks like a hardened target.
+  const content = wordlistOn(wordlist.data);
   if (content === null) {
     return { status: 200, body: { port: open.port, cracked: [], wordlistFound: false } };
   }

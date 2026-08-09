@@ -12,6 +12,11 @@
 //   - A named username → only that account is attacked.
 //   - NO wordlist row → 200 with wordlistFound:false, cracked empty. Distinct from
 //     a sweep that matched nothing.
+//   - A wordlist row written by ANOTHER player on the caller's machine → used. The
+//     read is machine-scoped, not writer-scoped: a file belongs to the box it is
+//     on. A writer-scoped query passes every other check in this file.
+//   - Two writers holding the same path → the newest row wins, ordered on the
+//     server's `updated_at` rather than on which query returned first.
 //   - A caller_machine_id belonging to someone ELSE → 403 not_own_machine, so a
 //     player cannot read a wordlist off another player's box.
 //   - A target that is not a host on the LAN → 404 host_unreachable.
@@ -185,8 +190,10 @@ const clearTrace = async () => {
 const traceLines = (content: string): readonly string[] =>
   content.split('\n').filter((line) => line.length > 0);
 
-/** Seed the attacker's wordlist exactly as `apt install hydra` writes it. */
-const seedWordlist = async (words: readonly string[]) => {
+/** Seed a wordlist on the attacker's machine exactly as `apt install hydra` writes
+ *  it. `writerKey` defaults to the attacker; pass another player's key to stand in
+ *  for a list someone ELSE left on the box. */
+const seedWordlist = async (words: readonly string[], writerKey = attacker.publicKeyHex) => {
   const { error } = await sr.from('patches').upsert(
     {
       machine_id: attackerMachine,
@@ -195,7 +202,7 @@ const seedWordlist = async (words: readonly string[]) => {
       owner: 'root',
       permissions: WORDLIST_PERMISSIONS,
       node_type: 'file',
-      writer_key: attacker.publicKeyHex,
+      writer_key: writerKey,
       is_new: true,
     },
     { onConflict: 'machine_id,path,writer_key' },
@@ -203,13 +210,14 @@ const seedWordlist = async (words: readonly string[]) => {
   if (error) throw new Error(`wordlist seed failed: ${error.message}`);
 };
 
+/** Every writer's row at the path, not just the attacker's — the read under test
+ *  is machine-scoped, so a leftover foreign row would silently arm later checks. */
 const clearWordlist = async () => {
   await sr
     .from('patches')
     .delete()
     .eq('machine_id', attackerMachine)
-    .eq('path', WORDLIST_PATH)
-    .eq('writer_key', attacker.publicKeyHex);
+    .eq('path', WORDLIST_PATH);
 };
 
 const crackedIn = (body: unknown): readonly { username: string; password: string }[] => {
@@ -259,6 +267,33 @@ const main = async () => {
     crackedIn(grown.body).some((entry) => entry.username === harvested.username),
     `harvested ${harvested.username}; cracked ${crackedIn(grown.body).map((entry) => entry.username).join(',') || 'none'}`,
   );
+
+  // 0c. A box is one box: the wordlist is whatever the LAST writer left there, not
+  //     the caller's private row. Seeded under a stranger's key with nothing of the
+  //     attacker's at that path, the sweep must still use it — this is the live
+  //     proof that the read is machine-scoped, which `tsc` cannot see and a
+  //     writer-scoped query would fail while every other check here still passed.
+  await clearWordlist();
+  await seedWordlist([...DEFAULT_WORDLIST, harvested.password], stranger.publicKeyHex);
+  const strangersList = await post(crackEnvelope());
+  check(
+    "a wordlist another player left on the box is the one the sweep uses",
+    crackedIn(strangersList.body).some((entry) => entry.username === harvested.username),
+    `harvested ${harvested.username}; cracked ${crackedIn(strangersList.body).map((entry) => entry.username).join(',') || 'none'}`,
+  );
+
+  // 0d. …and the LATEST write wins across writers. The attacker's own row lands
+  //     after the stranger's and drops the harvested password, so the account that
+  //     just fell must hold again. Ordering is on the SERVER's `updated_at`, so
+  //     this also proves the two rows are being ordered rather than picked by luck.
+  await seedWordlist(DEFAULT_WORDLIST);
+  const overwritten = await post(crackEnvelope());
+  check(
+    'the newest row wins when two writers hold the same file',
+    !crackedIn(overwritten.body).some((entry) => entry.username === harvested.username),
+    `harvested ${harvested.username} should hold; cracked ${crackedIn(overwritten.body).map((entry) => entry.username).join(',') || 'none'}`,
+  );
+  await clearWordlist();
 
   // 1. A wordlist holding everything cracks everything.
   await seedWordlist(accounts.map((account) => account.password));
