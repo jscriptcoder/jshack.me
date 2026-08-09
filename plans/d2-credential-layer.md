@@ -470,19 +470,37 @@ line that run produced is the whole feature in one string — signed on a workst
 
 ## Next step
 
-**D2.4 (cross-player hydra) and D2.6 (wordlist growth) are what remain.** D2.4 is cut as
-`feat/crack-a-strangers-box` and **planned into five slices** (2026-08-09) at
-[`d2-4-cross-player-hydra.md`](./d2-4-cross-player-hydra.md) — read its grounding before touching
-the row below, which its finding 1 corrects. Three things carried over:
+**D2.4 is HALF SHIPPED; D2.6 remains.** Slices 1 and 2 of
+[`d2-4-cross-player-hydra.md`](./d2-4-cross-player-hydra.md) landed 2026-08-09 (v0.119.0, #371
+`9b431d7`) — read its grounding before touching the row above, which its finding 1 corrects.
 
-- **D2.4 must switch to server-derived source IP** (D2.3's note) — on another player's box there is
-  somebody to frame, so `resolveCrossPlayerSourceIp` applies rather than `payload.source_ip`.
+**What shipped**: one shared resolver (`core/network/resolvePublicTarget`) decides what a public IP
+and port reach, so `ssh` and `hydra` cannot disagree about a cross-player target by construction;
+and `hydra <a stranger's public IP>` sweeps the access point's gateway. The sweep-and-trace rule
+moved to `core/wordlist/passwordSweep`, shared by both hydra paths, because a second copy of "an
+account falls iff its password is a word in the file" would become a second difficulty curve.
+
+**What that settled**: a public IP's DEFAULT port reaches the AP GATEWAY, not the owner's
+workstation (`machineServing` routes by port before any occupancy work). The split's row said
+"cracks A's guest account"; that needs a NAT-forwarded port, and hydra has no port argument yet.
+Slice 3.
+
+Still carried over:
+
+- **Slice 4 is where server-derived vantage lands** (D2.3's note). Slices 1-2 kept
+  `resolveCrossPlayerSourceIp` as-is, which is correct while the player stands on their own LAN —
+  everything there leaves by their home public IP. Standing on a FOREIGN box it would be a false
+  trace, so that is refused (`caller_not_on_lan`) until slice 4 derives the vantage properly.
 - **The shared-wordlist RULE already reaches players' boxes; the standing check does not.** The
   read is machine-scoped and ownership-blind already (see the locked decision above), so D2.4 owes
-  no wordlist work — only the `caller_not_on_lan` refusal at `hydraCrack.ts:263`, which is the same
-  line that must derive the address anyway. One change over one handler, not two passes.
+  no wordlist work — only the `caller_not_on_lan` refusal, which is the same line that must derive
+  the address anyway. One change over one handler, not two passes.
 - **D2.6 may be a characterisation test, not a slice.** Both tools now read the FILE rather than a
   constant, which is the condition the split named. Confirm before planning it as work.
+- **`api/sessions.ts` is now half supabase dep builders** and every hydra seam adds more. Diagnosed
+  and planned as a terminal reduction at
+  [`api-sessions-dep-reduction.md`](./api-sessions-dep-reduction.md) — worth doing BEFORE slice 3,
+  which would otherwise add a tenth copy.
 
 **Follow-ups, both closed:**
 

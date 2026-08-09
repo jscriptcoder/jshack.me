@@ -433,8 +433,12 @@ Three things it settled that outlive it:
    (`ui/env.ts:179-192`). The essid is still right; `wlan0.ipv4` is not. Any future command that
    reads `env.network` from a hop inherits this trap.
 
-**Next up: D2.4 (cross-player hydra), on `feat/crack-a-strangers-box` — planned 2026-08-09 into five
-slices at [`d2-4-cross-player-hydra.md`](./d2-4-cross-player-hydra.md), no code written yet.**
+**D2.4 is IN PROGRESS — slices 1 and 2 shipped** (2026-08-09, v0.119.0, #371 `9b431d7`), the rest
+planned at [`d2-4-cross-player-hydra.md`](./d2-4-cross-player-hydra.md).
+**Cracking now reaches outside the player's own generated world**: `hydra <a stranger's public IP>`
+sweeps the access point's gateway, through the same resolver `ssh` authenticates against — proven
+live, by posting the password hydra reported straight to `authCreateSessionPublic` and getting a
+root session back.
 Grounding corrected the row's own acceptance example: a public IP's **default port reaches the AP
 gateway**, not the owner's workstation, so "cracks A's guest account" needs a NAT-forwarded port and
 hydra has no port argument. The gateway target is the smaller slice *and* the better one (the

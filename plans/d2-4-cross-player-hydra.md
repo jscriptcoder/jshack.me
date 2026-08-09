@@ -1,7 +1,8 @@
 # Plan: a player cracks a stranger's box across the network
 
 **Branch**: `feat/crack-a-strangers-box`
-**Status**: Active — planned 2026-08-09, no code written yet.
+**Status**: Active — **slices 1 and 2 SHIPPED** in PR #371 (`9b431d7`, v0.119.0). Slices 3-5
+remain, and the slice-5 question below is still open.
 **Parent**: [`d2-credential-layer.md`](./d2-credential-layer.md) (D2.4) →
 [`legacy-parity-epic.md`](./legacy-parity-epic.md) Phase 1.
 
@@ -117,7 +118,7 @@ then a vantage, then a chain.
 
 ---
 
-### Slice 1: One resolver decides what a public IP and port reach — ✔ DONE (`1350353`)
+### Slice 1: One resolver decides what a public IP and port reach — ✔ SHIPPED (#371 `9b431d7`)
 
 **As built.** `core/network/resolvePublicTarget.ts` owns the sequence; the handler keeps the passwd
 check, the trace and the session insert. Refusals cross as `{ok:false, status, error}` and are
@@ -176,7 +177,7 @@ human approves the commit.
 
 ---
 
-### Slice 2: A player cracks the gateway behind a stranger's public IP — ✔ DONE (v0.119.0, `c9958b7`)
+### Slice 2: A player cracks the gateway behind a stranger's public IP — ✔ SHIPPED (v0.119.0, #371 `9b431d7`)
 
 **As built.** `hydraCrackPublic` + an `isPublicIp` dispatch mirroring `ssh.ts:272`. All six
 acceptance criteria hold. **Wire-check 8/8 live**, including the layer's central claim: the password

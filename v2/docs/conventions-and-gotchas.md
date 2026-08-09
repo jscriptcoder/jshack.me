@@ -193,11 +193,28 @@ decisions. The ship gate is legacy parity **minus missions**; missions are a pos
     forward loops — `e2e-shared-network-verification.md` §7.
 
 - **D2 (the credential layer) 🔨 IN PROGRESS — D2.1 ✅ (v0.111.0), D2.2 ✅ (v0.113.0), D2.3 ✅
-  (v0.114.0), D2.5 ✅ (v0.115.0), plus both follow-ups ✅ (v0.116.0, v0.118.0). D2.4 (cross-player
-  hydra) and D2.6 (wordlist growth) remain.** Split into six candidates in
+  (v0.114.0), D2.5 ✅ (v0.115.0), both follow-ups ✅ (v0.116.0, v0.118.0), and **D2.4 slices 1-2 ✅**
+  (v0.119.0). D2.4 slices 3-5 and D2.6 (wordlist growth) remain.** Split into six candidates in
   `plans/d2-credential-layer.md` — **read its top block for live status**; every shipped slice's
-  own plan file is deleted and its as-built lives there. PRs #351, #352, #354, #356, #357, #358,
-  #359, #362, #370.
+  own plan file is deleted and its as-built lives there (D2.4's plan is still live —
+  `plans/d2-4-cross-player-hydra.md`). PRs #351, #352, #354, #356, #357, #358, #359, #362, #370,
+  #371.
+
+  - **Cracking reaches other players (D2.4 slices 1-2, v0.119.0).** `hydra <a stranger's public IP>`
+    sweeps that access point's GATEWAY — a public IP names an AP, and `machineServing` routes by
+    destination port before any occupancy work, so the default port is the gateway's own sshd rather
+    than any player's workstation. Reaching a player's box needs a NAT-forwarded port and a `-p`
+    argument hydra does not have yet.
+  - **One resolver decides what a public IP and port reach** —
+    `core/network/resolvePublicTarget.ts`, called by BOTH `authCreateSessionPublic` and
+    `hydraCrackPublic`. "hydra must never disagree with `ssh`" is now structural rather than a
+    discipline; the wire-check proves it by posting hydra's cracked password straight to the ssh
+    action and getting a root session back.
+  - **A cross-player trace is written under the TARGET's log-writer key, and its source IP is
+    server-derived.** On your own LAN hydra matches `ssh` and trusts the client's address (the
+    occupant is an NPC; nobody to frame). Across the network the log is the defender's only
+    evidence, so the address comes from the verified key — and a caller the server cannot place on
+    their own network is refused rather than traced to a guess.
   - **The first credential earned in-game.** `apt install hydra` → `hydra <LAN host> ssh` →
     a `login:`/`password:` line → `ssh` in with it. `ssh` shipped long ago but took a password no
     player could obtain, so v2's only door was decorative outside tests. This opens it.
@@ -652,6 +669,17 @@ tree that does carry the file. Prefer stating the rule over arguing the input ca
   prove the target parses by asserting a presence with the same string.
 
 ---
+
+- **Every `api/*.ts` file is a Vercel ENDPOINT.** There is no `vercel.json`, and `api/` holds
+  exactly `network.ts`, `patches.ts`, `sessions.ts` — three files, three serverless functions. A
+  helper module dropped in there (`api/deps.ts`, `api/shared.ts`) does not just sit quietly; it
+  publishes a bogus function. Shared server-side helpers belong at module scope inside the endpoint
+  that uses them, or somewhere outside `api/` entirely.
+- **`upsert(row)` and `upsert(row, { onConflict: 'machine_id,path,writer_key' })` are equivalent on
+  `patches` — but only by coincidence of the schema.** PostgREST defaults its conflict target to the
+  primary key, and `20260614130000_patches_shared_journal.sql` made that PK exactly that triple.
+  Both spellings are live in `api/`. Prefer the explicit one: it documents the dependency instead of
+  relying on it silently, and it stops a future reader "fixing" the wrong copy.
 
 ## 6. Wire-check infrastructure
 
