@@ -5,8 +5,8 @@
 > (`grill-me`, same day).
 
 **Status**: **D1 shipped** (v0.109.0); **D2 in progress — D2.1 shipped** (v0.111.0), **D2.2
-shipped** (v0.113.0), **D2.3 shipped** (v0.114.0), **D2.5 shipped** (v0.115.0); **hydra's
-workstation-only gate is being lifted now, D2.4 + D2.6 after it** (see "Next action"). Everything
+shipped** (v0.113.0), **D2.3 shipped** (v0.114.0), **D2.5 shipped** (v0.115.0), **hydra's
+workstation-only gate lifted** (v0.118.0); **D2.4 + D2.6 remain** (see "Next action"). Everything
 else is split-and-grilled only.
 
 **Ship gate**: **all doors + hydra + discovery + the CVE system, minus missions.** Missions are
@@ -400,9 +400,9 @@ machine the player is standing on, and needs no `api/` change, so there is no wi
 **A locked principle arrived with it, from the owner: tools run where you stand.** `hydra`, `john`
 and `apt install` must all work on an NPC box, and a player must be able to carry things from home
 onto one. Ordinary tier gates still apply — `apt` needs root on that box, as real apt does — but no
-"this is not your machine" refusal on top. `john` honours it for free. **`hydra` violates it**
-(`hydra.ts:101`, mirrored at `hydraCrack.ts:211`) and lifting that is its own slice, with a server
-half. Carrying a wordlist onto a box additionally needs `scp` (D3).
+"this is not your machine" refusal on top. `john` honoured it for free; **`hydra` violated it at
+both ends**, which became its own slice — see below, shipped in v0.118.0. Carrying a *grown*
+wordlist onto a box additionally needs `scp` (D3).
 
 **The wordlist wipe is FIXED** (2026-08-09, v0.116.0, #362 `a382174`). `apt install` no longer
 overwrites an `extraFile` that already exists, so a reinstall keeps a curated `passwords.txt` and
@@ -410,28 +410,35 @@ says so. Per-FILE rather than an already-installed short-circuit, because hydra 
 a player with no wordlist to reinstall hydra to get one back — an absent file is still written and
 that recovery keeps working.
 
-**In flight: lifting hydra's workstation-only gate** (`hydra.ts:101` + `hydraCrack.ts:211`), the
-locked principle above — branch `feat/hydra-runs-where-you-stand`, planned as two slices in
-[`d2-hydra-runs-where-you-stand.md`](./d2-hydra-runs-where-you-stand.md). Grounding lives in
-[`d2-credential-layer.md`](./d2-credential-layer.md); the headline is
-that the two ends are **not** the same check — the client's is a bare refusal, the server's is what
-stops a caller naming someone else's box as the source of their wordlist, so it needs a replacement
-rule rather than a deletion. That rule already exists: `authorizeMachineAccess` (own workstation, or
-an active session on the box) is what `upsertPatch`/`listPatches`/`removePatch` already use, and it
-returns the session's tier. It has a real end-to-end payoff with no `scp`: `apt` is root-gated and
-nothing more, so a player who roots an NPC box can install hydra **there** and get the default
-wordlist on it.
+**hydra's workstation-only gate is LIFTED** (2026-08-09, v0.118.0, #370 `aea2450`). Two slices, and
+their order was the whole design: the wordlist read first, the gate second, so no shipped version
+ever had `cat` showing a list the sweep denied existed. Its plan file is deleted; the as-built lives
+in [`d2-credential-layer.md`](./d2-credential-layer.md). **The loop the owner described now works
+end to end with no `scp`** — root an NPC box, `apt install hydra` there, sweep the LAN from it.
 
-**A second principle arrived with it, from the owner: an NPC box is one box, and tier is the only
-lens.** Everything on an NPC machine is shared; what a player sees is decided by their user type
-there, never by who wrote it. The journal and the FS already work this way — the single divergence
-is hydra's writer-scoped wordlist read, which would otherwise have a player `cat` a wordlist hydra
-claims is not there.
+**A second owner principle arrived with it: an NPC box is one box, and tier is the only lens.**
+Everything on it is shared; what a player sees is decided by the tier they hold there, never by who
+wrote it. The journal and the filesystem already worked that way — hydra's writer-scoped wordlist
+read was the codebase's single divergence, and it is gone.
 
-**Then D2.4 (cross-player hydra) and D2.6 (wordlist growth)** — nothing planned, no branch cut.
+Three things it settled that outlive it:
+
+1. **The replacement rule already existed.** `authorizeMachineAccess` — own workstation, or an
+   active session on the machine — is what the patch endpoints already use, so the slice **removed**
+   a bespoke check rather than adding one, and got the session's tier for free.
+2. **An origin the server cannot place is refused, not guessed.** A deep-chain box or another
+   player's workstation yields `caller_not_on_lan`: a false address in a defender's log is worse
+   than a refusal, now that the log is an attack's whole visible cost.
+3. **`env.network` inside a remote session is the PLAYER's connectivity, not the box's**
+   (`ui/env.ts:179-192`). The essid is still right; `wlan0.ipv4` is not. Any future command that
+   reads `env.network` from a hop inherits this trap.
+
+**Next up: D2.4 (cross-player hydra) and D2.6 (wordlist growth)** — nothing planned, no branch cut.
+D2.4 now carries an extra reason to exist: the shared-wordlist rule stops at NPC boxes and
+gateways, and reaching a player's box needs the same server-derived address D2.4 already owed.
 D2.6 may collapse into a characterisation test now that both tools read the file rather than a
 constant. Lower priority: `AvailabilityRule` is declared on ten commands and read by nothing —
-enforce it or delete it.
+hydra's declaration is now truthful, but the field is still inert. Enforce it or delete it.
 
 **D1b (`lynx`)** and **D1c (`gobuster`)** are fast-follows whenever wanted — and D1c is now
 **unblocked**, since D2.1 shipped the `extraFiles` seam it was waiting on. Both reuse D1 whole.

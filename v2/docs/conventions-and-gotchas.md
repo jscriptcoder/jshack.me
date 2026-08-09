@@ -193,10 +193,11 @@ decisions. The ship gate is legacy parity **minus missions**; missions are a pos
     forward loops — `e2e-shared-network-verification.md` §7.
 
 - **D2 (the credential layer) 🔨 IN PROGRESS — D2.1 ✅ (v0.111.0), D2.2 ✅ (v0.113.0), D2.3 ✅
-  (v0.114.0), D2.5 ✅ (v0.115.0). D2.4 (cross-player hydra) and D2.6 (wordlist growth) remain.**
-  Split into six candidates in `plans/d2-credential-layer.md` — **read its top block for live
-  status**; every shipped slice's own plan file is deleted and its as-built lives there. PRs
-  #351, #352, #354, #356, #357, #358, #359, #362.
+  (v0.114.0), D2.5 ✅ (v0.115.0), plus both follow-ups ✅ (v0.116.0, v0.118.0). D2.4 (cross-player
+  hydra) and D2.6 (wordlist growth) remain.** Split into six candidates in
+  `plans/d2-credential-layer.md` — **read its top block for live status**; every shipped slice's
+  own plan file is deleted and its as-built lives there. PRs #351, #352, #354, #356, #357, #358,
+  #359, #362, #370.
   - **The first credential earned in-game.** `apt install hydra` → `hydra <LAN host> ssh` →
     a `login:`/`password:` line → `ssh` in with it. `ssh` shipped long ago but took a password no
     player could obtain, so v2's only door was decorative outside tests. This opens it.
@@ -209,10 +210,11 @@ decisions. The ship gate is legacy parity **minus missions**; missions are a pos
     with `parent_not_traversable`; replay scaffolds, but authorization refuses before replay.)
   - **The crack is server-side, and reads a FILE.** `core/sessions/hydraCrack.ts` mirrors
     `handleAuthCreateSession`'s preamble (regenerate the LAN → resolve the host → materialize its
-    journal → `canBoot` → open ports), then sweeps `/etc/passwd` against the caller's own
-    wordlist, read from **their own journal** by `machine_id` after `isOwnWorkstation` — never
-    from a client claim, and never from an imported constant. Reading the file is what makes
-    "grow your wordlist" (D2.6) free rather than a rewrite.
+    journal → `canBoot` → open ports), then sweeps `/etc/passwd` against the wordlist on the box
+    the caller is standing on — read from **that machine's journal**, every writer's rows replayed
+    with the last write winning (a row with no content is a deletion, so `apt install hydra` stays
+    a real recovery). Never a client claim, never an imported constant. Reading the file is what
+    makes "grow your wordlist" (D2.6) free rather than a rewrite.
   - **hydra and `ssh` cannot disagree** — both resolve the same `/etc/passwd`, server-side,
     through the same reachability rules. A crack from a locally regenerated baseline would hand
     the player a password `ssh` then rejects, which reads as a broken game.
@@ -232,23 +234,48 @@ decisions. The ship gate is legacy parity **minus missions**; missions are a pos
     same list, same `md5` — so silence is the entire product difference, and it only became worth
     building once the sweep was loud. It reads the file AND the shared wordlist from the CURRENT
     machine, makes no server call, and has no availability gate beyond its binary.
-  - **Locked principle: tools run where you stand.** `hydra`, `john` and `apt install` must all
-    work on an NPC box, and a player must be able to carry things from home onto one. Ordinary
-    tier gates still apply (`apt` needs root on THAT box, as real apt does), but no "this is not
-    your machine" refusal on top. `john` honours it; **`hydra` still violates it**
-    (`hydra.ts:101`, mirrored at `hydraCrack.ts:211`) and lifting that is its own slice with a
-    server half. Carrying a wordlist across additionally needs `scp` (D3).
+  - **Locked principle: tools run where you stand — SHIPPED (v0.118.0).** `hydra`, `john` and
+    `apt install` all work on an NPC box; ordinary tier gates still apply (`apt` needs root on
+    THAT box, as real apt does) but there is no "this is not your machine" refusal on top. The
+    end-to-end loop needs no `scp`: root an NPC box, `apt install hydra` there, sweep from it.
+    Carrying a *grown* wordlist across still waits on `scp` (D3).
+  - **Locked principle: an NPC box is one box, and tier is the only lens.** Everything on it is
+    shared; what a player sees is decided by the tier they hold there, never by who wrote it. The
+    journal (`listPatches` is machine-scoped) and the materialized tree already worked this way —
+    hydra's writer-scoped wordlist read was the codebase's single divergence. A wordlist left on a
+    box you rooted is **loot** for whoever roots it next; writes stay root-gated, so growing a
+    shared list is still deliberate.
+  - **Where you stand is decided by `authorizeMachineAccess`, not a bespoke check.** hydra's
+    server half uses the same L1 rule as `upsertPatch`/`listPatches`/`removePatch` — own
+    workstation, or an ACTIVE session on that machine — so a sweep and a write from one shell
+    cannot disagree about where the player is. It returns the session's `userType`/`essid` too.
+  - **A trace names an origin the server can derive, or the sweep is refused.** The address comes
+    from the caller's machine resolved on the regenerated LAN, never from the request, so a pivot
+    cannot be written up as somebody else. The own workstation keeps the client's `source_ip`
+    (matching `ssh` on the LAN). A caller that cannot be placed — a deep-chain box, another
+    player's workstation — is refused `caller_not_on_lan` rather than traced: a guessed origin in
+    a defender's log is worse than a refusal.
+  - **⚠️ `env.network` inside a remote session is the PLAYER's connectivity, not the box's.**
+    `networkView` reads one global `connectivity()` (`ui/env.ts:179-192`), so a command run from a
+    hop sees the player's own interfaces. The essid that falls out is still correct — it is the
+    LAN whose hosts you can reach — but `wlan0.ipv4` is the **workstation's** address. That is why
+    hydra's trace address is derived server-side. Any future command reading `env.network` from a
+    hop inherits this.
   - **A shipped data file becomes the PLAYER's.** `apt install` never overwrites an `extraFile`
     that already exists — growing the wordlist by hand is the progression, so a reinstall would
     have destroyed it silently. Per-FILE, not an already-installed short-circuit: hydra and john
     both tell a player with no wordlist to reinstall hydra to get one back, so an absent file is
     still written.
-  - **Wire-check:** `scripts/testHydraOwnLan.ts` (17/17). Its load-bearing check is the one that
+  - **Wire-check:** `scripts/testHydraOwnLan.ts` (23/23). Two load-bearing checks. The first
     withholds a single password: with a full wordlist everything cracks, so a handler ignoring the
-    list entirely passes every other assertion in the file.
-  - **Carried into D2.4:** the same-LAN trace trusts the client's `source_ip` deliberately, to
-    match `ssh` (`authCreateSession.ts:196`) where the occupant is an NPC and there is nobody to
-    frame. **Cross-player must switch to `resolveCrossPlayerSourceIp`.**
+    list entirely passes every other assertion in the file. The second seeds the wordlist under
+    **another writer's key** — a writer-scoped read passes everything else. It also clears *every*
+    writer's row at the path between checks, since a leftover foreign row silently arms later ones.
+  - **Carried into D2.4:** the same-LAN trace trusts the client's `source_ip` deliberately for the
+    OWN WORKSTATION, to match `ssh` (`authCreateSession.ts:196`) where the occupant is an NPC and
+    there is nobody to frame; every other vantage is server-derived. **Cross-player must switch to
+    `resolveCrossPlayerSourceIp`.** D2.4 also owns extending the shared-wordlist rule to another
+    player's box, which is refused today — same slice, since it needs the same derived address.
 
 To pick up the next slice: read the relevant `plans/*.md` TOP BLOCK (live status +
 as-built), then the cross-player architecture doc if the work touches cross-player paths.
@@ -642,6 +669,15 @@ which releases the reservations. Without elevation, temporarily remap the ports 
 highest excluded range (55600+ was clear), `supabase start`, **restart `vercel dev`** so it picks
 up the new URL, run the check, then restore both files. Back them up first — reverting from
 memory is how a temp port ends up committed.
+
+The remap path was walked again on 2026-08-09 and works exactly as written; three details worth
+having. `net stop winnat` answers **"Access is denied"** in a normal shell — that is the missing
+elevation, not a broken service, and it is the cue to take the remap path rather than hunt for a
+service problem. Neither CLI is installed here, so drive both through npx (`npx -y supabase start`,
+and `npm run vercel:dev`, which resolves `vercel` from `@vercel/node`). `supabase stop
+--project-id jshack-me-v2` before remapping, or the old containers linger on the old ports.
+Restore by copying the backups back and confirm with `git status` — `config.toml` is TRACKED, so a
+forgotten temp port is a committed one.
 - Run: `npx dotenv -e .env.development.local -- npx tsx scripts/<name>.ts` (from `v2/`).
   Exits 0 on all-pass.
 - The script seeds the DB via the service-role client, drives the endpoints, asserts, and
