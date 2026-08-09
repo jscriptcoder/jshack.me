@@ -1,8 +1,8 @@
 # Plan: one spelling per query in `api/sessions.ts`
 
-**Branch**: not cut yet — branch from `main` at or after `9b431d7`.
-**Status**: Diagnosed 2026-08-09 (read-only), **not started**. Authorized in principle by the owner;
-re-confirm scope before editing.
+**Branch**: `refactor/one-spelling-per-query`, cut from `main` at `624a65e`.
+**Status**: **Active** — authorized 2026-08-09 to land *before* D2.4 slice 3, so slice 3 adds its
+dep builders to the collapsed shape rather than adding a tenth copy to the old one.
 **Class**: terminal reduction (single slice, within the selected file).
 **Skill**: load `reduce-system-complexity`; this file IS the conservation ledger.
 

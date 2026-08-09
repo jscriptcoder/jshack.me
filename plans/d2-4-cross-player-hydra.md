@@ -255,6 +255,11 @@ derivation, so decide on evidence, not on symmetry.
 
 ### Slice 3: A player cracks the box behind a stranger's NAT forward
 
+> **Blocked on the `api/sessions.ts` reduction** — see
+> [`api-sessions-dep-reduction.md`](api-sessions-dep-reduction.md). Slice 2 added nine dep-builder
+> copies to that file; slice 3 would add more. Collapsing first means slice 3 writes one spelling
+> instead of a tenth copy, so this ordering is cheaper than the reverse and was chosen deliberately.
+
 **Value**: the row's real acceptance example — reaching the **person**, not their gateway. A forward
 a player published so their own box is reachable is the same door an attacker walks through, which
 is what makes publishing one a decision rather than a freebie.
