@@ -204,7 +204,9 @@ PHASE 1 — THE DOORS  (near-term focus)
   D2  hydra + the wordlist system (+ john)             ← IN PROGRESS
       D2.1 hydra vs an own-LAN NPC host                ✔ SHIPPED v0.111.0
       D2.2 not every account falls                     ✔ SHIPPED v0.113.0
-      D2.3–D2.6 (trace, cross-player, john, growth)   ← NEXT
+      D2.3 the defender sees the sweep                 ✔ SHIPPED v0.114.0
+      D2.5 john — the silent crack                     ← NEXT (ahead of D2.4)
+      D2.4 / D2.6 (cross-player, wordlist growth)
   D3  ftp / scp
   D4  daemon control (systemctl / ps / kill)
   D5  nc connect + nc -l backdoor

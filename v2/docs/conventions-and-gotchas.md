@@ -347,6 +347,23 @@ Provably-equivalent mutant classes — accept (don't chase) when they recur:
 - Plus per-slice equivalents documented in the relevant plan (e.g. discriminant-by-exclusion
   arms, a default value washed out downstream).
 
+**Read a survivor's `location` span before believing it is impossible.** Stryker mutates
+SUB-EXPRESSIONS, and the clear-text/JSON `replacement` field shows only the fragment it swapped —
+not the whole line. A `ConditionalExpression => "false"` reported on
+`if (username === undefined || hash === undefined)` replaced *only* the first operand, leaving
+`if (false || hash === undefined)`. Hand-testing "the same" mutant as `if (false)` killed it, which
+looked like a harness bug and was not. Pull `location.start.column`–`location.end.column` out of
+`reports/mutation/mutation.json` and slice the source line with it to see the real mutant:
+
+```js
+const span = line.slice(mutant.location.start.column - 1, mutant.location.end.column - 1);
+```
+
+That survivor turned out to be genuinely equivalent — `String.split` always returns at least one
+element, so `username === undefined` is dead. The fix was to delete the operand, not to argue with
+the report: an equivalent mutant is often dead code asking to be removed. Confirm with
+`tsc -b --force` that a guard is not secretly load-bearing for types before deleting it.
+
 **Put the interesting element in the MIDDLE of the fixture, never at the end.** A test that
 asserts "the search stops as soon as it matches" proves nothing when the match is the last item:
 stop-early and scan-everything produce identical output, and the boundary mutant survives. This
