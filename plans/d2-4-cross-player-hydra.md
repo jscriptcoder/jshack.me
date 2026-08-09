@@ -117,7 +117,26 @@ then a vantage, then a chain.
 
 ---
 
-### Slice 1: One resolver decides what a public IP and port reach
+### Slice 1: One resolver decides what a public IP and port reach — ✔ DONE (`1350353`)
+
+**As built.** `core/network/resolvePublicTarget.ts` owns the sequence; the handler keeps the passwd
+check, the trace and the session insert. Refusals cross as `{ok:false, status, error}` and are
+returned verbatim, mirroring `authorizeMachineAccess`. The port default moved with the routing it
+belongs to, so slice 2 cannot fork it.
+
+**Preservation measured, not asserted** — the baseline came from stashing the change and running
+Stryker on the original: **96.97% → 97.11%**, with *identical* survivors (2) and *identical*
+no-coverage mutants (3); the +8 killed are the result union's own new expressions. 2332/2332 with no
+test added, removed or edited beyond an import path. No version bump — `3af0b92`, the last
+refactor-only PR, did not bump either.
+
+**Follow-up found, deliberately not taken**: `ApNetworkLookup` and `NatOccupantRow` are declared
+**three** times — here, in `resolvePublicScan.ts` and in `resolveHttpFetch.ts`. Same rows, same
+tables, three definitions. Its own reduction, unrelated to hydra.
+
+**Known gap inherited, not introduced**: the three no-coverage mutants are `?? []` fallbacks on the
+occupants and leases reads — no test supplies a null list. Cheap to close if a later slice touches
+those reads.
 
 **Value**: `ssh` keeps behaving exactly as it does, and slice 2 gets to attack the same box `ssh`
 would authenticate against — by calling the same code, not by keeping a second copy in step. The
