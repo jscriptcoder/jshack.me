@@ -380,10 +380,12 @@ false positive twice over. It was not. Recorded in
 
 **Two follow-ups are worth taking first, in this order:**
 
-1. 🐛 **`apt install` re-writes a package's `extraFiles` unconditionally** (`apt.ts:230`, no
-   already-installed short-circuit), so reinstalling hydra silently wipes a curated
-   `passwords.txt`. It now threatens two tools instead of one, and the progression loop rests on
-   that file. Small and isolated.
+1. ✅ **`apt install` no longer overwrites a data file that is already there** — FIXED (v0.116.0).
+   A shipped data file becomes the player's the moment it lands, so a reinstall keeps their copy
+   and says so. Deliberately per-FILE rather than an already-installed short-circuit: both `hydra`
+   and `john` tell a player with no wordlist to reinstall hydra to get one back, so an absent file
+   is still written and that recovery keeps working. The same shape `installPackageLibraries`
+   already used for `/lib/*.so` (`apt.ts:111`).
 2. **Lift hydra's workstation-only gate** (`hydra.ts:101`, mirrored server-side at
    `hydraCrack.ts:211`) — the owner's locked principle. Has a server half, so it needs a
    wire-check.

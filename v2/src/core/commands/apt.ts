@@ -128,7 +128,12 @@ const ancestorsOf = (path: AbsPath): readonly AbsPath[] => {
 };
 
 /**
- * Install a package's data files. Each one's MISSING containing directories are
+ * Install a package's data files, WITHOUT overwriting one that is already there
+ * — a shipped data file becomes the player's the moment it lands, and the
+ * wordlist in particular is a thing they curate. Absent files are still written,
+ * so reinstalling remains the way to get a deleted one back.
+ *
+ * Each installed file's MISSING containing directories are
  * created first, because a write into a directory that does not exist is REFUSED
  * — the permission walker has no container to gate the create against — and
  * nothing on a fresh workstation creates `/usr/share`. Directories that already
@@ -148,6 +153,18 @@ export async function* installExtraFiles(
   extraFiles: readonly AptExtraFile[],
 ): AsyncGenerator<TerminalLine, PatchResult> {
   for (const extraFile of extraFiles) {
+    // A data file that is already there belongs to the PLAYER now, not to the
+    // package. The wordlist is the clearest case: growing it by hand is the
+    // credential layer's whole progression, so rewriting it on a reinstall would
+    // destroy every harvested password with nothing on screen to say so.
+    //
+    // Per-file rather than a package-level "already installed, do nothing",
+    // because `hydra` and `john` both tell a player with no wordlist to reinstall
+    // hydra to get one back — that recovery has to keep working.
+    if (env.fs.stat(extraFile.path) !== null) {
+      yield text(`${extraFile.path} already exists, keeping your copy`);
+      continue;
+    }
     for (const ancestor of ancestorsOf(extraFile.path)) {
       if (env.fs.stat(ancestor) !== null) continue;
       const result = await env.patches.mkdir(ancestor);
