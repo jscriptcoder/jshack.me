@@ -31,7 +31,16 @@ import {
 } from '../src/core/sessions/listSessions';
 import { handleEndSession, type EndSessionParams } from '../src/core/sessions/endSession';
 import type { MachineLogReadQuery } from '../src/core/patches/appendMachineLog';
-import type { PatchRow } from '../src/core/patches/upsertPatch';
+import type {
+  ActiveSessionQuery,
+  FindActiveSessionResult,
+} from '../src/core/patches/authorizeMachineAccess';
+import type { UserType } from '../src/core/types';
+import type {
+  ListPathPatchesResult,
+  PathPatchRow,
+  PatchRow,
+} from '../src/core/patches/upsertPatch';
 import type { NonceStore } from '../src/core/signedRequest/nonceStore';
 
 // Vercel adapter for POST /api/sessions.
@@ -464,16 +473,47 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (error) console.error('[sessions] hydra target journal lookup error:', error);
       return { data: data as readonly OwnerPatchRow[] | null, error };
     };
-    const readWordlist = async ({ writer_key, machine_id, path }: MachineLogReadQuery) => {
+    // Whether the caller currently stands on the machine they named — their own
+    // workstation bypasses this inside the handler, anything else needs a live ssh
+    // session there. Same query and same shape the patch endpoints use, so a sweep
+    // and a write from one shell agree about where the player is.
+    const findActiveSession = async ({
+      player_key,
+      machine_id,
+    }: ActiveSessionQuery): Promise<FindActiveSessionResult> => {
+      const { data, error } = await supabase
+        .from('sessions')
+        .select('credentials, essid')
+        .eq('player_key', player_key)
+        .eq('machine_id', machine_id)
+        .is('ended_at', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) console.error('[sessions] hydra active-session lookup error:', error);
+      if (data === null) return { data: null, error };
+      const row = data as { credentials: { userType: UserType }; essid: string };
+      return { data: { userType: row.credentials.userType, essid: row.essid }, error };
+    };
+    // Every writer's rows at the wordlist path on the machine the caller stands on.
+    // Machine-scoped, NOT writer-scoped: the file belongs to the box, so the list
+    // the sweep uses is the one the last writer left there — the same file `cat`
+    // shows on that machine. The sort keys come back with the rows; the handler
+    // picks the row a reader materializes (ordering lives in core, not SQL).
+    const listPathPatches = async ({
+      machine_id,
+      path,
+    }: {
+      readonly machine_id: string;
+      readonly path: string;
+    }): Promise<ListPathPatchesResult> => {
       const { data, error } = await supabase
         .from('patches')
-        .select('content')
-        .eq('writer_key', writer_key)
+        .select('content, updated_at, writer_key')
         .eq('machine_id', machine_id)
-        .eq('path', path)
-        .maybeSingle();
+        .eq('path', path);
       if (error) console.error('[sessions] hydra wordlist read error:', error);
-      return { data, error };
+      return { data: data as readonly PathPatchRow[] | null, error };
     };
     // The trace half — same `patches`-table shapes as the own-LAN ssh appender
     // above, and the same read-modify-write bypassing L1/L2: the target's sshd
@@ -498,8 +538,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { status, body } = await handleHydraCrack(req.body, {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
+      findActiveSession,
       findPatches,
-      readWordlist,
+      listPathPatches,
       readAuthLog,
       upsertPatch,
     });

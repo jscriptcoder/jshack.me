@@ -11,13 +11,20 @@
  * patched the passwd, and would hand the player a credential `ssh` then rejects —
  * which reads as a broken game, not a stale cache.
  *
- * The wordlist is read from the CALLER'S OWN journal, never from the request. The
- * list is the whole mechanic — membership in it is what makes a password
- * crackable — so accepting it as a client claim would let one unlogged request
- * carry a pool recovered from the shipped bundle. Read from the journal, growing
- * your coverage means really writing to your own box, which is the in-game action
- * the mechanic is built around. The wordlist exists ONLY as a patch (apt wrote it;
- * no base filesystem carries it), so one row IS the file.
+ * The wordlist is read from the JOURNAL of the machine the caller is standing on,
+ * never from the request. The list is the whole mechanic — membership in it is
+ * what makes a password crackable — so accepting it as a client claim would let
+ * one unlogged request carry a pool recovered from the shipped bundle. Read from
+ * the journal, growing your coverage means really writing to a box, which is the
+ * in-game action the mechanic is built around.
+ *
+ * That read is MACHINE-scoped, not writer-scoped: a file belongs to the box it is
+ * on, so the list the tools use is the one the last writer left there, whoever
+ * that was — the same rule `cat` gets from the materialized tree. Anything else
+ * would let a player read a wordlist plainly present on their screen while the
+ * tool insisted there was none. The wordlist exists ONLY as a patch (apt wrote it;
+ * no base filesystem carries it), so the winning row IS the file, and a deletion
+ * row is the file being gone.
  *
  * Reachability mirrors `authCreateSession` exactly — unknown host, bricked box,
  * service not listening — so a dead machine is dark to every tool rather than
@@ -36,10 +43,14 @@ import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { generateHomeLan } from '../generation/generateHomeLan';
-import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
+import { machineIdForLanHost, resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs';
 import { canBoot } from '../boot/bootFiles';
 import { isOwnWorkstation } from '../identity/workstation';
+import {
+  authorizeMachineAccess,
+  type FindActiveSession,
+} from '../patches/authorizeMachineAccess';
 import { readOpenPorts } from '../services/pidfile';
 import { md5 } from '../generation/md5';
 import { WORDLIST_PATH } from '../wordlist/defaultWordlist';
@@ -57,6 +68,8 @@ import {
   type MachineLogReadQuery,
   type MachineLogReadResult,
 } from '../patches/appendMachineLog';
+import { orderPatchesForReplay } from '../patches/orderPatchesForReplay';
+import type { ListPathPatchesResult, PathPatchRow } from '../patches/upsertPatch';
 import type { LanHost } from '../generation/generateHomeLan';
 import type { PatchRow } from '../patches/upsertPatch';
 import type { NonceStore } from '../signedRequest/nonceStore';
@@ -68,6 +81,10 @@ export type CrackedCredential = {
 
 export type HydraCrackDeps = {
   readonly nonceStore: NonceStore;
+  /** Whether the caller currently holds a session on the machine they say they
+   *  are standing on — the L1 rule shared with the patch endpoints, so hydra and
+   *  a write from the same shell cannot disagree about where the player is. */
+  readonly findActiveSession: FindActiveSession;
   /** The server's wall clock, epoch-ms (UTC) — stamps the sweep's auth.log lines.
    *  One sweep is one attack, so every line in it carries the same stamp. */
   readonly now: () => number;
@@ -76,9 +93,14 @@ export type HydraCrackDeps = {
   readonly findPatches: (query: {
     readonly machine_id: string;
   }) => Promise<{ readonly data: readonly OwnerPatchRow[] | null; readonly error: unknown }>;
-  /** The CALLER's own wordlist patch. The wordlist only ever exists as a patch
-   *  (apt wrote it; no base FS carries it), so the row IS the file. */
-  readonly readWordlist: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
+  /** Every writer's rows at the wordlist path on the machine the caller is
+   *  standing on. Machine-scoped, exactly like the read behind a save's
+   *  base-content check: the file belongs to the box, not to whoever wrote it
+   *  last. The handler picks the row a reader materializes. */
+  readonly listPathPatches: (query: {
+    readonly machine_id: string;
+    readonly path: string;
+  }) => Promise<ListPathPatchesResult>;
   /** The TARGET's current auth.log content — the read half of the system-written
    *  trace, so a sweep appends to the box's history instead of replacing it. */
   readonly readAuthLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
@@ -105,6 +127,13 @@ const hydraCrackSchema = z
     source_ip: z.string().min(1).nullable().optional(),
   })
   .refine((payload) => !('player_key' in payload));
+
+/** The wordlist file as the box holds it: every writer's row at the path replayed
+ *  in chronological order, the last write winning. A winning row with no content
+ *  is a deletion, so a removed file reads as absent rather than empty — which is
+ *  what makes `apt install hydra` a real recovery rather than a no-op. */
+const wordlistOn = (rows: readonly PathPatchRow[] | null): string | null =>
+  orderPatchesForReplay(rows ?? []).at(-1)?.content ?? null;
 
 /** Split a wordlist file into candidate passwords. Blank lines are dropped: an
  *  editor leaves a trailing newline behind, and "the empty password" is not
@@ -206,17 +235,39 @@ export const handleHydraCrack = async (
   }
   const { publicKey, payload } = verified;
 
-  // The caller names the machine their wordlist is read from, so that name has to
-  // be checked: unverified, it would read a file off someone else's box.
-  if (!isOwnWorkstation(payload.caller_machine_id, publicKey)) {
-    return { status: 403, body: { error: 'not_own_machine' } };
+  // The caller names the machine they are standing on — the box whose wordlist is
+  // read and whose address the trace records — so that name has to be checked.
+  // The same L1 rule the patch endpoints use: your own workstation, or a machine
+  // you currently hold a session on. Unverified, it would read a file off a box
+  // the caller never reached.
+  const access = await authorizeMachineAccess(
+    publicKey,
+    payload.caller_machine_id,
+    deps.findActiveSession,
+  );
+  if (!access.ok) {
+    return { status: access.status, body: { error: access.error } };
   }
+
+  const lanHosts = generateHomeLan(payload.essid).hosts;
+
+  // Where the sweep really came from. On the player's own workstation the client's
+  // address is the honest one, and matching `ssh` there matters more than purity
+  // (`authCreateSession` trusts the same field for a same-LAN login). Standing
+  // anywhere else, the box the player is on is what the target sees, so it is
+  // DERIVED from the machine they named — a claimed address would let a player
+  // launch from a pivot and write the trace up as somebody else.
+  const standing = lanHosts.find(
+    (candidate) => machineIdForLanHost(candidate, payload.essid) === payload.caller_machine_id,
+  );
+  if (standing === undefined && !isOwnWorkstation(payload.caller_machine_id, publicKey)) {
+    return { status: 403, body: { error: 'caller_not_on_lan' } };
+  }
+  const fromIp = standing?.ip ?? payload.source_ip ?? 'unknown';
 
   // Resolve the target on the caller's OWN regenerated LAN — proves target_ip is a
   // real reachable host, and yields what is needed to rebuild its filesystem.
-  const host = generateHomeLan(payload.essid).hosts.find(
-    (candidate) => candidate.ip === payload.target_ip,
-  );
+  const host = lanHosts.find((candidate) => candidate.ip === payload.target_ip);
   if (host === undefined) {
     return { status: 404, body: { error: 'host_unreachable' } };
   }
@@ -242,8 +293,7 @@ export const handleHydraCrack = async (
     return { status: 404, body: { error: 'service_not_running' } };
   }
 
-  const wordlist = await deps.readWordlist({
-    writer_key: publicKey,
+  const wordlist = await deps.listPathPatches({
     machine_id: payload.caller_machine_id,
     path: WORDLIST_PATH,
   });
@@ -251,10 +301,10 @@ export const handleHydraCrack = async (
     return { status: 500, body: { error: 'wordlist_lookup_failed' } };
   }
 
-  // A missing row is a real state, not an error: the wordlist is an ordinary file
-  // on the player's own box and root can remove it. Say so, rather than reporting
-  // an empty sweep that looks like a hardened target.
-  const content = wordlist.data?.content ?? null;
+  // A missing file is a real state, not an error: the wordlist is an ordinary
+  // file and root can remove it. Say so, rather than reporting an empty sweep
+  // that looks like a hardened target.
+  const content = wordlistOn(wordlist.data);
   if (content === null) {
     return { status: 200, body: { port: open.port, cracked: [], wordlistFound: false } };
   }
@@ -270,11 +320,7 @@ export const handleHydraCrack = async (
 
   // Nothing tried, nothing recorded — an empty wordlist or a named account that
   // does not exist leaves the box's log exactly as it found it.
-  const trace = traceOf(sweeps, words, {
-    host,
-    fromIp: payload.source_ip ?? 'unknown',
-    stamp: deps.now(),
-  });
+  const trace = traceOf(sweeps, words, { host, fromIp, stamp: deps.now() });
   if (trace.length > 0) {
     await recordSweep(deps, { writerKey: publicKey, machineId }, trace);
   }

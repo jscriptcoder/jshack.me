@@ -132,6 +132,45 @@ describe('hydra', () => {
     expect(text).toContain('nmap');
   });
 
+  it('tells a player whose session on this box has ended what to do about it', async () => {
+    // Standing on a box you no longer hold is the new way a sweep can be refused,
+    // and it is recoverable — so it must read as "log back in", not as a target
+    // that resisted.
+    const { env } = hydraEnv({ result: { ok: false, error: 'no_session' } });
+
+    const { text } = await drain(await hydra.execute(env, ['192.168.4.31'], new Map()));
+
+    expect(text).toContain('not logged in on this machine');
+    expect(text).not.toContain('no_session');
+  });
+
+  it('names a machine it cannot attack from rather than blaming the target', async () => {
+    const { env } = hydraEnv({ result: { ok: false, error: 'caller_not_on_lan' } });
+
+    const { text } = await drain(await hydra.execute(env, ['192.168.4.31'], new Map()));
+
+    expect(text).toContain('cannot attack from this machine');
+    expect(text).not.toContain('caller_not_on_lan');
+  });
+
+  it('distinguishes a wordlist it could not read from one that held nothing', async () => {
+    const { env } = hydraEnv({ result: { ok: false, error: 'wordlist_lookup_failed' } });
+
+    const { text } = await drain(await hydra.execute(env, ['192.168.4.31'], new Map()));
+
+    expect(text).toContain('could not read your wordlist');
+    expect(text).not.toContain('0 valid passwords found');
+  });
+
+  it('distinguishes a target it could not reach from one that resisted', async () => {
+    const { env } = hydraEnv({ result: { ok: false, error: 'patches_lookup_failed' } });
+
+    const { text } = await drain(await hydra.execute(env, ['192.168.4.31'], new Map()));
+
+    expect(text).toContain('could not reach the target');
+    expect(text).not.toContain('0 valid passwords found');
+  });
+
   it('names an unreachable host rather than reporting a failed crack', async () => {
     const { env } = hydraEnv({ result: { ok: false, error: 'host_unreachable' } });
 
@@ -247,15 +286,19 @@ describe('hydra', () => {
     expect(crack).not.toHaveBeenCalled();
   });
 
-  it('refuses to run from a machine that is not the player-s own', async () => {
-    // The wordlist lives on the player's own box, so a hop is the wrong place to
-    // run this from — the same restriction aircrack and apt carry.
-    const { env, crack } = hydraEnv({ machineId: asMachineId('192.168.4.31') });
+  it('runs from whatever machine the player is standing on', async () => {
+    // Tools run where you stand. A rooted box with hydra installed on it is a
+    // place to attack FROM, and the box the player is on is the one whose
+    // wordlist the sweep uses — so the command names it and lets the server
+    // decide, rather than refusing on the player's behalf.
+    const standing = asMachineId('192.168.4.31');
+    const { env, crack } = hydraEnv({ machineId: standing });
 
-    const { text, kinds } = syncResult(await hydra.execute(env, ['192.168.4.9'], new Map()));
+    const { text } = await drain(await hydra.execute(env, ['192.168.4.9'], new Map()));
 
-    expect(text).toContain('not available on this machine');
-    expect(kinds).toEqual(['error']);
-    expect(crack).not.toHaveBeenCalled();
+    expect(crack).toHaveBeenCalledWith(
+      expect.objectContaining({ callerMachineId: standing, target: '192.168.4.9' }),
+    );
+    expect(text).toContain('Hydra starting attack');
   });
 });

@@ -12,8 +12,19 @@
 //   - A named username → only that account is attacked.
 //   - NO wordlist row → 200 with wordlistFound:false, cracked empty. Distinct from
 //     a sweep that matched nothing.
-//   - A caller_machine_id belonging to someone ELSE → 403 not_own_machine, so a
-//     player cannot read a wordlist off another player's box.
+//   - A wordlist row written by ANOTHER player on the caller's machine → used. The
+//     read is machine-scoped, not writer-scoped: a file belongs to the box it is
+//     on. A writer-scoped query passes every other check in this file.
+//   - Two writers holding the same path → the newest row wins, ordered on the
+//     server's `updated_at` rather than on which query returned first.
+//   - A caller_machine_id the caller holds no session on → 403 no_session, so a
+//     player cannot read a wordlist off a box they never reached.
+//   - A sweep launched FROM a LAN box the caller holds a real session on: it reads
+//     THAT box's wordlist, and the trace on the target names that box rather than
+//     the workstation the request was signed on.
+//   - A session on a machine the server cannot place on the LAN → 403
+//     caller_not_on_lan, and no trace: an origin nobody can point at is never
+//     written up as if it were one.
 //   - A target that is not a host on the LAN → 404 host_unreachable.
 //   - A host running no ssh → 404 service_not_running.
 //   - The TRACE the sweep leaves on the target: a row at (target, /var/log/auth.log,
@@ -36,7 +47,7 @@ import { computeWorkstationId } from '../src/core/identity/workstation';
 import { generateHomeLan, type LanHost } from '../src/core/generation/generateHomeLan';
 import { hostServices } from '../src/core/generation/remoteHostFs';
 import { ALL_GENERATED_PASSWORDS } from '../src/core/generation/passwordPools';
-import { resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity';
+import { machineIdForLanHost, resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
 import { accountsIn } from '../src/core/sessions/passwdAccount';
 import { md5 } from '../src/core/generation/md5';
@@ -185,17 +196,22 @@ const clearTrace = async () => {
 const traceLines = (content: string): readonly string[] =>
   content.split('\n').filter((line) => line.length > 0);
 
-/** Seed the attacker's wordlist exactly as `apt install hydra` writes it. */
-const seedWordlist = async (words: readonly string[]) => {
+/** Seed a wordlist on the attacker's machine exactly as `apt install hydra` writes
+ *  it. `writerKey` defaults to the attacker; pass another player's key to stand in
+ *  for a list someone ELSE left on the box. */
+const seedWordlist = async (
+  words: readonly string[],
+  on: { readonly writerKey?: string; readonly machineId?: string } = {},
+) => {
   const { error } = await sr.from('patches').upsert(
     {
-      machine_id: attackerMachine,
+      machine_id: on.machineId ?? attackerMachine,
       path: WORDLIST_PATH,
       content: formatWordlist(words),
       owner: 'root',
       permissions: WORDLIST_PERMISSIONS,
       node_type: 'file',
-      writer_key: attacker.publicKeyHex,
+      writer_key: on.writerKey ?? attacker.publicKeyHex,
       is_new: true,
     },
     { onConflict: 'machine_id,path,writer_key' },
@@ -203,13 +219,42 @@ const seedWordlist = async (words: readonly string[]) => {
   if (error) throw new Error(`wordlist seed failed: ${error.message}`);
 };
 
-const clearWordlist = async () => {
-  await sr
-    .from('patches')
-    .delete()
-    .eq('machine_id', attackerMachine)
-    .eq('path', WORDLIST_PATH)
-    .eq('writer_key', attacker.publicKeyHex);
+/** Every writer's row at the path, not just the attacker's — the read under test
+ *  is machine-scoped, so a leftover foreign row would silently arm later checks. */
+const clearWordlist = async (machineId = attackerMachine) => {
+  await sr.from('patches').delete().eq('machine_id', machineId).eq('path', WORDLIST_PATH);
+};
+
+/** A LAN box other than the target — the machine the player stands ON for the
+ *  pivot checks. Its machine_id is what a real ssh session there would carry. */
+const standing = lan.hosts.find(
+  (host) => host.kind === 'machine' && host.ip !== target.ip,
+);
+if (standing === undefined) {
+  console.error(`ESSID ${ESSID} has no second machine to stand on.`);
+  process.exit(2);
+}
+const standingMachine = machineIdForLanHost(standing, ESSID);
+
+/** An ssh session for the attacker on `machineId`, exactly as a real login leaves
+ *  behind — this is what the server checks before it will read a box's wordlist. */
+const seedSession = async (machineId: string) => {
+  await sr.from('sessions').delete().eq('player_key', attacker.publicKeyHex);
+  const { error } = await sr.from('sessions').insert({
+    session_id: crypto.randomUUID(),
+    player_key: attacker.publicKeyHex,
+    machine_id: machineId,
+    credentials: { username: 'root', userType: 'root' },
+    parent_session_id: null,
+    source_ip: ATTACKER_IP,
+    kind: 'ssh',
+    essid: ESSID,
+  });
+  if (error) throw new Error(`session seed failed: ${error.message}`);
+};
+
+const clearSessions = async () => {
+  await sr.from('sessions').delete().eq('player_key', attacker.publicKeyHex);
 };
 
 const crackedIn = (body: unknown): readonly { username: string; password: string }[] => {
@@ -260,6 +305,33 @@ const main = async () => {
     `harvested ${harvested.username}; cracked ${crackedIn(grown.body).map((entry) => entry.username).join(',') || 'none'}`,
   );
 
+  // 0c. A box is one box: the wordlist is whatever the LAST writer left there, not
+  //     the caller's private row. Seeded under a stranger's key with nothing of the
+  //     attacker's at that path, the sweep must still use it — this is the live
+  //     proof that the read is machine-scoped, which `tsc` cannot see and a
+  //     writer-scoped query would fail while every other check here still passed.
+  await clearWordlist();
+  await seedWordlist([...DEFAULT_WORDLIST, harvested.password], { writerKey: stranger.publicKeyHex });
+  const strangersList = await post(crackEnvelope());
+  check(
+    "a wordlist another player left on the box is the one the sweep uses",
+    crackedIn(strangersList.body).some((entry) => entry.username === harvested.username),
+    `harvested ${harvested.username}; cracked ${crackedIn(strangersList.body).map((entry) => entry.username).join(',') || 'none'}`,
+  );
+
+  // 0d. …and the LATEST write wins across writers. The attacker's own row lands
+  //     after the stranger's and drops the harvested password, so the account that
+  //     just fell must hold again. Ordering is on the SERVER's `updated_at`, so
+  //     this also proves the two rows are being ordered rather than picked by luck.
+  await seedWordlist(DEFAULT_WORDLIST);
+  const overwritten = await post(crackEnvelope());
+  check(
+    'the newest row wins when two writers hold the same file',
+    !crackedIn(overwritten.body).some((entry) => entry.username === harvested.username),
+    `harvested ${harvested.username} should hold; cracked ${crackedIn(overwritten.body).map((entry) => entry.username).join(',') || 'none'}`,
+  );
+  await clearWordlist();
+
   // 1. A wordlist holding everything cracks everything.
   await seedWordlist(accounts.map((account) => account.password));
   const full = await post(crackEnvelope());
@@ -308,16 +380,61 @@ const main = async () => {
     `status ${bare.status}, body ${JSON.stringify(bare.body)}`,
   );
 
-  // 5. A foreign caller_machine_id is refused — this is what stops a player
-  //    reading someone else's wordlist by naming their box.
+  // 5. A caller_machine_id the caller holds no session on is refused — this is what
+  //    stops a player reading a wordlist off a box they never reached.
   const foreign = await post(
     crackEnvelope({ caller_machine_id: computeWorkstationId('victim', stranger.publicKeyHex) }),
   );
   check(
-    "a stranger's machine_id is refused",
-    foreign.status === 403 && (foreign.body as { error?: string } | null)?.error === 'not_own_machine',
+    "a machine the caller has no session on is refused",
+    foreign.status === 403 && (foreign.body as { error?: string } | null)?.error === 'no_session',
     `status ${foreign.status}, body ${JSON.stringify(foreign.body)}`,
   );
+
+  // 6. TOOLS RUN WHERE YOU STAND. With a real session row on a LAN box, the sweep
+  //    launches FROM that box: it reads THAT machine's wordlist, and the trace on
+  //    the target names the box the packets came from rather than the workstation
+  //    the request was signed on. The session lookup, the sessions/patches column
+  //    names and the derived address are all invisible to tsc.
+  await seedSession(standingMachine);
+  await clearWordlist(standingMachine);
+  await seedWordlist(accounts.map((account) => account.password), {
+    machineId: standingMachine,
+  });
+  await clearTrace();
+  const pivot = await post(crackEnvelope({ caller_machine_id: standingMachine }));
+  check(
+    'a sweep launched from a box the caller stands on cracks with THAT box-s wordlist',
+    pivot.status === 200 && crackedIn(pivot.body).length === accounts.length,
+    `status ${pivot.status}, cracked ${crackedIn(pivot.body).length}/${accounts.length}`,
+  );
+  const pivotTrace = await readTrace();
+  check(
+    'the trace names the box the sweep was launched FROM, not the workstation',
+    pivotTrace !== null &&
+      traceLines(pivotTrace.content).every((line) => line.includes(`from ${standing.ip}`)) &&
+      !pivotTrace.content.includes(ATTACKER_IP),
+    `standing ${standing.ip}, workstation ${ATTACKER_IP}, first line ${traceLines(pivotTrace?.content ?? '')[0] ?? 'none'}`,
+  );
+
+  // 7. A session is not enough on its own: a machine the server cannot place on the
+  //    LAN has no address to record, so the sweep is refused rather than written up
+  //    as coming from a box nobody can point at.
+  await seedSession('not-a-box-on-this-lan');
+  await clearTrace();
+  const unplaceable = await post(crackEnvelope({ caller_machine_id: 'not-a-box-on-this-lan' }));
+  check(
+    'a session on a machine that is not on the LAN is still refused',
+    unplaceable.status === 403 &&
+      (unplaceable.body as { error?: string } | null)?.error === 'caller_not_on_lan',
+    `status ${unplaceable.status}, body ${JSON.stringify(unplaceable.body)}`,
+  );
+  check(
+    'the refused sweep left no trace on the target',
+    (await readTrace()) === null,
+    'expected no auth.log row',
+  );
+  await clearWordlist(standingMachine);
 
   // 6/7. Reachability refusals match ssh's.
   const nowhere = await post(crackEnvelope({ target_ip: '10.99.99.99' }));
@@ -403,6 +520,8 @@ const main = async () => {
 
   await clearTrace();
   await clearWordlist();
+  await clearWordlist(standingMachine);
+  await clearSessions();
 
   const failed = results.filter((result) => !result.pass).length;
   console.log(`\n${results.length - failed}/${results.length} checks passed`);
