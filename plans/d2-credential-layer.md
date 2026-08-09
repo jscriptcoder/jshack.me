@@ -386,13 +386,78 @@ false positive twice over. It was not. Recorded in
    and `john` tell a player with no wordlist to reinstall hydra to get one back, so an absent file
    is still written and that recovery keeps working. The same shape `installPackageLibraries`
    already used for `/lib/*.so` (`apt.ts:111`).
-2. **Lift hydra's workstation-only gate** (`hydra.ts:101`, mirrored server-side at
+2. 🔨 **Lift hydra's workstation-only gate** (`hydra.ts:101`, mirrored server-side at
    `hydraCrack.ts:211`) — the owner's locked principle. Has a server half, so it needs a
-   wire-check.
+   wire-check. **IN FLIGHT** on `feat/hydra-runs-where-you-stand`, planned as two slices in
+   [`d2-hydra-runs-where-you-stand.md`](./d2-hydra-runs-where-you-stand.md). Grounded below.
 
 Per the epic, before any code in a slice: load `tdd`, `testing`, `mutation-testing`,
 `refactoring`; run full RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR; present before the next slice
 starts.
+
+### Grounding for the gate lift, read 2026-08-09 — the two ends are not the same check
+
+**The client gate is a refusal; the server gate is an authorization.** `hydra.ts:101` says
+`hydra: command not available on this machine` and does nothing else — deleting it removes no
+protection. `hydraCrack.ts:209-213` is a different animal, and its own comment says so: the caller
+*names the machine their wordlist is read from*, and `readWordlist` (`hydraCrack.ts:245-249`) then
+reads that machine's patch under `writer_key: publicKey`. `isOwnWorkstation` is the only thing
+stopping that name being someone else's box. **The server half needs a replacement rule, not a
+deletion** — the named machine has to be provably reachable by the caller, and the LAN
+regeneration at `hydraCrack.ts:217` already proves exactly that for the *target*.
+
+**There IS an observable win today, with no `scp`.** `apt` is `tier: 'root'` (`apt.ts:297`) and
+gated on nothing else, and it writes through the CURRENT machine's `env.fs`. So a player who roots
+an NPC box can `apt install hydra` **there**, which lands the default
+`/usr/share/wordlists/passwords.txt` on that box — and hydra would then have a list to read
+without anything travelling. Carrying a *grown* list still waits on `scp`; the loop itself does
+not. That is the actor-visible outcome to write the acceptance criteria against.
+
+**Two questions to settle before RED:**
+
+1. **What is `env.network` inside a remote session?** `hydra.ts:110` needs a connected `wlan0` for
+   its essid and source IP, and so do `nmap`, `ping` and `curl`. If a remote session carries the
+   player's own interfaces, the essid is right by luck rather than by design — worth reading before
+   relying on it.
+2. **Does the trace still name the right attacker?** D2.3 passes the client's `wlan0.ipv4` as
+   `source_ip`. Standing on an NPC box, the honest source is that box, not the player's
+   workstation — which is the *point* of the principle, and a behaviour change the defender sees.
+
+## Locked decision (owner, 2026-08-09) — an NPC box is one box, and tier is the only lens
+
+**Everything on an NPC machine is shared. What a player sees there is decided by their user type
+on that box, never by who wrote it: B as root sees exactly what A as root sees, B as guest exactly
+what A as guest sees.** A wordlist A leaves on a box A rooted is loot for whoever roots it next —
+deliberately. Writes stay root-gated (`WORDLIST_PERMISSIONS.write: ['root']`), so growing a shared
+list is still a considered act rather than a side effect of walking through.
+
+**This is already how the world works everywhere except one read.** The journal is keyed by
+machine and read by machine — `listPatches` is *"scoped to the MACHINE … not to a writer, so every
+writer's rows on that machine come back"* (`listPatches.ts:9-12`), gated on holding a session
+there; `materializeMachineFs` replays every writer's rows chronologically, latest write per path
+winning. The tier lens is the ordinary filesystem permission model on top of that tree. So a player
+standing on a box already sees the shared truth of it, filtered by their tier.
+
+**The one divergence is hydra's server-side wordlist read**, which filters
+`.eq('writer_key', writer_key)` on the CALLER's key (`v2/api/sessions.ts:467-477`). It is invisible
+today only because on your own workstation you are the sole writer. Lift the gate without fixing
+it and a player standing on a shared NPC box would `cat` a wordlist that is plainly there while
+hydra answered *"no wordlist — reinstall with: apt install hydra"* — a contradiction inside one
+shell. **hydra must read the wordlist out of the materialized machine tree, so it agrees with
+`cat` by construction rather than by a second resolver staying in step.**
+
+**The replacement rule the server half needs already exists.** `authorizeMachineAccess`
+(`authorizeMachineAccess.ts:43`) is the shared L1 gate behind `upsertPatch` / `listPatches` /
+`removePatch`: own workstation → bypass, otherwise an ACTIVE `sessions` row for
+`(player_key, machine_id)` → ok, else 403 `no_session` — and it hands back that session's
+`userType` and `essid`. Swapping hydra's `isOwnWorkstation(payload.caller_machine_id, publicKey)`
+for it is exactly the "the caller can prove they are standing there" rule the lift needs, with the
+tier already in hand. **No new mechanism, and one fewer bespoke check.**
+
+**The wordlist itself needs no tier branch.** `WORDLIST_PERMISSIONS` is
+`read: ['root', 'user', 'guest']` (`defaultWordlist.ts:34-38`) — every tier may read it, which is
+what lets a guest-tier tool consult one. The tier lens governs the *rule*; for this particular file
+it resolves to "everyone standing here".
 
 ### ⚠️ Known gaps left behind, worth a short PR
 

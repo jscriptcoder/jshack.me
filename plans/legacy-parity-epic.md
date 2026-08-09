@@ -5,8 +5,9 @@
 > (`grill-me`, same day).
 
 **Status**: **D1 shipped** (v0.109.0); **D2 in progress — D2.1 shipped** (v0.111.0), **D2.2
-shipped** (v0.113.0), **D2.3 shipped** (v0.114.0), **D2.5 shipped** (v0.115.0); **D2.4 + D2.6
-next** (see "Next action"). Everything else is split-and-grilled only.
+shipped** (v0.113.0), **D2.3 shipped** (v0.114.0), **D2.5 shipped** (v0.115.0); **hydra's
+workstation-only gate is being lifted now, D2.4 + D2.6 after it** (see "Next action"). Everything
+else is split-and-grilled only.
 
 **Ship gate**: **all doors + hydra + discovery + the CVE system, minus missions.** Missions are
 a **post-ship epic** — the infrastructure this epic builds is what makes them cheap.
@@ -409,11 +410,28 @@ says so. Per-FILE rather than an already-installed short-circuit, because hydra 
 a player with no wordlist to reinstall hydra to get one back — an absent file is still written and
 that recovery keeps working.
 
-**Next up: D2.4 (cross-player hydra) and D2.6 (wordlist growth)** — nothing planned, no branch cut.
+**In flight: lifting hydra's workstation-only gate** (`hydra.ts:101` + `hydraCrack.ts:211`), the
+locked principle above — branch `feat/hydra-runs-where-you-stand`, planned as two slices in
+[`d2-hydra-runs-where-you-stand.md`](./d2-hydra-runs-where-you-stand.md). Grounding lives in
+[`d2-credential-layer.md`](./d2-credential-layer.md); the headline is
+that the two ends are **not** the same check — the client's is a bare refusal, the server's is what
+stops a caller naming someone else's box as the source of their wordlist, so it needs a replacement
+rule rather than a deletion. That rule already exists: `authorizeMachineAccess` (own workstation, or
+an active session on the box) is what `upsertPatch`/`listPatches`/`removePatch` already use, and it
+returns the session's tier. It has a real end-to-end payoff with no `scp`: `apt` is root-gated and
+nothing more, so a player who roots an NPC box can install hydra **there** and get the default
+wordlist on it.
+
+**A second principle arrived with it, from the owner: an NPC box is one box, and tier is the only
+lens.** Everything on an NPC machine is shared; what a player sees is decided by their user type
+there, never by who wrote it. The journal and the FS already work this way — the single divergence
+is hydra's writer-scoped wordlist read, which would otherwise have a player `cat` a wordlist hydra
+claims is not there.
+
+**Then D2.4 (cross-player hydra) and D2.6 (wordlist growth)** — nothing planned, no branch cut.
 D2.6 may collapse into a characterisation test now that both tools read the file rather than a
-constant. Still open and worth taking first: **lifting hydra's workstation-only gate**
-(`hydra.ts:101` + `hydraCrack.ts:211`), the locked principle above. Lower priority:
-`AvailabilityRule` is declared on ten commands and read by nothing — enforce it or delete it.
+constant. Lower priority: `AvailabilityRule` is declared on ten commands and read by nothing —
+enforce it or delete it.
 
 **D1b (`lynx`)** and **D1c (`gobuster`)** are fast-follows whenever wanted — and D1c is now
 **unblocked**, since D2.1 shipped the `extraFiles` seam it was waiting on. Both reuse D1 whole.
