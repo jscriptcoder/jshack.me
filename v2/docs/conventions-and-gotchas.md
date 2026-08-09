@@ -397,8 +397,22 @@ Provably-equivalent mutant classes — accept (don't chase) when they recur:
 - **No-op type-re-narrowing `.filter(typeGuard)`** added only to satisfy types after a guard
   already guarantees the kind. Prefer reduce-append; else keep the imperative early-return
   loop.
+- **A `=== -1` guard in front of an index read** — `array[-1]` is already `undefined` on a plain
+  array, so mutating the guard to `false` changes nothing downstream that treats `undefined` as
+  "not found". (`hydraCrack.ts` `credentialFrom`.)
+- **A string literal in the ELSE arm of a two-value branch** whose consumer tests only for the
+  other value — `outcome === 'success' ? A : B` means `''` and `'failure'` render identically.
+  (`hydraCrack.ts` `traceOf` → `formatSshdAuthLine`.)
+- **`?? []` mutated to `["Stryker was here"]`** where the next step reads a property the junk
+  string does not have: `rows ?? []` then `.at(-1)?.content` yields `undefined` either way. The
+  GUARD is still tested (the `??` → `&&` mutant dies); only the fallback's contents are
+  unobservable. (`hydraCrack.ts` `wordlistOn`.)
 - Plus per-slice equivalents documented in the relevant plan (e.g. discriminant-by-exclusion
   arms, a default value washed out downstream).
+
+**Known-equivalent inventory, so a re-run is not a mystery:** `hydraCrack.ts` scores 166/169 with
+exactly the three above. `hydra.ts` scores ~63/97 because ~30 mutants are the declarative
+`manual`/metadata block — the same shape `john.ts` established. Both are expected, not regressions.
 
 **Read a survivor's `location` span before believing it is impossible.** Stryker mutates
 SUB-EXPRESSIONS, and the clear-text/JSON `replacement` field shows only the fragment it swapped —
