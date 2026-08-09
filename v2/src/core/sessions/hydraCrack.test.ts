@@ -6,7 +6,7 @@ import { computeWorkstationId } from '../identity/workstation';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { hostServices } from '../generation/remoteHostFs';
 import { ALL_GENERATED_PASSWORDS } from '../generation/passwordPools';
-import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
+import { machineIdForLanHost, resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { WORDLIST_PATH, formatWordlist } from '../wordlist/defaultWordlist';
 import { accountsIn } from './passwdAccount';
@@ -79,6 +79,16 @@ const sshlessHostOn = (essid: string): LanHost => {
   return host;
 };
 
+/** A LAN host other than `host` — the box a player STANDS on while attacking
+ *  something else on the same network. */
+const lanHostOtherThan = (host: LanHost): LanHost => {
+  const other = generateHomeLan(ESSID).hosts.find(
+    (candidate) => candidate.kind === 'machine' && candidate.ip !== host.ip,
+  );
+  if (other === undefined) throw new Error('no second machine on LAN');
+  return other;
+};
+
 /** Every account on a generated host draws from this pool, so matching against it
  *  recovers the real plaintexts a test needs to build wordlists from. */
 const KNOWN_POOL = ALL_GENERATED_PASSWORDS;
@@ -134,16 +144,21 @@ const makeDeps = (over: DepOverrides = {}) => {
   const readAuthLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
     async () => ({ data: null, error: null }),
   );
+  const findActiveSession = vi.fn<HydraCrackDeps['findActiveSession']>(async () => ({
+    data: null,
+    error: null,
+  }));
   const deps: HydraCrackDeps = {
     nonceStore: freshStore,
     now: () => FIXED_NOW,
+    findActiveSession,
     findPatches,
     listPathPatches,
     readAuthLog,
     upsertPatch,
     ...over,
   };
-  return { deps, findPatches, listPathPatches, readAuthLog, upsertPatch };
+  return { deps, findActiveSession, findPatches, listPathPatches, readAuthLog, upsertPatch };
 };
 
 type CrackRequest = {
@@ -348,9 +363,9 @@ describe('handleHydraCrack', () => {
     });
   });
 
-  it("refuses a caller_machine_id that is not the caller's own workstation", async () => {
-    // The wordlist is read from whatever machine the caller names, so an unchecked
-    // id would let a player read a file off someone else's box.
+  it('refuses a caller_machine_id the caller holds no session on', async () => {
+    // The wordlist is read from whatever machine the caller names, so an
+    // unchecked id would let a player read a file off a box they never reached.
     const identity = generateIdentity();
     const stranger = generateIdentity();
     const host = sshHostOn(ESSID);
@@ -364,8 +379,78 @@ describe('handleHydraCrack', () => {
       deps,
     );
 
-    expect(response).toEqual({ status: 403, body: { error: 'not_own_machine' } });
+    expect(response).toEqual({ status: 403, body: { error: 'no_session' } });
     expect(listPathPatches).not.toHaveBeenCalled();
+  });
+
+  it('sweeps from an NPC box the caller holds a session on', async () => {
+    // Tools run where you stand: a player who rooted a box on their LAN and
+    // installed hydra there attacks from it, and the box they are standing on is
+    // the one whose wordlist the sweep reads.
+    const identity = generateIdentity();
+    const standing = lanHostOtherThan(sshHostOn(ESSID));
+    const host = sshHostOn(ESSID);
+    const stolen = soleHolderOf(accountsWithPasswords(host, KNOWN_POOL));
+    const { deps } = makeDeps({
+      wordlist: [stolen.password],
+      findActiveSession: async () => ({ data: { userType: 'root', essid: ESSID }, error: null }),
+    });
+
+    const response = await handleHydraCrack(
+      signedCrack(identity, {
+        target_ip: host.ip,
+        caller_machine_id: machineIdForLanHost(standing, ESSID),
+      }),
+      deps,
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      cracked: [{ username: stolen.username, password: stolen.password }],
+    });
+  });
+
+  it('reads the wordlist off the box the caller is standing on', async () => {
+    const identity = generateIdentity();
+    const standing = lanHostOtherThan(sshHostOn(ESSID));
+    const host = sshHostOn(ESSID);
+    const { deps, listPathPatches } = makeDeps({
+      wordlist: [],
+      findActiveSession: async () => ({ data: { userType: 'root', essid: ESSID }, error: null }),
+    });
+
+    await handleHydraCrack(
+      signedCrack(identity, {
+        target_ip: host.ip,
+        caller_machine_id: machineIdForLanHost(standing, ESSID),
+      }),
+      deps,
+    );
+
+    expect(listPathPatches).toHaveBeenCalledWith({
+      machine_id: machineIdForLanHost(standing, ESSID),
+      path: WORDLIST_PATH,
+    });
+  });
+
+  it('refuses a caller machine it cannot place on the LAN, even with a session', async () => {
+    // The trace has to name where the sweep really came from. A box the server
+    // cannot locate has no address to record, and guessing one would frame a
+    // machine — so the sweep is refused rather than written up as somebody else.
+    const identity = generateIdentity();
+    const host = sshHostOn(ESSID);
+    const { deps, upsertPatch } = makeDeps({
+      wordlist: [],
+      findActiveSession: async () => ({ data: { userType: 'root', essid: ESSID }, error: null }),
+    });
+
+    const response = await handleHydraCrack(
+      signedCrack(identity, { target_ip: host.ip, caller_machine_id: 'deep-layer-box' }),
+      deps,
+    );
+
+    expect(response).toEqual({ status: 403, body: { error: 'caller_not_on_lan' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
   });
 
   it('reports the port the service actually listens on', async () => {
@@ -636,6 +721,33 @@ describe('the trace a hydra sweep leaves on its target', () => {
 
     expect(writtenLines(upsertPatch)).toEqual(
       accountNamesOn(host).map((name) => traceLine('failure', name, host, elsewhere)),
+    );
+  });
+
+  it('records the box the sweep was launched FROM, not the address the client claimed', async () => {
+    // Standing on a pivot is the whole point: the target sees the machine the
+    // packets came from. The server derives that from the box the caller is on
+    // rather than trusting the request, so a player cannot dress their sweep up
+    // as coming from somebody else.
+    const identity = generateIdentity();
+    const host = sshHostOn(ESSID);
+    const standing = lanHostOtherThan(host);
+    const { deps, upsertPatch } = makeDeps({
+      wordlist: ['no-such-word'],
+      findActiveSession: async () => ({ data: { userType: 'root', essid: ESSID }, error: null }),
+    });
+
+    await handleHydraCrack(
+      signedCrack(identity, {
+        target_ip: host.ip,
+        caller_machine_id: machineIdForLanHost(standing, ESSID),
+        source_ip: '192.168.1.77',
+      }),
+      deps,
+    );
+
+    expect(writtenLines(upsertPatch)).toEqual(
+      accountNamesOn(host).map((name) => traceLine('failure', name, host, standing.ip)),
     );
   });
 

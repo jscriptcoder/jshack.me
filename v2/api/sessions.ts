@@ -32,6 +32,11 @@ import {
 import { handleEndSession, type EndSessionParams } from '../src/core/sessions/endSession';
 import type { MachineLogReadQuery } from '../src/core/patches/appendMachineLog';
 import type {
+  ActiveSessionQuery,
+  FindActiveSessionResult,
+} from '../src/core/patches/authorizeMachineAccess';
+import type { UserType } from '../src/core/types';
+import type {
   ListPathPatchesResult,
   PathPatchRow,
   PatchRow,
@@ -468,6 +473,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (error) console.error('[sessions] hydra target journal lookup error:', error);
       return { data: data as readonly OwnerPatchRow[] | null, error };
     };
+    // Whether the caller currently stands on the machine they named — their own
+    // workstation bypasses this inside the handler, anything else needs a live ssh
+    // session there. Same query and same shape the patch endpoints use, so a sweep
+    // and a write from one shell agree about where the player is.
+    const findActiveSession = async ({
+      player_key,
+      machine_id,
+    }: ActiveSessionQuery): Promise<FindActiveSessionResult> => {
+      const { data, error } = await supabase
+        .from('sessions')
+        .select('credentials, essid')
+        .eq('player_key', player_key)
+        .eq('machine_id', machine_id)
+        .is('ended_at', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) console.error('[sessions] hydra active-session lookup error:', error);
+      if (data === null) return { data: null, error };
+      const row = data as { credentials: { userType: UserType }; essid: string };
+      return { data: { userType: row.credentials.userType, essid: row.essid }, error };
+    };
     // Every writer's rows at the wordlist path on the machine the caller stands on.
     // Machine-scoped, NOT writer-scoped: the file belongs to the box, so the list
     // the sweep uses is the one the last writer left there — the same file `cat`
@@ -511,6 +538,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { status, body } = await handleHydraCrack(req.body, {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
+      findActiveSession,
       findPatches,
       listPathPatches,
       readAuthLog,

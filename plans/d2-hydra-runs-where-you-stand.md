@@ -194,6 +194,32 @@ the comment should say the new one.
 `403 no_session`. Add a session-backed sweep launched from an NPC box, asserting both that it
 cracks and that the trace on the target names **that box's** IP.
 
+### As built — three deviations, recorded 2026-08-09
+
+1. **AC 3 narrowed, and a refusal added.** The plan said the trace carries the standing box's
+   address "when the sweep came from a generated host". As built it derives the address for a host
+   on the caller's **own regenerated LAN** — which is every box the owner's principle actually
+   names, NPC hosts and gateways alike. A caller machine that is neither the own workstation nor a
+   LAN host (a deep-chain box, another player's workstation) is **refused with a new
+   `caller_not_on_lan`** rather than traced. The alternative was writing a trace naming an address
+   the server had guessed, and a false origin in a defender's log is worse than a refusal —
+   especially now that the log is the attacker's only visible cost. Nothing regresses: those boxes
+   could not run hydra at all before this slice.
+2. **`availability` corrected to `any-machine`** (it declared `localhost-only`). The plan called
+   this out of scope because the field is inert — but leaving a declaration that says the opposite
+   of the behaviour is a trap for the next reader, and the fix is one word with no behaviour
+   attached. Enforce-or-delete remains open.
+3. **Two pre-existing refusal messages gained tests.** `wordlist_lookup_failed` and
+   `patches_lookup_failed` were untested strings in the `REFUSALS` map this slice edits; mutation
+   flagged them alongside the new entries. Closing them costs two tests and leaves the map wholly
+   covered.
+
+**Consequence worth knowing**: because another player's workstation is not a host on your
+generated LAN, a player standing on someone else's box still cannot sweep from it. So "B uses A's
+wordlist" does not arise yet — the shared-wordlist rule from slice 1 currently reaches only NPC
+boxes and gateways. Extending it to a player's box is D2.4's territory, where the source IP has to
+come from `resolveCrossPlayerSourceIp` anyway.
+
 **Done when**: all four criteria hold, mutation evidence recorded, gates green, the wire-check
 passes live against `vercel dev` + supabase, version bumped to **0.118.0**, and the human approves
 the commit.

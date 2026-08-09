@@ -3,10 +3,15 @@
  *
  * The player-facing half of the credential layer. What can be cracked is decided
  * entirely SERVER-side (`handleHydraCrack`): the same `/etc/passwd` `ssh`
- * validates against, swept against the player's OWN wordlist read from their own
- * box. This command resolves the target, streams the attempt, and reports what
+ * validates against, swept against the wordlist on the box the player is standing
+ * on. This command resolves the target, streams the attempt, and reports what
  * came back — it never decides an outcome itself, so hydra and `ssh` cannot
  * disagree about a credential.
+ *
+ * It runs wherever the player stands. A rooted box with hydra installed on it is a
+ * place to attack FROM, so there is no "not your machine" refusal here: the command
+ * names the machine it is running on and the server decides whether the caller may
+ * read that box's wordlist — the same rule a write from the same shell obeys.
  *
  * Two things a player must be able to tell apart, so they are separate lines: a
  * target that held (their wordlist was not enough) and a target that was never
@@ -19,7 +24,6 @@
 
 import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
 import { connectedWlan0 } from '../network/interfaces';
-import { isOwnWorkstation } from '../identity/workstation';
 
 const error = (message: string): CommandResult => ({
   kind: 'sync',
@@ -38,7 +42,8 @@ const DEFAULT_SERVICE = 'ssh';
 const REFUSALS: Readonly<Record<string, string>> = {
   host_unreachable: 'no route to host — is it up, and on your network?',
   service_not_running: 'no such service on that host — scan it first with nmap',
-  not_own_machine: 'cannot read your wordlist — this is not your machine',
+  no_session: 'you are not logged in on this machine any more — reconnect and retry',
+  caller_not_on_lan: 'cannot attack from this machine — it is not on your network',
   wordlist_lookup_failed: 'could not read your wordlist — try again',
   patches_lookup_failed: 'could not reach the target — try again',
 };
@@ -98,10 +103,6 @@ async function* attack(
 }
 
 const execute: Command['execute'] = async (env, args) => {
-  if (!isOwnWorkstation(env.session.machineId, env.identity.publicKeyHex)) {
-    return error('hydra: command not available on this machine');
-  }
-
   const [target, service, username] = args;
   if (target === undefined) {
     return error('hydra: missing target — usage: hydra <host> [service] [user]');
@@ -132,7 +133,7 @@ export const hydra: Command = {
   description: 'Crack account passwords on a network service',
   category: 'network',
   tier: 'guest',
-  availability: { kind: 'localhost-only' },
+  availability: { kind: 'any-machine' },
   manual: {
     synopsis: 'hydra <host> [service] [user]',
     description:
