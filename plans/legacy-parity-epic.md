@@ -403,11 +403,17 @@ onto one. Ordinary tier gates still apply — `apt` needs root on that box, as r
 (`hydra.ts:101`, mirrored at `hydraCrack.ts:211`) and lifting that is its own slice, with a server
 half. Carrying a wordlist onto a box additionally needs `scp` (D3).
 
+**The wordlist wipe is FIXED** (2026-08-09, v0.116.0, #362 `a382174`). `apt install` no longer
+overwrites an `extraFile` that already exists, so a reinstall keeps a curated `passwords.txt` and
+says so. Per-FILE rather than an already-installed short-circuit, because hydra and john both tell
+a player with no wordlist to reinstall hydra to get one back — an absent file is still written and
+that recovery keeps working.
+
 **Next up: D2.4 (cross-player hydra) and D2.6 (wordlist growth)** — nothing planned, no branch cut.
 D2.6 may collapse into a characterisation test now that both tools read the file rather than a
-constant. Two smaller follow-ups are worth taking first: 🐛 `apt install` re-writes a package's
-`extraFiles` unconditionally (`apt.ts:230`), so reinstalling hydra silently wipes a curated
-`passwords.txt`; and `AvailabilityRule` is declared on ten commands and read by nothing.
+constant. Still open and worth taking first: **lifting hydra's workstation-only gate**
+(`hydra.ts:101` + `hydraCrack.ts:211`), the locked principle above. Lower priority:
+`AvailabilityRule` is declared on ten commands and read by nothing — enforce it or delete it.
 
 **D1b (`lynx`)** and **D1c (`gobuster`)** are fast-follows whenever wanted — and D1c is now
 **unblocked**, since D2.1 shipped the `extraFiles` seam it was waiting on. Both reuse D1 whole.

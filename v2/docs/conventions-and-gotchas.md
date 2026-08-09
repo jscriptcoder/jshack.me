@@ -192,9 +192,11 @@ decisions. The ship gate is legacy parity **minus missions**; missions are a pos
     **Browser-verified end to end** 2026-07-31, both the own-LAN and the two-player
     forward loops — `e2e-shared-network-verification.md` §7.
 
-- **D2 (the credential layer) 🔨 IN PROGRESS — D2.1 ✅ (v0.111.0).** Split into six candidates in
-  `plans/d2-credential-layer.md`; D2.1's own plan file is deleted and this is its as-built. Two
-  slices — v0.110.0 #351, v0.111.0 #352.
+- **D2 (the credential layer) 🔨 IN PROGRESS — D2.1 ✅ (v0.111.0), D2.2 ✅ (v0.113.0), D2.3 ✅
+  (v0.114.0), D2.5 ✅ (v0.115.0). D2.4 (cross-player hydra) and D2.6 (wordlist growth) remain.**
+  Split into six candidates in `plans/d2-credential-layer.md` — **read its top block for live
+  status**; every shipped slice's own plan file is deleted and its as-built lives there. PRs
+  #351, #352, #354, #356, #357, #358, #359, #362.
   - **The first credential earned in-game.** `apt install hydra` → `hydra <LAN host> ssh` →
     a `login:`/`password:` line → `ssh` in with it. `ssh` shipped long ago but took a password no
     player could obtain, so v2's only door was decorative outside tests. This opens it.
@@ -214,15 +216,39 @@ decisions. The ship gate is legacy parity **minus missions**; missions are a pos
   - **hydra and `ssh` cannot disagree** — both resolve the same `/etc/passwd`, server-side,
     through the same reachability rules. A crack from a locally regenerated baseline would hand
     the player a password `ssh` then rejects, which reads as a broken game.
-  - **Deliberately no `auth.log` line.** `handleAuthCreateSession` logs unconditionally;
-    `handleHydraCrack` is a near-copy that does not, and says so in the code so the omission does
-    not read as an oversight. The defender's view of a sweep is **D2.3**.
-  - **The pool is still flat** — effectively everything falls. That is an accepted checkpoint,
-    not a ship state: it isolates the machinery from the policy, so a failed crack can only mean
-    the machinery is broken. **D2.2** is what makes it a game.
-  - **Wire-check:** `scripts/testHydraOwnLan.ts` (8/8). Its load-bearing check is the one that
+  - **Not everything falls (D2.2).** One crackable pool and one uncrackable pool
+    (`core/generation/passwordPools.ts`), with a `CRACK_CHANCE` per door kind: `guest` 1.00,
+    `npcUser` 0.70, `gateway` 0.40, `npcRoot` 0.12. That table is the whole difficulty curve —
+    nothing else in the game decides what falls. **A rate is only observable across a
+    POPULATION**, and systematically-generated seeds converge slowly; never tune a knob against
+    one box or a small `NET-0`/`NET-1` sample.
+  - **A sweep is the loudest thing you can do to a box (D2.3).** The target records one
+    `auth.log` line per password **TRIED** — not per account, or a three-account sweep would be
+    quieter than three ordinary logins — `Accepted` for the one that matched and nothing after
+    it, written as ONE append. A refused, dead or serviceless target writes nothing at all, so a
+    dead machine cannot be probed through its own log. Unbounded growth is the attacker's
+    accepted cost.
+  - **`john` is the silent alternative (D2.5).** `john <file>` finds *exactly* what hydra finds —
+    same list, same `md5` — so silence is the entire product difference, and it only became worth
+    building once the sweep was loud. It reads the file AND the shared wordlist from the CURRENT
+    machine, makes no server call, and has no availability gate beyond its binary.
+  - **Locked principle: tools run where you stand.** `hydra`, `john` and `apt install` must all
+    work on an NPC box, and a player must be able to carry things from home onto one. Ordinary
+    tier gates still apply (`apt` needs root on THAT box, as real apt does), but no "this is not
+    your machine" refusal on top. `john` honours it; **`hydra` still violates it**
+    (`hydra.ts:101`, mirrored at `hydraCrack.ts:211`) and lifting that is its own slice with a
+    server half. Carrying a wordlist across additionally needs `scp` (D3).
+  - **A shipped data file becomes the PLAYER's.** `apt install` never overwrites an `extraFile`
+    that already exists — growing the wordlist by hand is the progression, so a reinstall would
+    have destroyed it silently. Per-FILE, not an already-installed short-circuit: hydra and john
+    both tell a player with no wordlist to reinstall hydra to get one back, so an absent file is
+    still written.
+  - **Wire-check:** `scripts/testHydraOwnLan.ts` (17/17). Its load-bearing check is the one that
     withholds a single password: with a full wordlist everything cracks, so a handler ignoring the
     list entirely passes every other assertion in the file.
+  - **Carried into D2.4:** the same-LAN trace trusts the client's `source_ip` deliberately, to
+    match `ssh` (`authCreateSession.ts:196`) where the occupant is an NPC and there is nobody to
+    frame. **Cross-player must switch to `resolveCrossPlayerSourceIp`.**
 
 To pick up the next slice: read the relevant `plans/*.md` TOP BLOCK (live status +
 as-built), then the cross-player architecture doc if the work touches cross-player paths.
