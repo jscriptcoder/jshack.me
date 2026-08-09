@@ -1,43 +1,32 @@
 /**
  * handleAuthCreateSessionPublic — the server-side gate for a CROSS-PLAYER ssh login.
- * `ssh [-p port] <user>@<public IP>` resolves the public IP to the ACCESS POINT that
- * bears it, materializes the ESSID's shared GATEWAY — the box the address belongs to —
- * and decides which machine the requested port reaches:
+ * `ssh [-p port] <user>@<public IP>` reaches whatever `resolvePublicTarget` says that
+ * address and port reach — the AP's own gateway, or an occupant behind a NAT forward —
+ * and validates the password against THAT box's `/etc/passwd`. The session lands on the
+ * machine id the resolver named, so a login can never authenticate against one tree and
+ * land on another.
  *
- *   - a port the GATEWAY itself serves (its seeded `sshd:22`) → log in ON the gateway,
- *     validated against its `/etc/passwd` (root-only; the admin password is seeded from
- *     the ESSID). The session lands on the gateway's machine id.
- *   - a NAT-forwarded port → the occupant who LEASES the address that forward names.
- *     Every occupant of a shared AP can publish a working forward, and two forwards on
- *     one gateway reach two different boxes. The gate refuses if nobody currently on
- *     the WiFi answers to that address, if the box is bricked, or if its internal
- *     service isn't listening (a dark DNAT target reaches nothing); otherwise the
- *     password is validated against THAT box's `/etc/passwd` and the session lands on
- *     its machine id.
- *   - any other port → host_unreachable.
+ * Reachability lives in the resolver rather than here deliberately: `hydra` attacks the
+ * same addresses, and a password cracked against a different tree than the one `ssh`
+ * authenticates against is a credential the game hands a player and then refuses.
  *
- * The boot gate keys on the GATEWAY: a `/boot` tombstone takes the whole public IP
- * dark, refused before any password is checked. Once a reachable target resolves, the
- * attempt leaves an `auth.log` trace on that machine's shared record — on BOTH
- * outcomes, with the attacker's server-derived source IP. The own-workstation bypass
- * does not apply — a public target is foreign by design, so the passwd check IS the
- * authorization boundary. Unknown-user and wrong-password collapse to one 401.
+ * What stays this handler's own: a resolved attempt leaves an `auth.log` trace on that
+ * machine's shared record — on BOTH outcomes, with the attacker's server-derived source
+ * IP. The own-workstation bypass does not apply — a public target is foreign by design,
+ * so the passwd check IS the authorization boundary. Unknown-user and wrong-password
+ * collapse to one 401.
  */
 
 import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { md5 } from '../generation/md5';
-import { seedApGatewayHostname } from '../generation/routerFs';
 import { accountIn } from './passwdAccount';
-import { materializeApGatewayFs } from '../network/materializeRouterFs';
-import type { OwnerPatchRow } from '../network/materializeWorkstationFs';
-import { machineServing, type ServedMachine } from '../network/machineServing';
-import { bootableOccupantFs } from '../network/natHosts';
-import { lanAddressesByOwner, type LanLeaseRow } from '../network/lanAddress';
-import { readOpenPorts } from '../services/pidfile';
-import { canBoot } from '../boot/bootFiles';
-import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
+import {
+  resolvePublicTarget,
+  type PublicTarget,
+  type ResolvePublicTargetDeps,
+} from '../network/resolvePublicTarget';
 import {
   AUTH_LOG_OWNER,
   AUTH_LOG_PATH,
@@ -56,58 +45,11 @@ import {
 } from '../patches/appendMachineLog';
 import { asGameTime } from '../types';
 import type { PatchRow } from '../patches/upsertPatch';
-import type { Directory } from '../filesystem/types';
 import type { AuthSessionRow, HandlerResponse } from './authCreateSession';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
-/** One occupant a NAT forward can land a login on: its machine id (the journal scope
- *  AND the session target), the `owner_key` that rebuilds its tree and owns its logs,
- *  and the identity fields the reconstructed passwd is derived from. A structural
- *  superset of the scan path's row, so the shared resolver takes it verbatim. */
-export type NatOccupantRow = {
-  readonly owner_key: string;
-  readonly workstation_machine_id: string;
-  readonly workstation_username: string;
-  /** The owner's player-chosen workstation hostname — the name a forwarded-port
-   *  `auth.log` line carries, mirroring the gateway's seeded hostname. */
-  readonly workstation_machine_name: string;
-  readonly workstation_root_hash: string;
-};
-
-/** What a public IP a login targets resolves to: the AP that bears it. The GATEWAY
- *  always exists — it is the access point's own infrastructure rather than a machine
- *  that joins the network — so `router_machine_id` (its journal scope AND the port-22
- *  session target) and the `essid` (which seeds its FS, recovers its admin password and
- *  keys its occupancy) are always present. */
-export type ApNetworkLookup = {
-  readonly router_machine_id: string;
-  readonly essid: string;
-};
-
-export type AuthCreateSessionPublicDeps = {
+export type AuthCreateSessionPublicDeps = ResolvePublicTargetDeps & {
   readonly nonceStore: NonceStore;
-  readonly findNetworkByPublicIp: (
-    publicIp: string,
-  ) => Promise<{ readonly data: ApNetworkLookup | null; readonly error: unknown }>;
-  /** A machine's FULL patch journal (scoped to `machine_id`, server order). Used for
-   *  the GATEWAY — replayed over its seeded base for the boot gate and the live forward
-   *  table — and for the box a forward reaches, for its services and its passwd. */
-  readonly findPatches: (query: {
-    readonly machine_id: string;
-  }) => Promise<{ readonly data: readonly OwnerPatchRow[] | null; readonly error: unknown }>;
-  /** Who is currently ON the ESSID. Occupancy is the reachability test, so a forward
-   *  naming the address of somebody who has left the WiFi reaches nothing. Read only
-   *  when the requested port is actually forwarded. */
-  readonly listOccupantsByEssid: (
-    essid: string,
-  ) => Promise<{ readonly data: readonly NatOccupantRow[] | null; readonly error: unknown }>;
-  /** Every lease held on this ESSID, in ONE read — the addresses of record. The same
-   *  read the same-LAN path resolves addresses from, so the two gates can never
-   *  disagree on where a box is. Also fixes whose row the gateway's own log accretes
-   *  under. */
-  readonly listLeasesByEssid: (
-    essid: string,
-  ) => Promise<{ readonly data: readonly LanLeaseRow[] | null; readonly error: unknown }>;
   readonly insertSession: (row: AuthSessionRow) => Promise<{ readonly error: unknown }>;
   /** The server's wall clock, epoch-ms (UTC) — stamps the auth.log trace line. */
   readonly now: () => number;
@@ -121,11 +63,6 @@ export type AuthCreateSessionPublicDeps = {
    *  forge it or frame another network. `null` (no home network) → source unknown. */
   readonly findHomeNetworkByOwnerKey: FindHomeNetworkByOwnerKey;
 };
-
-// The destination ssh port when the client sends none — a bare `ssh user@host` is
-// port 22. The client always carries the resolved port, but defaulting here keeps
-// the server correct for any envelope that omits it.
-const DEFAULT_SSH_PORT = 22;
 
 // Loose so the envelope fields pass through; the refine keeps the codebase-wide
 // posture that a client never claims identity (the caller is the verified pubkey).
@@ -142,71 +79,6 @@ const authCreateSessionPublicSchema = z
   })
   .refine((payload) => !('player_key' in payload));
 
-/** The resolved auth target behind the public IP: which tree to validate the password
- *  against, the machine id the session lands on, the hostname the auth.log trace line
- *  carries, and whose row that line accretes under — the reached occupant's own key, or
- *  the AP's stable log-writer key when the target is the ownerless gateway (`null` on
- *  an AP nobody has ever leased an address on, which then keeps no log). */
-type AuthTarget = {
-  readonly fs: Directory;
-  readonly machineId: string;
-  readonly hostname: string;
-  readonly logWriterKey: string | null;
-};
-
-/**
- * Resolve a NAT-forwarded port to its auth target: the occupant leasing the address the
- * forward names. Both halves of that lookup matter — the lease says which address a box
- * answers to, occupancy says the box is still on the WiFi at all — so a forward to an
- * unleased address, or to a lease whose holder has disconnected, reaches nothing.
- * Returns the target, or a `HandlerResponse` to return verbatim (404 host_unreachable
- * for an unreachable/dark target, 500 when a lookup fails).
- */
-const resolveForwardTarget = async (
-  deps: AuthCreateSessionPublicDeps,
-  network: ApNetworkLookup,
-  forwarded: { readonly internalIp: string; readonly internalPort: number },
-  leases: readonly LanLeaseRow[],
-): Promise<AuthTarget | HandlerResponse> => {
-  const occupants = await deps.listOccupantsByEssid(network.essid);
-  if (occupants.error) {
-    return { status: 500, body: { error: 'occupants_lookup_failed' } };
-  }
-  const addresses = lanAddressesByOwner(network.essid, leases);
-  const occupant = (occupants.data ?? []).find(
-    (row) => addresses.get(row.owner_key) === forwarded.internalIp,
-  );
-  // The forward points at no host: a stray internal IP, an address nobody leases, or
-  // one whose holder has taken their box off this WiFi.
-  if (occupant === undefined) {
-    return { status: 404, body: { error: 'host_unreachable' } };
-  }
-
-  const patches = await deps.findPatches({ machine_id: occupant.workstation_machine_id });
-  if (patches.error) {
-    return { status: 500, body: { error: 'patches_lookup_failed' } };
-  }
-  const occupantFs = bootableOccupantFs(occupant, patches.data);
-  // A bricked box behind the NAT can't come up, so the forward reaches a dead host.
-  if (occupantFs === null) {
-    return { status: 404, body: { error: 'host_unreachable' } };
-  }
-  // The internal service isn't listening (that daemon was never started): a dark DNAT
-  // target. The forward's SPECIFIC internal port, not merely "any service is up".
-  const listening = readOpenPorts(occupantFs).some(
-    (openPort) => openPort.port === forwarded.internalPort,
-  );
-  if (!listening) {
-    return { status: 404, body: { error: 'host_unreachable' } };
-  }
-  return {
-    fs: occupantFs,
-    machineId: occupant.workstation_machine_id,
-    hostname: occupant.workstation_machine_name,
-    logWriterKey: occupant.owner_key,
-  };
-};
-
 /** Stamp the login attempt onto the TARGET machine's `/var/log/auth.log` via the
  *  shared system-log primitive — on BOTH outcomes (sshd records accepted AND rejected
  *  logins). The keystone: the line is NOT written under the attacker's key — the system
@@ -216,7 +88,7 @@ const resolveForwardTarget = async (
 const logCrossPlayerAuth = async (
   deps: AuthCreateSessionPublicDeps,
   writerKey: string,
-  target: AuthTarget,
+  target: PublicTarget,
   attempt: {
     readonly outcome: 'success' | 'failure';
     readonly user: string;
@@ -249,20 +121,6 @@ const logCrossPlayerAuth = async (
   }
 };
 
-/** The gateway itself as an auth target — the box the public IP belongs to, root-only,
- *  its admin password seeded from the ESSID. It has no owner, so its log accretes under
- *  the AP's stable log-writer key. */
-const gatewayTarget = (
-  network: ApNetworkLookup,
-  gatewayFs: Directory,
-  leases: readonly LanLeaseRow[],
-): AuthTarget => ({
-  fs: gatewayFs,
-  machineId: network.router_machine_id,
-  hostname: seedApGatewayHostname(network.essid),
-  logWriterKey: apGatewayLogWriterKey(leases),
-});
-
 export const handleAuthCreateSessionPublic = async (
   body: unknown,
   deps: AuthCreateSessionPublicDeps,
@@ -275,52 +133,16 @@ export const handleAuthCreateSessionPublic = async (
   }
   const { publicKey, payload } = verified;
 
-  const { data, error } = await deps.findNetworkByPublicIp(payload.target);
-  if (error) {
-    return { status: 500, body: { error: 'network_lookup_failed' } };
-  }
-  if (data === null) {
-    return { status: 404, body: { error: 'host_unreachable' } };
-  }
-
-  // Materialize the GATEWAY once: it drives the boot gate, the port routing, and — for
-  // a gateway-served port — the password check, all off one consistent tree.
-  const patches = await deps.findPatches({ machine_id: data.router_machine_id });
-  if (patches.error) {
-    return { status: 500, body: { error: 'patches_lookup_failed' } };
-  }
-  const gatewayFs = materializeApGatewayFs(data, patches.data);
-
-  // A bricked gateway (a `/boot` tombstone) takes the whole public IP dark: refuse
-  // before the password is checked — no credentials reach a dead box.
-  if (!canBoot(gatewayFs).ok) {
-    return { status: 404, body: { error: 'host_unreachable' } };
-  }
-
-  // Route by destination port BEFORE any occupancy or lease work: a port nothing serves
-  // reaches nothing, and asking who is on the AP would not change that.
-  const served: ServedMachine = machineServing({
-    routerFs: gatewayFs,
-    port: payload.port ?? DEFAULT_SSH_PORT,
+  // Reachability, port routing and the boot gate all live in the shared resolver, so
+  // the tree this login is checked against is the same tree an attack sweeps.
+  const resolved = await resolvePublicTarget(deps, {
+    publicIp: payload.target,
+    port: payload.port,
   });
-  if (served.kind === 'none') {
-    return { status: 404, body: { error: 'host_unreachable' } };
+  if (!resolved.ok) {
+    return { status: resolved.status, body: { error: resolved.error } };
   }
-
-  // One lease read serves both halves of what follows: which box a forward reaches, and
-  // whose row the gateway's own log accretes under. A failure is a clean 500 — an
-  // address that cannot be read is never derived as a fallback.
-  const leases = await deps.listLeasesByEssid(data.essid);
-  if (leases.error) {
-    return { status: 500, body: { error: 'leases_lookup_failed' } };
-  }
-  const target =
-    served.kind === 'router'
-      ? gatewayTarget(data, gatewayFs, leases.data ?? [])
-      : await resolveForwardTarget(deps, data, served, leases.data ?? []);
-  if ('status' in target) {
-    return target;
-  }
+  const target = resolved.target;
 
   // Validate against the TARGET's own /etc/passwd (the gateway is root-only; a
   // workstation also has its weak `guest` account). An unknown user OR a wrong
@@ -354,7 +176,7 @@ export const handleAuthCreateSessionPublic = async (
     parent_session_id: payload.parent_session_id ?? null,
     source_ip: payload.source_ip ?? null,
     kind: 'ssh',
-    essid: data.essid,
+    essid: target.essid,
   });
   if (insertError) {
     return { status: 500, body: { error: 'insert_failed' } };

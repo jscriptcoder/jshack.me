@@ -5,11 +5,11 @@ import {
   handleAuthCreateSession,
   type AuthSessionRow,
 } from '../src/core/sessions/authCreateSession';
-import {
-  handleAuthCreateSessionPublic,
-  type NatOccupantRow,
-  type ApNetworkLookup,
-} from '../src/core/sessions/authCreateSessionPublic';
+import { handleAuthCreateSessionPublic } from '../src/core/sessions/authCreateSessionPublic';
+import type {
+  NatOccupantRow,
+  ApNetworkLookup,
+} from '../src/core/network/resolvePublicTarget';
 import { computeApGatewayId } from '../src/core/identity/router';
 import {
   handleAuthCreateSessionSameLan,
