@@ -7,7 +7,10 @@ import { computeApGatewayId } from '../identity/router';
 import { generateHomeLan } from '../generation/generateHomeLan';
 import { machineIdForLanHost } from '../generation/lanHostIdentity';
 import { seedApGatewayAdminPw, seedApGatewayHostname } from '../generation/routerFs';
-import { WORDLIST_PATH, formatWordlist } from '../wordlist/defaultWordlist';
+import { workstationGuestPassword } from '../generation/workstationFs';
+import { md5 } from '../generation/md5';
+import { lanAddressFor } from '../network/lanAddress';
+import { DEFAULT_WORDLIST, WORDLIST_PATH, formatWordlist } from '../wordlist/defaultWordlist';
 import {
   AUTH_LOG_OWNER,
   AUTH_LOG_PATH,
@@ -63,7 +66,67 @@ const GATEWAY_HOSTNAME = seedApGatewayHostname(TARGET_ESSID);
 const REGISTERED: ApNetworkLookup = { router_machine_id: AP_GATEWAY_ID, essid: TARGET_ESSID };
 // Somebody who actually lives on the stranger's AP. The gateway is ownerless, so its
 // log accretes under the lowest-octet lease holder there — never the attacker's key.
+// They are also the box behind the NAT forward below: one resident, both roles.
 const RESIDENT = generateIdentity();
+const RESIDENT_OCTET = 84;
+const RESIDENT_LAN_IP = lanAddressFor(TARGET_ESSID, RESIDENT_OCTET);
+const RESIDENT_WS = 'workstation-c3d4e5f6';
+const RESIDENT_HOSTNAME = 'nebuchadnezzar';
+const RESIDENT_USERNAME = 'neo';
+const RESIDENT_GUEST_PW = workstationGuestPassword(RESIDENT.publicKeyHex);
+// A password the PLAYER chose. Not drawn from any pool, so no wordlist the game can
+// hand out contains it — which is the whole of why root holds.
+const RESIDENT_ROOT_PW = 'correct-horse-battery-staple';
+// The port the resident published to the outside world. Deliberately not 22: on this
+// address 22 is the GATEWAY, a different machine entirely.
+const FORWARD_PORT = 5544;
+
+const residentOccupant: NatOccupantRow = {
+  owner_key: RESIDENT.publicKeyHex,
+  workstation_machine_id: RESIDENT_WS,
+  workstation_machine_name: RESIDENT_HOSTNAME,
+  workstation_username: RESIDENT_USERNAME,
+  workstation_root_hash: md5(RESIDENT_ROOT_PW),
+};
+
+/** A root edit of the GATEWAY's `/etc/iptables/rules.v4` — the opt-in that exposes a
+ *  box behind the NAT. The forward is a door its owner chose to open. */
+const forwardRule = (publicPort: number, internalIp: string, internalPort = 22): OwnerPatchRow => ({
+  path: '/etc/iptables/rules.v4',
+  content: `forward ${publicPort} to ${internalIp}:${internalPort}`,
+  owner: 'root',
+  permissions: null,
+  node_type: 'file',
+  updated_at: '2026-08-09T10:00:00.000Z',
+  writer_key: RESIDENT.publicKeyHex,
+});
+const RESIDENT_FORWARD = forwardRule(FORWARD_PORT, RESIDENT_LAN_IP);
+// A second door on the SAME gateway to the SAME box, reaching a different service.
+// Two forwards are how "the port is the address" becomes testable at all.
+const HTTP_FORWARD_PORT = 5580;
+const BOTH_FORWARDS: OwnerPatchRow = {
+  ...RESIDENT_FORWARD,
+  content: [
+    `forward ${FORWARD_PORT} to ${RESIDENT_LAN_IP}:22`,
+    `forward ${HTTP_FORWARD_PORT} to ${RESIDENT_LAN_IP}:80`,
+  ].join('\n'),
+};
+
+/** The resident started their sshd. A fresh box has an empty `/var/run`, so a forward
+ *  to one is dark until its owner brings the service up. */
+const sshdUp: OwnerPatchRow = {
+  path: '/var/run/sshd.pid',
+  content: 'sshd:port=22',
+  owner: 'root',
+  permissions: null,
+  node_type: 'file',
+  updated_at: '2026-08-09T10:00:00.000Z',
+  writer_key: RESIDENT.publicKeyHex,
+};
+
+/** The resident also serves a web page. A box running two daemons is what makes the
+ *  destination port an ADDRESS rather than a formality. */
+const nginxUp: OwnerPatchRow = { ...sshdUp, path: '/var/run/nginx.pid', content: 'nginx:port=80' };
 
 // 2026-08-09 11:04:07 UTC — the clock every trace line here is stamped with.
 const FIXED_NOW = Date.UTC(2026, 7, 9, 11, 4, 7);
@@ -99,21 +162,31 @@ type DepOverrides = Partial<HydraCrackPublicDeps> & {
   /** The wordlist on the box the caller is standing on. `null` means no file. */
   readonly wordlist?: readonly string[] | null;
   readonly gatewayPatches?: readonly OwnerPatchRow[];
+  /** The journal of the box a forward reaches — its services and its passwd. Separate
+   *  from the gateway's: the forward is what bridges two different machines. */
+  readonly occupantPatches?: readonly OwnerPatchRow[];
+  readonly occupants?: readonly NatOccupantRow[];
 };
 
 const depsWith = (over: DepOverrides = {}): HydraCrackPublicDeps => {
-  const { wordlist = [ADMIN_PW], gatewayPatches = [], ...rest } = over;
+  const {
+    wordlist = [ADMIN_PW],
+    gatewayPatches = [],
+    occupantPatches = [],
+    occupants = [],
+    ...rest
+  } = over;
   return {
     nonceStore: freshStore,
     now: () => FIXED_NOW,
     findNetworkByPublicIp: async () => ({ data: REGISTERED, error: null }),
-    findPatches: async () => ({ data: gatewayPatches, error: null }),
-    listOccupantsByEssid: async () => ({
-      data: [] as readonly NatOccupantRow[],
+    findPatches: async ({ machine_id }) => ({
+      data: machine_id === AP_GATEWAY_ID ? gatewayPatches : occupantPatches,
       error: null,
     }),
+    listOccupantsByEssid: async () => ({ data: occupants, error: null }),
     listLeasesByEssid: async () => ({
-      data: [{ owner_key: RESIDENT.publicKeyHex, octet: 84 }] as readonly LanLeaseRow[],
+      data: [{ owner_key: RESIDENT.publicKeyHex, octet: RESIDENT_OCTET }] as readonly LanLeaseRow[],
       error: null,
     }),
     findActiveSession: async () => ({ data: null, error: null }),
@@ -140,16 +213,20 @@ const envelope = (over: Record<string, unknown> = {}) =>
     ...over,
   });
 
-/** The line the gateway's own log records for one attempt. */
-const traceLine = (outcome: 'success' | 'failure', user: string) =>
+/** The line a target's own log records for one attempt, carrying ITS hostname. The
+ *  source address is the attacker's home public IP either way — server-derived. */
+const traceLineOn = (hostname: string) => (outcome: 'success' | 'failure', user: string) =>
   formatSshdAuthLine({
     outcome,
     user,
     fromIp: ATTACKER_PUBLIC_IP,
-    hostname: GATEWAY_HOSTNAME,
+    hostname,
     time: asGameTime(FIXED_NOW),
     pid: derivePid(FIXED_NOW),
   });
+
+const traceLine = traceLineOn(GATEWAY_HOSTNAME);
+const residentTraceLine = traceLineOn(RESIDENT_HOSTNAME);
 
 describe('handleHydraCrackPublic', () => {
   it('cracks the gateway behind a stranger public IP when its admin password is in the wordlist', async () => {
@@ -411,5 +488,166 @@ describe('handleHydraCrackPublic', () => {
     );
 
     expect(status).toBe(400);
+  });
+
+  describe('a forwarded port reaches the person behind the NAT, not their gateway', () => {
+    // A forward is a door its owner chose to open so their own box is reachable. It is
+    // the same door an attacker walks through, which is what makes publishing one a
+    // decision rather than a freebie.
+    const forwardDeps = (over: DepOverrides = {}): HydraCrackPublicDeps =>
+      depsWith({
+        gatewayPatches: [RESIDENT_FORWARD],
+        occupantPatches: [sshdUp],
+        occupants: [residentOccupant],
+        wordlist: [RESIDENT_GUEST_PW],
+        ...over,
+      });
+
+    it("cracks the occupant's guest account through the port they published", async () => {
+      const { status, body } = await handleHydraCrackPublic(
+        envelope({ port: FORWARD_PORT }),
+        forwardDeps(),
+      );
+
+      expect(status).toBe(200);
+      expect(body).toEqual({
+        // The port reported is the door the player knocked on, not the occupant's
+        // internal 22 — on this address 22 is the gateway, a different machine.
+        port: FORWARD_PORT,
+        cracked: [{ username: 'guest', password: RESIDENT_GUEST_PW }],
+        wordlistFound: true,
+      });
+    });
+
+    it('leaves root and the owner’s own account standing against the whole default wordlist', async () => {
+      // Every password the default install can crack, thrown at a player's box. Guest
+      // is the only account that falls: root's password was CHOSEN, so no pool holds
+      // it, and the owner's own login has no password at all — and md5 of anything is
+      // never the empty hash, so it cannot be reached either. The difficulty curve,
+      // asserted rather than assumed.
+      const { body } = await handleHydraCrackPublic(
+        envelope({ port: FORWARD_PORT }),
+        forwardDeps({ wordlist: DEFAULT_WORDLIST }),
+      );
+
+      expect(body).toEqual({
+        port: FORWARD_PORT,
+        cracked: [{ username: 'guest', password: RESIDENT_GUEST_PW }],
+        wordlistFound: true,
+      });
+    });
+
+    it("traces the sweep on the occupant's own auth.log, under their key", async () => {
+      const upsertPatch = vi.fn(async () => ({ error: null }));
+      await handleHydraCrackPublic(
+        envelope({ port: FORWARD_PORT }),
+        forwardDeps({ wordlist: ['hunter2', RESIDENT_GUEST_PW], upsertPatch }),
+      );
+
+      expect(upsertPatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          machine_id: RESIDENT_WS,
+          writer_key: RESIDENT.publicKeyHex,
+          path: asAbsPath(AUTH_LOG_PATH),
+          owner: AUTH_LOG_OWNER,
+          permissions: AUTH_LOG_PERMISSIONS,
+          // Every account, every word, until one opens: the defender sees the whole
+          // sweep against their box — root and their own login included — not just
+          // the account that fell.
+          content: `${[
+            residentTraceLine('failure', 'root'),
+            residentTraceLine('failure', 'root'),
+            residentTraceLine('failure', RESIDENT_USERNAME),
+            residentTraceLine('failure', RESIDENT_USERNAME),
+            residentTraceLine('failure', 'guest'),
+            residentTraceLine('success', 'guest'),
+          ].join('\n')}\n`,
+        }),
+      );
+    });
+
+    it('refuses a forward aimed at an address nobody on the AP leases, and writes no trace', async () => {
+      const upsertPatch = vi.fn(async () => ({ error: null }));
+      const { status, body } = await handleHydraCrackPublic(
+        envelope({ port: FORWARD_PORT }),
+        forwardDeps({
+          gatewayPatches: [forwardRule(FORWARD_PORT, lanAddressFor(TARGET_ESSID, 251))],
+          upsertPatch,
+        }),
+      );
+
+      expect({ status, body }).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+      expect(upsertPatch).not.toHaveBeenCalled();
+    });
+
+    it('refuses a forward onto a bricked box, and writes no trace', async () => {
+      const upsertPatch = vi.fn(async () => ({ error: null }));
+      const { status, body } = await handleHydraCrackPublic(
+        envelope({ port: FORWARD_PORT }),
+        forwardDeps({ occupantPatches: [sshdUp, bootTombstone], upsertPatch }),
+      );
+
+      expect({ status, body }).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+      expect(upsertPatch).not.toHaveBeenCalled();
+    });
+
+    it('refuses a forward whose internal service is not listening, and writes no trace', async () => {
+      const upsertPatch = vi.fn(async () => ({ error: null }));
+      const { status, body } = await handleHydraCrackPublic(
+        envelope({ port: FORWARD_PORT }),
+        forwardDeps({ occupantPatches: [], upsertPatch }),
+      );
+
+      expect({ status, body }).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+      expect(upsertPatch).not.toHaveBeenCalled();
+    });
+
+    it('reaches the http service behind the port that forwards to it', async () => {
+      const { status, body } = await handleHydraCrackPublic(
+        envelope({ port: HTTP_FORWARD_PORT, service: 'http' }),
+        forwardDeps({ gatewayPatches: [BOTH_FORWARDS], occupantPatches: [sshdUp, nginxUp] }),
+      );
+
+      expect(status).toBe(200);
+      expect(body).toEqual({
+        port: HTTP_FORWARD_PORT,
+        cracked: [{ username: 'guest', password: RESIDENT_GUEST_PW }],
+        wordlistFound: true,
+      });
+    });
+
+    it('refuses ssh through a port that forwards to http, though the box runs both', async () => {
+      // The port IS the address. Resolving through a forward to nginx and then attacking
+      // sshd behind it is exactly the hydra/ssh disagreement this path exists to prevent:
+      // `ssh` on that port would reach the web server and refuse, so a credential
+      // reported here would be one `ssh` never accepts.
+      const upsertPatch = vi.fn(async () => ({ error: null }));
+      const { status, body } = await handleHydraCrackPublic(
+        envelope({ port: HTTP_FORWARD_PORT }),
+        forwardDeps({
+          gatewayPatches: [BOTH_FORWARDS],
+          occupantPatches: [sshdUp, nginxUp],
+          wordlist: [ADMIN_PW, RESIDENT_GUEST_PW],
+          upsertPatch,
+        }),
+      );
+
+      expect({ status, body }).toEqual({ status: 404, body: { error: 'service_not_running' } });
+      expect(upsertPatch).not.toHaveBeenCalled();
+    });
+
+    it('still reaches the gateway when no port is named — the default is unchanged', async () => {
+      const { status, body } = await handleHydraCrackPublic(
+        envelope(),
+        forwardDeps({ wordlist: [ADMIN_PW] }),
+      );
+
+      expect(status).toBe(200);
+      expect(body).toEqual({
+        port: 22,
+        cracked: [{ username: 'root', password: ADMIN_PW }],
+        wordlistFound: true,
+      });
+    });
   });
 });

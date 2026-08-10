@@ -446,6 +446,10 @@ export type HydraCrackPublicParams = {
   readonly essid: string;
   readonly target: string;
   readonly service: string;
+  /** The destination port behind the public IP — an access point's forward table is
+   *  addressed by port, so this is what names a box rather than the gateway.
+   *  `undefined` means the default, which is the gateway's own sshd. */
+  readonly port: number | undefined;
   readonly username: string | undefined;
   readonly callerMachineId: string;
 };

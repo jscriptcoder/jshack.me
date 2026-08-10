@@ -89,6 +89,9 @@ const hydraCrackPublicSchema = z
     essid: z.string().min(1),
     target: z.string().min(1),
     service: z.string().min(1),
+    // The destination port behind the public IP — the ADDRESS, since a public IP names
+    // an access point rather than a machine. Absent means the gateway's own sshd.
+    port: z.number().int().positive().optional(),
     username: z.string().min(1).optional(),
     caller_machine_id: z.string().min(1),
   })
@@ -129,7 +132,7 @@ export const handleHydraCrackPublic = async (
 
   const resolved = await resolvePublicTarget(deps, {
     publicIp: payload.target,
-    port: undefined,
+    port: payload.port,
   });
   if (!resolved.ok) {
     return { status: resolved.status, body: { error: resolved.error } };
@@ -137,11 +140,18 @@ export const handleHydraCrackPublic = async (
   const target = resolved.target;
 
   // The pidfiles are the truth about what is listening: a stopped daemon leaves
-  // nothing to attack, exactly as it leaves nothing to connect to.
-  const open = readOpenPorts(target.fs).find((port) => port.service === payload.service);
+  // nothing to attack, exactly as it leaves nothing to connect to. It must be the
+  // daemon on the port this request REACHED — a forward to nginx is not a door to
+  // sshd, and `ssh` on that port would meet the web server too.
+  const open = readOpenPorts(target.fs).find(
+    (port) => port.port === target.reachedPort && port.service === payload.service,
+  );
   if (open === undefined) {
     return { status: 404, body: { error: 'service_not_running' } };
   }
+  // The port a result names is the door the player knocked on, never the far side of
+  // the forward: on this address the occupant's own :22 belongs to the GATEWAY.
+  const knockedPort = payload.port ?? open.port;
 
   const wordlist = await deps.listPathPatches({
     machine_id: payload.caller_machine_id,
@@ -156,7 +166,7 @@ export const handleHydraCrackPublic = async (
   // like a hardened target.
   const content = wordlistOn(wordlist.data);
   if (content === null) {
-    return { status: 200, body: { port: open.port, cracked: [], wordlistFound: false } };
+    return { status: 200, body: { port: knockedPort, cracked: [], wordlistFound: false } };
   }
 
   const { cracked, trace } = sweepAccounts({
@@ -188,5 +198,5 @@ export const handleHydraCrackPublic = async (
     }
   }
 
-  return { status: 200, body: { port: open.port, cracked, wordlistFound: true } };
+  return { status: 200, body: { port: knockedPort, cracked, wordlistFound: true } };
 };

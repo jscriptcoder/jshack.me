@@ -286,17 +286,34 @@ machine under their owner key.
 
 **Required implementation skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
 
-**Acceptance criteria** (confirm before any code):
+**Acceptance criteria** (confirmed 2026-08-10; 5 was corrected, 7-8 added after grounding):
 1. `hydra -p <forwarded port> <public IP>` sweeps the occupant's accounts, and the guest account
    falls (guest is 1.00 by design, and is what a cross-player login yields — see the parent).
 2. Root and user on a player's workstation never fall, because a player's chosen password is not
    in the crackable pool. This is asserted, not assumed.
-3. The trace lands on the **occupant's** `auth.log`, not the gateway's.
+3. The trace lands on the **occupant's** `auth.log`, not the gateway's. Already true by
+   construction — `resolveForwardTarget` returns `logWriterKey: occupant.owner_key` — so this is
+   new evidence at the hydra layer, not new mechanism.
 4. A forward pointing at an address nobody currently leases, or at a bricked box, or at a box whose
-   internal service is not listening, is refused with no trace.
-5. `-p` on an own-LAN target keeps working as an ordinary port selector, and its absence still means
-   the default.
+   internal service is not listening, is refused with no trace. All three refusals already exist in
+   `resolveForwardTarget`; what hydra owns here is the **no trace** half.
+5. `-p` addresses an access point's forward table, so it is meaningful only against a public IP. On
+   an own-LAN target the service name already selects the port — `handleHydraCrack` finds the open
+   port by service and has no port concept at all — so passing `-p` there changes nothing, and is
+   ignored rather than refused. The player gets the attack they asked for either way.
 6. The manual documents `-p`.
+7. **hydra reports the door the player knocked on.** The handler returns `open.port`, which through
+   a forward is the port on the OCCUPANT's box: a player typing `-p 5544` would read
+   `[22][ssh] host: <public ip>`, and port 22 on that address is the GATEWAY — a different machine.
+   A forwarded sweep reports the external port it was given.
+8. **The service named must be the one behind the forward.** `service` is a separate argument from
+   `-p`, so `hydra -p 5544 <ip> mysql` could resolve through a forward to port 22 and then attack
+   mysql on the occupant's box. The port is the address; attacking something else through it is the
+   same hydra/`ssh` disagreement this plan exists to prevent. Refused as `service_not_running`.
+
+> Criterion 5 originally read *"`-p` on an own-LAN target keeps working as an ordinary port
+> selector"*, which described behaviour that has never existed. Criteria 7 and 8 were missing
+> outright. All three came out of reading the code before writing the test rather than after.
 
 **RED**: a seeded forward on a stranger's gateway to an occupant with a known guest password;
 assert hydra returns it. Fails today twice over — no port argument, no forward path.

@@ -49,6 +49,16 @@ const REFUSALS: Readonly<Record<string, string>> = {
   patches_lookup_failed: 'could not reach the target — try again',
 };
 
+/** `-p <port>`, or undefined when absent, valueless or not a port. Undefined means
+ *  the default door, which behind a public IP is the gateway's own sshd. A bare `-p`
+ *  yields `true` and an absent one `undefined` — both non-strings, so one guard
+ *  covers them. */
+const parsePort = (raw: string | true | undefined): number | undefined => {
+  if (typeof raw !== 'string') return undefined;
+  const port = Number(raw);
+  return Number.isInteger(port) && port > 0 ? port : undefined;
+};
+
 async function* attack(
   env: CommandEnv,
   target: string,
@@ -57,6 +67,7 @@ async function* attack(
   callerMachineId: string,
   essid: string,
   sourceIp: string | null,
+  port: number | undefined,
 ): AsyncIterable<TerminalLine> {
   yield text(`Hydra starting attack on ${service}://${target}`);
   await env.sleep(STEP_DELAY_MS);
@@ -73,8 +84,12 @@ async function* attack(
   // and the port decides what behind it is reached — so it resolves server-side,
   // exactly as `ssh` resolves one. That action derives the source address itself,
   // because a trace on a foreign box is the defender's only evidence.
+  //
+  // `-p` goes only that way. On the player's own LAN a host IS the machine, and the
+  // service name already selects whichever port its daemon listens on — there is no
+  // forward table to address, so the flag has nothing to say.
   const result = isPublicIp(target)
-    ? await env.hydra.crackPublic({ essid, target, service, username, callerMachineId })
+    ? await env.hydra.crackPublic({ essid, target, service, username, callerMachineId, port })
     : await env.hydra.crack({ essid, target, service, username, callerMachineId, sourceIp });
 
   if (!result.ok) {
@@ -102,10 +117,10 @@ async function* attack(
   );
 }
 
-const execute: Command['execute'] = async (env, args) => {
+const execute: Command['execute'] = async (env, args, flags) => {
   const [target, service, username] = args;
   if (target === undefined) {
-    return error('hydra: missing target — usage: hydra <host> [service] [user]');
+    return error('hydra: missing target — usage: hydra [-p port] <host> [service] [user]');
   }
 
   const wlan0 = connectedWlan0(env.network);
@@ -123,6 +138,7 @@ const execute: Command['execute'] = async (env, args) => {
       env.session.machineId,
       wlan0.association.essid,
       wlan0.ipv4,
+      parsePort(flags.get('-p')),
     ),
     exitCode: async () => 0,
   };
@@ -134,15 +150,18 @@ export const hydra: Command = {
   category: 'network',
   tier: 'guest',
   availability: { kind: 'any-machine' },
+  flags: { '-p': 'string' },
   manual: {
-    synopsis: 'hydra <host> [service] [user]',
+    synopsis: 'hydra [-p port] <host> [service] [user]',
     description:
       'Attempt to recover account passwords on a host by trying every password in your ' +
       'wordlist (/usr/share/wordlists/passwords.txt) against the service. With no user ' +
       'named, every account on the target is attacked. A password that is not in your ' +
       'wordlist will never be found, however weak it is — grow the list by editing it ' +
       'with nano as you harvest passwords elsewhere. A public IP is the access point ' +
-      'that bears it, so attacking one attacks that network’s gateway.',
+      'that bears it, so attacking one attacks that network’s gateway — use "-p" to ' +
+      'reach a machine somebody has published behind it instead. On your own network ' +
+      'the service name already picks the port, so "-p" is only for a public IP.',
     arguments: [
       {
         name: 'host',
@@ -156,6 +175,10 @@ export const hydra: Command = {
       { command: 'hydra 192.168.1.5', description: 'Attack every account over ssh' },
       { command: 'hydra 192.168.1.5 ssh root', description: 'Attack only the root account' },
       { command: 'hydra 203.0.113.7', description: "Attack a stranger's gateway over ssh" },
+      {
+        command: 'hydra -p 5544 203.0.113.7',
+        description: 'Attack the machine behind a forwarded port',
+      },
     ],
   },
   execute,

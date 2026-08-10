@@ -94,6 +94,11 @@ export type PublicTarget = {
   readonly hostname: string;
   readonly logWriterKey: string | null;
   readonly essid: string;
+  /** The port ON THE TARGET that the requested destination port actually reaches: the
+   *  gateway's own listening port, or the far side of a NAT forward. A caller naming a
+   *  service must check it against THIS rather than against any port the box happens to
+   *  have open, or a forward to one daemon becomes a door to every daemon. */
+  readonly reachedPort: number;
 };
 
 export type PublicTargetResult =
@@ -112,12 +117,14 @@ const gatewayTarget = (
   network: ApNetworkLookup,
   gatewayFs: Directory,
   leases: readonly LanLeaseRow[],
+  port: number,
 ): PublicTarget => ({
   fs: gatewayFs,
   machineId: network.router_machine_id,
   hostname: seedApGatewayHostname(network.essid),
   logWriterKey: apGatewayLogWriterKey(leases),
   essid: network.essid,
+  reachedPort: port,
 });
 
 /**
@@ -171,6 +178,7 @@ const resolveForwardTarget = async (
       hostname: occupant.workstation_machine_name,
       logWriterKey: occupant.owner_key,
       essid: network.essid,
+      reachedPort: forwarded.internalPort,
     },
   };
 };
@@ -203,10 +211,8 @@ export const resolvePublicTarget = async (
 
   // Route by destination port BEFORE any occupancy or lease work: a port nothing serves
   // reaches nothing, and asking who is on the AP would not change that.
-  const served: ServedMachine = machineServing({
-    routerFs: gatewayFs,
-    port: request.port ?? DEFAULT_SSH_PORT,
-  });
+  const destinationPort = request.port ?? DEFAULT_SSH_PORT;
+  const served: ServedMachine = machineServing({ routerFs: gatewayFs, port: destinationPort });
   if (served.kind === 'none') {
     return { ok: false, status: 404, error: 'host_unreachable' };
   }
@@ -219,6 +225,6 @@ export const resolvePublicTarget = async (
     return { ok: false, status: 500, error: 'leases_lookup_failed' };
   }
   return served.kind === 'router'
-    ? { ok: true, target: gatewayTarget(data, gatewayFs, leases.data ?? []) }
+    ? { ok: true, target: gatewayTarget(data, gatewayFs, leases.data ?? [], destinationPort) }
     : resolveForwardTarget(deps, data, served, leases.data ?? []);
 };

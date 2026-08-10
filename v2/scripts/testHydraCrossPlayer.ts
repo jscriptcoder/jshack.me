@@ -26,6 +26,8 @@ import { generateIdentity } from '../src/core/identity/identity';
 import { computeWorkstationId } from '../src/core/identity/workstation';
 import { computeApGatewayId } from '../src/core/identity/router';
 import { seedApGatewayAdminPw } from '../src/core/generation/routerFs';
+import { workstationGuestPassword } from '../src/core/generation/workstationFs';
+import { lanAddressFor } from '../src/core/network/lanAddress';
 import { WORDLIST_PATH, formatWordlist } from '../src/core/wordlist/defaultWordlist';
 import { AUTH_LOG_PATH } from '../src/core/logging/authLog';
 import { md5 } from '../src/core/generation/md5';
@@ -77,6 +79,12 @@ const TARGET_PUBLIC_IP = '203.0.113.77';
 const TARGET_GATEWAY = computeApGatewayId(TARGET_ESSID);
 const RESIDENT_WS = computeWorkstationId('anton', resident.publicKeyHex);
 const ADMIN_PW = seedApGatewayAdminPw(TARGET_ESSID);
+// The lease the resident holds — the address their published forward names, and (as
+// the AP's only lease) the key its ownerless gateway logs under.
+const RESIDENT_OCTET = 23;
+// The door the resident opened to their own box. Not 22: on this address 22 is the
+// gateway, a different machine.
+const FORWARD_PORT = 5544;
 
 // The attacker's OWN network — this is what the server must walk to derive the address
 // the target records. Nothing the client sends can name it.
@@ -108,7 +116,7 @@ await clean();
 await seedPublicIps(sr, [{ essid: TARGET_ESSID, publicIp: TARGET_PUBLIC_IP }]);
 await sr
   .from('network_lan_leases')
-  .insert({ essid: TARGET_ESSID, owner_key: resident.publicKeyHex, octet: 23 });
+  .insert({ essid: TARGET_ESSID, owner_key: resident.publicKeyHex, octet: RESIDENT_OCTET });
 await sr.from('home_network_occupants').insert({
   essid: TARGET_ESSID,
   owner_key: resident.publicKeyHex,
@@ -155,16 +163,20 @@ const crackEnvelope = (over: Record<string, unknown> = {}) =>
     ...over,
   });
 
-const gatewayAuthLog = async (): Promise<{ content: string; writerKey: string } | null> => {
+const authLogOf = async (
+  machineId: string,
+): Promise<{ content: string; writerKey: string } | null> => {
   const { data } = await sr
     .from('patches')
     .select('content, writer_key')
-    .eq('machine_id', TARGET_GATEWAY)
+    .eq('machine_id', machineId)
     .eq('path', AUTH_LOG_PATH)
     .maybeSingle();
   const row = data as { content: string; writer_key: string } | null;
   return row === null ? null : { content: row.content, writerKey: row.writer_key };
 };
+
+const gatewayAuthLog = () => authLogOf(TARGET_GATEWAY);
 
 // --- 1. A wordlist that does NOT hold the admin password takes nothing. ---
 await seedWordlist(['hunter2', 'letmein', 'correcthorse']);
@@ -234,6 +246,95 @@ check(
   '8. a caller with no session on the machine they name is refused',
   foreign.status === 403 && errorOf(foreign.body) === 'no_session',
   `status ${foreign.status}; error ${errorOf(foreign.body)}`,
+);
+
+// --- The NAT forward: the resident publishes a door to their OWN box, and it is the
+//     same door an attacker walks through. Everything above reached the shared
+//     gateway; from here the target is a PERSON's machine. ---
+const RESIDENT_LAN_IP = lanAddressFor(TARGET_ESSID, RESIDENT_OCTET);
+const RESIDENT_GUEST_PW = workstationGuestPassword(resident.publicKeyHex);
+
+const patchRow = (machineId: string, path: string, content: string) => ({
+  machine_id: machineId,
+  path,
+  writer_key: resident.publicKeyHex,
+  content,
+  owner: 'root',
+  node_type: 'file',
+  permissions: { read: ['root'], write: ['root'], execute: [] },
+});
+
+// The forward table lives on the GATEWAY; the running sshd lives on the resident's
+// box. A forward bridges two machines, and a live check must seed both.
+const forwardSeed = await sr.from('patches').upsert(
+  [
+    patchRow(
+      TARGET_GATEWAY,
+      '/etc/iptables/rules.v4',
+      `forward ${FORWARD_PORT} to ${RESIDENT_LAN_IP}:22`,
+    ),
+    patchRow(RESIDENT_WS, '/var/run/sshd.pid', 'sshd:port=22'),
+  ],
+  { onConflict: 'machine_id,path,writer_key' },
+);
+if (forwardSeed.error) throw new Error(`forward seed failed: ${forwardSeed.error.message}`);
+
+await seedWordlist(['hunter2', ADMIN_PW, RESIDENT_GUEST_PW]);
+
+const forwarded = await post(crackEnvelope({ port: FORWARD_PORT }));
+const guest = crackedIn(forwarded.body).find((entry) => entry.username === 'guest');
+check(
+  "9. a forwarded port cracks the OCCUPANT's guest account, not the gateway",
+  forwarded.status === 200 && guest?.password === RESIDENT_GUEST_PW,
+  `status ${forwarded.status}; cracked ${JSON.stringify(crackedIn(forwarded.body))}`,
+);
+check(
+  '10. the result names the door knocked on, not the box’s internal port',
+  (forwarded.body as { port?: number } | null)?.port === FORWARD_PORT,
+  `port ${(forwarded.body as { port?: number } | null)?.port} (expected ${FORWARD_PORT})`,
+);
+check(
+  '11. the resident’s CHOSEN root password holds where their guest account fell',
+  crackedIn(forwarded.body).every((entry) => entry.username !== 'root'),
+  `cracked ${crackedIn(forwarded.body).map((entry) => entry.username).join(',') || 'none'}`,
+);
+
+// THE claim again, one layer deeper: what hydra reports through a forward, ssh accepts
+// through that same forward. Two handlers, one resolver, one box.
+const forwardLogin = await post(
+  signRequest(attacker, 'authCreateSessionPublic', {
+    session_id: `ssh-forward-${Date.now()}`,
+    target: TARGET_PUBLIC_IP,
+    port: FORWARD_PORT,
+    username: 'guest',
+    password: guest?.password ?? 'no-password-cracked',
+    parent_session_id: null,
+    source_ip: null,
+  }),
+);
+check(
+  '12. ssh accepts, through the same forward, the password hydra reported',
+  forwardLogin.status === 200,
+  `status ${forwardLogin.status}; ${JSON.stringify(forwardLogin.body)}`,
+);
+
+const residentLog = await authLogOf(RESIDENT_WS);
+check(
+  '13. the trace lands on the OCCUPANT’s auth.log, under their own key',
+  residentLog !== null &&
+    residentLog.writerKey === resident.publicKeyHex &&
+    residentLog.content.includes(`Accepted password for guest from ${ATTACKER_PUBLIC_IP}`),
+  residentLog === null
+    ? 'no auth.log row on the occupant box'
+    : `writer ${residentLog.writerKey.slice(0, 12)}...; ${residentLog.content.split('\n').slice(-2).join(' | ')}`,
+);
+
+// A port nobody forwarded is not a door, even on an AP that has one.
+const unforwarded = await post(crackEnvelope({ port: FORWARD_PORT + 1 }));
+check(
+  '14. a port with no forward behind it is unreachable',
+  unforwarded.status === 404 && errorOf(unforwarded.body) === 'host_unreachable',
+  `status ${unforwarded.status}; error ${errorOf(unforwarded.body)}`,
 );
 
 await clean();
