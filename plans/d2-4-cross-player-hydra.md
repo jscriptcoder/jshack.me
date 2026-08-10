@@ -456,6 +456,18 @@ home". Verify the "no caller rework" claim rather than restating it: `resolvePub
 `api/sessions.ts` grows a query (essid → public IP, split out of `findHomeNetworkByOwnerKeyVia`),
 and `api/` is not typechecked against the real schema.
 
+**Follow-up this slice creates — `ssh` and `nmap` do not pivot yet.** `authCreateSessionPublic.ts:159`
+and `resolvePublicScan.ts:277` both call `resolveCrossPlayerSourceIp` with the actor's key, and
+neither endpoint carries a `caller_machine_id` — they have no concept of where the caller is
+standing, so they cannot derive a vantage even in principle. After this slice, hydra launched from
+A's box traces to A while `ssh` and `nmap` from that same shell still trace to the attacker's home.
+
+That is a tools-disagree seam of the kind this epic exists to close, and it is NOT in slice 4's
+confirmed criteria. Its own slice: add `caller_machine_id` to both signed envelopes, pass the
+standing essid, and the seam needs no further change — `resolveVantageSourceIp` is already shaped
+for it. Note the client half is the real work (`ssh.ts` and `nmap.ts` must name the box they run
+from, as `hydra.ts` already does).
+
 **Done when**: all eight criteria hold, the wire-check passes, and the human approves the commit.
 
 ---

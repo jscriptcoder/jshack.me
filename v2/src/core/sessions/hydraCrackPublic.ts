@@ -19,26 +19,26 @@
  *     there is an NPC and there is nobody to frame. Across the network there is,
  *     and a log line is the defender's only evidence.
  *
- * Which is also why the box the caller stands on must be one the server can place
- * on their OWN network. Everything on that network leaves through their home public
- * IP, so the derived address is truthful. Standing anywhere else, it would not be —
- * so it is refused rather than guessed at.
+ * Which address that is comes from the box the caller is STANDING on, not the one
+ * they own. A session row carries the network its box was generated from, stamped
+ * server-side when the hop was made, so a sweep launched from somebody else's box is
+ * traced to their network — the pivot, and the only honest answer, since their box is
+ * what the target actually saw. No session means the caller's own workstation, whose
+ * network is found from their verified key.
  */
 
 import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { generateHomeLan } from '../generation/generateHomeLan';
-import { machineIdForLanHost } from '../generation/lanHostIdentity';
-import { isOwnWorkstation } from '../identity/workstation';
 import { authorizeMachineAccess, type FindActiveSession } from '../patches/authorizeMachineAccess';
 import {
   resolvePublicTarget,
   type ResolvePublicTargetDeps,
 } from '../network/resolvePublicTarget';
 import {
-  resolveCrossPlayerSourceIp,
+  resolveVantageSourceIp,
   type FindHomeNetworkByOwnerKey,
+  type FindPublicIpByEssid,
 } from '../logging/crossPlayerSourceIp';
 import { readOpenPorts } from '../services/pidfile';
 import { accountsIn } from './passwdAccount';
@@ -73,8 +73,11 @@ export type HydraCrackPublicDeps = ResolvePublicTargetDeps & {
     readonly path: string;
   }) => Promise<ListPathPatchesResult>;
   /** Resolve the ATTACKER's own home public IP from their verified owner key — the
-   *  truthful origin of anything launched from their network. */
+   *  truthful origin of anything launched from their own workstation. */
   readonly findHomeNetworkByOwnerKey: FindHomeNetworkByOwnerKey;
+  /** Resolve one network's public IP from its ESSID — the origin of anything launched
+   *  from a box the caller is standing on but does not own. */
+  readonly findPublicIpByEssid: FindPublicIpByEssid;
   /** The TARGET's current auth.log content — the read half of the appended trace. */
   readonly readAuthLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
   /** Write a patch (here: the whole sweep, appended to the target's auth.log). */
@@ -118,16 +121,6 @@ export const handleHydraCrackPublic = async (
   );
   if (!access.ok) {
     return { status: access.status, body: { error: access.error } };
-  }
-
-  // Anywhere on the caller's own network leaves by their own public address, so the
-  // derived source IP is honest. A box the server cannot place there would need an
-  // address it has no way to know — refused, never guessed.
-  const onOwnLan = generateHomeLan(payload.essid).hosts.some(
-    (candidate) => machineIdForLanHost(candidate, payload.essid) === payload.caller_machine_id,
-  );
-  if (!onOwnLan && !isOwnWorkstation(payload.caller_machine_id, publicKey)) {
-    return { status: 403, body: { error: 'caller_not_on_lan' } };
   }
 
   const resolved = await resolvePublicTarget(deps, {
@@ -174,7 +167,10 @@ export const handleHydraCrackPublic = async (
     username: payload.username,
     wordlist: content,
     hostname: target.hostname,
-    fromIp: await resolveCrossPlayerSourceIp(deps.findHomeNetworkByOwnerKey, publicKey),
+    fromIp: await resolveVantageSourceIp(deps, {
+      actorKey: publicKey,
+      standingEssid: access.session === null ? null : access.session.essid,
+    }),
     stamp: deps.now(),
   });
 

@@ -94,16 +94,31 @@ const ATTACKER_WS = computeWorkstationId('cracklab', attacker.publicKeyHex);
 
 const UNREGISTERED_IP = '203.0.113.254';
 
+// A THIRD network, so the pivot has somewhere to point that is neither the attacker's
+// home nor the network they are standing on. Without three parties the derived origin
+// and the attacker's own address can be the same string by accident.
+const bystander = generateIdentity();
+const VICTIM_ESSID = 'HOOLI-XYZ';
+const VICTIM_PUBLIC_IP = '203.0.113.99';
+const VICTIM_GATEWAY = computeApGatewayId(VICTIM_ESSID);
+const VICTIM_ADMIN_PW = seedApGatewayAdminPw(VICTIM_ESSID);
+const BYSTANDER_WS = computeWorkstationId('erlich', bystander.publicKeyHex);
+const BYSTANDER_OCTET = 31;
+// The session that puts the attacker on the resident's box — an ssh hop, as
+// `authCreateSessionPublic` would have written it after a successful login.
+const PIVOT_SESSION = 'ssh-pivot-wirecheck';
+
 const clean = async () => {
   await clearPublicIps(sr, [
     { essid: TARGET_ESSID, publicIp: TARGET_PUBLIC_IP },
     { essid: ATTACKER_ESSID, publicIp: ATTACKER_PUBLIC_IP },
+    { essid: VICTIM_ESSID, publicIp: VICTIM_PUBLIC_IP },
   ]);
-  for (const essid of [TARGET_ESSID, ATTACKER_ESSID]) {
+  for (const essid of [TARGET_ESSID, ATTACKER_ESSID, VICTIM_ESSID]) {
     await sr.from('home_network_occupants').delete().eq('essid', essid);
     await sr.from('network_lan_leases').delete().eq('essid', essid);
   }
-  for (const id of [TARGET_GATEWAY, ATTACKER_WS, RESIDENT_WS]) {
+  for (const id of [TARGET_GATEWAY, ATTACKER_WS, RESIDENT_WS, VICTIM_GATEWAY, BYSTANDER_WS]) {
     await sr.from('patches').delete().eq('machine_id', id);
   }
   await sr.from('sessions').delete().eq('player_key', attacker.publicKeyHex);
@@ -335,6 +350,76 @@ check(
   '14. a port with no forward behind it is unreachable',
   unforwarded.status === 404 && errorOf(unforwarded.body) === 'host_unreachable',
   `status ${unforwarded.status}; error ${errorOf(unforwarded.body)}`,
+);
+
+// --- The pivot: three parties. The attacker holds a session on the RESIDENT's box,
+//     which lives on the target network, and from there sweeps a THIRD network's
+//     gateway. What that third party's log must record is the network the attack was
+//     launched from — not the attacker's own, which is the only address the server
+//     could have known before this. ---
+await seedPublicIps(sr, [{ essid: VICTIM_ESSID, publicIp: VICTIM_PUBLIC_IP }]);
+await sr
+  .from('network_lan_leases')
+  .insert({ essid: VICTIM_ESSID, owner_key: bystander.publicKeyHex, octet: BYSTANDER_OCTET });
+await sr.from('home_network_occupants').insert({
+  essid: VICTIM_ESSID,
+  owner_key: bystander.publicKeyHex,
+  workstation_machine_id: BYSTANDER_WS,
+  workstation_username: 'erlich',
+  workstation_machine_name: 'aviato',
+  workstation_root_hash: md5('bystander-root-secret'),
+});
+
+// The hop that makes the resident's box a place to stand. Its `essid` is what the
+// server reads to place the attacker — stamped here exactly as a real ssh login
+// stamps it, never claimed by the request below.
+await sr.from('sessions').insert({
+  session_id: PIVOT_SESSION,
+  player_key: attacker.publicKeyHex,
+  machine_id: RESIDENT_WS,
+  credentials: { username: 'root', userType: 'root' },
+  kind: 'ssh',
+  essid: TARGET_ESSID,
+  created_at: '2020-01-01T00:00:00.000Z',
+});
+
+// Tools run where you stand, and so does the ammunition: the wordlist has to be on
+// the resident's box, because that is the machine the sweep now reads from.
+const { error: pivotWordlistError } = await sr.from('patches').upsert(
+  {
+    machine_id: RESIDENT_WS,
+    path: WORDLIST_PATH,
+    writer_key: attacker.publicKeyHex,
+    content: formatWordlist([VICTIM_ADMIN_PW]),
+    owner: 'root',
+    node_type: 'file',
+    permissions: { read: ['root', 'user', 'guest'], write: ['root'], execute: [] },
+  },
+  { onConflict: 'machine_id,path,writer_key' },
+);
+if (pivotWordlistError) {
+  throw new Error(`pivot wordlist seed failed: ${pivotWordlistError.message}`);
+}
+
+const pivoted = await post(
+  crackEnvelope({ target: VICTIM_PUBLIC_IP, caller_machine_id: RESIDENT_WS }),
+);
+const pivotedRoot = crackedIn(pivoted.body).find((entry) => entry.username === 'root');
+check(
+  '15. a sweep launched from a box on another network cracks its target',
+  pivoted.status === 200 && pivotedRoot?.password === VICTIM_ADMIN_PW,
+  `status ${pivoted.status}; cracked ${JSON.stringify(crackedIn(pivoted.body))}`,
+);
+
+const victimLog = await authLogOf(VICTIM_GATEWAY);
+check(
+  '15b. the trace names the network stood on, never the attacker’s own',
+  victimLog !== null &&
+    victimLog.content.includes(`Accepted password for root from ${TARGET_PUBLIC_IP}`) &&
+    !victimLog.content.includes(ATTACKER_PUBLIC_IP),
+  victimLog === null
+    ? 'no auth.log row on the third party’s gateway'
+    : victimLog.content.split('\n').slice(-2).join(' | '),
 );
 
 await clean();
