@@ -771,6 +771,19 @@ const seed = async (table: string, rows: readonly Record<string, unknown>[], lab
 };
 ```
 
+**A RUNNER that reads the wrong exit code reports a false pass** — the same lesson one layer out.
+There is no committed all-checks runner, so running the suite means an ad-hoc loop, and the obvious
+shape is wrong:
+
+```bash
+out=$(npx dotenv -e .env.development.local -- npx tsx "$f" 2>&1 | tail -2); code=$?   # WRONG
+```
+
+`$?` after a pipeline is the LAST stage's status — `tail` always succeeds — so every script counts
+as passing and the loop cheerfully prints `32/32`. Assign without the pipe and capture `$?` on the
+next line (or read `${PIPESTATUS[0]}`). Hit on 2026-08-10; the false `32/32` was caught only because
+the number looked too good for a run that included a just-changed resolver.
+
 **All public-IP seeding goes through `scripts/networkFixture.ts`** (`seedPublicIps` /
 `clearPublicIps`) — never a hand-rolled delete + insert. `network_public_ips` is keyed on
 **essid** (PK) with **public_ip** merely UNIQUE, so a script that hardcodes its own address and
@@ -914,11 +927,20 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   one shared AP gateway per ESSID, ESSID-seeded shared NPCs and deep chains, and the removal of
   the store whose last-writer-wins PK caused the collisions. As-built in §7 and
   `cross-player-architecture.md`; the plan file was deleted on close-out.
-- **Wire-checks are not in CI** — all 27 run only by hand against a local `vercel dev` +
+- **Wire-checks are not in CI** — all 32 run only by hand against a local `vercel dev` +
   supabase, and they are the ONLY thing that proves `api/` runtime correctness (`tsc` cannot
   see DB columns or constraints). A regression there ships green. Raised repeatedly and
   deliberately not taken on yet; it needs a CI supabase + a way to boot the functions
   headlessly, which is a piece of work in its own right rather than a config tweak.
+- **`AvailabilityRule` is inert — enforce it or delete it.** Every command declares one
+  (`{kind:'any-machine'}`, `'localhost-only'`, `'installed-package'`) and **nothing in production
+  code reads `command.availability`** — verified 2026-08-10 by grepping `\.availability\b` across
+  `src/` excluding tests: no hits. Runtime gating is `availability.ts`, which resolves `/bin/<name>`
+  against the live FS and reads the binary's own execute perms — a different mechanism that never
+  consults the declared rule. So `localhost-only` on `ssh` is documentation that looks like
+  enforcement, which is the dangerous kind: a reader reasonably assumes the rule holds. Decide one
+  way. If enforcing, note that `hydra` deliberately runs anywhere ("tools run where you stand") and
+  its `any-machine` is load-bearing intent, not a default.
 - ~~**A NAT forward reaches only ONE occupant of a shared AP**~~ — **FIXED at v0.99.0.** The
   public paths no longer resolve "the box behind the NAT" at all: a forward's `internalIp` is
   matched against the ESSID's `network_lan_leases` + `home_network_occupants`, so it lands on
