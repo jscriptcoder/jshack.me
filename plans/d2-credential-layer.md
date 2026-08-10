@@ -497,10 +497,15 @@ Still carried over:
   the address anyway. One change over one handler, not two passes.
 - **D2.6 may be a characterisation test, not a slice.** Both tools now read the FILE rather than a
   constant, which is the condition the split named. Confirm before planning it as work.
-- **`api/sessions.ts` is now half supabase dep builders** and every hydra seam adds more. Diagnosed
-  and planned as a terminal reduction at
-  [`api-sessions-dep-reduction.md`](./api-sessions-dep-reduction.md) — worth doing BEFORE slice 3,
-  which would otherwise add a tenth copy.
+- ✅ **`api/sessions.ts` was half supabase dep builders** and every hydra seam added more. Collapsed
+  before slice 3 as a terminal reduction (#372, `1b2626d`): 43 builder closures → 13 declarations,
+  six spellings of the journal column list → one. Slice 3 now calls a factory instead of pasting a
+  tenth copy. As-built in
+  [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §5.
+- ✅ **The NAT-forward path was never broken.** `testRouterBrick` and `testCrossPlayerRouter` were
+  red in a way that read like a forward regression; the cause was a wire-check whose fixture
+  silently failed to seed (`network_public_ips` is keyed on essid, cleaned up by public_ip, and the
+  rejected insert was swallowed). Fixed in #373 (`1b5ea4f`) — all 32 wire-checks green.
 
 **Follow-ups, both closed:**
 

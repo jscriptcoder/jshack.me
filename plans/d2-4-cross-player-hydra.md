@@ -1,8 +1,13 @@
 # Plan: a player cracks a stranger's box across the network
 
 **Branch**: `feat/crack-a-strangers-box`
-**Status**: Active — **slices 1 and 2 SHIPPED** in PR #371 (`9b431d7`, v0.119.0). Slices 3-5
-remain, and the slice-5 question below is still open.
+**Status**: Active — **slices 1 and 2 SHIPPED** in PR #371 (`9b431d7`, v0.119.0). **Slice 3 is
+next and unblocked.** Slices 3-5 remain, and the slice-5 question below is still open.
+
+Two pieces of groundwork landed between slice 2 and slice 3, neither of them product work:
+`api/sessions.ts` collapsed to one spelling per query (#372), so slice 3 adds a call rather than a
+tenth inline copy of every dep builder; and the wire-check fixture defect that made the NAT-forward
+path *look* broken was fixed (#373). All 32 wire-checks are green — see the note under slice 3.
 **Parent**: [`d2-credential-layer.md`](./d2-credential-layer.md) (D2.4) →
 [`legacy-parity-epic.md`](./legacy-parity-epic.md) Phase 1.
 
@@ -255,10 +260,18 @@ derivation, so decide on evidence, not on symmetry.
 
 ### Slice 3: A player cracks the box behind a stranger's NAT forward
 
-> **Blocked on the `api/sessions.ts` reduction** — see
-> [`api-sessions-dep-reduction.md`](api-sessions-dep-reduction.md). Slice 2 added nine dep-builder
-> copies to that file; slice 3 would add more. Collapsing first means slice 3 writes one spelling
-> instead of a tenth copy, so this ordering is cheaper than the reverse and was chosen deliberately.
+> **Groundwork done — start here.** Two things were cleared first, and both change how this slice
+> is written:
+>
+> 1. **`api/sessions.ts` is collapsed** (#372, `1b2626d`). Its supabase deps are ten module-scope
+>    factories, so this slice's new seam calls `findPatchesVia({ supabase, label })` and friends —
+>    it must NOT paste a fresh query. Adding a tenth inline copy is the exact thing that reduction
+>    removed.
+> 2. **The NAT-forward path was never broken** (#373, `1b5ea4f`). `testRouterBrick` and
+>    `testCrossPlayerRouter` had been red in a way that read like a forward regression —
+>    `resolvePublicScan` returning `{found:false, ports:[]}`, the forwarded login 404ing. The cause
+>    was a wire-check fixture that silently failed to seed, not the resolution this slice builds on.
+>    Both are green now, so **a red check here is a real signal again**.
 
 **Value**: the row's real acceptance example — reaching the **person**, not their gateway. A forward
 a player published so their own box is reachable is the same door an attacker walks through, which

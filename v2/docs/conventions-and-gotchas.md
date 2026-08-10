@@ -198,7 +198,13 @@ decisions. The ship gate is legacy parity **minus missions**; missions are a pos
   `plans/d2-credential-layer.md` — **read its top block for live status**; every shipped slice's
   own plan file is deleted and its as-built lives there (D2.4's plan is still live —
   `plans/d2-4-cross-player-hydra.md`). PRs #351, #352, #354, #356, #357, #358, #359, #362, #370,
-  #371.
+  #371, #372, #373.
+
+  **Next up: D2.4 slice 3** — `hydra -p <forwarded port> <public IP>` reaching the occupant behind
+  a stranger's NAT forward. Nothing blocks it. The two pieces of groundwork it was waiting on both
+  landed: `api/sessions.ts` was collapsed to one spelling per query (#372) so slice 3 adds a call
+  rather than a tenth copy of each builder, and the wire-check fixture defect that made the forward
+  path *look* broken was fixed (#373) — all 32 wire-checks are green.
 
   - **Cracking reaches other players (D2.4 slices 1-2, v0.119.0).** `hydra <a stranger's public IP>`
     sweeps that access point's GATEWAY — a public IP names an AP, and `machineServing` routes by
@@ -678,8 +684,22 @@ tree that does carry the file. Prefer stating the rule over arguing the input ca
 - **`upsert(row)` and `upsert(row, { onConflict: 'machine_id,path,writer_key' })` are equivalent on
   `patches` — but only by coincidence of the schema.** PostgREST defaults its conflict target to the
   primary key, and `20260614130000_patches_shared_journal.sql` made that PK exactly that triple.
-  Both spellings are live in `api/`. Prefer the explicit one: it documents the dependency instead of
-  relying on it silently, and it stops a future reader "fixing" the wrong copy.
+  `api/sessions.ts` now spells it explicitly everywhere (v0.119.0): the explicit form documents the
+  dependency instead of relying on it silently, and it stops a future reader "fixing" the wrong copy.
+- **One spelling per query in `api/sessions.ts`** (PR #372). Ten signed actions share that endpoint,
+  and each used to build its supabase dependencies inline — six copies of the journal column list,
+  seven of the auth.log read. **A column name is a string `tsc` cannot check**, so a read that
+  drifted in one action shipped green through every local gate and surfaced only in whichever
+  wire-check happened to cover it. Ten module-scope factories (`findPatchesVia`, `readAuthLogVia`, …)
+  now own one query each; add a seam by calling one, never by pasting a query.
+  - The operator label is an **argument**, not a casualty: `logFailure` emits
+    `[sessions] <label> error:`, and with ten actions sharing one function log that label is the only
+    thing saying which failed.
+  - Three single-use builders stay inline where they are used. They had nothing to deduplicate, and
+    hoisting them would relocate mechanism rather than remove it.
+  - `insertSessionVia` takes the **union** `SessionRow | AuthSessionRow | SuSessionRow`, not a type
+    parameter: a generic cannot flow into supabase's `insert`, and a function accepting the union is
+    assignable to each narrower dep by parameter contravariance — so it needs no cast.
 
 ## 6. Wire-check infrastructure
 
