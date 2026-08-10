@@ -739,6 +739,24 @@ const seed = async (table: string, rows: readonly Record<string, unknown>[], lab
 };
 ```
 
+**All public-IP seeding goes through `scripts/networkFixture.ts`** (`seedPublicIps` /
+`clearPublicIps`) — never a hand-rolled delete + insert. `network_public_ips` is keyed on
+**essid** (PK) with **public_ip** merely UNIQUE, so a script that hardcodes its own address and
+cleans up with `.delete().eq('public_ip', …)` never clears a row the same ESSID holds under a
+DIFFERENT address — and a real `registerNetwork` allocates exactly such rows. The seed then
+violates the essid PK, the bare insert swallows it, and the scenario silently never gets built.
+
+This cost real time on 2026-08-09: `testRouterBrick` (6/10) and `testCrossPlayerRouter` (7/8) sat at
+a **false red** that read exactly like a NAT-forward regression — `resolvePublicScan` returning
+`{found:false, ports:[]}` and the forwarded login 404ing. Nothing was broken. Both scripts share
+ESSID `ABSTERGO-NET` with different hardcoded IPs, and the live table held
+`(ABSTERGO-NET, 203.4.16.180)` from some earlier allocation. Clearing that row alone took them to
+10/10 and 8/8; re-injecting it reproduced the failure exactly. **A red wire-check is not evidence of
+a code regression until its fixture is proven to have been built.**
+
+Scripts that only ever DELETE from `network_public_ips` (cleaning up after a real `registerNetwork`,
+e.g. `testGatewayBrickLanAlive`) need no fixture — they have no seed to block.
+
 **The specific trap behind that one: a `/boot` tombstone keeps `node_type: 'file'`.** `content:
 null` is the deletion marker; `node_type` is NOT NULL, so an explicit `null` there is a rejected
 row rather than a brick. (`testBrickedDark.ts` says so in a comment — worth reading before

@@ -23,6 +23,7 @@ import { signRequest } from '../src/core/signedRequest/sign';
 import { generateIdentity } from '../src/core/identity/identity';
 import { computeWorkstationId } from '../src/core/identity/workstation';
 import { md5 } from '../src/core/generation/md5';
+import { clearPublicIps, seedPublicIps } from './networkFixture';
 
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
@@ -108,13 +109,13 @@ const suRowsForBob = async (): Promise<readonly { credentials: { userType: strin
 // session on A (as the 2b cross-player ssh login would). The guest row is stamped
 // in the PAST so the su row (inserted live by suElevate) is unambiguously the top
 // of the stack that L1's findActiveSession returns.
-await sr.from('network_public_ips').delete().eq('public_ip', A_PUBLIC_IP);
+await clearPublicIps(sr, [{ essid: 'BEAN-THERE-WIFI', publicIp: A_PUBLIC_IP }]);
 await sr.from('home_network_occupants').delete().eq('essid', 'BEAN-THERE-WIFI');
 await sr.from('patches').delete().eq('machine_id', A_MACHINE);
 await sr.from('sessions').delete().eq('player_key', bob.publicKeyHex);
 // The join state a real `registerNetwork` writes: the AP's public IP, plus the owner
 // as an OCCUPANT of its ESSID — occupancy is what makes a box reachable.
-await sr.from('network_public_ips').insert({ essid: 'BEAN-THERE-WIFI', public_ip: A_PUBLIC_IP });
+await seedPublicIps(sr, [{ essid: 'BEAN-THERE-WIFI', publicIp: A_PUBLIC_IP }]);
 await sr.from('home_network_occupants').insert({
   essid: 'BEAN-THERE-WIFI',
   owner_key: alice.publicKeyHex,
@@ -249,7 +250,7 @@ check(
 );
 
 // Cleanup.
-await sr.from('network_public_ips').delete().eq('public_ip', A_PUBLIC_IP);
+await clearPublicIps(sr, [{ essid: 'BEAN-THERE-WIFI', publicIp: A_PUBLIC_IP }]);
 await sr.from('home_network_occupants').delete().eq('essid', 'BEAN-THERE-WIFI');
 await sr.from('patches').delete().eq('machine_id', A_MACHINE);
 await sr.from('sessions').delete().eq('player_key', bob.publicKeyHex);

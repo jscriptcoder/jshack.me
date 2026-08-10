@@ -22,6 +22,7 @@ import { computeWorkstationId } from '../src/core/identity/workstation';
 import { md5 } from '../src/core/generation/md5';
 import { deserializeTree, type SerializedDirectory } from '../src/core/filesystem/treeCodec';
 import type { Directory, FileNode } from '../src/core/filesystem/types';
+import { clearPublicIps, seedPublicIps } from './networkFixture';
 
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
@@ -76,12 +77,12 @@ const NOTES = '/home/alice/notes.txt';
 const filePerms = { read: ['root', 'user'], write: ['root', 'user'], execute: [] };
 
 // A registered network so the owner can read its own box via resolveCrossPlayerFs.
-await sr.from('network_public_ips').delete().eq('public_ip', A_PUBLIC_IP);
+await clearPublicIps(sr, [{ essid: 'BEAN-THERE-WIFI', publicIp: A_PUBLIC_IP }]);
 await sr.from('home_network_occupants').delete().eq('essid', 'BEAN-THERE-WIFI');
 await sr.from('patches').delete().eq('machine_id', A_MACHINE);
 // The join state a real `registerNetwork` writes: the AP's public IP, plus the owner
 // as an OCCUPANT of its ESSID — occupancy is what makes a box reachable.
-await sr.from('network_public_ips').insert({ essid: 'BEAN-THERE-WIFI', public_ip: A_PUBLIC_IP });
+await seedPublicIps(sr, [{ essid: 'BEAN-THERE-WIFI', publicIp: A_PUBLIC_IP }]);
 await sr.from('home_network_occupants').insert({
   essid: 'BEAN-THERE-WIFI',
   owner_key: alice.publicKeyHex,
@@ -171,7 +172,7 @@ check(
 );
 
 // Cleanup.
-await sr.from('network_public_ips').delete().eq('public_ip', A_PUBLIC_IP);
+await clearPublicIps(sr, [{ essid: 'BEAN-THERE-WIFI', publicIp: A_PUBLIC_IP }]);
 await sr.from('home_network_occupants').delete().eq('essid', 'BEAN-THERE-WIFI');
 await sr.from('patches').delete().eq('machine_id', A_MACHINE);
 

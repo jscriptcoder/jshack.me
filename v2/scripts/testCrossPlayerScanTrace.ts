@@ -25,6 +25,7 @@ import { computeWorkstationId } from '../src/core/identity/workstation';
 import { computeApGatewayId } from '../src/core/identity/router';
 import { md5 } from '../src/core/generation/md5';
 import { seedApGatewayHostname } from '../src/core/generation/routerFs';
+import { clearPublicIps, seedPublicIps } from './networkFixture';
 
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
 const url = process.env.SUPABASE_URL;
@@ -91,7 +92,11 @@ const C_PUBLIC_IP = '192.0.2.92';
 const A_ROUTER_HOST = seedApGatewayHostname(A_ESSID);
 
 // Clean slate, then seed the three players' occupancy rows (as each player's join would).
-await sr.from('network_public_ips').delete().in('public_ip', [A_PUBLIC_IP, B_PUBLIC_IP, C_PUBLIC_IP]);
+await clearPublicIps(sr, [
+  { essid: A_ESSID, publicIp: A_PUBLIC_IP },
+  { essid: B_ESSID, publicIp: B_PUBLIC_IP },
+  { essid: C_ESSID, publicIp: C_PUBLIC_IP },
+]);
 await sr.from('home_network_occupants').delete().in('essid', [A_ESSID, B_ESSID, C_ESSID]);
 await sr.from('network_lan_leases').delete().in('essid', [A_ESSID, B_ESSID, C_ESSID]);
 await sr.from('patches').delete().eq('machine_id', A_ROUTER);
@@ -106,10 +111,10 @@ const occupantRow = (owner: ReturnType<typeof generateIdentity>, essid: string, 
   workstation_machine_name: wsName,
   workstation_root_hash: md5('root-secret'),
 });
-await sr.from('network_public_ips').insert([
-  { essid: A_ESSID, public_ip: A_PUBLIC_IP },
-  { essid: B_ESSID, public_ip: B_PUBLIC_IP },
-  { essid: C_ESSID, public_ip: C_PUBLIC_IP },
+await seedPublicIps(sr, [
+  { essid: A_ESSID, publicIp: A_PUBLIC_IP },
+  { essid: B_ESSID, publicIp: B_PUBLIC_IP },
+  { essid: C_ESSID, publicIp: C_PUBLIC_IP },
 ]);
 await sr
   .from('home_network_occupants')
@@ -181,7 +186,11 @@ check(
 
 // Cleanup. The lease table is permanent by design, so a re-run would otherwise find the
 // octets already held.
-await sr.from('network_public_ips').delete().in('public_ip', [A_PUBLIC_IP, B_PUBLIC_IP, C_PUBLIC_IP]);
+await clearPublicIps(sr, [
+  { essid: A_ESSID, publicIp: A_PUBLIC_IP },
+  { essid: B_ESSID, publicIp: B_PUBLIC_IP },
+  { essid: C_ESSID, publicIp: C_PUBLIC_IP },
+]);
 await sr.from('home_network_occupants').delete().in('essid', [A_ESSID, B_ESSID, C_ESSID]);
 await sr.from('network_lan_leases').delete().in('essid', [A_ESSID, B_ESSID, C_ESSID]);
 await sr.from('patches').delete().eq('machine_id', A_ROUTER);

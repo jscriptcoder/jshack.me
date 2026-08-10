@@ -27,6 +27,7 @@ import { computeWorkstationId } from '../src/core/identity/workstation';
 import { computeApGatewayId } from '../src/core/identity/router';
 import { md5 } from '../src/core/generation/md5';
 import { seedApGatewayAdminPw } from '../src/core/generation/routerFs';
+import { clearPublicIps, seedPublicIps } from './networkFixture';
 
 const NETWORK = process.env.ENDPOINT ?? 'http://localhost:3100/api/network';
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
@@ -88,11 +89,11 @@ const ROUTER_ADMIN_PW = seedApGatewayAdminPw(ESSID);
 const bootPerms = { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] };
 
 const seedRegistry = async () => {
-  await sr.from('network_public_ips').delete().eq('public_ip', A_PUBLIC_IP);
+  await clearPublicIps(sr, [{ essid: ESSID, publicIp: A_PUBLIC_IP }]);
 await sr.from('home_network_occupants').delete().eq('essid', ESSID);
   // The join state a real `registerNetwork` writes: the AP's public IP, plus the owner
   // as an OCCUPANT of its ESSID — occupancy is what makes a box reachable.
-  await sr.from('network_public_ips').insert({ essid: ESSID, public_ip: A_PUBLIC_IP });
+  await seedPublicIps(sr, [{ essid: ESSID, publicIp: A_PUBLIC_IP }]);
   await sr.from('home_network_occupants').insert({
     essid: ESSID,
     owner_key: alice.publicKeyHex,
@@ -104,7 +105,7 @@ await sr.from('home_network_occupants').delete().eq('essid', ESSID);
 };
 
 const cleanup = async () => {
-  await sr.from('network_public_ips').delete().eq('public_ip', A_PUBLIC_IP);
+  await clearPublicIps(sr, [{ essid: ESSID, publicIp: A_PUBLIC_IP }]);
 await sr.from('home_network_occupants').delete().eq('essid', ESSID);
   await sr.from('patches').delete().eq('machine_id', A_MACHINE);
   await sr.from('patches').delete().eq('machine_id', A_ROUTER);
