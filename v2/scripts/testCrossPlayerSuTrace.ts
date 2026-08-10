@@ -25,6 +25,7 @@ import { signRequest } from '../src/core/signedRequest/sign';
 import { generateIdentity } from '../src/core/identity/identity';
 import { computeWorkstationId } from '../src/core/identity/workstation';
 import { md5 } from '../src/core/generation/md5';
+import { clearPublicIps, seedPublicIps } from './networkFixture';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;
@@ -97,13 +98,13 @@ const occupantRow = {
 
 // Clean slate, then seed A's occupancy row (as A's join would). su needs no forward or
 // pidfile — it targets A's workstation directly by machine_id.
-await sr.from('network_public_ips').delete().eq('public_ip', A_PUBLIC_IP);
+await clearPublicIps(sr, [{ essid: A_ESSID, publicIp: A_PUBLIC_IP }]);
 await sr.from('home_network_occupants').delete().eq('essid', A_ESSID);
 await sr.from('patches').delete().eq('machine_id', A_WS);
 for (const id of [bob, carol]) {
   await sr.from('sessions').delete().eq('player_key', id.publicKeyHex);
 }
-await sr.from('network_public_ips').insert({ essid: A_ESSID, public_ip: A_PUBLIC_IP });
+await seedPublicIps(sr, [{ essid: A_ESSID, publicIp: A_PUBLIC_IP }]);
 await sr.from('home_network_occupants').insert([occupantRow]);
 
 const suElevate = (
@@ -190,7 +191,7 @@ check(
 );
 
 // Cleanup.
-await sr.from('network_public_ips').delete().eq('public_ip', A_PUBLIC_IP);
+await clearPublicIps(sr, [{ essid: A_ESSID, publicIp: A_PUBLIC_IP }]);
 await sr.from('home_network_occupants').delete().eq('essid', A_ESSID);
 await sr.from('patches').delete().eq('machine_id', A_WS);
 for (const id of [bob, carol]) {

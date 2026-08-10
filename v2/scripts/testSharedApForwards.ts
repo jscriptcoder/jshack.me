@@ -29,6 +29,7 @@ import { formatPidfileContent } from '../src/core/services/pidfile';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
 import { workstationGuestPassword } from '../src/core/generation/workstationFs';
 import { md5 } from '../src/core/generation/md5';
+import { clearPublicIps, seedPublicIps } from './networkFixture';
 
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
@@ -150,7 +151,10 @@ const sshdPidRow = (machineId: string, ownerKey: string) => ({
 });
 
 const clean = async () => {
-  await sr.from('network_public_ips').delete().in('public_ip', [AP_PUBLIC_IP, C_PUBLIC_IP]);
+  await clearPublicIps(sr, [
+    { essid: ESSID, publicIp: AP_PUBLIC_IP },
+    { essid: C_ESSID, publicIp: C_PUBLIC_IP },
+  ]);
   await sr.from('home_network_occupants').delete().in('essid', [ESSID, C_ESSID]);
   // Leases are permanent by design, so a re-run would otherwise find the octets held.
   await sr.from('network_lan_leases').delete().in('essid', [ESSID, C_ESSID]);
@@ -164,9 +168,9 @@ const clean = async () => {
 // players — the AP's public IP, each occupant's lease, then the occupancy row — plus the
 // gateway's shared NAT table and both occupants' running sshd.
 await clean();
-await sr.from('network_public_ips').insert([
-  { essid: ESSID, public_ip: AP_PUBLIC_IP },
-  { essid: C_ESSID, public_ip: C_PUBLIC_IP },
+await seedPublicIps(sr, [
+  { essid: ESSID, publicIp: AP_PUBLIC_IP },
+  { essid: C_ESSID, publicIp: C_PUBLIC_IP },
 ]);
 await sr.from('network_lan_leases').insert([
   { essid: ESSID, owner_key: alice.publicKeyHex, octet: A_OCTET },

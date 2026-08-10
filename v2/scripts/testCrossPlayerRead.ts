@@ -23,6 +23,7 @@ import { computeWorkstationId } from '../src/core/identity/workstation';
 import { md5 } from '../src/core/generation/md5';
 import { deserializeTree, type SerializedDirectory } from '../src/core/filesystem/treeCodec';
 import type { Directory, FileNode } from '../src/core/filesystem/types';
+import { clearPublicIps, seedPublicIps } from './networkFixture';
 
 const ENDPOINT = process.env.ENDPOINT ?? 'http://localhost:3100/api/network';
 const url = process.env.SUPABASE_URL;
@@ -75,11 +76,11 @@ const worldReadable = { read: ['root', 'user', 'guest'], write: ['root'], execut
 const userOnly = { read: ['root', 'user'], write: ['root'], execute: ['root'] };
 
 // Seed A's occupancy row (as 2a's join would persist it).
-await sr.from('network_public_ips').delete().eq('public_ip', A_PUBLIC_IP);
+await clearPublicIps(sr, [{ essid: 'BEAN-THERE-WIFI', publicIp: A_PUBLIC_IP }]);
 await sr.from('home_network_occupants').delete().eq('essid', 'BEAN-THERE-WIFI');
 // The join state a real `registerNetwork` writes: the AP's public IP, plus the owner
 // as an OCCUPANT of its ESSID — occupancy is what makes a box reachable.
-await sr.from('network_public_ips').insert({ essid: 'BEAN-THERE-WIFI', public_ip: A_PUBLIC_IP });
+await seedPublicIps(sr, [{ essid: 'BEAN-THERE-WIFI', publicIp: A_PUBLIC_IP }]);
 await sr.from('home_network_occupants').insert({
   essid: 'BEAN-THERE-WIFI',
   owner_key: alice.publicKeyHex,
@@ -230,7 +231,7 @@ check(
 );
 
 // Cleanup.
-await sr.from('network_public_ips').delete().eq('public_ip', A_PUBLIC_IP);
+await clearPublicIps(sr, [{ essid: 'BEAN-THERE-WIFI', publicIp: A_PUBLIC_IP }]);
 await sr.from('home_network_occupants').delete().eq('essid', 'BEAN-THERE-WIFI');
 await sr.from('patches').delete().eq('machine_id', A_MACHINE);
 await sr.from('sessions').delete().eq('player_key', bob.publicKeyHex);

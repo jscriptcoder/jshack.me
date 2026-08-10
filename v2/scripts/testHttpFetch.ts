@@ -37,6 +37,7 @@ import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
 import { HTTP_DEFAULT_PORT } from '../src/core/network/http';
 import { ACCESS_LOG_PATH } from '../src/core/logging/accessLog';
 import { md5 } from '../src/core/generation/md5';
+import { clearPublicIps } from './networkFixture';
 
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
 const url = process.env.SUPABASE_URL;
@@ -189,7 +190,10 @@ const seed = async (table: string, rows: readonly Record<string, unknown>[], lab
 };
 
 const clean = async () => {
-  await sr.from('network_public_ips').delete().in('public_ip', [AP_PUBLIC_IP, B_PUBLIC_IP]);
+  await clearPublicIps(sr, [
+    { essid: ESSID, publicIp: AP_PUBLIC_IP },
+    { essid: B_ESSID, publicIp: B_PUBLIC_IP },
+  ]);
   await sr.from('home_network_occupants').delete().in('essid', [ESSID, B_ESSID]);
   // Leases are permanent by design, so a re-run would otherwise find the octet held.
   await sr.from('network_lan_leases').delete().in('essid', [ESSID, B_ESSID]);

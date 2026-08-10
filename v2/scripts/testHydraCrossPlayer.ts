@@ -29,6 +29,7 @@ import { seedApGatewayAdminPw } from '../src/core/generation/routerFs';
 import { WORDLIST_PATH, formatWordlist } from '../src/core/wordlist/defaultWordlist';
 import { AUTH_LOG_PATH } from '../src/core/logging/authLog';
 import { md5 } from '../src/core/generation/md5';
+import { clearPublicIps, seedPublicIps } from './networkFixture';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;
@@ -86,9 +87,10 @@ const ATTACKER_WS = computeWorkstationId('cracklab', attacker.publicKeyHex);
 const UNREGISTERED_IP = '203.0.113.254';
 
 const clean = async () => {
-  for (const ip of [TARGET_PUBLIC_IP, ATTACKER_PUBLIC_IP]) {
-    await sr.from('network_public_ips').delete().eq('public_ip', ip);
-  }
+  await clearPublicIps(sr, [
+    { essid: TARGET_ESSID, publicIp: TARGET_PUBLIC_IP },
+    { essid: ATTACKER_ESSID, publicIp: ATTACKER_PUBLIC_IP },
+  ]);
   for (const essid of [TARGET_ESSID, ATTACKER_ESSID]) {
     await sr.from('home_network_occupants').delete().eq('essid', essid);
     await sr.from('network_lan_leases').delete().eq('essid', essid);
@@ -103,7 +105,7 @@ await clean();
 
 // The target AP as a real join leaves it: a public IP, one occupant, and the lease
 // that occupant holds — the lease is what gives the ownerless gateway a stable log key.
-await sr.from('network_public_ips').insert({ essid: TARGET_ESSID, public_ip: TARGET_PUBLIC_IP });
+await seedPublicIps(sr, [{ essid: TARGET_ESSID, publicIp: TARGET_PUBLIC_IP }]);
 await sr
   .from('network_lan_leases')
   .insert({ essid: TARGET_ESSID, owner_key: resident.publicKeyHex, octet: 23 });
@@ -117,9 +119,7 @@ await sr.from('home_network_occupants').insert({
 });
 
 // The attacker's own home network, so the server can derive their public address.
-await sr
-  .from('network_public_ips')
-  .insert({ essid: ATTACKER_ESSID, public_ip: ATTACKER_PUBLIC_IP });
+await seedPublicIps(sr, [{ essid: ATTACKER_ESSID, publicIp: ATTACKER_PUBLIC_IP }]);
 await sr.from('home_network_occupants').insert({
   essid: ATTACKER_ESSID,
   owner_key: attacker.publicKeyHex,

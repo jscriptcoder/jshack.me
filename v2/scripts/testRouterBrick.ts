@@ -28,6 +28,7 @@ import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
 import { md5 } from '../src/core/generation/md5';
 import { seedApGatewayAdminPw } from '../src/core/generation/routerFs';
 import { workstationGuestPassword } from '../src/core/generation/workstationFs';
+import { clearPublicIps, seedPublicIps } from './networkFixture';
 
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
@@ -104,7 +105,7 @@ const WS_GUEST_PW = workstationGuestPassword(alice.publicKeyHex);
 
 // Clean slate, then seed A's occupancy row (as the join would) + B's ROOT sessions on
 // A's ROUTER and A's WORKSTATION (as the escalated `su root` would leave them).
-await sr.from('network_public_ips').delete().eq('public_ip', A_PUBLIC_IP);
+await clearPublicIps(sr, [{ essid: ESSID, publicIp: A_PUBLIC_IP }]);
 await sr.from('home_network_occupants').delete().eq('essid', ESSID);
 await sr.from('network_lan_leases').delete().eq('essid', ESSID);
 await sr.from('patches').delete().eq('machine_id', A_ROUTER);
@@ -117,7 +118,7 @@ await sr
   .insert({ essid: ESSID, owner_key: alice.publicKeyHex, octet: A_OCTET });
 // The join state a real `registerNetwork` writes: the AP's public IP, plus the owner
 // as an OCCUPANT of its ESSID — occupancy is what makes a box reachable.
-await sr.from('network_public_ips').insert({ essid: ESSID, public_ip: A_PUBLIC_IP });
+await seedPublicIps(sr, [{ essid: ESSID, publicIp: A_PUBLIC_IP }]);
 await sr.from('home_network_occupants').insert({
   essid: ESSID,
   owner_key: alice.publicKeyHex,
@@ -331,7 +332,7 @@ check(
 );
 
 // Cleanup.
-await sr.from('network_public_ips').delete().eq('public_ip', A_PUBLIC_IP);
+await clearPublicIps(sr, [{ essid: ESSID, publicIp: A_PUBLIC_IP }]);
 await sr.from('home_network_occupants').delete().eq('essid', ESSID);
 await sr.from('network_lan_leases').delete().eq('essid', ESSID);
 await sr.from('patches').delete().eq('machine_id', A_ROUTER);

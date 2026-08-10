@@ -33,6 +33,7 @@ import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
 import { md5 } from '../src/core/generation/md5';
 import { seedApGatewayHostname, seedApGatewayAdminPw } from '../src/core/generation/routerFs';
 import { workstationGuestPassword } from '../src/core/generation/workstationFs';
+import { clearPublicIps, seedPublicIps } from './networkFixture';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;
@@ -130,7 +131,11 @@ const occupantRow = (
 
 // Clean slate, then seed the three players' occupancy rows (as each player's join would), A's
 // NAT forward + her workstation sshd pidfile (as A's own config writes would).
-await sr.from('network_public_ips').delete().in('public_ip', [A_PUBLIC_IP, B_PUBLIC_IP, C_PUBLIC_IP]);
+await clearPublicIps(sr, [
+  { essid: A_ESSID, publicIp: A_PUBLIC_IP },
+  { essid: B_ESSID, publicIp: B_PUBLIC_IP },
+  { essid: C_ESSID, publicIp: C_PUBLIC_IP },
+]);
 await sr.from('home_network_occupants').delete().in('essid', [A_ESSID, B_ESSID, C_ESSID]);
 await sr.from('network_lan_leases').delete().eq('essid', A_ESSID);
 await sr.from('patches').delete().eq('machine_id', A_ROUTER);
@@ -141,10 +146,10 @@ for (const id of [bob, carol]) {
 await sr
   .from('network_lan_leases')
   .insert({ essid: A_ESSID, owner_key: alice.publicKeyHex, octet: A_OCTET });
-await sr.from('network_public_ips').insert([
-  { essid: A_ESSID, public_ip: A_PUBLIC_IP },
-  { essid: B_ESSID, public_ip: B_PUBLIC_IP },
-  { essid: C_ESSID, public_ip: C_PUBLIC_IP },
+await seedPublicIps(sr, [
+  { essid: A_ESSID, publicIp: A_PUBLIC_IP },
+  { essid: B_ESSID, publicIp: B_PUBLIC_IP },
+  { essid: C_ESSID, publicIp: C_PUBLIC_IP },
 ]);
 await sr
   .from('home_network_occupants')
@@ -279,7 +284,11 @@ check(
 );
 
 // Cleanup.
-await sr.from('network_public_ips').delete().in('public_ip', [A_PUBLIC_IP, B_PUBLIC_IP, C_PUBLIC_IP]);
+await clearPublicIps(sr, [
+  { essid: A_ESSID, publicIp: A_PUBLIC_IP },
+  { essid: B_ESSID, publicIp: B_PUBLIC_IP },
+  { essid: C_ESSID, publicIp: C_PUBLIC_IP },
+]);
 await sr.from('home_network_occupants').delete().in('essid', [A_ESSID, B_ESSID, C_ESSID]);
 await sr.from('network_lan_leases').delete().eq('essid', A_ESSID);
 await sr.from('patches').delete().eq('machine_id', A_ROUTER);
