@@ -1,8 +1,9 @@
 # Plan: a player cracks a stranger's box across the network
 
-**Branch**: `feat/crack-a-strangers-box`
+**Branch**: `feat/crack-behind-a-nat-forward` (slice 3; slices 1-2 shipped from
+`feat/crack-a-strangers-box`)
 **Status**: Active — **slices 1 and 2 SHIPPED** in PR #371 (`9b431d7`, v0.119.0). **Slice 3 is
-next and unblocked.** Slices 3-5 remain, and the slice-5 question below is still open.
+in progress.** Slices 4-5 remain after it, and the slice-5 question below is still open.
 
 Two pieces of groundwork landed between slice 2 and slice 3, neither of them product work:
 `api/sessions.ts` collapsed to one spelling per query (#372), so slice 3 adds a call rather than a
