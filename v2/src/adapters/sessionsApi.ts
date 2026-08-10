@@ -371,6 +371,7 @@ export const crackCredentialsPublic = async (
       essid: params.essid,
       target: params.target,
       service: params.service,
+      ...(params.port === undefined ? {} : { port: params.port }),
       ...(params.username === undefined ? {} : { username: params.username }),
       caller_machine_id: params.callerMachineId,
     });

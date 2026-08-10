@@ -279,7 +279,7 @@ describe('hydra', () => {
 
     const { text, kinds } = syncResult(await hydra.execute(env, [], new Map()));
 
-    expect(text).toContain('usage: hydra <host> [service] [user]');
+    expect(text).toContain('usage: hydra [-p port] <host> [service] [user]');
     // A refusal renders red: it is not a result the player should read as output.
     expect(kinds).toEqual(['error']);
     expect(crack).not.toHaveBeenCalled();
@@ -309,9 +309,59 @@ describe('hydra', () => {
       essid: ESSID,
       target: '203.0.113.7',
       service: 'ssh',
+      port: undefined,
       username: undefined,
       callerMachineId: WORKSTATION_ID,
     });
+  });
+
+  it('carries -p to a public IP as the destination port behind it', async () => {
+    // A public IP names an access point, and its forward table is addressed by port:
+    // this is how a player says "the machine somebody published", not "the gateway".
+    const { env, crackPublic } = hydraEnv();
+
+    await drain(await hydra.execute(env, ['203.0.113.7'], new Map([['-p', '5544']])));
+
+    expect(crackPublic).toHaveBeenCalledWith(expect.objectContaining({ port: 5544 }));
+  });
+
+  it.each([
+    ['a service name', 'ssh' as string | true],
+    ['a valueless flag', true as string | true],
+    ['a fractional port', '2.5' as string | true],
+    ['port zero', '0' as string | true],
+    ['a negative port', '-1' as string | true],
+  ])('falls back to the default door when -p is given %s', async (_case, raw) => {
+    // Anything that is not a port means the player named none, which is the gateway.
+    // Not an error — the target they typed is still a real target — but it must not
+    // become port 1 or port 0 either: a wrong door is worse than the default one.
+    const { env, crackPublic } = hydraEnv();
+
+    await drain(await hydra.execute(env, ['203.0.113.7'], new Map([['-p', raw]])));
+
+    expect(crackPublic).toHaveBeenCalledWith(expect.objectContaining({ port: undefined }));
+  });
+
+  it('documents -p in the manual, so a player can find the door at all', async () => {
+    // The forward table is addressed by port and nothing else advertises that. A flag
+    // nobody can discover is a mechanic nobody has.
+    expect(hydra.manual?.synopsis).toContain('-p');
+    expect(`${hydra.manual?.description} ${JSON.stringify(hydra.manual?.examples)}`).toContain(
+      '-p',
+    );
+  });
+
+  it('ignores -p on the player’s own LAN, where the service already picks the port', async () => {
+    // A host on your own network IS the machine — there is no forward table to
+    // address, and `hydra <host> ssh` already attacks wherever that sshd listens.
+    const { env, crack, crackPublic } = hydraEnv();
+
+    await drain(await hydra.execute(env, ['192.168.4.31'], new Map([['-p', '5544']])));
+
+    expect(crackPublic).not.toHaveBeenCalled();
+    expect(crack).toHaveBeenCalledWith(
+      expect.not.objectContaining({ port: expect.anything() as unknown }),
+    );
   });
 
   it('keeps a private address on the own-LAN action', async () => {
