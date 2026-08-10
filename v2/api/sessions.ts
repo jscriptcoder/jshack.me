@@ -1,15 +1,12 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { handleCreateSession, type SessionRow } from '../src/core/sessions/createSession';
 import {
   handleAuthCreateSession,
   type AuthSessionRow,
 } from '../src/core/sessions/authCreateSession';
 import { handleAuthCreateSessionPublic } from '../src/core/sessions/authCreateSessionPublic';
-import type {
-  NatOccupantRow,
-  ApNetworkLookup,
-} from '../src/core/network/resolvePublicTarget';
+import type { NatOccupantRow, ApNetworkLookup } from '../src/core/network/resolvePublicTarget';
 import { computeApGatewayId } from '../src/core/identity/router';
 import {
   handleAuthCreateSessionSameLan,
@@ -46,12 +43,11 @@ import type { NonceStore } from '../src/core/signedRequest/nonceStore';
 
 // Vercel adapter for POST /api/sessions.
 //
-// Two signed actions share this endpoint, routed on the (unverified) payload
+// Nine signed actions share this endpoint, routed on the (unverified) payload
 // `action` — each handler re-verifies the envelope itself, so routing on the
-// raw action is safe:
-//   - createSession: persist a pushed shell session (own-workstation gated)
-//   - listSessions:  read the caller's OWN active sessions to rebuild the hop
-//     chain on boot
+// raw action is safe. They span session creation (own machine, own LAN, same
+// LAN, cross-player public, inner gateway), su elevation, the credential
+// sweeps, and the two session reads.
 //
 // Replay protection uses a noop nonce store locally (Upstash wiring lands when
 // cross-player flows need it). Same posture as /api/patches.
@@ -69,6 +65,233 @@ const actionOf = (body: unknown): string | undefined => {
     return undefined;
   }
 };
+
+// ---- One spelling per query ----
+//
+// Most of the nine actions need the same handful of supabase reads and writes, and an
+// inline copy per action is a copy `tsc` cannot check: a column name is a string, so a
+// journal read that drifts in one action ships green through every local gate and is
+// caught only by whichever wire-check happens to cover it. Each factory below owns ONE
+// query — its table, its columns, its ordering, its cast — so the column list is written
+// once.
+//
+// Every failure logs as `[sessions] <label> error:`. The label is an argument rather than
+// a casualty of the collapse: nine actions share one function log, and the label is the
+// only thing in that line saying which of them failed.
+
+type QuerySpec = {
+  readonly supabase: SupabaseClient;
+  readonly label: string;
+};
+
+const logFailure = (label: string, error: unknown) => {
+  if (error) console.error(`[sessions] ${label} error:`, error);
+};
+
+/** Every row shape this endpoint persists into `sessions`. They differ in `kind` and in
+ *  whether an `essid` rides along; the insert itself does not care, and each handler has
+ *  already validated the row it hands over. */
+type PersistedSessionRow = SessionRow | AuthSessionRow | SuSessionRow;
+
+const insertSessionVia =
+  ({ supabase, label }: QuerySpec) =>
+  async (row: PersistedSessionRow) => {
+    const { error } = await supabase.from('sessions').insert(row);
+    logFailure(label, error);
+    return { error };
+  };
+
+/** A machine's FULL shared journal — machine-scoped, in server order — so the caller
+ *  materializes the box's REAL state before anything else happens to it. A `/boot`
+ *  tombstone is why this read comes first: a bricked host reads as dark from inside the
+ *  LAN and from the WAN alike, and the gate refuses the login before a password is ever
+ *  checked. */
+const findPatchesVia =
+  ({ supabase, label }: QuerySpec) =>
+  async ({ machine_id }: { machine_id: string }) => {
+    const { data, error } = await supabase
+      .from('patches')
+      .select('path, content, owner, permissions, node_type, updated_at, writer_key')
+      .eq('machine_id', machine_id)
+      .order('updated_at', { ascending: true })
+      .order('writer_key', { ascending: true });
+    logFailure(label, error);
+    return { data: data as readonly OwnerPatchRow[] | null, error };
+  };
+
+/** The read half of a system-written log append. Every auth.log line is a
+ *  read-modify-write that bypasses L1/L2 — the service records it, not the player — so
+ *  the appender reads what is already at the path before writing the appended line.
+ *  WHICH key it reads under is the calling action's decision (the machine owner's for a
+ *  shared box, the caller's own for a private per-viewer NPC), not this query's. */
+const readAuthLogVia =
+  ({ supabase, label }: QuerySpec) =>
+  async ({ writer_key, machine_id, path }: MachineLogReadQuery) => {
+    const { data, error } = await supabase
+      .from('patches')
+      .select('content')
+      .eq('writer_key', writer_key)
+      .eq('machine_id', machine_id)
+      .eq('path', path)
+      .maybeSingle();
+    logFailure(label, error);
+    return { data, error };
+  };
+
+/** The write half of that append. The conflict target is named explicitly rather than
+ *  left to PostgREST's primary-key default: `patches` is keyed on exactly
+ *  `(machine_id, path, writer_key)`, so spelling it out documents the dependency instead
+ *  of relying on it silently. */
+const upsertPatchVia =
+  ({ supabase, label }: QuerySpec) =>
+  async (row: PatchRow) => {
+    const { error } = await supabase
+      .from('patches')
+      .upsert(row, { onConflict: 'machine_id,path,writer_key' });
+    logFailure(label, error);
+    return { error };
+  };
+
+/** What a public IP resolves to: the AP that bears it. The gateway is the access point's
+ *  own infrastructure, so it answers whether or not anyone is on the WiFi and its id
+ *  derives from the ESSID — there is no gateway row to miss. A public IP nobody bears
+ *  resolves to `null` without being an error. */
+const findNetworkByPublicIpVia =
+  ({ supabase, label }: QuerySpec) =>
+  async (publicIp: string) => {
+    const network = await supabase
+      .from('network_public_ips')
+      .select('essid')
+      .eq('public_ip', publicIp)
+      .maybeSingle();
+    if (network.error) {
+      logFailure(label, network.error);
+      return { data: null, error: network.error };
+    }
+    const essid = (network.data as { essid: string } | null)?.essid ?? null;
+    if (essid === null) return { data: null, error: null };
+    const resolved: ApNetworkLookup = {
+      router_machine_id: computeApGatewayId(essid),
+      essid,
+    };
+    return { data: resolved, error: null };
+  };
+
+/** The caller's own home public IP — the truthful source address for a trace they leave
+ *  elsewhere, server-derived from their verified owner key and never the client's claimed
+ *  `source_ip`. One player may carry rows for several APs they have joined; the
+ *  most-recently-updated is their current network ("one network at a time"). `owner_key`
+ *  is not the PK, hence the order+limit. Two reads, so two labels. */
+const findHomeNetworkByOwnerKeyVia =
+  ({
+    supabase,
+    occupancyLabel,
+    lookupLabel,
+  }: {
+    readonly supabase: SupabaseClient;
+    readonly occupancyLabel: string;
+    readonly lookupLabel: string;
+  }) =>
+  async (ownerKey: string) => {
+    const occupancy = await supabase
+      .from('home_network_occupants')
+      .select('essid')
+      .eq('owner_key', ownerKey)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (occupancy.error) {
+      logFailure(occupancyLabel, occupancy.error);
+      return { data: null, error: occupancy.error };
+    }
+    const essid = (occupancy.data as { essid: string } | null)?.essid ?? null;
+    if (essid === null) return { data: null, error: null };
+    const { data, error } = await supabase
+      .from('network_public_ips')
+      .select('public_ip')
+      .eq('essid', essid)
+      .maybeSingle();
+    logFailure(lookupLabel, error);
+    return { data: data as { public_ip: string } | null, error };
+  };
+
+/** Every occupant currently ON an ESSID, with the identity fields that rebuild each box
+ *  and the hostname its trace line carries. This is the AUTH projection — it includes the
+ *  root hash, is server-internal, and is never sent to a client (distinct from the lean
+ *  `resolveOccupants` read, which omits the hash). Occupancy doubles as the reachability
+ *  test: a machine whose owner ran `nmcli disconnect` has no row, so nothing reaches it.
+ *  Callers name the row type they expect, since the same projection answers both the
+ *  cross-player and the same-LAN paths. */
+const listOccupantsByEssidVia =
+  <Row>({ supabase, label }: QuerySpec) =>
+  async (essid: string) => {
+    const { data, error } = await supabase
+      .from('home_network_occupants')
+      .select(
+        'owner_key, workstation_machine_id, workstation_machine_name, workstation_username, workstation_root_hash',
+      )
+      .eq('essid', essid);
+    logFailure(label, error);
+    return { data: data as readonly Row[] | null, error };
+  };
+
+/** Every lease on an ESSID in ONE read — where each occupant answers, so the public gate
+ *  and the same-LAN path resolve one box to one address, and a caller's trace carries the
+ *  source address it was really sent from. */
+const listLeasesByEssidVia =
+  ({ supabase, label }: QuerySpec) =>
+  async (essid: string) => {
+    const { data, error } = await supabase
+      .from('network_lan_leases')
+      .select('owner_key, octet')
+      .eq('essid', essid);
+    logFailure(label, error);
+    return { data: data as readonly LanLeaseRow[] | null, error };
+  };
+
+/** Whether the caller currently stands on the machine they named — their own workstation
+ *  bypasses this inside the handler, anything else needs a live ssh session there. Same
+ *  query and same shape the patch endpoints use, so a sweep and a write from one shell
+ *  agree about where the player is. */
+const findActiveSessionVia =
+  ({ supabase, label }: QuerySpec) =>
+  async ({ player_key, machine_id }: ActiveSessionQuery): Promise<FindActiveSessionResult> => {
+    const { data, error } = await supabase
+      .from('sessions')
+      .select('credentials, essid')
+      .eq('player_key', player_key)
+      .eq('machine_id', machine_id)
+      .is('ended_at', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    logFailure(label, error);
+    if (data === null) return { data: null, error };
+    const row = data as { credentials: { userType: UserType }; essid: string };
+    return { data: { userType: row.credentials.userType, essid: row.essid }, error };
+  };
+
+/** Every writer's rows at one path on one machine. Machine-scoped, NOT writer-scoped: the
+ *  file belongs to the box, so what a sweep reads is what the last writer left there — the
+ *  same file `cat` shows on that machine. The sort keys come back with the rows; the
+ *  handler picks the row a reader materializes, so ordering lives in core, not SQL. */
+const listPathPatchesVia =
+  ({ supabase, label }: QuerySpec) =>
+  async ({
+    machine_id,
+    path,
+  }: {
+    readonly machine_id: string;
+    readonly path: string;
+  }): Promise<ListPathPatchesResult> => {
+    const { data, error } = await supabase
+      .from('patches')
+      .select('content, updated_at, writer_key')
+      .eq('machine_id', machine_id)
+      .eq('path', path);
+    logFailure(label, error);
+    return { data: data as readonly PathPatchRow[] | null, error };
+  };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
@@ -100,7 +323,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .eq('player_key', player_key)
         .is('ended_at', null)
         .order('created_at', { ascending: true });
-      if (error) console.error('[sessions] list error:', error);
+      logFailure('list', error);
       return { data: data as readonly SessionSummary[] | null, error };
     };
     const { status, body } = await handleListSessions(req.body, {
@@ -120,7 +343,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .update({ ended_at: new Date().toISOString(), end_reason: 'user_exit' })
         .eq('session_id', session_id)
         .eq('player_key', player_key);
-      if (error) console.error('[sessions] end error:', error);
+      logFailure('end', error);
       return { error };
     };
     const { status, body } = await handleEndSession(req.body, {
@@ -132,53 +355,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (actionOf(req.body) === 'authCreateSession') {
-    // Cross-machine ssh session: the handler regenerates the remote FS and
-    // validates the password server-side before this insert ever runs.
-    const insertSession = async (row: AuthSessionRow) => {
-      const { error } = await supabase.from('sessions').insert(row);
-      if (error) console.error('[sessions] auth insert error:', error);
-      return { error };
-    };
-    // The system-written sshd auth.log line on the REMOTE host: read the current
-    // content + upsert the appended line (read-modify-write, bypassing L1/L2 —
-    // the service logs it, not the player). Same `patches`-table shapes as the su
-    // appender in /api/patches.
-    const readAuthLog = async ({ writer_key, machine_id, path }: MachineLogReadQuery) => {
-      const { data, error } = await supabase
-        .from('patches')
-        .select('content')
-        .eq('writer_key', writer_key)
-        .eq('machine_id', machine_id)
-        .eq('path', path)
-        .maybeSingle();
-      if (error) console.error('[sessions] ssh auth-log read error:', error);
-      return { data, error };
-    };
-    const upsertPatch = async (row: PatchRow) => {
-      const { error } = await supabase.from('patches').upsert(row);
-      if (error) console.error('[sessions] ssh auth-log upsert error:', error);
-      return { error };
-    };
-    // The target host's shared journal, replayed over its seeded base so the login
-    // sees the box's REAL state — a `/boot` tombstone means a bricked host is dark
-    // from inside the LAN too, not just from the WAN.
-    const findPatches = async ({ machine_id }: { machine_id: string }) => {
-      const { data, error } = await supabase
-        .from('patches')
-        .select('path, content, owner, permissions, node_type, updated_at, writer_key')
-        .eq('machine_id', machine_id)
-        .order('updated_at', { ascending: true })
-        .order('writer_key', { ascending: true });
-      if (error) console.error('[sessions] own-lan boot-state lookup error:', error);
-      return { data: data as readonly OwnerPatchRow[] | null, error };
-    };
+    // Cross-machine ssh session on the player's OWN LAN: the handler regenerates the
+    // remote FS and validates the password server-side before the insert ever runs. The
+    // sshd auth.log line lands on the REMOTE host.
     const { status, body } = await handleAuthCreateSession(req.body, {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
-      insertSession,
-      findPatches,
-      readAuthLog,
-      upsertPatch,
+      insertSession: insertSessionVia({ supabase, label: 'auth insert' }),
+      findPatches: findPatchesVia({ supabase, label: 'own-lan boot-state lookup' }),
+      readAuthLog: readAuthLogVia({ supabase, label: 'ssh auth-log read' }),
+      upsertPatch: upsertPatchVia({ supabase, label: 'ssh auth-log upsert' }),
     });
     res.status(status).json(body);
     return;
@@ -190,129 +376,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // lands on the gateway itself (validated against its ESSID-seeded admin password),
     // a NAT-forwarded port on whichever occupant LEASES the address that forward names.
     // A reachable attempt leaves an auth.log trace on the machine it reached, written
-    // under the key that owns that machine's logs so multi-attacker rows don't collide.
-    const findNetworkByPublicIp = async (publicIp: string) => {
-      const network = await supabase
-        .from('network_public_ips')
-        .select('essid')
-        .eq('public_ip', publicIp)
-        .maybeSingle();
-      if (network.error) {
-        console.error('[sessions] public-ip lookup error:', network.error);
-        return { data: null, error: network.error };
-      }
-      const essid = (network.data as { essid: string } | null)?.essid ?? null;
-      if (essid === null) return { data: null, error: null };
-      // The gateway is the access point's own infrastructure, so it answers on :22
-      // whether or not anyone is on the WiFi; its id derives from the ESSID.
-      const resolved: ApNetworkLookup = {
-        router_machine_id: computeApGatewayId(essid),
-        essid,
-      };
-      return { data: resolved, error: null };
-    };
-    const insertSessionPublic = async (row: AuthSessionRow) => {
-      const { error } = await supabase.from('sessions').insert(row);
-      if (error) console.error('[sessions] public auth insert error:', error);
-      return { error };
-    };
-    // The target's FULL journal (scoped to machine_id, server order) so the gate can
-    // materialize A's box and refuse a login to a bricked (dark) machine before the
-    // password is ever checked.
-    const findPatches = async ({ machine_id }: { machine_id: string }) => {
-      const { data, error } = await supabase
-        .from('patches')
-        .select('path, content, owner, permissions, node_type, updated_at, writer_key')
-        .eq('machine_id', machine_id)
-        .order('updated_at', { ascending: true })
-        .order('writer_key', { ascending: true });
-      if (error) console.error('[sessions] public auth boot-state lookup error:', error);
-      return { data: data as readonly OwnerPatchRow[] | null, error };
-    };
-    // The system-written sshd auth.log line on the TARGET machine (router or the
-    // workstation behind the NAT): read the current content + upsert the appended
-    // line (read-modify-write, bypassing L1/L2 — the service logs it, not the
-    // player). Same `patches`-table shapes as the own-LAN ssh appender above; the
-    // line is written under the OWNER's writer_key (decision 1).
-    const readAuthLog = async ({ writer_key, machine_id, path }: MachineLogReadQuery) => {
-      const { data, error } = await supabase
-        .from('patches')
-        .select('content')
-        .eq('writer_key', writer_key)
-        .eq('machine_id', machine_id)
-        .eq('path', path)
-        .maybeSingle();
-      if (error) console.error('[sessions] public auth-log read error:', error);
-      return { data, error };
-    };
-    const upsertPatchPublic = async (row: PatchRow) => {
-      const { error } = await supabase
-        .from('patches')
-        .upsert(row, { onConflict: 'machine_id,path,writer_key' });
-      if (error) console.error('[sessions] public auth-log upsert error:', error);
-      return { error };
-    };
-    // The ATTACKER's own home public IP — the truthful source IP, server-derived from
-    // their verified owner key (never the client `source_ip`). One player may carry
-    // rows for several APs they've joined; the most-recently-updated is their current
-    // network ("one network at a time"). owner_key is not the PK, hence the order+limit.
-    const findHomeNetworkByOwnerKey = async (ownerKey: string) => {
-      const occupancy = await supabase
-        .from('home_network_occupants')
-        .select('essid')
-        .eq('owner_key', ownerKey)
-        .order('updated_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (occupancy.error) {
-        console.error('[sessions] public auth source-ip occupancy error:', occupancy.error);
-        return { data: null, error: occupancy.error };
-      }
-      const essid = (occupancy.data as { essid: string } | null)?.essid ?? null;
-      if (essid === null) return { data: null, error: null };
-      const { data, error } = await supabase
-        .from('network_public_ips')
-        .select('public_ip')
-        .eq('essid', essid)
-        .maybeSingle();
-      if (error) console.error('[sessions] public auth source-ip lookup error:', error);
-      return { data: data as { public_ip: string } | null, error };
-    };
-    // Who a forward can land a login on: every occupant currently ON the ESSID, with the
-    // identity fields that rebuild each box and the machine name its trace line carries.
-    // Occupancy is also the reachability test — a machine whose owner ran
-    // `nmcli disconnect` has no row, so no forward reaches it.
-    const listOccupantsByEssid = async (essid: string) => {
-      const { data, error } = await supabase
-        .from('home_network_occupants')
-        .select(
-          'owner_key, workstation_machine_id, workstation_machine_name, workstation_username, workstation_root_hash',
-        )
-        .eq('essid', essid);
-      if (error) console.error('[sessions] public auth occupant list error:', error);
-      return { data: data as readonly NatOccupantRow[] | null, error };
-    };
-    // Every lease on the ESSID in ONE read — where each occupant answers, so the public
-    // gate and the same-LAN path resolve one box to one address.
-    const listLeasesByEssid = async (essid: string) => {
-      const { data, error } = await supabase
-        .from('network_lan_leases')
-        .select('owner_key, octet')
-        .eq('essid', essid);
-      if (error) console.error('[sessions] public auth lan-lease list error:', error);
-      return { data: data as readonly LanLeaseRow[] | null, error };
-    };
+    // under the key that owns that machine's logs so multi-attacker rows don't collide,
+    // at the attacker's server-derived home address rather than anything they claimed.
     const { status, body } = await handleAuthCreateSessionPublic(req.body, {
       nonceStore: noopNonceStore,
-      findNetworkByPublicIp,
-      findPatches,
-      listOccupantsByEssid,
-      listLeasesByEssid,
-      insertSession: insertSessionPublic,
       now: () => Date.now(),
-      readAuthLog,
-      upsertPatch: upsertPatchPublic,
-      findHomeNetworkByOwnerKey,
+      findNetworkByPublicIp: findNetworkByPublicIpVia({ supabase, label: 'public-ip lookup' }),
+      findPatches: findPatchesVia({ supabase, label: 'public auth boot-state lookup' }),
+      listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
+        supabase,
+        label: 'public auth occupant list',
+      }),
+      listLeasesByEssid: listLeasesByEssidVia({ supabase, label: 'public auth lan-lease list' }),
+      insertSession: insertSessionVia({ supabase, label: 'public auth insert' }),
+      readAuthLog: readAuthLogVia({ supabase, label: 'public auth-log read' }),
+      upsertPatch: upsertPatchVia({ supabase, label: 'public auth-log upsert' }),
+      findHomeNetworkByOwnerKey: findHomeNetworkByOwnerKeyVia({
+        supabase,
+        occupancyLabel: 'public auth source-ip occupancy',
+        lookupLabel: 'public auth source-ip lookup',
+      }),
     });
     res.status(status).json(body);
     return;
@@ -322,79 +405,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Same-WiFi LAN ssh login: B reaches a fellow occupant A's workstation DIRECTLY
     // over the shared LAN (no router/NAT). The handler reads the ESSID's occupancy
     // (the LAN-boundary gate + LAN-IP match), materializes A's box, and validates the
-    // password server-side before this insert runs.
-    const listOccupantsByEssid = async (essid: string) => {
-      // The auth projection (root hash + username) — server-internal, never sent to a
-      // client. Distinct from the lean `resolveOccupants` read, which omits the hash.
-      // `workstation_machine_name` is the hostname the auth.log trace line carries.
-      const { data, error } = await supabase
-        .from('home_network_occupants')
-        .select(
-          'owner_key, workstation_machine_id, workstation_machine_name, workstation_username, workstation_root_hash',
-        )
-        .eq('essid', essid);
-      if (error) console.error('[sessions] same-lan occupants lookup error:', error);
-      return { data: data as readonly OccupantConnectRow[] | null, error };
-    };
-    // A's workstation FULL journal (scoped to machine_id, server order) so the gate can
-    // materialize A's box — refusing a bricked (dark) or non-listening target before the
-    // password is ever checked.
-    const findPatches = async ({ machine_id }: { machine_id: string }) => {
-      const { data, error } = await supabase
-        .from('patches')
-        .select('path, content, owner, permissions, node_type, updated_at, writer_key')
-        .eq('machine_id', machine_id)
-        .order('updated_at', { ascending: true })
-        .order('writer_key', { ascending: true });
-      if (error) console.error('[sessions] same-lan boot-state lookup error:', error);
-      return { data: data as readonly OwnerPatchRow[] | null, error };
-    };
-    const insertSession = async (row: AuthSessionRow) => {
-      const { error } = await supabase.from('sessions').insert(row);
-      if (error) console.error('[sessions] same-lan auth insert error:', error);
-      return { error };
-    };
-    // The login attempt's auth.log trace on A's workstation: read the current content +
-    // upsert the appended line (read-modify-write, bypassing L1/L2 — sshd logs it, not
-    // the player). Same `patches`-table shapes as the public appender; written under
-    // A's owner writer_key (the keystone), source = B's server-derived LAN IP.
-    const readAuthLog = async ({ writer_key, machine_id, path }: MachineLogReadQuery) => {
-      const { data, error } = await supabase
-        .from('patches')
-        .select('content')
-        .eq('writer_key', writer_key)
-        .eq('machine_id', machine_id)
-        .eq('path', path)
-        .maybeSingle();
-      if (error) console.error('[sessions] same-lan auth-log read error:', error);
-      return { data, error };
-    };
-    const upsertSameLanAuthLog = async (row: PatchRow) => {
-      const { error } = await supabase
-        .from('patches')
-        .upsert(row, { onConflict: 'machine_id,path,writer_key' });
-      if (error) console.error('[sessions] same-lan auth-log upsert error:', error);
-      return { error };
-    };
-    // Every lease on the ESSID in ONE read: the address the target answers to, and the
-    // source address the caller's trace carries.
-    const listLeasesByEssid = async (essid: string) => {
-      const { data, error } = await supabase
-        .from('network_lan_leases')
-        .select('owner_key, octet')
-        .eq('essid', essid);
-      if (error) console.error('[sessions] same-lan lan-lease list error:', error);
-      return { data: data as readonly LanLeaseRow[] | null, error };
-    };
+    // password server-side before the insert runs. The trace on A's workstation is
+    // written under A's owner key, source = B's server-derived LAN IP.
     const { status, body } = await handleAuthCreateSessionSameLan(req.body, {
       nonceStore: noopNonceStore,
-      listOccupantsByEssid,
-      listLeasesByEssid,
-      findPatches,
-      insertSession,
       now: () => Date.now(),
-      readAuthLog,
-      upsertPatch: upsertSameLanAuthLog,
+      listOccupantsByEssid: listOccupantsByEssidVia<OccupantConnectRow>({
+        supabase,
+        label: 'same-lan occupants lookup',
+      }),
+      listLeasesByEssid: listLeasesByEssidVia({ supabase, label: 'same-lan lan-lease list' }),
+      findPatches: findPatchesVia({ supabase, label: 'same-lan boot-state lookup' }),
+      insertSession: insertSessionVia({ supabase, label: 'same-lan auth insert' }),
+      readAuthLog: readAuthLogVia({ supabase, label: 'same-lan auth-log read' }),
+      upsertPatch: upsertPatchVia({ supabase, label: 'same-lan auth-log upsert' }),
     });
     res.status(status).json(body);
     return;
@@ -404,53 +428,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // ssh THROUGH a NAT forward on the player's OWN inner gateway onto a deep Layer-2
     // host. The handler regenerates the gateway from the verified key + essid, replays
     // its journal (to read the forward + boot state), and routes the forwarded port to
-    // the deep NPC — validating the password against ITS /etc/passwd before this insert.
-    // Own-keyed + private: no network lookup, no occupancy, no trace.
-    const findPatches = async ({ machine_id }: { machine_id: string }) => {
-      const { data, error } = await supabase
-        .from('patches')
-        .select('path, content, owner, permissions, node_type, updated_at, writer_key')
-        .eq('machine_id', machine_id)
-        .order('updated_at', { ascending: true })
-        .order('writer_key', { ascending: true });
-      if (error) console.error('[sessions] inner-gateway boot-state lookup error:', error);
-      return { data: data as readonly OwnerPatchRow[] | null, error };
-    };
-    const insertSession = async (row: AuthSessionRow) => {
-      const { error } = await supabase.from('sessions').insert(row);
-      if (error) console.error('[sessions] inner-gateway auth insert error:', error);
-      return { error };
-    };
-    // The system-written sshd auth.log line on the landed DEEP box: read the current
-    // content + upsert the appended line (read-modify-write, bypassing L1/L2 — the
-    // service logs it, not the player). Written under the CALLER's OWN writer_key —
-    // deep boxes are private per-viewer NPCs, so the trace accretes under the player who
-    // reads it back. Same `patches`-table shapes as the public/same-lan appenders.
-    const readAuthLog = async ({ writer_key, machine_id, path }: MachineLogReadQuery) => {
-      const { data, error } = await supabase
-        .from('patches')
-        .select('content')
-        .eq('writer_key', writer_key)
-        .eq('machine_id', machine_id)
-        .eq('path', path)
-        .maybeSingle();
-      if (error) console.error('[sessions] inner-gateway auth-log read error:', error);
-      return { data, error };
-    };
-    const upsertInnerGatewayAuthLog = async (row: PatchRow) => {
-      const { error } = await supabase
-        .from('patches')
-        .upsert(row, { onConflict: 'machine_id,path,writer_key' });
-      if (error) console.error('[sessions] inner-gateway auth-log upsert error:', error);
-      return { error };
-    };
+    // the deep NPC — validating the password against ITS /etc/passwd before the insert.
+    // Own-keyed + private: no network lookup, no occupancy. The trace accretes under the
+    // CALLER's own key, because deep boxes are private per-viewer NPCs.
     const { status, body } = await handleAuthCreateSessionInnerGateway(req.body, {
       nonceStore: noopNonceStore,
-      findPatches,
-      insertSession,
       now: () => Date.now(),
-      readAuthLog,
-      upsertPatch: upsertInnerGatewayAuthLog,
+      findPatches: findPatchesVia({ supabase, label: 'inner-gateway boot-state lookup' }),
+      insertSession: insertSessionVia({
+        supabase,
+        label: 'inner-gateway auth insert',
+      }),
+      readAuthLog: readAuthLogVia({ supabase, label: 'inner-gateway auth-log read' }),
+      upsertPatch: upsertPatchVia({ supabase, label: 'inner-gateway auth-log upsert' }),
     });
     res.status(status).json(body);
     return;
@@ -460,90 +450,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Credential sweep against an own-LAN host. No session is created. The handler
     // READS the target's journal (to see its real passwd and what it is actually
     // running) and the caller's own wordlist patch — the wordlist exists solely as
-    // a patch (apt wrote it; no base FS carries it), so this one row IS the file,
+    // a patch (apt wrote it; no base FS carries it), so that one row IS the file,
     // and reading it beats trusting a list the client could have posted. The one
     // WRITE is the trace it leaves on the target: a sweep is the noisiest thing a
     // player can do to a box, and the box's occupant reads it back from auth.log.
-    const findPatches = async ({ machine_id }: { machine_id: string }) => {
-      const { data, error } = await supabase
-        .from('patches')
-        .select('path, content, owner, permissions, node_type, updated_at, writer_key')
-        .eq('machine_id', machine_id)
-        .order('updated_at', { ascending: true })
-        .order('writer_key', { ascending: true });
-      if (error) console.error('[sessions] hydra target journal lookup error:', error);
-      return { data: data as readonly OwnerPatchRow[] | null, error };
-    };
-    // Whether the caller currently stands on the machine they named — their own
-    // workstation bypasses this inside the handler, anything else needs a live ssh
-    // session there. Same query and same shape the patch endpoints use, so a sweep
-    // and a write from one shell agree about where the player is.
-    const findActiveSession = async ({
-      player_key,
-      machine_id,
-    }: ActiveSessionQuery): Promise<FindActiveSessionResult> => {
-      const { data, error } = await supabase
-        .from('sessions')
-        .select('credentials, essid')
-        .eq('player_key', player_key)
-        .eq('machine_id', machine_id)
-        .is('ended_at', null)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (error) console.error('[sessions] hydra active-session lookup error:', error);
-      if (data === null) return { data: null, error };
-      const row = data as { credentials: { userType: UserType }; essid: string };
-      return { data: { userType: row.credentials.userType, essid: row.essid }, error };
-    };
-    // Every writer's rows at the wordlist path on the machine the caller stands on.
-    // Machine-scoped, NOT writer-scoped: the file belongs to the box, so the list
-    // the sweep uses is the one the last writer left there — the same file `cat`
-    // shows on that machine. The sort keys come back with the rows; the handler
-    // picks the row a reader materializes (ordering lives in core, not SQL).
-    const listPathPatches = async ({
-      machine_id,
-      path,
-    }: {
-      readonly machine_id: string;
-      readonly path: string;
-    }): Promise<ListPathPatchesResult> => {
-      const { data, error } = await supabase
-        .from('patches')
-        .select('content, updated_at, writer_key')
-        .eq('machine_id', machine_id)
-        .eq('path', path);
-      if (error) console.error('[sessions] hydra wordlist read error:', error);
-      return { data: data as readonly PathPatchRow[] | null, error };
-    };
-    // The trace half — same `patches`-table shapes as the own-LAN ssh appender
-    // above, and the same read-modify-write bypassing L1/L2: the target's sshd
-    // records the sweep it just handled, so the write is the system's rather than
-    // the player's.
-    const readAuthLog = async ({ writer_key, machine_id, path }: MachineLogReadQuery) => {
-      const { data, error } = await supabase
-        .from('patches')
-        .select('content')
-        .eq('writer_key', writer_key)
-        .eq('machine_id', machine_id)
-        .eq('path', path)
-        .maybeSingle();
-      if (error) console.error('[sessions] hydra auth-log read error:', error);
-      return { data, error };
-    };
-    const upsertPatch = async (row: PatchRow) => {
-      const { error } = await supabase.from('patches').upsert(row);
-      if (error) console.error('[sessions] hydra auth-log upsert error:', error);
-      return { error };
-    };
     const { status, body } = await handleHydraCrack(req.body, {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
-      findActiveSession,
-      findPatches,
-      listPathPatches,
-      readAuthLog,
-      upsertPatch,
+      findActiveSession: findActiveSessionVia({ supabase, label: 'hydra active-session lookup' }),
+      findPatches: findPatchesVia({ supabase, label: 'hydra target journal lookup' }),
+      listPathPatches: listPathPatchesVia({ supabase, label: 'hydra wordlist read' }),
+      readAuthLog: readAuthLogVia({ supabase, label: 'hydra auth-log read' }),
+      upsertPatch: upsertPatchVia({ supabase, label: 'hydra auth-log upsert' }),
     });
     res.status(status).json(body);
     return;
@@ -553,141 +471,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // CROSS-PLAYER credential sweep. The target is a PUBLIC IP, so it names an access
     // point rather than a machine: the shared resolver materializes that AP's gateway
     // and routes by destination port, which is the same resolution `ssh` authenticates
-    // through -- so a password this reports is one `ssh` then accepts. No session is
+    // through — so a password this reports is one `ssh` then accepts. No session is
     // created. The one WRITE is the trace, and it lands on whichever box was reached,
     // under the key that owns THAT machine's logs, at the attacker's server-derived
     // home address rather than anything the client claimed.
-    const findNetworkByPublicIp = async (publicIp: string) => {
-      const network = await supabase
-        .from('network_public_ips')
-        .select('essid')
-        .eq('public_ip', publicIp)
-        .maybeSingle();
-      if (network.error) {
-        console.error('[sessions] hydra public-ip lookup error:', network.error);
-        return { data: null, error: network.error };
-      }
-      const essid = (network.data as { essid: string } | null)?.essid ?? null;
-      if (essid === null) return { data: null, error: null };
-      const resolved: ApNetworkLookup = {
-        router_machine_id: computeApGatewayId(essid),
-        essid,
-      };
-      return { data: resolved, error: null };
-    };
-    const findPatches = async ({ machine_id }: { machine_id: string }) => {
-      const { data, error } = await supabase
-        .from('patches')
-        .select('path, content, owner, permissions, node_type, updated_at, writer_key')
-        .eq('machine_id', machine_id)
-        .order('updated_at', { ascending: true })
-        .order('writer_key', { ascending: true });
-      if (error) console.error('[sessions] hydra public target journal error:', error);
-      return { data: data as readonly OwnerPatchRow[] | null, error };
-    };
-    const listOccupantsByEssid = async (essid: string) => {
-      const { data, error } = await supabase
-        .from('home_network_occupants')
-        .select(
-          'owner_key, workstation_machine_id, workstation_machine_name, workstation_username, workstation_root_hash',
-        )
-        .eq('essid', essid);
-      if (error) console.error('[sessions] hydra public occupant list error:', error);
-      return { data: data as readonly NatOccupantRow[] | null, error };
-    };
-    const listLeasesByEssid = async (essid: string) => {
-      const { data, error } = await supabase
-        .from('network_lan_leases')
-        .select('owner_key, octet')
-        .eq('essid', essid);
-      if (error) console.error('[sessions] hydra public lan-lease list error:', error);
-      return { data: data as readonly LanLeaseRow[] | null, error };
-    };
-    const findActiveSession = async ({
-      player_key,
-      machine_id,
-    }: ActiveSessionQuery): Promise<FindActiveSessionResult> => {
-      const { data, error } = await supabase
-        .from('sessions')
-        .select('credentials, essid')
-        .eq('player_key', player_key)
-        .eq('machine_id', machine_id)
-        .is('ended_at', null)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (error) console.error('[sessions] hydra public active-session error:', error);
-      if (data === null) return { data: null, error };
-      const row = data as { credentials: { userType: UserType }; essid: string };
-      return { data: { userType: row.credentials.userType, essid: row.essid }, error };
-    };
-    const listPathPatches = async ({
-      machine_id,
-      path,
-    }: {
-      readonly machine_id: string;
-      readonly path: string;
-    }): Promise<ListPathPatchesResult> => {
-      const { data, error } = await supabase
-        .from('patches')
-        .select('content, updated_at, writer_key')
-        .eq('machine_id', machine_id)
-        .eq('path', path);
-      if (error) console.error('[sessions] hydra public wordlist read error:', error);
-      return { data: data as readonly PathPatchRow[] | null, error };
-    };
-    const findHomeNetworkByOwnerKey = async (ownerKey: string) => {
-      const occupancy = await supabase
-        .from('home_network_occupants')
-        .select('essid')
-        .eq('owner_key', ownerKey)
-        .order('updated_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (occupancy.error) {
-        console.error('[sessions] hydra public source-ip occupancy error:', occupancy.error);
-        return { data: null, error: occupancy.error };
-      }
-      const essid = (occupancy.data as { essid: string } | null)?.essid ?? null;
-      if (essid === null) return { data: null, error: null };
-      const { data, error } = await supabase
-        .from('network_public_ips')
-        .select('public_ip')
-        .eq('essid', essid)
-        .maybeSingle();
-      if (error) console.error('[sessions] hydra public source-ip lookup error:', error);
-      return { data: data as { public_ip: string } | null, error };
-    };
-    const readAuthLog = async ({ writer_key, machine_id, path }: MachineLogReadQuery) => {
-      const { data, error } = await supabase
-        .from('patches')
-        .select('content')
-        .eq('writer_key', writer_key)
-        .eq('machine_id', machine_id)
-        .eq('path', path)
-        .maybeSingle();
-      if (error) console.error('[sessions] hydra public auth-log read error:', error);
-      return { data, error };
-    };
-    const upsertPatch = async (row: PatchRow) => {
-      const { error } = await supabase
-        .from('patches')
-        .upsert(row, { onConflict: 'machine_id,path,writer_key' });
-      if (error) console.error('[sessions] hydra public auth-log upsert error:', error);
-      return { error };
-    };
     const { status, body } = await handleHydraCrackPublic(req.body, {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
-      findNetworkByPublicIp,
-      findPatches,
-      listOccupantsByEssid,
-      listLeasesByEssid,
-      findActiveSession,
-      listPathPatches,
-      findHomeNetworkByOwnerKey,
-      readAuthLog,
-      upsertPatch,
+      findNetworkByPublicIp: findNetworkByPublicIpVia({
+        supabase,
+        label: 'hydra public-ip lookup',
+      }),
+      findPatches: findPatchesVia({ supabase, label: 'hydra public target journal' }),
+      listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
+        supabase,
+        label: 'hydra public occupant list',
+      }),
+      listLeasesByEssid: listLeasesByEssidVia({ supabase, label: 'hydra public lan-lease list' }),
+      findActiveSession: findActiveSessionVia({ supabase, label: 'hydra public active-session' }),
+      listPathPatches: listPathPatchesVia({ supabase, label: 'hydra public wordlist read' }),
+      findHomeNetworkByOwnerKey: findHomeNetworkByOwnerKeyVia({
+        supabase,
+        occupancyLabel: 'hydra public source-ip occupancy',
+        lookupLabel: 'hydra public source-ip lookup',
+      }),
+      readAuthLog: readAuthLogVia({ supabase, label: 'hydra public auth-log read' }),
+      upsertPatch: upsertPatchVia({ supabase, label: 'hydra public auth-log upsert' }),
     });
     res.status(status).json(body);
     return;
@@ -697,11 +506,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Cross-PLAYER su-to-root: B (already ssh'd into A) escalates. Resolve A's
     // registered workstation by the machine_id B is standing on, then the handler
     // rebuilds A's box from the persisted identity and validates the typed password
-    // before this insert runs (a root-tier `kind:'su'` row that makes B's later
-    // writes authorize at root). Story 6.3: a resolved attempt now leaves a su
-    // auth.log trace on A's shared workstation record, under the OWNER's writer_key.
-    // Whose box B is standing on, from occupancy — which carries the identity fields su
-    // needs AND says the machine is still on a WiFi, so a `su` into a box whose owner
+    // before the insert runs (a root-tier `kind:'su'` row that makes B's later writes
+    // authorize at root). A resolved attempt leaves a su auth.log trace on A's shared
+    // workstation record, under the OWNER's writer_key.
+    //
+    // Whose box B is standing on comes from occupancy — which carries the identity fields
+    // su needs AND says the machine is still on a WiFi, so a `su` into a box whose owner
     // has disconnected resolves to nothing rather than elevating on an unreachable
     // machine. One player on N APs has N rows with the SAME workstation_machine_id, so
     // `.limit(1)` picks any.
@@ -714,57 +524,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .eq('workstation_machine_id', machineId)
         .limit(1)
         .maybeSingle();
-      if (error) console.error('[sessions] su-elevate occupant lookup error:', error);
+      logFailure('su-elevate occupant lookup', error);
       return { data: data as OccupantWorkstation | null, error };
-    };
-    const insertSuSession = async (row: SuSessionRow) => {
-      const { error } = await supabase.from('sessions').insert(row);
-      if (error) console.error('[sessions] su-elevate insert error:', error);
-      return { error };
-    };
-    // The system-written su auth.log line on A's WORKSTATION: read the current content
-    // + upsert the appended line (read-modify-write, bypassing L1/L2 — su logs it as
-    // the system, not the player). Same `patches`-table shapes + owner-keyed writer as
-    // the cross-player ssh appender above; the line is written under the OWNER's
-    // writer_key (decision 1).
-    const readAuthLog = async ({ writer_key, machine_id, path }: MachineLogReadQuery) => {
-      const { data, error } = await supabase
-        .from('patches')
-        .select('content')
-        .eq('writer_key', writer_key)
-        .eq('machine_id', machine_id)
-        .eq('path', path)
-        .maybeSingle();
-      if (error) console.error('[sessions] su auth-log read error:', error);
-      return { data, error };
-    };
-    const upsertSuAuthLog = async (row: PatchRow) => {
-      const { error } = await supabase
-        .from('patches')
-        .upsert(row, { onConflict: 'machine_id,path,writer_key' });
-      if (error) console.error('[sessions] su auth-log upsert error:', error);
-      return { error };
     };
     const { status, body } = await handleAuthElevateSession(req.body, {
       nonceStore: noopNonceStore,
-      findOccupantWorkstationByMachineId,
-      insertSession: insertSuSession,
       now: () => Date.now(),
-      readAuthLog,
-      upsertPatch: upsertSuAuthLog,
+      findOccupantWorkstationByMachineId,
+      insertSession: insertSessionVia({ supabase, label: 'su-elevate insert' }),
+      readAuthLog: readAuthLogVia({ supabase, label: 'su auth-log read' }),
+      upsertPatch: upsertPatchVia({ supabase, label: 'su auth-log upsert' }),
     });
     res.status(status).json(body);
     return;
   }
 
-  const insertSession = async (row: SessionRow) => {
-    const { error } = await supabase.from('sessions').insert(row);
-    if (error) console.error('[sessions] insert error:', error);
-    return { error };
-  };
   const { status, body } = await handleCreateSession(req.body, {
     nonceStore: noopNonceStore,
-    insertSession,
+    insertSession: insertSessionVia({ supabase, label: 'insert' }),
   });
   res.status(status).json(body);
 }

@@ -1,8 +1,8 @@
 # Plan: one spelling per query in `api/sessions.ts`
 
-**Branch**: not cut yet — branch from `main` at or after `9b431d7`.
-**Status**: Diagnosed 2026-08-09 (read-only), **not started**. Authorized in principle by the owner;
-re-confirm scope before editing.
+**Branch**: `refactor/one-spelling-per-query`, cut from `main` at `624a65e`.
+**Status**: **Active** — authorized 2026-08-09 to land *before* D2.4 slice 3, so slice 3 adds its
+dep builders to the collapsed shape rather than adding a tenth copy to the old one.
 **Class**: terminal reduction (single slice, within the selected file).
 **Skill**: load `reduce-system-complexity`; this file IS the conservation ledger.
 
@@ -14,19 +14,29 @@ builders**. The cost that matters is not length: it is that **the journal column
 spellings**, and `tsc` cannot see a column name. One drifting `select` ships green through every
 local gate and is caught only by the one wire-check that happens to cover that action.
 
-## Measured baseline (2026-08-09, at `9b431d7`)
+## Measured baseline (recounted 2026-08-09 at `624a65e`)
 
-| | |
+The diagnosis said 36 builder closures. **The real figure is 43** — the first count matched only 12
+builder names and missed the 13th plus the closures whose signature wraps onto its own line. The
+corrected numbers are below; both gates use this count, so before and after stay like-for-like.
+
+| | baseline |
 |---|---|
-| dep-builder closures | **36** |
-| lines they occupy | **391 of 770 (50%)** |
-| substantive variants once `console.error` labels are normalised | **13** |
-| copies that are pure duplicates | **23** |
-| spellings of the journal `select` list | **6** here, ~13 across `api/` |
+| dep-builder closures | **43** |
+| distinct queries behind them | **13** |
+| copies that are pure duplicates | **30** |
+| `console.error` call sites | **45** |
+| spellings of the journal `select` list | **6** |
+| whole file | **770 lines / 635 code-only** |
 
-Counting method: match `const <name> = async` for the 12 builder names, take each block to its
-matching `};` at the same indent, strip blank/comment lines, normalise the `console.error` label and
-the `…Public` binding suffix, then group. Re-run the same method for the mechanism gate.
+Counting method: `const <name> = async` at any indent, whose body is a supabase query builder passed
+as a handler dependency. Code-only strips blank and comment lines. Re-run the same method for the
+mechanism gate.
+
+The 13 distinct queries: `findPatches` ×6, `readAuthLog` ×7, `upsertPatch` ×7, `insertSession` ×6,
+`listOccupantsByEssid` ×3, `listLeasesByEssid` ×3, `findNetworkByPublicIp` ×2,
+`findHomeNetworkByOwnerKey` ×2, `findActiveSession` ×2, `listPathPatches` ×2, and one each of
+`listSessions`, `endSession`, `findOccupantWorkstationByMachineId`.
 
 **Only three builders genuinely differ**, and none blocks the work:
 
@@ -49,49 +59,93 @@ So the factories go at **module scope inside `api/sessions.ts`**. Zero new modul
 shared module would need a home outside `api/`, which is a structural decision that should wait for
 a second consumer to justify it.
 
-## What to build
+## As built
 
-One factory per distinct query, taking the client and the operator label:
+Ten module-scope factories, each owning one query, plus a single `logFailure`. Three single-use
+builders (`listSessions`, `endSession`, `findOccupantWorkstationByMachineId`) stayed inline where
+they are used — they had nothing to deduplicate, and hoisting them would have relocated mechanism
+rather than removed it.
 
 ```ts
-const findPatchesVia = (supabase: SupabaseClient, label: string) =>
+const findPatchesVia =
+  ({ supabase, label }: QuerySpec) =>
   async ({ machine_id }: { machine_id: string }) => { /* the one spelling */ };
 ```
 
-**Keep the labels.** They are the only way to tell which of nine actions failed in one function log,
-so they become an argument rather than a casualty. Losing them would be exporting burden to whoever
-next reads a production log.
+**The labels survived intact**, all 45 of them. They are the only thing in a line that says which of
+the ten actions failed, so they became an argument rather than a casualty. `logFailure` reassembles
+the exact former string as `` `[sessions] ${label} error:` ``.
 
-**Expected same-scope delta**: 36 → ~10 declarations; ~391 → ~120 lines; 6 → 1 spelling of the
-journal column list; 2 → 1 upsert spelling. Control flow unchanged (9 action branches, still 9).
-No new state, caches, queues or locks. `src/core/` dep *types* unchanged, so the pure handlers and
+Two decisions worth recording, because both replaced a cast or a generic with something simpler:
+
+- **`insertSessionVia` takes a union**, `SessionRow | AuthSessionRow | SuSessionRow`, not a type
+  parameter. A generic `Row` cannot flow into supabase's `insert` (it rejects an unconstrained type
+  argument), and a function accepting the union is assignable to each handler's narrower dep by
+  ordinary parameter contravariance — so the union needs no cast and names exactly what this
+  endpoint persists.
+- **`listOccupantsByEssidVia` stayed generic in its row type.** `NatOccupantRow` and
+  `OccupantConnectRow` are structurally identical, but they belong to different core modules and
+  merging them is a `src/core/` change this slice deliberately excluded. The caller names the
+  projection it expects, so the cast is visible at the call site instead of silently reinterpreting.
+
+**Realized same-scope delta** (same counting method as the baseline table):
+
+| | before | after |
+|---|---|---|
+| dep-builder declarations | 43 | **13** (10 factories + 3 single-use) |
+| `console.error` call sites | 45 | **1** |
+| journal `select` spellings | 6 | **1** |
+| `upsert` spellings | 2 | **1** |
+| whole file | 770 / 635 code-only | **547 / 400 code-only** |
+
+Control flow unchanged: ten action branches before and after. No new state, caches, queues or locks.
+New mechanism is one helper (`logFailure`) and two type aliases (`QuerySpec`, `PersistedSessionRow`),
+each mapping to duplication it replaces. Nothing under `src/core/` changed, so the pure handlers and
 their 2355 unit tests see nothing.
 
-## Preservation obligations — the whole risk of this slice
+## Preservation evidence
 
-**All 9 wire-checks must run live**, because `tsc` cannot see the DB schema and the unit tests inject
-fakes. This is the one thing that makes the slice risky at all, and the one thing that makes it safe.
+**Mutation testing: `N/A`, by configuration.** `stryker.config.json` mutates `src/core/**/*.ts` only;
+`api/` is outside that scope by design, since its correctness is a live-schema property that fakes
+cannot establish. Nothing under `src/core/` changed. Proportionate alternate evidence took its place:
 
-- `testHydraOwnLan.ts`, `testHydraCrossPlayer.ts`, `testCrossPlayerRouter.ts`,
-  `testSharedApForwards.ts`, `testSameLanConnect.ts`, `testInnerGatewayReach.ts`,
-  `testDeepChainReach.ts`, `testCrossPlayerSuElevate.ts`, `testSharedJournal.ts`
-  (confirm the list against the actions actually touched before starting).
-- Bring the stack up per `v2/docs/conventions-and-gotchas.md` §6 — including the WinNAT port remap,
-  which has now been needed on two consecutive sessions.
-- Plus `npx vitest run`, `npm run typecheck`, `npm run lint`.
+1. **Live wire-checks** — the whole risk of the slice, since `tsc` cannot see a column name.
+   Ten of twelve pass; the two failures are pre-existing (below). Covering every action touched
+   meant adding `testGatewayBrickLanAlive` and `testRouterBrick` to the planned list — the plan
+   omitted `authCreateSession` (own-LAN ssh), which is one of the two plain-`upsert` sites.
+2. **Log-label equivalence** — all 45 emit points extracted from both revisions and compared as
+   multisets: none missing, none added.
+3. **Dep-key equivalence** — the dependency object handed to each of the ten `handleX` calls parsed
+   from both revisions; all ten key sets identical.
+4. **Schema equivalence for the `upsert` collapse** — `20260614130000_patches_shared_journal.sql`
+   makes the `patches` PK exactly `(machine_id, path, writer_key)`, and no competing unique index
+   exists, so PostgREST's default conflict target and the explicit one are the same target.
+5. `npx vitest run` 2355/2355, `npm run typecheck`, `npm run lint`, `npm run build` — all green.
 
 **No version bump** — behaviour-preserving, matching `3af0b92`, the last refactor-only PR.
 
+### Pre-existing failures, not caused by this slice
+
+`testRouterBrick` (6/10) and `testCrossPlayerRouter` (7/8) fail **identically with and without this
+change** — verified by stashing the change and re-running both, then diffing the verdict sets, which
+are byte-identical. They are recorded green in `multiplayer-crossplayer-epic.md` (9/9 and 8/8), so
+something regressed on `main` before this branch.
+
+Both failures centre on a published NAT forward not appearing: `resolvePublicScan` returns 200 with
+`ports=[]`, and the `:2222` login then 404s. That is `api/network.ts`, not this endpoint.
+`testSharedApForwards` passes, so it is not a blanket forwards breakage. **This wants its own
+diagnosis before D2.4 slice 3**, which builds directly on the forward path.
+
 ## Gates
 
-**Behavior gate**: every wire-check green live; unit/type/lint green; no response body, status code
-or log label changed.
+**Behavior gate: PASS** — every wire-check that passes on `main` still passes; the two that fail,
+fail identically; unit/type/lint/build green; no response body, status code, or log label changed.
 
-**Mechanism gate**: recount the table above with the same method; confirm no call site grew, no
-`src/core/` type changed, and the 23 duplicate copies are gone rather than relocated.
+**Mechanism gate: PASS** — recounted with the baseline's method: 43 → 13 declarations, 30 duplicate
+copies gone rather than relocated, no call site grew, no `src/core/` type changed. Total ownership
+fell: one journal column list instead of six.
 
-Both must pass before claiming realized reduction. There is **no temporary bridge** in this plan, so
-there is nothing to schedule for removal.
+There was **no temporary bridge**, so there is nothing to schedule for removal.
 
 ## Deliberately out of scope
 
