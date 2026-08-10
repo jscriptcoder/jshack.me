@@ -202,9 +202,14 @@ decisions. The ship gate is legacy parity **minus missions**; missions are a pos
 
   **Next up: D2.4 slice 4** — the pivot: an attack launched from a box the player only holds a
   session on is traced to THAT network, not their home. It replaces the `caller_not_on_lan` refusal
-  in `hydraCrackPublic` with a server-side vantage derivation. The plan still carries one open owner
-  question — whether slice 5 (the deep chain behind an inner gateway) earns its own PR — and that
-  answer changes how slice 4 is scoped, so settle it first.
+  with a server-side vantage derivation — in **both** `hydraCrack.ts` and `hydraCrackPublic.ts`,
+  which spell the same rule twice. Then slice 5, the deep chain behind an inner gateway: that
+  question was settled on 2026-08-10 in favour of keeping it as its own PR, because the deep layer
+  is furnished and sealed (every deep host force-runs sshd and carries a `guest` drawn at
+  `CRACK_CHANCE.guest = 1`, yet deep IPs are absent from `generateHomeLan().hosts`, so the only
+  entrance is `ssh -p <fwd> <inner gateway>` and the gateway holds forwards, not credentials). Slice
+  4 therefore stays narrow and keeps refusing a deep-chain vantage; slice 5 lifts that itself, since
+  it is the slice that makes a deep box standable-on.
 
   - **Cracking reaches other players (D2.4 slices 1-3, v0.119.0 + v0.120.0).**
     `hydra <a stranger's public IP>` sweeps that access point's GATEWAY — a public IP names an AP,

@@ -442,8 +442,10 @@ root session back.
 Grounding corrected the row's own acceptance example: a public IP's **default port reaches the AP
 gateway**, not the owner's workstation, so "cracks A's guest account" needs a NAT-forwarded port and
 hydra has no port argument. The gateway target is the smaller slice *and* the better one (the
-`gateway` knob is 0.40). One open question is recorded there — whether the deep-chain seam (slice 5)
-earns its PR now or re-sites. **D2.6**
+`gateway` knob is 0.40). The one open question there is **settled** (2026-08-10): the deep-chain seam
+(slice 5) keeps its own PR, after slice 4, because the deep layer is furnished and sealed — every
+deep host force-runs sshd with an always-crackable `guest`, and there is no way in game to obtain
+its password. **D2.6**
 (wordlist growth) may collapse into a characterisation test now that both tools read the file rather
 than a constant — confirm before planning it as work. Lower priority: `AvailabilityRule` is declared
 on ten commands and read by nothing — hydra's declaration is now truthful, but the field is still

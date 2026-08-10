@@ -3,8 +3,8 @@
 **Branch**: next slice cuts a fresh branch from `main` (slices 1-2 shipped from
 `feat/crack-a-strangers-box`, slice 3 from `feat/crack-behind-a-nat-forward`)
 **Status**: Active — **slices 1-3 SHIPPED**: 1 and 2 in PR #371 (`9b431d7`, v0.119.0), 3 in PR
-#374 (`8838aaf`, v0.120.0). **Slice 4 is next.** The slice-5 question below is still open, and
-answering it changes how slice 4 is scoped — settle it before planning.
+#374 (`8838aaf`, v0.120.0). **Slice 4 is next**, then slice 5. The slice-5 question is **SETTLED**
+(2026-08-10) — see "Settled: slice 5 stays" below. Slice 4 is scoped narrow because of it.
 
 Two pieces of groundwork landed between slice 2 and slice 3, neither of them product work:
 `api/sessions.ts` collapsed to one spelling per query (#372), so slice 3 adds a call rather than a
@@ -361,9 +361,14 @@ and their trace honestly. It also lifts the last `caller_not_on_lan` refusal, so
 anywhere becomes a place to work from — the natural end of "tools run where you stand".
 
 **Path**: `hydra` on a box the caller holds a session on but which is not on their generated LAN →
-`hydraCrack.ts:263`'s refusal is replaced by a **server-side vantage derivation** in the shape
-`nmapScanDeep` already uses (finding 5) → the trace records the standing box's network, not the
-caller's home.
+the refusal is replaced by a **server-side vantage derivation** in the shape `nmapScanDeep` already
+uses (finding 5) → the trace records the standing box's network, not the caller's home.
+
+The refusal lives in **two** places, not the one this plan first named: `hydraCrack.ts:185` (own-LAN
+target, derives `fromIp` from the standing host) and `hydraCrackPublic.ts:130` (cross-player target,
+same predicate, no address to derive). Both are the same rule — *the server must be able to place
+the box you are standing on* — spelled twice. Slice 4 must lift both or hydra will place a vantage
+for an own-LAN sweep and refuse the identical vantage for a cross-player one.
 
 **Class**: Behaviour change.
 
@@ -377,7 +382,10 @@ caller's home.
 3. A caller naming a machine they hold no session on is still refused (`no_session`) — L1 is
    untouched.
 4. A vantage the server genuinely cannot place still refuses rather than guessing an address. The
-   parent's rule stands: a false origin in a defender's log is worse than a refusal.
+   parent's rule stands: a false origin in a defender's log is worse than a refusal. **A box in the
+   deep chain is deliberately one of those** — it keeps refusing here, and slice 5 lifts it. Placing
+   a deep box means walking the chain, and the slice that makes deep boxes standable-on is the one
+   that should pay for it.
 5. B needs hydra and a wordlist **on A's box** to do any of this — no implicit toolchain.
 
 **RED**: a caller whose `caller_machine_id` is a foreign workstation they hold a session on; assert
@@ -395,6 +403,9 @@ fallback for an unplaceable vantage.
 
 **REFACTOR**: this is where `crossPlayerSourceIp.ts`'s docstring promise comes due — the seam should
 end up resolving a vantage, with its callers unchanged. Verify that claim rather than restating it.
+The two copies of the standing-box predicate are the obvious candidate: one *can the server place
+this box* answer, asked once, is what stops the two handlers drifting the way `ssh` and hydra would
+have without slice 1's resolver.
 
 **Wire-check**: extend `testHydraCrossPlayer.ts` — three parties is the honest test, and
 `testCrossPlayerSuElevate.ts` is the precedent for driving more than two.
@@ -405,9 +416,18 @@ end up resolving a vantage, with its callers unchanged. Verify that claim rather
 
 ### Slice 5: A player cracks a host deep behind their own inner gateway
 
-**Value**: closes the fourth seam, so hydra reaches everywhere `ssh` does. The deep chain is the
-multi-layer payoff D1/5b built, and today a player must already know a deep host's password to use
-it — which is to say they must have been told, which is what this whole epic exists to end.
+**Value**: **the deep layer has no credential door at all, and this is it.** Every deep host is
+`buildRemoteHostFs` + `FORCE_SSHD_PATCH` (`generateDeepLayer.ts:157`), so it always runs sshd and
+always carries a `guest` drawn at `CRACK_CHANCE.guest = 1` — always from the crackable pool. It is
+content built to be entered by a wordlist. But deep IPs are absent from `generateHomeLan().hosts`,
+so no shell can address one; the single entrance is `ssh -p <fwd> <inner gateway>`, and rooting the
+gateway yields the NAT rules — which port reaches which box — not credentials. So today a player
+`nmap`s from a pivot vantage, sees a box with sshd open, and has no way in unless the game hands
+them the password. That is what this epic exists to end.
+
+It also closes the fourth of `ssh`'s four seams, and repairs the asymmetry slice 3 introduced:
+`ssh -p 5544 <inner>` lands on the deep box while `hydra -p 5544 <inner>` attacks the gateway and
+silently drops the flag.
 
 **Path**: `hydra -p <forwarded port> <inner gateway IP>` → the inner-gateway action, mirroring
 `ssh.ts:305`'s `isInnerGateway(host) && port !== runningPort` dispatch → `machineServing` walks the
@@ -424,6 +444,13 @@ forward chain, `canBoot` at each hop → sweep the terminal box → trace on it.
 4. The deep layers stay private: every box on the chain is regenerated from the **caller's own**
    verified key, so this seam never touches the cross-player lookup.
 5. The gateway's own `:22` still attacks the gateway (slice 3's default-port behaviour, unchanged).
+6. **A rooted deep box is a place to attack FROM** — hydra runs there and the trace names that
+   network, not `caller_not_on_lan`. This slice creates the box a player can stand on, so this
+   slice pays for placing it (slice 4 leaves the deep chain refused on purpose). Without it, slice 5
+   ships a box you can root but not work from, which breaks the locked *tools run where you stand*.
+7. hydra's manual stops saying `-p` is only for a public IP, and the own-LAN ignore test
+   (`hydra.test.ts:354`) is replaced rather than deleted — an ordinary sibling still ignores `-p`;
+   an inner gateway no longer does.
 
 **RED**: a seeded forward chain on the caller's own inner gateway to a deep NPC with a crackable
 account; assert hydra cracks it. Fails today — the deep box is not in `generateHomeLan().hosts`.
@@ -442,7 +469,7 @@ single-hop fixture cannot kill.
 **Wire-check**: extend `testInnerGatewayReach.ts` or add a hydra case beside it —
 `testDeepChainReach.ts` is the multi-hop precedent.
 
-**Done when**: all five criteria hold, the wire-check passes, and the human approves the commit.
+**Done when**: all seven criteria hold, the wire-check passes, and the human approves the commit.
 
 ---
 
@@ -461,15 +488,32 @@ Per slice, before asking for a commit:
    supabase. `api/` is not typechecked against the real schema and the wire-checks are not in CI —
    a wrong column name ships green through every other gate.
 
-## Open question for the owner
+## Settled: slice 5 stays (2026-08-10)
 
-**Slice 5 may not be worth its PR yet.** It closes the seam for symmetry, but the deep chain is the
-caller's **own** generated world — no other player is involved, and the boxes down there hold
-nothing a player cannot already reach by rooting the gateway and reading forwards. If the answer is
-"not yet", it re-sites cleanly into the deep-chain work rather than blocking D2.4's close-out; the
-epic's D2.4 row would then read "public seam only" and say why.
+The question was whether slice 5 earned its own PR, on the grounds that the deep chain is the
+caller's own generated world and holds nothing a player cannot already reach by rooting the gateway
+and reading forwards. **Reading the generators answered it: that reasoning is about loot, and the
+problem is access.**
 
-Slices 1-4 are the ones that carry the epic's stated point.
+- Deep hosts are `buildRemoteHostFs` + `FORCE_SSHD_PATCH`, `guest` at `CRACK_CHANCE.guest = 1` —
+  a wordlist target by construction.
+- Deep IPs are not in `generateHomeLan().hosts`, so the only entrance is `ssh -p <fwd> <inner>`,
+  and the gateway holds forwards, not credentials. There is **no** way to obtain a deep host's
+  password in game. The layer is furnished and sealed.
+
+So: **kept, its own PR, after slice 4.** Not re-sited — the `-p` asymmetry that makes it urgent was
+created by D2.4 slice 3, and D2.4 should not close having shipped a rule it intends to revoke.
+
+**How it scopes slice 4** — the coupling runs the opposite way to how this plan first framed it.
+Slice 5 makes a deep box standable-on, and *tools run where you stand* is locked, so somebody must
+walk the chain in the vantage derivation (`pivotVantageForMachineId` places chain **gateways**, not
+deep NPC hosts). That cost belongs to the slice that creates the box: **slice 4 stays narrow** —
+foreign workstation, AP gateway, foreign NPC — and keeps refusing the deep chain explicitly (its
+criterion 4), which slice 5's criterion 6 then lifts.
+
+Slice 5 is also smaller than it reads: `authCreateSessionInnerGateway.ts:176` already walks the
+chain by port through `machineServing`, so GREEN is slice 1's move again — extract the walk, use it
+twice — not new chain machinery.
 
 ---
 *Slice plan. Delete on close-out; fold the as-built into
