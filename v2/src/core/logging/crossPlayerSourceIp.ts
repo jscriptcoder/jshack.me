@@ -26,10 +26,50 @@ export type FindHomeNetworkByOwnerKey = (
   ownerKey: string,
 ) => Promise<{ readonly data: { readonly public_ip: string } | null; readonly error: unknown }>;
 
+/** One network's public address. The ESSID-keyed half of the home lookup above, asked
+ *  directly — because an actor operating from a hop knows which network they are on
+ *  without having to be its owner. */
+export type FindPublicIpByEssid = (
+  essid: string,
+) => Promise<{ readonly data: { readonly public_ip: string } | null; readonly error: unknown }>;
+
 export const resolveCrossPlayerSourceIp = async (
   findHomeNetworkByOwnerKey: FindHomeNetworkByOwnerKey,
   actorKey: string,
 ): Promise<string> => {
   const { data, error } = await findHomeNetworkByOwnerKey(actorKey);
+  return error || data === null ? 'unknown' : data.public_ip;
+};
+
+/**
+ * The address a trace records for an actor, resolved from the network they are
+ * OPERATING on rather than the one they own — the pivot this file's contract has
+ * promised since it was written.
+ *
+ * `standingEssid` is the network of the box the actor holds a session on, taken from
+ * the session row: it is stamped server-side when the hop is made, so it is evidence
+ * rather than a client claim. Deriving it from anything the caller sends would let a
+ * player assert they were standing on somebody else's LAN and write the trace up as
+ * them.
+ *
+ * `null` means there is no session to read — the actor is on their own workstation —
+ * so the network is found from their verified key, which is what every trace did
+ * before pivoting existed.
+ *
+ * Either route degrades to `unknown` rather than guessing. A false origin in a
+ * defender's log is worse than no origin, and the action being traced stands
+ * regardless: a sweep is not failed over a logging detail.
+ */
+export const resolveVantageSourceIp = async (
+  deps: {
+    readonly findHomeNetworkByOwnerKey: FindHomeNetworkByOwnerKey;
+    readonly findPublicIpByEssid: FindPublicIpByEssid;
+  },
+  vantage: { readonly actorKey: string; readonly standingEssid: string | null },
+): Promise<string> => {
+  if (vantage.standingEssid === null) {
+    return resolveCrossPlayerSourceIp(deps.findHomeNetworkByOwnerKey, vantage.actorKey);
+  }
+  const { data, error } = await deps.findPublicIpByEssid(vantage.standingEssid);
   return error || data === null ? 'unknown' : data.public_ip;
 };

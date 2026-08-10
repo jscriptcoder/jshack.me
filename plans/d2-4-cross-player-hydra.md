@@ -3,8 +3,8 @@
 **Branch**: next slice cuts a fresh branch from `main` (slices 1-2 shipped from
 `feat/crack-a-strangers-box`, slice 3 from `feat/crack-behind-a-nat-forward`)
 **Status**: Active — **slices 1-3 SHIPPED**: 1 and 2 in PR #371 (`9b431d7`, v0.119.0), 3 in PR
-#374 (`8838aaf`, v0.120.0). **Slice 4 is next.** The slice-5 question below is still open, and
-answering it changes how slice 4 is scoped — settle it before planning.
+#374 (`8838aaf`, v0.120.0). **Slice 4 is next**, then slice 5. The slice-5 question is **SETTLED**
+(2026-08-10) — see "Settled: slice 5 stays" below. Slice 4 is scoped narrow because of it.
 
 Two pieces of groundwork landed between slice 2 and slice 3, neither of them product work:
 `api/sessions.ts` collapsed to one spelling per query (#372), so slice 3 adds a call rather than a
@@ -361,53 +361,131 @@ and their trace honestly. It also lifts the last `caller_not_on_lan` refusal, so
 anywhere becomes a place to work from — the natural end of "tools run where you stand".
 
 **Path**: `hydra` on a box the caller holds a session on but which is not on their generated LAN →
-`hydraCrack.ts:263`'s refusal is replaced by a **server-side vantage derivation** in the shape
-`nmapScanDeep` already uses (finding 5) → the trace records the standing box's network, not the
-caller's home.
+`hydraCrackPublic.ts:130`'s refusal is **deleted**, and the source IP derives from the session row
+the handler already holds → the trace records the standing box's network, not the caller's home.
+
+#### Grounding, read 2026-08-10 — it corrects two notes this plan made an hour earlier
+
+**6. The vantage is already in the handler, discarded.** `authorizeMachineAccess` returns
+`ActiveSession = { userType, essid }`, and `sessions.essid` is *"the network the target host was
+generated [from]"* (`20260611000000_sessions_essid.sql`). Every session creator stamps the right
+one: `authCreateSessionPublic.ts:179` stores `target.essid` (the FOREIGN network),
+`authCreateSession`/`SameLan`/`InnerGateway` store the caller's own. `hydraCrackPublic.ts:114-121`
+fetches that row and reads only `.ok`.
+
+So the derivation is not new machinery — it is `access.session.essid` → `network_public_ips`, and
+that lookup already exists inline as the tail of `findHomeNetworkByOwnerKeyVia`
+(`api/sessions.ts:208-215`, owner_key → essid → public_ip). Slice 4 splits the second half out and
+calls it with a different essid.
+
+**The refusal is therefore a mechanism to REMOVE, not replace.** It stands in for a lookup the
+handler could already do. Two branches remain: `access.session === null` (own workstation, the
+`isOwnWorkstation` bypass) keeps today's owner-key lookup; anything else uses the session's essid.
+
+**The essid must come from the SESSION, never `payload.essid`.** If placement and the address both
+derived from a claimed essid, a player could assert "I am standing on A's LAN" and write a trace
+blaming A. `findActiveSession` requires a real `(player_key, machine_id)` row, so the session essid
+is unforgeable — that is the whole defence, and it is already there.
+
+**7. A deep-chain box is placed for free — correcting this plan's own note.**
+`authCreateSessionInnerGateway.ts:376` records `essid: payload.essid`, the caller's OWN network,
+which is the truthful origin for a box behind their own gateway. So the session-essid derivation
+places it with no chain walk. Slice 4's criterion 4 no longer holds anything back, and slice 5's
+criterion 6 becomes a confirmation rather than work. `pivotVantageForMachineId` is not needed here.
+
+**8. `hydraCrack.ts:185` is a DIFFERENT rule — also correcting an earlier note here.** It derives
+`standing.ip`, a LAN address, and the client sends the PLAYER's own essid even inside a remote
+session (`ui/env.ts`'s `networkView` reads the player's connectivity — the trap D2.3 recorded). So
+standing on A's gateway, `hydra 192.168.1.7` is genuinely ambiguous: the server cannot tell which
+LAN that names. That refusal is honest and **stays**. Lifting it is "sweep the LAN you are standing
+on", which needs the session essid to become the RESOLUTION WORLD rather than just the trace
+address — a separate behaviour, and a separate slice.
 
 **Class**: Behaviour change.
 
 **Required implementation skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
 
 **Acceptance criteria** (confirm before any code):
-1. B, standing on A's box with a live session, sweeps C — and C's `auth.log` names **A's** network,
-   never B's.
-2. B standing on their own LAN is unchanged: their home public IP for a cross-player target, the
-   standing box's LAN IP for an own-LAN target (v0.114.0 + v0.118.0 both preserved).
-3. A caller naming a machine they hold no session on is still refused (`no_session`) — L1 is
-   untouched.
-4. A vantage the server genuinely cannot place still refuses rather than guessing an address. The
-   parent's rule stands: a false origin in a defender's log is worse than a refusal.
-5. B needs hydra and a wordlist **on A's box** to do any of this — no implicit toolchain.
+1. B, standing on a box on **A's** network with a live session, sweeps C — and C's `auth.log` names
+   **A's** public IP, never B's. This is the pivot: the trace points at the box that was used, which
+   is what makes rooting one worth doing.
+2. B standing on their **own workstation** is unchanged — their home public IP, by today's
+   owner-key lookup (v0.114.0 preserved). This is the branch where there is no session to read.
+3. B standing on an NPC box on their **own LAN** also reports their home public IP — the same answer
+   as today, now reached by the new route, because that session's essid IS their home essid.
+4. A caller naming a machine they hold **no session on** is still refused `no_session`. L1 is
+   untouched, and it is the only thing standing between a claimed vantage and a forged trace.
+5. A network with **no allocated public IP** degrades to `unknown` rather than guessing an address
+   or failing the sweep. The parent's rule stands: a false origin in a defender's log is worse than
+   no origin.
+6. A **deep-chain box** reports the caller's own public IP — free, per finding 7, and asserted here
+   so slice 5 inherits it proven rather than re-deriving it.
+7. The **own-LAN handler is untouched**: `hydraCrack`'s `caller_not_on_lan` still fires, and a
+   same-LAN trace still carries the standing host's LAN IP (v0.118.0 preserved). Finding 8 is why.
+8. B needs hydra and a wordlist **on A's box** to do any of this — no implicit toolchain.
 
-**RED**: a caller whose `caller_machine_id` is a foreign workstation they hold a session on; assert
-the sweep runs and the trace carries that network's public IP. Fails today with
-`caller_not_on_lan`.
+**RED**: a caller whose `caller_machine_id` is a box on a FOREIGN network, with an active session
+whose essid is that network; assert the trace's source IP is that network's public IP. Fails today
+at `hydraCrackPublic.ts:130` with a 403 `caller_not_on_lan` — the sweep never runs.
 
-**GREEN**: derive the vantage's network server-side from the machine id; keep the refusal as the
-fallback for an unplaceable vantage.
+**GREEN**: delete the `onOwnLan` predicate; derive the address from `access.session`, falling back
+to the owner-key lookup when it is `null` (the own-workstation bypass).
 
-**MUTATE**: Stryker over the derivation. The `'unknown'` degradation path in
-`resolveCrossPlayerSourceIp` is the mutant to watch — it is a plausible-looking survivor that means
-"every trace is anonymous".
+**MUTATE**: Stryker over the derivation and its branch.
 
-**KILL MUTANTS**: assert the degraded case explicitly rather than letting it be the untested arm.
+Two survivors to expect, and the second is the interesting one:
 
-**REFACTOR**: this is where `crossPlayerSourceIp.ts`'s docstring promise comes due — the seam should
-end up resolving a vantage, with its callers unchanged. Verify that claim rather than restating it.
+- the `'unknown'` degradation — a plausible-looking survivor that means "every trace is anonymous";
+- **a branch swap.** The two branches return the SAME value in any fixture where the standing box is
+  on the caller's own network, so a mutant that reads the session essid for the own-workstation case
+  (or the owner key for the pivot case) survives every test that does not use a genuinely foreign
+  network with a DIFFERENT public IP. The fixture, not the assertion, is what kills this one.
+
+**KILL MUTANTS**: assert the degraded case explicitly rather than letting it be the untested arm,
+and keep A's and B's public IPs distinct in every pivot fixture.
+
+**REFACTOR**: this is where `crossPlayerSourceIp.ts`'s docstring promise comes due, and it reads as
+if written for this slice: *"when the pivot feature ships, only this seam changes to resolve the hop
+they operate from, masking their real IP with no caller rework."* The seam becomes **essid-first** —
+an address for a network — with the owner-key lookup as the branch that answers "which network is
+home". Verify the "no caller rework" claim rather than restating it: `resolvePublicScan` and
+`authCreateSessionPublic` are the other two callers and neither should have to change.
 
 **Wire-check**: extend `testHydraCrossPlayer.ts` — three parties is the honest test, and
-`testCrossPlayerSuElevate.ts` is the precedent for driving more than two.
+`testCrossPlayerSuElevate.ts` is the precedent for driving more than two. **Mandatory here**:
+`api/sessions.ts` grows a query (essid → public IP, split out of `findHomeNetworkByOwnerKeyVia`),
+and `api/` is not typechecked against the real schema.
 
-**Done when**: all five criteria hold, the wire-check passes, and the human approves the commit.
+**Follow-up this slice creates — `ssh` and `nmap` do not pivot yet.** `authCreateSessionPublic.ts:159`
+and `resolvePublicScan.ts:277` both call `resolveCrossPlayerSourceIp` with the actor's key, and
+neither endpoint carries a `caller_machine_id` — they have no concept of where the caller is
+standing, so they cannot derive a vantage even in principle. After this slice, hydra launched from
+A's box traces to A while `ssh` and `nmap` from that same shell still trace to the attacker's home.
+
+That is a tools-disagree seam of the kind this epic exists to close, and it is NOT in slice 4's
+confirmed criteria. Its own slice: add `caller_machine_id` to both signed envelopes, pass the
+standing essid, and the seam needs no further change — `resolveVantageSourceIp` is already shaped
+for it. Note the client half is the real work (`ssh.ts` and `nmap.ts` must name the box they run
+from, as `hydra.ts` already does).
+
+**Done when**: all eight criteria hold, the wire-check passes, and the human approves the commit.
 
 ---
 
 ### Slice 5: A player cracks a host deep behind their own inner gateway
 
-**Value**: closes the fourth seam, so hydra reaches everywhere `ssh` does. The deep chain is the
-multi-layer payoff D1/5b built, and today a player must already know a deep host's password to use
-it — which is to say they must have been told, which is what this whole epic exists to end.
+**Value**: **the deep layer has no credential door at all, and this is it.** Every deep host is
+`buildRemoteHostFs` + `FORCE_SSHD_PATCH` (`generateDeepLayer.ts:157`), so it always runs sshd and
+always carries a `guest` drawn at `CRACK_CHANCE.guest = 1` — always from the crackable pool. It is
+content built to be entered by a wordlist. But deep IPs are absent from `generateHomeLan().hosts`,
+so no shell can address one; the single entrance is `ssh -p <fwd> <inner gateway>`, and rooting the
+gateway yields the NAT rules — which port reaches which box — not credentials. So today a player
+`nmap`s from a pivot vantage, sees a box with sshd open, and has no way in unless the game hands
+them the password. That is what this epic exists to end.
+
+It also closes the fourth of `ssh`'s four seams, and repairs the asymmetry slice 3 introduced:
+`ssh -p 5544 <inner>` lands on the deep box while `hydra -p 5544 <inner>` attacks the gateway and
+silently drops the flag.
 
 **Path**: `hydra -p <forwarded port> <inner gateway IP>` → the inner-gateway action, mirroring
 `ssh.ts:305`'s `isInnerGateway(host) && port !== runningPort` dispatch → `machineServing` walks the
@@ -424,6 +502,14 @@ forward chain, `canBoot` at each hop → sweep the terminal box → trace on it.
 4. The deep layers stay private: every box on the chain is regenerated from the **caller's own**
    verified key, so this seam never touches the cross-player lookup.
 5. The gateway's own `:22` still attacks the gateway (slice 3's default-port behaviour, unchanged).
+6. **A rooted deep box is a place to attack FROM** — hydra runs there and the trace names the
+   caller's own public IP, honouring the locked *tools run where you stand*. Slice 4's finding 7
+   says this arrives free: a deep session records the caller's own essid, so slice 4's derivation
+   places it with no chain walk. Slice 4 asserts it (its criterion 6); this slice only has to not
+   break it, once there is a real way to root a deep box.
+7. hydra's manual stops saying `-p` is only for a public IP, and the own-LAN ignore test
+   (`hydra.test.ts:354`) is replaced rather than deleted — an ordinary sibling still ignores `-p`;
+   an inner gateway no longer does.
 
 **RED**: a seeded forward chain on the caller's own inner gateway to a deep NPC with a crackable
 account; assert hydra cracks it. Fails today — the deep box is not in `generateHomeLan().hosts`.
@@ -442,7 +528,7 @@ single-hop fixture cannot kill.
 **Wire-check**: extend `testInnerGatewayReach.ts` or add a hydra case beside it —
 `testDeepChainReach.ts` is the multi-hop precedent.
 
-**Done when**: all five criteria hold, the wire-check passes, and the human approves the commit.
+**Done when**: all seven criteria hold, the wire-check passes, and the human approves the commit.
 
 ---
 
@@ -461,15 +547,36 @@ Per slice, before asking for a commit:
    supabase. `api/` is not typechecked against the real schema and the wire-checks are not in CI —
    a wrong column name ships green through every other gate.
 
-## Open question for the owner
+## Settled: slice 5 stays (2026-08-10)
 
-**Slice 5 may not be worth its PR yet.** It closes the seam for symmetry, but the deep chain is the
-caller's **own** generated world — no other player is involved, and the boxes down there hold
-nothing a player cannot already reach by rooting the gateway and reading forwards. If the answer is
-"not yet", it re-sites cleanly into the deep-chain work rather than blocking D2.4's close-out; the
-epic's D2.4 row would then read "public seam only" and say why.
+The question was whether slice 5 earned its own PR, on the grounds that the deep chain is the
+caller's own generated world and holds nothing a player cannot already reach by rooting the gateway
+and reading forwards. **Reading the generators answered it: that reasoning is about loot, and the
+problem is access.**
 
-Slices 1-4 are the ones that carry the epic's stated point.
+- Deep hosts are `buildRemoteHostFs` + `FORCE_SSHD_PATCH`, `guest` at `CRACK_CHANCE.guest = 1` —
+  a wordlist target by construction.
+- Deep IPs are not in `generateHomeLan().hosts`, so the only entrance is `ssh -p <fwd> <inner>`,
+  and the gateway holds forwards, not credentials. There is **no** way to obtain a deep host's
+  password in game. The layer is furnished and sealed.
+
+So: **kept, its own PR, after slice 4.** Not re-sited — the `-p` asymmetry that makes it urgent was
+created by D2.4 slice 3, and D2.4 should not close having shipped a rule it intends to revoke.
+
+**How it scopes slice 4 — corrected the same day, after grounding.** The first answer here was that
+slice 5 makes a deep box standable-on, so slice 4 should stay narrow and keep refusing a deep-chain
+vantage, leaving slice 5 to walk the chain. **That was wrong**, and slice 4's finding 7 says why: a
+deep session records the caller's own essid, so deriving the address from the session row places a
+deep box with no chain walk at all. `pivotVantageForMachineId` never enters it. Slice 4 asserts the
+deep case and slice 5 inherits it.
+
+What survives the correction is the decision itself — slice 5 keeps its PR — and one real scope
+line: `hydraCrack.ts`'s own-LAN refusal is a different rule (slice 4's finding 8) and belongs to
+neither slice.
+
+Slice 5 is also smaller than it reads: `authCreateSessionInnerGateway.ts:176` already walks the
+chain by port through `machineServing`, so GREEN is slice 1's move again — extract the walk, use it
+twice — not new chain machinery.
 
 ---
 *Slice plan. Delete on close-out; fold the as-built into

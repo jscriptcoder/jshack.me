@@ -57,6 +57,21 @@ const ATTACKER_MACHINE = computeWorkstationId('skylab', ATTACKER.publicKeyHex);
 // key. Server-derived; NEVER the client-supplied address.
 const ATTACKER_PUBLIC_IP = '198.51.100.22';
 
+// A THIRD network — the one the attacker pivots through. A box on it is a box they
+// hold a session on but do not own, and it bears an address of its own. Distinct from
+// the attacker's home address on purpose: an origin derivation that read the wrong one
+// of the two would be invisible if they matched.
+const PIVOT_ESSID = 'MAGNOLIA-BLOSSOM';
+const PIVOT_PUBLIC_IP = '192.0.2.55';
+const PIVOT_BOX = 'workstation-a1b2c3d4';
+
+// Which network bears which public IP, as the server resolves it. A network nobody has
+// ever been allocated an address for is simply absent.
+const PUBLIC_IP_BY_ESSID: Readonly<Record<string, string>> = {
+  [HOME_ESSID]: ATTACKER_PUBLIC_IP,
+  [PIVOT_ESSID]: PIVOT_PUBLIC_IP,
+};
+
 // The stranger's access point: a different ESSID, reached only by its public IP.
 const TARGET_IP = '203.0.113.7';
 const TARGET_ESSID = 'PIED-PIPER-GUEST';
@@ -198,6 +213,10 @@ const depsWith = (over: DepOverrides = {}): HydraCrackPublicDeps => {
       data: { public_ip: ATTACKER_PUBLIC_IP },
       error: null,
     }),
+    findPublicIpByEssid: async (essid: string) => {
+      const publicIp = PUBLIC_IP_BY_ESSID[essid];
+      return { data: publicIp === undefined ? null : { public_ip: publicIp }, error: null };
+    },
     readAuthLog: async (): Promise<MachineLogReadResult> => ({ data: null, error: null }),
     upsertPatch: async () => ({ error: null }),
     ...rest,
@@ -214,19 +233,24 @@ const envelope = (over: Record<string, unknown> = {}) =>
   });
 
 /** The line a target's own log records for one attempt, carrying ITS hostname. The
- *  source address is the attacker's home public IP either way — server-derived. */
-const traceLineOn = (hostname: string) => (outcome: 'success' | 'failure', user: string) =>
-  formatSshdAuthLine({
-    outcome,
-    user,
-    fromIp: ATTACKER_PUBLIC_IP,
-    hostname,
-    time: asGameTime(FIXED_NOW),
-    pid: derivePid(FIXED_NOW),
-  });
+ *  source address is always SERVER-derived: the attacker's own public IP while they
+ *  are standing on their own network, and the address of the network they are standing
+ *  on when they have pivoted onto somebody else's box. */
+const traceLineOn =
+  (hostname: string, fromIp: string = ATTACKER_PUBLIC_IP) =>
+  (outcome: 'success' | 'failure', user: string) =>
+    formatSshdAuthLine({
+      outcome,
+      user,
+      fromIp,
+      hostname,
+      time: asGameTime(FIXED_NOW),
+      pid: derivePid(FIXED_NOW),
+    });
 
 const traceLine = traceLineOn(GATEWAY_HOSTNAME);
 const residentTraceLine = traceLineOn(RESIDENT_HOSTNAME);
+const pivotedTraceLine = traceLineOn(GATEWAY_HOSTNAME, PIVOT_PUBLIC_IP);
 
 describe('handleHydraCrackPublic', () => {
   it('cracks the gateway behind a stranger public IP when its admin password is in the wordlist', async () => {
@@ -335,10 +359,19 @@ describe('handleHydraCrackPublic', () => {
   });
 
   it('lets a player attack from a box on their own LAN, since it leaves by their own address', async () => {
+    // Reached by the same route as the pivot — the session names the network, and here
+    // that network is home — so the answer is the address it always was.
     const standing = ownLanHost();
+    const upsertPatch = vi.fn(async () => ({ error: null }));
     const { status, body } = await handleHydraCrackPublic(
       envelope({ caller_machine_id: machineIdForLanHost(standing, HOME_ESSID) }),
-      depsWith({ findActiveSession: async () => ({ data: { userType: 'root', essid: HOME_ESSID }, error: null }) }),
+      depsWith({
+        findActiveSession: async () => ({
+          data: { userType: 'root', essid: HOME_ESSID },
+          error: null,
+        }),
+        upsertPatch,
+      }),
     );
 
     expect(status).toBe(200);
@@ -347,20 +380,103 @@ describe('handleHydraCrackPublic', () => {
       cracked: [{ username: 'root', password: ADMIN_PW }],
       wordlistFound: true,
     });
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({ content: `${traceLine('success', 'root')}\n` }),
+    );
   });
 
-  it('refuses a caller standing somewhere it cannot place on their own network', async () => {
+  it('traces a sweep from a box deep behind the player’s own gateway to their own address', async () => {
+    // A deep box is not on the generated LAN and never was placeable by address, but
+    // its session carries the caller's own essid — it sits behind their own gateway, so
+    // its traffic leaves by their own public IP. Nothing here walks the chain.
     const upsertPatch = vi.fn(async () => ({ error: null }));
-    const { status, body } = await handleHydraCrackPublic(
-      envelope({ caller_machine_id: 'workstation-somebody-else' }),
+    const { status } = await handleHydraCrackPublic(
+      envelope({ caller_machine_id: 'host-deep-9f8e7d6c' }),
       depsWith({
-        findActiveSession: async () => ({ data: { userType: 'guest', essid: 'ELSEWHERE' }, error: null }),
+        findActiveSession: async () => ({
+          data: { userType: 'root', essid: HOME_ESSID },
+          error: null,
+        }),
         upsertPatch,
       }),
     );
 
-    expect({ status, body }).toEqual({ status: 403, body: { error: 'caller_not_on_lan' } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(status).toBe(200);
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({ content: `${traceLine('success', 'root')}\n` }),
+    );
+  });
+
+  it('records an unplaceable network as unknown rather than guessing, and still sweeps', async () => {
+    // A network nobody has ever been allocated an address for. The sweep is not failed
+    // over a logging detail, and no address is invented for the defender to chase.
+    const upsertPatch = vi.fn(async () => ({ error: null }));
+    const { status, body } = await handleHydraCrackPublic(
+      envelope({ caller_machine_id: PIVOT_BOX }),
+      depsWith({
+        findActiveSession: async () => ({
+          data: { userType: 'root', essid: 'NEVER-ALLOCATED' },
+          error: null,
+        }),
+        upsertPatch,
+      }),
+    );
+
+    expect(status).toBe(200);
+    expect(body).toEqual({
+      port: 22,
+      cracked: [{ username: 'root', password: ADMIN_PW }],
+      wordlistFound: true,
+    });
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: `${traceLineOn(GATEWAY_HOSTNAME, 'unknown')('success', 'root')}\n`,
+      }),
+    );
+  });
+
+  it('reads the wordlist from the box being stood on, not the player’s own', async () => {
+    // Tools run where you stand, and so does the ammunition. Pivoting onto somebody
+    // else's box means using whatever wordlist is on it.
+    const listPathPatches = vi.fn(async (): Promise<ListPathPatchesResult> => ({
+      data: [wordlistRow([ADMIN_PW])],
+      error: null,
+    }));
+    await handleHydraCrackPublic(
+      envelope({ caller_machine_id: PIVOT_BOX }),
+      depsWith({
+        findActiveSession: async () => ({
+          data: { userType: 'root', essid: PIVOT_ESSID },
+          error: null,
+        }),
+        listPathPatches,
+      }),
+    );
+
+    expect(listPathPatches).toHaveBeenCalledWith({ machine_id: PIVOT_BOX, path: WORDLIST_PATH });
+  });
+
+  it('traces a sweep launched from somebody else’s box to THAT box’s network', async () => {
+    // The pivot. The attacker holds a session on a box that lives on a third party's
+    // network, so what the target's log records is THAT network's address — the box
+    // that was actually used. Their own address never appears, which is the whole
+    // reason rooting somebody else's box is worth the trouble.
+    const upsertPatch = vi.fn(async () => ({ error: null }));
+    const { status } = await handleHydraCrackPublic(
+      envelope({ caller_machine_id: PIVOT_BOX }),
+      depsWith({
+        findActiveSession: async () => ({
+          data: { userType: 'root', essid: PIVOT_ESSID },
+          error: null,
+        }),
+        upsertPatch,
+      }),
+    );
+
+    expect(status).toBe(200);
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({ content: `${pivotedTraceLine('success', 'root')}\n` }),
+    );
   });
 
   it('refuses a caller holding no session on the machine they name', async () => {

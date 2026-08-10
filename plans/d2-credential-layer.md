@@ -499,6 +499,19 @@ Still carried over:
   `resolveCrossPlayerSourceIp` as-is, which is correct while the player stands on their own LAN —
   everything there leaves by their home public IP. Standing on a FOREIGN box it would be a false
   trace, so that is refused (`caller_not_on_lan`) until slice 4 derives the vantage properly.
+  Grounding found the derivation already sitting in the handler: `authorizeMachineAccess` returns
+  the active session's `essid` — the network the standing box was generated from, stamped
+  server-side at hop time — and `hydraCrackPublic` reads only `.ok` from it. So the refusal is a
+  stand-in for a lookup, and slice 4 **removes** it rather than replacing it. A deep-chain box is
+  placed for free by the same route (its session carries the caller's own essid).
+- ✅ **Slice 5 stays, its own PR, after slice 4** — settled 2026-08-10. The deep layer is furnished
+  and sealed: every deep host force-runs sshd and carries a `guest` drawn at `CRACK_CHANCE.guest =
+  1`, yet deep IPs are absent from `generateHomeLan().hosts`, so the only entrance is
+  `ssh -p <fwd> <inner gateway>` and the gateway holds forwards, not credentials. There is no way in
+  game to obtain a deep host's password. The earlier "nothing down there a player cannot already
+  reach" reasoning was about loot; the problem is access, and it is total. (A first answer here also
+  had slice 5 paying for the deep-chain vantage. Corrected the same day: slice 4's session-essid
+  derivation places a deep box for free, so slice 5 inherits it.)
 - **The shared-wordlist RULE already reaches players' boxes; the standing check does not.** The
   read is machine-scoped and ownership-blind already (see the locked decision above), so D2.4 owes
   no wordlist work — only the `caller_not_on_lan` refusal, which is the same line that must derive

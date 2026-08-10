@@ -177,11 +177,29 @@ const findNetworkByPublicIpVia =
     return { data: resolved, error: null };
   };
 
+/** One network's public address, by ESSID. The address belongs to the AP and is shared
+ *  by every occupant, so this answers "what does traffic from that network look like
+ *  from outside" without asking who owns it — which is what a trace needs when the actor
+ *  is operating from a box they do not own. An ESSID nobody has been allocated an
+ *  address for resolves to `null` without being an error. */
+const findPublicIpByEssidVia =
+  ({ supabase, label }: QuerySpec) =>
+  async (essid: string) => {
+    const { data, error } = await supabase
+      .from('network_public_ips')
+      .select('public_ip')
+      .eq('essid', essid)
+      .maybeSingle();
+    logFailure(label, error);
+    return { data: data as { public_ip: string } | null, error };
+  };
+
 /** The caller's own home public IP — the truthful source address for a trace they leave
- *  elsewhere, server-derived from their verified owner key and never the client's claimed
- *  `source_ip`. One player may carry rows for several APs they have joined; the
- *  most-recently-updated is their current network ("one network at a time"). `owner_key`
- *  is not the PK, hence the order+limit. Two reads, so two labels. */
+ *  from their own workstation, server-derived from their verified owner key and never the
+ *  client's claimed `source_ip`. One player may carry rows for several APs they have
+ *  joined; the most-recently-updated is their current network ("one network at a time").
+ *  `owner_key` is not the PK, hence the order+limit. Two reads, so two labels: the
+ *  occupancy that names their network, then the same ESSID lookup above. */
 const findHomeNetworkByOwnerKeyVia =
   ({
     supabase,
@@ -206,13 +224,7 @@ const findHomeNetworkByOwnerKeyVia =
     }
     const essid = (occupancy.data as { essid: string } | null)?.essid ?? null;
     if (essid === null) return { data: null, error: null };
-    const { data, error } = await supabase
-      .from('network_public_ips')
-      .select('public_ip')
-      .eq('essid', essid)
-      .maybeSingle();
-    logFailure(lookupLabel, error);
-    return { data: data as { public_ip: string } | null, error };
+    return findPublicIpByEssidVia({ supabase, label: lookupLabel })(essid);
   };
 
 /** Every occupant currently ON an ESSID, with the identity fields that rebuild each box
@@ -473,8 +485,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // and routes by destination port, which is the same resolution `ssh` authenticates
     // through — so a password this reports is one `ssh` then accepts. No session is
     // created. The one WRITE is the trace, and it lands on whichever box was reached,
-    // under the key that owns THAT machine's logs, at the attacker's server-derived
-    // home address rather than anything the client claimed.
+    // under the key that owns THAT machine's logs, at the server-derived address of the
+    // network the caller is STANDING on rather than anything the client claimed.
     const { status, body } = await handleHydraCrackPublic(req.body, {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
@@ -494,6 +506,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         supabase,
         occupancyLabel: 'hydra public source-ip occupancy',
         lookupLabel: 'hydra public source-ip lookup',
+      }),
+      findPublicIpByEssid: findPublicIpByEssidVia({
+        supabase,
+        label: 'hydra public vantage-ip lookup',
       }),
       readAuthLog: readAuthLogVia({ supabase, label: 'hydra public auth-log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'hydra public auth-log upsert' }),
