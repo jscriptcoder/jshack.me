@@ -470,20 +470,28 @@ line that run produced is the whole feature in one string — signed on a workst
 
 ## Next step
 
-**D2.4 is HALF SHIPPED; D2.6 remains.** Slices 1 and 2 of
+**D2.4 slices 1-3 SHIPPED; slices 4-5 and D2.6 remain.** Slices 1-2 of
 [`d2-4-cross-player-hydra.md`](./d2-4-cross-player-hydra.md) landed 2026-08-09 (v0.119.0, #371
-`9b431d7`) — read its grounding before touching the row above, which its finding 1 corrects.
+`9b431d7`); slice 3 on 2026-08-10 (v0.120.0, #374 `8838aaf`) — read its grounding before touching
+the row above, which its finding 1 corrects.
 
 **What shipped**: one shared resolver (`core/network/resolvePublicTarget`) decides what a public IP
 and port reach, so `ssh` and `hydra` cannot disagree about a cross-player target by construction;
-and `hydra <a stranger's public IP>` sweeps the access point's gateway. The sweep-and-trace rule
-moved to `core/wordlist/passwordSweep`, shared by both hydra paths, because a second copy of "an
-account falls iff its password is a word in the file" would become a second difficulty curve.
+`hydra <a stranger's public IP>` sweeps the access point's gateway; and `hydra -p <forwarded port>`
+reaches the OCCUPANT behind a NAT forward — the row's real acceptance example. The sweep-and-trace
+rule moved to `core/wordlist/passwordSweep`, shared by both hydra paths, because a second copy of
+"an account falls iff its password is a word in the file" would become a second difficulty curve.
 
 **What that settled**: a public IP's DEFAULT port reaches the AP GATEWAY, not the owner's
 workstation (`machineServing` routes by port before any occupancy work). The split's row said
-"cracks A's guest account"; that needs a NAT-forwarded port, and hydra has no port argument yet.
-Slice 3.
+"cracks A's guest account"; that needed a NAT-forwarded port, which slice 3 delivered — and with it
+the rule that behind a public IP the PORT is the address, so a service must be matched against what
+that port actually reaches and a result must report the port the caller named. Both directions were
+live defects; the as-built is in
+[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §1.
+
+**The row above is now fully delivered**: a player's guest account falls to a cross-player crack,
+their chosen root password does not.
 
 Still carried over:
 

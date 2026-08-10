@@ -193,29 +193,41 @@ decisions. The ship gate is legacy parity **minus missions**; missions are a pos
     forward loops — `e2e-shared-network-verification.md` §7.
 
 - **D2 (the credential layer) 🔨 IN PROGRESS — D2.1 ✅ (v0.111.0), D2.2 ✅ (v0.113.0), D2.3 ✅
-  (v0.114.0), D2.5 ✅ (v0.115.0), both follow-ups ✅ (v0.116.0, v0.118.0), and **D2.4 slices 1-2 ✅**
-  (v0.119.0). D2.4 slices 3-5 and D2.6 (wordlist growth) remain.** Split into six candidates in
-  `plans/d2-credential-layer.md` — **read its top block for live status**; every shipped slice's
-  own plan file is deleted and its as-built lives there (D2.4's plan is still live —
+  (v0.114.0), D2.5 ✅ (v0.115.0), both follow-ups ✅ (v0.116.0, v0.118.0), and **D2.4 slices 1-3 ✅**
+  (v0.119.0, v0.120.0). D2.4 slices 4-5 and D2.6 (wordlist growth) remain.** Split into six
+  candidates in `plans/d2-credential-layer.md` — **read its top block for live status**; every
+  shipped slice's own plan file is deleted and its as-built lives there (D2.4's plan is still live —
   `plans/d2-4-cross-player-hydra.md`). PRs #351, #352, #354, #356, #357, #358, #359, #362, #370,
-  #371, #372, #373.
+  #371, #372, #373, #374.
 
-  **Next up: D2.4 slice 3** — `hydra -p <forwarded port> <public IP>` reaching the occupant behind
-  a stranger's NAT forward. Nothing blocks it. The two pieces of groundwork it was waiting on both
-  landed: `api/sessions.ts` was collapsed to one spelling per query (#372) so slice 3 adds a call
-  rather than a tenth copy of each builder, and the wire-check fixture defect that made the forward
-  path *look* broken was fixed (#373) — all 32 wire-checks are green.
+  **Next up: D2.4 slice 4** — the pivot: an attack launched from a box the player only holds a
+  session on is traced to THAT network, not their home. It replaces the `caller_not_on_lan` refusal
+  in `hydraCrackPublic` with a server-side vantage derivation. The plan still carries one open owner
+  question — whether slice 5 (the deep chain behind an inner gateway) earns its own PR — and that
+  answer changes how slice 4 is scoped, so settle it first.
 
-  - **Cracking reaches other players (D2.4 slices 1-2, v0.119.0).** `hydra <a stranger's public IP>`
-    sweeps that access point's GATEWAY — a public IP names an AP, and `machineServing` routes by
-    destination port before any occupancy work, so the default port is the gateway's own sshd rather
-    than any player's workstation. Reaching a player's box needs a NAT-forwarded port and a `-p`
-    argument hydra does not have yet.
+  - **Cracking reaches other players (D2.4 slices 1-3, v0.119.0 + v0.120.0).**
+    `hydra <a stranger's public IP>` sweeps that access point's GATEWAY — a public IP names an AP,
+    and `machineServing` routes by destination port before any occupancy work, so the default port
+    is the gateway's own sshd rather than any player's workstation. `hydra -p <forwarded port>`
+    reaches the OCCUPANT behind a NAT forward: the person, not their gateway. Their guest account
+    falls (crackable pool, 1.00); their chosen root password does not, and their own login has no
+    password at all — `md5(x)` is never the empty hash, so it is unreachable too.
   - **One resolver decides what a public IP and port reach** —
     `core/network/resolvePublicTarget.ts`, called by BOTH `authCreateSessionPublic` and
     `hydraCrackPublic`. "hydra must never disagree with `ssh`" is now structural rather than a
     discipline; the wire-check proves it by posting hydra's cracked password straight to the ssh
     action and getting a root session back.
+  - **Behind a public IP the PORT is the address, and two rules follow from it** (v0.120.0, #374).
+    `PublicTarget.reachedPort` is the port ON THE TARGET that a destination port actually reaches —
+    the gateway's own listening port, or the far side of a NAT forward. (1) A caller naming a
+    service must match it against `reachedPort`, never against "any port this box has open", or a
+    forward to sshd becomes a door to every daemon on the machine — and `ssh` on that port would
+    have met the other daemon and refused, so hydra would report a credential `ssh` rejects. (2) A
+    result must report the port the CALLER named, not `reachedPort`: through a forward the far side
+    is typically `:22`, and `:22` on that public IP is the GATEWAY, a different machine. Reporting
+    the internal port names a target the player never attacked. Both were live defects found by
+    reading the path before writing the test.
   - **A cross-player trace is written under the TARGET's log-writer key, and its source IP is
     server-derived.** On your own LAN hydra matches `ssh` and trusts the client's address (the
     occupant is an NPC; nobody to frame). Across the network the log is the defender's only

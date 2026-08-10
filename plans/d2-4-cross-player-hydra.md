@@ -1,9 +1,10 @@
 # Plan: a player cracks a stranger's box across the network
 
-**Branch**: `feat/crack-behind-a-nat-forward` (slice 3; slices 1-2 shipped from
-`feat/crack-a-strangers-box`)
-**Status**: Active — **slices 1 and 2 SHIPPED** in PR #371 (`9b431d7`, v0.119.0). **Slice 3 is
-in progress.** Slices 4-5 remain after it, and the slice-5 question below is still open.
+**Branch**: next slice cuts a fresh branch from `main` (slices 1-2 shipped from
+`feat/crack-a-strangers-box`, slice 3 from `feat/crack-behind-a-nat-forward`)
+**Status**: Active — **slices 1-3 SHIPPED**: 1 and 2 in PR #371 (`9b431d7`, v0.119.0), 3 in PR
+#374 (`8838aaf`, v0.120.0). **Slice 4 is next.** The slice-5 question below is still open, and
+answering it changes how slice 4 is scoped — settle it before planning.
 
 Two pieces of groundwork landed between slice 2 and slice 3, neither of them product work:
 `api/sessions.ts` collapsed to one spelling per query (#372), so slice 3 adds a call rather than a
@@ -259,20 +260,38 @@ derivation, so decide on evidence, not on symmetry.
 
 ---
 
-### Slice 3: A player cracks the box behind a stranger's NAT forward
+### Slice 3: A player cracks the box behind a stranger's NAT forward — ✅ SHIPPED (#374, v0.120.0)
 
-> **Groundwork done — start here.** Two things were cleared first, and both change how this slice
-> is written:
+> **As built.** The mechanism was smaller than planned — `resolvePublicTarget` already routed
+> forwards, checked the lease, the boot gate and the internal port, so the new code was `-p` parsing
+> plus threading a port through four layers. What was NOT planned is the two defects grounding
+> turned up, both of which shipped as fixes here:
 >
-> 1. **`api/sessions.ts` is collapsed** (#372, `1b2626d`). Its supabase deps are ten module-scope
->    factories, so this slice's new seam calls `findPatchesVia({ supabase, label })` and friends —
->    it must NOT paste a fresh query. Adding a tenth inline copy is the exact thing that reduction
->    removed.
-> 2. **The NAT-forward path was never broken** (#373, `1b5ea4f`). `testRouterBrick` and
->    `testCrossPlayerRouter` had been red in a way that read like a forward regression —
->    `resolvePublicScan` returning `{found:false, ports:[]}`, the forwarded login 404ing. The cause
->    was a wire-check fixture that silently failed to seed, not the resolution this slice builds on.
->    Both are green now, so **a red check here is a real signal again**.
+> 1. **The reported port was about to lie.** The handler returned `open.port`, which through a
+>    forward is the port on the OCCUPANT's box. `-p 5544` would have printed
+>    `[22][ssh] host: <public ip>` — and `:22` on that address is the GATEWAY. A result must name
+>    the door the caller knocked on.
+> 2. **A forward to sshd was a door to nginx.** The service check matched any port open on the
+>    reached box. `PublicTarget.reachedPort` now pins it to what the forward actually reaches —
+>    otherwise hydra reports a credential `ssh` refuses on that port, which is the disagreement this
+>    whole plan exists to prevent.
+>
+> **Criterion 5 was wrong as written** and was corrected before RED: it claimed `-p` "keeps working
+> as an ordinary port selector" on an own-LAN target, which has never existed — `handleHydraCrack`
+> has no port concept and resolves by service name. `-p` is ignored there rather than refused.
+>
+> **A test that passed for the wrong reason** was caught and rebuilt: the service-mismatch case
+> originally used `mysql`, which today's default-to-gateway also 404s. Only two services exist in
+> `serviceCatalog` (`ssh`, `http`), so it now uses two forwards to one box and fails RED with
+> `200 + root cracked`.
+>
+> Evidence: 2372 unit tests, 32/32 wire-checks live (`testHydraCrossPlayer` 8 → 14 checks),
+> mutation `hydraCrackPublic` 100% / `resolvePublicTarget` 100% of covered / `hydra.ts` 61% → 79%
+> with every `parsePort` survivor killed. Remaining `hydra.ts` survivors are manual and display
+> prose, left deliberately.
+>
+> **For slice 4:** the dep-factory rule from #372 held — this slice added no `api/` change at all,
+> because the new field travels through the core schema. Keep it that way.
 
 **Value**: the row's real acceptance example — reaching the **person**, not their gateway. A forward
 a player published so their own box is reachable is the same door an attacker walks through, which
