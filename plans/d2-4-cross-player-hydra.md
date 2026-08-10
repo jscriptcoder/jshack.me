@@ -2,9 +2,10 @@
 
 **Branch**: next slice cuts a fresh branch from `main` (slices 1-2 shipped from
 `feat/crack-a-strangers-box`, slice 3 from `feat/crack-behind-a-nat-forward`)
-**Status**: Active — **slices 1-3 SHIPPED**: 1 and 2 in PR #371 (`9b431d7`, v0.119.0), 3 in PR
-#374 (`8838aaf`, v0.120.0). **Slice 4 is next**, then slice 5. The slice-5 question is **SETTLED**
-(2026-08-10) — see "Settled: slice 5 stays" below. Slice 4 is scoped narrow because of it.
+**Status**: Active — **slices 1-4 SHIPPED**: 1 and 2 in PR #371 (`9b431d7`, v0.119.0), 3 in PR #374
+(`8838aaf`, v0.120.0), 4 in PR #375 (`f6748da`, v0.121.0). **Slice 5 is the last one**, and its
+vantage criterion is already satisfied and proven by slice 4 — what remains is the target
+resolution. The slice-5 question is **SETTLED** (2026-08-10); see "Settled: slice 5 stays" below.
 
 Two pieces of groundwork landed between slice 2 and slice 3, neither of them product work:
 `api/sessions.ts` collapsed to one spelling per query (#372), so slice 3 adds a call rather than a
@@ -354,7 +355,28 @@ it and asserts the occupant is.
 
 ---
 
-### Slice 4: An attack launched from someone else's box is traced to their network
+### Slice 4: An attack launched from someone else's box is traced to their network — ✅ SHIPPED (#375, v0.121.0)
+
+> **As-built.** All eight criteria hold. 2375 unit tests, typecheck, lint, build green; mutation
+> `crossPlayerSourceIp.ts` 100% (18/18) and `hydraCrackPublic.ts` 100% (83/83), no survivors;
+> **32/32 wire-checks live**, with `testHydraCrossPlayer` at 16 checks driving three real parties —
+> check 15b reads `pfsense01 sshd: Accepted password for root from 203.0.113.77`, the network stood
+> on, and asserts the attacker's own address appears NOWHERE in that log.
+>
+> **It removed mechanism instead of adding it.** The slice was planned as "replace the refusal with a
+> derivation" and turned out to be "delete the refusal": `authorizeMachineAccess` already returned
+> the session's essid and the handler read only `.ok` from it. The predicate, three imports and a
+> whole failure mode went with it. Recorded as an invariant — a refusal that stands in for a lookup
+> is a bug with good manners, so check whether a session already says before adding one.
+>
+> **Two plan notes were wrong and both were caught by reading the path, not by testing.** A
+> deep-chain box is placed for free (its session carries the caller's own essid), so slice 5 inherits
+> the vantage rather than paying for it; and `hydraCrack`'s own-LAN refusal is a different rule that
+> stays, because the client sends the player's own essid even inside a remote session.
+>
+> **What it left open, deliberately:** `ssh` and `nmap` still trace to the attacker's home from a
+> pivoted shell — neither endpoint carries a `caller_machine_id`, so they cannot derive a vantage at
+> all. See the follow-up note below; it is a tools-disagree seam until its own slice lands.
 
 **Value**: the pivot mechanic, and the first time an attacker can put distance between themselves
 and their trace honestly. It also lifts the last `caller_not_on_lan` refusal, so a rooted box

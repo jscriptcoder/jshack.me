@@ -470,10 +470,10 @@ line that run produced is the whole feature in one string — signed on a workst
 
 ## Next step
 
-**D2.4 slices 1-3 SHIPPED; slices 4-5 and D2.6 remain.** Slices 1-2 of
+**D2.4 slices 1-4 SHIPPED; slice 5 and D2.6 remain.** Slices 1-2 of
 [`d2-4-cross-player-hydra.md`](./d2-4-cross-player-hydra.md) landed 2026-08-09 (v0.119.0, #371
 `9b431d7`); slice 3 on 2026-08-10 (v0.120.0, #374 `8838aaf`) — read its grounding before touching
-the row above, which its finding 1 corrects.
+the row above, which its finding 1 corrects — and slice 4 the same day (v0.121.0, #375 `f6748da`).
 
 **What shipped**: one shared resolver (`core/network/resolvePublicTarget`) decides what a public IP
 and port reach, so `ssh` and `hydra` cannot disagree about a cross-player target by construction;
@@ -495,15 +495,21 @@ their chosen root password does not.
 
 Still carried over:
 
-- **Slice 4 is where server-derived vantage lands** (D2.3's note). Slices 1-2 kept
-  `resolveCrossPlayerSourceIp` as-is, which is correct while the player stands on their own LAN —
-  everything there leaves by their home public IP. Standing on a FOREIGN box it would be a false
-  trace, so that is refused (`caller_not_on_lan`) until slice 4 derives the vantage properly.
-  Grounding found the derivation already sitting in the handler: `authorizeMachineAccess` returns
-  the active session's `essid` — the network the standing box was generated from, stamped
-  server-side at hop time — and `hydraCrackPublic` reads only `.ok` from it. So the refusal is a
-  stand-in for a lookup, and slice 4 **removes** it rather than replacing it. A deep-chain box is
-  placed for free by the same route (its session carries the caller's own essid).
+- ✅ **Server-derived vantage LANDED in slice 4** (D2.3's note, discharged). The derivation was
+  already sitting in the handler: `authorizeMachineAccess` returns the active session's `essid` — the
+  network the standing box was generated from, stamped server-side at hop time — and
+  `hydraCrackPublic` read only `.ok` from it. So `caller_not_on_lan` was a stand-in for a lookup, and
+  the slice **removed** it rather than replacing it. `resolveVantageSourceIp` now answers "which
+  network is this actor operating on", with the owner-key lookup as the own-workstation branch. A
+  deep-chain box is placed for free by the same route. Proven live: a sweep launched from a box on a
+  third party's network is logged at that network's address, with the attacker's own appearing
+  nowhere.
+- **`ssh` and `nmap` do not pivot yet** — the seam slice 4 opened and did not close. Neither
+  `authCreateSessionPublic` nor `resolvePublicScan` carries a `caller_machine_id`, so they cannot
+  derive a vantage even in principle and still trace to the actor's home. One shell on a rooted box
+  gives a hydra trace pointing at the pivot and an `ssh` trace pointing at the attacker — a
+  tools-disagree seam of exactly the kind this epic exists to close. Its own slice; the seam is
+  already shaped for it, the client half is the work.
 - ✅ **Slice 5 stays, its own PR, after slice 4** — settled 2026-08-10. The deep layer is furnished
   and sealed: every deep host force-runs sshd and carries a `guest` drawn at `CRACK_CHANCE.guest =
   1`, yet deep IPs are absent from `generateHomeLan().hosts`, so the only entrance is

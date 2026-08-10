@@ -6,8 +6,8 @@
 
 **Status**: **D1 shipped** (v0.109.0); **D2 in progress — D2.1 shipped** (v0.111.0), **D2.2
 shipped** (v0.113.0), **D2.3 shipped** (v0.114.0), **D2.5 shipped** (v0.115.0), **hydra's
-workstation-only gate lifted** (v0.118.0); **D2.4 + D2.6 remain** (see "Next action"). Everything
-else is split-and-grilled only.
+workstation-only gate lifted** (v0.118.0), **D2.4 slices 1-4 shipped** (v0.119.0–v0.121.0);
+**D2.4 slice 5 + D2.6 remain** (see "Next action"). Everything else is split-and-grilled only.
 
 **Ship gate**: **all doors + hydra + discovery + the CVE system, minus missions.** Missions are
 a **post-ship epic** — the infrastructure this epic builds is what makes them cheap.
@@ -207,7 +207,8 @@ PHASE 1 — THE DOORS  (near-term focus)
       D2.2 not every account falls                     ✔ SHIPPED v0.113.0
       D2.3 the defender sees the sweep                 ✔ SHIPPED v0.114.0
       D2.5 john — the silent crack                     ✔ SHIPPED v0.115.0
-      D2.4 / D2.6 (cross-player, wordlist growth)      ← NEXT
+      D2.4 cross-player hydra, slices 1-4              ✔ SHIPPED v0.119.0-v0.121.0
+      D2.4 slice 5 (the deep chain) / D2.6             ← NEXT
   D3  ftp / scp
   D4  daemon control (systemctl / ps / kill)
   D5  nc connect + nc -l backdoor
@@ -433,8 +434,15 @@ Three things it settled that outlive it:
    (`ui/env.ts:179-192`). The essid is still right; `wlan0.ipv4` is not. Any future command that
    reads `env.network` from a hop inherits this trap.
 
-**D2.4 is IN PROGRESS — slices 1 and 2 shipped** (2026-08-09, v0.119.0, #371 `9b431d7`), the rest
-planned at [`d2-4-cross-player-hydra.md`](./d2-4-cross-player-hydra.md).
+**D2.4 is IN PROGRESS — slices 1-4 shipped** (v0.119.0 #371 `9b431d7`, v0.120.0 #374 `8838aaf`,
+v0.121.0 #375 `f6748da`); slice 5 is the last, planned at
+[`d2-4-cross-player-hydra.md`](./d2-4-cross-player-hydra.md).
+**The pivot works**: an attack launched from a box the player only holds a session on is traced to
+THAT network. `sessions.essid` was already the answer — stamped server-side at hop time and returned
+by `authorizeMachineAccess` — so the slice deleted `caller_not_on_lan` rather than replacing it.
+A refusal standing in for a lookup, removed rather than rewritten.
+**Still open from it**: `ssh` and `nmap` carry no `caller_machine_id`, so they cannot pivot and still
+trace to the actor's home — one shell, two different origins, until its own slice.
 **Cracking now reaches outside the player's own generated world**: `hydra <a stranger's public IP>`
 sweeps the access point's gateway, through the same resolver `ssh` authenticates against — proven
 live, by posting the password hydra reported straight to `authCreateSessionPublic` and getting a

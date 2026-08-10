@@ -193,28 +193,20 @@ decisions. The ship gate is legacy parity **minus missions**; missions are a pos
     forward loops — `e2e-shared-network-verification.md` §7.
 
 - **D2 (the credential layer) 🔨 IN PROGRESS — D2.1 ✅ (v0.111.0), D2.2 ✅ (v0.113.0), D2.3 ✅
-  (v0.114.0), D2.5 ✅ (v0.115.0), both follow-ups ✅ (v0.116.0, v0.118.0), and **D2.4 slices 1-3 ✅**
-  (v0.119.0, v0.120.0). D2.4 slices 4-5 and D2.6 (wordlist growth) remain.** Split into six
+  (v0.114.0), D2.5 ✅ (v0.115.0), both follow-ups ✅ (v0.116.0, v0.118.0), and **D2.4 slices 1-4 ✅**
+  (v0.119.0, v0.120.0, v0.121.0). D2.4 slice 5 and D2.6 (wordlist growth) remain.** Split into six
   candidates in `plans/d2-credential-layer.md` — **read its top block for live status**; every
   shipped slice's own plan file is deleted and its as-built lives there (D2.4's plan is still live —
   `plans/d2-4-cross-player-hydra.md`). PRs #351, #352, #354, #356, #357, #358, #359, #362, #370,
-  #371, #372, #373, #374.
+  #371, #372, #373, #374, #375.
 
-  **Next up: D2.4 slice 4** — the pivot: an attack launched from a box the player only holds a
-  session on is traced to THAT network, not their home. It **removes** `hydraCrackPublic`'s
-  `caller_not_on_lan` rather than replacing it: `authorizeMachineAccess` already returns the active
-  session's `essid` (the network the standing box was generated from, stamped server-side at hop
-  time) and the handler reads only `.ok` from it, so the refusal is a stand-in for a lookup that was
-  always available. `hydraCrack`'s own-LAN refusal is a DIFFERENT rule and stays — it derives a LAN
-  address, and the client sends the player's own essid even inside a remote session, so the target's
-  LAN is genuinely ambiguous there.
-
-  Then slice 5, the deep chain behind an inner gateway: settled 2026-08-10 in favour of its own PR,
-  because the deep layer is furnished and sealed (every deep host force-runs sshd and carries a
-  `guest` drawn at `CRACK_CHANCE.guest = 1`, yet deep IPs are absent from `generateHomeLan().hosts`,
-  so the only entrance is `ssh -p <fwd> <inner gateway>` and the gateway holds forwards, not
-  credentials). A deep-chain vantage is placed by slice 4 for free — a deep session records the
-  caller's own essid — so slice 5 inherits it rather than paying for it.
+  **Next up: D2.4 slice 5**, the deep chain behind an inner gateway — the last slice in D2.4. Settled
+  2026-08-10 in favour of its own PR, because the deep layer is furnished and sealed: every deep host
+  force-runs sshd and carries a `guest` drawn at `CRACK_CHANCE.guest = 1`, yet deep IPs are absent
+  from `generateHomeLan().hosts`, so the only entrance is `ssh -p <fwd> <inner gateway>` and the
+  gateway holds forwards, not credentials. There is no way in game to obtain a deep host's password.
+  Its vantage criterion is already satisfied and proven by slice 4, so what remains is the target
+  resolution: reuse `authCreateSessionInnerGateway`'s chain walk rather than growing a second one.
 
   - **Cracking reaches other players (D2.4 slices 1-3, v0.119.0 + v0.120.0).**
     `hydra <a stranger's public IP>` sweeps that access point's GATEWAY — a public IP names an AP,
@@ -238,6 +230,24 @@ decisions. The ship gate is legacy parity **minus missions**; missions are a pos
     is typically `:22`, and `:22` on that public IP is the GATEWAY, a different machine. Reporting
     the internal port names a target the player never attacked. Both were live defects found by
     reading the path before writing the test.
+  - **Where the caller is STANDING is a fact the server already holds — the session row** (v0.121.0,
+    #375). `sessions.essid` is the network the standing box was generated from, stamped server-side
+    when the hop was made, and `authorizeMachineAccess` already returns it. So a trace records the
+    address of the network being operated FROM, not the one the actor owns: `hydra` launched from a
+    box on somebody else's network is traced to that network. Two rules follow. (1) **Derive the
+    vantage from the session, never from the payload** — if placement and the address both came from
+    a claimed essid, a player could assert they were standing on A's LAN and write the trace up as A.
+    The session row is the whole defence. (2) **A refusal that stands in for a lookup is a bug with
+    good manners.** `caller_not_on_lan` existed only because the handler discarded the row it had
+    fetched; the slice deleted it rather than replacing it, and a deep-chain box became placeable for
+    free because its session carries the caller's own essid. Before adding a refusal for "the server
+    cannot know where you are", check whether a session already says.
+  - **`ssh` and `nmap` do NOT pivot yet** (as of v0.121.0). Neither `authCreateSessionPublic` nor
+    `resolvePublicScan` carries a `caller_machine_id`, so they cannot derive a vantage even in
+    principle and still trace to the actor's home. One shell on a rooted box therefore produces a
+    hydra trace pointing at the pivot and an `ssh` trace pointing at the attacker. `resolveVantageSourceIp`
+    is already shaped for the fix; the client half (`ssh.ts`/`nmap.ts` naming the box they run from,
+    as `hydra.ts` does) is the real work.
   - **A cross-player trace is written under the TARGET's log-writer key, and its source IP is
     server-derived.** On your own LAN hydra matches `ssh` and trusts the client's address (the
     occupant is an NPC; nobody to frame). Across the network the log is the defender's only
@@ -475,6 +485,16 @@ That survivor turned out to be genuinely equivalent — `String.split` always re
 element, so `username === undefined` is dead. The fix was to delete the operand, not to argue with
 the report: an equivalent mutant is often dead code asking to be removed. Confirm with
 `tsc -b --force` that a guard is not secretly load-bearing for types before deleting it.
+
+**A branch that CHOOSES between two sources needs a fixture with distinct values on each, or the
+branch mutants are unkillable no matter how strong the assertion.** Slice 4's origin derivation picks
+between "the network you are standing on" and "the network you own"; in any fixture where the
+standing box is on the caller's own network, both arms return the same string, so a mutant that swaps
+them passes every assertion. Killing it required a THIRD network — attacker home, the network stood
+on, and the target — with three different public IPs. The tell is that the survivor is a
+`ConditionalExpression`/`EqualityOperator` on a branch you believe is well tested: check whether the
+two arms can actually produce different observable values in the fixture before hunting for a missing
+assertion. (`crossPlayerSourceIp.ts` `resolveVantageSourceIp`, 18/18 once the third network existed.)
 
 **Put the interesting element in the MIDDLE of the fixture, never at the end.** A test that
 asserts "the search stops as soon as it matches" proves nothing when the match is the last item:
