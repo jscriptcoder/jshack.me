@@ -7,7 +7,8 @@
 **Status**: **D1 shipped** (v0.109.0); **D2 in progress — D2.1 shipped** (v0.111.0), **D2.2
 shipped** (v0.113.0), **D2.3 shipped** (v0.114.0), **D2.5 shipped** (v0.115.0), **hydra's
 workstation-only gate lifted** (v0.118.0), **D2.4 COMPLETE** (v0.119.0–v0.122.0, all five slices);
-**only D2.6 remains** (see "Next action"). Everything else is split-and-grilled only.
+**only D2.6 remains, now split** into a characterisation test (D2.6a) and a re-sited content story
+(D2.6b) — see "Next action". Everything else is split-and-grilled only.
 
 **Ship gate**: **all doors + hydra + discovery + the CVE system, minus missions.** Missions are
 a **post-ship epic** — the infrastructure this epic builds is what makes them cheap.
@@ -208,7 +209,8 @@ PHASE 1 — THE DOORS  (near-term focus)
       D2.3 the defender sees the sweep                 ✔ SHIPPED v0.114.0
       D2.5 john — the silent crack                     ✔ SHIPPED v0.115.0
       D2.4 cross-player hydra, all five slices        ✔ SHIPPED v0.119.0-v0.122.0
-      D2.6 (wordlist growth — maybe a char. test)      ← NEXT
+      D2.6a an appended word opens a door that held    ← NEXT (char. test only)
+      D2.6b harvestable plaintext loot                 ← re-sited: new content, no input today
   D3  ftp / scp
   D4  daemon control (systemctl / ps / kill)
   D5  nc connect + nc -l backdoor
@@ -455,9 +457,16 @@ hydra has no port argument. The gateway target is the smaller slice *and* the be
 `gateway` knob is 0.40). The one open question there was **settled** (2026-08-10) and then **shipped** (v0.122.0, #376): the
 deep-chain seam took its own PR after slice 4, because the deep layer was furnished and sealed —
 every deep host force-runs sshd with an always-crackable `guest`, and there was no way in game to
-obtain its password. There is now: `hydra -p <fwd> <inner gateway>`. **D2.6**
-(wordlist growth) may collapse into a characterisation test now that both tools read the file rather
-than a constant — confirm before planning it as work. Lower priority: `AvailabilityRule` is declared
+obtain its password. There is now: `hydra -p <fwd> <inner gateway>`.
+
+**D2.6 was confirmed on 2026-08-11 and SPLIT.** Both tools do read the file, so the append half
+(**D2.6a**) is a characterisation test and nothing more. But the *harvest* half has no reachable
+input: every password is drawn from two pools, and the shipped wordlist covers one of them
+completely while the other exists only as an md5 in a target's `/etc/passwd`. Cracking therefore
+teaches a player nothing they did not already hold, and coverage cannot grow. **D2.6b** — generated
+loot carrying an uncrackable-pool **plaintext**, behind a tier gate — is new content and lands here
+rather than in the credential layer. Grounding in
+[`d2-credential-layer.md`](./d2-credential-layer.md). Lower priority: `AvailabilityRule` is declared
 on ten commands and read by nothing — hydra's declaration is now truthful, but the field is still
 inert. Enforce it or delete it.
 
