@@ -4,11 +4,12 @@
 > Split authored 2026-07-29 (`story-splitting`), then grilled to nine locked decisions
 > (`grill-me`, same day).
 
-**Status**: **D1 shipped** (v0.109.0); **D2 in progress — D2.1 shipped** (v0.111.0), **D2.2
-shipped** (v0.113.0), **D2.3 shipped** (v0.114.0), **D2.5 shipped** (v0.115.0), **hydra's
-workstation-only gate lifted** (v0.118.0), **D2.4 COMPLETE** (v0.119.0–v0.122.0, all five slices);
-**only D2.6 remains, now split** into a characterisation test (D2.6a) and a re-sited content story
-(D2.6b) — see "Next action". Everything else is split-and-grilled only.
+**Status**: **D1 shipped** (v0.109.0); **D2 ✅ COMPLETE** — D2.1 (v0.111.0), D2.2 (v0.113.0), D2.3
+(v0.114.0), D2.5 (v0.115.0), hydra's workstation-only gate lifted (v0.118.0), D2.4 all five slices
+(v0.119.0–v0.122.0), and D2.6a (#377). Its split file is deleted; the as-built lives in
+[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §1. **D2.6b — harvestable
+plaintext loot — is the one piece D2 named and did not build**, and it lands here as content rather
+than in the credential layer (see "Next action"). Everything else is split-and-grilled only.
 
 **Ship gate**: **all doors + hydra + discovery + the CVE system, minus missions.** Missions are
 a **post-ship epic** — the infrastructure this epic builds is what makes them cheap.
@@ -203,14 +204,14 @@ PHASE 1 — THE DOORS  (near-term focus)
   D1  web (apache2/nginx + generated pages + curl)     ✔ SHIPPED v0.109.0
   D1b lynx (browser screen)      \  fast-follows, any time
   D1c gobuster (path brute-force) /  UNBLOCKED — D2.1 shipped the extraFiles seam
-  D2  hydra + the wordlist system (+ john)             ← IN PROGRESS
+  D2  hydra + the wordlist system (+ john)             ✔ SHIPPED v0.111.0-v0.122.0
       D2.1 hydra vs an own-LAN NPC host                ✔ SHIPPED v0.111.0
       D2.2 not every account falls                     ✔ SHIPPED v0.113.0
       D2.3 the defender sees the sweep                 ✔ SHIPPED v0.114.0
       D2.5 john — the silent crack                     ✔ SHIPPED v0.115.0
       D2.4 cross-player hydra, all five slices        ✔ SHIPPED v0.119.0-v0.122.0
-      D2.6a an appended word opens a door that held    ← NEXT (char. test only)
-      D2.6b harvestable plaintext loot                 ← re-sited: new content, no input today
+      D2.6a an appended word opens a door that held    ✔ SHIPPED #377 (tests only)
+      D2.6b harvestable plaintext loot                 ← the loop's missing input, unbuilt
   D3  ftp / scp
   D4  daemon control (systemctl / ps / kill)
   D5  nc connect + nc -l backdoor
@@ -238,7 +239,7 @@ POST-SHIP — MISSIONS
 | **D1** ✔ | **A player serves a web page and a stranger reads it** — SHIPPED | `apache2`/`nginx` daemons (pidfile → port, root for <1024); `SERVICE_CATALOG` http row + generation placement; generated page content (legacy `pools/web.ts`); `/var/www/html` in base FSs; `curl [-i]`; the request pipeline (parse → NAT/DNS resolve → static file); `access.log` trace; `ping` folds in. **A new server handler resolves (public IP, port, path)** — `resolveCrossPlayerFs` is keyed by a `machine_id` obtained from a login, and `curl` has no login | `lynx` (own slice, fast-follow — a full overlay browser screen, UI work of a different size); `gobuster` (→ D1c, which needs the `extraFiles` seam D2.1 builds); `-X POST`; request handlers; HTTPS specifics | B `curl http://<A pub IP>` → A's page, **with no session and no credential** (tier 3 already allows it); `nmap` shows `:80` on NPC hosts running http; A reads B's hit in `/var/log/access.log` |
 | **D1b** | **A player browses a page instead of reading its source** | `lynx <url>` as a full overlay browser SCREEN (legacy carried `LynxBrowser.tsx` + `lynx/render.ts` + `lynx/fetch.ts`): render HTML to text, follow links, keyboard navigation, quit back to the terminal. Reuses D1 whole — `parseHttpUrl`, `resolveWebPath`, the own-LAN/public split, and the same `access.log` trace, so a browsed page is logged exactly like a curled one | Forms/POST; images; CSS; multi-tab | A player `lynx http://<host>` → the page renders as text with its links numbered → following a link fetches the next page → the target's `access.log` shows one line per page viewed |
 | **D1c** | **A player finds the pages a server never linked** — **UNBLOCKED** | `gobuster <url>` + its `dirlist.txt`, shipped by the `extraFiles` seam **D2.1 shipped** (add a catalog row, no new mechanism); hits and misses both land in the target's `access.log`, so the defender's tell is the 404 wall D1 already records | Vhost/DNS modes; extensions | A player `gobuster http://<host>` → finds an unlinked path → `curl`s it; the target's `access.log` shows the sweep as a run of 404s with one 200 |
-| **D2** | **A player cracks a credential instead of being told it** — **SPLIT** into D2.1–D2.6, see [`d2-credential-layer.md`](./d2-credential-layer.md); **D2.1 ✔ SHIPPED v0.111.0**, D2.2 next | ~~`hydra <host> [service] [user]`~~ ✔; ~~`apt install hydra` ships `passwords.txt` via `extraFiles`~~ ✔; the two-pool split + per-account probability in `buildRemoteHostFs`; uncrackable pool into `secrets.ts`; wordlist-as-sole-gate; server-side md5 batch matching for cross-player; `john`; hydra trace on the target's `auth.log` | ftp/mysql/snmp as hydra *services* — each arrives with its door; **`gobuster`** (→ D1c, 2026-07-31) | B `hydra <NPC host> ssh` → cracks the user account → `ssh` succeeds; a low-probability NPC root cracks, most don't; a player's chosen root password never cracks; A appends a harvested password to `passwords.txt` via `nano` and a previously-failing crack now succeeds |
+| **D2** | **A player cracks a credential instead of being told it** — **✔ SHIPPED** as D2.1–D2.6a (v0.111.0–v0.122.0, #377); as-built in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §1. **D2.6b (harvestable plaintext loot) is unbuilt** — see "Next action" | ~~`hydra <host> [service] [user]`~~ ✔; ~~`apt install hydra` ships `passwords.txt` via `extraFiles`~~ ✔; the two-pool split + per-account probability in `buildRemoteHostFs`; uncrackable pool into `secrets.ts`; wordlist-as-sole-gate; server-side md5 batch matching for cross-player; `john`; hydra trace on the target's `auth.log` | ftp/mysql/snmp as hydra *services* — each arrives with its door; **`gobuster`** (→ D1c, 2026-07-31) | B `hydra <NPC host> ssh` → cracks the user account → `ssh` succeeds; a low-probability NPC root cracks, most don't; a player's chosen root password never cracks; A appends a harvested password to `passwords.txt` via `nano` and a previously-failing crack now succeeds |
 | **D3** | **A player moves files without a shell** | `vsftpd` daemon + catalog row + placement; `ftp <host> [user] [pw]` + FTP mode command set (`get`/`put`/`ls`/`cd`/`lls`/`lcd`/`lpwd`/`quit`); `scp`; `vsftpd.log` trace. **No content generator** — the target's FS is the content | Virtual users (`virtual_users.conf`) | B `hydra`s ftp creds → `ftp <host>` → `get` a file → `put` one the owner then sees; the session authorizes at its tier through L1/L2 exactly as ssh does (decision 2) |
 | **D4** | **A defender controls what their box exposes** | `systemctl start/stop/status`; `ps`; `kill`; symmetric pidfile open/close semantics; `chmod` folds in | — | A `systemctl stop sshd` → pidfile gone → B's scan drops `:22` and ssh-via-forward `404`s; A `ps` lists what is running; A restarts it and reachability returns |
 | **D5** | **A player plants a backdoor and re-enters through it** | `nc <host> <port>` → restricted NC shell (no PATH); `nc -l <port>` listener with owner metadata in the pidfile; **backdoor chain forwarding** — append a `forward` on every gateway out to the public edge and report the reachable address | Exploit-planted backdoors (Phase 3) | B (inside a host) `nc -l 4444` → forward auto-appended → B leaves, `nc <public IP> <fwd>` → lands as the listener's owner; the defender greps `rules.v4` and finds the breadcrumb |
@@ -301,7 +302,7 @@ picked, never the shape of what is stamped or how a door authorizes.
    `ROUTER_ADMIN_PASSWORDS`, two of whose eight words shipped in the default wordlist, so 23.8% of
    gateways cracked by accident. **All four knobs are now shipped and measured** (guest 100%,
    npcUser 70.3%, gateway 37.0-38.9%, npcRoot 11.9%); `ROUTER_ADMIN_PASSWORDS` is retired. See
-   [`d2-credential-layer.md`](./d2-credential-layer.md).
+   [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §1.
 
 ## Parking lot
 
@@ -353,7 +354,7 @@ been decorative outside tests since it shipped, because nothing could produce a 
 **D2.2 is COMPLETE** (2026-07-31, v0.113.0). Three PRs — #354 `f9ad49b` (two pools + the account
 curve), #356 `3af0b92` (the duplicate guest pool retired) and #357 `f69b05d` (the gateway knob).
 Its plan file has been deleted; the as-built lives in
-[`d2-credential-layer.md`](./d2-credential-layer.md). **The mechanism is now a game**: every door
+[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §1. **The mechanism is now a game**: every door
 draws from one crackable pool and one uncrackable pool, and four knobs are the entire difficulty
 curve — guest 1.00, npcUser 0.70, gateway 0.40, npcRoot 0.12.
 
@@ -373,7 +374,7 @@ Three things it settled that outlive it:
    to within 0.3pp on unrelated seeds.
 
 **D2.3 is COMPLETE** (2026-08-09, v0.114.0). One PR — #358 `bae79f8`. Its plan file has been
-deleted; the as-built lives in [`d2-credential-layer.md`](./d2-credential-layer.md). **A sweep is
+deleted; the as-built lives in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §1. **A sweep is
 now the loudest thing a player can do to a box**: the target records one `auth.log` line per
 password *tried*, `Accepted` for the one that matched and nothing after it, and writes nothing at
 all when the sweep never reached the box.
@@ -395,7 +396,7 @@ Two things it settled that outlive it:
    `resolveCrossPlayerSourceIp` stays for the cross-player writers. **D2.4 must switch.**
 
 **D2.5 is COMPLETE** (2026-08-09, v0.115.0). One PR — #359 `aa70cfc`. Its plan file has been
-deleted; the as-built lives in [`d2-credential-layer.md`](./d2-credential-layer.md). **`john <file>`
+deleted; the as-built lives in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §1. **`john <file>`
 finds exactly what hydra finds and leaves no trace doing it** — same list, same `md5`, but no packet
 at the box the hashes came from. It reads both the file and the shared wordlist from whichever
 machine the player is standing on, and needs no `api/` change, so there is no wire-check either.
@@ -416,7 +417,7 @@ that recovery keeps working.
 **hydra's workstation-only gate is LIFTED** (2026-08-09, v0.118.0, #370 `aea2450`). Two slices, and
 their order was the whole design: the wordlist read first, the gate second, so no shipped version
 ever had `cat` showing a list the sweep denied existed. Its plan file is deleted; the as-built lives
-in [`d2-credential-layer.md`](./d2-credential-layer.md). **The loop the owner described now works
+in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §1. **The loop the owner described now works
 end to end with no `scp`** — root an NPC box, `apt install hydra` there, sweep the LAN from it.
 
 **A second owner principle arrived with it: an NPC box is one box, and tier is the only lens.**
@@ -440,7 +441,7 @@ Three things it settled that outlive it:
 v0.121.0 #375 `f6748da`, v0.122.0 #376 `f160b31`). **hydra now reaches every target `ssh` does**,
 each through the same resolver `ssh` authenticates through, so the two cannot disagree about a
 target or a credential. As-built folded into
-[`d2-credential-layer.md`](./d2-credential-layer.md); the slice plan is deleted.
+[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §1; the slice plan is deleted.
 **The pivot works**: an attack launched from a box the player only holds a session on is traced to
 THAT network. `sessions.essid` was already the answer — stamped server-side at hop time and returned
 by `authorizeMachineAccess` — so the slice deleted `caller_not_on_lan` rather than replacing it.
@@ -459,14 +460,20 @@ deep-chain seam took its own PR after slice 4, because the deep layer was furnis
 every deep host force-runs sshd with an always-crackable `guest`, and there was no way in game to
 obtain its password. There is now: `hydra -p <fwd> <inner gateway>`.
 
-**D2.6 was confirmed on 2026-08-11 and SPLIT.** Both tools do read the file, so the append half
-(**D2.6a**) is a characterisation test and nothing more. But the *harvest* half has no reachable
-input: every password is drawn from two pools, and the shipped wordlist covers one of them
-completely while the other exists only as an md5 in a target's `/etc/passwd`. Cracking therefore
-teaches a player nothing they did not already hold, and coverage cannot grow. **D2.6b** — generated
-loot carrying an uncrackable-pool **plaintext**, behind a tier gate — is new content and lands here
-rather than in the credential layer. Grounding in
-[`d2-credential-layer.md`](./d2-credential-layer.md). Lower priority: `AvailabilityRule` is declared
+**D2.6 was confirmed on 2026-08-11, SPLIT, and its reachable half shipped.** Both tools do read the
+file, so the append half (**D2.6a**) was tests and nothing more — #377 proved end to end that a
+word appended to `/usr/share/wordlists/passwords.txt` opens a door the shipped `DEFAULT_WORDLIST`
+cannot, through `hydra` and through `john`.
+
+**D2.6b is the loop's missing input, and it is the highest-value unbuilt thing D2 leaves behind.**
+The harvest half has no source: every password is drawn from two pools, and the shipped wordlist
+covers one completely while the other exists only as an md5 in a target's `/etc/passwd`. Cracking
+therefore teaches a player nothing they did not already hold, and **coverage cannot grow** — the
+progression the whole credential layer was built around is inert. Fixing it is generated loot
+carrying an uncrackable-pool **plaintext**, behind a tier gate: content plus a placement rule, so
+it belongs here rather than in the credential layer. Full grounding in
+[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §1 (D2 block) and §9. Lower
+priority: `AvailabilityRule` is declared
 on ten commands and read by nothing — hydra's declaration is now truthful, but the field is still
 inert. Enforce it or delete it.
 

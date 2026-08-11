@@ -192,13 +192,12 @@ decisions. The ship gate is legacy parity **minus missions**; missions are a pos
     **Browser-verified end to end** 2026-07-31, both the own-LAN and the two-player
     forward loops — `e2e-shared-network-verification.md` §7.
 
-- **D2 (the credential layer) 🔨 IN PROGRESS — D2.1 ✅ (v0.111.0), D2.2 ✅ (v0.113.0), D2.3 ✅
-  (v0.114.0), D2.5 ✅ (v0.115.0), both follow-ups ✅ (v0.116.0, v0.118.0), and **D2.4 ✅ COMPLETE**
-  (v0.119.0 → v0.122.0, all five slices). **Only D2.6 (wordlist growth) remains**, and it may be a
-  characterisation test rather than a slice.** Split into six candidates in
-  `plans/d2-credential-layer.md` — **read its top block for live status**; every shipped slice's own
-  plan file is deleted and its as-built lives there. PRs #351, #352, #354, #356, #357, #358, #359,
-  #362, #370, #371, #372, #373, #374, #375, #376.
+- **D2 (the credential layer) ✅ COMPLETE** — D2.1 (v0.111.0), D2.2 (v0.113.0), D2.3 (v0.114.0),
+  D2.5 (v0.115.0), both follow-ups (v0.116.0, v0.118.0), D2.4 all five slices (v0.119.0 →
+  v0.122.0), and D2.6a (#377). Its split file was deleted on close-out — everything durable from it
+  lives in this section, and the one piece of unbuilt work it named (**D2.6b**, harvestable
+  plaintext loot) is a content story in `plans/legacy-parity-epic.md` and §9 below. PRs #351, #352,
+  #354, #356, #357, #358, #359, #362, #370, #371, #372, #373, #374, #375, #376, #377.
 
   **hydra now reaches every target `ssh` does**, which was the point of D2.4: its own LAN, a
   stranger's AP gateway, the occupant behind a NAT forward, a box on somebody else's network it is
@@ -281,7 +280,21 @@ decisions. The ship gate is legacy parity **minus missions**; missions are a pos
     the caller is standing on — read from **that machine's journal**, every writer's rows replayed
     with the last write winning (a row with no content is a deletion, so `apt install hydra` stays
     a real recovery). Never a client claim, never an imported constant. Reading the file is what
-    makes "grow your wordlist" (D2.6) free rather than a rewrite.
+    makes the APPEND half of "grow your wordlist" free rather than a rewrite — see the next bullet
+    for the half it does not buy.
+  - **Growing the wordlist works; HARVESTING has no source yet (D2.6, grounded 2026-08-11).** A
+    word appended to `/usr/share/wordlists/passwords.txt` opens a door that held — proven end to
+    end for both tools by #377, against the real shipped `DEFAULT_WORDLIST`. But a player cannot
+    obtain a word they do not already have. Every password comes from `drawPassword` over exactly
+    two pools: the crackable one, which the shipped file covers **completely**
+    (`defaultWordlist.test.ts` asserts it), and the uncrackable one, which exists **only** as an
+    md5 in a target's `/etc/passwd` — nothing prints it and nothing files it, and `john` reverses
+    it with the same list that just failed. So cracking teaches a player only words they hold, and
+    coverage cannot grow. WPA keys are not a back door: `generateWifi` draws from a separate
+    encoded `WIFI_PASSWORDS` pool, so an `aircrack` key opens **zero** ssh doors. Closing the loop
+    needs generated loot carrying an uncrackable-pool **plaintext** behind a tier gate (D2.6b, §9)
+    — the same shape of finding as D2.5's "`john` cracks nothing hydra has not", and the same
+    cause: every credential path is closed over one pool pair.
   - **hydra and `ssh` cannot disagree** — both resolve the same `/etc/passwd`, server-side,
     through the same reachability rules. A crack from a locally regenerated baseline would hand
     the player a password `ssh` then rejects, which reads as a broken game.
@@ -1054,6 +1067,23 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   `apGatewayLogWriterKey` shape: a stable key derived from the box, applied to all three writes in
   one slice, with a test proving two occupants' lines coexist. The stale "private, per-viewer"
   docstrings that hid this were corrected across the codebase at D2.4 close-out.
+- **D2.6b — harvestable plaintext loot, the missing input to wordlist growth.** The progression the
+  credential layer was built around does not close: appending a word works (#377), but nothing in
+  the generated world hands a player a word they could not already crack (full reasoning in §1's
+  D2 block). What it needs is a file on a reachable box holding a **plaintext** drawn from the
+  UNCRACKABLE pool — a `credentials.txt`, a config with `password=`, a note. Two constraints, both
+  already load-bearing: it must be **uncrackable-pool** or the harvest is a no-op, which is what
+  makes `defaultWordlist.test.ts`'s "covers the uncrackable pool NOT AT ALL" the assertion that
+  gives the loot its value; and it must sit behind a **tier gate** or a guest walk-in reads it, the
+  same reason `/etc/passwd` is `read: ['root','user']`. This also makes `john` genuinely
+  non-redundant, by the route D2.5's grounding named second — a plaintext file, not a hash file,
+  since a hash file would still hold a hash of one of the two pools.
+- **Nine known surviving mutants in generated config content, never owned.** Exposed by D2.2's
+  honest mutation run (once a raised timeout stopped scoring timeouts as kills) in code that slice
+  never touched: the `RULES_V4_SEED` / `ACL_CONF_SEED` header lines and their `join('\n')`
+  separator, plus `buildDeepSwitchBaseFs`'s config subtree mutating to `{}`. The tests assert those
+  files *parse*, so blanking a header a player reads with `cat`, or building a deep switch with no
+  `acl.conf`, goes unnoticed. Not blocking anything; small, well understood, and worth a short PR.
 - **124 plan tags are still embedded in code comments, and the rule against them is always-apply.**
   Counted 2026-08-11: `Story N` / `Slice N` / `5b.Na` / `D2.N` appears 124 times across 64 files
   (40 production, 24 test), including **9 inside `describe`/`it` titles**, which §2 forbids by name.
