@@ -971,6 +971,22 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   enforcement, which is the dangerous kind: a reader reasonably assumes the rule holds. Decide one
   way. If enforcing, note that `hydra` deliberately runs anywhere ("tools run where you stand") and
   its `any-machine` is load-bearing intent, not a default.
+- **A shared DEEP box's auth.log is written under the ATTACKER's key, so one occupant's lines hide
+  another's.** Found 2026-08-11 while grounding D2.4 slice 5. The deep chain is ESSID-seeded and
+  shared — `generateHomeLan(essid).hosts` for the entry, `generateDeepLayer(essid, frontingGateway)`
+  and `hostMachineId(deep.host, essid)` for the walk — so every occupant of an ESSID reaches the
+  same deep boxes. But `authCreateSessionInnerGateway.ts:358` writes its deep-reach line with
+  `writerKey: publicKey`. Since `materializeMachineFs` folds so the latest write to each path wins,
+  and `appendMachineLog` appends to the writer's OWN row, occupant B's line **replaces** occupant
+  A's in the materialized view. This is precisely the collision the credential layer already
+  solved on the public path, where `resolvePublicTarget` returns a box-owned `logWriterKey` (the
+  reached occupant's key, or the AP's stable key when the box is ownerless) so every attacker's
+  lines accrete into ONE row. **Affects both paths**: D2.4 slice 5 deliberately made hydra match
+  `ssh` here rather than diverge, so hydra inherits it. A deep NPC is ownerless, so the fix is the
+  `apGatewayLogWriterKey` shape — a stable key derived from the box, applied to both writes in one
+  slice, with a test proving two occupants' lines coexist. Note the docstring at
+  `authCreateSessionInnerGateway.ts:25` still claims the deep layers are private and own-keyed;
+  that is stale (it predates the Story-7 reconciliation) and slice 5 corrects it.
 - **124 plan tags are still embedded in code comments, and the rule against them is always-apply.**
   Counted 2026-08-11: `Story N` / `Slice N` / `5b.Na` / `D2.N` appears 124 times across 64 files
   (40 production, 24 test), including **9 inside `describe`/`it` titles**, which §2 forbids by name.
