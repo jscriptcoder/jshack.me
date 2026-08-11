@@ -443,7 +443,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // its journal (to read the forward + boot state), and routes the forwarded port to
     // the deep NPC — validating the password against ITS /etc/passwd before the insert.
     // Own-keyed + private: no network lookup, no occupancy. The trace accretes under the
-    // CALLER's own key, because deep boxes are private per-viewer NPCs.
+    // CALLER's own key, matching the other two deep writers (see the shared-row note in
+    // docs/conventions-and-gotchas.md §9 — these boxes are ESSID-shared, not per-viewer).
     const { status, body } = await handleAuthCreateSessionInnerGateway(req.body, {
       nonceStore: noopNonceStore,
       now: () => Date.now(),

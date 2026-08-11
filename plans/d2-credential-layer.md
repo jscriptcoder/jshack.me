@@ -3,7 +3,7 @@
 > **Status: D2.1 ✅ SHIPPED (v0.111.0). D2.2 ✅ SHIPPED (v0.113.0). D2.3 ✅ SHIPPED (v0.114.0).
 > D2.5 ✅ SHIPPED (v0.115.0). Both follow-ups ✅ CLOSED — the apt wordlist wipe (v0.116.0) and
 > hydra's workstation-only gate (v0.118.0), which also made a box's wordlist belong to the box.
-> D2.4 (cross-player hydra) and D2.6 (wordlist growth) remain — and D2.6 may be a characterisation
+> D2.6 (wordlist growth) is all that remains — and it may be a characterisation
 > test rather than a slice, now that both tools read the file.**
 > Authored 2026-07-31 (`story-splitting`), grounded against the shipped code (every file:line
 > below was read, not recalled). Parent: [`legacy-parity-epic.md`](./legacy-parity-epic.md)
@@ -134,7 +134,7 @@ lands *after* hydra, not before.
 | **D2.1** ✔ | **A player cracks an NPC host on their own LAN and logs in with it** — **SHIPPED v0.111.0** (#351 `4627621`, #352 `b227a0b`) | The first credential earned in-game. Turns `ssh` from decorative into playable | `extraFiles` on `AptPackage` + apt's install loop writes them; `/usr/share/wordlists/passwords.txt` shipped by `apt install hydra`; `hydra <host> [service] [user]` streaming like `aircrack`; a signed same-LAN crack action mirroring `authCreateSessionSameLan`'s reachability; hydra reads the **file** (finding 4) | Every other reachability; the two-pool policy; the defender's trace; `john` | `apt install hydra` → `cat /usr/share/wordlists/passwords.txt` lists words → `hydra 192.168.x.y ssh` → prints a cracked account → `ssh` with it **succeeds** → a wrong password still fails | **Demo-quality, not ship-quality** — with one flat pool, *everything* cracks. See the open question |
 | **D2.2** ✔ | **Not every account falls** — **SHIPPED v0.113.0** (#354 `f9ad49b`, #356 `3af0b92`, #357 `f69b05d`) | The difficulty curve — decision 6's "crackable is membership in *your* wordlist", made real | `core/generation/passwordPools.ts` owns one crackable pool, one uncrackable pool (behind `secrets.ts` → `__encoded.ts`), the `CRACK_CHANCE` table and `drawPassword`; `WEAK_PASSWORDS`, `GUEST_PASSWORDS` and `ROUTER_ADMIN_PASSWORDS` all retired into it | — | A day-one root crack happens but is rare across a scanned LAN; a player's chosen workstation root password **never** cracks; guest always does | Shipped. Re-rolled the generated world (free pre-launch) |
 | **D2.3** ✔ | **The defender sees the attempt** — **SHIPPED v0.114.0** (#358 `bae79f8`) | The attacker stops being invisible. Same actor-flip that made D1's slice 4 worth its own PR | One `Failed password for <user> from <ip>` per password **TRIED** plus the accepted line, into the target's `/var/log/auth.log`; owner-keyed writer; one append per sweep; client-supplied source IP, matching `ssh` on the LAN | Rate limiting; lockout; alerting; cross-player (D2.4) | A runs `hydra` at an NPC host; the box's `auth.log` shows the failed sweep and the one success, at the attacker's real LAN IP | Shipped |
-| **D2.4** | **A player cracks a stranger's box across the network** | Cracking reaches other players — the epic's actual point | hydra over the `public` and `innerGateway` reachability seams, matching `ssh`'s remaining variants; server reads the caller's own wordlist from their persisted patches | — | B `hydra <A's public IP> ssh` → cracks A's **guest** account → `ssh` in → A's `auth.log` carries the sweep | Ships. **Needs a `scripts/test*.ts` wire-check** and two identities |
+| **D2.4** ✔ | **A player cracks a stranger's box across the network** — **SHIPPED v0.119.0–v0.122.0** (#371, #374, #375, #376) | Cracking reaches other players — the epic's actual point | hydra over the `public` and `innerGateway` reachability seams, matching `ssh`'s remaining variants; server reads the caller's own wordlist from their persisted patches | — | B `hydra <A's public IP> ssh` → cracks A's **guest** account → `ssh` in → A's `auth.log` carries the sweep | Shipped, in five slices; wire-checked live with two identities |
 | **D2.5** ✔ | **A player cracks a stolen hash offline** — **SHIPPED v0.115.0** (#359 `aa70cfc`) | Loot becomes capability, and the **silent** way to do it now that D2.3 made the sweep loud | `john <file>`; reads the file AND the shared wordlist from the current machine; no server call at all | Hash formats beyond md5; `--show`; pot file; bare-hash arguments | B ssh's into a cracked NPC box as a **user**-tier account (guest cannot read passwd — finding 1) → `cat /etc/passwd` → carries the rows home → `john hashes.txt` → plaintext → `su root` succeeds | Shipped |
 | **D2.6** | **A player grows their wordlist and cracks what they could not before** | Decision 6's progression loop, closed | Harvest → `nano` append → the previously-failing crack now succeeds. **Probably free** if D2.1 honours finding 4 | — | A password harvested from box X is appended by hand, and box Y — which drew the same password — now cracks | Ships |
 
@@ -387,10 +387,12 @@ box — the same loot logic as an NPC box, now pointed at a player. And A can pr
 own list so an intruder finds no tool there, which is an emergent defensive move nobody designed.
 Both are accepted.
 
-**What this leaves for D2.4**: only the *standing* check. `hydraCrack.ts:263` refuses any caller it
-cannot place on the generated LAN (`caller_not_on_lan`), and another player's workstation is not a
-host on your LAN. Lifting that means deriving the address the server-authoritative way — which D2.4
-owed anyway (D2.3's note). One change, not two.
+**What this left for D2.4**: only the *standing* check — and grounding at slice 4 corrected which
+one. The refusal D2.4 owed was `hydraCrackPublic`'s, lifted in slice 4 by deriving the address from
+the session row. `hydraCrack.ts`'s own-LAN `caller_not_on_lan` (now line 185, not 263 — slice 1
+shrank the file) is a DIFFERENT rule: it derives a LAN address, and the client sends the player's own
+essid even inside a remote session, so the target LAN there is genuinely ambiguous. It stays, and
+belongs to neither slice.
 
 ## What D2.5 settled, beyond its own row
 
@@ -470,30 +472,52 @@ line that run produced is the whole feature in one string — signed on a workst
 
 ## Next step
 
-**D2.4 slices 1-4 SHIPPED; slice 5 and D2.6 remain.** Slices 1-2 of
-[`d2-4-cross-player-hydra.md`](./d2-4-cross-player-hydra.md) landed 2026-08-09 (v0.119.0, #371
-`9b431d7`); slice 3 on 2026-08-10 (v0.120.0, #374 `8838aaf`) — read its grounding before touching
-the row above, which its finding 1 corrects — and slice 4 the same day (v0.121.0, #375 `f6748da`).
+**D2.4 is COMPLETE (all five slices, v0.119.0 → v0.122.0). Only D2.6 remains**, and it may be a
+characterisation test rather than a slice. Slices 1-2 landed 2026-08-09 (v0.119.0, #371 `9b431d7`);
+slice 3 on 2026-08-10 (v0.120.0, #374 `8838aaf`) — read its grounding before touching the row
+above, which its finding 1 corrects — slice 4 the same day (v0.121.0, #375 `f6748da`), and slice 5
+on 2026-08-11 (v0.122.0, #376 `f160b31`).
 
-**What shipped**: one shared resolver (`core/network/resolvePublicTarget`) decides what a public IP
-and port reach, so `ssh` and `hydra` cannot disagree about a cross-player target by construction;
-`hydra <a stranger's public IP>` sweeps the access point's gateway; and `hydra -p <forwarded port>`
-reaches the OCCUPANT behind a NAT forward — the row's real acceptance example. The sweep-and-trace
-rule moved to `core/wordlist/passwordSweep`, shared by both hydra paths, because a second copy of
-"an account falls iff its password is a word in the file" would become a second difficulty curve.
+**What shipped**: hydra now reaches every target `ssh` does — its own LAN, a stranger's AP gateway,
+the occupant behind a NAT forward, a box on somebody else's network it is standing on, and a host on
+the deep layer behind an inner gateway. The last three each resolve through the SAME module `ssh`
+authenticates through (`core/network/resolvePublicTarget`, `core/network/resolveInnerGatewayTarget`),
+so the two tools cannot disagree about a target or a credential by construction rather than by two
+resolutions staying in step. The sweep-and-trace rule lives once in `core/wordlist/passwordSweep`,
+shared by all three hydra paths, because a second copy of "an account falls iff its password is a
+word in the file" would become a second difficulty curve.
 
-**What that settled**: a public IP's DEFAULT port reaches the AP GATEWAY, not the owner's
-workstation (`machineServing` routes by port before any occupancy work). The split's row said
-"cracks A's guest account"; that needed a NAT-forwarded port, which slice 3 delivered — and with it
-the rule that behind a public IP the PORT is the address, so a service must be matched against what
-that port actually reaches and a result must report the port the caller named. Both directions were
-live defects; the as-built is in
-[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §1.
+**What that settled, beyond the row**:
 
-**The row above is now fully delivered**: a player's guest account falls to a cross-player crack,
-their chosen root password does not.
+- A public IP's DEFAULT port reaches the AP GATEWAY, not the owner's workstation (`machineServing`
+  routes by port before any occupancy work). The split's row said "cracks A's guest account"; that
+  needed a NAT-forwarded port, which slice 3 delivered — and with it the rule that behind a public
+  IP the PORT is the address, so a service must be matched against what that port actually reaches
+  and a result must report the port the caller named. Both directions were live defects.
+- **Where the caller is STANDING is a fact the server already holds** (slice 4). The session row
+  carries the essid its box was generated from, stamped server-side at hop time, so a sweep launched
+  from somebody else's box is traced to THEIR network. `caller_not_on_lan` turned out to be a refusal
+  standing in for a lookup, and was removed rather than replaced.
+- **The trace's address is decided by the ROUTE, not the vantage** (slice 5). A deep box only ever
+  sees the fronting gateway's `.1`, because that is what NAT shows it — the one place this departs
+  from the public sweep, where the target really does see the attacker's own address.
+- **The deep layer was furnished and sealed** until slice 5. Every deep host force-runs sshd and
+  carries a `guest` at `CRACK_CHANCE.guest = 1`, yet deep IPs are absent from
+  `generateHomeLan().hosts`, so no shell could name one and the gateway holds forwards rather than
+  credentials. Slice 5 also repaired the asymmetry slice 3 created, where `ssh -p 5544 <inner>`
+  reached the deep box while `hydra -p 5544 <inner>` attacked the gateway and dropped the flag.
+- **The deep chain is ESSID-seeded and SHARED, not private.** Slice 5's own plan asserted the
+  opposite, copied from a docstring that predated the reconciliation which made these chains shared;
+  `publicKey` is not an input to any of it. The claim had propagated into `api/sessions.ts`, two test
+  headers, `types.ts`, `nmapScanDeep.ts` and a wire-check header — all corrected at close-out. It
+  needs no cross-player lookup, which is a different claim from being private, and only the first is
+  true.
+
+**The row above is fully delivered**: a player's guest account falls to a cross-player crack, their
+chosen root password does not.
 
 Still carried over:
+
 
 - ✅ **Server-derived vantage LANDED in slice 4** (D2.3's note, discharged). The derivation was
   already sitting in the handler: `authorizeMachineAccess` returns the active session's `essid` — the
@@ -504,24 +528,33 @@ Still carried over:
   deep-chain box is placed for free by the same route. Proven live: a sweep launched from a box on a
   third party's network is logged at that network's address, with the attacker's own appearing
   nowhere.
-- **`ssh` and `nmap` do not pivot yet** — the seam slice 4 opened and did not close. Neither
+- **`ssh` and `nmap` do not pivot yet** — the seam slice 4 opened, and D2.4 closed without it. Neither
   `authCreateSessionPublic` nor `resolvePublicScan` carries a `caller_machine_id`, so they cannot
   derive a vantage even in principle and still trace to the actor's home. One shell on a rooted box
   gives a hydra trace pointing at the pivot and an `ssh` trace pointing at the attacker — a
   tools-disagree seam of exactly the kind this epic exists to close. Its own slice; the seam is
   already shaped for it, the client half is the work.
-- ✅ **Slice 5 stays, its own PR, after slice 4** — settled 2026-08-10. The deep layer is furnished
-  and sealed: every deep host force-runs sshd and carries a `guest` drawn at `CRACK_CHANCE.guest =
-  1`, yet deep IPs are absent from `generateHomeLan().hosts`, so the only entrance is
-  `ssh -p <fwd> <inner gateway>` and the gateway holds forwards, not credentials. There is no way in
-  game to obtain a deep host's password. The earlier "nothing down there a player cannot already
-  reach" reasoning was about loot; the problem is access, and it is total. (A first answer here also
-  had slice 5 paying for the deep-chain vantage. Corrected the same day: slice 4's session-essid
-  derivation places a deep box for free, so slice 5 inherits it.)
-- **The shared-wordlist RULE already reaches players' boxes; the standing check does not.** The
-  read is machine-scoped and ownership-blind already (see the locked decision above), so D2.4 owes
-  no wordlist work — only the `caller_not_on_lan` refusal, which is the same line that must derive
-  the address anyway. One change over one handler, not two passes.
+- ✅ **Slice 5 SHIPPED** (v0.122.0, #376) — kept as its own PR, settled 2026-08-10, and the
+  reasoning held up: the layer was furnished and sealed, so the "nothing down there a player cannot
+  already reach" argument was about loot while the problem was access, and it was total. (Two first
+  answers here were wrong and both were corrected by reading the code: slice 5 does not pay for the
+  deep-chain vantage — slice 4's session-essid derivation places a deep box for free — and the chain
+  is not private-per-player.)
+- ✅ **The shared-wordlist RULE already reached players' boxes** — the read is machine-scoped and
+  ownership-blind (see the locked decision above), so D2.4 owed no wordlist work, and the standing
+  check it did owe was discharged in slice 4. Confirmed live in slice 5: the sweep reads the
+  wordlist off the gateway the attacker is standing on, not off their own workstation.
+- **NEW, and the one thing D2.4 knowingly leaves broken: a shared deep box's log is written under
+  the ATTACKER's key, so one occupant's lines hide another's.** Three paths do it —
+  `authCreateSessionInnerGateway` (deep ssh reach), `hydraCrackInnerGateway` (deep sweep), and
+  `nmapScanDeep` (deep `kern.log`). These boxes are ESSID-seeded and shared, `materializeMachineFs`
+  folds so the latest write to each path wins, and `appendMachineLog` appends to the writer's OWN
+  row — so occupant B's line replaces occupant A's in the materialized view. It is the collision
+  `resolvePublicTarget` already solves on the public path with a box-owned `logWriterKey`. Slice 5
+  deliberately matched the existing two rather than diverging, because hydra and `ssh` disagreeing
+  about one box is the worse failure. A deep NPC is ownerless, so the fix is the
+  `apGatewayLogWriterKey` shape applied to all three writes in ONE slice, with a test proving two
+  occupants' lines coexist. Full detail in `conventions-and-gotchas.md` §9.
 - **D2.6 may be a characterisation test, not a slice.** Both tools now read the FILE rather than a
   constant, which is the condition the split named. Confirm before planning it as work.
 - ✅ **`api/sessions.ts` was half supabase dep builders** and every hydra seam added more. Collapsed

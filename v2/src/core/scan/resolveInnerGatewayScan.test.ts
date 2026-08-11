@@ -19,7 +19,7 @@ import type { NonceStore } from '../signedRequest/nonceStore';
  * (`nano rules.v4`), so the scan can't be computed client-side; the server
  * regenerates the gateway from the verified pubkey + essid, replays its journal,
  * and reports its own `sshd:22` plus any live forward via the single `scanResult`
- * total function. The deep layer stays private: nothing here is reachable across players.
+ * total function. The chain regenerates from the ESSID + journals — no cross-player lookup.
  */
 
 const freshStore: NonceStore = async () => ({ fresh: true });

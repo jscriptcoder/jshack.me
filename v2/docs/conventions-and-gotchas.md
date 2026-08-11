@@ -193,20 +193,32 @@ decisions. The ship gate is legacy parity **minus missions**; missions are a pos
     forward loops — `e2e-shared-network-verification.md` §7.
 
 - **D2 (the credential layer) 🔨 IN PROGRESS — D2.1 ✅ (v0.111.0), D2.2 ✅ (v0.113.0), D2.3 ✅
-  (v0.114.0), D2.5 ✅ (v0.115.0), both follow-ups ✅ (v0.116.0, v0.118.0), and **D2.4 slices 1-4 ✅**
-  (v0.119.0, v0.120.0, v0.121.0). D2.4 slice 5 and D2.6 (wordlist growth) remain.** Split into six
-  candidates in `plans/d2-credential-layer.md` — **read its top block for live status**; every
-  shipped slice's own plan file is deleted and its as-built lives there (D2.4's plan is still live —
-  `plans/d2-4-cross-player-hydra.md`). PRs #351, #352, #354, #356, #357, #358, #359, #362, #370,
-  #371, #372, #373, #374, #375.
+  (v0.114.0), D2.5 ✅ (v0.115.0), both follow-ups ✅ (v0.116.0, v0.118.0), and **D2.4 ✅ COMPLETE**
+  (v0.119.0 → v0.122.0, all five slices). **Only D2.6 (wordlist growth) remains**, and it may be a
+  characterisation test rather than a slice.** Split into six candidates in
+  `plans/d2-credential-layer.md` — **read its top block for live status**; every shipped slice's own
+  plan file is deleted and its as-built lives there. PRs #351, #352, #354, #356, #357, #358, #359,
+  #362, #370, #371, #372, #373, #374, #375, #376.
 
-  **Next up: D2.4 slice 5**, the deep chain behind an inner gateway — the last slice in D2.4. Settled
-  2026-08-10 in favour of its own PR, because the deep layer is furnished and sealed: every deep host
-  force-runs sshd and carries a `guest` drawn at `CRACK_CHANCE.guest = 1`, yet deep IPs are absent
-  from `generateHomeLan().hosts`, so the only entrance is `ssh -p <fwd> <inner gateway>` and the
-  gateway holds forwards, not credentials. There is no way in game to obtain a deep host's password.
-  Its vantage criterion is already satisfied and proven by slice 4, so what remains is the target
-  resolution: reuse `authCreateSessionInnerGateway`'s chain walk rather than growing a second one.
+  **hydra now reaches every target `ssh` does**, which was the point of D2.4: its own LAN, a
+  stranger's AP gateway, the occupant behind a NAT forward, a box on somebody else's network it is
+  standing on, and — since v0.122.0 — a host on the deep layer behind an inner gateway. Each of the
+  last three resolves through the SAME module `ssh` authenticates through
+  (`resolvePublicTarget`, `resolveInnerGatewayTarget`), so the two tools cannot disagree about a
+  target or a credential by construction rather than by two resolutions staying in step. Proven on
+  the wire, not just argued: `testInnerGatewayReach.ts` feeds the password hydra reported straight
+  back into `ssh`, which accepts it and lands on the same box.
+
+  - **The deep layer had no credential door until v0.122.0 (D2.4 slice 5, #376).** Every deep host
+    force-runs sshd and carries a `guest` drawn at `CRACK_CHANCE.guest = 1` — content built to be
+    entered by a wordlist — but deep IPs are absent from `generateHomeLan().hosts`, so no shell can
+    name one, and rooting the gateway yields the forward table rather than any password. The layer
+    was **furnished and sealed**. `hydra -p <fwd> <inner gateway>` opens it, and repairs the
+    asymmetry the NAT-forward slice created, where `ssh -p 5544 <inner>` reached the deep box while
+    `hydra -p 5544 <inner>` attacked the gateway and silently dropped the flag. **The trace there is
+    addressed by the ROUTE, not the vantage**: NAT means a deep box only ever sees the fronting
+    gateway's `<deep subnet>.1`, whoever is behind it — the one place this departs from the public
+    sweep, where the target really does see the attacker's own address.
 
   - **Cracking reaches other players (D2.4 slices 1-3, v0.119.0 + v0.120.0).**
     `hydra <a stranger's public IP>` sweeps that access point's GATEWAY — a public IP names an AP,
@@ -1034,12 +1046,14 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   A's in the materialized view. This is precisely the collision the credential layer already
   solved on the public path, where `resolvePublicTarget` returns a box-owned `logWriterKey` (the
   reached occupant's key, or the AP's stable key when the box is ownerless) so every attacker's
-  lines accrete into ONE row. **Affects both paths**: D2.4 slice 5 deliberately made hydra match
-  `ssh` here rather than diverge, so hydra inherits it. A deep NPC is ownerless, so the fix is the
-  `apGatewayLogWriterKey` shape — a stable key derived from the box, applied to both writes in one
-  slice, with a test proving two occupants' lines coexist. Note the docstring at
-  `authCreateSessionInnerGateway.ts:25` still claims the deep layers are private and own-keyed;
-  that is stale (it predates the Story-7 reconciliation) and slice 5 corrects it.
+  lines accrete into ONE row. **Affects THREE paths**, all writing `writerKey: publicKey` onto
+  ESSID-shared deep boxes: the deep ssh reach (`authCreateSessionInnerGateway`), the deep sweep
+  (`hydraCrackInnerGateway`), and the deep scan's `kern.log` (`nmapScanDeep`). D2.4 slice 5
+  deliberately made hydra match the other two rather than diverge — hydra and `ssh` disagreeing
+  about one box is the worse failure. A deep NPC is ownerless, so the fix is the
+  `apGatewayLogWriterKey` shape: a stable key derived from the box, applied to all three writes in
+  one slice, with a test proving two occupants' lines coexist. The stale "private, per-viewer"
+  docstrings that hid this were corrected across the codebase at D2.4 close-out.
 - **124 plan tags are still embedded in code comments, and the rule against them is always-apply.**
   Counted 2026-08-11: `Story N` / `Slice N` / `5b.Na` / `D2.N` appears 124 times across 64 files
   (40 production, 24 test), including **9 inside `describe`/`it` titles**, which §2 forbids by name.

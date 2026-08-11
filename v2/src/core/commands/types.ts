@@ -347,7 +347,9 @@ export type SameLanAuthParams = {
  *  depth). Unlike the public/same-LAN paths the target is the player's own gateway: the
  *  server regenerates it from the verified pubkey + `essid`, routes the forwarded `port`
  *  through its `machineServing`, and lands the session on the DEEP HOST's id (hence
- *  `PublicAuthResult`). The deep layer is private — no cross-player lookup, no occupancy. */
+ *  `PublicAuthResult`). The deep layer needs no cross-player lookup and no occupancy read —
+ *  it regenerates from the ESSID and each gateway's journal. That is not the same as being
+ *  private: the chain is ESSID-seeded, so every occupant reaches the same deep boxes. */
 export type InnerGatewayAuthParams = {
   readonly sessionId: string;
   readonly essid: string;

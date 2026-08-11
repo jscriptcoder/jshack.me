@@ -10,9 +10,11 @@
  *
  * The line lists that host's open ports — POST-ACL when the vantage is a switch,
  * whose `/etc/switch/acl.conf` is read off its materialized journal — sourced from
- * the fronting gateway's downstream `.1`. The writer is the CALLER's own key: deep
- * boxes are private per-viewer NPCs, so the trace accretes under the player who reads
- * it back once they breach the box (parity with the deep-reach auth.log).
+ * the fronting gateway's downstream `.1`. The writer is the CALLER's own key, in parity
+ * with the deep-reach auth.log and the deep sweep — and, like both, a KNOWN DEFECT rather
+ * than a decision: deep boxes are ESSID-seeded and SHARED, so two occupants scanning one
+ * write two rows and the fold takes the later, hiding the earlier player's line. All three
+ * move together when it is fixed; see `docs/conventions-and-gotchas.md` §9.
  *
  * Best-effort logging: a per-host write failure never fails the scan; the action
  * reports how many hosts the scan target touched.

@@ -6,8 +6,8 @@
 
 **Status**: **D1 shipped** (v0.109.0); **D2 in progress — D2.1 shipped** (v0.111.0), **D2.2
 shipped** (v0.113.0), **D2.3 shipped** (v0.114.0), **D2.5 shipped** (v0.115.0), **hydra's
-workstation-only gate lifted** (v0.118.0), **D2.4 slices 1-4 shipped** (v0.119.0–v0.121.0);
-**D2.4 slice 5 + D2.6 remain** (see "Next action"). Everything else is split-and-grilled only.
+workstation-only gate lifted** (v0.118.0), **D2.4 COMPLETE** (v0.119.0–v0.122.0, all five slices);
+**only D2.6 remains** (see "Next action"). Everything else is split-and-grilled only.
 
 **Ship gate**: **all doors + hydra + discovery + the CVE system, minus missions.** Missions are
 a **post-ship epic** — the infrastructure this epic builds is what makes them cheap.
@@ -207,8 +207,8 @@ PHASE 1 — THE DOORS  (near-term focus)
       D2.2 not every account falls                     ✔ SHIPPED v0.113.0
       D2.3 the defender sees the sweep                 ✔ SHIPPED v0.114.0
       D2.5 john — the silent crack                     ✔ SHIPPED v0.115.0
-      D2.4 cross-player hydra, slices 1-4              ✔ SHIPPED v0.119.0-v0.121.0
-      D2.4 slice 5 (the deep chain) / D2.6             ← NEXT
+      D2.4 cross-player hydra, all five slices        ✔ SHIPPED v0.119.0-v0.122.0
+      D2.6 (wordlist growth — maybe a char. test)      ← NEXT
   D3  ftp / scp
   D4  daemon control (systemctl / ps / kill)
   D5  nc connect + nc -l backdoor
@@ -434,9 +434,11 @@ Three things it settled that outlive it:
    (`ui/env.ts:179-192`). The essid is still right; `wlan0.ipv4` is not. Any future command that
    reads `env.network` from a hop inherits this trap.
 
-**D2.4 is IN PROGRESS — slices 1-4 shipped** (v0.119.0 #371 `9b431d7`, v0.120.0 #374 `8838aaf`,
-v0.121.0 #375 `f6748da`); slice 5 is the last, planned at
-[`d2-4-cross-player-hydra.md`](./d2-4-cross-player-hydra.md).
+**D2.4 is COMPLETE — all five slices** (v0.119.0 #371 `9b431d7`, v0.120.0 #374 `8838aaf`,
+v0.121.0 #375 `f6748da`, v0.122.0 #376 `f160b31`). **hydra now reaches every target `ssh` does**,
+each through the same resolver `ssh` authenticates through, so the two cannot disagree about a
+target or a credential. As-built folded into
+[`d2-credential-layer.md`](./d2-credential-layer.md); the slice plan is deleted.
 **The pivot works**: an attack launched from a box the player only holds a session on is traced to
 THAT network. `sessions.essid` was already the answer — stamped server-side at hop time and returned
 by `authorizeMachineAccess` — so the slice deleted `caller_not_on_lan` rather than replacing it.
@@ -450,10 +452,10 @@ root session back.
 Grounding corrected the row's own acceptance example: a public IP's **default port reaches the AP
 gateway**, not the owner's workstation, so "cracks A's guest account" needs a NAT-forwarded port and
 hydra has no port argument. The gateway target is the smaller slice *and* the better one (the
-`gateway` knob is 0.40). The one open question there is **settled** (2026-08-10): the deep-chain seam
-(slice 5) keeps its own PR, after slice 4, because the deep layer is furnished and sealed — every
-deep host force-runs sshd with an always-crackable `guest`, and there is no way in game to obtain
-its password. **D2.6**
+`gateway` knob is 0.40). The one open question there was **settled** (2026-08-10) and then **shipped** (v0.122.0, #376): the
+deep-chain seam took its own PR after slice 4, because the deep layer was furnished and sealed —
+every deep host force-runs sshd with an always-crackable `guest`, and there was no way in game to
+obtain its password. There is now: `hydra -p <fwd> <inner gateway>`. **D2.6**
 (wordlist growth) may collapse into a characterisation test now that both tools read the file rather
 than a constant — confirm before planning it as work. Lower priority: `AvailabilityRule` is declared
 on ten commands and read by nothing — hydra's declaration is now truthful, but the field is still
