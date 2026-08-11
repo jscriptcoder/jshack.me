@@ -136,6 +136,28 @@ describe('john recovers passwords from hashes the player already holds', () => {
     expect(code).toBe(0);
   });
 
+  it('names a hash that held, once the harvested password is appended to the list', async () => {
+    // The other half of the growth rule, in the tool that never touches the
+    // network: the hash file is identical across these two runs and only the FILE
+    // on the box changed. Appended at the END, where a read that stopped one word
+    // short would drop it silently.
+    const harvested = 'correct-horse-battery';
+    const target = passwdRow('root', harvested);
+
+    const { text: before } = await run(johnEnv({ wordlist: ['hunter2', 'trustno1'], target }), [
+      'hashes.txt',
+    ]);
+    const { text: after } = await run(
+      johnEnv({ wordlist: ['hunter2', 'trustno1', harvested], target }),
+      ['hashes.txt'],
+    );
+
+    expect(before).not.toContain('root:');
+    expect(before).toContain('0/1 password hash cracked');
+    expect(after).toContain(`root:${harvested}`);
+    expect(after).toContain('1/1 password hash cracked');
+  });
+
   it('cracks the reachable rows of a mixed file and counts every row it tried', async () => {
     const env = johnEnv({
       wordlist: ['letmein'],

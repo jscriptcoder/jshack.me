@@ -5,10 +5,10 @@ import { generateIdentity } from '../identity/identity';
 import { computeWorkstationId } from '../identity/workstation';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { hostServices } from '../generation/remoteHostFs';
-import { ALL_GENERATED_PASSWORDS } from '../generation/passwordPools';
+import { ALL_GENERATED_PASSWORDS, UNCRACKABLE_PASSWORDS } from '../generation/passwordPools';
 import { machineIdForLanHost, resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { WORDLIST_PATH, formatWordlist } from '../wordlist/defaultWordlist';
+import { DEFAULT_WORDLIST, WORDLIST_PATH, formatWordlist } from '../wordlist/defaultWordlist';
 import { accountsIn } from './passwdAccount';
 import { md5 } from '../generation/md5';
 import {
@@ -219,6 +219,30 @@ const soleHolderOf = (
   );
   if (sole === undefined) throw new Error('every password on this host is shared');
   return sole;
+};
+
+/** An ssh host on this LAN with an account the SHIPPED wordlist cannot open,
+ *  paired with the password that would. Drawn from the uncrackable pool, which
+ *  `DEFAULT_WORDLIST` covers not at all — so this is a door that genuinely holds
+ *  against a default install, and only a harvested word opens it. */
+const hostWithADoorThatHolds = (
+  essid: string,
+): {
+  readonly host: LanHost;
+  readonly held: { readonly username: string; readonly password: string };
+} => {
+  const doors = generateHomeLan(essid)
+    .hosts.filter(
+      (candidate) =>
+        candidate.kind === 'machine' &&
+        hostServices(essid, candidate).some(({ spec }) => spec === SERVICE_CATALOG.ssh),
+    )
+    .flatMap((host) =>
+      accountsWithPasswords(host, UNCRACKABLE_PASSWORDS).map((held) => ({ host, held })),
+    );
+  const first = doors[0];
+  if (first === undefined) throw new Error('every account on every ssh host is crackable');
+  return first;
 };
 
 describe('handleHydraCrack', () => {
@@ -633,6 +657,47 @@ describe('handleHydraCrack', () => {
     );
 
     expect(response).toEqual({ status: 500, body: { error: 'patches_lookup_failed' } });
+  });
+});
+
+/**
+ * Growing the wordlist IS the progression, and this is the whole of it: harvest a
+ * password, append it, and a door that held opens. The gate is membership in the
+ * file, so the mechanic only exists if a word added to the file on the caller's
+ * machine reaches the sweep — which is why the append below is a journal row and
+ * never a request field. A list the client could supply would be a claim, not a
+ * possession.
+ *
+ * The base list is the real `DEFAULT_WORDLIST`, so this is a claim about the
+ * SHIPPED game rather than about a list a test invented: what `apt install hydra`
+ * hands a player genuinely cannot open this door until they widen it themselves.
+ */
+describe('growing the wordlist', () => {
+  it('opens a door the shipped list cannot, once the harvested password is a line in the file', async () => {
+    const identity = generateIdentity();
+    const { host, held } = hostWithADoorThatHolds(ESSID);
+
+    const before = await handleHydraCrack(
+      signedCrack(identity, { target_ip: host.ip }),
+      makeDeps({ wordlist: DEFAULT_WORDLIST }).deps,
+    );
+    const after = await handleHydraCrack(
+      signedCrack(identity, { target_ip: host.ip }),
+      // Appended, exactly as `nano` would leave it: the harvested word is the LAST
+      // line, the position an off-by-one over the list would silently skip.
+      makeDeps({ wordlist: [...DEFAULT_WORDLIST, held.password] }).deps,
+    );
+
+    // The shipped list DID open other doors on this box — `guest` always falls — so
+    // the sweep genuinely ran and this one account held on its own merit, rather
+    // than the run having quietly done nothing.
+    expect(before.body.cracked).not.toHaveLength(0);
+    // Absent under ANY password before, not merely under the right one — a sweep
+    // that reported the account with something else would be a worse bug.
+    expect(before.body.cracked).not.toContainEqual(
+      expect.objectContaining({ username: held.username }),
+    );
+    expect(after.body.cracked).toContainEqual(held);
   });
 });
 
