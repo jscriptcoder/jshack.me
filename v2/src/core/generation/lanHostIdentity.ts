@@ -35,6 +35,7 @@ import {
   buildInnerGatewayBaseFs,
   buildSwitchBaseFs,
 } from './routerFs';
+import { readOpenPorts } from '../services/pidfile';
 import { buildRemoteHostFs } from './remoteHostFs';
 import { hostMachineId } from './remoteHostId';
 import { generateHomeLan, type LanHost, type LanHostKind } from './generateHomeLan';
@@ -63,6 +64,31 @@ export const isInnerGateway = (host: LanHost): boolean =>
 export const innerGatewayAt = (essid: string, target: string): LanHost | null => {
   const host = generateHomeLan(essid).hosts.find((candidate) => candidate.ip === target);
   return host !== undefined && isInnerGateway(host) ? host : null;
+};
+
+/** Does `port` on `target` address the hidden layer BEHIND it rather than the box
+ *  itself? True only for an inner gateway on a port other than its own sshd: that is
+ *  what a NAT forward is, and an inner gateway is the only kind of host that has a
+ *  forward table. Everything else — the edge `.1`, a sibling, an off-LAN address, or a
+ *  gateway's own ssh port — is the machine at that address.
+ *
+ *  This is the rule `ssh` routes its forward-login by, spelled once for callers that
+ *  hold neither the host nor its running port; `ssh.ts` derives both for other decisions
+ *  and so states it inline. Change one and change the other. */
+export const forwardsIntoDeepLayer = (options: {
+  readonly essid: string;
+  readonly target: string;
+  readonly port: number;
+}): boolean => {
+  const gateway = innerGatewayAt(options.essid, options.target);
+  if (gateway === null) return false;
+  // A gateway that ran no sshd at all would have no own port to be distinct from, and
+  // `undefined !== port` says so without a separate branch for a case the generator
+  // does not produce.
+  const ownSshPort = readOpenPorts(baseFsForLanHost(gateway, options.essid)).find(
+    (open) => open.service === 'ssh',
+  )?.port;
+  return ownSshPort !== options.port;
 };
 
 /** A LAN host's storage machine_id — without building its FS (the cheap half, used

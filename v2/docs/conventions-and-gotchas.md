@@ -465,9 +465,37 @@ Provably-equivalent mutant classes — accept (don't chase) when they recur:
 - Plus per-slice equivalents documented in the relevant plan (e.g. discriminant-by-exclusion
   arms, a default value washed out downstream).
 
+- **A generator invariant that makes a defensive branch unreachable.** Verified 2026-08-11 by
+  enumerating the whole crackable ESSID pool: all 100 inner gateways run EXACTLY ONE open port and
+  it is always ssh. So in `forwardsIntoDeepLayer` the `find(open => open.service === 'ssh')`
+  predicate and the `?.port` short-circuit are both unkillable — with one daemon, "the ssh one" and
+  "the first one" are the same port, and the optional never fires. Two of these were a real dead
+  disjunct (`ownSshPort === undefined || …`) that collapsed into `?.port !== port`; the two that
+  remain are genuinely equivalent. Same invariant retires the reached-port half of
+  `hydraCrackInnerGateway`'s service check: a deep host is `FORCE_SSHD_PATCH`'d to one daemon and
+  `servesInternalPort` already refused any forward to a port nothing serves, so the port and
+  service halves cannot disagree there. **Enumerate the generator before calling such a branch
+  equivalent** — one fixture proves nothing about a seeded population, and the enumeration is a
+  dozen lines.
+- **An early return whose fallthrough reaches the same answer.** `resolveInnerGatewayTarget`'s
+  `if (served.kind === 'none') return UNREACHABLE` is a fast path: with the guard mutated away,
+  `served.internalIp` is `undefined`, matches neither the deep host nor the child gateway, and the
+  final `return UNREACHABLE` produces the identical result. Kept for readability, not behaviour —
+  all three mutants on that line are equivalent.
+- **A value computed only to be discarded.** `fromIp: target.sourceIp ?? ''` in
+  `hydraCrackInnerGateway`: the sweep needs a string to format lines with, and when `sourceIp` is
+  null those lines are never written, so the fallback is unobservable. `cracked` does not depend on
+  `fromIp` at all.
+- **Blank-line spacers in command output** — `yield text('')` between sections. Tests assert the
+  content lines, so the empty string is unobservable.
+
 **Known-equivalent inventory, so a re-run is not a mystery:** `hydraCrack.ts` scores 166/169 with
-exactly the three above. `hydra.ts` scores ~63/97 because ~30 mutants are the declarative
-`manual`/metadata block — the same shape `john.ts` established. Both are expected, not regressions.
+exactly the three above. `hydra.ts` scores 87/133 (2026-08-11, up from ~63/97 when the deep-layer
+example and rewritten `-p` description grew the block): 44 of its 46 survivors are the declarative
+`manual`/metadata block — the same shape `john.ts` established — and the other 2 are the blank-line
+spacers. Its dispatch logic is fully killed. `hydraCrackInnerGateway.ts` 78/80,
+`resolveInnerGatewayTarget.ts` 77/80 and `lanHostIdentity.ts` 135/137, each with only the
+equivalents named above. All expected, not regressions.
 
 **Read a survivor's `location` span before believing it is impossible.** Stryker mutates
 SUB-EXPRESSIONS, and the clear-text/JSON `replacement` field shows only the fragment it swapped —

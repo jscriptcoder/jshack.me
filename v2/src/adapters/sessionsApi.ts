@@ -36,6 +36,7 @@ import type {
   Session,
   SuElevateParams,
   HydraCrackParams,
+  HydraCrackInnerGatewayParams,
   HydraCrackPublicParams,
   HydraCrackResult,
 } from '../core/commands/types';
@@ -372,6 +373,33 @@ export const crackCredentialsPublic = async (
       target: params.target,
       service: params.service,
       ...(params.port === undefined ? {} : { port: params.port }),
+      ...(params.username === undefined ? {} : { username: params.username }),
+      caller_machine_id: params.callerMachineId,
+    });
+    return await crackOutcome(response);
+  } catch {
+    return { ok: false, error: 'network_error' };
+  }
+};
+
+/**
+ * Crack account passwords on a box behind a NAT forward on one of the player's own
+ * inner gateways — the signed `hydraCrackInnerGateway` round-trip behind
+ * `env.hydra.crackInnerGateway`.
+ *
+ * Carries no source address: NAT means the deep box is shown the fronting gateway's
+ * `.1` whoever is behind it, so the server derives it from the route it walked.
+ */
+export const crackCredentialsInnerGateway = async (
+  deps: SessionsClientDeps,
+  params: HydraCrackInnerGatewayParams,
+): Promise<HydraCrackResult> => {
+  try {
+    const response = await post(deps, 'hydraCrackInnerGateway', {
+      essid: params.essid,
+      target: params.target,
+      service: params.service,
+      port: params.port,
       ...(params.username === undefined ? {} : { username: params.username }),
       caller_machine_id: params.callerMachineId,
     });

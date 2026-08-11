@@ -25,6 +25,7 @@
 import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
 import { connectedWlan0 } from '../network/interfaces';
 import { isPublicIp } from '../generation/ip';
+import { forwardsIntoDeepLayer } from '../generation/lanHostIdentity';
 
 const error = (message: string): CommandResult => ({
   kind: 'sync',
@@ -85,12 +86,23 @@ async function* attack(
   // exactly as `ssh` resolves one. That action derives the source address itself,
   // because a trace on a foreign box is the defender's only evidence.
   //
-  // `-p` goes only that way. On the player's own LAN a host IS the machine, and the
-  // service name already selects whichever port its daemon listens on — there is no
-  // forward table to address, so the flag has nothing to say.
+  // On the player's own LAN, `-p` addresses something on exactly one kind of host: an
+  // INNER GATEWAY, whose forward table is the only door to the hidden layer behind it.
+  // The same rule `ssh -p <fwd> <inner>` routes by, so both tools reach the same box.
+  // Anywhere else a host IS the machine and the service name already picks its port, so
+  // the flag has nothing to address.
   const result = isPublicIp(target)
     ? await env.hydra.crackPublic({ essid, target, service, username, callerMachineId, port })
-    : await env.hydra.crack({ essid, target, service, username, callerMachineId, sourceIp });
+    : port !== undefined && forwardsIntoDeepLayer({ essid, target, port })
+      ? await env.hydra.crackInnerGateway({
+          essid,
+          target,
+          service,
+          username,
+          callerMachineId,
+          port,
+        })
+      : await env.hydra.crack({ essid, target, service, username, callerMachineId, sourceIp });
 
   if (!result.ok) {
     yield { kind: 'error', content: `hydra: ${REFUSALS[result.error] ?? result.error}` };
@@ -160,8 +172,10 @@ export const hydra: Command = {
       'wordlist will never be found, however weak it is — grow the list by editing it ' +
       'with nano as you harvest passwords elsewhere. A public IP is the access point ' +
       'that bears it, so attacking one attacks that network’s gateway — use "-p" to ' +
-      'reach a machine somebody has published behind it instead. On your own network ' +
-      'the service name already picks the port, so "-p" is only for a public IP.',
+      'reach a machine somebody has published behind it instead. "-p" also opens the ' +
+      'layer hidden behind one of your own gateways: a port it forwards reaches a ' +
+      'machine that has no address on your network at all. Everywhere else the service ' +
+      'name already picks the port.',
     arguments: [
       {
         name: 'host',
@@ -178,6 +192,10 @@ export const hydra: Command = {
       {
         command: 'hydra -p 5544 203.0.113.7',
         description: 'Attack the machine behind a forwarded port',
+      },
+      {
+        command: 'hydra -p 2222 192.168.1.85',
+        description: 'Attack a machine hidden behind your own gateway',
       },
     ],
   },
