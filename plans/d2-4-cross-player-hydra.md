@@ -1,7 +1,8 @@
 # Plan: a player cracks a stranger's box across the network
 
-**Branch**: next slice cuts a fresh branch from `main` (slices 1-2 shipped from
-`feat/crack-a-strangers-box`, slice 3 from `feat/crack-behind-a-nat-forward`)
+**Branch**: `feat/crack-behind-an-inner-gateway` (slice 5). Slices 1-2 shipped from
+`feat/crack-a-strangers-box`, 3 from `feat/crack-behind-a-nat-forward`, 4 from
+`feat/attack-from-a-box-you-hold`.
 **Status**: Active — **slices 1-4 SHIPPED**: 1 and 2 in PR #371 (`9b431d7`, v0.119.0), 3 in PR #374
 (`8838aaf`, v0.120.0), 4 in PR #375 (`f6748da`, v0.121.0). **Slice 5 is the last one**, and its
 vantage criterion is already satisfied and proven by slice 4 — what remains is the target
@@ -93,20 +94,25 @@ content"*). Slice 4 should follow that shape.
 
 ## Acceptance Criteria
 
-- [ ] A player can `hydra <a stranger's public IP>` and crack the AP gateway's root account when
-      the roll allows, or be told plainly that it held.
-- [ ] `hydra -p <forwarded port> <public IP>` reaches the occupant behind that forward and cracks
+- [x] A player can `hydra <a stranger's public IP>` and crack the AP gateway's root account when
+      the roll allows, or be told plainly that it held. *(slice 2, v0.119.0)*
+- [x] `hydra -p <forwarded port> <public IP>` reaches the occupant behind that forward and cracks
       what `ssh` then accepts — the same account, the same password, no disagreement.
-- [ ] Every cross-player sweep writes the per-password `Failed password` wall plus any accepted
+      *(slice 3, v0.120.0)*
+- [x] Every cross-player sweep writes the per-password `Failed password` wall plus any accepted
       line to the **target's** shared `/var/log/auth.log`, at a **server-derived** source IP; a
-      client-supplied address is never trusted on a cross-player target.
-- [ ] A sweep launched from a box the player is standing on but does not own is traced to **that
-      box's** network, not to the attacker's home.
+      client-supplied address is never trusted on a cross-player target. *(slice 2, v0.119.0)*
+- [x] A sweep launched from a box the player is standing on but does not own is traced to **that
+      box's** network, not to the attacker's home. *(slice 4, v0.121.0)*
 - [ ] hydra reaches a deep host behind an inner gateway, matching `ssh`'s fourth variant.
-- [ ] hydra and `ssh` resolve a public target through **one** shared resolver — proved by the
-      resolver having two callers, not by a comment.
-- [ ] Own-LAN hydra (v0.118.0) is behaviourally unchanged throughout.
-- [ ] A `scripts/test*.ts` wire-check passes live with **two identities**.
+      **← slice 5, the only criterion still open**
+- [x] hydra and `ssh` resolve a public target through **one** shared resolver — proved by the
+      resolver having two callers, not by a comment. *(slice 1, v0.119.0)*
+- [ ] Own-LAN hydra (v0.118.0) is behaviourally unchanged throughout. **Holds through slice 4** —
+      left open deliberately, because "throughout" is only true once the last slice lands; slice 5's
+      criteria 5 and 7 are what keep it true.
+- [x] A `scripts/test*.ts` wire-check passes live with **two identities** — `testHydraCrossPlayer`,
+      16 checks, three parties as of slice 4. *(slices 2-4)*
 
 ## Out of scope
 

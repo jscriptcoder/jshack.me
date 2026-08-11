@@ -971,6 +971,20 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   enforcement, which is the dangerous kind: a reader reasonably assumes the rule holds. Decide one
   way. If enforcing, note that `hydra` deliberately runs anywhere ("tools run where you stand") and
   its `any-machine` is load-bearing intent, not a default.
+- **124 plan tags are still embedded in code comments, and the rule against them is always-apply.**
+  Counted 2026-08-11: `Story N` / `Slice N` / `5b.Na` / `D2.N` appears 124 times across 64 files
+  (40 production, 24 test), including **9 inside `describe`/`it` titles**, which §2 forbids by name.
+  All of it predates the rule. It is exactly the rot the rule exists to prevent: plan files are
+  **deleted on close-out**, so every one of these points at something a reader cannot open —
+  `ssh.ts:304` explains its dispatch by citing "5b.1a"; `bindFlags.ts:10` narrates four slices of
+  its own history instead of stating what the flag parser does; `nmapScan.test.ts:392` names a
+  Story in a `describe` title, so the suite prints a dangling reference on every run.
+  **Not a mechanical find-and-replace.** Deleting the tag alone often deletes the only explanation
+  the comment carried — the fix is to say the WHY the tag was standing in for, which needs the code
+  read one site at a time. Sized like several sittings, not one; it conserves behaviour entirely
+  (comments and test titles only), so it is a clean `refactoring` candidate with the existing suite
+  as its whole preservation evidence. Best done per-file when a slice is already in that file,
+  rather than as one enormous unreviewable diff.
 - ~~**A NAT forward reaches only ONE occupant of a shared AP**~~ — **FIXED at v0.99.0.** The
   public paths no longer resolve "the box behind the NAT" at all: a forward's `internalIp` is
   matched against the ESSID's `network_lan_leases` + `home_network_occupants`, so it lands on
