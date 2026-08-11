@@ -780,6 +780,12 @@ real endpoints against `vercel dev` + local supabase.
 - Prereqs: local supabase (`http://127.0.0.1:54421`, per `supabase/config.toml`) + `vercel dev`
   (port 3100) both up (see the 3100 gotcha above). "Serving" = an empty `{}` POST returns 400
   (not 502/000).
+- **Start it with `npm run vercel:dev`, never a bare `npx vercel dev`.** That script is
+  `dotenv -e .env.development.local -- vercel dev --listen 3100`, and the dotenv wrapper is
+  load-bearing: `vercel dev` does NOT read `.env.development.local` into the function runtime by
+  itself, so a bare invocation serves happily on 3100 while EVERY request returns
+  `500 {"error":"not_configured"}` from the `SUPABASE_URL`/`SERVICE_ROLE_KEY` guard. The tell is
+  that `{}` returns 500 instead of 400 — check that before blaming the seed data or the handler.
 
 **Windows can silently reserve supabase's whole port block.** Symptom: `npx supabase start`
 reports success and `npx supabase status` prints the usual URLs, but every request to the REST
@@ -815,6 +821,25 @@ forgotten temp port is a committed one.
 - The script seeds the DB via the service-role client, drives the endpoints, asserts, and
   cleans up. Examples: `testDeepChainReach.ts`, `testDeepSwitchChain.ts`,
   `testSameLanConnect.ts`, `testRouterBrick.ts`, `testHttpFetch.ts`.
+
+**A wire-check that asserts on a SHARED machine's journal must clean that machine at SETUP and
+assert on the DELTA.** Both halves were wrong in the first draft of the deep hydra check and each
+produced a green PASS on its own:
+
+1. *Stale rows outlive the run.* Deep hosts, gateways and AP boxes are ESSID-seeded, so their
+   `machine_id` is identical across runs even though each run generates a fresh identity. The
+   trace assertion passed against an auth.log row written the PREVIOUS DAY, while every other
+   check in the same run was failing. Cleaning up at the END is not enough — a crashed or
+   half-failing run leaves rows the next run reads as its own. Delete the target machine's
+   patches at setup, not only at teardown.
+2. *A sibling path writes the same sentence.* `ssh` and `hydra` both append
+   `Failed/Accepted password for <user> from <ip>` to the same file on the same box, so an
+   `includes()` over the whole log is satisfied by the ssh checks that ran earlier in the script
+   regardless of whether the sweep wrote anything. Snapshot the content before the action and
+   assert on `after.slice(before.length)`.
+
+The general rule: an assertion that would pass if the code under test did NOTHING is not a check.
+On shared, deterministically-named machines that is the default outcome, not an edge case.
 
 **SEED INSERTS MUST FAIL LOUDLY — a rejected seed is a check that tests nothing.** A bare
 `await sr.from('patches').insert([...])` swallows its error, so a row the schema refuses leaves
