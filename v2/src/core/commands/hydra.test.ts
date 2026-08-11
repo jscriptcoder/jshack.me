@@ -9,8 +9,11 @@ import {
 import { buildColdStartConnectivity } from '../network/interfaces';
 import { asMachineId, asPlayerKeyHex, type MachineId } from '../types';
 import { computeWorkstationId } from '../identity/workstation';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
+import { isInnerGateway } from '../generation/lanHostIdentity';
 import type {
   CommandResult,
+  HydraCrackInnerGatewayParams,
   HydraCrackParams,
   HydraCrackPublicParams,
   HydraCrackResult,
@@ -32,6 +35,17 @@ import type { ConnectivityState, NetworkInterface } from '../network/interfaces'
 const OWNER_KEY = 'a'.repeat(64);
 const WORKSTATION_ID = computeWorkstationId('skylab', OWNER_KEY);
 const ESSID = 'BEAN-THERE-WIFI';
+
+/** Addresses on the LAN this ESSID generates. The gateway is the only kind of host
+ *  that fronts a hidden layer, so it is the only one for which `-p` addresses
+ *  anything; both are read off the generated world rather than guessed. */
+const lanIpWhere = (predicate: (host: LanHost) => boolean): string => {
+  const host = generateHomeLan(ESSID).hosts.find(predicate);
+  if (host === undefined) throw new Error('no matching host on the generated LAN');
+  return host.ip;
+};
+const INNER_GATEWAY_IP = lanIpWhere((host) => host.kind === 'router' && isInnerGateway(host));
+const SIBLING_IP = lanIpWhere((host) => host.kind === 'machine');
 
 /** A workstation associated with an AP and holding a lease — hydra needs a LAN
  *  under it before it can name a target. */
@@ -60,13 +74,16 @@ const hydraEnv = (opts: EnvOpts = {}) => {
   const crackPublic = vi.fn<(params: HydraCrackPublicParams) => Promise<HydraCrackResult>>(
     async () => opts.result ?? { ok: true, port: 22, cracked: [], wordlistFound: true },
   );
+  const crackInnerGateway = vi.fn<
+    (params: HydraCrackInnerGatewayParams) => Promise<HydraCrackResult>
+  >(async () => opts.result ?? { ok: true, port: 2222, cracked: [], wordlistFound: true });
   const env = mockCommandEnv({
     identity: { publicKeyHex: asPlayerKeyHex(OWNER_KEY), privateKeyHex: 'b'.repeat(64) },
     session: mockSession({ machineId: opts.machineId ?? asMachineId(WORKSTATION_ID) }),
     network: mockNetworkViewFromConnectivity(opts.connectivity ?? connectedState()),
-    hydra: mockHydraApi({ crack, crackPublic }),
+    hydra: mockHydraApi({ crack, crackPublic, crackInnerGateway }),
   });
-  return { env, crack, crackPublic };
+  return { env, crack, crackPublic, crackInnerGateway };
 };
 
 const drain = async (
@@ -351,17 +368,54 @@ describe('hydra', () => {
     );
   });
 
-  it('ignores -p on the player’s own LAN, where the service already picks the port', async () => {
-    // A host on your own network IS the machine — there is no forward table to
+  it('ignores -p on an ordinary host, where the service already picks the port', async () => {
+    // A sibling on your own network IS the machine — it has no forward table to
     // address, and `hydra <host> ssh` already attacks wherever that sshd listens.
     const { env, crack, crackPublic } = hydraEnv();
 
-    await drain(await hydra.execute(env, ['192.168.4.31'], new Map([['-p', '5544']])));
+    await drain(await hydra.execute(env, [SIBLING_IP], new Map([['-p', '5544']])));
 
     expect(crackPublic).not.toHaveBeenCalled();
     expect(crack).toHaveBeenCalledWith(
       expect.not.objectContaining({ port: expect.anything() as unknown }),
     );
+  });
+
+  it('sends -p on an INNER GATEWAY to the deep action — the one host with a forward table', async () => {
+    // An inner gateway is the door to a hidden layer, and the port is what addresses a
+    // box behind it. The same rule `ssh -p <fwd> <inner>` routes by, so the two tools
+    // reach the same box.
+    const { env, crack, crackPublic, crackInnerGateway } = hydraEnv();
+
+    await drain(await hydra.execute(env, [INNER_GATEWAY_IP], new Map([['-p', '2222']])));
+
+    expect(crackInnerGateway).toHaveBeenCalledWith(
+      expect.objectContaining({ target: INNER_GATEWAY_IP, port: 2222, essid: ESSID }),
+    );
+    expect(crack).not.toHaveBeenCalled();
+    expect(crackPublic).not.toHaveBeenCalled();
+  });
+
+  it('attacks the gateway itself when no port is named at all', async () => {
+    // Without `-p` there is no forward to follow, on a gateway as much as anywhere
+    // else: `hydra <gateway>` is an ordinary own-LAN sweep of the box at that address.
+    const { env, crack, crackInnerGateway } = hydraEnv();
+
+    await drain(await hydra.execute(env, [INNER_GATEWAY_IP], new Map()));
+
+    expect(crackInnerGateway).not.toHaveBeenCalled();
+    expect(crack).toHaveBeenCalledTimes(1);
+  });
+
+  it('attacks the gateway itself when -p names the port it serves', async () => {
+    // Its own sshd is the gateway, not a forward into the layer behind it — so this is
+    // an ordinary own-LAN sweep, traced from the player's real LAN address.
+    const { env, crack, crackInnerGateway } = hydraEnv();
+
+    await drain(await hydra.execute(env, [INNER_GATEWAY_IP], new Map([['-p', '22']])));
+
+    expect(crackInnerGateway).not.toHaveBeenCalled();
+    expect(crack).toHaveBeenCalledTimes(1);
   });
 
   it('keeps a private address on the own-LAN action', async () => {

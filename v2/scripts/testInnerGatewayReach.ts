@@ -4,11 +4,16 @@
 // endpoints against a running `vercel dev` + supabase, seeding alice's root session on
 // the gateway via service_role so her own-box write to rules.v4 passes the L1/L2 gate.
 //
-// Net-new under test (the locally-untypechecked api/ runtime): the auth handler
-// regenerates the gateway from the verified pubkey + essid, replays its journal
-// (canBoot gate), routes the forwarded port via machineServing onto the deep NPC,
-// validates the password against ITS /etc/passwd, and inserts a session on the DEEP
-// host's machine id — not the gateway's. The deep layer stays private.
+// Under test (the locally-untypechecked api/ runtime): both doors into the deep layer,
+// which share one chain walk. The auth handler regenerates the gateway from the essid,
+// replays its journal (canBoot gate), routes the forwarded port via machineServing onto
+// the deep NPC, validates against ITS /etc/passwd, and inserts a session on the DEEP
+// host's machine id — not the gateway's. `hydraCrackInnerGateway` sweeps the same box
+// through the same walk, traces it at the fronting gateway's `.1` (all NAT ever shows a
+// deep host), and — the check that matters — reports a password `ssh` then accepts.
+//
+// The layer is ESSID-seeded and SHARED, not private: every occupant of the network
+// resolves the same gateway, forwards and deep hosts.
 //
 // Usage (with v2 supabase + vercel dev running):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testInnerGatewayReach.ts
@@ -31,6 +36,7 @@ import { hostMachineId } from '../src/core/generation/remoteHostId';
 import { accountIn } from '../src/core/sessions/passwdAccount';
 import { md5 } from '../src/core/generation/md5';
 import { ALL_GENERATED_PASSWORDS } from '../src/core/generation/passwordPools';
+import { WORDLIST_PATH, formatWordlist } from '../src/core/wordlist/defaultWordlist';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
@@ -156,6 +162,10 @@ const sessionRowsOn = async (machineId: string): Promise<number> => {
 // Clean slate, then seed alice's own ROOT session on the inner gateway (as her
 // `ssh root@<inner>` would leave it) so her own-box write to rules.v4 passes L1/L2.
 await sr.from('patches').delete().eq('machine_id', INNER_GW_ID);
+// The DEEP host's journal too. Its auth.log is ESSID-seeded, so it survives across runs
+// under a different alice — and a trace assertion that reads a PREVIOUS run's lines
+// passes without this run having written anything at all.
+await sr.from('patches').delete().eq('machine_id', DEEP_ID);
 await sr.from('sessions').delete().eq('player_key', alice.publicKeyHex);
 await sr.from('sessions').insert({
   session_id: `ssh-alice-inner-${INNER_GW_ID}`,
@@ -243,6 +253,118 @@ check(
   `status=${r4.status} machine=${machineOf(r4.body)} userType=${userTypeOf(r4.body)}`,
 );
 
+// --- hydra down the same forward. The deep layer's only credential door: its hosts are
+//     built to be entered by a wordlist but have no address any shell can name, and the
+//     gateway holds forwards rather than passwords. alice sweeps FROM the gateway she
+//     rooted, which is where her wordlist lives. ---
+
+const sweep = (over: Record<string, unknown>) =>
+  post(
+    SESSIONS,
+    signRequest(alice, 'hydraCrackInnerGateway', {
+      essid: ESSID,
+      target: INNER_IP,
+      service: 'ssh',
+      port: 2222,
+      username: 'guest',
+      caller_machine_id: INNER_GW_ID,
+      ...over,
+    }),
+  );
+
+const crackedOf = (body: unknown): { username: string; password: string }[] =>
+  (body as { cracked?: { username: string; password: string }[] } | null)?.cracked ?? [];
+
+/** The wordlist as `apt install hydra` leaves it on the box alice is standing on —
+ *  game-provided state rather than a player write, so it is seeded via service_role
+ *  exactly as the other hydra checks do, not pushed through the L2 gate. */
+const seedWordlist = async (words: readonly string[]) => {
+  const { error } = await sr.from('patches').upsert(
+    {
+      machine_id: INNER_GW_ID,
+      path: WORDLIST_PATH,
+      writer_key: alice.publicKeyHex,
+      content: formatWordlist(words),
+      owner: 'root',
+      node_type: 'file',
+      permissions: { read: ['root', 'user', 'guest'], write: ['root'], execute: [] },
+    },
+    { onConflict: 'machine_id,path,writer_key' },
+  );
+  if (error) throw new Error(`wordlist seed failed: ${error.message}`);
+};
+
+const deepAuthLog = async (): Promise<string> => {
+  const { data } = await sr
+    .from('patches')
+    .select('content')
+    .eq('machine_id', DEEP_ID)
+    .eq('path', '/var/log/auth.log')
+    .maybeSingle();
+  return (data as { content?: string } | null)?.content ?? '';
+};
+
+// A decoy first so the trace carries a Failed line before the Accepted one — a sweep
+// that reported only its success would look identical to a lucky first guess.
+await seedWordlist(['hunter2', DEEP_GUEST_PW]);
+// The log BEFORE the sweep. `ssh` writes the same sentences to the same file, so only
+// the delta proves hydra traced anything at all.
+const logBeforeSweep = await deepAuthLog();
+
+// 4b. HYDRA THROUGH THE FORWARD — the deep host's guest password is recovered from a
+//     box that has no address on the LAN at all.
+const h1 = await sweep({});
+check(
+  'hydra -p 2222 <inner> → 200, recovers the DEEP host’s guest password',
+  h1.status === 200 &&
+    crackedOf(h1.body).length === 1 &&
+    crackedOf(h1.body)[0]?.username === 'guest' &&
+    crackedOf(h1.body)[0]?.password === DEEP_GUEST_PW,
+  `status=${h1.status} cracked=${JSON.stringify(crackedOf(h1.body))}`,
+);
+
+// 4c. THE TRACE IS ADDRESSED BY THE ROUTE — NAT means the deep box only ever sees the
+//     fronting gateway's `.1`, so that is what its auth.log records.
+const appendedBySweep = (await deepAuthLog()).slice(logBeforeSweep.length);
+const GATEWAY_INNER_IP = `${deep.subnet}.1`;
+check(
+  'the sweep is traced on the DEEP host at the fronting gateway’s .1',
+  appendedBySweep.includes(`Failed password for guest from ${GATEWAY_INNER_IP}`) &&
+    appendedBySweep.includes(`Accepted password for guest from ${GATEWAY_INNER_IP}`) &&
+    !appendedBySweep.includes(INNER_IP),
+  `gatewayIp=${GATEWAY_INNER_IP} appended=${JSON.stringify(appendedBySweep.split('\n').filter(Boolean))}`,
+);
+
+// 4d. THE AGREEMENT — the password hydra reported is one `ssh` then accepts, on the same
+//     box. This is the whole point of both tools resolving through one walk.
+const reported = crackedOf(h1.body)[0]?.password ?? 'nothing-was-cracked';
+const h2 = await reach({ password: reported });
+check(
+  'the password hydra reported is one ssh then accepts, landing on the deep host',
+  h2.status === 200 && machineOf(h2.body) === DEEP_ID,
+  `status=${h2.status} machine=${machineOf(h2.body)}`,
+);
+
+// 4e. A PORT WITH NO FORWARD — dark to a sweep exactly as it is to a login.
+const h3 = await sweep({ port: 3333 });
+check(
+  'hydra on a port with no matching forward → 404 host_unreachable',
+  h3.status === 404 && errorOf(h3.body) === 'host_unreachable',
+  `status=${h3.status} error=${errorOf(h3.body) ?? '-'}`,
+);
+
+// 4f. PORT 22 IS THE GATEWAY ITSELF — its own sshd, swept against its admin password.
+//     The deep layer is not involved, so nothing is traced there.
+await seedWordlist([GATEWAY_ROOT_PW]);
+const h4 = await sweep({ port: 22, username: 'root' });
+check(
+  'hydra -p 22 <inner> → cracks the GATEWAY’s own root password, not the deep host’s',
+  h4.status === 200 &&
+    crackedOf(h4.body).length === 1 &&
+    crackedOf(h4.body)[0]?.password === GATEWAY_ROOT_PW,
+  `status=${h4.status} cracked=${JSON.stringify(crackedOf(h4.body))}`,
+);
+
 // 5. BRICK — rm /boot/vmlinuz on the gateway: it stops answering, the deep entrance
 //    goes dark even with the forward still configured (the boot gate runs first).
 await post(PATCHES, signRequest(alice, 'removePatch', { machine_id: INNER_GW_ID, path: VMLINUZ, owner: 'root' }));
@@ -253,8 +375,18 @@ check(
   `status=${r5.status} error=${errorOf(r5.body) ?? '-'}`,
 );
 
+// 5b. THE BRICK IS DARK TO A SWEEP TOO — a wordlist attack is not a way around a box
+//     that cannot boot, and nothing is recorded on a host nobody could reach.
+const h5 = await sweep({});
+check(
+  'brick: the deep sweep is refused host_unreachable as well',
+  h5.status === 404 && errorOf(h5.body) === 'host_unreachable',
+  `status=${h5.status} error=${errorOf(h5.body) ?? '-'}`,
+);
+
 // Cleanup.
 await sr.from('patches').delete().eq('machine_id', INNER_GW_ID);
+await sr.from('patches').delete().eq('machine_id', DEEP_ID);
 await sr.from('sessions').delete().eq('player_key', alice.publicKeyHex);
 
 const passed = results.filter((result) => result.pass).length;

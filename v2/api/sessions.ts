@@ -16,6 +16,7 @@ import type { LanLeaseRow } from '../src/core/network/lanAddress';
 import { handleAuthCreateSessionInnerGateway } from '../src/core/sessions/authCreateSessionInnerGateway';
 import { handleHydraCrack } from '../src/core/sessions/hydraCrack';
 import { handleHydraCrackPublic } from '../src/core/sessions/hydraCrackPublic';
+import { handleHydraCrackInnerGateway } from '../src/core/sessions/hydraCrackInnerGateway';
 import type { OwnerPatchRow } from '../src/core/network/materializeWorkstationFs';
 import {
   handleAuthElevateSession,
@@ -43,11 +44,11 @@ import type { NonceStore } from '../src/core/signedRequest/nonceStore';
 
 // Vercel adapter for POST /api/sessions.
 //
-// Nine signed actions share this endpoint, routed on the (unverified) payload
+// Ten signed actions share this endpoint, routed on the (unverified) payload
 // `action` — each handler re-verifies the envelope itself, so routing on the
 // raw action is safe. They span session creation (own machine, own LAN, same
-// LAN, cross-player public, inner gateway), su elevation, the credential
-// sweeps, and the two session reads.
+// LAN, cross-player public, inner gateway), su elevation, the three credential
+// sweeps (own LAN, public, deep), and the two session reads.
 //
 // Replay protection uses a noop nonce store locally (Upstash wiring lands when
 // cross-player flows need it). Same posture as /api/patches.
@@ -68,7 +69,7 @@ const actionOf = (body: unknown): string | undefined => {
 
 // ---- One spelling per query ----
 //
-// Most of the nine actions need the same handful of supabase reads and writes, and an
+// Most of the ten actions need the same handful of supabase reads and writes, and an
 // inline copy per action is a copy `tsc` cannot check: a column name is a string, so a
 // journal read that drifts in one action ships green through every local gate and is
 // caught only by whichever wire-check happens to cover it. Each factory below owns ONE
@@ -76,7 +77,7 @@ const actionOf = (body: unknown): string | undefined => {
 // once.
 //
 // Every failure logs as `[sessions] <label> error:`. The label is an argument rather than
-// a casualty of the collapse: nine actions share one function log, and the label is the
+// a casualty of the collapse: ten actions share one function log, and the label is the
 // only thing in that line saying which of them failed.
 
 type QuerySpec = {
@@ -123,7 +124,7 @@ const findPatchesVia =
  *  read-modify-write that bypasses L1/L2 — the service records it, not the player — so
  *  the appender reads what is already at the path before writing the appended line.
  *  WHICH key it reads under is the calling action's decision (the machine owner's for a
- *  shared box, the caller's own for a private per-viewer NPC), not this query's. */
+ *  shared box, the caller's own on the deep paths), not this query's. */
 const readAuthLogVia =
   ({ supabase, label }: QuerySpec) =>
   async ({ writer_key, machine_id, path }: MachineLogReadQuery) => {
@@ -513,6 +514,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }),
       readAuthLog: readAuthLogVia({ supabase, label: 'hydra public auth-log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'hydra public auth-log upsert' }),
+    });
+    res.status(status).json(body);
+    return;
+  }
+
+  if (actionOf(req.body) === 'hydraCrackInnerGateway') {
+    // DEEP credential sweep: a NAT forward on one of the caller's OWN inner gateways,
+    // the only way to address a box on the layer behind it. The chain is regenerated
+    // from the ESSID and each gateway's journal — no occupant or lease lookup — through
+    // the same walk `ssh` authenticates by, so a password this reports is one `ssh` then
+    // accepts. No session is created. The one WRITE is the trace on the box that was
+    // reached, at the fronting gateway's address, which is all NAT ever shows it.
+    const { status, body } = await handleHydraCrackInnerGateway(req.body, {
+      nonceStore: noopNonceStore,
+      now: () => Date.now(),
+      findPatches: findPatchesVia({ supabase, label: 'hydra deep gateway journal' }),
+      findActiveSession: findActiveSessionVia({ supabase, label: 'hydra deep active-session' }),
+      listPathPatches: listPathPatchesVia({ supabase, label: 'hydra deep wordlist read' }),
+      readAuthLog: readAuthLogVia({ supabase, label: 'hydra deep auth-log read' }),
+      upsertPatch: upsertPatchVia({ supabase, label: 'hydra deep auth-log upsert' }),
     });
     res.status(status).json(body);
     return;

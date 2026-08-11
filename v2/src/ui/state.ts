@@ -39,6 +39,7 @@ import type {
   Session,
   SuElevateParams,
   HydraCrackParams,
+  HydraCrackInnerGatewayParams,
   HydraCrackPublicParams,
   HydraCrackResult,
   TerminalLine,
@@ -81,6 +82,7 @@ import {
   authCreateServerSessionSameLan,
   authElevateServerSession,
   crackCredentials,
+  crackCredentialsInnerGateway,
   crackCredentialsPublic,
   createServerSession,
   endServerSession,
@@ -347,6 +349,16 @@ const hydraCrackPublic = (params: HydraCrackPublicParams): Promise<HydraCrackRes
   sessionsClientDeps === undefined
     ? Promise.resolve({ ok: false, error: 'network_error' })
     : crackCredentialsPublic(sessionsClientDeps, params);
+
+/** Crack credentials on a box behind a forward on the player's own inner gateway
+ *  (backs `env.hydra.crackInnerGateway`). Degrades the same way before the client is
+ *  wired. */
+const hydraCrackInnerGateway = (
+  params: HydraCrackInnerGatewayParams,
+): Promise<HydraCrackResult> =>
+  sessionsClientDeps === undefined
+    ? Promise.resolve({ ok: false, error: 'network_error' })
+    : crackCredentialsInnerGateway(sessionsClientDeps, params);
 
 /** Record an nmap scan server-side (backs `env.scan.record`). Best-effort and a
  *  no-op until `startGame` wires the patch client; the scan stands regardless. */
@@ -930,6 +942,7 @@ const executeLine = async (line: string): Promise<void> => {
     onSuElevate: suElevate,
     onHydraCrack: hydraCrack,
     onHydraCrackPublic: hydraCrackPublic,
+    onHydraCrackInnerGateway: hydraCrackInnerGateway,
     onScanRecord: recordScanFn,
     onScanRecordDeep: recordDeepScanFn,
     onScanResolvePublic: resolvePublicFn,

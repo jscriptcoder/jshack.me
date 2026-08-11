@@ -465,9 +465,37 @@ Provably-equivalent mutant classes — accept (don't chase) when they recur:
 - Plus per-slice equivalents documented in the relevant plan (e.g. discriminant-by-exclusion
   arms, a default value washed out downstream).
 
+- **A generator invariant that makes a defensive branch unreachable.** Verified 2026-08-11 by
+  enumerating the whole crackable ESSID pool: all 100 inner gateways run EXACTLY ONE open port and
+  it is always ssh. So in `forwardsIntoDeepLayer` the `find(open => open.service === 'ssh')`
+  predicate and the `?.port` short-circuit are both unkillable — with one daemon, "the ssh one" and
+  "the first one" are the same port, and the optional never fires. Two of these were a real dead
+  disjunct (`ownSshPort === undefined || …`) that collapsed into `?.port !== port`; the two that
+  remain are genuinely equivalent. Same invariant retires the reached-port half of
+  `hydraCrackInnerGateway`'s service check: a deep host is `FORCE_SSHD_PATCH`'d to one daemon and
+  `servesInternalPort` already refused any forward to a port nothing serves, so the port and
+  service halves cannot disagree there. **Enumerate the generator before calling such a branch
+  equivalent** — one fixture proves nothing about a seeded population, and the enumeration is a
+  dozen lines.
+- **An early return whose fallthrough reaches the same answer.** `resolveInnerGatewayTarget`'s
+  `if (served.kind === 'none') return UNREACHABLE` is a fast path: with the guard mutated away,
+  `served.internalIp` is `undefined`, matches neither the deep host nor the child gateway, and the
+  final `return UNREACHABLE` produces the identical result. Kept for readability, not behaviour —
+  all three mutants on that line are equivalent.
+- **A value computed only to be discarded.** `fromIp: target.sourceIp ?? ''` in
+  `hydraCrackInnerGateway`: the sweep needs a string to format lines with, and when `sourceIp` is
+  null those lines are never written, so the fallback is unobservable. `cracked` does not depend on
+  `fromIp` at all.
+- **Blank-line spacers in command output** — `yield text('')` between sections. Tests assert the
+  content lines, so the empty string is unobservable.
+
 **Known-equivalent inventory, so a re-run is not a mystery:** `hydraCrack.ts` scores 166/169 with
-exactly the three above. `hydra.ts` scores ~63/97 because ~30 mutants are the declarative
-`manual`/metadata block — the same shape `john.ts` established. Both are expected, not regressions.
+exactly the three above. `hydra.ts` scores 87/133 (2026-08-11, up from ~63/97 when the deep-layer
+example and rewritten `-p` description grew the block): 44 of its 46 survivors are the declarative
+`manual`/metadata block — the same shape `john.ts` established — and the other 2 are the blank-line
+spacers. Its dispatch logic is fully killed. `hydraCrackInnerGateway.ts` 78/80,
+`resolveInnerGatewayTarget.ts` 77/80 and `lanHostIdentity.ts` 135/137, each with only the
+equivalents named above. All expected, not regressions.
 
 **Read a survivor's `location` span before believing it is impossible.** Stryker mutates
 SUB-EXPRESSIONS, and the clear-text/JSON `replacement` field shows only the fragment it swapped —
@@ -752,6 +780,12 @@ real endpoints against `vercel dev` + local supabase.
 - Prereqs: local supabase (`http://127.0.0.1:54421`, per `supabase/config.toml`) + `vercel dev`
   (port 3100) both up (see the 3100 gotcha above). "Serving" = an empty `{}` POST returns 400
   (not 502/000).
+- **Start it with `npm run vercel:dev`, never a bare `npx vercel dev`.** That script is
+  `dotenv -e .env.development.local -- vercel dev --listen 3100`, and the dotenv wrapper is
+  load-bearing: `vercel dev` does NOT read `.env.development.local` into the function runtime by
+  itself, so a bare invocation serves happily on 3100 while EVERY request returns
+  `500 {"error":"not_configured"}` from the `SUPABASE_URL`/`SERVICE_ROLE_KEY` guard. The tell is
+  that `{}` returns 500 instead of 400 — check that before blaming the seed data or the handler.
 
 **Windows can silently reserve supabase's whole port block.** Symptom: `npx supabase start`
 reports success and `npx supabase status` prints the usual URLs, but every request to the REST
@@ -787,6 +821,25 @@ forgotten temp port is a committed one.
 - The script seeds the DB via the service-role client, drives the endpoints, asserts, and
   cleans up. Examples: `testDeepChainReach.ts`, `testDeepSwitchChain.ts`,
   `testSameLanConnect.ts`, `testRouterBrick.ts`, `testHttpFetch.ts`.
+
+**A wire-check that asserts on a SHARED machine's journal must clean that machine at SETUP and
+assert on the DELTA.** Both halves were wrong in the first draft of the deep hydra check and each
+produced a green PASS on its own:
+
+1. *Stale rows outlive the run.* Deep hosts, gateways and AP boxes are ESSID-seeded, so their
+   `machine_id` is identical across runs even though each run generates a fresh identity. The
+   trace assertion passed against an auth.log row written the PREVIOUS DAY, while every other
+   check in the same run was failing. Cleaning up at the END is not enough — a crashed or
+   half-failing run leaves rows the next run reads as its own. Delete the target machine's
+   patches at setup, not only at teardown.
+2. *A sibling path writes the same sentence.* `ssh` and `hydra` both append
+   `Failed/Accepted password for <user> from <ip>` to the same file on the same box, so an
+   `includes()` over the whole log is satisfied by the ssh checks that ran earlier in the script
+   regardless of whether the sweep wrote anything. Snapshot the content before the action and
+   assert on `after.slice(before.length)`.
+
+The general rule: an assertion that would pass if the code under test did NOTHING is not a check.
+On shared, deterministically-named machines that is the default outcome, not an edge case.
 
 **SEED INSERTS MUST FAIL LOUDLY — a rejected seed is a check that tests nothing.** A bare
 `await sr.from('patches').insert([...])` swallows its error, so a row the schema refuses leaves
@@ -971,6 +1024,36 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   enforcement, which is the dangerous kind: a reader reasonably assumes the rule holds. Decide one
   way. If enforcing, note that `hydra` deliberately runs anywhere ("tools run where you stand") and
   its `any-machine` is load-bearing intent, not a default.
+- **A shared DEEP box's auth.log is written under the ATTACKER's key, so one occupant's lines hide
+  another's.** Found 2026-08-11 while grounding D2.4 slice 5. The deep chain is ESSID-seeded and
+  shared — `generateHomeLan(essid).hosts` for the entry, `generateDeepLayer(essid, frontingGateway)`
+  and `hostMachineId(deep.host, essid)` for the walk — so every occupant of an ESSID reaches the
+  same deep boxes. But `authCreateSessionInnerGateway.ts:358` writes its deep-reach line with
+  `writerKey: publicKey`. Since `materializeMachineFs` folds so the latest write to each path wins,
+  and `appendMachineLog` appends to the writer's OWN row, occupant B's line **replaces** occupant
+  A's in the materialized view. This is precisely the collision the credential layer already
+  solved on the public path, where `resolvePublicTarget` returns a box-owned `logWriterKey` (the
+  reached occupant's key, or the AP's stable key when the box is ownerless) so every attacker's
+  lines accrete into ONE row. **Affects both paths**: D2.4 slice 5 deliberately made hydra match
+  `ssh` here rather than diverge, so hydra inherits it. A deep NPC is ownerless, so the fix is the
+  `apGatewayLogWriterKey` shape — a stable key derived from the box, applied to both writes in one
+  slice, with a test proving two occupants' lines coexist. Note the docstring at
+  `authCreateSessionInnerGateway.ts:25` still claims the deep layers are private and own-keyed;
+  that is stale (it predates the Story-7 reconciliation) and slice 5 corrects it.
+- **124 plan tags are still embedded in code comments, and the rule against them is always-apply.**
+  Counted 2026-08-11: `Story N` / `Slice N` / `5b.Na` / `D2.N` appears 124 times across 64 files
+  (40 production, 24 test), including **9 inside `describe`/`it` titles**, which §2 forbids by name.
+  All of it predates the rule. It is exactly the rot the rule exists to prevent: plan files are
+  **deleted on close-out**, so every one of these points at something a reader cannot open —
+  `ssh.ts:304` explains its dispatch by citing "5b.1a"; `bindFlags.ts:10` narrates four slices of
+  its own history instead of stating what the flag parser does; `nmapScan.test.ts:392` names a
+  Story in a `describe` title, so the suite prints a dangling reference on every run.
+  **Not a mechanical find-and-replace.** Deleting the tag alone often deletes the only explanation
+  the comment carried — the fix is to say the WHY the tag was standing in for, which needs the code
+  read one site at a time. Sized like several sittings, not one; it conserves behaviour entirely
+  (comments and test titles only), so it is a clean `refactoring` candidate with the existing suite
+  as its whole preservation evidence. Best done per-file when a slice is already in that file,
+  rather than as one enormous unreviewable diff.
 - ~~**A NAT forward reaches only ONE occupant of a shared AP**~~ — **FIXED at v0.99.0.** The
   public paths no longer resolve "the box behind the NAT" at all: a forward's `internalIp` is
   matched against the ESSID's `network_lan_leases` + `home_network_occupants`, so it lands on

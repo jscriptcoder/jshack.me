@@ -139,6 +139,7 @@ export const mockSuApi = (overrides: Partial<SuApi> = {}): SuApi => ({
 export const mockHydraApi = (overrides: Partial<HydraApi> = {}): HydraApi => ({
   crack: NOT_IMPLEMENTED('hydra.crack'),
   crackPublic: NOT_IMPLEMENTED('hydra.crackPublic'),
+  crackInnerGateway: NOT_IMPLEMENTED('hydra.crackInnerGateway'),
   ...overrides,
 });
 

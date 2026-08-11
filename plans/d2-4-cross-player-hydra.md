@@ -1,7 +1,8 @@
 # Plan: a player cracks a stranger's box across the network
 
-**Branch**: next slice cuts a fresh branch from `main` (slices 1-2 shipped from
-`feat/crack-a-strangers-box`, slice 3 from `feat/crack-behind-a-nat-forward`)
+**Branch**: `feat/crack-behind-an-inner-gateway` (slice 5). Slices 1-2 shipped from
+`feat/crack-a-strangers-box`, 3 from `feat/crack-behind-a-nat-forward`, 4 from
+`feat/attack-from-a-box-you-hold`.
 **Status**: Active — **slices 1-4 SHIPPED**: 1 and 2 in PR #371 (`9b431d7`, v0.119.0), 3 in PR #374
 (`8838aaf`, v0.120.0), 4 in PR #375 (`f6748da`, v0.121.0). **Slice 5 is the last one**, and its
 vantage criterion is already satisfied and proven by slice 4 — what remains is the target
@@ -93,20 +94,25 @@ content"*). Slice 4 should follow that shape.
 
 ## Acceptance Criteria
 
-- [ ] A player can `hydra <a stranger's public IP>` and crack the AP gateway's root account when
-      the roll allows, or be told plainly that it held.
-- [ ] `hydra -p <forwarded port> <public IP>` reaches the occupant behind that forward and cracks
+- [x] A player can `hydra <a stranger's public IP>` and crack the AP gateway's root account when
+      the roll allows, or be told plainly that it held. *(slice 2, v0.119.0)*
+- [x] `hydra -p <forwarded port> <public IP>` reaches the occupant behind that forward and cracks
       what `ssh` then accepts — the same account, the same password, no disagreement.
-- [ ] Every cross-player sweep writes the per-password `Failed password` wall plus any accepted
+      *(slice 3, v0.120.0)*
+- [x] Every cross-player sweep writes the per-password `Failed password` wall plus any accepted
       line to the **target's** shared `/var/log/auth.log`, at a **server-derived** source IP; a
-      client-supplied address is never trusted on a cross-player target.
-- [ ] A sweep launched from a box the player is standing on but does not own is traced to **that
-      box's** network, not to the attacker's home.
+      client-supplied address is never trusted on a cross-player target. *(slice 2, v0.119.0)*
+- [x] A sweep launched from a box the player is standing on but does not own is traced to **that
+      box's** network, not to the attacker's home. *(slice 4, v0.121.0)*
 - [ ] hydra reaches a deep host behind an inner gateway, matching `ssh`'s fourth variant.
-- [ ] hydra and `ssh` resolve a public target through **one** shared resolver — proved by the
-      resolver having two callers, not by a comment.
-- [ ] Own-LAN hydra (v0.118.0) is behaviourally unchanged throughout.
-- [ ] A `scripts/test*.ts` wire-check passes live with **two identities**.
+      **← slice 5, the only criterion still open**
+- [x] hydra and `ssh` resolve a public target through **one** shared resolver — proved by the
+      resolver having two callers, not by a comment. *(slice 1, v0.119.0)*
+- [ ] Own-LAN hydra (v0.118.0) is behaviourally unchanged throughout. **Holds through slice 4** —
+      left open deliberately, because "throughout" is only true once the last slice lands; slice 5's
+      criteria 5 and 7 are what keep it true.
+- [x] A `scripts/test*.ts` wire-check passes live with **two identities** — `testHydraCrossPlayer`,
+      16 checks, three parties as of slice 4. *(slices 2-4)*
 
 ## Out of scope
 
@@ -517,13 +523,43 @@ forward chain, `canBoot` at each hop → sweep the terminal box → trace on it.
 
 **Required implementation skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
 
+#### Grounding, read 2026-08-11 — it retires this slice's own criterion 4
+
+**The deep chain is ESSID-seeded and SHARED, not private to the caller.** This plan's criterion 4
+said every box on the chain is regenerated from the caller's own verified key. It is not, and
+neither is the claim in `authCreateSessionInnerGateway.ts`'s docstring that the criterion was
+copied from — `publicKey` is never an input to the regeneration. The entry is
+`innerGatewayAt(payload.essid, payload.target)` over `generateHomeLan(essid).hosts`; the walk is
+`generateDeepLayer(context.essid, frontingGateway)` and `hostMachineId(deep.host, context.essid)`.
+`machineIdForLanHost` states the rule outright: *"Every kind is keyed by the ESSID: each of these
+boxes stands on the access point's LAN, so all its occupants must resolve one machine record rather
+than a private copy each."* The docstring predates the Story-7 reconciliation (v0.88.0 → v0.96.0)
+that made LAN hosts and deep chains shared, and was not updated with it. **Every occupant of an
+ESSID reaches the same inner gateway, the same forwards, and the same deep boxes.**
+
+**That makes `writerKey: publicKey` (line 358) the defect slice 2 already fixed elsewhere.**
+`materializeMachineFs` folds so the latest write to each path wins, and `appendMachineLog` appends
+to the writer's OWN row — so on a shared deep box, occupant B's line hides occupant A's completely.
+Pre-existing on the ssh path. **Decided: hydra matches ssh rather than diverging** (criterion 9),
+and the collision is recorded in `conventions-and-gotchas.md` §9 against BOTH paths, to be fixed in
+its own slice with a test proving two occupants' lines coexist. Shipping hydra ≠ ssh on one box is
+the one thing this epic must never do.
+
+**The trace's source IP is decided by the ROUTE, not the vantage.** ssh records `${deep.subnet}.1`,
+the fronting gateway's inner address, because NAT is all the deep box ever sees. Slice 4's
+`resolveVantageSourceIp` must NOT be used here — it would make hydra and ssh disagree about the
+same reach. Slice 4's rule governs where a sweep is launched FROM, which is criterion 6 and a
+different question.
+
 **Acceptance criteria** (confirm before any code):
 1. `hydra -p <fwd> <inner gateway>` sweeps the deep box behind that forward, not the gateway.
 2. A chain of forwards reaches an arbitrarily deep box, as `ssh` already does.
 3. A bricked intermediate darkens everything below it — refused, no trace.
-4. The deep layers stay private: every box on the chain is regenerated from the **caller's own**
-   verified key, so this seam never touches the cross-player lookup.
-5. The gateway's own `:22` still attacks the gateway (slice 3's default-port behaviour, unchanged).
+4. The chain is regenerated from the **ESSID + the shared journal**, never from an occupant or
+   lease lookup, so this seam adds no cross-player DB read. The stale "private, own-keyed" claim in
+   `authCreateSessionInnerGateway.ts`'s docstring is corrected in the same slice.
+5. The gateway's own `:22` still attacks the gateway (slice 3's default-port behaviour, unchanged),
+   including when `-p` names that same port explicitly.
 6. **A rooted deep box is a place to attack FROM** — hydra runs there and the trace names the
    caller's own public IP, honouring the locked *tools run where you stand*. Slice 4's finding 7
    says this arrives free: a deep session records the caller's own essid, so slice 4's derivation
@@ -532,6 +568,11 @@ forward chain, `canBoot` at each hop → sweep the terminal box → trace on it.
 7. hydra's manual stops saying `-p` is only for a public IP, and the own-LAN ignore test
    (`hydra.test.ts:354`) is replaced rather than deleted — an ordinary sibling still ignores `-p`;
    an inner gateway no longer does.
+8. The trace on the deep box carries the **fronting gateway's `.1`** — the same address `ssh`
+   records for the same reach — not the attacker's public IP.
+9. The trace is written under the **attacker's key, matching `ssh`'s deep write**. Not the correct
+   end state; the correct one is a box-owned key on both paths, and it is backlogged as one item
+   naming both. Consistency with `ssh` outranks unilateral correctness here.
 
 **RED**: a seeded forward chain on the caller's own inner gateway to a deep NPC with a crackable
 account; assert hydra cracks it. Fails today — the deep box is not in `generateHomeLan().hosts`.
@@ -550,7 +591,7 @@ single-hop fixture cannot kill.
 **Wire-check**: extend `testInnerGatewayReach.ts` or add a hydra case beside it —
 `testDeepChainReach.ts` is the multi-hop precedent.
 
-**Done when**: all seven criteria hold, the wire-check passes, and the human approves the commit.
+**Done when**: all nine criteria hold, the wire-check passes, and the human approves the commit.
 
 ---
 

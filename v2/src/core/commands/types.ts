@@ -454,6 +454,21 @@ export type HydraCrackPublicParams = {
   readonly callerMachineId: string;
 };
 
+/** What `hydra` hands the DEEP crack action: a NAT forward on one of the player's own
+ *  inner gateways, which is the only way to address a box on the layer behind it. No
+ *  `sourceIp` — a deep box is shown the fronting gateway's address by NAT whoever is
+ *  behind it, so the server derives it from the route rather than from this request. */
+export type HydraCrackInnerGatewayParams = {
+  readonly essid: string;
+  readonly target: string;
+  readonly service: string;
+  /** The forwarded port on the gateway — the address of a box behind it. Required:
+   *  without a port there is no forward, and the gateway itself is an own-LAN target. */
+  readonly port: number;
+  readonly username: string | undefined;
+  readonly callerMachineId: string;
+};
+
 /** The credential-cracking seam, backed by the signed `hydraCrack` endpoints. What
  *  is crackable is decided server-side against the same `/etc/passwd` `ssh` reads,
  *  so the two tools can never disagree about a credential. The split mirrors
@@ -462,6 +477,9 @@ export type HydraCrackPublicParams = {
 export type HydraApi = {
   readonly crack: (params: HydraCrackParams) => Promise<HydraCrackResult>;
   readonly crackPublic: (params: HydraCrackPublicParams) => Promise<HydraCrackResult>;
+  readonly crackInnerGateway: (
+    params: HydraCrackInnerGatewayParams,
+  ) => Promise<HydraCrackResult>;
 };
 
 /** What `nmap` hands to the scan action so the server can record the scan on each

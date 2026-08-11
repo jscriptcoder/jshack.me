@@ -3,27 +3,23 @@
  * port>`, the multi-layer payoff: logging into a hidden Layer-2 machine THROUGH a NAT
  * forward the player configured on their own inner gateway.
  *
- * Each forward lives in a gateway's `/etc/iptables/rules.v4` on its SERVER-side journal
- * (the player added it with `nano` after rooting the gateway), so — like the
- * inner-gateway scan — this can't be resolved from the client's static world. The
- * server regenerates the inner gateway from the VERIFIED pubkey + essid, replays its
- * journal, asks `canBoot` (a bricked gateway takes the deep entrance dark), then walks
- * the forward chain by destination port through `machineServing`:
+ * WHERE that port leads is `resolveInnerGatewayTarget` — the shared resolver `hydra`
+ * sweeps through too, so a credential this gate accepts is one hydra can report, by
+ * construction rather than by two chain walks staying in step. It replays the gateway's
+ * journal (the forwards live there, not in the client's static world), boot-gates every
+ * hop, and routes the destination port: a forward reaches the deep layer's terminal NPC
+ * or the child gateway fronting the next layer down; a gateway's own `:22` lands on that
+ * gateway.
  *
- *   - a NAT-forwarded port → a box on this gateway's deep layer: the terminal NPC (auth
- *     against its `/etc/passwd`, land the session on the NPC's id) or the CHILD GATEWAY
- *     that fronts the next layer down. A forward to a child gateway replays ITS journal,
- *     re-checks `canBoot` (a bricked intermediate darkens everything below), and follows
- *     the forward one layer deeper — so a chain of forwards reaches an arbitrarily deep
- *     box. A forward to a stray address, or to a port the target isn't serving, is dark.
- *   - a gateway's own `:22` → log in ON that gateway (validated against its seeded admin
- *     password); the session lands on that gateway's machine id.
- *   - any other port → host_unreachable.
+ * This gate owns what happens once the box is known: authenticate against the TARGET's
+ * own `/etc/passwd` (the deep NPC, or the gateway for its own port), stamp the deep
+ * reach onto its auth.log, and land the session on the resolved machine id.
  *
- * Mirrors `authCreateSessionPublic` (port-routed via `machineServing`) but own-keyed
- * + octet-targeted, with the internal target a box on the deep chain instead of the
- * owner's workstation. The deep layers stay PRIVATE: every gateway is the caller's own
- * box (regenerated from their key), nothing here touches the cross-player lookup.
+ * The chain is regenerated from the ESSID and the shared journal, never from the
+ * caller's key — every occupant of an ESSID walks the same gateway to the same deep
+ * boxes. It needs no cross-player lookup, which is a different claim from the layer
+ * being private, and only the first one is true.
+ *
  * Unknown-user and wrong-password collapse to one 401; a child-journal fetch failure
  * mid-walk is a 500, kept distinct from a port that simply leads nowhere.
  */
@@ -32,20 +28,9 @@ import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { md5 } from '../generation/md5';
-import {
-  buildDeepHostFs,
-  generateDeepLayer,
-  seedNetworkDepth,
-  type FrontingGateway,
-} from '../generation/generateDeepLayer';
-import { innerGatewayAt, resolveLanHostIdentity } from '../generation/lanHostIdentity';
-import { hostMachineId } from '../generation/remoteHostId';
+import { resolveInnerGatewayTarget } from '../network/resolveInnerGatewayTarget';
 import { accountIn } from './passwdAccount';
-import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs';
-import { resolveChildGatewayHop } from '../network/childGatewayHop';
-import { machineServing } from '../network/machineServing';
-import { readOpenPorts } from '../services/pidfile';
-import { canBoot } from '../boot/bootFiles';
+import type { OwnerPatchRow } from '../network/materializeMachineFs';
 import {
   AUTH_LOG_OWNER,
   AUTH_LOG_PATH,
@@ -60,7 +45,6 @@ import {
 } from '../patches/appendMachineLog';
 import { asGameTime } from '../types';
 import type { PatchRow } from '../patches/upsertPatch';
-import type { Directory } from '../filesystem/types';
 import type { AuthSessionRow, HandlerResponse } from './authCreateSession';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
@@ -103,148 +87,17 @@ const authCreateSessionInnerGatewaySchema = z
   })
   .refine((payload) => !('player_key' in payload));
 
-/** The outcome of resolving `ssh <inner>:<port>` down the gateway chain: a target to
- *  authenticate against (the tree + the machine id the session lands on), an
- *  unreachable port (→ 404 host_unreachable), or a child-gateway journal fetch that
- *  failed mid-walk (→ 500, distinct from a port that simply leads nowhere). */
-type AuthResolution =
-  | {
-      readonly kind: 'target';
-      readonly fs: Directory;
-      readonly machineId: string;
-      /** The landed box's hostname — the `auth.log` trace line carries it. */
-      readonly hostname: string;
-      /** The source IP the trace records: the `.1` of the deep subnet the connection
-       *  arrived through (the fronting gateway). `null` when the reach landed on the
-       *  inner gateway's OWN `:22` — a Layer-1 box, not a deep one, so no deep trace. */
-      readonly sourceIp: string | null;
-    }
-  | { readonly kind: 'unreachable' }
-  | { readonly kind: 'lookup_failed' };
-
-const UNREACHABLE: AuthResolution = { kind: 'unreachable' };
-
-/** The invariants every hop of the chain walk shares: the essid the deep layers
- *  regenerate from, the network's seeded chain depth (the bound that makes the walk
- *  finite), and the journal fetch that replays each child gateway. No identity: the chain
- *  descends from a gateway the access point owns, so every occupant walks the same one. */
-type ChainContext = {
-  readonly essid: string;
-  readonly depth: number;
-  readonly findPatches: AuthCreateSessionInnerGatewayDeps['findPatches'];
-};
-
-/** The gateway the walk currently sits on: a `FrontingGateway` plus the hostname the
- *  landed box's `auth.log` trace line carries (its seeded name). */
-type WalkGateway = FrontingGateway & { readonly hostname: string };
-
-/** Does this materialized tree run a daemon on `port`? A forward whose internal port
- *  no box behind the gateway serves is a dark DNAT target (→ host_unreachable). */
-const servesInternalPort = (fs: Directory, port: number): boolean =>
-  readOpenPorts(fs).some((openPort) => openPort.port === port);
-
-/**
- * Resolve `ssh <inner>:<port>` to its auth target by walking the forward chain from the
- * gateway at `position` (1-based; the inner gateway is position 1). `machineServing`
- * routes the destination port:
- *
- *   - the gateway's OWN port (its seeded `:22`) → land HERE, validated against this
- *     gateway's `/etc/passwd`/admin password;
- *   - a NAT forward to the terminal deep NPC → land on the NPC (its coordinate-seeded
- *     id), validated against ITS `/etc/passwd`;
- *   - a NAT forward to the CHILD GATEWAY that fronts the next layer down → replay that
- *     child's OWN journal over its seeded base, take it dark when `canBoot` fails (a
- *     bricked intermediate darkens everything below it), and RECURSE on the forward's
- *     internal port one layer deeper — which may be the child's own `:22` (land on the
- *     child) or another forward (continue the chain);
- *   - anything else (a port no one serves, a forward to a stray address, an internal
- *     port the target doesn't run) → unreachable.
- *
- * The walk is bounded by `depth`: a gateway at `position` fronts a child only while
- * `position < depth`, and the position strictly increases each hop, so the recursion
- * terminates. Regenerating a child needs its journal, so a fetch failure surfaces as
- * `lookup_failed` (→ 500) rather than a false `unreachable`.
- */
-const resolveAuthTarget = async (
-  context: ChainContext,
-  gatewayFs: Directory,
-  frontingGateway: WalkGateway,
-  port: number,
-  position: number,
-  arrivalSubnet: string | null,
-): Promise<AuthResolution> => {
-  const served = machineServing({ routerFs: gatewayFs, port });
-  if (served.kind === 'router') {
-    // Landing on this gateway's own `:22`. The source IP is the `.1` of the subnet the
-    // connection arrived on — `null` at the top of the walk (the inner gateway, a
-    // Layer-1 box reached directly), a deep `.1` for a child gateway reached through a
-    // forward.
-    return {
-      kind: 'target',
-      fs: gatewayFs,
-      machineId: frontingGateway.machineId,
-      hostname: frontingGateway.hostname,
-      sourceIp: arrivalSubnet === null ? null : `${arrivalSubnet}.1`,
-    };
-  }
-  if (served.kind === 'none') {
-    return UNREACHABLE;
-  }
-  // The gateway forwards `port` onto its deep layer. Regenerate the layer; it hangs a
-  // child gateway only while this gateway sits above the home's seeded depth.
-  const deep = generateDeepLayer(context.essid, frontingGateway, {
-    hangsChild: position < context.depth,
-  });
-  // The forward reaches the terminal NPC — auth against ITS /etc/passwd, land the
-  // session on the NPC's coordinate-seeded id.
-  if (served.internalIp === deep.host.ip) {
-    const deepFs = buildDeepHostFs(context.essid, deep.host);
-    return servesInternalPort(deepFs, served.internalPort)
-      ? {
-          kind: 'target',
-          fs: deepFs,
-          machineId: hostMachineId(deep.host, context.essid),
-          hostname: deep.host.hostname,
-          sourceIp: `${deep.subnet}.1`,
-        }
-      : UNREACHABLE;
-  }
-  // The forward reaches the CHILD GATEWAY that fronts the next layer down. Resolve it
-  // (replay its own journal, boot-gate it), refuse it when a brick takes the deeper chain
-  // dark, then walk one layer deeper on the forward's internal port — which may be the
-  // child's own `:22` (land on the child) or another forward (continue the chain).
-  if (deep.childGateway !== null && served.internalIp === deep.childGateway.ip) {
-    const hop = await resolveChildGatewayHop({
-      parentMachineId: frontingGateway.machineId,
-      childIp: deep.childGateway.ip,
-      childKind: deep.childGateway.kind,
-      findPatches: context.findPatches,
-    });
-    if (hop.kind === 'lookup_failed') {
-      return { kind: 'lookup_failed' };
-    }
-    if (hop.kind === 'bricked') {
-      return UNREACHABLE;
-    }
-    return resolveAuthTarget(
-      context,
-      hop.fs,
-      { machineId: hop.machineId, kind: deep.childGateway.kind, hostname: deep.childGateway.hostname },
-      served.internalPort,
-      position + 1,
-      deep.subnet,
-    );
-  }
-  // The forward points at no box on the layer — a stray internal IP, a dark DNAT target.
-  return UNREACHABLE;
-};
-
 /** Stamp the deep reach onto the landed box's `/var/log/auth.log` via the shared
  *  system-log primitive — on BOTH outcomes (sshd records accepted AND rejected logins).
- *  The writer is the CALLER's own key: deep boxes are private per-viewer NPCs, so the
- *  trace accretes under the player who reads it back once they are in. The source IP is
- *  the fronting gateway's `.1` (the box the connection arrived through). Best-effort: a
- *  logging failure must never break (or fabricate) the auth. */
+ *  The source IP is the fronting gateway's `.1` — NAT is all a deep box is ever shown,
+ *  whoever is behind it. Best-effort: a logging failure must never break (or fabricate)
+ *  the auth.
+ *
+ *  The writer is the CALLER's own key, which is a KNOWN DEFECT rather than a decision:
+ *  these boxes are ESSID-seeded and shared, so two occupants reaching one of them write
+ *  two rows, and the fold takes the later one — hiding the earlier player's line. The fix
+ *  is a box-owned key on this write and on hydra's, together; see the backlog entry in
+ *  `docs/conventions-and-gotchas.md` §9. */
 const logDeepReachAuth = async (
   deps: AuthCreateSessionInnerGatewayDeps,
   target: {
@@ -293,50 +146,19 @@ export const handleAuthCreateSessionInnerGateway = async (
   }
   const { publicKey, payload } = verified;
 
-  // The target must be a genuine inner gateway on the caller's OWN regenerated LAN —
-  // the edge `.1`, a sibling, or an off-LAN address finds nothing (no journal read).
-  const gateway = innerGatewayAt(payload.essid, payload.target);
-  if (gateway === null) {
-    return { status: 404, body: { error: 'host_unreachable' } };
+  // Where the destination port leads — the shared walk, which also decides that the
+  // target is a genuine inner gateway, that its journal read succeeded, and that nothing
+  // on the chain is bricked. A child journal fetch that failed mid-walk surfaces as a
+  // 500, kept distinct from the 404 a port leading nowhere produces.
+  const resolved = await resolveInnerGatewayTarget(deps, {
+    essid: payload.essid,
+    target: payload.target,
+    port: payload.port ?? DEFAULT_SSH_PORT,
+  });
+  if (!resolved.ok) {
+    return { status: resolved.status, body: { error: resolved.error } };
   }
-
-  // The shared resolver maps the gateway to the SAME machine id + seeded base the
-  // scan gate and the client use, so the journal it replays is the box everyone
-  // agrees on.
-  const { machineId: gatewayMachineId, baseFs } = resolveLanHostIdentity(gateway, payload.essid);
-  const patches = await deps.findPatches({ machine_id: gatewayMachineId });
-  if (patches.error) {
-    return { status: 500, body: { error: 'patches_lookup_failed' } };
-  }
-
-  // Replay the gateway's journal, then ask `canBoot`. A root `rm /boot/vmlinuz`
-  // tombstone bricks the gateway, so it stops answering — the deep entrance goes
-  // dark, refused before any password is checked.
-  const gatewayFs = materializeMachineFs(baseFs, patches.data);
-  if (!canBoot(gatewayFs).ok) {
-    return { status: 404, body: { error: 'host_unreachable' } };
-  }
-
-  const resolution = await resolveAuthTarget(
-    {
-      essid: payload.essid,
-      depth: seedNetworkDepth(payload.essid),
-      findPatches: deps.findPatches,
-    },
-    gatewayFs,
-    { machineId: gatewayMachineId, kind: gateway.kind, hostname: gateway.hostname },
-    payload.port ?? DEFAULT_SSH_PORT,
-    1,
-    null,
-  );
-  // A child journal fetch that failed mid-walk is a server error, not a dead port — keep
-  // it distinct from the host-unreachable a port leading nowhere produces.
-  if (resolution.kind === 'lookup_failed') {
-    return { status: 500, body: { error: 'patches_lookup_failed' } };
-  }
-  if (resolution.kind === 'unreachable') {
-    return { status: 404, body: { error: 'host_unreachable' } };
-  }
+  const resolution = resolved.target;
 
   // Validate against the TARGET's own /etc/passwd (the deep NPC, or the gateway for
   // its own port). An unknown user OR a wrong password is one 401 — the response
