@@ -1,10 +1,11 @@
 # D2 split — a player cracks a credential instead of being told it
 
-> **Status: D2.1 ✅ SHIPPED (v0.111.0). D2.2 ✅ SHIPPED (v0.113.0). D2.3 ✅ SHIPPED (v0.114.0).
-> D2.5 ✅ SHIPPED (v0.115.0). Both follow-ups ✅ CLOSED — the apt wordlist wipe (v0.116.0) and
-> hydra's workstation-only gate (v0.118.0), which also made a box's wordlist belong to the box.
-> D2.6 (wordlist growth) is all that remains — and it may be a characterisation
-> test rather than a slice, now that both tools read the file.**
+> **Status: D2.1–D2.5 ✅ ALL SHIPPED (v0.111.0 → v0.122.0). Both follow-ups ✅ CLOSED — the apt
+> wordlist wipe (v0.116.0) and hydra's workstation-only gate (v0.118.0), which also made a box's
+> wordlist belong to the box. D2.6 (wordlist growth) is all that remains, and grounding on
+> 2026-08-11 SPLIT it in two: the mechanism is already shipped and owes one characterisation test,
+> while the progression it exists to deliver has NO reachable input — nothing in the generated world
+> hands a player a plaintext they could not already crack. See "D2.6 grounding" below.**
 > Authored 2026-07-31 (`story-splitting`), grounded against the shipped code (every file:line
 > below was read, not recalled). Parent: [`legacy-parity-epic.md`](./legacy-parity-epic.md)
 > Phase 1, D2.
@@ -136,13 +137,17 @@ lands *after* hydra, not before.
 | **D2.3** ✔ | **The defender sees the attempt** — **SHIPPED v0.114.0** (#358 `bae79f8`) | The attacker stops being invisible. Same actor-flip that made D1's slice 4 worth its own PR | One `Failed password for <user> from <ip>` per password **TRIED** plus the accepted line, into the target's `/var/log/auth.log`; owner-keyed writer; one append per sweep; client-supplied source IP, matching `ssh` on the LAN | Rate limiting; lockout; alerting; cross-player (D2.4) | A runs `hydra` at an NPC host; the box's `auth.log` shows the failed sweep and the one success, at the attacker's real LAN IP | Shipped |
 | **D2.4** ✔ | **A player cracks a stranger's box across the network** — **SHIPPED v0.119.0–v0.122.0** (#371, #374, #375, #376) | Cracking reaches other players — the epic's actual point | hydra over the `public` and `innerGateway` reachability seams, matching `ssh`'s remaining variants; server reads the caller's own wordlist from their persisted patches | — | B `hydra <A's public IP> ssh` → cracks A's **guest** account → `ssh` in → A's `auth.log` carries the sweep | Shipped, in five slices; wire-checked live with two identities |
 | **D2.5** ✔ | **A player cracks a stolen hash offline** — **SHIPPED v0.115.0** (#359 `aa70cfc`) | Loot becomes capability, and the **silent** way to do it now that D2.3 made the sweep loud | `john <file>`; reads the file AND the shared wordlist from the current machine; no server call at all | Hash formats beyond md5; `--show`; pot file; bare-hash arguments | B ssh's into a cracked NPC box as a **user**-tier account (guest cannot read passwd — finding 1) → `cat /etc/passwd` → carries the rows home → `john hashes.txt` → plaintext → `su root` succeeds | Shipped |
-| **D2.6** | **A player grows their wordlist and cracks what they could not before** | Decision 6's progression loop, closed | Harvest → `nano` append → the previously-failing crack now succeeds. **Probably free** if D2.1 honours finding 4 | — | A password harvested from box X is appended by hand, and box Y — which drew the same password — now cracks | Ships |
+| **D2.6a** | **An appended word opens a door that held** | The mechanism half of decision 6's loop — free, as the split guessed, and untested | One characterisation test pair: the same account against the same host holds before an append and falls after it, through `hydra` and through `john` | The harvest — see D2.6b | `nano` adds a word to `/usr/share/wordlists/passwords.txt`; the sweep that reported nothing now reports the account | Ships as a test-only PR |
+| **D2.6b** | **A player harvests a password they could not have cracked** | The progression half — and it does NOT exist today (grounding 2, below) | New generated loot: a plaintext from the **uncrackable** pool, in a tier-gated file on a reachable box | — | Root box X, read a plaintext for box Y, append it, take Y — a chain no wordlist alone can walk | **Re-site to the epic** — content + placement, not a credential-layer slice |
 
-### D2.6 may be an acceptance test, not a slice
+### D2.6 may be an acceptance test, not a slice — ✅ ANSWERED, and it is HALF of one
 
 If `hydra` and `john` read the file rather than a constant, D2.6 is already true the moment
 D2.5 lands, and it collapses into a characterisation test plus a docs line. **Do not plan it
 until D2.5 is green** — planning it as a slice up front invents work that finding 4 gives away.
+
+Grounded 2026-08-11, after D2.4 closed. The guess was right about the mechanism and wrong about
+the loop: the *append* half is free, the *harvest* half does not exist. See below.
 
 ---
 
@@ -470,13 +475,83 @@ line that run produced is the whole feature in one string — signed on a workst
 `192.168.1.50`, launched from `192.168.204.4`, and what landed on the target reads
 `Accepted password for root from 192.168.204.4`.
 
+## D2.6 grounding, read 2026-08-11 — the mechanism is free, the LOOP has no input
+
+Every claim below was read in the shipped code, not recalled. The split's guess ("probably free if
+D2.1 honours finding 4") holds for the mechanism and fails for the progression, so D2.6 is not one
+slice — it is a small characterisation test plus a re-sited content story.
+
+### 1. The append half is shipped, everywhere, and owes only a test
+
+All four readers take the FILE from the machine's journal, never a constant:
+
+- `john.ts:140` — `env.fs.read(WORDLIST_PATH)`, the ordinary filesystem view of the box you stand on.
+- `hydraCrack.ts:219`, `hydraCrackPublic.ts:151`, `hydraCrackInnerGateway.ts:125` — all three server
+  sweeps `listPathPatches({ machine_id: caller_machine_id, path: WORDLIST_PATH })` and replay it,
+  latest write winning.
+
+So a word appended by `nano` is a word the next sweep tries. Writes are root-gated
+(`WORDLIST_PERMISSIONS.write: ['root']`), which on your own workstation you are.
+
+**What no test asserts is the pair.** `hydraCrack.test.ts:291` proves a patched row is read
+("cracks with the newest wordlist on the machine, whoever wrote it") and
+`defaultWordlist.test.ts:32` proves the shipped list covers the uncrackable pool not at all — but
+nothing proves the *transition*: the same account, against the same host, holding before an append
+and falling after it. That is one test, and it is the whole honest content of D2.6's row.
+
+### 2. There is NO in-game source of a plaintext you cannot already crack
+
+The row says *"a password harvested from box X is appended by hand"*. Nothing in the world lets a
+player harvest one. Every password that exists comes from `drawPassword` (`passwordPools.ts:105`),
+which picks from exactly two pools, and each has a closed answer:
+
+- **`CRACKABLE_PASSWORDS`** — already every word in the shipped file
+  (`defaultWordlist.ts:74` unions it in, and its own test asserts the cover is total). Harvesting one
+  appends what you have.
+- **`UNCRACKABLE_PASSWORDS`** — stored ONLY as `md5(...)` in a target's `/etc/passwd`
+  (`remoteHostFs.ts:120/129/138`, `routerFs.ts:49/245/265`). A hash is not a plaintext, and `john`
+  reverses it with the same wordlist that just failed. Nothing prints it, nothing files it.
+
+The three exhaustive consumers of `drawPassword` are those two generators plus `workstationFs.ts:83`,
+which draws only the always-crackable `guest`. NPC hosts carry no loot file — the tree is passwd,
+empty logs, pidfiles and an optional `index.html`.
+
+**WPA keys are not a back door into this.** `generateWifi.ts:38` draws from a separate encoded
+`WIFI_PASSWORDS` pool, so `aircrack` hands the player a real plaintext that appears in neither ssh
+pool: appending it to the wordlist widens coverage by exactly zero doors.
+
+So the loop is: crack with your list → learn a word already in your list. **Coverage cannot grow.**
+This is the same shape as D2.5's finding 2 (`john` cracking nothing hydra had not) and has the same
+cause — every credential path is closed over one pool pair.
+
+### 3. What the progression actually needs — new generated content, its own story
+
+A file, on a reachable box, holding a **plaintext** drawn from the UNCRACKABLE pool: a
+`credentials.txt`, a config with `password=`, a note. Then the chain is real — root a box whose root
+happened to be crackable, read a plaintext for a box whose root is not, append it, take that box.
+That is decision 6's loop, and it is content plus a placement rule, not a wordlist change.
+
+Two constraints it must respect, both already load-bearing:
+
+- The plaintext must be **UNCRACKABLE-pool**, or the harvest is a no-op (finding 2). That makes
+  `defaultWordlist.test.ts:32`'s "not at all" assertion the thing that gives the loot its value.
+- It must sit behind a **tier gate**, or a guest walk-in reads it. `/etc/passwd` is already
+  `read: ['root', 'user']` for exactly this reason (`baseFs.ts:26-32`); loot should match.
+
+Note this also finally makes `john` non-redundant in the way D2.5's grounding predicted, but by the
+other route it named: not a hash file, a **plaintext** file. A hash file would still be a hash of
+one of the two pools, and so still reversible only by a list that already holds it.
+
 ## Next step
 
-**D2.4 is COMPLETE (all five slices, v0.119.0 → v0.122.0). Only D2.6 remains**, and it may be a
-characterisation test rather than a slice. Slices 1-2 landed 2026-08-09 (v0.119.0, #371 `9b431d7`);
-slice 3 on 2026-08-10 (v0.120.0, #374 `8838aaf`) — read its grounding before touching the row
-above, which its finding 1 corrects — slice 4 the same day (v0.121.0, #375 `f6748da`), and slice 5
-on 2026-08-11 (v0.122.0, #376 `f160b31`).
+**D2.4 is COMPLETE (all five slices, v0.119.0 → v0.122.0). Only D2.6 remains**, and grounding
+split it: **D2.6a** is one characterisation test pair, ready to plan; **D2.6b** is generated content
+with no reachable input today and is re-sited to the epic (see "D2.6 grounding" above).
+
+D2.4's slices 1-2 landed 2026-08-09 (v0.119.0, #371 `9b431d7`); slice 3 on 2026-08-10 (v0.120.0,
+#374 `8838aaf`) — read its grounding before touching the row above, which its finding 1 corrects —
+slice 4 the same day (v0.121.0, #375 `f6748da`), and slice 5 on 2026-08-11 (v0.122.0, #376
+`f160b31`).
 
 **What shipped**: hydra now reaches every target `ssh` does — its own LAN, a stranger's AP gateway,
 the occupant behind a NAT forward, a box on somebody else's network it is standing on, and a host on
@@ -555,8 +630,11 @@ Still carried over:
   about one box is the worse failure. A deep NPC is ownerless, so the fix is the
   `apGatewayLogWriterKey` shape applied to all three writes in ONE slice, with a test proving two
   occupants' lines coexist. Full detail in `conventions-and-gotchas.md` §9.
-- **D2.6 may be a characterisation test, not a slice.** Both tools now read the FILE rather than a
-  constant, which is the condition the split named. Confirm before planning it as work.
+- ✅ **D2.6 confirmed as a characterisation test — for the half of it that is reachable.** Both tools
+  read the FILE, so an appended word is tried on the next run and D2.6a is one test pair. But the
+  harvest the row assumes has no source: every password is drawn from two pools, one of which the
+  shipped wordlist already covers completely and the other of which exists only as an md5 in a
+  target's passwd. D2.6b needs generated loot carrying a **plaintext**, and belongs to the epic.
 - ✅ **`api/sessions.ts` was half supabase dep builders** and every hydra seam added more. Collapsed
   before slice 3 as a terminal reduction (#372, `1b2626d`): 43 builder closures → 13 declarations,
   six spellings of the journal column list → one. Slice 3 now calls a factory instead of pasting a
