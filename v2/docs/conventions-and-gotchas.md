@@ -1067,17 +1067,47 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   `apGatewayLogWriterKey` shape: a stable key derived from the box, applied to all three writes in
   one slice, with a test proving two occupants' lines coexist. The stale "private, per-viewer"
   docstrings that hid this were corrected across the codebase at D2.4 close-out.
-- **D2.6b — harvestable plaintext loot, the missing input to wordlist growth.** The progression the
-  credential layer was built around does not close: appending a word works (#377), but nothing in
-  the generated world hands a player a word they could not already crack (full reasoning in §1's
-  D2 block). What it needs is a file on a reachable box holding a **plaintext** drawn from the
-  UNCRACKABLE pool — a `credentials.txt`, a config with `password=`, a note. Two constraints, both
-  already load-bearing: it must be **uncrackable-pool** or the harvest is a no-op, which is what
+- **D2.6b — harvestable plaintext loot, the missing input to wordlist growth. POSTPONED by owner
+  decision 2026-08-12**, in favour of parity breadth; the harvest route can arrive with the CVE
+  phase (decision 6 names `password_reset`) rather than as bespoke loot content. Hidden credentials
+  are still wanted later, as content. The gap itself is unchanged and still open: the progression
+  the credential layer was built around does not close, because appending a word works (#377) but
+  nothing in the generated world hands a player a word they could not already crack (full reasoning
+  in §1's D2 block). What it needs is a file on a reachable box holding a **plaintext** drawn from
+  the UNCRACKABLE pool — a `credentials.txt`, a config with `password=`, a note. Two constraints,
+  both already load-bearing: it must be **uncrackable-pool** or the harvest is a no-op, which is what
   makes `defaultWordlist.test.ts`'s "covers the uncrackable pool NOT AT ALL" the assertion that
   gives the loot its value; and it must sit behind a **tier gate** or a guest walk-in reads it, the
   same reason `/etc/passwd` is `read: ['root','user']`. This also makes `john` genuinely
   non-redundant, by the route D2.5's grounding named second — a plaintext file, not a hash file,
   since a hash file would still hold a hash of one of the two pools.
+  **Whatever closes this, `/etc/passwd` does not**: it yields an md5, and `john` against that hash
+  only returns words already in the caller's wordlist — the closed loop itself, not a way out of it.
+  So the CVE phase must ship a route producing a plaintext the player did not hold, or the
+  progression stays inert however many doors parity adds. The three loot designs worked out before
+  the postponement are recorded in the parity epic's "Next action" so the option set survives.
+- **Generated world content ("random noise") — its own epic, owner decision 2026-08-12.** The
+  generated world is furnished thinly on purpose so far, and making boxes feel inhabited is ONE
+  design with one shape rather than a tax on each door: believable per-box files, web trees beyond
+  the single `index.html` both generators stamp, and — as those doors land — MySQL schemas and
+  Redis keyspaces worth reading. The rule that follows: **a door slice does not invent its own
+  content system to have something to point at.** D1c is the worked example — sweeping for unlinked
+  paths obviously wants generated unlinked paths, and building a narrow version there would have set
+  the pool shape, the per-box volume, and the variation model this epic should own. `gobuster` ships
+  proven against content the PLAYER makes by hand (`mkdir` + `nano` under `/var/www/html`) instead.
+  Three things are already waiting for this epic:
+  - **A shipped D1 defect: the pages advertise paths that 404.** Every entry in
+    `generation/pools/webPages.ts` links `/admin/`, `/status`, `/server-status`, `/api/health` or
+    `/metrics`, and `curl` returns 404 for all of them, so a player doing the recon the page invites
+    is told the server lies. Found 2026-08-12 while planning D1c. Small and self-contained, but it
+    is content, so it lands here rather than as a one-off fix.
+  - **D2.6b's harvestable loot placement** — postponed as a credential-layer item above, and it is
+    content too: a file on a reachable box holding an uncrackable-pool plaintext behind a tier gate.
+    If this epic runs before the CVE phase, it is the natural home.
+  - **Role-keyed pools at D5b.** `webPages.ts:14` already names the shape: today's flat entries
+    become the general-server bucket and no caller moves, once `LanHost.kind` widens.
+  Until it lands, expect thin worlds behind working tools — the accepted trade, and NOT the same
+  failure as a mechanic with no input (D2.6b): here the tool is correct and the world is empty.
 - **Nine known surviving mutants in generated config content, never owned.** Exposed by D2.2's
   honest mutation run (once a raised timeout stopped scoring timeouts as kills) in code that slice
   never touched: the `RULES_V4_SEED` / `ACL_CONF_SEED` header lines and their `join('\n')`
