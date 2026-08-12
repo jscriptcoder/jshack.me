@@ -204,7 +204,7 @@ procedural CVE timeline (`publishedAt`/`patchDelay`), `apt upgrade`/pinning, scr
 PHASE 1 — THE DOORS  (near-term focus)
   D1  web (apache2/nginx + generated pages + curl)     ✔ SHIPPED v0.109.0
   D1b lynx (browser screen)      \  fast-follows, any time
-  D1c gobuster (path brute-force) /  ← ACTIVE — planned, 2 slices
+  D1c gobuster (path brute-force) /  ← ACTIVE — slice 1 shipped v0.123.0 (#378)
   D2  hydra + the wordlist system (+ john)             ✔ SHIPPED v0.111.0-v0.122.0
       D2.1 hydra vs an own-LAN NPC host                ✔ SHIPPED v0.111.0
       D2.2 not every account falls                     ✔ SHIPPED v0.113.0
