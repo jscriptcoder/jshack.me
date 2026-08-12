@@ -729,7 +729,23 @@ tree that does carry the file. Prefer stating the rule over arguing the input ca
   `.stryker-tmp/sandbox-*` is inside the lint root, so `npm run lint` reports hundreds of
   `@ts-nocheck` errors from generated code that vanish when the run finishes; the same sandbox
   churn can crash `vercel dev`'s functions (`exit code 3221225794` = Windows
-  `STATUS_DLL_INIT_FAILED`). Both clear up on their own — re-check before believing either.
+  `STATUS_DLL_INIT_FAILED`). Both usually clear up on their own — re-check before believing
+  either. **But "usually" is not "always": a sandbox can be left behind** (a killed or
+  timed-out run, or several scoped `--mutate` runs in a row), and then `npm run lint` keeps
+  failing with hundreds of errors in paths under `.stryker-tmp/sandbox-*` that are not yours.
+  Read the paths in the lint output before debugging your own diff; the fix is
+  `rm -rf .stryker-tmp`. It is gitignored, so nothing is at risk.
+- **`commandRegistry.get(name)` is NOT the command module's export.** `registry.ts` wraps every
+  non-builtin command in `gate()` (binary check outside, library check inside), so the map holds
+  a wrapper. Two consequences that both look like bugs in your own code:
+  `expect(commandRegistry.get('curl')).toBe(curl)` fails with *"Compared values have no visual
+  difference"* — which reads exactly like a duplicated module instance and is not one; and
+  executing the registry's entry runs the **binary gate first**, so a test tree without
+  `/usr/bin/<name>` gets `bash: <name>: command not found. Install with: apt install <name>`
+  rather than the command's own output. A command test that goes through the registry has to
+  install the binary (`BINARY_STUB`, world-executable, as `apt` stamps it); one that goes
+  straight to `command.execute` does not. Assert registration by BEHAVIOUR — run it and check
+  what it does — never by identity.
 - **`vercel dev` injects cloud-scoped env vars at runtime.** If a local function sees cloud
   values despite `.env.development.local`, suspect Vercel's "Development" scope first — uncheck
   Development on local-only vars so `vercel dev` doesn't inject them.

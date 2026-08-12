@@ -1,9 +1,12 @@
 # Plan: D1c — a player finds the pages a server never linked
 
-**Branch**: `feat/pages-nobody-linked` (slice 1); one branch per slice thereafter
-**Status**: Active — planned 2026-08-12, no code written
+**Status**: **Slice 1 SHIPPED** (v0.123.0, commit `72c33d0`, [PR #378](https://github.com/jscriptcoder/jshack.me/pull/378) — open, awaiting merge). **Slice 2 is next and has not been started.**
+**Branch**: slice 1 was `feat/pages-nobody-linked`; cut a fresh branch off merged `main` for slice 2.
 **Epic**: [`legacy-parity-epic.md`](./legacy-parity-epic.md) row **D1c**, Phase 1
-**Base version**: v0.122.0
+**Base version**: v0.122.0 → **v0.123.0** after slice 1
+
+> **Picking this up cold?** Read "Scope decision" (why there is no generated content here),
+> then "Slice 1 — as built", then start at **Slice 2**. Everything above Slice 2 is done.
 
 ## Goal
 
@@ -49,20 +52,22 @@ gobuster http://localhost
 
 ## Acceptance criteria
 
-- [ ] `apt install gobuster` puts a readable, editable path list on the box, and `gobuster`
+- [x] `apt install gobuster` puts a readable, editable path list on the box, and `gobuster`
       with no list installed says so and names the package that provides one.
-- [ ] `gobuster http://<host>` reports the paths that answer and stays silent about the ones
+- [x] `gobuster http://<host>` reports the paths that answer and stays silent about the ones
       that do not.
-- [ ] A path answers **iff it is a word in the file AND a file exists at it** — the list is the
+- [x] A path answers **iff it is a word in the file AND a file exists at it** — the list is the
       sole gate, exactly as `passwordSweep.ts` makes it for credentials. A path present on the
       box but absent from the list is not found; a word in the list naming nothing is not
       reported.
 - [ ] The target's `/var/log/access.log` records **every probe**, hits and misses alike, in the
       order tried, as one append — the run of 404s with a 200 in it is the defender's tell.
-- [ ] A player can append a path to the list with `nano` and a subsequent sweep finds something
+      **← SLICE 2, not started**
+- [x] A player can append a path to the list with `nano` and a subsequent sweep finds something
       the shipped list missed.
 - [ ] Proven live, end to end, by a player creating a directory and page by hand and sweeping
       for it — the journey above, recorded in `e2e-shared-network-verification.md`.
+      **← close-out, not started**
 
 ## What this reuses whole (do NOT rebuild)
 
@@ -79,47 +84,65 @@ gobuster http://localhost
 
 ## Slices
 
-### Slice 1: A player finds a path nobody linked
+### Slice 1: A player finds a path nobody linked — ✔ SHIPPED (v0.123.0, `72c33d0`, PR #378)
 
-**Class**: Behavior change.
-**Value**: The player can discover what a server did not advertise — the first recon tool that
-returns something `curl` cannot, because `curl` requires already knowing the path.
-**Path**: `gobuster http://<host>` → `parseHttpUrl` → `targetFs` → port check → for each word
-in the installed list, `resolveWebPath` + read → report the hits.
-**Production path touched**: new `commands/gobuster.ts`; new pure path-sweep module (mirror
-`passwordSweep.ts`); `aptPackages.ts` gains `extraFiles` on the existing `gobuster` row; a
-`DEFAULT_DIRLIST` module beside `defaultWordlist.ts`.
-**Required implementation skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
+All eight acceptance criteria met. 2427 tests green, `tsc -b` and `eslint` clean.
 
-**Acceptance criteria** (confirm before any code):
-1. `gobuster http://<host>` against a host serving http prints the paths that answered.
-2. A path that exists on the box but is **absent from the list** is NOT reported — the list is
-   the sole gate, the same rule `passwordSweep.ts` enforces for passwords.
-3. A word in the list naming nothing is not reported.
-4. With no list installed, `gobuster` says so and names `apt install gobuster` — matching
-   `john.ts:143`'s shape for a missing wordlist.
-5. A host not serving http refuses the connection rather than reporting zero hits, so "nothing
-   there" and "unreachable" stay distinguishable (`curl.ts:12`).
-6. The sweep reads the list from **the machine the player is standing on** — "tools run where
-   you stand", the owner principle D2.5 locked and the hydra gate-lift shipped.
-7. A path appended with `nano` is found on the next run.
-8. A path that climbs out of the document root is not reported, and is not distinguishable
-   from a miss — `resolveWebPath` already returns null and `curl` already withholds the tell
-   ("telling a caller their traversal was SPOTTED is itself a hint worth withholding").
+**What it built**
+- `core/commands/gobuster.ts` — the command. Own-LAN only.
+- `core/network/defaultDirlist.ts` — `DIRLIST_PATH` (`/usr/share/wordlists/dirlist.txt`),
+  `DIRLIST_PERMISSIONS`, `DEFAULT_DIRLIST` (40 entries), `formatDirlist`, `parseDirlist`.
+- `aptPackages.ts` — `extraFiles` on the existing `gobuster` row, so `apt install gobuster`
+  ships the list. Second consumer of the seam D2.1 built.
+- `registry.ts` — registered.
 
-**RED**: A sweep against a tree carrying a hand-made unlinked page asserting it is reported,
-and that a path present on the box but absent from the list is not.
-**GREEN**: The pure sweep + the command + the `extraFiles` row.
-**MUTATE**: The gate condition (`in the list AND exists`) is the mutation target that matters —
-flipping either conjunct must fail a test. Criteria 2 and 3 exist to kill exactly that pair.
-**REFACTOR**: Assess whether the path sweep and `passwordSweep` share a shape worth naming.
-Default is NO — two sweeps over different domains are not yet a duplication, and structure
-nobody can observe has no test that can fail.
-**Done when**: criteria met, gates green, human approves the commit.
+**Decisions taken, and why they are not free to re-open casually**
+
+1. **A word naming a DIRECTORY that holds an index is a hit**, reported with a trailing slash.
+   The slice turned on this: without it, a player who makes a folder and puts a page in it
+   cannot find it — and that journey is this plan's whole evidence, since there is no
+   generated content. A directory with no index is not a hit.
+2. **The list module lives in `core/network/`, not `core/wordlist/`.** These are HTTP request
+   paths and `http.ts` owns how a request path resolves to a file; `core/wordlist/` is
+   credential-domain and its docstrings say so.
+3. **Cross-network sweeps are refused BY NAME**, not dressed as a connect failure. A player
+   whose sweep is unsupported must not spend the evening believing a live box was down.
+4. **The shipped list deliberately contains `admin`, `status`, `server-status`, `api/health`,
+   `metrics`** — the paths every generated page already links and nothing serves. They 404
+   today; keeping them means a default sweep starts finding them the moment the content epic
+   grows those pages, with no change to the list. There is a test pinning this.
+5. **~15 lines of `curl`'s target resolution are REPEATED, not extracted** (`targetFs`,
+   `LOOPBACK_NAMES`, the port check, `connectError`). Owner decision 2026-08-12: leave it for
+   **D1b (lynx)**, the third consumer, which "reuses D1 whole". A shape named at three callers
+   beats one named at two. **If you are doing lynx, this is the extraction to make** — and the
+   divergence risk is real, so do not let a fourth consumer arrive first.
+
+**Two known-equivalent mutants, documented in `gobuster.ts` in place** so a re-run is not a
+mystery (same convention as hydra's): dropping the `is_directory` guard only makes a
+`not_found` take a retry that fails identically, and the `indexPath === null` check is
+unreachable — a path that escaped the document root already returned — but is what narrows the
+nullable for the type. Everything else in the logic is killed.
+
+**What mutation testing found, worth remembering because the pattern recurs**: asserting a
+generated file's content by calling the very function that generates it
+(`content: formatDirlist(DEFAULT_DIRLIST)`) compares the function against itself and can never
+catch it breaking. `formatDirlist`'s `join('\n')` → `join('')` survived that way, and
+`DIRLIST_PERMISSIONS` had the identical hole. The apt/extraFiles test shape invites this — check
+any future `extraFiles` consumer for it.
+
+**TDD honesty note for the reviewer**: RED was genuine for the gate and for both wiring pieces.
+The port check, install hint, traversal handling and public-IP refusal were written during GREEN
+ahead of tests demanding them; those tests postdate the code, and mutation testing is their
+evidence rather than test ordering.
 
 ---
 
-### Slice 2: The defender sees the sweep
+### Slice 2: The defender sees the sweep — ← **START HERE**, not started
+
+**Why it matters more than it sounds**: as of v0.123.0 a sweep is **silent on the target**.
+`curl` writes an access-log line per fetch and gobuster writes nothing at all, so right now the
+loudest thing a player can do to a web server is the quietest thing in the game. hydra had the
+same gap between D2.1 and D2.3 and it was fine, but it is live on `main` once #378 merges.
 
 **Class**: Behavior change.
 **Value**: The attack acquires its cost. A sweep is the loudest thing a player can point at a

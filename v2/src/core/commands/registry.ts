@@ -25,6 +25,7 @@ import { grep } from './grep';
 import { help } from './help';
 import { identity } from './identity';
 import { ifconfig } from './ifconfig';
+import { gobuster } from './gobuster';
 import { john } from './john';
 import { ls } from './ls';
 import { man } from './man';
@@ -58,6 +59,7 @@ const builtins: readonly Command[] = [
   curl,
   echo,
   exit,
+  gobuster,
   grep,
   help,
   identity,
