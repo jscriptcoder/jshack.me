@@ -23,6 +23,12 @@ import {
   WORDLIST_PATH,
   WORDLIST_PERMISSIONS,
 } from '../wordlist/defaultWordlist';
+import {
+  DEFAULT_DIRLIST,
+  DIRLIST_PATH,
+  DIRLIST_PERMISSIONS,
+  formatDirlist,
+} from '../network/defaultDirlist';
 
 /** A data file a package installs alongside its binaries. Some tools are useless
  *  without one — hydra with no wordlist has nothing to try — and the file is a
@@ -63,7 +69,16 @@ export const APT_PACKAGES: readonly AptPackage[] = [
       },
     ],
   },
-  { name: 'gobuster' },
+  {
+    name: 'gobuster',
+    extraFiles: [
+      {
+        path: DIRLIST_PATH,
+        content: formatDirlist(DEFAULT_DIRLIST),
+        permissions: DIRLIST_PERMISSIONS,
+      },
+    ],
+  },
   { name: 'snmp', binaries: ['snmpwalk', 'snmpset'] },
   { name: 'mysql' },
   { name: 'redis-tools', binaries: ['rediscli'] },

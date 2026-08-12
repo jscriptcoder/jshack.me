@@ -19,6 +19,11 @@ import {
   formatWordlist,
   WORDLIST_PERMISSIONS as WORDLIST_PERMS,
 } from '../wordlist/defaultWordlist';
+import {
+  DEFAULT_DIRLIST,
+  formatDirlist,
+  DIRLIST_PERMISSIONS as DIRLIST_PERMS,
+} from '../network/defaultDirlist';
 
 /**
  * `apt install` is the reachability mechanism: as root + online, it writes a
@@ -377,6 +382,24 @@ describe('apt', () => {
           // only by root so appending a harvested password is a deliberate act,
           // and NEVER executable — it is data the tools read, not a program.
           options: { isNew: true, permissions: WORDLIST_PERMS },
+        });
+        expect(exitCode).toBe(0);
+      });
+
+      it('installs the path list gobuster ships, world-readable and not executable', async () => {
+        const { env, writes } = aptEnv();
+
+        const { exitCode } = await streamResult(
+          await apt.execute(env, ['install', 'gobuster'], NO_FLAGS),
+        );
+
+        // The same seam, a second consumer: gobuster with no path list has nothing
+        // to ask a server, exactly as hydra with no wordlist has nothing to try.
+        const dirlist = writes.find((write) => write.path === '/usr/share/wordlists/dirlist.txt');
+        expect(dirlist).toEqual({
+          path: '/usr/share/wordlists/dirlist.txt',
+          content: formatDirlist(DEFAULT_DIRLIST),
+          options: { isNew: true, permissions: DIRLIST_PERMS },
         });
         expect(exitCode).toBe(0);
       });
