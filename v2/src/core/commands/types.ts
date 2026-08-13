@@ -230,11 +230,11 @@ export type AuthLogEvent = {
   readonly hostname: string;
 };
 
-/** The own-LAN fetch `curl` hands to `log.appendAccessLog` so the box that served it
- *  records the hit. Carries no machine id, no timestamp, no status and no size: the
- *  SERVER resolves which box answered — the caller's own workstation or a generated
- *  sibling — and reads the page itself, so a crafted request can never author a line
- *  claiming something was served that never was.
+/** The own-LAN request (or run of them) handed to `log.appendAccessLog` so the box
+ *  that served it records what it was asked for. Carries no machine id, no timestamp,
+ *  no status and no size: the SERVER resolves which box answered — the caller's own
+ *  workstation or a generated sibling — and reads the pages itself, so a crafted
+ *  request can never author a line claiming something was served that never was.
  *
  *  `sourceIp` IS the client's, unlike the cross-player path where the server derives
  *  it. On this path the row is one only the caller can ever read (a generated host's
@@ -245,8 +245,12 @@ export type AccessLogFetch = {
   /** The LAN address fetched — the server resolves which machine holds it. */
   readonly target: string;
   readonly port: number;
-  /** The url path AS WRITTEN; the server confines it to the document root itself. */
-  readonly path: string;
+  /** The url paths AS WRITTEN, in the order asked; the server confines each to the
+   *  document root itself. `curl` names one, a path sweep names all of them — and a
+   *  sweep is one append rather than one round-trip per word, because the run of
+   *  misses around a hit is what a defender reads and forty signed requests to write
+   *  it would be a different kind of expensive. */
+  readonly paths: readonly string[];
   readonly sourceIp: string;
 };
 

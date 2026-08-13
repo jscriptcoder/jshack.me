@@ -191,14 +191,14 @@ const selfServingDeps = (
 
 const envelope = (
   id: ReturnType<typeof generateIdentity>,
-  fetched: { readonly target: string; readonly port: number; readonly path: string },
+  fetched: { readonly target: string; readonly port: number; readonly paths: readonly string[] },
   over: Record<string, unknown> = {},
 ) =>
   signRequest(id, 'recordLanFetch', {
     essid: ESSID,
     target: fetched.target,
     port: fetched.port,
-    path: fetched.path,
+    paths: fetched.paths,
     source_ip: lanAddressFor(ESSID, freeOctet()),
     ...over,
   });
@@ -216,7 +216,7 @@ describe('handleRecordLanFetch', () => {
     const host = servingHost();
 
     const result = await handleRecordLanFetch(
-      { action: 'recordLanFetch', essid: ESSID, target: host.ip, port: 80, path: '/' },
+      { action: 'recordLanFetch', essid: ESSID, target: host.ip, port: 80, paths: ['/'] },
       deps,
     );
 
@@ -235,7 +235,7 @@ describe('handleRecordLanFetch', () => {
     const result = await handleRecordLanFetch(
       await envelope(
         caller,
-        { target: host.ip, port: httpPortOf(host)!, path: '/' },
+        { target: host.ip, port: httpPortOf(host)!, paths: ['/'] },
         { player_key: 'b'.repeat(64) },
       ),
       deps,
@@ -246,24 +246,29 @@ describe('handleRecordLanFetch', () => {
   });
 
   it('refuses a properly signed request that names no path', async () => {
-    // The line is written ABOUT the path, so defaulting it would let a caller omit
-    // the one field the record is of. Signed correctly, so it is the SHAPE that is
-    // refused — not the signature.
+    // The lines are written ABOUT the paths, so defaulting them would let a caller
+    // omit the one field the record is of. An EMPTY list is the same omission spelt
+    // differently. Signed correctly in both cases, so it is the SHAPE that is refused
+    // — not the signature.
     const caller = generateIdentity();
     const host = servingHost();
-    const { deps, upsertPatch } = makeDeps();
 
-    const result = await handleRecordLanFetch(
-      await signRequest(caller, 'recordLanFetch', {
-        essid: ESSID,
-        target: host.ip,
-        port: httpPortOf(host)!,
-      }),
-      deps,
-    );
+    for (const missing of [{}, { paths: [] }]) {
+      const { deps, upsertPatch } = makeDeps();
 
-    expect(result).toEqual({ status: 400, body: { error: 'payload_invalid' } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+      const result = await handleRecordLanFetch(
+        await signRequest(caller, 'recordLanFetch', {
+          essid: ESSID,
+          target: host.ip,
+          port: httpPortOf(host)!,
+          ...missing,
+        }),
+        deps,
+      );
+
+      expect(result).toEqual({ status: 400, body: { error: 'payload_invalid' } });
+      expect(upsertPatch).not.toHaveBeenCalled();
+    }
   });
 
   it('records the fetch on the LAN host that served it, under the fetcher own key', async () => {
@@ -274,7 +279,7 @@ describe('handleRecordLanFetch', () => {
     const { deps, upsertPatch } = makeDeps();
 
     await handleRecordLanFetch(
-      await envelope(caller, { target: host.ip, port, path: '/' }, { source_ip: sourceIp }),
+      await envelope(caller, { target: host.ip, port, paths: ['/'] }, { source_ip: sourceIp }),
       deps,
     );
 
@@ -329,7 +334,7 @@ describe('handleRecordLanFetch', () => {
     });
 
     await handleRecordLanFetch(
-      await envelope(caller, { target: ownIp, port: 80, path: '/' }, { source_ip: ownIp }),
+      await envelope(caller, { target: ownIp, port: 80, paths: ['/'] }, { source_ip: ownIp }),
       deps,
     );
 
@@ -375,7 +380,7 @@ describe('handleRecordLanFetch', () => {
       }),
     });
 
-    await handleRecordLanFetch(await envelope(caller, { target: host.ip, port, path: '/' }), deps);
+    await handleRecordLanFetch(await envelope(caller, { target: host.ip, port, paths: ['/'] }), deps);
 
     expect(writtenLog(upsertPatch).machine_id).toBe(resolveLanHostIdentity(host, ESSID).machineId);
   });
@@ -398,11 +403,67 @@ describe('handleRecordLanFetch', () => {
     });
 
     await handleRecordLanFetch(
-      await envelope(caller, { target: lanAddressFor(ESSID, octet), port: 80, path: '/' }),
+      await envelope(caller, { target: lanAddressFor(ESSID, octet), port: 80, paths: ['/'] }),
       deps,
     );
 
     expect(findPatches).toHaveBeenCalledWith({ machine_id: 'ws-machine-7' });
+  });
+
+  it('records a whole sweep as one append, a line per path, in the order asked', async () => {
+    // The volume IS the behaviour: a defender tells a sweep from a typo by the run of
+    // misses around the hit, so every probe lands and the order survives. One append
+    // rather than one round-trip per word — a forty-word list would otherwise be forty
+    // signed requests each re-reading and re-writing the whole log.
+    const caller = generateIdentity();
+    const host = servingHost();
+    const port = httpPortOf(host)!;
+    const sourceIp = lanAddressFor(ESSID, freeOctet());
+    const { deps, upsertPatch } = makeDeps();
+
+    await handleRecordLanFetch(
+      await envelope(
+        caller,
+        { target: host.ip, port, paths: ['/admin', '/', '/backup'] },
+        { source_ip: sourceIp },
+      ),
+      deps,
+    );
+
+    const line = (path: string, status: number, size: number) =>
+      formatAccessLogLine({ time: asGameTime(FIXED_NOW), sourceIp, path, status, size });
+    // `writtenLog` throws unless there was exactly ONE access.log write.
+    expect(writtenLog(upsertPatch).content).toBe(
+      [
+        line('/admin', 404, 0),
+        line('/', 200, servedBy(host, '/')!.length),
+        line('/backup', 404, 0),
+        '',
+      ].join('\n'),
+    );
+  });
+
+  it('stamps every line of a sweep with the one time the request arrived', async () => {
+    // The server handled a single request, so it reads its clock once. A stamp per
+    // line would spread one arrival across a span the server never observed.
+    const caller = generateIdentity();
+    const host = servingHost();
+    const port = httpPortOf(host)!;
+    let readings = 0;
+    const { deps, upsertPatch } = makeDeps({
+      now: () => FIXED_NOW + 60_000 * readings++,
+    });
+
+    await handleRecordLanFetch(
+      await envelope(caller, { target: host.ip, port, paths: ['/', '/admin'] }),
+      deps,
+    );
+
+    const stamps = (writtenLog(upsertPatch).content ?? '')
+      .trimEnd()
+      .split('\n')
+      .map((line) => line.slice(line.indexOf('['), line.indexOf(']') + 1));
+    expect(stamps).toEqual(['[30/Jul/2026:04:07:09 +0000]', '[30/Jul/2026:04:07:09 +0000]']);
   });
 
   it('records a miss as a 404 with an empty body — the line a directory sweep leaves', async () => {
@@ -415,7 +476,7 @@ describe('handleRecordLanFetch', () => {
     await handleRecordLanFetch(
       await envelope(
         caller,
-        { target: host.ip, port, path: '/wp-admin/setup-config.php' },
+        { target: host.ip, port, paths: ['/wp-admin/setup-config.php'] },
         { source_ip: sourceIp },
       ),
       deps,
@@ -441,7 +502,7 @@ describe('handleRecordLanFetch', () => {
     const { deps, upsertPatch } = makeDeps();
 
     await handleRecordLanFetch(
-      await envelope(caller, { target: host.ip, port, path: '/../../etc/passwd' }),
+      await envelope(caller, { target: host.ip, port, paths: ['/../../etc/passwd'] }),
       deps,
     );
 
@@ -453,7 +514,7 @@ describe('handleRecordLanFetch', () => {
     const { deps, upsertPatch } = makeDeps();
 
     const result = await handleRecordLanFetch(
-      await envelope(caller, { target: silentHost().ip, port: 80, path: '/' }),
+      await envelope(caller, { target: silentHost().ip, port: 80, paths: ['/'] }),
       deps,
     );
 
@@ -469,7 +530,7 @@ describe('handleRecordLanFetch', () => {
     const { deps, upsertPatch } = makeDeps();
 
     await handleRecordLanFetch(
-      await envelope(caller, { target: ssh.host.ip, port: ssh.port, path: '/' }),
+      await envelope(caller, { target: ssh.host.ip, port: ssh.port, paths: ['/'] }),
       deps,
     );
 
@@ -483,7 +544,7 @@ describe('handleRecordLanFetch', () => {
     const { host, port } = alsoSshHost();
     const { deps, upsertPatch } = makeDeps();
 
-    await handleRecordLanFetch(await envelope(caller, { target: host.ip, port, path: '/' }), deps);
+    await handleRecordLanFetch(await envelope(caller, { target: host.ip, port, paths: ['/'] }), deps);
 
     expect(writtenLog(upsertPatch).machine_id).toBe(resolveLanHostIdentity(host, ESSID).machineId);
   });
@@ -517,7 +578,7 @@ describe('handleRecordLanFetch', () => {
       const { deps, upsertPatch } = selfServingDeps(caller, octet, failing);
 
       await handleRecordLanFetch(
-        await envelope(caller, { target: ownIp, port: 80, path: '/' }),
+        await envelope(caller, { target: ownIp, port: 80, paths: ['/'] }),
         deps,
       );
 
@@ -541,7 +602,7 @@ describe('handleRecordLanFetch', () => {
       });
 
       await handleRecordLanFetch(
-        await envelope(caller, { target: ownIp, port: 80, path: '/' }),
+        await envelope(caller, { target: ownIp, port: 80, paths: ['/'] }),
         deps,
       );
 
@@ -558,7 +619,7 @@ describe('handleRecordLanFetch', () => {
     });
 
     await handleRecordLanFetch(
-      await envelope(caller, { target: lanAddressFor(ESSID, octet), port: 80, path: '/' }),
+      await envelope(caller, { target: lanAddressFor(ESSID, octet), port: 80, paths: ['/'] }),
       deps,
     );
 
@@ -579,7 +640,7 @@ describe('handleRecordLanFetch', () => {
       const { deps, upsertPatch } = selfServingDeps(caller, octet, { listLeasesByEssid: empty });
 
       await handleRecordLanFetch(
-        await envelope(caller, { target: lanAddressFor(ESSID, octet), port: 80, path: '/' }),
+        await envelope(caller, { target: lanAddressFor(ESSID, octet), port: 80, paths: ['/'] }),
         deps,
       );
 
@@ -629,7 +690,7 @@ describe('handleRecordLanFetch', () => {
     });
 
     await handleRecordLanFetch(
-      await envelope(caller, { target: lanAddressFor(ESSID, octet), port: 80, path: '/' }),
+      await envelope(caller, { target: lanAddressFor(ESSID, octet), port: 80, paths: ['/'] }),
       deps,
     );
 
@@ -642,7 +703,7 @@ describe('handleRecordLanFetch', () => {
     const { deps, upsertPatch } = makeDeps();
 
     await handleRecordLanFetch(
-      await envelope(caller, { target: host.ip, port: httpPortOf(host)! + 1, path: '/' }),
+      await envelope(caller, { target: host.ip, port: httpPortOf(host)! + 1, paths: ['/'] }),
       deps,
     );
 
@@ -657,7 +718,7 @@ describe('handleRecordLanFetch', () => {
       await envelope(caller, {
         target: lanAddressFor(ESSID, freeOctet()),
         port: 80,
-        path: '/',
+        paths: ['/'],
       }),
       deps,
     );
@@ -677,7 +738,7 @@ describe('handleRecordLanFetch', () => {
     });
 
     await handleRecordLanFetch(
-      await envelope(caller, { target: host.ip, port, path: '/' }, { source_ip: sourceIp }),
+      await envelope(caller, { target: host.ip, port, paths: ['/'] }, { source_ip: sourceIp }),
       deps,
     );
 
@@ -698,7 +759,7 @@ describe('handleRecordLanFetch', () => {
     const { deps, upsertPatch } = makeDeps();
 
     await handleRecordLanFetch(
-      await envelope(caller, { target: host.ip, port, path: '/' }, { source_ip: null }),
+      await envelope(caller, { target: host.ip, port, paths: ['/'] }, { source_ip: null }),
       deps,
     );
 
@@ -714,7 +775,7 @@ describe('handleRecordLanFetch', () => {
     await handleRecordLanFetch(
       await envelope(
         caller,
-        { target: host.ip, port, path: '/' },
+        { target: host.ip, port, paths: ['/'] },
         { machine_id: 'somebody-elses-box' },
       ),
       deps,
@@ -732,7 +793,7 @@ describe('handleRecordLanFetch', () => {
     await handleRecordLanFetch(
       await envelope(
         caller,
-        { target: host.ip, port, path: '/' },
+        { target: host.ip, port, paths: ['/'] },
         { status: 500, size: 999999, time: 0 },
       ),
       deps,
@@ -752,7 +813,7 @@ describe('handleRecordLanFetch', () => {
     });
 
     const result = await handleRecordLanFetch(
-      await envelope(caller, { target: host.ip, port, path: '/' }),
+      await envelope(caller, { target: host.ip, port, paths: ['/'] }),
       deps,
     );
 

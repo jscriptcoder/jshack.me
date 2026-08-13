@@ -182,7 +182,9 @@ describe('curl leaves a trace on the box it fetched', () => {
         essid: ESSID,
         target: host.ip,
         port,
-        path: '/index.html',
+        // One fetch, one path: the seam carries a run of them because a sweep asks
+        // many at once, and `curl` must never claim requests it did not make.
+        paths: ['/index.html'],
         sourceIp: assignHomeNetwork(PUBKEY, ESSID).localIp,
       },
     ]);
@@ -195,7 +197,7 @@ describe('curl leaves a trace on the box it fetched', () => {
 
     expect(drained.exitCode).not.toBe(0);
     expect(reported).toHaveLength(1);
-    expect(reported[0]!.path).toBe('/nothing-here');
+    expect(reported[0]!.paths).toEqual(['/nothing-here']);
   });
 
   it('reports a traversal attempt, which is the fetch worth recording most', async () => {
@@ -204,7 +206,7 @@ describe('curl leaves a trace on the box it fetched', () => {
     const { reported } = await runReporting([`http://${host.ip}:${port}/../../etc/passwd`]);
 
     expect(reported).toHaveLength(1);
-    expect(reported[0]!.path).toBe('/../../etc/passwd');
+    expect(reported[0]!.paths).toEqual(['/../../etc/passwd']);
   });
 
   it('reports nothing when nothing answered', async () => {
@@ -617,7 +619,7 @@ describe('curl against the player own address', () => {
         essid: ESSID,
         target: OWN_IP,
         port: HTTP_DEFAULT_PORT,
-        path: '/',
+        paths: ['/'],
         sourceIp: '127.0.0.1',
       },
     ]);

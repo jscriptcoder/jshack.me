@@ -8,16 +8,23 @@
  * handler exists to give it the round-trip it needs to leave that line — exactly as
  * `handleNmapScan` does for a scan that also resolved client-side.
  *
- * The client names a target address, a port and a url path. It never names a MACHINE:
+ * It takes a RUN of paths rather than one, because a path sweep is a fetch tool that
+ * asks forty questions and its whole cost to the attacker is the wall of 404s it
+ * leaves behind. `curl` names one path, `gobuster` names every word it tried, and both
+ * land as a single append — the alternative is one signed round-trip per word, each
+ * re-reading and re-writing the entire log.
+ *
+ * The client names a target address, a port and url paths. It never names a MACHINE:
  * the server REGENERATES the caller's own LAN from the verified pubkey + essid and
  * decides for itself which box answered — the caller's own workstation when they
  * fetched their own leased address, otherwise a generated NPC sibling. Own address is
  * checked FIRST, matching `curl`'s own resolution, so a lease that happens to collide
  * with a generated host still reads the player's real box.
  *
- * Nor does the client name a time, a status or a size. The server reads the resolved
- * tree and works those out itself, so a crafted request can never author a line
- * claiming something was served that never was.
+ * Nor does the client name a time, a status or a size — for any line, however many it
+ * asks for. The server reads the resolved tree and works those out itself, so a
+ * crafted request can never author a line claiming something was served that never
+ * was, and a sweep cannot dress its misses up as hits.
  *
  * Writer key is the CALLER's in both cases, which is why this slice needs no
  * owner-vs-caller distinction: a generated host has no owner, so its log is per-viewer
@@ -89,15 +96,16 @@ export type HandlerResponse = {
 
 // Loose so the always-present envelope fields (action/ts/nonce) pass through; the
 // refine rejects a client-supplied player_key (the server stamps it from the verified
-// pubkey). `path` is REQUIRED: defaulting it would let a caller omit the one field the
-// line is written about. Any other field a client sends is simply not read.
+// pubkey). `paths` is REQUIRED and NON-EMPTY: defaulting it, or accepting an empty
+// list, would let a caller omit the one field the lines are written about. Any other
+// field a client sends is simply not read.
 const recordLanFetchSchema = z
   .looseObject({
     action: z.literal('recordLanFetch'),
     essid: z.string().min(1),
     target: z.string().min(1),
     port: z.number().int(),
-    path: z.string().min(1),
+    paths: z.array(z.string().min(1)).min(1),
     source_ip: z.string().min(1).nullable().optional(),
   })
   .refine((payload) => !('player_key' in payload));
@@ -171,11 +179,28 @@ export const handleRecordLanFetch = async (
   );
   if (!serving) return { status: 200, body: { ok: true } };
 
-  const filePath = resolveWebPath(payload.path);
-  const page = filePath === null ? null : createFsView(target.fs, { userType: 'root' }).read(filePath);
-  const content = page === null || !page.ok ? null : page.content;
+  const view = createFsView(target.fs, { userType: 'root' });
+  // One clock reading for the whole request, because the server handled ONE request —
+  // stamping per line would spread a sweep across a span nothing observed.
+  const time = asGameTime(deps.now());
+  const lines = payload.paths.map((requestPath) => {
+    const filePath = resolveWebPath(requestPath);
+    const page = filePath === null ? null : view.read(filePath);
+    const content = page === null || !page.ok ? null : page.content;
+    return formatAccessLogLine({
+      time,
+      sourceIp: payload.source_ip ?? 'unknown',
+      // The path AS ASKED FOR, never as resolved: a request that resolved to nothing
+      // is exactly the line a defender needs to see.
+      path: requestPath,
+      status: content === null ? 404 : 200,
+      size: content === null ? 0 : content.length,
+    });
+  });
 
   try {
+    // ONE append for the whole run, the way the hydra sweep lands on `auth.log`: a
+    // per-line write would re-read and re-upsert the entire log for every path tried.
     await appendMachineLog(
       { readLog: deps.readLog, upsertPatch: deps.upsertPatch },
       {
@@ -185,15 +210,7 @@ export const handleRecordLanFetch = async (
         owner: ACCESS_LOG_OWNER,
         permissions: ACCESS_LOG_PERMISSIONS,
       },
-      formatAccessLogLine({
-        time: asGameTime(deps.now()),
-        sourceIp: payload.source_ip ?? 'unknown',
-        // The path AS ASKED FOR, never as resolved: a request that resolved to nothing
-        // is exactly the line a defender needs to see.
-        path: payload.path,
-        status: content === null ? 404 : 200,
-        size: content === null ? 0 : content.length,
-      }),
+      lines.join('\n'),
     );
   } catch {
     // best-effort: the fetch already happened, and a logging failure must not surface.

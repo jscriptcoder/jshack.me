@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { gobuster } from './gobuster';
 import { commandRegistry } from './registry';
-import type { CommandEnv, CommandResult } from './types';
+import type { AccessLogFetch, CommandEnv, CommandResult } from './types';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
@@ -10,13 +10,14 @@ import {
   mockNetworkViewFromConnectivity,
   mockSession,
 } from '../../test/factories/commandEnv';
-import { generateHomeLan } from '../generation/generateHomeLan';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
+import { buildRemoteHostFs } from '../generation/remoteHostFs';
 import { DEFAULT_DIRLIST, DIRLIST_PATH } from '../network/defaultDirlist';
 import { applyPatches, type Patch } from '../filesystem/applyPatches';
 import type { Directory, FilePermissions } from '../filesystem/types';
 import { buildWorkstationBaseFs } from '../generation/workstationFs';
 import { BINARY_STUB } from '../generation/binaries';
-import { formatPidfileContent } from '../services/pidfile';
+import { formatPidfileContent, readOpenPorts } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
 import { assignHomeNetwork } from '../network/homeNetwork';
@@ -136,6 +137,19 @@ const envOn = (tree: Directory, overrides: Partial<CommandEnv> = {}): CommandEnv
     ...overrides,
   });
 
+/** A generated NPC neighbour that runs a web server, with the port it listens on —
+ *  the box a player actually points this tool at. */
+const webHostOnLan = (): { readonly host: LanHost; readonly port: number } => {
+  for (const host of generateHomeLan(ESSID).hosts) {
+    if (host.kind !== 'machine') continue;
+    const web = readOpenPorts(buildRemoteHostFs(ESSID, host)).find(
+      (entry) => entry.service === SERVICE_CATALOG.http.service,
+    );
+    if (web !== undefined) return { host, port: web.port };
+  }
+  throw new Error('expected a generated web host on the LAN');
+};
+
 /** An address on the player's own subnet that no host occupies. */
 const unoccupiedIp = (): string => {
   const lan = generateHomeLan(ESSID);
@@ -150,6 +164,24 @@ const unoccupiedIp = (): string => {
 /** `gobuster` run by an online player standing on the given own-box tree. */
 const sweep = async (tree: Directory, ...args: readonly string[]): Promise<Drained> =>
   drain(await gobuster.execute(envOn(tree), args, new Map()));
+
+/** A sweep whose access-log reports are captured — what the TARGET is told, as
+ *  opposed to what the player is shown. */
+const sweepReporting = async (
+  tree: Directory,
+  ...args: readonly string[]
+): Promise<{ readonly drained: Drained; readonly reported: readonly AccessLogFetch[] }> => {
+  const reported: AccessLogFetch[] = [];
+  const env = envOn(tree, {
+    log: {
+      appendAuthLog: async () => undefined,
+      appendAccessLog: async (fetched) => {
+        reported.push(fetched);
+      },
+    },
+  });
+  return { drained: await drain(await gobuster.execute(env, args, new Map())), reported };
+};
 
 describe('gobuster is a command the player can reach', () => {
   it('resolves by name, and what resolves is the sweep', async () => {
@@ -413,6 +445,37 @@ describe('gobuster refuses before it sweeps, and says which refusal it is', () =
   });
 });
 
+describe('gobuster sweeps the neighbours, not only the box it runs on', () => {
+  it('finds a page on a generated host down the street', async () => {
+    const { host, port } = webHostOnLan();
+    const tree = ownBox(installedList('index.html'));
+
+    const { drained, reported } = await sweepReporting(tree, `http://${host.ip}:${port}`);
+
+    // The list is read where the player STANDS and the pages are read on the TARGET:
+    // sweeping a neighbour is the ordinary use of the tool, and the box swept is the
+    // one whose log records it.
+    expect(drained.text).toContain('/index.html');
+    expect(reported[0]?.target).toBe(host.ip);
+  });
+
+  it('does not answer for a neighbour by reading the box it runs on', async () => {
+    const { host, port } = webHostOnLan();
+    const tree = ownBox(
+      WEB_SERVER_RUNNING,
+      installedList('mine-alone.html'),
+      publishedPage('/mine-alone.html', 'local'),
+    );
+
+    const { drained } = await sweepReporting(tree, `http://${host.ip}:${port}`);
+
+    // A page published locally is not a find on somebody else's server. Resolving the
+    // target to the wrong tree would report the sweeper's own document root back at
+    // them, which is the most convincing wrong answer this tool could give.
+    expect(drained.text).not.toContain('mine-alone');
+  });
+});
+
 describe('gobuster runs where the player stands', () => {
   it('sweeps from a machine that is not the player own workstation', async () => {
     const tree = ownBox(
@@ -434,6 +497,92 @@ describe('gobuster runs where the player stands', () => {
     // it lifted; this pins that the same refusal never grows here.
     expect(text).toContain('/hidden/');
     expect(exitCode).toBe(0);
+  });
+});
+
+describe('gobuster is loud on the box it sweeps', () => {
+  it('reports every path it asked about, the misses included, in the order tried', async () => {
+    const tree = ownBox(WEB_SERVER_RUNNING, installedList('index.html', 'admin', 'backup'));
+
+    const { reported } = await sweepReporting(tree, `http://${OWN_IP}`);
+
+    // ONE report for the whole sweep, carrying every probe. The attacker's screen
+    // shows only what answered; the box is told what it was asked about, because a
+    // run of 404s with a 200 buried in it is the only thing that tells a defender a
+    // sweep from a typo. The client names no status and no size — the server reads
+    // its own tree for those.
+    expect(reported).toEqual([
+      {
+        essid: ESSID,
+        target: OWN_IP,
+        port: HTTP_DEFAULT_PORT,
+        paths: ['/index.html', '/admin', '/backup'],
+        sourceIp: OWN_IP,
+      },
+    ]);
+  });
+
+  it('reports the trailing-slash retry a directory made it ask for', async () => {
+    const tree = ownBox(
+      WEB_SERVER_RUNNING,
+      installedList('hidden'),
+      publishedPage('/hidden/index.html', 'staging notes'),
+    );
+
+    const { reported } = await sweepReporting(tree, `http://${OWN_IP}`);
+
+    // One word, two requests: the bare path and the redirect form a real server
+    // sends a sweeper to. Reporting only the word would leave the defender's log
+    // denying the hit the attacker was just shown.
+    expect(reported[0]?.paths).toEqual(['/hidden', '/hidden/']);
+  });
+
+  it('reports a traversal it refused to tell the player about', async () => {
+    const tree = ownBox(WEB_SERVER_RUNNING, installedList('../../../etc/passwd'));
+
+    const { drained, reported } = await sweepReporting(tree, `http://${OWN_IP}`);
+
+    // Silent on the sweeper's screen, loud in the target's log — which is the whole
+    // asymmetry of the tool. Somebody walking out of the document root is exactly
+    // what the box's owner needs to see.
+    expect(drained.text).not.toContain('passwd');
+    expect(reported[0]?.paths).toEqual(['/../../../etc/passwd']);
+  });
+
+  it('reports nothing when nothing was ever asked of the box', async () => {
+    // Each of these ends before a single probe: no web server listening, no list
+    // installed, and a list the player emptied. A log line for a request that never
+    // arrived would frame a sweep that never happened.
+    const nothingAsked = [
+      ownBox(installedList('index.html')),
+      ownBox(WEB_SERVER_RUNNING),
+      ownBox(WEB_SERVER_RUNNING, installedList()),
+    ];
+
+    for (const tree of nothingAsked) {
+      const { reported } = await sweepReporting(tree, `http://${OWN_IP}`);
+
+      expect(reported).toEqual([]);
+    }
+  });
+
+  it('reports a loopback sweep as having arrived over loopback', async () => {
+    const tree = ownBox(WEB_SERVER_RUNNING, installedList('index.html'));
+
+    const { reported } = await sweepReporting(tree, 'http://localhost');
+
+    // The box is both ends of it and its own log says so, exactly as it does when a
+    // player `curl`s their own server. The TARGET is the resolved address, though —
+    // `localhost` names no machine to the server that has to find it.
+    expect(reported).toEqual([
+      {
+        essid: ESSID,
+        target: OWN_IP,
+        port: HTTP_DEFAULT_PORT,
+        paths: ['/index.html'],
+        sourceIp: '127.0.0.1',
+      },
+    ]);
   });
 });
 

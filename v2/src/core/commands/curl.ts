@@ -204,7 +204,10 @@ const execute: Command['execute'] = async (env, args, flags) => {
         // the address it leased, and `localhost` names no machine to anyone but us.
         target: targetAddress,
         port: url.port,
-        path: url.path,
+        // One fetch is one path. The seam takes a run of them because a path sweep
+        // asks many at once; a fetch that named several would be claiming requests it
+        // never made.
+        paths: [url.path],
         // A request that arrived over loopback says so, as a real server's log does —
         // the box is both ends of it.
         sourceIp: isLoopback ? LOOPBACK_IPV4 : wlan0.ipv4,

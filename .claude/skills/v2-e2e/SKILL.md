@@ -228,6 +228,30 @@ against the live `ifconfig`. Delete the temp file when done.
   `^O` writes **without** exiting (correct nano behaviour), and its "wrote N lines" status is
   transient — so absence of a status line is not evidence the save failed. Confirm against the
   journal instead: `docker exec supabase_db_jshack-me-v2 psql -U postgres -tAc "select content from patches where path = '…'"`.
+- **A real `click` beats the native-dispatch workaround, and beats `eval`-based focus.** Once any
+  `agent-browser eval` has touched focus, `press Control+o` / `Control+x` stop reaching the editor
+  even though `document.activeElement` still reports the textarea — and a synthetic
+  `KeyboardEvent` dispatched on it does nothing either. `agent-browser click "textarea"`
+  immediately before each chord fixes it every time. Click, then `^O`; click again, then `^X`.
+- **Poll for the editor's absence TWICE.** A single `document.querySelector('textarea') === null`
+  can catch a transient re-render and report a close that did not happen — after which the next
+  `keyboard type` goes into the buffer and is saved with it. Re-check after a pause, and read the
+  buffer back before saving. Recovering a corrupted buffer without retyping it:
+  ```js
+  (() => { const ta = document.querySelector('textarea');
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(ta, CLEAN);
+    ta.dispatchEvent(new Event('input', { bubbles: true })); })()
+  ```
+- **Every second command in a batched run is silently dropped.** After Enter the terminal input is
+  re-created and re-grabs focus asynchronously, so an immediately following `keyboard type` types
+  into nothing: no error, and the transcript shows a bare prompt where your command should be.
+  Focus, type, **verify `input.value`, then** press Enter — one command per step:
+  ```bash
+  agent-browser eval "(() => { const i = document.querySelector('input'); i.focus(); i.value=''; })()"
+  agent-browser keyboard type "$cmd"
+  agent-browser eval "(() => document.querySelector('input').value)()"   # must equal $cmd
+  agent-browser press Enter
+  ```
 - **The terminal `<input>` can silently lose focus** when a second headed session is open, and
   then `keyboard type` goes nowhere: no error, no characters, and the `until` loop you wrapped it
   in spins until it times out. Focus explicitly before typing in a two-player run —

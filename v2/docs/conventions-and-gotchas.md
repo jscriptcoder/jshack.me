@@ -857,6 +857,14 @@ and `npm run vercel:dev`, which resolves `vercel` from `@vercel/node`). `supabas
 --project-id jshack-me-v2` before remapping, or the old containers linger on the old ports.
 Restore by copying the backups back and confirm with `git status` — `config.toml` is TRACKED, so a
 forgotten temp port is a committed one.
+
+**Check the ranges before assuming you need the remap — they are re-drawn on every boot.** On
+2026-08-13 the reservations had moved to `59635-60720` and the whole 544xx block was clear, so the
+remap was unnecessary. Two minutes of `netsh interface ipv4 show excludedportrange protocol=tcp`
+beats editing two tracked-adjacent files on faith. The reverse also bites: containers left running
+from a remapped session **auto-restart on the old ports** while `config.toml` says otherwise, and
+the mismatch reads as a dead stack. `docker ps --format '{{.Names}}\t{{.Ports}}'` shows it at once;
+`supabase stop --project-id jshack-me-v2` then `start` rebinds them to whatever the file now says.
 - Run: `npx dotenv -e .env.development.local -- npx tsx scripts/<name>.ts` (from `v2/`).
   Exits 0 on all-pass.
 - The script seeds the DB via the service-role client, drives the endpoints, asserts, and

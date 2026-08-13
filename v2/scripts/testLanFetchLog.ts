@@ -1,9 +1,9 @@
-// Wire-payload smoke for the own-LAN access log — an own-LAN `curl` leaves a truthful
-// /var/log/access.log line on the box that SERVED it, whether that box is a generated
-// sibling or the player's own workstation. Drives the REAL /api/patches endpoint
-// (recordLanFetch) against a running `vercel dev` + supabase, seeding the player's
-// occupancy row, LAN lease, and their workstation's nginx pidfile via service_role (as
-// their join + `nginx` would).
+// Wire-payload smoke for the own-LAN access log — an own-LAN `curl`, and a `gobuster`
+// sweep, leave truthful /var/log/access.log lines on the box that SERVED them, whether
+// that box is a generated sibling or the player's own workstation. Drives the REAL
+// /api/patches endpoint (recordLanFetch) against a running `vercel dev` + supabase,
+// seeding the player's occupancy row, LAN lease, and their workstation's nginx pidfile
+// via service_role (as their join + `nginx` would).
 //
 // Net-new under test (the locally-untypechecked api/ runtime):
 //   - `curl http://<a generated LAN host>` → ONE Apache-combined line on THAT host's
@@ -16,6 +16,9 @@
 //   - A target that is not serving leaves no line at all.
 //   - A client-supplied machine_id / status / size is ignored: the server resolves the
 //     machine and reads the page itself.
+//   - A SWEEP of many paths lands as ONE append — a line per probe in the order asked,
+//     every line stamped with the single moment the request arrived — and a sweep that
+//     names no path at all is refused rather than recorded as a visit.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testLanFetchLog.ts
@@ -160,12 +163,20 @@ await sr.from('patches').insert([
 const fetched = (
   target: string,
   port: number,
-  path: string,
+  paths: readonly string[],
   over: Record<string, unknown> = {},
-) => signRequest(player, 'recordLanFetch', { essid: ESSID, target, port, path, source_ip: PLAYER_LAN, ...over });
+) =>
+  signRequest(player, 'recordLanFetch', {
+    essid: ESSID,
+    target,
+    port,
+    paths,
+    source_ip: PLAYER_LAN,
+    ...over,
+  });
 
 // === 1. A fetch of a generated LAN host lands on THAT host, keyed by the fetcher. ===
-const r1 = await post(PATCHES, await fetched(serving.ip, SERVING_PORT, '/'));
+const r1 = await post(PATCHES, await fetched(serving.ip, SERVING_PORT, ['/']));
 const host1 = await readAccessLog(SERVING_ID, player.publicKeyHex);
 check('a fetch of a serving LAN host is accepted', r1.status === 200, `status=${r1.status}`);
 check(
@@ -175,7 +186,7 @@ check(
 );
 
 // === 2. A self-fetch lands on the player's OWN workstation, not on a generated host. ===
-const r2 = await post(PATCHES, await fetched(PLAYER_LAN, 80, '/'));
+const r2 = await post(PATCHES, await fetched(PLAYER_LAN, 80, ['/']));
 const own2 = await readAccessLog(WS, player.publicKeyHex);
 check(
   'a fetch of the player’s OWN leased address records on their WORKSTATION',
@@ -189,8 +200,8 @@ check(
 );
 
 // === 3. A 404 is recorded as readily as a 200, and a traversal VERBATIM. ===
-await post(PATCHES, await fetched(serving.ip, SERVING_PORT, '/wp-admin/setup-config.php'));
-await post(PATCHES, await fetched(serving.ip, SERVING_PORT, '/../../etc/passwd'));
+await post(PATCHES, await fetched(serving.ip, SERVING_PORT, ['/wp-admin/setup-config.php']));
+await post(PATCHES, await fetched(serving.ip, SERVING_PORT, ['/../../etc/passwd']));
 const host3 = await readAccessLog(SERVING_ID, player.publicKeyHex);
 check(
   'a miss is recorded as "404 0", and the traversal is recorded exactly as it was asked for',
@@ -205,8 +216,8 @@ check(
 );
 
 // === 4. A target that answered nothing leaves no line. ===
-const r4a = await post(PATCHES, await fetched(silent.ip, 80, '/'));
-const r4b = await post(PATCHES, await fetched(serving.ip, SERVING_PORT + 1, '/'));
+const r4a = await post(PATCHES, await fetched(silent.ip, 80, ['/']));
+const r4b = await post(PATCHES, await fetched(serving.ip, SERVING_PORT + 1, ['/']));
 check(
   'a non-serving host and a port nothing listens on both leave no line',
   r4a.status === 200 &&
@@ -220,7 +231,7 @@ check(
 const before5 = lineCount(await readAccessLog(SERVING_ID, player.publicKeyHex));
 const r5 = await post(
   PATCHES,
-  await fetched(serving.ip, SERVING_PORT, '/', {
+  await fetched(serving.ip, SERVING_PORT, ['/'], {
     machine_id: FORGED_MACHINE,
     status: 500,
     size: 999999,
@@ -236,6 +247,36 @@ check(
     !lastLine(host5).includes('500') &&
     !lastLine(host5).includes('999999'),
   `line=${lastLine(host5)} forgedRowEmpty=${forged5 === ''}`,
+);
+
+// === 6. A path SWEEP lands as one append: a line per probe, in the order asked. ===
+const before6 = lineCount(await readAccessLog(SERVING_ID, player.publicKeyHex));
+const r6 = await post(PATCHES, await fetched(serving.ip, SERVING_PORT, ['/admin', '/', '/backup']));
+const host6 = await readAccessLog(SERVING_ID, player.publicKeyHex);
+const swept = host6.trim().split('\n').slice(before6);
+check(
+  'a sweep records every probe, hits and misses alike, in the order it asked',
+  r6.status === 200 &&
+    swept.length === 3 &&
+    swept[0]!.includes('"GET /admin HTTP/1.1" 404 0') &&
+    swept[1]!.includes('"GET / HTTP/1.1" 200 ') &&
+    swept[2]!.includes('"GET /backup HTTP/1.1" 404 0'),
+  `status=${r6.status} added=${swept.length} lines=${JSON.stringify(swept)}`,
+);
+check(
+  'the whole sweep shares one arrival time — the server read its clock once',
+  new Set(swept.map((line) => line.slice(line.indexOf('['), line.indexOf(']') + 1))).size === 1,
+  `stamps=${JSON.stringify(swept.map((line) => line.slice(line.indexOf('['), line.indexOf(']') + 1)))}`,
+);
+
+// === 7. A sweep that names no path at all is refused, and writes nothing. ===
+const before7 = lineCount(await readAccessLog(SERVING_ID, player.publicKeyHex));
+const r7 = await post(PATCHES, await fetched(serving.ip, SERVING_PORT, []));
+check(
+  'an empty path list is refused rather than recorded as a visit',
+  r7.status === 400 &&
+    lineCount(await readAccessLog(SERVING_ID, player.publicKeyHex)) === before7,
+  `status=${r7.status} body=${JSON.stringify(r7.body)}`,
 );
 
 const failed = results.filter((result) => !result.pass).length;
