@@ -7,6 +7,7 @@ import {
   cancelPrompt,
   cwd,
   historyDown,
+  followLink,
   historyUp,
   input,
   pendingPrompt,
@@ -211,7 +212,12 @@ export const Terminal = () => {
           </Match>
           <Match when={asLynx(mode())}>
             {(browser) => (
-              <Lynx url={browser().url} content={browser().content} onExit={closeOverlay} />
+              <Lynx
+                url={browser().url}
+                content={browser().content}
+                onExit={closeOverlay}
+                onFollow={followLink}
+              />
             )}
           </Match>
         </Switch>

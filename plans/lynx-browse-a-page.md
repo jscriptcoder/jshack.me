@@ -1,9 +1,10 @@
 # Plan: D1b — a player browses a page instead of reading its source
 
-**Status**: **Slices 1-2 shipped, slice 3 built; slice 4 absorbed into 2.** Slice 5 is next.
-**Branch**: one per slice, cut off `main`. Slice 3: `refactor/target-resolution-once`.
+**Status**: **Slices 1-3 shipped, slice 5 built; slice 4 absorbed into 2.** Slice 6 is next,
+and its open decision still needs an owner call before RED.
+**Branch**: one per slice, cut off `main`. Slice 5: `feat/lynx-follows-a-link`.
 **Epic**: [`legacy-parity-epic.md`](./legacy-parity-epic.md) row **D1b**, Phase 1
-**Base version**: v0.126.0
+**Base version**: v0.126.1
 
 > **Picking this up cold?** Read "The decision this plan starts from" — it explains why slice 1
 > deletes content rather than adding it, and why that choice makes slice 5 harder. Then read the
@@ -57,8 +58,8 @@ per-box volume and variation model that the generated-content epic owns
 - [x] The rendered page shows headings, paragraphs and lists as text, wrapped to the viewport,
       and **omits HTML comments** — the source-only recon that keeps `curl` worth running.
       *(slice 2 — wrapping is CSS, see the note there)*
-- [ ] Links render numbered and selectable; Enter or Right Arrow follows the selected one and
-      renders the page it names.
+- [x] Links render numbered and selectable; Enter or Right Arrow follows the selected one and
+      renders the page it names. *(slice 5, v0.127.0)*
 - [ ] Left Arrow or Backspace returns to the previous page.
 - [ ] The target's `/var/log/access.log` gains one line per page **viewed**, sized and statused
       like any other fetch, naming the browsing player by the address the server derives.
@@ -174,7 +175,7 @@ The screen is jsdom + `@solidjs/testing-library`, per the project's UI testing r
 
 ---
 
-### Slice 3: The target-resolution shape is named once, not three times — ✔ BUILT v0.126.1
+### Slice 3: The target-resolution shape is named once, not three times — ✔ SHIPPED v0.126.1 (#384)
 
 > **Done 2026-08-13.** The extraction is `core/commands/webHost.ts` — `reachWebHost`, returning
 > `{ ok: true, host } | { ok: false, failure }`. It takes the WHOLE step rather than the four
@@ -202,6 +203,10 @@ The screen is jsdom + `@solidjs/testing-library`, per the project's UI testing r
 > mutants stopped existing when three copies became one; the same 74 survivors now sit over a
 > smaller denominator. Score-as-percentage is the wrong instrument for a deduplication —
 > the survivor-set diff is the right one.
+>
+> Both lessons — the survivor-set diff, and how extracting a welded-in string silently unpins it —
+> are now durable in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §4 (#385),
+> so slices 5-7 do not have to rediscover them.
 
 **Value**: `lynx` is the third consumer of ~15 lines that `curl` and `gobuster` each carry a copy
 of. The divergence risk is real: this block decides which tree a request reads, so two copies
@@ -254,7 +259,44 @@ viewports.
 
 ---
 
-### Slice 5: A player follows a link
+### Slice 5: A player follows a link — ✔ BUILT v0.127.0
+
+> **Done 2026-08-13.** Four decisions taken with the owner before RED, all four as
+> recommended:
+>
+> 1. **A line is segments, not a string.** `renderPage({html, url})` returns lines made of
+>    `{kind:'text'}` / `{kind:'link', url, index}` runs, so the screen can highlight the run a
+>    reader is about to follow. The 13 existing renderer tests kept their assertions verbatim
+>    through a `asLines()` helper that flattens segments back to text.
+> 2. **Selection clamps rather than wraps** — a reader holding a key comes to rest at the end
+>    of the page instead of being thrown back to the other end of it.
+> 3. **Only followable hrefs are numbered.** `mailto:`, `https:`, `#anchor`, an empty href and
+>    a bare `<a>` with no href render as text. A number is a promise that Enter goes
+>    somewhere, and slice 1 spent a whole slice removing exactly that broken promise.
+> 4. **A refused follow does not move the reader** — the page stays, the footer says why. That
+>    matches the log: a page and a 404 both mean the box ANSWERED (both leave a line), and a
+>    host that was never reached leaves none.
+>
+> **Where the fetch went.** Following a link needs the request the command already makes, from
+> the opposite side of the app — so it extracted to `core/commands/webPage.ts` (`fetchWebPage`
+> → `page` | `not_found` | `unreachable`), and `state.ts` grew `followLink`, handed to the
+> screen as a prop the way `saveEditor` is handed to `Nano`. `reachWebHost` narrowed from a
+> whole `CommandEnv` to the one field it reads (`root: Directory`), which is what let the UI
+> call it at all. `lynx.ts` lost 22 lines and gained nothing.
+>
+> **Mutation drove one simplification rather than a contrived test.** The selection highlight
+> and `aria-current` were two independent copies of `segment.index === selected()`, so a mutant
+> could flip one and leave the other — a page whose highlight and reported position disagree.
+> Asking once and spending it twice made that unrepresentable. Scores: `webPage.ts` **100%
+> (25/25)**; `renderPage.ts` 90.73 → **95.56%** (19 survivors → 8); `Lynx.tsx` 81.55 →
+> **93.07%** (19 → 7); `http.ts` 96.19 → **97.14%** (4 → 3, and all three left are pre-existing
+> `parseHttpUrl` regex-anchor mutants, untouched by this slice). The survivors that remain are
+> defensive `??` fallbacks on paths that cannot be undefined, and `defer`/optional-chaining
+> shapes whose mutants land on state the component already holds.
+>
+> **One test caught the world, not the code**: a follow aimed at `unoccupiedIp()` came back OK
+> because that IS the address this game leases the player — so the link had hit their own box.
+> The fixture now asks for a second free address.
 
 **Value**: The thing that makes it a browser rather than a viewer.
 **Path**: rendered link registry → selection state → Enter → resolve href against the current URL

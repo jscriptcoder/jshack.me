@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseHttpUrl, resolveWebPath, HTTP_DEFAULT_PORT, WEB_ROOT } from './http';
+import { parseHttpUrl, resolveHref, resolveWebPath, HTTP_DEFAULT_PORT, WEB_ROOT } from './http';
 import { normalize } from '../filesystem/path';
 
 /**
@@ -93,5 +93,74 @@ describe('resolveWebPath', () => {
       if (resolved === null) continue;
       expect(normalize(resolved).startsWith(WEB_ROOT)).toBe(true);
     }
+  });
+});
+
+describe('resolveHref', () => {
+  it('sends a rooted href to the same host the page came from', () => {
+    expect(resolveHref({ base: 'http://192.168.1.5/docs/intro.html', href: '/notes.html' })).toBe(
+      'http://192.168.1.5/notes.html',
+    );
+  });
+
+  it('resolves a bare href against the directory the page sits in, not the host root', () => {
+    expect(resolveHref({ base: 'http://192.168.1.5/docs/intro.html', href: 'next.html' })).toBe(
+      'http://192.168.1.5/docs/next.html',
+    );
+  });
+
+  it('follows an absolute URL to a different host', () => {
+    expect(resolveHref({ base: 'http://192.168.1.5/', href: 'http://192.168.1.9/index.html' })).toBe(
+      'http://192.168.1.9/index.html',
+    );
+  });
+
+  // A link is a promise the browser numbers. Anything it cannot actually fetch is
+  // not one, so it never gets a number — the same rule that took the dead paths out
+  // of the generated pages.
+  it.each([
+    ['an address, not a page', 'mailto:root@box'],
+    ['a scheme nothing here serves', 'https://192.168.1.5/'],
+    ['script, which this browser does not run', 'javascript:void(0)'],
+    ['a place on this page rather than another page', '#section'],
+    ['nothing at all', ''],
+    ['nothing at all once trimmed', '   '],
+  ])('refuses %s', (_reason, href) => {
+    expect(resolveHref({ base: 'http://192.168.1.5/', href })).toBeNull();
+  });
+
+  it('keeps a port that is not the default, and leaves the default one unwritten', () => {
+    expect(resolveHref({ base: 'http://192.168.1.5:8080/a/b.html', href: 'c.html' })).toBe(
+      'http://192.168.1.5:8080/a/c.html',
+    );
+    expect(resolveHref({ base: 'http://192.168.1.5:80/a/b.html', href: 'c.html' })).toBe(
+      'http://192.168.1.5/a/c.html',
+    );
+  });
+
+  it('resolves a href that climbs before the fetch ever sees it', () => {
+    expect(
+      resolveHref({ base: 'http://192.168.1.5/docs/guide/intro.html', href: '../notes.html' }),
+    ).toBe('http://192.168.1.5/docs/notes.html');
+  });
+
+  // The trailing slash is what tells the fetch to serve a directory's index, so
+  // resolution must not tidy it away.
+  it('keeps a trailing slash so a directory still names its index', () => {
+    expect(resolveHref({ base: 'http://192.168.1.5/docs/intro.html', href: '/assets/' })).toBe(
+      'http://192.168.1.5/assets/',
+    );
+  });
+
+  it('refuses to resolve against a base that is not a page address', () => {
+    expect(resolveHref({ base: 'not-a-url', href: '/notes.html' })).toBeNull();
+  });
+
+  // A scheme is what a href STARTS with. A colon further along is part of a
+  // filename, and a page linking one must not have the link quietly dropped.
+  it('reads a colon inside a path as part of the name, not as a scheme', () => {
+    expect(resolveHref({ base: 'http://192.168.1.5/index.html', href: 'logs/aug:13.html' })).toBe(
+      'http://192.168.1.5/logs/aug:13.html',
+    );
   });
 });

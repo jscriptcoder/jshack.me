@@ -20,11 +20,10 @@
  */
 
 import type { Command, CommandResult } from './types';
-import { createFsView } from '../filesystem/fsView';
-import { parseHttpUrl, resolveWebPath } from '../network/http';
+import { parseHttpUrl } from '../network/http';
 import { isPublicIp } from '../generation/ip';
 import { connectedWlan0 } from '../network/interfaces';
-import { reachWebHost } from './webHost';
+import { fetchWebPage } from './webPage';
 
 const error = (message: string): CommandResult => ({
   kind: 'sync',
@@ -66,42 +65,21 @@ const execute: Command['execute'] = async (env, args) => {
     return error(CROSS_NETWORK);
   }
 
-  const reached = reachWebHost({ env, program: 'lynx', url, wlan0 });
-  if (!reached.ok) {
-    return reached.failure;
+  const page = fetchWebPage({
+    root: env.fs.root(),
+    program: 'lynx',
+    url,
+    wlan0,
+    appendAccessLog: (fetched) => env.log.appendAccessLog(fetched),
+  });
+  if (page.kind === 'unreachable') {
+    return page.failure;
   }
-  const { fs: hostFs, essid, address, sourceIp } = reached.host;
-
-  // Something answered, so the box that answered records the hit — one line for one
-  // page read, exactly as one fetch is one line. Fire-and-forget: a page renders
-  // alongside the round-trip, and a failed write cannot break a read that worked.
-  try {
-    void env.log
-      .appendAccessLog({
-        essid,
-        target: address,
-        port: url.port,
-        paths: [url.path],
-        sourceIp,
-      })
-      .catch(() => undefined);
-  } catch {
-    // best-effort: logging must not surface to the read.
-  }
-
-  const filePath = resolveWebPath(url.path);
-  if (filePath === null) {
+  if (page.kind === 'not_found') {
     return error(NOT_FOUND);
   }
 
-  // Read as the SERVER: a web server serves its document root under its own
-  // account, and the reader has no account on that box at all.
-  const served = createFsView(hostFs, { userType: 'root' }).read(filePath);
-  if (!served.ok) {
-    return error(NOT_FOUND);
-  }
-
-  return { kind: 'mode_change', mode: { kind: 'lynx', url: raw, content: served.content } };
+  return { kind: 'mode_change', mode: { kind: 'lynx', url: raw, content: page.content } };
 };
 
 export const lynx: Command = {
