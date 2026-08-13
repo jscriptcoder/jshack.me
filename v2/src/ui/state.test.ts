@@ -8,6 +8,7 @@ import { buildRemoteHostFs } from '../core/generation/remoteHostFs';
 import { formatPidfileContent, readOpenPorts } from '../core/services/pidfile';
 import { SERVICE_CATALOG } from '../core/services/serviceCatalog';
 import { HTTP_DEFAULT_PORT } from '../core/network/http';
+import type { PublicFetchResult } from '../core/commands/types';
 
 /**
  * Regression guard for the module-top-level init bug (see intro-screen plan).
@@ -517,7 +518,12 @@ describe('full-screen apps a command opens', () => {
    *  route, so the test costs a rehydrate rather than a full crack journey.
    *  Coming back online needs BOTH halves the game persists: the ESSID, and the
    *  address that network leased. */
-  const startBrowsingGame = async (...published: readonly object[]) => {
+  const startBrowsingGame = async (options?: {
+    readonly published?: readonly object[];
+    /** What another player's public IP answers when this one asks it for a page.
+     *  Absent means nothing out there answers at all. */
+    readonly across?: () => PublicFetchResult;
+  }) => {
     vi.resetModules();
     const store = new Map<string, string>([[CONNECTED_ESSID_KEY, ESSID]]);
     const storage = {
@@ -529,11 +535,25 @@ describe('full-screen apps a command opens', () => {
     vi.stubGlobal('localStorage', storage);
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => ({
-        ok: true,
-        status: 200,
-        json: async () => ({ patches: [INSTALLED_LYNX, ...published], sessions: [] }),
-      })),
+      vi.fn(async (_endpoint: unknown, init?: { readonly body?: string }) => {
+        // The action rides inside the signed envelope's payload, which is itself a
+        // JSON string — so its quotes are escaped and only the bare name survives a
+        // substring match. No other action shares it.
+        if ((init?.body ?? '').includes('resolveHttpFetch')) {
+          const answered = options?.across?.() ?? { ok: false as const, error: 'host_unreachable' as const };
+          return answered.ok
+            ? { ok: true, status: 200, json: async () => ({ ok: true, content: answered.content }) }
+            : { ok: false, status: 502, json: async () => ({ error: answered.error }) };
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            patches: [INSTALLED_LYNX, ...(options?.published ?? [])],
+            sessions: [],
+          }),
+        };
+      }),
     );
     const state = await import('./state');
     state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
@@ -588,7 +608,7 @@ describe('full-screen apps a command opens', () => {
   ];
 
   const openBrowserOnOwnSite = async () => {
-    const state = await startBrowsingGame(...OWN_SITE);
+    const state = await startBrowsingGame({ published: OWN_SITE });
     state.setInput('lynx http://localhost/');
     await state.runInput();
     expect(state.overlayMode()).toMatchObject({ kind: 'lynx', url: 'http://localhost/' });
@@ -635,10 +655,18 @@ describe('full-screen apps a command opens', () => {
 
   it('stays on the page when the link led somewhere nothing answered', async () => {
     const state = await openBrowserOnOwnSite();
+    const dark = unleasedIp();
 
-    const outcome = await state.followLink(`http://${unleasedIp()}/index.html`);
+    const outcome = await state.followLink(`http://${dark}/index.html`);
 
-    expect(outcome).toMatchObject({ ok: false });
+    // Nothing holds that address at all, so there is no host to resolve — a closed
+    // port would be a different sentence. Named in full, program included: the tool a
+    // failure came from is its own literal, and a message asserted from the middle
+    // would not notice losing it.
+    expect(outcome).toMatchObject({
+      ok: false,
+      alert: expect.stringContaining(`lynx: (6) Could not resolve host: ${dark}`),
+    });
     expect(state.overlayMode()).toMatchObject({ url: 'http://localhost/' });
   });
 
@@ -654,11 +682,73 @@ describe('full-screen apps a command opens', () => {
   // Only the browser navigates the browser: nothing else on screen has a page to
   // move on from, and a stray follow must not conjure one.
   it('opens nothing when no browser is on screen to follow a link', async () => {
-    const state = await startBrowsingGame(...OWN_SITE);
+    const state = await startBrowsingGame({ published: OWN_SITE });
 
     const outcome = await state.followLink('http://localhost/notes.html');
 
     expect(outcome).toMatchObject({ ok: false });
     expect(state.overlayMode()).toBeNull();
+  });
+
+  const THEIR_PUBLIC_IP = '203.0.113.7';
+  /** Another player's page — and nothing on this player's own box is named like it,
+   *  so reading these words proves the request left the LAN. */
+  const THEIR_PAGE =
+    '<h1>nebuchadnezzar</h1><p>Also <a href="/deeper.html">deeper in</a>.</p>';
+
+  it('opens the browser on a page from behind another player public IP', async () => {
+    const state = await startBrowsingGame({
+      across: () => ({ ok: true, content: THEIR_PAGE }),
+    });
+
+    state.setInput(`lynx http://${THEIR_PUBLIC_IP}/`);
+    await state.runInput();
+
+    // The address the browser holds is the PUBLIC one, which is what makes every
+    // later move from this page — a link, or a step back to it — go out again.
+    expect(state.overlayMode()).toMatchObject({
+      kind: 'lynx',
+      url: `http://${THEIR_PUBLIC_IP}/`,
+    });
+  });
+
+  it('follows a link on another player page across the network, not into the local tree', async () => {
+    const across = vi.fn((): PublicFetchResult => ({ ok: true, content: THEIR_PAGE }));
+    const state = await startBrowsingGame({ published: OWN_SITE, across });
+    state.setInput(`lynx http://${THEIR_PUBLIC_IP}/`);
+    await state.runInput();
+
+    // A relative href on a page that is not local resolves against THAT host — the
+    // player's own box publishes no such path, so a fallback would render a 404.
+    const outcome = await state.followLink(`http://${THEIR_PUBLIC_IP}/deeper.html`);
+
+    expect(outcome).toEqual({ ok: true });
+    expect(across).toHaveBeenCalledTimes(2);
+    expect(state.overlayMode()).toMatchObject({
+      url: `http://${THEIR_PUBLIC_IP}/deeper.html`,
+      content: THEIR_PAGE,
+    });
+  });
+
+  it('leaves the reader where they are when the target refused the followed link', async () => {
+    let answered = 0;
+    const state = await startBrowsingGame({
+      across: (): PublicFetchResult => {
+        answered += 1;
+        return answered === 1
+          ? { ok: true, content: THEIR_PAGE }
+          : { ok: false, error: 'host_unreachable' };
+      },
+    });
+    state.setInput(`lynx http://${THEIR_PUBLIC_IP}/`);
+    await state.runInput();
+
+    const outcome = await state.followLink(`http://${THEIR_PUBLIC_IP}/deeper.html`);
+
+    expect(outcome).toMatchObject({
+      ok: false,
+      alert: expect.stringContaining(`lynx: (7) Failed to connect to ${THEIR_PUBLIC_IP} port 80`),
+    });
+    expect(state.overlayMode()).toMatchObject({ url: `http://${THEIR_PUBLIC_IP}/` });
   });
 });

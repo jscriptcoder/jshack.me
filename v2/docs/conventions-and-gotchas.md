@@ -576,6 +576,14 @@ assertion on it — to parts joined by `'  '`, at which point `'↑↓ Select'` 
 composed, assert the whole line, not a word of it**: `getByText('↑↓ Select ⏎ Follow q Quit')`
 kills both (single-spaced, because testing-library normalizes whitespace before comparing).
 
+**A command's mutation score is mostly its manual.** Every string in `description`, `manual`,
+`arguments` and `examples` is its own StringLiteral mutant and none of them is killable by a
+behaviour test — so ADDING documentation prose lowers the score without any test getting weaker.
+`lynx.ts` fell 70.67% → 63.01% for exactly that reason, and all 27 survivors sat at or below the
+`export const lynx: Command = {` line while its executable half had none. **Before reading a
+command's score as a regression, split the survivors at the metadata block**; `curl.ts` reads the
+same way (24 of 25 in the manual, the 25th a pre-existing `.pid$` anchor).
+
 The same move has a subtler second form: a helper's mutants can MIGRATE. `gobuster`'s and `lynx`'s
 own `error` had its `kind: 'error'` killed by their connection-refused tests; once that message
 came from the shared module, those tests killed the SHARED copy instead and each command's local

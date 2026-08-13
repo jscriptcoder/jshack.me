@@ -1,8 +1,8 @@
 # Plan: D1b — a player browses a page instead of reading its source
 
-**Status**: **Slices 1-3 and 5 shipped, slice 6 built; slice 4 absorbed into 2.** Slice 7 —
-browsing another player's page by public IP — is the last one, and then the live E2E close-out.
-**Branch**: one per slice, cut off `main`. Slice 6: `feat/lynx-goes-back`.
+**Status**: **All slices built** — 1-3, 5 and 6 shipped, 7 built, 4 absorbed into 2. Every
+acceptance criterion is ticked. What remains is the live E2E close-out, and then this file goes.
+**Branch**: one per slice, cut off `main`. Slice 7: `feat/lynx-across-networks`.
 **Epic**: [`legacy-parity-epic.md`](./legacy-parity-epic.md) row **D1b**, Phase 1
 **Base version**: v0.127.0
 
@@ -61,9 +61,10 @@ per-box volume and variation model that the generated-content epic owns
 - [x] Links render numbered and selectable; Enter or Right Arrow follows the selected one and
       renders the page it names. *(slice 5, v0.127.0)*
 - [x] Left Arrow or Backspace returns to the previous page. *(slice 6, v0.128.0)*
-- [ ] The target's `/var/log/access.log` gains one line per page **viewed**, sized and statused
+- [x] The target's `/var/log/access.log` gains one line per page **viewed**, sized and statused
       like any other fetch, naming the browsing player by the address the server derives.
-- [ ] A player browses another player's page across networks by public IP.
+      *(slices 2 and 5 on the LAN; slice 7 across the network, where the server derives it)*
+- [x] A player browses another player's page across networks by public IP. *(slice 7, v0.129.0)*
 - [x] `targetFs` and its neighbours are named once rather than three times. *(slice 3, v0.126.1)*
 
 ## Slices
@@ -413,25 +414,93 @@ repeats, and the human approves the commit.
 
 ---
 
-### Slice 7: A player browses another player's page
+### Slice 7: A player browses another player's page — ✔ BUILT v0.129.0
+
+> **Done 2026-08-13.** `fetchPageAcrossNetwork` lives in `webPage.ts` beside `fetchWebPage`,
+> returning the same three outcomes, and `curl`, `lynx` and `followLink` each map that one union
+> into their own shape. `curl` lost its private copy; **its entire test suite passed untouched**,
+> which is the preservation evidence that its behaviour was moved and not redesigned.
+>
+> **`webPage.ts` is 100% (48/48)** — up from 25 mutants at slice 5, every one killed, with no test
+> of its own. The same result `webHost.ts` got in slice 3, for the same reason: a step that three
+> callers exercise is pinned by their behaviour tests.
+>
+> **Mutation found the slice-3 survivor class twice more, and a third form of the score trap.**
+> The `program` literal survived in BOTH of `followLink`'s branches — my new cross-network test
+> and slice 5's local one each asserted `{ok: false}` and never the sentence — so both now name
+> the message in full. That range went 75.47% → **81.13%**.
+>
+> The third form is worth more than the fix: **a command's mutation score is mostly its manual.**
+> `lynx.ts` fell 70.67% → 63.01% and every single one of its 27 survivors sits in the metadata
+> block below `export const lynx` — its executable half has none. The score dropped because this
+> slice ADDED manual prose (the public-IP door, the navigation keys, a third example), each string
+> an unkillable-by-design literal. `curl.ts` reads the same way: 24 of its 25 survivors are manual,
+> the 25th a pre-existing `.pid$` anchor. Recorded in
+> [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §4 beside the other two
+> forms, because a reader comparing scores across slices would call this a regression.
+>
+> **A test corrected me about the world again.** I asserted a followed link to an unleased LAN
+> address would read `(7) Failed to connect`; it reads `(6) Could not resolve host`, because
+> nothing holds that address at all — there is no host whose port could refuse. The assertion now
+> says what the game says.
+>
+> **Named, not fixed:** `followLink` still has no test for the offline branch (4 no-coverage
+> mutants) and none for a non-lynx overlay being open. Both are slice 5's, both predate this
+> slice, and neither is named by a criterion here — so they stay listed rather than quietly
+> absorbed.
+
+> **Owner decision 2026-08-13: all three callers share one cross-network fetch.** `curl` held
+> `fetchAcrossNetwork` privately — the round-trip plus the mapping from `host_unreachable` /
+> `not_found` / `network_error` to what a player reads. `lynx` needs that identical mapping under
+> a different program name, and `followLink` needs it a third time. Leaving `curl`'s copy in place
+> would recreate exactly the divergence slice 3 was written to remove, so it moves into
+> `webPage.ts` beside `fetchWebPage`, returning the same three-outcome `PageResult`, and all three
+> call sites map that one union into their own shape. The alternative — extract for the two new
+> callers and leave `curl` alone until a follow-up — was rejected for letting a second copy of the
+> failure mapping exist in the meantime.
+>
+> **No `api/` change, so no wire-check.** `state.ts` already holds `fetchPublicPageFn`, the very
+> function it wires into `env.remote.fetchPublic`, so the browser screen can reach across the
+> network without a new endpoint. That is the alternate evidence this slice records in place of a
+> live `scripts/test*.ts` run.
 
 **Value**: Closes the loop D1 opened — the browser reaches across networks, not just the LAN.
-**Path**: `lynx http://<public IP>` → `fetchAcrossNetwork` (`curl.ts:130`) → server-side
-resolution → render.
+**Path**: `lynx http://<public IP>` → the shared cross-network fetch → server-side resolution →
+render; and the same path again for every link followed from that page.
 **Class**: Behavior change.
-**Required implementation skills**: `tdd`, `testing`, `mutation-testing`.
+**Required implementation skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
+**Reduction program**: `N/A`.
 **Acceptance criteria**:
 - A player browses another player's page by public IP with no session and no credential, as
-  `curl` already may.
+  `curl` already may. The "cross-network browsing is not supported yet" refusal is gone.
 - The target's log names the browser by the address **the server derives**, never one the client
-  sends.
+  sends — the request carries only `{target, port, path}`, so there is no field an address could
+  travel in.
 - An unforwarded and an unknown public IP are indistinguishable — the same collapsed
-  `host_unreachable` the D1 cross-player half already proves.
+  `host_unreachable` the D1 cross-player half already proves. `network_error` stays a different
+  sentence from a refusal: the target never answered because we never asked.
 - Following a link on a cross-player page fetches across the network too, rather than falling
   back to the local tree.
+- Going back to a cross-player page fetches across the network too — slice 6 composed with this.
+- A cross-network failure reads where the reader is: the terminal when the command failed and the
+  browser never opened, the footer when a followed link failed. The split slice 5 settled.
+- `curl`'s every existing test passes untouched. Its cross-network behaviour is preserved, not
+  redesigned — a test that needed editing means behaviour moved and the extraction is wrong.
+- `lynx`'s manual names the public-IP door and shows it, as `curl`'s does.
 
-**Wire-check**: only if `api/` changes. If `fetchAcrossNetwork` is reused unchanged, none is
-needed and the reason is recorded as the alternate evidence.
+**RED**: At the command, mirroring `curl`'s cross-network fixture — a stubbed `fetchPublic` that
+captures what was asked, so the request shape is pinned as a contract rather than assumed. Then at
+`state.ts` for a followed link and a back, where the branch that must NOT fall through to the local
+tree lives.
+**GREEN**: Move the round-trip and its mapping into `webPage.ts`; branch on `isPublicIp` in the
+three callers.
+**MUTATE**: on the new branch and the error mapping. Assert full program prefixes
+(`lynx: (7) Failed to connect to …`), never the shared remainder — the extraction turns `program`
+into an independently mutable literal, which is the survivor class slice 3 documented.
+**REFACTOR**: This slice is partly one. `curl`'s preserved test suite is the evidence.
+
+**Wire-check**: `N/A` — no `api/` change. `fetchPublicPage` and its endpoint are reused unchanged;
+the seam `state.ts` already wires is the one the browser now calls.
 
 ---
 

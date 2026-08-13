@@ -1,11 +1,13 @@
 /**
  * lynx — read a page instead of reading its source.
  *
- * The fetch is `curl`'s: parse the URL, reach the host on the player's own LAN
- * through the step both share (`reachWebHost`), record the hit on the box that
- * answered, then read the file beneath its document root. A browsed page and a
- * curled one are the same request — literally the same resolution — so a defender
- * reading their `access.log` cannot tell which tool asked.
+ * The fetch is `curl`'s, both halves of it: an address on the player's own LAN is
+ * reached through the step every web tool shares (`reachWebHost`), the hit recorded
+ * on the box that answered, then the file read beneath its document root; a PUBLIC
+ * address is another player's and goes out through the server, which resolves it and
+ * writes their log itself. A browsed page and a curled one are the same request —
+ * literally the same resolution — so a defender reading their `access.log` cannot
+ * tell which tool asked.
  *
  * What differs is where the answer goes. A page that came back opens the browser
  * screen; every way of NOT coming back is a message in the TERMINAL, because a
@@ -23,7 +25,7 @@ import type { Command, CommandResult } from './types';
 import { parseHttpUrl } from '../network/http';
 import { isPublicIp } from '../generation/ip';
 import { connectedWlan0 } from '../network/interfaces';
-import { fetchWebPage } from './webPage';
+import { fetchPageAcrossNetwork, fetchWebPage } from './webPage';
 
 const error = (message: string): CommandResult => ({
   kind: 'sync',
@@ -38,12 +40,6 @@ const USAGE = 'lynx: usage: lynx <url> (e.g. lynx http://192.168.1.5)';
 const UNREACHABLE = 'lynx: (7) Failed to connect — network is unreachable';
 
 const NOT_FOUND = 'lynx: (22) The requested URL returned error: 404';
-
-/** Reading another player's page across the network is its own slice — the target's
- *  page lives server-side and cannot be rebuilt from this client's world. Said
- *  plainly rather than resolved as an unknown host, which would be a lie about why. */
-const CROSS_NETWORK =
-  'lynx: only pages on your own network can be read — cross-network browsing is not supported yet';
 
 const execute: Command['execute'] = async (env, args) => {
   const raw = args[0];
@@ -61,17 +57,22 @@ const execute: Command['execute'] = async (env, args) => {
     return error(UNREACHABLE);
   }
 
-  if (isPublicIp(url.host)) {
-    return error(CROSS_NETWORK);
-  }
-
-  const page = fetchWebPage({
-    root: env.fs.root(),
-    program: 'lynx',
-    url,
-    wlan0,
-    appendAccessLog: (fetched) => env.log.appendAccessLog(fetched),
-  });
+  // A public address is another player's and is not on this LAN by construction, so
+  // it is reached the way the internet is — through the server. Either way what comes
+  // back is the same three outcomes, so only this line knows how far the page was.
+  const page = isPublicIp(url.host)
+    ? await fetchPageAcrossNetwork({
+        program: 'lynx',
+        url,
+        fetchPublic: (params) => env.remote.fetchPublic(params),
+      })
+    : fetchWebPage({
+        root: env.fs.root(),
+        program: 'lynx',
+        url,
+        wlan0,
+        appendAccessLog: (fetched) => env.log.appendAccessLog(fetched),
+      });
   if (page.kind === 'unreachable') {
     return page.failure;
   }
@@ -94,15 +95,21 @@ export const lynx: Command = {
     description:
       'Open a web page in a full-screen text browser. The page is rendered as readable text — ' +
       'headings, paragraphs and lists — rather than as the markup `curl` prints, so comments ' +
-      'and scripts are not shown. Press q or Escape to return to the terminal. Reaches hosts ' +
-      'on your own network, including your own address once you are running a web server. No ' +
-      'login is needed: a web server publishes its document root to whoever asks.',
+      'and scripts are not shown. Links are numbered: use the arrow keys to select one and ' +
+      'Enter to follow it, and Left Arrow or Backspace to go back. Press q or Escape to return ' +
+      'to the terminal. Reaches hosts on your own network, including your own address once you ' +
+      'are running a web server, and any public IP that forwards its web port. No login is ' +
+      'needed: a web server publishes its document root to whoever asks.',
     arguments: [{ name: 'url', description: 'The page to read, e.g. http://192.168.1.5' }],
     examples: [
       { command: 'lynx http://192.168.1.5', description: 'Read a page on a host on your network' },
       {
         command: 'lynx http://localhost',
         description: 'Read the page your own web server is publishing',
+      },
+      {
+        command: 'lynx http://203.0.113.7',
+        description: "Read another player's page across the network — no login needed",
       },
     ],
   },

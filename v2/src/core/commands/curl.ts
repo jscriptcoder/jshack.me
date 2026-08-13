@@ -22,13 +22,14 @@
  * same string, so a page looks the same however far away it was.
  */
 
-import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
+import type { Command, CommandResult, TerminalLine } from './types';
 import { createFsView } from '../filesystem/fsView';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { parseHttpUrl, resolveWebPath, type ParsedUrl } from '../network/http';
+import { parseHttpUrl, resolveWebPath } from '../network/http';
 import { isPublicIp } from '../generation/ip';
 import { connectedWlan0 } from '../network/interfaces';
-import { connectError, reachWebHost } from './webHost';
+import { reachWebHost } from './webHost';
+import { fetchPageAcrossNetwork } from './webPage';
 
 const error = (message: string): CommandResult => ({
   kind: 'sync',
@@ -74,34 +75,6 @@ const respond = (content: string, includeHeaders: boolean): CommandResult => ({
   exitCode: async () => 0,
 });
 
-/**
- * Fetch from ANOTHER player's public IP — a server round-trip, because the target's
- * journal lives server-side and its page cannot be rebuilt from this client's world.
- *
- * The url path goes over as written. Resolving it to a file is the server's job: this
- * client has no business naming a path on someone else's box, and the document-root
- * confinement has to hold against clients that were never this one.
- */
-const fetchAcrossNetwork = async (
-  env: CommandEnv,
-  url: ParsedUrl,
-  includeHeaders: boolean,
-): Promise<CommandResult> => {
-  const fetched = await env.remote.fetchPublic({
-    target: url.host,
-    port: url.port,
-    path: url.path,
-  });
-  if (!fetched.ok) {
-    // A reached server saying "no such page" is a 404; everything else is a connect
-    // failure — the target refused, or we never got to ask.
-    if (fetched.error === 'not_found') return error(NOT_FOUND);
-    const reason = fetched.error === 'host_unreachable' ? 'Connection refused' : 'Network error';
-    return connectError({ program: 'curl', host: url.host, port: url.port, reason });
-  }
-  return respond(fetched.content, includeHeaders);
-};
-
 const execute: Command['execute'] = async (env, args, flags) => {
   const raw = args[0];
   if (raw === undefined) {
@@ -122,7 +95,18 @@ const execute: Command['execute'] = async (env, args, flags) => {
   // way the internet is reached — through the server. Gated on being online first: the
   // player needs a connection either way.
   if (isPublicIp(url.host)) {
-    return fetchAcrossNetwork(env, url, flags.has('-i'));
+    const page = await fetchPageAcrossNetwork({
+      program: 'curl',
+      url,
+      fetchPublic: (params) => env.remote.fetchPublic(params),
+    });
+    if (page.kind === 'unreachable') {
+      return page.failure;
+    }
+    if (page.kind === 'not_found') {
+      return error(NOT_FOUND);
+    }
+    return respond(page.content, flags.has('-i'));
   }
 
   const reached = reachWebHost({ root: env.fs.root(), program: 'curl', url, wlan0 });
