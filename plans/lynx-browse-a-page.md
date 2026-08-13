@@ -1,10 +1,10 @@
 # Plan: D1b — a player browses a page instead of reading its source
 
-**Status**: **Slices 1-3 shipped, slice 5 built; slice 4 absorbed into 2.** Slice 6 is next,
-and its open decision still needs an owner call before RED.
-**Branch**: one per slice, cut off `main`. Slice 5: `feat/lynx-follows-a-link`.
+**Status**: **Slices 1-3 and 5 shipped, slice 6 built; slice 4 absorbed into 2.** Slice 7 —
+browsing another player's page by public IP — is the last one, and then the live E2E close-out.
+**Branch**: one per slice, cut off `main`. Slice 6: `feat/lynx-goes-back`.
 **Epic**: [`legacy-parity-epic.md`](./legacy-parity-epic.md) row **D1b**, Phase 1
-**Base version**: v0.126.1
+**Base version**: v0.127.0
 
 > **Picking this up cold?** Read "The decision this plan starts from" — it explains why slice 1
 > deletes content rather than adding it, and why that choice makes slice 5 harder. Then read the
@@ -60,7 +60,7 @@ per-box volume and variation model that the generated-content epic owns
       *(slice 2 — wrapping is CSS, see the note there)*
 - [x] Links render numbered and selectable; Enter or Right Arrow follows the selected one and
       renders the page it names. *(slice 5, v0.127.0)*
-- [ ] Left Arrow or Backspace returns to the previous page.
+- [x] Left Arrow or Backspace returns to the previous page. *(slice 6, v0.128.0)*
 - [ ] The target's `/var/log/access.log` gains one line per page **viewed**, sized and statused
       like any other fetch, naming the browsing player by the address the server derives.
 - [ ] A player browses another player's page across networks by public IP.
@@ -259,7 +259,7 @@ viewports.
 
 ---
 
-### Slice 5: A player follows a link — ✔ BUILT v0.127.0
+### Slice 5: A player follows a link — ✔ SHIPPED v0.127.0 (#386)
 
 > **Done 2026-08-13.** Four decisions taken with the owner before RED, all four as
 > recommended:
@@ -319,21 +319,97 @@ live E2E runs, build it the same way.
 
 ---
 
-### Slice 6: A player goes back
+### Slice 6: A player goes back — ✔ BUILT v0.128.0
+
+> **Done 2026-08-13, and the decision is what made it small.** Because back re-fetches, back IS a
+> follow to a remembered address: it calls the same `onFollow` the screen already had, so
+> `state.ts`, `webPage.ts` and `lynx.ts` are untouched and the whole slice is `Lynx.tsx` plus
+> tests. The extra `access.log` line nobody wrote is the decision paying for itself.
+>
+> **The trail lives in the screen**, beside the selection it restores — a stack in the parent
+> would have made the selection travel out through `onFollow` and back through props to reach the
+> same place. It starts empty on mount, so quitting and reopening begins a reading rather than
+> resuming one.
+>
+> **Two orderings carry the feature, and they point opposite ways.** The page being left is read
+> BEFORE the fetch, because by the time it answers the props are already the new page. The
+> selection is restored AFTER it, because arriving anywhere sends the selection back to the first
+> link and that reset has already run by then. Both are one line each and neither is guessable
+> from reading the other.
+>
+> **Mutation caught the slice-3 lesson coming the other way.** The footer used to be one literal,
+> so emptying it broke any assertion on it; splitting it into parts made `'↑↓ Select'` and the
+> `join('  ')` separator independently mutable, and both survived a `getByText(/Follow/)`.
+> Asserting the whole line killed both. The other two real survivors were worth more: `slice(0,
+> -1)` → `slice(0, +1)` leaves a one-deep trail unemptied, so the first page stays behind itself
+> forever — killed by walking a chain to its end and pressing back once more; and the back-key
+> guard → `if (true)` makes *any* key go back — killed by pressing a meaningless key once there
+> IS somewhere to go back to, which the pre-existing "any other key" tests could not do because
+> their history was empty.
+>
+> **Scores: `Lynx.tsx` 92.81% → 95.68%** (10 survivors → 6), above the 93.07% it carried out of
+> slice 5 — the new code is better pinned than the file was before it. All six left are
+> pre-existing: the `screen?.focus()` optional chain, the `defer: true` pair, the `on` dependency
+> array's content half, `tabIndex={-1}`, and `restOn`'s linkless guard — that last one equivalent,
+> since without it a linkless page's selection becomes 0, which nothing renders and any arrival
+> resets.
+>
+> **Refactor assessed.** `restOn` and `hint()` earned their names during GREEN: the clamp is one
+> question asked by both moving and restoring, and the footer now has three independent parts. A
+> `navigate()` wrapper over the three-line alert protocol that `follow` and `back` share was
+> rejected — it would trade a named `FollowOutcome` for a bare boolean to save three lines.
+
+> **Owner decision 2026-08-13: going back RE-FETCHES.** The open question was what the *defender*
+> sees, not what the reader does: a re-fetch writes another `access.log` line, a cached render
+> writes none. Re-fetching keeps ONE rule for the log — a line per page viewed, already an
+> acceptance criterion this feature has held to since D2.3 — where caching would have needed a
+> second rule saying when a view does not count. Caching was the quieter option and matched the
+> legacy overlay; it lost to not having two rules for one log.
+>
+> **What that decision buys: back is a follow to a remembered address.** It goes through the same
+> `onFollow` the screen already has, so there is no second fetch path, no new prop, and the extra
+> log line is a consequence of the design rather than a feature anyone has to write. It also means
+> the reader sees the page as it is NOW — if its author edited it, or it has since stopped being
+> served, going back shows that. Which is why the selection has to survive a page that changed
+> under it (below).
 
 **Value**: Navigation that does not trap you.
-**Path**: history stack → Left Arrow/Backspace → re-render the previous page.
+**Path**: rendered link registry → history of visited addresses → Left Arrow/Backspace → the same
+fetch path a follow takes → re-render the previous page → a further `access.log` line.
 **Class**: Behavior change.
-**Required implementation skills**: `tdd`, `testing`, `mutation-testing`.
-**Acceptance criteria**: Left Arrow or Backspace returns to the previous page; back at the first
-page it does nothing (it does not quit); the selected link is restored, not reset.
+**Required implementation skills**: `tdd`, `testing`, `mutation-testing`. `refactoring` — assess
+after green.
+**Reduction program**: `N/A`.
+**Acceptance criteria**:
+- Left Arrow or Backspace returns to the previous page, and the page shown is **fetched again**,
+  not remembered — evidenced at the screen's own interface as the follow it makes, since the log
+  line that follow leaves is already proven where the fetch lives.
+- At the first page there is nowhere back to, and pressing it **does nothing** — in particular it
+  does not quit, and it does not fetch.
+- The selection is restored to the link the reader left by, not reset to the first one.
+- A back that never reached the host leaves the reader on the page they were reading, says why,
+  and **keeps** the step in history — the same rule a refused follow already lives by, because a
+  reader who could not go back has not gone back.
+- Going back onto a page that has fewer links than when it was left comes to rest on its last
+  link rather than pointing at one that is no longer there.
+- The footer names the way back only once there is somewhere to go back to.
+- Quitting and reopening the browser starts with no history — a new session, not a resumed one.
 
-> **Open decision, resolve before RED: does going back re-fetch?** It changes what the defender
-> sees — a re-fetch writes another `access.log` line, a cached render does not. Re-fetching is
-> more honest about the fiction (a text browser without a cache) and keeps one rule: a line per
-> view. Caching is quieter and matches how the legacy overlay behaved. **Recommendation:
-> re-fetch**, because "one line per page viewed" is already an acceptance criterion above and two
-> rules for one log are worse than a slightly chattier one.
+**RED**: At the screen. A two-page fixture, follow, then Left Arrow: assert the follow the screen
+makes names the first page's address, and that the reader lands back on the link they left by.
+Then the ones that are easy to write and easy to get wrong — first page does nothing, a refused
+back stays put and keeps its step, a shortened page clamps.
+**GREEN**: A stack of visited `{url, selected}` in the screen — it belongs beside the selection it
+restores, and a stack in the parent would need selection to travel out and back through props for
+no gain. Back pops it and calls `onFollow`.
+**MUTATE**: on the stack's push/pop boundaries and the restore clamp — off-by-one and
+empty-history guards are where mutants live, and `Lynx.tsx` mutates cleanly (93.07% after slice 5).
+**KILL MUTANTS**: expect survivors around "does nothing at the first page" if the only assertion is
+that `onExit` was not called; assert the follow did not happen either.
+**REFACTOR**: Assess. The clamp is now wanted in two places (moving and restoring), which is the
+same knowledge — where a selection may come to rest — rather than two lookalikes.
+**Done when**: a three-page chain walks forward and back, the log shows every view including the
+repeats, and the human approves the commit.
 
 ---
 

@@ -569,6 +569,13 @@ passed the entire suite. **Expect this survivor class from any extraction that t
 into an argument**, and pin the parameter by asserting the full prefix
 (`toContain('lynx: (6) Could not resolve host')`) rather than the shared remainder.
 
+**Assembling a string from parts is the same move**, and it unpins the separator too. `lynx`'s
+footer went from the literal `'↑↓ Select  ⏎ Follow  q Quit'` — where emptying it broke any
+assertion on it — to parts joined by `'  '`, at which point `'↑↓ Select'` → `""` and
+`join('  ')` → `join("")` both survived a `getByText(/Follow/)`. **When a rendered line becomes
+composed, assert the whole line, not a word of it**: `getByText('↑↓ Select ⏎ Follow q Quit')`
+kills both (single-spaced, because testing-library normalizes whitespace before comparing).
+
 The same move has a subtler second form: a helper's mutants can MIGRATE. `gobuster`'s and `lynx`'s
 own `error` had its `kind: 'error'` killed by their connection-refused tests; once that message
 came from the shared module, those tests killed the SHARED copy instead and each command's local
