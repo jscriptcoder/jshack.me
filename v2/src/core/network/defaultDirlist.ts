@@ -36,11 +36,14 @@ export const DIRLIST_PERMISSIONS: FilePermissions = {
  * things an operator leaves lying around — rather than as a key to this specific
  * world.
  *
- * The entries every generated page already links (`admin`, `status`,
- * `server-status`, `api/health`, `metrics`) are deliberately in here. Those paths
- * are advertised and return 404 today, so they find nothing until the generated
- * world grows the pages its own markup promises; when it does, a default sweep
- * starts finding them with no change here.
+ * `admin`, `status`, `server-status`, `api/health` and `metrics` earn their place
+ * by being what a real list tries, and nothing more. They once justified
+ * themselves by matching what every generated page linked, but pages no longer
+ * advertise paths their host cannot serve — a page that invites recon it cannot
+ * answer tells the player the server lies. So these find nothing today, exactly
+ * like the rest of the list does against a thin world, and they start finding
+ * things when generated content grows pages at them. That is the normal state of
+ * a wordlist, not a debt.
  */
 export const DEFAULT_DIRLIST: readonly string[] = [
   'index.html',

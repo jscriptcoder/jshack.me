@@ -1120,11 +1120,18 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   the pool shape, the per-box volume, and the variation model this epic should own. `gobuster` ships
   proven against content the PLAYER makes by hand (`mkdir` + `nano` under `/var/www/html`) instead.
   Three things are already waiting for this epic:
-  - **A shipped D1 defect: the pages advertise paths that 404.** Every entry in
-    `generation/pools/webPages.ts` links `/admin/`, `/status`, `/server-status`, `/api/health` or
-    `/metrics`, and `curl` returns 404 for all of them, so a player doing the recon the page invites
-    is told the server lies. Found 2026-08-12 while planning D1c. Small and self-contained, but it
-    is content, so it lands here rather than as a one-off fix.
+  - **~~A shipped D1 defect: the pages advertise paths that 404.~~ Fixed 2026-08-13 by removing the
+    advertisements, not by adding the pages.** Every entry in `generation/pools/webPages.ts` linked
+    `/admin/`, `/status`, `/server-status`, `/.well-known/security.txt`, `/api/health` or
+    `/metrics` and `curl` 404'd on all six, so a player doing the recon the page invited was told
+    the server lies. Found 2026-08-12 planning D1c; forced 2026-08-13 by D1b, because a text
+    browser renders links numbered and following one is the whole point, which turns a footnote
+    into the headline interaction. Serving the promised pages was the tempting fix and is exactly
+    what this epic owns, so the links went instead. **What is still owed here:** generated hosts
+    now serve one page with no links at all, so a browser has nothing to follow on an NPC box and
+    link-following is proven against pages the player writes. When this epic gives a host pages
+    that link each other, the markup comes back — and a property test in `remoteHostFs.test.ts`
+    (no page links a path its host does not serve) is what keeps content and links honest.
   - **D2.6b's harvestable loot placement** — postponed as a credential-layer item above, and it is
     content too: a file on a reachable box holding an uncrackable-pool plaintext behind a tier gate.
     If this epic runs before the CVE phase, it is the natural home.

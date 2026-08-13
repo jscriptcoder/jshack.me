@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { buildRemoteHostFs } from './remoteHostFs';
 import { md5 } from './md5';
 import { DEFAULT_WORDLIST } from '../wordlist/defaultWordlist';
+import { resolveWebPath } from '../network/http';
+import { createFsView } from '../filesystem/fsView';
 import type { LanHost } from './generateHomeLan';
 import type { Directory, FileNode } from '../filesystem/types';
 
@@ -221,6 +223,73 @@ describe('buildRemoteHostFs', () => {
       // (1 template) and a pool that silently loses an entry.
       const templates = new Set(httpHosts().map(({ octet }) => servedTemplate(octet)));
       expect(templates.size).toBe(4);
+    });
+
+    /** The url paths a page invites a reader to try, in the order written. */
+    const linkedPaths = (page: string): readonly string[] =>
+      Array.from(page.matchAll(/<a\s[^>]*href="([^"]*)"/g)).map((match) => match[1]!);
+
+    /** The linked paths a host does NOT serve — read through the same view and the
+     *  same document-root confinement a real fetch goes through, so "serves" means
+     *  what it means to `curl`, not what a tree walk happens to find. */
+    const unservedLinks = (fs: Directory, page: string): readonly string[] =>
+      linkedPaths(page).filter((requestPath) => {
+        const filePath = resolveWebPath(requestPath);
+        return filePath === null || !createFsView(fs, { userType: 'root' }).read(filePath).ok;
+      });
+
+    it('never invites a reader to a path the host does not serve', () => {
+      // A page that links what it cannot serve tells the player the server lies,
+      // and a browser makes that the headline interaction rather than a shrug.
+      const sampled = httpHosts();
+      // Guard: the property is worthless if the sample never reached the page that
+      // breaks it, so require the sample to span the whole pool.
+      expect(new Set(sampled.map(({ octet }) => servedTemplate(octet))).size).toBe(4);
+
+      const offenders = sampled.flatMap(({ octet }) => {
+        const fs = buildRemoteHostFs(ESSID, host(octet));
+        const page = servedPage(fs);
+        return page === null
+          ? []
+          : unservedLinks(fs, page).map((requestPath) => `host-${octet} → ${requestPath}`);
+      });
+      expect(offenders).toEqual([]);
+    });
+
+    it('still leaks the recon that promises nothing — a version and a careless comment', () => {
+      // Pruning the links must not take the reason to read the page with it: what
+      // is left is the recon that costs nothing to honour, because it points at no
+      // path. The comment matters twice over — it is what `curl` shows and a
+      // browser will not, which is why both commands stay worth running.
+      const templates = [
+        ...new Set(
+          httpHosts().flatMap(({ octet }) => {
+            const page = servedTemplate(octet);
+            return page === null ? [] : [page];
+          }),
+        ),
+      ];
+      expect(templates).toHaveLength(4);
+      expect(templates.filter((page) => /<!--[\s\S]*-->/.test(page))).toHaveLength(4);
+
+      const everyPage = templates.join('\n');
+      for (const version of [
+        'Build 4.2.1',
+        'v3.1.0',
+        'nginx/1.24.0',
+        'Node.js v18.17.0',
+        'Express 4.18.2',
+      ]) {
+        expect(everyPage).toContain(version);
+      }
+    });
+
+    it('recognises an unserved link when there is one', () => {
+      // The property above passes vacuously once the pages link nothing, so this
+      // pins that it is checking rather than merely finding nothing to check.
+      const fs = buildRemoteHostFs(ESSID, host(httpHosts()[0]!.octet));
+      expect(unservedLinks(fs, '<a href="/admin/">Admin</a>')).toEqual(['/admin/']);
+      expect(unservedLinks(fs, '<a href="/index.html">Home</a>')).toEqual([]);
     });
 
     it('plants no /var/www on a host that runs another service but serves no web', () => {

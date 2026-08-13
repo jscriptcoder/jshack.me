@@ -534,10 +534,11 @@ found, which reads as a broken tool if you were not expecting it.
 
 Two consequences accepted with it: against a generated NPC host `gobuster` finds `/index.html` and
 nothing else until the content epic lands (the tool is correct, the world is thin — **not** D2.6b's
-failure, where the mechanic itself had no input); and the shipped **D1 defect stays live** — every
-page in `pools/webPages.ts` links `/admin/`, `/status`, `/server-status`, `/api/health` or
-`/metrics` and `curl` 404s on all of them, so a player doing the recon the page invites is told the
-server lies. Recorded against the content epic rather than fixed as a one-off.
+failure, where the mechanic itself had no input); and the shipped **D1 defect** — pages advertising
+six paths that all 404 — stayed live through D1c. **D1b fixed it on 2026-08-13** by removing the
+advertisements rather than adding the pages, because a browser makes a dead link the headline
+interaction rather than a footnote. A property test now holds the line: no generated page links a
+path its host does not serve.
 
 **`gobuster` is own-LAN, and cross-player is its own slice** — exactly as `hydra` was after D2.1.
 The shape already exists: `curl` has `fetchAcrossNetwork` (`curl.ts:130`) and the server-side
