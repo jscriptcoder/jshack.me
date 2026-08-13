@@ -768,6 +768,23 @@ tree that does carry the file. Prefer stating the rule over arguing the input ca
   with "unable to find role textbox". Await the prompt's RETURN as well (`awaitPrompt()` in
   `Terminal.test.tsx`), and await it AFTER the output line — called immediately after
   `runCommand` it resolves against the prompt the command has not taken over yet.
+- **An apt-installed binary is ABSENT for the first few ticks of a game.** `startGame`
+  fire-and-forgets the journal refetch (`void refetchPatches()`), and an installed tool lives in
+  that journal — so a `ui/state` test that stubs `fetch` to serve `/usr/bin/<tool>` and then runs
+  the tool immediately gets `bash: <tool>: command not found. Install with: apt install <tool>`,
+  and the assertion fails on a downstream symptom (a mode that never opened, output that never
+  arrived) rather than on the real cause. Wait ONE macrotask before the first command:
+  `await new Promise((resolve) => setTimeout(resolve, 0))`. That is an ordering guarantee, not a
+  sleep — every promise in the refetch chain is already resolved and none waits on a timer or
+  real I/O, so the microtask queue drains completely before any macrotask runs. Don't reach for a
+  polling `waitFor` here, and don't lengthen the delay: if one tick is not enough, something in
+  the chain has started doing real work and that is the thing to look at.
+- **Coming back online in a test needs BOTH halves, not just the ESSID.** `restoreConnection`
+  returns the COLD state unless the stored ESSID *and* a remembered lease are present, so a test
+  that seeds only `CONNECTED_ESSID_KEY` starts offline and every network command answers
+  `network is unreachable` — which reads as a broken command rather than a broken fixture. Seed
+  the lease too: `lanLeaseCacheIn(storage).remember(essid, ip)` before `startGame`, with an
+  address no generated host occupies. This is the unit-test twin of the wire-check rule below.
 - **A wire-check clean-slate must clear PERMANENT tables, not just the per-session ones.**
   `network_lan_leases` and `network_public_ips` deliberately outlive occupancy, so a script
   that only deletes `home_network_occupants` leaves a lease holding an octet forever. Every
