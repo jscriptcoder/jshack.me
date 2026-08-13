@@ -17,9 +17,9 @@
  * Linux tools — they have no binary and are always available, so the registry
  * skips wrapping them (`isAlwaysAvailable`).
  *
- * The search path now spans `/bin` (system utils), `/usr/bin` (apt tools), and
- * `/usr/sbin` (admin daemons like `sshd`); the apt-install hint and the
- * `/lib/*.so` library check are wired (slices 2–3).
+ * The search path spans `/bin` (system utils), `/usr/bin` (apt tools), and
+ * `/usr/sbin` (admin daemons like `sshd`), and both the apt-install hint and the
+ * `/lib/*.so` library check are wired.
  */
 
 import { asAbsPath } from '../types';

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@solidjs/testing-library';
 import { Terminal } from './Terminal';
-import { startGame } from '../state';
+import { setOverlayMode, startGame } from '../state';
 import { SEED_CONFIG } from '../seed';
 import { CONNECTED_ESSID_KEY } from '../connectionPersistence';
 
@@ -584,5 +584,38 @@ describe('Terminal', () => {
 
     expect(await screen.findByRole('textbox', { name: /terminal input/i })).toBeInTheDocument();
     expect(screen.queryByRole('textbox', { name: /editor/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('Terminal full-screen apps', () => {
+  it('hands the whole screen to the browser, then gives it back with the scrollback intact', async () => {
+    renderTerminal();
+    runCommand('pwd');
+    await screen.findByText('/home/alice');
+
+    setOverlayMode({ kind: 'lynx', url: 'http://192.168.1.5/', content: '<h1>a page</h1>' });
+
+    expect(await screen.findByText('a page')).toBeInTheDocument();
+    // The terminal is GONE, not merely covered — the prompt cannot take a
+    // keystroke meant for the page on screen.
+    expect(screen.queryByRole('textbox', { name: /terminal input/i })).not.toBeInTheDocument();
+
+    fireEvent.keyDown(screen.getByRole('main'), { key: 'q' });
+
+    expect(await screen.findByRole('textbox', { name: /terminal input/i })).toBeInTheDocument();
+    expect(screen.getByText('/home/alice')).toBeInTheDocument();
+    expect(screen.queryByText('a page')).not.toBeInTheDocument();
+  });
+
+  it('puts the cursor back in the prompt when the browser closes', async () => {
+    renderTerminal();
+    setOverlayMode({ kind: 'lynx', url: 'http://192.168.1.5/', content: '<p>read me</p>' });
+    await screen.findByText('read me');
+
+    fireEvent.keyDown(screen.getByRole('main'), { key: 'Escape' });
+
+    expect(await screen.findByRole('textbox', { name: /terminal input/i })).toBe(
+      document.activeElement,
+    );
   });
 });

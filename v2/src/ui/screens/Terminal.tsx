@@ -1,12 +1,11 @@
-import { createEffect, For, onCleanup, onMount, Show } from 'solid-js';
-import type { TerminalLine } from '../../core/commands/types';
+import { createEffect, For, Match, onCleanup, onMount, Show, Switch } from 'solid-js';
+import type { ModeChange, TerminalLine } from '../../core/commands/types';
 import { formatPrompt } from '../../core/shell/prompt';
 import { BANNER } from '../banner';
 import {
   abortRunning,
   cancelPrompt,
   cwd,
-  editorMode,
   historyDown,
   historyUp,
   input,
@@ -15,18 +14,29 @@ import {
   promptTier,
   promptUsername,
   runInput,
+  overlayMode,
   runningCommand,
   saveEditor,
   scrollback,
-  setEditorMode,
   setInput,
+  setOverlayMode,
   submitPrompt,
   tabComplete,
 } from '../state';
+import { Lynx } from './Lynx';
 import { Nano } from './Nano';
 import { TerminalLoading } from './TerminalLoading';
 
 const LINE_BASE = 'whitespace-pre-wrap break-words';
+
+/** Narrow the open overlay to one app, or null when a different one holds the
+ *  screen. Written as functions rather than inline comparisons because it is the
+ *  RETURN type that carries the narrowing into each screen's props. */
+const asNano = (mode: ModeChange) => (mode.kind === 'nano' ? mode : null);
+const asLynx = (mode: ModeChange) => (mode.kind === 'lynx' ? mode : null);
+
+/** Every full-screen app leaves the same way: hand the screen back. */
+const closeOverlay = () => setOverlayMode(null);
 
 /** Per-kind colour — normal text inherits the amber body colour. */
 const LINE_COLOR: Record<TerminalLine['kind'], string> = {
@@ -67,7 +77,7 @@ export const Terminal = () => {
   // apps) or for the busy bar — so the player never has to click to resume
   // typing after an editor or a long-running command.
   createEffect(() => {
-    if (editorMode() === null && busyLabel() === null) inputEl?.focus();
+    if (overlayMode() === null && busyLabel() === null) inputEl?.focus();
   });
 
   // While the busy bar stands in for the prompt there is no focused input to
@@ -145,7 +155,7 @@ export const Terminal = () => {
 
   return (
     <Show
-      when={editorMode()}
+      when={overlayMode()}
       fallback={
         <main
           class="flex h-full flex-col p-4 font-mono text-sm leading-relaxed"
@@ -188,12 +198,23 @@ export const Terminal = () => {
       }
     >
       {(mode) => (
-        <Nano
-          path={mode().path}
-          content={mode().content}
-          onSave={saveEditor}
-          onExit={() => setEditorMode(null)}
-        />
+        <Switch>
+          <Match when={asNano(mode())}>
+            {(nano) => (
+              <Nano
+                path={nano().path}
+                content={nano().content}
+                onSave={saveEditor}
+                onExit={closeOverlay}
+              />
+            )}
+          </Match>
+          <Match when={asLynx(mode())}>
+            {(browser) => (
+              <Lynx url={browser().url} content={browser().content} onExit={closeOverlay} />
+            )}
+          </Match>
+        </Switch>
       )}
     </Show>
   );
