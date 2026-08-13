@@ -4,6 +4,8 @@ import { machineIdForLanHost } from '../core/generation/lanHostIdentity';
 import { lanLeaseCacheIn } from '../core/network/lanLeaseCache';
 import { contentHash } from '../core/patches/contentHash';
 import { CONNECTED_ESSID_KEY } from './connectionPersistence';
+import { buildRemoteHostFs } from '../core/generation/remoteHostFs';
+import { readOpenPorts } from '../core/services/pidfile';
 
 /**
  * Regression guard for the module-top-level init bug (see intro-screen plan).
@@ -348,15 +350,16 @@ describe('nano editor mode', () => {
 
   it('opens the editor when `nano <file>` runs, carrying the file path + content', async () => {
     const { state } = await startEditorGame();
-    expect(state.editorMode()).toBeNull();
+    expect(state.overlayMode()).toBeNull();
 
     state.setInput('nano /etc/passwd');
     await state.runInput();
 
-    const mode = state.editorMode();
-    expect(mode?.path).toBe('/etc/passwd');
+    // The EDITOR opened, not merely some overlay — the terminal has more than one
+    // full-screen app to hand the screen to.
+    expect(state.overlayMode()).toMatchObject({ kind: 'nano', path: '/etc/passwd' });
     // The buffer is the file's real content (the seed passwd has a root row).
-    expect(mode?.content).toContain('root:');
+    expect(state.overlayMode()?.content).toContain('root:');
   });
 
   it('leaves the editor closed for a non-editor command', async () => {
@@ -365,7 +368,7 @@ describe('nano editor mode', () => {
     state.setInput('pwd');
     await state.runInput();
 
-    expect(state.editorMode()).toBeNull();
+    expect(state.overlayMode()).toBeNull();
   });
 
   it('saveEditor overwrites an existing file with isNew unset (preserves the row flag)', async () => {
@@ -398,7 +401,7 @@ describe('nano editor mode', () => {
     const { state, lastWrite } = await startEditorGame();
     state.setInput('nano /etc/passwd');
     await state.runInput();
-    const opened = state.editorMode()?.content ?? '';
+    const opened = state.overlayMode()?.content ?? '';
 
     await state.saveEditor('root:x:0:0::/root:/bin/sh\n');
 
@@ -430,7 +433,7 @@ describe('nano editor mode', () => {
     const { state, lastWrite } = await startEditorGame({ refuseWrites: true });
     state.setInput('nano /etc/passwd');
     await state.runInput();
-    const opened = state.editorMode()?.content ?? '';
+    const opened = state.overlayMode()?.content ?? '';
 
     await state.saveEditor('first attempt\n');
     await state.saveEditor('second attempt\n');
@@ -462,5 +465,107 @@ describe('nano editor mode', () => {
 
     expect('base_hash' in (lastWrite() ?? {})).toBe(false);
     expect(lastWrite()?.content).toBe('clobbered\n');
+  });
+});
+
+/**
+ * A command can ask the terminal to hand the screen to a full-screen app. `nano`
+ * was the first; the browser is the second, and it proves the terminal opens the
+ * app the command NAMED rather than the only one it used to know about.
+ */
+describe('full-screen apps a command opens', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const ESSID = 'BEAN-THERE-WIFI';
+
+  /** An installed binary, delivered the way apt really delivers one: as a patch
+   *  on the player's own journal. */
+  const INSTALLED_LYNX = {
+    path: '/usr/bin/lynx',
+    content: '',
+    owner: 'root',
+    permissions: { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root', 'user'] },
+  };
+
+  /** A generated host on the player's own LAN that serves the web, and the port
+   *  it listens on — a real target rather than an assumed one. */
+  const webHostOnLan = () => {
+    for (const host of generateHomeLan(ESSID).hosts) {
+      if (host.kind !== 'machine') continue;
+      const web = readOpenPorts(buildRemoteHostFs(ESSID, host)).find(
+        (entry) => entry.service === 'http',
+      );
+      if (web !== undefined) return { host, port: web.port };
+    }
+    throw new Error('expected a generated web host on the LAN');
+  };
+
+  /** An address on the player's own subnet that no generated host occupies. */
+  const unoccupiedIp = (): string => {
+    const lan = generateHomeLan(ESSID);
+    const taken = new Set(lan.hosts.map((host) => host.ip));
+    const free = Array.from({ length: 253 }, (_unused, index) => `${lan.subnet}.${index + 2}`).find(
+      (ip) => !taken.has(ip),
+    );
+    if (free === undefined) throw new Error('expected a free address on the subnet');
+    return free;
+  };
+
+  /** An online player with `lynx` installed — online by the persisted-connection
+   *  route, so the test costs a rehydrate rather than a full crack journey.
+   *  Coming back online needs BOTH halves the game persists: the ESSID, and the
+   *  address that network leased. */
+  const startBrowsingGame = async () => {
+    vi.resetModules();
+    const store = new Map<string, string>([[CONNECTED_ESSID_KEY, ESSID]]);
+    const storage = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => store.set(key, value),
+      removeItem: (key: string) => store.delete(key),
+    };
+    lanLeaseCacheIn(storage).remember(ESSID, unoccupiedIp());
+    vi.stubGlobal('localStorage', storage);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ patches: [INSTALLED_LYNX], sessions: [] }),
+      })),
+    );
+    const state = await import('./state');
+    state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
+    // The installed binary arrives with the journal, which `startGame` fetches in
+    // the background — so the tool is genuinely absent for the first few ticks.
+    // One macrotask boundary lands after the WHOLE fetch chain here (every promise
+    // in it is already resolved, and nothing waits on a timer or real I/O), which
+    // is why this is an ordering guarantee rather than a sleep.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    return state;
+  };
+
+  it('opens the browser on the page `lynx <url>` fetched', async () => {
+    const state = await startBrowsingGame();
+    const { host, port } = webHostOnLan();
+    const url = `http://${host.ip}:${port}/index.html`;
+
+    state.setInput(`lynx ${url}`);
+    await state.runInput();
+
+    const overlay = state.overlayMode();
+    expect(overlay?.kind).toBe('lynx');
+    expect(overlay).toMatchObject({ url });
+  });
+
+  it('leaves the screen alone when the page never came back', async () => {
+    const state = await startBrowsingGame();
+    const { host, port } = webHostOnLan();
+
+    state.setInput(`lynx http://${host.ip}:${port}/nothing-here`);
+    await state.runInput();
+
+    // A browser that opened on a 404 would have nothing to show, so the refusal
+    // belongs in the terminal — where the scrollback now carries it.
+    expect(state.overlayMode()).toBeNull();
   });
 });

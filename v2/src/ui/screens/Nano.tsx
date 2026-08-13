@@ -1,5 +1,5 @@
 /**
- * Nano — the full-screen file editor shown while `editorMode()` is set.
+ * Nano — the full-screen file editor, shown while it is the open overlay.
  *
  * A deliberately thin wrapper over a native `<textarea>`: the browser gives us
  * cursor movement, multiline editing, and selection for free, so the only custom
@@ -7,7 +7,7 @@
  * The component owns a local buffer signal seeded from the opened file's content;
  * persistence + exit are injected as `onSave`/`onExit` props so the editor stays
  * unit-testable without the patch/server stack (the `Terminal` screen wires the
- * real `saveEditor` / `setEditorMode(null)`).
+ * real `saveEditor`, and closes the overlay).
  */
 
 import { createSignal, onMount, Show } from 'solid-js';

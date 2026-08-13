@@ -1,9 +1,9 @@
 # Plan: D1b — a player browses a page instead of reading its source
 
-**Status**: **Not started.** Slice 1 is the next thing to build.
-**Branch**: one per slice, cut off `main`. Slice 1: `feat/pages-stop-promising`.
+**Status**: **Slices 1-2 built; slice 4 absorbed into 2.** Slice 3 is the next thing to build.
+**Branch**: one per slice, cut off `main`. Slice 3: `refactor/target-resolution-once`.
 **Epic**: [`legacy-parity-epic.md`](./legacy-parity-epic.md) row **D1b**, Phase 1
-**Base version**: v0.124.0
+**Base version**: v0.126.0
 
 > **Picking this up cold?** Read "The decision this plan starts from" — it explains why slice 1
 > deletes content rather than adding it, and why that choice makes slice 5 harder. Then read the
@@ -19,12 +19,14 @@ line per page viewed — exactly as a `curl` would.
 
 ## The decision this plan starts from
 
-Every page in `pools/webPages.ts` links `/admin/`, `/status`, `/server-status`, `/api/health` or
-`/metrics`, and every one of those 404s. Two committed decisions disagree about that fact:
-the epic calls it a **shipped D1 defect** ("a player doing the recon the page invites is told the
-server lies"), while `defaultDirlist.ts`'s docstring calls the same thing **deliberate**, keeping
-those words in the sweep wordlist so "a default sweep starts finding them the moment the content
-epic grows those pages."
+**Settled by slice 1 — recorded here because slices 5 and 7 still live with the consequences.**
+
+Every page in `pools/webPages.ts` used to link `/admin/`, `/status`, `/server-status`,
+`/.well-known/security.txt`, `/api/health` or `/metrics`, and every one of those 404d. Two
+committed decisions disagreed about that fact: the epic called it a **shipped D1 defect** ("a
+player doing the recon the page invites is told the server lies"), while `defaultDirlist.ts`'s
+docstring called the same thing **deliberate**, keeping those words in the sweep wordlist so "a
+default sweep starts finding them the moment the content epic grows those pages."
 
 `curl` shows you source, so a dead link is a shrug. **A browser makes it the headline
 interaction** — links render numbered, following one is the whole point, and every one would
@@ -48,12 +50,13 @@ per-box volume and variation model that the generated-content epic owns
 
 ## Acceptance criteria
 
-- [ ] No generated page links a path its host does not serve — a property that holds over the
-      whole pool, not a fix applied four times.
-- [ ] `lynx http://<host>` replaces the terminal with a full-screen rendering of the page as
-      text; `q` or Escape returns to the terminal with the scrollback intact.
-- [ ] The rendered page shows headings, paragraphs and lists as text, wrapped to the viewport,
+- [x] No generated page links a path its host does not serve — a property that holds over the
+      whole pool, not a fix applied four times. *(slice 1, v0.125.0)*
+- [x] `lynx http://<host>` replaces the terminal with a full-screen rendering of the page as
+      text; `q` or Escape returns to the terminal with the scrollback intact. *(slice 2)*
+- [x] The rendered page shows headings, paragraphs and lists as text, wrapped to the viewport,
       and **omits HTML comments** — the source-only recon that keeps `curl` worth running.
+      *(slice 2 — wrapping is CSS, see the note there)*
 - [ ] Links render numbered and selectable; Enter or Right Arrow follows the selected one and
       renders the page it names.
 - [ ] Left Arrow or Backspace returns to the previous page.
@@ -68,7 +71,14 @@ Slice 1 stands alone and could ship on its own merit. Slices 2-7 build the brows
 
 ---
 
-### Slice 1: Generated pages stop promising paths that do not exist
+### Slice 1: Generated pages stop promising paths that do not exist — ✔ SHIPPED v0.125.0 (#381)
+
+> **Done 2026-08-13.** Six paths removed across four pages, not five — the epic had undercounted,
+> missing `/.well-known/security.txt`. Mutation on `webPages.ts` found a real survivor (the nginx
+> page could be replaced with `""` and the suite stayed green); the criterion-3 test killed it,
+> 83.33% → 100% (6/6). The property test cannot itself be mutated by Stryker, so its non-vacuity
+> was proven by hand — breaking the `href` regex made it fail — and a guard test pins the pool at
+> four templates so an emptied pool cannot pass it vacuously.
 
 **Value**: A player reading a generated host's page is no longer invited to probe five paths that
 cannot answer. Actor: anyone running `curl` or, later, `lynx` against an NPC host.
@@ -101,7 +111,35 @@ described the old state agree with the new one. Human approves the commit.
 
 ---
 
-### Slice 2: A player reads a page as text and quits back to the terminal
+### Slice 2: A player reads a page as text and quits back to the terminal — ✔ BUILT v0.126.0
+
+> **Done 2026-08-13, and it absorbed slice 4.** Four decisions taken with the owner before RED,
+> all of which shaped what got built:
+>
+> 1. **The command fetches; the screen only renders.** A refused connection has to read in the
+>    TERMINAL as `curl`'s does, which is impossible once the overlay owns the screen. So
+>    `ModeChange`'s lynx variant grew a `content` field and `lynx.ts` reuses `curl`'s resolution
+>    step for step. Slice 5's followed links are the opposite case — the browser is already open
+>    by then, so *their* failures render as a page.
+> 2. **`editorMode` became `overlayMode`**, one signal holding a discriminated union, so two
+>    overlays open at once is unrepresentable. The `Extract<ModeChange, …>` on it means widening
+>    to an app with no screen fails to COMPILE.
+> 3. **The renderer uses `DOMParser`, in the UI layer.** Entity decoding, comment/script/style
+>    dropping and malformed-markup tolerance come from the platform, which is most of what the
+>    legacy renderer's 401 hand-rolled lines did. It sits in `ui/` because `core/` is
+>    framework-free on purpose.
+> 4. **No width parameter — CSS wraps.** `renderPage(html) → lines`, and each line carries the
+>    same `whitespace-pre-wrap break-words` the terminal's own output uses. This deleted the
+>    wrapping arithmetic, its boundary tests, and **most of slice 4** with it; the rest of slice 4
+>    (blank-line spacing, nested indentation, entity decoding) landed here.
+>
+> Mutation drove three simplifications rather than three contrived tests: the container-level
+> `SILENT_TAGS` skip was redundant with `inlineText`, `flush`'s empty guard was unobservable
+> because `normalize` collapses what it emits, and `normalize`'s leading-trim was dead because
+> the collapse rule already drops a leading blank. `inlineText` now neutralizes source newlines
+> only (`/\n/`), leaving the space-collapsing to `toLines` — which turned a redundant pair of
+> regexes into one load-bearing one and exposed a real bug the tests had missed: a newline with
+> no indentation around it fused two words.
 
 **Value**: The walking skeleton — a real browser screen over a real fetch. Actor: a player who
 wants to read a page rather than its markup.
@@ -168,7 +206,7 @@ of 2026-08-12 — "a shape named at three callers beats one named at two" — is
 
 ---
 
-### Slice 4: The page reads like a page
+### Slice 4: The page reads like a page — ✔ ABSORBED INTO SLICE 2
 
 **Value**: Rendering quality — the difference between text that is legible and text that is a
 wall. Actor: any reader.
@@ -182,9 +220,10 @@ and long-URL wrapping that does not overflow the viewport, and entity decoding (
 **Done when**: a real pooled page and a player-written page both read cleanly at narrow and wide
 viewports.
 
-> **Fold this into slice 2 if the renderer arrives close to complete.** It is split out because
-> the legacy renderer suggests this is where the work actually is, not because the seam is
-> valuable. Do not keep two slices to honour the plan.
+> **Folded, as this note allowed.** Blank-line spacing, nested indentation and entity decoding
+> shipped in slice 2. The wrapping half of it stopped existing when the renderer lost its width
+> parameter: long words and long URLs break at the viewport in CSS, so there is no arithmetic
+> left to test at narrow and wide widths.
 
 ---
 

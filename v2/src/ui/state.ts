@@ -42,6 +42,7 @@ import type {
   HydraCrackInnerGatewayParams,
   HydraCrackPublicParams,
   HydraCrackResult,
+  ModeChange,
   TerminalLine,
 } from '../core/commands/types';
 import type { GameConfig } from '../core/gameConfig/gameConfig';
@@ -202,14 +203,18 @@ const setInterface = (name: string, iface: NetworkInterface): void => {
 const [commandHistory, setCommandHistory] = createSignal<readonly string[]>([]);
 const [historyNav, setHistoryNav] = createSignal<HistoryNav>(idleNav());
 
-// The file currently open in the full-screen `nano` editor, or null in normal
-// command mode. Set by `executeLine` on a `nano` `mode_change`; cleared by the
-// editor's Ctrl-X exit. Module-level so the `Terminal` screen swaps to the
-// editor overlay reactively.
-const [editorMode, setEditorMode] = createSignal<{
-  readonly path: AbsPath;
-  readonly content: string;
-} | null>(null);
+// The full-screen app currently holding the screen, or null in normal command
+// mode. Set by `executeLine` on a `mode_change`; cleared when the app exits
+// (nano's Ctrl-X, the browser's q). Module-level so the `Terminal` screen swaps
+// to the overlay reactively.
+//
+// ONE signal rather than one per app: what is on screen is a single question,
+// and two apps open at once is a state nothing should be able to represent. The
+// `Extract` keeps it honest about which apps have a screen — a `mode_change`
+// kind with no overlay yet cannot be assigned here.
+type OverlayMode = Extract<ModeChange, { readonly kind: 'nano' | 'lynx' }>;
+
+const [overlayMode, setOverlayMode] = createSignal<OverlayMode | null>(null);
 
 // The name of the command currently executing, or null when the shell is idle.
 // Drives the busy bar that stands in for the prompt while a command runs — set
@@ -217,7 +222,7 @@ const [editorMode, setEditorMode] = createSignal<{
 // command counts as busy, not just a streamed one.
 const [runningCommand, setRunningCommand] = createSignal<string | null>(null);
 
-export { cwd, editorMode, input, runningCommand, scrollback, setEditorMode, setInput };
+export { cwd, input, overlayMode, runningCommand, scrollback, setInput, setOverlayMode };
 
 /** The active session (top of stack), or undefined before `startGame`. */
 const activeSession = (): Session | undefined => sessionStack().at(-1);
@@ -673,9 +678,11 @@ export const saveEditor = async (
   content: string,
   options?: { readonly overwriteUnseen?: boolean },
 ): Promise<PatchResult> => {
-  const mode = editorMode();
+  const mode = overlayMode();
   const activePatchApi = patchApi;
-  if (mode === null || activePatchApi === undefined) {
+  // Saving belongs to the editor: any other app on screen (or none) has no open
+  // file to write, which is the same nothing-to-save answer as no session.
+  if (mode === null || mode.kind !== 'nano' || activePatchApi === undefined) {
     return { ok: false, error: 'no_session' };
   }
   const fsView = createFsView(activeRoot(), { userType: requireSession().userType, cwd });
@@ -690,7 +697,7 @@ export const saveEditor = async (
   // Ctrl-O keeps the editor open, so what was just written becomes the base the
   // NEXT write-out is judged against — otherwise a second save would still claim
   // the pre-save content and be refused against the row this one just created.
-  if (result.ok) setEditorMode({ path: mode.path, content });
+  if (result.ok) setOverlayMode({ kind: 'nano', path: mode.path, content });
   return result;
 };
 
@@ -969,13 +976,12 @@ const executeLine = async (line: string): Promise<void> => {
       return;
     }
     if (result.kind === 'mode_change') {
-      // The terminal previously dropped mode_change results entirely; nano is the
-      // first consumer. Only nano is implemented — other kinds (lynx/nc/…) stay
-      // no-ops until their screens land. The `=== 'nano'` narrow is load-bearing
-      // (it types `mode.path`/`.content`), so a flipped guard fails to compile.
-      if (result.mode.kind === 'nano') {
-        setEditorMode({ path: result.mode.path, content: result.mode.content });
-      }
+      // Only the apps with a screen open one; the rest (nc/ftp/mysql/redis) stay
+      // no-ops until theirs land. The narrow is load-bearing — it is what types
+      // the mode as an `OverlayMode` — so widening it before a screen exists
+      // fails to compile rather than opening a blank overlay.
+      const { mode } = result;
+      if (mode.kind === 'nano' || mode.kind === 'lynx') setOverlayMode(mode);
       return;
     }
     // Streamed commands (airdump, aircrack) append each line as it arrives, so

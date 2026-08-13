@@ -77,7 +77,7 @@ const asyncEmitter = (name: string, lines: readonly TerminalLine[]): Command => 
  *  feed a pipe (downstream sees empty stdin) and doesn't crash. */
 const modeChanger = (name: string): Command => ({
   ...baseFixture(name),
-  execute: async () => ({ kind: 'mode_change', mode: { kind: 'lynx', url: 'http://x' } }),
+  execute: async () => ({ kind: 'mode_change', mode: { kind: 'lynx', url: 'http://x', content: '<p>a page</p>' } }),
 });
 
 const text = (content: string): TerminalLine => ({ kind: 'text', content });

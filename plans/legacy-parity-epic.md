@@ -203,8 +203,8 @@ procedural CVE timeline (`publishedAt`/`patchDelay`), `apt upgrade`/pinning, scr
 ```
 PHASE 1 — THE DOORS  (near-term focus)
   D1  web (apache2/nginx + generated pages + curl)     ✔ SHIPPED v0.109.0
-  D1b lynx (browser screen)      \  fast-follows, any time
-  D1c gobuster (path brute-force) /  ✔ DONE — v0.123.0 + v0.124.0, E2E closed out 2026-08-13
+  D1b lynx (browser screen)                           ◐ IN PROGRESS — slice 1 of 7 (v0.125.0)
+  D1c gobuster (path brute-force)                     ✔ DONE — v0.123.0 + v0.124.0, E2E 2026-08-13
   D2  hydra + the wordlist system (+ john)             ✔ SHIPPED v0.111.0-v0.122.0
       D2.1 hydra vs an own-LAN NPC host                ✔ SHIPPED v0.111.0
       D2.2 not every account falls                     ✔ SHIPPED v0.113.0
@@ -545,8 +545,18 @@ The shape already exists: `curl` has `fetchAcrossNetwork` (`curl.ts:130`) and th
 resolution behind it, so a sweep across networks is that path plus the batched `paths[]` form
 slice 2 built. It is a slice and not a follow-up because hydra's equivalent took five (D2.4).
 
-**D1b (`lynx`)** remains a fast-follow whenever wanted — a full overlay browser screen, UI work of
-a different size, reusing D1's fetch path whole.
+**D1b (`lynx`) is IN PROGRESS** — selected 2026-08-13 as the fast-follow, planned in
+[`lynx-browse-a-page.md`](./lynx-browse-a-page.md) as seven slices. **Slice 1 merged** (v0.125.0,
+#381): generated pages no longer advertise doors that do not exist, which had to happen before the
+browser existed rather than after — `curl` makes a dead link a shrug, a browser makes it the
+headline interaction. Slice 2 is the walking skeleton: the overlay screen, the renderer, and `q`
+to get back out.
+
+Two consequences of that ordering are accepted and recorded in the plan — do not rediscover them
+as bugs. Generated hosts now render **linkless**, so link-following is proven against a page the
+player writes with `nano`, exactly as D1c proved discovery; and `lynx` on a generated page shows
+*less* than `curl` does, because comments are deliberately not rendered. Both resolve themselves
+when the content epic lands, with no change to `lynx`.
 
 Per slice, before any code: load `tdd`, `testing`, `mutation-testing`, `refactoring`; run full
 RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR; present before starting the next. Any `api/` change

@@ -84,7 +84,10 @@ export type CommandResult =
 
 export type ModeChange =
   | { readonly kind: 'nano'; readonly path: AbsPath; readonly content: string }
-  | { readonly kind: 'lynx'; readonly url: string }
+  // The browser opens on a page that already came back: the command does the
+  // fetching, so a refused connection is reported in the terminal rather than on a
+  // screen that has nothing to show.
+  | { readonly kind: 'lynx'; readonly url: string; readonly content: string }
   | { readonly kind: 'nc'; readonly target: { readonly ip: NetworkAddress; readonly port: number } }
   | { readonly kind: 'ftp'; readonly target: { readonly ip: NetworkAddress } }
   | { readonly kind: 'mysql'; readonly target: { readonly ip: NetworkAddress } }
