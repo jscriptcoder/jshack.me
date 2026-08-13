@@ -500,8 +500,8 @@ priority: `AvailabilityRule` is declared
 on ten commands and read by nothing — hydra's declaration is now truthful, but the field is still
 inert. Enforce it or delete it.
 
-**D1c (`gobuster`) is DONE** — selected 2026-08-12 over D3 once D2.6b was postponed, and planned
-in [`gobuster-unlinked-paths.md`](./gobuster-unlinked-paths.md). **Slice 1 merged** (v0.123.0,
+**D1c (`gobuster`) is DONE** — selected 2026-08-12 over D3 once D2.6b was postponed; its plan is
+deleted, as closed-out plans are. **Slice 1 merged** (v0.123.0,
 #378): the tool exists, the path list is the sole gate, and a player can grow it by hand. **Slice
 2** (v0.124.0, #379): every probe lands in the target's `access.log` as one append under one
 timestamp, so the sweep costs the attacker the loudest page in the defender's log — proven by an
@@ -539,10 +539,10 @@ page in `pools/webPages.ts` links `/admin/`, `/status`, `/server-status`, `/api/
 `/metrics` and `curl` 404s on all of them, so a player doing the recon the page invites is told the
 server lies. Recorded against the content epic rather than fixed as a one-off.
 
-Slice 2 (the defender's wall of 404s) **changes `api/`** — `recordLanFetch` needs a batched form so
-a sweep is one append rather than N signed round-trips, per D2.3's "volume is the behaviour" — so
-it needs a wire-check against `vercel dev` + supabase. Cross-player gobuster is deferred to its own
-slice, exactly as hydra was own-LAN after D2.1.
+**`gobuster` is own-LAN, and cross-player is its own slice** — exactly as `hydra` was after D2.1.
+The shape already exists: `curl` has `fetchAcrossNetwork` (`curl.ts:130`) and the server-side
+resolution behind it, so a sweep across networks is that path plus the batched `paths[]` form
+slice 2 built. It is a slice and not a follow-up because hydra's equivalent took five (D2.4).
 
 **D1b (`lynx`)** remains a fast-follow whenever wanted — a full overlay browser screen, UI work of
 a different size, reusing D1's fetch path whole.
