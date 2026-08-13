@@ -1,6 +1,6 @@
 # Plan: D1b — a player browses a page instead of reading its source
 
-**Status**: **Slices 1-2 built; slice 4 absorbed into 2.** Slice 3 is the next thing to build.
+**Status**: **Slices 1-2 shipped, slice 3 built; slice 4 absorbed into 2.** Slice 5 is next.
 **Branch**: one per slice, cut off `main`. Slice 3: `refactor/target-resolution-once`.
 **Epic**: [`legacy-parity-epic.md`](./legacy-parity-epic.md) row **D1b**, Phase 1
 **Base version**: v0.126.0
@@ -63,7 +63,7 @@ per-box volume and variation model that the generated-content epic owns
 - [ ] The target's `/var/log/access.log` gains one line per page **viewed**, sized and statused
       like any other fetch, naming the browsing player by the address the server derives.
 - [ ] A player browses another player's page across networks by public IP.
-- [ ] `targetFs` and its neighbours are named once rather than three times.
+- [x] `targetFs` and its neighbours are named once rather than three times. *(slice 3, v0.126.1)*
 
 ## Slices
 
@@ -111,7 +111,7 @@ described the old state agree with the new one. Human approves the commit.
 
 ---
 
-### Slice 2: A player reads a page as text and quits back to the terminal — ✔ BUILT v0.126.0
+### Slice 2: A player reads a page as text and quits back to the terminal — ✔ SHIPPED v0.126.0 (#382)
 
 > **Done 2026-08-13, and it absorbed slice 4.** Four decisions taken with the owner before RED,
 > all of which shaped what got built:
@@ -174,7 +174,34 @@ The screen is jsdom + `@solidjs/testing-library`, per the project's UI testing r
 
 ---
 
-### Slice 3: The target-resolution shape is named once, not three times
+### Slice 3: The target-resolution shape is named once, not three times — ✔ BUILT v0.126.1
+
+> **Done 2026-08-13.** The extraction is `core/commands/webHost.ts` — `reachWebHost`, returning
+> `{ ok: true, host } | { ok: false, failure }`. It takes the WHOLE step rather than the four
+> named helpers, because the order is the part worth protecting: a caller that resolved before
+> mapping `localhost` onto its leased address would read a different tree and key its trace to a
+> different machine while still sharing every helper. `sourceIp` came along as a fifth item —
+> it is derived from the `isLoopback` the step computes, so leaving it behind would have kept
+> `LOOPBACK_NAMES` at three call sites and failed the slice's own criterion.
+>
+> **The criterion held: 2491/2491 green with zero test files touched.** That was captured before
+> anything else, because it is the evidence that behaviour did not move.
+>
+> Mutation then found something the refactor had newly exposed. The program name used to be
+> welded into the same string literal the tests assert (`toContain('Could not resolve host')`);
+> as a parameter it is independently mutable, and **every assertion in all three files was
+> prefix-blind** — `program: 'lynx'` → `""` passed the entire suite. Four survivors, plus two
+> more where the `kind: 'error'` literal in `gobuster`'s and `lynx`'s own `error` helpers lost
+> its killing test to `webHost`'s copy. Six one-line assertion changes killed all six; no test
+> case was added, removed or weakened.
+>
+> **Evidence: the survivor sets before and after are byte-identical** (147 lines, empty diff both
+> ways), and `webHost.ts` is 100% (48/48) — the extracted step is fully pinned by the three
+> commands' existing behaviour tests, with no test of its own. The percentages fell
+> (curl 81.43 → 76.99, gobuster 82.12 → 77.87, lynx 78.85 → 70.67) purely because 37 killed
+> mutants stopped existing when three copies became one; the same 74 survivors now sit over a
+> smaller denominator. Score-as-percentage is the wrong instrument for a deduplication —
+> the survivor-set diff is the right one.
 
 **Value**: `lynx` is the third consumer of ~15 lines that `curl` and `gobuster` each carry a copy
 of. The divergence risk is real: this block decides which tree a request reads, so two copies

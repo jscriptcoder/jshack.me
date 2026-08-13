@@ -1,11 +1,11 @@
 /**
  * lynx — read a page instead of reading its source.
  *
- * The fetch is `curl`'s, step for step: parse the URL, resolve the host on the
- * player's own LAN, check something is listening, record the hit on the box that
+ * The fetch is `curl`'s: parse the URL, reach the host on the player's own LAN
+ * through the step both share (`reachWebHost`), record the hit on the box that
  * answered, then read the file beneath its document root. A browsed page and a
- * curled one are the same request, so a defender reading their `access.log` cannot
- * tell which tool asked.
+ * curled one are the same request — literally the same resolution — so a defender
+ * reading their `access.log` cannot tell which tool asked.
  *
  * What differs is where the answer goes. A page that came back opens the browser
  * screen; every way of NOT coming back is a message in the TERMINAL, because a
@@ -19,16 +19,12 @@
  * renders are most of the difference.
  */
 
-import type { Command, CommandEnv, CommandResult } from './types';
-import type { Directory } from '../filesystem/types';
-import { generateHomeLan } from '../generation/generateHomeLan';
-import { buildRemoteHostFs } from '../generation/remoteHostFs';
+import type { Command, CommandResult } from './types';
 import { createFsView } from '../filesystem/fsView';
-import { readOpenPorts } from '../services/pidfile';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { parseHttpUrl, resolveWebPath } from '../network/http';
 import { isPublicIp } from '../generation/ip';
-import { connectedWlan0, LOOPBACK_IPV4 } from '../network/interfaces';
+import { connectedWlan0 } from '../network/interfaces';
+import { reachWebHost } from './webHost';
 
 const error = (message: string): CommandResult => ({
   kind: 'sync',
@@ -50,34 +46,6 @@ const NOT_FOUND = 'lynx: (22) The requested URL returned error: 404';
 const CROSS_NETWORK =
   'lynx: only pages on your own network can be read — cross-network browsing is not supported yet';
 
-/** The names a box answers to for ITSELF. A player testing their own web server
- *  types `localhost` long before the address they were leased. */
-const LOOPBACK_NAMES: readonly string[] = ['localhost', LOOPBACK_IPV4];
-
-const connectError = (host: string, port: number, reason: string): CommandResult =>
-  error(`lynx: (7) Failed to connect to ${host} port ${port}: ${reason}`);
-
-/**
- * The filesystem behind `target`, or null when nothing on the LAN answers to that
- * address. The player's own address resolves to their LIVE tree, so a page they
- * just edited is the page they read back.
- */
-const targetFs = ({
-  env,
-  essid,
-  ownIp,
-  target,
-}: {
-  readonly env: CommandEnv;
-  readonly essid: string;
-  readonly ownIp: string;
-  readonly target: string;
-}): Directory | null => {
-  if (target === ownIp) return env.fs.root();
-  const host = generateHomeLan(essid).hosts.find((candidate) => candidate.ip === target);
-  return host === undefined ? null : buildRemoteHostFs(essid, host);
-};
-
 const execute: Command['execute'] = async (env, args) => {
   const raw = args[0];
   if (raw === undefined) {
@@ -98,20 +66,11 @@ const execute: Command['execute'] = async (env, args) => {
     return error(CROSS_NETWORK);
   }
 
-  const essid = wlan0.association.essid;
-  const isLoopback = LOOPBACK_NAMES.includes(url.host);
-  const targetAddress = isLoopback ? wlan0.ipv4 : url.host;
-  const hostFs = targetFs({ env, essid, ownIp: wlan0.ipv4, target: targetAddress });
-  if (hostFs === null) {
-    return error(`lynx: (6) Could not resolve host: ${url.host}`);
+  const reached = reachWebHost({ env, program: 'lynx', url, wlan0 });
+  if (!reached.ok) {
+    return reached.failure;
   }
-
-  const listening = readOpenPorts(hostFs).some(
-    (entry) => entry.port === url.port && entry.service === SERVICE_CATALOG.http.service,
-  );
-  if (!listening) {
-    return connectError(url.host, url.port, 'Connection refused');
-  }
+  const { fs: hostFs, essid, address, sourceIp } = reached.host;
 
   // Something answered, so the box that answered records the hit — one line for one
   // page read, exactly as one fetch is one line. Fire-and-forget: a page renders
@@ -120,10 +79,10 @@ const execute: Command['execute'] = async (env, args) => {
     void env.log
       .appendAccessLog({
         essid,
-        target: targetAddress,
+        target: address,
         port: url.port,
         paths: [url.path],
-        sourceIp: isLoopback ? LOOPBACK_IPV4 : wlan0.ipv4,
+        sourceIp,
       })
       .catch(() => undefined);
   } catch {

@@ -170,16 +170,22 @@ describe('lynx refuses in the terminal rather than opening on nothing', () => {
       network: mockNetworkView(),
     });
 
-    const { text, exitCode } = reported(await lynx.execute(offline, ['http://1.2.3.4'], new Map()));
+    const { text, exitCode, kinds } = reported(
+      await lynx.execute(offline, ['http://1.2.3.4'], new Map()),
+    );
 
     expect(text).toContain('unreachable');
     expect(exitCode).toBe(1);
+    // Styled as a failure, not printed as if it were a page.
+    expect(kinds).toEqual(['error']);
   });
 
   it('cannot resolve an address nothing on the network answers to', async () => {
     const { text, exitCode } = reported(await run(`http://${unoccupiedIp()}`));
 
-    expect(text).toContain('Could not resolve host');
+    // Named in full: the resolution step is shared with the other web tools, so the
+    // prefix is the only thing saying WHICH one refused.
+    expect(text).toContain('lynx: (6) Could not resolve host');
     expect(exitCode).toBe(1);
   });
 

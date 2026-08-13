@@ -345,13 +345,15 @@ describe('gobuster refuses in ways that stay honest', () => {
   it('names the missing list instead of reporting an empty server', async () => {
     const tree = ownBox(WEB_SERVER_RUNNING);
 
-    const { text, exitCode } = await sweep(tree, `http://${OWN_IP}`);
+    const { text, exitCode, kinds } = await sweep(tree, `http://${OWN_IP}`);
 
     // Without a list there is nothing to try, and "0 found" would read as a server
     // with nothing on it rather than as a tool with nothing to ask.
     expect(text).toContain(`no wordlist at ${DIRLIST_PATH}`);
     expect(text).toContain('apt install gobuster');
     expect(exitCode).toBe(1);
+    // Styled as a failure, not printed as if it were sweep output.
+    expect(kinds).toEqual(['error']);
   });
 
   it('says nothing about a path that climbs out of the document root', async () => {
@@ -440,7 +442,9 @@ describe('gobuster refuses before it sweeps, and says which refusal it is', () =
 
     const { text, exitCode } = await sweep(tree, `http://${unoccupiedIp()}`);
 
-    expect(text).toContain('Could not resolve host');
+    // Named in full: the resolution step is shared with the other web tools, so the
+    // prefix is the only thing saying WHICH one refused.
+    expect(text).toContain('gobuster: (6) Could not resolve host');
     expect(exitCode).toBe(1);
   });
 });
