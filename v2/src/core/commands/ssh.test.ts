@@ -821,7 +821,7 @@ const sshSameLanEnv = (over: SameLanEnvOver = {}) =>
     setCwd: over.onCwd ?? (() => undefined),
   });
 
-describe('ssh to a fellow occupant on the same LAN (Story 7)', () => {
+describe('ssh to a fellow occupant on the same LAN', () => {
   it('resolves the ESSID occupants, authenticates same-LAN, and pushes a session on the owner real machine id', async () => {
     const resolveOccupants = vi.fn(async () => [occupantAt(OCCUPANT_IP)]);
     const authenticateSameLan = vi.fn<(params: SameLanAuthParams) => Promise<PublicAuthResult>>(

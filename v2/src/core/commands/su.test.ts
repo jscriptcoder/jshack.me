@@ -445,7 +445,7 @@ describe('su', () => {
       expect(cwds).toEqual([]);
     });
 
-    it('does not write to the foreign box’s auth.log (cross-player trace deferred to Story 6)', async () => {
+    it('leaves the foreign box’s auth.log to the server rather than writing it here', async () => {
       const { env, authLogs, elevateCalls } = crossPlayerEnv({ typed: 'matrix1999' });
 
       await su.execute(env, ['root'], NO_FLAGS);

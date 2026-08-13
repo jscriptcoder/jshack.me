@@ -389,7 +389,7 @@ const ROUTER_PORTS_IDENTITY: ReturnType<typeof generateIdentity> = {
   privateKeyHex: 'b06229c561e83d6513a217c0e80760adc729cf73f2a787c554af70464b10ec14',
 };
 
-describe('handleNmapScan — own-LAN .1 scan → real router record (Story 6.4)', () => {
+describe('handleNmapScan — own-LAN .1 scan → real router record', () => {
   it('logs the .1 gateway scan on computeApGatewayId(ESSID), not the dead-end hostMachineId', async () => {
     const id = generateIdentity();
     const gateway = gatewayOf();
@@ -539,7 +539,7 @@ const traceOn = (
 ): PatchRow | undefined =>
   upsertPatch.mock.calls.map((call) => call[0]).find((row) => row.machine_id === machineId);
 
-describe('handleNmapScan — same-LAN scan traces a fellow occupant (Story 7)', () => {
+describe('handleNmapScan — same-LAN scan traces a fellow occupant', () => {
   const setup = (
     over: {
       aPatches?: readonly OwnerPatchRow[];

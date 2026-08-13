@@ -384,7 +384,7 @@ describe('buildRemoteHostFs', () => {
     });
   });
 
-  describe('base filesystem skeleton (Slice 3 — an operable remote box)', () => {
+  describe('base filesystem skeleton (an operable remote box)', () => {
     const fs = (): Directory => buildRemoteHostFs(ESSID, host(42));
 
     it('grows from pidfile-only to the full operable skeleton', () => {
@@ -444,7 +444,7 @@ describe('buildRemoteHostFs', () => {
       expect(node.perms.write).toEqual(['root']);
     });
 
-    it('keeps /var/run as the service pidfile dir (Slice 2 behaviour untouched)', () => {
+    it('keeps /var/run as the service pidfile dir, which nmap reads', () => {
       expect(dirAt(fs(), 'var', 'run').kind).toBe('directory');
     });
 
