@@ -331,7 +331,7 @@ describe('handleAuthElevateSession', () => {
   // collapse under the last-write-wins fold — the attacker's identity lives in the line
   // content (the `from` user), never in writer_key. An unknown machine_id (404) logs
   // nothing (there is no reachable box to log on). su lines carry no source IP.
-  describe('cross-player su trace (Story 6.3)', () => {
+  describe('cross-player su trace', () => {
     it("appends ONE 'Successful su' line on the WORKSTATION record under the OWNER's writer_key", async () => {
       const attacker = generateIdentity();
       const { deps, upsertPatch } = makeDeps();
