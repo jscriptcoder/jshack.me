@@ -539,6 +539,42 @@ element, so `username === undefined` is dead. The fix was to delete the operand,
 the report: an equivalent mutant is often dead code asking to be removed. Confirm with
 `tsc -b --force` that a guard is not secretly load-bearing for types before deleting it.
 
+**A mutation PERCENTAGE is the wrong instrument for judging a deduplication — diff the survivor
+SETS.** When three copies of the web target-resolution block became one (`reachWebHost`), every
+per-file score FELL — curl 81.43 → 76.99, gobuster 82.12 → 77.87, lynx 78.85 → 70.67 — and
+nothing had got weaker. 37 KILLED mutants stopped existing along with the two redundant copies,
+so the same 74 survivors sat over a smaller denominator. The check that actually answers "did the
+tests get weaker" is the survivor set:
+
+```bash
+npx stryker run --mutate '<files>' --reporters clear-text > after.txt
+grep -A2 '^\[Survived\]' after.txt | grep '^-' | sed 's/^-[[:space:]]*//;s/[[:space:]]*$//' \
+  | sort > after.survivors
+comm -13 before.survivors after.survivors   # anything listed here is a REAL regression
+```
+
+Capture the "before" from the pre-change code — `git stash push --include-untracked` the working
+changes, run, then pop; the run is deterministic, so a correct baseline reproduces exactly.
+**Never pipe the run through `tail`**: the summary table is the LAST thing printed, so `| tail -60`
+looks complete while silently discarding every survivor listing above it. Redirect the whole run
+to a file. (Also skip `--incremental` for a scoped run — it pollutes the report with cached
+results from files outside the scope.)
+
+**Extracting a welded-in string into a parameter silently unpins it.** `curl: (6) Could not
+resolve host: …` used to be a single template literal, so a StringLiteral mutant emptied the whole
+message and any `toContain('Could not resolve host')` killed it. Once the program name became an
+argument — `reachWebHost({ program: 'curl', … })` — it is its own mutable literal, and every
+assertion in all three command files turned out to be prefix-blind: `program: 'lynx'` → `""`
+passed the entire suite. **Expect this survivor class from any extraction that turns literal text
+into an argument**, and pin the parameter by asserting the full prefix
+(`toContain('lynx: (6) Could not resolve host')`) rather than the shared remainder.
+
+The same move has a subtler second form: a helper's mutants can MIGRATE. `gobuster`'s and `lynx`'s
+own `error` had its `kind: 'error'` killed by their connection-refused tests; once that message
+came from the shared module, those tests killed the SHARED copy instead and each command's local
+helper went unpinned. When behaviour moves into a shared module, check which tests moved with it —
+a file can lose coverage it never stopped deserving.
+
 **A branch that CHOOSES between two sources needs a fixture with distinct values on each, or the
 branch mutants are unkillable no matter how strong the assertion.** Slice 4's origin derivation picks
 between "the network you are standing on" and "the network you own"; in any fixture where the
