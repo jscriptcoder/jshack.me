@@ -19,7 +19,7 @@
  * tool, because none of it is about reaching the host.
  */
 
-import type { CommandEnv, CommandResult } from './types';
+import type { CommandResult } from './types';
 import type { Directory } from '../filesystem/types';
 import type { ParsedUrl } from '../network/http';
 import { errorLine } from './streaming';
@@ -49,12 +49,16 @@ export type ReachedHost = {
   readonly sourceIp: string;
 };
 
+/** A finished result carrying lines — narrow enough that a caller with no terminal
+ *  to print to can still read what went wrong. */
+export type ErrorResult = Extract<CommandResult, { readonly kind: 'sync' }>;
+
 /** Either the host answered, or here is the line the caller returns instead. */
 export type Reach =
   | { readonly ok: true; readonly host: ReachedHost }
-  | { readonly ok: false; readonly failure: CommandResult };
+  | { readonly ok: false; readonly failure: ErrorResult };
 
-const error = (message: string): CommandResult => ({
+const error = (message: string): ErrorResult => ({
   kind: 'sync',
   lines: [errorLine(message)],
   exitCode: 1,
@@ -72,7 +76,7 @@ export const connectError = ({
   readonly host: string;
   readonly port: number;
   readonly reason: string;
-}): CommandResult => error(`${program}: (7) Failed to connect to ${host} port ${port}: ${reason}`);
+}): ErrorResult => error(`${program}: (7) Failed to connect to ${host} port ${port}: ${reason}`);
 
 /**
  * The filesystem behind `target`, or null when nothing on the LAN answers to that
@@ -90,17 +94,17 @@ export const connectError = ({
  * and the read all stay in one place.
  */
 const targetFs = ({
-  env,
+  root,
   essid,
   ownIp,
   target,
 }: {
-  readonly env: CommandEnv;
+  readonly root: Directory;
   readonly essid: string;
   readonly ownIp: string;
   readonly target: string;
 }): Directory | null => {
-  if (target === ownIp) return env.fs.root();
+  if (target === ownIp) return root;
   const host = generateHomeLan(essid).hosts.find((candidate) => candidate.ip === target);
   return host === undefined ? null : buildRemoteHostFs(essid, host);
 };
@@ -112,12 +116,14 @@ const targetFs = ({
  * emptily, so "unreachable" and "nothing there" stay distinguishable.
  */
 export const reachWebHost = ({
-  env,
+  root,
   program,
   url,
   wlan0,
 }: {
-  readonly env: CommandEnv;
+  /** The tree the player's OWN box holds — the one address on the LAN whose
+   *  filesystem is real rather than generated. */
+  readonly root: Directory;
   readonly program: string;
   readonly url: ParsedUrl;
   readonly wlan0: ConnectedWlan0;
@@ -129,7 +135,7 @@ export const reachWebHost = ({
   // `localhost` cannot end up disagreeing with the LAN address about the same box.
   const isLoopback = LOOPBACK_NAMES.includes(url.host);
   const address = isLoopback ? wlan0.ipv4 : url.host;
-  const fs = targetFs({ env, essid, ownIp: wlan0.ipv4, target: address });
+  const fs = targetFs({ root, essid, ownIp: wlan0.ipv4, target: address });
   if (fs === null) {
     return { ok: false, failure: error(`${program}: (6) Could not resolve host: ${url.host}`) };
   }

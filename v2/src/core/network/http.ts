@@ -52,6 +52,53 @@ export const parseHttpUrl = (raw: string): ParsedUrl | null => {
   return { host, port, path: match[3] ?? '/' };
 };
 
+/** A URL as written, with the default port left unwritten — so an address a reader
+ *  sees, or one compared against another, has exactly one spelling. */
+const formatUrl = ({ host, port, path }: ParsedUrl): string =>
+  `http://${host}${port === HTTP_DEFAULT_PORT ? '' : `:${port}`}${path}`;
+
+/** Anything of the form `scheme:` — the shape that makes a href absolute rather
+ *  than relative to the page it sits on. */
+const SCHEME_PATTERN = /^[a-z][a-z0-9+.-]*:/i;
+
+/** The directory a request path sits in: up to and including its last slash, which
+ *  is what a href with no leading slash is relative to. */
+const directoryOf = (path: string): string => path.slice(0, path.lastIndexOf('/') + 1);
+
+/**
+ * The absolute URL a link on `base` points at, or null when it points at nothing
+ * this browser can fetch.
+ *
+ * Refusing is as much of the job as resolving. A browser numbers its links, and a
+ * number is a promise that pressing Enter goes somewhere — so `mailto:`, `https:`,
+ * an in-page `#anchor` and an empty href are not links at all here, they are text.
+ * That is the same rule that took the dead paths out of the generated pages: a page
+ * must not advertise what nothing can answer.
+ *
+ * A trailing slash survives resolution untouched, because it is what tells the fetch
+ * to serve a directory's index rather than to look for a file with that name.
+ */
+export const resolveHref = ({
+  base,
+  href,
+}: {
+  readonly base: string;
+  readonly href: string;
+}): string | null => {
+  const from = parseHttpUrl(base);
+  if (from === null) return null;
+  const target = href.trim();
+  if (target === '' || target.startsWith('#')) return null;
+  if (SCHEME_PATTERN.test(target)) {
+    const absolute = parseHttpUrl(target);
+    return absolute === null ? null : formatUrl(absolute);
+  }
+  const requested = target.startsWith('/') ? target : `${directoryOf(from.path)}${target}`;
+  const resolved = normalize(requested);
+  const path = requested.endsWith('/') && !resolved.endsWith('/') ? `${resolved}/` : resolved;
+  return formatUrl({ host: from.host, port: from.port, path });
+};
+
 /**
  * The file on the target box that `requestPath` names, or null when the path does
  * not name one at all — because it climbs out of the document root.

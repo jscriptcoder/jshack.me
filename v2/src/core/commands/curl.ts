@@ -125,7 +125,7 @@ const execute: Command['execute'] = async (env, args, flags) => {
     return fetchAcrossNetwork(env, url, flags.has('-i'));
   }
 
-  const reached = reachWebHost({ env, program: 'curl', url, wlan0 });
+  const reached = reachWebHost({ root: env.fs.root(), program: 'curl', url, wlan0 });
   if (!reached.ok) {
     return reached.failure;
   }

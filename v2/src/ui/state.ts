@@ -54,9 +54,14 @@ import { createFsView } from '../core/filesystem/fsView';
 import { resolveAbsPath } from '../core/filesystem/path';
 import {
   buildColdStartConnectivity,
+  connectedWlan0,
+  isOnline,
   type ConnectivityState,
   type NetworkInterface,
 } from '../core/network/interfaces';
+import { parseHttpUrl } from '../core/network/http';
+import { fetchWebPage } from '../core/commands/webPage';
+import type { FollowOutcome } from './screens/Lynx';
 import { generateWifi } from '../core/generation/generateWifi';
 import type { WifiNetwork } from '../core/network/wifi';
 import { commandRegistry } from '../core/commands/registry';
@@ -699,6 +704,64 @@ export const saveEditor = async (
   // the pre-save content and be refused against the row this one just created.
   if (result.ok) setOverlayMode({ kind: 'nano', path: mode.path, content });
   return result;
+};
+
+/** What a server sends when it was asked for something it does not have. The
+ *  browser is already open by the time a link is followed, so a 404 is a page to
+ *  render rather than a reason to close — and the box logged the miss, exactly as
+ *  it logged the hits either side of it. */
+const NOT_FOUND_PAGE =
+  '<h1>404 Not Found</h1><p>The requested URL was not found on this server.</p>';
+
+/**
+ * Follow a link from the page open in the browser, to the absolute `url` the
+ * screen resolved it to.
+ *
+ * Goes through the SAME fetch the `lynx` command does, so a followed link reads the
+ * tree a typed address would have reached and leaves the same one line behind on the
+ * box that answered. A page and a 404 both move the reader (both were answers); a
+ * host that never answered leaves them where they are with the reason, because
+ * nothing was logged and nowhere was visited.
+ *
+ * Only the browser navigates the browser: with any other app on screen, or none,
+ * there is no page to move on from and this opens nothing.
+ */
+export const followLink = async (url: string): Promise<FollowOutcome> => {
+  const mode = overlayMode();
+  if (mode === null || mode.kind !== 'lynx') {
+    return { ok: false, alert: 'lynx: no page is open' };
+  }
+  const target = parseHttpUrl(url);
+  if (target === null) {
+    return { ok: false, alert: `lynx: (3) URL rejected: ${url}` };
+  }
+  // The command builds its whole environment to run; a follow needs the three
+  // readers the fetch actually uses, all of which are already to hand here.
+  const wlan0 = connectedWlan0({
+    isOnline: () => isOnline(connectivity()),
+    interfaces: () => [...connectivity().interfaces.values()],
+  });
+  if (wlan0 === null) {
+    return { ok: false, alert: 'lynx: (7) Failed to connect — network is unreachable' };
+  }
+
+  const page = fetchWebPage({
+    root: activeRoot(),
+    program: 'lynx',
+    url: target,
+    wlan0,
+    appendAccessLog: (fetched) => log.appendAccessLog(fetched),
+  });
+  if (page.kind === 'unreachable') {
+    return { ok: false, alert: page.failure.lines.map((line) => line.content).join(' ') };
+  }
+
+  setOverlayMode({
+    kind: 'lynx',
+    url,
+    content: page.kind === 'page' ? page.content : NOT_FOUND_PAGE,
+  });
+  return { ok: true };
 };
 
 /** Whether the player's OWN workstation can boot — the brick check the boot

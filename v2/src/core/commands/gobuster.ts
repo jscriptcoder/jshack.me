@@ -209,7 +209,7 @@ const execute: Command['execute'] = async (env, args) => {
     return error(NOT_ON_YOUR_NETWORK);
   }
 
-  const reached = reachWebHost({ env, program: 'gobuster', url, wlan0 });
+  const reached = reachWebHost({ root: env.fs.root(), program: 'gobuster', url, wlan0 });
   if (!reached.ok) {
     return reached.failure;
   }

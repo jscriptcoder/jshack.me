@@ -5,7 +5,9 @@ import { lanLeaseCacheIn } from '../core/network/lanLeaseCache';
 import { contentHash } from '../core/patches/contentHash';
 import { CONNECTED_ESSID_KEY } from './connectionPersistence';
 import { buildRemoteHostFs } from '../core/generation/remoteHostFs';
-import { readOpenPorts } from '../core/services/pidfile';
+import { formatPidfileContent, readOpenPorts } from '../core/services/pidfile';
+import { SERVICE_CATALOG } from '../core/services/serviceCatalog';
+import { HTTP_DEFAULT_PORT } from '../core/network/http';
 
 /**
  * Regression guard for the module-top-level init bug (see intro-screen plan).
@@ -515,7 +517,7 @@ describe('full-screen apps a command opens', () => {
    *  route, so the test costs a rehydrate rather than a full crack journey.
    *  Coming back online needs BOTH halves the game persists: the ESSID, and the
    *  address that network leased. */
-  const startBrowsingGame = async () => {
+  const startBrowsingGame = async (...published: readonly object[]) => {
     vi.resetModules();
     const store = new Map<string, string>([[CONNECTED_ESSID_KEY, ESSID]]);
     const storage = {
@@ -530,7 +532,7 @@ describe('full-screen apps a command opens', () => {
       vi.fn(async () => ({
         ok: true,
         status: 200,
-        json: async () => ({ patches: [INSTALLED_LYNX], sessions: [] }),
+        json: async () => ({ patches: [INSTALLED_LYNX, ...published], sessions: [] }),
       })),
     );
     const state = await import('./state');
@@ -566,6 +568,97 @@ describe('full-screen apps a command opens', () => {
 
     // A browser that opened on a 404 would have nothing to show, so the refusal
     // belongs in the terminal — where the scrollback now carries it.
+    expect(state.overlayMode()).toBeNull();
+  });
+
+  /** A player's own box, publishing a two-page site. Generated hosts render
+   *  linkless by design, so a site with a link in it is one the player wrote. */
+  const OWN_SITE = [
+    {
+      path: '/var/run/nginx.pid',
+      content: formatPidfileContent(SERVICE_CATALOG.http, HTTP_DEFAULT_PORT),
+      owner: 'root',
+    },
+    {
+      path: '/var/www/html/index.html',
+      content: '<h1>mine</h1><p><a href="/notes.html">the notes</a></p>',
+      owner: 'root',
+    },
+    { path: '/var/www/html/notes.html', content: '<h1>notes</h1>', owner: 'root' },
+  ];
+
+  const openBrowserOnOwnSite = async () => {
+    const state = await startBrowsingGame(...OWN_SITE);
+    state.setInput('lynx http://localhost/');
+    await state.runInput();
+    expect(state.overlayMode()).toMatchObject({ kind: 'lynx', url: 'http://localhost/' });
+    return state;
+  };
+
+  it('follows a link to the next page the box publishes', async () => {
+    const state = await openBrowserOnOwnSite();
+
+    const outcome = await state.followLink('http://localhost/notes.html');
+
+    expect(outcome).toEqual({ ok: true });
+    expect(state.overlayMode()).toMatchObject({
+      kind: 'lynx',
+      url: 'http://localhost/notes.html',
+      content: '<h1>notes</h1>',
+    });
+  });
+
+  // The browser is already open by the time a link is followed, so a path the box
+  // does not publish is a page to render rather than a reason to close.
+  it('shows a link to a path the box does not publish as a page, not as a dead end', async () => {
+    const state = await openBrowserOnOwnSite();
+
+    const outcome = await state.followLink('http://localhost/missing.html');
+
+    expect(outcome).toEqual({ ok: true });
+    expect(state.overlayMode()).toMatchObject({ url: 'http://localhost/missing.html' });
+    expect(state.overlayMode()?.content).toContain('404');
+  });
+
+  /** A free address that is NOT the player's own: `unoccupiedIp` is the one this
+   *  game leases them, so reaching for it again would target the box they are
+   *  browsing rather than an empty stretch of the subnet. */
+  const unleasedIp = (): string => {
+    const lan = generateHomeLan(ESSID);
+    const taken = new Set([...lan.hosts.map((host) => host.ip), unoccupiedIp()]);
+    const free = Array.from({ length: 253 }, (_unused, index) => `${lan.subnet}.${index + 2}`).find(
+      (ip) => !taken.has(ip),
+    );
+    if (free === undefined) throw new Error('expected a second free address on the subnet');
+    return free;
+  };
+
+  it('stays on the page when the link led somewhere nothing answered', async () => {
+    const state = await openBrowserOnOwnSite();
+
+    const outcome = await state.followLink(`http://${unleasedIp()}/index.html`);
+
+    expect(outcome).toMatchObject({ ok: false });
+    expect(state.overlayMode()).toMatchObject({ url: 'http://localhost/' });
+  });
+
+  it('rejects a link written to an address it cannot even read as one', async () => {
+    const state = await openBrowserOnOwnSite();
+
+    const outcome = await state.followLink('not-a-url');
+
+    expect(outcome).toMatchObject({ ok: false });
+    expect(state.overlayMode()).toMatchObject({ url: 'http://localhost/' });
+  });
+
+  // Only the browser navigates the browser: nothing else on screen has a page to
+  // move on from, and a stray follow must not conjure one.
+  it('opens nothing when no browser is on screen to follow a link', async () => {
+    const state = await startBrowsingGame(...OWN_SITE);
+
+    const outcome = await state.followLink('http://localhost/notes.html');
+
+    expect(outcome).toMatchObject({ ok: false });
     expect(state.overlayMode()).toBeNull();
   });
 });
