@@ -326,7 +326,9 @@ describe('curl', () => {
       const { text, exitCode } = await run(`http://${unoccupiedIp()}`);
 
       expect(exitCode).not.toBe(0);
-      expect(text).toContain('Could not resolve host');
+      // Named in full: the resolution step is shared with the other web tools, so the
+      // prefix is the only thing saying WHICH one refused.
+      expect(text).toContain('curl: (6) Could not resolve host');
     });
   });
 
@@ -786,6 +788,7 @@ describe('curl across the network, at another player public IP', () => {
     const { drained } = await fetchAcross(failed('host_unreachable'), `http://${THEIR_PUBLIC_IP}`);
 
     expect(drained.exitCode).toBe(1);
+    expect(drained.text).toContain('curl: (7) Failed to connect');
     expect(drained.text).toContain('Connection refused');
     expect(drained.kinds).toEqual(['error']);
   });
