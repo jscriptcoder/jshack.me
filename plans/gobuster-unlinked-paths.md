@@ -1,12 +1,12 @@
 # Plan: D1c — a player finds the pages a server never linked
 
-**Status**: **Slice 1 SHIPPED** (v0.123.0, commit `72c33d0`, [PR #378](https://github.com/jscriptcoder/jshack.me/pull/378) — open, awaiting merge). **Slice 2 is next and has not been started.**
-**Branch**: slice 1 was `feat/pages-nobody-linked`; cut a fresh branch off merged `main` for slice 2.
+**Status**: **Slices 1 and 2 are done.** Slice 1 merged (v0.123.0, [PR #378](https://github.com/jscriptcoder/jshack.me/pull/378), `7f3c2d2`); slice 2 built and wire-checked at v0.124.0, awaiting commit. **Only the close-out E2E is left.**
+**Branch**: slice 1 was `feat/pages-nobody-linked` (merged, deleted); slice 2 is `feat/defender-sees-the-sweep`, cut off `7f3c2d2`.
 **Epic**: [`legacy-parity-epic.md`](./legacy-parity-epic.md) row **D1c**, Phase 1
 **Base version**: v0.122.0 → **v0.123.0** after slice 1
 
 > **Picking this up cold?** Read "Scope decision" (why there is no generated content here),
-> then "Slice 1 — as built", then start at **Slice 2**. Everything above Slice 2 is done.
+> then the two as-built slices, then run the **close-out E2E** — the only thing left.
 
 ## Goal
 
@@ -60,9 +60,8 @@ gobuster http://localhost
       sole gate, exactly as `passwordSweep.ts` makes it for credentials. A path present on the
       box but absent from the list is not found; a word in the list naming nothing is not
       reported.
-- [ ] The target's `/var/log/access.log` records **every probe**, hits and misses alike, in the
+- [x] The target's `/var/log/access.log` records **every probe**, hits and misses alike, in the
       order tried, as one append — the run of 404s with a 200 in it is the defender's tell.
-      **← SLICE 2, not started**
 - [x] A player can append a path to the list with `nano` and a subsequent sweep finds something
       the shipped list missed.
 - [ ] Proven live, end to end, by a player creating a directory and page by hand and sweeping
@@ -84,7 +83,7 @@ gobuster http://localhost
 
 ## Slices
 
-### Slice 1: A player finds a path nobody linked — ✔ SHIPPED (v0.123.0, `72c33d0`, PR #378)
+### Slice 1: A player finds a path nobody linked — ✔ SHIPPED (v0.123.0, `7f3c2d2`, PR #378)
 
 All eight acceptance criteria met. 2427 tests green, `tsc -b` and `eslint` clean.
 
@@ -137,46 +136,60 @@ evidence rather than test ordering.
 
 ---
 
-### Slice 2: The defender sees the sweep — ← **START HERE**, not started
+### Slice 2: The defender sees the sweep — ✔ BUILT (v0.124.0, awaiting commit)
 
-**Why it matters more than it sounds**: as of v0.123.0 a sweep is **silent on the target**.
-`curl` writes an access-log line per fetch and gobuster writes nothing at all, so right now the
-loudest thing a player can do to a web server is the quietest thing in the game. hydra had the
-same gap between D2.1 and D2.3 and it was fine, but it is live on `main` once #378 merges.
+The gap it closed: between #378 and this, a sweep was **silent on the target** while `curl`
+wrote a line per fetch — the loudest thing a player could do to a web server was the quietest
+thing in the game. All seven approved criteria are met, 2436 tests green, `tsc -b` and `eslint`
+clean, and the wire-check passes 11/11 live.
 
-**Class**: Behavior change.
-**Value**: The attack acquires its cost. A sweep is the loudest thing a player can point at a
-web server, and the defender can only tell a typo from a walk of the document root if the
-misses are written down (`accessLog.ts` says exactly this, and nothing yet produces the volume).
-**Path**: the sweep's probes → one batched append → the target's `/var/log/access.log`.
-**Production path touched**: `api/patches.ts` `recordLanFetch` gains a batched form (or a
-sibling action), `core/network/recordLanFetch.ts`, `commands/types.ts` `LogApi`, `ui/state.ts`
-wiring.
-**Required implementation skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
+**What it built**
+- `recordLanFetch` now takes **`paths[]` instead of `path`** — ONE action, not a sibling. `curl`
+  sends a one-element array. The alternative would have duplicated the whole lease-vs-generated-
+  host resolution block (`recordLanFetch.ts:116-147`) purely to vary the number of lines written,
+  and that block is where a divergence would be a security-shaped bug rather than a cosmetic one.
+- The handler maps every path through the same resolve-and-read it already did, and lands the
+  result as one `appendMachineLog` call — `lines.join('\n')`, exactly how `hydraCrack.ts:140`
+  lands a credential sweep on `auth.log`.
+- `gobuster`'s `probe` now returns `{ asked, hit }`, and the run reports `asked` once at the end.
+- `scripts/testLanFetchLog.ts` grew the sweep checks; it covers both callers now.
 
-**⚠️ This slice changes `api/` — it needs a `scripts/test*.ts` wire-check against `vercel dev`
-+ supabase before it can be called proven.** `tsc` cannot see DB columns or constraints, and
-wire-checks are not in CI, so a regression here ships green.
+**Decisions taken, and why they are not free to re-open casually**
 
-**Acceptance criteria** (confirm before any code):
-1. Every probe is recorded — 404s and 200s alike, in the order tried.
-2. The whole sweep is **one append**, not one round-trip per word. D2.3 settled the parallel
-   for hydra ("volume is the behaviour", ~110 lines as a single append); a sweep making N
-   signed requests would be a different kind of expensive.
-3. The server still resolves status and size **itself** and never trusts the client's claim —
-   `AccessLogFetch`'s docstring locks this ("a crafted request can never author a line claiming
-   something was served that never was"), and a batched form is precisely where that guarantee
-   could be lost.
-4. A sweep that never reached the box writes nothing at all (D2.3's rule for auth.log).
-5. The defender reading `/var/log/access.log` sees the run of 404s with the hit inside it.
-6. A wire-check proves 1-4 live against `vercel dev` + supabase.
+1. **A word naming a directory reports TWO asked paths** (`/hidden` and `/hidden/`), because two
+   requests really reached the server. Reporting only the word would leave the defender's log
+   denying the hit the attacker was just shown; reporting only the slash form would hide the
+   probe that started it.
+2. **The bare directory path logs as `404 0`.** A real Apache would answer `301` there. Nothing
+   in the game speaks 301 yet and inventing one status for one case is a worse trade than a
+   defensible miss buried in a wall of misses — but it IS a small lie, and it is the first thing
+   to fix if redirect statuses ever land.
+3. **One clock reading per request, shared by every line.** The server handled one request; a
+   stamp per line would spread a sweep across a span nothing observed. Same as hydra's `stamp`.
+4. **An empty `paths` is refused (`payload_invalid`), not accepted-and-ignored.** A sweep that
+   asked nothing is the same omission as naming no path, and the client already declines to
+   report when its list is empty — so an empty array on the wire is a caller doing something
+   else.
+5. **Traversals are reported to the target though the player is told nothing.** Silence is owed
+   to the attacker, not to the box's owner: somebody walking out of the document root is the
+   single most interesting line in that file.
 
-**RED**: A test asserting one sweep produces one append carrying a line per probe, with the
-non-existent paths present as 404s.
-**GREEN**: The batched action and its wiring.
-**MUTATE**: The status/size derivation is the survivor risk — a mutant logging every probe as
-200 must fail a test.
-**Done when**: criteria met, wire-check passes live, gates green, human approves the commit.
+**Mutation results** — `gobuster.ts` logic (`104-284`): **98.18%**, 108 killed, one survivor plus
+one no-coverage, both the SAME documented-unreachable `indexPath === null` guard.
+`recordLanFetch.ts`: **98.00%**, 98 killed, 2 survivors — both the pre-existing `?? []` fallbacks
+in `ownWorkstationTarget`, equivalent (a `"Stryker was here"` row matches no owner key and yields
+no lease, so every path returns null as before).
+
+**What mutation testing found, and it was a real hole**: nothing in slice 1 ever swept a
+GENERATED host. `targetFs`'s LAN lookup could be mutated to "never resolves" and the suite stayed
+green, because every test pointed at the player's own IP or an unoccupied address — the tool's
+single most ordinary use was unproven. Two tests now cover it, including the convincing wrong
+answer (resolving a neighbour to the sweeper's OWN document root).
+
+**Wire-check** (`testLanFetchLog.ts`, live against `vercel dev` + supabase, 11/11):
+a sweep of `['/admin', '/', '/backup']` landed three lines in that order — `404 0`, `200 252`,
+`404 0` — all sharing one timestamp, in one row; an empty list returned `400 payload_invalid` and
+wrote nothing; and every pre-existing `curl` check still passed on the new wire shape.
 
 ---
 

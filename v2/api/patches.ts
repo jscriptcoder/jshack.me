@@ -251,12 +251,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (actionOf(req.body) === 'recordLanFetch') {
-    // An own-LAN `curl` records ONE access.log line on the box that answered it,
-    // server-internal: the handler resolves WHICH box that is (the caller's own
-    // workstation when they fetched their own leased address, else a generated
-    // sibling), reads the page itself, and stamps time/status/size. The client names
-    // only what it fetched. Same read-modify-write `patches`-table shapes as the scan
-    // and auth.log appenders around it.
+    // An own-LAN `curl` records one access.log line on the box that answered it, and a
+    // path sweep records a line per probe as a single append. Both are server-internal:
+    // the handler resolves WHICH box that is (the caller's own workstation when they
+    // fetched their own leased address, else a generated sibling), reads the pages
+    // itself, and stamps time/status/size. The client names only what it asked for.
+    // Same read-modify-write `patches`-table shapes as the scan and auth.log appenders
+    // around it.
     const readLog = async ({ writer_key, machine_id, path }: MachineLogReadQuery) => {
       const { data, error } = await supabase
         .from('patches')

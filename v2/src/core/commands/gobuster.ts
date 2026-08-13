@@ -75,6 +75,26 @@ type Hit = {
   readonly size: number;
 };
 
+/** What one word asked of the server, and what came back. `asked` is what the TARGET
+ *  is told about rather than what the player is shown: a word naming a directory costs
+ *  two requests, and a traversal costs one the sweeper is never told the fate of. */
+type Probe = {
+  readonly asked: readonly string[];
+  readonly hit: Hit | null;
+};
+
+/** Where a sweep is pointed, in the terms both ends need: the url AS TYPED for the
+ *  header, the tree to probe, and the resolved address the target's own log is keyed
+ *  by — `localhost` names no machine to the server that has to find it. */
+type SweepTarget = {
+  readonly url: string;
+  readonly fs: Directory;
+  readonly essid: string;
+  readonly address: string;
+  readonly port: number;
+  readonly sourceIp: string;
+};
+
 /**
  * The filesystem behind `target`, or null when nothing on the LAN answers to that
  * address. The player's own address resolves to their LIVE tree, so a directory
@@ -109,31 +129,58 @@ const targetFs = ({
  * player finds a folder they were never linked to. A directory with no index serves
  * nothing and is not a find.
  */
-const probe = (hostFs: Directory, word: string): Hit | null => {
+const probe = (hostFs: Directory, word: string): Probe => {
   const requestPath = `/${word}`;
+  const asked = [requestPath];
   const filePath = resolveWebPath(requestPath);
   // A path that climbs out of the published directory names nothing, and is not
   // distinguishable from a miss — telling a sweeper their traversal was SPOTTED is
-  // itself a hint worth withholding.
-  if (filePath === null) return null;
+  // itself a hint worth withholding. The TARGET is still told it was asked: silence
+  // is owed to the attacker, not to the box's owner.
+  if (filePath === null) return { asked, hit: null };
 
   const view = createFsView(hostFs, { userType: 'root' });
   const served = view.read(filePath);
-  if (served.ok) return { path: requestPath, size: served.content.length };
+  if (served.ok) return { asked, hit: { path: requestPath, size: served.content.length } };
   // Known-equivalent under mutation, deliberately kept: removing this guard only
   // makes a `not_found` take the directory retry as well, which fails the same way
   // (nothing can live under a path that does not exist), and root reading means
   // `permission_denied` never occurs. It states the intent and saves the work.
-  if (served.error !== 'is_directory') return null;
+  if (served.error !== 'is_directory') return { asked, hit: null };
 
   const indexPath = resolveWebPath(`${requestPath}/`);
   // Also known-equivalent, and required by the type rather than by a case: a path
   // that escaped the document root already returned above, so appending a slash
   // cannot escape either. `resolveWebPath` still hands back a nullable, and this is
   // what narrows it.
-  if (indexPath === null) return null;
+  if (indexPath === null) return { asked, hit: null };
   const index = view.read(indexPath);
-  return index.ok ? { path: `${requestPath}/`, size: index.content.length } : null;
+  return {
+    // Two requests reached the server for this one word, and the log records both —
+    // the bare path a real server redirects, and the form it redirects TO.
+    asked: [...asked, `${requestPath}/`],
+    hit: index.ok ? { path: `${requestPath}/`, size: index.content.length } : null,
+  };
+};
+
+/** Tell the box what it was just asked for — every probe, in the order tried, as ONE
+ *  append. Fire-and-forget like `curl`'s: the sweep has already happened, and neither
+ *  a failed write nor an unwired seam can unmake it. Nothing asked, nothing said. */
+const reportSweep = (env: CommandEnv, target: SweepTarget, paths: readonly string[]): void => {
+  if (paths.length === 0) return;
+  try {
+    void env.log
+      .appendAccessLog({
+        essid: target.essid,
+        target: target.address,
+        port: target.port,
+        paths,
+        sourceIp: target.sourceIp,
+      })
+      .catch(() => undefined);
+  } catch {
+    // best-effort: logging must not surface to the sweep.
+  }
 };
 
 const formatHit = ({ path, size }: Hit): string =>
@@ -141,7 +188,7 @@ const formatHit = ({ path, size }: Hit): string =>
 
 async function* run(
   env: CommandEnv,
-  target: { readonly url: string; readonly fs: Directory },
+  target: SweepTarget,
   words: readonly string[],
 ): AsyncGenerator<TerminalLine, number> {
   yield text('Gobuster dir mode');
@@ -150,16 +197,25 @@ async function* run(
   yield text(`[+] Words:     ${words.length}`);
   yield text('');
 
-  let found = 0;
+  const probes: Probe[] = [];
   for (const word of words) {
     await env.sleep(PROBE_DELAY_MS);
-    const hit = probe(target.fs, word);
-    if (hit !== null) {
-      found += 1;
-      yield text(formatHit(hit));
+    const probed = probe(target.fs, word);
+    probes.push(probed);
+    if (probed.hit !== null) {
+      yield text(formatHit(probed.hit));
     }
   }
 
+  // After the walk, not during it: the box was asked all of this by one tool in one
+  // run, and a line per probe would be a round-trip per word.
+  reportSweep(
+    env,
+    target,
+    probes.flatMap((probed) => probed.asked),
+  );
+
+  const found = probes.filter((probed) => probed.hit !== null).length;
   yield text('');
   yield text(`Finished. ${found}/${words.length} paths found.`);
   return 0;
@@ -186,7 +242,8 @@ const execute: Command['execute'] = async (env, args) => {
   }
 
   const essid = wlan0.association.essid;
-  const targetAddress = LOOPBACK_NAMES.includes(url.host) ? wlan0.ipv4 : url.host;
+  const isLoopback = LOOPBACK_NAMES.includes(url.host);
+  const targetAddress = isLoopback ? wlan0.ipv4 : url.host;
   const hostFs = targetFs({ env, essid, ownIp: wlan0.ipv4, target: targetAddress });
   if (hostFs === null) {
     return error(`gobuster: (6) Could not resolve host: ${url.host}`);
@@ -208,7 +265,22 @@ const execute: Command['execute'] = async (env, args) => {
     );
   }
 
-  return streamedResult(run(env, { url: raw, fs: hostFs }, parseDirlist(dirlist.content)));
+  return streamedResult(
+    run(
+      env,
+      {
+        url: raw,
+        fs: hostFs,
+        essid,
+        address: targetAddress,
+        port: url.port,
+        // A sweep run over loopback says so, as a real server's log does — the box is
+        // both ends of it.
+        sourceIp: isLoopback ? LOOPBACK_IPV4 : wlan0.ipv4,
+      },
+      parseDirlist(dirlist.content),
+    ),
+  );
 };
 
 export const gobuster: Command = {

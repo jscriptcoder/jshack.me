@@ -186,7 +186,7 @@ export const recordLanFetch = async (
       essid: fetched.essid,
       target: fetched.target,
       port: fetched.port,
-      path: fetched.path,
+      paths: fetched.paths,
       source_ip: fetched.sourceIp,
     });
   } catch {
