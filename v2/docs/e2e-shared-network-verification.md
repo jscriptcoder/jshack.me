@@ -460,6 +460,54 @@ Supabase Realtime and the cheaper pull-shaped alternative are both recorded.
 
 ---
 
+### Act 8 — the path sweep, and the log that reads it back (D1c)
+
+**Executed in full 2026-08-13 against v0.124.0. All checks passed.** One identity, own LAN.
+This act exists because the world has no unlinked content to find — every generated box stops
+at `/var/www/html/index.html` — so the *player* generates the content and sweeps for it. That
+substitution is deliberate and is what stands in for a content epic as evidence.
+
+`airmon start wlan0` → `airdump` → `aircrack` → `airmon stop wlan0` → `nmcli connect` → `su
+root` → `apt install gobuster` → `mkdir /var/www/html/private` + `mkdir /var/www/html/hidden` →
+`nano` a page into each → `apt install nginx` → `nginx` → `gobuster http://localhost` → `nano
+/usr/share/wordlists/dirlist.txt` → sweep again → `cat /var/log/access.log`.
+
+Two directories, not one, and the choice matters: `private` **is** in the shipped list and
+`hidden` is **not**, so a single run shows both sides of the gate at once.
+
+| Check | Result |
+|---|---|
+| A hand-made page is found | `/private/ (Status: 200) [Size: 84]` — exactly the bytes typed into `nano`, so it read the live tree |
+| The list is the sole gate | `/hidden/` sits in the document root and is NOT reported — `2/40 paths found` |
+| A player widens the list and the world grows | append `hidden` with `nano` → `3/41 paths found`, `/hidden/ (Status: 200) [Size: 82]` |
+| The sweep is logged **whole**, misses included | 41 lines for a 40-word list: 39 × `404 0`, 2 × `200` |
+| One sweep is ONE moment | all 41 lines share `[13/Aug/2026:08:15:28 +0000]`; the second sweep's 43 lines share `08:17:19`. Two blocks, two stamps |
+| One sweep is ONE write | `select count(*) … machine_id like 'sweepbox-%'` → **1** row holding both blocks, 84 lines |
+| The retry the player never sees IS logged | `"GET /private HTTP/1.1" 404 0` immediately followed by `"GET /private/ HTTP/1.1" 200 84`. The tool printed only the second; the defender gets both |
+| A loopback sweep is loopback in the log | source `127.0.0.1` on every line of an own-box sweep |
+| A neighbour's tree is the NEIGHBOUR's | `gobuster http://192.168.45.223` → `/index.html [Size: 340]` where the sweeper's own is `212`. A same-size answer would mean the LAN lookup silently fell back to self |
+| The neighbour's log names the sweeper by LAN IP | 41 lines on `workstation-223`, source `192.168.45.114` — the sweeper never sent that address, the server derived it |
+| A host not serving http refuses | `nmap` shows `desktop-192` with no open ports; only `workstation-223` (22, 80) answers a sweep |
+
+**The plan's own journey was wrong, and this run is why it is worth executing one.** The
+written recipe used `mkdir /var/www/html/hidden` — and `hidden` is not in `DEFAULT_DIRLIST`,
+so followed literally it finds nothing and reads as a broken tool. The fix is either a listed
+directory or the `nano` step; the run above does both deliberately.
+
+**One realism compromise, visible here.** The bare `"GET /private HTTP/1.1"` logs `404 0`
+where real Apache answers `301`. Accepted for this slice and recorded in the plan; it is the
+first thing to revisit if redirect statuses ever land.
+
+**A third nano trap, now in the skill's §7.** After any `agent-browser eval` touches focus,
+`press Control+o` / `Control+x` stop reaching the editor — `document.activeElement` still
+reports the textarea, so it looks like a hung save. A real `agent-browser click "textarea"`
+before the chord fixes it. This cost a corrupted buffer: two `cat` commands typed one beat
+early landed *inside* the page, because a poll caught a transient re-render and reported the
+editor closed when it was not. Poll for absence **twice**, and read the buffer back before
+saving.
+
+---
+
 ## 6. What a failure means
 
 | Symptom | Look at |

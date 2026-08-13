@@ -1,12 +1,16 @@
 # Plan: D1c — a player finds the pages a server never linked
 
-**Status**: **Slices 1 and 2 are done.** Slice 1 merged (v0.123.0, [PR #378](https://github.com/jscriptcoder/jshack.me/pull/378), `7f3c2d2`); slice 2 built and wire-checked at v0.124.0, awaiting commit. **Only the close-out E2E is left.**
+**Status**: **DONE — nothing left in this plan.** Slice 1 merged (v0.123.0, [PR #378](https://github.com/jscriptcoder/jshack.me/pull/378), `7f3c2d2`); slice 2 at v0.124.0 ([PR #379](https://github.com/jscriptcoder/jshack.me/pull/379)); the close-out E2E ran 2026-08-13 and is written up as Act 8. Delete this file when #379 merges.
 **Branch**: slice 1 was `feat/pages-nobody-linked` (merged, deleted); slice 2 is `feat/defender-sees-the-sweep`, cut off `7f3c2d2`.
 **Epic**: [`legacy-parity-epic.md`](./legacy-parity-epic.md) row **D1c**, Phase 1
-**Base version**: v0.122.0 → **v0.123.0** after slice 1
+**Base version**: v0.122.0 → **v0.123.0** after slice 1 → **v0.124.0** after slice 2
 
-> **Picking this up cold?** Read "Scope decision" (why there is no generated content here),
-> then the two as-built slices, then run the **close-out E2E** — the only thing left.
+> **Picking this up cold?** Nothing here needs doing. The durable parts have moved out: the
+> as-built behaviour is the code and its tests, the live proof is Act 8 in
+> [`e2e-shared-network-verification.md`](../v2/docs/e2e-shared-network-verification.md), and the
+> deferred items below are the only thing worth reading. "Scope decision" explains why this
+> command shipped against player-made content rather than generated content — that reasoning
+> belongs to the content epic now.
 
 ## Goal
 
@@ -64,9 +68,8 @@ gobuster http://localhost
       order tried, as one append — the run of 404s with a 200 in it is the defender's tell.
 - [x] A player can append a path to the list with `nano` and a subsequent sweep finds something
       the shipped list missed.
-- [ ] Proven live, end to end, by a player creating a directory and page by hand and sweeping
+- [x] Proven live, end to end, by a player creating a directory and page by hand and sweeping
       for it — the journey above, recorded in `e2e-shared-network-verification.md`.
-      **← close-out, not started**
 
 ## What this reuses whole (do NOT rebuild)
 
@@ -193,14 +196,29 @@ wrote nothing; and every pre-existing `curl` check still passed on the new wire 
 
 ---
 
-### Close-out: prove it the way a player would
+### Close-out: prove it the way a player would — ✔ DONE (2026-08-13, v0.124.0)
 
-Not a slice — the confirmation step before the epic row is marked shipped. Load the `v2-e2e`
-skill and drive the journey in "Scope decision" live against `vercel dev` + supabase: create the
-directory and page by hand, start the server, sweep, then read the box's own `access.log` and
-see the probe list. Record it in `e2e-shared-network-verification.md`, as D1 did in §7.
+Driven live against `vercel dev` + supabase and written up as **Act 8** in
+[`e2e-shared-network-verification.md`](../v2/docs/e2e-shared-network-verification.md), beside
+D1's Act 7. All checks passed.
 
-This is what stands in for generated content as evidence, so it is not optional.
+The run built two directories rather than the one this plan wrote, and that is the correction
+worth carrying: **the journey above is wrong as written.** `hidden` is not in `DEFAULT_DIRLIST`,
+so `mkdir /var/www/html/hidden` followed literally finds nothing and reads as a broken tool. The
+executed version used `private` (in the list, found immediately) *and* `hidden` (absent, found
+only after `nano` widened the list) — which proves the list-is-the-gate rule and the player-edits-
+the-list criterion in the same run.
+
+What the live log showed, beyond what the wire-check already proved:
+
+- 41 lines for a 40-word list, all sharing one timestamp; a second sweep added 43 more under a
+  second timestamp. Two blocks, two moments, **one row** — `count(*)` on the sweepbox's
+  `access.log` patch is 1.
+- `"GET /private HTTP/1.1" 404 0` immediately followed by `"GET /private/ HTTP/1.1" 200 84` —
+  the trailing-slash retry the tool never prints, sitting in the defender's log.
+- A neighbour sweep (`workstation-223`) returned `/index.html [Size: 340]` where the sweeper's
+  own is `212`, and logged the sweeper's LAN IP. That is the case the mutation run exposed as
+  untested, now confirmed by hand as well.
 
 ## Deferred — named, not planned
 
