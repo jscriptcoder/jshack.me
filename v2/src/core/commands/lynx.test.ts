@@ -1,12 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { lynx } from './lynx';
-import type { AccessLogFetch, CommandResult } from './types';
+import type {
+  AccessLogFetch,
+  CommandResult,
+  PublicFetchParams,
+  PublicFetchResult,
+} from './types';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
   mockIdentity,
   mockNetworkView,
   mockNetworkViewFromConnectivity,
+  mockRemoteApi,
 } from '../../test/factories/commandEnv';
 import { applyPatches, type Patch } from '../filesystem/applyPatches';
 import type { Directory } from '../filesystem/types';
@@ -240,11 +246,116 @@ describe('lynx refuses in the terminal rather than opening on nothing', () => {
     expect(exitCode).toBe(1);
   });
 
-  it('says cross-network browsing is not here yet rather than pretending to fetch', async () => {
-    const { text, exitCode } = reported(await run('http://203.0.113.7'));
+});
 
-    expect(text).toContain('own network');
+describe('lynx across the network, at another player public IP', () => {
+  const THEIR_PUBLIC_IP = '203.0.113.7';
+  const THEIR_PAGE = '<h1>welcome to nebuchadnezzar</h1><p>Nothing to see.</p>';
+
+  /** Run `lynx <url>` with the cross-network fetch stubbed, capturing what the client
+   *  asked the server for. The request is the contract: there is no field an address
+   *  could travel in, which is what makes the target's log the server's word and not
+   *  the caller's. */
+  const browseAcross = async (
+    result: PublicFetchResult,
+    ...args: readonly string[]
+  ): Promise<{ readonly result: CommandResult; readonly asked: readonly PublicFetchParams[] }> => {
+    const asked: PublicFetchParams[] = [];
+    const env = mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+      remote: {
+        ...mockRemoteApi(),
+        fetchPublic: async (params) => {
+          asked.push(params);
+          return result;
+        },
+      },
+    });
+    return { result: await lynx.execute(env, args, new Map()), asked };
+  };
+
+  const served = (content: string): PublicFetchResult => ({ ok: true, content });
+  const failed = (error: 'host_unreachable' | 'not_found' | 'network_error'): PublicFetchResult => ({
+    ok: false,
+    error,
+  });
+
+  it('opens the browser on the page the server resolved, with no session and no credential', async () => {
+    const { result } = await browseAcross(served(THEIR_PAGE), `http://${THEIR_PUBLIC_IP}`);
+
+    const { url, content } = opened(result);
+    expect(url).toBe(`http://${THEIR_PUBLIC_IP}`);
+    expect(content).toContain('welcome to nebuchadnezzar');
+  });
+
+  it('asks the server for the raw url path, never a resolved file path', async () => {
+    const { asked } = await browseAcross(
+      served(THEIR_PAGE),
+      `http://${THEIR_PUBLIC_IP}:8080/status.html`,
+    );
+
+    expect(asked).toEqual([{ target: THEIR_PUBLIC_IP, port: 8080, path: '/status.html' }]);
+  });
+
+  it('defaults to the web port and the document root when the url names neither', async () => {
+    const { asked } = await browseAcross(served(THEIR_PAGE), `http://${THEIR_PUBLIC_IP}`);
+
+    expect(asked).toEqual([{ target: THEIR_PUBLIC_IP, port: HTTP_DEFAULT_PORT, path: '/' }]);
+  });
+
+  // Dark, bricked, unforwarded or nothing serving the web all read the same. Which
+  // gate stopped the request is the target's business, not the caller's.
+  it('refuses in the terminal for a target that is dark, bricked or unforwarded', async () => {
+    const { result } = await browseAcross(failed('host_unreachable'), `http://${THEIR_PUBLIC_IP}`);
+
+    const { text, exitCode, kinds } = reported(result);
+    expect(text).toContain(`lynx: (7) Failed to connect to ${THEIR_PUBLIC_IP} port 80`);
+    expect(text).toContain('Connection refused');
     expect(exitCode).toBe(1);
+    expect(kinds).toEqual(['error']);
+  });
+
+  it('reports a 404 in the terminal for a path the target does not publish', async () => {
+    const { result } = await browseAcross(
+      failed('not_found'),
+      `http://${THEIR_PUBLIC_IP}/secret.html`,
+    );
+
+    const { text, exitCode } = reported(result);
+    expect(text).toContain('lynx: (22) The requested URL returned error: 404');
+    expect(exitCode).toBe(1);
+  });
+
+  it('distinguishes a server it never asked from a target that refused', async () => {
+    const { result } = await browseAcross(failed('network_error'), `http://${THEIR_PUBLIC_IP}`);
+
+    const { text, exitCode } = reported(result);
+    expect(text).toContain(`lynx: (7) Failed to connect to ${THEIR_PUBLIC_IP} port 80`);
+    expect(text).toContain('Network error');
+    expect(exitCode).toBe(1);
+  });
+
+  it('never reaches the network while offline', async () => {
+    const asked: PublicFetchParams[] = [];
+    const offline = mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      remote: {
+        ...mockRemoteApi(),
+        fetchPublic: async (params) => {
+          asked.push(params);
+          return served(THEIR_PAGE);
+        },
+      },
+    });
+
+    const { text, exitCode } = reported(
+      await lynx.execute(offline, [`http://${THEIR_PUBLIC_IP}`], new Map()),
+    );
+
+    expect(text).toContain('lynx: (7) Failed to connect — network is unreachable');
+    expect(exitCode).toBe(1);
+    expect(asked).toEqual([]);
   });
 });
 

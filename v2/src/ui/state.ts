@@ -60,7 +60,8 @@ import {
   type NetworkInterface,
 } from '../core/network/interfaces';
 import { parseHttpUrl } from '../core/network/http';
-import { fetchWebPage } from '../core/commands/webPage';
+import { fetchPageAcrossNetwork, fetchWebPage } from '../core/commands/webPage';
+import { isPublicIp } from '../core/generation/ip';
 import type { FollowOutcome } from './screens/Lynx';
 import { generateWifi } from '../core/generation/generateWifi';
 import type { WifiNetwork } from '../core/network/wifi';
@@ -745,13 +746,22 @@ export const followLink = async (url: string): Promise<FollowOutcome> => {
     return { ok: false, alert: 'lynx: (7) Failed to connect — network is unreachable' };
   }
 
-  const page = fetchWebPage({
-    root: activeRoot(),
-    program: 'lynx',
-    url: target,
-    wlan0,
-    appendAccessLog: (fetched) => log.appendAccessLog(fetched),
-  });
+  // A link off another player's page points at their public address, not into this
+  // player's LAN — so it goes back out the way the page itself came in. Resolving it
+  // locally would answer with a 404 off the wrong box entirely.
+  const page = isPublicIp(target.host)
+    ? await fetchPageAcrossNetwork({
+        program: 'lynx',
+        url: target,
+        fetchPublic: fetchPublicPageFn,
+      })
+    : fetchWebPage({
+        root: activeRoot(),
+        program: 'lynx',
+        url: target,
+        wlan0,
+        appendAccessLog: (fetched) => log.appendAccessLog(fetched),
+      });
   if (page.kind === 'unreachable') {
     return { ok: false, alert: page.failure.lines.map((line) => line.content).join(' ') };
   }
