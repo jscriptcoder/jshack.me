@@ -13,6 +13,17 @@
  * stays, and the footer says why, matching what the target's log will show. Nothing
  * answered, so nothing was logged and nowhere was visited.
  *
+ * Going back is a follow to an address the reader has already been to: it asks for
+ * the page again rather than replaying a copy of it. That keeps one rule for the
+ * target's log — a line per page viewed — instead of a second rule saying which
+ * views do not count, and it means a page rewritten while the reader was away shows
+ * them what it says now. Which is why the selection is restored through the same
+ * clamp a keypress uses: the link they left by may no longer be there.
+ *
+ * The trail of visited pages lives here, beside the selection it restores, and it
+ * starts empty every time the browser opens — a reader who quit and came back has
+ * begun reading, not resumed it.
+ *
  * The content is rendered as text nodes, never as markup — a page is someone else's
  * writing, and the only thing this screen does with it is read it out loud.
  *
@@ -44,10 +55,14 @@ const quits = (event: KeyboardEvent): boolean =>
  *  without them having to aim first. */
 const FIRST_LINK = 1;
 
+/** A page the reader has left, and the link they left it by. */
+type Visited = { readonly url: string; readonly selected: number };
+
 export const Lynx = (props: LynxProps) => {
   let screen: HTMLElement | undefined;
   const [selected, setSelected] = createSignal(FIRST_LINK);
   const [alert, setAlert] = createSignal<string | null>(null);
+  const [visited, setVisited] = createSignal<readonly Visited[]>([]);
 
   // The overlay fills the screen the moment it opens, so it takes the keyboard
   // straight away — a reader should be able to quit without clicking first.
@@ -71,22 +86,49 @@ export const Lynx = (props: LynxProps) => {
     ),
   );
 
-  /** Move the selection, coming to rest at either end rather than wrapping around
-   *  — a reader holding a key down should stop at the bottom of the page, not be
-   *  thrown back to the top of it. */
-  const move = (step: number) => {
+  /** Come to rest on a link, at either end of the page rather than past it. Two
+   *  callers, one question: a reader holding a key down should stop at the bottom
+   *  instead of being thrown back to the top, and a selection restored onto a page
+   *  that has changed since should land on a link that is actually there. */
+  const restOn = (wanted: number) => {
     const count = links().length;
     if (count === 0) return;
-    setSelected((current) => Math.min(count, Math.max(FIRST_LINK, current + step)));
+    setSelected(Math.min(count, Math.max(FIRST_LINK, wanted)));
   };
+
+  const move = (step: number) => restOn(selected() + step);
 
   const follow = async () => {
     const target = links().find((link) => link.index === selected());
     if (target === undefined) return;
     // Whatever the last attempt said is about this one now.
     setAlert(null);
+    // Where the reader is standing, read BEFORE the fetch: by the time it answers,
+    // the page under them is the new one and this is no longer recoverable.
+    const leaving = { url: props.url, selected: selected() };
     const outcome = await props.onFollow(target.url);
-    if (!outcome.ok) setAlert(outcome.alert);
+    if (!outcome.ok) {
+      setAlert(outcome.alert);
+      return;
+    }
+    setVisited((trail) => [...trail, leaving]);
+  };
+
+  const back = async () => {
+    const previous = visited().at(-1);
+    if (previous === undefined) return;
+    setAlert(null);
+    const outcome = await props.onFollow(previous.url);
+    // A reader who could not go back has not gone back, so the step stays ahead of
+    // them — dropping it here would strand them one page further along than they are.
+    if (!outcome.ok) {
+      setAlert(outcome.alert);
+      return;
+    }
+    setVisited((trail) => trail.slice(0, -1));
+    // After the fetch, never before it: arriving anywhere sends the selection back to
+    // the first link, and that has already happened by the time this line runs.
+    restOn(previous.selected);
   };
 
   const onKeyDown = (event: KeyboardEvent) => {
@@ -103,8 +145,22 @@ export const Lynx = (props: LynxProps) => {
     if (event.key === 'Enter' || event.key === 'ArrowRight') {
       event.preventDefault();
       void follow();
+      return;
+    }
+    if (event.key === 'ArrowLeft' || event.key === 'Backspace') {
+      event.preventDefault();
+      void back();
     }
   };
+
+  /** Only the keys that lead somewhere from here — a hint for a door that is not
+   *  there teaches a reader the wrong thing about the one that is. */
+  const hint = () =>
+    [
+      ...(links().length === 0 ? [] : ['↑↓ Select', '⏎ Follow']),
+      ...(visited().length === 0 ? [] : ['← Back']),
+      'q Quit',
+    ].join('  ');
 
   return (
     <main
@@ -152,9 +208,7 @@ export const Lynx = (props: LynxProps) => {
       <Show
         when={alert()}
         fallback={
-          <div class="px-2 py-1 text-[var(--theme-text-dim)]">
-            {links().length === 0 ? 'q Quit' : '↑↓ Select  ⏎ Follow  q Quit'}
-          </div>
+          <div class="px-2 py-1 text-[var(--theme-text-dim)]">{hint()}</div>
         }
       >
         {(message) => <div class="px-2 py-1 text-[var(--theme-error)]">{message()}</div>}

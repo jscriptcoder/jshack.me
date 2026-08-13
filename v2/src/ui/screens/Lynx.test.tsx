@@ -36,6 +36,55 @@ const browser = () => screen.getByRole('main');
 const selectedLink = () =>
   screen.getAllByRole('link').find((link) => link.getAttribute('aria-current') === 'true');
 
+/** A keystroke and the round trip it starts. The page swaps while the key is still
+ *  being handled, but what the screen RECORDS about the move lands only once the
+ *  fetch it awaited has resolved — so a test that navigates twice in a row must let
+ *  the first one finish or the second reads a screen that has forgotten it. */
+const press = async (key: string) => {
+  fireEvent.keyDown(browser(), { key });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+};
+
+const HOME = 'http://192.168.1.5/';
+const NOTES = 'http://192.168.1.5/notes.html';
+const STATUS = 'http://192.168.1.5/status.html';
+
+/** A site small enough to walk in a test and big enough to get lost in: home reaches
+ *  both of the others, and the notes page reaches home again. */
+const SITE: Readonly<Record<string, string>> = {
+  [HOME]:
+    '<body><p>See <a href="/notes.html">the notes</a> or <a href="/status.html">the status</a>.</p></body>',
+  [NOTES]: '<body><h1>Notes</h1><p>Return to <a href="/">home</a>.</p></body>',
+  [STATUS]: '<body><p>All green.</p></body>',
+};
+
+/** The browser over a site it can actually walk. `onFollow` behaves as the app's
+ *  does: it swaps the page under the screen and reports that the reader moved. An
+ *  address listed as `unreachable` answers the way a host that is not there does —
+ *  nothing arrives, and nobody moves. */
+const renderSite = (overrides?: {
+  start?: string;
+  pages?: Readonly<Record<string, string>>;
+  unreachable?: readonly string[];
+}) => {
+  const pages = overrides?.pages ?? SITE;
+  const unreachable = overrides?.unreachable ?? [];
+  const start = overrides?.start ?? HOME;
+  const [page, setPage] = createSignal({ url: start, content: pages[start] ?? '' });
+  const onExit = vi.fn();
+  const onFollow = vi.fn(async (url: string): Promise<FollowOutcome> => {
+    if (unreachable.includes(url)) {
+      return { ok: false, alert: `lynx: (7) Failed to connect to ${url}` };
+    }
+    setPage({ url, content: pages[url] ?? '<body><h1>404 Not Found</h1></body>' });
+    return { ok: true };
+  });
+  render(() => (
+    <Lynx url={page().url} content={page().content} onExit={onExit} onFollow={onFollow} />
+  ));
+  return { onExit, onFollow };
+};
+
 describe('Lynx browser screen', () => {
   it('shows the address being read', () => {
     renderLynx();
@@ -175,9 +224,11 @@ describe('following a link', () => {
     expect(first?.className).not.toBe(second?.className);
   });
 
+  // The whole line rather than a word of it: a hint that quietly loses a key still
+  // answers a search for the keys it kept.
   it('says how to move once there is somewhere to move to, and stays quiet when there is not', () => {
     renderLynx({ content: LINKED_PAGE });
-    expect(screen.getByText(/Follow/)).toBeInTheDocument();
+    expect(screen.getByText('↑↓ Select ⏎ Follow q Quit')).toBeInTheDocument();
 
     cleanup();
     renderLynx();
@@ -274,5 +325,138 @@ describe('following a link', () => {
     });
 
     expect(selectedLink()?.textContent).toBe('[1]alpha');
+  });
+});
+
+describe('going back', () => {
+  it.each(['ArrowLeft', 'Backspace'])('returns to the previous page on %s', async (key) => {
+    const { onFollow } = renderSite();
+
+    await press('Enter');
+    expect(screen.getByText('Notes')).toBeInTheDocument();
+
+    await press(key);
+
+    // Asked for again rather than remembered: the reader sees the page as it is now.
+    expect(onFollow).toHaveBeenLastCalledWith(HOME);
+    expect(screen.queryByText('Notes')).not.toBeInTheDocument();
+  });
+
+  it('puts the reader back on the link they left by', async () => {
+    renderSite();
+
+    fireEvent.keyDown(browser(), { key: 'ArrowDown' });
+    await press('Enter');
+    expect(screen.getByText('All green.')).toBeInTheDocument();
+
+    await press('ArrowLeft');
+
+    expect(selectedLink()?.textContent).toBe('[2]the status');
+  });
+
+  it('has nowhere to go back to on the first page, and neither quits nor asks', async () => {
+    const { onExit, onFollow } = renderSite();
+
+    await press('ArrowLeft');
+    await press('Backspace');
+
+    expect(onFollow).not.toHaveBeenCalled();
+    expect(onExit).not.toHaveBeenCalled();
+  });
+
+  it('walks a chain back one page at a time rather than jumping to the start', async () => {
+    const { onFollow } = renderSite();
+
+    await press('Enter');
+    await press('Enter');
+    expect(screen.queryByText('Notes')).not.toBeInTheDocument();
+
+    await press('ArrowLeft');
+    expect(screen.getByText('Notes')).toBeInTheDocument();
+
+    await press('ArrowLeft');
+    expect(screen.queryByText('Notes')).not.toBeInTheDocument();
+    expect(selectedLink()?.textContent).toBe('[1]the notes');
+
+    // Every step spent: the page a reader started on is not still behind itself.
+    await press('ArrowLeft');
+    expect(onFollow).toHaveBeenCalledTimes(4);
+  });
+
+  it('does not go back on a key that means nothing here', async () => {
+    const { onFollow } = renderSite();
+
+    await press('Enter');
+    await press('j');
+
+    expect(onFollow).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Notes')).toBeInTheDocument();
+  });
+
+  // The same rule a refused follow lives by, read backwards: a reader who could not
+  // go back has not gone back, so the step they were taking is still ahead of them.
+  it('stays put when the page behind cannot be reached, and keeps the step', async () => {
+    const { onFollow } = renderSite({ unreachable: [HOME] });
+
+    await press('Enter');
+    await press('ArrowLeft');
+
+    expect(await screen.findByText(/Failed to connect/)).toBeInTheDocument();
+    expect(screen.getByText('Notes')).toBeInTheDocument();
+
+    await press('ArrowLeft');
+
+    expect(onFollow).toHaveBeenCalledTimes(3);
+    expect(onFollow).toHaveBeenLastCalledWith(HOME);
+  });
+
+  it('comes to rest on the last link when the page behind has lost some', async () => {
+    // Asking again is what shows a reader that the page changed while they were away
+    // — and a selection restored past the end of it would point at nothing.
+    const [page, setPage] = createSignal({
+      url: HOME,
+      content:
+        '<body><p><a href="/a.html">alpha</a> <a href="/b.html">beta</a> <a href="/c.html">gamma</a></p></body>',
+    });
+    const onFollow = vi.fn(async (url: string): Promise<FollowOutcome> => {
+      setPage({
+        url,
+        content:
+          url === HOME
+            ? '<body><p><a href="/a.html">alpha</a></p></body>'
+            : '<body><p>elsewhere</p></body>',
+      });
+      return { ok: true };
+    });
+    render(() => (
+      <Lynx url={page().url} content={page().content} onExit={vi.fn()} onFollow={onFollow} />
+    ));
+
+    fireEvent.keyDown(browser(), { key: 'ArrowDown' });
+    fireEvent.keyDown(browser(), { key: 'ArrowDown' });
+    await press('Enter');
+    await press('ArrowLeft');
+
+    expect(selectedLink()?.textContent).toBe('[1]alpha');
+  });
+
+  it('names the way back only once there is somewhere to go back to', async () => {
+    renderSite();
+    expect(screen.getByText('↑↓ Select ⏎ Follow q Quit')).toBeInTheDocument();
+
+    await press('Enter');
+
+    expect(screen.getByText('↑↓ Select ⏎ Follow ← Back q Quit')).toBeInTheDocument();
+  });
+
+  it('opens with no history, so a page is never the tail of a session already left', async () => {
+    renderSite();
+    await press('Enter');
+    cleanup();
+
+    const { onFollow } = renderSite({ start: STATUS });
+    await press('ArrowLeft');
+
+    expect(onFollow).not.toHaveBeenCalled();
   });
 });
