@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import {
   handleRegisterNetwork,
   type HomeNetworkOccupantRow,
@@ -20,7 +20,13 @@ import {
   handleResolveHttpFetch,
   type ApNetworkLookup as HttpApNetworkLookup,
   type HttpFetchOccupant,
+  type WebTargetDeps,
 } from '../src/core/network/resolveHttpFetch';
+import { handleResolveHttpSweep } from '../src/core/network/resolveHttpSweep';
+import type {
+  ActiveSessionQuery,
+  FindActiveSessionResult,
+} from '../src/core/patches/authorizeMachineAccess';
 import { computeApGatewayId } from '../src/core/identity/router';
 import { handleResolveInnerGatewayScan } from '../src/core/scan/resolveInnerGatewayScan';
 import type { OwnerPatchRow as MachinePatchRow } from '../src/core/network/materializeMachineFs';
@@ -32,7 +38,11 @@ import {
 } from '../src/core/network/resolveCrossPlayerFs';
 import type { UserType } from '../src/core/types';
 import type { MachineLogReadQuery } from '../src/core/patches/appendMachineLog';
-import type { PatchRow } from '../src/core/patches/upsertPatch';
+import type {
+  ListPathPatchesResult,
+  PatchRow,
+  PathPatchRow,
+} from '../src/core/patches/upsertPatch';
 import type { NonceStore } from '../src/core/signedRequest/nonceStore';
 import { allocatePublicIp } from '../src/core/network/allocatePublicIp';
 import { allocateLanLease, drawLanOctet } from '../src/core/network/allocateLanLease';
@@ -62,6 +72,168 @@ import { randomUUID } from 'node:crypto';
 // Replay protection uses a noop nonce store locally (Upstash wiring lands with
 // cross-player writes, Story 3). Same posture as /api/patches and /api/sessions.
 const noopNonceStore: NonceStore = async () => ({ fresh: true });
+
+type QuerySpec = {
+  readonly supabase: SupabaseClient;
+  readonly label: string;
+};
+
+const logFailure = (label: string, error: unknown) => {
+  if (error) console.error(`[network] ${label} error:`, error);
+};
+
+/**
+ * Finding the box behind a public address and a port — the reads shared by every web
+ * tool that reaches across networks. One definition at the adapter as well as in core:
+ * a fetch and a path sweep must resolve the same box from the same journal in the same
+ * order, or the two would disagree about what is even there.
+ */
+const webTargetDepsVia = ({ supabase, label }: QuerySpec): WebTargetDeps => ({
+  findNetworkByPublicIp: async (publicIp: string) => {
+    const network = await supabase
+      .from('network_public_ips')
+      .select('essid')
+      .eq('public_ip', publicIp)
+      .maybeSingle();
+    if (network.error) {
+      logFailure(`${label} public-ip lookup`, network.error);
+      return { data: null, error: network.error };
+    }
+    const essid = (network.data as { essid: string } | null)?.essid ?? null;
+    if (essid === null) return { data: null, error: null };
+    const resolved: HttpApNetworkLookup = { router_machine_id: computeApGatewayId(essid), essid };
+    return { data: resolved, error: null };
+  },
+  // Per-machine journal: the gateway's (boot state + the live forward table), then the
+  // reached box's (its running services and the pages themselves).
+  findPatches: async ({ machine_id }: { machine_id: string }) => {
+    const { data, error } = await supabase
+      .from('patches')
+      .select('path, content, owner, permissions, node_type, updated_at, writer_key')
+      .eq('machine_id', machine_id)
+      .order('updated_at', { ascending: true })
+      .order('writer_key', { ascending: true });
+    logFailure(`${label} journal lookup`, error);
+    return { data: data as readonly OwnerPatchRow[] | null, error };
+  },
+  // Who a forward can reach: every occupant currently ON the ESSID, with the identity
+  // fields that rebuild each box from its OWNER's identity.
+  listOccupantsByEssid: async (essid: string) => {
+    const { data, error } = await supabase
+      .from('home_network_occupants')
+      .select('owner_key, workstation_machine_id, workstation_username, workstation_root_hash')
+      .eq('essid', essid);
+    logFailure(`${label} occupant list`, error);
+    return { data: data as readonly HttpFetchOccupant[] | null, error };
+  },
+  listLeasesByEssid: async (essid: string) => {
+    const { data, error } = await supabase
+      .from('network_lan_leases')
+      .select('owner_key, octet')
+      .eq('essid', essid);
+    logFailure(`${label} lan-lease list`, error);
+    return { data: data as readonly LanLeaseRow[] | null, error };
+  },
+});
+
+/** The target's own access log, read and written under the TARGET OWNER's key — the
+ *  same key both sides use, or the read-modify-write would fork the file per visitor. */
+const accessLogWriterVia = ({ supabase, label }: QuerySpec) => ({
+  readLog: async ({ writer_key, machine_id, path }: MachineLogReadQuery) => {
+    const { data, error } = await supabase
+      .from('patches')
+      .select('content')
+      .eq('writer_key', writer_key)
+      .eq('machine_id', machine_id)
+      .eq('path', path)
+      .maybeSingle();
+    logFailure(`${label} access-log read`, error);
+    return { data: data as { content: string | null } | null, error };
+  },
+  upsertPatch: async (row: PatchRow) => {
+    const { error } = await supabase
+      .from('patches')
+      .upsert(row, { onConflict: 'machine_id,path,writer_key' });
+    logFailure(`${label} access-log upsert`, error);
+    return { error };
+  },
+});
+
+const findPublicIpByEssidVia =
+  ({ supabase, label }: QuerySpec) =>
+  async (essid: string) => {
+    const { data, error } = await supabase
+      .from('network_public_ips')
+      .select('public_ip')
+      .eq('essid', essid)
+      .maybeSingle();
+    logFailure(`${label} essid public-ip lookup`, error);
+    return { data: data as { public_ip: string } | null, error };
+  };
+
+/** The REQUESTER's own home public IP — the truthful source IP, server-derived from
+ *  their verified key. One player may carry rows for several APs they have joined; the
+ *  most-recently-updated is their current network ("one network at a time"), and a
+ *  disconnected player's source degrades to `unknown` rather than being taken from the
+ *  client. */
+const findHomeNetworkByOwnerKeyVia =
+  ({ supabase, label }: QuerySpec) =>
+  async (ownerKey: string) => {
+    const occupancy = await supabase
+      .from('home_network_occupants')
+      .select('essid')
+      .eq('owner_key', ownerKey)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (occupancy.error) {
+      logFailure(`${label} source-ip occupancy`, occupancy.error);
+      return { data: null, error: occupancy.error };
+    }
+    const essid = (occupancy.data as { essid: string } | null)?.essid ?? null;
+    if (essid === null) return { data: null, error: null };
+    return findPublicIpByEssidVia({ supabase, label })(essid);
+  };
+
+/** Whether the caller is really present on the machine they named — the ssh hop they
+ *  are standing on, which is also what says whose network their attack came from. */
+const findActiveSessionVia =
+  ({ supabase, label }: QuerySpec) =>
+  async ({ player_key, machine_id }: ActiveSessionQuery): Promise<FindActiveSessionResult> => {
+    const { data, error } = await supabase
+      .from('sessions')
+      .select('credentials, essid')
+      .eq('player_key', player_key)
+      .eq('machine_id', machine_id)
+      .is('ended_at', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    logFailure(`${label} active-session lookup`, error);
+    if (data === null) return { data: null, error };
+    const row = data as { credentials: { userType: UserType }; essid: string };
+    return { data: { userType: row.credentials.userType, essid: row.essid }, error };
+  };
+
+/** Every writer's rows at one path on one machine — a file belongs to the box, not to
+ *  whoever wrote it last. */
+const listPathPatchesVia =
+  ({ supabase, label }: QuerySpec) =>
+  async ({
+    machine_id,
+    path,
+  }: {
+    readonly machine_id: string;
+    readonly path: string;
+  }): Promise<ListPathPatchesResult> => {
+    const { data, error } = await supabase
+      .from('patches')
+      .select('content, updated_at, writer_key')
+      .eq('machine_id', machine_id)
+      .eq('path', path);
+    logFailure(`${label} path read`, error);
+    return { data: data as readonly PathPatchRow[] | null, error };
+  };
 
 const actionOf = (body: unknown): string | undefined => {
   const payload = (body as { payload?: unknown } | null)?.payload;
@@ -227,110 +399,35 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // (public IP → ESSID → gateway → forward → the occupant leasing that address), so
     // the three can never disagree about which box answers a port. Only the file's
     // CONTENT crosses back, and which file that is was decided server-side.
-    const findNetworkByPublicIp = async (publicIp: string) => {
-      const network = await supabase
-        .from('network_public_ips')
-        .select('essid')
-        .eq('public_ip', publicIp)
-        .maybeSingle();
-      if (network.error) {
-        console.error('[network] http-fetch public-ip lookup error:', network.error);
-        return { data: null, error: network.error };
-      }
-      const essid = (network.data as { essid: string } | null)?.essid ?? null;
-      if (essid === null) return { data: null, error: null };
-      const resolved: HttpApNetworkLookup = {
-        router_machine_id: computeApGatewayId(essid),
-        essid,
-      };
-      return { data: resolved, error: null };
-    };
-    // Per-machine journal: the gateway's (boot state + the live forward table), then
-    // the reached box's (its running services and the page itself).
-    const findPatches = async ({ machine_id }: { machine_id: string }) => {
-      const { data, error } = await supabase
-        .from('patches')
-        .select('path, content, owner, permissions, node_type, updated_at, writer_key')
-        .eq('machine_id', machine_id)
-        .order('updated_at', { ascending: true })
-        .order('writer_key', { ascending: true });
-      if (error) console.error('[network] http-fetch journal lookup error:', error);
-      return { data: data as readonly OwnerPatchRow[] | null, error };
-    };
-    // Who a forward can reach: every occupant currently ON the ESSID, with the identity
-    // fields that rebuild each box from its OWNER's identity.
-    const listOccupantsByEssid = async (essid: string) => {
-      const { data, error } = await supabase
-        .from('home_network_occupants')
-        .select('owner_key, workstation_machine_id, workstation_username, workstation_root_hash')
-        .eq('essid', essid);
-      if (error) console.error('[network] http-fetch occupant list error:', error);
-      return { data: data as readonly HttpFetchOccupant[] | null, error };
-    };
-    const listLeasesByEssid = async (essid: string) => {
-      const { data, error } = await supabase
-        .from('network_lan_leases')
-        .select('owner_key, octet')
-        .eq('essid', essid);
-      if (error) console.error('[network] http-fetch lan-lease list error:', error);
-      return { data: data as readonly LanLeaseRow[] | null, error };
-    };
-    // The access-log row as it stands, read under the TARGET OWNER's key — the same key
-    // the append writes back, or the read-modify-write would fork the file per visitor.
-    const readLog = async ({ writer_key, machine_id, path }: MachineLogReadQuery) => {
-      const { data, error } = await supabase
-        .from('patches')
-        .select('content')
-        .eq('writer_key', writer_key)
-        .eq('machine_id', machine_id)
-        .eq('path', path)
-        .maybeSingle();
-      if (error) console.error('[network] http-fetch access-log read error:', error);
-      return { data: data as { content: string | null } | null, error };
-    };
-    const upsertPatch = async (row: PatchRow) => {
-      const { error } = await supabase
-        .from('patches')
-        .upsert(row, { onConflict: 'machine_id,path,writer_key' });
-      if (error) console.error('[network] http-fetch access-log upsert error:', error);
-      return { error };
-    };
-    // The REQUESTER's own home public IP — the truthful source IP, server-derived from
-    // their verified key. Identical derivation to the scan's, for the same reason: the
-    // address they arrive from is a network they are actually ON, and a disconnected
-    // player's source degrades to `unknown` rather than being taken from the client.
-    const findHomeNetworkByOwnerKey = async (ownerKey: string) => {
-      const occupancy = await supabase
-        .from('home_network_occupants')
-        .select('essid')
-        .eq('owner_key', ownerKey)
-        .order('updated_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (occupancy.error) {
-        console.error('[network] http-fetch source-ip occupancy error:', occupancy.error);
-        return { data: null, error: occupancy.error };
-      }
-      const essid = (occupancy.data as { essid: string } | null)?.essid ?? null;
-      if (essid === null) return { data: null, error: null };
-      const { data, error } = await supabase
-        .from('network_public_ips')
-        .select('public_ip')
-        .eq('essid', essid)
-        .maybeSingle();
-      if (error) console.error('[network] http-fetch source-ip lookup error:', error);
-      return { data: data as { public_ip: string } | null, error };
-    };
     const { status, body } = await handleResolveHttpFetch(req.body, {
       nonceStore: noopNonceStore,
-      findNetworkByPublicIp,
-      findPatches,
-      listOccupantsByEssid,
-      listLeasesByEssid,
+      ...webTargetDepsVia({ supabase, label: 'http-fetch' }),
       now: () => Date.now(),
-      readLog,
-      upsertPatch,
-      findHomeNetworkByOwnerKey,
+      ...accessLogWriterVia({ supabase, label: 'http-fetch' }),
+      findHomeNetworkByOwnerKey: findHomeNetworkByOwnerKeyVia({ supabase, label: 'http-fetch' }),
+    });
+    res.status(status).json(body);
+    return;
+  }
+
+  if (actionOf(req.body) === 'resolveHttpSweep') {
+    // Cross-player path SWEEP: the same door a fetch enters (so neither can reach a box
+    // the other could not), plus the two things that make it a sweep. The path list is
+    // read off the machine the caller is standing on rather than sent, so a request can
+    // only ask with words the player really grew; and every path it asked about lands on
+    // the target as ONE append, because the wall of 404s under a single stamp is the
+    // defender's whole tell. Sizes come back, never pages.
+    const { status, body } = await handleResolveHttpSweep(req.body, {
+      nonceStore: noopNonceStore,
+      ...webTargetDepsVia({ supabase, label: 'http-sweep' }),
+      now: () => Date.now(),
+      ...accessLogWriterVia({ supabase, label: 'http-sweep' }),
+      findHomeNetworkByOwnerKey: findHomeNetworkByOwnerKeyVia({ supabase, label: 'http-sweep' }),
+      // A sweep launched from a box the caller only holds a session on is traced to THAT
+      // network — the box that was actually used, not the attacker's home.
+      findPublicIpByEssid: findPublicIpByEssidVia({ supabase, label: 'http-sweep' }),
+      findActiveSession: findActiveSessionVia({ supabase, label: 'http-sweep' }),
+      listPathPatches: listPathPatchesVia({ supabase, label: 'http-sweep' }),
     });
     res.status(status).json(body);
     return;

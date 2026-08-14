@@ -154,6 +154,7 @@ export type BuildCommandEnvArgs = {
    *  setups; the UI always passes the real one. Load-bearing: absent it, a `curl` at a
    *  public IP hits the loud stub rather than quietly reporting a dark target. */
   readonly onHttpFetchPublic?: RemoteApi['fetchPublic'];
+  readonly onHttpSweepPublic?: RemoteApi['sweepPublic'];
   /** The home-network join seam — backs `env.homeNetwork.join`. The UI wires it to
    *  the `joinHomeNetwork` adapter, which registers the network server-side and carries
    *  back the address the server leased. Optional here: when absent nothing can ISSUE an
@@ -222,6 +223,7 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   remote: {
     listPatches: notWired('remote.listPatches'),
     fetchPublic: args.onHttpFetchPublic ?? notWired('remote.fetchPublic'),
+    sweepPublic: args.onHttpSweepPublic ?? notWired('remote.sweepPublic'),
   },
   log: args.log,
   // The home-network join: the UI wires `onHomeNetworkJoin` to the `joinHomeNetwork`

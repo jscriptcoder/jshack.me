@@ -612,6 +612,88 @@ as unknown rather than as failure: confirm by `cat`-ing the file back through th
 
 ---
 
+### Act 10 — the sweep that crosses a network (D1d)
+
+**Executed 2026-08-14 against v0.130.0. All checks passed.** One identity, taken OUT of its own
+network and back in through the front door: A publishes a forward on the shared gateway and then
+sweeps their own **public** IP, which is the cross-network path in full — client branch, signed
+round-trip, server-side list read, and the target's log.
+
+The unit tests stub the seam and the wire-check posts straight at the endpoint, so **this is the
+only thing that proves the client actually calls it** — a wrong field name in the adapter would
+otherwise ship green.
+
+**No nano this time.** The shell has `>` redirection, which writes a page in one line and skips
+every editor trap in §7:
+
+| # | Command | Trap |
+|---|---|---|
+| 1 | Act 1's arc → connected (`APERTURE-WIFI`, `192.168.36.211`) | — |
+| 2 | `su root` → `apt install nginx` → `apt install gobuster` | **Wait for the `su` spinner.** A command typed while it runs lands in a dead input and is silently dropped |
+| 3 | `rm /var/www/html/index.html`; `mkdir /var/www/html/staging` | Remove the default page or the site under test is half generated |
+| 4 | `echo public front page > /var/www/html/index.html` | `>` works; `>>` does not exist |
+| 5 | `echo staging area, do not link > /var/www/html/staging/index.html` | `staging` is already in `DEFAULT_DIRLIST`, so no list editing is needed |
+| 6 | `nginx` | Root-tier |
+| 7 | `ssh root@192.168.36.1` + `seedApGatewayAdminPw(<ESSID>)` (§6) | — |
+| 8 | `echo forward 8080 to 192.168.36.211:80 > /etc/iptables/rules.v4` | Overwrites the seeded comment header — fine here, and far cheaper than nano |
+| 9 | `exit` → `gobuster http://<public IP>:8080` | A public IP's **default** port reaches the gateway; the forwarded port is what reaches the box |
+
+**What the attacker saw:**
+
+```
+Gobuster dir mode
+[+] Url:       http://103.40.167.153:8080
+[+] Wordlist:  /usr/share/wordlists/dirlist.txt
+[+] Words:     40
+/index.html          (Status: 200) [Size: 17]
+/staging/            (Status: 200) [Size: 25]
+Finished. 2/40 paths found.
+```
+
+`[+] Words: 40` is the load-bearing line: **the client never sent a word.** It named the machine
+it was standing on and the server read that box's `dirlist.txt` off the journal, so the count and
+every result came back from the far side. `/staging/` carries the trailing slash a real server
+redirects to — the directory retry, decided server-side — and the sizes are the two files.
+
+**What the defender's record held** (42 lines, read from the journal):
+
+```
+103.40.167.153 - - [14/Aug/2026:12:13:49 +0000] "GET /index.html HTTP/1.1" 200 17
+103.40.167.153 - - [14/Aug/2026:12:13:49 +0000] "GET /admin HTTP/1.1" 404 0
+… 38 more …
+103.40.167.153 - - [14/Aug/2026:12:13:49 +0000] "GET /staging HTTP/1.1" 404 0
+103.40.167.153 - - [14/Aug/2026:12:13:49 +0000] "GET /staging/ HTTP/1.1" 200 25
+```
+
+**42 lines for 40 words, under exactly ONE timestamp.** The two extra are the directory retry,
+and the single stamp is the design claim: the box handled one request, so the wall reads as one
+act rather than as forty. The source is the server-derived public IP, never anything the client
+sent.
+
+Cross-network refusal, same act: `gobuster http://203.0.113.7` (nobody forwards it) →
+`gobuster: (7) Failed to connect to 203.0.113.7 port 80: Connection refused` — collapsed cause,
+named with its program.
+
+**A pre-existing gap this act surfaced, and it is NOT D1d's**: after a server-side append, the
+attacker's own client shows the target's log as **empty** until something else syncs its journal.
+`cat /var/log/access.log` printed nothing while the row already held 3201 characters; a later
+own-LAN sweep (which writes locally) brought the whole file in at once. **Proven pre-existing by
+the control**: a `curl` of the same forward — the shipped D1 path — left its line in the database
+and was likewise invisible to `cat` until the next sync. Any cross-player writer has this shape,
+because the append happens on the server and no client-side journal update accompanies it. Read
+the row from the DB when a log looks empty:
+
+```bash
+docker exec supabase_db_jshack-me-v2 psql -U postgres -tAc \
+  "select content from patches where path='/var/log/access.log' and machine_id='<box>'"
+```
+
+**And check the machine id before believing an old log.** A previous session's `skylab-52dfb80b`
+answered the first query with July lines and no error; the live box was `skylab-cca288f6`. Resolve
+it from `home_network_occupants` for the ESSID rather than by hostname.
+
+---
+
 ## 6. What a failure means
 
 | Symptom | Look at |

@@ -1,13 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { gobuster } from './gobuster';
 import { commandRegistry } from './registry';
-import type { AccessLogFetch, CommandEnv, CommandResult } from './types';
+import type {
+  AccessLogFetch,
+  CommandEnv,
+  CommandResult,
+  PublicSweepParams,
+  PublicSweepResult,
+} from './types';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
   mockIdentity,
   mockNetworkView,
   mockNetworkViewFromConnectivity,
+  mockRemoteApi,
   mockSession,
 } from '../../test/factories/commandEnv';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
@@ -424,19 +431,6 @@ describe('gobuster refuses before it sweeps, and says which refusal it is', () =
     expect(exitCode).toBe(1);
   });
 
-  it('says a public address is out of reach rather than pretending it does not resolve', async () => {
-    const tree = ownBox(WEB_SERVER_RUNNING, installedList('index.html'));
-
-    const { text, exitCode } = await sweep(tree, 'http://203.0.113.7');
-
-    // Cross-network sweeps have no server path yet. Named plainly: dressed as
-    // "could not resolve host" it would read as a dead target, and a player would
-    // spend the evening believing a live box was down.
-    expect(text).toContain('only hosts on your own network');
-    expect(text).not.toContain('Could not resolve host');
-    expect(exitCode).toBe(1);
-  });
-
   it('says it could not resolve an address no host on the LAN holds', async () => {
     const tree = ownBox(WEB_SERVER_RUNNING, installedList('index.html'));
 
@@ -645,5 +639,129 @@ describe('gobuster reports what it swept', () => {
     const { text } = await sweep(tree, `http://${OWN_IP}`);
 
     expect(text).toContain(`[Size: ${PAGE.length}]`);
+  });
+});
+
+describe('gobuster sweeps a server on another network', () => {
+  const THEIR_PUBLIC_IP = '203.0.113.7';
+
+  const swept = (
+    ...results: readonly { path: string; status: number; size: number }[]
+  ): PublicSweepResult => ({ ok: true, dirlistFound: true, results });
+
+  /** A sweep pointed at a public address, with the seam that crosses networks
+   *  answering for the far side — and a record of what it was asked. */
+  const sweepPublic = async (
+    tree: Directory,
+    answer: PublicSweepResult,
+    ...args: readonly string[]
+  ): Promise<{ readonly drained: Drained; readonly asked: readonly PublicSweepParams[] }> => {
+    const asked: PublicSweepParams[] = [];
+    const env = envOn(tree, {
+      remote: {
+        ...mockRemoteApi(),
+        sweepPublic: async (params) => {
+          asked.push(params);
+          return answer;
+        },
+      },
+    });
+    return { drained: await drain(await gobuster.execute(env, args, new Map())), asked };
+  };
+
+  it("reports the paths a stranger's server answered", async () => {
+    const { drained } = await sweepPublic(
+      ownBox(),
+      swept(
+        { path: '/index.html', status: 200, size: 42 },
+        { path: '/admin', status: 404, size: 0 },
+        { path: '/hidden/', status: 200, size: 812 },
+      ),
+      `http://${THEIR_PUBLIC_IP}`,
+    );
+
+    // A public address is another player's, and what answers there cannot be read
+    // from this world — so the far side reports what it served, and the sweep shows
+    // it exactly as it shows a neighbour's.
+    expect(drained.text).toContain(`/hidden/             (Status: 200) [Size: 812]`);
+    expect(drained.text).toContain('/index.html');
+    expect(drained.text).not.toContain('/admin');
+    expect(drained.text).toContain('Finished. 2/3 paths found.');
+    expect(drained.exitCode).toBe(0);
+  });
+
+  it('asks with the box the player is standing on, and never with a list of its own', async () => {
+    const { asked } = await sweepPublic(
+      // A curated list sitting right here, which the far side must NOT be handed:
+      // the server reads the list off the machine named below, the way the crack
+      // does, so a request cannot sweep with words the player never grew.
+      ownBox(installedList('secret-only-here')),
+      swept({ path: '/index.html', status: 200, size: 9 }),
+      `http://${THEIR_PUBLIC_IP}:8080`,
+    );
+
+    expect(asked).toEqual([
+      { target: THEIR_PUBLIC_IP, port: 8080, callerMachineId: mockSession().machineId },
+    ]);
+  });
+
+  it('tells a player with no list to install one, wherever they are standing', async () => {
+    const { drained } = await sweepPublic(
+      ownBox(),
+      { ok: true, dirlistFound: false, results: [] },
+      `http://${THEIR_PUBLIC_IP}`,
+    );
+
+    // The same sentence an own-LAN sweep gives, because it is the same missing
+    // file — only the reader of it changed. "0 found" would read as a server with
+    // nothing on it rather than as a tool with nothing to ask.
+    expect(drained.text).toContain(`no wordlist at ${DIRLIST_PATH}`);
+    expect(drained.text).toContain('apt install gobuster');
+    expect(drained.exitCode).toBe(1);
+  });
+
+  it('reports a refusal as a refusal, and our own outage as ours', async () => {
+    const refused = await sweepPublic(
+      ownBox(),
+      { ok: false, error: 'host_unreachable' },
+      `http://${THEIR_PUBLIC_IP}`,
+    );
+    const ourFault = await sweepPublic(
+      ownBox(),
+      { ok: false, error: 'network_error' },
+      `http://${THEIR_PUBLIC_IP}`,
+    );
+
+    // The same split `curl` and `lynx` make: a target that refused says so with
+    // every cause collapsed, while blaming the target for an outage on OUR side
+    // would be a lie the player acts on. Named in full, like the own-LAN refusals —
+    // the resolution is shared with the other web tools, so the prefix is the only
+    // thing saying WHICH one refused.
+    expect(refused.drained.text).toBe(
+      `gobuster: (7) Failed to connect to ${THEIR_PUBLIC_IP} port 80: Connection refused`,
+    );
+    expect(refused.drained.exitCode).toBe(1);
+    expect(ourFault.drained.text).toContain('gobuster: (7)');
+    expect(ourFault.drained.text).toContain('Network error');
+    expect(ourFault.drained.exitCode).toBe(1);
+  });
+
+  it('never crosses the network for an address on the player’s own LAN', async () => {
+    const tree = ownBox(
+      WEB_SERVER_RUNNING,
+      installedList('hidden'),
+      publishedPage('/hidden/index.html', 'staging notes'),
+    );
+
+    const { drained, asked } = await sweepPublic(
+      tree,
+      swept({ path: '/wrong', status: 200, size: 1 }),
+      `http://${OWN_IP}`,
+    );
+
+    // The address is the whole split. A LAN sweep resolves here, against the tree
+    // this client holds, and the far side is never asked.
+    expect(asked).toEqual([]);
+    expect(drained.text).toContain('/hidden/');
   });
 });

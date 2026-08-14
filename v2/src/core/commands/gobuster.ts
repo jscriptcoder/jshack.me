@@ -28,12 +28,12 @@
 import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
 import type { Directory } from '../filesystem/types';
 import { streamedResult, text } from './streaming';
-import { createFsView } from '../filesystem/fsView';
-import { parseHttpUrl, resolveWebPath } from '../network/http';
+import { parseHttpUrl } from '../network/http';
+import { sweepWord, type ProbedPath } from '../network/webSweep';
 import { DIRLIST_PATH, parseDirlist } from '../network/defaultDirlist';
 import { isPublicIp } from '../generation/ip';
 import { connectedWlan0 } from '../network/interfaces';
-import { reachWebHost } from './webHost';
+import { connectError, reachWebHost } from './webHost';
 
 const error = (message: string): CommandResult => ({
   kind: 'sync',
@@ -45,11 +45,10 @@ const USAGE = 'gobuster: usage: gobuster <url> (e.g. gobuster http://192.168.1.5
 
 const UNREACHABLE = 'gobuster: (7) Failed to connect — network is unreachable';
 
-/** Cross-network sweeps have no server path yet. Named plainly rather than dressed
- *  as a connect failure: a player whose sweep is unsupported must not spend the
- *  evening believing the target refused them. */
-const NOT_ON_YOUR_NETWORK =
-  'gobuster: only hosts on your own network can be swept — cross-network sweeps are not supported yet';
+/** Without a list there is nothing to try, and reporting "0 found" would read as a
+ *  server with nothing on it rather than as a tool with nothing to ask. The same
+ *  sentence wherever the list was read from — here or on the far side. */
+const NO_LIST = `gobuster: no wordlist at ${DIRLIST_PATH} — install one with: apt install gobuster`;
 
 /** Beat between probes. Short, because a sweep is many requests rather than a few
  *  slow ones, and a list of forty should not take a minute to walk. */
@@ -59,19 +58,9 @@ const PROBE_DELAY_MS = 40;
  *  table rather than as ragged prose. */
 const PATH_COLUMN = 20;
 
-/** One path that answered, and the size of what came back. */
-type Hit = {
-  readonly path: string;
-  readonly size: number;
-};
-
-/** What one word asked of the server, and what came back. `asked` is what the TARGET
- *  is told about rather than what the player is shown: a word naming a directory costs
- *  two requests, and a traversal costs one the sweeper is never told the fate of. */
-type Probe = {
-  readonly asked: readonly string[];
-  readonly hit: Hit | null;
-};
+/** The status that means something was served. Everything else the far side reports
+ *  is a miss, and a miss is the attacker's silence — loud only on the target. */
+const FOUND = 200;
 
 /** Where a sweep is pointed, in the terms both ends need: the url AS TYPED for the
  *  header, the tree to probe, and the resolved address the target's own log is keyed
@@ -83,52 +72,6 @@ type SweepTarget = {
   readonly address: string;
   readonly port: number;
   readonly sourceIp: string;
-};
-
-/**
- * What `word` gets back, or null when the server has nothing to serve there.
- *
- * Read as the SERVER, like `curl` does: a web server serves its document root under
- * its own account, and a sweeper has no account on that box at all. The confinement
- * is the document root, never the file permissions.
- *
- * A word naming a DIRECTORY is a hit when that directory holds an index — a real
- * server redirects to the trailing-slash form and serves it, which is exactly how a
- * player finds a folder they were never linked to. A directory with no index serves
- * nothing and is not a find.
- */
-const probe = (hostFs: Directory, word: string): Probe => {
-  const requestPath = `/${word}`;
-  const asked = [requestPath];
-  const filePath = resolveWebPath(requestPath);
-  // A path that climbs out of the published directory names nothing, and is not
-  // distinguishable from a miss — telling a sweeper their traversal was SPOTTED is
-  // itself a hint worth withholding. The TARGET is still told it was asked: silence
-  // is owed to the attacker, not to the box's owner.
-  if (filePath === null) return { asked, hit: null };
-
-  const view = createFsView(hostFs, { userType: 'root' });
-  const served = view.read(filePath);
-  if (served.ok) return { asked, hit: { path: requestPath, size: served.content.length } };
-  // Known-equivalent under mutation, deliberately kept: removing this guard only
-  // makes a `not_found` take the directory retry as well, which fails the same way
-  // (nothing can live under a path that does not exist), and root reading means
-  // `permission_denied` never occurs. It states the intent and saves the work.
-  if (served.error !== 'is_directory') return { asked, hit: null };
-
-  const indexPath = resolveWebPath(`${requestPath}/`);
-  // Also known-equivalent, and required by the type rather than by a case: a path
-  // that escaped the document root already returned above, so appending a slash
-  // cannot escape either. `resolveWebPath` still hands back a nullable, and this is
-  // what narrows it.
-  if (indexPath === null) return { asked, hit: null };
-  const index = view.read(indexPath);
-  return {
-    // Two requests reached the server for this one word, and the log records both —
-    // the bare path a real server redirects, and the form it redirects TO.
-    asked: [...asked, `${requestPath}/`],
-    hit: index.ok ? { path: `${requestPath}/`, size: index.content.length } : null,
-  };
 };
 
 /** Tell the box what it was just asked for — every probe, in the order tried, as ONE
@@ -151,42 +94,62 @@ const reportSweep = (env: CommandEnv, target: SweepTarget, paths: readonly strin
   }
 };
 
-const formatHit = ({ path, size }: Hit): string =>
+const formatHit = ({ path, size }: { readonly path: string; readonly size: number }): string =>
   `${path.padEnd(PATH_COLUMN)} (Status: 200) [Size: ${size}]`;
 
+/**
+ * The run as the player watches it: what was asked, what answered, and how much of the
+ * list that was. One walk however far away the box is — the beat is a deliberate
+ * reading rhythm rather than the cost of a probe (a local tree answers instantly too),
+ * so a sweep of a stranger reads exactly like a sweep of a neighbour.
+ *
+ * It is handed one outcome per WORD, already resolved: here against a tree this client
+ * holds, across the world by the server that holds the other one.
+ */
 async function* run(
+  env: CommandEnv,
+  url: string,
+  found: readonly (ProbedPath | null)[],
+): AsyncGenerator<TerminalLine, number> {
+  yield text('Gobuster dir mode');
+  yield text(`[+] Url:       ${url}`);
+  yield text(`[+] Wordlist:  ${DIRLIST_PATH}`);
+  yield text(`[+] Words:     ${found.length}`);
+  yield text('');
+
+  for (const hit of found) {
+    await env.sleep(PROBE_DELAY_MS);
+    if (hit !== null) {
+      yield text(formatHit(hit));
+    }
+  }
+
+  yield text('');
+  yield text(`Finished. ${found.filter((hit) => hit !== null).length}/${found.length} paths found.`);
+  return 0;
+}
+
+/** A sweep of a box on the player's own network, which resolves entirely here — and
+ *  then tells that box what it was asked. After the walk, not during it: the box was
+ *  asked all of this by one tool in one run, and a line per probe would be a
+ *  round-trip per word. A run the player abandons tells it nothing. */
+async function* sweepLocally(
   env: CommandEnv,
   target: SweepTarget,
   words: readonly string[],
 ): AsyncGenerator<TerminalLine, number> {
-  yield text('Gobuster dir mode');
-  yield text(`[+] Url:       ${target.url}`);
-  yield text(`[+] Wordlist:  ${DIRLIST_PATH}`);
-  yield text(`[+] Words:     ${words.length}`);
-  yield text('');
-
-  const probes: Probe[] = [];
-  for (const word of words) {
-    await env.sleep(PROBE_DELAY_MS);
-    const probed = probe(target.fs, word);
-    probes.push(probed);
-    if (probed.hit !== null) {
-      yield text(formatHit(probed.hit));
-    }
-  }
-
-  // After the walk, not during it: the box was asked all of this by one tool in one
-  // run, and a line per probe would be a round-trip per word.
+  const swept = words.map((word) => sweepWord(target.fs, word));
+  const exitCode = yield* run(
+    env,
+    target.url,
+    swept.map((word) => word.found),
+  );
   reportSweep(
     env,
     target,
-    probes.flatMap((probed) => probed.asked),
+    swept.flatMap((word) => word.asked.map((probed) => probed.path)),
   );
-
-  const found = probes.filter((probed) => probed.hit !== null).length;
-  yield text('');
-  yield text(`Finished. ${found}/${words.length} paths found.`);
-  return 0;
+  return exitCode;
 }
 
 const execute: Command['execute'] = async (env, args) => {
@@ -205,8 +168,34 @@ const execute: Command['execute'] = async (env, args) => {
     return error(UNREACHABLE);
   }
 
+  // A public address is another player's, and nothing here can resolve it: their
+  // tree lives server-side, so the far side runs the sweep and reports what it
+  // served. The list crosses no wire — the server reads it off the machine named
+  // here, exactly as a credential sweep reads the password list.
   if (isPublicIp(url.host)) {
-    return error(NOT_ON_YOUR_NETWORK);
+    const swept = await env.remote.sweepPublic({
+      target: url.host,
+      port: url.port,
+      callerMachineId: env.session.machineId,
+    });
+    if (!swept.ok) {
+      return connectError({
+        program: 'gobuster',
+        host: url.host,
+        port: url.port,
+        reason: swept.error === 'host_unreachable' ? 'Connection refused' : 'Network error',
+      });
+    }
+    if (!swept.dirlistFound) {
+      return error(NO_LIST);
+    }
+    return streamedResult(
+      run(
+        env,
+        raw,
+        swept.results.map((outcome) => (outcome.status === FOUND ? outcome : null)),
+      ),
+    );
   }
 
   const reached = reachWebHost({ root: env.fs.root(), program: 'gobuster', url, wlan0 });
@@ -215,17 +204,13 @@ const execute: Command['execute'] = async (env, args) => {
   }
   const { fs: hostFs, essid, address, sourceIp } = reached.host;
 
-  // Without a list there is nothing to try, and reporting "0 found" would read as a
-  // server with nothing on it rather than as a missing wordlist.
   const dirlist = env.fs.read(DIRLIST_PATH);
   if (!dirlist.ok) {
-    return error(
-      `gobuster: no wordlist at ${DIRLIST_PATH} — install one with: apt install gobuster`,
-    );
+    return error(NO_LIST);
   }
 
   return streamedResult(
-    run(
+    sweepLocally(
       env,
       {
         url: raw,

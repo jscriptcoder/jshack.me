@@ -30,6 +30,9 @@ import type {
   Identity,
   PublicFetchParams,
   PublicFetchResult,
+  PublicSweepOutcome,
+  PublicSweepParams,
+  PublicSweepResult,
   PublicScanResolution,
 } from '../core/commands/types';
 import type { OccupantProjection } from '../core/network/resolveOccupants';
@@ -217,6 +220,58 @@ export const fetchPublicPage = async (
       return { ok: false, error: 'network_error' };
     }
     return { ok: true, content: resolved.content };
+  } catch {
+    return { ok: false, error: 'network_error' };
+  }
+};
+
+/**
+ * Sweep a path list against a machine behind another player's public IP (backs
+ * `env.remote.sweepPublic`).
+ *
+ * One round-trip for the whole run: the words never leave this machine (the server
+ * reads the list off the box named in `callerMachineId`), and every path it asked
+ * about lands on the target as one append. A request per word would scatter the
+ * defender's whole tell across as many timestamps.
+ *
+ * Two outcomes rather than the fetch's three: a sweep has no 404 of its own, because a
+ * path that answers nothing is an ordinary result inside a run that succeeded. A
+ * refusal from the TARGET stays `host_unreachable`; anything we cannot read is
+ * `network_error`, since blaming the target for our own outage is a lie the player
+ * would act on.
+ */
+export const sweepPublicPaths = async (
+  deps: NetworkClientDeps,
+  params: PublicSweepParams,
+): Promise<PublicSweepResult> => {
+  try {
+    const response = await post(deps, 'resolveHttpSweep', {
+      target: params.target,
+      port: params.port,
+      caller_machine_id: params.callerMachineId,
+    });
+    const body: unknown = await response.json();
+    if (!response.ok) {
+      const failed = body as { readonly error?: string };
+      return failed.error === 'host_unreachable'
+        ? { ok: false, error: 'host_unreachable' }
+        : { ok: false, error: 'network_error' };
+    }
+    const resolved = body as {
+      readonly ok?: boolean;
+      readonly dirlistFound?: boolean;
+      readonly results?: readonly PublicSweepOutcome[];
+    };
+    // A 200 we cannot read is not a sweep. Reporting it as an empty one would print
+    // "0 found" as though the target had answered nothing.
+    if (resolved.ok !== true || !Array.isArray(resolved.results)) {
+      return { ok: false, error: 'network_error' };
+    }
+    return {
+      ok: true,
+      dirlistFound: resolved.dirlistFound === true,
+      results: resolved.results,
+    };
   } catch {
     return { ok: false, error: 'network_error' };
   }
