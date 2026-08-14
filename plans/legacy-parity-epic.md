@@ -6,7 +6,10 @@
 
 **Status**: **D1 shipped** (v0.109.0), with its web follow-ups D1c (v0.123.0-v0.124.0), D1b
 (v0.125.0-v0.129.0) and D1d (v0.130.0) all closed out — the web door's cross-player parity is
-complete and **D3 (ftp/scp) is next in the locked door order**; **D2 ✅ COMPLETE** — D2.1 (v0.111.0), D2.2 (v0.113.0), D2.3
+complete and **D3 is next and GRILLED** (2026-08-14, nine locked decisions + a four-slice spine —
+see "D3 — resolved scope & decisions"), with `ftp` (D3) and `scp` (D3b) **split into separate
+grill + plan phases** since scp is a transient two-endpoint transfer, not a door;
+**D2 ✅ COMPLETE** — D2.1 (v0.111.0), D2.2 (v0.113.0), D2.3
 (v0.114.0), D2.5 (v0.115.0), hydra's workstation-only gate lifted (v0.118.0), D2.4 all five slices
 (v0.119.0–v0.122.0), and D2.6a (#377). Its split file is deleted; the as-built lives in
 [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §1. **D2.6b — harvestable
@@ -141,7 +144,13 @@ as the reverted nonce store: **revisit at multiplayer-hardening.** The alternati
 hashes to the client, keep plaintext server-side, make hydra/john server calls) is recorded
 here as the hardening path if it is ever wanted.
 
-### 8. Door order: ftp/scp → daemons → nc → mysql → redis → snmp → node
+### 8. Door order: ftp → daemons → nc → mysql → redis → snmp → node
+
+> **REVISED 2026-08-14 — `scp` split out of D3 into D3b, its own grill + plan.** The order below
+> is unchanged; only the fusion of ftp and scp is. `scp` is a transient two-endpoint transfer, not
+> a door — it has no daemon, no port and nothing to place, and legacy built it larger than ftp
+> (417 lines vs 218). It stays after ftp, which supplies the tier-gated copy primitive it reuses.
+> Full reasoning in "Next action".
 
 ftp is the cheapest **complete** door — no content generator, since the target's filesystem is
 the content — so it proves decision 2's session pattern at minimum cost. Daemon control follows
@@ -216,7 +225,8 @@ PHASE 1 — THE DOORS  (near-term focus)
       D2.4 cross-player hydra, all five slices        ✔ SHIPPED v0.119.0-v0.122.0
       D2.6a an appended word opens a door that held    ✔ SHIPPED #377 (tests only)
       D2.6b harvestable plaintext loot                 ⏸ POSTPONED — V2 owes the harvest route
-  D3  ftp / scp
+  D3  ftp (the door)                                  ◀ NEXT — grilled 2026-08-14, needs planning
+  D3b scp (the transfer)                              — split out 2026-08-14; own grill + plan
   D4  daemon control (systemctl / ps / kill)
   D5  nc connect + nc -l backdoor
   D6  mysql
@@ -245,7 +255,8 @@ POST-SHIP — MISSIONS
 | **D1c** ✔ | **A player finds the pages a server never linked** — **SHIPPED** as slice 1 (the sweep itself, v0.123.0, #378) and slice 2 (the defender's log, v0.124.0, #379), with the live close-out run 2026-08-13 as Act 8 of [`e2e-shared-network-verification.md`](../v2/docs/e2e-shared-network-verification.md) | `gobuster <url>` + its `dirlist.txt`, shipped by the `extraFiles` seam **D2.1 shipped** (add a catalog row, no new mechanism); hits and misses both land in the target's `access.log`, so the defender's tell is the 404 wall D1 already records | Vhost/DNS modes; extensions | A player `gobuster http://<host>` → finds an unlinked path → `curl`s it; the target's `access.log` shows the sweep as a run of 404s with one 200 |
 | **D1d** ✔ | **A player sweeps a stranger's server for pages nobody linked** — **SHIPPED** v0.130.0 | The public-IP half of D1c: `gobuster` today refuses a public host outright (`gobuster.ts:208` → `NOT_ON_YOUR_NETWORK`) while `curl` and `lynx` both reach one through `fetchPageAcrossNetwork` (`webPage.ts:115`). Reuses the D1b slice-3/7 doors whole, so the client-side shape is a swap of one refusal for the cross-network path; the target's `access.log` keeps recording the sweep server-side, under the server-derived source IP the cross-player writers already use | Vhost/DNS modes; extensions (as D1c) | B `gobuster http://<A pub IP>` → the same hits/misses a same-LAN sweep reports; A reads the run of 404s with one 200 in `/var/log/access.log`, sourced from B's home address, not from anything B sent |
 | **D2** | **A player cracks a credential instead of being told it** — **✔ SHIPPED** as D2.1–D2.6a (v0.111.0–v0.122.0, #377); as-built in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §1. **D2.6b (harvestable plaintext loot) is postponed** — see "Next action" | ~~`hydra <host> [service] [user]`~~ ✔; ~~`apt install hydra` ships `passwords.txt` via `extraFiles`~~ ✔; the two-pool split + per-account probability in `buildRemoteHostFs`; uncrackable pool into `secrets.ts`; wordlist-as-sole-gate; server-side md5 batch matching for cross-player; `john`; hydra trace on the target's `auth.log` | ftp/mysql/snmp as hydra *services* — each arrives with its door; **`gobuster`** (→ D1c, 2026-07-31) | B `hydra <NPC host> ssh` → cracks the user account → `ssh` succeeds; a low-probability NPC root cracks, most don't; a player's chosen root password never cracks; A appends a harvested password to `passwords.txt` via `nano` and a previously-failing crack now succeeds |
-| **D3** | **A player moves files without a shell** | `vsftpd` daemon + catalog row + placement; `ftp <host> [user] [pw]` + FTP mode command set (`get`/`put`/`ls`/`cd`/`lls`/`lcd`/`lpwd`/`quit`); `scp`; `vsftpd.log` trace. **No content generator** — the target's FS is the content | Virtual users (`virtual_users.conf`) | B `hydra`s ftp creds → `ftp <host>` → `get` a file → `put` one the owner then sees; the session authorizes at its tier through L1/L2 exactly as ssh does (decision 2) |
+| **D3** | **A player moves files without a shell** — **ftp only; `scp` split out to D3b 2026-08-14** | `vsftpd` daemon + catalog row + placement; `ftp <host> [user] [pw]` + FTP mode command set (`get`/`put`/`ls`/`cd`/`lls`/`lcd`/`lpwd`/`quit`); `vsftpd.log` trace; ftp as a hydra service. **No content generator** — the target's FS is the content | Virtual users (`virtual_users.conf`); `scp` (→ D3b) | B `hydra`s ftp creds → `ftp <host>` → `get` a file → `put` one the owner then sees; the session authorizes at its tier through L1/L2 exactly as ssh does (decision 2) |
+| **D3b** | **A player carries a file between two machines they hold** | `scp <src> <user>@<host>:<path> [port] [pw]`; the **transient** auth session (validate → transfer → end, legacy's `withTransientAuthSession`); two-endpoint resolution (local read + remote write through NAT/forwards); async progress + cancellation. Closes D2.5's named gap — **carrying a grown wordlist onto a rooted box** | FTP mode (D3's); recursive `-r`; directory transfer — decide at planning | A `scp /usr/share/wordlists/passwords.txt root@<NPC host>:/root/` → sweeps from that box with a list the shipped wordlist does not hold; a tier the credential does not carry refuses the write |
 | **D4** | **A defender controls what their box exposes** | `systemctl start/stop/status`; `ps`; `kill`; symmetric pidfile open/close semantics; `chmod` folds in | — | A `systemctl stop sshd` → pidfile gone → B's scan drops `:22` and ssh-via-forward `404`s; A `ps` lists what is running; A restarts it and reachability returns |
 | **D5** | **A player plants a backdoor and re-enters through it** | `nc <host> <port>` → restricted NC shell (no PATH); `nc -l <port>` listener with owner metadata in the pidfile; **backdoor chain forwarding** — append a `forward` on every gateway out to the public edge and report the reachable address | Exploit-planted backdoors (Phase 3) | B (inside a host) `nc -l 4444` → forward auto-appended → B leaves, `nc <public IP> <fwd>` → lands as the listener's owner; the defender greps `rules.v4` and finds the breadcrumb |
 | **D5b** | **NPC machines have a kind, and it shows** | A real role model, widening `LanHost.kind` (today `'machine' \| 'router' \| 'switch'`, `generateHomeLan.ts:31`) toward legacy's nine — webserver, database, mailserver, fileserver, iot, dns, switch, router, workstation; role-driven hostnames (today `DEVICE_TYPES` is consumer devices — `desktop-7`, `iphone-12` — and golden-locked at `homeNetwork.ts:30`); **role-weighted service placement** (a database box almost always runs mysql; a phone almost never runs nginx); role-keyed content pools, starting with the web pages D1 ships flat | Mission-specific roles (post-ship) | `nmap` a LAN and the boxes read as a *population*: `web-04` serves nginx and a corporate portal, `db-11` runs mysql, `cam-31` is an IoT box with a camera panel. A player can tell what a box probably is before touching it |
@@ -283,6 +294,132 @@ across a LAN of phones. It also **must land before ship** — it re-rolls the ge
 the no-backward-compat licence sunsets at multiplayer announce. Every earlier door stays
 role-agnostic, so D5b is additive to all of them: it changes which content and services get
 picked, never the shape of what is stamped or how a door authorizes.
+
+---
+
+## D3 — resolved scope & decisions (grill-me, 2026-08-14)
+
+D3 was interrogated with `grill-me` after `scp` was split out to D3b. Nine decisions, each
+grounded in code first. They feed straight into `planning`.
+
+**What grounding changed before a single question was asked**: the split's phrase "FTP mode
+command set" reads as a UI item, and it is not. Legacy's `useFtpCommands.ts` swaps in an
+11-command map (`pwd`/`lpwd`/`cd`/`lcd`/`ls`/`lls`/`get`/`put`/`help`/`quit`/`bye`) carrying
+**two live machines at once** — a remote machine+cwd+tier and an origin machine+cwd+tier. v2 has
+never held two. Everything in `ui/state.ts` is singular and follows `activeSession()`:
+`patchClientDeps`, `patchApi`, `patches()`, `servedRoot`, `activeRoot`. **That, not the command
+count, is what D3 costs.**
+
+### Locked decisions
+
+1. **FTP mode is a terminal sub-shell, not an overlay screen.** The prompt becomes `ftp>` and
+   `executeLine` dispatches to a restricted command map while an `ftpSession` signal is set;
+   scrollback, history, Ctrl-C and completion are inherited rather than rebuilt. `nano` and `lynx`
+   are overlays because an editor and a hypertext browser need custom rendering — a line-oriented
+   sub-shell needs a terminal, which already exists. `OverlayMode` (`state.ts:224`, narrowed to
+   `'nano' | 'lynx'`) is untouched, and `state.ts:1069` keeps dropping unhandled mode kinds.
+   **This sets the pattern for `nc`, `mysql` and `redis`** — three more prompt modes behind it.
+   `ModeChange { kind:'ftp' }` carries only `{ target: { ip } }` today and predates everything the
+   door needs; reshape it (no backward-compat burden pre-launch).
+2. **The ftp session is PARALLEL to the hop chain, not pushed onto it.** A real `sessions` row at
+   `kind:'ftp'`, held in its own signal; the player keeps standing where they stood. A stack has
+   one top and ftp needs origin and remote live simultaneously, so a push would force `lls`/`lcd`
+   to reach *down* the stack and would make `exit` ambiguous. Schema-legal: `session_id` is the PK
+   and the active index is on `(player_key, machine_id, created_at)` — **no uniqueness constraint**,
+   so a parallel session on a machine the player also holds an ssh hop on is fine.
+3. **The transfer runs CLIENT-side through two patch bindings.** `get` = read the remote tree,
+   write the origin; `put` = read the origin, write the remote — both through the **shipped**
+   `upsertPatch`. `authorizeMachineAccess` is **kind-agnostic** (it looks up `(player_key,
+   machine_id)` with no kind filter), so the ftp row satisfies L1 exactly as an ssh row does, and
+   L2 runs the walker at the session's tier. **This is decision 2 of the epic made concrete: the
+   door adds no authorization dimension.** A server-side copy endpoint was rejected — it would
+   duplicate the write path, add a second authorization site, and still need the remote tree
+   client-side for `ls`/`cd` anyway. Cost is a second journal + `servedRoot` signal;
+   `resolveActiveRoot` already takes everything as parameters and needs no change.
+4. **`ftp` catalog row: `placement` 0.30, `altPorts` [2121], `altPortChance` 0.2, pidfile
+   `vsftpd.pid`, port 21, `runUser` root** — level with `http`, below `ssh`'s 0.40. Rolls are
+   independent per service in `hostServices` (`remoteHostFs.ts:96`), so on an 8-host LAN expect
+   ~2.4 hosts running ftp and **~1.4 reachable only by ftp** — a box hydra's ssh sweep cannot open.
+   `vsftpd` joins `SYSTEM_DAEMON_NAMES` in `/usr/sbin` alongside `sshd`, which `binaries.ts:85`
+   already parks it next to, so a rooted box can bring the door up. The **client** stays apt-gated:
+   `{ name: 'ftp' }` is already in `APT_PACKAGES`. The codebase already has the real-world
+   asymmetry right — `scp` ships pre-installed in `/bin` (it comes with openssh), `ftp` does not.
+5. **`vsftpd.log` records logins AND transfers, in vsftpd's own format.** Not syslog: a daemon
+   writing its own file is exactly why `access.log` broke from syslog, and the same applies here.
+   ```
+   Fri Aug 14 13:55:31 2026 [pid 4471] CONNECT: Client "10.0.0.9"
+   Fri Aug 14 13:55:34 2026 [pid 4471] [guest] FAIL LOGIN: Client "10.0.0.9"
+   Fri Aug 14 13:55:38 2026 [pid 4471] [guest] OK LOGIN: Client "10.0.0.9"
+   Fri Aug 14 13:56:02 2026 [pid 4471] [guest] OK DOWNLOAD: Client "10.0.0.9", "/etc/passwd", 1243 bytes
+   Fri Aug 14 13:56:20 2026 [pid 4471] [guest] OK UPLOAD: Client "10.0.0.9", "/tmp/x.sh", 88 bytes
+   ```
+   **Accepted deliberately: this makes ftp the LOUD door.** Reading a file over ssh is silent — no
+   command logs a `cat` — so the same theft is invisible through one door and itemised through the
+   other. That is what real FTP does, and it is the fair price of ftp being a second way in: the
+   defender learns *what* was taken, which is a signal ssh cannot give. `formatSyslogTimestamp` is
+   not reusable here (different date shape), but `MONTHS` is, exactly as `access.log` shares it.
+6. **Pivot-aware from day one** — `ftp` carries `caller_machine_id`, joining `hydra` and
+   `gobuster` on the honest side of §9's split rather than becoming the fifth tool that stamps the
+   actor's home. Nearly free by D1d's finding: authorizing the caller's machine yields their
+   session, and `resolveVantageSourceIp` already takes `{ actorKey, standingEssid }`. Nothing has
+   shipped to correct, so this costs a decision rather than a migration. Keeps D2.4's rule — a
+   false address in a defender's log is worse than a refusal.
+7. **hydra's trace routes BY SERVICE.** `hydraCrack.ts` is already service-generic — `:212` matches
+   `payload.service` against the pidfile-derived service name, so `hydra <host> ftp` works the
+   moment the catalog row exists — but `:136` hardcodes `AUTH_LOG_PATH`, so an ftp sweep would
+   write ~110 **sshd-tagged** lines to `auth.log` for a door nobody knocked on, while the break-in
+   itself landed in `vsftpd.log`. The wall and the entry must be in one file or decision 5's whole
+   point is lost. `SERVICE_CATALOG` grows a logging column (path + formatter); **`mysql`, `redis`
+   and `snmp` inherit the seam.**
+8. **Cross-player is IN, as D3's final slice** — not a follow-up. Unlike hydra (five slices) the
+   machinery is shipped and reused unchanged: `machineServing` routes **purely by port**
+   (`machineServing.ts:31`), so a `forward 2121 to <ws>:21` reaches vsftpd with no change;
+   `resolveCrossPlayerFs` is keyed by a `machine_id` any login yields; `upsertPatch`'s L1/L2 are
+   kind-agnostic. "Protocol is UX, tier is truth" is what makes this cheap — the server never
+   checks which protocol knocked.
+9. **A refresh ENDS the ftp session; it does not restore the mode.** `rehydrateSessions`
+   (`state.ts:562`) replays **all** active rows through `rehydrateSessionStack` as a stack with no
+   kind filter, so an active `kind:'ftp'` row would come back as a *hop* — precisely the pushed
+   model decision 2 rejected. Filter to stack kinds (`ssh`/`su`) and end any active ftp row with a
+   reason. Two reasons beyond the trap: `remoteCwd`/`originCwd` have no schema home and persisting
+   them is a migration for a foreground app, not a place you stand; and an abandoned active ftp row
+   is a **silent write grant** on someone else's box that L1 keeps honouring, since sessions have
+   no TTL.
+
+### Slice spine (each vertical + observable; walking skeleton first)
+
+- **D3.1 — the door exists, and sweeping it is recorded.** Catalog row + `vsftpd` command
+  (mirrors `sshd`: root gate → already-running → port → streamed pidfile write) + the `vsftpd.log`
+  formatter + hydra's service-routed trace. **No client mode at all.** *Observable*: `nmap` shows
+  `:21` on LAN hosts; `hydra <host> ftp` returns creds; the target's `vsftpd.log` holds the FAIL
+  wall and the OK LOGIN. **The ordering is the design, per D2's lesson** (the wordlist read landed
+  before the gate so no shipped version showed a list the sweep denied existed): the catalog row is
+  what makes `hydra <host> ftp` work, so decision 7's routing must land in the SAME slice or a
+  shipped version writes sshd-tagged lines for a door nobody knocked on.
+- **D3.2 — a player logs in and looks around.** `ftp <host> [user] [pw]`; `authCreateSession`
+  parameterized on kind (it hardcodes `'ssh'` at `:54` and `:211`); the parallel session; the
+  sub-shell (`pwd`/`ls`/`cd`/`help`/`quit`/`bye`); the remote binding; login traces; decision 9's
+  refresh filter. *Observable*: `230 Login successful` → `ls` their files → `quit`.
+- **D3.3 — a player takes a file and leaves one.** `get`/`put` + the origin binding +
+  `lpwd`/`lcd`/`lls` + the DOWNLOAD/UPLOAD traces. *Observable*: `get /etc/passwd` → `john` it;
+  `put` a file the owner then sees. **This is where ftp pays into the shipped credential layer** —
+  unlike the web door, ftp has real content on day one because the base FS *is* the content.
+- **D3.4 — a player reaches a stranger's door.** Public IP through a NAT forward. *Observable*: A
+  forwards `2121→ws:21`; B sweeps, logs in, takes `/etc/passwd`, and A reads B's real address out
+  of `vsftpd.log`.
+
+### Open for planning (named, deliberately not decided)
+
+1. **Anonymous ftp** — assumed OUT (every login checks a real `/etc/passwd` account), consistent
+   with the row deferring `virtual_users.conf`. Confirm at D3.2.
+2. **Where `vsftpd.log` is seeded.** `access.log` exists only where http is served
+   (`remoteHostFs.ts:155` gates `/var/www/html` the same way); matching that means gating on the
+   ftp service, which interacts with `appendMachineLog` creating an absent file anyway. Decide at
+   D3.1.
+3. **`get` onto an existing origin file** — overwrite silently, or refuse.
+
+**Not open**: `/var/log/vsftpd.log` is tier-2 like `auth.log`/`kern.log` — NOT added to the tier-3
+allowlist. You must get in to read it, which is the same rule the other trace files hold.
 
 ---
 
@@ -609,6 +746,44 @@ by control, since a `curl` through the same forward is equally invisible. That w
 2026-07-31 (no Supabase Realtime; the staleness accepted, a PULL as the approved fix shape if ever
 taken) and is recorded in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §9,
 which D1d re-confirmed rather than discovered. Read the row from the DB when a log looks empty.
+
+**D3 is SELECTED next** (2026-08-14), straight from decision 8's locked door order now that the web
+door is complete on both sides — **and it was split first: `ftp` is D3, `scp` is D3b, each with its
+own `grill-me` and its own `planning`** (owner call, 2026-08-14). The original row fused them under
+"file transfer", which is the only thing they share.
+
+**Why they separate.** `scp` is not a door. Grounding legacy found `scp.ts` at **417 lines against
+`ftp.ts`'s 218** — the rider is the bigger build — and the reason is structural:
+
+| | **D3 — `ftp`** | **D3b — `scp`** |
+|---|---|---|
+| Shape | a **door**: daemon, catalog row, placement, an open port | a **transfer**: no daemon, no port, nothing to place |
+| Session | **held**, with a client mode (`ModeChange kind:'ftp'` is already stubbed at `types.ts:92`, as `nano` was) | **transient** — `withTransientAuthSession` validates, transfers, then *ends* the session; closer to `curl` than to `ssh` |
+| Endpoints | one remote | **two machines, two authorizations, one command** (local `getNode` → remote `createFileOnMachine`, through NAT/forwards) |
+| Its own grill owns | the mode command set's size, ftp as a hydra service, `vsftpd.log` | session lifecycle, where the trace lands (source, target, or both), async progress + cancellation |
+
+Legacy's own comment records that its transient-auth wrapper **replaced** an earlier non-auth
+`withTransientSession` — legacy changed its mind about scp's auth model mid-flight, which is exactly
+the kind of question a shared grill would have buried under ftp's mode UX.
+
+**Order: D3 before D3b** — ftp is the door decision 8's order names, and D4 (daemon control) is
+justified by "a player runs sshd + a web server + **ftpd** with no way to stop any of them", so ftp
+feeds the next slice and scp does not. ftp's `get`/`put` also build the tier-gated copy primitive
+D3b reuses. Both should land before D4.
+
+**D3 HAS BEEN GRILLED** (2026-08-14) — nine locked decisions and a four-slice spine live in
+["D3 — resolved scope & decisions"](#d3--resolved-scope--decisions-grill-me-2026-08-14) above.
+Read that section, not this block, before planning. The two findings that reshaped it:
+
+- **The cost is not the command count, it is that ftp holds TWO machines at once.** Everything in
+  `ui/state.ts` is singular and follows `activeSession()`. That is the slice.
+- **hydra already sweeps ftp for free** (`hydraCrack.ts:212` matches the service generically) but
+  hardcodes its trace to `auth.log` — so the catalog row and the log routing must ship together.
+
+And one thing D3b inherits: it closes **D2.5's named gap**. *Tools run where you stand* is honoured by
+`hydra`, `john` and `apt install`, but a player still cannot move a curated `passwords.txt` from home
+onto an NPC box they rooted — "carrying a *grown* wordlist onto a box additionally needs `scp`". That
+is D3b's headline acceptance, and it is independent of ftp entirely.
 
 Per slice, before any code: load `tdd`, `testing`, `mutation-testing`, `refactoring`; run full
 RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR; present before starting the next. Any `api/` change
