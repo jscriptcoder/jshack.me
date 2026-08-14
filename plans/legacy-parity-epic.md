@@ -603,10 +603,12 @@ Three things it settled that outlive it:
 **Still open from it, unchanged**: `curl` and `lynx` carry no `caller_machine_id`, so their
 cross-player traces cannot follow a pivot. Their slice, alongside the one `ssh` and `nmap` need.
 
-**A pre-existing gap Act 10 surfaced, worth not rediscovering as a bug**: after any server-side
-log append, the attacker's own client shows that log as EMPTY until something else syncs its
-journal. Proven pre-existing by control — a `curl` through the same forward is equally invisible
-until the next sync. Read the row from the DB when a log looks empty.
+**It hit the known log staleness, which is decided, not open**: after any server-side append the
+client shows that log as EMPTY until something else syncs its journal — proven still pre-existing
+by control, since a `curl` through the same forward is equally invisible. That was decided
+2026-07-31 (no Supabase Realtime; the staleness accepted, a PULL as the approved fix shape if ever
+taken) and is recorded in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §9,
+which D1d re-confirmed rather than discovered. Read the row from the DB when a log looks empty.
 
 Per slice, before any code: load `tdd`, `testing`, `mutation-testing`, `refactoring`; run full
 RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR; present before starting the next. Any `api/` change

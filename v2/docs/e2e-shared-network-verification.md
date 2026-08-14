@@ -674,14 +674,18 @@ Cross-network refusal, same act: `gobuster http://203.0.113.7` (nobody forwards 
 `gobuster: (7) Failed to connect to 203.0.113.7 port 80: Connection refused` — collapsed cause,
 named with its program.
 
-**A pre-existing gap this act surfaced, and it is NOT D1d's**: after a server-side append, the
-attacker's own client shows the target's log as **empty** until something else syncs its journal.
-`cat /var/log/access.log` printed nothing while the row already held 3201 characters; a later
-own-LAN sweep (which writes locally) brought the whole file in at once. **Proven pre-existing by
-the control**: a `curl` of the same forward — the shipped D1 path — left its line in the database
-and was likewise invisible to `cat` until the next sync. Any cross-player writer has this shape,
-because the append happens on the server and no client-side journal update accompanies it. Read
-the row from the DB when a log looks empty:
+**The known log staleness, hit again — read `conventions-and-gotchas.md` §9 before calling it a
+bug.** After a server-side append the client shows the log as **empty** until something else syncs
+its journal: `cat /var/log/access.log` printed nothing while the row already held 3201 characters,
+and a later own-LAN sweep (which writes locally) brought the whole file in at once. **Proven still
+pre-existing by control**: a `curl` of the same forward — the shipped D1 path — was likewise
+invisible until the next sync.
+
+This is **not a new finding**. §9 decided it 2026-07-31 (no Supabase Realtime; the staleness is
+accepted) and already records that it is worse for logs than for co-edits — every cross-player
+trace, 100% of the time, across `kern.log`, `auth.log` and `access.log`. D1d adds a fourth writer
+and nothing else. The approved fix, if it is ever taken, is a **pull** — refetch before reading
+those three paths — not a push. Read the row from the DB when a log looks empty:
 
 ```bash
 docker exec supabase_db_jshack-me-v2 psql -U postgres -tAc \

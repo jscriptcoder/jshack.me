@@ -217,7 +217,8 @@ decisions. The ship gate is legacy parity **minus missions**; missions are a pos
     sweep launched from a box the caller only holds a session on is traced to THAT network.
     ⚠️ **`curl` and `lynx` still stamp the actor's HOME address on the same handler**, because
     neither sends a caller machine — two source-IP rules inside one web door until they get one.
-    Accepted knowingly; it is the slice named alongside `ssh`/`nmap` in the epic.
+    Accepted knowingly; it is the slice named alongside `ssh`/`nmap` above and **backlogged in
+    §9**, which carries the whole four-tool list.
   - **One definition of a probe** (`core/network/webSweep.ts`, `sweepWord`) shared by the own-LAN
     sweep and the server's, and **one reachability chain** (`resolveWebTarget`, extracted from
     `handleResolveHttpFetch`) shared by the fetch and the sweep — so a path found by sweeping a
@@ -285,12 +286,16 @@ decisions. The ship gate is legacy parity **minus missions**; missions are a pos
     fetched; the slice deleted it rather than replacing it, and a deep-chain box became placeable for
     free because its session carries the caller's own essid. Before adding a refusal for "the server
     cannot know where you are", check whether a session already says.
-  - **`ssh` and `nmap` do NOT pivot yet** (as of v0.121.0). Neither `authCreateSessionPublic` nor
-    `resolvePublicScan` carries a `caller_machine_id`, so they cannot derive a vantage even in
-    principle and still trace to the actor's home. One shell on a rooted box therefore produces a
-    hydra trace pointing at the pivot and an `ssh` trace pointing at the attacker. `resolveVantageSourceIp`
-    is already shaped for the fix; the client half (`ssh.ts`/`nmap.ts` naming the box they run from,
-    as `hydra.ts` does) is the real work.
+  - **`ssh`, `nmap`, `curl` and `lynx` do NOT pivot** (accurate as of v0.130.0; the list grew — it
+    read `ssh`/`nmap` only while it was written at v0.121.0). None of `authCreateSessionPublic`,
+    `resolvePublicScan` or `resolveHttpFetch` carries a `caller_machine_id`, so they cannot derive
+    a vantage even in principle and still trace to the actor's home. One shell on a rooted box
+    therefore produces a hydra trace and a `gobuster` trace pointing at the pivot, and an `ssh`,
+    `nmap`, `curl` or `lynx` trace pointing at the attacker. `resolveVantageSourceIp` is already
+    shaped for the fix; the client half (each command naming the box it runs from, as `hydra.ts`
+    and `gobuster.ts` do) is the real work. **Backlogged in §9** — and note `curl` currently needs
+    no session at all to fetch, so giving it a caller machine changes that contract, which is the
+    part to decide rather than assume.
   - **A cross-player trace is written under the TARGET's log-writer key, and its source IP is
     server-derived.** On your own LAN hydra matches `ssh` and trusts the client's address (the
     occupant is an NPC; nobody to frame). Across the network the log is the defender's only
@@ -1164,6 +1169,18 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   see DB columns or constraints). A regression there ships green. Raised repeatedly and
   deliberately not taken on yet; it needs a CI supabase + a way to boot the functions
   headlessly, which is a piece of work in its own right rather than a config tweak.
+- **Four tools cannot pivot: `ssh`, `nmap`, `curl`, `lynx`.** They carry no `caller_machine_id`,
+  so a trace they leave names the actor's HOME even when the attack came from a box they only hold
+  a session on. `hydra` and `gobuster` do carry one and trace truthfully, so **one shell on a rooted
+  box currently produces traces with two different origins** — which is the reason to close it: a
+  defender's log is the attacker's whole visible cost, and a false address in it is worse than a
+  refusal (the rule D2.4 locked). Server side is ready — `resolveVantageSourceIp` takes
+  `{actorKey, standingEssid}` and the authorization that yields the session is the same
+  `authorizeMachineAccess` the other two already call. The work is the client half plus one
+  decision: **`curl` needs no session at all today**, so giving it a caller machine changes a
+  contract deliberately left open (the credential-free door). Detail at §1's cross-player trace
+  entry and in D1d's as-built; named as open in `plans/legacy-parity-epic.md`.
+
 - **`AvailabilityRule` is inert — enforce it or delete it.** Every command declares one
   (`{kind:'any-machine'}`, `'localhost-only'`, `'installed-package'`) and **nothing in production
   code reads `command.availability`** — verified 2026-08-10 by grepping `\.availability\b` across
@@ -1329,6 +1346,16 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   and already called on every write). That needs **no new authorization model** — it is the
   existing signed `listPatches` for your OWN machine — and costs one round trip on
   `cat /var/log/*`. Do not re-open Realtime for this.
+  **Re-confirmed 2026-08-14 at v0.130.0, and it now covers a fourth writer**: D1d's live run left
+  a 3201-character `access.log` row on the swept box while the owner's `cat` printed nothing, until
+  an unrelated command that wrote locally brought the whole file in at once. The control matters —
+  a `curl` through the same forward was equally invisible, so this is the shipped shape of every
+  cross-player writer and NOT a property of the sweep. It is the single most repeated
+  false-alarm in this project's E2E runs: **when a log reads empty, check the row before believing
+  it**, `docker exec supabase_db_jshack-me-v2 psql -U postgres -tAc "select content from patches
+  where path='/var/log/access.log' and machine_id='<box>'"`, and resolve `<box>` from
+  `home_network_occupants` rather than by hostname — a previous session's `skylab-…` answers with
+  months-old lines and no error. Journey detail: `e2e-shared-network-verification.md` Act 10.
 - **`echo x > rules.v4` is still an unguarded wipe vector.** A redirect carries no base
   fingerprint by design — it truncates by definition, and the player was never shown the
   content — so it overwrites a co-occupant's rules with no question asked. Deliberate by nature
