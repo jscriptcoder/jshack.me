@@ -89,7 +89,8 @@ not, and would mean the row was added somewhere that re-rolls.
 
 Carried from the grill, with a recommendation and the evidence found since:
 
-1. **Where `vsftpd.log` is seeded — slice 1.** *Recommendation: follow `access.log` exactly.*
+1. ~~**Where `vsftpd.log` is seeded — slice 1.**~~ **RESOLVED in slice 1: gated on the ftp
+   service, exactly as `access.log` is gated on http.** *Original recommendation, taken:*
    `remoteHostFs.ts:205` seeds `access.log` only on a host where `serves` is true, and its comment
    is the argument verbatim: an empty file would be "furniture that claims the box once served".
    Gate `vsftpd.log` on the ftp service the same way. `appendMachineLog` creates an absent file
