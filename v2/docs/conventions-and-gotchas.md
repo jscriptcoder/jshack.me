@@ -1207,6 +1207,21 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
     become the general-server bucket and no caller moves, once `LanHost.kind` widens.
   Until it lands, expect thin worlds behind working tools — the accepted trade, and NOT the same
   failure as a mechanic with no input (D2.6b): here the tool is correct and the world is empty.
+- **Three things D1b left behind** (plan closed 2026-08-14 at v0.129.0, Act 9 green; the plan file
+  was deleted on close-out and these are the only parts that outlived it):
+  - **The renderer has no tables and no preformatted blocks.** Deliberate: no page in
+    `webPages.ts` has either, and the legacy renderer's table code was the bulk of its 401 lines.
+    Add them when content does, not before — and note the renderer takes no width parameter
+    (CSS wraps), so nothing here needs wrapping arithmetic.
+  - **`followLink` has two untested branches** — the offline guard (4 no-coverage mutants) and the
+    "a different overlay is open" guard. Both predate slice 7 and neither was named by a criterion,
+    so they were left rather than quietly absorbed. Cheap to close: the harness in
+    `state.test.ts` already builds a browsing game; an offline variant needs a store without the
+    persisted ESSID, and the other needs `nano` open when `followLink` is called.
+  - **`resolveOccupants.test.ts:134` is a coin flip, ~1 run in 222.** Two random identities derive
+    the same LAN address 90 times in 20000 (0.45%, measured 2026-08-13), and the guard asserts they
+    differ. Pre-existing and unrelated to D1b — it surfaced during a slice-5 full-suite run. Worth
+    its own small PR: seed the two identities apart rather than trusting the roll.
 - **Nine known surviving mutants in generated config content, never owned.** Exposed by D2.2's
   honest mutation run (once a raised timeout stopped scoring timeouts as kills) in code that slice
   never touched: the `RULES_V4_SEED` / `ACL_CONF_SEED` header lines and their `join('\n')`

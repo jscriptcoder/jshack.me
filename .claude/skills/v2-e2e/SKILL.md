@@ -233,15 +233,31 @@ against the live `ifconfig`. Delete the temp file when done.
   even though `document.activeElement` still reports the textarea — and a synthetic
   `KeyboardEvent` dispatched on it does nothing either. `agent-browser click "textarea"`
   immediately before each chord fixes it every time. Click, then `^O`; click again, then `^X`.
-- **Poll for the editor's absence TWICE.** A single `document.querySelector('textarea') === null`
-  can catch a transient re-render and report a close that did not happen — after which the next
-  `keyboard type` goes into the buffer and is saved with it. Re-check after a pause, and read the
-  buffer back before saving. Recovering a corrupted buffer without retyping it:
+- **Never poll for the editor's ABSENCE — poll for the TERMINAL's return.** Checking
+  `document.querySelector('textarea') === null` is unreliable *even twice in a row*: it reported
+  a close that had not happened on two consecutive checks, and the next `keyboard type` went into
+  the buffer — `...the main page</a>.</p>cat /var/www/html/notes.html`, one `^O` away from being
+  saved. An absence can be produced by a transient re-render; a presence cannot. Wait on the
+  positive signal, then reconfirm it:
+  ```bash
+  agent-browser eval "(() => document.querySelector('input') !== null && document.querySelector('textarea') === null)()"
+  ```
+  Read the buffer back after any command that was supposed to run in the SHELL — if it is in
+  there, the editor never closed. Recovering a corrupted buffer without retyping it:
   ```js
   (() => { const ta = document.querySelector('textarea');
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(ta, CLEAN);
     ta.dispatchEvent(new Event('input', { bubbles: true })); })()
   ```
+  Pass that snippet from a `.js` file — `agent-browser eval "$(cat fix.js)"` — so bash quoting
+  never has to survive both `'` and `"` in one argument.
+- **`[ Wrote N lines ]` is gone within a second.** Check for it in the SAME step as `^O`; a check
+  one `sleep 1` later already returns nothing and reads as a failed save. Absence of the status is
+  not evidence of failure — confirm by `cat`-ing the file back through the game.
+- **Git Bash rewrites anything that looks like an absolute unix path.** Typing
+  `<a href="/notes.html">` into nano arrives as `href="C:/Program Files/Git/notes.html"`. Silent,
+  and only visible when you read the buffer back. Export `MSYS_NO_PATHCONV=1` and
+  `MSYS2_ARG_CONV_EXCL='*'` around any step that types a path into the game.
 - **Every second command in a batched run is silently dropped.** After Enter the terminal input is
   re-created and re-grabs focus asynchronously, so an immediately following `keyboard type` types
   into nothing: no error, and the transcript shows a bare prompt where your command should be.
@@ -278,8 +294,14 @@ shape: **target state → numbered commands → the trap in each**. Traps are th
 command list will be re-derived correctly anyway, but an ordering trap costs a full cycle every
 time.
 
-**A bricked gateway and a multi-occupant same-LAN encounter are now written up** — as full
-journeys rather than recipes — in [`v2/docs/e2e-shared-network-verification.md`](../../../v2/docs/e2e-shared-network-verification.md),
+**A bricked gateway, a multi-occupant same-LAN encounter, the web surface, the path sweep and
+the text browser are now written up** — as full journeys rather than recipes — in
+[`v2/docs/e2e-shared-network-verification.md`](../../../v2/docs/e2e-shared-network-verification.md),
 which also carries the two-player mechanics, the ESSID-discovery constraint, and a known
 client defect worth not misreading as a test failure. Read it before driving any
 cross-player scenario. Still unwritten: a deep-chain pivot.
+
+**Publishing a site to browse (Act 9's setup)**: `apt install lynx` and `apt install nginx` —
+neither is preinstalled — then `nginx` to listen, and **`rm /var/www/html/index.html` before
+writing your own**, because installing nginx leaves a default page there and a half-generated
+site makes the link count meaningless.

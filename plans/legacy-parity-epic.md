@@ -203,7 +203,7 @@ procedural CVE timeline (`publishedAt`/`patchDelay`), `apt upgrade`/pinning, scr
 ```
 PHASE 1 — THE DOORS  (near-term focus)
   D1  web (apache2/nginx + generated pages + curl)     ✔ SHIPPED v0.109.0
-  D1b lynx (browser screen)                           ◐ IN PROGRESS — 4 of 7 (v0.125.0-v0.127.0)
+  D1b lynx (browser screen)                           ✔ DONE — v0.125.0-v0.129.0, E2E 2026-08-14
   D1c gobuster (path brute-force)                     ✔ DONE — v0.123.0 + v0.124.0, E2E 2026-08-13
   D2  hydra + the wordlist system (+ john)             ✔ SHIPPED v0.111.0-v0.122.0
       D2.1 hydra vs an own-LAN NPC host                ✔ SHIPPED v0.111.0
@@ -545,17 +545,24 @@ The shape already exists: `curl` has `fetchAcrossNetwork` (`curl.ts:130`) and th
 resolution behind it, so a sweep across networks is that path plus the batched `paths[]` form
 slice 2 built. It is a slice and not a follow-up because hydra's equivalent took five (D2.4).
 
-**D1b (`lynx`) is IN PROGRESS** — selected 2026-08-13 as the fast-follow, planned in
-[`lynx-browse-a-page.md`](./lynx-browse-a-page.md) as seven slices, **four of them now merged**.
+**D1b (`lynx`) is DONE** — selected 2026-08-13 as the fast-follow, planned as seven slices and
+delivered in six (v0.125.0 → v0.129.0), with the live browser run recorded as Act 9 of
+[`e2e-shared-network-verification.md`](../v2/docs/e2e-shared-network-verification.md).
+
 Slice 1 (v0.125.0, #381) stopped generated pages advertising doors that do not exist, which had to
 happen before the browser existed rather than after — `curl` makes a dead link a shrug, a browser
 makes it the headline interaction. Slice 2 (v0.126.0, #382) is the walking skeleton: the overlay
 screen, the `DOMParser`-based renderer, and `q` to get back out. Slice 3 (v0.126.1, #384) gave
 `curl`, `gobuster` and `lynx` one door to a web host instead of three copies. Slice 5 (v0.127.0,
 #386) made it a browser rather than a viewer: links render numbered and selectable, and following
-one fetches through the same path the command uses. Slice 4 was absorbed into slice 2 — the
-renderer lost its width parameter to CSS, and most of slice 4 was that arithmetic. **Left: going
-back (slice 6, in progress) and browsing another player's page by public IP (slice 7).**
+one fetches through the same path the command uses. Slice 6 (v0.128.0, #387) added going back.
+Slice 7 (v0.129.0, #388) reached another player's page by public IP, and gave the cross-network
+fetch the same one-definition treatment slice 3 gave the local one. Slice 4 was absorbed into
+slice 2 — the renderer lost its width parameter to CSS, and most of slice 4 was that arithmetic.
+
+**The decision worth remembering: going back RE-FETCHES.** It keeps one rule for the target's log
+— a line per page viewed — instead of a second rule saying which views do not count, and the live
+run proved it from the defender's side: three pages read left exactly three `access.log` lines.
 
 Two consequences of that ordering are accepted and recorded in the plan — do not rediscover them
 as bugs. Generated hosts now render **linkless**, so link-following is proven against a page the

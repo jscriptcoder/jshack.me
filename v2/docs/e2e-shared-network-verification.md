@@ -9,6 +9,12 @@ gates on that tree: 1958 unit tests / 122 files, and 26 wire-check scripts /
 179 checks. Two runbook errors found and corrected in place (the `nmap` CIDR form, and
 the assumption that any L1 NPC is sshable), plus one real client defect recorded in §6.
 
+**Act 9 added 2026-08-14 against v0.129.0** — D1b's browser, proven from the log's side: three
+pages viewed left three lines, which is what makes "going back re-fetches" an observable
+decision rather than an implementation note. It found a **fourth nano trap that supersedes the
+third**: polling for the editor's ABSENCE is unreliable even doubled, so poll for the terminal
+input's presence instead. See §5.
+
 **Act 4 re-run 2026-07-28 against v0.99.0, all four checks passed** — a NAT forward now
 reaches whichever occupant LEASES the address it names, so every occupant is
 forward-reachable and the "publish for the later joiner" workaround is gone. That run also
@@ -508,6 +514,104 @@ saving.
 
 ---
 
+### Act 9 — the browser, and the log that counts what it read (D1b)
+
+**Executed 2026-08-14 against v0.129.0. All checks passed.** Single player; no second
+identity needed, because the whole of D1b is observable from one box reading its own site.
+
+**Target**: `lynx` renders a page as text, follows a numbered link, goes back, and quits —
+and the box that served it can say exactly how many pages were read.
+
+| # | Command | Trap |
+|---|---|---|
+| 1 | Act 1's arc → connected (`ACME-CORP`, `192.168.45.77`) | — |
+| 2 | `su root` → `apt install lynx` | **`lynx` is not preinstalled**, exactly like `nmap` |
+| 3 | `apt install nginx` → `nginx` | Root-tier. Prints `Server listening on 0.0.0.0 port 80.` |
+| 4 | `rm /var/www/html/index.html` | `apt install nginx` leaves a **default page** there. Remove it, or the site under test is half generated and the link count is not yours |
+| 5 | `nano /var/www/html/index.html` → a page linking `/notes.html` | §7's nano traps, plus a new one below |
+| 6 | `nano /var/www/html/notes.html` → a page linking back | — |
+| 7 | `lynx http://localhost/` | — |
+| 8 | `Enter`, then `ArrowLeft`, then `ArrowLeft`/`Backspace` again, then `q` | — |
+| 9 | `cat /var/log/access.log` | The count is the assertion. See below |
+
+**What the browser showed**, read with
+`eval "document.querySelector('main').innerText"` — the overlay is plain text, so the whole
+screen including the footer comes back in one read:
+
+```
+http://localhost/                                  ← on open
+Nebuchadnezzar
+Ship systems nominal.
+Read the [1]operator notes.
+↑↓ Select  ⏎ Follow  q Quit                        ← no Back: nowhere to go back to yet
+
+http://localhost/notes.html                        ← after Enter
+Operator Notes
+Broadcast depth 09. Hovercraft grounded.
+Return to [1]the main page.
+↑↓ Select  ⏎ Follow  ← Back  q Quit                ← Back appears with the first history entry
+
+http://localhost/                                  ← after ArrowLeft
+Read the [1]operator notes.                        ← selection restored to the link left by
+↑↓ Select  ⏎ Follow  q Quit                        ← Back gone again: the trail is spent
+```
+
+Markup never renders (`<h1>` is a line, not a tag), the link is numbered and carries
+`aria-current="true"`, and a second `ArrowLeft` plus a `Backspace` at the first page did
+**nothing** — the overlay stayed open rather than quitting. `q` returned the terminal with
+its scrollback intact.
+
+**The log is the real assertion**, because it is the only place the design decision is
+visible from the other side:
+
+```
+127.0.0.1 - - [14/Aug/2026:07:52:39 +0000] "GET / HTTP/1.1" 200 108
+127.0.0.1 - - [14/Aug/2026:07:52:49 +0000] "GET /notes.html HTTP/1.1" 200 127
+127.0.0.1 - - [14/Aug/2026:07:53:00 +0000] "GET / HTTP/1.1" 200 108
+```
+
+**Three lines for three pages viewed — and the third is what proves going back re-fetches.**
+A cached back would have left two. The two no-op back presses at the first page would have
+made it five if they had fetched, and they did not. Sizes match the two files (108 / 127) and
+the repeat of `/` reports 108 again, so the count is not a rendering artifact.
+
+**Cross-network, same act**: `lynx http://203.0.113.7` (an address nobody forwards) reports
+
+```
+lynx: (7) Failed to connect to 203.0.113.7 port 80: Connection refused
+```
+
+**in the terminal, without opening the browser** — the collapsed refusal, named with its
+program, through the real signed `resolveHttpFetch` round-trip rather than a stub. That is
+D1b slice 7's client branch proven live; the endpoint behind it is `curl`'s and predates it.
+
+**A fourth nano trap, worse than the third, now in the skill's §7.** The double-poll for the
+editor's absence that §5's Act 7 note prescribes **is not enough** — it reported "closed"
+twice while the editor was still open, and the next shell command was typed into the buffer
+and would have been saved with it:
+
+```
+...<a href="/index.html">the main page</a>.</p>cat /var/www/html/notes.html
+```
+
+**Poll for the terminal input's PRESENCE instead** —
+`document.querySelector('input') !== null && document.querySelector('textarea') === null`.
+A positive signal cannot be produced by a transient re-render, where an absence can. Read the
+buffer back after any command that was supposed to run in the shell, and recover with the
+native-setter recipe rather than retyping.
+
+**And a Git Bash trap that has nothing to do with the game**: MSYS rewrites any argument that
+looks like an absolute unix path, so `keyboard type '<a href="/notes.html">'` arrives in the
+editor as `href="C:/Program Files/Git/notes.html"`. Silent, and only visible when you read the
+buffer back. Export `MSYS_NO_PATHCONV=1` and `MSYS2_ARG_CONV_EXCL='*'` for any step that types
+a path into the game.
+
+**`[ Wrote N lines ]` is transient and easy to miss** — checking for it one second after `^O`
+already returns nothing, which reads as a failed save. Check immediately, and treat its absence
+as unknown rather than as failure: confirm by `cat`-ing the file back through the game.
+
+---
+
 ## 6. What a failure means
 
 | Symptom | Look at |
@@ -710,6 +814,17 @@ If Act 5 ran, `npx supabase db reset` — X's gateway is permanently bricked oth
 | Every occupant visible to every other | 2 | `testSameLanOccupancy` |
 | Registry gone, behaviour unchanged | all | the full wire-check suite |
 | Disconnected = unreachable | 6 | `testDisconnectedUnreachable` |
+
+D1's own criteria, layered on afterwards:
+
+| D1 / D1b / D1c criterion | Act | Also proven by |
+|---|---|---|
+| A page comes back over http, logged like any fetch | 7 | `curl.test.ts` |
+| A path sweep finds what the page never linked | 8 | `gobuster.test.ts` |
+| A page renders as TEXT, comments withheld | 9 | `renderPage.test.ts` |
+| Links numbered and followable; selection restored on return | 9 | `Lynx.test.tsx` |
+| Going back RE-FETCHES — one log line per page viewed | 9 | `Lynx.test.tsx` + the log count itself |
+| Cross-network browsing collapses to one refusal | 9 | `lynx.test.ts`, `webPage.ts` at 100% |
 
 Not covered here and still open: **deep-chain pivots through a shared chain** (Acts stop
 at L1 NPCs) and **WiFi density / presence-TTL**, both deferred. If you want the deep
