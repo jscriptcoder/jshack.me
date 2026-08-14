@@ -6,9 +6,10 @@
 
 **Status**: **D1 shipped** (v0.109.0), with its web follow-ups D1c (v0.123.0-v0.124.0), D1b
 (v0.125.0-v0.129.0) and D1d (v0.130.0) all closed out — the web door's cross-player parity is
-complete and **D3 is next and GRILLED** (2026-08-14, nine locked decisions + a four-slice spine —
-see "D3 — resolved scope & decisions"), with `ftp` (D3) and `scp` (D3b) **split into separate
-grill + plan phases** since scp is a transient two-endpoint transfer, not a door;
+complete and **D3 is next**. `ftp` (D3) and `scp` (D3b) were **split into separate grill + plan
+phases** on 2026-08-14 — scp is a transient two-endpoint transfer, not a door — and **BOTH are now
+GRILLED** (D3: nine decisions + four slices; D3b: five decisions + three slices; see their
+"resolved scope & decisions" sections). Both need planning, D3 first;
 **D2 ✅ COMPLETE** — D2.1 (v0.111.0), D2.2 (v0.113.0), D2.3
 (v0.114.0), D2.5 (v0.115.0), hydra's workstation-only gate lifted (v0.118.0), D2.4 all five slices
 (v0.119.0–v0.122.0), and D2.6a (#377). Its split file is deleted; the as-built lives in
@@ -226,7 +227,7 @@ PHASE 1 — THE DOORS  (near-term focus)
       D2.6a an appended word opens a door that held    ✔ SHIPPED #377 (tests only)
       D2.6b harvestable plaintext loot                 ⏸ POSTPONED — V2 owes the harvest route
   D3  ftp (the door)                                  ◀ NEXT — grilled 2026-08-14, needs planning
-  D3b scp (the transfer)                              — split out 2026-08-14; own grill + plan
+  D3b scp (the transfer)                              — grilled 2026-08-14, needs planning
   D4  daemon control (systemctl / ps / kill)
   D5  nc connect + nc -l backdoor
   D6  mysql
@@ -420,6 +421,104 @@ count, is what D3 costs.**
 
 **Not open**: `/var/log/vsftpd.log` is tier-2 like `auth.log`/`kern.log` — NOT added to the tier-3
 allowlist. You must get in to read it, which is the same rule the other trace files hold.
+
+---
+
+## D3b — resolved scope & decisions (grill-me, 2026-08-14)
+
+Grilled straight after D3, same day. **D3b is the smaller half despite legacy building it larger**
+(417 lines against ftp's 218), because it INHERITS: kind-parameterized `authCreateSession` from
+D3.2 and the remote patch binding from D3.3. `scp` is also already in `/bin`
+(`generation/binaries.ts`) — it ships with openssh, exactly as in life, so there is no availability
+or apt work. The command simply does not exist behind the binary yet.
+
+Two things are forced rather than chosen, and planning should not re-litigate them:
+
+- **The transient session is not a design choice.** `upsertPatch`'s L1 requires an active
+  `sessions` row on the target, so create → transfer → end is the only shape that can write at all.
+- **scp reaches exactly what `ssh` reaches** — it auto-detects the open ssh service port, so a box
+  with sshd down is refused no matter what else it runs.
+
+### Locked decisions
+
+1. **Both directions.** Whichever operand matches `user@host:path` is the remote side; the other is
+   local. Legacy was **upload-only** (`parseDestination` only ever parsed argument 1), which was a
+   limitation rather than a design. Upload closes D2.5's wordlist-carry gap; download is the
+   **silent harvest** — the counterpart to ftp's `get`, which D3 decision 5 made itemise every byte.
+2. **The trace is a login line only, indistinguishable from an interactive ssh login.** One
+   `Accepted password for <user> from <ip>` through the shipped `formatSshdAuthLine`; no line names
+   the file. Real sshd logs the auth before it ever knows the session is a copy. **Accepted
+   consequence, stated so it is not read as an oversight: scp DOMINATES ftp for exfiltration once
+   you hold ssh creds.** That is the intended specialisation — ftp is easier to OPEN (its own
+   `placement`, crackable without ssh) and itemises what moves; scp needs credentials you already
+   earned and takes the file in silence. Two doors, two costs.
+3. **Announce, then one final line — no rewriting progress.** `Connecting to <host>...` paints while
+   the round-trip is pending, then scp's completed line lands once
+   (`passwords.txt   100%  1243 bytes`). A live in-place progress bar is what real scp does and it
+   is exactly what `streaming.ts` rules out: an append-only terminal cannot rewrite a line, which is
+   the same reasoning that killed the `Done` marker. `100%` is truthful at the moment it prints.
+   **Ctrl-C unwinds before the single atomic `upsertPatch`, so a partial file cannot exist by
+   construction** — no cleanup path to get wrong.
+4. **Cross-player IN; remote-to-remote and `-r` OUT.** scp rides ssh and `machineServing` routes by
+   port, so reaching a stranger through a NAT forward is nearly free — consistent with D3 including
+   cross-player rather than deferring it. **Deferred and named**: `scp root@A:/f root@B:/g` (two
+   transient sessions in one command, letting loot move between two compromised boxes without ever
+   touching the player's own — a laundering move worth its own slice, and genuinely interesting
+   given decision 2's silence), and `-r` for directories.
+5. **`-p` takes the port, matching v2's `ssh` — a DELIBERATE divergence from real scp.** Real scp
+   uses `-P` and reserves `-p` for preserve-times. Recorded as a named divergence because it is the
+   one place this epic bends its own realism principle for internal consistency, and a future
+   reviewer citing that principle would otherwise "fix" it back. **The cost is accepted**: a player
+   who knows real scp is surprised, and preserve-times can never have its real name. (`-P` as an
+   additional alias stays free if it is ever wanted.)
+
+### Folded in as routine (recorded so they are not re-decided)
+
+- **scp does NOT create missing parent directories** — real scp errors, and both `mkdir -p` and
+  `apt` already cover the gap (`apt.ts:168` walks `ancestorsOf` and mkdirs each level).
+- **Overwrite is silent**, as real scp is.
+- **`SessionKind` gains `'scp'`** — provenance only; tier stays the truth (epic decision 2).
+- **The source is validated BEFORE connecting**, so a typo'd filename never reaches the target's
+  log. Keeps D2.3's guardrail: log only once a credential was actually checked.
+- **The "local" side is the box you are STANDING on**, not the player's workstation — *tools run
+  where you stand* (D2.5's locked principle).
+- A directory as source errors `scp: <path>: Is a directory`, as legacy did, until `-r` lands.
+
+### Why the carry matters (the question planning will otherwise ask)
+
+*Why carry a wordlist at all, rather than sweep from home?* **Reachability.** D2.4 slice 5 shipped
+deep-chain hydra, so the boxes worth sweeping are often ones the player's home box cannot reach
+directly. The carry is what turns a rooted box into a usable pivot:
+
+```
+ssh root@<npc>              a box you rooted, fronting a deep layer
+apt install hydra           creates /usr/share/wordlists/ (apt walks ancestorsOf)
+scp ~/passwords.txt root@<npc>:/usr/share/wordlists/passwords.txt
+hydra -p <fwd> <inner gw>   sweeps with words the shipped list does not hold
+```
+
+**The `apt install` step is load-bearing, not filler.** A generated NPC box's `/usr` holds only
+`bin` and `sbin` (`remoteHostFs.ts:189`) — there is no `/usr/share/wordlists/`, which is exactly
+where `WORDLIST_PATH` points. Without that step (or a manual `mkdir -p`) the scp fails on the
+missing containing directory, and the acceptance would have been written against something
+impossible. Grounding caught this; do not drop the step from the criterion.
+
+### Slice spine (each vertical + observable)
+
+- **D3b.1 — a player carries a file onto a box they hold.** Upload, own-LAN: the transient session
+  (create → write → end), source-first validation, decision 3's UX, `-p`. *Observable*: the carry
+  above — a sweep succeeds from the pivot with a word the shipped `DEFAULT_WORDLIST` does not hold.
+- **D3b.2 — a player takes a file without being seen.** Download. *Observable*:
+  `scp root@<host>:/etc/passwd ./` → `john` it; the target's `auth.log` shows a login and **nothing
+  about the file**, set against ftp's `OK DOWNLOAD` line for the same theft.
+- **D3b.3 — a player reaches a stranger's box.** Cross-player, both directions, through a NAT
+  forward.
+
+### Open for planning (named, deliberately not decided)
+
+1. **An existing active session on the target** — reuse it, or always create-and-end? Recommend
+   always create-and-end: simpler, and the row's lifetime stays exactly one command.
+2. **`-P` as an alias** for `-p` — free either way; decision 5 makes `-p` canonical regardless.
 
 ---
 
@@ -780,10 +879,20 @@ Read that section, not this block, before planning. The two findings that reshap
 - **hydra already sweeps ftp for free** (`hydraCrack.ts:212` matches the service generically) but
   hardcodes its trace to `auth.log` — so the catalog row and the log routing must ship together.
 
-And one thing D3b inherits: it closes **D2.5's named gap**. *Tools run where you stand* is honoured by
-`hydra`, `john` and `apt install`, but a player still cannot move a curated `passwords.txt` from home
-onto an NPC box they rooted — "carrying a *grown* wordlist onto a box additionally needs `scp`". That
-is D3b's headline acceptance, and it is independent of ftp entirely.
+**D3b HAS BEEN GRILLED TOO** (2026-08-14) — five decisions and a three-slice spine in
+["D3b — resolved scope & decisions"](#d3b--resolved-scope--decisions-grill-me-2026-08-14). It closes
+**D2.5's named gap**: *tools run where you stand* is honoured by `hydra`, `john` and `apt install`,
+but a player still cannot move a curated `passwords.txt` onto an NPC box they rooted. Two findings
+from its grill:
+
+- **Legacy's scp was upload-only**, so download — the *silent* harvest, against ftp's itemised
+  `get` — is net-new rather than a port. The two doors specialise instead of overlapping.
+- **The carry's `apt install` step is load-bearing.** An NPC box has no `/usr/share/wordlists/`,
+  which is where `WORDLIST_PATH` points, so without it the acceptance describes something
+  impossible.
+
+D3b is the SMALLER half despite legacy building it larger (417 lines vs ftp's 218) — it inherits the
+kind-parameterized session from D3.2 and the remote binding from D3.3, which is why D3 goes first.
 
 Per slice, before any code: load `tdd`, `testing`, `mutation-testing`, `refactoring`; run full
 RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR; present before starting the next. Any `api/` change
