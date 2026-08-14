@@ -9,7 +9,9 @@
 complete and **D3 is next**. `ftp` (D3) and `scp` (D3b) were **split into separate grill + plan
 phases** on 2026-08-14 — scp is a transient two-endpoint transfer, not a door — and **BOTH are now
 GRILLED** (D3: nine decisions + four slices; D3b: five decisions + three slices; see their
-"resolved scope & decisions" sections). Both need planning, D3 first;
+"resolved scope & decisions" sections). **D3 is now PLANNED** as six PR-sized slices in
+[`d3-ftp-the-door.md`](./d3-ftp-the-door.md) — read that file, not this section, to pick up the
+work. D3b still needs planning;
 **D2 ✅ COMPLETE** — D2.1 (v0.111.0), D2.2 (v0.113.0), D2.3
 (v0.114.0), D2.5 (v0.115.0), hydra's workstation-only gate lifted (v0.118.0), D2.4 all five slices
 (v0.119.0–v0.122.0), and D2.6a (#377). Its split file is deleted; the as-built lives in
@@ -226,7 +228,7 @@ PHASE 1 — THE DOORS  (near-term focus)
       D2.4 cross-player hydra, all five slices        ✔ SHIPPED v0.119.0-v0.122.0
       D2.6a an appended word opens a door that held    ✔ SHIPPED #377 (tests only)
       D2.6b harvestable plaintext loot                 ⏸ POSTPONED — V2 owes the harvest route
-  D3  ftp (the door)                                  ◀ NEXT — grilled 2026-08-14, needs planning
+  D3  ftp (the door)                                  ◀ IN PROGRESS — planned as 6 slices
   D3b scp (the transfer)                              — grilled 2026-08-14, needs planning
   D4  daemon control (systemctl / ps / kill)
   D5  nc connect + nc -l backdoor
@@ -388,6 +390,13 @@ count, is what D3 costs.**
    no TTL.
 
 ### Slice spine (each vertical + observable; walking skeleton first)
+
+> **PLANNED 2026-08-14** — [`d3-ftp-the-door.md`](./d3-ftp-the-door.md) sequences these four into
+> **six** PR-sized slices (D3.2 and D3.3 are two PRs each) and pins each open question to the slice
+> that answers it. Nothing below was re-decided; planning grounding added five findings, two of
+> which change the work: the ftp session is parallel, so the **origin binding already exists and
+> only the remote one is new**, and **`put`, not `get`, is where decision 3's claim gets proven**
+> (`get` writes to your own box; only `put` asks an ftp row to satisfy L1).
 
 - **D3.1 — the door exists, and sweeping it is recorded.** Catalog row + `vsftpd` command
   (mirrors `sshd`: root gate → already-running → port → streamed pidfile write) + the `vsftpd.log`
