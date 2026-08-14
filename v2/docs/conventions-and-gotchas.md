@@ -1181,6 +1181,15 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   contract deliberately left open (the credential-free door). Detail at §1's cross-player trace
   entry and in D1d's as-built; named as open in `plans/legacy-parity-epic.md`.
 
+- **An `http` sweep is written up as `sshd`.** `hydra <host> http` is a supported attack —
+  `hydraCrackPublic.test.ts` deliberately covers reaching the web service through a forward — but
+  the web door has no login, so the trace it leaves is `Failed password for <user> from <ip>` in
+  the target's `auth.log`, tagged `sshd`, for a daemon nobody knocked on. D3.1 routed the sweep
+  trace **by service** (`SERVICE_CATALOG.<svc>.sweepLog`) and gave `ftp` its own file, but left
+  `http` pointing at `auth.log` **byte-for-byte as it was** — the row says so in a comment. It is
+  recorded here rather than fixed there because the right destination is `access.log` as a run of
+  401s, and that is the web door's decision, not the ftp door's. Fixing it is now one row.
+
 - **`AvailabilityRule` is inert — enforce it or delete it.** Every command declares one
   (`{kind:'any-machine'}`, `'localhost-only'`, `'installed-package'`) and **nothing in production
   code reads `command.availability`** — verified 2026-08-10 by grepping `\.availability\b` across

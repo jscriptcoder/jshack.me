@@ -82,7 +82,7 @@ export const LOCALHOST_PREINSTALLED_TOOLS = ['airmon', 'airdump', 'aircrack'] as
  * everywhere, so the per-host generator (Slice 2) plants this same set on
  * generated machines. World-executable stubs — the daemon self-gates root.
  */
-export const SYSTEM_DAEMON_NAMES = ['sshd'] as const;
+export const SYSTEM_DAEMON_NAMES = ['sshd', 'vsftpd'] as const;
 
 /**
  * Binaries whose execute permission is restricted to root. Everything else

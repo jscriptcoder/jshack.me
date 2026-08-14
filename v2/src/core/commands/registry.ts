@@ -42,6 +42,7 @@ import { rm } from './rm';
 import { hydra } from './hydra';
 import { ssh } from './ssh';
 import { sshd } from './sshd';
+import { vsftpd } from './vsftpd';
 import { su } from './su';
 import { touch } from './touch';
 import { apache2, nginx } from './webServer';
@@ -82,6 +83,7 @@ const builtins: readonly Command[] = [
   hydra,
   ssh,
   sshd,
+  vsftpd,
   su,
   touch,
 ];

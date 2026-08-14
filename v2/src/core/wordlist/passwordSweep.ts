@@ -18,7 +18,7 @@
  */
 
 import { md5 } from '../generation/md5';
-import { formatSshdAuthLine } from '../logging/authLog';
+import type { CredentialAttempt } from '../logging/authLog';
 import { derivePid } from '../logging/syslog';
 import { asGameTime } from '../types';
 import { orderPatchesForReplay } from '../patches/orderPatchesForReplay';
@@ -80,6 +80,9 @@ export const sweepAccounts = (options: {
   readonly hostname: string;
   readonly fromIp: string;
   readonly stamp: number;
+  /** How the attacked service writes one attempt into its own log. The sweep knows
+   *  what was tried; the service knows how that reads to its defender. */
+  readonly formatAttempt: (attempt: CredentialAttempt) => string;
 }): Sweep => {
   const words = wordsIn(options.wordlist);
   const sweeps: readonly AccountSweep[] = accountsUnderAttack(
@@ -95,12 +98,12 @@ export const sweepAccounts = (options: {
     return password === undefined ? [] : [{ username: account.username, password }];
   });
 
-  // The sweep as the TARGET saw it: `Accepted` for the password that matched and
-  // `Failed` for the rest. An account that fell records only the words that came
-  // before its match — the rest were never sent.
+  // The sweep as the TARGET saw it: the matched password recorded as a success and
+  // the rest as failures, in the attacked service's own log shape. An account that
+  // fell records only the words that came before its match — the rest were never sent.
   const trace = sweeps.flatMap(({ account, matchedAt }) =>
     Array.from({ length: matchedAt === -1 ? words.length : matchedAt + 1 }, (_unused, attempt) =>
-      formatSshdAuthLine({
+      options.formatAttempt({
         outcome: attempt === matchedAt ? 'success' : 'failure',
         user: account.username,
         fromIp: options.fromIp,

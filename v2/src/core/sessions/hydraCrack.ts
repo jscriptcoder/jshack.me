@@ -53,11 +53,7 @@ import {
 } from '../patches/authorizeMachineAccess';
 import { readOpenPorts } from '../services/pidfile';
 import { WORDLIST_PATH } from '../wordlist/defaultWordlist';
-import {
-  AUTH_LOG_OWNER,
-  AUTH_LOG_PATH,
-  AUTH_LOG_PERMISSIONS,
-} from '../logging/authLog';
+import { serviceByName, type SweepLog } from '../services/serviceCatalog';
 import { accountsIn } from './passwdAccount';
 import { sweepAccounts, wordlistOn } from '../wordlist/passwordSweep';
 import {
@@ -124,7 +120,7 @@ const hydraCrackSchema = z
  *  failure must never swallow an attack that really happened. */
 const recordSweep = async (
   deps: HydraCrackDeps,
-  target: { readonly writerKey: string; readonly machineId: string },
+  target: { readonly writerKey: string; readonly machineId: string; readonly sweepLog: SweepLog },
   trace: readonly string[],
 ): Promise<void> => {
   try {
@@ -133,9 +129,9 @@ const recordSweep = async (
       {
         writerKey: target.writerKey,
         machineId: target.machineId,
-        path: AUTH_LOG_PATH,
-        owner: AUTH_LOG_OWNER,
-        permissions: AUTH_LOG_PERMISSIONS,
+        path: target.sweepLog.path,
+        owner: target.sweepLog.owner,
+        permissions: target.sweepLog.permissions,
       },
       trace.join('\n'),
     );
@@ -207,9 +203,17 @@ export const handleHydraCrack = async (
     return { status: 404, body: { error: 'host_unreachable' } };
   }
 
+  // A service the world has no row for is answered exactly like one that is not
+  // running: the caller learns nothing about the box either way, and resolving the
+  // row here is what gives the trace below a log to land in.
+  const spec = serviceByName(payload.service);
+  if (spec === undefined) {
+    return { status: 404, body: { error: 'service_not_running' } };
+  }
+
   // The pidfiles are the truth about what is listening: a stopped daemon leaves
   // nothing to attack, exactly as it leaves nothing to connect to.
-  const open = readOpenPorts(hostFs).find((port) => port.service === payload.service);
+  const open = readOpenPorts(hostFs).find((port) => port.service === spec.service);
   if (open === undefined) {
     return { status: 404, body: { error: 'service_not_running' } };
   }
@@ -237,12 +241,13 @@ export const handleHydraCrack = async (
     hostname: host.hostname,
     fromIp,
     stamp: deps.now(),
+    formatAttempt: spec.sweepLog.formatAttempt,
   });
 
   // Nothing tried, nothing recorded — an empty wordlist or a named account that
   // does not exist leaves the box's log exactly as it found it.
   if (trace.length > 0) {
-    await recordSweep(deps, { writerKey: publicKey, machineId }, trace);
+    await recordSweep(deps, { writerKey: publicKey, machineId, sweepLog: spec.sweepLog }, trace);
   }
 
   return { status: 200, body: { port: open.port, cracked, wordlistFound: true } };

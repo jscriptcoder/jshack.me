@@ -31,14 +31,10 @@ import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { authorizeMachineAccess, type FindActiveSession } from '../patches/authorizeMachineAccess';
 import { resolveInnerGatewayTarget } from '../network/resolveInnerGatewayTarget';
 import { readOpenPorts } from '../services/pidfile';
+import { serviceByName } from '../services/serviceCatalog';
 import { accountsIn } from './passwdAccount';
 import { sweepAccounts, wordlistOn } from '../wordlist/passwordSweep';
 import { WORDLIST_PATH } from '../wordlist/defaultWordlist';
-import {
-  AUTH_LOG_OWNER,
-  AUTH_LOG_PATH,
-  AUTH_LOG_PERMISSIONS,
-} from '../logging/authLog';
 import type { OwnerPatchRow } from '../network/materializeMachineFs';
 import {
   appendMachineLog,
@@ -110,11 +106,18 @@ export const handleHydraCrackInnerGateway = async (
   }
   const target = resolved.target;
 
+  // A service the world has no row for is answered exactly like one that is not
+  // running, and resolving the row is what gives the trace below a log to land in.
+  const spec = serviceByName(payload.service);
+  if (spec === undefined) {
+    return { status: 404, body: { error: 'service_not_running' } };
+  }
+
   // The pidfiles are the truth about what is listening: a stopped daemon leaves nothing
   // to attack, exactly as it leaves nothing to connect to. It must be the daemon on the
   // port this request REACHED — a forward to nginx is not a door to sshd.
   const open = readOpenPorts(target.fs).find(
-    (port) => port.port === target.reachedPort && port.service === payload.service,
+    (port) => port.port === target.reachedPort && port.service === spec.service,
   );
   if (open === undefined) {
     return { status: 404, body: { error: 'service_not_running' } };
@@ -148,6 +151,7 @@ export const handleHydraCrackInnerGateway = async (
     hostname: target.hostname,
     fromIp: target.sourceIp ?? '',
     stamp: deps.now(),
+    formatAttempt: spec.sweepLog.formatAttempt,
   });
 
   if (trace.length > 0 && target.sourceIp !== null) {
@@ -157,9 +161,9 @@ export const handleHydraCrackInnerGateway = async (
         {
           writerKey: publicKey,
           machineId: target.machineId,
-          path: AUTH_LOG_PATH,
-          owner: AUTH_LOG_OWNER,
-          permissions: AUTH_LOG_PERMISSIONS,
+          path: spec.sweepLog.path,
+          owner: spec.sweepLog.owner,
+          permissions: spec.sweepLog.permissions,
         },
         trace.join('\n'),
       );
