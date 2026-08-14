@@ -84,8 +84,11 @@ export type HandlerResponse = {
   readonly body: Record<string, unknown>;
 };
 
-export type ResolveHttpFetchDeps = {
-  readonly nonceStore: NonceStore;
+/** What it takes to find the box behind a public address and a port. Named apart from
+ *  the fetch's own dependencies because reaching a box and asking it for something are
+ *  different jobs: a single page read and a whole path sweep enter through the same
+ *  door, and neither may reach a box the other could not. */
+export type WebTargetDeps = {
   readonly findNetworkByPublicIp: (
     publicIp: string,
   ) => Promise<{ readonly data: ApNetworkLookup | null; readonly error: unknown }>;
@@ -105,6 +108,10 @@ export type ResolveHttpFetchDeps = {
   readonly listLeasesByEssid: (
     essid: string,
   ) => Promise<{ readonly data: readonly LanLeaseRow[] | null; readonly error: unknown }>;
+};
+
+export type ResolveHttpFetchDeps = WebTargetDeps & {
+  readonly nonceStore: NonceStore;
   /** The universe clock (UTC epoch-ms) at the moment the hit is recorded. Server-side, so
    *  a requester cannot date their own visit. */
   readonly now: () => number;
@@ -151,7 +158,7 @@ type FetchTarget = {
  * address, or to a lease whose holder has disconnected, reaches nothing.
  */
 const resolveForwardTarget = async (
-  deps: ResolveHttpFetchDeps,
+  deps: WebTargetDeps,
   network: ApNetworkLookup,
   forwarded: { readonly internalIp: string; readonly internalPort: number },
 ): Promise<FetchTarget | HandlerResponse> => {
@@ -198,7 +205,7 @@ const resolveForwardTarget = async (
  *  row. The lease read here is for the log ALONE: a failure costs the line, not the
  *  fetch, unlike the forward arm where leases decide reachability. */
 const gatewayTarget = async (
-  deps: ResolveHttpFetchDeps,
+  deps: WebTargetDeps,
   network: ApNetworkLookup,
   gatewayFs: Directory,
   port: number,
@@ -255,19 +262,19 @@ const logFetch = async (
   }
 };
 
-export const handleResolveHttpFetch = async (
-  body: unknown,
-  deps: ResolveHttpFetchDeps,
-): Promise<HandlerResponse> => {
-  const verified = await verifySignedRequest(body, resolveHttpFetchSchema, {
-    nonceStore: deps.nonceStore,
-  });
-  if (!verified.ok) {
-    return { status: STATUS_BY_VERIFY_REASON[verified.reason], body: { error: verified.reason } };
-  }
-  const { publicKey, payload } = verified;
-
-  const { data, error } = await deps.findNetworkByPublicIp(payload.target);
+/**
+ * The box a public address and port reach, or the refusal that stopped us — the whole
+ * reachability chain in one place, so a page read and a path sweep can never disagree
+ * about which box answered or whether it answered at all.
+ *
+ * Every failure collapses into one shape on purpose (see the module doc): a prober
+ * learns nothing from which gate refused them.
+ */
+export const resolveWebTarget = async (
+  deps: WebTargetDeps,
+  request: { readonly target: string; readonly port: number },
+): Promise<FetchTarget | HandlerResponse> => {
+  const { data, error } = await deps.findNetworkByPublicIp(request.target);
   if (error) {
     return { status: 500, body: { error: 'network_lookup_failed' } };
   }
@@ -289,14 +296,13 @@ export const handleResolveHttpFetch = async (
     return UNREACHABLE;
   }
 
-  const port = payload.port ?? HTTP_DEFAULT_PORT;
-  const served: ServedMachine = machineServing({ routerFs: gatewayFs, port });
+  const served: ServedMachine = machineServing({ routerFs: gatewayFs, port: request.port });
   if (served.kind === 'none') {
     return UNREACHABLE;
   }
   const target =
     served.kind === 'router'
-      ? await gatewayTarget(deps, data, gatewayFs, port)
+      ? await gatewayTarget(deps, data, gatewayFs, request.port)
       : await resolveForwardTarget(deps, data, served);
   if ('status' in target) {
     return target;
@@ -309,8 +315,27 @@ export const handleResolveHttpFetch = async (
     (openPort) =>
       openPort.port === target.servicePort && openPort.service === SERVICE_CATALOG.http.service,
   );
-  if (!serving) {
-    return UNREACHABLE;
+  return serving ? target : UNREACHABLE;
+};
+
+export const handleResolveHttpFetch = async (
+  body: unknown,
+  deps: ResolveHttpFetchDeps,
+): Promise<HandlerResponse> => {
+  const verified = await verifySignedRequest(body, resolveHttpFetchSchema, {
+    nonceStore: deps.nonceStore,
+  });
+  if (!verified.ok) {
+    return { status: STATUS_BY_VERIFY_REASON[verified.reason], body: { error: verified.reason } };
+  }
+  const { publicKey, payload } = verified;
+
+  const target = await resolveWebTarget(deps, {
+    target: payload.target,
+    port: payload.port ?? HTTP_DEFAULT_PORT,
+  });
+  if ('status' in target) {
+    return target;
   }
 
   // The document-root confinement, applied to the RAW client path. A path that climbs out

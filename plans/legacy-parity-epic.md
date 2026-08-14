@@ -4,7 +4,9 @@
 > Split authored 2026-07-29 (`story-splitting`), then grilled to nine locked decisions
 > (`grill-me`, same day).
 
-**Status**: **D1 shipped** (v0.109.0); **D2 ✅ COMPLETE** — D2.1 (v0.111.0), D2.2 (v0.113.0), D2.3
+**Status**: **D1 shipped** (v0.109.0), with its web follow-ups D1c (v0.123.0-v0.124.0), D1b
+(v0.125.0-v0.129.0) and D1d (v0.130.0) all closed out — the web door's cross-player parity is
+complete and **D3 (ftp/scp) is next in the locked door order**; **D2 ✅ COMPLETE** — D2.1 (v0.111.0), D2.2 (v0.113.0), D2.3
 (v0.114.0), D2.5 (v0.115.0), hydra's workstation-only gate lifted (v0.118.0), D2.4 all five slices
 (v0.119.0–v0.122.0), and D2.6a (#377). Its split file is deleted; the as-built lives in
 [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §1. **D2.6b — harvestable
@@ -205,7 +207,7 @@ PHASE 1 — THE DOORS  (near-term focus)
   D1  web (apache2/nginx + generated pages + curl)     ✔ SHIPPED v0.109.0
   D1b lynx (browser screen)                           ✔ DONE — v0.125.0-v0.129.0, E2E 2026-08-14
   D1c gobuster (path brute-force)                     ✔ DONE — v0.123.0 + v0.124.0, E2E 2026-08-13
-  D1d gobuster across networks                        🔨 SELECTED 2026-08-14 — the last own-LAN-only web tool
+  D1d gobuster across networks                        ✔ DONE — v0.130.0, wire-check + E2E 2026-08-14
   D2  hydra + the wordlist system (+ john)             ✔ SHIPPED v0.111.0-v0.122.0
       D2.1 hydra vs an own-LAN NPC host                ✔ SHIPPED v0.111.0
       D2.2 not every account falls                     ✔ SHIPPED v0.113.0
@@ -241,7 +243,7 @@ POST-SHIP — MISSIONS
 | **D1** ✔ | **A player serves a web page and a stranger reads it** — SHIPPED | `apache2`/`nginx` daemons (pidfile → port, root for <1024); `SERVICE_CATALOG` http row + generation placement; generated page content (legacy `pools/web.ts`); `/var/www/html` in base FSs; `curl [-i]`; the request pipeline (parse → NAT/DNS resolve → static file); `access.log` trace; `ping` folds in. **A new server handler resolves (public IP, port, path)** — `resolveCrossPlayerFs` is keyed by a `machine_id` obtained from a login, and `curl` has no login | `lynx` (own slice, fast-follow — a full overlay browser screen, UI work of a different size); `gobuster` (→ D1c, which needs the `extraFiles` seam D2.1 builds); `-X POST`; request handlers; HTTPS specifics | B `curl http://<A pub IP>` → A's page, **with no session and no credential** (tier 3 already allows it); `nmap` shows `:80` on NPC hosts running http; A reads B's hit in `/var/log/access.log` |
 | **D1b** | **A player browses a page instead of reading its source** | `lynx <url>` as a full overlay browser SCREEN (legacy carried `LynxBrowser.tsx` + `lynx/render.ts` + `lynx/fetch.ts`): render HTML to text, follow links, keyboard navigation, quit back to the terminal. Reuses D1 whole — `parseHttpUrl`, `resolveWebPath`, the own-LAN/public split, and the same `access.log` trace, so a browsed page is logged exactly like a curled one | Forms/POST; images; CSS; multi-tab | A player `lynx http://<host>` → the page renders as text with its links numbered → following a link fetches the next page → the target's `access.log` shows one line per page viewed |
 | **D1c** ✔ | **A player finds the pages a server never linked** — **SHIPPED** as slice 1 (the sweep itself, v0.123.0, #378) and slice 2 (the defender's log, v0.124.0, #379), with the live close-out run 2026-08-13 as Act 8 of [`e2e-shared-network-verification.md`](../v2/docs/e2e-shared-network-verification.md) | `gobuster <url>` + its `dirlist.txt`, shipped by the `extraFiles` seam **D2.1 shipped** (add a catalog row, no new mechanism); hits and misses both land in the target's `access.log`, so the defender's tell is the 404 wall D1 already records | Vhost/DNS modes; extensions | A player `gobuster http://<host>` → finds an unlinked path → `curl`s it; the target's `access.log` shows the sweep as a run of 404s with one 200 |
-| **D1d** 🔨 | **A player sweeps a stranger's server for pages nobody linked** — SELECTED 2026-08-14 | The public-IP half of D1c: `gobuster` today refuses a public host outright (`gobuster.ts:208` → `NOT_ON_YOUR_NETWORK`) while `curl` and `lynx` both reach one through `fetchPageAcrossNetwork` (`webPage.ts:115`). Reuses the D1b slice-3/7 doors whole, so the client-side shape is a swap of one refusal for the cross-network path; the target's `access.log` keeps recording the sweep server-side, under the server-derived source IP the cross-player writers already use | Vhost/DNS modes; extensions (as D1c) | B `gobuster http://<A pub IP>` → the same hits/misses a same-LAN sweep reports; A reads the run of 404s with one 200 in `/var/log/access.log`, sourced from B's home address, not from anything B sent |
+| **D1d** ✔ | **A player sweeps a stranger's server for pages nobody linked** — **SHIPPED** v0.130.0 | The public-IP half of D1c: `gobuster` today refuses a public host outright (`gobuster.ts:208` → `NOT_ON_YOUR_NETWORK`) while `curl` and `lynx` both reach one through `fetchPageAcrossNetwork` (`webPage.ts:115`). Reuses the D1b slice-3/7 doors whole, so the client-side shape is a swap of one refusal for the cross-network path; the target's `access.log` keeps recording the sweep server-side, under the server-derived source IP the cross-player writers already use | Vhost/DNS modes; extensions (as D1c) | B `gobuster http://<A pub IP>` → the same hits/misses a same-LAN sweep reports; A reads the run of 404s with one 200 in `/var/log/access.log`, sourced from B's home address, not from anything B sent |
 | **D2** | **A player cracks a credential instead of being told it** — **✔ SHIPPED** as D2.1–D2.6a (v0.111.0–v0.122.0, #377); as-built in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §1. **D2.6b (harvestable plaintext loot) is postponed** — see "Next action" | ~~`hydra <host> [service] [user]`~~ ✔; ~~`apt install hydra` ships `passwords.txt` via `extraFiles`~~ ✔; the two-pool split + per-account probability in `buildRemoteHostFs`; uncrackable pool into `secrets.ts`; wordlist-as-sole-gate; server-side md5 batch matching for cross-player; `john`; hydra trace on the target's `auth.log` | ftp/mysql/snmp as hydra *services* — each arrives with its door; **`gobuster`** (→ D1c, 2026-07-31) | B `hydra <NPC host> ssh` → cracks the user account → `ssh` succeeds; a low-probability NPC root cracks, most don't; a player's chosen root password never cracks; A appends a harvested password to `passwords.txt` via `nano` and a previously-failing crack now succeeds |
 | **D3** | **A player moves files without a shell** | `vsftpd` daemon + catalog row + placement; `ftp <host> [user] [pw]` + FTP mode command set (`get`/`put`/`ls`/`cd`/`lls`/`lcd`/`lpwd`/`quit`); `scp`; `vsftpd.log` trace. **No content generator** — the target's FS is the content | Virtual users (`virtual_users.conf`) | B `hydra`s ftp creds → `ftp <host>` → `get` a file → `put` one the owner then sees; the session authorizes at its tier through L1/L2 exactly as ssh does (decision 2) |
 | **D4** | **A defender controls what their box exposes** | `systemctl start/stop/status`; `ps`; `kill`; symmetric pidfile open/close semantics; `chmod` folds in | — | A `systemctl stop sshd` → pidfile gone → B's scan drops `:22` and ssh-via-forward `404`s; A `ps` lists what is running; A restarts it and reachability returns |
@@ -574,34 +576,37 @@ player writes with `nano`, exactly as D1c proved discovery; and `lynx` on a gene
 *less* than `curl` does, because comments are deliberately not rendered. Both resolve themselves
 when the content epic lands, with no change to `lynx`.
 
-**D1d (`gobuster` across networks) is SELECTED and PLANNED** — owner decision, 2026-08-14, taken
-over D3 (ftp/scp) and D5b. Plan: [`gobuster-across-networks.md`](./gobuster-across-networks.md),
-one slice, six decisions locked in its own grilling session (the dirlist is journal-read rather
-than sent, one request per sweep, sizes without content, a vantage-aware trace, the shipped beat
-replayed, and the shared-door extraction folded in rather than shipped ahead of its consumer). It is the last web tool that still refuses a stranger: `curl` reached across
-networks from D1, D1b slice 7 gave `lynx` the same reach, and `gobuster` alone answers a public host
-with `NOT_ON_YOUR_NETWORK`. Closing it finishes the web door's cross-player parity before the door
-order moves on to ftp. **D3 is next after it** — the locked order (decision 8) is unchanged.
+**D1d (`gobuster` across networks) is DONE** — v0.130.0, one slice, merged as the plan called it.
+Its plan file is deleted, as closed-out plans are; the as-built lives in
+[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §1 and the live journey is
+Act 10 of [`e2e-shared-network-verification.md`](../v2/docs/e2e-shared-network-verification.md).
+**The web door's cross-player parity is now complete**: `curl` reached across from D1, `lynx` from
+D1b slice 7, and the sweep was the last tool that refused a stranger.
 
-Grounding taken at selection, before any planning — **three things the old note above got wrong or
-could not know**:
+Three things it settled that outlive it:
 
-1. **The door moved.** `curl`'s own `fetchAcrossNetwork` is gone (only a stale doc-comment name at
-   `curl.ts:17` still says it — fold that correction into the slice); D1b slice 3 gave `curl`,
-   `gobuster` and `lynx` one local door (`reachWebHost`, `commands/webHost.ts`) and slice 7 gave the
-   cross-network fetch the same treatment (`fetchPageAcrossNetwork`, `webPage.ts:115`). The
-   client-side change is a swap of `gobuster.ts:208`'s refusal for that call — **plan against
-   `webPage.ts`, not `curl.ts`.**
-2. **The server resolver is single-path.** `resolveHttpFetch` takes one path per request, so the
-   batched `paths[]` form D1c slice 2 built is a CLIENT-side sweep over a local FS. Cross-network,
-   the choice is N round-trips or a batched server form — the latter is an `api/` change, and
-   **therefore needs a `scripts/test*.ts` wire-check against `vercel dev` + supabase**. Decide it at
-   planning; the defender's log is the constraint that should decide it, since D1c's whole tell is
-   one append under one timestamp and N round-trips would scatter it into N.
-3. **The world is still thin.** Against a generated NPC host a sweep finds `/index.html` and nothing
-   else until the content epic lands — accepted at D1c and unchanged. Prove the slice the way D1c
-   and D1b proved theirs: a player builds the pages by hand with `mkdir`/`nano`, and the second
-   player sweeps them across the network.
+1. **A tool's ammunition is read where the tool stands, by the SERVER.** The path list never
+   crosses the wire — the caller names the machine they are on and the server reads that box's
+   `dirlist.txt` off the journal, exactly as the credential sweep reads the password list. The
+   precedent applied because the two files have identical provenance: `apt install` is the only
+   thing that writes either, so both exist purely as patches and neither can be faked by a
+   client. Planning had chosen the opposite (post the words) and grounding reversed it.
+2. **A defender's tell is a shape, not a count.** Forty words land as ONE append under ONE clock
+   reading — 42 lines including the directory retry. Per-word round-trips would have written the
+   same lines and destroyed the evidence, because a wall scattered across forty timestamps no
+   longer reads as one act.
+3. **Free ingredients are not free scope.** Authorizing the caller's machine yields their session,
+   which made a vantage-aware trace nearly free — so the sweep tells the truth about a pivot while
+   `curl` and `lynx` still stamp the actor's home on the same handler. Two rules in one door,
+   accepted deliberately and recorded rather than discovered later.
+
+**Still open from it, unchanged**: `curl` and `lynx` carry no `caller_machine_id`, so their
+cross-player traces cannot follow a pivot. Their slice, alongside the one `ssh` and `nmap` need.
+
+**A pre-existing gap Act 10 surfaced, worth not rediscovering as a bug**: after any server-side
+log append, the attacker's own client shows that log as EMPTY until something else syncs its
+journal. Proven pre-existing by control — a `curl` through the same forward is equally invisible
+until the next sync. Read the row from the DB when a log looks empty.
 
 Per slice, before any code: load `tdd`, `testing`, `mutation-testing`, `refactoring`; run full
 RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR; present before starting the next. Any `api/` change

@@ -196,6 +196,7 @@ export type RemoteApi = {
    *  the credential-free door, so there is no session to carry. Load-bearing: the
    *  target's journal lives server-side, so its page cannot be computed locally. */
   readonly fetchPublic: (params: PublicFetchParams) => Promise<PublicFetchResult>;
+  readonly sweepPublic: (params: PublicSweepParams) => Promise<PublicSweepResult>;
   // More methods added as commands need them. The spike doesn't exercise this.
 };
 
@@ -220,6 +221,41 @@ export type PublicFetchParams = {
 export type PublicFetchResult =
   | { readonly ok: true; readonly content: string }
   | { readonly ok: false; readonly error: 'host_unreachable' | 'not_found' | 'network_error' };
+
+/** What a path sweep hands the cross-network seam. It names no words: the server
+ *  reads the path list off `callerMachineId`'s journal, the way a credential sweep
+ *  reads the password list, so a request cannot ask with words the player never
+ *  grew. The machine is the one they are STANDING on — a box taken elsewhere carries
+ *  its own list. */
+export type PublicSweepParams = {
+  readonly target: string;
+  readonly port: number;
+  readonly callerMachineId: MachineId;
+};
+
+/** One word's outcome, as the far side resolved it. `path` is what was FOUND — a
+ *  word naming a directory that holds an index comes back as the trailing-slash form
+ *  a real server redirects to — so the sweep prints the address a player can go on
+ *  to fetch. Size without content: finding a page and reading it are two acts, and
+ *  the second leaves its own line in the target's log. */
+export type PublicSweepOutcome = {
+  readonly path: string;
+  readonly status: number;
+  readonly size: number;
+};
+
+/** `dirlistFound` is false when the machine the caller stands on holds no path list.
+ *  That is a real state rather than an error — an ordinary file, absent — and it is
+ *  reported instead of an empty run, which would read as a server with nothing on
+ *  it. Errors mirror a single fetch: a refusal with every cause collapsed, or our
+ *  own side failing to complete the round-trip. */
+export type PublicSweepResult =
+  | {
+      readonly ok: true;
+      readonly dirlistFound: boolean;
+      readonly results: readonly PublicSweepOutcome[];
+    }
+  | { readonly ok: false; readonly error: 'host_unreachable' | 'network_error' };
 
 /** The su user-switch event a command hands to `log.appendAuthLog`. Carries no
  *  timestamp: the SERVER stamps the time (UTC) when it records the line, so a

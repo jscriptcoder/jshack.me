@@ -30,6 +30,8 @@ import type {
   PatchResult,
   PublicFetchParams,
   PublicFetchResult,
+  PublicSweepParams,
+  PublicSweepResult,
   PublicScanResolution,
   DeepScanRecordParams,
   RemoteAuthParams,
@@ -98,6 +100,7 @@ import {
 } from '../adapters/sessionsApi';
 import {
   fetchPublicPage,
+  sweepPublicPaths,
   joinHomeNetwork,
   leaveHomeNetwork,
   resolveCrossPlayerFs,
@@ -395,6 +398,14 @@ const fetchPublicPageFn = (params: PublicFetchParams): Promise<PublicFetchResult
   networkClientDeps === undefined
     ? Promise.resolve({ ok: false, error: 'network_error' })
     : fetchPublicPage(networkClientDeps, params);
+
+/** Sweep a path list against a machine behind another player's public IP (backs
+ *  `env.remote.sweepPublic`). Same degradation as the fetch: with no network client
+ *  there is nobody to ask, so the failure is ours rather than the target's. */
+const sweepPublicPathsFn = (params: PublicSweepParams): Promise<PublicSweepResult> =>
+  networkClientDeps === undefined
+    ? Promise.resolve({ ok: false, error: 'network_error' })
+    : sweepPublicPaths(networkClientDeps, params);
 
 /** Resolve an own-LAN `nmap <inner gateway IP>` server-side (backs
  *  `env.scan.resolveInnerGateway`). Host-down until `startGame` wires the network
@@ -1030,6 +1041,7 @@ const executeLine = async (line: string): Promise<void> => {
     onScanResolveOccupants: resolveOccupantsFn,
     onScanResolveOccupiedEssids: resolveOccupiedEssidsFn,
     onHttpFetchPublic: fetchPublicPageFn,
+    onHttpSweepPublic: sweepPublicPathsFn,
     onHomeNetworkJoin: joinHomeNetworkFn,
     onHomeNetworkLeave: leaveHomeNetworkFn,
     // The sessions below the active one — what `exit` consults to decide

@@ -192,6 +192,38 @@ decisions. The ship gate is legacy parity **minus missions**; missions are a pos
     **Browser-verified end to end** 2026-07-31, both the own-LAN and the two-player
     forward loops — `e2e-shared-network-verification.md` §7.
 
+- **D1d (the sweep across networks) ✅ COMPLETE (v0.130.0).** `gobuster http://<their public IP>`
+  finishes the web door's cross-player parity — `curl` reached across from D1, `lynx` from D1b
+  slice 7, and this was the last web tool that refused a stranger. Wire-check
+  `scripts/testGobusterCrossPlayer.ts` (20/20); live journey as Act 10 of
+  `e2e-shared-network-verification.md`.
+
+  - **The path list does NOT cross the wire.** The client sends `caller_machine_id` and the
+    server reads `/usr/share/wordlists/dirlist.txt` off THAT machine's journal — the shape
+    `hydraCrackPublic` established for the password list, and it applies because the two files
+    have identical provenance: `apt install` is the only thing that writes either, so both exist
+    purely as patches. The list stays the sole gate with the SERVER enforcing it, and pivoting
+    onto somebody else's box means sweeping with whatever list is on it.
+  - **`authorizeMachineAccess` runs before anything is read or asked**, so naming a box you
+    neither own nor hold a session on cannot borrow its curated list.
+  - **One request, one append.** Every path the run asked about lands on the target under ONE
+    clock reading — 42 lines for 40 words, the two extra being the directory retry. A round-trip
+    per word would re-read and re-upsert the whole log forty times and scatter the defender's
+    only tell across forty timestamps.
+  - **Sizes come back, pages do not.** Finding a path and reading it stay two acts, and the
+    second leaves its own line. Returning bodies here would deliver every page found under the
+    sweep's own wall of 404s with nothing recording that they were read.
+  - **The trace is VANTAGE-derived** (`resolveVantageSourceIp`, as `hydraCrackPublic` does): a
+    sweep launched from a box the caller only holds a session on is traced to THAT network.
+    ⚠️ **`curl` and `lynx` still stamp the actor's HOME address on the same handler**, because
+    neither sends a caller machine — two source-IP rules inside one web door until they get one.
+    Accepted knowingly; it is the slice named alongside `ssh`/`nmap` in the epic.
+  - **One definition of a probe** (`core/network/webSweep.ts`, `sweepWord`) shared by the own-LAN
+    sweep and the server's, and **one reachability chain** (`resolveWebTarget`, extracted from
+    `handleResolveHttpFetch`) shared by the fetch and the sweep — so a path found by sweeping a
+    neighbour cannot be missed by sweeping a stranger, and neither tool can reach a box the other
+    could not.
+
 - **D2 (the credential layer) ✅ COMPLETE** — D2.1 (v0.111.0), D2.2 (v0.113.0), D2.3 (v0.114.0),
   D2.5 (v0.115.0), both follow-ups (v0.116.0, v0.118.0), D2.4 all five slices (v0.119.0 →
   v0.122.0), and D2.6a (#377). Its split file was deleted on close-out — everything durable from it

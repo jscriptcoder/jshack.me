@@ -98,6 +98,9 @@ export const mockRemoteApi = (): RemoteApi => ({
   // Load-bearing (its result IS the fetched page), so it throws until a test stubs the
   // resolution — an own-LAN fetch must never reach it.
   fetchPublic: NOT_IMPLEMENTED('remote.fetchPublic'),
+  // Load-bearing for the same reason: the far side's answer IS the sweep, so an
+  // own-LAN sweep reaching here is a bug a test must see rather than absorb.
+  sweepPublic: NOT_IMPLEMENTED('remote.sweepPublic'),
 });
 
 export const mockLogApi = (): LogApi => ({
