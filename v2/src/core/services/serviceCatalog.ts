@@ -28,6 +28,7 @@ import {
   VSFTPD_LOG_OWNER,
   VSFTPD_LOG_PATH,
   VSFTPD_LOG_PERMISSIONS,
+  formatVsftpdConnectLine,
   formatVsftpdLoginLine,
 } from '../logging/vsftpdLog';
 
@@ -43,6 +44,12 @@ export type SweepLog = {
   readonly owner: string;
   readonly permissions: FilePermissions;
   readonly formatAttempt: (attempt: CredentialAttempt) => string;
+  /** How the daemon records a client REACHING it, before any account is named.
+   *  Absent for daemons that record no such thing: sshd's first line is already the
+   *  attempt, so an arrival line there would be an invention. */
+  readonly formatArrival?: (
+    arrival: Pick<CredentialAttempt, 'fromIp' | 'time' | 'pid'>,
+  ) => string;
 };
 
 export type ServiceSpec = {
@@ -123,6 +130,7 @@ export const SERVICE_CATALOG = {
       owner: VSFTPD_LOG_OWNER,
       permissions: VSFTPD_LOG_PERMISSIONS,
       formatAttempt: formatVsftpdLoginLine,
+      formatArrival: formatVsftpdConnectLine,
     },
   },
 } as const satisfies Record<string, ServiceSpec>;

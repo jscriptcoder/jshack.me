@@ -22,6 +22,7 @@ import type {
   RemoteApi,
   ScanApi,
   Session,
+  FtpApi,
   SshApi,
   SuApi,
   HydraApi,
@@ -127,6 +128,17 @@ export const mockSshApi = (overrides: Partial<SshApi> = {}): SshApi => ({
   ...overrides,
 });
 
+/** The ftp door seam. `authenticate` throws unless a test stubs it — an unstubbed
+ *  login must be loud rather than silently refusing, which reads as a bad password.
+ *  `enter`/`leave` default to no-ops: most tests care what the command DID, not that
+ *  a UI signal moved, and the ones that care pass spies. */
+export const mockFtpApi = (overrides: Partial<FtpApi> = {}): FtpApi => ({
+  authenticate: NOT_IMPLEMENTED('ftp.authenticate'),
+  enter: () => undefined,
+  leave: () => undefined,
+  ...overrides,
+});
+
 /** A su-elevation seam whose `elevate` throws unless a test overrides it — `su`'s
  *  cross-player tests inject a stub returning a controlled `RemoteAuthResult`. Local
  *  `su` (own box / NPC hop) never touches it, so a throwing default keeps an
@@ -184,6 +196,7 @@ export const mockCommandEnv = (overrides: Partial<CommandEnv> = {}): CommandEnv 
   log: mockLogApi(),
   homeNetwork: mockHomeNetwork(),
   ssh: mockSshApi(),
+  ftp: mockFtpApi(),
   su: mockSuApi(),
   hydra: mockHydraApi(),
   scan: mockScanApi(),

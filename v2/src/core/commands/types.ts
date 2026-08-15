@@ -89,7 +89,6 @@ export type ModeChange =
   // screen that has nothing to show.
   | { readonly kind: 'lynx'; readonly url: string; readonly content: string }
   | { readonly kind: 'nc'; readonly target: { readonly ip: NetworkAddress; readonly port: number } }
-  | { readonly kind: 'ftp'; readonly target: { readonly ip: NetworkAddress } }
   | { readonly kind: 'mysql'; readonly target: { readonly ip: NetworkAddress } }
   | { readonly kind: 'redis'; readonly target: { readonly ip: NetworkAddress } };
 
@@ -414,6 +413,19 @@ export type InnerGatewayAuthParams = {
  *  through a NAT forward) endpoints. The UI wires these to the `sessionsApi` adapters;
  *  `core/` stays adapter-free. `ssh` authenticates through one of them before pushing
  *  a session. */
+/** The ftp door, client side. `authenticate` is the same server endpoint `ssh` uses
+ *  — one `/etc/passwd`, one tier — asked for an `ftp`-kind row instead of a hop.
+ *  `enter`/`leave` are the UI-state half: the session runs ALONGSIDE the shell the
+ *  player is standing in rather than on top of it, so it is not `pushSession`'s
+ *  business and the hop chain is untouched throughout. */
+export type FtpApi = {
+  readonly authenticate: (params: RemoteAuthParams) => Promise<RemoteAuthResult>;
+  /** Hold this session and put the terminal at the `ftp>` prompt. */
+  readonly enter: (session: Session) => void;
+  /** Drop it and hand the terminal back to the shell that never moved. */
+  readonly leave: () => void;
+};
+
 export type SshApi = {
   readonly authenticate: (params: RemoteAuthParams) => Promise<RemoteAuthResult>;
   readonly authenticatePublic: (params: PublicAuthParams) => Promise<PublicAuthResult>;
@@ -624,6 +636,7 @@ export type CommandEnv = {
   readonly log: LogApi;
   readonly homeNetwork: HomeNetworkApi;
   readonly ssh: SshApi;
+  readonly ftp: FtpApi;
   readonly su: SuApi;
   readonly scan: ScanApi;
   readonly hydra: HydraApi;

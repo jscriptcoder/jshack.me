@@ -40,6 +40,7 @@ import { reboot } from './reboot';
 import { reset } from './reset';
 import { rm } from './rm';
 import { hydra } from './hydra';
+import { ftp } from './ftp';
 import { ssh } from './ssh';
 import { sshd } from './sshd';
 import { vsftpd } from './vsftpd';
@@ -81,6 +82,7 @@ const builtins: readonly Command[] = [
   reset,
   rm,
   hydra,
+  ftp,
   ssh,
   sshd,
   vsftpd,

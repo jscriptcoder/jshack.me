@@ -15,6 +15,12 @@ import { computeInnerGatewayId, computeApGatewayId } from '../identity/router';
 import { md5 } from '../generation/md5';
 import { asGameTime } from '../types';
 import { AUTH_LOG_PATH, formatSshdAuthLine } from '../logging/authLog';
+import {
+  VSFTPD_LOG_PATH,
+  formatVsftpdConnectLine,
+  formatVsftpdLoginLine,
+} from '../logging/vsftpdLog';
+import { readOpenPorts } from '../services/pidfile';
 import { derivePid } from '../logging/syslog';
 import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
 import type { OwnerPatchRow } from '../network/materializeMachineFs';
@@ -165,6 +171,38 @@ const validEnvelope = (
     basePayload({ target_ip: host.ip, username, password: passwordFor(fs, username), ...over }),
   );
 };
+
+/** A machine host on the LAN that actually rolled the ftp service — only some do,
+ *  so the ftp tests must pick one rather than assume the ssh fixture serves it. */
+const hostServing = (service: string, serves: boolean): LanHost => {
+  const match = generateHomeLan(ESSID).hosts.find(
+    (host) =>
+      host.kind === 'machine' &&
+      readOpenPorts(buildRemoteHostFs(ESSID, host)).some((open) => open.service === service) ===
+        serves,
+  );
+  if (match === undefined) throw new Error(`no host ${serves ? 'serving' : 'without'} ${service}`);
+  return match;
+};
+
+/** The vsftpd CONNECT line that precedes every login attempt at `FIXED_NOW`. */
+const expectedConnectLine = (): string =>
+  formatVsftpdConnectLine({
+    fromIp: '192.168.1.50',
+    time: asGameTime(FIXED_NOW),
+    pid: derivePid(FIXED_NOW),
+  });
+
+/** The vsftpd login line the server is expected to stamp at `FIXED_NOW`. */
+const expectedVsftpdLine = (outcome: 'success' | 'failure', user: string): string =>
+  formatVsftpdLoginLine({
+    outcome,
+    user,
+    fromIp: '192.168.1.50',
+    hostname: '',
+    time: asGameTime(FIXED_NOW),
+    pid: derivePid(FIXED_NOW),
+  });
 
 describe('handleAuthCreateSession', () => {
   it('validates the root password against the regenerated passwd and inserts an ssh session', async () => {
@@ -336,6 +374,66 @@ describe('handleAuthCreateSession', () => {
     const result = await handleAuthCreateSession(validEnvelope(id, host, 'root'), deps);
 
     expect(result).toEqual({ status: 500, body: { error: 'insert_failed' } });
+  });
+
+  it('persists the kind it was asked for, and traces the login to THAT service’s log', async () => {
+    const id = generateIdentity();
+    const host = hostServing('ftp', true);
+    const { deps, insertSession, upsertPatch } = makeDeps();
+
+    const result = await handleAuthCreateSession(
+      validEnvelope(id, host, 'root', { kind: 'ftp', session_id: 'ftp-1700000000000' }),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 200, body: { ok: true, userType: 'root' } });
+    expect(insertSession.mock.calls[0]![0].kind).toBe('ftp');
+    // vsftpd writes its OWN file. A login through the ftp door that showed up in
+    // auth.log would tell the defender the wrong story about how they were entered.
+    expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
+      machine_id: hostMachineId(host, ESSID),
+      path: VSFTPD_LOG_PATH,
+      // vsftpd records reaching the door and getting through it separately.
+      content: `${expectedConnectLine()}\n${expectedVsftpdLine('success', 'root')}\n`,
+    });
+  });
+
+  it('traces a refused ftp login to vsftpd.log and inserts nothing', async () => {
+    const id = generateIdentity();
+    const host = hostServing('ftp', true);
+    const envelope = signRequest(
+      id,
+      'authCreateSession',
+      basePayload({ target_ip: host.ip, username: 'root', password: 'not-the-password', kind: 'ftp' }),
+    );
+    const { deps, upsertPatch, insertSession } = makeDeps();
+
+    const result = await handleAuthCreateSession(envelope, deps);
+
+    expect(result.status).toBe(401);
+    expect(insertSession).not.toHaveBeenCalled();
+    // The knock is recorded even though the login failed — that pair is what turns a
+    // sweep into a visible wall rather than a silence.
+    expect(upsertPatch.mock.calls[0]![0].content).toBe(
+      `${expectedConnectLine()}\n${expectedVsftpdLine('failure', 'root')}\n`,
+    );
+  });
+
+  it('refuses an ftp login on a host running no ftp daemon, logging nothing', async () => {
+    const id = generateIdentity();
+    const host = hostServing('ftp', false);
+    const { deps, insertSession, upsertPatch } = makeDeps();
+
+    const result = await handleAuthCreateSession(
+      validEnvelope(id, host, 'root', { kind: 'ftp' }),
+      deps,
+    );
+
+    // No door, no conversation: the same 404 an unreachable host gets, and the box
+    // keeps no record of a knock it never heard.
+    expect(result).toEqual({ status: 404, body: { error: 'service_not_running' } });
+    expect(insertSession).not.toHaveBeenCalled();
+    expect(upsertPatch).not.toHaveBeenCalled();
   });
 
   it('lands an sshd "Accepted password" line on the REMOTE host\'s auth.log on success', async () => {

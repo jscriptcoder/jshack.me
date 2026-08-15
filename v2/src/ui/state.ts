@@ -116,6 +116,7 @@ import { lanLeaseCacheIn } from '../core/network/lanLeaseCache';
 import { type HistoryNav, idleNav, navigateDown, navigateUp } from '../core/shell/commandHistory';
 import { homePathFor, seedFs, seedSession } from './seed';
 import { rehydrateSessionStack } from './sessionRehydrate';
+import { runFtpLine } from '../core/commands/ftpShell';
 import { persistConnection, restoreConnection } from './connectionPersistence';
 
 // ---- Config-derived game state, assigned once by `startGame`. ----
@@ -225,6 +226,39 @@ type OverlayMode = Extract<ModeChange, { readonly kind: 'nano' | 'lynx' }>;
 
 const [overlayMode, setOverlayMode] = createSignal<OverlayMode | null>(null);
 
+// The ftp session the terminal is holding, or null. Deliberately NOT an
+// `OverlayMode`: ftp has no screen. It is a SUB-SHELL over the same terminal, so
+// while it is set the typed line is answered by the ftp command map instead of the
+// registry, and the prompt reads `ftp>`. The shell underneath is untouched — same
+// hop chain, same cwd, same tier — which is what `quit` hands straight back.
+const [ftpSession, setFtpSession] = createSignal<Session | null>(null);
+
+export { ftpSession };
+
+/** The prompt the terminal shows: an ftp session replaces it wholesale rather than
+ *  decorating it, because at `ftp>` the cwd and tier on the shell prompt would name
+ *  a machine the player is no longer typing at. */
+export const inFtpSession = (): boolean => ftpSession() !== null;
+
+/** What the terminal shows while an ftp session is held. */
+export const FTP_PROMPT = 'ftp> ';
+
+/** Hold an authenticated ftp session (backs `env.ftp.enter`). */
+const enterFtpSession = (session: Session): void => {
+  setFtpSession(session);
+};
+
+/** Drop it and end the server row (backs `env.ftp.leave`). Fire-and-forget: the
+ *  player is back at their shell either way, and a row left active is swept on the
+ *  next boot. */
+const leaveFtpSession = (): void => {
+  const ending = ftpSession();
+  setFtpSession(null);
+  if (sessionsClientDeps !== undefined && ending !== null) {
+    void endServerSession(sessionsClientDeps, ending.id);
+  }
+};
+
 // The name of the command currently executing, or null when the shell is idle.
 // Drives the busy bar that stands in for the prompt while a command runs — set
 // for the WHOLE of `executeLine`, so every awaited server round-trip inside a
@@ -319,6 +353,14 @@ const sshAuthenticate = (params: RemoteAuthParams): Promise<RemoteAuthResult> =>
   sessionsClientDeps === undefined
     ? Promise.resolve({ ok: false, error: 'network_error' })
     : authCreateServerSession(sessionsClientDeps, params);
+
+/** Authenticate an ftp login server-side (backs `env.ftp.authenticate`) — the same
+ *  endpoint `ssh` uses, asked for an `ftp`-kind row. Degrades to a network error
+ *  before `startGame` wires the sessions client. */
+const ftpAuthenticate = (params: RemoteAuthParams): Promise<RemoteAuthResult> =>
+  sessionsClientDeps === undefined
+    ? Promise.resolve({ ok: false, error: 'network_error' })
+    : authCreateServerSession(sessionsClientDeps, params, 'ftp');
 
 /** Authenticate a CROSS-PLAYER ssh login server-side (backs `env.ssh.authenticatePublic`).
  *  Degrades to a network error before `startGame` wires the sessions client. */
@@ -560,10 +602,16 @@ const refetchPatches = async (): Promise<void> => {
  *  login `seed`. A no-rows result leaves the synchronous defaults (`[seed]`,
  *  home cwd) untouched, so the common cold-boot path costs nothing extra. */
 const rehydrateSessions = async (seed: Session): Promise<void> => {
-  if (sessionsClientDeps === undefined) return;
-  const rows = await listServerSessions(sessionsClientDeps);
+  const deps = sessionsClientDeps;
+  if (deps === undefined) return;
+  const rows = await listServerSessions(deps);
   if (rows.length === 0) return;
   const rebuilt = rehydrateSessionStack(seed, rows);
+  // A parallel session (ftp) belongs to the terminal that opened it, and this
+  // boot is proof that terminal is gone. Close it: sessions have no TTL, so an
+  // abandoned row would otherwise stay a write grant on someone else's box
+  // forever. Fire-and-forget — a boot must not block on the sweep.
+  rebuilt.abandoned.forEach((session) => void endServerSession(deps, session.id, 'abandoned'));
   setSessionStack(rebuilt.sessionStack);
   setReturnCwdStack(rebuilt.returnCwdStack);
   setCwd(rebuilt.activeCwd);
@@ -993,15 +1041,17 @@ const executeLine = async (line: string): Promise<void> => {
 
   setScrollback((previous) => [
     ...previous,
-    commandEchoLine(
-      {
-        username: currentSession.username,
-        host: promptHost(),
-        cwd: cwd(),
-        userType: currentSession.userType,
-      },
-      line,
-    ),
+    inFtpSession()
+      ? { kind: 'prompt', content: `${FTP_PROMPT}${line}` }
+      : commandEchoLine(
+          {
+            username: currentSession.username,
+            host: promptHost(),
+            cwd: cwd(),
+            userType: currentSession.userType,
+          },
+          line,
+        ),
   ]);
 
   // Fresh abort controller per run — Ctrl-C aborts it, which rejects the
@@ -1027,6 +1077,9 @@ const executeLine = async (line: string): Promise<void> => {
     prompt: requestPrompt,
     onPushSession: pushSession,
     onSshAuthenticate: sshAuthenticate,
+    onFtpAuthenticate: ftpAuthenticate,
+    onFtpEnter: enterFtpSession,
+    onFtpLeave: leaveFtpSession,
     onSshAuthenticatePublic: sshAuthenticatePublic,
     onSshAuthenticateSameLan: sshAuthenticateSameLan,
     onSshAuthenticateInnerGateway: sshAuthenticateInnerGateway,
@@ -1055,7 +1108,13 @@ const executeLine = async (line: string): Promise<void> => {
   });
 
   try {
-    const result = await runCommandLine(env, line, commandRegistry);
+    // While an ftp session is held the line is answered by the ftp command map, NOT
+    // the registry. This refusal is the security boundary of the sub-shell: falling
+    // through would run the OUTER shell's `ls`/`cat`/`rm` against the machine the
+    // player is standing on while they believe they are addressing the remote.
+    const result = inFtpSession()
+      ? await runFtpLine(env, line)
+      : await runCommandLine(env, line, commandRegistry);
     if (result.kind === 'sync') {
       setScrollback((previous) => [...previous, ...result.lines]);
       return;
