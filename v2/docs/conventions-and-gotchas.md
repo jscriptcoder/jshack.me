@@ -419,7 +419,10 @@ decisions. The ship gate is legacy parity **minus missions**; missions are a pos
     reports on a forwarded port is the one that opens it. Proved live end to end in Act 11 of
     [`e2e-shared-network-verification.md`](./e2e-shared-network-verification.md).
   - **Wire-checks:** `testFtpSession` (14/14), `testFtpRemoteRead` (7/7), `testFtpPut` (12/12),
-    `testFtpTransferTrace` (13/13), `testFtpSweepTrace`, `testFtpCrossPlayer` (16/16).
+    `testFtpTransferTrace` (13/13), `testFtpSweepTrace` (8/8), `testFtpCrossPlayer` (16/16).
+    Several of them pin the ESSID to **`VSFTPD-LAB`** deliberately: most generated LANs hold no
+    host running BOTH doors, and without one "ftp wrote elsewhere" only means "a different
+    machine". Pick the fixture ESSID for the box you need before assuming a generator bug.
   - **Still open, and named rather than smuggled:** `ssh` does not gate on a listening sshd
     (§9), the web door files its sweeps in `auth.log` (§9), and D3b (`scp`) is the transfer
     without a door — planned separately in `plans/legacy-parity-epic.md`.
@@ -1187,6 +1190,33 @@ state costs you more than one wrong attempt.
   written up as that network's owner. Naming none means the caller's own workstation — no
   row, no borrowed network, the address they own. That is why `ssh`, which names no box,
   kept its behaviour byte-for-byte when the vantage resolver replaced the home-address one.
+- **`SweepLog` is where a SERVICE says how it records being knocked on** — path, owner,
+  permissions, `formatAttempt`, and an optional `formatArrival` for a daemon that records
+  reaching the door separately from getting through it (vsftpd does; sshd's first line already
+  *is* the attempt, so an arrival there would be an invention). It hangs off `ServiceSpec`, so
+  a login, a hydra sweep and a cross-network break-in against one service cannot disagree about
+  which file the defender reads. Two rules travel with it. **Arrival and attempt land in ONE
+  append** — they are one event to the box, and two appends are two read-modify-writes racing
+  over the same file. And **the name stays**: it carries logins as well as sweeps, but nothing
+  a *transfer* writes goes through it (that is `formatVsftpdTransferLine` on its own endpoint),
+  so the rename considered at slices 4 and 5 was closed rather than deferred a third time.
+- **A parallel sub-shell is a restricted command MAP, not a screen, and not a hop.** `ftp` set
+  the shape every later one (`nc`, `mysql`, `redis`) should follow: a signal the terminal reads
+  to dispatch elsewhere, `enter`/`leave` as siblings of `pushSession`, no `OverlayMode` arm, and
+  an unknown command refused rather than falling through to the real shell. Two consequences.
+  `rehydrateSessionStack` rebuilds only HOP kinds (`ssh`/`su`) — an **allowlist**, so the next
+  parallel door needs no second exclusion — and everything else comes back `abandoned` for the
+  boot sweep to close, since a lingering active row is a silent write grant on someone else's
+  box (sessions have no TTL). `end_reason` is a closed enum (`user_exit` | `abandoned`) so a row
+  the player quit is distinguishable from one a refresh dropped. **Do not build a generic
+  sub-shell mechanism until a third caller earns it** — one instance is not a pattern.
+- **Inside a sub-shell, DATA commands delegate and CONTROL commands do not.** `ls`/`lls` run the
+  real `ls` with `{ ...env, fs: <binding>.fs }`, which is what makes the flags, the sort, the
+  long format and the permission refusal identical on both machines — "refused exactly as it
+  would be over ssh" is not re-implemented, it IS that refusal. `cd`/`pwd` answer in the
+  protocol's own numbered responses (`250`/`550`/`257`) because they are control-channel
+  commands, and the `l`-prefixed trio speaks unnumbered because nothing it does touches the
+  control channel.
 - **D2.4's `reachedPort` rule binds the LOGIN gate too, and did not until v0.136.0.** hydra
   had checked the service on the reached port since v0.120.0; `authCreateSessionPublic` never
   had, so a forward to :22 was an `ftp` door and a forward to :21 an `ssh` one. Both now

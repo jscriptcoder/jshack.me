@@ -5,13 +5,17 @@
 > (`grill-me`, same day).
 
 **Status**: **D1 shipped** (v0.109.0), with its web follow-ups D1c (v0.123.0-v0.124.0), D1b
-(v0.125.0-v0.129.0) and D1d (v0.130.0) all closed out — the web door's cross-player parity is
-complete and **D3 is next**. `ftp` (D3) and `scp` (D3b) were **split into separate grill + plan
-phases** on 2026-08-14 — scp is a transient two-endpoint transfer, not a door — and **BOTH are now
-GRILLED** (D3: nine decisions + four slices; D3b: five decisions + three slices; see their
-"resolved scope & decisions" sections). **D3 is now PLANNED** as six PR-sized slices in
-[`d3-ftp-the-door.md`](./d3-ftp-the-door.md) — read that file, not this section, to pick up the
-work. D3b still needs planning;
+(v0.125.0-v0.129.0) and D1d (v0.130.0) all closed out. **D3 ✅ COMPLETE (v0.136.0)** — six slices,
+#393–#398, closed out 2026-08-15: its plan file is deleted and the as-built lives in
+[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §1 (the shape) and §7 (the
+invariants), with the live two-player run as Act 11 of
+[`e2e-shared-network-verification.md`](../v2/docs/e2e-shared-network-verification.md).
+`ftp` (D3) and `scp` (D3b) were **split into separate grill + plan phases** on 2026-08-14 — scp is
+a transient two-endpoint transfer, not a door — and **BOTH are GRILLED** (D3: nine decisions;
+D3b: five decisions + three slices; see their "resolved scope & decisions" sections).
+**D3b is the next thing to plan**, and it inherits a working door: the transfer it moves files
+through is the one D3 proved, so its slices are about the transient auth session and the
+two-endpoint resolution, not about reaching a box.
 **D2 ✅ COMPLETE** — D2.1 (v0.111.0), D2.2 (v0.113.0), D2.3
 (v0.114.0), D2.5 (v0.115.0), hydra's workstation-only gate lifted (v0.118.0), D2.4 all five slices
 (v0.119.0–v0.122.0), and D2.6a (#377). Its split file is deleted; the as-built lives in
@@ -228,13 +232,13 @@ PHASE 1 — THE DOORS  (near-term focus)
       D2.4 cross-player hydra, all five slices        ✔ SHIPPED v0.119.0-v0.122.0
       D2.6a an appended word opens a door that held    ✔ SHIPPED #377 (tests only)
       D2.6b harvestable plaintext loot                 ⏸ POSTPONED — V2 owes the harvest route
-  D3  ftp (the door)                                  ◀ IN PROGRESS — 5 of 6 slices shipped
+  D3  ftp (the door)                                  ✔ COMPLETE v0.136.0 — all 6 slices
       D3 slice 1 the door + its own log                ✔ SHIPPED v0.131.0 (#393)
       D3 slice 2 login + a prompt you can leave        ✔ SHIPPED v0.132.0 (#394)
       D3 slice 3 looking around, without losing home   ✔ SHIPPED v0.133.0 (#395)
       D3 slice 4 get, itemised in the owner's log      ✔ SHIPPED v0.134.0 (#396)
       D3 slice 5 put, and the tier decides             ✔ SHIPPED v0.135.0 (#397)
-      D3 slice 6 a stranger's door across the network  ✔ SHIPPED v0.136.0 (pending PR) — D3 DONE
+      D3 slice 6 a stranger's door across the network  ✔ SHIPPED v0.136.0 (#398)
   D3b scp (the transfer)                              — grilled 2026-08-14, needs planning
   D4  daemon control (systemctl / ps / kill)
   D5  nc connect + nc -l backdoor
@@ -397,12 +401,15 @@ count, is what D3 costs.**
 
 ### Slice spine (each vertical + observable; walking skeleton first)
 
-> **PLANNED 2026-08-14** — [`d3-ftp-the-door.md`](./d3-ftp-the-door.md) sequences these four into
-> **six** PR-sized slices (D3.2 and D3.3 are two PRs each) and pins each open question to the slice
-> that answers it. Nothing below was re-decided; planning grounding added five findings, two of
-> which change the work: the ftp session is parallel, so the **origin binding already exists and
-> only the remote one is new**, and **`put`, not `get`, is where decision 3's claim gets proven**
-> (`get` writes to your own box; only `put` asks an ftp row to satisfy L1).
+> **SHIPPED 2026-08-15, v0.131.0 → v0.136.0 (#393–#398).** The spine below was delivered as
+> **six** PR-sized slices (D3.2 and D3.3 were two PRs each); the plan file is deleted and the
+> as-built lives in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §1 (D3)
+> and §7 (the invariants it established). Nothing here was re-decided. Planning grounding added
+> two findings that changed the work and both held: the ftp session is parallel, so the **origin
+> binding already existed and only the remote one was new**, and **`put`, not `get`, is where
+> decision 3's claim got proven** (`get` writes to your own box; only `put` asks an ftp row to
+> satisfy L1). The live two-player run is Act 11 of
+> [`e2e-shared-network-verification.md`](../v2/docs/e2e-shared-network-verification.md).
 
 - **D3.1 — the door exists, and sweeping it is recorded.** Catalog row + `vsftpd` command
   (mirrors `sshd`: root gate → already-running → port → streamed pidfile write) + the `vsftpd.log`
@@ -861,8 +868,14 @@ by control, since a `curl` through the same forward is equally invisible. That w
 taken) and is recorded in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §9,
 which D1d re-confirmed rather than discovered. Read the row from the DB when a log looks empty.
 
-**D3 is SELECTED next** (2026-08-14), straight from decision 8's locked door order now that the web
-door is complete on both sides — **and it was split first: `ftp` is D3, `scp` is D3b, each with its
+**D3 ✅ SHIPPED AND CLOSED OUT** (2026-08-15, v0.131.0 → v0.136.0, #393–#398) — six slices, plan
+file deleted, as-built in `conventions-and-gotchas.md` §1 + §7 and Act 11 of
+`e2e-shared-network-verification.md`. **D3b is what remains of this pair and still needs
+planning.** Everything below is the grill that produced both, kept because D3b has not been
+planned yet; read D3's half as the record of what was expected, not as work outstanding.
+
+D3 was selected (2026-08-14) straight from decision 8's locked door order once the web
+door was complete on both sides — **and it was split first: `ftp` is D3, `scp` is D3b, each with its
 own `grill-me` and its own `planning`** (owner call, 2026-08-14). The original row fused them under
 "file transfer", which is the only thing they share.
 
@@ -885,14 +898,16 @@ justified by "a player runs sshd + a web server + **ftpd** with no way to stop a
 feeds the next slice and scp does not. ftp's `get`/`put` also build the tier-gated copy primitive
 D3b reuses. Both should land before D4.
 
-**D3 HAS BEEN GRILLED** (2026-08-14) — nine locked decisions and a four-slice spine live in
-["D3 — resolved scope & decisions"](#d3--resolved-scope--decisions-grill-me-2026-08-14) above.
-Read that section, not this block, before planning. The two findings that reshaped it:
+**D3 WAS GRILLED** (2026-08-14) — nine locked decisions and a four-slice spine live in
+["D3 — resolved scope & decisions"](#d3--resolved-scope--decisions-grill-me-2026-08-14) above, and
+all nine survived contact. The two findings that reshaped it, both borne out:
 
 - **The cost is not the command count, it is that ftp holds TWO machines at once.** Everything in
-  `ui/state.ts` is singular and follows `activeSession()`. That is the slice.
+  `ui/state.ts` is singular and follows `activeSession()`. That was the slice, and the shape it
+  produced (a second binding + a second journal beside the shell's) is what D3b inherits.
 - **hydra already sweeps ftp for free** (`hydraCrack.ts:212` matches the service generically) but
-  hardcodes its trace to `auth.log` — so the catalog row and the log routing must ship together.
+  hardcoded its trace to `auth.log` — so the catalog row and the log routing shipped together, in
+  that order, which is why no version ever wrote sshd-tagged lines for a door nobody knocked on.
 
 **D3b HAS BEEN GRILLED TOO** (2026-08-14) — five decisions and a three-slice spine in
 ["D3b — resolved scope & decisions"](#d3b--resolved-scope--decisions-grill-me-2026-08-14). It closes
@@ -907,7 +922,12 @@ from its grill:
   impossible.
 
 D3b is the SMALLER half despite legacy building it larger (417 lines vs ftp's 218) — it inherits the
-kind-parameterized session from D3.2 and the remote binding from D3.3, which is why D3 goes first.
+kind-parameterized session from D3.2 and the remote binding from D3.3, which is why D3 went first.
+**What D3 actually leaves it** (all shipped, all live-verified): a `kind` on both the LAN and the
+public login gates, `standingVantage` for an honest source address, the tier-gated copy primitive
+in both directions (`land()` in `ftpShell.ts`), and `recordFtpTransfer`'s provenance split. What
+D3b still owns alone is its own: the transient session lifecycle, two authorizations in one
+command, async progress + cancellation, and where a *silent* transfer's trace lands.
 
 Per slice, before any code: load `tdd`, `testing`, `mutation-testing`, `refactoring`; run full
 RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR; present before starting the next. Any `api/` change
