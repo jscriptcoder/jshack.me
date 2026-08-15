@@ -357,6 +357,15 @@ export type PublicAuthParams = {
   readonly sourceIp: string | null;
 };
 
+/** What `ftp` hands to `env.ftp.authenticatePublic` — the ssh shape plus the box the
+ *  command is being RUN from. That box is what the target actually saw, so naming it is
+ *  what lets the server trace the visit to the network the visitor is standing on
+ *  rather than the one they happen to own. It is a claim the server then checks: a
+ *  caller holding no session there is refused rather than believed. */
+export type FtpPublicAuthParams = PublicAuthParams & {
+  readonly callerMachineId: string;
+};
+
 /** The outcome of a cross-player ssh authentication. On success `machineId` is the
  *  OWNER's REAL workstation id (the session target; its name drives the prompt
  *  hostname) and `userType` is server-derived. Errors mirror `RemoteAuthResult`. */
@@ -421,6 +430,10 @@ export type InnerGatewayAuthParams = {
  *  business and the hop chain is untouched throughout. */
 export type FtpApi = {
   readonly authenticate: (params: RemoteAuthParams) => Promise<RemoteAuthResult>;
+  /** Log into ANOTHER player's box by its public IP, through the port its owner
+   *  forwarded. Shares `PublicAuthResult` with `ssh`'s: the machine id comes back from
+   *  the server, because which box a stranger's forward reaches is not derivable here. */
+  readonly authenticatePublic: (params: FtpPublicAuthParams) => Promise<PublicAuthResult>;
   /** Hold this session and put the terminal at the `ftp>` prompt. */
   readonly enter: (session: Session) => void;
   /** Drop it and hand the terminal back to the shell that never moved. */

@@ -21,6 +21,7 @@
 import { createSignal } from 'solid-js';
 import { asAbsPath, type AbsPath, type UserType } from '../core/types';
 import type {
+  FtpPublicAuthParams,
   Identity,
   LogApi,
   PatchApi,
@@ -406,7 +407,9 @@ const ftpBinding = (): Pick<
     // the same evidence, having never been told a door was involved.
     onFtpWrite: (path, content, options) => writeToFtpTarget(session, path, content, options),
     // The command names the file and the direction; WHICH box and from WHERE are
-    // added here, off the session it could not have opened by itself.
+    // added here, off the session it could not have opened by itself. The box the
+    // shell is standing on rides along too: on another player's machine the reported
+    // address is not evidence, and that is what the server derives one from.
     onFtpTransfer: ({ direction, path, bytes }) =>
       void recordFtpTransferFn({
         machineId: session.machineId,
@@ -414,6 +417,7 @@ const ftpBinding = (): Pick<
         path,
         bytes,
         sourceIp: localAddress(),
+        callerMachineId: requireSession().machineId,
       }),
   };
 };
@@ -439,6 +443,15 @@ const sshAuthenticatePublic = (params: PublicAuthParams): Promise<PublicAuthResu
   sessionsClientDeps === undefined
     ? Promise.resolve({ ok: false, error: 'network_error' })
     : authCreateServerSessionPublic(sessionsClientDeps, params);
+
+/** Authenticate a CROSS-PLAYER ftp login server-side (backs `env.ftp.authenticatePublic`)
+ *  — the same endpoint `ssh` reaches, asked for an `ftp`-kind row against whatever the
+ *  named port forwards to. Degrades to a network error before `startGame` wires the
+ *  sessions client. */
+const ftpAuthenticatePublic = (params: FtpPublicAuthParams): Promise<PublicAuthResult> =>
+  sessionsClientDeps === undefined
+    ? Promise.resolve({ ok: false, error: 'network_error' })
+    : authCreateServerSessionPublic(sessionsClientDeps, params, 'ftp');
 
 /** Authenticate a SAME-WiFi LAN ssh login server-side (backs `env.ssh.authenticateSameLan`).
  *  Degrades to a network error before `startGame` wires the sessions client. */
@@ -1194,6 +1207,7 @@ const executeLine = async (line: string): Promise<void> => {
     onPushSession: pushSession,
     onSshAuthenticate: sshAuthenticate,
     onFtpAuthenticate: ftpAuthenticate,
+    onFtpAuthenticatePublic: ftpAuthenticatePublic,
     onFtpEnter: enterFtpSession,
     onFtpLeave: leaveFtpSession,
     ...ftpBinding(),

@@ -20,11 +20,12 @@
 import { asMachineId } from '../types';
 import { generateHomeLan } from '../generation/generateHomeLan';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
+import { isPublicIp } from '../generation/ip';
 import { readOpenPorts } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import type { Command, CommandEnv, CommandResult, Session } from './types';
+import type { Command, CommandEnv, CommandResult, PublicAuthResult, Session } from './types';
 
-const USAGE = 'usage: ftp <host> [user]';
+const USAGE = 'usage: ftp [-p port] <host> [user]';
 
 const errorResult = (content: string, exitCode = 1): CommandResult => ({
   kind: 'sync',
@@ -32,7 +33,160 @@ const errorResult = (content: string, exitCode = 1): CommandResult => ({
   exitCode,
 });
 
-const execute = async (env: CommandEnv, args: readonly string[]): Promise<CommandResult> => {
+/** `-p <port>`, defaulting to the ftp door's own port rather than ssh's — a bare or
+ *  non-numeric flag falls back the same way. */
+const parsePort = (raw: string | true | undefined): number => {
+  const port = typeof raw === 'string' ? Number(raw) : Number.NaN;
+  return Number.isInteger(port) && port > 0 ? port : SERVICE_CATALOG.ftp.defaultPort;
+};
+
+/** Ctrl-C at either prompt: nothing was sent, nothing is held. */
+const ABORTED: CommandResult = { kind: 'sync', lines: [], exitCode: 130 };
+
+const greeting = (target: string) => [
+  { kind: 'text' as const, content: `Connected to ${target}.` },
+  { kind: 'text' as const, content: '220 (vsFTPd 3.0.3)' },
+];
+
+type Credential = { readonly username: string; readonly password: string };
+
+/** Ask the way a real client does: an account named on the command line skips the Name
+ *  prompt, otherwise the player's own account is the offered default. `null` for an
+ *  abort at either prompt. */
+const askCredential = async (
+  env: CommandEnv,
+  target: string,
+  named: string | undefined,
+): Promise<Credential | null> => {
+  try {
+    const username =
+      named ??
+      (await env.prompt({ message: `Name (${target}:${env.session.username}): `, masked: false }));
+    const password = await env.prompt({ message: 'Password: ', masked: true });
+    return { username, password };
+  } catch {
+    return null;
+  }
+};
+
+/** A rejected credential is the daemon answering (530, after its banner); anything else
+ *  never got that far, so it reads as a connection that failed. */
+const refusal = (target: string, error: string): CommandResult =>
+  error === 'invalid_credentials'
+    ? {
+        kind: 'sync',
+        lines: [...greeting(target), { kind: 'error', content: '530 Login incorrect.' }],
+        exitCode: 1,
+      }
+    : errorResult('ftp: connect: Connection refused');
+
+const accepted = (env: CommandEnv, target: string, session: Session): CommandResult => {
+  env.ftp.enter(session);
+  return {
+    kind: 'sync',
+    lines: [...greeting(target), { kind: 'text', content: '230 Login successful.' }],
+    exitCode: 0,
+  };
+};
+
+/** The address the client reports for itself. Truthful on the player's own LAN, where
+ *  it is the only address the target could have seen; on a public target the server
+ *  derives it instead, and this is kept only for the session row. */
+const localAddress = (env: CommandEnv): string | null =>
+  env.network.interfaces().find((iface) => iface.kind === 'wireless')?.ipv4 ?? null;
+
+/** A host on the player's OWN generated LAN: reachability is deterministic, so it is
+ *  resolved here before anything is typed. */
+const lanLogin = async (
+  env: CommandEnv,
+  target: string,
+  essid: string,
+  named: string | undefined,
+): Promise<CommandResult> => {
+  const host = generateHomeLan(essid).hosts.find((candidate) => candidate.ip === target);
+  if (host === undefined) return errorResult(`ftp: connect: No route to host`);
+
+  // The pidfiles are the truth about what is listening — the same source `nmap`
+  // reads, so a door the player was shown is a door that opens.
+  const { baseFs, machineId } = resolveLanHostIdentity(host, essid);
+  const open = readOpenPorts(baseFs).find((port) => port.service === SERVICE_CATALOG.ftp.service);
+  if (open === undefined) return errorResult('ftp: connect: Connection refused');
+
+  const credential = await askCredential(env, target, named);
+  if (credential === null) return ABORTED;
+
+  const sessionId = `ftp-${credential.username}-${env.now()}`;
+  const result = await env.ftp.authenticate({
+    sessionId,
+    essid,
+    targetIp: target,
+    username: credential.username,
+    password: credential.password,
+    parentSessionId: env.session.id,
+    sourceIp: localAddress(env),
+  });
+  if (!result.ok) return refusal(target, result.error);
+
+  return accepted(env, target, {
+    id: sessionId,
+    playerKey: env.identity.publicKeyHex,
+    machineId: asMachineId(machineId),
+    username: credential.username,
+    userType: result.userType,
+    kind: 'ftp',
+    createdAt: env.now(),
+  });
+};
+
+/** Another player's box, behind the port its owner forwarded. Nothing about it is
+ *  derivable here — the forward table lives on THEIR gateway's journal — so both
+ *  reachability and the machine id come back from the server. */
+const publicLogin = async (
+  env: CommandEnv,
+  target: string,
+  port: number,
+  named: string | undefined,
+): Promise<CommandResult> => {
+  const resolution = await env.scan.resolvePublic(target);
+  if (!resolution.found) return errorResult('ftp: connect: No route to host');
+  // The port has to be answered by THIS daemon: a forward names one internal port, so
+  // a stranger's :2121 reaching their sshd is not a door this command can open, and a
+  // password typed at it would be handed over for nothing.
+  const open = resolution.ports.some(
+    (candidate) => candidate.port === port && candidate.service === SERVICE_CATALOG.ftp.service,
+  );
+  if (!open) return errorResult('ftp: connect: Connection refused');
+
+  const credential = await askCredential(env, target, named);
+  if (credential === null) return ABORTED;
+
+  const sessionId = `ftp-${credential.username}-${env.now()}`;
+  const result: PublicAuthResult = await env.ftp.authenticatePublic({
+    sessionId,
+    target,
+    port,
+    username: credential.username,
+    password: credential.password,
+    parentSessionId: env.session.id,
+    sourceIp: localAddress(env),
+    // The box this command is being RUN from, which is what the target actually saw.
+    // A claim, not a credential: the server refuses a caller who holds no session there.
+    callerMachineId: env.session.machineId,
+  });
+  if (!result.ok) return refusal(target, result.error);
+
+  return accepted(env, target, {
+    id: sessionId,
+    playerKey: env.identity.publicKeyHex,
+    machineId: asMachineId(result.machineId),
+    username: credential.username,
+    userType: result.userType,
+    kind: 'ftp',
+    createdAt: env.now(),
+  });
+};
+
+const execute: Command['execute'] = async (env, args, flags) => {
   const target = args[0];
   if (target === undefined) return errorResult(USAGE);
 
@@ -42,75 +196,9 @@ const execute = async (env: CommandEnv, args: readonly string[]): Promise<Comman
     return errorResult('ftp: connect: Network is unreachable');
   }
 
-  const host = generateHomeLan(essid).hosts.find((candidate) => candidate.ip === target);
-  if (host === undefined) return errorResult(`ftp: connect: No route to host`);
-
-  // The pidfiles are the truth about what is listening — the same source `nmap`
-  // reads, so a door the player was shown is a door that opens.
-  const { baseFs, machineId } = resolveLanHostIdentity(host, essid);
-  const open = readOpenPorts(baseFs).find(
-    (port) => port.service === SERVICE_CATALOG.ftp.service,
-  );
-  if (open === undefined) return errorResult('ftp: connect: Connection refused');
-
-  const lines = [
-    { kind: 'text' as const, content: `Connected to ${target}.` },
-    { kind: 'text' as const, content: '220 (vsFTPd 3.0.3)' },
-  ];
-
-  let username = args[1];
-  try {
-    // An account named on the command line skips the Name prompt, exactly as a real
-    // client does; otherwise the player's own account is the offered default.
-    username =
-      username ??
-      (await env.prompt({
-        message: `Name (${target}:${env.session.username}): `,
-        masked: false,
-      }));
-    const password = await env.prompt({ message: 'Password: ', masked: true });
-
-    const sessionId = `ftp-${username}-${env.now()}`;
-    const result = await env.ftp.authenticate({
-      sessionId,
-      essid,
-      targetIp: target,
-      username,
-      password,
-      parentSessionId: env.session.id,
-      sourceIp: env.network.interfaces().find((iface) => iface.kind === 'wireless')?.ipv4 ?? null,
-    });
-
-    if (!result.ok) {
-      if (result.error === 'invalid_credentials') {
-        return {
-          kind: 'sync',
-          lines: [...lines, { kind: 'error', content: '530 Login incorrect.' }],
-          exitCode: 1,
-        };
-      }
-      return errorResult('ftp: connect: Connection refused');
-    }
-
-    const session: Session = {
-      id: sessionId,
-      playerKey: env.identity.publicKeyHex,
-      machineId: asMachineId(machineId),
-      username,
-      userType: result.userType,
-      kind: 'ftp',
-      createdAt: env.now(),
-    };
-    env.ftp.enter(session);
-    return {
-      kind: 'sync',
-      lines: [...lines, { kind: 'text', content: '230 Login successful.' }],
-      exitCode: 0,
-    };
-  } catch {
-    // Ctrl-C at either prompt: nothing was sent, nothing is held.
-    return { kind: 'sync', lines: [], exitCode: 130 };
-  }
+  return isPublicIp(target)
+    ? publicLogin(env, target, parsePort(flags.get('-p')), args[1])
+    : lanLogin(env, target, essid, args[1]);
 };
 
 export const ftp: Command = {
@@ -119,9 +207,9 @@ export const ftp: Command = {
   category: 'network',
   tier: 'guest',
   availability: { kind: 'localhost-only' },
-  flags: {},
+  flags: { '-p': 'string' },
   manual: {
-    synopsis: 'ftp <host> [user]',
+    synopsis: 'ftp [-p port] <host> [user]',
     description:
       'Open a file-transfer session on a remote host running an FTP server. Prompts ' +
       'for the account password and, on success, leaves you at an "ftp>" prompt where ' +
@@ -138,6 +226,10 @@ export const ftp: Command = {
     examples: [
       { command: 'ftp 192.168.1.5', description: 'Connect to the FTP server on 192.168.1.5' },
       { command: 'ftp 192.168.1.5 guest', description: 'Connect as the guest account' },
+      {
+        command: 'ftp -p 2121 203.0.113.7 guest',
+        description: "Connect through a forwarded port on someone else's public address",
+      },
     ],
   },
   execute,

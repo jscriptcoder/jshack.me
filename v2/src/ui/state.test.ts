@@ -410,6 +410,9 @@ describe('the ftp sub-shell', () => {
   const FTP_MACHINE_ID = machineIdForLanHost(FTP_HOST, ESSID);
   const OTHER_MACHINE_ID = machineIdForLanHost(OTHER_FTP_HOST, ESSID);
   const TARGET_IDS = new Set([FTP_MACHINE_ID, OTHER_MACHINE_ID]);
+  // Somebody else's address, and the port they published their ftp door on.
+  const THEIR_PUBLIC_IP = '203.0.113.7';
+  const FORWARDED_PORT = 2121;
 
   const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -455,6 +458,22 @@ describe('the ftp sub-shell', () => {
         }
         if (fields.action === 'authCreateSession') {
           return { ok: true, status: 200, json: async () => ({ ok: true, userType: 'guest' }) };
+        }
+        // A stranger's address answers only from the server: the forward table lives on
+        // THEIR gateway, so nothing about it is derivable on this box.
+        if (fields.action === 'resolvePublicScan') {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ found: true, ports: [{ port: FORWARDED_PORT, service: 'ftp' }] }),
+          };
+        }
+        if (fields.action === 'authCreateSessionPublic') {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ ok: true, userType: 'guest', machine_id: FTP_MACHINE_ID }),
+          };
         }
         // A write aimed at a TARGET is kept, the way the server keeps it: a journal
         // read after it must answer with it, or nothing here could tell a client that
@@ -676,6 +695,66 @@ describe('the ftp sub-shell', () => {
       machine_id: FTP_MACHINE_ID,
       path: '/var/www/html/index.html',
       source_ip: `${LAN.subnet}.77`,
+    });
+  });
+
+  /** The same door on somebody else's address: the player names the forwarded port and
+   *  the account, so only the password is asked for. */
+  const typeCrossNetworkLogin = async (state: typeof import('./state')): Promise<void> => {
+    state.setInput(`ftp -p ${FORWARDED_PORT} ${THEIR_PUBLIC_IP} guest`);
+    const run = state.runInput();
+    await vi.waitFor(() => expect(state.pendingPrompt()).toBeDefined());
+    state.setInput('hunter2');
+    state.submitPrompt();
+    await run;
+    await settle();
+  };
+
+  /** The machine id of the box the player is standing on, taken from a journal read
+   *  that is not aimed at either target — the id the client actually uses for itself. */
+  const ownBoxIn = (sent: readonly Record<string, unknown>[]): unknown =>
+    sent.find(
+      (payload) =>
+        typeof payload.machine_id === 'string' && !TARGET_IDS.has(String(payload.machine_id)),
+    )?.machine_id;
+
+  it('reaches a stranger door across the network and holds the session on the box behind the forward', async () => {
+    const { state, sent } = await bootOnline();
+
+    await typeCrossNetworkLogin(state);
+
+    expect(state.inFtpSession()).toBe(true);
+    const login = sent.find((payload) => payload.action === 'authCreateSessionPublic');
+    expect(login).toMatchObject({
+      kind: 'ftp',
+      target: THEIR_PUBLIC_IP,
+      port: FORWARDED_PORT,
+      username: 'guest',
+      // The vantage. Without it the server can only derive the address the player
+      // OWNS, which stops being true the moment they attack from somebody else's box.
+      caller_machine_id: ownBoxIn(sent),
+    });
+    // The session is held on the machine the SERVER named behind the forward, and the
+    // shell underneath never moved — the same parallel session the LAN door opens.
+    expect(state.promptHost()).toBe('box');
+  });
+
+  it('names the box a cross-network transfer was run from, alongside the box it moved on', async () => {
+    const { state, sent } = await bootOnline();
+    await typeCrossNetworkLogin(state);
+
+    state.setInput('get /etc/remote-drop.txt');
+    await state.runInput();
+    await settle();
+
+    expect(lastLine(state)).toContain('12 bytes received.');
+    // Two machines named in one record: whose log it lands in, and where the visitor
+    // was standing. The second is what the defender's line is addressed FROM, and the
+    // command layer cannot supply it — only here.
+    expect(sent.find((payload) => payload.action === 'recordFtpTransfer')).toMatchObject({
+      direction: 'download',
+      machine_id: FTP_MACHINE_ID,
+      caller_machine_id: ownBoxIn(sent),
     });
   });
 

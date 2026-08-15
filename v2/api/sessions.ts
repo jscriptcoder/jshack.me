@@ -387,7 +387,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (actionOf(req.body) === 'authCreateSessionPublic') {
-    // Cross-PLAYER ssh login: resolve the target PUBLIC IP to its AP, then the handler
+    // Cross-PLAYER login at whichever door the caller knocked on (`kind`): resolve the
+    // target PUBLIC IP to its AP, then the handler
     // materializes the ESSID's shared GATEWAY and routes by destination port — port 22
     // lands on the gateway itself (validated against its ESSID-seeded admin password),
     // a NAT-forwarded port on whichever occupant LEASES the address that forward names.
@@ -412,6 +413,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         occupancyLabel: 'public auth source-ip occupancy',
         lookupLabel: 'public auth source-ip lookup',
       }),
+      // A door that names the box it was run from gets the honest address: the network
+      // that box is on, which is what the target actually saw.
+      findPublicIpByEssid: findPublicIpByEssidVia({
+        supabase,
+        label: 'public auth vantage-ip lookup',
+      }),
+      findActiveSession: findActiveSessionVia({ supabase, label: 'public auth active-session' }),
     });
     res.status(status).json(body);
     return;

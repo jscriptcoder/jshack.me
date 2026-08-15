@@ -274,12 +274,43 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // so the read is the machine's row for this writer — the same read-modify-write
     // shape appendAuthLog performs, pointed at someone else's machine and gated on the
     // session that got the player in there.
+    // Whose box it is decides both the row the line lands in and the address it names:
+    // a generated host keeps the caller's own row and the address they reported, while
+    // another player's box owns its log and is told where the visitor really came from.
+    const findPublicIpByEssid = async (essid: string) => {
+      const { data, error } = await supabase
+        .from('network_public_ips')
+        .select('public_ip')
+        .eq('essid', essid)
+        .maybeSingle();
+      if (error) console.error('[patches] ftp vantage-ip lookup error:', error);
+      return { data: data as { public_ip: string } | null, error };
+    };
+    const findHomeNetworkByOwnerKey = async (ownerKey: string) => {
+      const occupancy = await supabase
+        .from('home_network_occupants')
+        .select('essid')
+        .eq('owner_key', ownerKey)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (occupancy.error) {
+        console.error('[patches] ftp source-ip occupancy error:', occupancy.error);
+        return { data: null, error: occupancy.error };
+      }
+      const essid = (occupancy.data as { essid: string } | null)?.essid ?? null;
+      if (essid === null) return { data: null, error: null };
+      return findPublicIpByEssid(essid);
+    };
     const { status, body } = await handleRecordFtpTransfer(req.body, {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
       findActiveSession,
       readLog: readMachineLog,
       upsertPatch,
+      findOccupantWorkstationByMachineId,
+      findHomeNetworkByOwnerKey,
+      findPublicIpByEssid,
     });
     res.status(status).json(body);
     return;

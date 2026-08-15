@@ -696,6 +696,86 @@ docker exec supabase_db_jshack-me-v2 psql -U postgres -tAc \
 answered the first query with July lines and no error; the live box was `skylab-cca288f6`. Resolve
 it from `home_network_occupants` for the ESSID rather than by hostname.
 
+### Act 11 — the second door, opened from another network (D3)
+
+**Executed 2026-08-15 against v0.136.0. All checks passed.** Two real players, two networks: A
+publishes their ftp daemon through a forward on their AP, and B — who has never been on A's WiFi —
+scans the address, cracks the credential, walks in, moves files in both directions, and leaves A
+holding the whole story in one file.
+
+The unit tests stub the seam and the wire-check posts straight at the endpoints, so **this is the
+only thing that proves the client sends what the server reads**: a wrong field name in
+`sessionsApi`/`patchApi` would otherwise ship green.
+
+**As A** (`anton`, `SUITE-401` → `192.168.94.155`, public `45.7.194.128`):
+
+| # | Command | Trap |
+|---|---|---|
+| 1 | Act 1's arc → connected (real `aircrack`, `KEY FOUND! [ thunder24 ]`) | — |
+| 2 | `su root` → `vsftpd` | **Wait for the `su` spinner.** `vsftpd` is root-tier and opens :21 |
+| 3 | `ssh root@192.168.94.1` + `seedApGatewayAdminPw('SUITE-401')` = `dovetail_7` | — |
+| 4 | `echo forward 2121 to 192.168.94.155:21 > /etc/iptables/rules.v4` → `exit` | Not 21 on the outside: on a public address :21 is nothing and :22 is the GATEWAY |
+
+**As B** (`cracklab`, `WEYLAND-NET` → public `138.2.25.151`) — a different AP entirely, which is
+what makes the address in A's log falsifiable:
+
+```
+root@cracklab:/root# nmap 45.7.194.128
+PORT     STATE SERVICE
+22/tcp   open  ssh
+2121/tcp open  ftp
+
+root@cracklab:/root# hydra 45.7.194.128 ftp -p 2121
+[2121][ftp] host: 45.7.194.128   login: guest   password: toor
+1 valid password(s) found
+
+root@cracklab:/root# ftp -p 2121 45.7.194.128 guest
+Password:
+Connected to 45.7.194.128.
+220 (vsFTPd 3.0.3)
+230 Login successful.
+ftp> put /usr/share/wordlists/passwords.txt /tmp/dropped.txt
+226 Transfer complete.
+285 bytes sent.
+ftp> get /tmp/dropped.txt /tmp/stolen.txt
+226 Transfer complete.
+285 bytes received.
+```
+
+**The tier crosses unchanged, and it bites first.** `get /home/gilfoyle/roadmap.txt` — a file A
+wrote as root — answers `550 Failed to open file.` for B's `guest` credential, and so does
+`/etc/passwd`. `ls` shows both; reading them is the walker's call, made against A's real tree. B
+gets what `guest` may have and nothing else, exactly as on the LAN.
+
+**What A's `/var/log/vsftpd.log` held** (85 lines, one row, A's own writer key):
+
+```
+… 84 FAIL LOGIN lines: [root] ×36, [gilfoyle] ×36, [guest] ×12 …
+Sat Aug 15 16:40:16 2026 [pid 5984] [guest] OK LOGIN: Client "138.2.25.151"
+Sat Aug 15 16:40:49 2026 [pid 2668] CONNECT: Client "138.2.25.151"
+Sat Aug 15 16:40:49 2026 [pid 2668] [guest] OK LOGIN: Client "138.2.25.151"
+Sat Aug 15 16:41:45 2026 [pid 4814] [guest] OK UPLOAD: Client "138.2.25.151", "/tmp/dropped.txt", 285 bytes
+Sat Aug 15 16:42:51 2026 [pid 7686] [guest] OK DOWNLOAD: Client "138.2.25.151", "/tmp/dropped.txt", 285 bytes
+```
+
+Three things at once, and each is a separate claim:
+
+- **`138.2.25.151` is WEYLAND-NET's public address — B's own network, derived server-side.** A is
+  on `45.7.194.128`; the client never sent this and could not have been believed if it had. Every
+  line carries it, hydra's wall included.
+- **The wall, the break-in and both transfers are in ONE row under A's key.** Written under B's
+  key instead, the login and the transfers would land in two rows and the journal's last-write-wins
+  replay would show A half a visit.
+- **`ls -l /tmp` as A: `-rwx---rw- guest 285 dropped.txt`** — the file B left, owned by the account
+  B logged in as, and its content is B's wordlist. The patch is stored under *B's* writer key while
+  the log stays under A's: the file is B's write, the record of it is A's box speaking.
+
+**The known log staleness, hit again — read `conventions-and-gotchas.md` §9 before calling it a
+bug.** A's first `cat /var/log/vsftpd.log` said `No such file or directory` and `ls /tmp` was empty
+while the row already held all 85 lines. One local write (`echo sync > /tmp/sync.txt`) re-pulled the
+journal and the whole file appeared. Same pre-existing behaviour D1d recorded at Act 10, with a
+fifth writer added and nothing else.
+
 ---
 
 ## 6. What a failure means
@@ -911,6 +991,16 @@ D1's own criteria, layered on afterwards:
 | Links numbered and followable; selection restored on return | 9 | `Lynx.test.tsx` |
 | Going back RE-FETCHES — one log line per page viewed | 9 | `Lynx.test.tsx` + the log count itself |
 | Cross-network browsing collapses to one refusal | 9 | `lynx.test.ts`, `webPage.ts` at 100% |
+
+D3's criteria, layered on after that:
+
+| D3 criterion | Act | Also proven by |
+|---|---|---|
+| A forwarded ftp door is visible and reachable from outside | 11 | `testFtpCrossPlayer`, `nmap` on the same forward |
+| A cracked credential opens it, at the tier it carries | 11 | `testFtpCrossPlayer`, `testFtpSession` |
+| Files move both ways across the network | 11 | `testFtpCrossPlayer`, `testFtpPut` |
+| The defender reads the whole visit from ONE file, one row | 11 | `testFtpTransferTrace`, `testFtpCrossPlayer` |
+| The address recorded is the visitor's real vantage | 11 | `testFtpCrossPlayer` (incl. the pivot case) |
 
 Not covered here and still open: **deep-chain pivots through a shared chain** (Acts stop
 at L1 NPCs) and **WiFi density / presence-TTL**, both deferred. If you want the deep

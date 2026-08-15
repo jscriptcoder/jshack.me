@@ -117,6 +117,10 @@ export type BuildCommandEnvArgs = {
   /** The ftp login seam — backs `env.ftp.authenticate`. The UI wires it to the same
    *  `authCreateSession` round-trip `ssh` uses, asked for an `ftp`-kind row. */
   readonly onFtpAuthenticate?: FtpApi['authenticate'];
+  /** The cross-network ftp login seam — backs `env.ftp.authenticatePublic`. Same
+   *  round-trip as the ssh one, asked for an `ftp`-kind row and carrying the box the
+   *  command is being run from. */
+  readonly onFtpAuthenticatePublic?: FtpApi['authenticatePublic'];
   /** Hold/drop the parallel ftp session — the UI owns the signal the `ftp>` prompt
    *  and the sub-shell dispatch both read. */
   readonly onFtpEnter?: FtpApi['enter'];
@@ -279,6 +283,7 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   },
   ftp: {
     authenticate: args.onFtpAuthenticate ?? notWired('ftp.authenticate'),
+    authenticatePublic: args.onFtpAuthenticatePublic ?? notWired('ftp.authenticatePublic'),
     enter: args.onFtpEnter ?? (() => undefined),
     leave: args.onFtpLeave ?? (() => undefined),
     // No session, no remote: an empty tree, never the origin's. The `ftp>` commands

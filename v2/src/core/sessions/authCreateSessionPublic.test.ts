@@ -11,6 +11,7 @@ import { workstationGuestPassword } from '../generation/workstationFs';
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
 import { computeApGatewayId } from '../identity/router';
+import { computeWorkstationId } from '../identity/workstation';
 import { lanAddressFor, type LanLeaseRow } from '../network/lanAddress';
 import type { OwnerPatchRow } from '../network/materializeWorkstationFs';
 import { asGameTime } from '../types';
@@ -20,7 +21,15 @@ import {
   AUTH_LOG_PERMISSIONS,
   formatSshdAuthLine,
 } from '../logging/authLog';
+import {
+  VSFTPD_LOG_OWNER,
+  VSFTPD_LOG_PATH,
+  VSFTPD_LOG_PERMISSIONS,
+  formatVsftpdConnectLine,
+  formatVsftpdLoginLine,
+} from '../logging/vsftpdLog';
 import { derivePid } from '../logging/syslog';
+import type { FindActiveSession } from '../patches/authorizeMachineAccess';
 import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
 import type { PatchRow } from '../patches/upsertPatch';
 import type { NonceStore } from '../signedRequest/nonceStore';
@@ -44,6 +53,11 @@ const FIXED_NOW = Date.UTC(2026, 5, 19, 12, 0, 0);
 // The attacker's home public IP, as the server resolves it from their owner key.
 // Server-derived; NEVER the client-supplied `source_ip`.
 const ATTACKER_PUBLIC_IP = '198.51.100.22';
+// A box the attacker holds a session on, and the address the network it sits on
+// answers to — the vantage a login launched from that box is traced to.
+const PIVOT_MACHINE = 'workstation-p1v0t000';
+const PIVOT_ESSID = 'CAFE-DEL-MAR-GUEST';
+const PIVOT_PUBLIC_IP = '203.0.113.199';
 
 // Two identities on ONE access point. The gateway's admin password seeds from the
 // ESSID alone; each occupant's own accounts seed from that occupant's owner key.
@@ -118,6 +132,8 @@ const forwardTo = (publicPort: number, internalIp: string, internalPort = 22): s
 const aliceForward = forwards(forwardTo(2222, ALICE_LAN_IP));
 const bobForward = forwards(forwardTo(3333, BOB_LAN_IP));
 const bothForwards = forwards(forwardTo(2222, ALICE_LAN_IP), forwardTo(3333, BOB_LAN_IP));
+/** The ftp door published to the world: `2121` on the AP reaches Alice's `:21`. */
+const aliceFtpForward = forwards(forwardTo(2121, ALICE_LAN_IP, 21));
 
 /** An occupant started their sshd — the pidfile on that workstation's journal makes
  *  `:22` a live service (a fresh box has an empty `/var/run`, so a forward to it is
@@ -130,6 +146,14 @@ const sshdUp: OwnerPatchRow = {
   node_type: 'file',
   updated_at: '2026-06-17T00:00:00.000Z',
   writer_key: ALICE.publicKeyHex,
+};
+
+/** An occupant started their vsftpd — the ftp door's half of `sshdUp`. A forward
+ *  reaching `:21` is dark until this exists, exactly as an ssh forward is. */
+const vsftpdUp: OwnerPatchRow = {
+  ...sshdUp,
+  path: '/var/run/vsftpd.pid',
+  content: 'vsftpd:port=21',
 };
 
 /** A root `rm /boot/vmlinuz` tombstone — replayed over a machine's seeded base, it
@@ -150,6 +174,7 @@ type PatchesResult = { data: readonly OwnerPatchRow[] | null; error: unknown };
 type OccupantsResult = { data: readonly NatOccupantRow[] | null; error: unknown };
 type LeasesResult = { data: readonly LanLeaseRow[] | null; error: unknown };
 type OwnerKeyResult = { data: { public_ip: string } | null; error: unknown };
+type EssidResult = { data: { public_ip: string } | null; error: unknown };
 
 /** Route the per-machine journal read by `machine_id`: the gateway's forward table and
  *  each occupant's running services live on different machines. */
@@ -173,6 +198,8 @@ type AuthOverrides = {
   readAuthLog?: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
   upsertPatch?: (row: PatchRow) => Promise<{ error: unknown }>;
   findHomeNetworkByOwnerKey?: (ownerKey: string) => Promise<OwnerKeyResult>;
+  findActiveSession?: FindActiveSession;
+  findPublicIpByEssid?: (essid: string) => Promise<EssidResult>;
 };
 
 const makeDeps = (over: AuthOverrides = {}) => {
@@ -201,6 +228,14 @@ const makeDeps = (over: AuthOverrides = {}) => {
     over.findHomeNetworkByOwnerKey ??
       (async () => ({ data: { public_ip: ATTACKER_PUBLIC_IP }, error: null })),
   );
+  // The caller stands on their own workstation unless a test says otherwise: no
+  // session row, so the vantage falls back to the address they own.
+  const findActiveSession = vi.fn<FindActiveSession>(
+    over.findActiveSession ?? (async () => ({ data: null, error: null })),
+  );
+  const findPublicIpByEssid = vi.fn<(essid: string) => Promise<EssidResult>>(
+    over.findPublicIpByEssid ?? (async () => ({ data: { public_ip: PIVOT_PUBLIC_IP }, error: null })),
+  );
   const deps: AuthCreateSessionPublicDeps = {
     nonceStore: freshStore,
     findNetworkByPublicIp,
@@ -212,6 +247,8 @@ const makeDeps = (over: AuthOverrides = {}) => {
     readAuthLog,
     upsertPatch,
     findHomeNetworkByOwnerKey,
+    findActiveSession,
+    findPublicIpByEssid,
   };
   return {
     deps,
@@ -223,6 +260,8 @@ const makeDeps = (over: AuthOverrides = {}) => {
     readAuthLog,
     upsertPatch,
     findHomeNetworkByOwnerKey,
+    findActiveSession,
+    findPublicIpByEssid,
   };
 };
 
@@ -876,6 +915,75 @@ describe('handleAuthCreateSessionPublic', () => {
       expect(upsertPatch).not.toHaveBeenCalled();
     });
 
+    it('stamps the network the attacker is STANDING on, not the one they own', async () => {
+      const attacker = generateIdentity();
+      const { deps, upsertPatch, findActiveSession, findPublicIpByEssid } = makeDeps({
+        findActiveSession: async () => ({
+          data: { username: 'root', userType: 'root', essid: PIVOT_ESSID },
+          error: null,
+        }),
+      });
+
+      await handleAuthCreateSessionPublic(
+        envelope(attacker, {
+          username: 'root',
+          password: ADMIN_PW,
+          caller_machine_id: PIVOT_MACHINE,
+        }),
+        deps,
+      );
+
+      // The box they launched from is what the target actually saw. Reading the ESSID
+      // off the session row rather than the request is what makes it evidence: it was
+      // stamped server-side when the hop was made.
+      expect(findActiveSession).toHaveBeenCalledWith({
+        player_key: attacker.publicKeyHex,
+        machine_id: PIVOT_MACHINE,
+      });
+      expect(findPublicIpByEssid).toHaveBeenCalledWith(PIVOT_ESSID);
+      expect(upsertPatch.mock.calls[0]![0].content).toContain(`from ${PIVOT_PUBLIC_IP}`);
+    });
+
+    it('uses the address the caller OWNS when the box they name is their own workstation', async () => {
+      const attacker = generateIdentity();
+      const { deps, upsertPatch, findPublicIpByEssid } = makeDeps();
+
+      await handleAuthCreateSessionPublic(
+        envelope(attacker, {
+          username: 'root',
+          password: ADMIN_PW,
+          caller_machine_id: computeWorkstationId('skylab', attacker.publicKeyHex),
+        }),
+        deps,
+      );
+
+      // Attacking from home is the ordinary case, and it holds no session row — the
+      // own-box L1 bypass hands one back as null. There is no network to stand on, so
+      // the vantage is the one they own.
+      expect(findPublicIpByEssid).not.toHaveBeenCalled();
+      expect(upsertPatch.mock.calls[0]![0].content).toContain(`from ${ATTACKER_PUBLIC_IP}`);
+    });
+
+    it('refuses a caller claiming to stand on a box they hold no session on', async () => {
+      const attacker = generateIdentity();
+      const { deps, upsertPatch, insertSession } = makeDeps();
+
+      const result = await handleAuthCreateSessionPublic(
+        envelope(attacker, {
+          username: 'root',
+          password: ADMIN_PW,
+          caller_machine_id: 'workstation-not-theirs',
+        }),
+        deps,
+      );
+
+      // Unchecked, an attacker names any box and writes the attack up as its network —
+      // the exact frame-somebody-else the server-derived address exists to prevent.
+      expect(result).toEqual({ status: 403, body: { error: 'no_session' } });
+      expect(insertSession).not.toHaveBeenCalled();
+      expect(upsertPatch).not.toHaveBeenCalled();
+    });
+
     it('returns the auth result even when the log write throws (best-effort logging)', async () => {
       const attacker = generateIdentity();
       const { deps, insertSession } = makeDeps({
@@ -894,6 +1002,182 @@ describe('handleAuthCreateSessionPublic', () => {
         body: { ok: true, userType: 'root', machine_id: AP_GATEWAY_ID },
       });
       expect(insertSession).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  /**
+   * The second door, reached the same way as the first. A forward publishes a box's
+   * vsftpd to the world; the login is checked against the SAME `/etc/passwd` an ssh
+   * login is checked against, and the session lands on the SAME machine id — the door
+   * adds no authorization dimension, it only changes which log the visit is written in.
+   */
+  describe('the ftp door, reached from across the network', () => {
+    const ftpEnvelope = (id: ReturnType<typeof generateIdentity>, fields: Record<string, unknown>) =>
+      envelope(id, { session_id: 'ftp-guest-1', kind: 'ftp', ...fields });
+
+    it('authenticates through a forward onto the box vsftpd and lands an ftp session on it', async () => {
+      const attacker = generateIdentity();
+      const { deps, insertSession } = makeDeps({
+        patches: patchesByMachine({ [AP_GATEWAY_ID]: [aliceFtpForward], [ALICE_WS]: [vsftpdUp] }),
+      });
+
+      const result = await handleAuthCreateSessionPublic(
+        ftpEnvelope(attacker, { username: 'guest', password: ALICE_GUEST_PW, port: 2121 }),
+        deps,
+      );
+
+      expect(result.status).toBe(200);
+      expect(result.body).toMatchObject({ ok: true, userType: 'guest', machine_id: ALICE_WS });
+      // `kind` is what a refresh filters on and what the ftp prompt is rehydrated from,
+      // so a door recorded as the wrong one comes back as the wrong one.
+      expect(insertSession.mock.calls[0]![0]).toMatchObject({
+        machine_id: ALICE_WS,
+        credentials: { username: 'guest', userType: 'guest' },
+        kind: 'ftp',
+        essid: ESSID,
+      });
+    });
+
+    it("writes the arrival and the login into the box's OWN vsftpd.log, under its owner key", async () => {
+      const attacker = generateIdentity();
+      const { deps, upsertPatch } = makeDeps({
+        patches: patchesByMachine({ [AP_GATEWAY_ID]: [aliceFtpForward], [ALICE_WS]: [vsftpdUp] }),
+      });
+
+      await handleAuthCreateSessionPublic(
+        ftpEnvelope(attacker, { username: 'guest', password: ALICE_GUEST_PW, port: 2121 }),
+        deps,
+      );
+
+      // vsftpd records reaching the door separately from getting through it, and both
+      // land in one append — they are one event to the box.
+      const record = {
+        fromIp: ATTACKER_PUBLIC_IP,
+        hostname: aliceOccupant.workstation_machine_name,
+        time: asGameTime(FIXED_NOW),
+        pid: derivePid(FIXED_NOW),
+      };
+      expect(upsertPatch.mock.calls[0]![0]).toEqual({
+        writer_key: ALICE.publicKeyHex,
+        machine_id: ALICE_WS,
+        path: VSFTPD_LOG_PATH,
+        content: `${formatVsftpdConnectLine(record)}\n${formatVsftpdLoginLine({ ...record, outcome: 'success', user: 'guest' })}\n`,
+        owner: VSFTPD_LOG_OWNER,
+        permissions: VSFTPD_LOG_PERMISSIONS,
+        node_type: 'file',
+      });
+    });
+
+    it('records a refused ftp login as FAIL in the same file, and inserts nothing', async () => {
+      const attacker = generateIdentity();
+      const { deps, upsertPatch, insertSession } = makeDeps({
+        patches: patchesByMachine({ [AP_GATEWAY_ID]: [aliceFtpForward], [ALICE_WS]: [vsftpdUp] }),
+      });
+
+      const result = await handleAuthCreateSessionPublic(
+        ftpEnvelope(attacker, { username: 'guest', password: BOB_GUEST_PW, port: 2121 }),
+        deps,
+      );
+
+      expect(result).toEqual({ status: 401, body: { error: 'invalid_credentials' } });
+      expect(insertSession).not.toHaveBeenCalled();
+      expect(upsertPatch.mock.calls[0]![0].content).toContain('FAIL LOGIN');
+    });
+
+    it('refuses an ftp login on a forward whose far side is sshd, and records nothing', async () => {
+      const attacker = generateIdentity();
+      const { deps, upsertPatch, insertSession } = makeDeps({
+        patches: patchesByMachine({ [AP_GATEWAY_ID]: [aliceForward], [ALICE_WS]: [sshdUp] }),
+      });
+
+      // A CORRECT password: the door decides first. Without this a forward to one
+      // daemon is a door to every daemon — you would `ftp` into a box running sshd.
+      const result = await handleAuthCreateSessionPublic(
+        ftpEnvelope(attacker, { username: 'guest', password: ALICE_GUEST_PW, port: 2222 }),
+        deps,
+      );
+
+      expect(result).toEqual({ status: 404, body: { error: 'service_not_running' } });
+      expect(insertSession).not.toHaveBeenCalled();
+      expect(upsertPatch).not.toHaveBeenCalled();
+    });
+
+    it('refuses an ftp login on a forward that reaches the box sshd, even though the box also runs vsftpd', async () => {
+      const attacker = generateIdentity();
+      const { deps, insertSession, upsertPatch } = makeDeps({
+        // Both daemons up, and the forward names :22. The door is decided by the port
+        // the request REACHED, not by what the box happens to be running.
+        patches: patchesByMachine({
+          [AP_GATEWAY_ID]: [aliceForward],
+          [ALICE_WS]: [sshdUp, vsftpdUp],
+        }),
+      });
+
+      const result = await handleAuthCreateSessionPublic(
+        ftpEnvelope(attacker, { username: 'guest', password: ALICE_GUEST_PW, port: 2222 }),
+        deps,
+      );
+
+      expect(result).toEqual({ status: 404, body: { error: 'service_not_running' } });
+      expect(insertSession).not.toHaveBeenCalled();
+      expect(upsertPatch).not.toHaveBeenCalled();
+    });
+
+    it('refuses an ssh login on a forward whose far side is vsftpd', async () => {
+      const attacker = generateIdentity();
+      const { deps, insertSession } = makeDeps({
+        patches: patchesByMachine({ [AP_GATEWAY_ID]: [aliceFtpForward], [ALICE_WS]: [vsftpdUp] }),
+      });
+
+      // The other half of the same rule: the box is up and the port is forwarded, but
+      // what answers on it is not sshd.
+      const result = await handleAuthCreateSessionPublic(
+        envelope(attacker, { username: 'guest', password: ALICE_GUEST_PW, port: 2121 }),
+        deps,
+      );
+
+      expect(result).toEqual({ status: 404, body: { error: 'service_not_running' } });
+      expect(insertSession).not.toHaveBeenCalled();
+    });
+
+    it('leaves the ssh door open on a box that runs BOTH daemons', async () => {
+      const attacker = generateIdentity();
+      const { deps, insertSession } = makeDeps({
+        patches: patchesByMachine({
+          [AP_GATEWAY_ID]: [aliceForward],
+          [ALICE_WS]: [sshdUp, vsftpdUp],
+        }),
+      });
+
+      // The port check asks whether the reached port is served by THIS door — not
+      // whether every daemon on the box is that door. Running ftp must not close ssh.
+      const result = await handleAuthCreateSessionPublic(
+        envelope(attacker, { username: 'guest', password: ALICE_GUEST_PW, port: 2222 }),
+        deps,
+      );
+
+      expect(result.status).toBe(200);
+      expect(insertSession.mock.calls[0]![0]).toMatchObject({ machine_id: ALICE_WS, kind: 'ssh' });
+    });
+
+    it('gives an ftp login the tier its credential carries, exactly as on the LAN', async () => {
+      const attacker = generateIdentity();
+      const { deps, insertSession } = makeDeps({
+        patches: patchesByMachine({ [AP_GATEWAY_ID]: [aliceFtpForward], [ALICE_WS]: [vsftpdUp] }),
+      });
+
+      const result = await handleAuthCreateSessionPublic(
+        ftpEnvelope(attacker, { username: 'root', password: 'toor', port: 2121 }),
+        deps,
+      );
+
+      // The occupant row's root hash IS `toor` — the tier comes off the box's own
+      // passwd, not off which door was knocked on.
+      expect(result.body).toMatchObject({ userType: 'root' });
+      expect(insertSession.mock.calls[0]![0]).toMatchObject({
+        credentials: { username: 'root', userType: 'root' },
+        kind: 'ftp',
+      });
     });
   });
 });

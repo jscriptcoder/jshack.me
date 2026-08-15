@@ -134,6 +134,9 @@ export const mockSshApi = (overrides: Partial<SshApi> = {}): SshApi => ({
  *  a UI signal moved, and the ones that care pass spies. */
 export const mockFtpApi = (overrides: Partial<FtpApi> = {}): FtpApi => ({
   authenticate: NOT_IMPLEMENTED('ftp.authenticate'),
+  // Load-bearing for the same reason as `authenticate`: an unstubbed cross-network
+  // login must be loud, not silently refuse — which reads as a bad password.
+  authenticatePublic: NOT_IMPLEMENTED('ftp.authenticatePublic'),
   enter: () => undefined,
   leave: () => undefined,
   // An empty remote by default — the same thing production shows when no session

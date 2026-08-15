@@ -25,6 +25,7 @@ import {
   type UserType,
 } from '../core/types';
 import type {
+  FtpPublicAuthParams,
   Identity,
   InnerGatewayAuthParams,
   PatchResult,
@@ -145,16 +146,18 @@ export const authCreateServerSession = async (
   }
 };
 
-/** Authenticate a CROSS-PLAYER ssh login server-side (Story 2): the server resolves
- *  the target PUBLIC IP to its AP, rebuilds the owner's workstation, validates
- *  the password against its `/etc/passwd`, and on success persists the `kind:'ssh'`
- *  session on the owner's REAL machine id (returned as `machineId` for the prompt
- *  + the hop chain). 401 → bad password/unknown user; 404 → the IP isn't registered.
- *  A 200 missing a valid userType OR machine_id is treated as malformed, never a
- *  login (we must never land a session with no target id). */
+/** Authenticate a CROSS-PLAYER login server-side, at whichever door `kind` names: the
+ *  server resolves the target PUBLIC IP to its AP, rebuilds the owner's workstation,
+ *  validates the password against its `/etc/passwd`, and on success persists the session
+ *  on the owner's REAL machine id (returned as `machineId` for the prompt + the hop
+ *  chain). 401 → bad password/unknown user; 404 → the IP isn't registered, or nothing
+ *  answers that door on the port reached. A 200 missing a valid userType OR machine_id
+ *  is treated as malformed, never a login (we must never land a session with no target
+ *  id). */
 export const authCreateServerSessionPublic = async (
   deps: SessionsClientDeps,
-  params: PublicAuthParams,
+  params: PublicAuthParams | FtpPublicAuthParams,
+  kind: DoorKind = 'ssh',
 ): Promise<PublicAuthResult> => {
   try {
     const response = await post(deps, 'authCreateSessionPublic', {
@@ -165,6 +168,11 @@ export const authCreateServerSessionPublic = async (
       port: params.port,
       parent_session_id: params.parentSessionId,
       source_ip: params.sourceIp,
+      kind,
+      // Only a door that knows where it is being run from names one. `ssh` does not, so
+      // its trace keeps carrying the address the caller owns — unchanged, and the
+      // pivot-aware half of that is tracked as its own slice.
+      ...('callerMachineId' in params ? { caller_machine_id: params.callerMachineId } : {}),
     });
     if (response.ok) {
       const body: unknown = await response.json();
