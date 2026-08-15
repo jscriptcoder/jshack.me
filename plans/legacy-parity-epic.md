@@ -239,7 +239,7 @@ PHASE 1 — THE DOORS  (near-term focus)
       D3 slice 4 get, itemised in the owner's log      ✔ SHIPPED v0.134.0 (#396)
       D3 slice 5 put, and the tier decides             ✔ SHIPPED v0.135.0 (#397)
       D3 slice 6 a stranger's door across the network  ✔ SHIPPED v0.136.0 (#398)
-  D3b scp (the transfer)                              — grilled 2026-08-14, needs planning
+  D3b scp (the transfer)                              — PLANNED 2026-08-15, 3 slices
   D4  daemon control (systemctl / ps / kill)
   D5  nc connect + nc -l backdoor
   D6  mysql
@@ -536,11 +536,14 @@ impossible. Grounding caught this; do not drop the step from the criterion.
 - **D3b.3 — a player reaches a stranger's box.** Cross-player, both directions, through a NAT
   forward.
 
-### Open for planning (named, deliberately not decided)
+### Open for planning — RESOLVED 2026-08-15 in [`d3b-scp-the-transfer.md`](d3b-scp-the-transfer.md)
 
-1. **An existing active session on the target** — reuse it, or always create-and-end? Recommend
-   always create-and-end: simpler, and the row's lifetime stays exactly one command.
-2. **`-P` as an alias** for `-p` — free either way; decision 5 makes `-p` canonical regardless.
+1. **An existing active session on the target** — reuse it, or always create-and-end? **Always
+   create-and-end**: the row's lifetime stays exactly one command, and reuse would make `scp`
+   behave differently depending on invisible state. A second `Accepted password` line when the
+   player already holds a session there is truthful, and is what real sshd does.
+2. **`-P` as an alias** for `-p` — **not shipped**. An alias nobody can observe in-game has no
+   test that can fail; free to add later, and decision 5 makes `-p` canonical regardless.
 
 ---
 
@@ -870,9 +873,11 @@ which D1d re-confirmed rather than discovered. Read the row from the DB when a l
 
 **D3 ✅ SHIPPED AND CLOSED OUT** (2026-08-15, v0.131.0 → v0.136.0, #393–#398) — six slices, plan
 file deleted, as-built in `conventions-and-gotchas.md` §1 + §7 and Act 11 of
-`e2e-shared-network-verification.md`. **D3b is what remains of this pair and still needs
-planning.** Everything below is the grill that produced both, kept because D3b has not been
-planned yet; read D3's half as the record of what was expected, not as work outstanding.
+`e2e-shared-network-verification.md`. **D3b is what remains of this pair, and it is now PLANNED
+(2026-08-15) in [`d3b-scp-the-transfer.md`](d3b-scp-the-transfer.md)** — three slices, both grill
+"open for planning" questions resolved there (always create-and-end; no `-P` alias). Everything
+below is the grill that produced both; read D3's half as the record of what was expected, not as
+work outstanding.
 
 D3 was selected (2026-08-14) straight from decision 8's locked door order once the web
 door was complete on both sides — **and it was split first: `ftp` is D3, `scp` is D3b, each with its
