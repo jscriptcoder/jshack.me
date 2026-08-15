@@ -23,6 +23,7 @@ import type {
   ScanApi,
   Session,
   FtpApi,
+  ScpApi,
   SshApi,
   SuApi,
   HydraApi,
@@ -153,6 +154,18 @@ export const mockFtpApi = (overrides: Partial<FtpApi> = {}): FtpApi => ({
   ...overrides,
 });
 
+/** The transfer door seam. `authenticate` and `write` throw unless a test stubs
+ *  them, for the same reason ftp's do: a transfer that silently reported success
+ *  while nothing left the machine is the one failure this command must never fake.
+ *  `end` defaults to a no-op — most tests care that the file moved, and the ones
+ *  that care the row was closed pass a spy. */
+export const mockScpApi = (overrides: Partial<ScpApi> = {}): ScpApi => ({
+  authenticate: NOT_IMPLEMENTED('scp.authenticate'),
+  write: NOT_IMPLEMENTED('scp.write'),
+  end: () => undefined,
+  ...overrides,
+});
+
 /** A su-elevation seam whose `elevate` throws unless a test overrides it — `su`'s
  *  cross-player tests inject a stub returning a controlled `RemoteAuthResult`. Local
  *  `su` (own box / NPC hop) never touches it, so a throwing default keeps an
@@ -211,6 +224,7 @@ export const mockCommandEnv = (overrides: Partial<CommandEnv> = {}): CommandEnv 
   homeNetwork: mockHomeNetwork(),
   ssh: mockSshApi(),
   ftp: mockFtpApi(),
+  scp: mockScpApi(),
   su: mockSuApi(),
   hydra: mockHydraApi(),
   scan: mockScanApi(),

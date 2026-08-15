@@ -398,6 +398,60 @@ describe('handleAuthCreateSession', () => {
     });
   });
 
+  it('stores an scp session under its own kind while logging it as an ordinary ssh login', async () => {
+    const id = generateIdentity();
+    const host = hostServing('ssh', true);
+    const { deps, insertSession, upsertPatch } = makeDeps();
+
+    const result = await handleAuthCreateSession(
+      validEnvelope(id, host, 'root', { kind: 'scp', session_id: 'scp-1700000000000' }),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 200, body: { ok: true, userType: 'root' } });
+    // The row remembers a transfer happened; the DEFENDER is told only that someone
+    // logged in. Provenance and evidence are different questions, and scp is the
+    // door where they part company.
+    expect(insertSession.mock.calls[0]![0].kind).toBe('scp');
+    expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
+      machine_id: hostMachineId(host, ESSID),
+      path: AUTH_LOG_PATH,
+      content: `${expectedSshdLine(host, 'success', 'root')}\n`,
+    });
+  });
+
+  it('leaves no line naming a file when a transfer logs in', async () => {
+    const id = generateIdentity();
+    const host = hostServing('ssh', true);
+    const { deps, upsertPatch } = makeDeps();
+
+    await handleAuthCreateSession(validEnvelope(id, host, 'root', { kind: 'scp' }), deps);
+
+    // The whole of scp's specialisation: ftp itemises every byte in vsftpd.log,
+    // scp says only that a credential was accepted. A defender comparing the two
+    // logs learns what was taken from one and nothing from the other.
+    expect(upsertPatch.mock.calls[0]![0].path).not.toBe(VSFTPD_LOG_PATH);
+    expect(upsertPatch.mock.calls[0]![0].content).not.toContain('passwords.txt');
+  });
+
+  it('refuses an scp login on a host whose sshd is not running', async () => {
+    const id = generateIdentity();
+    const host = hostServing('ssh', false);
+    const { deps, insertSession, upsertPatch } = makeDeps();
+
+    const result = await handleAuthCreateSession(
+      validEnvelope(id, host, 'root', { kind: 'scp' }),
+      deps,
+    );
+
+    // scp reaches exactly what ssh reaches, so a box with no sshd is shut to it —
+    // deliberately STRICTER than a bare `ssh`, which keeps its own documented
+    // exemption on this endpoint.
+    expect(result).toEqual({ status: 404, body: { error: 'service_not_running' } });
+    expect(insertSession).not.toHaveBeenCalled();
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
   it('traces a refused ftp login to vsftpd.log and inserts nothing', async () => {
     const id = generateIdentity();
     const host = hostServing('ftp', true);

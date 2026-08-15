@@ -40,12 +40,24 @@ import { asGameTime, type UserType } from '../types';
 import type { PatchRow } from '../patches/upsertPatch';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
-/** The doors this endpoint opens. Both authenticate the same way — against the
- *  box's real `/etc/passwd` — and differ only in which log records the attempt and
- *  what the client does with the row: `ssh` is a hop the shell walks onto, `ftp` a
- *  parallel session the terminal holds alongside where it already stands. */
-export const DOOR_KINDS = ['ssh', 'ftp'] as const;
+/** The doors this endpoint opens. All three authenticate the same way — against
+ *  the box's real `/etc/passwd` — and differ only in which log records the attempt
+ *  and what the client does with the row: `ssh` is a hop the shell walks onto,
+ *  `ftp` a parallel session the terminal holds alongside where it already stands,
+ *  and `scp` a transient row that exists for one transfer and is ended behind it. */
+export const DOOR_KINDS = ['ssh', 'ftp', 'scp'] as const;
 export type DoorKind = (typeof DOOR_KINDS)[number];
+
+/** Which SERVICE a door knocks on — the daemon that has to be listening, and whose
+ *  log records the attempt. Not the same question as which kind the row stores:
+ *  `scp` rides sshd, so it is answered by the ssh daemon and written up as an
+ *  ordinary ssh login, while the row still remembers a transfer opened it. Keeping
+ *  the two apart is what lets the defender's evidence stay truthful without the
+ *  session table forgetting what it was for. */
+export const SERVICE_BY_DOOR = { ssh: 'ssh', ftp: 'ftp', scp: 'ssh' } as const satisfies Record<
+  DoorKind,
+  keyof typeof SERVICE_CATALOG
+>;
 
 export type AuthSessionRow = {
   readonly session_id: string;
@@ -199,7 +211,7 @@ export const handleAuthCreateSession = async (
     return { status: 404, body: { error: 'host_unreachable' } };
   }
 
-  const spec = SERVICE_CATALOG[payload.kind];
+  const spec = SERVICE_CATALOG[SERVICE_BY_DOOR[payload.kind]];
 
   // The door has to be OPEN. Only some boxes roll ftp, so a knock on a box that
   // never ran the daemon gets the same 404 an unreachable host does, and the box
@@ -209,6 +221,10 @@ export const handleAuthCreateSession = async (
   // it, and a router generated with `hasSsh: false` is reachable by ssh today.
   // Closing that is a change to a shipped door with its own defenders, so it is
   // backlogged rather than smuggled in behind ftp (`docs/conventions-and-gotchas.md` §9).
+  //
+  // `scp` does NOT inherit that exemption, and the asymmetry is the design: a
+  // transfer reaches exactly what an ssh login reaches, so a box serving no sshd is
+  // shut to it. The exemption is a shipped door's legacy, not a rule to spread.
   const listening = readOpenPorts(hostFs).some((open) => open.service === spec.service);
   if (payload.kind !== 'ssh' && !listening) {
     return { status: 404, body: { error: 'service_not_running' } };

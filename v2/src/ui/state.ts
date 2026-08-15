@@ -535,6 +535,43 @@ const writeToFtpTarget = async (
   return written;
 };
 
+/** Authenticate a transfer server-side (backs `env.scp.authenticate`) — the same
+ *  endpoint `ssh` and `ftp` reach, asked for an `scp`-kind row. The row is stored
+ *  under its own kind while the target's log records an ordinary ssh login, which is
+ *  the whole of this door's bargain. */
+const scpAuthenticate = (params: RemoteAuthParams): Promise<RemoteAuthResult> =>
+  sessionsClientDeps === undefined
+    ? Promise.resolve({ ok: false, error: 'network_error' })
+    : authCreateServerSession(sessionsClientDeps, params, 'scp');
+
+/** Write to the machine a transfer opened a session on (backs `env.scp.write`). The
+ *  SHIPPED patch client, aimed at the target and stamped with the account the
+ *  credential bought — the same gate an ssh session's write goes through, reached
+ *  with no idea a transfer was involved.
+ *
+ *  Unlike the ftp write there is no journal to re-pull: nothing is being LOOKED at
+ *  afterwards. The session is retired on the next line, and the shell the player is
+ *  standing in never moved. */
+const writeToScpTarget = async (
+  session: Session,
+  ...args: Parameters<PatchApi['write']>
+): Promise<PatchResult> => {
+  if (identity === undefined) return { ok: false, error: 'network_error' };
+  return createPatchApi({
+    identity,
+    machineId: session.machineId,
+    owner: session.username,
+    tier: session.userType,
+  }).write(...args);
+};
+
+/** Close the row a transfer opened (backs `env.scp.end`). Fire-and-forget: the bytes
+ *  have already moved or already failed, and the command has nothing left to say. */
+const endScpSession = (sessionId: string): void => {
+  if (sessionsClientDeps === undefined) return;
+  void endServerSession(sessionsClientDeps, sessionId);
+};
+
 /** Record a deep PIVOT scan server-side (backs `env.scan.recordDeep`). Best-effort
  *  and a no-op until `startGame` wires the patch client; the scan stands regardless. */
 const recordDeepScanFn = (params: DeepScanRecordParams): Promise<void> =>
@@ -1211,6 +1248,9 @@ const executeLine = async (line: string): Promise<void> => {
     onFtpEnter: enterFtpSession,
     onFtpLeave: leaveFtpSession,
     ...ftpBinding(),
+    onScpAuthenticate: scpAuthenticate,
+    onScpWrite: writeToScpTarget,
+    onScpEnd: endScpSession,
     onSshAuthenticatePublic: sshAuthenticatePublic,
     onSshAuthenticateSameLan: sshAuthenticateSameLan,
     onSshAuthenticateInnerGateway: sshAuthenticateInnerGateway,

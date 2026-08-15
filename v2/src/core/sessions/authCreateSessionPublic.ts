@@ -50,7 +50,12 @@ import {
 } from '../patches/appendMachineLog';
 import { asGameTime } from '../types';
 import type { PatchRow } from '../patches/upsertPatch';
-import { DOOR_KINDS, type AuthSessionRow, type HandlerResponse } from './authCreateSession';
+import {
+  DOOR_KINDS,
+  SERVICE_BY_DOOR,
+  type AuthSessionRow,
+  type HandlerResponse,
+} from './authCreateSession';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
 export type AuthCreateSessionPublicDeps = ResolvePublicTargetDeps & {
@@ -187,7 +192,7 @@ export const handleAuthCreateSessionPublic = async (
   // is a door to every daemon — you would `ftp` into a box that only runs sshd, and the
   // wrong log would carry the visit. The far side's liveness is already the resolver's;
   // WHICH service answers there is this handler's, because only it knows the door.
-  const spec = SERVICE_CATALOG[payload.kind];
+  const spec = SERVICE_CATALOG[SERVICE_BY_DOOR[payload.kind]];
   const serving = readOpenPorts(target.fs).some(
     (open) => open.port === target.reachedPort && open.service === spec.service,
   );
