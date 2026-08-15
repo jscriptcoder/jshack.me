@@ -23,10 +23,11 @@ takes a file and leaves one — and the box's owner reads exactly which files mo
 - [x] Inside the session the player reads the remote tree (`ls`, `cd`, `pwd`) at the tier their
       credential carries, while `lls`/`lcd`/`lpwd` still address the box they are standing on
       *(slice 3, v0.133.0)*
-- [ ] `get` copies a remote file onto the origin machine *(slice 4, v0.134.0)*; `put` copies an
+- [x] `get` copies a remote file onto the origin machine *(slice 4, v0.134.0)*; `put` copies an
       origin file onto the remote, refused when the session's tier cannot write the destination
-- [ ] The target's `vsftpd.log` names every login and every transfer, with byte counts — the
-      itemised record `ssh` cannot give
+      *(slice 5, v0.135.0)*
+- [x] The target's `vsftpd.log` names every login and every transfer, with byte counts — the
+      itemised record `ssh` cannot give *(slice 5, v0.135.0 — both verbs)*
 - [ ] All of it works against another player's machine through a NAT forward, with the attacker's
       real vantage address in the defender's log
 - [x] A browser refresh ends the ftp session rather than restoring it as a hop *(slice 2, v0.132.0)*
@@ -394,7 +395,7 @@ wire-check proves authorization and provenance rather than filtering. Recorded i
 
 ### Slice 4: A player takes a file, and the theft is itemised in the owner's log
 
-**Status: COMPLETE, awaiting commit approval** — v0.134.0. As-built notes:
+**Status: SHIPPED** — v0.134.0, PR #396 (`882ba2a`), merged 2026-08-15. As-built notes:
 
 1. **The wire-check line below was WRONG, and RED is where it was caught.** It said no
    wire-check is needed if the origin write goes through the shipped own-workstation path.
@@ -483,6 +484,46 @@ new shared `readMachineLog` sits beside).
 
 ### Slice 5: A player leaves a file on someone else's machine, and the tier decides whether it lands
 
+**Status: COMPLETE, awaiting commit approval** — v0.135.0. As-built notes:
+
+1. **`authorizeMachineAccess` needed no change at all — and now that is EVIDENCE, not a
+   claim.** The plan said to stop if it did. It did not: `put` reaches the shipped
+   `upsertPatch` through `createPatchApi` pointed at the ftp session's machine, and
+   `scripts/testFtpPut.ts` shows the live endpoint accepting a `kind:'ftp'` row it was
+   never taught about. Nothing beneath the door learned a second protocol exists.
+2. **The tier claim belongs to the wire-check, and the unit tests say so.** With no client
+   pre-check (decision B), a vitest `put` refusal is the *stub* refusing — proving what the
+   command does with an answer, never which answer the gate gives. The tier is contrasted
+   where it is real: one path, two credentials, live — `/root/dropped.sh` refused to a
+   cracked `guest` and accepted from a cracked `root`, both over ftp. The unit test is
+   named for what it proves ("reports a remote refusal as 553"), not for the tier.
+3. **The transfer record collapsed to one action, `recordFtpTransfer`.** Slice 4's
+   `recordFtpDownload` was renamed rather than copied: same L1 gate, same session-row
+   account, same `appendMachineLog`, one closed-set `direction` deciding the verb. A
+   direction outside that set is refused (400) rather than rendered, or a caller writes
+   their own verb into a stranger's evidence. The formatter collapsed with it
+   (`formatVsftpdTransferLine`).
+4. **A refused write is one answer, deliberately.** The client cannot distinguish "no
+   session" from "tier cannot write there" — `toPatchResult` maps every 403 to
+   `no_session` — so `553 Could not create file: <path>: Permission denied` is worded to
+   be true of both. Naming them apart would be a guess dressed as a diagnosis.
+5. **`SweepLog` keeps its name — final verdict.** Slice 4 deferred this to here on the
+   grounds that `put` was the last chance for a third shape to make the name wrong. It did
+   not: `OK UPLOAD` travels through the transfer formatter and the transfer endpoint, and
+   `SweepLog` still carries only what a credential *sweep* is filed under, routed by
+   service. The name was right; the rename is closed, not deferred again.
+6. **The REFACTOR the plan deferred to here found ONE thing worth sharing, not a transfer
+   core.** The two directions differ in exactly what the door is about — whose machine
+   refused you — so a parameterized core would hide the distinction behind six arguments.
+   What is genuinely one piece of knowledge is the `isNew` rule, which was duplicated
+   verbatim in both halves *with its comment repeated*: it became `land()`, and the WHY is
+   stated once. Mutation held at 100% across the change.
+7. **The target's journal is re-pulled after a landed `put`, not the shell's.** Two
+   machines, two journals; without it the player is told the bytes went and shown a box
+   that never received them. Proved by an `ls` at the prompt after the upload — the
+   harness's mock server now keeps writes aimed at a target, the way the real one does,
+   which is what made the claim provable at all.
+
 **Value**: The write direction, and the proof of the epic's central claim — an `ftp` session
 authorizes a write through the same `upsertPatch` an `ssh` session does, with no protocol check
 anywhere beneath. Closes the loop D3b then reuses.
@@ -518,6 +559,16 @@ the common shape is knowable.
 **Wire-check**: **Required.** `scripts/testFtpPut.ts` — a write authorized by an `ftp`-kind row is
 accepted by the live patch endpoint, and the same write at an insufficient tier is refused. This
 is the slice's whole claim and `tsc` cannot see any of it.
+**DONE — 12/12 live** (`vercel dev` + supabase, 2026-08-15). `scripts/testFtpPut.ts`: a player
+holding nothing on the box cannot write to it (403, nothing lands); an `ftp` row authorizes a
+write through the SAME endpoint an ssh row uses, and the box itself holds the file afterwards;
+the same session cannot reach `/root`, and that refusal leaves nothing behind; the SAME
+destination accepts a cracked root credential over the same door; and after `endSession` it is
+403 again. `scripts/testFtpTransferTrace.ts` (renamed from `testFtpDownloadTrace.ts`) **13/13** —
+now covering `OK UPLOAD` beside `OK DOWNLOAD` in one file, in the order they happened, and a
+bogus direction refused 400 with the log unchanged. Regressions re-run green on the same stack:
+`testFtpRemoteRead` 7/7, `testFtpSession` 14/14, `testCrossPlayerWrite` 12/12,
+`testHydraOwnLan` 23/23, `testLanFetchLog` 11/11.
 **Done when**: All criteria met, wire-check green, gates green, commit approved.
 **Version**: 0.135.0.
 

@@ -127,10 +127,15 @@ export type BuildCommandEnvArgs = {
    *  (it owns the target's journal); absent it, there is no remote to look at. */
   readonly ftpFs?: FsView;
   readonly onFtpCwdChange?: (path: AbsPath) => void;
-  /** Report a file leaving the remote box, so its own `vsftpd.log` itemises the
-   *  theft. The UI wires it to the signed `recordFtpDownload` round-trip, adding
-   *  the session and the vantage the command has no business naming. */
-  readonly onFtpDownload?: FtpApi['recordDownload'];
+  /** Write to the REMOTE box (backs `put`). The UI points the shipped patch client
+   *  at the ftp session's machine, so an upload reaches exactly the gate an `ssh`
+   *  session's write reaches. Absent it there is no remote to write to. */
+  readonly onFtpWrite?: FtpApi['write'];
+  /** Report a file crossing the remote box, so its own `vsftpd.log` itemises the
+   *  visit in both directions. The UI wires it to the signed `recordFtpTransfer`
+   *  round-trip, adding the session and the vantage the command has no business
+   *  naming. */
+  readonly onFtpTransfer?: FtpApi['recordTransfer'];
   /** The credential-cracking seam — backs `env.hydra.crack`. The UI wires it to the
    *  `crackCredentials` adapter (signed `hydraCrack` round-trip). Optional here for
    *  terse test setups; the UI always passes the real one. */
@@ -282,10 +287,13 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
     // with a listing of the player's own.
     fs: args.ftpFs ?? createFsView(NO_REMOTE),
     setCwd: args.onFtpCwdChange ?? (() => undefined),
-    // Fire-and-forget, so an unwired seam no-ops rather than throwing: the file is
-    // already on the player's disk by the time this is called, and a logging
-    // failure must not un-take it.
-    recordDownload: args.onFtpDownload ?? (() => undefined),
+    // Load-bearing, so an unwired seam REFUSES rather than no-ops: a `put` that
+    // silently succeeded would report bytes onto a box that never received them.
+    write: args.onFtpWrite ?? notWired('ftp.write'),
+    // Fire-and-forget, so an unwired seam no-ops rather than throwing: the bytes
+    // have already moved by the time this is called, and a logging failure must
+    // not un-move them.
+    recordTransfer: args.onFtpTransfer ?? (() => undefined),
   },
   su: {
     elevate: args.onSuElevate ?? notWired('su.elevate'),

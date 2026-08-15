@@ -4,8 +4,8 @@ import {
   VSFTPD_LOG_OWNER,
   VSFTPD_LOG_PATH,
   formatVsftpdConnectLine,
-  formatVsftpdDownloadLine,
   formatVsftpdLoginLine,
+  formatVsftpdTransferLine,
 } from './vsftpdLog';
 
 /**
@@ -105,11 +105,12 @@ describe('formatVsftpdLoginLine', () => {
   });
 });
 
-describe('formatVsftpdDownloadLine', () => {
+describe('formatVsftpdTransferLine', () => {
   it('itemises what left the box — which file, and how much of it', () => {
     // The line ssh cannot give. A login says someone came in; this says what they
     // walked out with, and the defender reads both out of the same file.
-    const line = formatVsftpdDownloadLine({
+    const line = formatVsftpdTransferLine({
+      direction: 'download',
       user: 'guest',
       fromIp: '10.0.0.9',
       time: asGameTime(Date.UTC(2026, 7, 14, 13, 56, 2)),
@@ -123,10 +124,30 @@ describe('formatVsftpdDownloadLine', () => {
     );
   });
 
+  it('itemises what ARRIVED on the box, in the same line a download gets', () => {
+    // A file appearing on your machine is the half a defender most needs to read:
+    // something was left behind, and this says what and by whom. Same shape as the
+    // download so one grep finds both directions of a visit.
+    const line = formatVsftpdTransferLine({
+      direction: 'upload',
+      user: 'guest',
+      fromIp: '10.0.0.9',
+      time: asGameTime(Date.UTC(2026, 7, 14, 13, 56, 2)),
+      pid: 4471,
+      path: asAbsPath('/home/guest/backdoor.sh'),
+      bytes: 512,
+    });
+
+    expect(line).toBe(
+      'Fri Aug 14 13:56:02 2026 [pid 4471] [guest] OK UPLOAD: Client "10.0.0.9", "/home/guest/backdoor.sh", 512 bytes',
+    );
+  });
+
   it('says bytes even when there was exactly one, as vsftpd does', () => {
     // vsftpd never singularises, and a log a player might grep is worse for being
     // grammatical in one row out of a thousand.
-    const line = formatVsftpdDownloadLine({
+    const line = formatVsftpdTransferLine({
+      direction: 'download',
       user: 'root',
       fromIp: '192.168.1.30',
       time: AUG_14,

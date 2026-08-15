@@ -1,24 +1,27 @@
-// Wire-check for the DOWNLOAD half of the `ftp>` prompt: a file leaving a box is
-// itemised in that box's own `/var/log/vsftpd.log`, and only a player who actually
-// holds a session there can put a line in it. Drives the REAL /api/sessions +
-// /api/patches endpoints against a running `vercel dev` + supabase.
+// Wire-check for the TRACE both halves of the `ftp>` prompt leave: a file crossing a
+// box — in either direction — is itemised in that box's own `/var/log/vsftpd.log`, and
+// only a player who actually holds a session there can put a line in it. Drives the
+// REAL /api/sessions + /api/patches endpoints against a running `vercel dev` + supabase.
 //
 // Net-new under test (the locally-untypechecked api/ runtime):
-//   - `recordFtpDownload` on a box the caller holds nothing on is 403 `no_session`,
+//   - `recordFtpTransfer` on a box the caller holds nothing on is 403 `no_session`,
 //     and writes nothing. Without this anyone could author lines in any stranger's
 //     evidence, inventing thefts on boxes they never reached.
 //   - An `ftp` row authorizes it, and the line lands on the TARGET's log — read back
 //     through `listPatches`, so the check reads what the box holds rather than what
 //     the handler returned.
+//   - BOTH verbs reach that log from one action: `OK DOWNLOAD` for what left, `OK
+//     UPLOAD` for what arrived. A direction the daemon has no verb for is refused
+//     rather than rendered into a stranger's evidence.
 //   - The account in the line is the one the SESSION carries, even when the payload
 //     claims another. Every unit test fakes `findActiveSession`; only the live query
 //     can show the real `credentials.username` reaching the formatter.
-//   - The download line lands AFTER the login lines, in the same file — the record
+//   - The transfer lines land AFTER the login lines, in the same file — the record
 //     accumulates rather than replacing itself.
 //   - The grant dies with the session: after `endSession` the record is refused.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
-//   npx dotenv -e .env.development.local -- npx tsx scripts/testFtpDownloadTrace.ts
+//   npx dotenv -e .env.development.local -- npx tsx scripts/testFtpTransferTrace.ts
 //
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env / no usable host.
 
@@ -70,6 +73,8 @@ const post = async (
 const ESSID = 'VSFTPD-LAB';
 const STOLEN = '/etc/passwd';
 const BYTES = 1243;
+const PLANTED = '/tmp/dropped.sh';
+const PLANTED_BYTES = 512;
 
 const player = generateIdentity();
 
@@ -99,10 +104,11 @@ const credential = (host: LanHost): { readonly username: string; readonly passwo
 
 const account = credential(target);
 
-const recordDownload = (over: Record<string, unknown> = {}) =>
+const recordTransfer = (over: Record<string, unknown> = {}) =>
   post(
     PATCHES,
-    signRequest(player, 'recordFtpDownload', {
+    signRequest(player, 'recordFtpTransfer', {
+      direction: 'download',
       machine_id: targetMachine,
       path: STOLEN,
       bytes: BYTES,
@@ -138,7 +144,7 @@ const main = async (): Promise<void> => {
   await clear();
 
   // --- the baseline: no session, no line ---
-  const uninvited = await recordDownload();
+  const uninvited = await recordTransfer();
   check(
     'a player holding nothing on the box cannot write to its log',
     uninvited.status === 403,
@@ -154,7 +160,7 @@ const main = async (): Promise<void> => {
   const login = await post(
     SESSIONS,
     signRequest(player, 'authCreateSession', {
-      session_id: 'ftp-get-1',
+      session_id: 'ftp-transfer-1',
       essid: ESSID,
       target_ip: target.ip,
       username: account.username,
@@ -173,7 +179,7 @@ const main = async (): Promise<void> => {
 
   // --- the theft, claimed under a borrowed name. A name no generated box carries,
   // so the check cannot pass by accidentally matching the session's own account. ---
-  const taken = await recordDownload({ user: 'impostor' });
+  const taken = await recordTransfer({ user: 'impostor' });
   check(
     'the ftp row authorizes the record',
     taken.status === 200,
@@ -204,11 +210,43 @@ const main = async (): Promise<void> => {
     `${afterLogin.trim().split('\n').length} line(s) before, ${log.trim().split('\n').length} after`,
   );
 
+  // --- the other direction, through the same action and into the same file ---
+  const dropped = await recordTransfer({ direction: 'upload', path: PLANTED, bytes: PLANTED_BYTES });
+  check(
+    'the same action records what ARRIVED on the box',
+    dropped.status === 200,
+    `status ${dropped.status} ${JSON.stringify(dropped.body)}`,
+  );
+
+  const withUpload = await readVsftpdLog();
+  const uploadLine = withUpload.split('\n').find((line) => line.includes('OK UPLOAD'));
+  check(
+    'the box own log names the file that was left on it',
+    uploadLine !== undefined &&
+      uploadLine.includes(`"${PLANTED}", ${PLANTED_BYTES} bytes`) &&
+      uploadLine.includes(`[${account.username}]`),
+    uploadLine ?? '(no OK UPLOAD line)',
+  );
+  check(
+    'both halves of the visit are in the one file, in the order they happened',
+    withUpload.indexOf('OK DOWNLOAD') < withUpload.indexOf('OK UPLOAD') &&
+      withUpload.startsWith(log),
+    `${withUpload.trim().split('\n').length} lines`,
+  );
+
+  // --- a verb the daemon does not have ---
+  const sideways = await recordTransfer({ direction: 'sideways' });
+  check(
+    'a direction the daemon has no verb for is refused, not rendered',
+    sideways.status === 400 && (await readVsftpdLog()) === withUpload,
+    `status ${sideways.status} ${JSON.stringify(sideways.body)}`,
+  );
+
   // --- and it dies when the player quits ---
-  const ended = await post(SESSIONS, signRequest(player, 'endSession', { session_id: 'ftp-get-1' }));
+  const ended = await post(SESSIONS, signRequest(player, 'endSession', { session_id: 'ftp-transfer-1' }));
   check('the session ends', ended.status === 200, `status ${ended.status}`);
 
-  const afterQuit = await recordDownload();
+  const afterQuit = await recordTransfer();
   check(
     'a player who quit can no longer write to the log of the box they left',
     afterQuit.status === 403,

@@ -14,6 +14,7 @@
 import type { AbsPath, EpochMs, MachineId, NetworkAddress, PlayerKeyHex, UserType } from '../types';
 import type { Directory, FileNode, FilePermissions } from '../filesystem/types';
 import type { WalkResult } from '../filesystem/walker';
+import type { TransferDirection } from '../logging/vsftpdLog';
 import type { NetworkInterface } from '../network/interfaces';
 import type { HomeNetworkAssignment } from '../network/homeNetwork';
 import type { OccupantProjection } from '../network/resolveOccupants';
@@ -436,15 +437,30 @@ export type FtpApi = {
    *  origin's — the two directories are independent, so `cd` and `lcd` can never
    *  drag each other. */
   readonly setCwd: (path: AbsPath) => void;
-  /** Tell the REMOTE box a file left it, so its own `/var/log/vsftpd.log` itemises
-   *  the theft. The command names only what it took: which session, from where, and
-   *  at what time are the caller's to supply, because a command cannot be trusted
-   *  to say who it is. Fire-and-forget like the other traces — the file is already
-   *  on the player's disk, and a logging failure must not un-take it. */
-  readonly recordDownload: (transfer: {
-    readonly path: AbsPath;
-    readonly bytes: number;
-  }) => void;
+  /** Write to the REMOTE machine, at the tier the credential bought (backs `put`).
+   *  Deliberately the same shape as `env.patches.write`, which moves the origin: the
+   *  claim this door rests on is that a write is a write, so an ftp session reaches
+   *  the very same gate an ssh session does and the protocol decides nothing. The
+   *  tier is checked SERVER-side, not here — a client that refuses on its own behalf
+   *  is a client that could also permit on its own behalf. */
+  readonly write: PatchApi['write'];
+  /** Tell the REMOTE box a file crossed it, so its own `/var/log/vsftpd.log` itemises
+   *  the visit in both directions. The command names only what moved and which way:
+   *  which session, from where, and at what time are the caller's to supply, because
+   *  a command cannot be trusted to say who it is. Fire-and-forget like the other
+   *  traces — the bytes have already moved, and a logging failure must not un-move
+   *  them. */
+  readonly recordTransfer: (transfer: FtpTransfer) => void;
+};
+
+/** What the `ftp>` prompt reports about one completed transfer: which way the bytes
+ *  went from the REMOTE box's point of view, which of its paths they touched, and how
+ *  many. The remote path in both directions — a defender reading their own log learns
+ *  nothing from the name the visitor filed it under at home. */
+export type FtpTransfer = {
+  readonly direction: TransferDirection;
+  readonly path: AbsPath;
+  readonly bytes: number;
 };
 
 export type SshApi = {

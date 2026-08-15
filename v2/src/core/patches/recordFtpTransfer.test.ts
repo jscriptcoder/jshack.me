@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { handleRecordFtpDownload, type RecordFtpDownloadDeps } from './recordFtpDownload';
+import { handleRecordFtpTransfer, type RecordFtpTransferDeps } from './recordFtpTransfer';
 import type { PatchRow } from './upsertPatch';
 import type { ActiveSession, FindActiveSessionResult } from './authorizeMachineAccess';
 import type { MachineLogReadQuery, MachineLogReadResult } from './appendMachineLog';
@@ -38,7 +38,7 @@ const activeSession = (over: Partial<ActiveSession> = {}): ActiveSession => ({
   ...over,
 });
 
-const makeDeps = (over: Partial<RecordFtpDownloadDeps> = {}) => {
+const makeDeps = (over: Partial<RecordFtpTransferDeps> = {}) => {
   const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async () => ({
     error: null,
   }));
@@ -50,7 +50,7 @@ const makeDeps = (over: Partial<RecordFtpDownloadDeps> = {}) => {
     data: activeSession(),
     error: null,
   }));
-  const deps: RecordFtpDownloadDeps = {
+  const deps: RecordFtpTransferDeps = {
     nonceStore: freshStore,
     now: () => STAMP,
     findActiveSession,
@@ -62,19 +62,20 @@ const makeDeps = (over: Partial<RecordFtpDownloadDeps> = {}) => {
 };
 
 const transfer = {
+  direction: 'download',
   machine_id: THEIR_BOX,
   path: '/etc/passwd',
   bytes: 1243,
   source_ip: '10.0.0.9',
 };
 
-describe('handleRecordFtpDownload', () => {
+describe('handleRecordFtpTransfer', () => {
   it('itemises the transfer in the target box own vsftpd.log', async () => {
     const id = generateIdentity();
-    const envelope = signRequest(id, 'recordFtpDownload', transfer);
+    const envelope = signRequest(id, 'recordFtpTransfer', transfer);
     const { deps, upsertPatch } = makeDeps();
 
-    const result = await handleRecordFtpDownload(envelope, deps);
+    const result = await handleRecordFtpTransfer(envelope, deps);
 
     expect(result).toEqual({ status: 200, body: { ok: true } });
     expect(upsertPatch.mock.calls[0]![0]).toEqual({
@@ -88,16 +89,49 @@ describe('handleRecordFtpDownload', () => {
     });
   });
 
+  it('itemises a file that ARRIVED on the box, in the same log the downloads land in', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'recordFtpTransfer', {
+      ...transfer,
+      direction: 'upload',
+      path: '/home/guest/backdoor.sh',
+      bytes: 512,
+    });
+    const { deps, upsertPatch } = makeDeps();
+
+    const result = await handleRecordFtpTransfer(envelope, deps);
+
+    // The direction a defender most needs: something was LEFT on their machine.
+    // One log, one shape, both halves of a visit.
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    expect(upsertPatch.mock.calls[0]![0].content).toBe(
+      `Fri Aug 14 13:56:02 2026 [pid ${derivePid(STAMP)}] [guest] OK UPLOAD: Client "10.0.0.9", "/home/guest/backdoor.sh", 512 bytes\n`,
+    );
+  });
+
+  it('refuses a direction the daemon has no verb for, rather than inventing one', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'recordFtpTransfer', { ...transfer, direction: 'sideways' });
+    const { deps, upsertPatch } = makeDeps();
+
+    const result = await handleRecordFtpTransfer(envelope, deps);
+
+    // Unchecked, a caller writes their own verb into someone else's evidence —
+    // `OK SIDEWAYS`, or worse, a line that reads as something the daemon says.
+    expect(result).toEqual({ status: 400, body: { error: expect.any(String) } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
   it('names the account the SESSION carries, not the one the caller claims', async () => {
     const id = generateIdentity();
     // A visitor who logged in as `guest` signs a line claiming to be root — the
     // account is the server's to know, or the log names whoever the thief prefers.
-    const envelope = signRequest(id, 'recordFtpDownload', { ...transfer, user: 'root' });
+    const envelope = signRequest(id, 'recordFtpTransfer', { ...transfer, user: 'root' });
     const { deps, upsertPatch } = makeDeps({
       findActiveSession: async () => ({ data: activeSession({ username: 'guest' }), error: null }),
     });
 
-    await handleRecordFtpDownload(envelope, deps);
+    await handleRecordFtpTransfer(envelope, deps);
 
     expect(upsertPatch.mock.calls[0]![0].content).toContain('[guest] OK DOWNLOAD');
     expect(upsertPatch.mock.calls[0]![0].content).not.toContain('[root]');
@@ -105,14 +139,14 @@ describe('handleRecordFtpDownload', () => {
 
   it('stamps its own clock, ignoring any time the caller sends', async () => {
     const id = generateIdentity();
-    const envelope = signRequest(id, 'recordFtpDownload', {
+    const envelope = signRequest(id, 'recordFtpTransfer', {
       ...transfer,
       time: Date.UTC(2001, 0, 1),
       pid: 1,
     });
     const { deps, upsertPatch } = makeDeps();
 
-    await handleRecordFtpDownload(envelope, deps);
+    await handleRecordFtpTransfer(envelope, deps);
 
     const { content } = upsertPatch.mock.calls[0]![0];
     expect(content).toContain('Fri Aug 14 13:56:02 2026');
@@ -122,12 +156,12 @@ describe('handleRecordFtpDownload', () => {
 
   it('appends after what the log already holds, so the record accumulates', async () => {
     const id = generateIdentity();
-    const envelope = signRequest(id, 'recordFtpDownload', transfer);
+    const envelope = signRequest(id, 'recordFtpTransfer', transfer);
     const { deps, upsertPatch } = makeDeps({
       readLog: async () => ({ data: { content: 'AN EARLIER LOGIN\n' }, error: null }),
     });
 
-    await handleRecordFtpDownload(envelope, deps);
+    await handleRecordFtpTransfer(envelope, deps);
 
     expect(upsertPatch.mock.calls[0]![0].content).toBe(
       `AN EARLIER LOGIN\nFri Aug 14 13:56:02 2026 [pid ${derivePid(STAMP)}] [guest] OK DOWNLOAD: Client "10.0.0.9", "/etc/passwd", 1243 bytes\n`,
@@ -136,12 +170,12 @@ describe('handleRecordFtpDownload', () => {
 
   it('refuses a caller holding no session on that box, and writes nothing', async () => {
     const id = generateIdentity();
-    const envelope = signRequest(id, 'recordFtpDownload', transfer);
+    const envelope = signRequest(id, 'recordFtpTransfer', transfer);
     const { deps, upsertPatch } = makeDeps({
       findActiveSession: async () => ({ data: null, error: null }),
     });
 
-    const result = await handleRecordFtpDownload(envelope, deps);
+    const result = await handleRecordFtpTransfer(envelope, deps);
 
     // Without this, anyone could write lines into any stranger's log — inventing
     // thefts that never happened on a box they never reached.
@@ -151,13 +185,13 @@ describe('handleRecordFtpDownload', () => {
 
   it('refuses a transfer claimed against the caller own workstation', async () => {
     const id = generateIdentity();
-    const envelope = signRequest(id, 'recordFtpDownload', {
+    const envelope = signRequest(id, 'recordFtpTransfer', {
       ...transfer,
       machine_id: computeWorkstationId('skylab', id.publicKeyHex),
     });
     const { deps, upsertPatch } = makeDeps();
 
-    const result = await handleRecordFtpDownload(envelope, deps);
+    const result = await handleRecordFtpTransfer(envelope, deps);
 
     // The own-box L1 bypass hands back no session row, and this line needs one to
     // name an account. A download from yourself is not a transfer anyone logged.
@@ -167,12 +201,12 @@ describe('handleRecordFtpDownload', () => {
 
   it('reports a session lookup failure as a server error rather than a refusal', async () => {
     const id = generateIdentity();
-    const envelope = signRequest(id, 'recordFtpDownload', transfer);
+    const envelope = signRequest(id, 'recordFtpTransfer', transfer);
     const { deps } = makeDeps({
       findActiveSession: async () => ({ data: null, error: new Error('db down') }),
     });
 
-    const result = await handleRecordFtpDownload(envelope, deps);
+    const result = await handleRecordFtpTransfer(envelope, deps);
 
     expect(result).toEqual({ status: 500, body: { error: 'session_lookup_failed' } });
   });
@@ -180,10 +214,10 @@ describe('handleRecordFtpDownload', () => {
   it('names an unknown client when the caller is on no network to report', async () => {
     const id = generateIdentity();
     const { source_ip: _omitted, ...withoutVantage } = transfer;
-    const envelope = signRequest(id, 'recordFtpDownload', withoutVantage);
+    const envelope = signRequest(id, 'recordFtpTransfer', withoutVantage);
     const { deps, upsertPatch } = makeDeps();
 
-    await handleRecordFtpDownload(envelope, deps);
+    await handleRecordFtpTransfer(envelope, deps);
 
     // The transfer still happened, so the line is still written — with the client
     // named as unknown rather than left blank, which reads as a corrupt log.
@@ -196,12 +230,12 @@ describe('handleRecordFtpDownload', () => {
 
     // Provenance is the server's: a chosen writer_key files the theft under someone
     // else's name, and a chosen player_key is the same trick one field over.
-    const asAnotherWriter = await handleRecordFtpDownload(
-      signRequest(id, 'recordFtpDownload', { ...transfer, writer_key: 'f'.repeat(64) }),
+    const asAnotherWriter = await handleRecordFtpTransfer(
+      signRequest(id, 'recordFtpTransfer', { ...transfer, writer_key: 'f'.repeat(64) }),
       deps,
     );
-    const asAnotherPlayer = await handleRecordFtpDownload(
-      signRequest(id, 'recordFtpDownload', { ...transfer, player_key: 'f'.repeat(64) }),
+    const asAnotherPlayer = await handleRecordFtpTransfer(
+      signRequest(id, 'recordFtpTransfer', { ...transfer, player_key: 'f'.repeat(64) }),
       deps,
     );
 
@@ -211,10 +245,10 @@ describe('handleRecordFtpDownload', () => {
 
   it('rejects a byte count that is not a number, rather than logging a nonsense size', async () => {
     const id = generateIdentity();
-    const envelope = signRequest(id, 'recordFtpDownload', { ...transfer, bytes: 'lots' });
+    const envelope = signRequest(id, 'recordFtpTransfer', { ...transfer, bytes: 'lots' });
     const { deps, upsertPatch } = makeDeps();
 
-    const result = await handleRecordFtpDownload(envelope, deps);
+    const result = await handleRecordFtpTransfer(envelope, deps);
 
     // Unvalidated, this renders `NaN bytes` into a stranger's evidence.
     expect(result).toEqual({ status: 400, body: { error: expect.any(String) } });

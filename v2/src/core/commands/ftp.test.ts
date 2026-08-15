@@ -22,7 +22,13 @@ import { assignHomeNetwork } from '../network/homeNetwork';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
 import { asAbsPath, asEpochMs, asMachineId, asPlayerKeyHex } from '../types';
 import type { AbsPath, UserType } from '../types';
-import type { CommandResult, RemoteAuthParams, RemoteAuthResult, Session } from './types';
+import type {
+  CommandResult,
+  FtpTransfer,
+  RemoteAuthParams,
+  RemoteAuthResult,
+  Session,
+} from './types';
 
 /**
  * `ftp <host>` — the second door. It authenticates against the SAME `/etc/passwd`
@@ -386,7 +392,20 @@ const REMOTE_TREE = buildDirectory({
 
 const ORIGIN_TREE = buildDirectory({
   home: buildDirectory({
-    alice: buildDirectory({ 'origin-notes.txt': buildFile('mine') }, { owner: 'alice' }),
+    alice: buildDirectory(
+      {
+        'origin-notes.txt': buildFile('mine'),
+        // Readable by the tier the player is standing at, or a `put` of it would be
+        // testing the origin read's refusal rather than the transfer.
+        'origin-drop.txt': buildFile('take this', {
+          perms: { read: ['root', 'user', 'guest'] },
+        }),
+        // Root's own, so the origin half has something the player genuinely cannot
+        // send — the mirror of the remote file the credential cannot take.
+        'origin-sealed.txt': buildFile('not yours', { perms: { read: ['root'] } }),
+      },
+      { owner: 'alice' },
+    ),
   }),
   tmp: buildDirectory({ 'origin-scratch.txt': buildFile('scratch') }),
 });
@@ -543,27 +562,41 @@ describe('looking around from the ftp> prompt', () => {
 });
 
 /**
- * An origin that can be WRITTEN to: `patches.write` lands a real `Patch` in a
- * journal, and every line is answered by an env rebuilt over that journal applied
- * — which is what the UI does per command. A transfer is then proved by finding
- * the file afterwards rather than by watching the call that claimed to send it.
+ * Two machines that can both be WRITTEN to: each `write` lands a real `Patch` in its
+ * own journal, and every line is answered by an env rebuilt over those journals
+ * applied — which is what the UI does per command. A transfer is then proved by
+ * finding the file afterwards rather than by watching the call that claimed to send
+ * it, on whichever machine was supposed to receive it.
+ *
+ * The two journals are held apart on purpose: a `get` that wrote to the remote, or a
+ * `put` that wrote to the origin, would be a transfer that never crossed anything —
+ * and one shared journal could not tell either apart from success.
  */
 const transferEnv = (
   over: {
     readonly remoteTier?: UserType;
     readonly refuseWrite?: boolean;
-    readonly onRecord?: (transfer: { readonly path: AbsPath; readonly bytes: number }) => void;
+    readonly refuseRemoteWrite?: boolean;
+    readonly onRecord?: (transfer: FtpTransfer) => void;
   } = {},
 ) => {
   const remote = movableCwd(REMOTE_HOME);
   const origin = movableCwd(ORIGIN_HOME);
   let journal: readonly Patch[] = [];
+  let remoteJournal: readonly Patch[] = [];
   const writes: { path: string; isNew: boolean | undefined }[] = [];
+  const remoteWrites: { path: string; isNew: boolean | undefined }[] = [];
 
   const originFs = () =>
     mockFsViewFromTree(applyPatches(ORIGIN_TREE, journal), {
       userType: 'user',
       cwd: origin.read,
+    });
+
+  const remoteFs = () =>
+    mockFsViewFromTree(applyPatches(REMOTE_TREE, remoteJournal), {
+      userType: over.remoteTier ?? 'guest',
+      cwd: remote.read,
     });
 
   const buildEnv = () =>
@@ -586,19 +619,36 @@ const transferEnv = (
         },
       },
       ftp: mockFtpApi({
-        fs: mockFsViewFromTree(REMOTE_TREE, {
-          userType: over.remoteTier ?? 'guest',
-          cwd: remote.read,
-        }),
+        fs: remoteFs(),
         setCwd: remote.set,
-        ...(over.onRecord === undefined ? {} : { recordDownload: over.onRecord }),
+        // The remote write is the SERVER's decision in production — L1 on the session
+        // row, then L2 at the tier the credential bought. Here it is a stub, which is
+        // exactly why the tier claim itself belongs to the wire-check and not to this
+        // file: what these tests prove is what the command does with either answer.
+        write: async (path, content, options) => {
+          if (over.refuseRemoteWrite === true) return { ok: false, error: 'no_session' };
+          remoteWrites.push({ path, isNew: options?.isNew });
+          remoteJournal = [
+            ...remoteJournal,
+            {
+              path,
+              content,
+              owner: 'guest',
+              permissions: defaultFilePermissions(over.remoteTier ?? 'guest'),
+            },
+          ];
+          return { ok: true };
+        },
+        ...(over.onRecord === undefined ? {} : { recordTransfer: over.onRecord }),
       }),
     });
 
   return {
     run: (line: string) => runFtpLine(buildEnv(), line),
     originFs,
+    remoteFs,
     writes: (): readonly { path: string; isNew: boolean | undefined }[] => writes,
+    remoteWrites: (): readonly { path: string; isNew: boolean | undefined }[] => remoteWrites,
   };
 };
 
@@ -744,7 +794,7 @@ describe('taking a file from the ftp> prompt', () => {
     // log has to name, or a defender reading it learns nothing about their own box.
     await run(`get ${LOOT} somewhere-else.txt`);
 
-    expect(recorded).toHaveBeenCalledWith({ path: LOOT, bytes: 6 });
+    expect(recorded).toHaveBeenCalledWith({ direction: 'download', path: LOOT, bytes: 6 });
   });
 
   it('records nothing when the file never left — refused, or with nowhere to land', async () => {
@@ -764,5 +814,172 @@ describe('taking a file from the ftp> prompt', () => {
     const { run } = transferEnv();
 
     expect(linesOf(await run('help'))).toContain('get');
+  });
+});
+
+const DROP = '/home/alice/origin-drop.txt';
+
+describe('leaving a file at the ftp> prompt', () => {
+  it('lands the origin file on the REMOTE machine, where that box can read it', async () => {
+    const { run, remoteFs, originFs } = transferEnv();
+
+    const sent = await run(`put ${DROP}`);
+
+    expect(linesOf(sent)).toContain('226 Transfer complete.');
+    // The file being on the OTHER box is the claim — and the origin keeping its own
+    // copy is half of it, or `put` would be a move dressed as a copy.
+    expect(remoteFs().read(asAbsPath('/home/guest/origin-drop.txt'))).toEqual({
+      ok: true,
+      content: 'take this',
+    });
+    expect(originFs().read(asAbsPath(DROP))).toEqual({ ok: true, content: 'take this' });
+  });
+
+  it('says how many bytes went, and names both machines', async () => {
+    const { run } = transferEnv();
+
+    const sent = linesOf(await run(`put ${DROP}`));
+
+    expect(sent).toContain(`local: ${DROP} remote: /home/guest/origin-drop.txt`);
+    expect(sent).toContain('9 bytes sent.');
+  });
+
+  it('lands the file where cd left the session, not where the login started', async () => {
+    const { run, remoteFs } = transferEnv();
+
+    await run('cd /etc');
+    await run(`put ${DROP}`);
+
+    expect(remoteFs().read(asAbsPath('/etc/origin-drop.txt'))).toEqual({
+      ok: true,
+      content: 'take this',
+    });
+    expect(remoteFs().read(asAbsPath('/home/guest/origin-drop.txt'))).toEqual({
+      ok: false,
+      error: 'not_found',
+    });
+  });
+
+  it('takes the remote name when given one, rather than the origin basename', async () => {
+    const { run, remoteFs } = transferEnv();
+
+    await run(`put ${DROP} /etc/cron.d/backdoor`);
+
+    expect(remoteFs().read(asAbsPath('/etc/cron.d/backdoor'))).toEqual({
+      ok: true,
+      content: 'take this',
+    });
+  });
+
+  it('overwrites a remote file that is already there, and the byte count shows it', async () => {
+    const { run, remoteFs } = transferEnv();
+
+    // 'theirs' (6 bytes) becomes 'take this' (9) — the same rule `get` follows on the
+    // origin, in the direction where it is someone else's file being replaced.
+    const sent = linesOf(await run(`put ${DROP} remote-loot.txt`));
+
+    expect(remoteFs().read(asAbsPath('/home/guest/remote-loot.txt'))).toEqual({
+      ok: true,
+      content: 'take this',
+    });
+    expect(sent).toContain('9 bytes sent.');
+  });
+
+  it('marks a file it created as new, and an overwrite as not', async () => {
+    const { run, remoteWrites } = transferEnv();
+
+    await run(`put ${DROP}`);
+    await run(`put ${DROP} remote-loot.txt`);
+
+    // The remote's journal has to know which rows it invented, for the same reason
+    // the origin's does: a `rm` of a file `put` created must delete the row, while a
+    // `rm` of one it overwrote must leave a tombstone or the box's original comes back.
+    expect(remoteWrites()).toEqual([
+      { path: '/home/guest/origin-drop.txt', isNew: true },
+      { path: '/home/guest/remote-loot.txt', isNew: undefined },
+    ]);
+  });
+
+  it('refuses an origin file the player cannot read, and sends nothing', async () => {
+    const { run, remoteWrites, remoteFs } = transferEnv();
+
+    const refused = await run('put /home/alice/origin-sealed.txt');
+
+    expect(linesOf(refused)).toContain('550 Failed to open file.');
+    expect(sync(refused).exitCode).not.toBe(0);
+    expect(remoteWrites()).toEqual([]);
+    expect(remoteFs().read(asAbsPath('/home/guest/origin-sealed.txt'))).toEqual({
+      ok: false,
+      error: 'not_found',
+    });
+  });
+
+  it('refuses an origin file that is not there with the same answer', async () => {
+    const { run, remoteWrites } = transferEnv();
+
+    expect(linesOf(await run('put /home/alice/imaginary.txt'))).toContain(
+      '550 Failed to open file.',
+    );
+    expect(remoteWrites()).toEqual([]);
+  });
+
+  it('reports a remote refusal as 553 instead of claiming the transfer worked', async () => {
+    const { run, remoteFs } = transferEnv({ refuseRemoteWrite: true });
+
+    const refused = await run(`put ${DROP}`);
+
+    // The tier is the server's call, and its refusal arrives as one answer whether the
+    // session is gone or the credential simply cannot write there — so the line must be
+    // true of both, and 226 must not be printed for bytes that never landed.
+    expect(linesOf(refused)).toContain(
+      '553 Could not create file: /home/guest/origin-drop.txt: Permission denied',
+    );
+    expect(linesOf(refused)).not.toContain('226 Transfer complete.');
+    expect(sync(refused).exitCode).not.toBe(0);
+    expect(remoteFs().read(asAbsPath('/home/guest/origin-drop.txt'))).toEqual({
+      ok: false,
+      error: 'not_found',
+    });
+  });
+
+  it('tells the box what ARRIVED on it, naming the remote path and the byte count', async () => {
+    const recorded = vi.fn();
+    const { run } = transferEnv({ onRecord: recorded });
+
+    await run(`put ${DROP} /etc/cron.d/backdoor`);
+
+    // The direction is what makes the line legible to a defender: a file appearing on
+    // their machine is a different event from one leaving it.
+    expect(recorded).toHaveBeenCalledWith({
+      direction: 'upload',
+      path: asAbsPath('/etc/cron.d/backdoor'),
+      bytes: 9,
+    });
+  });
+
+  it('records nothing when the file never arrived — unreadable, or refused on the far side', async () => {
+    const afterRefusedRead = vi.fn();
+    const afterRefusedWrite = vi.fn();
+
+    await transferEnv({ onRecord: afterRefusedRead }).run('put /home/alice/origin-sealed.txt');
+    await transferEnv({ onRecord: afterRefusedWrite, refuseRemoteWrite: true }).run(`put ${DROP}`);
+
+    // An UPLOAD line for a file that is not on the box is a false entry in someone
+    // else's evidence — and here it would frame the player for a change they never made.
+    expect(afterRefusedRead).not.toHaveBeenCalled();
+    expect(afterRefusedWrite).not.toHaveBeenCalled();
+  });
+
+  it('asks for the file rather than guessing when put is given none', async () => {
+    const { run, remoteWrites } = transferEnv();
+
+    expect(linesOf(await run('put'))).toContain('usage: put local-file [remote-file]');
+    expect(remoteWrites()).toEqual([]);
+  });
+
+  it('names put in help, beside the direction a player already found', async () => {
+    const { run } = transferEnv();
+
+    expect(linesOf(await run('help'))).toContain('put');
   });
 });

@@ -81,10 +81,10 @@ import {
   fetchOwnPatches,
   postAuthLog,
   recordDeepScan,
-  recordFtpDownload,
+  recordFtpTransfer,
   recordLanFetch,
   recordScan,
-  type FtpDownloadRecord,
+  type FtpTransferRecord,
   type PatchClientDeps,
 } from '../adapters/patchApi';
 import { createSyncChannel, type SyncChannel } from '../adapters/crossTabSync';
@@ -393,18 +393,24 @@ const localAddress = (): string | null => wireless()?.ipv4 ?? null;
  *  says so. */
 const ftpBinding = (): Pick<
   BuildCommandEnvArgs,
-  'ftpFs' | 'onFtpCwdChange' | 'onFtpDownload'
+  'ftpFs' | 'onFtpCwdChange' | 'onFtpWrite' | 'onFtpTransfer'
 > => {
   const session = ftpSession();
   if (session === null) return {};
   return {
     ftpFs: createFsView(ftpRoot(session), { userType: session.userType, cwd: ftpCwd }),
     onFtpCwdChange: setFtpCwd,
-    // The command names the file; WHICH box and from WHERE are added here, off the
-    // session it could not have opened by itself.
-    onFtpDownload: ({ path, bytes }) =>
-      void recordFtpDownloadFn({
+    // The SHIPPED patch client, pointed at the target and stamped with the account
+    // the credential bought — which is the whole of what `put` needed: the endpoint
+    // that already refuses an ssh session writing above its tier refuses this one on
+    // the same evidence, having never been told a door was involved.
+    onFtpWrite: (path, content, options) => writeToFtpTarget(session, path, content, options),
+    // The command names the file and the direction; WHICH box and from WHERE are
+    // added here, off the session it could not have opened by itself.
+    onFtpTransfer: ({ direction, path, bytes }) =>
+      void recordFtpTransferFn({
         machineId: session.machineId,
+        direction,
         path,
         bytes,
         sourceIp: localAddress(),
@@ -486,13 +492,35 @@ const hydraCrackInnerGateway = (
 const recordScanFn = (params: ScanRecordParams): Promise<void> =>
   patchClientDeps === undefined ? Promise.resolve() : recordScan(patchClientDeps, params);
 
-/** Itemise a completed ftp download on the target's own `vsftpd.log` (backs
- *  `env.ftp.recordDownload`). Best-effort and a no-op until `startGame` wires the
- *  patch client; the file is already on the player's disk regardless. */
-const recordFtpDownloadFn = (transfer: FtpDownloadRecord): Promise<void> =>
+/** Itemise a completed ftp transfer on the target's own `vsftpd.log` (backs
+ *  `env.ftp.recordTransfer`). Best-effort and a no-op until `startGame` wires the
+ *  patch client; the bytes have moved regardless. */
+const recordFtpTransferFn = (transfer: FtpTransferRecord): Promise<void> =>
   patchClientDeps === undefined
     ? Promise.resolve()
-    : recordFtpDownload(patchClientDeps, transfer);
+    : recordFtpTransfer(patchClientDeps, transfer);
+
+/** Write to the machine an ftp session is held on (backs `env.ftp.write`). The
+ *  SHIPPED patch client, aimed at the target and stamped with the session's account
+ *  and tier — the server gate is reached with no idea a second door exists, which is
+ *  the claim the whole door rests on. A landed write re-pulls the TARGET's journal,
+ *  not the shell's, so the next `ls` at the prompt shows the file that just arrived.
+ *  Refuses as a network error until `startGame` wires the client: a `put` that
+ *  reported success while nothing left would be worse than one that failed. */
+const writeToFtpTarget = async (
+  session: Session,
+  ...args: Parameters<PatchApi['write']>
+): Promise<PatchResult> => {
+  if (identity === undefined) return { ok: false, error: 'network_error' };
+  const written = await createPatchApi({
+    identity,
+    machineId: session.machineId,
+    owner: session.username,
+    tier: session.userType,
+  }).write(...args);
+  if (written.ok) void refetchFtpPatches(session);
+  return written;
+};
 
 /** Record a deep PIVOT scan server-side (backs `env.scan.recordDeep`). Best-effort
  *  and a no-op until `startGame` wires the patch client; the scan stands regardless. */

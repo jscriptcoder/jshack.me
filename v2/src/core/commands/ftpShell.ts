@@ -28,7 +28,14 @@ import { basename, resolveAbsPath } from '../filesystem/path';
 import { bindFlags } from '../shell/bindFlags';
 import type { AbsPath } from '../types';
 import { ls } from './ls';
-import type { CommandEnv, CommandResult, FsView, PatchResult, TerminalLine } from './types';
+import type {
+  CommandEnv,
+  CommandResult,
+  FsView,
+  PatchApi,
+  PatchResult,
+  TerminalLine,
+} from './types';
 
 const text = (content: string): TerminalLine => ({ kind: 'text', content });
 
@@ -86,6 +93,23 @@ const listThrough = async (
   return ls.execute({ ...env, fs: binding.fs }, bound.positional, bound.flags);
 };
 
+/** Land `content` at `path` on the machine `into` addresses, marking a row this write
+ *  INVENTED so a later `rm` deletes it, while an overwrite omits the flag and leaves
+ *  the row's own answer alone — otherwise removing a file that arrived over a base-FS
+ *  one would bring the original back.
+ *
+ *  Shared by both directions because the rule belongs to the JOURNAL, not to which
+ *  machine is receiving: the same question is asked of the origin when a file is taken
+ *  and of the remote when one is left. */
+const land = async (
+  into: { readonly fs: FsView; readonly write: PatchApi['write'] },
+  path: AbsPath,
+  content: string,
+): Promise<PatchResult> =>
+  into.fs.stat(path) === null
+    ? into.write(path, content, { isNew: true })
+    : into.write(path, content);
+
 /** Copy one file off the remote machine onto the origin. The remote read is the
  *  session's, at the tier the credential bought; the origin write is the player's
  *  own, exactly as if they had typed it into their shell.
@@ -103,21 +127,14 @@ const download = async (
   if (!read.ok) return failure('550 Failed to open file.');
 
   const localPath = resolveAbsPath(env.fs.cwd(), destination ?? basename(remotePath));
-  // An absent target is a file this write invents, so the row must say so and a
-  // later `rm` deletes it; an overwrite omits the flag, leaving the row's own
-  // answer alone — otherwise removing a file taken over a base-FS one would bring
-  // the original back.
-  const isNew = env.fs.stat(localPath) === null;
-  const written = isNew
-    ? await env.patches.write(localPath, read.content, { isNew: true })
-    : await env.patches.write(localPath, read.content);
+  const written = await land({ fs: env.fs, write: env.patches.write }, localPath, read.content);
   if (!written.ok) return failure(`local: ${localPath}: ${WRITE_REFUSAL[written.error]}`);
 
   // Only a completed transfer is recorded. A download line for a file the player
   // does not hold would be a false entry in someone else's evidence, and nothing
   // is lost by staying quiet: `get` never shows the content, so failing the local
   // write is no way to read a file unseen.
-  env.ftp.recordDownload({ path: remotePath, bytes: read.content.length });
+  env.ftp.recordTransfer({ direction: 'download', path: remotePath, bytes: read.content.length });
 
   return result([
     text(`local: ${localPath} remote: ${remotePath}`),
@@ -126,10 +143,42 @@ const download = async (
   ]);
 };
 
+/** Copy one file off the origin machine onto the remote. The mirror of `download`,
+ *  and NOT its symmetry: the read is the player's own, while the write is the one
+ *  that has to be earned — it lands on somebody else's box, through the same gate an
+ *  `ssh` session's write goes through. Nothing here asks whether the tier may write:
+ *  the server owns that answer, and a client that refuses on its own behalf is one
+ *  that could permit on its own behalf too. */
+const upload = async (
+  env: CommandEnv,
+  source: string,
+  destination: string | undefined,
+): Promise<CommandResult> => {
+  const localPath = resolveAbsPath(env.fs.cwd(), source);
+  const read = env.fs.read(localPath);
+  if (!read.ok) return failure('550 Failed to open file.');
+
+  const remotePath = resolveAbsPath(env.ftp.fs.cwd(), destination ?? basename(localPath));
+  const written = await land({ fs: env.ftp.fs, write: env.ftp.write }, remotePath, read.content);
+  // One answer for every refusal the far side can give. A tier that cannot write here
+  // and a session that has gone are the same 403 by the time it reaches us, and
+  // naming them apart would be a guess dressed as a diagnosis.
+  if (!written.ok) return failure(`553 Could not create file: ${remotePath}: Permission denied`);
+
+  env.ftp.recordTransfer({ direction: 'upload', path: remotePath, bytes: read.content.length });
+
+  return result([
+    text(`local: ${localPath} remote: ${remotePath}`),
+    text('226 Transfer complete.'),
+    text(`${read.content.length} bytes sent.`),
+  ]);
+};
+
 /** What `help` lists — the name and what it does, in the order a player meets
  *  them. The remote half first: that is the machine they came here for. */
 const FTP_COMMANDS: readonly { readonly name: string; readonly description: string }[] = [
   { name: 'get', description: 'Copy a file from the remote machine to your own' },
+  { name: 'put', description: 'Copy a file from your own machine to the remote' },
   { name: 'ls', description: 'List a directory on the remote machine' },
   { name: 'cd', description: 'Change the remote working directory' },
   { name: 'pwd', description: 'Print the remote working directory' },
@@ -192,6 +241,12 @@ export const runFtpLine = async (env: CommandEnv, line: string): Promise<Command
     const source = args[0];
     if (source === undefined) return failure('usage: get remote-file [local-file]');
     return download(env, source, args[1]);
+  }
+
+  if (name === 'put') {
+    const source = args[0];
+    if (source === undefined) return failure('usage: put local-file [remote-file]');
+    return upload(env, source, args[1]);
   }
 
   return result([{ kind: 'error', content: `?Invalid command: ${name}` }], 1);
