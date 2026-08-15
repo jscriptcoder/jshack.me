@@ -436,6 +436,15 @@ export type FtpApi = {
    *  origin's — the two directories are independent, so `cd` and `lcd` can never
    *  drag each other. */
   readonly setCwd: (path: AbsPath) => void;
+  /** Tell the REMOTE box a file left it, so its own `/var/log/vsftpd.log` itemises
+   *  the theft. The command names only what it took: which session, from where, and
+   *  at what time are the caller's to supply, because a command cannot be trusted
+   *  to say who it is. Fire-and-forget like the other traces — the file is already
+   *  on the player's disk, and a logging failure must not un-take it. */
+  readonly recordDownload: (transfer: {
+    readonly path: AbsPath;
+    readonly bytes: number;
+  }) => void;
 };
 
 export type SshApi = {

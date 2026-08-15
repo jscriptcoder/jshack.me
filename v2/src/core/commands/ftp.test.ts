@@ -8,9 +8,12 @@ import {
   mockIdentity,
   mockNetworkView,
   mockNetworkViewFromConnectivity,
+  mockPatchApi,
   mockSession,
 } from '../../test/factories/commandEnv';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
+import { applyPatches, type Patch } from '../filesystem/applyPatches';
+import { defaultFilePermissions } from '../filesystem/defaultPermissions';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
 import { hostMachineId } from '../generation/remoteHostId';
@@ -363,13 +366,20 @@ describe('the ftp> prompt', () => {
 const REMOTE_TREE = buildDirectory({
   etc: buildDirectory({ passwd: buildFile('root:x:0:0::/root:/bin/bash\n') }),
   home: buildDirectory({
-    guest: buildDirectory({ 'remote-loot.txt': buildFile('theirs') }, { owner: 'guest' }),
+    guest: buildDirectory(
+      {
+        // Readable by the tier that logs in, or a `get` of it would be testing the
+        // refusal rather than the transfer.
+        'remote-loot.txt': buildFile('theirs', { perms: { read: ['root', 'user', 'guest'] } }),
+      },
+      { owner: 'guest' },
+    ),
   }),
   // Sealed above the guest tier, so the same path answers differently to two
   // credentials — the only way a test can tell "the tier decided" from "the door
   // decided".
   vault: buildDirectory(
-    { 'sealed.txt': buildFile('classified') },
+    { 'sealed.txt': buildFile('classified', { perms: { read: ['root', 'user'] } }) },
     { owner: 'root', perms: { read: ['root', 'user'], execute: ['root', 'user'] } },
   ),
 });
@@ -529,5 +539,230 @@ describe('looking around from the ftp> prompt', () => {
     // Neither machine moved on the way to being told off.
     expect(linesOf(await runFtpLine(env, 'pwd'))).toContain('/home/guest');
     expect(linesOf(await runFtpLine(env, 'lpwd'))).toContain('/home/alice');
+  });
+});
+
+/**
+ * An origin that can be WRITTEN to: `patches.write` lands a real `Patch` in a
+ * journal, and every line is answered by an env rebuilt over that journal applied
+ * — which is what the UI does per command. A transfer is then proved by finding
+ * the file afterwards rather than by watching the call that claimed to send it.
+ */
+const transferEnv = (
+  over: {
+    readonly remoteTier?: UserType;
+    readonly refuseWrite?: boolean;
+    readonly onRecord?: (transfer: { readonly path: AbsPath; readonly bytes: number }) => void;
+  } = {},
+) => {
+  const remote = movableCwd(REMOTE_HOME);
+  const origin = movableCwd(ORIGIN_HOME);
+  let journal: readonly Patch[] = [];
+  const writes: { path: string; isNew: boolean | undefined }[] = [];
+
+  const originFs = () =>
+    mockFsViewFromTree(applyPatches(ORIGIN_TREE, journal), {
+      userType: 'user',
+      cwd: origin.read,
+    });
+
+  const buildEnv = () =>
+    mockCommandEnv({
+      session: mockSession({ username: 'alice', userType: 'user' }),
+      fs: originFs(),
+      setCwd: origin.set,
+      patches: {
+        ...mockPatchApi(),
+        write: async (path, content, options) => {
+          if (over.refuseWrite === true) return { ok: false, error: 'permission_denied' };
+          writes.push({ path, isNew: options?.isNew });
+          // Owner and permissions stamped the way the real adapter stamps them, so
+          // the file the next command reads is the one production would have stored.
+          journal = [
+            ...journal,
+            { path, content, owner: 'alice', permissions: defaultFilePermissions('user') },
+          ];
+          return { ok: true };
+        },
+      },
+      ftp: mockFtpApi({
+        fs: mockFsViewFromTree(REMOTE_TREE, {
+          userType: over.remoteTier ?? 'guest',
+          cwd: remote.read,
+        }),
+        setCwd: remote.set,
+        ...(over.onRecord === undefined ? {} : { recordDownload: over.onRecord }),
+      }),
+    });
+
+  return {
+    run: (line: string) => runFtpLine(buildEnv(), line),
+    originFs,
+    writes: (): readonly { path: string; isNew: boolean | undefined }[] => writes,
+  };
+};
+
+const LOOT = '/home/guest/remote-loot.txt';
+
+describe('taking a file from the ftp> prompt', () => {
+  it('lands the remote file on the origin machine, where the shell can read it', async () => {
+    const { run, originFs } = transferEnv();
+
+    const taken = await run('get /home/guest/remote-loot.txt');
+
+    expect(linesOf(taken)).toContain('226 Transfer complete.');
+    // The file being THERE is the claim. A `get` that only printed a success line
+    // would satisfy any assertion made on its own output.
+    expect(originFs().read(asAbsPath('/home/alice/remote-loot.txt'))).toEqual({
+      ok: true,
+      content: 'theirs',
+    });
+  });
+
+  it('says how many bytes arrived, and where they came from', async () => {
+    const { run } = transferEnv();
+
+    const taken = linesOf(await run(`get ${LOOT}`));
+
+    // Both machines named on the transfer line: the whole hazard of this prompt is
+    // not knowing which box you just touched.
+    expect(taken).toContain(`local: /home/alice/remote-loot.txt remote: ${LOOT}`);
+    expect(taken).toContain('6 bytes received.');
+  });
+
+  it('lands the file where lcd left the player, not where the shell was when ftp ran', async () => {
+    const { run, originFs } = transferEnv();
+
+    await run('lcd /tmp');
+    await run(`get ${LOOT}`);
+
+    expect(originFs().read(asAbsPath('/tmp/remote-loot.txt'))).toEqual({
+      ok: true,
+      content: 'theirs',
+    });
+    expect(originFs().read(asAbsPath('/home/alice/remote-loot.txt'))).toEqual({
+      ok: false,
+      error: 'not_found',
+    });
+  });
+
+  it('takes the local name when given one, rather than the remote basename', async () => {
+    const { run, originFs } = transferEnv();
+
+    await run(`get ${LOOT} loot-copy.txt`);
+
+    expect(originFs().read(asAbsPath('/home/alice/loot-copy.txt'))).toEqual({
+      ok: true,
+      content: 'theirs',
+    });
+  });
+
+  it('overwrites an origin file that is already there, and the byte count shows it', async () => {
+    const { run, originFs } = transferEnv();
+
+    const taken = linesOf(await run(`get ${LOOT} origin-notes.txt`));
+
+    // 'mine' (4 bytes) becomes 'theirs' (6) — the count is what makes an overwrite
+    // visible, which is why it is printed rather than a bare success.
+    expect(originFs().read(asAbsPath('/home/alice/origin-notes.txt'))).toEqual({
+      ok: true,
+      content: 'theirs',
+    });
+    expect(taken).toContain('6 bytes received.');
+  });
+
+  it('marks a file it created as new, and an overwrite as not', async () => {
+    const { run, writes } = transferEnv();
+
+    await run(`get ${LOOT}`);
+    await run(`get ${LOOT} origin-notes.txt`);
+
+    // The journal has to know which rows it invented: a `rm` of a file `get` created
+    // must delete the row, while a `rm` of one it overwrote must leave a tombstone
+    // or the original would come back from the base filesystem.
+    expect(writes()).toEqual([
+      { path: '/home/alice/remote-loot.txt', isNew: true },
+      { path: '/home/alice/origin-notes.txt', isNew: undefined },
+    ]);
+  });
+
+  it('refuses a remote file the tier cannot read, and writes nothing locally', async () => {
+    const sealed = transferEnv();
+    const asUser = transferEnv({ remoteTier: 'user' });
+
+    const refused = await sealed.run('get /vault/sealed.txt');
+    await asUser.run('get /vault/sealed.txt');
+
+    expect(linesOf(refused)).toContain('550 Failed to open file.');
+    expect(sync(refused).exitCode).not.toBe(0);
+    expect(sealed.originFs().read(asAbsPath('/home/alice/sealed.txt'))).toEqual({
+      ok: false,
+      error: 'not_found',
+    });
+    // The absence above means something only because the very same line DOES land
+    // the file one tier up — otherwise it would pass against a `get` that never worked.
+    expect(asUser.originFs().read(asAbsPath('/home/alice/sealed.txt'))).toEqual({
+      ok: true,
+      content: 'classified',
+    });
+  });
+
+  it('refuses a remote file that is not there with the same answer a sealed one gets', async () => {
+    const { run } = transferEnv();
+
+    // Telling "no such file" from "not for you" apart would map out a stranger's box
+    // from outside the tier allowed to see it — the same reason `cd` collapses them.
+    expect(linesOf(await run('get /vault/nothing-here.txt'))).toContain(
+      '550 Failed to open file.',
+    );
+  });
+
+  it('asks for the file rather than guessing when get is given none', async () => {
+    const { run, writes } = transferEnv();
+
+    expect(linesOf(await run('get'))).toContain('usage: get remote-file [local-file]');
+    expect(writes()).toEqual([]);
+  });
+
+  it('reports a local write the origin refused instead of claiming the transfer worked', async () => {
+    const { run } = transferEnv({ refuseWrite: true });
+
+    const refused = await run(`get ${LOOT}`);
+
+    expect(linesOf(refused)).toContain('local: /home/alice/remote-loot.txt: Permission denied');
+    // The bytes crossed and then had nowhere to go. Announcing 226 anyway would tell
+    // a player they hold a file that is not on their disk.
+    expect(linesOf(refused)).not.toContain('226 Transfer complete.');
+    expect(sync(refused).exitCode).not.toBe(0);
+  });
+
+  it('tells the box what left it, naming the remote path and the byte count', async () => {
+    const recorded = vi.fn();
+    const { run } = transferEnv({ onRecord: recorded });
+
+    // The local name is the player's business; the REMOTE path is what the owner's
+    // log has to name, or a defender reading it learns nothing about their own box.
+    await run(`get ${LOOT} somewhere-else.txt`);
+
+    expect(recorded).toHaveBeenCalledWith({ path: LOOT, bytes: 6 });
+  });
+
+  it('records nothing when the file never left — refused, or with nowhere to land', async () => {
+    const afterRefusedRead = vi.fn();
+    const afterRefusedWrite = vi.fn();
+
+    await transferEnv({ onRecord: afterRefusedRead }).run('get /vault/sealed.txt');
+    await transferEnv({ onRecord: afterRefusedWrite, refuseWrite: true }).run(`get ${LOOT}`);
+
+    // A download line for a file the player does not hold is a false entry in
+    // someone else's evidence — the one thing this log must never carry.
+    expect(afterRefusedRead).not.toHaveBeenCalled();
+    expect(afterRefusedWrite).not.toHaveBeenCalled();
+  });
+
+  it('names get in help, so a player can find the reason they logged in', async () => {
+    const { run } = transferEnv();
+
+    expect(linesOf(await run('help'))).toContain('get');
   });
 });

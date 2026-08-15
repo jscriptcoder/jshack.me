@@ -40,7 +40,7 @@ const remoteTarget = () => {
 
 const remoteSession =
   (userType: UserType, essid = ESSID) =>
-  async (): Promise<FindActiveSessionResult> => ({ data: { userType, essid }, error: null });
+  async (): Promise<FindActiveSessionResult> => ({ data: { username: 'someone', userType, essid }, error: null });
 
 /** A registered FOREIGN player workstation (A's box): A's identity → A's
  *  workstation machine_id, plus the occupancy row the L2 reverse-lookup returns so

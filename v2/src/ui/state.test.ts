@@ -615,6 +615,31 @@ describe('the ftp sub-shell', () => {
     expect(lastLine(state)).toBe('/home/tester');
   });
 
+  it('takes a file off the target onto the player’s own box, and tells the target it went', async () => {
+    const { state, sent } = await loginOverFtp();
+
+    state.setInput('get /etc/remote-drop.txt');
+    await state.runInput();
+    await settle();
+
+    expect(lastLine(state)).toContain('12 bytes received.');
+    // The file lands on the box the player is STANDING on, at the directory their
+    // shell is in — through the same write seam a `>` redirect uses.
+    expect(sent.find((payload) => payload.action === 'upsertPatch')).toMatchObject({
+      path: '/home/tester/remote-drop.txt',
+      content: 'left behind\n',
+    });
+    // And the target hears what left it. Which box, and from what address, are
+    // supplied HERE — the `ftp>` command names only the file, so this is the only
+    // place the wiring can be proved.
+    expect(sent.find((payload) => payload.action === 'recordFtpDownload')).toMatchObject({
+      machine_id: FTP_MACHINE_ID,
+      path: '/etc/remote-drop.txt',
+      bytes: 12,
+      source_ip: `${LAN.subnet}.77`,
+    });
+  });
+
   it('never lets a slow answer for a box already left land on the box now open', async () => {
     // The first target's journal is held mid-flight while the player quits and opens
     // a second door. When it finally answers it belongs to nobody — and it must not

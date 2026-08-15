@@ -430,7 +430,7 @@ describe('handleHydraCrack', () => {
     const stolen = soleHolderOf(accountsWithPasswords(host, KNOWN_POOL));
     const { deps } = makeDeps({
       wordlist: [stolen.password],
-      findActiveSession: async () => ({ data: { userType: 'root', essid: ESSID }, error: null }),
+      findActiveSession: async () => ({ data: { username: 'root', userType: 'root', essid: ESSID }, error: null }),
     });
 
     const response = await handleHydraCrack(
@@ -453,7 +453,7 @@ describe('handleHydraCrack', () => {
     const host = sshHostOn(ESSID);
     const { deps, listPathPatches } = makeDeps({
       wordlist: [],
-      findActiveSession: async () => ({ data: { userType: 'root', essid: ESSID }, error: null }),
+      findActiveSession: async () => ({ data: { username: 'root', userType: 'root', essid: ESSID }, error: null }),
     });
 
     await handleHydraCrack(
@@ -478,7 +478,7 @@ describe('handleHydraCrack', () => {
     const host = sshHostOn(ESSID);
     const { deps, upsertPatch } = makeDeps({
       wordlist: [],
-      findActiveSession: async () => ({ data: { userType: 'root', essid: ESSID }, error: null }),
+      findActiveSession: async () => ({ data: { username: 'root', userType: 'root', essid: ESSID }, error: null }),
     });
 
     const response = await handleHydraCrack(
@@ -812,7 +812,7 @@ describe('the trace a hydra sweep leaves on its target', () => {
     const standing = lanHostOtherThan(host);
     const { deps, upsertPatch } = makeDeps({
       wordlist: ['no-such-word'],
-      findActiveSession: async () => ({ data: { userType: 'root', essid: ESSID }, error: null }),
+      findActiveSession: async () => ({ data: { username: 'root', userType: 'root', essid: ESSID }, error: null }),
     });
 
     await handleHydraCrack(

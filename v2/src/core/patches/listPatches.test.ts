@@ -127,7 +127,7 @@ describe('handleListPatches', () => {
     const { deps } = makeDeps({
       listPatches: async () => ({ data: rows, error: null }),
       findActiveSession: async () => ({
-        data: { userType: 'root', essid: 'VANDELAY' },
+        data: { username: 'root', userType: 'root', essid: 'VANDELAY' },
         error: null,
       }),
     });

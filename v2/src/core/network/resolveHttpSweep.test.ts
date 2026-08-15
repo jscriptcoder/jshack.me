@@ -344,7 +344,7 @@ describe('the box being swept records the whole run', () => {
   it('traces a sweep launched from somebody else’s box to THAT box’s network', async () => {
     const { deps, upsertPatch } = makeDeps({
       findActiveSession: async () => ({
-        data: { userType: 'root', essid: PIVOT_ESSID },
+        data: { username: 'root', userType: 'root', essid: PIVOT_ESSID },
         error: null,
       }),
     });
@@ -378,7 +378,7 @@ describe('a sweep with nothing to ask, and a box that will not answer', () => {
   it('reads the list off the box being stood on, not the player’s own', async () => {
     const { deps, listPathPatches } = makeDeps({
       findActiveSession: async () => ({
-        data: { userType: 'root', essid: PIVOT_ESSID },
+        data: { username: 'root', userType: 'root', essid: PIVOT_ESSID },
         error: null,
       }),
     });

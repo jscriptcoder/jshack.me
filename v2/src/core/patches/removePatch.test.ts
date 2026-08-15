@@ -30,7 +30,7 @@ const remoteTarget = () => {
 };
 
 const remoteSession = (userType: UserType): FindActiveSessionResult => ({
-  data: { userType, essid: ESSID },
+  data: { username: 'someone', userType, essid: ESSID },
   error: null,
 });
 
