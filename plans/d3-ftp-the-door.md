@@ -14,12 +14,12 @@ takes a file and leaves one — and the box's owner reads exactly which files mo
 
 ## Acceptance Criteria
 
-- [ ] `nmap` reports `21/tcp open ftp` on generated LAN hosts that run the service, and
-      `vsftpd` brings the port up on a box the player holds root on
-- [ ] `hydra <host> ftp` returns a credential, and the whole sweep lands in the target's
-      `/var/log/vsftpd.log` — not `auth.log`
-- [ ] `ftp <host>` authenticates against the box's real `/etc/passwd` and leaves the player at an
-      `ftp>` prompt; `quit` returns them to the shell they never left
+- [x] `nmap` reports `21/tcp open ftp` on generated LAN hosts that run the service, and
+      `vsftpd` brings the port up on a box the player holds root on *(slice 1, v0.131.0)*
+- [x] `hydra <host> ftp` returns a credential, and the whole sweep lands in the target's
+      `/var/log/vsftpd.log` — not `auth.log` *(slice 1, v0.131.0)*
+- [x] `ftp <host>` authenticates against the box's real `/etc/passwd` and leaves the player at an
+      `ftp>` prompt; `quit` returns them to the shell they never left *(slice 2, v0.132.0)*
 - [ ] Inside the session the player reads the remote tree (`ls`, `cd`, `pwd`) at the tier their
       credential carries, while `lls`/`lcd`/`lpwd` still address the box they are standing on
 - [ ] `get` copies a remote file onto the origin machine; `put` copies an origin file onto the
@@ -28,7 +28,7 @@ takes a file and leaves one — and the box's owner reads exactly which files mo
       itemised record `ssh` cannot give
 - [ ] All of it works against another player's machine through a NAT forward, with the attacker's
       real vantage address in the defender's log
-- [ ] A browser refresh ends the ftp session rather than restoring it as a hop
+- [x] A browser refresh ends the ftp session rather than restoring it as a hop *(slice 2, v0.132.0)*
 
 ## Plan change requiring approval
 
@@ -95,8 +95,12 @@ Carried from the grill, with a recommendation and the evidence found since:
    is the argument verbatim: an empty file would be "furniture that claims the box once served".
    Gate `vsftpd.log` on the ftp service the same way. `appendMachineLog` creates an absent file
    anyway, so the seed's only job is honesty about which boxes ever ran the daemon.
-2. **Anonymous ftp — slice 2.** *Recommendation: OUT.* Every login checks a real `/etc/passwd`
-   account, consistent with the catalog row deferring `virtual_users.conf`. Confirm before RED.
+2. ~~**Anonymous ftp — slice 2.**~~ **RESOLVED 2026-08-15: OUT.** Every login checks a real
+   `/etc/passwd` account, consistent with the catalog row deferring `virtual_users.conf`. There is
+   no `anonymous` account and no special case for one: `ftp <host>` with a username the box does
+   not have is refused by exactly the same `530 Login incorrect` a wrong password gets, because
+   `authCreateSession` already collapses the two and telling them apart would leak the account
+   list.
 3. **`get` onto an existing origin file — slice 4.** *Recommendation: overwrite, and say so.*
    Real ftp overwrites; the origin is the player's own box; and a refusal makes re-fetching a file
    you already took an unexplainable failure. Print the byte count on the transfer line so the
@@ -119,6 +123,29 @@ from `v2/`; present the work and **wait for commit approval**.
 ---
 
 ### Slice 1: The ftp door exists on generated hosts, and sweeping it is recorded in the daemon's own log
+
+**Status: SHIPPED** — v0.131.0, PR #393 (`021f5d2`), merged 2026-08-15. As-built below.
+
+**As-built, where it departs from the plan above** (three departures, all forward-facing):
+
+1. **RED step 1 was a pure refactor, not a failing test.** Adding the logging column to ssh's row
+   changes no observable behavior, so there was nothing to fail. It ran the verified REFACTOR path
+   instead — the existing hydra tests as the passing preservation baseline, green throughout. The
+   plan text above is wrong on this point and is left standing as the record of what was expected.
+2. **Only the LOGIN shapes were built.** `formatVsftpdLoginLine` renders `OK LOGIN` / `FAIL LOGIN`
+   and nothing else — a sweep is all slice 1 could observe. **`CONNECT` is slice 2's to add**
+   (its AC needs one), `OK DOWNLOAD` is slice 4's, `OK UPLOAD` is slice 5's. Each arrives with the
+   behavior that writes it, rather than as five shapes with one consumer.
+3. **The REFACTOR assessment landed as `SweepLog`**, a type on `ServiceSpec` carrying
+   path + owner + permissions + formatter. The third instance did make the shape obvious, as the
+   plan hoped — but it is scoped to *credential sweeps*, not a general log identity, because
+   `access.log`'s writer is a request rather than an attempt.
+
+**Also found, and backlogged rather than fixed here**: `hydra <host> http` writes **sshd-tagged**
+`auth.log` lines. It is a supported sweep with a deliberate shipped test, so it was preserved
+byte-for-byte; the routing column now makes fixing it a one-row change. Recorded in
+`conventions-and-gotchas.md` §9 — deciding what a *web* door's log should look like is not an ftp
+slice's business.
 
 **Value**: A player scanning their LAN finds boxes with `21/tcp open ftp`, and `hydra <host> ftp`
 returns a credential while the target records the sweep in `/var/log/vsftpd.log`. Actor: the
@@ -173,15 +200,48 @@ behavior a player can observe on one seed).
 **REFACTOR**: Assess whether `authLog`/`accessLog`/`vsftpdLog` now share enough to justify a
 common log-identity type — only if the third instance makes it obvious. Three is the earliest
 point the shape is knowable; two would have been a guess.
-**Wire-check**: **Required.** `scripts/testFtpSweepTrace.ts` against `vercel dev` + supabase —
-`hydra <host> ftp` writes a `vsftpd.log` row and no `auth.log` row; the ssh control still writes
-`auth.log`. `tsc` cannot see which row landed.
-**Done when**: All criteria met, the wire-check passes live, gates green, commit approved.
-**Version**: 0.131.0.
+**Wire-check**: **Required — deferred at ship, RUN AND GREEN in slice 2.**
+`scripts/testFtpSweepTrace.ts`, **8/8 live** against `vercel dev` + supabase on 2026-08-15: the ftp
+sweep lands 76 lines in `/var/log/vsftpd.log` with no `sshd[` tag and **no `auth.log` row at all**;
+the ssh control on the *same box* still writes `auth.log` and leaves `vsftpd.log` untouched; the
+log row is `owner=root`, `write=['root']`. Needed a deliberate ESSID (`VSFTPD-LAB`) — most generate
+no host running **both** doors, and without one "ftp wrote elsewhere" could just mean "a different
+machine".
+**Done when**: All criteria met, gates green, commit approved. *(Shipped on those terms with the
+wire-check outstanding; discharged in slice 2.)*
+**Version**: 0.131.0. **Shipped evidence**: 2618 tests / 146 files, typecheck + lint clean.
+Mutation: `hydraCrack.ts` 100% (116/116), `serviceCatalog.ts` 100% (6/6), `vsftpd.ts` 95.24%,
+`vsftpdLog.ts` 92%, `passwordSweep.ts` 94.64% — the 5 survivors are `WRITE_ERROR` strings and a log
+file's execute bit, the identical profile shipped `sshd.ts` and `auth.log` already carry.
 
 ---
 
 ### Slice 2: A player logs in over ftp and lands at an `ftp>` prompt they can leave
+
+**Status: COMPLETE, awaiting commit approval** — v0.132.0. As-built notes:
+
+1. **The refusal is an allowlist, not an ftp exclusion.** `rehydrateSessionStack` rebuilds only
+   HOP kinds (`ssh`/`su`) and returns everything else as `abandoned`, which the boot sweep closes.
+   Written that way because every later parallel session (`nc`, `mysql`, `redis`) is wrong on the
+   stack for the identical reason — an exclusion list would have to be remembered three more times.
+2. **"Ended with a reason" became a real column write.** `end_reason` already existed in the DDL
+   but was hardcoded `'user_exit'`. It is now a closed enum (`user_exit` | `abandoned`) on the
+   `endSession` payload, so a row closed by the boot sweep is distinguishable from one the player
+   quit. Closed rather than free text because the client picks the value.
+3. **An `ftp` login is gated on the daemon actually listening; `ssh` still is not.** Only ~30% of
+   hosts roll ftp, so an ungated ftp login would open a door on a box that has none. `ssh` has
+   never checked, and a router generated with `hasSsh: false` accepts an ssh login today — a real
+   defect, but in a **shipped** door, so it is backlogged in `conventions-and-gotchas.md` §9 rather
+   than smuggled in behind ftp. The exemption is one clause with the reason written above it.
+4. **The stale `ModeChange { kind:'ftp' }` was DROPPED, not reshaped.** `mode_change` means "open a
+   screen"; decision 1 makes ftp a sub-shell, so the arm was a lie. Entering and leaving go through
+   `env.ftp.enter`/`leave` instead — siblings of `pushSession`, scoped under an `FtpApi` alongside
+   `authenticate` because one door is one cohesive seam.
+5. **`SweepLog` gained `formatArrival`, optional.** vsftpd records reaching the door separately from
+   getting through it; sshd's first line *is* the attempt, so an arrival line there would be an
+   invention. Both lines land in ONE append — they are one event to the box, and two appends would
+   be two read-modify-writes racing over the same file. The type's name is now slightly wrong (it
+   carries logins as well as sweeps) — worth renaming when slice 4 adds transfers.
 
 **Value**: The door opens. A player with a credential runs `ftp <host>`, is let in, stands at an
 `ftp>` prompt, and `quit`s back to the shell they never left. The defender's log names the login.
@@ -231,10 +291,15 @@ security-load-bearing; read the survivor list rather than the count (§6 records
 **REFACTOR**: Assess whether the ftp command map and the main registry want a shared lookup
 shape. Decision 1 says this sets the pattern for `nc`/`mysql`/`redis` — but **do not build the
 generic sub-shell mechanism here**. One instance is not a pattern; the third caller earns it.
-**Wire-check**: **Required.** `scripts/testFtpSession.ts` — an `ftp`-kind row inserts, is returned
-as active, and `endSession` closes it. The DB accepts an unconstrained `kind`; prove it rather
-than trusting the DDL read.
-**Done when**: All criteria met, wire-check green, gates green, commit approved.
+**Wire-check**: **DONE — both green live** (`vercel dev` + supabase, 2026-08-15, one stack-up):
+- `scripts/testFtpSession.ts` — **14/14**. The DDL really does accept `kind:'ftp'` (it was read off
+  the schema before, never proven); `listSessions` returns it active; CONNECT + OK LOGIN land on
+  `vsftpd.log` with **nothing on `auth.log`**; a refusal writes CONNECT + FAIL LOGIN and inserts no
+  row; `end_reason` stores `abandoned` when asked and `user_exit` by default; a correct credential
+  on a box with **no ftp daemon** is still 404 `service_not_running` and leaves no trace.
+- `scripts/testFtpSweepTrace.ts` — **8/8**, slice 1's outstanding check, discharged.
+
+**Done when**: All criteria met, **both** wire-checks green, gates green, commit approved.
 **Version**: 0.132.0.
 
 ---

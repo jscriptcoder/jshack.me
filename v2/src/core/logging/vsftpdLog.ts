@@ -55,6 +55,17 @@ const formatVsftpdTimestamp = (time: GameTime): string => {
   return `${weekday} ${month} ${day} ${clock} ${date.getUTCFullYear()}`;
 };
 
+/** Render the arrival that precedes a login. vsftpd records reaching the door
+ *  separately from getting through it, so a defender can see knocks that never
+ *  became attempts — and no account is named, because at CONNECT nobody has
+ *  claimed one yet. */
+export const formatVsftpdConnectLine = ({
+  fromIp,
+  time,
+  pid,
+}: Pick<CredentialAttempt, 'fromIp' | 'time' | 'pid'>): string =>
+  `${formatVsftpdTimestamp(time)} [pid ${pid}] CONNECT: Client "${fromIp}"`;
+
 /** Render one login attempt as its `/var/log/vsftpd.log` line — `OK LOGIN` for an
  *  accepted credential, `FAIL LOGIN` for a rejected one (real vsftpd logs both, which
  *  is what turns a wordlist sweep into a visible wall). */

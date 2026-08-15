@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { asGameTime } from '../types';
-import { VSFTPD_LOG_OWNER, VSFTPD_LOG_PATH, formatVsftpdLoginLine } from './vsftpdLog';
+import {
+  VSFTPD_LOG_OWNER,
+  VSFTPD_LOG_PATH,
+  formatVsftpdConnectLine,
+  formatVsftpdLoginLine,
+} from './vsftpdLog';
 
 /**
  * vsftpd-log (`/var/log/vsftpd.log`) line formatting — the FTP daemon's own file,
@@ -27,6 +32,14 @@ describe('the vsftpd log storage identity', () => {
     // Owner decides who may write. A log an attacker's tier could own is a log they
     // could rewrite — the record of what they took would be theirs to edit.
     expect(VSFTPD_LOG_OWNER).toBe('root');
+  });
+});
+
+describe('formatVsftpdConnectLine', () => {
+  it('names the client that reached the door, but no account — nobody has claimed one yet', () => {
+    const line = formatVsftpdConnectLine({ fromIp: '10.0.0.9', time: AUG_14, pid: 4471 });
+
+    expect(line).toBe('Fri Aug 14 13:55:38 2026 [pid 4471] CONNECT: Client "10.0.0.9"');
   });
 });
 

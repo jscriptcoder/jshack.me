@@ -8,6 +8,7 @@ import { buildRemoteHostFs } from '../core/generation/remoteHostFs';
 import { formatPidfileContent, readOpenPorts } from '../core/services/pidfile';
 import { SERVICE_CATALOG } from '../core/services/serviceCatalog';
 import { HTTP_DEFAULT_PORT } from '../core/network/http';
+import { BINARY_STUB } from '../core/generation/binaries';
 import type { PublicFetchResult } from '../core/commands/types';
 
 /**
@@ -299,6 +300,233 @@ describe('patch journal across a machine change', () => {
     const listing = await listTmp(state);
     expect(listing).not.toContain(OWN_BOX_FILE);
     expect(listing).toContain(REMOTE_FILE);
+  });
+});
+
+/**
+ * A refresh loses the terminal that owned an ftp session, but the server row
+ * outlives it: `sessions` has no TTL, so nothing would ever close it. An active
+ * row is a standing write grant on somebody else's box, and replaying it as a hop
+ * would hand the player a shell they never had — so boot closes it instead.
+ */
+describe('an ftp session abandoned by a refresh', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const ESSID = 'ferro-cafe';
+  const LAN = generateHomeLan(ESSID);
+  const REMOTE_HOST = LAN.hosts.find((host) => host.kind === 'machine');
+  if (REMOTE_HOST === undefined) throw new Error(`no ordinary host generated on ${ESSID}`);
+  const REMOTE_MACHINE_ID = machineIdForLanHost(REMOTE_HOST, ESSID);
+
+  const sessionRow = (over: Record<string, unknown>) => ({
+    session_id: 'ftp-guest-1',
+    machine_id: REMOTE_MACHINE_ID,
+    credentials: { username: 'guest', userType: 'guest' },
+    parent_session_id: null,
+    source_ip: null,
+    kind: 'ftp',
+    created_at: '2026-01-01T00:00:00.000Z',
+    ...over,
+  });
+
+  /** Boot with `rows` already active server-side, and report every payload sent. */
+  const bootWithActiveSessions = async (rows: readonly Record<string, unknown>[]) => {
+    vi.resetModules();
+    const store = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => store.set(key, value),
+      removeItem: (key: string) => store.delete(key),
+    };
+    storage.setItem(CONNECTED_ESSID_KEY, ESSID);
+    lanLeaseCacheIn(storage).remember(ESSID, `${LAN.subnet}.77`);
+    vi.stubGlobal('localStorage', storage);
+
+    const sent: Record<string, unknown>[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: { body?: string }) => {
+        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<string, unknown>;
+        sent.push(fields);
+        if (fields.action === 'listSessions') return { ok: true, status: 200, json: async () => ({ sessions: rows }) };
+        return { ok: true, status: 200, json: async () => ({ patches: [] }) };
+      }),
+    );
+
+    const state = await import('./state');
+    state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
+    return { state, sent };
+  };
+
+  it('ends the abandoned row, saying that is why, and leaves the player on their own box', async () => {
+    const { state, sent } = await bootWithActiveSessions([sessionRow({})]);
+
+    await vi.waitFor(() =>
+      expect(sent.find((payload) => payload.action === 'endSession')).toEqual(
+        expect.objectContaining({ session_id: 'ftp-guest-1', reason: 'abandoned' }),
+      ),
+    );
+    // Never stacked: the player is home, not standing on the ftp target.
+    expect(state.promptHost()).toBe('box');
+  });
+
+  it('leaves an ssh hop alone — it is a real rung, and boot restores it', async () => {
+    const { state, sent } = await bootWithActiveSessions([
+      sessionRow({
+        session_id: 'ssh-hop-1',
+        kind: 'ssh',
+        credentials: { username: 'root', userType: 'root' },
+      }),
+    ]);
+
+    await vi.waitFor(() => expect(state.promptHost()).toBe(REMOTE_HOST.hostname));
+    expect(sent.find((payload) => payload.action === 'endSession')).toBeUndefined();
+  });
+});
+
+/**
+ * The `ftp>` prompt is a SUB-SHELL over the same terminal, not a screen. While it
+ * is held, a typed line is answered by the ftp command map instead of the registry
+ * — and that refusal is the point: the outer shell's `ls`/`cat`/`rm` would act on
+ * the machine the player is standing on while they believe they are addressing the
+ * remote. The shell underneath never moves, so `quit` hands it straight back.
+ */
+describe('the ftp sub-shell', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const ESSID = 'ferro-cafe';
+  const LAN = generateHomeLan(ESSID);
+  const FTP_HOST = LAN.hosts.find(
+    (host) =>
+      host.kind === 'machine' &&
+      readOpenPorts(buildRemoteHostFs(ESSID, host)).some((open) => open.service === 'ftp'),
+  );
+  if (FTP_HOST === undefined) throw new Error(`no ftp-serving host on ${ESSID}`);
+
+  const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
+  /** Boot online, then log into the ftp host by actually typing the command and
+   *  answering both prompts — the shipped path, not a poked signal. */
+  const loginOverFtp = async () => {
+    vi.resetModules();
+    const store = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => store.set(key, value),
+      removeItem: (key: string) => store.delete(key),
+    };
+    storage.setItem(CONNECTED_ESSID_KEY, ESSID);
+    lanLeaseCacheIn(storage).remember(ESSID, `${LAN.subnet}.77`);
+    vi.stubGlobal('localStorage', storage);
+
+    const sent: Record<string, unknown>[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: { body?: string }) => {
+        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<string, unknown>;
+        sent.push(fields);
+        if (fields.action === 'listSessions') {
+          return { ok: true, status: 200, json: async () => ({ sessions: [] }) };
+        }
+        if (fields.action === 'authCreateSession') {
+          return { ok: true, status: 200, json: async () => ({ ok: true, userType: 'guest' }) };
+        }
+        // The ftp CLIENT is apt-gated, so the box has to already carry it — the
+        // player would have run `apt install ftp` before ever reaching this door.
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            patches: [
+              {
+                path: '/usr/bin/ftp',
+                content: BINARY_STUB,
+                owner: 'root',
+                // World-executable, the way `apt install` stamps a tool: a binary only
+                // root could run would be no use to the player who installed it.
+                permissions: {
+                  read: ['root', 'user', 'guest'],
+                  write: ['root'],
+                  execute: ['root', 'user', 'guest'],
+                },
+              },
+            ],
+          }),
+        };
+      }),
+    );
+
+    const state = await import('./state');
+    state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
+    await vi.waitFor(() => expect(state.promptHost()).toBe('box'));
+    // The boot journal fetch is in flight; the ftp client only exists once it lands.
+    await vi.waitFor(async () => {
+      state.setInput('ls /usr/bin');
+      await state.runInput();
+      expect(state.scrollback().at(-1)?.content ?? '').toContain('ftp');
+    });
+
+    state.setInput(`ftp ${FTP_HOST.ip}`);
+    const run = state.runInput();
+    // Name, then password — answered the way the player answers them.
+    await vi.waitFor(() => expect(state.pendingPrompt()).toBeDefined());
+    state.setInput('guest');
+    state.submitPrompt();
+    await vi.waitFor(() => expect(state.pendingPrompt()).toBeDefined());
+    state.setInput('hunter2');
+    state.submitPrompt();
+    await run;
+    await settle();
+
+    return { state, sent };
+  };
+
+  const lastLine = (state: typeof import('./state')): string =>
+    state.scrollback().at(-1)?.content ?? '';
+
+  it('lands at ftp> on a good credential, refuses shell commands there, and quits back', async () => {
+    const { state, sent } = await loginOverFtp();
+
+    expect(state.inFtpSession()).toBe(true);
+    // The server was asked for an ftp-kind row, not a hop.
+    expect(sent.find((payload) => payload.action === 'authCreateSession')).toMatchObject({
+      kind: 'ftp',
+      username: 'guest',
+    });
+
+    state.setInput('ls /');
+    await state.runInput();
+    expect(lastLine(state)).toContain('?Invalid command');
+
+    state.setInput('quit');
+    await state.runInput();
+
+    expect(lastLine(state)).toContain('221 Goodbye');
+    expect(state.inFtpSession()).toBe(false);
+    // The player closed it themselves, so the row is an exit — not an abandonment.
+    await vi.waitFor(() =>
+      expect(sent.find((payload) => payload.action === 'endSession')).toEqual(
+        expect.objectContaining({ reason: 'user_exit' }),
+      ),
+    );
+  });
+
+  it('leaves the shell exactly where it was — the ftp session is beside it, not above it', async () => {
+    const { state } = await loginOverFtp();
+
+    // Even while the ftp session is HELD, the shell underneath is the player's own
+    // box at their own tier — an `ssh` login would have moved all three.
+    expect(state.promptHost()).toBe('box');
+    expect(state.promptUsername()).toBe('tester');
+    expect(state.cwd()).toBe('/home/tester');
+
+    state.setInput('quit');
+    await state.runInput();
+    state.setInput('pwd');
+    await state.runInput();
+
+    expect(state.promptHost()).toBe('box');
+    expect(lastLine(state)).toBe('/home/tester');
   });
 });
 

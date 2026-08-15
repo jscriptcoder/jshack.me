@@ -24,6 +24,7 @@ import type {
   RemoteApi,
   ScanApi,
   Session,
+  FtpApi,
   SshApi,
   HydraApi,
   SuApi,
@@ -112,6 +113,13 @@ export type BuildCommandEnvArgs = {
    *  UI wires it to the `authCreateServerSessionInnerGateway` adapter (signed
    *  `authCreateSessionInnerGateway` round-trip). Optional here for terse test setups. */
   readonly onSshAuthenticateInnerGateway?: SshApi['authenticateInnerGateway'];
+  /** The ftp login seam — backs `env.ftp.authenticate`. The UI wires it to the same
+   *  `authCreateSession` round-trip `ssh` uses, asked for an `ftp`-kind row. */
+  readonly onFtpAuthenticate?: FtpApi['authenticate'];
+  /** Hold/drop the parallel ftp session — the UI owns the signal the `ftp>` prompt
+   *  and the sub-shell dispatch both read. */
+  readonly onFtpEnter?: FtpApi['enter'];
+  readonly onFtpLeave?: FtpApi['leave'];
   /** The credential-cracking seam — backs `env.hydra.crack`. The UI wires it to the
    *  `crackCredentials` adapter (signed `hydraCrack` round-trip). Optional here for
    *  terse test setups; the UI always passes the real one. */
@@ -243,6 +251,11 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
     authenticateSameLan: args.onSshAuthenticateSameLan ?? notWired('ssh.authenticateSameLan'),
     authenticateInnerGateway:
       args.onSshAuthenticateInnerGateway ?? notWired('ssh.authenticateInnerGateway'),
+  },
+  ftp: {
+    authenticate: args.onFtpAuthenticate ?? notWired('ftp.authenticate'),
+    enter: args.onFtpEnter ?? (() => undefined),
+    leave: args.onFtpLeave ?? (() => undefined),
   },
   su: {
     elevate: args.onSuElevate ?? notWired('su.elevate'),

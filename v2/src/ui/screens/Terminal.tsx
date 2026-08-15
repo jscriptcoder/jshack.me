@@ -11,6 +11,8 @@ import {
   historyUp,
   input,
   pendingPrompt,
+  FTP_PROMPT,
+  inFtpSession,
   promptHost,
   promptTier,
   promptUsername,
@@ -51,6 +53,9 @@ const LINE_COLOR: Record<TerminalLine['kind'], string> = {
  *  pending prompt's message (e.g. `Password:`) while one is active. */
 const livePrompt = () =>
   pendingPrompt()?.message ??
+  // At `ftp>` the shell's user@host:cwd would name a machine the player is no
+  // longer typing at, so the ftp prompt replaces it rather than decorating it.
+  (inFtpSession() ? FTP_PROMPT : undefined) ??
   formatPrompt({
     username: promptUsername(),
     host: promptHost(),

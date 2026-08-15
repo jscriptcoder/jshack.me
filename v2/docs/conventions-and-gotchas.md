@@ -1190,6 +1190,17 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   recorded here rather than fixed there because the right destination is `access.log` as a run of
   401s, and that is the web door's decision, not the ftp door's. Fixing it is now one row.
 
+- **`ssh` never checks that sshd is listening; `ftp` does.** `handleAuthCreateSession` gates an
+  `ftp`-kind login on the target's `/var/run` pidfiles (`service_not_running` → 404) and leaves the
+  `ssh` path ungated, exactly as it has always been. The asymmetry is deliberate and load-bearing
+  for ftp — only ~30% of hosts roll the daemon, so an ungated ftp login would open a door on a box
+  that has none — while for ssh it never mattered: nearly every generated host runs sshd. It is not
+  free of consequence, though: `routerFs` generates routers with `hasSsh: false`, and `ssh
+  root@<that router>` authenticates today against a daemon that is not running. Closing it is one
+  clause (drop the `payload.kind !== 'ssh'` exemption) plus deciding what happens to a player mid-
+  session on such a router. Recorded rather than smuggled in behind ftp, because it changes a
+  shipped door.
+
 - **`AvailabilityRule` is inert — enforce it or delete it.** Every command declares one
   (`{kind:'any-machine'}`, `'localhost-only'`, `'installed-package'`) and **nothing in production
   code reads `command.availability`** — verified 2026-08-10 by grepping `\.availability\b` across

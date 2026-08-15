@@ -25,6 +25,7 @@ describe('rehydrateSessionStack', () => {
       sessionStack: [seed],
       returnCwdStack: [],
       activeCwd: '/home/alice',
+      abandoned: [],
     });
   });
 
@@ -123,6 +124,56 @@ describe('rehydrateSessionStack', () => {
     // exit from root pops back to alice's home.
     expect(result.returnCwdStack).toEqual(['/home/alice', '/root']);
     expect(result.activeCwd).toBe('/root');
+  });
+
+  it('rebuilds the stack without an active ftp session, and names it abandoned', () => {
+    const remote = session({
+      id: 'ssh-admin-1',
+      machineId: asMachineId('darkstar-12345678'),
+      username: 'admin',
+      userType: 'user',
+      kind: 'ssh',
+      createdAt: asEpochMs(10),
+    });
+    // An ftp login is a PARALLEL sub-shell, never a hop. It is the NEWEST row here,
+    // so a replay that stacked it would land the player on the ftp target's box
+    // holding a shell they never had.
+    const ftp = session({
+      id: 'ftp-guest-1',
+      machineId: asMachineId('vault-87654321'),
+      username: 'guest',
+      userType: 'guest',
+      kind: 'ftp',
+      createdAt: asEpochMs(20),
+    });
+
+    const result = rehydrateSessionStack(seed, [ftp, remote]);
+
+    expect(result.sessionStack).toEqual([seed, remote]);
+    expect(result.abandoned).toEqual([ftp]);
+    // The dropped row must not shift the cwd either — landing in /home/guest would
+    // mean it reached the stack after all.
+    expect(result.returnCwdStack).toEqual(['/home/alice']);
+    expect(result.activeCwd).toBe('/home/admin');
+  });
+
+  it('abandons nothing when every active row is a hop', () => {
+    const root = session({
+      id: 'su-root-1',
+      username: 'root',
+      userType: 'root',
+      createdAt: asEpochMs(10),
+    });
+    const remote = session({
+      id: 'ssh-admin-1',
+      machineId: asMachineId('darkstar-12345678'),
+      username: 'admin',
+      userType: 'user',
+      kind: 'ssh',
+      createdAt: asEpochMs(20),
+    });
+
+    expect(rehydrateSessionStack(seed, [root, remote]).abandoned).toEqual([]);
   });
 
   it('lands a non-root ssh hop in /home/<user> on the remote machine', () => {

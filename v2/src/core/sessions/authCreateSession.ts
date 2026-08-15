@@ -27,12 +27,8 @@ import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs';
 import { canBoot } from '../boot/bootFiles';
 import { md5 } from '../generation/md5';
-import {
-  AUTH_LOG_OWNER,
-  AUTH_LOG_PATH,
-  AUTH_LOG_PERMISSIONS,
-  formatSshdAuthLine,
-} from '../logging/authLog';
+import { SERVICE_CATALOG, type SweepLog } from '../services/serviceCatalog';
+import { readOpenPorts } from '../services/pidfile';
 import { derivePid } from '../logging/syslog';
 import {
   appendMachineLog,
@@ -44,6 +40,13 @@ import { asGameTime, type UserType } from '../types';
 import type { PatchRow } from '../patches/upsertPatch';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
+/** The doors this endpoint opens. Both authenticate the same way — against the
+ *  box's real `/etc/passwd` — and differ only in which log records the attempt and
+ *  what the client does with the row: `ssh` is a hop the shell walks onto, `ftp` a
+ *  parallel session the terminal holds alongside where it already stands. */
+export const DOOR_KINDS = ['ssh', 'ftp'] as const;
+export type DoorKind = (typeof DOOR_KINDS)[number];
+
 export type AuthSessionRow = {
   readonly session_id: string;
   readonly player_key: string;
@@ -51,7 +54,7 @@ export type AuthSessionRow = {
   readonly credentials: { readonly username: string; readonly userType: UserType };
   readonly parent_session_id: string | null;
   readonly source_ip: string | null;
-  readonly kind: 'ssh';
+  readonly kind: DoorKind;
   readonly essid: string;
 };
 
@@ -94,40 +97,54 @@ const authCreateSessionSchema = z
     password: z.string(),
     parent_session_id: z.string().min(1).nullable().optional(),
     source_ip: z.string().min(1).nullable().optional(),
+    // Absent means ssh, so every shipped caller keeps working untouched.
+    kind: z.enum(DOOR_KINDS).default('ssh'),
   })
   .refine((payload) => !('player_key' in payload));
 
-type SshAttempt = {
+type LoginAttempt = {
   readonly publicKey: string;
   readonly machineId: string;
   readonly host: LanHost;
   readonly username: string;
   readonly fromIp: string;
   readonly outcome: 'success' | 'failure';
+  /** How the door being knocked on records an attempt — the same catalog column
+   *  hydra's sweep writes through, so a login and a sweep against one service can
+   *  never disagree about which file the defender should be reading. */
+  readonly sweepLog: SweepLog;
 };
 
-/** Stamp the attempt onto the REMOTE host's `/var/log/auth.log` via the shared
- *  system-log primitive — the same seam nmap/ftp/nc/mysqld/redis will reuse.
- *  Best-effort: a logging failure must never break (or fabricate) the auth. */
-const logSshAttempt = async (deps: AuthCreateSessionDeps, attempt: SshAttempt): Promise<void> => {
+/** Stamp the attempt onto the REMOTE host's log for the service it was made
+ *  against. Best-effort: a logging failure must never break (or fabricate) the auth. */
+const logLoginAttempt = async (
+  deps: AuthCreateSessionDeps,
+  attempt: LoginAttempt,
+): Promise<void> => {
   const stamp = deps.now();
-  const line = formatSshdAuthLine({
+  const record = {
     outcome: attempt.outcome,
     user: attempt.username,
     fromIp: attempt.fromIp,
     hostname: attempt.host.hostname,
     time: asGameTime(stamp),
     pid: derivePid(stamp),
-  });
+  };
+  // A daemon that records arrivals separately writes both in one append: they are
+  // one event to the box, and two appends would be two read-modify-writes racing
+  // over the same file.
+  const line = [attempt.sweepLog.formatArrival?.(record), attempt.sweepLog.formatAttempt(record)]
+    .filter((entry) => entry !== undefined)
+    .join('\n');
   try {
     await appendMachineLog(
       { readLog: deps.readAuthLog, upsertPatch: deps.upsertPatch },
       {
         writerKey: attempt.publicKey,
         machineId: attempt.machineId,
-        path: AUTH_LOG_PATH,
-        owner: AUTH_LOG_OWNER,
-        permissions: AUTH_LOG_PERMISSIONS,
+        path: attempt.sweepLog.path,
+        owner: attempt.sweepLog.owner,
+        permissions: attempt.sweepLog.permissions,
       },
       line,
     );
@@ -182,19 +199,35 @@ export const handleAuthCreateSession = async (
     return { status: 404, body: { error: 'host_unreachable' } };
   }
 
+  const spec = SERVICE_CATALOG[payload.kind];
+
+  // The door has to be OPEN. Only some boxes roll ftp, so a knock on a box that
+  // never ran the daemon gets the same 404 an unreachable host does, and the box
+  // records nothing — a log line would confirm the machine exists.
+  //
+  // `ssh` is deliberately exempt, not overlooked: this endpoint has never checked
+  // it, and a router generated with `hasSsh: false` is reachable by ssh today.
+  // Closing that is a change to a shipped door with its own defenders, so it is
+  // backlogged rather than smuggled in behind ftp (`docs/conventions-and-gotchas.md` §9).
+  const listening = readOpenPorts(hostFs).some((open) => open.service === spec.service);
+  if (payload.kind !== 'ssh' && !listening) {
+    return { status: 404, body: { error: 'service_not_running' } };
+  }
+
   const account = accountIn(hostFs, payload.username);
   const passwordOk = account !== null && md5(payload.password) === account.hash;
 
-  // The host is resolved by now, so the attempt CAN be logged — sshd records both
-  // accepted and rejected logins. (A 404 host_unreachable above logs nothing —
-  // there is no machine to log on.)
-  await logSshAttempt(deps, {
+  // The host is resolved by now, so the attempt CAN be logged — every door records
+  // both accepted and rejected logins. (A 404 above logs nothing — there is no
+  // machine, or no daemon, to log on.)
+  await logLoginAttempt(deps, {
     publicKey,
     machineId,
     host,
     username: payload.username,
     fromIp: payload.source_ip ?? 'unknown',
     outcome: passwordOk ? 'success' : 'failure',
+    sweepLog: spec.sweepLog,
   });
 
   if (account === null || !passwordOk) {
@@ -208,7 +241,7 @@ export const handleAuthCreateSession = async (
     credentials: { username: payload.username, userType: account.userType },
     parent_session_id: payload.parent_session_id ?? null,
     source_ip: payload.source_ip ?? null,
-    kind: 'ssh',
+    kind: payload.kind,
     essid: payload.essid,
   });
   if (error) {

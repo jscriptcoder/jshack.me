@@ -27,7 +27,40 @@ describe('handleEndSession', () => {
     expect(endSession).toHaveBeenCalledWith({
       session_id: 'su-root-1700000000000',
       player_key: id.publicKeyHex,
+      reason: 'user_exit',
     });
+  });
+
+  it('records why the session ended, so an abandoned row is distinguishable from an exit', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'endSession', {
+      session_id: 'ftp-guest-1700000000000',
+      reason: 'abandoned',
+    });
+    const { deps, endSession } = makeDeps();
+
+    const result = await handleEndSession(envelope, deps);
+
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    expect(endSession).toHaveBeenCalledWith({
+      session_id: 'ftp-guest-1700000000000',
+      player_key: id.publicKeyHex,
+      reason: 'abandoned',
+    });
+  });
+
+  it('refuses a reason outside the known set rather than storing free text', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'endSession', {
+      session_id: 'su-root-1700000000000',
+      reason: 'whatever the client felt like',
+    });
+    const { deps, endSession } = makeDeps();
+
+    const result = await handleEndSession(envelope, deps);
+
+    expect(result).toEqual({ status: 400, body: { error: 'payload_invalid' } });
+    expect(endSession).not.toHaveBeenCalled();
   });
 
   it('rejects a client-supplied player_key with 400 and never ends', async () => {

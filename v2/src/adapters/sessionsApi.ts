@@ -41,6 +41,8 @@ import type {
   HydraCrackResult,
 } from '../core/commands/types';
 import type { SessionSummary } from '../core/sessions/listSessions';
+import type { EndReason } from '../core/sessions/endSession';
+import type { DoorKind } from '../core/sessions/authCreateSession';
 
 const DEFAULT_ENDPOINT = '/api/sessions';
 
@@ -117,6 +119,7 @@ const isUserType = (value: unknown): value is UserType =>
 export const authCreateServerSession = async (
   deps: SessionsClientDeps,
   params: RemoteAuthParams,
+  kind: DoorKind = 'ssh',
 ): Promise<RemoteAuthResult> => {
   try {
     const response = await post(deps, 'authCreateSession', {
@@ -127,6 +130,7 @@ export const authCreateServerSession = async (
       password: params.password,
       parent_session_id: params.parentSessionId,
       source_ip: params.sourceIp,
+      kind,
     });
     if (response.ok) {
       const body: unknown = await response.json();
@@ -288,15 +292,19 @@ export const authElevateServerSession = async (
   }
 };
 
-/** Mark a pushed session ended (the player `exit`ed it) so it no longer
- *  rehydrates. Fire-and-forget at the call site; the server scopes the update
- *  to the verified player_key, so naming a session_id you don't own is a no-op. */
+/** Mark a session ended so it no longer rehydrates. Fire-and-forget at the call
+ *  site; the server scopes the update to the verified player_key, so naming a
+ *  session_id you don't own is a no-op. `reason` separates the player closing a
+ *  session themselves from boot closing one on a lost terminal's behalf — the two
+ *  are indistinguishable in the row otherwise, and only one of them is a bug when
+ *  it starts happening often. */
 export const endServerSession = async (
   deps: SessionsClientDeps,
   sessionId: string,
+  reason: EndReason = 'user_exit',
 ): Promise<PatchResult> => {
   try {
-    return toResult(await post(deps, 'endSession', { session_id: sessionId }));
+    return toResult(await post(deps, 'endSession', { session_id: sessionId, reason }));
   } catch {
     return { ok: false, error: 'network_error' };
   }

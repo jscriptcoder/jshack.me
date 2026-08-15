@@ -350,10 +350,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (actionOf(req.body) === 'endSession') {
     // Scope the update to the verified player_key so a caller can only end
     // their OWN sessions; a non-owned session_id matches zero rows (no-op).
-    const endSession = async ({ session_id, player_key }: EndSessionParams) => {
+    const endSession = async ({ session_id, player_key, reason }: EndSessionParams) => {
       const { error } = await supabase
         .from('sessions')
-        .update({ ended_at: new Date().toISOString(), end_reason: 'user_exit' })
+        .update({ ended_at: new Date().toISOString(), end_reason: reason })
         .eq('session_id', session_id)
         .eq('player_key', player_key);
       logFailure('end', error);
