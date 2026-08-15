@@ -367,7 +367,7 @@ describe('handleHydraCrackPublic', () => {
       envelope({ caller_machine_id: machineIdForLanHost(standing, HOME_ESSID) }),
       depsWith({
         findActiveSession: async () => ({
-          data: { userType: 'root', essid: HOME_ESSID },
+          data: { username: 'root', userType: 'root', essid: HOME_ESSID },
           error: null,
         }),
         upsertPatch,
@@ -394,7 +394,7 @@ describe('handleHydraCrackPublic', () => {
       envelope({ caller_machine_id: 'host-deep-9f8e7d6c' }),
       depsWith({
         findActiveSession: async () => ({
-          data: { userType: 'root', essid: HOME_ESSID },
+          data: { username: 'root', userType: 'root', essid: HOME_ESSID },
           error: null,
         }),
         upsertPatch,
@@ -415,7 +415,7 @@ describe('handleHydraCrackPublic', () => {
       envelope({ caller_machine_id: PIVOT_BOX }),
       depsWith({
         findActiveSession: async () => ({
-          data: { userType: 'root', essid: 'NEVER-ALLOCATED' },
+          data: { username: 'root', userType: 'root', essid: 'NEVER-ALLOCATED' },
           error: null,
         }),
         upsertPatch,
@@ -446,7 +446,7 @@ describe('handleHydraCrackPublic', () => {
       envelope({ caller_machine_id: PIVOT_BOX }),
       depsWith({
         findActiveSession: async () => ({
-          data: { userType: 'root', essid: PIVOT_ESSID },
+          data: { username: 'root', userType: 'root', essid: PIVOT_ESSID },
           error: null,
         }),
         listPathPatches,
@@ -466,7 +466,7 @@ describe('handleHydraCrackPublic', () => {
       envelope({ caller_machine_id: PIVOT_BOX }),
       depsWith({
         findActiveSession: async () => ({
-          data: { userType: 'root', essid: PIVOT_ESSID },
+          data: { username: 'root', userType: 'root', essid: PIVOT_ESSID },
           error: null,
         }),
         upsertPatch,

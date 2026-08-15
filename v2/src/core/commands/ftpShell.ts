@@ -24,11 +24,11 @@
  * one.
  */
 
-import { resolveAbsPath } from '../filesystem/path';
+import { basename, resolveAbsPath } from '../filesystem/path';
 import { bindFlags } from '../shell/bindFlags';
 import type { AbsPath } from '../types';
 import { ls } from './ls';
-import type { CommandEnv, CommandResult, FsView, TerminalLine } from './types';
+import type { CommandEnv, CommandResult, FsView, PatchResult, TerminalLine } from './types';
 
 const text = (content: string): TerminalLine => ({ kind: 'text', content });
 
@@ -40,6 +40,16 @@ const result = (lines: readonly TerminalLine[], exitCode = 0): CommandResult => 
 
 const failure = (content: string): CommandResult =>
   result([{ kind: 'error', content }], 1);
+
+/** How a refused write on the player's OWN machine reads back. The local half of a
+ *  transfer speaks the client's plain voice, not a numbered response — the far side
+ *  never heard about it. */
+const WRITE_REFUSAL: Record<Extract<PatchResult, { ok: false }>['error'], string> = {
+  no_session: 'Permission denied',
+  permission_denied: 'Permission denied',
+  network_error: 'I/O error',
+  modified_since_open: 'File changed on disk',
+};
 
 /** One of the two machines: its tree at whatever tier addresses it, and the way
  *  to move its working directory. Naming the pair is what stops a command from
@@ -76,9 +86,50 @@ const listThrough = async (
   return ls.execute({ ...env, fs: binding.fs }, bound.positional, bound.flags);
 };
 
+/** Copy one file off the remote machine onto the origin. The remote read is the
+ *  session's, at the tier the credential bought; the origin write is the player's
+ *  own, exactly as if they had typed it into their shell.
+ *
+ *  A missing file and a sealed one are refused alike — the same argument `cd`
+ *  makes, since telling them apart maps out a stranger's box from outside the
+ *  tier that is allowed to see it. */
+const download = async (
+  env: CommandEnv,
+  source: string,
+  destination: string | undefined,
+): Promise<CommandResult> => {
+  const remotePath = resolveAbsPath(env.ftp.fs.cwd(), source);
+  const read = env.ftp.fs.read(remotePath);
+  if (!read.ok) return failure('550 Failed to open file.');
+
+  const localPath = resolveAbsPath(env.fs.cwd(), destination ?? basename(remotePath));
+  // An absent target is a file this write invents, so the row must say so and a
+  // later `rm` deletes it; an overwrite omits the flag, leaving the row's own
+  // answer alone — otherwise removing a file taken over a base-FS one would bring
+  // the original back.
+  const isNew = env.fs.stat(localPath) === null;
+  const written = isNew
+    ? await env.patches.write(localPath, read.content, { isNew: true })
+    : await env.patches.write(localPath, read.content);
+  if (!written.ok) return failure(`local: ${localPath}: ${WRITE_REFUSAL[written.error]}`);
+
+  // Only a completed transfer is recorded. A download line for a file the player
+  // does not hold would be a false entry in someone else's evidence, and nothing
+  // is lost by staying quiet: `get` never shows the content, so failing the local
+  // write is no way to read a file unseen.
+  env.ftp.recordDownload({ path: remotePath, bytes: read.content.length });
+
+  return result([
+    text(`local: ${localPath} remote: ${remotePath}`),
+    text('226 Transfer complete.'),
+    text(`${read.content.length} bytes received.`),
+  ]);
+};
+
 /** What `help` lists — the name and what it does, in the order a player meets
  *  them. The remote half first: that is the machine they came here for. */
 const FTP_COMMANDS: readonly { readonly name: string; readonly description: string }[] = [
+  { name: 'get', description: 'Copy a file from the remote machine to your own' },
   { name: 'ls', description: 'List a directory on the remote machine' },
   { name: 'cd', description: 'Change the remote working directory' },
   { name: 'pwd', description: 'Print the remote working directory' },
@@ -135,6 +186,12 @@ export const runFtpLine = async (env: CommandEnv, line: string): Promise<Command
     const moved = moveTo(originOf(env), target);
     if (moved === null) return failure(`lcd: ${target}: No such directory`);
     return result([text(`Local directory now ${moved}`)]);
+  }
+
+  if (name === 'get') {
+    const source = args[0];
+    if (source === undefined) return failure('usage: get remote-file [local-file]');
+    return download(env, source, args[1]);
   }
 
   return result([{ kind: 'error', content: `?Invalid command: ${name}` }], 1);

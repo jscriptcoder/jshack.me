@@ -228,9 +228,11 @@ PHASE 1 — THE DOORS  (near-term focus)
       D2.4 cross-player hydra, all five slices        ✔ SHIPPED v0.119.0-v0.122.0
       D2.6a an appended word opens a door that held    ✔ SHIPPED #377 (tests only)
       D2.6b harvestable plaintext loot                 ⏸ POSTPONED — V2 owes the harvest route
-  D3  ftp (the door)                                  ◀ IN PROGRESS — 2 of 6 slices shipped
+  D3  ftp (the door)                                  ◀ IN PROGRESS — 3 of 6 slices shipped
       D3 slice 1 the door + its own log                ✔ SHIPPED v0.131.0 (#393)
       D3 slice 2 login + a prompt you can leave        ✔ SHIPPED v0.132.0 (#394)
+      D3 slice 3 looking around, without losing home   ✔ SHIPPED v0.133.0 (#395)
+      D3 slice 4 get, itemised in the owner's log      ◀ awaiting commit approval v0.134.0
   D3b scp (the transfer)                              — grilled 2026-08-14, needs planning
   D4  daemon control (systemctl / ps / kill)
   D5  nc connect + nc -l backdoor

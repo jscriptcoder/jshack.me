@@ -194,6 +194,37 @@ export const recordLanFetch = async (
   }
 };
 
+/** What one ftp download tells the box it came off: which machine, which file, how
+ *  many bytes, and the address it went to. The ACCOUNT is deliberately absent — the
+ *  server reads that off the session row, so the log names who the player really
+ *  logged in as rather than who they say they are. */
+export type FtpDownloadRecord = {
+  readonly machineId: MachineId;
+  readonly path: AbsPath;
+  readonly bytes: number;
+  readonly sourceIp: string | null;
+};
+
+/** Fire the remote box's own transfer log: the server checks the caller holds a
+ *  session there, then appends the `OK DOWNLOAD` line to its `/var/log/vsftpd.log`.
+ *  Best-effort + fire-and-forget like the other traces — the file is already on the
+ *  player's disk, so a logging failure must not surface as a failed transfer. */
+export const recordFtpDownload = async (
+  deps: PatchClientDeps,
+  transfer: FtpDownloadRecord,
+): Promise<void> => {
+  try {
+    await post(deps, 'recordFtpDownload', {
+      machine_id: transfer.machineId,
+      path: transfer.path,
+      bytes: transfer.bytes,
+      source_ip: transfer.sourceIp,
+    });
+  } catch {
+    // best-effort: a logging failure must not surface to the transfer.
+  }
+};
+
 /** Fire the server-internal scan log: the server resolves the scanned hosts from
  *  the (verified pubkey, essid, target) and writes each one's `/var/log/kern.log`
  *  itself — the client only names what it scanned. Best-effort + fire-and-forget:

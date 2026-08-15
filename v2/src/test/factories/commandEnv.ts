@@ -141,6 +141,9 @@ export const mockFtpApi = (overrides: Partial<FtpApi> = {}): FtpApi => ({
   // than the origin's tree wearing the remote's name.
   fs: mockFsViewFromTree(buildDirectory({})),
   setCwd: () => undefined,
+  // Fire-and-forget in production, so a no-op default keeps every test that does
+  // not care about the defender's log unaffected; the ones that care pass a spy.
+  recordDownload: () => undefined,
   ...overrides,
 });
 

@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { asGameTime } from '../types';
+import { asAbsPath, asGameTime } from '../types';
 import {
   VSFTPD_LOG_OWNER,
   VSFTPD_LOG_PATH,
   formatVsftpdConnectLine,
+  formatVsftpdDownloadLine,
   formatVsftpdLoginLine,
 } from './vsftpdLog';
 
@@ -101,5 +102,41 @@ describe('formatVsftpdLoginLine', () => {
     });
 
     expect(line).toBe('Mon Jan  5 04:07:09 2026 [pid 12] [admin] FAIL LOGIN: Client "10.0.0.2"');
+  });
+});
+
+describe('formatVsftpdDownloadLine', () => {
+  it('itemises what left the box — which file, and how much of it', () => {
+    // The line ssh cannot give. A login says someone came in; this says what they
+    // walked out with, and the defender reads both out of the same file.
+    const line = formatVsftpdDownloadLine({
+      user: 'guest',
+      fromIp: '10.0.0.9',
+      time: asGameTime(Date.UTC(2026, 7, 14, 13, 56, 2)),
+      pid: 4471,
+      path: asAbsPath('/etc/passwd'),
+      bytes: 1243,
+    });
+
+    expect(line).toBe(
+      'Fri Aug 14 13:56:02 2026 [pid 4471] [guest] OK DOWNLOAD: Client "10.0.0.9", "/etc/passwd", 1243 bytes',
+    );
+  });
+
+  it('says bytes even when there was exactly one, as vsftpd does', () => {
+    // vsftpd never singularises, and a log a player might grep is worse for being
+    // grammatical in one row out of a thousand.
+    const line = formatVsftpdDownloadLine({
+      user: 'root',
+      fromIp: '192.168.1.30',
+      time: AUG_14,
+      pid: 88,
+      path: asAbsPath('/root/.flag'),
+      bytes: 1,
+    });
+
+    expect(line).toBe(
+      'Fri Aug 14 13:55:38 2026 [pid 88] [root] OK DOWNLOAD: Client "192.168.1.30", "/root/.flag", 1 bytes',
+    );
   });
 });

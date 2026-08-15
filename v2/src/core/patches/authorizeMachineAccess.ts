@@ -20,6 +20,9 @@ import { isOwnWorkstation } from '../identity/workstation';
 import type { UserType } from '../types';
 
 export type ActiveSession = {
+  /** The account the session was opened as. Read off the row rather than taken
+   *  from the caller, so a log line naming an account names the real one. */
+  readonly username: string;
   readonly userType: UserType;
   readonly essid: string;
 };

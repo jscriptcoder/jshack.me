@@ -127,6 +127,10 @@ export type BuildCommandEnvArgs = {
    *  (it owns the target's journal); absent it, there is no remote to look at. */
   readonly ftpFs?: FsView;
   readonly onFtpCwdChange?: (path: AbsPath) => void;
+  /** Report a file leaving the remote box, so its own `vsftpd.log` itemises the
+   *  theft. The UI wires it to the signed `recordFtpDownload` round-trip, adding
+   *  the session and the vantage the command has no business naming. */
+  readonly onFtpDownload?: FtpApi['recordDownload'];
   /** The credential-cracking seam — backs `env.hydra.crack`. The UI wires it to the
    *  `crackCredentials` adapter (signed `hydraCrack` round-trip). Optional here for
    *  terse test setups; the UI always passes the real one. */
@@ -278,6 +282,10 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
     // with a listing of the player's own.
     fs: args.ftpFs ?? createFsView(NO_REMOTE),
     setCwd: args.onFtpCwdChange ?? (() => undefined),
+    // Fire-and-forget, so an unwired seam no-ops rather than throwing: the file is
+    // already on the player's disk by the time this is called, and a logging
+    // failure must not un-take it.
+    recordDownload: args.onFtpDownload ?? (() => undefined),
   },
   su: {
     elevate: args.onSuElevate ?? notWired('su.elevate'),

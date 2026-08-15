@@ -1128,6 +1128,20 @@ state costs you more than one wrong attempt.
   the one now held and drop it otherwise. Without that, quitting one box and opening another
   before the first answer lands renders one stranger's files under another stranger's name.
   `state.test.ts` pins both orders (a late answer with a different box open, and with none).
+- **A log line that names an ACCOUNT reads it off the session row, never off the payload.**
+  The client says what it did (`recordFtpDownload` sends the path and the byte count); who it
+  is comes from the `(player_key, machine_id)` row the L1 gate just looked up. A defender's log
+  a visitor can author is not evidence — and the same rule already covers the clock (server
+  `now()`) and provenance (`writer_key` stamped from the verified pubkey). Two consequences
+  worth stating: `ActiveSession` therefore carries `username`, and a handler that needs an
+  identity must **refuse the own-workstation L1 BYPASS**, which returns `session: null` and so
+  can name nobody. Proven live by `scripts/testFtpDownloadTrace.ts`, which claims `impostor`
+  and reads the real account back out of the box's own log.
+- **`ActiveSession` is the L1 projection; take a `Pick` of it when you only need the tier.**
+  `remoteWritePermission` answers a permission question, which needs `userType` + `essid` and
+  no name at all — so it takes `Pick<ActiveSession, 'userType' | 'essid'>`. Without that, every
+  field added to the projection for one consumer breaks every fixture of every other one
+  (adding `username` broke ~35 call sites; 20 were that module's).
 - **Known deferred gap (L3 smart-server):** a client with a valid keypair can mint an
   `effect_one_shot`/root session via `createSession` and call `exploitRead` directly,
   skipping the in-game CVE flow. Accepted per the security model; real fix = server-side
@@ -1179,7 +1193,7 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   one shared AP gateway per ESSID, ESSID-seeded shared NPCs and deep chains, and the removal of
   the store whose last-writer-wins PK caused the collisions. As-built in §7 and
   `cross-player-architecture.md`; the plan file was deleted on close-out.
-- **Wire-checks are not in CI** — all 32 run only by hand against a local `vercel dev` +
+- **Wire-checks are not in CI** — all 37 run only by hand against a local `vercel dev` +
   supabase, and they are the ONLY thing that proves `api/` runtime correctness (`tsc` cannot
   see DB columns or constraints). A regression there ships green. Raised repeatedly and
   deliberately not taken on yet; it needs a CI supabase + a way to boot the functions
@@ -1196,6 +1210,13 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   contract deliberately left open (the credential-free door). Detail at §1's cross-player trace
   entry and in D1d's as-built; named as open in `plans/legacy-parity-epic.md`.
 
+- **`api/patches.ts` holds four hand-copied `readLog` closures.** Every log appender needs the
+  same "one writer's row at one path on one machine" read, and each `if (action === …)` block
+  declares its own. A fifth was NOT added for `recordFtpDownload` — it uses a shared
+  `readMachineLog` beside `upsertPatch`/`findActiveSession` — but the other four are still
+  inline. Folding them on is mechanical and behaviour-preserving; it is left for a slice that
+  is already touching those blocks, because `api/` has no unit tests and only a wire-check run
+  can prove the fold (and only two of the four have one).
 - **An `http` sweep is written up as `sshd`.** `hydra <host> http` is a supported attack —
   `hydraCrackPublic.test.ts` deliberately covers reaching the web service through a forward — but
   the web door has no login, so the trace it leaves is `Failed password for <user> from <ip>` in

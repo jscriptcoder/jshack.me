@@ -60,6 +60,7 @@ import {
   isOnline,
   type ConnectivityState,
   type NetworkInterface,
+  type WirelessInterface,
 } from '../core/network/interfaces';
 import { parseHttpUrl } from '../core/network/http';
 import { fetchPageAcrossNetwork, fetchWebPage } from '../core/commands/webPage';
@@ -80,8 +81,10 @@ import {
   fetchOwnPatches,
   postAuthLog,
   recordDeepScan,
+  recordFtpDownload,
   recordLanFetch,
   recordScan,
+  type FtpDownloadRecord,
   type PatchClientDeps,
 } from '../adapters/patchApi';
 import { createSyncChannel, type SyncChannel } from '../adapters/crossTabSync';
@@ -319,14 +322,18 @@ const pushSession = (next: Session): void => {
   rebindPatchClient();
 };
 
+/** The player's wireless interface, or null when the box has none. Three readers
+ *  ask the same narrowing question — which network they are on, which address they
+ *  are reaching from, and whether a fetch was aimed at their own box — so the
+ *  question is answered once here. */
+const wireless = (): WirelessInterface | null => {
+  const wlan0 = connectivity().interfaces.get('wlan0');
+  return wlan0 !== undefined && wlan0.kind === 'wireless' ? wlan0 : null;
+};
+
 /** The ESSID of the currently-associated wlan0, or null when not on a network.
  *  Lets the FS dispatch regenerate the LAN a remote ssh session lives on. */
-const currentEssid = (): string | null => {
-  const wlan0 = connectivity().interfaces.get('wlan0');
-  return wlan0 !== undefined && wlan0.kind === 'wireless' && wlan0.association !== null
-    ? wlan0.association.essid
-    : null;
-};
+const currentEssid = (): string | null => wireless()?.association?.essid ?? null;
 
 /** The player's own workstation id — the base (bottom) session's machine, stable
  *  across `su`/`ssh` hops. The FS dispatch compares the active session against it
@@ -376,15 +383,32 @@ const ftpRoot = (session: Session): Directory =>
     patches: ftpPatches(),
   });
 
+/** The address the player is reaching the remote box FROM — their own leased LAN
+ *  address. Null off-network, which the server renders as `unknown` rather than
+ *  inventing a client. */
+const localAddress = (): string | null => wireless()?.ipv4 ?? null;
+
 /** The remote half of the env, present only while a session is held: without one
  *  there is nothing to bind, and `buildCommandEnv` supplies the empty tree that
  *  says so. */
-const ftpBinding = (): Pick<BuildCommandEnvArgs, 'ftpFs' | 'onFtpCwdChange'> => {
+const ftpBinding = (): Pick<
+  BuildCommandEnvArgs,
+  'ftpFs' | 'onFtpCwdChange' | 'onFtpDownload'
+> => {
   const session = ftpSession();
   if (session === null) return {};
   return {
     ftpFs: createFsView(ftpRoot(session), { userType: session.userType, cwd: ftpCwd }),
     onFtpCwdChange: setFtpCwd,
+    // The command names the file; WHICH box and from WHERE are added here, off the
+    // session it could not have opened by itself.
+    onFtpDownload: ({ path, bytes }) =>
+      void recordFtpDownloadFn({
+        machineId: session.machineId,
+        path,
+        bytes,
+        sourceIp: localAddress(),
+      }),
   };
 };
 
@@ -461,6 +485,14 @@ const hydraCrackInnerGateway = (
  *  no-op until `startGame` wires the patch client; the scan stands regardless. */
 const recordScanFn = (params: ScanRecordParams): Promise<void> =>
   patchClientDeps === undefined ? Promise.resolve() : recordScan(patchClientDeps, params);
+
+/** Itemise a completed ftp download on the target's own `vsftpd.log` (backs
+ *  `env.ftp.recordDownload`). Best-effort and a no-op until `startGame` wires the
+ *  patch client; the file is already on the player's disk regardless. */
+const recordFtpDownloadFn = (transfer: FtpDownloadRecord): Promise<void> =>
+  patchClientDeps === undefined
+    ? Promise.resolve()
+    : recordFtpDownload(patchClientDeps, transfer);
 
 /** Record a deep PIVOT scan server-side (backs `env.scan.recordDeep`). Best-effort
  *  and a no-op until `startGame` wires the patch client; the scan stands regardless. */
@@ -783,8 +815,7 @@ const log: LogApi = {
     const deps = patchClientDeps;
     if (deps === undefined) return;
     await recordLanFetch(deps, fetched);
-    const wlan0 = connectivity().interfaces.get('wlan0');
-    if (wlan0 === undefined || wlan0.kind !== 'wireless' || wlan0.ipv4 !== fetched.target) return;
+    if (localAddress() !== fetched.target) return;
     await refetchPatches();
     syncChannel?.broadcast({ type: 'patches-changed', machineId: deps.machineId });
   },

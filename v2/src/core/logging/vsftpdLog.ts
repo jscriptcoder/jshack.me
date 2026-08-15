@@ -77,3 +77,23 @@ export const formatVsftpdLoginLine = ({
   pid,
 }: CredentialAttempt): string =>
   `${formatVsftpdTimestamp(time)} [pid ${pid}] [${user}] ${outcome === 'success' ? 'OK' : 'FAIL'} LOGIN: Client "${fromIp}"`;
+
+/** What one transfer off the box looked like from the daemon's side. */
+export type TransferRecord = Pick<CredentialAttempt, 'user' | 'fromIp' | 'time' | 'pid'> & {
+  readonly path: AbsPath;
+  readonly bytes: number;
+};
+
+/** Render a completed download — the line `ssh` has no equivalent of. A login says
+ *  somebody came in; this says which file they walked out with and how much of it,
+ *  and the defender reads both out of the same file. `bytes` is never singularised,
+ *  because vsftpd does not. */
+export const formatVsftpdDownloadLine = ({
+  user,
+  fromIp,
+  time,
+  pid,
+  path,
+  bytes,
+}: TransferRecord): string =>
+  `${formatVsftpdTimestamp(time)} [pid ${pid}] [${user}] OK DOWNLOAD: Client "${fromIp}", "${path}", ${bytes} bytes`;

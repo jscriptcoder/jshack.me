@@ -280,8 +280,11 @@ const findActiveSessionVia =
       .maybeSingle();
     logFailure(label, error);
     if (data === null) return { data: null, error };
-    const row = data as { credentials: { userType: UserType }; essid: string };
-    return { data: { userType: row.credentials.userType, essid: row.essid }, error };
+    const row = data as { credentials: { username: string; userType: UserType }; essid: string };
+    return {
+      data: { username: row.credentials.username, userType: row.credentials.userType, essid: row.essid },
+      error,
+    };
   };
 
 /** Every writer's rows at one path on one machine. Machine-scoped, NOT writer-scoped: the

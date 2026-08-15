@@ -32,6 +32,12 @@ import { asAbsPath } from '../types';
 import type { Directory } from '../filesystem/types';
 import type { ActiveSession } from './authorizeMachineAccess';
 
+/** What a write gate needs to know about a session: the tier it carries and the
+ *  network it was opened on. Never the account name — a permission question is
+ *  answered by the tier, and asking for an identity here would make every caller
+ *  supply one this module cannot use. */
+type SessionTier = Pick<ActiveSession, 'userType' | 'essid'>;
+
 /** Prior patches for the regenerated machine, the way `listPatches` returns them
  *  (already mapped to the client `Patch` shape so `applyPatches` can replay). */
 export type ListMachinePatchesResult = {
@@ -85,7 +91,7 @@ type ResolvedBase = { readonly fs: Directory | null; readonly error: unknown };
  *  failure so the caller 500s rather than issuing a false deny. */
 const resolveTargetBaseFs = async (args: {
   readonly machineId: string;
-  readonly session: ActiveSession;
+  readonly session: SessionTier;
   readonly findOccupantWorkstationByMachineId: FindOccupantWorkstationByMachineId;
 }): Promise<ResolvedBase> => {
   // Any host on the session's LAN — a journal-backed edge router or inner gateway (a
@@ -134,7 +140,7 @@ const resolveTargetBaseFs = async (args: {
 export const enforceRemoteWriteL2 = async (args: {
   readonly machineId: string;
   readonly path: string;
-  readonly session: ActiveSession | null;
+  readonly session: SessionTier | null;
   readonly listMachinePatches: ListMachinePatches;
   readonly findOccupantWorkstationByMachineId: FindOccupantWorkstationByMachineId;
 }): Promise<L2Denial | null> => {

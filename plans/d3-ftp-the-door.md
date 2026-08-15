@@ -23,8 +23,8 @@ takes a file and leaves one — and the box's owner reads exactly which files mo
 - [x] Inside the session the player reads the remote tree (`ls`, `cd`, `pwd`) at the tier their
       credential carries, while `lls`/`lcd`/`lpwd` still address the box they are standing on
       *(slice 3, v0.133.0)*
-- [ ] `get` copies a remote file onto the origin machine; `put` copies an origin file onto the
-      remote, refused when the session's tier cannot write the destination
+- [ ] `get` copies a remote file onto the origin machine *(slice 4, v0.134.0)*; `put` copies an
+      origin file onto the remote, refused when the session's tier cannot write the destination
 - [ ] The target's `vsftpd.log` names every login and every transfer, with byte counts — the
       itemised record `ssh` cannot give
 - [ ] All of it works against another player's machine through a NAT forward, with the attacker's
@@ -109,10 +109,10 @@ Carried from the grill, with a recommendation and the evidence found since:
    not have is refused by exactly the same `530 Login incorrect` a wrong password gets, because
    `authCreateSession` already collapses the two and telling them apart would leak the account
    list.
-3. **`get` onto an existing origin file — slice 4.** *Recommendation: overwrite, and say so.*
-   Real ftp overwrites; the origin is the player's own box; and a refusal makes re-fetching a file
-   you already took an unexplainable failure. Print the byte count on the transfer line so the
-   overwrite is visible.
+3. ~~**`get` onto an existing origin file — slice 4.**~~ **RESOLVED 2026-08-15: OVERWRITE, and say
+   so.** *Recommendation, taken:* real ftp overwrites; the origin is the player's own box; and a
+   refusal makes re-fetching a file you already took an unexplainable failure. The byte count is
+   printed on the transfer line, which is what makes the overwrite visible.
 
 **Not open** (locked by the grill, restated so nobody re-litigates it mid-slice):
 `/var/log/vsftpd.log` is tier-2 like `auth.log`/`kern.log` — **NOT** added to the tier-3
@@ -314,7 +314,7 @@ generic sub-shell mechanism here**. One instance is not a pattern; the third cal
 
 ### Slice 3: A player looks around the remote machine at the tier their credential carries, without losing their own
 
-**Status: COMPLETE, awaiting commit approval** — v0.133.0. As-built notes:
+**Status: SHIPPED** — v0.133.0, PR #395 (`47dd312`), merged 2026-08-15. As-built notes:
 
 1. **The remote listing is the shell's own `ls`, run over a swapped binding.** `ls`/`lls` both
    delegate to the real command with `{ ...env, fs: <binding>.fs }`, which is what makes the
@@ -394,6 +394,41 @@ wire-check proves authorization and provenance rather than filtering. Recorded i
 
 ### Slice 4: A player takes a file, and the theft is itemised in the owner's log
 
+**Status: COMPLETE, awaiting commit approval** — v0.134.0. As-built notes:
+
+1. **The wire-check line below was WRONG, and RED is where it was caught.** It said no
+   wire-check is needed if the origin write goes through the shipped own-workstation path.
+   The origin write does — but the DOWNLOAD line does not: it lands on ANOTHER box's log,
+   which no shipped endpoint could do. `get` therefore added a `recordFtpDownload` action
+   to `api/patches.ts`, and by that line's own terms a wire-check became required.
+   `scripts/testFtpDownloadTrace.ts` is it, **9/9 live**.
+2. **The account in the log is read off the session row, not the payload.** A client that
+   names its own account can file a theft under anyone's name, so `ActiveSession` gained
+   `username` (the row already carried it in `credentials`) and the handler refuses when
+   there is no row at all — including the own-workstation L1 BYPASS, which hands back no
+   session and so cannot name anybody. The wire-check proves it against a live row by
+   claiming `impostor` and reading back the real account.
+3. **Widening the L1 projection was paid for by NARROWING the write gate.** Adding a
+   required field to `ActiveSession` broke ~35 call sites, 20 of them in
+   `remoteWritePermission` — a module that reads only the tier and the ESSID. It now takes
+   `Pick<ActiveSession, 'userType' | 'essid'>`, which drops those 20 and says what a
+   permission question actually needs: a tier, never a name.
+4. **Only a COMPLETED transfer is recorded.** A refused remote read and a refused local
+   write both stay silent. A download line for a file the player does not hold is a false
+   entry in someone else's evidence, and nothing is lost by the silence — `get` never
+   prints the content, so failing the local write is no way to read a file unseen.
+5. **`SweepLog` was NOT renamed.** The rename this plan scheduled here assumed the download
+   line would travel through the same catalog column the logins do. It does not: a transfer
+   is not a credential attempt, so it has its own formatter and its own endpoint, and
+   `SweepLog` still carries exactly what it carried before. Renaming it would have been
+   churn justified by a coupling that never happened. **Re-assess at slice 5** — `put` is
+   the last chance for a third shape to make the name wrong.
+6. **`get` is the shell's own write, exactly as `ls` was the shell's own read.** The origin
+   half routes through `env.patches.write` with the `isNew` rule the editor and the `>`
+   redirect already follow: an absent target is a file this write invents (so `rm` deletes
+   the row), an existing one omits the flag (so `rm` leaves a tombstone and the base file
+   does not come back).
+
 **Value**: The first real payload. `get` copies a remote file onto the origin machine, where the
 player's own tools can work on it — and unlike `ssh`, the owner learns exactly which file left.
 **Path**: `get <remote> [local]` → remote read (slice 3's binding) → **origin** write through the
@@ -415,17 +450,33 @@ vs refuse):
   is what makes that visible
 
 **RED**: `get` on a readable remote file produces an origin file with that content — asserted
-through the origin FS, not through the command's own output.
+through the origin FS, not through the command's own output. *(As run: the test's `patches.write`
+lands a real `Patch` in a journal and every line is answered by an env rebuilt over
+`applyPatches(ORIGIN_TREE, journal)`, which is what the UI does per command — so the file is found
+by looking for it rather than by watching the call that claimed to send it.)*
 **GREEN**: `get` in the ftp map, landing at the origin cwd slice 3 introduced; the DOWNLOAD trace.
 **MUTATE**: Full run on `get` and the destination resolution.
 **KILL MUTANTS**: The read-refusal arm must leave no local write — assert the absence, and beware
 the vacuous-absence trap §6 records (prove the file *would* have been there on the success path).
 **REFACTOR**: Assess a shared transfer core now that one direction exists; **do not** generalize
-for `put` before slice 5 exists to name what is common.
-**Wire-check**: Not required if the origin write goes through the shipped own-workstation path
+for `put` before slice 5 exists to name what is common. ~~**Also due here: rename `SweepLog`**~~ —
+*not due after all, see as-built note 5: the download line never touched that type.* What the
+assessment DID find: three copies of "read wlan0 as a wireless interface" in `state.ts` (the ESSID
+the player is on, the address they reach from, whether a fetch was their own), folded onto one
+`wireless()` reader; and the L1-projection widening paid for by narrowing the write gate (note 3).
+**Wire-check**: ~~Not required if the origin write goes through the shipped own-workstation path
 unchanged — **verify that at RED**; if `get` touches any `api/` handler, a wire-check becomes
-required and this line is wrong.
-**Done when**: All criteria met, gates green, commit approved.
+required and this line is wrong.~~ **It was wrong, and RED said so — see as-built note 1.**
+**DONE — 9/9 live** (`vercel dev` + supabase, 2026-08-15). `scripts/testFtpDownloadTrace.ts`:
+a player holding nothing on the box cannot write to its log (403, and no row is left behind);
+an `ftp` row authorizes the record; the line the box itself holds names the file, the byte
+count and the client; the account is the SESSION's even when the payload claims `impostor`;
+the login lines are still under it, so the record accumulates; and after `endSession` it is
+403 again. Regressions re-run green on the same stack: `testFtpRemoteRead` 7/7,
+`testFtpSession` 14/14, `testCrossPlayerWrite` 12/12 (the widened L1 projection feeding the
+remote-write L2), `testHydraOwnLan` 23/23 and `testLanFetchLog` 11/11 (the log appenders the
+new shared `readMachineLog` sits beside).
+**Done when**: All criteria met, wire-check green, gates green, commit approved.
 **Version**: 0.134.0.
 
 ---

@@ -9,6 +9,7 @@ import {
 import { handleListPatches, type ListPatchesQuery } from '../src/core/patches/listPatches';
 import { handleRemovePatch, type PatchTreeQuery } from '../src/core/patches/removePatch';
 import { handleAppendAuthLog, type AuthLogContentQuery } from '../src/core/patches/appendAuthLog';
+import { handleRecordFtpDownload } from '../src/core/patches/recordFtpDownload';
 import { handleNmapScan, type ScanOccupant } from '../src/core/scan/nmapScan';
 import {
   handleRecordLanFetch,
@@ -97,6 +98,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return { error };
   };
 
+  // One writer's row at one path on one machine — what every log appender reads
+  // before it writes, so the append is a read-modify-write the SERVER performs and
+  // the client never supplies content.
+  const readMachineLog = async ({ writer_key, machine_id, path }: MachineLogReadQuery) => {
+    const { data, error } = await supabase
+      .from('patches')
+      .select('content')
+      .eq('writer_key', writer_key)
+      .eq('machine_id', machine_id)
+      .eq('path', path)
+      .maybeSingle();
+    if (error) console.error('[patches] machine-log read error:', error);
+    return { data, error };
+  };
+
   // L1 lookup shared by upsert/list/remove: the caller's ACTIVE session on the
   // target machine (an ssh hop). The handler only needs its presence today; the
   // projected `userType`/`essid` are what the remote-write L2 pass reads next.
@@ -116,8 +132,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .maybeSingle();
     if (error) console.error('[patches] active-session lookup error:', error);
     if (data === null) return { data: null, error };
-    const row = data as { credentials: { userType: UserType }; essid: string };
-    return { data: { userType: row.credentials.userType, essid: row.essid }, error };
+    const row = data as { credentials: { username: string; userType: UserType }; essid: string };
+    return {
+      data: { username: row.credentials.username, userType: row.credentials.userType, essid: row.essid },
+      error,
+    };
   };
 
   // L2's regeneration key: a remote machine's patch journal (the shared journal —
@@ -244,6 +263,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
       readAuthLog,
+      upsertPatch,
+    });
+    res.status(status).json(body);
+    return;
+  }
+
+  if (actionOf(req.body) === 'recordFtpDownload') {
+    // A file leaving a box is itemised in THAT box's vsftpd.log, so the read is the
+    // machine's row for this writer — the same read-modify-write shape appendAuthLog
+    // performs, pointed at someone else's machine and gated on the session that got
+    // the player in there.
+    const { status, body } = await handleRecordFtpDownload(req.body, {
+      nonceStore: noopNonceStore,
+      now: () => Date.now(),
+      findActiveSession,
+      readLog: readMachineLog,
       upsertPatch,
     });
     res.status(status).json(body);
