@@ -26,6 +26,7 @@ import type {
   Session,
   FsView,
   FtpApi,
+  ScpApi,
   SshApi,
   HydraApi,
   SuApi,
@@ -140,6 +141,14 @@ export type BuildCommandEnvArgs = {
    *  round-trip, adding the session and the vantage the command has no business
    *  naming. */
   readonly onFtpTransfer?: FtpApi['recordTransfer'];
+  /** The transfer door's three seams — backs `env.scp`. The login is the same
+   *  `authCreateSession` round-trip, asked for an `scp`-kind row; the write is the
+   *  shipped patch client aimed at whatever machine the session landed on; the end
+   *  closes the row the command opened. Session-parameterized rather than bound,
+   *  because the session is created and retired inside a single command. */
+  readonly onScpAuthenticate?: ScpApi['authenticate'];
+  readonly onScpWrite?: ScpApi['write'];
+  readonly onScpEnd?: ScpApi['end'];
   /** The credential-cracking seam — backs `env.hydra.crack`. The UI wires it to the
    *  `crackCredentials` adapter (signed `hydraCrack` round-trip). Optional here for
    *  terse test setups; the UI always passes the real one. */
@@ -299,6 +308,16 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
     // have already moved by the time this is called, and a logging failure must
     // not un-move them.
     recordTransfer: args.onFtpTransfer ?? (() => undefined),
+  },
+  scp: {
+    authenticate: args.onScpAuthenticate ?? notWired('scp.authenticate'),
+    // Load-bearing for the same reason ftp's write is: a transfer that reported
+    // success onto a box which never received the bytes is the one lie this command
+    // must not be able to tell.
+    write: args.onScpWrite ?? notWired('scp.write'),
+    // Fire-and-forget: the transfer has already resolved, and a row left active is
+    // swept on the next boot.
+    end: args.onScpEnd ?? (() => undefined),
   },
   su: {
     elevate: args.onSuElevate ?? notWired('su.elevate'),

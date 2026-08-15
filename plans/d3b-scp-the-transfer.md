@@ -142,6 +142,13 @@ request stores `scp` **and** appends through the ssh sweep log, failing on the e
 **KILL MUTANTS**: Cases for `-p` given vs absent vs non-numeric, and new-file vs overwrite.
 **REFACTOR**: Assess whether the extracted `land()` wants its own module beside the patch
 helpers, or stays a shared local. Take the collapsed option unless a second caller argues.
+**Wire-check**: DEFERRED TO SLICE 3 (owner call, 2026-08-15). This slice widens an `api/`-reachable
+enum — `authCreateSession` now accepts a third door kind — so by the standing rule it is
+live-unproven until the scripts run. Two things make the deferral cheap rather than reckless, and
+both are static, not live: the `sessions.kind` column is an unconstrained `TEXT` (no migration, no
+constraint to violate), and `sessionRehydrate` rebuilds only `HOP_KINDS`, a whitelist `scp` is not
+on — so the worst a stray row can do is linger until the next boot sweep. Slice 3 has to bring the
+stack up anyway; running one wire-check over both door-kind paths beats booting it twice.
 **Done when**: criteria met, gates green, human approves the commit.
 
 ---
@@ -211,7 +218,12 @@ port its owner forwarded — consistent with D3 including cross-player rather th
 - A's `auth.log` names **B's home address**, derived server-side, not anything B sent
 - A forwarded port answered by a service other than ssh is refused without prompting
 - **Wire-check**: a `scripts/test*.ts` run against `vercel dev` + local supabase proves the
-  round-trip live — an `api/` change is unproven until it runs against the real stack
+  round-trip live — an `api/` change is unproven until it runs against the real stack. **This
+  slice carries slice 1's deferred wire-check too**, so the run must cover BOTH door-kind paths:
+  the own-LAN `authCreateSession` with `kind: 'scp'` (slice 1's widened enum — session row stored
+  under `scp`, `auth.log` line written through the ssh spec, row gone after `endSession`) and the
+  cross-player `authCreateSessionPublic` one. `scripts/testFtpSession.ts` is the closest analogue
+  to adapt. Until this runs, slice 1's endpoint change is statically verified only
 - **E2E**: the full carry in a real browser per the `v2-e2e` skill, appended to
   `e2e-shared-network-verification.md`:
   ```

@@ -38,6 +38,7 @@ export type SessionKind =
   | 'effect_password_reset'
   | 'nc'
   | 'ftp'
+  | 'scp'
   | 'mysql'
   | 'redis'
   | 'mission';
@@ -466,6 +467,31 @@ export type FtpApi = {
   readonly recordTransfer: (transfer: FtpTransfer) => void;
 };
 
+/** The transfer door, client side. Unlike `ftp` there is no session to hold: the row
+ *  is opened for one file and ended behind it, so nothing here is pre-bound to a
+ *  session the way `env.ftp.write` is. The command owns that lifecycle — create,
+ *  write, end — because the whole of what makes this door different is that the row
+ *  does not outlive the command, and a seam that hid the sequence would hide exactly
+ *  the thing worth proving. */
+export type ScpApi = {
+  /** The same endpoint `ssh` and `ftp` reach, asked for an `scp`-kind row. The tier
+   *  comes back server-derived; the client never claims one. */
+  readonly authenticate: (params: RemoteAuthParams) => Promise<RemoteAuthResult>;
+  /** Write to the machine the session was opened on, at the tier the credential
+   *  bought. Session-PARAMETERIZED rather than pre-bound, because the session it
+   *  writes through was created moments ago by the same command. The gate is the
+   *  shipped one: it refuses an over-tier write having never been told a transfer
+   *  was involved. */
+  readonly write: (
+    session: Session,
+    ...args: Parameters<PatchApi['write']>
+  ) => Promise<PatchResult>;
+  /** Close the row. Fire-and-forget: the bytes have already moved or already failed,
+   *  and a row left active is swept on the next boot — but leaving one open on
+   *  purpose would be a door held ajar by a command that has printed its last line. */
+  readonly end: (sessionId: string) => void;
+};
+
 /** What the `ftp>` prompt reports about one completed transfer: which way the bytes
  *  went from the REMOTE box's point of view, which of its paths they touched, and how
  *  many. The remote path in both directions — a defender reading their own log learns
@@ -687,6 +713,7 @@ export type CommandEnv = {
   readonly homeNetwork: HomeNetworkApi;
   readonly ssh: SshApi;
   readonly ftp: FtpApi;
+  readonly scp: ScpApi;
   readonly su: SuApi;
   readonly scan: ScanApi;
   readonly hydra: HydraApi;
