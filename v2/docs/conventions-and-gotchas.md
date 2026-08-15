@@ -157,7 +157,7 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
   the editor open); a refused one leaves it alone. Wire-check `scripts/testModifiedSinceOpen.ts`;
   three-player browser verification in `e2e-shared-network-verification.md` §6.
 
-**Current version: 0.111.0.**
+**Current version: 0.136.0.**
 
 **Current epic — legacy parity, IN PROGRESS:** `plans/legacy-parity-epic.md` — every remaining
 way into a machine (doors → discovery → CVE vulnerabilities), grilled to nine locked
@@ -286,10 +286,12 @@ decisions. The ship gate is legacy parity **minus missions**; missions are a pos
     fetched; the slice deleted it rather than replacing it, and a deep-chain box became placeable for
     free because its session carries the caller's own essid. Before adding a refusal for "the server
     cannot know where you are", check whether a session already says.
-  - **`ssh`, `nmap`, `curl` and `lynx` do NOT pivot** (accurate as of v0.130.0; the list grew — it
-    read `ssh`/`nmap` only while it was written at v0.121.0). None of `authCreateSessionPublic`,
-    `resolvePublicScan` or `resolveHttpFetch` carries a `caller_machine_id`, so they cannot derive
-    a vantage even in principle and still trace to the actor's home. One shell on a rooted box
+  - **`ssh`, `nmap`, `curl` and `lynx` do NOT pivot** (accurate as of v0.136.0; the list grew — it
+    read `ssh`/`nmap` only while it was written at v0.121.0). `resolvePublicScan` and
+    `resolveHttpFetch` carry no `caller_machine_id` at all, so they cannot derive a vantage even
+    in principle. `authCreateSessionPublic` now *accepts* one (D3 slice 6 gave the `ftp` door an
+    honest vantage), but `ssh` still sends none and therefore still traces to the actor's home —
+    the client half is the whole of what is left for that one. One shell on a rooted box
     therefore produces a hydra trace and a `gobuster` trace pointing at the pivot, and an `ssh`,
     `nmap`, `curl` or `lynx` trace pointing at the attacker. `resolveVantageSourceIp` is already
     shaped for the fix; the client half (each command naming the box it runs from, as `hydra.ts`
@@ -393,6 +395,34 @@ decisions. The ship gate is legacy parity **minus missions**; missions are a pos
     there is nobody to frame; every other vantage is server-derived. **Cross-player must switch to
     `resolveCrossPlayerSourceIp`.** D2.4 also owns extending the shared-wordlist rule to another
     player's box, which is refused today — same slice, since it needs the same derived address.
+
+- **D3 (`ftp` — the door) ✅ COMPLETE (v0.136.0).** Six slices — v0.131.0 #393, v0.132.0 #394,
+  v0.133.0 #395, v0.134.0 #396, v0.135.0 #397, v0.136.0. A second way into a machine, from the
+  daemon on a generated host all the way to another player's box behind a NAT forward. The
+  durable rules it established live in §7 (the four `ftp` bullets); the shape of it:
+  - **The door is a `kind`, never a second authorization dimension.** One `/etc/passwd`, one
+    tier, one resolver. `sessions.kind` routes the *log* (`SERVICE_CATALOG[kind].sweepLog`) and,
+    since slice 6, the *service check* on the reached port — and nothing else.
+    `authorizeMachineAccess` and `remoteWritePermission` were never taught a second protocol
+    exists, on the LAN or across the network, which is the claim the whole epic was built to
+    test. If a third door needs either module changed, stop and re-open the design.
+  - **The session runs BESIDE the shell, not on top of it.** `ssh` pushes a hop and moves the
+    cwd; `ftp` holds a parallel session with its own cwd, its own journal (`ftpPatches`) and its
+    own tier, so `ls`/`cd`/`pwd` address the remote while `lls`/`lcd`/`lpwd` address the box the
+    player is standing on. A refresh ends it rather than restoring it as a hop.
+  - **It is the LOUD door — and that is the price of it being a second one.** Reading a file over
+    ssh is silent; over ftp the box's own `/var/log/vsftpd.log` names the arrival, the login (both
+    outcomes, so a wordlist sweep is a visible wall), and every transfer with its path and byte
+    count in either direction. One file, one shape, one row.
+  - **Across the network it is the same door.** `ftp [-p port] <public IP> [user]` resolves
+    through `resolvePublicTarget` exactly as `ssh` and `hydra` do, so the credential `hydra`
+    reports on a forwarded port is the one that opens it. Proved live end to end in Act 11 of
+    [`e2e-shared-network-verification.md`](./e2e-shared-network-verification.md).
+  - **Wire-checks:** `testFtpSession` (14/14), `testFtpRemoteRead` (7/7), `testFtpPut` (12/12),
+    `testFtpTransferTrace` (13/13), `testFtpSweepTrace`, `testFtpCrossPlayer` (16/16).
+  - **Still open, and named rather than smuggled:** `ssh` does not gate on a listening sshd
+    (§9), the web door files its sweeps in `auth.log` (§9), and D3b (`scp`) is the transfer
+    without a door — planned separately in `plans/legacy-parity-epic.md`.
 
 To pick up the next slice: read the relevant `plans/*.md` TOP BLOCK (live status +
 as-built), then the cross-player architecture doc if the work touches cross-player paths.
@@ -1142,6 +1172,28 @@ state costs you more than one wrong attempt.
   without the server claim ever being made. The consequence is honest naming — a vitest
   refusal proves what the COMMAND does with an answer, so the tier contrast lives in the
   wire-check and the unit test is named for the message, not the tier.
+- **Whose box it is decides whose ROW a trace lands in, and a foreign box's log is never
+  keyed to its visitor.** A generated host's log is per-player and caller-keyed; another
+  player's is shared, so a visitor-keyed line lands in a different row from the login that
+  preceded it and the journal's last-write-wins replay hands the defender half a visit —
+  the second visitor erasing the first. `recordFtpTransfer` decides with ONE occupancy
+  lookup (`findOccupantWorkstationByMachineId`): a hit means the owner's row and a
+  server-derived address, `null` means a generated host and the caller's own row with the
+  address they reported. When that lookup fails it writes nothing rather than guessing —
+  a line under the wrong key is worse than a line that never arrives.
+- **A caller's claimed VANTAGE is checked, not believed** (`standingVantage`, beside the L1
+  gate). Naming the box you operate from is what lets a trace record the network the target
+  actually saw, so a caller naming a box they hold no session on is refused rather than
+  written up as that network's owner. Naming none means the caller's own workstation — no
+  row, no borrowed network, the address they own. That is why `ssh`, which names no box,
+  kept its behaviour byte-for-byte when the vantage resolver replaced the home-address one.
+- **D2.4's `reachedPort` rule binds the LOGIN gate too, and did not until v0.136.0.** hydra
+  had checked the service on the reached port since v0.120.0; `authCreateSessionPublic` never
+  had, so a forward to :22 was an `ftp` door and a forward to :21 an `ssh` one. Both now
+  refuse with `service_not_running`. Reach for `reachedPort` whenever a new door is added to
+  that handler — the check belongs to whoever knows which daemon was knocked on. The own-LAN
+  handler's deliberate ssh exemption is a different path with its own §9 entry; do not "fix"
+  it behind another door's slice.
 - **A log line that names an ACCOUNT reads it off the session row, never off the payload.**
   The client says what it did (`recordFtpTransfer` sends the path, the byte count and the direction); who it
   is comes from the `(player_key, machine_id)` row the L1 gate just looked up. A defender's log

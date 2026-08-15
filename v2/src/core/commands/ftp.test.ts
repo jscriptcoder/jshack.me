@@ -9,6 +9,7 @@ import {
   mockNetworkView,
   mockNetworkViewFromConnectivity,
   mockPatchApi,
+  mockScanApi,
   mockSession,
 } from '../../test/factories/commandEnv';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
@@ -24,7 +25,9 @@ import { asAbsPath, asEpochMs, asMachineId, asPlayerKeyHex } from '../types';
 import type { AbsPath, UserType } from '../types';
 import type {
   CommandResult,
+  FtpPublicAuthParams,
   FtpTransfer,
+  PublicAuthResult,
   RemoteAuthParams,
   RemoteAuthResult,
   Session,
@@ -306,6 +309,223 @@ describe('ftp', () => {
     expect(linesOf(await ftp.execute(env, ['192.168.99.99'], new Map()))).toContain(
       'No route to host',
     );
+  });
+
+  /**
+   * The same door, on somebody else's machine. A public IP names an ACCESS POINT, so
+   * the player knocks on the port its owner forwarded — reachability comes from the
+   * server (nothing about a stranger's box is derivable locally) and the login lands
+   * on the real machine id behind the forward.
+   */
+  describe('across the network', () => {
+    const THEIR_PUBLIC_IP = '203.0.113.7';
+    const THEIR_BOX = 'workstation-a1b2c3d4';
+
+    type PublicOver = {
+      readonly ports?: readonly { readonly port: number; readonly service: string }[];
+      readonly found?: boolean;
+      readonly authenticatePublic?: (
+        params: FtpPublicAuthParams,
+      ) => Promise<PublicAuthResult>;
+      readonly onEnter?: (session: Session) => void;
+    };
+
+    const publicEnv = (over: PublicOver = {}) => {
+      const base = ftpEnv({ ...(over.onEnter === undefined ? {} : { onEnter: over.onEnter }) });
+      return mockCommandEnv({
+        ...base,
+        scan: mockScanApi({
+          resolvePublic: async () => ({
+            found: over.found ?? true,
+            ports: over.ports ?? [{ port: 2121, service: 'ftp' }],
+          }),
+        }),
+        ftp: mockFtpApi({
+          ...base.ftp,
+          authenticatePublic:
+            over.authenticatePublic ??
+            (async () => ({ ok: true, userType: 'guest', machineId: THEIR_BOX })),
+        }),
+      });
+    };
+
+    it('reaches the door behind a forward and holds the session on the box it opened', async () => {
+      const entered = vi.fn();
+      const authenticatePublic = vi.fn<(params: FtpPublicAuthParams) => Promise<PublicAuthResult>>(
+        async () => ({ ok: true, userType: 'guest', machineId: THEIR_BOX }),
+      );
+      const env = publicEnv({ onEnter: entered, authenticatePublic });
+
+      const result = await ftp.execute(
+        env,
+        [THEIR_PUBLIC_IP, 'guest'],
+        new Map([['-p', '2121']]),
+      );
+
+      expect(linesOf(result)).toContain('230 Login successful');
+      expect(authenticatePublic.mock.calls[0]![0]).toMatchObject({
+        target: THEIR_PUBLIC_IP,
+        port: 2121,
+        username: 'guest',
+        password: 'hunter2',
+      });
+      // The session lands on the machine id the SERVER resolved behind the forward —
+      // the client has no way to know which box a stranger's port reaches.
+      expect(entered.mock.calls[0]![0]).toMatchObject({
+        machineId: THEIR_BOX,
+        userType: 'guest',
+        kind: 'ftp',
+      });
+    });
+
+    it('names the box the player is standing on, so the target learns where the visit came from', async () => {
+      const authenticatePublic = vi.fn<(params: FtpPublicAuthParams) => Promise<PublicAuthResult>>(
+        async () => ({ ok: true, userType: 'guest', machineId: THEIR_BOX }),
+      );
+
+      await ftp.execute(
+        publicEnv({ authenticatePublic }),
+        [THEIR_PUBLIC_IP, 'guest'],
+        new Map([['-p', '2121']]),
+      );
+
+      // Without it the server can only derive the address the player OWNS, which is a
+      // lie the moment they are attacking from somebody else's box.
+      expect(authenticatePublic.mock.calls[0]![0].callerMachineId).toBe('skylab-deadbeef');
+    });
+
+    it('knocks on the ftp port when the player names none', async () => {
+      const authenticatePublic = vi.fn<(params: FtpPublicAuthParams) => Promise<PublicAuthResult>>(
+        async () => ({ ok: true, userType: 'guest', machineId: THEIR_BOX }),
+      );
+
+      await ftp.execute(
+        publicEnv({ authenticatePublic, ports: [{ port: 21, service: 'ftp' }] }),
+        [THEIR_PUBLIC_IP, 'guest'],
+        new Map(),
+      );
+
+      // 21, not ssh's 22: the default belongs to the door being opened.
+      expect(authenticatePublic.mock.calls[0]![0].port).toBe(21);
+    });
+
+    it('falls back to the ftp port when -p carries nothing usable', async () => {
+      const authenticatePublic = vi.fn<(params: FtpPublicAuthParams) => Promise<PublicAuthResult>>(
+        async () => ({ ok: true, userType: 'guest', machineId: THEIR_BOX }),
+      );
+      const ports = [{ port: 21, service: 'ftp' }];
+
+      // A bare `-p`, then a word where a number belongs. A typo must land on the
+      // door's own port rather than knocking on NaN.
+      await ftp.execute(
+        publicEnv({ authenticatePublic, ports }),
+        [THEIR_PUBLIC_IP, 'guest'],
+        new Map([['-p', true]]),
+      );
+      await ftp.execute(
+        publicEnv({ authenticatePublic, ports }),
+        [THEIR_PUBLIC_IP, 'guest'],
+        new Map([['-p', 'twentyone']]),
+      );
+      // `0` is not a port, and neither is a negative one.
+      await ftp.execute(
+        publicEnv({ authenticatePublic, ports }),
+        [THEIR_PUBLIC_IP, 'guest'],
+        new Map([['-p', '0']]),
+      );
+      await ftp.execute(
+        publicEnv({ authenticatePublic, ports }),
+        [THEIR_PUBLIC_IP, 'guest'],
+        new Map([['-p', '-1']]),
+      );
+
+      expect(authenticatePublic.mock.calls.map(([params]) => params.port)).toEqual([21, 21, 21, 21]);
+    });
+
+    it('knocks only on the port the player named, even when their box publishes others', async () => {
+      const authenticatePublic = vi.fn<(params: FtpPublicAuthParams) => Promise<PublicAuthResult>>(
+        async () => ({ ok: true, userType: 'guest', machineId: THEIR_BOX }),
+      );
+      const env = publicEnv({
+        authenticatePublic,
+        ports: [
+          { port: 2222, service: 'ssh' },
+          { port: 2121, service: 'ftp' },
+        ],
+      });
+
+      await ftp.execute(env, [THEIR_PUBLIC_IP, 'guest'], new Map([['-p', '2121']]));
+
+      // One published forward being a different door must not close the one asked for.
+      expect(authenticatePublic.mock.calls[0]![0].port).toBe(2121);
+    });
+
+    it('refuses a port their box answers nothing on, even though it serves ftp elsewhere', async () => {
+      const authenticatePublic = vi.fn<(params: FtpPublicAuthParams) => Promise<PublicAuthResult>>();
+      const env = publicEnv({ authenticatePublic, ports: [{ port: 21, service: 'ftp' }] });
+
+      const result = await ftp.execute(env, [THEIR_PUBLIC_IP, 'guest'], new Map([['-p', '2121']]));
+
+      // A forward names ONE port. Their :21 being open says nothing about their :2121,
+      // which from outside is simply not published.
+      expect(linesOf(result)).toContain('Connection refused');
+      expect(authenticatePublic).not.toHaveBeenCalled();
+    });
+
+    it('holds nothing when the player aborts at a cross-network password prompt', async () => {
+      const entered = vi.fn();
+      const authenticatePublic = vi.fn<(params: FtpPublicAuthParams) => Promise<PublicAuthResult>>();
+      const base = publicEnv({ onEnter: entered, authenticatePublic });
+      const env = mockCommandEnv({
+        ...base,
+        prompt: async () => {
+          throw new Error('aborted');
+        },
+      });
+
+      const result = await ftp.execute(env, [THEIR_PUBLIC_IP, 'guest'], new Map([['-p', '2121']]));
+
+      expect(sync(result).exitCode).toBe(130);
+      // Nothing was sent, so there is nothing to hold — and nothing for the far side
+      // to have recorded either.
+      expect(authenticatePublic).not.toHaveBeenCalled();
+      expect(entered).not.toHaveBeenCalled();
+    });
+
+    it('refuses when the port the player named is answered by something other than ftp', async () => {
+      const authenticatePublic = vi.fn<(params: FtpPublicAuthParams) => Promise<PublicAuthResult>>();
+      const env = publicEnv({ authenticatePublic, ports: [{ port: 2121, service: 'ssh' }] });
+
+      const result = await ftp.execute(env, [THEIR_PUBLIC_IP, 'guest'], new Map([['-p', '2121']]));
+
+      expect(linesOf(result)).toContain('Connection refused');
+      // Nothing was typed at a door that isn't there — a password sent to a stranger's
+      // sshd is a password handed over for nothing.
+      expect(authenticatePublic).not.toHaveBeenCalled();
+    });
+
+    it('reports no route to a public address the world answers for nobody', async () => {
+      const authenticatePublic = vi.fn<(params: FtpPublicAuthParams) => Promise<PublicAuthResult>>();
+      const env = publicEnv({ authenticatePublic, found: false });
+
+      const result = await ftp.execute(env, [THEIR_PUBLIC_IP, 'guest'], new Map([['-p', '2121']]));
+
+      expect(linesOf(result)).toContain('No route to host');
+      expect(authenticatePublic).not.toHaveBeenCalled();
+    });
+
+    it('refuses a cracked credential the far side rejects, holding no session', async () => {
+      const entered = vi.fn();
+      const env = publicEnv({
+        onEnter: entered,
+        authenticatePublic: async () => ({ ok: false, error: 'invalid_credentials' }),
+      });
+
+      const result = await ftp.execute(env, [THEIR_PUBLIC_IP, 'guest'], new Map([['-p', '2121']]));
+
+      expect(linesOf(result)).toContain('530 Login incorrect');
+      expect(entered).not.toHaveBeenCalled();
+    });
   });
 
   it('needs a host to connect to', async () => {

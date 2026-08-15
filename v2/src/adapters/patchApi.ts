@@ -205,6 +205,11 @@ export type FtpTransferRecord = {
   readonly path: AbsPath;
   readonly bytes: number;
   readonly sourceIp: string | null;
+  /** The box the transfer was run FROM. On a generated host it changes nothing — the
+   *  reported address is already the only one that box could have seen. On another
+   *  player's box it is what lets the server name the network the visitor is standing
+   *  on, rather than the one they own. */
+  readonly callerMachineId: MachineId;
 };
 
 /** Fire the remote box's own transfer log: the server checks the caller holds a
@@ -223,6 +228,7 @@ export const recordFtpTransfer = async (
       path: transfer.path,
       bytes: transfer.bytes,
       source_ip: transfer.sourceIp,
+      caller_machine_id: transfer.callerMachineId,
     });
   } catch {
     // best-effort: a logging failure must not surface to the transfer.

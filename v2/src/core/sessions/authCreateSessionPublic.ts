@@ -1,10 +1,17 @@
 /**
- * handleAuthCreateSessionPublic — the server-side gate for a CROSS-PLAYER ssh login.
- * `ssh [-p port] <user>@<public IP>` reaches whatever `resolvePublicTarget` says that
- * address and port reach — the AP's own gateway, or an occupant behind a NAT forward —
- * and validates the password against THAT box's `/etc/passwd`. The session lands on the
+ * handleAuthCreateSessionPublic — the server-side gate for a CROSS-PLAYER login, at
+ * whichever door the caller knocked on. `ssh [-p port] <user>@<public IP>` and
+ * `ftp [-p port] <public IP>` reach whatever `resolvePublicTarget` says that address
+ * and port reach — the AP's own gateway, or an occupant behind a NAT forward — and
+ * validate the password against THAT box's `/etc/passwd`. The session lands on the
  * machine id the resolver named, so a login can never authenticate against one tree and
  * land on another.
+ *
+ * The door is a `kind`, not a second endpoint: one passwd, one tier, one resolution.
+ * All it changes is which log the visit is written in (`SERVICE_CATALOG[kind].sweepLog`)
+ * and which daemon has to be answering on the port the request reached — a forward names
+ * ONE internal port, so without that check a forward to one daemon is a door to every
+ * daemon.
  *
  * Reachability lives in the resolver rather than here deliberately: `hydra` attacks the
  * same addresses, and a password cracked against a different tree than the one `ssh`
@@ -27,16 +34,14 @@ import {
   type PublicTarget,
   type ResolvePublicTargetDeps,
 } from '../network/resolvePublicTarget';
-import {
-  AUTH_LOG_OWNER,
-  AUTH_LOG_PATH,
-  AUTH_LOG_PERMISSIONS,
-  formatSshdAuthLine,
-} from '../logging/authLog';
 import { derivePid } from '../logging/syslog';
+import { SERVICE_CATALOG, type SweepLog } from '../services/serviceCatalog';
+import { readOpenPorts } from '../services/pidfile';
+import { standingVantage, type FindActiveSession } from '../patches/authorizeMachineAccess';
 import {
-  resolveCrossPlayerSourceIp,
+  resolveVantageSourceIp,
   type FindHomeNetworkByOwnerKey,
+  type FindPublicIpByEssid,
 } from '../logging/crossPlayerSourceIp';
 import {
   appendMachineLog,
@@ -45,7 +50,7 @@ import {
 } from '../patches/appendMachineLog';
 import { asGameTime } from '../types';
 import type { PatchRow } from '../patches/upsertPatch';
-import type { AuthSessionRow, HandlerResponse } from './authCreateSession';
+import { DOOR_KINDS, type AuthSessionRow, type HandlerResponse } from './authCreateSession';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
 export type AuthCreateSessionPublicDeps = ResolvePublicTargetDeps & {
@@ -62,6 +67,13 @@ export type AuthCreateSessionPublicDeps = ResolvePublicTargetDeps & {
    *  key — the truthful source IP of the login, server-derived so a client cannot
    *  forge it or frame another network. `null` (no home network) → source unknown. */
   readonly findHomeNetworkByOwnerKey: FindHomeNetworkByOwnerKey;
+  /** Resolve one network's public IP from its ESSID — the origin of a login launched
+   *  from a box the caller is standing on but does not own. */
+  readonly findPublicIpByEssid: FindPublicIpByEssid;
+  /** Whether the caller holds a session on the machine they say they are standing on
+   *  — the L1 rule shared with the patch endpoints, and what turns a claimed vantage
+   *  into an established one. */
+  readonly findActiveSession: FindActiveSession;
 };
 
 // Loose so the envelope fields pass through; the refine keeps the codebase-wide
@@ -76,6 +88,12 @@ const authCreateSessionPublicSchema = z
     port: z.number().int().positive().optional(),
     parent_session_id: z.string().min(1).nullable().optional(),
     source_ip: z.string().min(1).nullable().optional(),
+    // Absent means ssh, so every shipped caller keeps working untouched.
+    kind: z.enum(DOOR_KINDS).default('ssh'),
+    // The box the caller is standing on. Optional because `ssh` names none and its
+    // trace has always carried the address the caller owns; a door that DOES name one
+    // gets the honest answer — the network the target actually saw.
+    caller_machine_id: z.string().min(1).optional(),
   })
   .refine((payload) => !('player_key' in payload));
 
@@ -93,26 +111,35 @@ const logCrossPlayerAuth = async (
     readonly outcome: 'success' | 'failure';
     readonly user: string;
     readonly fromIp: string;
+    /** How the door being knocked on records an attempt — the same catalog column the
+     *  own-LAN gate and hydra's sweep write through, so one service's login, sweep and
+     *  cross-network break-in can never disagree about which file the defender reads. */
+    readonly sweepLog: SweepLog;
   },
 ): Promise<void> => {
   const stamp = deps.now();
-  const line = formatSshdAuthLine({
+  const record = {
     outcome: attempt.outcome,
     user: attempt.user,
     fromIp: attempt.fromIp,
     hostname: target.hostname,
     time: asGameTime(stamp),
     pid: derivePid(stamp),
-  });
+  };
+  // A daemon that records arrivals separately writes both in one append: they are one
+  // event to the box, and two appends would be two read-modify-writes racing.
+  const line = [attempt.sweepLog.formatArrival?.(record), attempt.sweepLog.formatAttempt(record)]
+    .filter((entry) => entry !== undefined)
+    .join('\n');
   try {
     await appendMachineLog(
       { readLog: deps.readAuthLog, upsertPatch: deps.upsertPatch },
       {
         writerKey,
         machineId: target.machineId,
-        path: AUTH_LOG_PATH,
-        owner: AUTH_LOG_OWNER,
-        permissions: AUTH_LOG_PERMISSIONS,
+        path: attempt.sweepLog.path,
+        owner: attempt.sweepLog.owner,
+        permissions: attempt.sweepLog.permissions,
       },
       line,
     );
@@ -133,6 +160,17 @@ export const handleAuthCreateSessionPublic = async (
   }
   const { publicKey, payload } = verified;
 
+  // Where the caller is standing, established rather than believed. `ssh` names no box
+  // and resolves to the address it always did.
+  const vantage = await standingVantage(
+    publicKey,
+    payload.caller_machine_id,
+    deps.findActiveSession,
+  );
+  if (!vantage.ok) {
+    return { status: vantage.status, body: { error: vantage.error } };
+  }
+
   // Reachability, port routing and the boot gate all live in the shared resolver, so
   // the tree this login is checked against is the same tree an attack sweeps.
   const resolved = await resolvePublicTarget(deps, {
@@ -143,6 +181,19 @@ export const handleAuthCreateSessionPublic = async (
     return { status: resolved.status, body: { error: resolved.error } };
   }
   const target = resolved.target;
+
+  // The daemon on the port this request REACHED has to be the one being logged into.
+  // A forward names a specific internal port, so without this a forward to one daemon
+  // is a door to every daemon — you would `ftp` into a box that only runs sshd, and the
+  // wrong log would carry the visit. The far side's liveness is already the resolver's;
+  // WHICH service answers there is this handler's, because only it knows the door.
+  const spec = SERVICE_CATALOG[payload.kind];
+  const serving = readOpenPorts(target.fs).some(
+    (open) => open.port === target.reachedPort && open.service === spec.service,
+  );
+  if (!serving) {
+    return { status: 404, body: { error: 'service_not_running' } };
+  }
 
   // Validate against the TARGET's own /etc/passwd (the gateway is root-only; a
   // workstation also has its weak `guest` account). An unknown user OR a wrong
@@ -156,11 +207,15 @@ export const handleAuthCreateSessionPublic = async (
   // under the key that owns its logs; the source IP is the attacker's own home public
   // IP, server-derived from their verified key — never the payload's.
   if (target.logWriterKey !== null) {
-    const sourceIp = await resolveCrossPlayerSourceIp(deps.findHomeNetworkByOwnerKey, publicKey);
+    const sourceIp = await resolveVantageSourceIp(deps, {
+      actorKey: publicKey,
+      standingEssid: vantage.standingEssid,
+    });
     await logCrossPlayerAuth(deps, target.logWriterKey, target, {
       outcome: passwordOk ? 'success' : 'failure',
       user: payload.username,
       fromIp: sourceIp,
+      sweepLog: spec.sweepLog,
     });
   }
 
@@ -175,7 +230,7 @@ export const handleAuthCreateSessionPublic = async (
     credentials: { username: payload.username, userType: account.userType },
     parent_session_id: payload.parent_session_id ?? null,
     source_ip: payload.source_ip ?? null,
-    kind: 'ssh',
+    kind: payload.kind,
     essid: target.essid,
   });
   if (insertError) {

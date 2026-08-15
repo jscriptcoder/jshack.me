@@ -233,8 +233,8 @@ PHASE 1 — THE DOORS  (near-term focus)
       D3 slice 2 login + a prompt you can leave        ✔ SHIPPED v0.132.0 (#394)
       D3 slice 3 looking around, without losing home   ✔ SHIPPED v0.133.0 (#395)
       D3 slice 4 get, itemised in the owner's log      ✔ SHIPPED v0.134.0 (#396)
-      D3 slice 5 put, and the tier decides             ✔ SHIPPED v0.135.0 (pending PR)
-      D3 slice 6 a stranger's door across the network  ◀ NEXT — closes D3
+      D3 slice 5 put, and the tier decides             ✔ SHIPPED v0.135.0 (#397)
+      D3 slice 6 a stranger's door across the network  ✔ SHIPPED v0.136.0 (pending PR) — D3 DONE
   D3b scp (the transfer)                              — grilled 2026-08-14, needs planning
   D4  daemon control (systemctl / ps / kill)
   D5  nc connect + nc -l backdoor

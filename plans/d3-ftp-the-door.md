@@ -28,8 +28,8 @@ takes a file and leaves one — and the box's owner reads exactly which files mo
       *(slice 5, v0.135.0)*
 - [x] The target's `vsftpd.log` names every login and every transfer, with byte counts — the
       itemised record `ssh` cannot give *(slice 5, v0.135.0 — both verbs)*
-- [ ] All of it works against another player's machine through a NAT forward, with the attacker's
-      real vantage address in the defender's log
+- [x] All of it works against another player's machine through a NAT forward, with the attacker's
+      real vantage address in the defender's log *(slice 6, v0.136.0)*
 - [x] A browser refresh ends the ftp session rather than restoring it as a hop *(slice 2, v0.132.0)*
 
 ## Plan change requiring approval
@@ -484,7 +484,7 @@ new shared `readMachineLog` sits beside).
 
 ### Slice 5: A player leaves a file on someone else's machine, and the tier decides whether it lands
 
-**Status: COMPLETE, awaiting commit approval** — v0.135.0. As-built notes:
+**Status: SHIPPED** — v0.135.0, PR #397 (`edc94f2`), merged 2026-08-15. As-built notes:
 
 1. **`authorizeMachineAccess` needed no change at all — and now that is EVIDENCE, not a
    claim.** The plan said to stop if it did. It did not: `put` reaches the shipped
@@ -576,6 +576,44 @@ bogus direction refused 400 with the log unchanged. Regressions re-run green on 
 
 ### Slice 6: A player reaches a stranger's ftp door across the network
 
+**Status: COMPLETE, awaiting commit approval** — v0.136.0. As-built notes:
+
+1. **The door became a `kind` on the shipped public gate, not a second endpoint.**
+   `authCreateSessionPublic` gained `kind` (defaulting to `'ssh'`, exactly as slice 2 did
+   to the LAN handler) and routes its trace through `SERVICE_CATALOG[kind].sweepLog`. One
+   passwd, one tier, one resolution; all the door changes is which file the visit is
+   written in.
+2. **`PublicTarget.reachedPort` had a caller after all, and the public gate was not it.**
+   `hydraCrackPublic` already checked the service on the reached port; the login handler
+   never had. So a forward to :22 WAS an ftp door and a forward to :21 an ssh one, until
+   this slice. Both directions are now refused (`service_not_running`), and the LAN
+   handler's deliberate ssh exemption is untouched — different code path, own §9 entry.
+3. **The vantage swap cost `ssh` nothing.** `resolveVantageSourceIp` with a null standing
+   ESSID is *identical* to the `resolveCrossPlayerSourceIp` the handler called before, and
+   `ssh` names no caller machine — so the shipped door's behaviour is unchanged while
+   `ftp` is pivot-aware. Proved live: the pivot login records the network stood on.
+4. **The finding that changed the criteria: two writer keys, one log path.**
+   `recordFtpTransfer` wrote under the CALLER's key. On another player's box the login
+   line is written under the TARGET's, so the two would land in different rows and the
+   last-write-wins replay would hand the defender half a visit — and a second visitor
+   would erase the first. One lookup (`findOccupantWorkstationByMachineId`, already wired
+   for `removePatch`) now decides both halves of the provenance: a hit means the owner's
+   row and a server-derived address, `null` means a generated host and today's behaviour
+   verbatim. An unreadable answer writes nothing (500) rather than guessing a row.
+5. **The REFACTOR the plan asked for found ONE rule, not a shared resolver.** "A named
+   vantage must be held, and its ESSID is the standing network" was about to be stated a
+   third and fourth time, so it became `standingVantage` beside the L1 gate it wraps. The
+   two older callers (`hydraCrackPublic`, `resolveHttpSweep`) require the caller machine
+   and were left alone — collapsing them too would have reshaped two shipped handlers on
+   the epic's last slice for no behaviour. Mutation held: 100% on both patch modules after.
+6. **`ftp` grew `-p` and a public branch; `ssh`'s was not shared.** The two commands differ
+   in exactly what they are — a parallel session versus a hop — so the branch is a sibling,
+   not a copy with a flag. The port default is the DOOR's (21), which is what keeps a bare
+   `ftp <public ip>` from knocking on the gateway's sshd.
+7. **The live run is what proved the client, and it caught nothing — which is the point.**
+   Both adapters send fields no unit test can see; Act 11 is the only evidence they are the
+   fields the server reads.
+
 **Value**: The door works between real players. B sweeps A's forwarded port, logs in, takes a
 file — and A reads B's real vantage address out of their own log.
 **Path**: `ftp <A's public IP> -p <fwd>` → NAT forward → `machineServing` routes **by port** →
@@ -607,6 +645,19 @@ naming.
 **live close-out run** written up as the next Act of
 [`e2e-shared-network-verification.md`](../v2/docs/e2e-shared-network-verification.md), matching
 what D1c, D1b and D1d each did on close-out.
+**DONE — 16/16 live** (`vercel dev` + supabase, 2026-08-15). `scripts/testFtpCrossPlayer.ts`: an
+ftp login through a forward lands on the box behind it as a `kind:'ftp'` row; the visit is written
+in that box's own `vsftpd.log` and nothing reaches `auth.log`; the address is the visitor's
+server-derived one and never the one they sent; the row belongs to the box's owner; a forward that
+reaches sshd refuses an ftp login and the ftp forward refuses an ssh one; a take and a drop are
+itemised into the SAME row as the login, in order; the drop is refused one tier up; a visitor
+naming a box they hold no session on is refused; and a login launched from a third network is
+recorded as THAT network. Regressions re-run green on the same stack: `testFtpTransferTrace` 13/13,
+`testFtpPut` 12/12, `testFtpSession` 14/14, `testFtpRemoteRead` 7/7, `testHydraCrossPlayer` 16/16,
+`testCrossPlayerConnectionTrace` 7/7, `testCrossPlayerWrite` 12/12, `testCrossPlayerRead` 7/7,
+`testSharedApForwards` 8/8, `testDisconnectedUnreachable` 6/6.
+**Live close-out run: DONE** — Act 11 of `e2e-shared-network-verification.md`, two players on two
+networks, executed 2026-08-15 against v0.136.0.
 **Done when**: All criteria met, wire-check green, live run written up, gates green, commit
 approved.
 **Version**: 0.136.0.
