@@ -9,7 +9,7 @@ import {
 import { handleListPatches, type ListPatchesQuery } from '../src/core/patches/listPatches';
 import { handleRemovePatch, type PatchTreeQuery } from '../src/core/patches/removePatch';
 import { handleAppendAuthLog, type AuthLogContentQuery } from '../src/core/patches/appendAuthLog';
-import { handleRecordFtpDownload } from '../src/core/patches/recordFtpDownload';
+import { handleRecordFtpTransfer } from '../src/core/patches/recordFtpTransfer';
 import { handleNmapScan, type ScanOccupant } from '../src/core/scan/nmapScan';
 import {
   handleRecordLanFetch,
@@ -269,12 +269,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  if (actionOf(req.body) === 'recordFtpDownload') {
-    // A file leaving a box is itemised in THAT box's vsftpd.log, so the read is the
-    // machine's row for this writer — the same read-modify-write shape appendAuthLog
-    // performs, pointed at someone else's machine and gated on the session that got
-    // the player in there.
-    const { status, body } = await handleRecordFtpDownload(req.body, {
+  if (actionOf(req.body) === 'recordFtpTransfer') {
+    // A file crossing a box in either direction is itemised in THAT box's vsftpd.log,
+    // so the read is the machine's row for this writer — the same read-modify-write
+    // shape appendAuthLog performs, pointed at someone else's machine and gated on the
+    // session that got the player in there.
+    const { status, body } = await handleRecordFtpTransfer(req.body, {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
       findActiveSession,

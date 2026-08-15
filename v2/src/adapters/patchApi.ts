@@ -21,6 +21,7 @@ import {
   defaultFilePermissions,
 } from '../core/filesystem/defaultPermissions';
 import type { Patch } from '../core/filesystem/applyPatches';
+import type { TransferDirection } from '../core/logging/vsftpdLog';
 import type { FilePermissions } from '../core/filesystem/types';
 import type {
   AccessLogFetch,
@@ -194,28 +195,31 @@ export const recordLanFetch = async (
   }
 };
 
-/** What one ftp download tells the box it came off: which machine, which file, how
- *  many bytes, and the address it went to. The ACCOUNT is deliberately absent — the
- *  server reads that off the session row, so the log names who the player really
- *  logged in as rather than who they say they are. */
-export type FtpDownloadRecord = {
+/** What one ftp transfer tells the box it crossed: which machine, which way, which
+ *  file, how many bytes, and the address at the other end. The ACCOUNT is deliberately
+ *  absent — the server reads that off the session row, so the log names who the player
+ *  really logged in as rather than who they say they are. */
+export type FtpTransferRecord = {
   readonly machineId: MachineId;
+  readonly direction: TransferDirection;
   readonly path: AbsPath;
   readonly bytes: number;
   readonly sourceIp: string | null;
 };
 
 /** Fire the remote box's own transfer log: the server checks the caller holds a
- *  session there, then appends the `OK DOWNLOAD` line to its `/var/log/vsftpd.log`.
- *  Best-effort + fire-and-forget like the other traces — the file is already on the
- *  player's disk, so a logging failure must not surface as a failed transfer. */
-export const recordFtpDownload = async (
+ *  session there, then appends the `OK DOWNLOAD`/`OK UPLOAD` line to its
+ *  `/var/log/vsftpd.log`. Best-effort + fire-and-forget like the other traces — the
+ *  bytes have already moved, so a logging failure must not surface as a failed
+ *  transfer. */
+export const recordFtpTransfer = async (
   deps: PatchClientDeps,
-  transfer: FtpDownloadRecord,
+  transfer: FtpTransferRecord,
 ): Promise<void> => {
   try {
-    await post(deps, 'recordFtpDownload', {
+    await post(deps, 'recordFtpTransfer', {
       machine_id: transfer.machineId,
+      direction: transfer.direction,
       path: transfer.path,
       bytes: transfer.bytes,
       source_ip: transfer.sourceIp,

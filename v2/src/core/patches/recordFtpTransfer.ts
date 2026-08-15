@@ -1,18 +1,27 @@
 /**
- * handleRecordFtpDownload — the pure recordFtpDownload endpoint logic (no Vercel,
- * no Supabase). Itemises one file leaving a machine in that machine's own
+ * handleRecordFtpTransfer — the pure recordFtpTransfer endpoint logic (no Vercel,
+ * no Supabase). Itemises one file moving on or off a machine in that machine's own
  * `/var/log/vsftpd.log`, which is the signal `ssh` cannot give: a login says
- * somebody came in, this says what they walked out with.
+ * somebody came in, this says what they walked out with — or left behind.
  *
- * The client says only WHAT it took — the remote path and the byte count. It does
- * not get to say who it is or when: the account is read off the session row the
- * server looked up, the writer is the VERIFIED pubkey, and the clock is the
- * server's. A defender's log a visitor can author is not evidence.
+ * One handler for both directions because the daemon writes one line shape and the
+ * questions are identical: who is on this box, and what moved. Only the verb differs,
+ * and the client names it from a closed set — an unrecognised direction is refused
+ * rather than rendered, or a caller writes their own verb into someone else's evidence.
+ *
+ * The client says only WHAT moved and which way — the path, the byte count, the
+ * direction. It does not get to say who it is or when: the account is read off the
+ * session row the server looked up, the writer is the VERIFIED pubkey, and the clock
+ * is the server's. A defender's log a visitor can author is not evidence.
  *
  * Unlike `appendAuthLog` (own workstation only) this writes to SOMEONE ELSE'S box,
  * so it runs the shared L1 gate — and then insists on the session row itself. The
  * own-workstation bypass hands back no row, and a line naming no account is one
  * this handler will not write: ftp'ing to yourself is not a transfer to record.
+ *
+ * The transfer itself is NOT this endpoint's business: an upload's bytes land through
+ * the shipped `upsertPatch`, gated exactly as an ssh-session write is. This only
+ * records that they did, which is why a refused transfer simply never calls it.
  *
  * The append is the shared `appendMachineLog` primitive, as the system rather than
  * the player: the daemon is what writes this file, and it is root-write-only so a
@@ -27,7 +36,7 @@ import {
   VSFTPD_LOG_OWNER,
   VSFTPD_LOG_PATH,
   VSFTPD_LOG_PERMISSIONS,
-  formatVsftpdDownloadLine,
+  formatVsftpdTransferLine,
 } from '../logging/vsftpdLog';
 import { derivePid } from '../logging/syslog';
 import { authorizeMachineAccess, type FindActiveSession } from './authorizeMachineAccess';
@@ -39,7 +48,7 @@ import {
 import type { NonceStore } from '../signedRequest/nonceStore';
 import type { PatchRow } from './upsertPatch';
 
-export type RecordFtpDownloadDeps = {
+export type RecordFtpTransferDeps = {
   readonly nonceStore: NonceStore;
   /** The server's wall clock, epoch-ms (UTC). Injected so the handler is pure
    *  and deterministic under test. */
@@ -56,9 +65,12 @@ export type HandlerResponse = {
 
 // Loose so the envelope fields (action/ts/nonce) pass through; the refine rejects a
 // client-supplied identity. Any client `user`/`time`/`pid` is simply never read.
-const recordFtpDownloadSchema = z
+const recordFtpTransferSchema = z
   .looseObject({
-    action: z.literal('recordFtpDownload'),
+    action: z.literal('recordFtpTransfer'),
+    // A closed set, so the verb in a stranger's log is one of the two the daemon
+    // writes and never one the caller made up.
+    direction: z.enum(['download', 'upload']),
     machine_id: z.string().min(1),
     path: z.string().min(1),
     bytes: z.number().int().nonnegative(),
@@ -66,11 +78,11 @@ const recordFtpDownloadSchema = z
   })
   .refine((payload) => !('player_key' in payload) && !('writer_key' in payload));
 
-export const handleRecordFtpDownload = async (
+export const handleRecordFtpTransfer = async (
   body: unknown,
-  deps: RecordFtpDownloadDeps,
+  deps: RecordFtpTransferDeps,
 ): Promise<HandlerResponse> => {
-  const verified = await verifySignedRequest(body, recordFtpDownloadSchema, {
+  const verified = await verifySignedRequest(body, recordFtpTransferSchema, {
     nonceStore: deps.nonceStore,
   });
   if (!verified.ok) {
@@ -83,7 +95,8 @@ export const handleRecordFtpDownload = async (
   if (access.session === null) return { status: 403, body: { error: 'no_session' } };
 
   const stamp = deps.now();
-  const line = formatVsftpdDownloadLine({
+  const line = formatVsftpdTransferLine({
+    direction: payload.direction,
     user: access.session.username,
     fromIp: payload.source_ip ?? 'unknown',
     time: asGameTime(stamp),

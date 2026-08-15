@@ -444,6 +444,7 @@ describe('the ftp sub-shell', () => {
     vi.stubGlobal('localStorage', storage);
 
     const sent: Record<string, unknown>[] = [];
+    const landedOnTarget = new Map<string, Record<string, unknown>[]>();
     vi.stubGlobal(
       'fetch',
       vi.fn(async (_url: string, init?: { body?: string }) => {
@@ -455,10 +456,22 @@ describe('the ftp sub-shell', () => {
         if (fields.action === 'authCreateSession') {
           return { ok: true, status: 200, json: async () => ({ ok: true, userType: 'guest' }) };
         }
+        // A write aimed at a TARGET is kept, the way the server keeps it: a journal
+        // read after it must answer with it, or nothing here could tell a client that
+        // re-pulls from one that reports a transfer and shows the box unchanged.
+        if (fields.action === 'upsertPatch' && TARGET_IDS.has(String(fields.machine_id))) {
+          const machineId = String(fields.machine_id);
+          landedOnTarget.set(machineId, [...(landedOnTarget.get(machineId) ?? []), fields]);
+          return { ok: true, status: 200, json: async () => ({ ok: true }) };
+        }
         // A TARGET's journal is a different machine's, so a listing proving it came
         // back cannot have been computed from the box the player is standing on.
         if (TARGET_IDS.has(String(fields.machine_id))) {
-          const patches = await remoteJournal(String(fields.machine_id));
+          const machineId = String(fields.machine_id);
+          const patches = [
+            ...(await remoteJournal(machineId)),
+            ...(landedOnTarget.get(machineId) ?? []),
+          ];
           return { ok: true, status: 200, json: async () => ({ patches }) };
         }
         // The ftp CLIENT is apt-gated, so the box has to already carry it — the
@@ -632,12 +645,59 @@ describe('the ftp sub-shell', () => {
     // And the target hears what left it. Which box, and from what address, are
     // supplied HERE — the `ftp>` command names only the file, so this is the only
     // place the wiring can be proved.
-    expect(sent.find((payload) => payload.action === 'recordFtpDownload')).toMatchObject({
+    expect(sent.find((payload) => payload.action === 'recordFtpTransfer')).toMatchObject({
+      direction: 'download',
       machine_id: FTP_MACHINE_ID,
       path: '/etc/remote-drop.txt',
       bytes: 12,
       source_ip: `${LAN.subnet}.77`,
     });
+  });
+
+  it('leaves a file on the target, addressed to the TARGET rather than the box it came from', async () => {
+    const { state, sent } = await loginOverFtp();
+
+    // A defacement: the player's own page, written over the one the target serves.
+    state.setInput('put /var/www/html/index.html /var/www/html/index.html');
+    await state.runInput();
+    await settle();
+
+    expect(lastLine(state)).toContain('bytes sent.');
+    // The one thing only this layer can prove: the write is aimed at the TARGET's
+    // machine id and stamped with the account the credential bought, not the player's
+    // own. Same action, same endpoint, same gate an `ssh` session's write reaches —
+    // the door is not a parameter of it.
+    const upload = sent.find(
+      (payload) => payload.action === 'upsertPatch' && payload.path === '/var/www/html/index.html',
+    );
+    expect(upload).toMatchObject({ machine_id: FTP_MACHINE_ID, owner: 'guest' });
+    expect(sent.find((payload) => payload.action === 'recordFtpTransfer')).toMatchObject({
+      direction: 'upload',
+      machine_id: FTP_MACHINE_ID,
+      path: '/var/www/html/index.html',
+      source_ip: `${LAN.subnet}.77`,
+    });
+  });
+
+  it('shows the file it just left, without the player having to leave and come back', async () => {
+    const { state } = await loginOverFtp();
+
+    state.setInput('ls /tmp');
+    await state.runInput();
+    expect(lastLine(state)).not.toContain('dropped.html');
+
+    state.setInput('put /var/www/html/index.html /tmp/dropped.html');
+    await state.runInput();
+    await settle();
+
+    state.setInput('ls /tmp');
+    await state.runInput();
+
+    // The TARGET's journal is re-pulled after a landed write, not the shell's — the
+    // two machines keep separate journals, and a `put` changes the far one. Without
+    // the re-pull the player is told the bytes went and shown a box that never
+    // received them.
+    expect(lastLine(state)).toContain('dropped.html');
   });
 
   it('never lets a slow answer for a box already left land on the box now open', async () => {

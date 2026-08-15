@@ -78,17 +78,25 @@ export const formatVsftpdLoginLine = ({
 }: CredentialAttempt): string =>
   `${formatVsftpdTimestamp(time)} [pid ${pid}] [${user}] ${outcome === 'success' ? 'OK' : 'FAIL'} LOGIN: Client "${fromIp}"`;
 
-/** What one transfer off the box looked like from the daemon's side. */
+/** Which way the bytes went, from the BOX's point of view: a download left it, an
+ *  upload arrived on it. Named for the daemon rather than the client because the
+ *  log belongs to the machine, and its owner is the one reading it. */
+export type TransferDirection = 'download' | 'upload';
+
+/** What one transfer looked like from the daemon's side. */
 export type TransferRecord = Pick<CredentialAttempt, 'user' | 'fromIp' | 'time' | 'pid'> & {
+  readonly direction: TransferDirection;
   readonly path: AbsPath;
   readonly bytes: number;
 };
 
-/** Render a completed download — the line `ssh` has no equivalent of. A login says
- *  somebody came in; this says which file they walked out with and how much of it,
- *  and the defender reads both out of the same file. `bytes` is never singularised,
- *  because vsftpd does not. */
-export const formatVsftpdDownloadLine = ({
+/** Render a completed transfer — the line `ssh` has no equivalent of. A login says
+ *  somebody came in; this says which file moved, which way, and how much of it, and
+ *  the defender reads all of it out of the same file. One formatter for both
+ *  directions because vsftpd writes one shape: a defender greps `OK` once and sees
+ *  the whole visit. `bytes` is never singularised, because vsftpd does not. */
+export const formatVsftpdTransferLine = ({
+  direction,
   user,
   fromIp,
   time,
@@ -96,4 +104,4 @@ export const formatVsftpdDownloadLine = ({
   path,
   bytes,
 }: TransferRecord): string =>
-  `${formatVsftpdTimestamp(time)} [pid ${pid}] [${user}] OK DOWNLOAD: Client "${fromIp}", "${path}", ${bytes} bytes`;
+  `${formatVsftpdTimestamp(time)} [pid ${pid}] [${user}] OK ${direction.toUpperCase()}: Client "${fromIp}", "${path}", ${bytes} bytes`;

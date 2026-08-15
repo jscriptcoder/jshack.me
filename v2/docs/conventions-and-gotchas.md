@@ -1128,14 +1128,28 @@ state costs you more than one wrong attempt.
   the one now held and drop it otherwise. Without that, quitting one box and opening another
   before the first answer lands renders one stranger's files under another stranger's name.
   `state.test.ts` pins both orders (a late answer with a different box open, and with none).
+- **A door adds no authorization dimension — and the way to keep it that way is to reuse the
+  client, not to teach the server.** `put` writes to another player's box by pointing the
+  SHIPPED `createPatchApi` at the ftp session's machine; `authorizeMachineAccess` and
+  `remoteWritePermission` were not touched, and never learn a second protocol exists.
+  `sessions.kind` is data the gate does not read. If a new door ever *does* require a change
+  in either module, that is the signal to stop and re-open the design rather than widen the
+  gate — proven live by `scripts/testFtpPut.ts`, one destination refusing a `guest` credential
+  and accepting a `root` one over the same door.
+- **A client must not pre-check a permission the server owns.** `put` sends the write and
+  renders whatever comes back. A client that refuses on its own behalf is one that could
+  permit on its own behalf, and worse for tests: a local pre-gate makes every unit test pass
+  without the server claim ever being made. The consequence is honest naming — a vitest
+  refusal proves what the COMMAND does with an answer, so the tier contrast lives in the
+  wire-check and the unit test is named for the message, not the tier.
 - **A log line that names an ACCOUNT reads it off the session row, never off the payload.**
-  The client says what it did (`recordFtpDownload` sends the path and the byte count); who it
+  The client says what it did (`recordFtpTransfer` sends the path, the byte count and the direction); who it
   is comes from the `(player_key, machine_id)` row the L1 gate just looked up. A defender's log
   a visitor can author is not evidence — and the same rule already covers the clock (server
   `now()`) and provenance (`writer_key` stamped from the verified pubkey). Two consequences
   worth stating: `ActiveSession` therefore carries `username`, and a handler that needs an
   identity must **refuse the own-workstation L1 BYPASS**, which returns `session: null` and so
-  can name nobody. Proven live by `scripts/testFtpDownloadTrace.ts`, which claims `impostor`
+  can name nobody. Proven live by `scripts/testFtpTransferTrace.ts`, which claims `impostor`
   and reads the real account back out of the box's own log.
 - **`ActiveSession` is the L1 projection; take a `Pick` of it when you only need the tier.**
   `remoteWritePermission` answers a permission question, which needs `userType` + `essid` and
