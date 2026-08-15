@@ -71,7 +71,8 @@ import { commandRegistry } from '../core/commands/registry';
 import { complete, type CompleteAdapter } from '../core/shell/complete';
 import { runCommandLine } from '../core/shell/runLine';
 import { commandEchoLine } from '../core/shell/prompt';
-import { buildCommandEnv } from './env';
+import { buildCommandEnv, type BuildCommandEnvArgs } from './env';
+import { homeDirectory } from '../core/sessions/homeDirectory';
 import { getPlayerIdentity } from './identity';
 import { isOwnWorkstation, parseWorkstationId } from '../core/identity/workstation';
 import {
@@ -233,6 +234,13 @@ const [overlayMode, setOverlayMode] = createSignal<OverlayMode | null>(null);
 // hop chain, same cwd, same tier — which is what `quit` hands straight back.
 const [ftpSession, setFtpSession] = createSignal<Session | null>(null);
 
+// Where the player is standing ON THE TARGET, and that machine's journal. Both are
+// SEPARATE from `cwd`/`patches`, which keep following the shell: the ftp session is
+// beside the shell rather than above it, so the two working directories move
+// independently and neither box's writes leak into the other's tree.
+const [ftpCwd, setFtpCwd] = createSignal<AbsPath>(asAbsPath('/'));
+const [ftpPatches, setFtpPatches] = createSignal<readonly Patch[]>([]);
+
 export { ftpSession };
 
 /** The prompt the terminal shows: an ftp session replaces it wholesale rather than
@@ -243,9 +251,14 @@ export const inFtpSession = (): boolean => ftpSession() !== null;
 /** What the terminal shows while an ftp session is held. */
 export const FTP_PROMPT = 'ftp> ';
 
-/** Hold an authenticated ftp session (backs `env.ftp.enter`). */
+/** Hold an authenticated ftp session (backs `env.ftp.enter`), landing on the target
+ *  at the logged-in account's home and pulling that machine's journal so the box
+ *  shows the state it is actually in, not the state it was generated in. */
 const enterFtpSession = (session: Session): void => {
   setFtpSession(session);
+  setFtpCwd(homeDirectory(session));
+  setFtpPatches([]);
+  void refetchFtpPatches(session);
 };
 
 /** Drop it and end the server row (backs `env.ftp.leave`). Fire-and-forget: the
@@ -254,6 +267,7 @@ const enterFtpSession = (session: Session): void => {
 const leaveFtpSession = (): void => {
   const ending = ftpSession();
   setFtpSession(null);
+  setFtpPatches([]);
   if (sessionsClientDeps !== undefined && ending !== null) {
     void endServerSession(sessionsClientDeps, ending.id);
   }
@@ -345,6 +359,33 @@ const activeRoot = (): Directory => {
     ownBaseFs: seedFs(requireConfig(), requireIdentity()),
     patches: patches(),
   });
+};
+
+/** The tree an ftp session addresses: the TARGET's, with the TARGET's journal
+ *  replayed over it, so the box shows the state it is actually in rather than the
+ *  state it was generated in. Held apart from `activeRoot` on purpose — the shell
+ *  and the ftp session are two machines at once, and one `root()` could only ever
+ *  be one of them. */
+const ftpRoot = (session: Session): Directory =>
+  resolveActiveRoot({
+    session,
+    ownWorkstationId: ownWorkstationId(),
+    publicKeyHex: requireIdentity().publicKeyHex,
+    essid: currentEssid(),
+    ownBaseFs: seedFs(requireConfig(), requireIdentity()),
+    patches: ftpPatches(),
+  });
+
+/** The remote half of the env, present only while a session is held: without one
+ *  there is nothing to bind, and `buildCommandEnv` supplies the empty tree that
+ *  says so. */
+const ftpBinding = (): Pick<BuildCommandEnvArgs, 'ftpFs' | 'onFtpCwdChange'> => {
+  const session = ftpSession();
+  if (session === null) return {};
+  return {
+    ftpFs: createFsView(ftpRoot(session), { userType: session.userType, cwd: ftpCwd }),
+    onFtpCwdChange: setFtpCwd,
+  };
 };
 
 /** Authenticate an ssh login server-side (backs `env.ssh.authenticate`). Degrades
@@ -595,6 +636,22 @@ const refetchPatches = async (): Promise<void> => {
   const journal = await fetchOwnPatches(deps);
   if (patchClientDeps?.machineId !== deps.machineId) return;
   setPatches(journal);
+};
+
+/** Pull the TARGET's journal for an ftp session — a SECOND journal, held beside the
+ *  shell's, because the two machines are addressed at once and `patches()` follows
+ *  the shell. A late answer for a session the player has since quit is dropped: it
+ *  belongs to a binding that no longer exists. */
+const refetchFtpPatches = async (session: Session): Promise<void> => {
+  if (identity === undefined) return;
+  const journal = await fetchOwnPatches({
+    identity,
+    machineId: session.machineId,
+    owner: session.username,
+    tier: session.userType,
+  });
+  if (ftpSession()?.id !== session.id) return;
+  setFtpPatches(journal);
 };
 
 /** Rebuild the hop chain from the server's active sessions so a `su` elevation
@@ -1080,6 +1137,7 @@ const executeLine = async (line: string): Promise<void> => {
     onFtpAuthenticate: ftpAuthenticate,
     onFtpEnter: enterFtpSession,
     onFtpLeave: leaveFtpSession,
+    ...ftpBinding(),
     onSshAuthenticatePublic: sshAuthenticatePublic,
     onSshAuthenticateSameLan: sshAuthenticateSameLan,
     onSshAuthenticateInnerGateway: sshAuthenticateInnerGateway,

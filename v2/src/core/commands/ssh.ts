@@ -15,13 +15,14 @@
  * session. The client never claims a tier — the userType comes back server-derived.
  */
 
-import { asAbsPath, asMachineId, type UserType } from '../types';
+import { asMachineId } from '../types';
 import { generateHomeLan } from '../generation/generateHomeLan';
 import { isInnerGateway, resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { isPublicIp } from '../generation/ip';
 import { parsePidfilePort } from '../services/pidfile';
 import type { Command, CommandEnv, CommandResult, Session } from './types';
 import type { Directory } from '../filesystem/types';
+import { homeDirectory } from '../sessions/homeDirectory';
 
 const DEFAULT_PORT = 22;
 const SSHD_PIDFILE = 'sshd.pid';
@@ -63,9 +64,6 @@ const sshPortOf = (fs: Directory): number | null => {
   const pid = run.entries.get(SSHD_PIDFILE);
   return pid !== undefined && pid.kind === 'file' ? parsePidfilePort(pid.content) : null;
 };
-
-const homeFor = (username: string, userType: UserType): string =>
-  userType === 'root' ? '/root' : `/home/${username}`;
 
 /** Cross-player login to a PUBLIC IP (Story 2): the target isn't on the player's
  *  own LAN, so reachability comes from the server via `env.scan.resolvePublic`
@@ -124,7 +122,7 @@ const executePublicLogin = async (
     createdAt: env.now(),
   };
   env.pushSession(session);
-  env.setCwd(asAbsPath(homeFor(target.user, result.userType)));
+  env.setCwd(homeDirectory({ username: target.user, userType: result.userType }));
   return { kind: 'sync', lines: [], exitCode: 0 };
 };
 
@@ -179,7 +177,7 @@ const executeSameLanLogin = async (
     createdAt: env.now(),
   };
   env.pushSession(session);
-  env.setCwd(asAbsPath(homeFor(target.user, result.userType)));
+  env.setCwd(homeDirectory({ username: target.user, userType: result.userType }));
   return { kind: 'sync', lines: [], exitCode: 0 };
 };
 
@@ -244,7 +242,7 @@ const executeForwardLogin = async (
     createdAt: env.now(),
   };
   env.pushSession(session);
-  env.setCwd(asAbsPath(homeFor(target.user, result.userType)));
+  env.setCwd(homeDirectory({ username: target.user, userType: result.userType }));
   return { kind: 'sync', lines: [], exitCode: 0 };
 };
 
@@ -348,7 +346,7 @@ const execute: Command['execute'] = async (env, args, flags) => {
     createdAt: env.now(),
   };
   env.pushSession(session);
-  env.setCwd(asAbsPath(homeFor(target.user, result.userType)));
+  env.setCwd(homeDirectory({ username: target.user, userType: result.userType }));
   return { kind: 'sync', lines: [], exitCode: 0 };
 };
 

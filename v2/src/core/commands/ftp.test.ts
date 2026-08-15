@@ -3,19 +3,22 @@ import { ftp } from './ftp';
 import { runFtpLine } from './ftpShell';
 import {
   mockCommandEnv,
+  mockFsViewFromTree,
   mockFtpApi,
   mockIdentity,
   mockNetworkView,
   mockNetworkViewFromConnectivity,
   mockSession,
 } from '../../test/factories/commandEnv';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
 import { hostMachineId } from '../generation/remoteHostId';
 import { readOpenPorts } from '../services/pidfile';
 import { assignHomeNetwork } from '../network/homeNetwork';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
-import { asEpochMs, asMachineId, asPlayerKeyHex } from '../types';
+import { asAbsPath, asEpochMs, asMachineId, asPlayerKeyHex } from '../types';
+import type { AbsPath, UserType } from '../types';
 import type { CommandResult, RemoteAuthParams, RemoteAuthResult, Session } from './types';
 
 /**
@@ -332,10 +335,10 @@ describe('the ftp> prompt', () => {
   it('refuses a shell command instead of running it', async () => {
     const left = vi.fn();
 
-    // `ls` is a real command of the OUTER shell. At `ftp>` it must not reach it:
+    // `cat` is a real command of the OUTER shell. At `ftp>` it must not reach it:
     // falling through would run it against the machine the player is standing on
     // while they believe they are looking at the remote.
-    const result = await runFtpLine(shellEnv({ onLeave: left }), 'ls /etc');
+    const result = await runFtpLine(shellEnv({ onLeave: left }), 'cat /etc/passwd');
 
     expect(linesOf(result)).toContain('?Invalid command');
     expect(sync(result).exitCode).not.toBe(0);
@@ -347,5 +350,184 @@ describe('the ftp> prompt', () => {
 
     expect(sync(result).lines).toEqual([]);
     expect(sync(result).exitCode).toBe(0);
+  });
+});
+
+/**
+ * Two machines are in the room and the prompt has to keep them apart: the remote
+ * one the credential bought, and the origin the player never left. The fixtures
+ * below make them disagree about everything they can — different entries, different
+ * starting directories — because a mix-up that answers the same either way is a
+ * mix-up no test can see.
+ */
+const REMOTE_TREE = buildDirectory({
+  etc: buildDirectory({ passwd: buildFile('root:x:0:0::/root:/bin/bash\n') }),
+  home: buildDirectory({
+    guest: buildDirectory({ 'remote-loot.txt': buildFile('theirs') }, { owner: 'guest' }),
+  }),
+  // Sealed above the guest tier, so the same path answers differently to two
+  // credentials — the only way a test can tell "the tier decided" from "the door
+  // decided".
+  vault: buildDirectory(
+    { 'sealed.txt': buildFile('classified') },
+    { owner: 'root', perms: { read: ['root', 'user'], execute: ['root', 'user'] } },
+  ),
+});
+
+const ORIGIN_TREE = buildDirectory({
+  home: buildDirectory({
+    alice: buildDirectory({ 'origin-notes.txt': buildFile('mine') }, { owner: 'alice' }),
+  }),
+  tmp: buildDirectory({ 'origin-scratch.txt': buildFile('scratch') }),
+});
+
+const REMOTE_HOME = asAbsPath('/home/guest');
+const ORIGIN_HOME = asAbsPath('/home/alice');
+
+/** A cwd that can move — the UI's signal in miniature, so `cd` and `lcd` are
+ *  observed through what the NEXT command sees rather than through a spy. */
+const movableCwd = (start: AbsPath) => {
+  let current = start;
+  return {
+    read: (): AbsPath => current,
+    set: (path: AbsPath): void => {
+      current = path;
+    },
+  };
+};
+
+const browsingEnv = (over: { readonly remoteTier?: UserType } = {}) => {
+  const remote = movableCwd(REMOTE_HOME);
+  const origin = movableCwd(ORIGIN_HOME);
+  const env = mockCommandEnv({
+    session: mockSession({ username: 'alice', userType: 'user' }),
+    fs: mockFsViewFromTree(ORIGIN_TREE, { userType: 'user', cwd: origin.read }),
+    setCwd: origin.set,
+    ftp: mockFtpApi({
+      fs: mockFsViewFromTree(REMOTE_TREE, {
+        userType: over.remoteTier ?? 'guest',
+        cwd: remote.read,
+      }),
+      setCwd: remote.set,
+    }),
+  });
+  return { env, remote, origin };
+};
+
+describe('looking around from the ftp> prompt', () => {
+  it('answers ls from the remote machine and lls from the box the player is standing on', async () => {
+    const { env } = browsingEnv();
+
+    const remoteListing = linesOf(await runFtpLine(env, 'ls'));
+    const originListing = linesOf(await runFtpLine(env, 'lls'));
+
+    expect(remoteListing).toContain('remote-loot.txt');
+    expect(remoteListing).not.toContain('origin-notes.txt');
+    expect(originListing).toContain('origin-notes.txt');
+    expect(originListing).not.toContain('remote-loot.txt');
+  });
+
+  it('reports the remote directory to pwd and the origin one to lpwd', async () => {
+    const { env } = browsingEnv();
+
+    expect(linesOf(await runFtpLine(env, 'pwd'))).toContain('/home/guest');
+    expect(linesOf(await runFtpLine(env, 'pwd'))).not.toContain('/home/alice');
+    expect(linesOf(await runFtpLine(env, 'lpwd'))).toContain('/home/alice');
+    expect(linesOf(await runFtpLine(env, 'lpwd'))).not.toContain('/home/guest');
+  });
+
+  it('moves only the remote directory on cd, leaving the origin where it was', async () => {
+    const { env } = browsingEnv();
+
+    const moved = await runFtpLine(env, 'cd /etc');
+
+    expect(linesOf(moved)).toContain('250 Directory successfully changed.');
+    expect(linesOf(await runFtpLine(env, 'ls'))).toContain('passwd');
+    expect(linesOf(await runFtpLine(env, 'pwd'))).toContain('/etc');
+    // The origin never moved: the player is standing where they were the whole time.
+    expect(linesOf(await runFtpLine(env, 'lpwd'))).toContain('/home/alice');
+    expect(linesOf(await runFtpLine(env, 'lls'))).toContain('origin-notes.txt');
+  });
+
+  it('moves only the origin directory on lcd, leaving the remote where it was', async () => {
+    const { env } = browsingEnv();
+
+    const moved = await runFtpLine(env, 'lcd /tmp');
+
+    expect(linesOf(moved)).toContain('/tmp');
+    expect(linesOf(await runFtpLine(env, 'lls'))).toContain('origin-scratch.txt');
+    expect(linesOf(await runFtpLine(env, 'lpwd'))).toContain('/tmp');
+    // The remote never moved.
+    expect(linesOf(await runFtpLine(env, 'pwd'))).toContain('/home/guest');
+    expect(linesOf(await runFtpLine(env, 'ls'))).toContain('remote-loot.txt');
+  });
+
+  it('refuses a remote directory that is not there, and stays where it was', async () => {
+    const { env } = browsingEnv();
+
+    const refused = await runFtpLine(env, 'cd /nowhere');
+
+    expect(linesOf(refused)).toContain('550 Failed to change directory.');
+    expect(sync(refused).exitCode).not.toBe(0);
+    expect(linesOf(await runFtpLine(env, 'pwd'))).toContain('/home/guest');
+  });
+
+  it('lets the tier the credential bought decide what the remote shows, not the door', async () => {
+    const asGuest = await runFtpLine(browsingEnv().env, 'ls /vault');
+    const asUser = await runFtpLine(browsingEnv({ remoteTier: 'user' }).env, 'ls /vault');
+
+    // The same path, the same command, two credentials — and only the second one
+    // sees it. Refused exactly as it would be over ssh, because it IS that refusal.
+    expect(linesOf(asGuest)).toContain('Permission denied');
+    expect(sync(asGuest).exitCode).not.toBe(0);
+    expect(linesOf(asUser)).toContain('sealed.txt');
+    expect(sync(asUser).exitCode).toBe(0);
+  });
+
+  it('takes the listing flags the shell takes, on both machines', async () => {
+    const { env } = browsingEnv();
+
+    // -l is the shape a real client's listing arrives in; proving it on BOTH sides
+    // stops one arm from quietly parsing a flag as a path.
+    expect(linesOf(await runFtpLine(env, 'ls -l'))).toContain('remote-loot.txt');
+    expect(linesOf(await runFtpLine(env, 'ls -l'))).toContain('-rw');
+    expect(linesOf(await runFtpLine(env, 'lls -l'))).toContain('origin-notes.txt');
+    expect(linesOf(await runFtpLine(env, 'lls -l'))).toContain('-rw');
+  });
+
+  it('names both directions in help, so a player can find the machine they are on', async () => {
+    const listing = linesOf(await runFtpLine(browsingEnv().env, 'help'));
+
+    expect(listing).toContain('lls');
+    expect(listing).toContain('lcd');
+    expect(listing).toContain('lpwd');
+  });
+
+  it('answers ? the way a real client does, with the same listing help gives', async () => {
+    const { env } = browsingEnv();
+
+    expect(linesOf(await runFtpLine(env, '?'))).toBe(linesOf(await runFtpLine(env, 'help')));
+  });
+
+  it('reads a line the way a player types it, spacing and all', async () => {
+    const { env } = browsingEnv();
+
+    // Leading space and a doubled gap are what hands produce; neither may swallow
+    // the command or turn the argument into an empty path pointing at the cwd.
+    expect(linesOf(await runFtpLine(env, '  ls  /etc'))).toContain('passwd');
+    expect(linesOf(await runFtpLine(env, '  ls  /etc'))).not.toContain('remote-loot.txt');
+  });
+
+  it('asks for the directory rather than guessing when cd is given none', async () => {
+    const { env } = browsingEnv();
+
+    const remote = await runFtpLine(env, 'cd');
+    const origin = await runFtpLine(env, 'lcd');
+
+    expect(linesOf(remote)).toContain('usage: cd remote-directory');
+    expect(linesOf(origin)).toContain('usage: lcd local-directory');
+    // Neither machine moved on the way to being told off.
+    expect(linesOf(await runFtpLine(env, 'pwd'))).toContain('/home/guest');
+    expect(linesOf(await runFtpLine(env, 'lpwd'))).toContain('/home/alice');
   });
 });

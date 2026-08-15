@@ -24,6 +24,7 @@ import type {
   RemoteApi,
   ScanApi,
   Session,
+  FsView,
   FtpApi,
   SshApi,
   HydraApi,
@@ -120,6 +121,12 @@ export type BuildCommandEnvArgs = {
    *  and the sub-shell dispatch both read. */
   readonly onFtpEnter?: FtpApi['enter'];
   readonly onFtpLeave?: FtpApi['leave'];
+  /** The REMOTE machine's tree at the ftp session's tier, plus the setter for its
+   *  own working directory — the second binding `ls`/`cd`/`pwd` address while the
+   *  `l`-prefixed trio keeps addressing `root`/`cwd` above. The UI builds the view
+   *  (it owns the target's journal); absent it, there is no remote to look at. */
+  readonly ftpFs?: FsView;
+  readonly onFtpCwdChange?: (path: AbsPath) => void;
   /** The credential-cracking seam — backs `env.hydra.crack`. The UI wires it to the
    *  `crackCredentials` adapter (signed `hydraCrack` round-trip). Optional here for
    *  terse test setups; the UI always passes the real one. */
@@ -202,6 +209,15 @@ const networkView = (
   rescanWifi,
 });
 
+/** The tree an unheld ftp binding reads: empty, and traversable by anyone so the
+ *  emptiness reads as "nothing here" rather than as a refusal. */
+const NO_REMOTE: Directory = {
+  kind: 'directory',
+  owner: 'root',
+  perms: { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root', 'user', 'guest'] },
+  entries: new Map(),
+};
+
 const outputStub = (): OutputSink => ({
   text: notWired('output.text'),
   error: notWired('output.error'),
@@ -256,6 +272,12 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
     authenticate: args.onFtpAuthenticate ?? notWired('ftp.authenticate'),
     enter: args.onFtpEnter ?? (() => undefined),
     leave: args.onFtpLeave ?? (() => undefined),
+    // No session, no remote: an empty tree, never the origin's. The `ftp>` commands
+    // are the only readers and they cannot run without a session, so nothing is
+    // hidden — while a fallback to `root` would answer a question about their box
+    // with a listing of the player's own.
+    fs: args.ftpFs ?? createFsView(NO_REMOTE),
+    setCwd: args.onFtpCwdChange ?? (() => undefined),
   },
   su: {
     elevate: args.onSuElevate ?? notWired('su.elevate'),

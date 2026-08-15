@@ -1113,6 +1113,21 @@ state costs you more than one wrong attempt.
   which cannot serve that reverse lookup — `home_network_occupants_workstation_machine_id_idx`
   exists for it and must survive any future reshaping of the table.
   See `cross-player-architecture.md`.
+- **L1 asks whether you hold a session, never which KIND.** `authorizeMachineAccess` looks up
+  any active `(player_key, machine_id)` row, so an `ftp` session opens the same journal an
+  `ssh` hop does — proven live by `scripts/testFtpRemoteRead.ts`, since every unit test fakes
+  `findActiveSession`. This is deliberate (a door is not an authorization dimension), and it
+  is what every later parallel session — `nc`, `mysql`, `redis` — will inherit for free. The
+  consequence to keep in view: **the remote READ is L1-only**, so the tier filter on what a
+  session can see is CLIENT-side (`createFsView` + the shared walker), exactly as it is for an
+  `ssh` hop. A server-side read filter is a separate, still-deferred plan.
+- **A PARALLEL session needs its own journal, and the answer must be checked on arrival.**
+  The shell's `patches()` follows the shell; an ftp session addresses a second machine at the
+  same time, so it carries `ftpPatches` beside it. The fetch is fire-and-forget, which makes
+  the guard load-bearing: when it resolves, compare the SESSION ID it was fetched for against
+  the one now held and drop it otherwise. Without that, quitting one box and opening another
+  before the first answer lands renders one stranger's files under another stranger's name.
+  `state.test.ts` pins both orders (a late answer with a different box open, and with none).
 - **Known deferred gap (L3 smart-server):** a client with a valid keypair can mint an
   `effect_one_shot`/root session via `createSession` and call `exploitRead` directly,
   skipping the in-game CVE flow. Accepted per the security model; real fix = server-side

@@ -424,6 +424,18 @@ export type FtpApi = {
   readonly enter: (session: Session) => void;
   /** Drop it and hand the terminal back to the shell that never moved. */
   readonly leave: () => void;
+  /** The REMOTE machine's tree, at the tier the credential bought — an ADDITIVE
+   *  second binding, sitting beside `env.fs` rather than replacing it, because the
+   *  ftp session runs alongside the shell instead of on top of it. Reads an empty
+   *  tree when no session is held: the `ftp>` commands are the only callers and
+   *  they cannot run without one, so nothing is hidden by the emptiness — whereas
+   *  falling back to the origin would answer a question about their box with a
+   *  listing of the player's own. */
+  readonly fs: FsView;
+  /** Move the REMOTE cwd (backs `cd`). Sibling of `env.setCwd`, which moves the
+   *  origin's — the two directories are independent, so `cd` and `lcd` can never
+   *  drag each other. */
+  readonly setCwd: (path: AbsPath) => void;
 };
 
 export type SshApi = {

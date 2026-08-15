@@ -17,10 +17,9 @@
  * paired on all traversable dirs.
  */
 
-import type { AbsPath } from '../types';
-import { asAbsPath } from '../types';
-import type { Command, CommandEnv, CommandResult, FsListResult, Session } from './types';
+import type { Command, CommandEnv, CommandResult, FsListResult } from './types';
 import { resolveAbsPath } from '../filesystem/path';
+import { homeDirectory } from '../sessions/homeDirectory';
 
 type FsListError = Extract<FsListResult, { readonly ok: false }>['error'];
 
@@ -37,9 +36,6 @@ const formatListError = (target: string, error: FsListError): string => {
   }
 };
 
-const homeFor = (session: Session): AbsPath =>
-  session.userType === 'root' ? asAbsPath('/root') : asAbsPath(`/home/${session.username}`);
-
 const execute = async (env: CommandEnv, args: readonly string[]): Promise<CommandResult> => {
   if (args.length > 1) {
     return {
@@ -50,7 +46,8 @@ const execute = async (env: CommandEnv, args: readonly string[]): Promise<Comman
   }
 
   const rawArg = args[0];
-  const target = rawArg === undefined ? homeFor(env.session) : resolveAbsPath(env.fs.cwd(), rawArg);
+  const target =
+    rawArg === undefined ? homeDirectory(env.session) : resolveAbsPath(env.fs.cwd(), rawArg);
   const messageTarget = rawArg ?? target;
 
   const listing = env.fs.list(target);

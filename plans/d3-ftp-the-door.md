@@ -20,8 +20,9 @@ takes a file and leaves one — and the box's owner reads exactly which files mo
       `/var/log/vsftpd.log` — not `auth.log` *(slice 1, v0.131.0)*
 - [x] `ftp <host>` authenticates against the box's real `/etc/passwd` and leaves the player at an
       `ftp>` prompt; `quit` returns them to the shell they never left *(slice 2, v0.132.0)*
-- [ ] Inside the session the player reads the remote tree (`ls`, `cd`, `pwd`) at the tier their
+- [x] Inside the session the player reads the remote tree (`ls`, `cd`, `pwd`) at the tier their
       credential carries, while `lls`/`lcd`/`lpwd` still address the box they are standing on
+      *(slice 3, v0.133.0)*
 - [ ] `get` copies a remote file onto the origin machine; `put` copies an origin file onto the
       remote, refused when the session's tier cannot write the destination
 - [ ] The target's `vsftpd.log` names every login and every transfer, with byte counts — the
@@ -50,6 +51,13 @@ is a complete walking skeleton without the filesystem behind it.
 **Why D3.3 splits**: `get` and `put` are not symmetric, and grounding is what shows it —
 see "What grounding settled" below.
 
+**Amendment, approved 2026-08-15**: `lls`/`lcd`/`lpwd` move from slice 4 into **slice 3**. The
+epic's third acceptance criterion states the remote trio and the local trio in one breath —
+"reads the remote tree … *while* `lls`/`lcd`/`lpwd` still address the box they are standing on" —
+so splitting them left that criterion spanning two slices, tickable by neither. It also weakens
+the RED: "the two bindings are not confused" is only falsifiable when both trios are present to
+disagree. Slice 4 keeps what is genuinely its own — the local cwd deciding where a `get` lands.
+
 ## What grounding settled (verified 2026-08-14, at planning time)
 
 Five checks against the code, each of which changes the plan rather than decorating it:
@@ -67,8 +75,8 @@ Five checks against the code, each of which changes the plan rather than decorat
    the ftp session *parallel* rather than pushing it, `activeSession()` still returns the origin
    session, so `patchClientDeps`, `patches()` and `activeRoot()` keep serving the origin
    untouched. The remote is an **additive second binding**; nothing is rebound. This makes
-   `lls`/`lcd`/`lpwd` nearly free (slice 4) and is cheaper than the "second journal + servedRoot"
-   the grill costed.
+   `lls`/`lcd`/`lpwd` nearly free (slice 3, per the amendment above) and is cheaper than the
+   "second journal + servedRoot" the grill costed.
 4. **`put`, not `get`, is where decision 3's central claim gets proven.** `get` = remote read
    (L2 at the session's tier) → **origin** write (own workstation, no session needed). `put` =
    origin read → **remote** write, which is the only place an `ftp`-kind row has to satisfy L1
@@ -218,7 +226,7 @@ file's execute bit, the identical profile shipped `sshd.ts` and `auth.log` alrea
 
 ### Slice 2: A player logs in over ftp and lands at an `ftp>` prompt they can leave
 
-**Status: COMPLETE, awaiting commit approval** — v0.132.0. As-built notes:
+**Status: SHIPPED** — v0.132.0, PR #394 (`15fe95e`), merged 2026-08-15. As-built notes:
 
 1. **The refusal is an allowlist, not an ftp exclusion.** `rehydrateSessionStack` rebuilds only
    HOP kinds (`ssh`/`su`) and returns everything else as `abandoned`, which the boot sweep closes.
@@ -304,12 +312,43 @@ generic sub-shell mechanism here**. One instance is not a pattern; the third cal
 
 ---
 
-### Slice 3: A player looks around the remote machine at the tier their credential carries
+### Slice 3: A player looks around the remote machine at the tier their credential carries, without losing their own
+
+**Status: COMPLETE, awaiting commit approval** — v0.133.0. As-built notes:
+
+1. **The remote listing is the shell's own `ls`, run over a swapped binding.** `ls`/`lls` both
+   delegate to the real command with `{ ...env, fs: <binding>.fs }`, which is what makes the
+   flags, the sort, the long format AND the permission refusal identical on both machines —
+   the fourth AC ("refused exactly as it would be over `ssh`") is not re-implemented, it IS
+   that refusal. `cd`/`pwd` do NOT delegate: they answer in vsftpd's numbered responses
+   (`250`/`550`/`257`) because those are control-channel commands, while a listing is data the
+   far side produced. The `l`-prefixed trio speaks unnumbered — nothing it does touches the
+   control channel.
+2. **A second journal, with an arrival check.** `ftpPatches` is fetched for the target on
+   `enter` and dropped on `leave`, held beside the shell's `patches()`. The fire-and-forget
+   fetch compares the session id when it resolves: quitting one box and opening another before
+   the first answer lands would otherwise render one stranger's files under another's name.
+   Recorded as an invariant in `conventions-and-gotchas.md` §7, since `nc`/`mysql`/`redis`
+   each inherit it.
+3. **`homeDirectory` was extracted, and it had FIVE copies.** `cd`, `ssh`, `su`,
+   `sessionRehydrate` and the new ftp landing each carried "root → `/root`, else
+   `/home/<user>`". Folded onto one module as the REFACTOR step, behaviorally green
+   throughout; 100% mutation, and the arms are now covered by four existing suites rather
+   than by the one caller that would have added a sixth copy.
+4. **Mutation found a wiring gap the core tests could not see.** `onFtpCwdChange` was never
+   proven end-to-end: `env.ts`'s `??` mutated to `&&` left `cd` silently unable to move the
+   remote cwd, and every core test passed because they inject their own setter. Killed by
+   asserting `pwd` AFTER `cd` through the real UI state.
+5. **Bare `cd`/`lcd` ask rather than guess.** No arg prints usage — real ftp prompts for the
+   directory, and reusing the shell `cd`'s bare-arg jump would have sent the player to the
+   ORIGIN user's home on the remote box, which is a directory that need not exist there.
 
 **Value**: The session becomes useful — `ls`, `cd` and `pwd` at `ftp>` address the remote box,
 and what they show is decided by the tier the credential bought, not by who the player is at home.
+`lls`/`lcd`/`lpwd` address the origin in the same breath, so the player can always tell which of
+the two machines they are looking at.
 **Path**: `ftp>` command map → the **additive** remote patch binding → the shipped 3-tier read
-filter → the remote tree.
+filter → the remote tree; the `l`-prefixed trio → the untouched origin binding.
 **Class**: Behavior change.
 **Required implementation skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
 **Reduction program**: `N/A`.
@@ -317,23 +356,37 @@ filter → the remote tree.
 **Acceptance criteria** (present and confirm before code):
 - `ls` at `ftp>` lists the **remote** box's cwd; `cd /etc` then `ls` shows `passwd`
 - `pwd` reports the remote cwd, which starts at the logged-in account's home
+- `lls`, `lcd` and `lpwd` address the **origin** machine from the same prompt, and `lcd` moves the
+  origin cwd without moving the remote one — the two cwds are independent
 - A path the session's tier cannot traverse is refused exactly as it would be over `ssh` with the
   same credential — the door adds no authorization dimension (epic decision 2)
 - The player's own machine state is untouched throughout: after `quit`, `pwd` and `ls` in the
   shell show the same cwd and tree as before `ftp` was run
 
-**RED**: `ls` at `ftp>` returns the remote tree while `activeRoot()` still returns the origin —
+**RED**: `ls` at `ftp>` returns the remote tree while `lls` at the same prompt returns the origin —
 one test that fails in both directions if the bindings are confused. Per §6, use fixtures whose
-remote and origin trees hold **distinct** entries, or a binding mix-up passes.
+remote and origin trees hold **distinct** entries, or a binding mix-up passes; the same applies to
+the two cwds, which must start at different paths or `cd`/`lcd` cannot be told apart.
 **GREEN**: A remote binding signal alongside the existing one (grounding finding 3 — nothing is
-rebound); the remote `pwd`/`ls`/`cd` in the ftp map, reusing `createFsView` and the walker.
-**MUTATE**: Full run on the remote binding and the three commands.
-**KILL MUTANTS**: Tier-gate survivors are in scope.
+rebound); the remote `pwd`/`ls`/`cd` in the ftp map, reusing `createFsView` and the walker; the
+`l`-prefixed trio reading the origin state that already exists.
+**MUTATE**: Full run on the remote binding and both trios.
+**KILL MUTANTS**: Tier-gate survivors are in scope, and so is any survivor that lets one trio
+answer from the other machine's binding.
 **REFACTOR**: Assess whether `createFsView` construction is now duplicated between the shell and
-the ftp map.
-**Wire-check**: **Required.** `scripts/testFtpRemoteRead.ts` — a read of the remote journal
-authorized by an `ftp`-kind session returns the box's real state at the session's tier. The read
-filter is server-side; `tsc` cannot see it.
+the ftp map. **Do not** unify the six commands behind one parameterized pair — the remote arm is
+tier-gated and the origin arm is not, and collapsing them would put the gate behind a flag.
+**Wire-check**: **DONE — 7/7 live** (`vercel dev` + supabase, 2026-08-15).
+`scripts/testFtpRemoteRead.ts`: a box the player holds nothing on refuses its journal (403
+`no_session`); an `ftp` row alone authorizes the read, because the L1 gate never asks which
+kind; what comes back is the box as it stands, including the `vsftpd.log` line the SERVER wrote
+on arrival — a client cannot compute that, so the listing was genuinely read off the target; the
+grant is per-BOX (a second machine still refuses); and it dies with the session (403 again after
+`endSession`). `testFtpSession.ts` re-run as a regression: still 14/14.
+**Correction to the plan text above**: the read filter is NOT server-side. `listPatches` is
+L1-only and machine-scoped, so the tier decides what a session SEES on the client, through
+`createFsView` + the shared walker — exactly as it does for an `ssh` hop today. That is why the
+wire-check proves authorization and provenance rather than filtering. Recorded in §7.
 **Done when**: All criteria met, wire-check green, gates green, commit approved.
 **Version**: 0.133.0.
 
@@ -354,8 +407,8 @@ shipped `upsertPatch` (own workstation, no session needed) → `OK DOWNLOAD` on 
 vs refuse):
 - `get /etc/passwd` writes the file into the origin cwd and reports the transfer with its byte
   count; after `quit`, `cat passwd` shows the remote content and `john passwd` reads it
-- `lpwd`, `lcd` and `lls` address the **origin** machine while `pwd`/`ls`/`cd` address the remote,
-  and `lcd /tmp` then `get` lands the file in `/tmp`
+- The origin cwd — the one slice 3's `lcd` moves — is what decides where the file lands:
+  `lcd /tmp` then `get` writes into `/tmp`, not into the cwd the shell held when `ftp` was run
 - A remote file the session's tier cannot read is refused, and **nothing is written locally**
 - The remote's `vsftpd.log` gains an `OK DOWNLOAD` line naming the path and byte count
 - Per open decision 3: `get` onto an existing origin file overwrites, and the reported byte count
@@ -363,9 +416,8 @@ vs refuse):
 
 **RED**: `get` on a readable remote file produces an origin file with that content — asserted
 through the origin FS, not through the command's own output.
-**GREEN**: `get` in the ftp map; `lpwd`/`lcd`/`lls` reading the existing origin state (cheap, per
-grounding finding 3); the DOWNLOAD trace.
-**MUTATE**: Full run on `get` and the local-navigation trio.
+**GREEN**: `get` in the ftp map, landing at the origin cwd slice 3 introduced; the DOWNLOAD trace.
+**MUTATE**: Full run on `get` and the destination resolution.
 **KILL MUTANTS**: The read-refusal arm must leave no local write — assert the absence, and beware
 the vacuous-absence trap §6 records (prove the file *would* have been there on the success path).
 **REFACTOR**: Assess a shared transfer core now that one direction exists; **do not** generalize
