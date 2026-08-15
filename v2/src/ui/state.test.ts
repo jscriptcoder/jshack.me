@@ -396,18 +396,42 @@ describe('the ftp sub-shell', () => {
 
   const ESSID = 'ferro-cafe';
   const LAN = generateHomeLan(ESSID);
-  const FTP_HOST = LAN.hosts.find(
+  const FTP_HOSTS = LAN.hosts.filter(
     (host) =>
       host.kind === 'machine' &&
       readOpenPorts(buildRemoteHostFs(ESSID, host)).some((open) => open.service === 'ftp'),
   );
-  if (FTP_HOST === undefined) throw new Error(`no ftp-serving host on ${ESSID}`);
+  // Two doors, because one target can never show that a journal landed on the
+  // WRONG box — only a second one can.
+  const [FTP_HOST, OTHER_FTP_HOST] = FTP_HOSTS;
+  if (FTP_HOST === undefined || OTHER_FTP_HOST === undefined) {
+    throw new Error(`need two ftp-serving hosts on ${ESSID}`);
+  }
+  const FTP_MACHINE_ID = machineIdForLanHost(FTP_HOST, ESSID);
+  const OTHER_MACHINE_ID = machineIdForLanHost(OTHER_FTP_HOST, ESSID);
+  const TARGET_IDS = new Set([FTP_MACHINE_ID, OTHER_MACHINE_ID]);
 
   const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
 
-  /** Boot online, then log into the ftp host by actually typing the command and
-   *  answering both prompts — the shipped path, not a poked signal. */
-  const loginOverFtp = async () => {
+  /** A file that exists only on the named box, so a listing holding it names the
+   *  machine it came from. */
+  const dropFile = (name: string) => [
+    {
+      path: `/etc/${name}`,
+      content: 'left behind\n',
+      owner: 'root',
+      permissions: { read: ['root', 'user', 'guest'], write: ['root'], execute: [] },
+    },
+  ];
+
+  type RemoteJournal = (machineId: string) => Promise<readonly Record<string, unknown>[]>;
+
+  const journalPerTarget: RemoteJournal = async (machineId) =>
+    machineId === FTP_MACHINE_ID ? dropFile('remote-drop.txt') : dropFile('other-drop.txt');
+
+  /** Boot online with the ftp client already installed. `remoteJournal` answers a
+   *  journal read for either TARGET; the player's own box always gets the client. */
+  const bootOnline = async (remoteJournal: RemoteJournal = journalPerTarget) => {
     vi.resetModules();
     const store = new Map<string, string>();
     const storage = {
@@ -430,6 +454,12 @@ describe('the ftp sub-shell', () => {
         }
         if (fields.action === 'authCreateSession') {
           return { ok: true, status: 200, json: async () => ({ ok: true, userType: 'guest' }) };
+        }
+        // A TARGET's journal is a different machine's, so a listing proving it came
+        // back cannot have been computed from the box the player is standing on.
+        if (TARGET_IDS.has(String(fields.machine_id))) {
+          const patches = await remoteJournal(String(fields.machine_id));
+          return { ok: true, status: 200, json: async () => ({ patches }) };
         }
         // The ftp CLIENT is apt-gated, so the box has to already carry it — the
         // player would have run `apt install ftp` before ever reaching this door.
@@ -466,7 +496,16 @@ describe('the ftp sub-shell', () => {
       expect(state.scrollback().at(-1)?.content ?? '').toContain('ftp');
     });
 
-    state.setInput(`ftp ${FTP_HOST.ip}`);
+    return { state, sent };
+  };
+
+  /** Log into a host by actually typing the command and answering both prompts —
+   *  the shipped path, not a poked signal. */
+  const typeFtpLogin = async (
+    state: typeof import('./state'),
+    ip: string,
+  ): Promise<void> => {
+    state.setInput(`ftp ${ip}`);
     const run = state.runInput();
     // Name, then password — answered the way the player answers them.
     await vi.waitFor(() => expect(state.pendingPrompt()).toBeDefined());
@@ -477,8 +516,12 @@ describe('the ftp sub-shell', () => {
     state.submitPrompt();
     await run;
     await settle();
+  };
 
-    return { state, sent };
+  const loginOverFtp = async () => {
+    const booted = await bootOnline();
+    await typeFtpLogin(booted.state, FTP_HOST.ip);
+    return booted;
   };
 
   const lastLine = (state: typeof import('./state')): string =>
@@ -494,7 +537,7 @@ describe('the ftp sub-shell', () => {
       username: 'guest',
     });
 
-    state.setInput('ls /');
+    state.setInput('cat /etc/passwd');
     await state.runInput();
     expect(lastLine(state)).toContain('?Invalid command');
 
@@ -526,6 +569,112 @@ describe('the ftp sub-shell', () => {
     await state.runInput();
 
     expect(state.promptHost()).toBe('box');
+    expect(lastLine(state)).toBe('/home/tester');
+  });
+
+  it('shows the target box to ls and the player’s own to lls, from the one prompt', async () => {
+    const { state } = await loginOverFtp();
+
+    state.setInput('ls /etc');
+    await state.runInput();
+    const remoteEtc = state.scrollback().map((line) => line.content);
+    state.setInput('lls /etc');
+    await state.runInput();
+    const originEtc = state.scrollback().map((line) => line.content).slice(remoteEtc.length);
+
+    // The drop file lives ONLY in the target's journal, so a listing holding it
+    // was fetched from the target — not computed from the box the player is on.
+    expect(remoteEtc).toContain('remote-drop.txt');
+    expect(originEtc).not.toContain('remote-drop.txt');
+  });
+
+  it('starts the remote at the account’s home while the shell keeps its own directory', async () => {
+    const { state } = await loginOverFtp();
+
+    state.setInput('pwd');
+    await state.runInput();
+    expect(lastLine(state)).toContain('/home/guest');
+
+    state.setInput('lpwd');
+    await state.runInput();
+    expect(lastLine(state)).toContain('/home/tester');
+
+    // Moving on the remote leaves the shell where it stands — `quit` proves it by
+    // handing back a cwd the ftp session never touched.
+    state.setInput('cd /etc');
+    await state.runInput();
+    state.setInput('pwd');
+    await state.runInput();
+    expect(lastLine(state)).toContain('/etc');
+
+    state.setInput('quit');
+    await state.runInput();
+    state.setInput('pwd');
+    await state.runInput();
+
+    expect(lastLine(state)).toBe('/home/tester');
+  });
+
+  it('never lets a slow answer for a box already left land on the box now open', async () => {
+    // The first target's journal is held mid-flight while the player quits and opens
+    // a second door. When it finally answers it belongs to nobody — and it must not
+    // be shown as the second box's contents, which is a stranger's files under
+    // another stranger's name.
+    let releaseFirst: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const { state } = await bootOnline(async (machineId) => {
+      if (machineId === FTP_MACHINE_ID) {
+        await held;
+        return dropFile('remote-drop.txt');
+      }
+      return dropFile('other-drop.txt');
+    });
+
+    await typeFtpLogin(state, FTP_HOST.ip);
+    state.setInput('quit');
+    await state.runInput();
+    await typeFtpLogin(state, OTHER_FTP_HOST.ip);
+
+    releaseFirst?.();
+    await settle();
+
+    state.setInput('ls /etc');
+    await state.runInput();
+    const listing = state.scrollback().map((line) => line.content);
+
+    expect(listing).toContain('other-drop.txt');
+    expect(listing).not.toContain('remote-drop.txt');
+  });
+
+  it('takes a journal arriving after the player has gone as nothing to do', async () => {
+    // Same held answer, but nobody has opened another door when it lands: there is
+    // no session to compare it against. Quietly dropping it is the whole job — the
+    // fetch is fire-and-forget, so anything thrown here surfaces as an unhandled
+    // rejection nobody is left to catch.
+    let releaseFirst: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const { state } = await bootOnline(async (machineId) => {
+      if (machineId === FTP_MACHINE_ID) {
+        await held;
+        return dropFile('remote-drop.txt');
+      }
+      return dropFile('other-drop.txt');
+    });
+
+    await typeFtpLogin(state, FTP_HOST.ip);
+    state.setInput('quit');
+    await state.runInput();
+
+    releaseFirst?.();
+    await settle();
+
+    // The shell the player was handed back is still theirs, and still works.
+    state.setInput('pwd');
+    await state.runInput();
     expect(lastLine(state)).toBe('/home/tester');
   });
 });

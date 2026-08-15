@@ -136,6 +136,11 @@ export const mockFtpApi = (overrides: Partial<FtpApi> = {}): FtpApi => ({
   authenticate: NOT_IMPLEMENTED('ftp.authenticate'),
   enter: () => undefined,
   leave: () => undefined,
+  // An empty remote by default — the same thing production shows when no session
+  // is held, so a test that browses without building a remote sees nothing rather
+  // than the origin's tree wearing the remote's name.
+  fs: mockFsViewFromTree(buildDirectory({})),
+  setCwd: () => undefined,
   ...overrides,
 });
 

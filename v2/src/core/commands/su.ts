@@ -28,9 +28,9 @@ import { md5 } from '../generation/md5';
 import { userTypeFromPasswdFields } from '../generation/passwdTier';
 import { isCrossPlayerWorkstation } from '../network/crossPlayerHop';
 import type { Command, CommandEnv, CommandResult, Session } from './types';
+import { homeDirectory } from '../sessions/homeDirectory';
 
 const PASSWD_PATH = asAbsPath('/etc/passwd');
-const ROOT_HOME = asAbsPath('/root');
 const DEFAULT_TARGET = 'root';
 
 const failure = (): CommandResult => ({
@@ -52,12 +52,6 @@ type TargetUser = {
   readonly userType: UserType;
   readonly home: AbsPath;
 };
-
-/** A user's home directory: `/root` for root, `/home/<name>` otherwise. Shared by
- *  the local passwd path and the cross-player elevation (which has no passwd row
- *  to read the home from — it derives it from the server-returned tier + name). */
-const homeFor = (username: string, userType: UserType): AbsPath =>
-  userType === 'root' ? ROOT_HOME : asAbsPath(`/home/${username}`);
 
 /** The ESSID of the currently-associated `wlan0`, or null when not on a network —
  *  one input to the own/NPC vs cross-player-workstation routing decision. */
@@ -84,7 +78,7 @@ const targetFrom = (passwd: string, username: string): TargetUser | null => {
   const fields = row.split(':');
   const passwordHash = fields[1] ?? '';
   const userType: UserType = userTypeFromPasswdFields(fields);
-  return { username, passwordHash, userType, home: homeFor(username, userType) };
+  return { username, passwordHash, userType, home: homeDirectory({ username, userType }) };
 };
 
 /** Record this switch to the local `/var/log/auth.log` — like real Linux /
@@ -166,7 +160,7 @@ const elevateCrossPlayer = async (env: CommandEnv, targetName: string): Promise<
     kind: 'su',
     createdAt: env.now(),
   });
-  env.setCwd(homeFor(targetName, result.userType));
+  env.setCwd(homeDirectory({ username: targetName, userType: result.userType }));
   return { kind: 'sync', lines: [], exitCode: 0 };
 };
 
