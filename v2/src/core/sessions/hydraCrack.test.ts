@@ -17,6 +17,7 @@ import {
   AUTH_LOG_PERMISSIONS,
   formatSshdAuthLine,
 } from '../logging/authLog';
+import { VSFTPD_LOG_PATH, formatVsftpdLoginLine } from '../logging/vsftpdLog';
 import { derivePid } from '../logging/syslog';
 import { asAbsPath, asGameTime } from '../types';
 import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
@@ -65,6 +66,18 @@ const sshHostOn = (essid: string): LanHost => {
       hostServices(essid, candidate).some(({ spec }) => spec === SERVICE_CATALOG.ssh),
   );
   if (host === undefined) throw new Error('no ssh-running host on LAN');
+  return host;
+};
+
+/** A LAN host that runs ftp — the second door, whose sweep must land in the ftp
+ *  daemon's own log rather than sshd's. */
+const ftpHostOn = (essid: string): LanHost => {
+  const host = generateHomeLan(essid).hosts.find(
+    (candidate) =>
+      candidate.kind === 'machine' &&
+      hostServices(essid, candidate).some(({ spec }) => spec === SERVICE_CATALOG.ftp),
+  );
+  if (host === undefined) throw new Error('no ftp-running host on LAN');
   return host;
 };
 
@@ -949,5 +962,97 @@ describe('the trace a hydra sweep leaves on its target', () => {
 
     expect(response.status).toBe(200);
     expect(response.body.cracked).toEqual(everything);
+  });
+  describe('the trace lands in the attacked service own log', () => {
+    it('writes an ftp sweep to vsftpd.log, in the ftp daemon own shape', async () => {
+      // The wall of failures and the break-in that followed have to be in ONE file.
+      // Filed under sshd, an ftp sweep tells the defender a door was knocked on that
+      // nobody touched, while the door that actually opened shows nothing at all.
+      const identity = generateIdentity();
+      const host = ftpHostOn(ESSID);
+      const everything = accountsWithPasswords(host, KNOWN_POOL);
+      // A miss FIRST, so line 0 is a genuine failure: a list whose opening word
+      // already opens account 0 would assert the success shape by accident.
+      const { deps, upsertPatch } = makeDeps({
+        wordlist: ['no-such-word', ...everything.map((account) => account.password)],
+      });
+
+      await handleHydraCrack(
+        signedCrack(identity, { target_ip: host.ip, service: 'ftp' }),
+        deps,
+      );
+
+      const row = upsertPatch.mock.calls[0]?.[0];
+      expect(row?.path).toBe(VSFTPD_LOG_PATH);
+      expect(writtenLines(upsertPatch)[0]).toBe(
+        formatVsftpdLoginLine({
+          outcome: 'failure',
+          user: accountNamesOn(host)[0] ?? '',
+          fromIp: ATTACKER_IP,
+          hostname: host.hostname,
+          time: asGameTime(FIXED_NOW),
+          pid: derivePid(FIXED_NOW),
+        }),
+      );
+    });
+
+    it('leaves auth.log untouched when the door swept was ftp', async () => {
+      // The other half of the same claim: routing that only ADDS a destination would
+      // pass the assertion above while still writing the sshd-tagged wall.
+      const identity = generateIdentity();
+      const host = ftpHostOn(ESSID);
+      const everything = accountsWithPasswords(host, KNOWN_POOL);
+      // A miss FIRST, so line 0 is a genuine failure: a list whose opening word
+      // already opens account 0 would assert the success shape by accident.
+      const { deps, upsertPatch } = makeDeps({
+        wordlist: ['no-such-word', ...everything.map((account) => account.password)],
+      });
+
+      await handleHydraCrack(
+        signedCrack(identity, { target_ip: host.ip, service: 'ftp' }),
+        deps,
+      );
+
+      const paths = upsertPatch.mock.calls.map(([row]) => row.path);
+      expect(paths).not.toContain(AUTH_LOG_PATH);
+    });
+
+    it('still writes an ssh sweep to auth.log, in sshd shape', async () => {
+      // The control. Routing by service must move the ftp door WITHOUT moving the one
+      // every shipped trace already depends on.
+      const identity = generateIdentity();
+      const host = sshHostOn(ESSID);
+      const everything = accountsWithPasswords(host, KNOWN_POOL);
+      // A miss FIRST, so line 0 is a genuine failure: a list whose opening word
+      // already opens account 0 would assert the success shape by accident.
+      const { deps, upsertPatch } = makeDeps({
+        wordlist: ['no-such-word', ...everything.map((account) => account.password)],
+      });
+
+      await handleHydraCrack(signedCrack(identity, { target_ip: host.ip }), deps);
+
+      const row = upsertPatch.mock.calls[0]?.[0];
+      expect(row?.path).toBe(AUTH_LOG_PATH);
+      expect(writtenLines(upsertPatch)[0]).toBe(
+        traceLine('failure', accountNamesOn(host)[0] ?? '', host),
+      );
+    });
+
+    it('refuses a service the world has no row for, and writes nothing', async () => {
+      // `hydra <host> telnet` names a door the game does not model. It is answered
+      // exactly like a service that is not running — the caller learns nothing about
+      // the box either way — and nothing is recorded on it.
+      const identity = generateIdentity();
+      const host = sshHostOn(ESSID);
+      const { deps, upsertPatch } = makeDeps({ wordlist: ['whatever'] });
+
+      const response = await handleHydraCrack(
+        signedCrack(identity, { target_ip: host.ip, service: 'telnet' }),
+        deps,
+      );
+
+      expect(response).toEqual({ status: 404, body: { error: 'service_not_running' } });
+      expect(upsertPatch).not.toHaveBeenCalled();
+    });
   });
 });

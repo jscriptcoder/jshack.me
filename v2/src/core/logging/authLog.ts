@@ -53,7 +53,11 @@ export const formatSuAuthLine = (event: SuAuthEvent): string =>
         : `FAILED su for ${event.targetUser} by ${event.fromUser}`,
   });
 
-export type SshdAuthEvent = {
+/** One credential attempt as the TARGET saw it — the input every service's login
+ *  formatter renders, whichever log it writes to. `hostname` is carried for the
+ *  syslog-shaped writers; a daemon that logs into its own file (and so never names
+ *  the host) ignores it. */
+export type CredentialAttempt = {
   readonly outcome: 'success' | 'failure';
   readonly user: string;
   /** The client's source address (the player's LAN IP for a same-LAN ssh). */
@@ -68,7 +72,7 @@ export type SshdAuthEvent = {
  *  rejected credential (real sshd logs both). Same syslog core as `su`; the
  *  `sshd` service tag is the only structural difference, so future service
  *  loggers (ftp/nc/mysql/redis) follow this exact shape. */
-export const formatSshdAuthLine = (event: SshdAuthEvent): string =>
+export const formatSshdAuthLine = (event: CredentialAttempt): string =>
   formatSyslogLine({
     time: event.time,
     hostname: event.hostname,

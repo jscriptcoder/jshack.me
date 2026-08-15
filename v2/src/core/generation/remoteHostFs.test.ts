@@ -59,6 +59,14 @@ const httpHosts = (): readonly { octet: number; port: number }[] =>
     return [{ octet, port }];
   });
 
+const ftpHosts = (): readonly { octet: number; port: number }[] =>
+  OCTETS.flatMap((octet) => {
+    const content = pidfileContent(buildRemoteHostFs(ESSID, host(octet)), 'vsftpd.pid');
+    if (content === null) return [];
+    const port = Number(content.split('=')[1]);
+    return [{ octet, port }];
+  });
+
 /** Navigate to a directory by path segments (readable, no optional chaining). */
 const dirAt = (fs: Directory, ...segments: readonly string[]): Directory => {
   let node: FileNode = fs;
@@ -642,6 +650,85 @@ describe('buildRemoteHostFs', () => {
       // occupants of one AP different credentials on one address, so a journal written
       // by one replayed onto a machine the other did not have.
       expect(buildRemoteHostFs(ESSID, host(42))).toEqual(buildRemoteHostFs(ESSID, host(42)));
+    });
+  });
+  describe('the ftp door (a second way onto a box, and one hydra can sweep)', () => {
+    it('plants a root-owned vsftpd.pid (vsftpd:port=<n>) on a host that runs ftp', () => {
+      const ftp = ftpHosts();
+      expect(ftp.length).toBeGreaterThan(0);
+      const fs = buildRemoteHostFs(ESSID, host(ftp[0]!.octet));
+      const node = varRun(fs)?.entries.get('vsftpd.pid');
+      if (node === undefined || node.kind !== 'file') throw new Error('expected vsftpd.pid file');
+      expect(node.content).toMatch(/^vsftpd:port=\d+$/);
+      expect(node.owner).toBe('root');
+    });
+
+    it('listens on 21, or occasionally on the alternate 2121', () => {
+      const ports = new Set(ftpHosts().map(({ port }) => port));
+      expect([...ports].sort((left, right) => left - right)).toEqual([21, 2121]);
+    });
+
+    it('reaches boxes ssh does not — the door that makes a second door worth having', () => {
+      // If every ftp host also ran ssh, the row would add a protocol and no new
+      // target. What justifies it is the box hydra's ssh sweep cannot open at all.
+      const sshOctets = new Set(sshHosts().map(({ octet }) => octet));
+      const ftpOnly = ftpHosts().filter(({ octet }) => !sshOctets.has(octet));
+      expect(ftpOnly.length).toBeGreaterThan(0);
+    });
+
+    it('plants /var/log/vsftpd.log empty on a host running ftp', () => {
+      const fs = buildRemoteHostFs(ESSID, host(ftpHosts()[0]!.octet));
+      const node = dirAt(fs, 'var', 'log').entries.get('vsftpd.log');
+      if (node?.kind !== 'file') throw new Error('missing /var/log/vsftpd.log');
+      expect(node.content).toBe('');
+      expect(node.owner).toBe('root');
+      // Readable by anyone who gets ON the box, writable only by the daemon's
+      // account: an attacker must never be able to edit away the record of the
+      // files they took.
+      expect(node.perms.read).toEqual(['root', 'user', 'guest']);
+      expect(node.perms.write).toEqual(['root']);
+    });
+
+    it('plants no vsftpd.log on a host that runs no ftp', () => {
+      // It follows the ftp service exactly as access.log follows http: a box no
+      // client can reach never has a line written, so an empty file there is
+      // furniture that claims the box once ran a daemon it never did.
+      const ftpOctets = new Set(ftpHosts().map(({ octet }) => octet));
+      const sshOnly = sshHosts().find(({ octet }) => !ftpOctets.has(octet));
+      if (sshOnly === undefined) throw new Error('expected an ssh-but-not-ftp host');
+      expect(
+        dirAt(buildRemoteHostFs(ESSID, host(sshOnly.octet)), 'var', 'log').entries.has(
+          'vsftpd.log',
+        ),
+      ).toBe(false);
+    });
+
+    it('ships the vsftpd binary in /usr/sbin, so a rooted box can bring the door up', () => {
+      // The DAEMON is present everywhere (as sshd is); the ftp CLIENT is apt-gated.
+      // That asymmetry is real: scp comes with openssh, ftp does not.
+      const sbin = dirAt(buildRemoteHostFs(ESSID, host(7)), 'usr', 'sbin');
+      expect(sbin.entries.has('vsftpd')).toBe(true);
+    });
+
+    it('leaves every ssh and http roll exactly where it was before ftp existed', () => {
+      // Each service seeds its OWN prng (`svc-<service>-<essid>-<ip>`), so adding a
+      // row must not disturb the world already generated. These numbers were captured
+      // from the tree BEFORE the ftp row was added; a re-roll moves them.
+      expect(sshHosts().length).toBe(106);
+      expect(sshHosts().slice(0, 3)).toEqual([
+        { octet: 3, port: 2222 },
+        { octet: 5, port: 22 },
+        { octet: 9, port: 2222 },
+      ]);
+      expect(sshHosts().at(-1)).toEqual({ octet: 254, port: 22 });
+
+      expect(httpHosts().length).toBe(96);
+      expect(httpHosts().slice(0, 3)).toEqual([
+        { octet: 4, port: 8000 },
+        { octet: 5, port: 80 },
+        { octet: 12, port: 80 },
+      ]);
+      expect(httpHosts().at(-1)).toEqual({ octet: 254, port: 80 });
     });
   });
 });

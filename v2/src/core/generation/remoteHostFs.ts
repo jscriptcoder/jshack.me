@@ -55,6 +55,7 @@ import { md5 } from './md5';
 import { CRACK_CHANCE, drawPassword } from './passwordPools';
 import { pickWebPage } from './pools/webPages';
 import { ACCESS_LOG_PERMISSIONS } from '../logging/accessLog';
+import { VSFTPD_LOG_PERMISSIONS } from '../logging/vsftpdLog';
 import { AUTH_LOG_PERMISSIONS } from '../logging/authLog';
 import { KERN_LOG_PERMISSIONS } from '../logging/kernLog';
 import type { Directory, FileEntry, FilePermissions } from '../filesystem/types';
@@ -153,6 +154,7 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
   );
 
   const serves = services.some(({ spec }) => spec === SERVICE_CATALOG.http);
+  const servesFtp = services.some(({ spec }) => spec === SERVICE_CATALOG.ftp);
 
   // A web root exists only where something serves it. Stamping an empty `/var/www`
   // on every box would publish a directory nobody is listening on — and the
@@ -203,6 +205,10 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
               // nothing can fetch never has a line written, so an empty file would
               // be furniture — and furniture that claims the box once served.
               ...(serves ? { 'access.log': file('', ACCESS_LOG_PERMISSIONS) } : {}),
+              // Follows the ftp service for the same reason access.log follows http:
+              // a box no client can reach never has a line written, so an empty file
+              // there is furniture claiming the box once ran a daemon it never did.
+              ...(servesFtp ? { 'vsftpd.log': file('', VSFTPD_LOG_PERMISSIONS) } : {}),
             },
             TRAVERSABLE_DIR,
           ),

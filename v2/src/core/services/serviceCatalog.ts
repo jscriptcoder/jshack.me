@@ -15,6 +15,36 @@
  * speculatively.
  */
 
+import type { AbsPath } from '../types';
+import type { FilePermissions } from '../filesystem/types';
+import {
+  AUTH_LOG_OWNER,
+  AUTH_LOG_PATH,
+  AUTH_LOG_PERMISSIONS,
+  formatSshdAuthLine,
+  type CredentialAttempt,
+} from '../logging/authLog';
+import {
+  VSFTPD_LOG_OWNER,
+  VSFTPD_LOG_PATH,
+  VSFTPD_LOG_PERMISSIONS,
+  formatVsftpdLoginLine,
+} from '../logging/vsftpdLog';
+
+/** Where a credential sweep against this service is recorded on the target, and how
+ *  each attempt is written there.
+ *
+ *  Routing by service is what keeps the wall of failures and the break-in that
+ *  followed in ONE file. Sent to a fixed destination instead, a sweep against one
+ *  daemon is filed under another — telling the defender a door was knocked on that
+ *  never was, while the door that opened shows nothing. */
+export type SweepLog = {
+  readonly path: AbsPath;
+  readonly owner: string;
+  readonly permissions: FilePermissions;
+  readonly formatAttempt: (attempt: CredentialAttempt) => string;
+};
+
 export type ServiceSpec = {
   /** The label `nmap` prints in the SERVICE column (e.g. `ssh`). */
   readonly service: string;
@@ -34,6 +64,15 @@ export type ServiceSpec = {
   /** Slice 2 (generation): the chance a generated host uses an `altPorts` entry
    *  instead of `defaultPort`. */
   readonly altPortChance: number;
+  /** Where a wordlist attack on this service lands in the target's logs. */
+  readonly sweepLog: SweepLog;
+};
+
+const SYSLOG_AUTH_SWEEP: SweepLog = {
+  path: AUTH_LOG_PATH,
+  owner: AUTH_LOG_OWNER,
+  permissions: AUTH_LOG_PERMISSIONS,
+  formatAttempt: formatSshdAuthLine,
 };
 
 export const SERVICE_CATALOG = {
@@ -45,6 +84,7 @@ export const SERVICE_CATALOG = {
     placement: 0.4,
     altPorts: [2222, 8022],
     altPortChance: 0.2,
+    sweepLog: SYSLOG_AUTH_SWEEP,
   },
   // One row for the web, not one per server program: `nginx` and `apache2` are two
   // ways to open the SAME port, so they share this identity and cannot both bind it.
@@ -58,5 +98,37 @@ export const SERVICE_CATALOG = {
     placement: 0.3,
     altPorts: [8080, 8000],
     altPortChance: 0.25,
+    // INHERITED, NOT DESIGNED: a sweep against the web door has always been written
+    // up as sshd in auth.log, and this row preserves that byte-for-byte rather than
+    // deciding it here. A real HTTP brute-force belongs in access.log as a run of
+    // 401s — that is the web door's call to make, not the ftp door's.
+    sweepLog: SYSLOG_AUTH_SWEEP,
+  },
+  // As common as the web and below ssh: a box you can log into is ordinary, and a
+  // box that will hand you its files without one should be about as findable as a
+  // box that publishes something. Rolled independently of ssh, so a share of these
+  // hosts run NO ssh at all — the box a credential sweep of :22 can never open, and
+  // the reason a second door is worth having rather than a second way through the
+  // same one.
+  ftp: {
+    service: 'ftp',
+    pidfile: 'vsftpd.pid',
+    defaultPort: 21,
+    runUser: 'root',
+    placement: 0.3,
+    altPorts: [2121],
+    altPortChance: 0.2,
+    sweepLog: {
+      path: VSFTPD_LOG_PATH,
+      owner: VSFTPD_LOG_OWNER,
+      permissions: VSFTPD_LOG_PERMISSIONS,
+      formatAttempt: formatVsftpdLoginLine,
+    },
   },
 } as const satisfies Record<string, ServiceSpec>;
+
+/** The service a caller named (`ssh`, `ftp`), or undefined for one the world has no
+ *  row for. The name reaching this lookup is player input, so an unknown service is
+ *  an ordinary answer, not a fault. */
+export const serviceByName = (name: string): ServiceSpec | undefined =>
+  Object.values(SERVICE_CATALOG).find((spec) => spec.service === name);
