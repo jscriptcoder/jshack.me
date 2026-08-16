@@ -147,6 +147,10 @@ export type BuildCommandEnvArgs = {
    *  closes the row the command opened. Session-parameterized rather than bound,
    *  because the session is created and retired inside a single command. */
   readonly onScpAuthenticate?: ScpApi['authenticate'];
+  /** The same login for a target reached by its PUBLIC address — which box sits
+   *  behind a stranger's forward is the server's to resolve, so this one names the
+   *  machine back. */
+  readonly onScpAuthenticatePublic?: ScpApi['authenticatePublic'];
   readonly onScpWrite?: ScpApi['write'];
   /** The read half: the target's journal replayed over its generated base, viewed at
    *  the tier the credential bought. Resolved per call rather than held — a transfer
@@ -315,6 +319,9 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   },
   scp: {
     authenticate: args.onScpAuthenticate ?? notWired('scp.authenticate'),
+    // Load-bearing like the own-LAN login: an unwired cross-network login must be
+    // loud rather than silently refuse, which reads to the player as a bad password.
+    authenticatePublic: args.onScpAuthenticatePublic ?? notWired('scp.authenticatePublic'),
     // Load-bearing for the same reason ftp's write is: a transfer that reported
     // success onto a box which never received the bytes is the one lie this command
     // must not be able to tell.

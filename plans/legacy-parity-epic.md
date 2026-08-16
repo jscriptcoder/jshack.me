@@ -13,9 +13,11 @@ invariants), with the live two-player run as Act 11 of
 `ftp` (D3) and `scp` (D3b) were **split into separate grill + plan phases** on 2026-08-14 — scp is
 a transient two-endpoint transfer, not a door — and **BOTH are GRILLED** (D3: nine decisions;
 D3b: five decisions + three slices; see their "resolved scope & decisions" sections).
-**D3b is the next thing to plan**, and it inherits a working door: the transfer it moves files
-through is the one D3 proved, so its slices are about the transient auth session and the
-two-endpoint resolution, not about reaching a box.
+**D3b ✅ COMPLETE (v0.139.0)** — all three slices shipped (#401, #402, and the cross-player one),
+with `testScpTransfer` 19/19 live over both door-kind paths and Act 12 of the shared-network doc
+as the two-player browser run. It inherited a working door: the transfer moves files through the
+one D3 proved, so its slices were about the transient auth session and the two-endpoint
+resolution rather than about reaching a box.
 **D2 ✅ COMPLETE** — D2.1 (v0.111.0), D2.2 (v0.113.0), D2.3
 (v0.114.0), D2.5 (v0.115.0), hydra's workstation-only gate lifted (v0.118.0), D2.4 all five slices
 (v0.119.0–v0.122.0), and D2.6a (#377). Its split file is deleted; the as-built lives in
@@ -239,10 +241,10 @@ PHASE 1 — THE DOORS  (near-term focus)
       D3 slice 4 get, itemised in the owner's log      ✔ SHIPPED v0.134.0 (#396)
       D3 slice 5 put, and the tier decides             ✔ SHIPPED v0.135.0 (#397)
       D3 slice 6 a stranger's door across the network  ✔ SHIPPED v0.136.0 (#398)
-  D3b scp (the transfer)                              — IN PROGRESS, 2 of 3 slices shipped
+  D3b scp (the transfer)                              ✔ COMPLETE v0.139.0
       D3b slice 1 carry a file onto a box you hold     ✔ SHIPPED v0.137.0 (#401)
-      D3b slice 2 take a file without being seen       ✔ SHIPPED v0.138.0
-      D3b slice 3 reach a stranger's box               — carries slice 1's deferred wire-check
+      D3b slice 2 take a file without being seen       ✔ SHIPPED v0.138.0 (#402)
+      D3b slice 3 reach a stranger's box               ✔ SHIPPED v0.139.0
   D4  daemon control (systemctl / ps / kill)
   D5  nc connect + nc -l backdoor
   D6  mysql
@@ -534,12 +536,14 @@ impossible. Grounding caught this; do not drop the step from the criterion.
   own-LAN: the transient session (create → write → end), source-first validation, decision 3's UX,
   `-p`. *Observable*: the carry above — a sweep succeeds from the pivot with a word the shipped
   `DEFAULT_WORDLIST` does not hold. (That E2E run itself lands in slice 3, with the wire-check.)
-- **D3b.2 — a player takes a file without being seen.** ✔ SHIPPED v0.138.0. Download.
+- **D3b.2 — a player takes a file without being seen.** ✔ SHIPPED v0.138.0 (#402). Download.
   *Observable*: `scp root@<host>:/etc/passwd ./` → `john` it; the target's `auth.log` shows a
   login and **nothing about the file**, set against ftp's transfer record for the same theft —
   asserted with one ledger watching both doors, so the silence is measured, not assumed.
-- **D3b.3 — a player reaches a stranger's box.** Cross-player, both directions, through a NAT
-  forward.
+- **D3b.3 — a player reaches a stranger's box.** ✔ SHIPPED v0.139.0. Cross-player, both
+  directions, through a NAT forward — and client-only, because D3.6 had already made the public
+  login kind-parameterized. *Observable*: Act 12 — B carries a wordlist onto A's box through A's
+  ssh forward, takes it back, and A's `auth.log` holds four logins that name no file.
 
 ### Open for planning — RESOLVED 2026-08-15 in [`d3b-scp-the-transfer.md`](d3b-scp-the-transfer.md)
 

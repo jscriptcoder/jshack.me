@@ -21,7 +21,7 @@
 import { createSignal } from 'solid-js';
 import { asAbsPath, type AbsPath, type UserType } from '../core/types';
 import type {
-  FtpPublicAuthParams,
+  PublicDoorAuthParams,
   Identity,
   LogApi,
   PatchApi,
@@ -54,6 +54,7 @@ import type { Directory } from '../core/filesystem/types';
 import { applyPatches, type Patch } from '../core/filesystem/applyPatches';
 import { canBoot, type BootCheck } from '../core/boot/bootFiles';
 import { isCrossPlayerHop, resolveActiveRoot } from './activeRoot';
+import { isCrossPlayerWorkstation } from '../core/network/crossPlayerHop';
 import { createFsView } from '../core/filesystem/fsView';
 import { resolveAbsPath } from '../core/filesystem/path';
 import {
@@ -449,7 +450,7 @@ const sshAuthenticatePublic = (params: PublicAuthParams): Promise<PublicAuthResu
  *  — the same endpoint `ssh` reaches, asked for an `ftp`-kind row against whatever the
  *  named port forwards to. Degrades to a network error before `startGame` wires the
  *  sessions client. */
-const ftpAuthenticatePublic = (params: FtpPublicAuthParams): Promise<PublicAuthResult> =>
+const ftpAuthenticatePublic = (params: PublicDoorAuthParams): Promise<PublicAuthResult> =>
   sessionsClientDeps === undefined
     ? Promise.resolve({ ok: false, error: 'network_error' })
     : authCreateServerSessionPublic(sessionsClientDeps, params, 'ftp');
@@ -545,6 +546,15 @@ const scpAuthenticate = (params: RemoteAuthParams): Promise<RemoteAuthResult> =>
     ? Promise.resolve({ ok: false, error: 'network_error' })
     : authCreateServerSession(sessionsClientDeps, params, 'scp');
 
+/** Authenticate a CROSS-PLAYER transfer server-side (backs
+ *  `env.scp.authenticatePublic`) — the same endpoint the other two doors reach,
+ *  asked for an `scp`-kind row against whatever the forwarded port answers with.
+ *  Degrades to a network error before `startGame` wires the sessions client. */
+const scpAuthenticatePublic = (params: PublicDoorAuthParams): Promise<PublicAuthResult> =>
+  sessionsClientDeps === undefined
+    ? Promise.resolve({ ok: false, error: 'network_error' })
+    : authCreateServerSessionPublic(sessionsClientDeps, params, 'scp');
+
 /** Write to the machine a transfer opened a session on (backs `env.scp.write`). The
  *  SHIPPED patch client, aimed at the target and stamped with the account the
  *  credential bought — the same gate an ssh session's write goes through, reached
@@ -566,22 +576,33 @@ const writeToScpTarget = async (
   }).write(...args);
 };
 
-/** Read one file off the machine a transfer opened a session on (backs
- *  `env.scp.read`) — the target's journal pulled and replayed over its generated
- *  base, viewed at the tier the credential bought.
+/** The tree a transfer addresses, held for ONE call rather than for a session: a
+ *  transfer looks once and is gone, so there is no signal, nothing to refetch, and
+ *  nothing for a later write to invalidate.
  *
- *  The same composition the ftp session's tree is built from, held for ONE call
- *  instead of for a session: a transfer looks once and is gone, so there is no
- *  signal, nothing to refetch, and nothing for a later write to invalidate. */
-const readFromScpTarget = async (session: Session, path: AbsPath): Promise<ScpReadResult> => {
-  if (identity === undefined) return { ok: false, error: 'network_error' };
+ *  A machine THIS box can generate — an NPC on the player's LAN, their own deep
+ *  layer — is rebuilt here and its journal replayed over it, the same composition the
+ *  ftp session's tree is built from. Another player's box cannot be: we hold neither
+ *  their seed nor their rows, so the server materializes it and prunes it to the tier
+ *  the credential bought before it crosses the wire. Getting that split wrong has one
+ *  specific failure — the local resolver falls back to OUR OWN base — so a stranger's
+ *  box that the server will not serve reads as unreachable rather than as ours. */
+const scpTargetTree = async (session: Session): Promise<Directory | null> => {
+  const deps = networkClientDeps;
+  if (isCrossPlayerWorkstation({
+    machineId: session.machineId,
+    publicKeyHex: requireIdentity().publicKeyHex,
+    essid: currentEssid(),
+  })) {
+    return deps === undefined ? null : await resolveCrossPlayerFs(deps, session.machineId);
+  }
   const journal = await fetchOwnPatches({
-    identity,
+    identity: requireIdentity(),
     machineId: session.machineId,
     owner: session.username,
     tier: session.userType,
   });
-  const tree = resolveActiveRoot({
+  return resolveActiveRoot({
     session,
     ownWorkstationId: ownWorkstationId(),
     publicKeyHex: requireIdentity().publicKeyHex,
@@ -589,6 +610,16 @@ const readFromScpTarget = async (session: Session, path: AbsPath): Promise<ScpRe
     ownBaseFs: seedFs(requireConfig(), requireIdentity()),
     patches: journal,
   });
+};
+
+/** Read one file off the machine a transfer opened a session on (backs
+ *  `env.scp.read`), at the tier the credential bought. A tree that never arrived is
+ *  OURS to report as a failed round-trip: the file is probably still there, and
+ *  saying otherwise sends the player to stop looking for it. */
+const readFromScpTarget = async (session: Session, path: AbsPath): Promise<ScpReadResult> => {
+  if (identity === undefined) return { ok: false, error: 'network_error' };
+  const tree = await scpTargetTree(session);
+  if (tree === null) return { ok: false, error: 'network_error' };
   return createFsView(tree, { userType: session.userType, cwd: asAbsPath('/') }).read(path);
 };
 
@@ -1276,6 +1307,7 @@ const executeLine = async (line: string): Promise<void> => {
     onFtpLeave: leaveFtpSession,
     ...ftpBinding(),
     onScpAuthenticate: scpAuthenticate,
+    onScpAuthenticatePublic: scpAuthenticatePublic,
     onScpWrite: writeToScpTarget,
     onScpRead: readFromScpTarget,
     onScpEnd: endScpSession,

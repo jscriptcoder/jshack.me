@@ -162,6 +162,9 @@ export const mockFtpApi = (overrides: Partial<FtpApi> = {}): FtpApi => ({
  *  that care the row was closed pass a spy. */
 export const mockScpApi = (overrides: Partial<ScpApi> = {}): ScpApi => ({
   authenticate: NOT_IMPLEMENTED('scp.authenticate'),
+  // Load-bearing for the same reason as the own-LAN login: an unstubbed cross-network
+  // login must be loud, not silently refuse — which reads as a bad password.
+  authenticatePublic: NOT_IMPLEMENTED('scp.authenticatePublic'),
   write: NOT_IMPLEMENTED('scp.write'),
   // Load-bearing like the other two: its result IS the file, so an unstubbed read
   // must be loud rather than handing back an empty one that reads as a real file.
