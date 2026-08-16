@@ -18,8 +18,11 @@ import { SERVICE_CATALOG, type ServiceSpec } from './serviceCatalog';
 export const VAR_RUN = '/var/run';
 
 /** The daemon name written into the pidfile line — the pidfile's basename
- *  (`sshd.pid` → `sshd`), matching legacy's `sshd:port=22` content. */
-const daemonOf = (spec: ServiceSpec): string => spec.pidfile.replace(/\.pid$/, '');
+ *  (`sshd.pid` → `sshd`), matching legacy's `sshd:port=22` content. Also the
+ *  name `ps` prints in its COMMAND column: a survey that called the process
+ *  something other than what its own pidfile line calls it would be two names
+ *  for one daemon. */
+export const daemonName = (spec: ServiceSpec): string => spec.pidfile.replace(/\.pid$/, '');
 
 /** Where a service's pidfile lives, e.g. `/var/run/sshd.pid`. */
 export const pidfilePath = (spec: ServiceSpec): AbsPath => asAbsPath(`${VAR_RUN}/${spec.pidfile}`);
@@ -28,7 +31,7 @@ export const pidfilePath = (spec: ServiceSpec): AbsPath => asAbsPath(`${VAR_RUN}
  *  `<daemon>:port=<N>`. Producers MUST agree byte-for-byte; readers parse the
  *  same shape. */
 export const formatPidfileContent = (spec: ServiceSpec, port: number): string =>
-  `${daemonOf(spec)}:port=${port}`;
+  `${daemonName(spec)}:port=${port}`;
 
 /** Extract the listening port from a pidfile line, or null when the content is
  *  not the canonical `<daemon>:port=<N>` shape. */
@@ -45,31 +48,45 @@ export const serviceByPidfileName = (name: string): ServiceSpec | undefined =>
 
 export type OpenPort = { readonly port: number; readonly service: string };
 
-/** Resolve ONE pidfile (its `/var/run` basename + content) to the open port it
+/** One service found running on a machine: the catalog row it belongs to, and
+ *  the port its pidfile says it holds. Everything a reader can know from
+ *  `/var/run` — a port scan wants only two of these fields, `ps` wants the
+ *  account and the daemon name as well. */
+export type RunningService = { readonly spec: ServiceSpec; readonly port: number };
+
+/** Resolve ONE pidfile (its `/var/run` basename + content) to the service it
  *  advertises, or null for an unrecognised pidfile name. The single mapping every
  *  reader shares, so the port a scan SHOWS can never drift from what a producer
  *  wrote. Malformed content falls back to the default port. */
-const openPortFromPidfile = (pidfileName: string, content: string): OpenPort | null => {
+const runningFromPidfile = (pidfileName: string, content: string): RunningService | null => {
   const spec = serviceByPidfileName(pidfileName);
   if (spec === undefined) return null;
-  return { port: parsePidfilePort(content) ?? spec.defaultPort, service: spec.service };
+  return { spec, port: parsePidfilePort(content) ?? spec.defaultPort };
 };
 
-/** The open ports a machine advertises, read from its `/var/run/*.pid` files
- *  (the source of truth for running services). The tree is the live `env.fs` for
- *  the player's own host or a deterministic generated FS for a remote host —
- *  this reader doesn't care which. Unknown or non-file `/var/run` entries are
- *  skipped; a pidfile with malformed content falls back to the service's default
- *  port. Shared by every reader (the `nmap` display + the server scan action) so
- *  the ports a scan SHOWS and the ports it LOGS can never drift. */
-export const readOpenPorts = (root: Directory): readonly OpenPort[] => {
+/** Everything a machine is running, read from its `/var/run/*.pid` files (the
+ *  source of truth for running services). The tree is the live `env.fs` for the
+ *  player's own host or a deterministic generated FS for a remote host — this
+ *  reader doesn't care which. Unknown or non-file `/var/run` entries are skipped:
+ *  a DIRECTORY wearing a pidfile's name is not a running daemon, and `mkdir
+ *  /var/run/sshd.pid` is something a root player can really do.
+ *
+ *  ONE policy for what counts as a service, so a scan of a box and a survey run
+ *  on it can never disagree about what is up. */
+export const readRunningServices = (root: Directory): readonly RunningService[] => {
   const varDir = root.entries.get('var');
   if (varDir === undefined || varDir.kind !== 'directory') return [];
   const runDir = varDir.entries.get('run');
   if (runDir === undefined || runDir.kind !== 'directory') return [];
   return [...runDir.entries].flatMap(([name, node]) => {
     if (node.kind !== 'file') return [];
-    const port = openPortFromPidfile(name, node.content);
-    return port === null ? [] : [port];
+    const running = runningFromPidfile(name, node.content);
+    return running === null ? [] : [running];
   });
 };
+
+/** The open ports a machine advertises — the running services, as a port scan
+ *  sees them. Shared by every reader (the `nmap` display + the server scan
+ *  action) so the ports a scan SHOWS and the ports it LOGS can never drift. */
+export const readOpenPorts = (root: Directory): readonly OpenPort[] =>
+  readRunningServices(root).map(({ spec, port }) => ({ port, service: spec.service }));

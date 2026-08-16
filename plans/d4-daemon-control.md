@@ -1,7 +1,9 @@
 # Plan: D4 — daemon control
 
-**Branch**: `docs/plan-d4-daemon-control` (this plan) → `refactor/daemon-*` / `feat/systemctl-*` per slice
-**Status**: Active — slice 0 ✅ (#407, no bump), slice 1 ✅ (v0.140.0); slice 2 (`ps`) next
+**Branch**: `docs/plan-d4-daemon-control` (this plan) → `refactor/daemon-*` / `feat/systemctl-*` /
+`feat/ps-*` per slice
+**Status**: Active — slice 0 ✅ (#407, no bump), slice 1 ✅ (#408, v0.140.0), slice 2 ✅ (v0.141.0);
+slice 3 (the login-gate fixes + wire-check + E2E) next
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) — Phase 1, door D4
 **Grilled**: 2026-08-16 — ten locked decisions + a four-part spine in the epic's
 ["D4 — resolved scope & decisions"](legacy-parity-epic.md#d4--resolved-scope--decisions-grill-me-2026-08-16)
@@ -64,14 +66,16 @@ The grill locked ten. The five that constrain the slices below:
 ## Acceptance Criteria
 
 - [ ] A player stops a service on a box they hold root on, and the port closes — locally, to a
-      LAN scan, and to another player across the network
+      LAN scan, and to another player across the network — unit-proven locally in slice 1
+      (`readOpenPorts` over the resulting tree drops the port); the LAN and cross-player halves
+      read the same materialized journal, but their proof is slice 3's wire-check and E2E
 - [x] A stopped service is still stopped after a reboot — the removal is a patch row, and
       `reboot`'s whole suite passes against a patch API whose every method throws, so it provably
       never touches the journal
 - [ ] Starting it again restores reachability by every path that lost it — unit-proven locally;
       the cross-network half is slice 3's wire-check and E2E
 - [x] A non-root caller cannot start or stop anything; any tier can ask what is running
-- [ ] `ps` lists what a box is running, including a box the player only rooted
+- [x] `ps` lists what a box is running, including a box the player only rooted
 - [x] Stopping a daemon a player is currently reaching *through* does not end their session —
       and does not let anyone new in
 - [ ] A login is refused when the reached port is not serving the door's own service, on **every**
@@ -323,6 +327,42 @@ deferred from slice 1. Take the collapsed option only if both callers genuinely 
 shape — `status` asks about one named service, `ps` asks for all of them, which may be two
 questions rather than one.
 **Done when**: criteria met, gates green, human approves.
+
+> **As-built (2026-08-16, v0.141.0).** Three things the code decided.
+>
+> 1. **"No availability work" was wrong by one gate.** The binary is planted, but `ps` also links
+>    `libpcre` in the legacy-inherited `libraryDeps` map, so it sits behind the linker check as
+>    well. Nothing was needed — every generator plants all eight `SYSTEM_LIBRARIES` — but the
+>    reachability test now builds its tree from `createBinaryEntries` **and** `createLibraryEntries`
+>    rather than hand-written stubs, so what it proves is what a real box ships. A box whose `/lib`
+>    was raided fails at the linker instead, which is inherited behavior worth having pinned.
+> 2. **`readOpenPorts` gained a richer sibling rather than a second walk.** `ps` needs `runUser` and
+>    the daemon name, which `OpenPort` deliberately does not carry. Recovering the spec from the
+>    service label (`serviceByName`) would have added an `undefined` branch no input can reach, so
+>    `pidfile.ts` now exports `readRunningServices` (`{spec, port}`) and `readOpenPorts` is a
+>    projection of it. Mechanism is +1 exported function; the walk and the what-counts-as-a-service
+>    policy stay singular, which is the constraint this slice was given.
+> 3. **The daemon name is now exported knowledge.** `daemonOf` was private, so `ps` would have had
+>    to re-derive the pidfile basename to print a COMMAND column — a survey calling a daemon
+>    something other than what its own pidfile line calls it. Exported as `daemonName`.
+>
+> **Mutation**: `ps.ts` 44.44% → **48.15%** (13 killed / 14 survived) after killing the one real
+> gap: `name: ''` survived, meaning nothing proved a player typing `ps` reached anything. The
+> reachability test resolves through `commandRegistry` and kills it. The remaining 14 are
+> `description`, `tier`, `availability` and the manual block — **zero survive in the formatting or
+> the execute path**. `tier` and `availability` are declarative: the runtime gate is FS presence,
+> and `Command.availability` is read at runtime by nothing at all (see backlog). `pidfile.ts`:
+> **65 killed / 1 survived**, the survivor being `/\.pid$/` → `/\.pid/`, unreachable across a
+> catalog whose three rows are all `<daemon>.pid`, and pre-existing — the regex only moved.
+>
+> **REFACTOR — the deferred reader was assessed and NOT built.** `runningPort` asks "is this one
+> named service up, and where" with a targeted `stat`; `readRunningServices` asks "what is up here"
+> by walking `/var/run`. Answering the first through the second would walk a directory to look at
+> one file, on the path every daemon start gate runs. What they genuinely share — what counts as a
+> service, and the malformed-content fallback — already lives in `pidfile.ts` and is reached by
+> both. The one remaining token in common (`parsePidfilePort(content) ?? spec.defaultPort`, written
+> twice) was judged too small to name: `parsePidfilePort` is the part that could drift, and it is
+> already shared.
 
 ---
 
