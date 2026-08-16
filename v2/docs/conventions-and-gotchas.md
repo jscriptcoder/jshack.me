@@ -1435,16 +1435,34 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   recorded here rather than fixed there because the right destination is `access.log` as a run of
   401s, and that is the web door's decision, not the ftp door's. Fixing it is now one row.
 
-- **`ssh` never checks that sshd is listening; `ftp` does.** `handleAuthCreateSession` gates an
-  `ftp`-kind login on the target's `/var/run` pidfiles (`service_not_running` → 404) and leaves the
-  `ssh` path ungated, exactly as it has always been. The asymmetry is deliberate and load-bearing
-  for ftp — only ~30% of hosts roll the daemon, so an ungated ftp login would open a door on a box
-  that has none — while for ssh it never mattered: nearly every generated host runs sshd. It is not
-  free of consequence, though: `routerFs` generates routers with `hasSsh: false`, and `ssh
-  root@<that router>` authenticates today against a daemon that is not running. Closing it is one
-  clause (drop the `payload.kind !== 'ssh'` exemption) plus deciding what happens to a player mid-
-  session on such a router. Recorded rather than smuggled in behind ftp, because it changes a
-  shipped door.
+- **`ssh` never checks that sshd is listening; `ftp` does — and it is ANTI-CHEAT ONLY, not a
+  gameplay hole.** `handleAuthCreateSession` gates an `ftp`-kind login on the target's `/var/run`
+  pidfiles (`service_not_running` → 404) and leaves the `ssh` path ungated. **Scheduled: D4 slice
+  3** drops the `payload.kind !== 'ssh'` clause. Two corrections to what this entry claimed before
+  D4's grill re-derived it (2026-08-16), because both changed the size of the job:
+  - **The exemption is unreachable from an honest client.** `ssh.ts:307` refuses when the target's
+    pidfile port does not match the asked one, and its comment notes the single check covers both
+    "no ssh service" and "wrong port". `authCreateSessionPublic` and `authCreateSessionSameLan`
+    both gate with no kind exemption, and the inner-gateway path gates inside
+    `resolveInnerGatewayTarget`. So only a crafted client reaches it — the wire being the threat
+    surface, that is still worth closing, but it changes nothing a player sees.
+  - **The stated consequence was wrong, and the real number is bigger.** No router generates with
+    `hasSsh: false` — `ROUTER_SSH_PROBABILITY = 1` and every other call site passes `true`. And
+    "nearly every generated host runs sshd" is false: `SERVICE_CATALOG.ssh.placement = 0.4`, so
+    **~60% of NPC LAN hosts run none** — the client already refuses those.
+
+  The blocker this entry recorded ("deciding what happens to a player mid-session") is **answered**:
+  D4 decision 5 keeps live sessions alive and refuses only new logins, as real sshd does.
+
+- **A same-LAN `ssh` login gates on the PORT, not the service — a live bug.**
+  `authCreateSessionSameLan:221` is `readOpenPorts(workstationFs).some((open) => open.port ===
+  port)`, though the comment above it says the box "must actually be serving sshd on the asked
+  port". The client does not gate this path at all — `executeSameLanLogin` prompts for a password
+  and hands straight to the server — so on a shared ESSID, `ssh <neighbour> -p <their ftp port>`
+  opens an **ssh** session through a port serving **ftp**. This is D2.4's `reachedPort` rule (§7),
+  applied to the public and own-LAN gates and missed here. Uncommon today; **ordinary once D4 lets
+  players stop sshd and choose ports**, which is why it is fixed in the same slice as the
+  exemption above rather than waiting for someone to hit it.
 
 - **`AvailabilityRule` is inert — enforce it or delete it.** Every command declares one
   (`{kind:'any-machine'}`, `'localhost-only'`, `'installed-package'`) and **nothing in production
