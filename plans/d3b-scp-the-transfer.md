@@ -1,7 +1,7 @@
 # Plan: D3b — `scp`, the transfer
 
 **Branch**: `docs/plan-d3b-scp` (this plan) → `feat/scp-*` per slice
-**Status**: Active
+**Status**: Active — slices 1 and 2 shipped (v0.137.0, v0.138.0); slice 3 next
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) — Phase 1, door D3b
 **Grilled**: 2026-08-14 — five locked decisions + three-slice spine in the epic's
 ["D3b — resolved scope & decisions"](legacy-parity-epic.md#d3b--resolved-scope--decisions-grill-me-2026-08-14)
@@ -73,17 +73,21 @@ The grill left two "open for planning". Both take the collapsed answer:
 
 ## Acceptance Criteria
 
-- [ ] A player copies a file from the box they are standing on to a machine they hold a
+- [x] A player copies a file from the box they are standing on to a machine they hold a
       credential for, and the file is there afterwards at the tier the credential bought
-- [ ] A tier the credential does not carry refuses the write, and no partial file exists
-- [ ] A player copies a file OFF a remote machine onto the box they are standing on
-- [ ] The target's `/var/log/auth.log` records one login line, indistinguishable from an
-      interactive `ssh` login, and **no line names the file** in either direction
-- [ ] The session row that authorized the transfer is gone once the command returns
-- [ ] A source path that does not exist is reported before anything reaches the target's log
-- [ ] Ctrl-C during the round-trip leaves no file and no session row
+- [x] A tier the credential does not carry refuses the write, and no partial file exists
+- [x] A player copies a file OFF a remote machine onto the box they are standing on
+- [x] The target's `/var/log/auth.log` records one login line, indistinguishable from an
+      interactive `ssh` login, and **no line names the file** in either direction — the login
+      half by the handler tests (one endpoint, one kind, no direction is even sent), the
+      silence by a test running the same theft through both doors with one ledger watching
+- [x] The session row that authorized the transfer is gone once the command returns
+- [x] A source path that does not exist is reported before anything reaches the target's log
+- [x] Ctrl-C during the round-trip leaves no file and no session row — at the password prompt,
+      after the session opens but before either transfer starts, and (download only, the one
+      place the gap exists) between the remote read and the local write
 - [ ] Both directions work against another player's box through a NAT forward
-- [ ] `scp` refuses a host whose sshd is not running, whatever else it serves
+- [x] `scp` refuses a host whose sshd is not running, whatever else it serves
 
 ## Slices
 
@@ -92,7 +96,7 @@ loads `tdd`, `testing`, `mutation-testing`, and `refactoring`.
 
 ---
 
-### Slice 1: A player carries a file onto a box they hold
+### Slice 1: A player carries a file onto a box they hold — ✅ SHIPPED (PR #401, v0.137.0)
 
 **Value**: A player standing on a rooted pivot puts a grown wordlist where the sweep will
 read it — closing D2.5's named gap. Upload, own LAN.
@@ -151,9 +155,37 @@ on — so the worst a stray row can do is linger until the next boot sweep. Slic
 stack up anyway; running one wire-check over both door-kind paths beats booting it twice.
 **Done when**: criteria met, gates green, human approves the commit.
 
+**As-built (2026-08-15)** — where the shipped slice differs from what is written above:
+
+1. **The `land()` extraction did not happen, and `scp` sends no `isNew` at all.** The plan
+   said "extract `land()`'s isNew rule out of `ftpShell.ts:104` so both doors share one
+   journal rule". Mutation triage found the flag is **unobservable** on this path and the
+   claim it makes is **false** for scp: `applyPatches` has zero references to `is_new`;
+   `removePatch` always tombstones with `is_new: false` regardless; and `upsertPatch` reads
+   it only inside `rejectModifiedSinceOpen`, which early-returns when `base_hash` is absent —
+   and scp sends none. More decisively, the flag asserts "no base-FS file stood here", and
+   the upload **never looks**: it has no read of the target. So the shipped command omits it
+   rather than guessing, with that reasoning inlined at `scp.ts:203`. `ftpShell.ts:104` is
+   untouched — one caller of a rule is not a shared rule.
+2. **REFACTOR spent itself elsewhere, on a real win.** The private `sshPortOf` copy became a
+   call to the shipped `readOpenPorts` primitive (the same one `ftp.ts:112` and `nmap` read),
+   deleting 8 lines and 9 surviving unreachable-guard mutants in one move.
+3. **All early exits are sync, only the connect-and-transfer path streams.** An abort
+   generator with nothing to yield is an eslint `require-yield` error, and the shape it forced
+   is better anyway: `failure()` and the 130 abort return plain sync results, so only the path
+   that actually waits on the network paints `Connecting to ...`.
+4. **A second call site had to move with the enum.** `authCreateSessionPublic.ts:190` indexed
+   `SERVICE_CATALOG[payload.kind]` the same way, so `SERVICE_BY_DOOR` is exported from
+   `authCreateSession.ts` and used by both — typecheck found it, not review.
+
+**Evidence**: 30 command tests + 3 handler tests; `scp.ts` mutation 80.22% with 0 no-coverage
+(6 behavioral survivors triaged unreachable or defensive parity with the shipped ftp door, 30
+`manual` help text); `authCreateSession.ts` 98.17% (2 pre-existing/equivalent survivors); full
+suite 2769 passing; `tsc -b` and `eslint` clean.
+
 ---
 
-### Slice 2: A player takes a file without being seen
+### Slice 2: A player takes a file without being seen — ✅ SHIPPED (v0.138.0)
 
 **Value**: The silent harvest — the counterpart to ftp's `get`, which D3 made itemise every
 byte. Two doors, two costs (decision 2).
@@ -170,7 +202,21 @@ through `env.patches` on the box the player is standing on → `endSession`.
   the session's tier — `state.ts:377` `ftpRoot` is the shape, held for one command instead of
   for a session. This is the largest piece of real machinery in D3b.
 - A missing and a sealed remote file are refused alike, as D3 decided for `cd`/`get`.
-- The local write is the player's own, exactly as if typed into their shell.
+- The local write is the player's own, exactly as if typed into their shell — and unlike
+  slice 1's remote write it CAN see its destination (`env.fs.stat`), so `land()`'s rule
+  applies here on its own terms.
+- **Carried from slice 1: the `isNew` question, reopened by this slice's read.** Slice 1
+  omits the flag because the upload has no view of the target. This slice builds exactly the
+  view that would end that — so decide it deliberately rather than by drift, and *decide it
+  for both directions*. The evidence gathered in slice 1 still points at "keep omitting":
+  `applyPatches` ignores `is_new` entirely, so the flag changes nothing anyone in-game can
+  observe, and a test pinning it would pin structure rather than behavior. Adopting it would
+  need a reason a player could see. Whatever is chosen, the answer belongs in one place, not
+  two — this is where `land()` earns its extraction or is written off.
+- **Also carried: the mid-transfer abort window opens here.** Slice 1's round-trip is a
+  single `write` with no interruptible gap; a download is read-then-write, so "Ctrl-C leaves
+  no file and no session row" becomes testable for the first time, and the top-level criterion
+  marked `[~]` above is this slice's to close.
 
 **Acceptance criteria** (present and confirm before code):
 - `scp root@<lan host>:/etc/passwd ./` lands the file locally, and `john` can then run on it
@@ -180,6 +226,8 @@ through `env.patches` on the box the player is standing on → `endSession`.
   against ftp's `OK DOWNLOAD` line for the same theft, so the contrast is a test, not a claim
 - A remote path the tier cannot read is refused identically to one that does not exist
 - A refused local write records no transfer and leaves no file
+- Ctrl-C after the session is open leaves no local file and no session row — the window
+  slice 1 could not reach
 
 **RED**: A behavior test asserting the downloaded content equals the target's journal-replayed
 content, and a log test asserting the target's `auth.log` gains one login line and no transfer
@@ -191,6 +239,46 @@ line — failing because download does not exist.
 `withTransientSession`-shaped helper now that both directions exist. **Do not build it in
 slice 1** — one caller is not a pattern.
 **Done when**: criteria met, gates green, human approves the commit.
+
+**As-built (2026-08-16)**:
+
+1. **The read binding was six lines, not the largest piece of machinery in D3b.** The plan
+   sized it from `ftpRoot`'s shape, but `fetchOwnPatches` → `resolveActiveRoot` →
+   `createFsView` are all shipped and tested, and a transfer needs no signal because it
+   looks once and is gone. `state.ts` `readFromScpTarget` is that composition with nothing
+   held.
+2. **`isNew` stays omitted, both directions, and `land()` was not extracted** — the decision
+   the plan asked to be made deliberately. Every reference was checked: `applyPatches` and
+   `materializeMachineFs` never read `is_new`; `removePatch` deletes the patch tree and
+   tombstones with `is_new: false` regardless, so the flag does **not** decide "a later `rm`
+   deletes it" the way `ftpShell.ts:104` says it does; the only live read is inside
+   `upsertPatch`'s guard, which early-returns without a `base_hash`. Adopting an inert flag
+   for symmetry would copy a claim no test can fail. `ftpShell.ts` was left alone — its
+   comment is stale, which is a separate, behavior-neutral cleanup.
+3. **The two lifecycles collapsed during GREEN, not after it.** `connectAndTransfer` is the
+   `withTransientSession` shape the REFACTOR step anticipated, and it arrived as the minimum
+   code that could satisfy "the row closes on every path" for two directions at once — one
+   `env.scp.end` for success, both refusals, and both abort windows.
+4. **The mid-flight abort needed the command to look.** Nothing else in the codebase reads
+   `env.signal.aborted`; a Ctrl-C surfaces by rejecting an in-flight `env.sleep`, and a
+   transfer awaits the network instead. So the command checks the signal itself, at the two
+   moments nothing has landed yet.
+
+**Evidence**: 43 command tests (+13); `scp.ts` mutation **85.31%**, 0 no-coverage, 36
+survivors — 30 `manual` help text and 6 triaged (2 unreachable guards, 2 defensive
+redundancy, 1 impossible array state, 1 genuinely equivalent: `normalize` anchors every
+path at root, so `resolveAbsPath`'s base cannot be observed). **Zero survivors in the new
+download code.** Full suite 2782 passing; `tsc -b` and `eslint` clean.
+
+**Two named gaps, both inherited from slice 1 and both one decision:**
+
+- **A relative remote path resolves from `/`, not the account's home.** `scp root@h:notes.txt .`
+  reads `/notes.txt`; real scp reads `~/notes.txt`. Pinned by a test so the answer is visible
+  and changing it is a deliberate act.
+- **A local write that fails for network reasons reports `Permission denied`.** True of the
+  remote write since slice 1, and the download inherits it. It contradicts the rule applied
+  one function earlier on the read side, where a failed round-trip gets its own line rather
+  than being dressed as the target's answer. Fixing it honestly means fixing both directions.
 
 ---
 

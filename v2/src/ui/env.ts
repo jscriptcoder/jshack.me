@@ -148,6 +148,10 @@ export type BuildCommandEnvArgs = {
    *  because the session is created and retired inside a single command. */
   readonly onScpAuthenticate?: ScpApi['authenticate'];
   readonly onScpWrite?: ScpApi['write'];
+  /** The read half: the target's journal replayed over its generated base, viewed at
+   *  the tier the credential bought. Resolved per call rather than held — a transfer
+   *  looks once and is gone, so there is no second look to keep fresh. */
+  readonly onScpRead?: ScpApi['read'];
   readonly onScpEnd?: ScpApi['end'];
   /** The credential-cracking seam — backs `env.hydra.crack`. The UI wires it to the
    *  `crackCredentials` adapter (signed `hydraCrack` round-trip). Optional here for
@@ -315,6 +319,9 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
     // success onto a box which never received the bytes is the one lie this command
     // must not be able to tell.
     write: args.onScpWrite ?? notWired('scp.write'),
+    // Load-bearing too: its result IS the file, so an unwired read must be loud
+    // rather than hand back an empty one that reads as a real, empty file.
+    read: args.onScpRead ?? notWired('scp.read'),
     // Fire-and-forget: the transfer has already resolved, and a row left active is
     // swept on the next boot.
     end: args.onScpEnd ?? (() => undefined),

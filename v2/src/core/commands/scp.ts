@@ -1,9 +1,11 @@
 /**
- * scp — carry one file onto a machine you hold a credential for.
+ * scp — carry one file onto a machine you hold a credential for, or take one off it.
  *
  * `scp [-p port] <local-file> <user>@<host>:<path>` opens a session on the target,
  * writes the file through the same gate an `ssh` session's write goes through, and
- * closes the session behind itself.
+ * closes the session behind itself. Reverse the operands and the same session reads
+ * instead: whichever one names a host is the remote, and that is the whole of how
+ * the two directions tell themselves apart.
  *
  * The session is TRANSIENT, and that is forced rather than chosen: the write gate
  * requires an active session row on the target, so create → write → end is the only
@@ -13,23 +15,23 @@
  * reused: `scp` behaving differently depending on invisible state is a worse bargain
  * than a second, truthful login line.
  *
- * The trace is a LOGIN and nothing more. Real sshd records the authentication before
- * it can know the session is a copy, so no line names the file — which is exactly
- * how this door differs from ftp's, where every byte is itemised. Two doors, two
- * costs: ftp is easier to OPEN and tells on you, scp needs a credential you already
- * earned and takes the file in silence.
+ * The trace is a LOGIN and nothing more, in BOTH directions. Real sshd records the
+ * authentication before it can know the session is a copy, so no line names the file
+ * — which is exactly how this door differs from ftp's, where every byte is itemised.
+ * Two doors, two costs: ftp is easier to OPEN and tells on you, scp needs a
+ * credential you already earned and takes the file in silence.
  *
  * Reachability is read from the deterministic generated FS before anything is typed,
  * as `ssh` does, and from the SSH daemon specifically: scp reaches exactly what ssh
- * reaches, so a box serving no sshd is shut to it whatever else it runs. The source
- * is validated first of all — a typo that reached the target would put a line in
- * somebody's log for a transfer that was never possible.
+ * reaches, so a box serving no sshd is shut to it whatever else it runs. The LOCAL
+ * half is settled first of all, whichever way the file is going — a typo that reached
+ * the target would put a line in somebody's log for a transfer never possible.
  */
 
-import { asMachineId } from '../types';
+import { asAbsPath, asMachineId } from '../types';
 import { generateHomeLan } from '../generation/generateHomeLan';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
-import { basename, resolveAbsPath } from '../filesystem/path';
+import { basename, dirname, resolveAbsPath } from '../filesystem/path';
 import { readOpenPorts } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { errorLine, streamedResult, text } from './streaming';
@@ -111,21 +113,118 @@ const readSource = (env: CommandEnv, raw: string): Source => {
   };
 };
 
-const execute: Command['execute'] = async (env, args, flags) => {
-  const rawSource = args[0];
-  const rawDestination = args[1];
-  if (rawSource === undefined || rawDestination === undefined) return failure(USAGE);
+/** Where a taken file lands on the box the player is standing on. A destination that
+ *  names a directory takes the file in under the name it wore on the box it came
+ *  from — which is how `scp host:/etc/passwd ./` means anything at all. A destination
+ *  with no containing directory is the player's own typo, caught here so it costs
+ *  them nothing in somebody else's log: the same rule the source check follows. */
+type Landing =
+  | { readonly ok: true; readonly path: AbsPath }
+  | { readonly ok: false; readonly line: string };
 
-  // Whichever operand names a remote decides the direction. Only the upload half
-  // exists so far, so a destination that is not remote has nowhere to go.
-  const remote = parseRemote(rawDestination);
-  if (remote === null) return failure(USAGE);
+const resolveLanding = (env: CommandEnv, raw: string, remotePath: AbsPath): Landing => {
+  const named = resolveAbsPath(env.fs.cwd(), raw);
+  const into = env.fs.stat(named);
+  const path = into?.kind === 'directory' ? resolveAbsPath(named, basename(remotePath)) : named;
+  if (env.fs.stat(dirname(path)) === null) {
+    return { ok: false, line: `scp: ${path}: No such file or directory` };
+  }
+  return { ok: true, path };
+};
 
-  // First of all, before a port is looked at or a password asked for: a source that
-  // cannot be read is the player's own mistake, and it must not cost them a line in
-  // somebody else's log.
-  const source = readSource(env, rawSource);
-  if (!source.ok) return failure(source.line);
+/** How a refused remote read reads back. Missing and sealed are ONE answer, because
+ *  telling them apart maps out a box from outside the tier that is allowed to see it
+ *  — the argument ftp's `cd` already makes. A directory is neither, and the tier that
+ *  reached it could have listed it anyway, so naming it gives nothing away. */
+const READ_REFUSAL = {
+  not_found: 'No such file or directory',
+  permission_denied: 'No such file or directory',
+  is_directory: 'not a regular file',
+} as const;
+
+/** A round-trip that never completed is OURS, not the target's — and a player told
+ *  their file is missing stops looking for something that is probably still there. */
+const UNREACHABLE = 'Connection closed by remote host.';
+
+/** What one direction has to say once the session exists. Both directions answer in
+ *  this shape so the row is closed by the SAME line of code either way, rather than
+ *  by each path remembering to. */
+type Transfer = {
+  readonly lines: readonly TerminalLine[];
+  readonly exitCode: number;
+};
+
+/** Ctrl-C once a session is open: nothing lands and nothing is said, matching an
+ *  abandoned password prompt. The row is still closed — by the caller, on the way
+ *  out, exactly as a completed transfer's is. */
+const INTERRUPTED: Transfer = { lines: [], exitCode: 130 };
+
+/** `100%` is truthful at the moment it prints: the bytes are there. A live progress
+ *  bar is what an append-only terminal cannot honestly draw. */
+const landed = (name: string, bytes: number): Transfer => ({
+  lines: [text(`${name}   100%  ${bytes} bytes`)],
+  exitCode: 0,
+});
+
+const refused = (line: string): Transfer => ({ lines: [errorLine(line)], exitCode: 1 });
+
+/** Put the file on the target: one atomic write, so a refusal moved nothing.
+ *
+ *  No `isNew`, deliberately: that flag says "no base-FS file stood here", and this
+ *  direction never looks. The read that would let it look belongs to the other
+ *  direction and addresses a different box, so claiming knowledge it does not have
+ *  would be worse than omitting the claim — omission preserves whatever the row
+ *  already says, which is exactly scp's position. */
+const carry = async (
+  env: CommandEnv,
+  session: Session,
+  destination: AbsPath,
+  source: { readonly path: AbsPath; readonly content: string },
+): Promise<Transfer> => {
+  const written = await env.scp.write(session, destination, source.content);
+  if (!written.ok) return refused(`scp: ${destination}: ${WRITE_REFUSAL}`);
+  return landed(basename(source.path), source.content.length);
+};
+
+/** Take the file off the target: read at the tier the credential bought, then write
+ *  it on the box the player is standing on — the second is their own write, exactly
+ *  as if they had typed it into their shell.
+ *
+ *  Nothing is recorded anywhere. That is the door's whole bargain, and it is true by
+ *  construction rather than by suppression: this direction has no ledger to reach. */
+const take = async (
+  env: CommandEnv,
+  session: Session,
+  remotePath: AbsPath,
+  landing: AbsPath,
+): Promise<Transfer> => {
+  const read = await env.scp.read(session, remotePath);
+  if (!read.ok) {
+    return read.error === 'network_error'
+      ? refused(UNREACHABLE)
+      : refused(`scp: ${remotePath}: ${READ_REFUSAL[read.error]}`);
+  }
+
+  // The bytes are in hand and get dropped: a file half-taken is a file the player
+  // did not ask for, and this is the last moment nothing has landed.
+  if (env.signal.aborted) return INTERRUPTED;
+
+  const written = await env.patches.write(landing, read.content);
+  if (!written.ok) return refused(`scp: ${landing}: ${WRITE_REFUSAL}`);
+  return landed(basename(remotePath), read.content.length);
+};
+
+/** Reach the target, hold a session open for exactly one transfer, and close it
+ *  behind whatever the transfer had to say. Both directions come through here, so
+ *  the row's lifetime is one piece of code rather than a discipline each path has
+ *  to keep: create → transfer → end, with the end on EVERY way out. */
+const connectAndTransfer = async (params: {
+  readonly env: CommandEnv;
+  readonly remote: RemoteOperand;
+  readonly portFlag: string | true | undefined;
+  readonly transfer: (session: Session) => Promise<Transfer>;
+}): Promise<CommandResult> => {
+  const { env, remote } = params;
 
   const essid = env.network.interfaces().find((iface) => iface.kind === 'wireless')?.association
     ?.essid;
@@ -143,7 +242,7 @@ const execute: Command['execute'] = async (env, args, flags) => {
   // means here. An explicit `-p` has to name that same port: a transfer reaches
   // exactly what a login reaches, never a port the box answers with something else.
   const serving = sshPortOf(baseFs);
-  const asked = parsePort(flags.get('-p'));
+  const asked = parsePort(params.portFlag);
   const port = asked ?? serving;
   if (serving === null || port !== serving) {
     return failure(`scp: connect to host ${remote.host} port ${port ?? 22}: Connection refused`);
@@ -160,7 +259,6 @@ const execute: Command['execute'] = async (env, args, flags) => {
   }
 
   const sessionId = `scp-${remote.user}-${env.now()}`;
-  const destination = resolveAbsPath('/' as AbsPath, remote.path);
 
   return streamedResult(
     (async function* stream(): AsyncGenerator<TerminalLine, number> {
@@ -197,28 +295,59 @@ const execute: Command['execute'] = async (env, args, flags) => {
         createdAt: env.now(),
       };
 
-      // One atomic write, then the row closes whichever way it went — including the
-      // refusal, where a session left open would outlive the command that opened it.
-      //
-      // No `isNew`, deliberately: that flag says "no base-FS file stood here", and
-      // this command never looked. It cannot look until the download half brings a
-      // read of the target with it, and claiming knowledge it does not have would be
-      // worse than omitting the claim — omission preserves whatever the row already
-      // says, which is exactly scp's position.
-      const written = await env.scp.write(session, destination, source.content);
+      const transferred = env.signal.aborted ? INTERRUPTED : await params.transfer(session);
+      // Whichever way it went, including an abandoned one: a row outliving the
+      // command that opened it is a door held ajar by something that has already
+      // printed its last line.
       env.scp.end(sessionId);
 
-      if (!written.ok) {
-        yield errorLine(`scp: ${destination}: ${WRITE_REFUSAL}`);
-        return 1;
-      }
-
-      // `100%` is truthful at the moment it prints: the bytes are there. A live
-      // progress bar is what an append-only terminal cannot honestly draw.
-      yield text(`${basename(source.path)}   100%  ${source.content.length} bytes`);
-      return 0;
+      yield* transferred.lines;
+      return transferred.exitCode;
     })(),
   );
+};
+
+const execute: Command['execute'] = async (env, args, flags) => {
+  const rawSource = args[0];
+  const rawDestination = args[1];
+  if (rawSource === undefined || rawDestination === undefined) return failure(USAGE);
+
+  // Whichever operand names a host is the remote one, and that decides the
+  // direction. Two of them is two transient sessions in one command — a door
+  // nobody has opened yet, and guessing at it would move a file somewhere nobody
+  // asked for.
+  const remoteSource = parseRemote(rawSource);
+  const remoteDestination = parseRemote(rawDestination);
+  const remote = remoteSource ?? remoteDestination;
+  if (remote === null || (remoteSource !== null && remoteDestination !== null)) {
+    return failure(USAGE);
+  }
+
+  const remotePath = resolveAbsPath(asAbsPath('/'), remote.path);
+  const portFlag = flags.get('-p');
+
+  // The LOCAL half first, before a port is looked at or a password asked for: a
+  // mistake on the player's own box is theirs, and it must not cost them a line in
+  // somebody else's log.
+  if (remoteSource !== null) {
+    const landing = resolveLanding(env, rawDestination, remotePath);
+    if (!landing.ok) return failure(landing.line);
+    return connectAndTransfer({
+      env,
+      remote,
+      portFlag,
+      transfer: (session) => take(env, session, remotePath, landing.path),
+    });
+  }
+
+  const source = readSource(env, rawSource);
+  if (!source.ok) return failure(source.line);
+  return connectAndTransfer({
+    env,
+    remote,
+    portFlag,
+    transfer: (session) => carry(env, session, remotePath, source),
+  });
 };
 
 export const scp: Command = {

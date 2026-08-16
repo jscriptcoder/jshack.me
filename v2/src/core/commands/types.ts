@@ -486,11 +486,25 @@ export type ScpApi = {
     session: Session,
     ...args: Parameters<PatchApi['write']>
   ) => Promise<PatchResult>;
+  /** Read one file off the machine the session was opened on, at the tier the
+   *  credential bought and with that machine's journal replayed over its generated
+   *  base — so what comes back is the state the box is IN, not the state it was
+   *  generated in. Session-parameterized for the same reason `write` is, and
+   *  resolved fresh per call: a transfer looks once and is gone. */
+  readonly read: (session: Session, path: AbsPath) => Promise<ScpReadResult>;
   /** Close the row. Fire-and-forget: the bytes have already moved or already failed,
    *  and a row left active is swept on the next boot — but leaving one open on
    *  purpose would be a door held ajar by a command that has printed its last line. */
   readonly end: (sessionId: string) => void;
 };
+
+/** The filesystem view's own answer, plus the one failure that is OURS rather than
+ *  the target's. A round-trip that never completed is not evidence about the file,
+ *  and reporting it as a missing file would tell the player to stop looking for
+ *  something that is probably still there. */
+export type ScpReadResult =
+  | FsReadResult
+  | { readonly ok: false; readonly error: 'network_error' };
 
 /** What the `ftp>` prompt reports about one completed transfer: which way the bytes
  *  went from the REMOTE box's point of view, which of its paths they touched, and how

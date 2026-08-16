@@ -29,6 +29,7 @@ import type {
   InnerGatewayAuthParams,
   PublicAuthResult,
   PatchResult,
+  ScpReadResult,
   PublicFetchParams,
   PublicFetchResult,
   PublicSweepParams,
@@ -563,6 +564,32 @@ const writeToScpTarget = async (
     owner: session.username,
     tier: session.userType,
   }).write(...args);
+};
+
+/** Read one file off the machine a transfer opened a session on (backs
+ *  `env.scp.read`) — the target's journal pulled and replayed over its generated
+ *  base, viewed at the tier the credential bought.
+ *
+ *  The same composition the ftp session's tree is built from, held for ONE call
+ *  instead of for a session: a transfer looks once and is gone, so there is no
+ *  signal, nothing to refetch, and nothing for a later write to invalidate. */
+const readFromScpTarget = async (session: Session, path: AbsPath): Promise<ScpReadResult> => {
+  if (identity === undefined) return { ok: false, error: 'network_error' };
+  const journal = await fetchOwnPatches({
+    identity,
+    machineId: session.machineId,
+    owner: session.username,
+    tier: session.userType,
+  });
+  const tree = resolveActiveRoot({
+    session,
+    ownWorkstationId: ownWorkstationId(),
+    publicKeyHex: requireIdentity().publicKeyHex,
+    essid: currentEssid(),
+    ownBaseFs: seedFs(requireConfig(), requireIdentity()),
+    patches: journal,
+  });
+  return createFsView(tree, { userType: session.userType, cwd: asAbsPath('/') }).read(path);
 };
 
 /** Close the row a transfer opened (backs `env.scp.end`). Fire-and-forget: the bytes
@@ -1250,6 +1277,7 @@ const executeLine = async (line: string): Promise<void> => {
     ...ftpBinding(),
     onScpAuthenticate: scpAuthenticate,
     onScpWrite: writeToScpTarget,
+    onScpRead: readFromScpTarget,
     onScpEnd: endScpSession,
     onSshAuthenticatePublic: sshAuthenticatePublic,
     onSshAuthenticateSameLan: sshAuthenticateSameLan,
