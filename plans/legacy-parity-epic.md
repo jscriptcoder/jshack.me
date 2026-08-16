@@ -244,7 +244,7 @@ PHASE 1 — THE DOORS  (near-term focus)
   D3b scp (the transfer)                              ✔ COMPLETE v0.139.0
       D3b slice 1 carry a file onto a box you hold     ✔ SHIPPED v0.137.0 (#401)
       D3b slice 2 take a file without being seen       ✔ SHIPPED v0.138.0 (#402)
-      D3b slice 3 reach a stranger's box               ✔ SHIPPED v0.139.0
+      D3b slice 3 reach a stranger's box               ✔ SHIPPED v0.139.0 (#403)
   D4  daemon control (systemctl / ps / kill)
   D5  nc connect + nc -l backdoor
   D6  mysql
@@ -545,7 +545,7 @@ impossible. Grounding caught this; do not drop the step from the criterion.
   login kind-parameterized. *Observable*: Act 12 — B carries a wordlist onto A's box through A's
   ssh forward, takes it back, and A's `auth.log` holds four logins that name no file.
 
-### Open for planning — RESOLVED 2026-08-15 in [`d3b-scp-the-transfer.md`](d3b-scp-the-transfer.md)
+### Open for planning — RESOLVED 2026-08-15 at planning, and both shipped as decided
 
 1. **An existing active session on the target** — reuse it, or always create-and-end? **Always
    create-and-end**: the row's lifetime stays exactly one command, and reuse would make `scp`
@@ -882,16 +882,20 @@ which D1d re-confirmed rather than discovered. Read the row from the DB when a l
 
 **D3 ✅ SHIPPED AND CLOSED OUT** (2026-08-15, v0.131.0 → v0.136.0, #393–#398) — six slices, plan
 file deleted, as-built in `conventions-and-gotchas.md` §1 + §7 and Act 11 of
-`e2e-shared-network-verification.md`. **D3b is what remains of this pair, and it is now IN
-PROGRESS** in [`d3b-scp-the-transfer.md`](d3b-scp-the-transfer.md) — planned 2026-08-15 with both
-grill "open for planning" questions resolved there (always create-and-end; no `-P` alias), and
-**slices 1 and 2 shipped** (v0.137.0 #401, v0.138.0): both directions work own-LAN, the transient
-row opens and closes around one transfer, and the target's `auth.log` gains a login line that
-names no file either way. The `isNew` question slice 2 reopened is **settled — omitted in both
-directions**, the flag being verifiably inert. What still travels to slice 3 is slice 1's
-**deferred wire-check** (both door-kind paths in one run) and two named honesty gaps recorded in
-the plan. Everything below is the grill that produced both; read D3's half as the record of what
-was expected, not as work outstanding.
+`e2e-shared-network-verification.md`. **D3b ✅ SHIPPED AND CLOSED OUT** (2026-08-16, v0.137.0 →
+v0.139.0, #401–#403) — three slices, plan file deleted, as-built in `conventions-and-gotchas.md`
+§1 + §7 (the four `scp` bullets) and Act 12 of `e2e-shared-network-verification.md`. Both
+directions work own-LAN and against a stranger's box through a NAT forward; the transient row
+opens and closes around one transfer on every exit path; and the target's `auth.log` gains a login
+line that names no file in either direction. Both grill questions were resolved at planning and
+shipped as decided (always create-and-end; no `-P` alias), and three more the plan deliberately
+carried are settled rather than inherited by a fourth path: the `isNew` flag is **omitted in both
+directions** (it is verifiably inert — §7), a relative remote path **resolves from the account's
+home**, and a write failing for network reasons **says so** instead of blaming the player's tier.
+Slice 1's deferred wire-check is discharged by `testScpTransfer` 19/19 live over both door-kind
+paths. **The pair is done, and with it every way into a machine that moves a file.** Everything
+below is the grill that produced both doors; read it as the record of what was expected, not as
+work outstanding.
 
 D3 was selected (2026-08-14) straight from decision 8's locked door order once the web
 door was complete on both sides — **and it was split first: `ftp` is D3, `scp` is D3b, each with its
@@ -947,6 +951,16 @@ public login gates, `standingVantage` for an honest source address, the tier-gat
 in both directions (`land()` in `ftpShell.ts`), and `recordFtpTransfer`'s provenance split. What
 D3b still owns alone is its own: the transient session lifecycle, two authorizations in one
 command, async progress + cancellation, and where a *silent* transfer's trace lands.
+
+**➡️ NEXT: D4 — daemon control (`systemctl` / `ps` / `kill`), not yet grilled.** Decision 8's door
+order puts it after the transfer pair, and three doors have now earned it: a player runs sshd, a
+web server and ftpd with **no way to stop, start or even list any of them**. It is the defender's
+half of everything Phase 1 has shipped so far — every door D1–D3b is currently permanently open
+because nothing can close one. Two things already point at it. `ftp` gates its login on the
+target's `/var/run` pidfiles, so stopping vsftpd is *already* wired to close that door, and `ssh`
+does **not** gate the same way (§9 of `conventions-and-gotchas.md`) — D4 is where that exemption
+stops being a documented quirk and becomes a live inconsistency a player can observe, so decide it
+inside D4's grill rather than behind it. Start with `grill-me`, then `planning`.
 
 Per slice, before any code: load `tdd`, `testing`, `mutation-testing`, `refactoring`; run full
 RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR; present before starting the next. Any `api/` change
