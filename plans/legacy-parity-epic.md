@@ -24,7 +24,15 @@ resolution rather than about reaching a box.
 [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §1. **D2.6b — harvestable
 plaintext loot — is the one piece D2 named and did not build**, and it is **POSTPONED by owner
 decision (2026-08-12)** in favour of parity breadth: the harvest route can arrive with the CVE
-phase instead of as bespoke loot (see "Next action"). Everything else is split-and-grilled only.
+phase instead of as bespoke loot (see "Next action").
+**D4 ✅ COMPLETE (v0.142.0)** — four slices, #407–#411, closed out 2026-08-16: its plan file is
+deleted and the as-built lives in
+[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7 (the daemon descriptor,
+the single "what is running here" policy, the `env.fs` snapshot) and §9, with the browser run as
+Act 13 of [`e2e-shared-network-verification.md`](../v2/docs/e2e-shared-network-verification.md).
+**D5 🔍 GRILLED 2026-08-16, not yet planned** — fifteen locked decisions and a six-slice spine in
+"D5 — resolved scope & decisions"; it also found that §9's `ps` defect is misdiagnosed and owns
+the fix. Everything else is split-and-grilled only.
 
 **Ship gate**: **all doors + hydra + discovery + the CVE system, minus missions.** Missions are
 a **post-ship epic** — the infrastructure this epic builds is what makes them cheap.
@@ -86,8 +94,10 @@ check credential → insert a session row at the right tier → client mode. No 
 dimension, nothing beneath it changes. Story 7 already proved the shape: its same-LAN handler
 was *"the ONLY net-new auth front door."*
 
-**Left open**: `nc -l` backdoors, where no credential is checked and the "user" is asserted by
-the pidfile. Resolve at D5's planning.
+**Left open** — **RESOLVED 2026-08-16 at D5's grill**: `nc -l` backdoors, where no credential is
+checked and the "user" is asserted by the pidfile. The answer leaves this decision intact — only
+the credential STEP becomes pluggable, while the spine, the session row and the tier are
+unchanged. See "D5 — resolved scope & decisions".
 
 ### 3. CVE is inside the ship gate — re-ordered, not re-scoped
 
@@ -700,10 +710,212 @@ Five things the code says that the epic row could not have known:
 
 ---
 
+## D5 — resolved scope & decisions (grill-me, 2026-08-16)
+
+**Scope: `nc <host> <port>` + `nc -l <port>` + `kill` + generated NPC backdoors.** D4's two
+deferred verbs arrive as promised — `kill` and eviction — and the epic row's open design question
+("a backdoor is not a `SERVICE_CATALOG` row, so *what is running here* and *shut this down* both
+need a second shape") is answered by a discriminated union, not by a new catalog row.
+
+D5 is the first door with **no credential at all**, which is the one thing decision 2 parked. It
+is also the first thing in the game a player leaves *behind* on someone else's machine.
+
+### Grounding that reshaped the scope before any decision
+
+Three things the code says that the epic row could not have known:
+
+1. **`nc -l` can only be planted by root, so legacy's privileged-port gate is unreachable.**
+   `/var/run` is `TRAVERSABLE_DIR` (`write: ['root']`, `baseFs.ts:21`), so writing
+   `/var/run/nc-<port>.pid` needs root on that box already. Legacy's `nc.ts:47` ("ports below
+   1024 require root") assumed any user could listen. It is the same unreachable branch D4
+   already rejected for daemons — the root gate fires before a port is ever parsed.
+2. **v2 has no backdoor ports at all, and legacy's producer was the CVE system, not `nc`.** Zero
+   hits for `elite`/`31337` across `v2/src`. Legacy's came from `attackPatterns.ts`
+   (`{kind:'backdoor_port_open', tier:'user', port:31337}`) — this epic's **Phase 3**. `nc -l`
+   was the manual half of a mechanism whose main producer arrives much later, which is why
+   decision 4's content half had to be decided here rather than inherited.
+3. **The two halves of `nc` have very different day-one value.** Connect-mode works immediately
+   against every generated host running sshd/ftp/http. The *interactive* backdoor connect has
+   nothing to find unless someone planted one — so without placement, D5 ships a persistence tool
+   rather than a door.
+
+**And one live defect whose stated cause in §9 is wrong.** §9 records `ps` on an ENTERED box
+showing nothing, and proposes fixing it by "projecting `/var/run` to a foreign session regardless
+of tier — a change to the cross-player read filter". It is not a read-filter problem: **two
+producers of the same file disagree about its permissions.** The generator stamps
+`PIDFILE_PERMISSIONS` (`read: ['root','user','guest']` — `routerFs.ts:107`), while `daemon.ts:149`
+passes no permissions and gets `defaultFilePermissions('root')` → `read: ['root']`. So a generated
+NPC host's pidfiles are world-readable and `ps` works there after a hop; a **player's** box is the
+odd one out, and the filter is correctly pruning a file the box really does call root-only.
+`PatchApi.write` already takes a `permissions` option for exactly this class of bug — its own doc
+cites `apt install` stamping a world-executable binary. **The fix is one argument.**
+
+### Forced rather than chosen (planning should not re-litigate)
+
+- **`kill` is root-only.** Removing the pidfile goes through the L2 walker at the session's tier
+  and `/var/run` is `write: ['root']`. Legacy let a non-root user kill their own process by
+  deliberately bypassing FS perms (`kill.ts:177` — "deletion always uses root perms"); that branch
+  is unreachable here, and it matches `systemctl`'s rule that changing what runs is root's.
+- **A pidfile asserting its own user is safe.** Forging one means writing to `/var/run`, which
+  needs root on that box already, so there is no escalation to be had. The server reading it is
+  authoritative, exactly as legacy's `proof: 'pidfile'` was.
+- **An nc session is an ordinary session row at the pidfile's tier.** Decision 2 forbids a new
+  authorization dimension, so a server-enforced read-only "nc mode" would BE that dimension. The
+  protocol limits the command surface; the tier is the truth.
+- **Cross-LAN reach costs nothing.** `machineServing` already routes a public port to
+  `internalIp:internalPort`, and `scanResult` already shows a forward iff its target is serving
+  that internal port — which, with the union below, a listener now does. So **crack the gateway
+  (40%) → root a neighbour → plant → add a forward** is a complete persistent-access loop in which
+  only the planting step is new.
+
+### Locked decisions
+
+1. **D5 ships connect + listen + `kill` + NPC backdoor placement.** Decision 4 is honoured
+   literally rather than deferred to Phase 3: without placement, connect-mode's interactive half
+   has nothing to find, and the slice is demoable only as a two-player loop.
+2. **A generated backdoor lands you at USER tier; a planted one carries the planter's tier.**
+   Matches legacy's `tier: 'user'` exactly. A generated backdoor is a FOOTHOLD, not a jackpot — it
+   skips the credential and still leaves you needing a root password. **Locked decision 1
+   survives**: a no-credential root would be cheaper than the 12% crackable NPC root and would
+   quietly outrank the gateway as the pre-CVE root target. Planted listeners necessarily assert
+   root, since only root could have written the file — one rule, and the pidfile records who left
+   the door open.
+3. **One walk, a labelled result.** `readRunningServices` keeps its single pass and returns
+   `{kind:'service'; spec; port} | {kind:'listener'; port; user; userType; pid}`. `ps` reads the
+   label to print an owner; `nmap`, `machineServing`, `scanResult` and the four login gates keep
+   taking `.port` and never notice. **A listener carries only the fields it has** — no fabricated
+   `placement`/`altPorts`/`sweepLog`, the last of which would be a lie, there being no credential
+   to sweep. §7's single-walk invariant holds unchanged.
+4. **A listener's SERVICE column reads `unknown`.** The honest answer for a port with no catalog
+   row, and it is what gives `nc <host> <port>` a job: an unaccounted-for open port is a question,
+   and connecting is how you answer it. `elite` would hand over the answer and make connect-mode a
+   formality.
+5. **Services are units, listeners are processes — one verb each.** `ps` gains a PID column,
+   filled for listeners and `-` for services; `kill <pid>` handles processes, `systemctl stop`
+   keeps handling units, and neither duplicates the other. **Nothing in `/var/run` changes
+   format** — only the nc pidfile carries a pid, derived through `createPrng('<machineId>:nc:<port>')`
+   so it survives rereads and reboots. This NARROWS D4's decision 2 rather than reversing it: the
+   SERVICE is still the unit, and a PID appears only where there is genuinely a process. Legacy's
+   PIDs were **not** stable (`kill.ts:46` counted from 100 at read time, so starting another
+   service renumbered the one you were about to kill).
+6. **A backdoor is silent — nothing is logged, ever.** Modelled on the real thing: a stock Linux
+   box produces zero log entries for `nc -l` or for connections to it. No PAM involvement, so no
+   `auth.log` line; no `utmp`/`wtmp` entry, so `who`/`w`/`last` show nothing; netcat has no syslog
+   integration, and its `-v` output goes to the launching terminal's stderr, which for a detached
+   backdoor goes nowhere. Real detection is **live state** — `ps`, `ss -tlnp`, `lsof -i` — never
+   log review. The intruder's original ssh still writes its own `auth.log` line, so the defender
+   gets the same two disconnected facts a real one does ("root logged in at 04:12" + "something is
+   listening I did not start") and has to join them up.
+7. **Full shell, minus what needs a TTY.** `su` and `nano` refuse in their real words
+   (`su: must be run from a terminal`, `Error opening terminal: unknown`) because a bind shell has
+   no PTY — which is why every real writeup opens with `python3 -c 'import pty;pty.spawn(...)'`.
+   Legacy's restricted set (`src/commands/nc/` — pwd/cd/ls/cat/whoami/help/exit) corresponds to no
+   real netcat mode: plain `nc -l` is a dumb pipe that runs nothing, and `nc -e /bin/bash` is an
+   unrestricted shell. **The bricking worry is answered without a command list**: a generated
+   backdoor is user tier, so `/boot` is refused by the ordinary walker, and `su` cannot run to fix
+   that. Bricking works only through a root-planted listener — someone's own deliberate root
+   shell, which is precisely the real hazard.
+8. **A planted listener survives a reboot.** Inherited, not designed: the pidfile is a patch row
+   and `reboot` never touches the journal, exactly as a stopped service already behaves. A real
+   bind shell never survives a power cycle, so this is a knowing departure — taken because `kill`
+   is already the one answer to a backdoor, and reboot-clearing would be a redundant second answer
+   that also needed tombstone patches for generated listeners.
+9. **`kill` drops the intruder on their NEXT command.** The binding finds the pidfile gone and
+   closes in netcat's own words. That is how a real terminal behaves — you learn the socket died
+   by writing to it — and it costs nothing: no push channel, and no widening of `endSession`,
+   which is deliberately scoped so a caller can only end their own rows. It is also where `kill`
+   and `systemctl stop` differ **for a real reason**: sshd forks a child per session, so a stop
+   leaves them running, while netcat is the one process that both listens and serves.
+10. **Placement 0.10, NPC hosts only.** Roughly 0.8 per 8-host LAN, so most networks have one and
+    the mechanic teaches itself, while finding one still reads as a find. **Never the AP gateway**
+    (locked decision 1 makes it the contested pre-CVE root target) and **never another player's
+    workstation** (nobody opts into being backdoored by the generator). The listener claims a real
+    account from that host's `/etc/passwd` at user tier; the port is drawn from legacy's own list
+    (`attackChain.test.ts:122` — `[4444, 31337, 8888, 1337, 9999, 5555, 6666, 1234]`). Note what
+    this is worth: NPC user passwords are already 70% crackable, so a backdoor's value is not the
+    tier but that it needs **no wordlist at all** — an early-game gift, before hydra is installed.
+11. **The credential step becomes pluggable.** The shared spine keeps resolving the target,
+    boot-gating, checking the reached port and inserting the row; only the middle step varies —
+    ssh/ftp/scp validate against `/etc/passwd`, nc derives user and tier from the listener it just
+    found. `SERVICE_BY_DOOR` gains `nc: 'unknown'` and the shipped reached-port check works
+    untouched, honouring §7's rule that a non-daemon door adds a ROW there and a column nowhere.
+    Four gates, five doors, one path — so a future gate cannot forget the boot check or the
+    reached-port rule, which is the drift D4 slice 3 existed to remove.
+12. **Banners are version-free, on a catalog column.** `SERVICE_CATALOG` gains `banner`, consumed
+    by this slice as its own discipline requires. **No version in the string**: the epic's standing
+    warning reserves the version column for V1, and `readFilter.ts:57` already names
+    `/var/lib/dpkg/status` as where `nmap -sV` versions come from — a hardcoded banner version
+    would be a second, contradicting source of truth for a fact CVEs are keyed on.
+13. **D5 owns the §9 defect, as a permissions fix on both producers.** Pass `PIDFILE_PERMISSIONS`
+    on the `daemon.ts` write and on the nc write. This makes the world **consistent** rather than
+    more permissive — the recon/defence balance §9 worried about is already live on every generated
+    host, and player-started daemons are the exception. D5 has to touch this code anyway to add a
+    third producer of a `/var/run` pidfile.
+14. **Netcat is not on the target — the attacker installs it.** Generated hosts ship
+    `SYSTEM_UTILITY_NAMES` + `systemctl` + `sshd`/`vsftpd` and no `nc`, so planting is: root the
+    box, `apt install netcat` there, then `nc -l`. `nc` is already an `APT_PACKAGES` row
+    (`{name:'netcat', binaries:['nc']}`), and `apt` gates on `env.network.isOnline()` — the
+    caller's connectivity, not the target's. It is the real reflex (`which nc` exists because the
+    OpenBSD netcat most boxes ship has no `-e`, and half of them carry no netcat at all), and it
+    pairs with decision 6: **the door leaves no log, but installing the door leaves a file** the
+    defender can find in `/usr/bin`.
+
+### Folded in as routine (recorded so they are not re-decided)
+
+- **A listener is an open port to everyone**, because `readOpenPorts` projects both arms of the
+  union. A box cannot look one way from outside and another from within — that is what decision 3
+  is for.
+- **Connecting to your own box stays refused** (`nc: connect to localhost: Connection refused`),
+  as legacy did. Planting is local; connecting is not.
+- **`nc -l` on the shared AP gateway is possible by construction** — gateway root is 40% crackable
+  and nothing forbids it. A contested backdoor on a contested box is consistent with D4's decision
+  3, which already accepted that one occupant can degrade the gateway for everyone. Verify it
+  behaves; do not add a rule.
+
+### Slice spine (each vertical + observable)
+
+- **Slice 0 — the pidfile a visitor can read.** The §9 fix: `daemon.ts` stamps
+  `PIDFILE_PERMISSIONS`, so a player's box agrees with every generated host. Leads because it is
+  what makes every later `ps` observable across a hop, and because a shipped defect deserves its
+  own revertible PR rather than burial inside a feature.
+- **Slice 1 — a player grabs a banner off a stranger's port.** `nc <host> <port>` against existing
+  services: the catalog `banner` column, target resolution, refusal on a closed port, the network
+  guards. The walking skeleton — a command that resolves a target and speaks.
+- **Slice 2 — a player plants a listener, and can see it.** The union in `pidfile.ts`, the
+  `nc-<port>.pid` format, `ps`'s PID column, `nmap`'s `unknown`. Plant on your own box; nothing
+  connects yet.
+- **Slice 3 — a defender takes a listener away.** `kill <pid>`, root-gated, against a listener that
+  survives a reboot until someone does.
+- **Slice 4 — connecting to a backdoor drops you in a shell.** The pluggable credential step, the
+  session row, the no-TTY refusals, eviction on the next command. Demoable single-player with no
+  generation: root an NPC host (12%, or the gateway at 40%), `apt install netcat` there, plant,
+  leave, `nc` back in.
+- **Slice 5 — the world already has backdoors.** Placement 0.10, **measured across a population**
+  the way D2.2's crackable knobs were, not asserted.
+- **Slice 6 — a stranger's backdoor, across the network.** Cross-player gates + NAT-forward reach.
+  **Carries D5's wire-check**; the browser run appends as Act 14 of
+  `e2e-shared-network-verification.md`.
+
+### Open for planning (named, deliberately not decided)
+
+- **The exact nc pidfile content format** — legacy's was
+  `nc:port=4444,user=eve,userType=root,home=/root`; v2 adds a pid and may not need `home`.
+- **Whether the blind-typing texture of a real bind shell is modelled** — no prompt, no echo, no
+  tab completion. Flavour with a real UI cost; decide when slice 4 has a screen.
+- **Whether `apt install` works against a remote rooted box.** Slice 4 depends on it and it is
+  **unproven** — the L2 walker should permit a root session to write `/usr/bin`, but `tsc` cannot
+  see that. Wire-check it before slice 4 commits to decision 14.
+
+---
+
 ## Open branches (named, not yet decided)
 
-1. **`nc -l` semantics (D5)** — a session with no credential, whose user is asserted by the
-   pidfile. The one place decision 2 deliberately left open. Resolve at D5's planning.
+1. ~~**`nc -l` semantics (D5)**~~ — **RESOLVED 2026-08-16 at D5's grill.** A session with no
+   credential, whose user is asserted by the pidfile, is an ordinary session row at the pidfile's
+   tier: the login gate's credential STEP becomes pluggable (nc reads the listener where ssh reads
+   `/etc/passwd`), and the spine, the row and the tier are unchanged. Generated backdoors land at
+   USER tier so locked decision 1 survives; planted ones necessarily assert root, since only root
+   can write `/var/run`. See "D5 — resolved scope & decisions", decisions 2 and 11.
 2. ~~**Where `lynx` and `gobuster` sit**~~ — **RESOLVED 2026-07-29, gobuster REVISED
    2026-07-31.** Neither rides with D1. `lynx` becomes its own fast-follow slice (a full overlay
    browser screen — legacy carried `LynxBrowser.tsx` + `lynx/render.ts` + `lynx/fetch.ts`).
@@ -734,6 +946,10 @@ Five things the code says that the epic row could not have known:
   registry exists.
 - **Wordlist hardening** (ship md5 hashes to the client, keep plaintext server-side, make
   hydra/john server calls) — the recorded path if decision 7's accepted cost ever bites.
+- **`nmap`'s SERVICE column as a port→name GUESS.** Real nmap labels a port from `/etc/services`
+  rather than from what is actually listening (31337→elite, 4444→krb524, anything unlisted→
+  unknown), so the column is never evidence. One small table, flavour only. Raised at D5's grill
+  and parked: a listener reads `unknown` either way, and probing stays how you learn the truth.
 - **Missions** (`missions`/`accept`/`abort`/`mail` + mission network generation) — post-ship
   epic, by owner decision.
 
@@ -1131,10 +1347,21 @@ the attribution.
 have ENTERED shows nothing, because pidfiles are root-only and a foreign session's tree is
 projected at the tier the credential bought. Found by the Act 13 browser run; recorded in §9.
 
-**➡️ NEXT: D5 — `nc` connect + `nc -l` backdoor.** Not yet grilled or planned. It inherits D4's
-two deferred verbs (`kill` and eviction) plus the question D4 answered for services and D5 must
-answer for a planted listener: a backdoor is not a `SERVICE_CATALOG` row, so "what is running
-here" and "shut this down" both need a second shape. Grill it before planning.
+**➡️ NEXT: D5 — `nc` connect + `nc -l` backdoor. GRILLED 2026-08-16, not yet planned.** Fifteen
+locked decisions and a six-slice spine are in "D5 — resolved scope & decisions" above; read that
+first. The headlines: the listener enters the ONE `/var/run` walk as a discriminated union rather
+than a catalog row; services stay units (`systemctl`) while listeners become processes (`kill
+<pid>`); a backdoor is silent, because a real one is; the shell is full minus what needs a TTY, so
+`su` cannot run and a user-tier foothold cannot be escalated in place; and the door's credential
+STEP becomes pluggable across the four shipped login gates rather than adding a fifth.
+
+The grill also found that **§9's `ps`-shows-nothing defect is misdiagnosed** — it is a permissions
+drift between two producers (`daemon.ts:149` omits the `PIDFILE_PERMISSIONS` the generator stamps),
+not the read-filter change §9 proposes, and D5 owns the one-argument fix as slice 0.
+
+**Plan it next** (`planning`), starting from the slice spine. The one thing planning must settle
+before slice 4 commits: whether `apt install` works against a remote rooted box — decision 14
+depends on it and `tsc` cannot see the answer, so it needs a wire-check.
 
 Per slice, before any code: load `tdd`, `testing`, `mutation-testing`, `refactoring`; run full
 RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR; present before starting the next. Any `api/` change
