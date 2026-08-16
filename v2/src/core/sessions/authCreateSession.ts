@@ -213,20 +213,18 @@ export const handleAuthCreateSession = async (
 
   const spec = SERVICE_CATALOG[SERVICE_BY_DOOR[payload.kind]];
 
-  // The door has to be OPEN. Only some boxes roll ftp, so a knock on a box that
-  // never ran the daemon gets the same 404 an unreachable host does, and the box
-  // records nothing — a log line would confirm the machine exists.
+  // The door has to be OPEN. Only some boxes roll ftp — and ~60% of generated hosts
+  // run no sshd at all — so a knock on a box that never started the daemon gets the
+  // same 404 an unreachable host does, and the box records nothing: a log line would
+  // confirm the machine exists.
   //
-  // `ssh` is deliberately exempt, not overlooked: this endpoint has never checked
-  // it, and a router generated with `hasSsh: false` is reachable by ssh today.
-  // Closing that is a change to a shipped door with its own defenders, so it is
-  // backlogged rather than smuggled in behind ftp (`docs/conventions-and-gotchas.md` §9).
-  //
-  // `scp` does NOT inherit that exemption, and the asymmetry is the design: a
-  // transfer reaches exactly what an ssh login reaches, so a box serving no sshd is
-  // shut to it. The exemption is a shipped door's legacy, not a rule to spread.
+  // EVERY door obeys this, `ssh` included. It was exempt for a while, on the reasoning
+  // that a router might generate without sshd and become unreachable — but no router
+  // does (`ROUTER_SSH_PROBABILITY` is 1), so the exemption protected nothing and only
+  // left a gap a crafted request could walk through. An honest client never noticed
+  // either way: `ssh` compares the target's pidfile port before it prompts.
   const listening = readOpenPorts(hostFs).some((open) => open.service === spec.service);
-  if (payload.kind !== 'ssh' && !listening) {
+  if (!listening) {
     return { status: 404, body: { error: 'service_not_running' } };
   }
 

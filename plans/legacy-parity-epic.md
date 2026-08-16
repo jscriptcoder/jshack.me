@@ -245,10 +245,11 @@ PHASE 1 — THE DOORS  (near-term focus)
       D3b slice 1 carry a file onto a box you hold     ✔ SHIPPED v0.137.0 (#401)
       D3b slice 2 take a file without being seen       ✔ SHIPPED v0.138.0 (#402)
       D3b slice 3 reach a stranger's box               ✔ SHIPPED v0.139.0 (#403)
-  D4  daemon control (systemctl / ps)                 ◐ IN PROGRESS — slice 3 next
+  D4  daemon control (systemctl / ps)                 ✔ COMPLETE v0.142.0
       D4 slice 0 three commands become one             ✔ SHIPPED (#407, no bump)
       D4 slice 1 a defender shuts a door               ✔ SHIPPED v0.140.0
       D4 slice 2 a player sees what a box runs         ✔ SHIPPED v0.141.0
+      D4 slice 3 every login gate asks one question    ✔ SHIPPED v0.142.0
   D5  nc connect + nc -l backdoor
   D6  mysql
   D7  rediscli

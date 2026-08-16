@@ -1,9 +1,9 @@
 # Plan: D4 — daemon control
 
 **Branch**: `docs/plan-d4-daemon-control` (this plan) → `refactor/daemon-*` / `feat/systemctl-*` /
-`feat/ps-*` per slice
-**Status**: Active — slice 0 ✅ (#407, no bump), slice 1 ✅ (#408, v0.140.0), slice 2 ✅ (v0.141.0);
-slice 3 (the login-gate fixes + wire-check + E2E) next
+`feat/ps-*` / `feat/login-gate-*` per slice
+**Status**: COMPLETE — slice 0 ✅ (#407, no bump), slice 1 ✅ (#408, v0.140.0), slice 2 ✅ (#409,
+v0.141.0), slice 3 ✅ (v0.142.0). All acceptance criteria met; close out and delete this file.
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) — Phase 1, door D4
 **Grilled**: 2026-08-16 — ten locked decisions + a four-part spine in the epic's
 ["D4 — resolved scope & decisions"](legacy-parity-epic.md#d4--resolved-scope--decisions-grill-me-2026-08-16)
@@ -65,20 +65,20 @@ The grill locked ten. The five that constrain the slices below:
 
 ## Acceptance Criteria
 
-- [ ] A player stops a service on a box they hold root on, and the port closes — locally, to a
+- [x] A player stops a service on a box they hold root on, and the port closes — locally, to a
       LAN scan, and to another player across the network — unit-proven locally in slice 1
       (`readOpenPorts` over the resulting tree drops the port); the LAN and cross-player halves
       read the same materialized journal, but their proof is slice 3's wire-check and E2E
 - [x] A stopped service is still stopped after a reboot — the removal is a patch row, and
       `reboot`'s whole suite passes against a patch API whose every method throws, so it provably
       never touches the journal
-- [ ] Starting it again restores reachability by every path that lost it — unit-proven locally;
+- [x] Starting it again restores reachability by every path that lost it — unit-proven locally;
       the cross-network half is slice 3's wire-check and E2E
 - [x] A non-root caller cannot start or stop anything; any tier can ask what is running
 - [x] `ps` lists what a box is running, including a box the player only rooted
 - [x] Stopping a daemon a player is currently reaching *through* does not end their session —
       and does not let anyone new in
-- [ ] A login is refused when the reached port is not serving the door's own service, on **every**
+- [x] A login is refused when the reached port is not serving the door's own service, on **every**
       endpoint — including a crafted client that skips the client-side check
 - [x] The three shipped daemon commands behave exactly as they do today, from one implementation
 
@@ -372,7 +372,15 @@ questions rather than one.
 This slice makes every login path agree that a service which is not running cannot be logged into
 — including for a client that skips the client-side check, since the wire is the threat surface.
 **Path**: `authCreateSession` (own-LAN) and `authCreateSessionSameLan` (shared ESSID) → the
-reached port must be serving the door's own service → `service_not_running` 404.
+reached port must be serving the door's own service → 404.
+
+> **Decision (2026-08-16), taken before code.** The `service_not_running` body applies to the
+> own-LAN endpoint, which already speaks it. The same-LAN endpoint **keeps `host_unreachable`** for
+> the new refusal, because it has always collapsed every cause into that one answer — sshd down,
+> wrong port, bricked, no occupant — and "the port serves ftp" is the same fact as "the ssh door is
+> not open here". Two codes would also be a distinction no client can act on: the adapter maps
+> every 404 to `host_unreachable` before the command sees it, and an occupant can nmap the LAN
+> anyway, so collapsing hides nothing.
 **Class**: Behavior change (server-side only; no client surface).
 **Required implementation skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
 **Reduction program**: `N/A`.
@@ -388,6 +396,14 @@ reached port must be serving the door's own service → `service_not_running` 40
   the two sites that were missed.
 - Last deliberately: it has **no player-visible surface**, so leading with it would open the door
   with a PR that proves nothing a player can see.
+- **Two stale comments retire with the code** (re-verified on main, 2026-08-16):
+  `authCreateSession.ts:221` justifies the exemption with "a router generated with `hasSsh: false`
+  is reachable by ssh today" — but `ROUTER_SSH_PROBABILITY = 1` and every other call site passes
+  `true`, so **no router generates without sshd** and the stated consequence does not exist.
+  `authCreateSessionSameLan.ts:218` says the box "must actually be serving sshd on the asked port"
+  above a line that only checks the port. Both must be rewritten to say what the code then does, or
+  the next reader inherits the same two false claims. The `docs/conventions-and-gotchas.md` §9
+  entries for both are **retired** by this slice, not merely ticked.
 
 **Acceptance criteria** (present and confirm before code):
 - A login whose kind is `ssh` against a host running no sshd is refused with `service_not_running`,
@@ -411,6 +427,47 @@ reached port must be serving the door's own service → `service_not_running` 40
   A: systemctl start sshd
   B: ssh root@<A public IP>     in again
   ```
+
+> **As-built (2026-08-16, v0.142.0).** Four things the code and the live runs decided.
+>
+> 1. **The exemption was protecting nothing.** Its own comment justified it with "a router
+>    generated with `hasSsh: false` is reachable by ssh today" — but `ROUTER_SSH_PROBABILITY` is 1
+>    and every other call site passes `true`, so no router generates without sshd. Both that
+>    comment and the same-LAN one (which claimed a check the code did not perform) were rewritten
+>    to say what the code now does.
+> 2. **A test FIXTURE was resting on the exemption.** `targetHostFor()` picked the last machine on
+>    the LAN regardless of what it ran, and only ~40% of hosts roll ssh — so 16 own-LAN tests were
+>    logging into a box with no sshd and passing only because `ssh` was exempt. Each asserts
+>    something else (passwd validation, log content, insert shape); the fixture now picks a host
+>    that is actually serving, which is what those claims always assumed.
+> 3. **The E2E in this plan tested the wrong path.** It was written against A's PUBLIC IP, but
+>    `authCreateSessionPublic` was never exempt and this slice does not touch it. The own-LAN fix
+>    is unobservable in a browser BY DESIGN — the client refuses before the request leaves — so the
+>    one fix a player can see is the same-LAN one, and Act 13 was run on that instead. The own-LAN
+>    half is proved on the wire, where it belongs.
+> 4. **A defect in slice 2, found by this slice's browser run.** `ps` on a box you have ENTERED
+>    shows nothing: pidfiles are root-only and a foreign session's tree is projected at the tier
+>    the credential bought, so `env.fs.root()` is the raw tree locally and an already-filtered one
+>    across a hop. Not fixed here — making it work changes the cross-player read filter and the
+>    recon/defence balance. Recorded in `conventions-and-gotchas.md` §9 and Act 13.
+>
+> **Mutation**: `authCreateSession.ts` **98.10%** (103 killed / 2 survived), `authCreateSessionSameLan.ts`
+> **97.24%** (141 killed / 2 survived). Zero survivors at either changed predicate. Both files'
+> survivors are the same pre-existing pair, outside the changed region: `account === null ||` (a
+> narrowing guard — `account === null` implies `!passwordOk`), and `'failure'` → `''`, which was
+> hand-verified as genuinely EQUIVALENT rather than a gap: `formatSshdAuthLine` branches on
+> `outcome === 'success'`, so any other value produces the identical failure line.
+>
+> **Wire-check**: `scripts/testDaemonGates.ts`, **6/6 live**. Proven to discriminate by running it
+> against the pre-fix predicates, where it fails exactly the two checks it should — own-LAN returns
+> 401 (a box with no daemon reached the password check) and same-LAN returns **200 with a session
+> landed**, reproducing the live bug on the wire before closing it.
+>
+> **REFACTOR**: assessed, `N/A`. The three endpoints' reached-port checks read alike but ask
+> different questions of different inputs — the public path compares against a server-resolved
+> `reachedPort`, the own-LAN path has no port concept at all (the client picks it), and the
+> same-LAN path compares the payload's port against a lease-resolved box. Collapsing them would
+> need a common notion of "the port this request arrived on" that two of the three do not have.
 
 **RED**: Handler tests for both endpoints — an `ssh`-kind request against a host with no sshd, and
 a same-LAN request against a port serving ftp — both currently passing where they should 404.

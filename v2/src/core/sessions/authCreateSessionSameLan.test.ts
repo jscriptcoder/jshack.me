@@ -105,6 +105,29 @@ const wsSshdUp: OwnerPatchRow = {
   writer_key: ALICE.publicKeyHex,
 };
 
+/** A ran vsftpd on 2121 and never started sshd — a box with an OPEN port that is not
+ *  an ssh door. The distinction the same-LAN gate has to make. */
+const wsFtpdUp: OwnerPatchRow = {
+  path: '/var/run/vsftpd.pid',
+  content: 'vsftpd:port=2121',
+  owner: 'root',
+  permissions: null,
+  node_type: 'file',
+  updated_at: '2026-06-19T00:00:00.000Z',
+  writer_key: ALICE.publicKeyHex,
+};
+
+/** A moved sshd off 22 — the port a real admin picks, and one a scan still finds. */
+const wsSshdOnAltPort: OwnerPatchRow = {
+  path: '/var/run/sshd.pid',
+  content: 'sshd:port=2222',
+  owner: 'root',
+  permissions: null,
+  node_type: 'file',
+  updated_at: '2026-06-19T00:00:00.000Z',
+  writer_key: ALICE.publicKeyHex,
+};
+
 /** A root `rm /boot/vmlinuz` tombstone — replayed over A's seeded base it deletes the
  *  kernel so `canBoot` reports the box bricked (dark to a same-LAN login). */
 const bootTombstone: OwnerPatchRow = {
@@ -313,6 +336,42 @@ describe('handleAuthCreateSessionSameLan', () => {
 
     expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
     expect(insertSession).not.toHaveBeenCalled();
+  });
+
+  it('reports host_unreachable when the asked port serves a DIFFERENT service than ssh', async () => {
+    // A runs vsftpd on 2121 and no sshd. B asks `ssh -p 2121`: something IS listening
+    // there, but it is not the door B is knocking on. Checking only that the port is
+    // open would open an ssh session through a port serving ftp — and the client does
+    // not gate this path at all, so the server is the only thing standing here.
+    const { deps, insertSession } = makeDeps(undefined, async () => ({
+      data: [wsFtpdUp],
+      error: null,
+    }));
+
+    const result = await handleAuthCreateSessionSameLan(
+      envelope(BOB, { username: 'guest', password: GUEST_PW, port: 2121 }),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+
+  it('lets a login through on a NON-DEFAULT ssh port the workstation is really serving', async () => {
+    // The other half of the same rule: tightening service-and-port must not shut a
+    // defender out of their own box for moving sshd off 22. A is on 2222; B asks 2222.
+    const { deps, insertSession } = makeDeps(undefined, async () => ({
+      data: [wsSshdOnAltPort],
+      error: null,
+    }));
+
+    const result = await handleAuthCreateSessionSameLan(
+      envelope(BOB, { username: 'guest', password: GUEST_PW, port: 2222 }),
+      deps,
+    );
+
+    expect(result.status).toBe(200);
+    expect(insertSession).toHaveBeenCalled();
   });
 
   it('refuses a login to a BRICKED workstation as host_unreachable, even with sshd up and a correct password', async () => {

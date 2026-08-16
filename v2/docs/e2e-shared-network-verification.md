@@ -855,6 +855,78 @@ Four claims, each separate:
   Three rows opened, three closed, none outliving the command that opened it. A door held ajar
   would show here and nowhere else in the game.
 
+### Act 13 — the defender shuts a door, and a stranger feels it (D4)
+
+**Run 2026-08-16 against v0.142.0 (banner read v0.141.0 — see the note below). Eight checks
+passed, one real defect found (below).**
+
+Two occupants of `SUITE-401`: A (`skylab`, `.153`) and B (`nebuchadnezzar`, `.128`). B knows
+A's guest password, derived offline per §7 — the crack is not what is under test here.
+
+Setup: A `su root`, then `vsftpd 2121` — an open port that is **not** an ssh door. That is the
+whole point of the act: every other journey in this document reaches a box that is either
+serving the door it is knocking on or serving nothing at all.
+
+| # | Who | Command | Result |
+|---|---|---|---|
+| 1 | A | `ps` | `root vsftpd 2121` — one row, the service it just started |
+| 2 | B | `ssh -p 2121 guest@192.168.94.153` + **A's real password** | `Connection refused` |
+| 3 | A | `sshd` then `systemctl status sshd` | `● sshd.service - OpenSSH server` / `Active: active (running) on port 22` |
+| 4 | B | `ssh guest@192.168.94.153` + the **same** password | `guest@skylab:/home/guest$` |
+| 5 | B | `ps` (on A's box) | **empty — defect, see below** |
+| 6 | A | `systemctl stop sshd` | `sshd stopped.` |
+| 7 | B | `pwd` in the session opened at 4 | `/home/guest` — still alive |
+| 8 | A | `ps` | `root vsftpd 2121` — sshd gone, the other service still listed |
+| 9 | B | `exit`, then `ssh guest@192.168.94.153` | `Connection refused` |
+| 10 | A | `systemctl start sshd` | `Server listening on 0.0.0.0 port 22.` |
+| 11 | B | `ssh guest@192.168.94.153` | `guest@skylab:/home/guest$` — back in |
+
+**What only the browser shows here.** Check 2 is the D4 slice-3 fix seen as a player sees it:
+the password prompt appears, which proves the client did **not** gate — the request went to the
+server, and the server refused it. Before the fix that request landed a shell on A's box
+through a port serving ftp. Checks 2 and 4 differ **only** in the port, with the same correct
+credential, so what is proved is that the gate discriminates on the SERVICE rather than having
+shut the ssh door on everyone.
+
+Check 7 is decision 5: a stop refuses new logins without emptying the room. Checks 6→9→11 are
+the loop D4 exists for, driven entirely from the terminal.
+
+**The own-LAN half of slice 3 is deliberately absent.** Dropping the `ssh` exemption on
+`authCreateSession` is anti-cheat: `ssh.ts` compares the target's pidfile port before it
+prompts, so an honest client never reaches the gate and a browser cannot observe the change.
+It is proved on the wire instead — `scripts/testDaemonGates.ts`, checks 1-2.
+
+**Version banner note.** The banner read `v0.141.0` because `__APP_VERSION__` is injected at
+vite config load and the bump to `v0.142.0` happened after the dev server started. The
+**handler** code under test was current, which `testDaemonGates.ts` proves independently: run
+against the pre-fix predicates it fails checks 1 and 3, and against the shipped ones it passes
+6/6. Restart the server before the run if you want the §1 step-4 guard to mean anything.
+
+#### Defect found: `ps` on a box you have ENTERED shows nothing
+
+Check 5. B, standing on A's box as `guest`, runs `ps` and gets the header and no rows — while
+A's box is running the very sshd B just logged in through, plus vsftpd on 2121.
+
+The cause is not `ps`. `ls -l /var/run` as B lists **nothing**, where A sees
+`-rwx------ root sshd.pid` and `-rwx------ root vsftpd.pid`. Pidfiles are root-only, and the
+tree a foreign session holds is projected server-side at the tier the credential bought — so a
+guest's copy of A's `/var/run` is empty, and `ps` faithfully reports what it can see. An empty
+listing rather than a permission error is what identifies it: the entries are not in B's tree
+at all.
+
+This makes `env.fs.root()` mean two different things. On your own box it is the raw tree, so
+`ps` reads root-only pidfiles regardless of tier — which is what makes `ps` work as `guest`
+locally, and what its unit test proves. Across an ssh hop the same call returns an
+already-filtered tree. The unit test could not have caught it: it builds the tree directly and
+never crosses the projection.
+
+Whether to fix it is a product decision, not a bug fix. D4's grill reasoned that "a guest
+seeing what runs is a recon reward that costs the defender nothing they control" — that
+argument holds precisely on the box you have broken into, which is where it currently does not
+work. Making it work means projecting `/var/run` to a foreign session regardless of tier, which
+is a change to the cross-player read filter and belongs to whoever owns that balance. Recorded
+in `conventions-and-gotchas.md` §9.
+
 ---
 
 ## 6. What a failure means

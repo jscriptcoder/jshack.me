@@ -26,6 +26,7 @@ import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { lanAddressesByOwner, type LanLeaseRow } from '../network/lanAddress';
 import { materializeWorkstationFs, type OwnerPatchRow } from '../network/materializeWorkstationFs';
 import { readOpenPorts } from '../services/pidfile';
+import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { canBoot } from '../boot/bootFiles';
 import { md5 } from '../generation/md5';
 import { accountIn } from './passwdAccount';
@@ -215,10 +216,20 @@ export const handleAuthCreateSessionSameLan = async (
     return { status: 404, body: { error: 'host_unreachable' } };
   }
 
-  // The box must actually be serving sshd on the asked port — a ws that never started
-  // sshd (empty /var/run) refuses the connection.
+  // The box must actually be serving SSHD on the asked port. Both halves matter: a ws
+  // that never started sshd (empty /var/run) has no door, and a ws whose 2121 answers
+  // for vsftpd has a door to somewhere else. Checking only that SOMETHING listens
+  // would open an ssh session through a port serving ftp — and the client does not
+  // gate this path at all, so this is the only thing standing here.
+  //
+  // One refusal for every cause, as this endpoint has always had: an occupant can nmap
+  // the LAN anyway, so collapsing them hides nothing, and telling a caller which gate
+  // stopped them is a distinction no client can act on (the adapter maps every 404 to
+  // `host_unreachable` before the command sees it).
   const port = payload.port ?? DEFAULT_SSH_PORT;
-  const listening = readOpenPorts(workstationFs).some((open) => open.port === port);
+  const listening = readOpenPorts(workstationFs).some(
+    (open) => open.port === port && open.service === SERVICE_CATALOG.ssh.service,
+  );
   if (!listening) {
     return { status: 404, body: { error: 'host_unreachable' } };
   }
