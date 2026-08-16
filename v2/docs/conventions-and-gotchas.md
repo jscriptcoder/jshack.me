@@ -1161,6 +1161,19 @@ state costs you more than one wrong attempt.
 
 ## 7. Architecture invariants
 
+- **`env.fs` is a POINT-IN-TIME SNAPSHOT. A command that patches and then re-reads sees the
+  world as it was before its own write.** `buildCommandEnv` calls `createFsView(args.root, …)`
+  once, with `root: activeRoot()` evaluated at build time — the comment on `commandChain` in
+  `ui/state.ts` says so outright, and command execution is serialized precisely so the next
+  command gets a fresh one. Within a single command the snapshot never moves. Any gate that
+  re-reads `env.fs` after an `env.patches.*` call is therefore reading stale state. This is not
+  theoretical: `systemctl restart` removes the pidfile and then brings the daemon back up, and
+  routing the second half through the daemon's own front door left its already-running gate
+  staring at the file the same command had just deleted — a restart that would have refused
+  itself and left the service DOWN. The rule: a command that changes the filesystem must carry
+  what it learned forward in a variable, never re-derive it from `env.fs`. `daemon.ts` splits
+  along exactly this line — `bringUp` is the gate-free write, and the gates live in the callers
+  that still have a valid view.
 - **HTTP confines itself to the document root — the filesystem walker must never be trusted
   to do it.** `resolveWebPath` (`core/network/http.ts`) NORMALIZES the request path and returns
   `null` when it escapes `/var/www/html`. It looks redundant, because `fsView.read` resolves
@@ -1404,6 +1417,17 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   one shared AP gateway per ESSID, ESSID-seeded shared NPCs and deep chains, and the removal of
   the store whose last-writer-wins PK caused the collisions. As-built in §7 and
   `cross-player-architecture.md`; the plan file was deleted on close-out.
+- **The patch-error map is written seven times.** `{ no_session: 'Permission denied',
+  permission_denied: 'Permission denied', network_error: 'I/O error', modified_since_open: … }`
+  appears verbatim in `daemon.ts`, `ftpShell.ts`, `mkdir.ts`, `rm.ts`, `touch.ts`, `systemctl.ts`
+  and `shell/runLine.ts` — one piece of knowledge (how a `PatchResult` failure reads to the
+  player) with seven owners, so a new failure kind or a reworded reason has to be found in seven
+  places. Each copy was added by following the one before it, which is why it never looked like a
+  decision. Not urgent — the strings agree today — but it is the kind of drift that surfaces as
+  two commands blaming different things for the same failure. Consolidating it is a small,
+  self-contained refactor touching seven modules; it wants its own slice rather than a ride-along.
+  (`const errorResult = …` is duplicated across seven command modules too, but that one is
+  incidental shape rather than shared knowledge, and is fine as a local idiom.)
 - **Wire-checks are not in CI** — all 37 run only by hand against a local `vercel dev` +
   supabase, and they are the ONLY thing that proves `api/` runtime correctness (`tsc` cannot
   see DB columns or constraints). A regression there ships green. Raised repeatedly and

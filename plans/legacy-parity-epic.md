@@ -245,7 +245,9 @@ PHASE 1 — THE DOORS  (near-term focus)
       D3b slice 1 carry a file onto a box you hold     ✔ SHIPPED v0.137.0 (#401)
       D3b slice 2 take a file without being seen       ✔ SHIPPED v0.138.0 (#402)
       D3b slice 3 reach a stranger's box               ✔ SHIPPED v0.139.0 (#403)
-  D4  daemon control (systemctl / ps)                 ✎ PLANNED — d4-daemon-control.md, slice 0 next
+  D4  daemon control (systemctl / ps)                 ◐ IN PROGRESS — slice 2 next
+      D4 slice 0 three commands become one             ✔ SHIPPED (#407, no bump)
+      D4 slice 1 a defender shuts a door               ✔ SHIPPED v0.140.0
   D5  nc connect + nc -l backdoor
   D6  mysql
   D7  rediscli
@@ -1096,15 +1098,19 @@ command, async progress + cancellation, and where a *silent* transfer's trace la
 grounding findings in
 ["D4 — resolved scope & decisions"](#d4--resolved-scope--decisions-grill-me-2026-08-16); the
 four-slice spine, acceptance criteria and reduction program are in
-[`d4-daemon-control.md`](d4-daemon-control.md). **Slice 0 is next** — a behavior-preserving
-collapse of the three daemon commands, which ships before any behavior changes.
+[`d4-daemon-control.md`](d4-daemon-control.md). **Slices 0 and 1 ✅ SHIPPED** (2026-08-16) — the
+three daemon commands are now one `commands/daemon.ts` behind four unchanged names (#407, no bump),
+and `systemctl start/stop/status/restart` ships at v0.140.0, so a defender can finally close a port
+and have it stay closed across a reboot. **Slice 2 is next**: `ps`, the recon and defence
+instrument that shows what a box is running.
 
 The grill narrowed the scope and changed the shape. **Scope is now `systemctl start/stop/status`
 + `ps` only** — `kill` and session eviction move to D5 (where a planted backdoor is something
 worth killing), and `chmod` leaves the epic row entirely as an independent capability. And D4 is
 **mostly stop plus a reduction**, because the start half already ships three times over:
-`sshd.ts`, `vsftpd.ts` and `webServer.ts` are 393 lines that differ only in which catalog row they
-bind, so slice 0 collapses them before any behavior changes.
+`sshd.ts`, `vsftpd.ts` and `webServer.ts` were 393 lines that differed only in which catalog row
+they bound, so slice 0 collapsed them first — 407 source lines became 252, and the 850 lines of
+daemon tests that prove it passed with nothing but their import specifier changed.
 
 Two things the grill found in the code are worth reading before planning. The `ssh` listening
 exemption is **anti-cheat only** — the client already gates and both cross-player endpoints gate,

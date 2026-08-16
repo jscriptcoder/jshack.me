@@ -85,6 +85,19 @@ export const LOCALHOST_PREINSTALLED_TOOLS = ['airmon', 'airdump', 'aircrack'] as
 export const SYSTEM_DAEMON_NAMES = ['sshd', 'vsftpd'] as const;
 
 /**
+ * Service-management tools PRE-INSTALLED in `/usr/bin` on every machine. These
+ * are the admin tools you run to control services that are already there, as
+ * opposed to the daemons themselves (`/usr/sbin`) — so they ship everywhere a
+ * daemon can run, including generated hosts and routers.
+ *
+ * Not apt-installable: a box you have rooted must be controllable with what is
+ * already on it, or stopping a service would depend on the box having internet.
+ * World-executable, like `sshd` — `systemctl` gates its write verbs on root at
+ * runtime and answers `status` to any tier.
+ */
+export const SERVICE_CONTROL_TOOLS = ['systemctl'] as const;
+
+/**
  * Binaries whose execute permission is restricted to root. Everything else
  * defaults to world-executable. Of the `/bin` set, only `reboot` is restricted
  * (the other admin daemons — gpg/vsftpd/systemctl — live in `/usr/bin` or

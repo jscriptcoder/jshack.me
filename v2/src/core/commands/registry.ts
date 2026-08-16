@@ -45,6 +45,7 @@ import { ftp } from './ftp';
 import { scp } from './scp';
 import { ssh } from './ssh';
 import { su } from './su';
+import { systemctl } from './systemctl';
 import { touch } from './touch';
 import { isAlwaysAvailable, wrapWithBinaryCheck } from './availability';
 import { wrapWithLibraryCheck } from './libraryDeps';
@@ -87,6 +88,7 @@ const builtins: readonly Command[] = [
   sshd,
   vsftpd,
   su,
+  systemctl,
   touch,
 ];
 
