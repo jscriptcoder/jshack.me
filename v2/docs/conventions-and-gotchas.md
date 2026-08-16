@@ -1307,9 +1307,10 @@ state costs you more than one wrong attempt.
   had checked the service on the reached port since v0.120.0; `authCreateSessionPublic` never
   had, so a forward to :22 was an `ftp` door and a forward to :21 an `ssh` one. Both now
   refuse with `service_not_running`. Reach for `reachedPort` whenever a new door is added to
-  that handler — the check belongs to whoever knows which daemon was knocked on. The own-LAN
-  handler's deliberate ssh exemption is a different path with its own §9 entry; do not "fix"
-  it behind another door's slice.
+  that handler — the check belongs to whoever knows which daemon was knocked on. **Completed at
+  v0.142.0 (D4 slice 3):** the two paths that still disagreed now obey it too — the own-LAN
+  handler's `ssh` exemption is gone, and the same-LAN handler compares the SERVICE on the reached
+  port instead of merely finding something open there. All four login gates now ask one question.
 - **A session's `kind` is PROVENANCE; the service it rides is a separate lookup.**
   `SERVICE_BY_DOOR = { ssh: 'ssh', ftp: 'ftp', scp: 'ssh' }` (`authCreateSession.ts:57`,
   exported and indexed by BOTH login gates) is the entire mechanism. `scp` is stored as `scp`
@@ -1317,11 +1318,12 @@ state costs you more than one wrong attempt.
   never get one** — it is not a service. That one indirection makes three things true by
   construction instead of by discipline: a transfer is gated on sshd listening, its trace goes
   through the ssh sweep log, and **there is no scp log line to forget to suppress**. A future
-  door that is not a daemon adds a row here, not a column anywhere. Note the asymmetry this
-  produces and **do not "normalize" it**: the own-LAN gate is
-  `payload.kind !== 'ssh' && !listening`, so `scp` IS refused against a box with sshd down
-  while plain `ssh` keeps its documented, backlogged exemption (§9). That is the intended rule
-  landing on the existing gate, not a bug in either.
+  door that is not a daemon adds a row here, not a column anywhere. The asymmetry this once
+  produced is **gone as of v0.142.0**: the own-LAN gate was `payload.kind !== 'ssh' && !listening`,
+  which refused `scp` against a box with sshd down while letting plain `ssh` through. D4 slice 3
+  dropped the exemption, so all three doors are refused by the same `!listening` — `scp` and `ssh`
+  ask the same daemon the same question, which is what made the shared lookup right in the first
+  place.
 - **A remote read must decide LOCAL-or-SERVER before it resolves, because the local resolver
   fails by handing back YOUR OWN box.** `resolveActiveRoot` falls back to `ownBaseFs` when the
   ESSID cannot generate the target (`activeRoot.ts:45`) — correct for a machine this client
@@ -1428,17 +1430,6 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   self-contained refactor touching seven modules; it wants its own slice rather than a ride-along.
   (`const errorResult = …` is duplicated across seven command modules too, but that one is
   incidental shape rather than shared knowledge, and is fine as a local idiom.)
-- **`Command.availability` is declared on every command and read at runtime by nothing.** The
-  `AvailabilityRule` union (`localhost-only` / `any-machine` / `installed-package`) is stamped on
-  all ~35 commands, but the gate that actually decides whether a command runs is
-  `wrapWithBinaryCheck`, which resolves `/bin|/usr/bin|/usr/sbin/<name>` off the live FS and reads
-  that binary's own execute perms. The only read of the field anywhere is one assertion in
-  `john.test.ts`. So it is documentation shaped like configuration: a command marked
-  `localhost-only` is not confined to localhost by it, and one marked `installed-package` is not
-  apt-gated by it. That is a trap — it reads as the rule while the FS is the rule. Either delete
-  the field (and the type) or give it a consumer; do not leave a third state where new commands
-  keep declaring a value that decides nothing. Found by mutation testing `ps`, where blanking
-  `availability` changed no observable behavior.
 - **Wire-checks are not in CI** — all 37 run only by hand against a local `vercel dev` +
   supabase, and they are the ONLY thing that proves `api/` runtime correctness (`tsc` cannot
   see DB columns or constraints). A regression there ships green. Raised repeatedly and
@@ -1494,34 +1485,24 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   recorded here rather than fixed there because the right destination is `access.log` as a run of
   401s, and that is the web door's decision, not the ftp door's. Fixing it is now one row.
 
-- **`ssh` never checks that sshd is listening; `ftp` does — and it is ANTI-CHEAT ONLY, not a
-  gameplay hole.** `handleAuthCreateSession` gates an `ftp`-kind login on the target's `/var/run`
-  pidfiles (`service_not_running` → 404) and leaves the `ssh` path ungated. **Scheduled: D4 slice
-  3** drops the `payload.kind !== 'ssh'` clause. Two corrections to what this entry claimed before
-  D4's grill re-derived it (2026-08-16), because both changed the size of the job:
-  - **The exemption is unreachable from an honest client.** `ssh.ts:307` refuses when the target's
-    pidfile port does not match the asked one, and its comment notes the single check covers both
-    "no ssh service" and "wrong port". `authCreateSessionPublic` and `authCreateSessionSameLan`
-    both gate with no kind exemption, and the inner-gateway path gates inside
-    `resolveInnerGatewayTarget`. So only a crafted client reaches it — the wire being the threat
-    surface, that is still worth closing, but it changes nothing a player sees.
-  - **The stated consequence was wrong, and the real number is bigger.** No router generates with
-    `hasSsh: false` — `ROUTER_SSH_PROBABILITY = 1` and every other call site passes `true`. And
-    "nearly every generated host runs sshd" is false: `SERVICE_CATALOG.ssh.placement = 0.4`, so
-    **~60% of NPC LAN hosts run none** — the client already refuses those.
+- **`ps` on a box you have ENTERED shows nothing — a product decision, not a bug.** Found
+  2026-08-16 by the D4 Act 13 browser run. A guest standing on another player's box runs `ps` and
+  gets the header and no rows, while that box is running the sshd they just logged in through.
+  The cause is not `ps`: `/var/run/*.pid` is root-only, and a foreign session's tree is projected
+  server-side at the tier the credential bought, so the entries are **absent** from the visitor's
+  copy — `ls -l /var/run` lists nothing rather than refusing.
 
-  The blocker this entry recorded ("deciding what happens to a player mid-session") is **answered**:
-  D4 decision 5 keeps live sessions alive and refuses only new logins, as real sshd does.
+  This makes `env.fs.root()` mean two things: the raw tree on your own box (which is what lets
+  `ps` read root-only pidfiles as `guest` locally, and what its unit test proves), and an
+  already-filtered tree across an ssh hop. A unit test cannot catch the difference — it builds the
+  tree directly and never crosses the projection.
 
-- **A same-LAN `ssh` login gates on the PORT, not the service — a live bug.**
-  `authCreateSessionSameLan:221` is `readOpenPorts(workstationFs).some((open) => open.port ===
-  port)`, though the comment above it says the box "must actually be serving sshd on the asked
-  port". The client does not gate this path at all — `executeSameLanLogin` prompts for a password
-  and hands straight to the server — so on a shared ESSID, `ssh <neighbour> -p <their ftp port>`
-  opens an **ssh** session through a port serving **ftp**. This is D2.4's `reachedPort` rule (§7),
-  applied to the public and own-LAN gates and missed here. Uncommon today; **ordinary once D4 lets
-  players stop sshd and choose ports**, which is why it is fixed in the same slice as the
-  exemption above rather than waiting for someone to hit it.
+  D4's grill reasoned that "a guest seeing what runs is a recon reward that costs the defender
+  nothing they control". That argument holds precisely on a box you have broken into, which is
+  where it currently does not work. Fixing it means projecting `/var/run` to a foreign session
+  regardless of tier — a change to the cross-player read filter and to the recon/defence balance,
+  so it wants an owner rather than a drive-by. Written up in
+  `e2e-shared-network-verification.md` Act 13.
 
 - **`AvailabilityRule` is inert — enforce it or delete it.** Every command declares one
   (`{kind:'any-machine'}`, `'localhost-only'`, `'installed-package'`) and **nothing in production
@@ -1532,6 +1513,12 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   enforcement, which is the dangerous kind: a reader reasonably assumes the rule holds. Decide one
   way. If enforcing, note that `hydra` deliberately runs anywhere ("tools run where you stand") and
   its `any-machine` is load-bearing intent, not a default.
+
+  Re-verified 2026-08-16 while shipping `ps`: still no production read, and the only read anywhere
+  is one assertion in `john.test.ts`. It also surfaced independently as a **mutation survivor** —
+  blanking `ps`'s `availability` to `{}` changed no observable behavior — which is the cleanest
+  evidence of inertness there is, and a reason to expect the same survivor on every command added
+  until this is decided.
 - **A shared DEEP box's auth.log is written under the ATTACKER's key, so one occupant's lines hide
   another's.** Found 2026-08-11 while grounding D2.4 slice 5. The deep chain is ESSID-seeded and
   shared — `generateHomeLan(essid).hosts` for the entry, `generateDeepLayer(essid, frontingGateway)`

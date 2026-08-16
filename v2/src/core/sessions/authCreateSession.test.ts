@@ -92,12 +92,20 @@ const expectedSshdLine = (
     pid: derivePid(FIXED_NOW),
   });
 
-/** A real machine host on the signer's deterministic LAN to ssh into. */
+/** A real machine host on the signer's deterministic LAN to ssh into — one actually
+ *  SERVING sshd, because every door now requires its own daemon to be up. Only ~40% of
+ *  generated hosts roll ssh (`SERVICE_CATALOG.ssh.placement`), so "the last machine on
+ *  the LAN" was an unreachable box most of the time; it only passed while the ssh door
+ *  was exempt from the running-service gate. */
 const targetHostFor = (): LanHost => {
   const machine = generateHomeLan(ESSID)
-    .hosts.filter((host) => host.kind === 'machine')
+    .hosts.filter(
+      (host) =>
+        host.kind === 'machine' &&
+        readOpenPorts(buildRemoteHostFs(ESSID, host)).some((open) => open.service === 'ssh'),
+    )
     .at(-1);
-  if (machine === undefined) throw new Error('no machine host on LAN');
+  if (machine === undefined) throw new Error('no machine host serving ssh on LAN');
   return machine;
 };
 
@@ -445,8 +453,24 @@ describe('handleAuthCreateSession', () => {
     );
 
     // scp reaches exactly what ssh reaches, so a box with no sshd is shut to it —
-    // deliberately STRICTER than a bare `ssh`, which keeps its own documented
-    // exemption on this endpoint.
+    // and now so is a bare `ssh`, which used to be exempt here. The two doors ask
+    // the same question of the same daemon, which is what makes them one rule.
+    expect(result).toEqual({ status: 404, body: { error: 'service_not_running' } });
+    expect(insertSession).not.toHaveBeenCalled();
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('refuses an ssh login on a host whose sshd is not running', async () => {
+    const id = generateIdentity();
+    const host = hostServing('ssh', false);
+    const { deps, insertSession, upsertPatch } = makeDeps();
+
+    const result = await handleAuthCreateSession(validEnvelope(id, host, 'root'), deps);
+
+    // The wire is the threat surface. An honest client already refuses this — it
+    // compares the target's pidfile port before prompting — so closing it here costs
+    // no player anything and shuts the one door a crafted request could still walk
+    // through. `ssh` now obeys the rule `ftp` and `scp` always did.
     expect(result).toEqual({ status: 404, body: { error: 'service_not_running' } });
     expect(insertSession).not.toHaveBeenCalled();
     expect(upsertPatch).not.toHaveBeenCalled();
