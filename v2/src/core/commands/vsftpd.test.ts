@@ -8,7 +8,7 @@ import {
   mockSession,
 } from '../../test/factories/commandEnv';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { vsftpd } from './vsftpd';
+import { vsftpd } from './daemon';
 
 /**
  * `vsftpd` brings up the FTP daemon on the current machine by writing

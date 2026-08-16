@@ -861,6 +861,30 @@ current `CRACK_CHANCE` value is reachable: `1` would need `k = 2^32` (one past t
 rational like `0.5` (`k = 2147483648`) — then the mutant becomes killable in principle, though only
 by a 1-in-4-billion draw.
 
+**`npm run lint` reports hundreds of errors while a mutation run is in flight.** Stryker copies the
+whole project into `.stryker-tmp/sandbox-<id>/` for the duration of a run. That path is in
+`.gitignore` but NOT in the eslint config's ignores, so eslint walks the copy and reports every
+problem twice over — 400+ errors here, all of them from `vite.config.ts` and generated files inside
+the sandbox. Nothing is wrong with the project. Either wait for the run to finish (the sandbox is
+removed on exit) or check that every reported path contains `.stryker-tmp` before believing it.
+
+**A timeout is scored as a KILL, so a slow run can flatter the score.** Stryker counts `# timeout`
+alongside `# killed` when computing the percentage. A module whose mutants mostly run as *static*
+(evaluated at import, so Stryker cannot isolate covering tests and re-runs the whole file set) can
+push ordinary runs past `timeoutMS` and bank them as detections. Measured on `commands/daemon.ts`
+(55% static): **78.23% with 17 timeouts** at the default 30s, and **64.52% with 0 timeouts** at
+`--timeoutMS 180000` — same code, same tests, 14 points of pure measurement artifact. If a run
+reports timeouts where a comparable one reported none, re-run it long before trusting the number: a
+real infinite loop still times out, a merely slow mutant resolves into an honest kill or survivor.
+
+**A mutation percentage is not comparable across a de-duplication.** Collapsing N copies of a
+well-tested function into one removes N-1 copies of its *killed* mutants while leaving the
+un-oracled parts (per-instance prose, config literals) roughly constant, so the ratio falls even
+though no test got weaker. `commands/daemon.ts` went 73.76% → 64.52% doing exactly this, with every
+one of its 44 survivors in manual/description text and not one in the gate ladder it protects. The
+comparison that means something is **which mutants survive**, not the percentage — a metric that
+rewards copy-pasting a tested function is measuring duplication, not test strength.
+
 **Stryker writes NO `mutation.json` unless you ask for it, and a stale one will answer instead.**
 `stryker.config.json`'s `reporters` is `["html", "clear-text", "progress"]` — no `json`. So a
 `reports/mutation/mutation.json` found on disk is whatever the last run that *did* request it left

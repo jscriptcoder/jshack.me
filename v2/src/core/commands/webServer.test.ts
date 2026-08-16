@@ -10,7 +10,7 @@ import {
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 import { readOpenPorts } from '../services/pidfile';
 import { commandRegistry } from './registry';
-import { apache2, nginx } from './webServer';
+import { apache2, nginx } from './daemon';
 
 /**
  * `nginx` and `apache2` bring up THE web server on the current machine. They are

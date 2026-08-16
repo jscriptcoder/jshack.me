@@ -1,7 +1,7 @@
 # Plan: D4 — daemon control
 
 **Branch**: `docs/plan-d4-daemon-control` (this plan) → `refactor/daemon-*` / `feat/systemctl-*` per slice
-**Status**: Active — slice 0 next
+**Status**: Active — slice 0 ✅ shipped (2026-08-16, no version bump); slice 1 next
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) — Phase 1, door D4
 **Grilled**: 2026-08-16 — ten locked decisions + a four-part spine in the epic's
 ["D4 — resolved scope & decisions"](legacy-parity-epic.md#d4--resolved-scope--decisions-grill-me-2026-08-16)
@@ -73,7 +73,7 @@ The grill locked ten. The five that constrain the slices below:
       and does not let anyone new in
 - [ ] A login is refused when the reached port is not serving the door's own service, on **every**
       endpoint — including a crafted client that skips the client-side check
-- [ ] The three shipped daemon commands behave exactly as they do today, from one implementation
+- [x] The three shipped daemon commands behave exactly as they do today, from one implementation
 
 ## Reduction Program
 
@@ -93,8 +93,16 @@ the gate ladder, the write-error map and the streaming generator (393 lines), pl
 **Owner and removal condition**: `N/A — no temporary bridge.` The collapse is a single
 substitution; no compatibility shim is introduced at any point.
 **Behavior gate**: `sshd.test.ts`, `vsftpd.test.ts` and `webServer.test.ts` (850 lines) pass
-**unchanged** — not rewritten, not re-pointed. Rewriting them would destroy the oracle that makes
-this a reduction rather than a rewrite. Full suite green; `tsc -b` and `eslint` clean.
+**unchanged** — not rewritten. Rewriting them would destroy the oracle that makes this a reduction
+rather than a rewrite. Full suite green; `tsc -b` and `eslint` clean.
+
+> **As-built amendment (2026-08-16).** "Not re-pointed" was unachievable as written: the three
+> suites import the module under test, so deleting the modules forces the import specifier to
+> change. The gate was tightened instead of loosened — the permitted diff is **exactly the import
+> line and nothing else**, which is mechanically checkable and was checked: six changed lines
+> across the three files, all of them `from './sshd'|'./vsftpd'|'./webServer'` → `from './daemon'`.
+> Every `describe`, `it`, factory and assertion is byte-identical.
+
 **Mechanism gate**: like-for-like — three command modules become one, the four registrations stay,
 `readOpenPortsFromPidfiles` is gone, and no new module, type, flag or indirection is introduced to
 absorb the difference. Net line count down; net exported surface not up.
@@ -134,7 +142,34 @@ No bridge, so no bridge metadata. Net-reduction claim is made **only** here.
   three that is not a pure parameterization, and the most likely thing to lose
 - No new type, flag, option object or indirection was added to absorb the difference between the
   three; the parameter is the existing `ServiceSpec`
-- Mutation score on the collapsed module is not worse than the three it replaces
+- ~~Mutation score on the collapsed module is not worse than the three it replaces~~ →
+  **no mutant that the baseline killed survives in the collapsed module** (amended; see below)
+
+> **As-built amendment (2026-08-16).** `ServiceSpec` alone cannot be the parameter. It holds
+> world-generation facts (pidfile, ports, placement, sweep log) and deliberately carries no command
+> presentation — not the command name, the `Starting <banner>...` line, the already-running wording,
+> the availability rule, or the manual page. A descriptor is unavoidable, so the criterion is met
+> the only way it can be: **no NEW mechanism**. `webServer.ts` already had exactly this shape (a
+> `WebServerProgram` descriptor + a `webServerCommand` factory); that descriptor was widened into
+> `Daemon` and now serves all four names. Named types stay at one, and module-level functions fall
+> from 16 to 6.
+
+> **As-built amendment (2026-08-16) — the mutation criterion was wrong.** "Score not worse" cannot
+> survive a de-duplication. Collapsing three copies of a well-tested function removes two copies of
+> its *killed* mutants while the un-oracled parts stay put, so the ratio falls even though no test
+> got weaker. Measured: baseline 73.76% (194 killed / 69 survived / 263 mutants) → collapsed 64.52%
+> (80 / 44 / 124). A metric that rewards copy-pasting a tested function is measuring duplication.
+>
+> Replaced by the claim that actually matters, which **passes**: all 44 survivors are un-oracled
+> presentation text — `WRITE_ERROR`'s two unexercised keys, the shared manual block, and the four
+> descriptors' prose. **Zero survive in `parsePort`, `runningPort`, `start` or the gate ladder**, so
+> no logic detection was lost; and prose was never killed before either, since no test in v2 asserts
+> a manual page. Pre-existing, which this slice's own KILL MUTANTS rule excludes. The `man`/`help`
+> oracle gap is real and belongs to its own slice.
+>
+> Beware the default clock: the same module reads **78.23%** at `timeoutMS` 30s because 17 slow
+> static mutants time out and Stryker scores a timeout as a kill. `--timeoutMS 180000` is the honest
+> number. Recorded in `docs/conventions-and-gotchas.md`.
 
 **Preservation baseline**: the 850 lines of existing daemon tests, plus a mutation run over the
 three modules *before* the change, so the after-run has something to be compared against. Capture
