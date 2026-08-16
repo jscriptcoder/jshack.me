@@ -1428,6 +1428,17 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   self-contained refactor touching seven modules; it wants its own slice rather than a ride-along.
   (`const errorResult = …` is duplicated across seven command modules too, but that one is
   incidental shape rather than shared knowledge, and is fine as a local idiom.)
+- **`Command.availability` is declared on every command and read at runtime by nothing.** The
+  `AvailabilityRule` union (`localhost-only` / `any-machine` / `installed-package`) is stamped on
+  all ~35 commands, but the gate that actually decides whether a command runs is
+  `wrapWithBinaryCheck`, which resolves `/bin|/usr/bin|/usr/sbin/<name>` off the live FS and reads
+  that binary's own execute perms. The only read of the field anywhere is one assertion in
+  `john.test.ts`. So it is documentation shaped like configuration: a command marked
+  `localhost-only` is not confined to localhost by it, and one marked `installed-package` is not
+  apt-gated by it. That is a trap — it reads as the rule while the FS is the rule. Either delete
+  the field (and the type) or give it a consumer; do not leave a third state where new commands
+  keep declaring a value that decides nothing. Found by mutation testing `ps`, where blanking
+  `availability` changed no observable behavior.
 - **Wire-checks are not in CI** — all 37 run only by hand against a local `vercel dev` +
   supabase, and they are the ONLY thing that proves `api/` runtime correctness (`tsc` cannot
   see DB columns or constraints). A regression there ships green. Raised repeatedly and

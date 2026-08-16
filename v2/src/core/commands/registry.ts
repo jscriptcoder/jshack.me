@@ -36,6 +36,7 @@ import { nano } from './nano';
 import { nmap } from './nmap';
 import { nmcli } from './nmcli';
 import { ping } from './ping';
+import { ps } from './ps';
 import { pwd } from './pwd';
 import { reboot } from './reboot';
 import { reset } from './reset';
@@ -77,6 +78,7 @@ const builtins: readonly Command[] = [
   nmap,
   nmcli,
   ping,
+  ps,
   pwd,
   reboot,
   reset,
