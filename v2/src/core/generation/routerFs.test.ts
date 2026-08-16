@@ -16,6 +16,7 @@ import { computeInnerGatewayId } from '../identity/router';
 import { workstationGuestPassword } from './workstationFs';
 import {
   LOCALHOST_PREINSTALLED_TOOLS,
+  SERVICE_CONTROL_TOOLS,
   SYSTEM_DAEMON_NAMES,
   SYSTEM_UTILITY_NAMES,
 } from './binaries';
@@ -430,12 +431,16 @@ describe('buildRouterBaseFsFromIdentity', () => {
     expect([...dirAt(fs, 'bin').entries.keys()].sort()).toEqual([...SYSTEM_UTILITY_NAMES].sort());
     ['nano', 'ls', 'cat'].forEach((name) => expect(dirAt(fs, 'bin').entries.has(name)).toBe(true));
     expect([...dirAt(fs, 'usr', 'bin').entries.keys()].sort()).toEqual(
-      [...LOCALHOST_PREINSTALLED_TOOLS].sort(),
+      [...LOCALHOST_PREINSTALLED_TOOLS, ...SERVICE_CONTROL_TOOLS].sort(),
     );
     expect([...dirAt(fs, 'usr', 'sbin').entries.keys()].sort()).toEqual(
       [...SYSTEM_DAEMON_NAMES].sort(),
     );
     expect(dirAt(fs, 'lib').entries.has('libpcre.so')).toBe(true); // ls/cat/nano link it
+    // Named literally, not through the constant: spelled as
+    // `SERVICE_CONTROL_TOOLS` on both sides, the assertion above still passes if
+    // the list is emptied. A router you have rooted must be controllable.
+    expect(dirAt(fs, 'usr', 'bin').entries.has('systemctl')).toBe(true);
   });
 
   it('ships the /boot brick surface (vmlinuz + initrd.img)', () => {

@@ -71,7 +71,7 @@ const WRITE_ERROR: Record<Extract<PatchResult, { ok: false }>['error'], string> 
 /** All that differs between the front doors: which service they bring up, and the
  *  words they bring it up in. The gates, the pidfile write and the streamed shape
  *  are the same for every one. */
-type Daemon = {
+export type Daemon = {
   /** The command name, and the prefix on every message, so a refusal is
    *  attributed to the program the player actually ran. */
   readonly name: string;
@@ -109,15 +109,36 @@ const parsePort = (raw: string | undefined, spec: ServiceSpec): number | null =>
   return port;
 };
 
-/** The port this daemon is already listening on (from its pidfile), or null when
- *  it isn't running. A malformed pidfile falls back to the default port. */
-const runningPort = (env: CommandEnv, spec: ServiceSpec): number | null => {
+/**
+ * The port this service is listening on (read from its pidfile through the
+ * current machine's FS), or null when it isn't running. A malformed pidfile
+ * falls back to the service's default port, and a DIRECTORY wearing a pidfile's
+ * name is not a running daemon — `mkdir /var/run/sshd.pid` is something a root
+ * player can really do, and reading it as one would let anybody fake a serving
+ * box, or bar the door, with a single command.
+ *
+ * Shared with `systemctl`, which asks the same question for `status`, `stop` and
+ * `restart`: one answer to "is this up, and where", so a daemon's own gate and
+ * the tool that reports on it can never disagree.
+ */
+export const runningPort = (env: CommandEnv, spec: ServiceSpec): number | null => {
   const node = env.fs.stat(pidfilePath(spec));
   if (node === null || node.kind !== 'file') return null;
   return parsePidfilePort(node.content) ?? spec.defaultPort;
 };
 
-async function* start(
+/**
+ * Bring a daemon up: announce, then write the pidfile that opens the port.
+ *
+ * Deliberately gate-FREE — the caller owns the decision that starting is
+ * allowed. `daemonCommand` gates first and then calls this; `systemctl restart`
+ * calls it having just removed the pidfile itself. That second caller cannot go
+ * through the front door: `env.fs` is a point-in-time snapshot taken when the
+ * command env was built, so a gate re-reading it after a stop in the same
+ * command still sees the file it just deleted and refuses a restart that should
+ * succeed.
+ */
+export async function* bringUp(
   env: CommandEnv,
   daemon: Daemon,
   port: number,
@@ -172,11 +193,11 @@ const daemonCommand = (daemon: Daemon): Command => ({
       return errorResult(`${daemon.name}: ${daemon.alreadyRunning} on port ${already}`);
     }
 
-    return streamedResult(start(env, daemon, port));
+    return streamedResult(bringUp(env, daemon, port));
   },
 });
 
-export const sshd = daemonCommand({
+const SSHD: Daemon = {
   name: 'sshd',
   spec: SERVICE_CATALOG.ssh,
   banner: 'OpenSSH server',
@@ -193,9 +214,9 @@ export const sshd = daemonCommand({
     { command: 'sshd', description: 'Start the SSH server on the default port 22' },
     { command: 'sshd 2222', description: 'Start the SSH server on port 2222' },
   ],
-});
+};
 
-export const vsftpd = daemonCommand({
+const VSFTPD: Daemon = {
   name: 'vsftpd',
   spec: SERVICE_CATALOG.ftp,
   banner: 'FTP server',
@@ -212,41 +233,52 @@ export const vsftpd = daemonCommand({
     { command: 'vsftpd', description: 'Start the FTP server on the default port 21' },
     { command: 'vsftpd 2121', description: 'Start the FTP server on port 2121' },
   ],
-});
+};
 
 /** Both web-server programs write the `http` row's pidfile, so only one of them
  *  can be up. Unlike `sshd`, neither ships pre-installed: `apt install nginx` (or
  *  `apache2`) puts the binary in `/usr/bin`, and the existing binary-presence gate
  *  turns its absence into `command not found` with the install hint. */
-const webServerCommand = ({
+const webServerDaemon = ({
   name,
   banner,
   description,
-}: Pick<Daemon, 'name' | 'banner' | 'description'>): Command =>
-  daemonCommand({
-    name,
-    spec: SERVICE_CATALOG.http,
-    banner,
-    alreadyRunning: 'web server already running',
-    description,
-    availability: { kind: 'installed-package', packageName: name },
-    manualDescription:
-      `Start the ${banner} web server, opening the HTTP port (default 80) on this machine and publishing /var/www/html to anyone who can reach it. ` +
-      'Must be run as root (run "su" first). Only one web server can run at a time — nginx and apache2 compete for the same port.',
-    examples: [
-      { command: name, description: 'Serve /var/www/html on the default port 80' },
-      { command: `${name} 8080`, description: 'Serve it on port 8080 instead' },
-    ],
-  });
-
-export const nginx = webServerCommand({
-  name: 'nginx',
-  banner: 'nginx',
-  description: 'Nginx web server',
+}: Pick<Daemon, 'name' | 'banner' | 'description'>): Daemon => ({
+  name,
+  spec: SERVICE_CATALOG.http,
+  banner,
+  alreadyRunning: 'web server already running',
+  description,
+  availability: { kind: 'installed-package', packageName: name },
+  manualDescription:
+    `Start the ${banner} web server, opening the HTTP port (default 80) on this machine and publishing /var/www/html to anyone who can reach it. ` +
+    'Must be run as root (run "su" first). Only one web server can run at a time — nginx and apache2 compete for the same port.',
+  examples: [
+    { command: name, description: 'Serve /var/www/html on the default port 80' },
+    { command: `${name} 8080`, description: 'Serve it on port 8080 instead' },
+  ],
 });
 
-export const apache2 = webServerCommand({
+const NGINX = webServerDaemon({ name: 'nginx', banner: 'nginx', description: 'Nginx web server' });
+
+const APACHE2 = webServerDaemon({
   name: 'apache2',
   banner: 'Apache httpd',
   description: 'Apache HTTP server',
 });
+
+export const sshd = daemonCommand(SSHD);
+export const vsftpd = daemonCommand(VSFTPD);
+export const nginx = daemonCommand(NGINX);
+export const apache2 = daemonCommand(APACHE2);
+
+/** Each daemon keyed by the command name that starts it. `systemctl` reads this
+ *  to bring a unit up through `bringUp` once it has established the port is
+ *  free — `nginx` and `apache2` keep separate entries so a start still announces
+ *  the program the player actually asked for. */
+export const DAEMONS: Readonly<Record<string, Daemon>> = {
+  sshd: SSHD,
+  vsftpd: VSFTPD,
+  nginx: NGINX,
+  apache2: APACHE2,
+};

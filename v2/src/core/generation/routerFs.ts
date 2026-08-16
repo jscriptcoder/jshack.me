@@ -17,6 +17,7 @@ import { CRACK_CHANCE, drawPassword } from './passwordPools';
 import {
   createBinaryEntries,
   LOCALHOST_PREINSTALLED_TOOLS,
+  SERVICE_CONTROL_TOOLS,
   SYSTEM_DAEMON_NAMES,
   SYSTEM_UTILITY_NAMES,
 } from './binaries';
@@ -178,7 +179,7 @@ const buildGatewayBaseFs = (
       tmp: dir({}, TMP_DIR),
       usr: dir(
         {
-          bin: dir(createBinaryEntries(LOCALHOST_PREINSTALLED_TOOLS), TRAVERSABLE_DIR),
+          bin: dir(createBinaryEntries([...LOCALHOST_PREINSTALLED_TOOLS, ...SERVICE_CONTROL_TOOLS]), TRAVERSABLE_DIR),
           sbin: dir(createBinaryEntries(SYSTEM_DAEMON_NAMES), TRAVERSABLE_DIR),
         },
         TRAVERSABLE_DIR,

@@ -1,7 +1,7 @@
 # Plan: D4 — daemon control
 
 **Branch**: `docs/plan-d4-daemon-control` (this plan) → `refactor/daemon-*` / `feat/systemctl-*` per slice
-**Status**: Active — slice 0 ✅ shipped (2026-08-16, no version bump); slice 1 next
+**Status**: Active — slice 0 ✅ (#407, no bump), slice 1 ✅ (v0.140.0); slice 2 (`ps`) next
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) — Phase 1, door D4
 **Grilled**: 2026-08-16 — ten locked decisions + a four-part spine in the epic's
 ["D4 — resolved scope & decisions"](legacy-parity-epic.md#d4--resolved-scope--decisions-grill-me-2026-08-16)
@@ -19,7 +19,7 @@ D4 reads like "add daemon control", but the control half already ships — three
 | What already ships | Where | What D4 does with it |
 |---|---|---|
 | The pidfile format + every reader | `services/pidfile.ts` | Unchanged. `stop` removes the file the readers already consult |
-| Three near-identical start commands | `sshd.ts`, `vsftpd.ts`, `webServer.ts` | Collapsed into one (slice 0), then given a second front door |
+| ~~Three~~ **one** start command, four names | `commands/daemon.ts` ✅ slice 0 | `systemctl start` routes into it as a second front door — a second entry, not a second writer |
 | Tombstoning a *generated* file | the brick (`/boot/vmlinuz`) | Stopping a daemon on an NPC box, same mechanism |
 | Server-side port truth | materialize → `readOpenPorts` | A stop propagates cross-player with no new code |
 | `env.patches.remove` | `commands/types.ts:149` | The whole of "stop" |
@@ -65,11 +65,14 @@ The grill locked ten. The five that constrain the slices below:
 
 - [ ] A player stops a service on a box they hold root on, and the port closes — locally, to a
       LAN scan, and to another player across the network
-- [ ] A stopped service is still stopped after a reboot
-- [ ] Starting it again restores reachability by every path that lost it
-- [ ] A non-root caller cannot start or stop anything; any tier can ask what is running
+- [x] A stopped service is still stopped after a reboot — the removal is a patch row, and
+      `reboot`'s whole suite passes against a patch API whose every method throws, so it provably
+      never touches the journal
+- [ ] Starting it again restores reachability by every path that lost it — unit-proven locally;
+      the cross-network half is slice 3's wire-check and E2E
+- [x] A non-root caller cannot start or stop anything; any tier can ask what is running
 - [ ] `ps` lists what a box is running, including a box the player only rooted
-- [ ] Stopping a daemon a player is currently reaching *through* does not end their session —
+- [x] Stopping a daemon a player is currently reaching *through* does not end their session —
       and does not let anyone new in
 - [ ] A login is refused when the reached port is not serving the door's own service, on **every**
       endpoint — including a crafted client that skips the client-side check
@@ -82,7 +85,8 @@ Applies to **slice 0 only**. A single-slice program: no transitions, no bridges.
 **Ledger/report**: recorded in slice 0 below — the diagnosis is finding (1) above, and the
 conservation ledger is the unchanged test suite named in its baseline.
 **Conserved contract**: `sshd [port]`, `vsftpd [port]`, `nginx [port]`, `apache2 [port]` — the
-same gate order (root → already-running → port validity), the same streamed announce-then-listen
+same gate order (root → port validity → already-running — the order the code has always had,
+stated backwards in this plan until slice 0 read it), the same streamed announce-then-listen
 shape, the same `STARTUP_DELAY_MS` beat, byte-identical pidfile content, identical output lines,
 identical exit codes, and `webServer`'s two-names-one-port conflict reply naming the **conflict**
 rather than the program.
@@ -225,6 +229,40 @@ server materializes the same journal, so every cross-player reader agrees.
   claiming apache2 was running
 - `systemctl restart vsftpd` works whether or not it was running
 - Stopping a service on a box the player is standing on via ssh does **not** end their session
+
+> **As-built (2026-08-16, v0.140.0).** Three things the code decided that the plan could not.
+>
+> 1. **`start` could not simply "route into" the collapsed module for `restart`.** `env.fs` is a
+>    point-in-time snapshot taken when the command env is built, so the daemon's already-running
+>    gate, re-read after `restart` had removed the pidfile, still saw the file just deleted — a
+>    restart that refused itself and left the service DOWN. Caught by the test, not by review.
+>    `daemon.ts` now splits into `bringUp` (the gate-free write) and the gates in the callers that
+>    still hold a valid view. Recorded as an invariant in `conventions-and-gotchas.md` §7.
+> 2. **The unit's words, not the program's.** `stop`/`status` speak as the UNIT (`nginx.service -
+>    web server`), never the typed name, so stopping via `apache2` cannot claim apache2 was the one
+>    running. `start` keeps the program's banner, because starting IS an act on a program. This is
+>    the same rule `webServer`'s conflict reply already followed, extended to two more verbs.
+> 3. **Resolving a unit must check the binary, or `systemctl` is an apt bypass.** The binary gate
+>    lives on the `nginx` command; delegating around it would open port 80 on a box that never
+>    installed a web server. `unitFor` gates on `binaryExists` — which is also exactly what makes
+>    the not-installed/unknown collapse load-bearing rather than cosmetic.
+>
+> Also as-built: `restart` preserves the port the unit was actually on (a service an admin put on
+> 2222 must not silently return to 22), and `systemctl` never calls `popSession` — a stop shuts the
+> door without emptying the room.
+>
+> **Mutation**: `systemctl.ts` 70.47% → **74.68%** (115 killed / 39 survived) after killing five
+> survivors that were real gaps — a *directory* at the pidfile path reporting `active (running)`, a
+> failed stop still writing the pidfile during `restart`, bare `systemctl stop` answering about
+> `Unit undefined.service`, and the canonical `nginx` name never exercised (only the `apache2`
+> alias). One survivor is genuinely equivalent: `if (unit === undefined) return undefined` where the
+> ternary below returns `undefined` either way — a narrowing guard, not a behavior. The remaining 39
+> are manual-page prose, the same un-oracled category `daemon.ts` carries.
+>
+> **REFACTOR**: `runningPort` was written identically in both modules — one piece of knowledge with
+> two owners — so it now lives in `daemon.ts` and `systemctl` imports it. Two other duplications
+> were assessed and deliberately left: `errorResult` and the patch-error map each already exist in
+> seven modules, so consolidating them is its own slice, now in the deferred backlog.
 
 **RED**: A behavior test driving `systemctl stop sshd` through `CommandEnv`, asserting the pidfile
 is gone and `readOpenPorts` over the resulting tree no longer reports ssh — failing because the

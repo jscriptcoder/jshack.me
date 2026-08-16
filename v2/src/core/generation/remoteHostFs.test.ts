@@ -437,6 +437,13 @@ describe('buildRemoteHostFs', () => {
       expect(dirAt(fs(), 'usr', 'sbin').entries.has('sshd')).toBe(true);
     });
 
+    it('ships /usr/bin/systemctl, so a rooted NPC box can be told to stop serving', () => {
+      // The whole point of the door is closing someone ELSE's port once you hold
+      // their box — which is impossible if the tool only exists on the player's
+      // own machine.
+      expect(dirAt(fs(), 'usr', 'bin').entries.has('systemctl')).toBe(true);
+    });
+
     it('plants /var/log/auth.log empty (the ssh login line appends there)', () => {
       const node = dirAt(fs(), 'var', 'log').entries.get('auth.log');
       if (node?.kind !== 'file') throw new Error('missing /var/log/auth.log');

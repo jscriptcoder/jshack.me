@@ -24,6 +24,7 @@ import { createPrng } from './prng';
 import {
   createBinaryEntries,
   LOCALHOST_PREINSTALLED_TOOLS,
+  SERVICE_CONTROL_TOOLS,
   SYSTEM_DAEMON_NAMES,
   SYSTEM_UTILITY_NAMES,
 } from './binaries';
@@ -138,7 +139,7 @@ export const buildWorkstationBaseFsFromIdentity = (identity: {
       tmp: dir({}, TMP_DIR),
       usr: dir(
         {
-          bin: dir(createBinaryEntries(LOCALHOST_PREINSTALLED_TOOLS), TRAVERSABLE_DIR),
+          bin: dir(createBinaryEntries([...LOCALHOST_PREINSTALLED_TOOLS, ...SERVICE_CONTROL_TOOLS]), TRAVERSABLE_DIR),
           // Admin daemons (`sshd`) — pre-installed everywhere, like the ssh client.
           sbin: dir(createBinaryEntries(SYSTEM_DAEMON_NAMES), TRAVERSABLE_DIR),
         },

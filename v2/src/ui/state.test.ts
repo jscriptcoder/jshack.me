@@ -674,7 +674,9 @@ describe('the ftp sub-shell', () => {
     await vi.waitFor(async () => {
       state.setInput('ls /usr/bin');
       await state.runInput();
-      expect(state.scrollback().at(-1)?.content ?? '').toContain('ftp');
+      // Any line, not the last one: `/usr/bin` holds other tools that sort after
+      // `ftp`, and which entry lands last is not what this is waiting for.
+      expect(state.scrollback().some((line) => line.content.includes('ftp'))).toBe(true);
     });
 
     return { state, sent };

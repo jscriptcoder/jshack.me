@@ -10,6 +10,7 @@ import {
 } from './workstationFs';
 import {
   LOCALHOST_PREINSTALLED_TOOLS,
+  SERVICE_CONTROL_TOOLS,
   RESTRICTED_EXECUTE,
   SYSTEM_DAEMON_NAMES,
   SYSTEM_UTILITY_NAMES,
@@ -265,10 +266,17 @@ describe('buildWorkstationBaseFs', () => {
   describe('/usr/bin pre-installed apt tools', () => {
     const baseFs = (): Directory => buildWorkstationBaseFs(SEED_A, getConfig());
 
-    it('populates /usr/bin with exactly the localhost pre-installed tools', () => {
+    it('populates /usr/bin with exactly the pre-installed apt and service tools', () => {
       expect([...dirAt(baseFs(), 'usr', 'bin').entries.keys()].sort()).toEqual(
-        [...LOCALHOST_PREINSTALLED_TOOLS].sort(),
+        [...LOCALHOST_PREINSTALLED_TOOLS, ...SERVICE_CONTROL_TOOLS].sort(),
       );
+    });
+
+    it('pre-installs systemctl, so a box can always be told to stop serving', () => {
+      // Named literally rather than through the constant: spelling it as
+      // `SERVICE_CONTROL_TOOLS` on both sides would still pass if the list were
+      // emptied, which is exactly the regression worth catching.
+      expect(dirAt(baseFs(), 'usr', 'bin').entries.has('systemctl')).toBe(true);
     });
 
     it('pre-installs the wifi-cracking tools airmon/airdump/aircrack', () => {
