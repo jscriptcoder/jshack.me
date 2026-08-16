@@ -1,10 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import { scp } from './scp';
+import { runFtpLine } from './ftpShell';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
+  mockFtpApi,
   mockIdentity,
   mockNetworkViewFromConnectivity,
+  mockPatchApi,
   mockScpApi,
   mockSession,
 } from '../../test/factories/commandEnv';
@@ -16,12 +19,15 @@ import { parsePidfilePort } from '../services/pidfile';
 import { assignHomeNetwork } from '../network/homeNetwork';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
 import { asAbsPath, asEpochMs, asMachineId, asPlayerKeyHex } from '../types';
+import type { AbsPath } from '../types';
 import type { Directory } from '../filesystem/types';
 import type {
   CommandResult,
+  PatchApi,
   PatchResult,
   RemoteAuthParams,
   RemoteAuthResult,
+  ScpReadResult,
   Session,
 } from './types';
 
@@ -45,6 +51,8 @@ const NOW = 1700000000000;
 const SOURCE = '/root/passwords.txt';
 const WORDS = 'hunter2\nletmein\ncorrectbatteryhorse\n';
 const REMOTE_DEST = '/usr/share/wordlists/passwords.txt';
+const REMOTE_SOURCE = '/etc/passwd';
+const PASSWD = 'root:x:0:0::/root:/bin/bash\nguest:x:1000:1000::/home/guest:/bin/sh\n';
 
 const onlineConnectivity = (essid: string): ConnectivityState => {
   const cold = buildColdStartConnectivity(PUBKEY);
@@ -117,10 +125,25 @@ type EnvOver = {
   readonly authenticate?: (params: RemoteAuthParams) => Promise<RemoteAuthResult>;
   readonly write?: (
     session: Session,
-    path: ReturnType<typeof asAbsPath>,
+    path: AbsPath,
     content: string,
     options?: { readonly isNew?: boolean },
   ) => Promise<PatchResult>;
+  /** The read of the TARGET — its journal replayed over its generated base, at the
+   *  tier the credential bought. Stubbed here; the composition it stands for is the
+   *  one ftp's binding already ships. */
+  readonly read?: (session: Session, path: AbsPath) => Promise<ScpReadResult>;
+  /** The write onto the box the player is STANDING on — where a taken file lands,
+   *  and the player's own write, exactly as if they had typed it. */
+  readonly localWrite?: PatchApi['write'];
+  /** The OTHER door's ledger, wired into this door's env on purpose: "scp records
+   *  nothing" is only a test if the recorder it could have reached is watching. */
+  readonly recordTransfer?: (transfer: {
+    readonly direction: 'upload' | 'download';
+    readonly path: AbsPath;
+    readonly bytes: number;
+  }) => void;
+  readonly signal?: AbortSignal;
   readonly end?: (sessionId: string) => void;
   readonly prompt?: (opts: { message: string; masked: boolean }) => Promise<string>;
   readonly tree?: Directory;
@@ -150,9 +173,13 @@ const scpEnv = (over: EnvOver = {}) =>
     }),
     now: () => asEpochMs(NOW),
     prompt: over.prompt ?? (async () => 'hunter2'),
+    patches: mockPatchApi({ write: over.localWrite ?? (async () => ({ ok: true })) }),
+    ftp: mockFtpApi({ recordTransfer: over.recordTransfer ?? (() => undefined) }),
+    signal: over.signal ?? new AbortController().signal,
     scp: mockScpApi({
       authenticate: over.authenticate ?? (async () => ({ ok: true, userType: 'root' })),
       write: over.write ?? (async () => ({ ok: true })),
+      read: over.read ?? (async () => ({ ok: true, content: PASSWD })),
       end: over.end ?? (() => undefined),
     }),
   });
@@ -177,6 +204,14 @@ const upload = (host: LanHost, dest = REMOTE_DEST): readonly string[] => [
   SOURCE,
   `root@${host.ip}:${dest}`,
 ];
+
+/** The mirror: the remote operand comes FIRST, and which operand names a host is the
+ *  whole of how the two directions tell themselves apart. */
+const download = (
+  host: LanHost,
+  destination = './',
+  source = REMOTE_SOURCE,
+): readonly string[] => [`root@${host.ip}:${source}`, destination];
 
 describe('scp', () => {
   it('carries a file onto the target and reports the transfer once it has landed', async () => {
@@ -453,6 +488,24 @@ describe('scp', () => {
       username: 'deploy',
     });
     expect(write.mock.calls[0]![1]).toBe('/home/deploy/list.txt');
+    // The row it opens names the account it was opened for, so a transfer that
+    // outlives its command is traceable in the sessions table rather than anonymous.
+    expect(authenticate.mock.calls[0]![0].sessionId).toContain('deploy');
+  });
+
+  it('reads a path with no leading slash from the root of the target', async () => {
+    const { sshHost } = pickHosts();
+    const read = vi.fn<NonNullable<EnvOver['read']>>(async () => ({ ok: true, content: PASSWD }));
+    const env = scpEnv({ read });
+
+    await drain(
+      await scp.execute(env, download(sshHost, '/root/stolen.txt', 'notes.txt'), new Map()),
+    );
+
+    // Not the account's home, which is where real scp would start. The remote half
+    // of the command line is read from `/` in both directions, and a player who
+    // means their home directory has to say so.
+    expect(read.mock.calls[0]![1]).toBe('/notes.txt');
   });
 
   it('tells the target where the transfer came from, so the login line names an address', async () => {
@@ -569,5 +622,276 @@ describe('scp', () => {
     expect(lines).not.toContain('Permission denied (password).');
     expect(exitCode).toBe(1);
     expect(end).not.toHaveBeenCalled();
+  });
+
+  describe('taking a file off the target', () => {
+    it('lands the file under its own name when the destination names a directory', async () => {
+      const { sshHost } = pickHosts();
+      const localWrite = vi.fn<PatchApi['write']>(async () => ({ ok: true }));
+      const read = vi.fn<NonNullable<EnvOver['read']>>(async () => ({
+        ok: true,
+        content: PASSWD,
+      }));
+      const end = vi.fn<(sessionId: string) => void>();
+      const env = scpEnv({ localWrite, read, end });
+
+      const { lines, exitCode } = await drain(
+        await scp.execute(env, download(sshHost), new Map()),
+      );
+
+      // Read at the session's tier, off the machine the server resolved.
+      expect(read).toHaveBeenCalledTimes(1);
+      const [session, remotePath] = read.mock.calls[0]!;
+      expect(remotePath).toBe(REMOTE_SOURCE);
+      expect(session).toMatchObject({
+        machineId: hostMachineId(sshHost, ESSID),
+        username: 'root',
+        kind: 'scp',
+      });
+      // `./` is the directory the player is standing in, so the file arrives beside
+      // them wearing the name it had on the box it came from.
+      expect(localWrite).toHaveBeenCalledTimes(1);
+      expect(localWrite.mock.calls[0]![0]).toBe('/root/passwd');
+      expect(localWrite.mock.calls[0]![1]).toBe(PASSWD);
+      expect(lines).toEqual([
+        `Connecting to ${sshHost.ip}...`,
+        `passwd   100%  ${PASSWD.length} bytes`,
+      ]);
+      expect(exitCode).toBe(0);
+      expect(end).toHaveBeenCalledTimes(1);
+    });
+
+    it('lands the file at the exact path the destination names', async () => {
+      const { sshHost } = pickHosts();
+      const localWrite = vi.fn<PatchApi['write']>(async () => ({ ok: true }));
+      const env = scpEnv({ localWrite });
+
+      const { exitCode } = await drain(
+        await scp.execute(env, download(sshHost, '/root/stolen.txt'), new Map()),
+      );
+
+      expect(localWrite.mock.calls[0]![0]).toBe('/root/stolen.txt');
+      expect(localWrite.mock.calls[0]![1]).toBe(PASSWD);
+      expect(exitCode).toBe(0);
+    });
+
+    it('refuses a remote path the tier cannot read exactly as one that is not there', async () => {
+      const { sshHost } = pickHosts();
+      const sealed = await drain(
+        await scp.execute(
+          scpEnv({ read: async () => ({ ok: false, error: 'permission_denied' }) }),
+          download(sshHost, './', '/root/.ssh/id_rsa'),
+          new Map(),
+        ),
+      );
+      const absent = await drain(
+        await scp.execute(
+          scpEnv({ read: async () => ({ ok: false, error: 'not_found' }) }),
+          download(sshHost, './', '/root/.ssh/id_rsa'),
+          new Map(),
+        ),
+      );
+
+      // Identical, deliberately: telling them apart maps out a stranger's box from
+      // outside the tier that is allowed to see it — the same argument ftp's `cd`
+      // makes about the box it is standing on.
+      expect(sealed).toEqual(absent);
+      expect(sealed.lines).toContain('scp: /root/.ssh/id_rsa: No such file or directory');
+      expect(sealed.exitCode).toBe(1);
+    });
+
+    it('names a remote directory rather than reporting it missing', async () => {
+      const { sshHost } = pickHosts();
+      const env = scpEnv({ read: async () => ({ ok: false, error: 'is_directory' }) });
+
+      const { lines, exitCode } = await drain(
+        await scp.execute(env, download(sshHost, './', '/etc'), new Map()),
+      );
+
+      // A directory is neither missing nor sealed: the tier that reached it could
+      // have listed it anyway, so naming it costs nothing and makes the absent `-r`
+      // legible instead of mysterious.
+      expect(lines).toContain('scp: /etc: not a regular file');
+      expect(exitCode).toBe(1);
+    });
+
+    it('says the round-trip failed rather than claiming the file is gone', async () => {
+      const { sshHost } = pickHosts();
+      const localWrite = vi.fn<PatchApi['write']>(async () => ({ ok: true }));
+      const env = scpEnv({ localWrite, read: async () => ({ ok: false, error: 'network_error' }) });
+
+      const { lines, exitCode } = await drain(
+        await scp.execute(env, download(sshHost), new Map()),
+      );
+
+      // Ours, not the target's. A player told the file is missing stops looking for
+      // something that is probably still there.
+      expect(lines).toContain('Connection closed by remote host.');
+      expect(lines).not.toContain(`scp: ${REMOTE_SOURCE}: No such file or directory`);
+      expect(exitCode).toBe(1);
+      expect(localWrite).not.toHaveBeenCalled();
+    });
+
+    it('ends the session whether the file came back or not', async () => {
+      const { sshHost } = pickHosts();
+      const end = vi.fn<(sessionId: string) => void>();
+      const env = scpEnv({ end, read: async () => ({ ok: false, error: 'not_found' }) });
+
+      await drain(await scp.execute(env, download(sshHost), new Map()));
+
+      expect(end).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports a refused local write, lands nothing, and still closes the row', async () => {
+      const { sshHost } = pickHosts();
+      const end = vi.fn<(sessionId: string) => void>();
+      const localWrite = vi.fn<PatchApi['write']>(async () => ({
+        ok: false,
+        error: 'permission_denied',
+      }));
+      const env = scpEnv({ end, localWrite });
+
+      const { lines, exitCode } = await drain(
+        await scp.execute(env, download(sshHost, '/root/stolen.txt'), new Map()),
+      );
+
+      expect(lines).toContain('scp: /root/stolen.txt: Permission denied');
+      expect(lines).not.toContain(`passwd   100%  ${PASSWD.length} bytes`);
+      expect(exitCode).toBe(1);
+      expect(end).toHaveBeenCalledTimes(1);
+    });
+
+    it('lands nothing and still closes the row when interrupted after the file is read', async () => {
+      const { sshHost } = pickHosts();
+      const controller = new AbortController();
+      const localWrite = vi.fn<PatchApi['write']>(async () => ({ ok: true }));
+      const end = vi.fn<(sessionId: string) => void>();
+      const env = scpEnv({
+        end,
+        localWrite,
+        signal: controller.signal,
+        read: async () => {
+          controller.abort();
+          return { ok: true, content: PASSWD };
+        },
+      });
+
+      const { lines, exitCode } = await drain(
+        await scp.execute(env, download(sshHost), new Map()),
+      );
+
+      // The bytes were in hand and are dropped: a file half-taken is a file the
+      // player did not ask for. The row still closes — an abandoned command must
+      // not leave a door open behind it.
+      expect(localWrite).not.toHaveBeenCalled();
+      expect(end).toHaveBeenCalledTimes(1);
+      expect(exitCode).toBe(130);
+      expect(lines).toEqual([`Connecting to ${sshHost.ip}...`]);
+    });
+
+    it('sends nothing and still closes the row when interrupted before the transfer starts', async () => {
+      const { sshHost } = pickHosts();
+      const controller = new AbortController();
+      const write = vi.fn<NonNullable<EnvOver['write']>>(async () => ({ ok: true }));
+      const end = vi.fn<(sessionId: string) => void>();
+      const env = scpEnv({
+        end,
+        write,
+        signal: controller.signal,
+        authenticate: async () => {
+          controller.abort();
+          return { ok: true, userType: 'root' };
+        },
+      });
+
+      const { exitCode } = await drain(await scp.execute(env, upload(sshHost), new Map()));
+
+      expect(write).not.toHaveBeenCalled();
+      expect(end).toHaveBeenCalledTimes(1);
+      expect(exitCode).toBe(130);
+    });
+
+    it('refuses a destination with nowhere to land before it connects', async () => {
+      const { sshHost } = pickHosts();
+      const authenticate = vi.fn<(params: RemoteAuthParams) => Promise<RemoteAuthResult>>(
+        async () => ({ ok: true, userType: 'root' }),
+      );
+      const prompt = vi.fn<NonNullable<EnvOver['prompt']>>(async () => 'hunter2');
+      const env = scpEnv({ authenticate, prompt });
+
+      const { lines, exitCode } = await drain(
+        await scp.execute(env, download(sshHost, '/nope/passwd'), new Map()),
+      );
+
+      // The player's own mistake, on their own box — and it must not cost them a
+      // line in somebody else's log, which is the rule the upload's source check
+      // already follows.
+      expect(lines).toEqual(['scp: /nope/passwd: No such file or directory']);
+      expect(exitCode).toBe(1);
+      expect(prompt).not.toHaveBeenCalled();
+      expect(authenticate).not.toHaveBeenCalled();
+    });
+
+    it('refuses to copy between two remote hosts', async () => {
+      const { sshHost } = pickHosts();
+      const authenticate = vi.fn<(params: RemoteAuthParams) => Promise<RemoteAuthResult>>(
+        async () => ({ ok: true, userType: 'root' }),
+      );
+      const env = scpEnv({ authenticate });
+
+      const { lines, exitCode } = await drain(
+        await scp.execute(
+          env,
+          [`root@${sshHost.ip}:${REMOTE_SOURCE}`, `root@192.168.1.9:/root/passwd`],
+          new Map(),
+        ),
+      );
+
+      // Two hosts is two transient sessions in one command; until that exists the
+      // operand rule has no answer, and guessing one would move a file somewhere
+      // nobody asked for.
+      expect(lines).toEqual(['usage: scp [-p port] <local-file> <user>@<host>:<path>']);
+      expect(exitCode).toBe(1);
+      expect(authenticate).not.toHaveBeenCalled();
+    });
+
+    it('takes the file without the record ftp leaves behind for the same theft', async () => {
+      const { sshHost } = pickHosts();
+      const record = vi.fn();
+      const remoteTree = buildDirectory({
+        etc: buildDirectory({ passwd: buildFile(PASSWD, { owner: 'root' }) }, { owner: 'root' }),
+      });
+      const ftpEnv = mockCommandEnv({
+        fs: mockFsViewFromTree(originTree(), { userType: 'root', cwd: asAbsPath('/root') }),
+        patches: mockPatchApi({ write: async () => ({ ok: true }) }),
+        ftp: mockFtpApi({
+          fs: mockFsViewFromTree(remoteTree, { userType: 'root', cwd: asAbsPath('/') }),
+          recordTransfer: record,
+        }),
+      });
+
+      await runFtpLine(ftpEnv, `get ${REMOTE_SOURCE}`);
+
+      expect(record).toHaveBeenCalledWith({
+        direction: 'download',
+        path: REMOTE_SOURCE,
+        bytes: PASSWD.length,
+      });
+
+      // The same file, off the same box, through the other door — with the SAME
+      // ledger watching, so silence here is measured rather than assumed. Two doors,
+      // two costs: ftp is easier to open and itemises every byte; scp needs a
+      // credential you already earned and takes the file without a word.
+      const { exitCode } = await drain(
+        await scp.execute(
+          scpEnv({ recordTransfer: record }),
+          download(sshHost, '/root/stolen.txt'),
+          new Map(),
+        ),
+      );
+
+      expect(exitCode).toBe(0);
+      expect(record).toHaveBeenCalledTimes(1);
+    });
   });
 });

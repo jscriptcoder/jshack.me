@@ -70,10 +70,11 @@ export const mockOutputSink = (): OutputSink => ({
   dim: NOT_IMPLEMENTED('output.dim'),
 });
 
-export const mockPatchApi = (): PatchApi => ({
+export const mockPatchApi = (overrides: Partial<PatchApi> = {}): PatchApi => ({
   write: NOT_IMPLEMENTED('patches.write'),
   remove: NOT_IMPLEMENTED('patches.remove'),
   mkdir: NOT_IMPLEMENTED('patches.mkdir'),
+  ...overrides,
 });
 
 export const mockNetworkView = (overrides: Partial<NetworkView> = {}): NetworkView => ({
@@ -162,6 +163,9 @@ export const mockFtpApi = (overrides: Partial<FtpApi> = {}): FtpApi => ({
 export const mockScpApi = (overrides: Partial<ScpApi> = {}): ScpApi => ({
   authenticate: NOT_IMPLEMENTED('scp.authenticate'),
   write: NOT_IMPLEMENTED('scp.write'),
+  // Load-bearing like the other two: its result IS the file, so an unstubbed read
+  // must be loud rather than handing back an empty one that reads as a real file.
+  read: NOT_IMPLEMENTED('scp.read'),
   end: () => undefined,
   ...overrides,
 });

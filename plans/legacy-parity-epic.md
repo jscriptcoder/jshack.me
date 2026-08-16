@@ -239,7 +239,10 @@ PHASE 1 — THE DOORS  (near-term focus)
       D3 slice 4 get, itemised in the owner's log      ✔ SHIPPED v0.134.0 (#396)
       D3 slice 5 put, and the tier decides             ✔ SHIPPED v0.135.0 (#397)
       D3 slice 6 a stranger's door across the network  ✔ SHIPPED v0.136.0 (#398)
-  D3b scp (the transfer)                              — PLANNED 2026-08-15, 3 slices
+  D3b scp (the transfer)                              — IN PROGRESS, 2 of 3 slices shipped
+      D3b slice 1 carry a file onto a box you hold     ✔ SHIPPED v0.137.0 (#401)
+      D3b slice 2 take a file without being seen       ✔ SHIPPED v0.138.0
+      D3b slice 3 reach a stranger's box               — carries slice 1's deferred wire-check
   D4  daemon control (systemctl / ps / kill)
   D5  nc connect + nc -l backdoor
   D6  mysql
@@ -527,12 +530,14 @@ impossible. Grounding caught this; do not drop the step from the criterion.
 
 ### Slice spine (each vertical + observable)
 
-- **D3b.1 — a player carries a file onto a box they hold.** Upload, own-LAN: the transient session
-  (create → write → end), source-first validation, decision 3's UX, `-p`. *Observable*: the carry
-  above — a sweep succeeds from the pivot with a word the shipped `DEFAULT_WORDLIST` does not hold.
-- **D3b.2 — a player takes a file without being seen.** Download. *Observable*:
-  `scp root@<host>:/etc/passwd ./` → `john` it; the target's `auth.log` shows a login and **nothing
-  about the file**, set against ftp's `OK DOWNLOAD` line for the same theft.
+- **D3b.1 — a player carries a file onto a box they hold.** ✔ SHIPPED v0.137.0 (#401). Upload,
+  own-LAN: the transient session (create → write → end), source-first validation, decision 3's UX,
+  `-p`. *Observable*: the carry above — a sweep succeeds from the pivot with a word the shipped
+  `DEFAULT_WORDLIST` does not hold. (That E2E run itself lands in slice 3, with the wire-check.)
+- **D3b.2 — a player takes a file without being seen.** ✔ SHIPPED v0.138.0. Download.
+  *Observable*: `scp root@<host>:/etc/passwd ./` → `john` it; the target's `auth.log` shows a
+  login and **nothing about the file**, set against ftp's transfer record for the same theft —
+  asserted with one ledger watching both doors, so the silence is measured, not assumed.
 - **D3b.3 — a player reaches a stranger's box.** Cross-player, both directions, through a NAT
   forward.
 
@@ -873,11 +878,16 @@ which D1d re-confirmed rather than discovered. Read the row from the DB when a l
 
 **D3 ✅ SHIPPED AND CLOSED OUT** (2026-08-15, v0.131.0 → v0.136.0, #393–#398) — six slices, plan
 file deleted, as-built in `conventions-and-gotchas.md` §1 + §7 and Act 11 of
-`e2e-shared-network-verification.md`. **D3b is what remains of this pair, and it is now PLANNED
-(2026-08-15) in [`d3b-scp-the-transfer.md`](d3b-scp-the-transfer.md)** — three slices, both grill
-"open for planning" questions resolved there (always create-and-end; no `-P` alias). Everything
-below is the grill that produced both; read D3's half as the record of what was expected, not as
-work outstanding.
+`e2e-shared-network-verification.md`. **D3b is what remains of this pair, and it is now IN
+PROGRESS** in [`d3b-scp-the-transfer.md`](d3b-scp-the-transfer.md) — planned 2026-08-15 with both
+grill "open for planning" questions resolved there (always create-and-end; no `-P` alias), and
+**slices 1 and 2 shipped** (v0.137.0 #401, v0.138.0): both directions work own-LAN, the transient
+row opens and closes around one transfer, and the target's `auth.log` gains a login line that
+names no file either way. The `isNew` question slice 2 reopened is **settled — omitted in both
+directions**, the flag being verifiably inert. What still travels to slice 3 is slice 1's
+**deferred wire-check** (both door-kind paths in one run) and two named honesty gaps recorded in
+the plan. Everything below is the grill that produced both; read D3's half as the record of what
+was expected, not as work outstanding.
 
 D3 was selected (2026-08-14) straight from decision 8's locked door order once the web
 door was complete on both sides — **and it was split first: `ftp` is D3, `scp` is D3b, each with its
