@@ -279,7 +279,7 @@ POST-SHIP — MISSIONS
 | **D2** | **A player cracks a credential instead of being told it** — **✔ SHIPPED** as D2.1–D2.6a (v0.111.0–v0.122.0, #377); as-built in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §1. **D2.6b (harvestable plaintext loot) is postponed** — see "Next action" | ~~`hydra <host> [service] [user]`~~ ✔; ~~`apt install hydra` ships `passwords.txt` via `extraFiles`~~ ✔; the two-pool split + per-account probability in `buildRemoteHostFs`; uncrackable pool into `secrets.ts`; wordlist-as-sole-gate; server-side md5 batch matching for cross-player; `john`; hydra trace on the target's `auth.log` | ftp/mysql/snmp as hydra *services* — each arrives with its door; **`gobuster`** (→ D1c, 2026-07-31) | B `hydra <NPC host> ssh` → cracks the user account → `ssh` succeeds; a low-probability NPC root cracks, most don't; a player's chosen root password never cracks; A appends a harvested password to `passwords.txt` via `nano` and a previously-failing crack now succeeds |
 | **D3** | **A player moves files without a shell** — **ftp only; `scp` split out to D3b 2026-08-14** | `vsftpd` daemon + catalog row + placement; `ftp <host> [user] [pw]` + FTP mode command set (`get`/`put`/`ls`/`cd`/`lls`/`lcd`/`lpwd`/`quit`); `vsftpd.log` trace; ftp as a hydra service. **No content generator** — the target's FS is the content | Virtual users (`virtual_users.conf`); `scp` (→ D3b) | B `hydra`s ftp creds → `ftp <host>` → `get` a file → `put` one the owner then sees; the session authorizes at its tier through L1/L2 exactly as ssh does (decision 2) |
 | **D3b** | **A player carries a file between two machines they hold** | `scp <src> <user>@<host>:<path> [port] [pw]`; the **transient** auth session (validate → transfer → end, legacy's `withTransientAuthSession`); two-endpoint resolution (local read + remote write through NAT/forwards); async progress + cancellation. Closes D2.5's named gap — **carrying a grown wordlist onto a rooted box** | FTP mode (D3's); recursive `-r`; directory transfer — decide at planning | A `scp /usr/share/wordlists/passwords.txt root@<NPC host>:/root/` → sweeps from that box with a list the shipped wordlist does not hold; a tier the credential does not carry refuses the write |
-| **D4** | **A defender controls what their box exposes** — **grilled 2026-08-16**, scope narrowed; decisions + spine in ["D4 — resolved scope & decisions"](#d4--resolved-scope--decisions-grill-me-2026-08-16) | `systemctl start/stop/status/restart` + `ps`, sharing ONE implementation with the shipped `sshd`/`vsftpd`/`nginx` commands (collapsed first, slice 0); symmetric pidfile open/close; runs anywhere you stand; the two login-gate fixes (`ssh` exemption + same-LAN service check) | `kill` and session **eviction** (→ D5, where a planted backdoor is worth killing); `chmod` (independent capability, out of the epic row); `enable`/`disable`; a service-state log | A `systemctl stop sshd` → pidfile gone → B's scan drops `:22` and ssh-via-forward `404`s; A `ps` lists what is running; A restarts it and reachability returns |
+| **D4** ✔ | **A defender controls what their box exposes** — **✔ SHIPPED** as slices 0–3 (#407–#410, v0.140.0–v0.142.0); grill record in ["D4 — resolved scope & decisions"](#d4--resolved-scope--decisions-grill-me-2026-08-16), as-built in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7/§9 and [`e2e-shared-network-verification.md`](../v2/docs/e2e-shared-network-verification.md) Act 13 | `systemctl start/stop/status/restart` + `ps`, sharing ONE implementation with the shipped `sshd`/`vsftpd`/`nginx` commands (collapsed first, slice 0); symmetric pidfile open/close; runs anywhere you stand; the two login-gate fixes (`ssh` exemption + same-LAN service check) | `kill` and session **eviction** (→ D5, where a planted backdoor is worth killing); `chmod` (independent capability, out of the epic row); `enable`/`disable`; a service-state log | A `systemctl stop sshd` → pidfile gone → B's scan drops `:22` and ssh-via-forward `404`s; A `ps` lists what is running; A restarts it and reachability returns |
 | **D5** | **A player plants a backdoor and re-enters through it** | `nc <host> <port>` → restricted NC shell (no PATH); `nc -l <port>` listener with owner metadata in the pidfile; **backdoor chain forwarding** — append a `forward` on every gateway out to the public edge and report the reachable address | Exploit-planted backdoors (Phase 3) | B (inside a host) `nc -l 4444` → forward auto-appended → B leaves, `nc <public IP> <fwd>` → lands as the listener's owner; the defender greps `rules.v4` and finds the breadcrumb |
 | **D5b** | **NPC machines have a kind, and it shows** | A real role model, widening `LanHost.kind` (today `'machine' \| 'router' \| 'switch'`, `generateHomeLan.ts:31`) toward legacy's nine — webserver, database, mailserver, fileserver, iot, dns, switch, router, workstation; role-driven hostnames (today `DEVICE_TYPES` is consumer devices — `desktop-7`, `iphone-12` — and golden-locked at `homeNetwork.ts:30`); **role-weighted service placement** (a database box almost always runs mysql; a phone almost never runs nginx); role-keyed content pools, starting with the web pages D1 ships flat | Mission-specific roles (post-ship) | `nmap` a LAN and the boxes read as a *population*: `web-04` serves nginx and a corporate portal, `db-11` runs mysql, `cam-31` is an IoT box with a camera panel. A player can tell what a box probably is before touching it |
 | **D6** | **A player reads a machine's database** | `mysqld` catalog row + placement; **generated schema + data** (legacy `generateDatabase.ts`, `pools/database.ts`); `mysql <host> <user> [pw]` → `mysql>` prompt (parser/formatter/executor); hydra `mysql` service | Writes/`UPDATE` — decide at planning | B `hydra <host> mysql` → creds → `SHOW TABLES` / `SELECT` returns generated data worth reading |
@@ -1096,31 +1096,45 @@ in both directions (`land()` in `ftpShell.ts`), and `recordFtpTransfer`'s proven
 D3b still owns alone is its own: the transient session lifecycle, two authorizations in one
 command, async progress + cancellation, and where a *silent* transfer's trace lands.
 
-**➡️ NEXT: D4 — daemon control. ✅ GRILLED + PLANNED 2026-08-16.** Ten locked decisions and five
-grounding findings in
-["D4 — resolved scope & decisions"](#d4--resolved-scope--decisions-grill-me-2026-08-16); the
-four-slice spine, acceptance criteria and reduction program are in
-[`d4-daemon-control.md`](d4-daemon-control.md). **Slices 0 and 1 ✅ SHIPPED** (2026-08-16) — the
-three daemon commands are now one `commands/daemon.ts` behind four unchanged names (#407, no bump),
-and `systemctl start/stop/status/restart` ships at v0.140.0, so a defender can finally close a port
-and have it stay closed across a reboot. **Slice 2 is next**: `ps`, the recon and defence
-instrument that shows what a box is running.
+**✅ D4 — daemon control. COMPLETE 2026-08-16 (#407-#410, v0.142.0).** Four slices; the plan
+file is deleted and its as-built lives in
+[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7 (the daemon descriptor,
+the single "what is running here" policy, `systemctl`'s unit-vs-program rule, the `env.fs`
+snapshot) and §9 (the one defect left open), with the browser run in
+[`e2e-shared-network-verification.md`](../v2/docs/e2e-shared-network-verification.md) Act 13.
 
-The grill narrowed the scope and changed the shape. **Scope is now `systemctl start/stop/status`
-+ `ps` only** — `kill` and session eviction move to D5 (where a planted backdoor is something
-worth killing), and `chmod` leaves the epic row entirely as an independent capability. And D4 is
-**mostly stop plus a reduction**, because the start half already ships three times over:
-`sshd.ts`, `vsftpd.ts` and `webServer.ts` were 393 lines that differed only in which catalog row
-they bound, so slice 0 collapsed them first — 407 source lines became 252, and the 850 lines of
-daemon tests that prove it passed with nothing but their import specifier changed.
+A defender can now close a port and have it stay closed — to their own scan, a neighbour's, a
+stranger's across the network, and across a reboot — and see what their box is running.
 
-Two things the grill found in the code are worth reading before planning. The `ssh` listening
-exemption is **anti-cheat only** — the client already gates and both cross-player endpoints gate,
-so closing it changes nothing an honest player sees, and §9's stated blocker is answered by
-decision 5. And there is a **live bug** D4 turns from obscure into ordinary:
-`authCreateSessionSameLan` checks the port rather than the service, so on a shared ESSID `ssh
-<neighbour> -p <their ftp port>` opens an ssh session through an ftp port. Both are fixed in
-slice 3, which carries the wire-check.
+- **Slice 0** (#407, no bump) — the three daemon commands became one. `sshd.ts`/`vsftpd.ts`/
+  `webServer.ts` were 393 lines differing only in which catalog row they bound; 407 source lines
+  became 252 and the 850 lines of daemon tests passed with nothing but their import specifier
+  changed. A terminal reduction, both gates passed.
+- **Slice 1** (#408, v0.140.0) — `systemctl start/stop/status/restart`. Found that `restart`
+  could not route through the daemon's own front door: `env.fs` is a point-in-time snapshot, so
+  the already-running gate re-read the pidfile the same command had just deleted and left the
+  service DOWN. Now an architecture invariant.
+- **Slice 2** (#409, v0.141.0) — `ps`. `readOpenPorts` gained a richer sibling rather than a
+  second walk, so one policy decides what counts as a service.
+- **Slice 3** (#410, v0.142.0) — every login gate asks the same question. The `ssh` exemption was
+  protecting nothing (`ROUTER_SSH_PROBABILITY` is 1, so no router generates without sshd), and the
+  same-LAN gate compared the port rather than the service. Proved with a wire-check that
+  reproduces both bugs against the pre-fix code before closing them.
+
+**What D4 deliberately did not do**, and who inherits it: `kill` and session **eviction** → D5,
+where a planted `nc -l` backdoor is something worth killing and is not a `SERVICE_CATALOG` row.
+`chmod` left the epic row entirely as an independent capability. No `enable`/`disable` — one
+state, and it persists. No service-state log — the `auth.log` line that admitted the intruder is
+the attribution.
+
+**One defect is open and belongs to whoever owns the recon/defence balance**: `ps` on a box you
+have ENTERED shows nothing, because pidfiles are root-only and a foreign session's tree is
+projected at the tier the credential bought. Found by the Act 13 browser run; recorded in §9.
+
+**➡️ NEXT: D5 — `nc` connect + `nc -l` backdoor.** Not yet grilled or planned. It inherits D4's
+two deferred verbs (`kill` and eviction) plus the question D4 answered for services and D5 must
+answer for a planted listener: a backdoor is not a `SERVICE_CATALOG` row, so "what is running
+here" and "shut this down" both need a second shape. Grill it before planning.
 
 Per slice, before any code: load `tdd`, `testing`, `mutation-testing`, `refactoring`; run full
 RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR; present before starting the next. Any `api/` change
