@@ -9,6 +9,8 @@ import { formatPidfileContent, readOpenPorts } from '../core/services/pidfile';
 import { SERVICE_CATALOG } from '../core/services/serviceCatalog';
 import { HTTP_DEFAULT_PORT } from '../core/network/http';
 import { BINARY_STUB } from '../core/generation/binaries';
+import { serializeTree } from '../core/filesystem/treeCodec';
+import { buildDirectory, buildFile } from '../test/factories/filesystem';
 import type { PublicFetchResult } from '../core/commands/types';
 
 /**
@@ -381,6 +383,153 @@ describe('an ftp session abandoned by a refresh', () => {
 
     await vi.waitFor(() => expect(state.promptHost()).toBe(REMOTE_HOST.hostname));
     expect(sent.find((payload) => payload.action === 'endSession')).toBeUndefined();
+  });
+});
+
+/**
+ * A transfer against ANOTHER player's box.
+ *
+ * The client cannot rebuild a stranger's machine — it has neither their seed nor
+ * their patch rows — so the tree an `scp` read addresses has to come back from the
+ * server, pre-filtered to the tier the credential bought. Getting that branch wrong
+ * has one specific failure: the local resolver falls back to the player's OWN base,
+ * and a transfer that reports success hands them their own file wearing somebody
+ * else's name. So the file being read exists on BOTH boxes with different contents,
+ * and only the far side's says where it came from.
+ */
+describe('a transfer across the network', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const ESSID = 'ferro-cafe';
+  const LAN = generateHomeLan(ESSID);
+  const THEIR_PUBLIC_IP = '203.0.113.7';
+  const THEIR_BOX = 'workstation-a1b2c3d4';
+  const FORWARDED_PORT = 2222;
+  /** A word that appears nowhere on the player's own generated box, so reading it
+   *  back proves the bytes crossed the network. */
+  const THEIR_PASSWD = 'root:x:0:0::/root:/bin/bash\nnebuchadnezzar:x:1000:1000::/home/neb:/bin/sh\n';
+
+  const theirTree = () =>
+    buildDirectory({
+      etc: buildDirectory({ passwd: buildFile(THEIR_PASSWD, { owner: 'root' }) }),
+      root: buildDirectory({}, { owner: 'root' }),
+    });
+
+  const bootOnline = async () => {
+    vi.resetModules();
+    const store = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => store.set(key, value),
+      removeItem: (key: string) => store.delete(key),
+    };
+    storage.setItem(CONNECTED_ESSID_KEY, ESSID);
+    lanLeaseCacheIn(storage).remember(ESSID, `${LAN.subnet}.77`);
+    vi.stubGlobal('localStorage', storage);
+
+    const sent: Record<string, unknown>[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: { body?: string }) => {
+        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<string, unknown>;
+        sent.push(fields);
+        if (fields.action === 'listSessions') {
+          return { ok: true, status: 200, json: async () => ({ sessions: [] }) };
+        }
+        if (fields.action === 'resolvePublicScan') {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ found: true, ports: [{ port: FORWARDED_PORT, service: 'ssh' }] }),
+          };
+        }
+        if (fields.action === 'authCreateSessionPublic') {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ ok: true, userType: 'root', machine_id: THEIR_BOX }),
+          };
+        }
+        // The stranger's box, materialized by the only party that can: the server.
+        if (fields.action === 'resolveCrossPlayerFs') {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ ok: true, tree: serializeTree(theirTree()) }),
+          };
+        }
+        if (fields.action === 'upsertPatch' || fields.action === 'endSession') {
+          return { ok: true, status: 200, json: async () => ({ ok: true }) };
+        }
+        return { ok: true, status: 200, json: async () => ({ patches: [] }) };
+      }),
+    );
+
+    const state = await import('./state');
+    state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
+    await vi.waitFor(() => expect(state.promptHost()).toBe('box'));
+    return { state, sent };
+  };
+
+  /** Type the transfer and answer the one prompt it asks, the way the player does. */
+  const typeTransfer = async (
+    state: typeof import('./state'),
+    line: string,
+  ): Promise<void> => {
+    state.setInput(line);
+    const run = state.runInput();
+    await vi.waitFor(() => expect(state.pendingPrompt()).toBeDefined());
+    state.setInput('hunter2');
+    state.submitPrompt();
+    await run;
+  };
+
+  const writeOf = (sent: readonly Record<string, unknown>[], machineId: string) =>
+    sent.find((payload) => payload.action === 'upsertPatch' && payload.machine_id === machineId);
+
+  it('takes the file off the box behind the forward, not the player own copy of it', async () => {
+    const { state, sent } = await bootOnline();
+
+    await typeTransfer(
+      state,
+      `scp -p ${FORWARDED_PORT} root@${THEIR_PUBLIC_IP}:/etc/passwd ./`,
+    );
+
+    const own = sent.find((payload) => payload.action === 'authCreateSessionPublic')?.[
+      'caller_machine_id'
+    ];
+    const landed = writeOf(sent, String(own === undefined ? '' : own));
+    // The bytes land on the box the player is standing on — their own write, exactly
+    // as if they had typed it — and they are the FAR side's.
+    expect(landed).toBeDefined();
+    expect(landed?.content).toBe(THEIR_PASSWD);
+    expect(String(landed?.path)).toMatch(/\/passwd$/);
+    // The tell: the player's own generated passwd names the account they booted as.
+    expect(String(landed?.content)).not.toContain('tester');
+  });
+
+  it('carries a file onto the box behind the forward, naming where it was run from', async () => {
+    const { state, sent } = await bootOnline();
+
+    await typeTransfer(
+      state,
+      `scp -p ${FORWARDED_PORT} /etc/passwd root@${THEIR_PUBLIC_IP}:/root/carried.txt`,
+    );
+
+    const login = sent.find((payload) => payload.action === 'authCreateSessionPublic');
+    expect(login).toMatchObject({
+      kind: 'scp',
+      target: THEIR_PUBLIC_IP,
+      port: FORWARDED_PORT,
+      username: 'root',
+    });
+    // The vantage: without it the server can only derive the address the player
+    // OWNS, which stops being true the moment the transfer runs from a box they took.
+    expect(login?.caller_machine_id).toBeDefined();
+    // The write is aimed at the machine the SERVER named behind the forward.
+    expect(writeOf(sent, THEIR_BOX)).toMatchObject({ path: '/root/carried.txt' });
+    // And the row it opened is closed behind it, on somebody else's box.
+    expect(sent.some((payload) => payload.action === 'endSession')).toBe(true);
   });
 });
 

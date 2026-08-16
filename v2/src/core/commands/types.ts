@@ -358,12 +358,15 @@ export type PublicAuthParams = {
   readonly sourceIp: string | null;
 };
 
-/** What `ftp` hands to `env.ftp.authenticatePublic` — the ssh shape plus the box the
- *  command is being RUN from. That box is what the target actually saw, so naming it is
- *  what lets the server trace the visit to the network the visitor is standing on
- *  rather than the one they happen to own. It is a claim the server then checks: a
- *  caller holding no session there is refused rather than believed. */
-export type FtpPublicAuthParams = PublicAuthParams & {
+/** What a DOOR hands its cross-player login — the ssh shape plus the box the command
+ *  is being RUN from. That box is what the target actually saw, so naming it is what
+ *  lets the server trace the visit to the network the visitor is standing on rather
+ *  than the one they happen to own. It is a claim the server then checks: a caller
+ *  holding no session there is refused rather than believed.
+ *
+ *  Shared by `ftp` and `scp` because both are reached FROM somewhere, unlike `ssh`,
+ *  which names no caller machine — a hop's own address is the one it owns. */
+export type PublicDoorAuthParams = PublicAuthParams & {
   readonly callerMachineId: string;
 };
 
@@ -434,7 +437,7 @@ export type FtpApi = {
   /** Log into ANOTHER player's box by its public IP, through the port its owner
    *  forwarded. Shares `PublicAuthResult` with `ssh`'s: the machine id comes back from
    *  the server, because which box a stranger's forward reaches is not derivable here. */
-  readonly authenticatePublic: (params: FtpPublicAuthParams) => Promise<PublicAuthResult>;
+  readonly authenticatePublic: (params: PublicDoorAuthParams) => Promise<PublicAuthResult>;
   /** Hold this session and put the terminal at the `ftp>` prompt. */
   readonly enter: (session: Session) => void;
   /** Drop it and hand the terminal back to the shell that never moved. */
@@ -477,6 +480,11 @@ export type ScpApi = {
   /** The same endpoint `ssh` and `ftp` reach, asked for an `scp`-kind row. The tier
    *  comes back server-derived; the client never claims one. */
   readonly authenticate: (params: RemoteAuthParams) => Promise<RemoteAuthResult>;
+  /** The same endpoint again, for a target reached by its PUBLIC address. Which box
+   *  sits behind the port a stranger forwarded is not derivable here — the server
+   *  resolves it and names it back, which is why this returns a machine id and the
+   *  own-LAN login does not. */
+  readonly authenticatePublic: (params: PublicDoorAuthParams) => Promise<PublicAuthResult>;
   /** Write to the machine the session was opened on, at the tier the credential
    *  bought. Session-PARAMETERIZED rather than pre-bound, because the session it
    *  writes through was created moments ago by the same command. The gate is the

@@ -1,7 +1,7 @@
 # Plan: D3b — `scp`, the transfer
 
 **Branch**: `docs/plan-d3b-scp` (this plan) → `feat/scp-*` per slice
-**Status**: Active — slices 1 and 2 shipped (v0.137.0, v0.138.0); slice 3 next
+**Status**: COMPLETE — all three slices shipped (v0.137.0, v0.138.0, v0.139.0)
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) — Phase 1, door D3b
 **Grilled**: 2026-08-14 — five locked decisions + three-slice spine in the epic's
 ["D3b — resolved scope & decisions"](legacy-parity-epic.md#d3b--resolved-scope--decisions-grill-me-2026-08-14)
@@ -86,8 +86,10 @@ The grill left two "open for planning". Both take the collapsed answer:
 - [x] Ctrl-C during the round-trip leaves no file and no session row — at the password prompt,
       after the session opens but before either transfer starts, and (download only, the one
       place the gap exists) between the remote read and the local write
-- [ ] Both directions work against another player's box through a NAT forward
+- [x] Both directions work against another player's box through a NAT forward
 - [x] `scp` refuses a host whose sshd is not running, whatever else it serves
+- [x] A relative remote path resolves from the home of the account logged into, both directions
+- [x] A write that fails for network reasons says so, rather than blaming the player's tier
 
 ## Slices
 
@@ -185,7 +187,7 @@ suite 2769 passing; `tsc -b` and `eslint` clean.
 
 ---
 
-### Slice 2: A player takes a file without being seen — ✅ SHIPPED (v0.138.0)
+### Slice 2: A player takes a file without being seen — ✅ SHIPPED (PR #402, v0.138.0)
 
 **Value**: The silent harvest — the counterpart to ftp's `get`, which D3 made itemise every
 byte. Two doors, two costs (decision 2).
@@ -282,7 +284,7 @@ download code.** Full suite 2782 passing; `tsc -b` and `eslint` clean.
 
 ---
 
-### Slice 3: A player reaches a stranger's box
+### Slice 3: A player reaches a stranger's box — ✅ SHIPPED (v0.139.0)
 
 **Value**: The carry and the harvest both work against another player's machine, through the
 port its owner forwarded — consistent with D3 including cross-player rather than deferring it.
@@ -299,6 +301,14 @@ port its owner forwarded — consistent with D3 including cross-player rather th
   `recordFtpTransfer.ts:121` `resolveProvenance` already enforces for the other door.
 - `caller_machine_id` on the public path, so a transfer run from a pivot traces to the network
   the target actually saw.
+- **Carried from slice 2: the two named gaps, and this is the last cheap moment to decide
+  them.** Both are recorded at the end of slice 2 — a relative remote path resolving from `/`
+  rather than the account's home, and a local write failing for network reasons reporting
+  `Permission denied`. Each is one decision, and each currently has two inheritors; this slice
+  adds a third path that inherits both, so the cost of deciding rises with it. Settle both at
+  this slice's CONFIRM gate: either fix them here across all directions (the honest fix touches
+  the shipped upload, which is why it is a decision and not a cleanup), or defer them past D3b
+  in writing. Do not let a third path acquire them by drift.
 
 **Acceptance criteria** (present and confirm before code):
 - B `scp <file> root@<A's public IP>:/root/ -p <fwd>` lands the file on A's box; A sees it
@@ -332,6 +342,53 @@ is the live run recorded in the doc.
 **KILL MUTANTS**: The service-match predicate (an `ftp`-serving forward must not open).
 **REFACTOR**: Assess collapsing the own-LAN and public paths now that all three exist.
 **Done when**: criteria met, wire-check and E2E recorded, gates green, human approves.
+
+**As-built (2026-08-16)**:
+
+1. **The server needed no change at all, and that was the slice's first finding.** D3.6 made
+   `authCreateSessionPublic` kind-parameterized and slice 1 moved it onto `SERVICE_BY_DOOR`, so
+   `scp` already mapped to the ssh spec there: the reached-port check already demanded sshd
+   (`authCreateSessionPublic.ts:195`), the trace already went through the ssh sweep log, and the
+   source IP was already server-derived via `standingVantage` + `resolveVantageSourceIp`. Three of
+   this slice's four criteria were true server-side before a line was written. Slice 3 is
+   **client-only** — which is why its whole risk sat in one place.
+2. **That place was the read binding, and slice 2's version was wrong for a stranger's box.**
+   `resolveActiveRoot` falls back to `ownBaseFs` when the ESSID cannot generate the machine
+   (`activeRoot.ts:45`), so pointing slice 2's composition at another player's workstation would
+   not have errored — it would have handed B **their own file under A's name**. Cross-player reads
+   now go through `resolveCrossPlayerFs`, server-materialized and tier-pruned, the same call an
+   ssh hop's `refreshServedRoot` makes. `handleResolveCrossPlayerFs` authorizes on any un-ended
+   row with no kind filter, so a transient `scp` row is enough to read and ending it is enough to
+   stop — checks 17-19 of the wire-check, and the one thing in the slice that could only be
+   proved live.
+3. **The upload direction needed nothing.** `writeToScpTarget` points the shipped patch client at
+   the target and `authorizeMachineAccess` accepts a caller holding a session there — the path
+   ftp's `put` already used cross-player.
+4. **The two paths collapsed into a `Reach`.** Own-LAN and public differ only in what establishes
+   the port and who names the machine id; after the password is typed they are one piece of code.
+   No new type was needed: `PublicAuthResult` is already the shape a LAN login can return, with
+   the locally-resolved machine id supplied by the caller. That is the REFACTOR this slice
+   anticipated, and it arrived as the minimum code for a third path.
+5. **`FtpPublicAuthParams` became `PublicDoorAuthParams`** — both doors send `callerMachineId`,
+   and only `ssh` names no caller box, so the name belonged to the door and not to ftp.
+6. **Both carried gaps fixed, as approved at the CONFIRM gate.** A relative remote path now
+   resolves from the account's home — which forced the resolution to move INSIDE the session,
+   since the tier that decides where that is only comes back with the credential. And a write
+   failing for network reasons now says `Connection closed by remote host.` in both directions,
+   symmetric with the read side.
+7. **Mutation found a real gap the tests could not see: single-element port arrays.** With one
+   published forward, `.some` and `.every` are indistinguishable, and so is
+   `candidate.port === port` from `true`. A stranger publishing TWO forwards kills both — the
+   same case ftp's suite already carried.
+
+**Evidence**: 62 command tests (+19) and 2 state-level integration tests driving the real UI
+wiring; `scp.ts` mutation **88.66%**, 0 no-coverage, 33 survivors — 28 `manual` help text and 5
+pre-existing (2 unreachable optional-chaining guards, 2 redundant defensive halves, 1 colon-in-
+username edge). **Zero survivors in the new cross-player code.** Full suite 2801 passing; `tsc -b`
+and `eslint` clean. **Wire-check `testScpTransfer` 19/19 live**, covering both door-kind paths —
+**slice 1's deferred wire-check is discharged with it** — with `testFtpCrossPlayer` 16/16 and
+`testFtpSession` 14/14 re-run green. **E2E: Act 12** of `e2e-shared-network-verification.md`, two
+real players on two networks, v0.139.0.
 
 ---
 

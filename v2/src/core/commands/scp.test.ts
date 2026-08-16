@@ -8,6 +8,7 @@ import {
   mockIdentity,
   mockNetworkViewFromConnectivity,
   mockPatchApi,
+  mockScanApi,
   mockScpApi,
   mockSession,
 } from '../../test/factories/commandEnv';
@@ -25,6 +26,8 @@ import type {
   CommandResult,
   PatchApi,
   PatchResult,
+  PublicAuthResult,
+  PublicDoorAuthParams,
   RemoteAuthParams,
   RemoteAuthResult,
   ScpReadResult,
@@ -493,7 +496,7 @@ describe('scp', () => {
     expect(authenticate.mock.calls[0]![0].sessionId).toContain('deploy');
   });
 
-  it('reads a path with no leading slash from the root of the target', async () => {
+  it('reads a path with no leading slash from the home of the account it logged in as', async () => {
     const { sshHost } = pickHosts();
     const read = vi.fn<NonNullable<EnvOver['read']>>(async () => ({ ok: true, content: PASSWD }));
     const env = scpEnv({ read });
@@ -502,10 +505,56 @@ describe('scp', () => {
       await scp.execute(env, download(sshHost, '/root/stolen.txt', 'notes.txt'), new Map()),
     );
 
-    // Not the account's home, which is where real scp would start. The remote half
-    // of the command line is read from `/` in both directions, and a player who
-    // means their home directory has to say so.
-    expect(read.mock.calls[0]![1]).toBe('/notes.txt');
+    // Where a login would have put them. The tier that decides which directory that
+    // is comes back with the credential, so the remote half of the command line
+    // cannot be resolved until the session exists.
+    expect(read.mock.calls[0]![1]).toBe('/root/notes.txt');
+  });
+
+  it('resolves a relative remote path against the home the tier that came back names', async () => {
+    const { sshHost } = pickHosts();
+    const read = vi.fn<NonNullable<EnvOver['read']>>(async () => ({ ok: true, content: PASSWD }));
+    const env = scpEnv({ read, authenticate: async () => ({ ok: true, userType: 'user' }) });
+
+    await drain(
+      await scp.execute(
+        env,
+        [`deploy@${sshHost.ip}:notes.txt`, '/root/stolen.txt'],
+        new Map(),
+      ),
+    );
+
+    // Not `/root`: an ordinary account lives under `/home`, and guessing otherwise
+    // would read a path only root has.
+    expect(read.mock.calls[0]![1]).toBe('/home/deploy/notes.txt');
+  });
+
+  it('carries a file to a relative remote path from that same home', async () => {
+    const { sshHost } = pickHosts();
+    const write = vi.fn<NonNullable<EnvOver['write']>>(async () => ({ ok: true }));
+    const env = scpEnv({ write });
+
+    await drain(await scp.execute(env, upload(sshHost, 'list.txt'), new Map()));
+
+    // One rule, both directions: the remote half means the same thing whichever
+    // end of the command line it is typed at.
+    expect(write.mock.calls[0]![1]).toBe('/root/list.txt');
+  });
+
+  it('says the round-trip failed rather than blaming the tier when a carried file never arrives', async () => {
+    const { sshHost } = pickHosts();
+    const end = vi.fn<(sessionId: string) => void>();
+    const env = scpEnv({ end, write: async () => ({ ok: false, error: 'network_error' }) });
+
+    const { lines, exitCode } = await drain(await scp.execute(env, upload(sshHost), new Map()));
+
+    // A write that never reached the far side is OURS, exactly as a read that never
+    // did is — and `Permission denied` would send the player hunting a tier problem
+    // they do not have.
+    expect(lines).toContain('Connection closed by remote host.');
+    expect(lines).not.toContain(`scp: ${REMOTE_DEST}: Permission denied`);
+    expect(exitCode).toBe(1);
+    expect(end).toHaveBeenCalledTimes(1);
   });
 
   it('tells the target where the transfer came from, so the login line names an address', async () => {
@@ -761,6 +810,22 @@ describe('scp', () => {
       expect(end).toHaveBeenCalledTimes(1);
     });
 
+    it('says the round-trip failed rather than blaming the tier when the landing never happens', async () => {
+      const { sshHost } = pickHosts();
+      const env = scpEnv({ localWrite: async () => ({ ok: false, error: 'network_error' }) });
+
+      const { lines, exitCode } = await drain(
+        await scp.execute(env, download(sshHost, '/root/stolen.txt'), new Map()),
+      );
+
+      // The bytes came back and then could not be persisted. Naming that a
+      // permission problem points the player at their own tier, which was never in
+      // question — they had already read the file.
+      expect(lines).toContain('Connection closed by remote host.');
+      expect(lines).not.toContain('scp: /root/stolen.txt: Permission denied');
+      expect(exitCode).toBe(1);
+    });
+
     it('lands nothing and still closes the row when interrupted after the file is read', async () => {
       const { sshHost } = pickHosts();
       const controller = new AbortController();
@@ -892,6 +957,274 @@ describe('scp', () => {
 
       expect(exitCode).toBe(0);
       expect(record).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  /**
+   * The same transfer, against somebody else's machine. A public address names an
+   * ACCESS POINT rather than a box, so which machine sits behind the port its owner
+   * forwarded is not derivable here — the server resolves it, and the session lands
+   * on the id it names. What the door insists on is that the forward is answered by
+   * SSHD: scp reaches exactly what ssh reaches, and a forward onto a stranger's ftp
+   * daemon is not a door this command can open.
+   */
+  describe('across the network', () => {
+    const THEIR_PUBLIC_IP = '203.0.113.7';
+    const THEIR_BOX = 'workstation-a1b2c3d4';
+    const FORWARD = 2222;
+
+    type PublicOver = EnvOver & {
+      readonly ports?: readonly { readonly port: number; readonly service: string }[];
+      readonly found?: boolean;
+      readonly authenticatePublic?: (params: PublicDoorAuthParams) => Promise<PublicAuthResult>;
+    };
+
+    const publicEnv = (over: PublicOver = {}) => {
+      const base = scpEnv(over);
+      return mockCommandEnv({
+        ...base,
+        scan: mockScanApi({
+          resolvePublic: async () => ({
+            found: over.found ?? true,
+            ports: over.ports ?? [{ port: FORWARD, service: 'ssh' }],
+          }),
+        }),
+        scp: mockScpApi({
+          ...base.scp,
+          authenticatePublic:
+            over.authenticatePublic ??
+            (async () => ({ ok: true, userType: 'root', machineId: THEIR_BOX })),
+        }),
+      });
+    };
+
+    const carryAcross = (dest = REMOTE_DEST): readonly string[] => [
+      SOURCE,
+      `root@${THEIR_PUBLIC_IP}:${dest}`,
+    ];
+
+    const takeAcross = (destination = './', source = REMOTE_SOURCE): readonly string[] => [
+      `root@${THEIR_PUBLIC_IP}:${source}`,
+      destination,
+    ];
+
+    const forwarded = new Map([['-p', String(FORWARD)]]);
+
+    it('carries a file onto the box behind the forward, on the machine the server names', async () => {
+      const write = vi.fn<NonNullable<EnvOver['write']>>(async () => ({ ok: true }));
+      const authenticatePublic = vi.fn<
+        (params: PublicDoorAuthParams) => Promise<PublicAuthResult>
+      >(async () => ({ ok: true, userType: 'root', machineId: THEIR_BOX }));
+      const env = publicEnv({ write, authenticatePublic });
+
+      const { lines, exitCode } = await drain(
+        await scp.execute(env, carryAcross(), forwarded),
+      );
+
+      expect(authenticatePublic.mock.calls[0]![0]).toMatchObject({
+        target: THEIR_PUBLIC_IP,
+        port: FORWARD,
+        username: 'root',
+        password: 'hunter2',
+      });
+      // The client cannot know which box a stranger's port reaches, so the write is
+      // stamped with the id that came back rather than one resolved here.
+      expect(write.mock.calls[0]![0]).toMatchObject({ machineId: THEIR_BOX, kind: 'scp' });
+      expect(write.mock.calls[0]![1]).toBe(REMOTE_DEST);
+      expect(write.mock.calls[0]![2]).toBe(WORDS);
+      expect(lines).toEqual([
+        `Connecting to ${THEIR_PUBLIC_IP}...`,
+        `passwords.txt   100%  ${WORDS.length} bytes`,
+      ]);
+      expect(exitCode).toBe(0);
+    });
+
+    it('takes a file off the box behind the forward and lands it where the player stands', async () => {
+      const read = vi.fn<NonNullable<EnvOver['read']>>(async () => ({ ok: true, content: PASSWD }));
+      const localWrite = vi.fn<PatchApi['write']>(async () => ({ ok: true }));
+      const env = publicEnv({ read, localWrite });
+
+      const { lines, exitCode } = await drain(await scp.execute(env, takeAcross(), forwarded));
+
+      expect(read.mock.calls[0]![0]).toMatchObject({ machineId: THEIR_BOX, kind: 'scp' });
+      expect(read.mock.calls[0]![1]).toBe(REMOTE_SOURCE);
+      expect(localWrite.mock.calls[0]![0]).toBe('/root/passwd');
+      expect(localWrite.mock.calls[0]![1]).toBe(PASSWD);
+      expect(lines).toEqual([
+        `Connecting to ${THEIR_PUBLIC_IP}...`,
+        `passwd   100%  ${PASSWD.length} bytes`,
+      ]);
+      expect(exitCode).toBe(0);
+    });
+
+    it('names the box the transfer is being run from, so the target learns where it came from', async () => {
+      const authenticatePublic = vi.fn<
+        (params: PublicDoorAuthParams) => Promise<PublicAuthResult>
+      >(async () => ({ ok: true, userType: 'root', machineId: THEIR_BOX }));
+
+      await drain(
+        await scp.execute(publicEnv({ authenticatePublic }), carryAcross(), forwarded),
+      );
+
+      // Without it the server can only derive the address the player OWNS, which
+      // stops being true the moment the transfer is run from a box they took.
+      expect(authenticatePublic.mock.calls[0]![0].callerMachineId).toBe('skylab-deadbeef');
+    });
+
+    it('refuses a forward answered by another daemon without asking for a password', async () => {
+      const prompt = vi.fn<NonNullable<EnvOver['prompt']>>(async () => 'hunter2');
+      const authenticatePublic = vi.fn<
+        (params: PublicDoorAuthParams) => Promise<PublicAuthResult>
+      >(async () => ({ ok: true, userType: 'root', machineId: THEIR_BOX }));
+      const env = publicEnv({
+        prompt,
+        authenticatePublic,
+        ports: [{ port: FORWARD, service: 'ftp' }],
+      });
+
+      const { lines, exitCode } = await drain(await scp.execute(env, carryAcross(), forwarded));
+
+      // A forward names ONE internal port. Handing a password to a daemon that
+      // could never have accepted it spends the credential for nothing.
+      expect(lines).toEqual([
+        `scp: connect to host ${THEIR_PUBLIC_IP} port ${FORWARD}: Connection refused`,
+      ]);
+      expect(exitCode).toBe(1);
+      expect(prompt).not.toHaveBeenCalled();
+      expect(authenticatePublic).not.toHaveBeenCalled();
+    });
+
+    it('opens on the forward that answers ssh, even when their box publishes others', async () => {
+      const authenticatePublic = vi.fn<
+        (params: PublicDoorAuthParams) => Promise<PublicAuthResult>
+      >(async () => ({ ok: true, userType: 'root', machineId: THEIR_BOX }));
+      const env = publicEnv({
+        authenticatePublic,
+        ports: [
+          { port: 2121, service: 'ftp' },
+          { port: FORWARD, service: 'ssh' },
+        ],
+      });
+
+      const { exitCode } = await drain(await scp.execute(env, carryAcross(), forwarded));
+
+      // One published forward being a different door must not close the one asked for.
+      expect(exitCode).toBe(0);
+      expect(authenticatePublic.mock.calls[0]![0].port).toBe(FORWARD);
+    });
+
+    it('refuses a port their box does not forward, even while it forwards ssh elsewhere', async () => {
+      const prompt = vi.fn<NonNullable<EnvOver['prompt']>>(async () => 'hunter2');
+      const env = publicEnv({ prompt, ports: [{ port: FORWARD, service: 'ssh' }] });
+
+      const { lines, exitCode } = await drain(
+        await scp.execute(env, carryAcross(), new Map([['-p', '2121']])),
+      );
+
+      // The door has to answer on the port that was KNOCKED on. A stranger serving
+      // ssh somewhere else on their gateway is not an invitation to the port the
+      // player named.
+      expect(lines).toEqual([`scp: connect to host ${THEIR_PUBLIC_IP} port 2121: Connection refused`]);
+      expect(exitCode).toBe(1);
+      expect(prompt).not.toHaveBeenCalled();
+    });
+
+    it('refuses an address that answers nothing without asking for a password', async () => {
+      const prompt = vi.fn<NonNullable<EnvOver['prompt']>>(async () => 'hunter2');
+      const env = publicEnv({ prompt, found: false });
+
+      const { lines, exitCode } = await drain(await scp.execute(env, carryAcross(), forwarded));
+
+      expect(lines).toEqual([
+        `scp: connect to host ${THEIR_PUBLIC_IP} port ${FORWARD}: No route to host`,
+      ]);
+      expect(exitCode).toBe(1);
+      expect(prompt).not.toHaveBeenCalled();
+    });
+
+    it('knocks on the ssh port when the player names none', async () => {
+      const authenticatePublic = vi.fn<
+        (params: PublicDoorAuthParams) => Promise<PublicAuthResult>
+      >(async () => ({ ok: true, userType: 'root', machineId: THEIR_BOX }));
+      const env = publicEnv({ authenticatePublic, ports: [{ port: 22, service: 'ssh' }] });
+
+      await drain(await scp.execute(env, carryAcross(), new Map()));
+
+      // 22, because the transfer rides sshd — the same port a login would use.
+      expect(authenticatePublic.mock.calls[0]![0].port).toBe(22);
+    });
+
+    it.each([
+      ['a bare flag', true as const],
+      ['a word', 'twentytwo'],
+      ['zero', '0'],
+      ['a negative', '-22'],
+    ])('falls back to the ssh port when -p carries %s', async (_case, value) => {
+      const authenticatePublic = vi.fn<
+        (params: PublicDoorAuthParams) => Promise<PublicAuthResult>
+      >(async () => ({ ok: true, userType: 'root', machineId: THEIR_BOX }));
+      const env = publicEnv({ authenticatePublic, ports: [{ port: 22, service: 'ssh' }] });
+
+      await drain(await scp.execute(env, carryAcross(), new Map([['-p', value]])));
+
+      expect(authenticatePublic.mock.calls[0]![0].port).toBe(22);
+    });
+
+    it('ends the row it opened on a stranger box, whichever way the transfer went', async () => {
+      const landed = vi.fn<(sessionId: string) => void>();
+      const refused = vi.fn<(sessionId: string) => void>();
+
+      await drain(await scp.execute(publicEnv({ end: landed }), carryAcross(), forwarded));
+      await drain(
+        await scp.execute(
+          publicEnv({ end: refused, write: async () => ({ ok: false, error: 'permission_denied' }) }),
+          carryAcross(),
+          forwarded,
+        ),
+      );
+
+      // A row on somebody else's box outliving the command that opened it is a door
+      // held ajar on a machine its owner can end but the visitor has walked away from.
+      expect(landed).toHaveBeenCalledTimes(1);
+      expect(refused).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports a refused credential across the network and opens no row to end', async () => {
+      const end = vi.fn<(sessionId: string) => void>();
+      const write = vi.fn<NonNullable<EnvOver['write']>>(async () => ({ ok: true }));
+      const env = publicEnv({
+        end,
+        write,
+        authenticatePublic: async () => ({ ok: false, error: 'invalid_credentials' }),
+      });
+
+      const { lines, exitCode } = await drain(await scp.execute(env, carryAcross(), forwarded));
+
+      expect(lines).toContain('Permission denied (password).');
+      expect(exitCode).toBe(1);
+      expect(write).not.toHaveBeenCalled();
+      expect(end).not.toHaveBeenCalled();
+    });
+
+    it('validates the local half first, so a typo never reaches a stranger log', async () => {
+      const prompt = vi.fn<NonNullable<EnvOver['prompt']>>(async () => 'hunter2');
+      const authenticatePublic = vi.fn<
+        (params: PublicDoorAuthParams) => Promise<PublicAuthResult>
+      >(async () => ({ ok: true, userType: 'root', machineId: THEIR_BOX }));
+      const env = publicEnv({ prompt, authenticatePublic });
+
+      const { lines, exitCode } = await drain(
+        await scp.execute(
+          env,
+          ['/root/nope.txt', `root@${THEIR_PUBLIC_IP}:${REMOTE_DEST}`],
+          forwarded,
+        ),
+      );
+
+      expect(lines).toEqual(['scp: /root/nope.txt: No such file or directory']);
+      expect(exitCode).toBe(1);
+      expect(prompt).not.toHaveBeenCalled();
+      expect(authenticatePublic).not.toHaveBeenCalled();
     });
   });
 });

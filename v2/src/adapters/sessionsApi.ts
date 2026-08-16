@@ -25,7 +25,7 @@ import {
   type UserType,
 } from '../core/types';
 import type {
-  FtpPublicAuthParams,
+  PublicDoorAuthParams,
   Identity,
   InnerGatewayAuthParams,
   PatchResult,
@@ -156,7 +156,7 @@ export const authCreateServerSession = async (
  *  id). */
 export const authCreateServerSessionPublic = async (
   deps: SessionsClientDeps,
-  params: PublicAuthParams | FtpPublicAuthParams,
+  params: PublicAuthParams | PublicDoorAuthParams,
   kind: DoorKind = 'ssh',
 ): Promise<PublicAuthResult> => {
   try {

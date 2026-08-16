@@ -778,6 +778,85 @@ fifth writer added and nothing else.
 
 ---
 
+### Act 12 — the silent door, opened from another network (D3b)
+
+**Executed 2026-08-16 against v0.139.0. All checks passed.** The same two-network setup as Act 11
+with the other door: A publishes their **sshd** through a forward, and B — on a different AP —
+scans it, cracks it, moves a file each way, and leaves A a log that records four logins and
+names no file at all.
+
+The wire-check (`testScpTransfer`, 19/19) posts straight at the endpoints, so as in Act 11 **this
+is the only thing that proves the client sends what the server reads**. It matters more here than
+it did for ftp: the download direction reads a stranger's box through `resolveCrossPlayerFs`, and
+the failure mode of getting that wrong is not an error — it is B being handed *their own* file
+under A's name.
+
+**As A** (`anton`, `DEFCON-VILLAGE` → `192.168.97.119`, public `45.232.28.45`):
+
+| # | Command | Trap |
+|---|---|---|
+| 1 | §3's arc → connected (real `aircrack`, `KEY FOUND! [ diamond99 ]`) | — |
+| 2 | `su root` → `sshd` | Confirm with `cat /var/run/sshd.pid` → `sshd:port=22`. A transfer reaches sshd or nothing |
+| 3 | `ssh root@192.168.97.1` + `seedApGatewayAdminPw('DEFCON-VILLAGE')` = `root123` | — |
+| 4 | `echo forward 5544 to 192.168.97.119:22 > /etc/iptables/rules.v4` → `exit` | Not 22 on the outside: on a public address :22 is the GATEWAY's own daemon, which is a different machine |
+
+**As B** (`cracklab`, `ACME-CORP` → public `203.204.205.211`):
+
+```
+root@cracklab:/root# nmap 45.232.28.45
+PORT     STATE SERVICE
+22/tcp   open  ssh
+5544/tcp open  ssh
+
+root@cracklab:/root# hydra 45.232.28.45 ssh -p 5544
+[5544][ssh] host: 45.232.28.45   login: guest   password: root1234
+
+root@cracklab:/root# scp -p 5544 /usr/share/wordlists/passwords.txt guest@45.232.28.45:/tmp/carried.txt
+guest@45.232.28.45's password:
+Connecting to 45.232.28.45...
+passwords.txt   100%  285 bytes
+
+root@cracklab:/root# scp -p 5544 guest@45.232.28.45:/tmp/carried.txt /root/stolen.txt
+Connecting to 45.232.28.45...
+carried.txt   100%  285 bytes
+```
+
+`cat /root/stolen.txt` returns the 36-word list — read off A's box, not B's. **That round trip is
+the whole proof of the cross-player read binding**: `/tmp/carried.txt` exists on A and nowhere on
+B, so a resolver that fell back to B's own base would have answered `No such file or directory`
+rather than the file.
+
+**The tier crosses, and it bites the same way.** `scp -p 5544 guest@45.232.28.45:/etc/passwd .`
+answers `scp: /etc/passwd: No such file or directory` — sealed and absent collapsed to one
+answer, so a guest credential cannot map out what it may not read.
+
+**What A's `/var/log/auth.log` held:**
+
+```
+… hydra's wall of Failed password lines, all from 203.204.205.211 …
+Aug 16 07:54:40 anton sshd[5154]: Accepted password for guest from 203.204.205.211
+Aug 16 07:55:30 anton sshd[1363]: Accepted password for guest from 203.204.205.211
+Aug 16 07:55:58 anton sshd[2849]: Accepted password for guest from 203.204.205.211
+Aug 16 07:56:39 anton sshd[7334]: Accepted password for guest from 203.204.205.211
+```
+
+Four claims, each separate:
+
+- **Four logins for one crack and three transfers, and NOT ONE names a file.** The carry, the
+  take and the refused read are indistinguishable from somebody logging in. `cat
+  /var/log/vsftpd.log` → `No such file or directory`: the door has no log of its own, so there
+  was never an scp line to forget to suppress. Set this against Act 11's `OK UPLOAD` /
+  `OK DOWNLOAD` for the same movement — two doors, two costs.
+- **`203.204.205.211` is ACME-CORP's address — B's own network, derived server-side.** A is on
+  `45.232.28.45`, and B's client reported `192.168.45.254`, which appears nowhere.
+- **`ls -l /tmp` as A: `-rwx---rw- guest 285 carried.txt`** — B's file, owned by the account B
+  logged in as, sitting on A's box.
+- **`select kind, count(*) filter (where ended_at is null) from sessions` → `scp | 0 | 3`.**
+  Three rows opened, three closed, none outliving the command that opened it. A door held ajar
+  would show here and nowhere else in the game.
+
+---
+
 ## 6. What a failure means
 
 | Symptom | Look at |
@@ -1001,6 +1080,17 @@ D3's criteria, layered on after that:
 | Files move both ways across the network | 11 | `testFtpCrossPlayer`, `testFtpPut` |
 | The defender reads the whole visit from ONE file, one row | 11 | `testFtpTransferTrace`, `testFtpCrossPlayer` |
 | The address recorded is the visitor's real vantage | 11 | `testFtpCrossPlayer` (incl. the pivot case) |
+
+D3b's criteria, the other door:
+
+| D3b criterion | Act | Also proven by |
+|---|---|---|
+| A forwarded ssh door carries a file BOTH ways across the network | 12 | `testScpTransfer`, `scp.test.ts` |
+| The read is the TARGET's box, not the visitor's own | 12 | `testScpTransfer` (17-19), `state.test.ts` |
+| The tier the credential bought decides both directions | 12 | `testScpTransfer` (16, 18) |
+| The defender's log records a LOGIN and never the file | 12 | `testScpTransfer` (5, 13), `scp.test.ts` vs ftp's ledger |
+| The row that authorized it is gone when the command returns | 12 | `testScpTransfer` (6, 19) |
+| A forward answered by another daemon is refused | 12 (nmap) | `testScpTransfer` (14), `scp.test.ts` |
 
 Not covered here and still open: **deep-chain pivots through a shared chain** (Acts stop
 at L1 NPCs) and **WiFi density / presence-TTL**, both deferred. If you want the deep

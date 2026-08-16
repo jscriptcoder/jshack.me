@@ -1306,6 +1306,20 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   contract deliberately left open (the credential-free door). Detail at §1's cross-player trace
   entry and in D1d's as-built; named as open in `plans/legacy-parity-epic.md`.
 
+- **The terminal cannot rewrite a line, so no tool can draw a live meter.** Real `scp` prints ONE
+  progress line per file and overwrites it with `\r` about once a second — filename, percent,
+  bytes so far, rate, and ETA that becomes elapsed at the end. Ours announces
+  `Connecting to <host>...` and then prints a single completion line, because append-only output
+  is all the terminal has. Two separable pieces of work, noticed while running Act 12
+  (owner call 2026-08-16: not now):
+  - **Cheap and honest:** make the completion line carry the two columns real scp ends with —
+    `passwords.txt   100%  285     0.3KB/s   00:00` — timing the round-trip the command already
+    awaits, so the rate is measured rather than invented. One change to `landed()` in `scp.ts`.
+  - **The real fix:** `\r` semantics in the terminal, which would also give `hydra`, `aircrack`
+    and `nmap` honest meters instead of their current paced line dumps. A feature in its own
+    right, not a transfer-slice detail. Do NOT approximate it with stepped 25/50/75% lines —
+    that appends where the real tool overwrites, and reads *less* like scp, not more.
+
 - **`api/patches.ts` holds four hand-copied `readLog` closures.** Every log appender needs the
   same "one writer's row at one path on one machine" read, and each `if (action === …)` block
   declares its own. A fifth was NOT added for `recordFtpDownload` — it uses a shared

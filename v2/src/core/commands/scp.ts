@@ -31,11 +31,21 @@
 import { asAbsPath, asMachineId } from '../types';
 import { generateHomeLan } from '../generation/generateHomeLan';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
+import { isPublicIp } from '../generation/ip';
 import { basename, dirname, resolveAbsPath } from '../filesystem/path';
+import { homeDirectory } from '../sessions/homeDirectory';
 import { readOpenPorts } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { errorLine, streamedResult, text } from './streaming';
-import type { Command, CommandEnv, CommandResult, Session, TerminalLine } from './types';
+import type {
+  Command,
+  CommandEnv,
+  CommandResult,
+  PatchResult,
+  PublicAuthResult,
+  Session,
+  TerminalLine,
+} from './types';
 import type { AbsPath } from '../types';
 import type { Directory } from '../filesystem/types';
 
@@ -122,10 +132,10 @@ type Landing =
   | { readonly ok: true; readonly path: AbsPath }
   | { readonly ok: false; readonly line: string };
 
-const resolveLanding = (env: CommandEnv, raw: string, remotePath: AbsPath): Landing => {
+const resolveLanding = (env: CommandEnv, raw: string, remoteName: string): Landing => {
   const named = resolveAbsPath(env.fs.cwd(), raw);
   const into = env.fs.stat(named);
-  const path = into?.kind === 'directory' ? resolveAbsPath(named, basename(remotePath)) : named;
+  const path = into?.kind === 'directory' ? resolveAbsPath(named, remoteName) : named;
   if (env.fs.stat(dirname(path)) === null) {
     return { ok: false, line: `scp: ${path}: No such file or directory` };
   }
@@ -168,6 +178,18 @@ const landed = (name: string, bytes: number): Transfer => ({
 
 const refused = (line: string): Transfer => ({ lines: [errorLine(line)], exitCode: 1 });
 
+/** How a refused write reads back, either end of the transfer. A write that never
+ *  reached its destination is OURS, exactly as a read that never did is — and the
+ *  player has already been told the file was there, so blaming their tier would send
+ *  them hunting a problem they do not have. Everything else collapses: the tier that
+ *  could not write and the session that has gone are one refusal by the time they
+ *  reach us, and naming them apart would be a guess dressed as a diagnosis. */
+const writeRefusal = (
+  path: AbsPath,
+  error: Extract<PatchResult, { readonly ok: false }>['error'],
+): Transfer =>
+  error === 'network_error' ? refused(UNREACHABLE) : refused(`scp: ${path}: ${WRITE_REFUSAL}`);
+
 /** Put the file on the target: one atomic write, so a refusal moved nothing.
  *
  *  No `isNew`, deliberately: that flag says "no base-FS file stood here", and this
@@ -182,7 +204,7 @@ const carry = async (
   source: { readonly path: AbsPath; readonly content: string },
 ): Promise<Transfer> => {
   const written = await env.scp.write(session, destination, source.content);
-  if (!written.ok) return refused(`scp: ${destination}: ${WRITE_REFUSAL}`);
+  if (!written.ok) return writeRefusal(destination, written.error);
   return landed(basename(source.path), source.content.length);
 };
 
@@ -210,19 +232,130 @@ const take = async (
   if (env.signal.aborted) return INTERRUPTED;
 
   const written = await env.patches.write(landing, read.content);
-  if (!written.ok) return refused(`scp: ${landing}: ${WRITE_REFUSAL}`);
+  if (!written.ok) return writeRefusal(landing, written.error);
   return landed(basename(remotePath), read.content.length);
 };
 
+/** The port scp knocks on when the player names none — sshd's, because the transfer
+ *  rides sshd and reaches exactly what a login reaches. */
+const SSH_PORT = SERVICE_CATALOG.ssh.defaultPort;
+
+const unreachable = (host: string, port: number): string =>
+  `scp: connect to host ${host} port ${port}: Connection refused`;
+
+/** What is on the other end, once something has been established to be there: the
+ *  port that answered, and the login that opens a row on whatever is behind it. By
+ *  the time a password has been typed the two ways of getting here — a host on the
+ *  player's own LAN, and a stranger's box behind a forward — differ in nothing else,
+ *  which is why everything after this point is one piece of code. */
+type Reach = {
+  readonly port: number;
+  readonly login: (sessionId: string, password: string) => Promise<PublicAuthResult>;
+};
+
+type Reached =
+  | { readonly ok: true; readonly reach: Reach }
+  | { readonly ok: false; readonly line: string };
+
+/** A host on the player's OWN generated LAN: what is listening is deterministic, so
+ *  it is settled here before anything is typed. The ssh daemon's pidfile is the whole
+ *  of what reachability means — an explicit `-p` has to name that same port, because
+ *  a transfer reaches a login's door and never one the box answers with something
+ *  else. The machine id is resolvable locally, so the login supplies it rather than
+ *  waiting to be told. */
+const reachLan = (
+  env: CommandEnv,
+  remote: RemoteOperand,
+  essid: string,
+  portFlag: string | true | undefined,
+): Reached => {
+  const host = generateHomeLan(essid).hosts.find((candidate) => candidate.ip === remote.host);
+  if (host === undefined) {
+    return { ok: false, line: `scp: connect to host ${remote.host} port ${SSH_PORT}: No route to host` };
+  }
+
+  const { machineId, baseFs } = resolveLanHostIdentity(host, essid);
+  const serving = sshPortOf(baseFs);
+  const port = parsePort(portFlag) ?? serving;
+  if (serving === null || port !== serving) {
+    return { ok: false, line: unreachable(remote.host, port ?? SSH_PORT) };
+  }
+
+  return {
+    ok: true,
+    reach: {
+      port,
+      login: async (sessionId, password) => {
+        const authenticated = await env.scp.authenticate({
+          sessionId,
+          essid,
+          targetIp: remote.host,
+          username: remote.user,
+          password,
+          parentSessionId: env.session.id,
+          sourceIp: localAddress(env),
+        });
+        return authenticated.ok
+          ? { ok: true, userType: authenticated.userType, machineId }
+          : authenticated;
+      },
+    },
+  };
+};
+
+/** Another player's box, behind the port its owner forwarded. Nothing about it is
+ *  derivable here — the forward table lives on THEIR gateway's journal — so both
+ *  reachability and the machine id come back from the server. The forward has to be
+ *  answered by SSHD: a forward names ONE internal port, so a stranger's ftp door is
+ *  not a door this command can open, and a password typed at it would be spent for
+ *  nothing. */
+const reachPublic = async (
+  env: CommandEnv,
+  remote: RemoteOperand,
+  portFlag: string | true | undefined,
+): Promise<Reached> => {
+  const port = parsePort(portFlag) ?? SSH_PORT;
+  const resolution = await env.scan.resolvePublic(remote.host);
+  if (!resolution.found) {
+    return { ok: false, line: `scp: connect to host ${remote.host} port ${port}: No route to host` };
+  }
+  const serving = resolution.ports.some(
+    (candidate) => candidate.port === port && candidate.service === SERVICE_CATALOG.ssh.service,
+  );
+  if (!serving) return { ok: false, line: unreachable(remote.host, port) };
+
+  return {
+    ok: true,
+    reach: {
+      port,
+      login: (sessionId, password) =>
+        env.scp.authenticatePublic({
+          sessionId,
+          target: remote.host,
+          port,
+          username: remote.user,
+          password,
+          parentSessionId: env.session.id,
+          sourceIp: localAddress(env),
+          // The box this transfer is being RUN from, which is what the target
+          // actually saw. A claim, not a credential: the server refuses a caller who
+          // holds no session there.
+          callerMachineId: env.session.machineId,
+        }),
+    },
+  };
+};
+
 /** Reach the target, hold a session open for exactly one transfer, and close it
- *  behind whatever the transfer had to say. Both directions come through here, so
- *  the row's lifetime is one piece of code rather than a discipline each path has
- *  to keep: create → transfer → end, with the end on EVERY way out. */
+ *  behind whatever the transfer had to say. Both directions and both ways of getting
+ *  there come through here, so the row's lifetime is one piece of code rather than a
+ *  discipline each path has to keep: create → transfer → end, with the end on EVERY
+ *  way out. */
 const connectAndTransfer = async (params: {
   readonly env: CommandEnv;
   readonly remote: RemoteOperand;
   readonly portFlag: string | true | undefined;
-  readonly transfer: (session: Session) => Promise<Transfer>;
+  readonly transfer: (session: Session, remotePath: AbsPath) => Promise<Transfer>;
 }): Promise<CommandResult> => {
   const { env, remote } = params;
 
@@ -232,21 +365,10 @@ const connectAndTransfer = async (params: {
     return failure('scp: Network is unreachable');
   }
 
-  const host = generateHomeLan(essid).hosts.find((candidate) => candidate.ip === remote.host);
-  if (host === undefined) {
-    return failure(`scp: connect to host ${remote.host} port 22: No route to host`);
-  }
-
-  const { machineId, baseFs } = resolveLanHostIdentity(host, essid);
-  // scp rides sshd, so the ssh daemon's pidfile is the whole of what reachability
-  // means here. An explicit `-p` has to name that same port: a transfer reaches
-  // exactly what a login reaches, never a port the box answers with something else.
-  const serving = sshPortOf(baseFs);
-  const asked = parsePort(params.portFlag);
-  const port = asked ?? serving;
-  if (serving === null || port !== serving) {
-    return failure(`scp: connect to host ${remote.host} port ${port ?? 22}: Connection refused`);
-  }
+  const reached = isPublicIp(remote.host)
+    ? await reachPublic(env, remote, params.portFlag)
+    : reachLan(env, remote, essid, params.portFlag);
+  if (!reached.ok) return failure(reached.line);
 
   let password: string;
   try {
@@ -266,21 +388,13 @@ const connectAndTransfer = async (params: {
       // rather than narrating it afterwards.
       yield text(`Connecting to ${remote.host}...`);
 
-      const authenticated = await env.scp.authenticate({
-        sessionId,
-        essid,
-        targetIp: remote.host,
-        username: remote.user,
-        password,
-        parentSessionId: env.session.id,
-        sourceIp: localAddress(env),
-      });
+      const authenticated = await reached.reach.login(sessionId, password);
       if (!authenticated.ok) {
         // No row was created, so there is nothing to close behind us.
         yield errorLine(
           authenticated.error === 'invalid_credentials'
             ? 'Permission denied (password).'
-            : `scp: connect to host ${remote.host} port ${port}: Connection refused`,
+            : unreachable(remote.host, reached.reach.port),
         );
         return 1;
       }
@@ -288,14 +402,21 @@ const connectAndTransfer = async (params: {
       const session: Session = {
         id: sessionId,
         playerKey: env.identity.publicKeyHex,
-        machineId: asMachineId(machineId),
+        machineId: asMachineId(authenticated.machineId),
         username: remote.user,
         userType: authenticated.userType,
         kind: 'scp',
         createdAt: env.now(),
       };
 
-      const transferred = env.signal.aborted ? INTERRUPTED : await params.transfer(session);
+      // The remote half of the command line means what a login would have meant by
+      // it — an account's own directory — and the tier that decides where that is
+      // only exists now. Resolved once, here, so both directions read it the same.
+      const remotePath = resolveAbsPath(homeDirectory(session), remote.path);
+
+      const transferred = env.signal.aborted
+        ? INTERRUPTED
+        : await params.transfer(session, remotePath);
       // Whichever way it went, including an abandoned one: a row outliving the
       // command that opened it is a door held ajar by something that has already
       // printed its last line.
@@ -323,20 +444,23 @@ const execute: Command['execute'] = async (env, args, flags) => {
     return failure(USAGE);
   }
 
-  const remotePath = resolveAbsPath(asAbsPath('/'), remote.path);
+  // The name a taken file wears is its last segment whichever directory the remote
+  // half turns out to resolve against, so where it lands is settled before the
+  // account's home is known.
+  const remoteName = basename(resolveAbsPath(asAbsPath('/'), remote.path));
   const portFlag = flags.get('-p');
 
   // The LOCAL half first, before a port is looked at or a password asked for: a
   // mistake on the player's own box is theirs, and it must not cost them a line in
   // somebody else's log.
   if (remoteSource !== null) {
-    const landing = resolveLanding(env, rawDestination, remotePath);
+    const landing = resolveLanding(env, rawDestination, remoteName);
     if (!landing.ok) return failure(landing.line);
     return connectAndTransfer({
       env,
       remote,
       portFlag,
-      transfer: (session) => take(env, session, remotePath, landing.path),
+      transfer: (session, remotePath) => take(env, session, remotePath, landing.path),
     });
   }
 
@@ -346,7 +470,7 @@ const execute: Command['execute'] = async (env, args, flags) => {
     env,
     remote,
     portFlag,
-    transfer: (session) => carry(env, session, remotePath, source),
+    transfer: (session, remotePath) => carry(env, session, remotePath, source),
   });
 };
 
