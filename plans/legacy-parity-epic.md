@@ -245,7 +245,7 @@ PHASE 1 — THE DOORS  (near-term focus)
       D3b slice 1 carry a file onto a box you hold     ✔ SHIPPED v0.137.0 (#401)
       D3b slice 2 take a file without being seen       ✔ SHIPPED v0.138.0 (#402)
       D3b slice 3 reach a stranger's box               ✔ SHIPPED v0.139.0 (#403)
-  D4  daemon control (systemctl / ps)                 ✎ GRILLED 2026-08-16, not yet planned
+  D4  daemon control (systemctl / ps)                 ✎ PLANNED — d4-daemon-control.md, slice 0 next
   D5  nc connect + nc -l backdoor
   D6  mysql
   D7  rediscli
@@ -1092,10 +1092,12 @@ in both directions (`land()` in `ftpShell.ts`), and `recordFtpTransfer`'s proven
 D3b still owns alone is its own: the transient session lifecycle, two authorizations in one
 command, async progress + cancellation, and where a *silent* transfer's trace lands.
 
-**➡️ NEXT: D4 — daemon control. ✅ GRILLED 2026-08-16**, ten locked decisions, a four-part spine
-and five grounding findings in
-["D4 — resolved scope & decisions"](#d4--resolved-scope--decisions-grill-me-2026-08-16).
-**`planning` is the next step**; no plan file exists yet.
+**➡️ NEXT: D4 — daemon control. ✅ GRILLED + PLANNED 2026-08-16.** Ten locked decisions and five
+grounding findings in
+["D4 — resolved scope & decisions"](#d4--resolved-scope--decisions-grill-me-2026-08-16); the
+four-slice spine, acceptance criteria and reduction program are in
+[`d4-daemon-control.md`](d4-daemon-control.md). **Slice 0 is next** — a behavior-preserving
+collapse of the three daemon commands, which ships before any behavior changes.
 
 The grill narrowed the scope and changed the shape. **Scope is now `systemctl start/stop/status`
 + `ps` only** — `kill` and session eviction move to D5 (where a planted backdoor is something
