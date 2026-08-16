@@ -1161,6 +1161,46 @@ state costs you more than one wrong attempt.
 
 ## 7. Architecture invariants
 
+- **A daemon is a DESCRIPTOR, not a module — adding one is a catalog row plus a `Daemon`.**
+  `commands/daemon.ts` is one implementation behind four front doors (`sshd`, `vsftpd`, `nginx`,
+  `apache2`); it was three near-identical modules until D4 slice 0 collapsed them. The descriptor
+  carries only what differs — the command name, the catalog row it binds, the `Starting <banner>`
+  line, the already-running wording, availability, and the manual prose. The gate ladder
+  (**root → port validity → already-running**, in that order), the pidfile write, the
+  `STARTUP_DELAY_MS` beat and the streamed shape are shared, because a second door that refused
+  differently from the first would be a second set of rules to learn for no gain. Do not add a
+  fifth daemon module; add a row to `DAEMONS`.
+  - **`nginx` and `apache2` are two names for ONE capability.** They bind the same `http` catalog
+    row, so whichever starts first owns the port and the other is refused — and the refusal names
+    the CONFLICT ("web server already running"), never the program, because "apache2 is already
+    running" is false when nginx was the one that came up.
+  - Real Unix reserves ports below 1024 for root, which is tempting to model here. Don't: the root
+    gate fires before a port is ever parsed, so the rule would be an unreachable branch.
+- **`pidfile.ts` owns the ONLY answer to "what is running here".** `readRunningServices` walks
+  `/var/run` and is the single policy; `readOpenPorts` is a projection of it for callers that want
+  a port scan's view, and `daemonName` is the name both the pidfile line and `ps`'s COMMAND column
+  use. A second walk anywhere would let a scan of a box and a survey run on it disagree about what
+  is up. Two rules that live there and must not be re-litigated per caller: an unrecognised
+  `/var/run` entry is skipped, and a **DIRECTORY** wearing a pidfile's name is not a running daemon
+  — `mkdir /var/run/sshd.pid` is something a root player can really do, and reading it as a service
+  would let anyone fake a serving box, or bar their own door, with one command.
+- **`systemctl` speaks as the UNIT; only `start` speaks as the program.** `stop` and `status`
+  answer `nginx.service - web server` however the player typed it, so stopping via `apache2` can
+  never claim apache2 was the one running. `start` keeps the program's banner, because starting IS
+  an act on a program. It is the same rule `webServer`'s conflict reply already followed.
+  - **Resolving a unit checks the BINARY, or `systemctl` is an apt bypass.** The binary gate lives
+    on the `nginx`/`apache2` commands; delegating around it would open port 80 on a box that never
+    installed a web server. `unitFor` gates on `binaryExists`, which is also what makes the
+    unknown-unit and not-installed answers collapse into one sentence — told apart, they would let
+    a guest enumerate a box's packages by probing.
+  - **`systemctl` never calls `popSession`.** A stop shuts the door without emptying the room:
+    live sessions survive and only new logins are refused, as real sshd does.
+- **The admin tools are planted, not apt-installable.** `systemctl` ships in `/usr/bin` on every
+  machine via `SERVICE_CONTROL_TOOLS` — a box you have rooted must be controllable with what is
+  already on it, or stopping a service would depend on the box having internet. `ps` was already in
+  `SYSTEM_UTILITY_NAMES` (`/bin`), and note it **also links `libpcre`** in the legacy-inherited
+  `libraryDeps` map, so it sits behind the linker gate as well as the binary one. Both are
+  world-executable and gate on root at RUNTIME where a rule exists at all.
 - **`env.fs` is a POINT-IN-TIME SNAPSHOT. A command that patches and then re-reads sees the
   world as it was before its own write.** `buildCommandEnv` calls `createFsView(args.root, …)`
   once, with `root: activeRoot()` evaluated at build time — the comment on `commandChain` in
