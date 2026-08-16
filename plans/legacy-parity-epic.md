@@ -245,7 +245,7 @@ PHASE 1 — THE DOORS  (near-term focus)
       D3b slice 1 carry a file onto a box you hold     ✔ SHIPPED v0.137.0 (#401)
       D3b slice 2 take a file without being seen       ✔ SHIPPED v0.138.0 (#402)
       D3b slice 3 reach a stranger's box               ✔ SHIPPED v0.139.0 (#403)
-  D4  daemon control (systemctl / ps / kill)
+  D4  daemon control (systemctl / ps)                 ✎ GRILLED 2026-08-16, not yet planned
   D5  nc connect + nc -l backdoor
   D6  mysql
   D7  rediscli
@@ -275,7 +275,7 @@ POST-SHIP — MISSIONS
 | **D2** | **A player cracks a credential instead of being told it** — **✔ SHIPPED** as D2.1–D2.6a (v0.111.0–v0.122.0, #377); as-built in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §1. **D2.6b (harvestable plaintext loot) is postponed** — see "Next action" | ~~`hydra <host> [service] [user]`~~ ✔; ~~`apt install hydra` ships `passwords.txt` via `extraFiles`~~ ✔; the two-pool split + per-account probability in `buildRemoteHostFs`; uncrackable pool into `secrets.ts`; wordlist-as-sole-gate; server-side md5 batch matching for cross-player; `john`; hydra trace on the target's `auth.log` | ftp/mysql/snmp as hydra *services* — each arrives with its door; **`gobuster`** (→ D1c, 2026-07-31) | B `hydra <NPC host> ssh` → cracks the user account → `ssh` succeeds; a low-probability NPC root cracks, most don't; a player's chosen root password never cracks; A appends a harvested password to `passwords.txt` via `nano` and a previously-failing crack now succeeds |
 | **D3** | **A player moves files without a shell** — **ftp only; `scp` split out to D3b 2026-08-14** | `vsftpd` daemon + catalog row + placement; `ftp <host> [user] [pw]` + FTP mode command set (`get`/`put`/`ls`/`cd`/`lls`/`lcd`/`lpwd`/`quit`); `vsftpd.log` trace; ftp as a hydra service. **No content generator** — the target's FS is the content | Virtual users (`virtual_users.conf`); `scp` (→ D3b) | B `hydra`s ftp creds → `ftp <host>` → `get` a file → `put` one the owner then sees; the session authorizes at its tier through L1/L2 exactly as ssh does (decision 2) |
 | **D3b** | **A player carries a file between two machines they hold** | `scp <src> <user>@<host>:<path> [port] [pw]`; the **transient** auth session (validate → transfer → end, legacy's `withTransientAuthSession`); two-endpoint resolution (local read + remote write through NAT/forwards); async progress + cancellation. Closes D2.5's named gap — **carrying a grown wordlist onto a rooted box** | FTP mode (D3's); recursive `-r`; directory transfer — decide at planning | A `scp /usr/share/wordlists/passwords.txt root@<NPC host>:/root/` → sweeps from that box with a list the shipped wordlist does not hold; a tier the credential does not carry refuses the write |
-| **D4** | **A defender controls what their box exposes** | `systemctl start/stop/status`; `ps`; `kill`; symmetric pidfile open/close semantics; `chmod` folds in | — | A `systemctl stop sshd` → pidfile gone → B's scan drops `:22` and ssh-via-forward `404`s; A `ps` lists what is running; A restarts it and reachability returns |
+| **D4** | **A defender controls what their box exposes** — **grilled 2026-08-16**, scope narrowed; decisions + spine in ["D4 — resolved scope & decisions"](#d4--resolved-scope--decisions-grill-me-2026-08-16) | `systemctl start/stop/status/restart` + `ps`, sharing ONE implementation with the shipped `sshd`/`vsftpd`/`nginx` commands (collapsed first, slice 0); symmetric pidfile open/close; runs anywhere you stand; the two login-gate fixes (`ssh` exemption + same-LAN service check) | `kill` and session **eviction** (→ D5, where a planted backdoor is worth killing); `chmod` (independent capability, out of the epic row); `enable`/`disable`; a service-state log | A `systemctl stop sshd` → pidfile gone → B's scan drops `:22` and ssh-via-forward `404`s; A `ps` lists what is running; A restarts it and reachability returns |
 | **D5** | **A player plants a backdoor and re-enters through it** | `nc <host> <port>` → restricted NC shell (no PATH); `nc -l <port>` listener with owner metadata in the pidfile; **backdoor chain forwarding** — append a `forward` on every gateway out to the public edge and report the reachable address | Exploit-planted backdoors (Phase 3) | B (inside a host) `nc -l 4444` → forward auto-appended → B leaves, `nc <public IP> <fwd>` → lands as the listener's owner; the defender greps `rules.v4` and finds the breadcrumb |
 | **D5b** | **NPC machines have a kind, and it shows** | A real role model, widening `LanHost.kind` (today `'machine' \| 'router' \| 'switch'`, `generateHomeLan.ts:31`) toward legacy's nine — webserver, database, mailserver, fileserver, iot, dns, switch, router, workstation; role-driven hostnames (today `DEVICE_TYPES` is consumer devices — `desktop-7`, `iphone-12` — and golden-locked at `homeNetwork.ts:30`); **role-weighted service placement** (a database box almost always runs mysql; a phone almost never runs nginx); role-keyed content pools, starting with the web pages D1 ships flat | Mission-specific roles (post-ship) | `nmap` a LAN and the boxes read as a *population*: `web-04` serves nginx and a corporate portal, `db-11` runs mysql, `cam-31` is an IoT box with a camera panel. A player can tell what a box probably is before touching it |
 | **D6** | **A player reads a machine's database** | `mysqld` catalog row + placement; **generated schema + data** (legacy `generateDatabase.ts`, `pools/database.ts`); `mysql <host> <user> [pw]` → `mysql>` prompt (parser/formatter/executor); hydra `mysql` service | Writes/`UPDATE` — decide at planning | B `hydra <host> mysql` → creds → `SHOW TABLES` / `SELECT` returns generated data worth reading |
@@ -553,6 +553,146 @@ impossible. Grounding caught this; do not drop the step from the criterion.
    player already holds a session there is truthful, and is what real sshd does.
 2. **`-P` as an alias** for `-p` — **not shipped**. An alias nobody can observe in-game has no
    test that can fail; free to add later, and decision 5 makes `-p` canonical regardless.
+
+---
+
+## D4 — resolved scope & decisions (grill-me, 2026-08-16)
+
+**Scope: `systemctl start/stop/status` + `ps`. Nothing else.** `kill`, session eviction and
+`chmod` are all named below as living elsewhere — the epic's original D4 row bundled four
+capabilities, and three of them are not this door.
+
+D4 is the defender's half of everything Phase 1 has shipped: D1, D3 and D3b opened three doors
+and **nothing in the game can close one**. But the grill's first finding reframes the size of it.
+
+### Grounding that reshaped the scope before any decision
+
+Five things the code says that the epic row could not have known:
+
+1. **The "start" half already ships — three times over.** `sshd.ts` (128 lines), `vsftpd.ts`
+   (117) and `webServer.ts` (148) are one module written three times: a diff of the first two
+   shows they differ *only* in which `SERVICE_CATALOG` row they bind and their prose.
+   `vsftpd.ts` says so outright — "Deliberately a mirror of `sshd`". So D4 is **stop + a
+   reduction**, not "add daemon control".
+2. **`ps`, `kill` and `chmod` are already planted binaries that do not run.** They sit in
+   `BASE_BINARIES`, so `ls /bin` lists them and typing one says `command not found`.
+   `systemctl` is in **no** binary list — one comment calls it "deferred to later slices".
+3. **The `ssh` listening exemption is narrower than §9 claims, and the real gap is elsewhere.**
+   The client already gates (`ssh.ts:307` refuses when the pidfile port does not match), and
+   the public and same-LAN endpoints gate with no kind exemption — so **stopping sshd already
+   locks strangers out cross-player**. §9's stated consequence (a router with `hasSsh: false`)
+   is currently unreachable: `ROUTER_SSH_PROBABILITY = 1` and every other call site passes
+   `true`. The genuinely large number it does not mention is `SERVICE_CATALOG.ssh.placement =
+   0.4` — **~60% of NPC LAN hosts run no sshd**, and the client refuses those today. Net:
+   closing the exemption is anti-cheat hardening with **zero gameplay change**.
+4. **A live bug the grill found, which D4 turns from obscure into ordinary.**
+   `authCreateSessionSameLan:221` checks `open.port === port` — the **port**, not the service —
+   though its own comment claims it verifies sshd. On a shared ESSID, `ssh <neighbour> -p <their
+   ftp port>` therefore opens an **ssh** session through a port serving **ftp**, and the client
+   does not gate that path at all (it prompts, then hands straight to the server). Today it
+   needs an uncommon setup; after D4, when players deliberately stop sshd and start daemons on
+   chosen ports, it is the ordinary case. This is D2.4's `reachedPort` rule — which §7 says
+   binds the login gate — applied to public and own-LAN and missed here.
+5. **`readOpenPortsFromPidfiles` has zero callers.** The server materializes the FS and calls
+   `readOpenPorts` on the tree instead. Dead since it was written; it goes with the reduction.
+
+### Forced rather than chosen (planning should not re-litigate)
+
+- **Stopping IS removing the pidfile**, and tombstoning a *generated* file is proven — it is
+  exactly how the brick works (`/boot/vmlinuz`). The server materializes base + patches and then
+  reads ports off the tree, so a stop propagates cross-player through the shipped pipeline with
+  no new mechanism.
+- **State persists across reboot whether or not anyone wants it to.** The pidfile is a patch row,
+  patches persist, and `reboot.ts` never touches the journal. A daemon started once is already
+  running forever.
+- **Live sessions survive a stop for free.** Nothing re-checks a daemon after login — the gate
+  fires once, at the door, and `findActiveSession` reads the row and nothing else.
+
+### Locked decisions
+
+1. **`systemctl` and the daemon commands share ONE implementation.** All four names stay —
+   they are real binaries, and the apt-install hint depends on `nginx`/`apache2` — but the 393
+   duplicated lines collapse into one catalog-driven module first, in its own
+   behavior-preserving PR. Two independent writers of the same pidfile with separately
+   maintained gate order is precisely the drift `pidfile.ts` exists to prevent.
+2. **No PID — the SERVICE is the unit.** The pidfile holds no PID (`sshd:port=22`), and the
+   only PIDs in the game are log decoration (`derivePid(stamp)`, computed per line, so two lines
+   from one daemon disagree). `ps` lists services; **`kill` defers to D5**, where a planted
+   `nc -l` backdoor is something worth killing and is not a `SERVICE_CATALOG` row. Adding the
+   column then is cheap; adding it now is speculative, against the catalog's own discipline.
+3. **`systemctl` runs anywhere you stand**, root-gated. "Tools run where you stand" is a locked
+   principle shipped at v0.118.0; refusing here would be its first exception. Three consequences
+   accepted deliberately: **you can lock yourself out** (stop sshd on a rooted NPC and the client
+   refuses your way back), **the AP gateway is contested** (its sshd is shared by every occupant,
+   including you), and **one player can now degrade another's services**, not just their files.
+4. **One state, and it persists.** The pidfile is the whole truth; no `enable`/`disable`. A
+   second state beside the one four readers and the server already agree on is what drifts. **A
+   stopped daemon stays stopped until someone restarts it** — the persistent cost is what makes
+   the attack worth performing and `ps` worth running.
+5. **A stop does not evict.** Live sessions survive; only new logins are refused, which is what
+   real sshd does. **Eviction pairs with `kill` in D5** — "shut the door" and "remove who is
+   already inside" are two defender verbs, and bundling them makes D4 the second one in disguise.
+   Two consequences named rather than discovered: an **intruder outlives the door**, and a
+   surviving session is L1-valid so the **intruder can re-open the door behind them**.
+6. **`chmod` is out of D4.** It shares nothing with the daemon model — no pidfile, no catalog
+   row, no port. It is also not trivial: `availability.ts` reads a binary's own `perms.execute`
+   at execution time, so a working `chmod` lets a player make a binary unusable on someone
+   else's box. Its own decision, later; not D10 polish either.
+7. **The player types the DAEMON name** — `systemctl stop sshd` — matching the epic's own
+   acceptance line, the command names players already use, and `daemonOf(spec)`, which derives
+   exactly this from the pidfile basename. `systemctl stop http` is a string no Linux user has
+   typed. **`apache2` ships as a real alias** onto the same `http` unit because it is
+   observable, and its replies name the **conflict** rather than the program, reusing the rule
+   `webServer.ts` established. No `ssh`/`ftp` aliases — unobservable, per the `-P` precedent.
+8. **No new log.** The intrusion is **already logged**: to stop A's daemon, B had to log in as
+   root, which wrote `Accepted password … from <B's server-derived address>` into A's
+   `auth.log`. The stop also has a louder tell than any line — the port is gone, permanently.
+   Recorded so it is not re-solved: **the forensics already exist server-side**, since the
+   pidfile removal is a patch row stamped with `writer_key` from the verified pubkey, so a
+   future "who touched my box" surface needs no new log format and no change to D4.
+9. **Both login-gate fixes ship in D4** — drop the `ssh` exemption on `authCreateSession`, and
+   make `authCreateSessionSameLan` check the SERVICE rather than the port (finding 4). One rule,
+   two missing applications. §9 kept the exemption backlogged pending "what happens to a player
+   mid-session on such a router" — **decision 5 answers that**, so the blocker is gone. D4 is
+   also what gives both teeth: it is the first time "this service is not running" is a player's
+   deliberate act rather than a generation artifact, and shipping the lock and the hole in one
+   door would be indefensible.
+10. **`/usr/bin/systemctl`, pre-installed everywhere**, planted on generated hosts exactly as
+    `SYSTEM_DAEMON_NAMES` is — decision 3 requires it to exist on a box you rooted. Not
+    apt-installable: a box you cannot administer is an obstacle, not a puzzle. **`start`/`stop`
+    root-only at runtime, world-executable on disk** (the shipped `sshd` pattern); **`status`
+    and `ps` at any tier**, since real ones need no root and letting a guest see what runs is
+    recon that costs the defender nothing they control. **Not-installed and unknown-unit
+    collapse into one reply** (`Unit <name>.service could not be found`) — distinguishing them
+    would tell a guest which packages a box holds, which is `dpkg`-grade recon V1 gates.
+
+### Folded in as routine (recorded so they are not re-decided)
+
+- **`systemctl restart` ships** in slice 1. Unlike the `-P` alias it is directly observable and
+  something players type, so it has a test that can fail.
+- **Bare `systemctl` refuses with usage.** Real systemd lists all units, which duplicates `ps`.
+- **A NAT forward pointing at a stopped service already behaves.** `resolveInnerGatewayTarget`
+  documents "a forward to a stray address, or to a port the target is not listening on" as a
+  handled case, so stopping a daemon behind a forward closes that path with no new code.
+
+### Slice spine (each vertical + observable)
+
+- **Slice 0 — the reduction, its own PR before D4.** Three daemon modules → one catalog-driven
+  module with three thin registrations; `readOpenPortsFromPidfiles` deleted. Behavior-preserving:
+  `reduce-system-complexity` + `refactoring`, **no RED**, existing tests green.
+- **Slice 1 — a defender shuts a door, and it stays shut.** `systemctl start|stop|status|restart`
+  wherever you stand. The whole loop is one slice because the acceptance is one sentence: stop →
+  pidfile gone → port closes → `status` says inactive → start → reachability returns, across a
+  reboot. `start` is nearly free once slice 0 has parameterized it.
+- **Slice 2 — a player sees what a box is running.** `ps`, any tier, on the box you stand on
+  including one you rooted. Its own slice for its own design question (columns, and what a guest
+  may see) and its own RED.
+- **Slice 3 — the door a crafted client cannot walk through.** Both gate fixes from decision 9.
+  Server-side only, no client surface. **Carries D4's wire-check**, proving a stopped daemon is
+  refused on every login path — the one thing here provable only live. Last deliberately: it has
+  nothing a player can see, so leading with it would open the door with a PR that proves nothing.
+- **E2E** rides slice 1 or 3, appended to `e2e-shared-network-verification.md`: A stops sshd, B's
+  `nmap` drops `:22`, B's `ssh` gets `Connection refused`, A restarts it, B gets back in.
 
 ---
 
@@ -952,15 +1092,25 @@ in both directions (`land()` in `ftpShell.ts`), and `recordFtpTransfer`'s proven
 D3b still owns alone is its own: the transient session lifecycle, two authorizations in one
 command, async progress + cancellation, and where a *silent* transfer's trace lands.
 
-**➡️ NEXT: D4 — daemon control (`systemctl` / `ps` / `kill`), not yet grilled.** Decision 8's door
-order puts it after the transfer pair, and three doors have now earned it: a player runs sshd, a
-web server and ftpd with **no way to stop, start or even list any of them**. It is the defender's
-half of everything Phase 1 has shipped so far — every door D1–D3b is currently permanently open
-because nothing can close one. Two things already point at it. `ftp` gates its login on the
-target's `/var/run` pidfiles, so stopping vsftpd is *already* wired to close that door, and `ssh`
-does **not** gate the same way (§9 of `conventions-and-gotchas.md`) — D4 is where that exemption
-stops being a documented quirk and becomes a live inconsistency a player can observe, so decide it
-inside D4's grill rather than behind it. Start with `grill-me`, then `planning`.
+**➡️ NEXT: D4 — daemon control. ✅ GRILLED 2026-08-16**, ten locked decisions, a four-part spine
+and five grounding findings in
+["D4 — resolved scope & decisions"](#d4--resolved-scope--decisions-grill-me-2026-08-16).
+**`planning` is the next step**; no plan file exists yet.
+
+The grill narrowed the scope and changed the shape. **Scope is now `systemctl start/stop/status`
++ `ps` only** — `kill` and session eviction move to D5 (where a planted backdoor is something
+worth killing), and `chmod` leaves the epic row entirely as an independent capability. And D4 is
+**mostly stop plus a reduction**, because the start half already ships three times over:
+`sshd.ts`, `vsftpd.ts` and `webServer.ts` are 393 lines that differ only in which catalog row they
+bind, so slice 0 collapses them before any behavior changes.
+
+Two things the grill found in the code are worth reading before planning. The `ssh` listening
+exemption is **anti-cheat only** — the client already gates and both cross-player endpoints gate,
+so closing it changes nothing an honest player sees, and §9's stated blocker is answered by
+decision 5. And there is a **live bug** D4 turns from obscure into ordinary:
+`authCreateSessionSameLan` checks the port rather than the service, so on a shared ESSID `ssh
+<neighbour> -p <their ftp port>` opens an ssh session through an ftp port. Both are fixed in
+slice 3, which carries the wire-check.
 
 Per slice, before any code: load `tdd`, `testing`, `mutation-testing`, `refactoring`; run full
 RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR; present before starting the next. Any `api/` change
