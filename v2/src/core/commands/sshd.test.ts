@@ -8,7 +8,7 @@ import {
   mockSession,
 } from '../../test/factories/commandEnv';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { sshd } from './sshd';
+import { sshd } from './daemon';
 
 /**
  * `sshd` brings up the OpenSSH daemon on the current machine by writing

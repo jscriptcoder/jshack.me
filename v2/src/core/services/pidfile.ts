@@ -12,7 +12,6 @@
 
 import { asAbsPath, type AbsPath } from '../types';
 import type { Directory } from '../filesystem/types';
-import { basename } from '../filesystem/path';
 import { SERVICE_CATALOG, type ServiceSpec } from './serviceCatalog';
 
 /** The directory holding every running service's pidfile. */
@@ -48,9 +47,8 @@ export type OpenPort = { readonly port: number; readonly service: string };
 
 /** Resolve ONE pidfile (its `/var/run` basename + content) to the open port it
  *  advertises, or null for an unrecognised pidfile name. The single mapping every
- *  reader shares — the live-tree walker (`readOpenPorts`) and the persisted-row
- *  reader (`readOpenPortsFromPidfiles`) — so the port a scan SHOWS can never drift
- *  from what a producer wrote. Malformed content falls back to the default port. */
+ *  reader shares, so the port a scan SHOWS can never drift from what a producer
+ *  wrote. Malformed content falls back to the default port. */
 const openPortFromPidfile = (pidfileName: string, content: string): OpenPort | null => {
   const spec = serviceByPidfileName(pidfileName);
   if (spec === undefined) return null;
@@ -75,17 +73,3 @@ export const readOpenPorts = (root: Directory): readonly OpenPort[] => {
     return port === null ? [] : [port];
   });
 };
-
-/** The open ports a machine advertises, read from its `/var/run/*.pid` PATCH ROWS
- *  rather than a live tree — the form the SERVER holds when resolving a
- *  cross-player scan (the owner's persisted rows under `/var/run/`, not a built
- *  Directory). Shares `openPortFromPidfile` with `readOpenPorts`, so a
- *  server-resolved scan and a local one report identical ports for the same running
- *  services. Rows whose basename is not a known pidfile are skipped. */
-export const readOpenPortsFromPidfiles = (
-  rows: readonly { readonly path: string; readonly content: string }[],
-): readonly OpenPort[] =>
-  rows.flatMap((row) => {
-    const port = openPortFromPidfile(basename(asAbsPath(row.path)), row.content);
-    return port === null ? [] : [port];
-  });
