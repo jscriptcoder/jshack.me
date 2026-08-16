@@ -357,7 +357,9 @@ decisions. The ship gate is legacy parity **minus missions**; missions are a pos
     `apt install` all work on an NPC box; ordinary tier gates still apply (`apt` needs root on
     THAT box, as real apt does) but there is no "this is not your machine" refusal on top. The
     end-to-end loop needs no `scp`: root an NPC box, `apt install hydra` there, sweep from it.
-    Carrying a *grown* wordlist across still waits on `scp` (D3).
+    Carrying a *grown* wordlist across shipped with D3b (v0.137.0) — `scp ~/passwords.txt
+    root@<npc>:/usr/share/wordlists/passwords.txt`, after an `apt install` on that box has
+    created the directory `WORDLIST_PATH` points at.
   - **Locked principle: an NPC box is one box, and tier is the only lens.** Everything on it is
     shared; what a player sees is decided by the tier they hold there, never by who wrote it. The
     journal (`listPatches` is machine-scoped) and the materialized tree already worked this way —
@@ -424,8 +426,55 @@ decisions. The ship gate is legacy parity **minus missions**; missions are a pos
     host running BOTH doors, and without one "ftp wrote elsewhere" only means "a different
     machine". Pick the fixture ESSID for the box you need before assuming a generator bug.
   - **Still open, and named rather than smuggled:** `ssh` does not gate on a listening sshd
-    (§9), the web door files its sweeps in `auth.log` (§9), and D3b (`scp`) is the transfer
-    without a door — planned separately in `plans/legacy-parity-epic.md`.
+    (§9) and the web door files its sweeps in `auth.log` (§9).
+
+- **D3b (`scp` — the transfer without a door) ✅ COMPLETE (v0.139.0).** Three slices —
+  v0.137.0 #401, v0.138.0 #402, v0.139.0 #403. One file moves between two machines in one
+  command, authorized by a credential the player already earned, leaving the target's log a
+  login line and nothing else. It closes **D2.5's named gap** (the D2 block above): a *grown*
+  `passwords.txt` can now be carried onto a box the player rooted, so "tools run where you
+  stand" finally has nothing left waiting on it. The durable rules it established live in §7
+  (the four `scp` bullets); the shape:
+  - **It is not a door, and one three-row table is where that is said.** `scp` has no daemon,
+    no port, nothing to place, and **no `SERVICE_CATALOG` row** — it rides sshd. The `kind`
+    stored on the row is provenance; `SERVICE_BY_DOOR` maps it to the service. That is the
+    whole mechanism, and §7 says why adding a column instead would have been the wrong shape.
+  - **The row lives exactly one command, and one function owns that lifetime.**
+    `connectAndTransfer` (`scp.ts:354`) is create → transfer → end for both directions and
+    both ways of reaching a box, so "the row closes on every path" is one piece of code rather
+    than a discipline each exit has to keep on its own — success, either refusal, and both
+    abort windows. It **never reuses an existing session**: a second `Accepted password` line in the
+    target's log is truthful (real sshd writes one), while reuse would make `scp` behave
+    differently depending on state the player cannot see.
+  - **It is the SILENT door, and ftp is the loud one — same theft, two costs.** ftp's `get`
+    itemises path and byte count in `vsftpd.log`; `scp` writes one `Accepted password` line in
+    `auth.log`, indistinguishable from an interactive ssh login, and **names the file in
+    neither direction**. That contrast is a test running the same theft through both doors with
+    one ledger watching, not a claim in a doc — and it is a *product* difference, the same way
+    `john` is the silent alternative to `hydra`.
+  - **Own-LAN and public collapsed into a `Reach`.** They differ only in what establishes the
+    port and who names the machine id; after the password is typed they are one piece of code.
+    No new type was needed — `PublicAuthResult` is already the shape a LAN login can return,
+    with the locally-resolved machine id supplied by the caller. `FtpPublicAuthParams` became
+    **`PublicDoorAuthParams`** with it: both doors send `callerMachineId` and only `ssh` names
+    no caller box, so the name belonged to the door, not to ftp.
+  - **The server needed no change for cross-player at all.** D3.6 made
+    `authCreateSessionPublic` kind-parameterized and slice 1 moved it onto `SERVICE_BY_DOOR`,
+    so the reached-port check already demanded sshd, the trace already went through the ssh
+    sweep log, and the source IP was already server-derived via `standingVantage`. Three of
+    slice 3's four criteria were true before a line was written — which is what a door adding
+    no authorization dimension looks like when the next one arrives.
+  - **Wire-check:** `testScpTransfer` (19/19), covering **both door-kind paths in one run** —
+    the own-LAN `authCreateSession` with `kind: 'scp'` and the cross-player
+    `authCreateSessionPublic` — which is how slice 1's deliberately deferred wire-check was
+    discharged. Checks 17–19 are the part only a live run could prove: a transient `scp` row is
+    enough to read a stranger's box (`handleResolveCrossPlayerFs` authorizes on any un-ended row
+    with no kind filter), and ending it is enough to stop.
+  - **E2E:** Act 12 of
+    [`e2e-shared-network-verification.md`](./e2e-shared-network-verification.md), two real
+    players on two networks. The carry's `apt install hydra` step is **load-bearing** — a
+    generated NPC's `/usr` holds only `bin` and `sbin`, so without it the `scp` fails on the
+    missing containing directory. `scp` does not create parents, as real scp does not.
 
 To pick up the next slice: read the relevant `plans/*.md` TOP BLOCK (live status +
 as-built), then the cross-player architecture doc if the work touches cross-player paths.
@@ -1224,6 +1273,48 @@ state costs you more than one wrong attempt.
   that handler — the check belongs to whoever knows which daemon was knocked on. The own-LAN
   handler's deliberate ssh exemption is a different path with its own §9 entry; do not "fix"
   it behind another door's slice.
+- **A session's `kind` is PROVENANCE; the service it rides is a separate lookup.**
+  `SERVICE_BY_DOOR = { ssh: 'ssh', ftp: 'ftp', scp: 'ssh' }` (`authCreateSession.ts:57`,
+  exported and indexed by BOTH login gates) is the entire mechanism. `scp` is stored as `scp`
+  so a row records which command opened it, but it has **no `SERVICE_CATALOG` row and must
+  never get one** — it is not a service. That one indirection makes three things true by
+  construction instead of by discipline: a transfer is gated on sshd listening, its trace goes
+  through the ssh sweep log, and **there is no scp log line to forget to suppress**. A future
+  door that is not a daemon adds a row here, not a column anywhere. Note the asymmetry this
+  produces and **do not "normalize" it**: the own-LAN gate is
+  `payload.kind !== 'ssh' && !listening`, so `scp` IS refused against a box with sshd down
+  while plain `ssh` keeps its documented, backlogged exemption (§9). That is the intended rule
+  landing on the existing gate, not a bug in either.
+- **A remote read must decide LOCAL-or-SERVER before it resolves, because the local resolver
+  fails by handing back YOUR OWN box.** `resolveActiveRoot` falls back to `ownBaseFs` when the
+  ESSID cannot generate the target (`activeRoot.ts:45`) — correct for a machine this client
+  can build (an NPC on the player's LAN, their own deep layer) and silently wrong for another
+  player's workstation, where it does not error but returns the CALLER's file tree under the
+  target's name. So every remote read asks `isCrossPlayerWorkstation` first and sends a
+  stranger's box to `resolveCrossPlayerFs` (server-materialized, tier-pruned before it crosses
+  the wire), the same call an ssh hop's `refreshServedRoot` makes; `scpTargetTree`
+  (`state.ts:590`) is that split. A door that reads a remote box and skips the check has a bug
+  no type can catch and no unit test with a stubbed resolver can see — it took a live
+  wire-check to prove, which is why it is written here rather than in a comment.
+- **`is_new` on a patch is INERT — do not adopt it for symmetry, and do not believe
+  `ftpShell.ts`'s comment about it.** Checked exhaustively when `scp` had to decide whether to
+  send one: `applyPatches` and `materializeMachineFs` never read it; `removePatch` deletes the
+  patch tree and tombstones with `is_new: false` regardless, so it does **not** decide "a later
+  `rm` deletes it" the way that comment claims; the only live read is inside `upsertPatch`'s
+  `rejectModifiedSinceOpen` guard, which early-returns when no `base_hash` is sent. Both `scp`
+  directions omit it deliberately — the flag asserts "no base-FS file stood here" and the
+  upload never looks at the target, so sending one would be a guess. A flag no test can fail is
+  a claim nobody is keeping true. The stale comment is a behavior-neutral cleanup left for a
+  slice already in that file.
+- **A command that awaits the NETWORK must read `env.signal.aborted` itself.** Everywhere else
+  Ctrl-C surfaces by rejecting an in-flight `env.sleep`, so a paced tool unwinds for free; a
+  transfer awaits a round-trip instead and would otherwise land its bytes after the player
+  abandoned it. `scp` is the codebase's only reader, checking at the two moments nothing has
+  landed yet — before the transfer starts, and (download only, where a read-then-write gap
+  exists) between the remote read and the local write. Any later door holding a session across
+  a round-trip inherits the requirement. Related shape: an abort generator with nothing to
+  yield is an eslint `require-yield` error, which is why `scp`'s early exits return plain sync
+  results and only the path that actually waits paints `Connecting to <host>...`.
 - **A log line that names an ACCOUNT reads it off the session row, never off the payload.**
   The client says what it did (`recordFtpTransfer` sends the path, the byte count and the direction); who it
   is comes from the `(player_key, machine_id)` row the L1 gate just looked up. A defender's log
@@ -1305,6 +1396,14 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   decision: **`curl` needs no session at all today**, so giving it a caller machine changes a
   contract deliberately left open (the credential-free door). Detail at §1's cross-player trace
   entry and in D1d's as-built; named as open in `plans/legacy-parity-epic.md`.
+
+- **`scp` moves one file, one hop, one direction at a time.** Named and deferred at D3b's
+  close-out (2026-08-16): **remote-to-remote** (`scp root@A:/f root@B:/g` — two transient
+  sessions in one command, and genuinely interesting given how silent the door is), **`-r`**
+  and directory transfer, and **preserve-times**, which can never have its real name because
+  `-p` is the port (a deliberate decision, not an oversight). The **`-P` alias was resolved
+  rather than deferred**: not shipped, because an alias nobody can observe in-game has no test
+  that can fail — it stays free to add the day something can see it.
 
 - **The terminal cannot rewrite a line, so no tool can draw a live meter.** Real `scp` prints ONE
   progress line per file and overwrites it with `\r` about once a second — filename, percent,
