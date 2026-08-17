@@ -62,6 +62,15 @@ export type ServiceSpec = {
   readonly defaultPort: number;
   /** The account the daemon runs as — the pidfile's owner. */
   readonly runUser: string;
+  /** What the daemon says to a client that opens a raw connection — the greeting
+   *  `nc` prints, and the only way a port identifies itself in its own words.
+   *
+   *  DELIBERATELY VERSION-FREE. A protocol identifier (`SSH-2.0`, `HTTP/1.1`) is
+   *  fine; a build (`OpenSSH_8.9p1`) is not. Versions are the package manifest's
+   *  to tell — `/var/lib/dpkg/status` is where a version scan reads them — and a
+   *  version baked in here would be a second, contradicting source of truth for
+   *  the fact vulnerabilities are keyed on. */
+  readonly banner: string;
   /** Slice 2 (generation): the fraction of NON-self hosts that run this service.
    *  Each host rolls independently — no per-LAN guarantee. */
   readonly placement: number;
@@ -88,6 +97,7 @@ export const SERVICE_CATALOG = {
     pidfile: 'sshd.pid',
     defaultPort: 22,
     runUser: 'root',
+    banner: 'SSH-2.0-OpenSSH',
     placement: 0.4,
     altPorts: [2222, 8022],
     altPortChance: 0.2,
@@ -102,6 +112,9 @@ export const SERVICE_CATALOG = {
     pidfile: 'nginx.pid',
     defaultPort: 80,
     runUser: 'root',
+    // What a web server says to a client that speaks no HTTP at it — which is
+    // exactly what a raw connection is.
+    banner: 'HTTP/1.1 400 Bad Request',
     placement: 0.3,
     altPorts: [8080, 8000],
     altPortChance: 0.25,
@@ -122,6 +135,7 @@ export const SERVICE_CATALOG = {
     pidfile: 'vsftpd.pid',
     defaultPort: 21,
     runUser: 'root',
+    banner: '220 FTP server ready.',
     placement: 0.3,
     altPorts: [2121],
     altPortChance: 0.2,

@@ -34,7 +34,7 @@ other half.
 
 ## Acceptance Criteria
 
-- [ ] `nc <host> <port>` against a running service prints that service's banner and closes; a
+- [x] `nc <host> <port>` against a running service prints that service's banner and closes; a
       closed port, an unknown host and localhost each refuse in netcat's own words
 - [ ] `nc -l <port>` as root writes `/var/run/nc-<port>.pid`; `ps` lists it with a PID, an owner
       and a port; `nmap` shows the port `open` with SERVICE `unknown`
@@ -48,7 +48,7 @@ other half.
 - [ ] ~10% of generated NPC hosts run a listener at user tier, measured across a population
 - [ ] A listener behind a NAT forward is reachable, scannable and enterable from off-LAN, proven by
       a wire-check and a two-player browser run
-- [ ] `ps` on a box you have ENTERED lists what it is running (§9 defect closed)
+- [x] `ps` on a box you have ENTERED lists what it is running (§9 defect closed)
 
 ## Reduction Program
 
@@ -128,9 +128,35 @@ test cannot see the server's materialize-then-prune. Extend an existing `scripts
 
 ---
 
-### Slice 1: A player grabs a banner off a stranger's port
+### Slice 1: A player grabs a banner off a stranger's port — DONE (v0.144.0)
 
 **Branch**: `feat/nc-connect-banner`
+
+**As-built.** Shipped as planned, plus **one acceptance criterion added mid-slice**: `nc` never
+answers for a REAL OCCUPANT of the player's ESSID. Without it `nc` would have been the only
+network command missing that rule — `nmap` refuses to invent an occupant's ports and `ssh` routes
+them before the generated path — and on an octet collision `nc` would have greeted as whichever
+NPC that address would have rolled, on a box whose services only its owner's journal knows. An
+occupant address now answers `Connection refused`: they are up, what they run is theirs.
+
+Mutation: the behavioral region 97.78% (88 killed, 2 survived, both equivalent — `[]` →
+`["Stryker was here"]` has no `.port` to match so it refuses identically, and
+`host === undefined → false` is unreachable because `bindFlags` pushes positional args and so
+leaves no holes). Whole-file 75.68% is the `manual`/`description` prose class §4 documents.
+`serviceCatalog.ts` 100% (6/6). The occupant guard's own predicate mutant (`localIp === host` →
+`true`) SURVIVED the first pass and was killed by a test proving one neighbour on the LAN does not
+silence every NPC box — worth noting, as the two obvious occupant tests both left it alive.
+
+Three things worth carrying forward:
+
+- **Stryker generates no mutants inside `as const satisfies` object literals**, so the three
+  banner VALUES cannot be mutation-tested. Mutation is `N/A` for catalog content; the golden test
+  pinning all three exact strings is the evidence. Expect the same for every future catalog column.
+- **`ssh.ts`'s private `sshPortOf` is a second reader of `/var/run`**, re-implementing what
+  `pidfile.ts` owns. A reduction candidate once slice 2's union lands, not before.
+- **The banner column is version-free by construction**: `SSH-2.0-OpenSSH` keeps the protocol
+  identifier and drops the build. `SSH-2.0` and `HTTP/1.1` are protocol tokens and narrow a box
+  to nothing, which is the distinction locked decision 12 actually turns on.
 
 **Value**: A player points `nc` at any open port and learns what is answering — the walking
 skeleton, and the recon verb that makes an unaccounted-for port answerable at all.
@@ -152,6 +178,8 @@ the epic reserves the version column for V1.
 - An unresolvable host → `Connection timed out`; `localhost`/own IP → `Connection refused`
 - Cancellable mid-connect (Ctrl-C unwinds, per the `env.sleep` convention)
 - The three catalog banners carry no version string
+- ADDED MID-SLICE: an address held by a fellow occupant refuses rather than answering from the
+  generated world, and a neighbour elsewhere on the LAN leaves every NPC box answering
 
 **RED**: `nc <ip> 22` emits the ssh banner where today the command does not exist.
 **GREEN**: The `banner` column plus a connect-only `nc` command; no listener concept yet.
@@ -446,7 +474,7 @@ Per slice, from `v2/`:
 3. **Typecheck** — `npm run typecheck` (`tsc -b`; a plain `tsc --noEmit` is a NO-OP here)
 4. **Lint/format** — `npm run lint` (v2 has no Prettier)
 5. **Version bump** on every feature slice — `v2/package.json` AND `v2/package-lock.json`
-   (`npm install --package-lock-only`). Current: **0.142.0**
+   (`npm install --package-lock-only`). Current: **0.144.0**
 6. **Wire-check** where the slice says required — `scripts/test*.ts` against `vercel dev` +
    supabase. `tsc` cannot see DB columns or constraints, so an `api/` regression ships green
    without one

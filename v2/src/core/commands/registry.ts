@@ -33,6 +33,7 @@ import { ls } from './ls';
 import { man } from './man';
 import { mkdir } from './mkdir';
 import { nano } from './nano';
+import { nc } from './nc';
 import { nmap } from './nmap';
 import { nmcli } from './nmcli';
 import { ping } from './ping';
@@ -74,6 +75,7 @@ const builtins: readonly Command[] = [
   man,
   mkdir,
   nano,
+  nc,
   nginx,
   nmap,
   nmcli,
