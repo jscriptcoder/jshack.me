@@ -33,12 +33,13 @@
  *   *   — anything else is the (last) command's own exit code
  */
 
-import type {
-  Command,
-  CommandEnv,
-  CommandResult,
-  PatchResult,
-  TerminalLine,
+import {
+  PATCH_ERROR_REASON,
+  type Command,
+  type CommandEnv,
+  type CommandResult,
+  type Session,
+  type TerminalLine,
 } from '../commands/types';
 import type { AbsPath } from '../types';
 import { tokenize } from './tokenize';
@@ -62,10 +63,24 @@ type PrepareResult =
   | { readonly ok: true; readonly prepared: PreparedStage }
   | { readonly ok: false; readonly error: CommandResult };
 
+/** Whether the shell running this session has a terminal behind it. Everything
+ *  reached by LOGGING IN does; a session reached through a planted listener
+ *  does not, because netcat is a pipe and nobody allocated it a pty. It is the
+ *  difference every writeup opens by fixing (`python3 -c 'import pty;…'`), and
+ *  here it is what separates the three doors: ftp moves files, a backdoor lets
+ *  you look and break, and only a real login can be pivoted onward from. */
+const hasTty = (session: Session): boolean => session.kind !== 'nc';
+
 /** Resolve a stage to a runnable command + bound flags, or a shell error
- *  (command-not-found exit 127, or a binder failure exit 2). Pure — no
- *  execution — so the dispatcher can validate every stage up front. */
-const prepareStage = (stage: Stage, commands: ReadonlyMap<string, Command>): PrepareResult => {
+ *  (command-not-found exit 127, a binder failure exit 2, or no terminal for a
+ *  command that needs one, exit 1). Pure — no execution — so the dispatcher can
+ *  validate every stage up front, which is also what stops `su | grep x` from
+ *  smuggling a refused command past the gate inside a pipeline. */
+const prepareStage = (
+  stage: Stage,
+  commands: ReadonlyMap<string, Command>,
+  tty: boolean,
+): PrepareResult => {
   const command = commands.get(stage.name);
   if (command === undefined) {
     return { ok: false, error: syncError(`bash: ${stage.name}: command not found`, 127) };
@@ -74,6 +89,14 @@ const prepareStage = (stage: Stage, commands: ReadonlyMap<string, Command>): Pre
   const bound = bindFlags(stage.args, command.flags ?? {}, { stacking: command.stacking ?? false });
   if (!bound.ok) {
     return { ok: false, error: syncError(`${command.name}: ${bound.error}`, 2) };
+  }
+
+  // Last of the three, mirroring the order the real thing fails in: the program
+  // is found, parses its arguments, and only then reaches for a terminal that
+  // is not there. The command speaks for itself — one voice per program, not a
+  // shell-wide sentence about someone else's tool.
+  if (!tty && command.withoutTty !== undefined) {
+    return { ok: false, error: syncError(command.withoutTty, 1) };
   }
 
   return { ok: true, prepared: { command, positional: bound.positional, flags: bound.flags } };
@@ -123,14 +146,6 @@ async function* iterate(lines: readonly string[]): AsyncIterable<string> {
   yield* lines;
 }
 
-// Map a PatchApi write failure to a bash-style redirect error reason.
-const REDIRECT_WRITE_MESSAGE: Record<Extract<PatchResult, { ok: false }>['error'], string> = {
-  no_session: 'Permission denied',
-  permission_denied: 'Permission denied',
-  network_error: 'I/O error',
-  modified_since_open: 'File changed on disk',
-};
-
 type RedirectTarget =
   | { readonly ok: true; readonly target: AbsPath; readonly isNew: boolean }
   | { readonly ok: false; readonly message: string };
@@ -179,7 +194,7 @@ const applyRedirect = async (
       kind: 'sync',
       lines: [
         ...lines,
-        { kind: 'error', content: `bash: ${rawTarget}: ${REDIRECT_WRITE_MESSAGE[written.error]}` },
+        { kind: 'error', content: `bash: ${rawTarget}: ${PATCH_ERROR_REASON[written.error]}` },
       ],
       exitCode: 1,
     };
@@ -218,8 +233,9 @@ export const runCommandLine = async (
   // provably-no-op `.filter(ok)` to re-narrow the results, which only adds an
   // unkillable equivalent mutant without improving clarity.
   const prepared: PreparedStage[] = [];
+  const tty = hasTty(env.session);
   for (const stage of parsed.pipeline.stages) {
-    const result = prepareStage(stage, commands);
+    const result = prepareStage(stage, commands, tty);
     if (!result.ok) return result.error;
     prepared.push(result.prepared);
   }

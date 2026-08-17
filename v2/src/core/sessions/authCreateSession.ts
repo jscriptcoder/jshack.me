@@ -27,8 +27,14 @@ import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs';
 import { canBoot } from '../boot/bootFiles';
 import { md5 } from '../generation/md5';
-import { SERVICE_CATALOG, type SweepLog } from '../services/serviceCatalog';
-import { readOpenPorts } from '../services/pidfile';
+import { SERVICE_CATALOG, type ServiceSpec, type SweepLog } from '../services/serviceCatalog';
+import {
+  readOpenPorts,
+  readRunningProcesses,
+  type Listener,
+  type RunningProcess,
+} from '../services/pidfile';
+import type { Directory } from '../filesystem/types';
 import { derivePid } from '../logging/syslog';
 import {
   appendMachineLog,
@@ -40,22 +46,35 @@ import { asGameTime, type UserType } from '../types';
 import type { PatchRow } from '../patches/upsertPatch';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
-/** The doors this endpoint opens. All three authenticate the same way — against
- *  the box's real `/etc/passwd` — and differ only in which log records the attempt
- *  and what the client does with the row: `ssh` is a hop the shell walks onto,
- *  `ftp` a parallel session the terminal holds alongside where it already stands,
- *  and `scp` a transient row that exists for one transfer and is ended behind it. */
-export const DOOR_KINDS = ['ssh', 'ftp', 'scp'] as const;
+/** The doors this endpoint opens. Three of them authenticate the same way —
+ *  against the box's real `/etc/passwd` — and differ only in which log records the
+ *  attempt and what the client does with the row: `ssh` is a hop the shell walks
+ *  onto, `ftp` a parallel session the terminal holds alongside where it already
+ *  stands, and `scp` a transient row that exists for one transfer and is ended
+ *  behind it.
+ *
+ *  `nc` is the fourth and asks for nothing. There is no daemon behind it and no
+ *  account to name: the pidfile somebody left in `/var/run` IS the door, and it
+ *  already says who planted it and at what tier. */
+export const DOOR_KINDS = ['ssh', 'ftp', 'scp', 'nc'] as const;
 export type DoorKind = (typeof DOOR_KINDS)[number];
 
-/** Which SERVICE a door knocks on — the daemon that has to be listening, and whose
- *  log records the attempt. Not the same question as which kind the row stores:
- *  `scp` rides sshd, so it is answered by the ssh daemon and written up as an
- *  ordinary ssh login, while the row still remembers a transfer opened it. Keeping
- *  the two apart is what lets the defender's evidence stay truthful without the
- *  session table forgetting what it was for. */
+/** The doors that ask for a password — everything except a backdoor. */
+type PasswdDoorKind = Exclude<DoorKind, 'nc'>;
+
+/** Which SERVICE a password door knocks on — the daemon that has to be listening,
+ *  and whose log records the attempt. Not the same question as which kind the row
+ *  stores: `scp` rides sshd, so it is answered by the ssh daemon and written up as
+ *  an ordinary ssh login, while the row still remembers a transfer opened it.
+ *  Keeping the two apart is what lets the defender's evidence stay truthful without
+ *  the session table forgetting what it was for.
+ *
+ *  `nc` is absent by TYPE rather than by an `unknown` row: it knocks on no daemon,
+ *  so it has no service to name and no log to be routed to — and a `sweepLog` for a
+ *  door with no credential to sweep would be a fabrication the defender would then
+ *  be reading as evidence. */
 export const SERVICE_BY_DOOR = { ssh: 'ssh', ftp: 'ftp', scp: 'ssh' } as const satisfies Record<
-  DoorKind,
+  PasswdDoorKind,
   keyof typeof SERVICE_CATALOG
 >;
 
@@ -105,12 +124,19 @@ const authCreateSessionSchema = z
     session_id: z.string().min(1),
     essid: z.string().min(1),
     target_ip: z.string().min(1),
-    username: z.string().min(1),
-    password: z.string(),
+    // Optional because a backdoor genuinely has neither to send — the pidfile
+    // names its own user. A password door still requires both; missing collapses
+    // into the same 401 as wrong, the way unknown-user already does.
+    username: z.string().min(1).optional(),
+    password: z.string().optional(),
     parent_session_id: z.string().min(1).nullable().optional(),
     source_ip: z.string().min(1).nullable().optional(),
     // Absent means ssh, so every shipped caller keeps working untouched.
     kind: z.enum(DOOR_KINDS).default('ssh'),
+    // Only a backdoor needs one: a password door is answered by its daemon
+    // wherever that daemon happens to be listening, but a listener is addressed
+    // by the port it holds and nothing else knows which one is being knocked on.
+    port: z.number().int().positive().optional(),
   })
   .refine((payload) => !('player_key' in payload));
 
@@ -165,6 +191,49 @@ const logLoginAttempt = async (
   }
 };
 
+/** The door a knock actually reaches on the box, or null when nothing of that
+ *  shape answers there.
+ *
+ *  For a password door the question is whether its daemon is up. For a backdoor it
+ *  is whether a listener holds the asked port — and that single question IS the
+ *  whole door, because the pidfile already carries who left it and at what tier.
+ *  Which is why a backdoor can never answer 401: there is no credential to get
+ *  wrong, only a door that is there or is not. A pidfile naming a tier the world
+ *  does not have is not a door either — `readRunningProcesses` refuses to parse it,
+ *  so a rooted planter cannot write themselves a rank nobody granted. */
+export type ReachedDoor =
+  | { readonly kind: 'passwd'; readonly spec: ServiceSpec }
+  | { readonly kind: 'listener'; readonly admits: Listener };
+
+/** Shared by every gate, so a door cannot exist at one address and not another.
+ *  `reachedPort` narrows the match to the port the request actually arrived on —
+ *  which a routed forward always knows and an own-LAN knock only knows for a
+ *  backdoor, since a daemon is answered wherever it happens to be listening. */
+/** The listener holding `port` on this box, or null when none does — everything a
+ *  backdoor knows about who is coming in. Exported for the gates whose reachability
+ *  is decided elsewhere and which only need the door's identity. */
+export const listenerOn = (fs: Directory, port: number | undefined): Listener | null =>
+  readRunningProcesses(fs).find(
+    (running): running is Extract<RunningProcess, { kind: 'listener' }> =>
+      running.kind === 'listener' && running.port === port,
+  ) ?? null;
+
+export const reachDoor = (
+  kind: DoorKind,
+  fs: Directory,
+  reachedPort: number | undefined,
+): ReachedDoor | null => {
+  if (kind === 'nc') {
+    const admits = listenerOn(fs, reachedPort);
+    return admits === null ? null : { kind: 'listener', admits };
+  }
+  const spec = SERVICE_CATALOG[SERVICE_BY_DOOR[kind]];
+  const serving = readOpenPorts(fs).some(
+    (open) => open.service === spec.service && (reachedPort === undefined || open.port === reachedPort),
+  );
+  return serving ? { kind: 'passwd', spec } : null;
+};
+
 export const handleAuthCreateSession = async (
   body: unknown,
   deps: AuthCreateSessionDeps,
@@ -211,7 +280,20 @@ export const handleAuthCreateSession = async (
     return { status: 404, body: { error: 'host_unreachable' } };
   }
 
-  const spec = SERVICE_CATALOG[SERVICE_BY_DOOR[payload.kind]];
+  /** One writer for the session row, whichever door produced the credentials —
+   *  so a new door can decide WHO comes in without also deciding what a session
+   *  looks like. */
+  const insertRow = (credentials: AuthSessionRow['credentials']) =>
+    deps.insertSession({
+      session_id: payload.session_id,
+      player_key: publicKey,
+      machine_id: machineId,
+      credentials,
+      parent_session_id: payload.parent_session_id ?? null,
+      source_ip: payload.source_ip ?? null,
+      kind: payload.kind,
+      essid: payload.essid,
+    });
 
   // The door has to be OPEN. Only some boxes roll ftp — and ~60% of generated hosts
   // run no sshd at all — so a knock on a box that never started the daemon gets the
@@ -223,9 +305,29 @@ export const handleAuthCreateSession = async (
   // does (`ROUTER_SSH_PROBABILITY` is 1), so the exemption protected nothing and only
   // left a gap a crafted request could walk through. An honest client never noticed
   // either way: `ssh` compares the target's pidfile port before it prompts.
-  const listening = readOpenPorts(hostFs).some((open) => open.service === spec.service);
-  if (!listening) {
+  const reached = reachDoor(payload.kind, hostFs, payload.port);
+  if (reached === null) {
     return { status: 404, body: { error: 'service_not_running' } };
+  }
+
+  // A backdoor admits whoever its pidfile names and writes NOTHING anywhere: no
+  // PAM, so no auth.log; no utmp, so nothing for `who` to show; and netcat has no
+  // syslog of its own. The defender is left the two facts a real one is left —
+  // live state they can see, and no line they can read.
+  if (reached.kind === 'listener') {
+    const { user, userType } = reached.admits;
+    const { error } = await insertRow({ username: user, userType });
+    if (error) {
+      return { status: 500, body: { error: 'insert_failed' } };
+    }
+    // The username goes BACK, unlike a password door's: the caller typed that one
+    // and already knows it, while here only the box knew who it was letting in.
+    return { status: 200, body: { ok: true, username: user, userType } };
+  }
+
+  const spec = reached.spec;
+  if (payload.username === undefined || payload.password === undefined) {
+    return { status: 401, body: { error: 'invalid_credentials' } };
   }
 
   const account = accountIn(hostFs, payload.username);
@@ -248,15 +350,9 @@ export const handleAuthCreateSession = async (
     return { status: 401, body: { error: 'invalid_credentials' } };
   }
 
-  const { error } = await deps.insertSession({
-    session_id: payload.session_id,
-    player_key: publicKey,
-    machine_id: machineId,
-    credentials: { username: payload.username, userType: account.userType },
-    parent_session_id: payload.parent_session_id ?? null,
-    source_ip: payload.source_ip ?? null,
-    kind: payload.kind,
-    essid: payload.essid,
+  const { error } = await insertRow({
+    username: payload.username,
+    userType: account.userType,
   });
   if (error) {
     return { status: 500, body: { error: 'insert_failed' } };

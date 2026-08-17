@@ -14,6 +14,7 @@ import type { LanLeaseRow } from '../network/lanAddress';
 import type { OwnerPatchRow } from '../network/materializeWorkstationFs';
 import { formatSshdAuthLine, AUTH_LOG_PERMISSIONS } from '../logging/authLog';
 import { derivePid } from '../logging/syslog';
+import { formatListenerContent } from '../services/pidfile';
 import { asGameTime } from '../types';
 import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
 import type { PatchRow } from '../patches/upsertPatch';
@@ -755,5 +756,75 @@ describe('handleAuthCreateSessionSameLan', () => {
       expect(result).toEqual({ status: 500, body: { error: 'leases_lookup_failed' } });
       expect(findPatches).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('a backdoor on the box at the next desk', () => {
+  const BACKDOOR_PORT = 4444;
+
+  const plantedOnA = (content: string): OwnerPatchRow => ({
+    ...wsSshdUp,
+    path: `/var/run/nc-${BACKDOOR_PORT}.pid`,
+    content,
+  });
+
+  const mallorysListener = plantedOnA(
+    formatListenerContent({ port: BACKDOOR_PORT, user: 'mallory', userType: 'user' }),
+  );
+
+  const knock = (over: Record<string, unknown> = {}) =>
+    envelope(BOB, { session_id: 'nc-1', kind: 'nc', port: BACKDOOR_PORT, ...over });
+
+  it('lets a fellow occupant in as whoever planted it, with no password asked', async () => {
+    const { deps, insertSession } = makeDeps(undefined, async () => ({
+      data: [mallorysListener],
+      error: null,
+    }));
+
+    const result = await handleAuthCreateSessionSameLan(knock(), deps);
+
+    expect(result.status).toBe(200);
+    expect(insertSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        machine_id: A_WS_ID,
+        credentials: { username: 'mallory', userType: 'user' },
+        kind: 'nc',
+      }),
+    );
+  });
+
+  it('leaves nothing in the defender’s auth.log', async () => {
+    const { deps, upsertPatch } = makeDeps(undefined, async () => ({
+      data: [mallorysListener],
+      error: null,
+    }));
+
+    await handleAuthCreateSessionSameLan(knock(), deps);
+
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('is no door onto the sshd port next to it', async () => {
+    const { deps, insertSession } = makeDeps(undefined, async () => ({
+      data: [wsSshdUp, mallorysListener],
+      error: null,
+    }));
+
+    const result = await handleAuthCreateSessionSameLan(knock({ port: 22 }), deps);
+
+    expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+
+  it('still refuses a stranger who is not on the LAN at all', async () => {
+    const { deps, insertSession } = makeDeps(
+      async () => ({ data: [A_ROW], error: null }),
+      async () => ({ data: [mallorysListener], error: null }),
+    );
+
+    const result = await handleAuthCreateSessionSameLan(knock(), deps);
+
+    expect(result).toEqual({ status: 403, body: { error: 'not_an_occupant' } });
+    expect(insertSession).not.toHaveBeenCalled();
   });
 });

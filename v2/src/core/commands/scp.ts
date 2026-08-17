@@ -480,6 +480,8 @@ export const scp: Command = {
   category: 'network',
   tier: 'guest',
   availability: { kind: 'localhost-only' },
+  // Rides sshd, and prompts for the same password nobody can type here.
+  withoutTty: 'scp: must be run from a terminal',
   flags: { '-p': 'string' },
   manual: {
     synopsis: 'scp [-p port] <local-file> <user>@<host>:<path>',

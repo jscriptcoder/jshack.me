@@ -20,7 +20,13 @@ import {
   formatVsftpdConnectLine,
   formatVsftpdLoginLine,
 } from '../logging/vsftpdLog';
-import { readOpenPorts } from '../services/pidfile';
+import {
+  formatListenerContent,
+  listenerPidfilePath,
+  PIDFILE_PERMISSIONS,
+  readOpenPorts,
+  type Listener,
+} from '../services/pidfile';
 import { derivePid } from '../logging/syslog';
 import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
 import type { OwnerPatchRow } from '../network/materializeMachineFs';
@@ -942,6 +948,180 @@ describe('handleAuthCreateSession — a bricked own-LAN host is dark from inside
     const result = await handleAuthCreateSession(validEnvelope(id, host, 'root'), deps);
 
     expect(result).toEqual({ status: 500, body: { error: 'patches_lookup_failed' } });
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('a door with no credential behind it', () => {
+  const BACKDOOR_PORT = 4444;
+
+  /** A listener somebody left on the target, as its journal carries it. */
+  const planted = (writerKey: string, content: string, port = BACKDOOR_PORT): OwnerPatchRow => ({
+    path: listenerPidfilePath(port),
+    content,
+    owner: 'root',
+    permissions: PIDFILE_PERMISSIONS,
+    node_type: 'file',
+    updated_at: '2026-08-17T00:00:00.000Z',
+    writer_key: writerKey,
+  });
+
+  const listener = (over: Partial<Listener> = {}): string =>
+    formatListenerContent({ port: BACKDOOR_PORT, user: 'mallory', userType: 'user', ...over });
+
+  /** A knock on a backdoor. The envelope still carries `username: 'root'` from the
+   *  base payload — deliberately, because what the caller says about themselves is
+   *  exactly what this door has to ignore. */
+  const knock = (
+    id: ReturnType<typeof generateIdentity>,
+    host: LanHost,
+    over: Record<string, unknown> = {},
+  ) =>
+    signRequest(
+      id,
+      'authCreateSession',
+      basePayload({
+        session_id: 'nc-1700000000000',
+        target_ip: host.ip,
+        kind: 'nc',
+        port: BACKDOOR_PORT,
+        ...over,
+      }),
+    );
+
+  it('opens a session as whoever left the listener, with nothing asked for', async () => {
+    const id = generateIdentity();
+    const host = targetHostFor();
+    const { deps, insertSession } = makeDeps({
+      findPatches: async () => ({ data: [planted(id.publicKeyHex, listener())], error: null }),
+    });
+
+    const result = await handleAuthCreateSession(knock(id, host), deps);
+
+    expect(result.status).toBe(200);
+    expect(insertSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        credentials: { username: 'mallory', userType: 'user' },
+        kind: 'nc',
+      }),
+    );
+  });
+
+  it('reads the tier off the pidfile rather than defaulting it', async () => {
+    const id = generateIdentity();
+    const host = targetHostFor();
+    const { deps, insertSession } = makeDeps({
+      findPatches: async () => ({
+        data: [planted(id.publicKeyHex, listener({ user: 'root', userType: 'root' }))],
+        error: null,
+      }),
+    });
+
+    await handleAuthCreateSession(knock(id, host), deps);
+
+    expect(insertSession).toHaveBeenCalledWith(
+      expect.objectContaining({ credentials: { username: 'root', userType: 'root' } }),
+    );
+  });
+
+  it('records nothing anywhere — there is no daemon behind a backdoor to write a line', async () => {
+    const id = generateIdentity();
+    const host = targetHostFor();
+    const { deps, upsertPatch } = makeDeps({
+      findPatches: async () => ({ data: [planted(id.publicKeyHex, listener())], error: null }),
+    });
+
+    await handleAuthCreateSession(knock(id, host), deps);
+
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('hands back who came in, so the client never has to guess the name', async () => {
+    const id = generateIdentity();
+    const host = targetHostFor();
+    const { deps } = makeDeps({
+      findPatches: async () => ({ data: [planted(id.publicKeyHex, listener())], error: null }),
+    });
+
+    const result = await handleAuthCreateSession(knock(id, host), deps);
+
+    expect(result).toEqual({
+      status: 200,
+      body: { ok: true, username: 'mallory', userType: 'user' },
+    });
+  });
+
+  it('opens nothing when the row will not persist — a shell with no session behind it is worse than a refusal', async () => {
+    const id = generateIdentity();
+    const host = targetHostFor();
+    const { deps } = makeDeps({
+      findPatches: async () => ({ data: [planted(id.publicKeyHex, listener())], error: null }),
+      insertSession: async () => ({ error: new Error('db down') }),
+    });
+
+    const result = await handleAuthCreateSession(knock(id, host), deps);
+
+    expect(result).toEqual({ status: 500, body: { error: 'insert_failed' } });
+  });
+
+  it('refuses a password door that sent no credential, in the words a wrong one gets', async () => {
+    const id = generateIdentity();
+    const host = targetHostFor();
+    const { deps, insertSession } = makeDeps();
+    const envelope = signRequest(
+      id,
+      'authCreateSession',
+      basePayload({ target_ip: host.ip, username: undefined, password: undefined }),
+    );
+
+    const result = await handleAuthCreateSession(envelope, deps);
+
+    expect(result).toEqual({ status: 401, body: { error: 'invalid_credentials' } });
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+
+  it('is no door onto a port a real service is answering on', async () => {
+    const id = generateIdentity();
+    const host = targetHostFor();
+    const sshPort = readOpenPorts(buildRemoteHostFs(ESSID, host)).find(
+      (open) => open.service === 'ssh',
+    )?.port;
+    const { deps, insertSession } = makeDeps({
+      findPatches: async () => ({ data: [planted(id.publicKeyHex, listener())], error: null }),
+    });
+
+    const result = await handleAuthCreateSession(knock(id, host, { port: sshPort }), deps);
+
+    expect(result).toEqual({ status: 404, body: { error: 'service_not_running' } });
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+
+  it('is no door onto a port nothing is holding', async () => {
+    const id = generateIdentity();
+    const host = targetHostFor();
+    const { deps, insertSession } = makeDeps({
+      findPatches: async () => ({ data: [planted(id.publicKeyHex, listener())], error: null }),
+    });
+
+    const result = await handleAuthCreateSession(knock(id, host, { port: 9999 }), deps);
+
+    expect(result).toEqual({ status: 404, body: { error: 'service_not_running' } });
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+
+  it('is no door when the pidfile claims a tier the world does not have', async () => {
+    const id = generateIdentity();
+    const host = targetHostFor();
+    const { deps, insertSession } = makeDeps({
+      findPatches: async () => ({
+        data: [planted(id.publicKeyHex, `nc:port=${BACKDOOR_PORT},user=mallory,userType=wizard`)],
+        error: null,
+      }),
+    });
+
+    const result = await handleAuthCreateSession(knock(id, host), deps);
+
+    expect(result).toEqual({ status: 404, body: { error: 'service_not_running' } });
     expect(insertSession).not.toHaveBeenCalled();
   });
 });

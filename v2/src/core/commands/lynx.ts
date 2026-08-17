@@ -90,6 +90,8 @@ export const lynx: Command = {
   tier: 'guest',
   // Like `curl`, this runs from wherever the player currently stands.
   availability: { kind: 'any-machine' },
+  // A full-screen browser with no screen to open.
+  withoutTty: 'lynx: must be run from a terminal',
   manual: {
     synopsis: 'lynx <url>',
     description:
