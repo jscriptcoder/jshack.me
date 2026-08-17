@@ -40,14 +40,14 @@
  * than the program.
  */
 
-import type {
-  AvailabilityRule,
-  Command,
-  CommandEnv,
-  CommandExample,
-  CommandResult,
-  PatchResult,
-  TerminalLine,
+import {
+  PATCH_ERROR_REASON,
+  type AvailabilityRule,
+  type Command,
+  type CommandEnv,
+  type CommandExample,
+  type CommandResult,
+  type TerminalLine,
 } from './types';
 import { SERVICE_CATALOG, type ServiceSpec } from '../services/serviceCatalog';
 import {
@@ -64,14 +64,6 @@ const PORT_MAX = 65535;
 /** Beat between the start announcement and the port coming up, so the daemon
  *  visibly takes a moment even when the write returns instantly. */
 const STARTUP_DELAY_MS = 400;
-
-/** patches.write failures, mapped to a daemon-style reason. */
-const WRITE_ERROR: Record<Extract<PatchResult, { ok: false }>['error'], string> = {
-  no_session: 'Permission denied',
-  permission_denied: 'Permission denied',
-  network_error: 'I/O error',
-  modified_since_open: 'File changed on disk',
-};
 
 /** All that differs between the front doors: which service they bring up, and the
  *  words they bring it up in. The gates, the pidfile write and the streamed shape
@@ -161,7 +153,7 @@ export async function* bringUp(
     { isNew: true, permissions: PIDFILE_PERMISSIONS },
   );
   if (!result.ok) {
-    yield errorLine(`${daemon.name}: ${WRITE_ERROR[result.error]}`);
+    yield errorLine(`${daemon.name}: ${PATCH_ERROR_REASON[result.error]}`);
     return 1;
   }
 

@@ -161,6 +161,27 @@ export type PatchResult =
         | 'modified_since_open';
     };
 
+/** What a failed patch READS as, for the command reporting it. One table beside
+ *  the type it maps from, because every command that touches the patch layer owes
+ *  the player the same answer to the same failure — a box that said "I/O error"
+ *  for a refusal at one door and "Permission denied" at the next would be teaching
+ *  two vocabularies for one event.
+ *
+ *  Commands prefix their own name (`kill: Permission denied`) rather than the
+ *  table doing it: which door refused is the caller's to say.
+ *
+ *  Two failures deliberately share a sentence. `no_session` and
+ *  `permission_denied` are one fact to a player — this machine will not let you —
+ *  and the difference between them is the client's, not theirs. The other two do
+ *  not: a round-trip that never completed and a file that moved underneath you
+ *  send a player somewhere different. */
+export const PATCH_ERROR_REASON: Record<Extract<PatchResult, { ok: false }>['error'], string> = {
+  no_session: 'Permission denied',
+  permission_denied: 'Permission denied',
+  network_error: 'I/O error',
+  modified_since_open: 'File changed on disk',
+};
+
 export type NetworkView = {
   readonly currentMachine: () => MachineId;
   readonly findMachineByAddress: (addr: NetworkAddress) => MachineId | null;

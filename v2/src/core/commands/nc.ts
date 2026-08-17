@@ -34,7 +34,13 @@ import {
 import { serviceByName, type ServiceSpec } from '../services/serviceCatalog';
 import { connectedWlan0, LOOPBACK_IPV4 } from '../network/interfaces';
 import { errorLine, streamedResult, text } from './streaming';
-import type { Command, CommandEnv, CommandResult, PatchResult, TerminalLine } from './types';
+import {
+  PATCH_ERROR_REASON,
+  type Command,
+  type CommandEnv,
+  type CommandResult,
+  type TerminalLine,
+} from './types';
 
 const USAGE = 'nc: usage: nc <host> <port> | nc -l <port>';
 
@@ -55,14 +61,6 @@ const OWN_BOX = 'nc: connect to localhost: Connection refused';
 const MUST_BE_ROOT = 'nc: must be run as root';
 
 const LISTEN_FLAG = '-l';
-
-/** patches.write failures, in netcat's voice. */
-const WRITE_ERROR: Record<Extract<PatchResult, { ok: false }>['error'], string> = {
-  no_session: 'Permission denied',
-  permission_denied: 'Permission denied',
-  network_error: 'I/O error',
-  modified_since_open: 'File changed on disk',
-};
 
 const LOWEST_PORT = 1;
 const HIGHEST_PORT = 65535;
@@ -186,7 +184,7 @@ const listen = async (env: CommandEnv, rawPort: string | undefined): Promise<Com
     formatListenerContent({ port, user: env.session.username, userType: env.session.userType }),
     { isNew: true, permissions: PIDFILE_PERMISSIONS },
   );
-  if (!written.ok) return error(`nc: ${WRITE_ERROR[written.error]}`);
+  if (!written.ok) return error(`nc: ${PATCH_ERROR_REASON[written.error]}`);
 
   return { kind: 'sync', lines: [text(`Listening on 0.0.0.0 ${port}`)], exitCode: 0 };
 };

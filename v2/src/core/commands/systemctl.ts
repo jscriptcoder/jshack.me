@@ -31,7 +31,13 @@
  * service-state log.
  */
 
-import type { Command, CommandEnv, CommandResult, PatchResult, TerminalLine } from './types';
+import {
+  PATCH_ERROR_REASON,
+  type Command,
+  type CommandEnv,
+  type CommandResult,
+  type TerminalLine,
+} from './types';
 import { SERVICE_CATALOG, type ServiceSpec } from '../services/serviceCatalog';
 import { pidfilePath } from '../services/pidfile';
 import { errorLine, streamedResult, text } from './streaming';
@@ -52,14 +58,6 @@ import {
 const STOP_DELAY_MS = 400;
 
 const USAGE = 'Usage: systemctl {start|stop|status|restart} <unit>';
-
-/** patches.remove failures, mapped to a daemon-style reason. */
-const REMOVE_ERROR: Record<Extract<PatchResult, { ok: false }>['error'], string> = {
-  no_session: 'Permission denied',
-  permission_denied: 'Permission denied',
-  network_error: 'I/O error',
-  modified_since_open: 'File changed on disk',
-};
 
 /** No flags reach the daemon a `start` routes into — `systemctl`'s own arguments
  *  are positional, and the daemon takes only an optional port it is not given. */
@@ -116,6 +114,16 @@ const UNITS: Readonly<Record<string, Unit>> = {
   },
 };
 
+/** True for a name that resolves to a unit ANYWHERE in the world — what `kill`
+ *  asks before deciding a word is not a PID, so a player aiming at a service is
+ *  sent to the verb that can stop one. Name-only, unlike `unitFor`: whether the
+ *  program is installed on THIS box is a question `systemctl` answers, and
+ *  answering it here would answer it in another command's voice.
+ *
+ *  `Object.hasOwn`, not `in` or a bare lookup: both walk the prototype chain, so
+ *  `toString` would come back a unit. */
+export const isUnitName = (name: string): boolean => Object.hasOwn(UNITS, name);
+
 const VERBS = ['start', 'stop', 'status', 'restart'] as const;
 
 type Verb = (typeof VERBS)[number];
@@ -162,7 +170,7 @@ async function* stopSteps(env: CommandEnv, unit: Unit): AsyncGenerator<TerminalL
 
   const result = await env.patches.remove(pidfilePath(unit.spec));
   if (!result.ok) {
-    yield errorLine(`systemctl: ${REMOVE_ERROR[result.error]}`);
+    yield errorLine(`systemctl: ${PATCH_ERROR_REASON[result.error]}`);
     return 1;
   }
 
