@@ -902,9 +902,16 @@ cites `apt install` stamping a world-executable binary. **The fix is one argumen
   `nc:port=4444,user=eve,userType=root,home=/root`; v2 adds a pid and may not need `home`.
 - **Whether the blind-typing texture of a real bind shell is modelled** — no prompt, no echo, no
   tab completion. Flavour with a real UI cost; decide when slice 4 has a screen.
-- **Whether `apt install` works against a remote rooted box.** Slice 4 depends on it and it is
-  **unproven** — the L2 walker should permit a root session to write `/usr/bin`, but `tsc` cannot
-  see that. Wire-check it before slice 4 commits to decision 14.
+- ~~**Whether `apt install` works against a remote rooted box.**~~ **RESOLVED 2026-08-17, before
+  slice 4** — it does. `scripts/testRemoteAptInstall.ts`, 5/5 live: root installs `/usr/bin/nc` on
+  an ordinary NPC LAN host, on another player's workstation and on an inner gateway; a **guest** on
+  the same host is refused `permission_denied`; no session is refused `no_session`. **Locked
+  decision 14 stands.** The guest refusal is the load-bearing half — `apt`'s root gate is
+  CLIENT-side (`handleInstall` reads `env.session.userType`) and §7 records that a client with a
+  valid keypair can mint its own session, so L2 is the only real gate. It holds; without it `apt
+  install` would be privilege escalation on any box you can open a guest shell on. Corroborates
+  D3b's already-load-bearing `apt install hydra` step on a rooted NPC box, which was reasoned but
+  never asserted at the endpoint.
 
 ---
 
