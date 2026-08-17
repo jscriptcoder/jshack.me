@@ -8,7 +8,7 @@ import {
   mockSession,
 } from '../../test/factories/commandEnv';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { readOpenPorts } from '../services/pidfile';
+import { PIDFILE_PERMISSIONS, readOpenPorts } from '../services/pidfile';
 import { commandRegistry } from './registry';
 import { apache2, nginx } from './daemon';
 
@@ -137,7 +137,11 @@ describe('the web server daemon', () => {
 
       // BOTH programs write the same path: one web identity, two names for it.
       expect(writes).toEqual([
-        { path: '/var/run/nginx.pid', content: 'nginx:port=80', options: { isNew: true } },
+        {
+          path: '/var/run/nginx.pid',
+          content: 'nginx:port=80',
+          options: { isNew: true, permissions: PIDFILE_PERMISSIONS },
+        },
       ]);
     },
   );
@@ -324,7 +328,11 @@ describe('the web server daemon', () => {
 
     expect(exitCode).toBe(0);
     expect(writes).toEqual([
-      { path: '/var/run/nginx.pid', content: 'nginx:port=80', options: { isNew: true } },
+      {
+        path: '/var/run/nginx.pid',
+        content: 'nginx:port=80',
+        options: { isNew: true, permissions: PIDFILE_PERMISSIONS },
+      },
     ]);
   });
 

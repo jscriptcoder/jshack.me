@@ -899,6 +899,17 @@ practice, so always reading it changes nothing. But the discriminant is a real r
 FORWARDS rather than filters — and a test can state it directly by handing a router vantage a
 tree that does carry the file. Prefer stating the rule over arguing the input can't occur.
 
+**A Stryker run that dies leaves a sandbox behind, and `npm run lint` then fails in it.** Stryker
+copies the repo into `.stryker-tmp/sandbox-<id>/` and normally removes it; a run that exits
+abnormally (a bad `--mutate` glob is enough — it throws `ConfigError: No tests were executed`)
+does not. `.stryker-tmp` is in `.gitignore` but **not** in `eslint.config.js`'s `ignores`, which
+is only `['dist', 'coverage']` — so the next `npm run lint` walks the sandbox and reports hundreds
+of errors in instrumented copies of your own files, `@ts-nocheck` first among them. Hit on
+2026-08-17: 394 errors, every one a phantom. **The tell is the paths** — if they start
+`.stryker-tmp/`, the tree is fine; `rm -rf .stryker-tmp` and re-run. Adding `.stryker-tmp` and
+`reports` to the eslint ignores would retire the trap for good; left undone deliberately, as a
+config change riding along on an unrelated slice.
+
 ---
 
 ## 5. Operational gotchas
@@ -1479,7 +1490,7 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   self-contained refactor touching seven modules; it wants its own slice rather than a ride-along.
   (`const errorResult = …` is duplicated across seven command modules too, but that one is
   incidental shape rather than shared knowledge, and is fine as a local idiom.)
-- **Wire-checks are not in CI** — all 37 run only by hand against a local `vercel dev` +
+- **Wire-checks are not in CI** — all 43 run only by hand against a local `vercel dev` +
   supabase, and they are the ONLY thing that proves `api/` runtime correctness (`tsc` cannot
   see DB columns or constraints). A regression there ships green. Raised repeatedly and
   deliberately not taken on yet; it needs a CI supabase + a way to boot the functions
@@ -1534,24 +1545,36 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   recorded here rather than fixed there because the right destination is `access.log` as a run of
   401s, and that is the web door's decision, not the ftp door's. Fixing it is now one row.
 
-- **`ps` on a box you have ENTERED shows nothing — a product decision, not a bug.** Found
-  2026-08-16 by the D4 Act 13 browser run. A guest standing on another player's box runs `ps` and
-  gets the header and no rows, while that box is running the sshd they just logged in through.
-  The cause is not `ps`: `/var/run/*.pid` is root-only, and a foreign session's tree is projected
-  server-side at the tier the credential bought, so the entries are **absent** from the visitor's
-  copy — `ls -l /var/run` lists nothing rather than refusing.
+- **CLOSED (v0.143.0) — `ps` on a box you have ENTERED showed nothing. It was a producer
+  disagreement, and the first diagnosis recorded here was wrong.** Found 2026-08-16 by the D4 Act
+  13 browser run: a guest standing on another player's box ran `ps` and got the header and no
+  rows, while that box was running the sshd they had just logged in through.
 
-  This makes `env.fs.root()` mean two things: the raw tree on your own box (which is what lets
-  `ps` read root-only pidfiles as `guest` locally, and what its unit test proves), and an
-  already-filtered tree across an ssh hop. A unit test cannot catch the difference — it builds the
-  tree directly and never crosses the projection.
+  The entry originally blamed the read filter and proposed projecting `/var/run` to a foreign
+  session regardless of tier — a change to the recon/defence balance. **That was a misdiagnosis,
+  and the fix it proposed would have been a hole punched in the filter to route around a bug
+  elsewhere.** The filter was correct: it was pruning a file the box genuinely called root-only.
+  The three world generators each stamped their pidfiles world-readable, while `bringUp` in
+  `daemon.ts` passed no `permissions` at all and took the write's fall-back — the CALLER's tier
+  defaults, and a daemon is root-only, so `read: ['root']`. A pidfile the world planted was
+  visible to a visitor and one the owner started was not. Same file, same directory, two answers,
+  depending only on who put it there.
 
-  D4's grill reasoned that "a guest seeing what runs is a recon reward that costs the defender
-  nothing they control". That argument holds precisely on a box you have broken into, which is
-  where it currently does not work. Fixing it means projecting `/var/run` to a foreign session
-  regardless of tier — a change to the cross-player read filter and to the recon/defence balance,
-  so it wants an owner rather than a drive-by. Written up in
-  `e2e-shared-network-verification.md` Act 13.
+  Fixed by making the shape explicit and shared: `PIDFILE_PERMISSIONS` is exported from
+  `services/pidfile.ts` — the module that already owns the pidfile's FORMAT — and all four
+  producers resolve it. It had existed as three private copies (`routerFs.ts`,
+  `generateDeepLayer.ts`, and as `PIDFILE_PERMS` in `remoteHostFs.ts`); adding a fourth at the
+  call site would have fixed the symptom and left the cause.
+
+  **What generalises past this bug:** a write that names no permissions is not neutral — it
+  inherits the writer's tier, so a root-only command silently produces root-only files. That is
+  right for a file root authored and wrong for a file that describes the machine to everyone who
+  can reach it. And `env.fs.root()` still means two things — the raw tree on your own box, and an
+  already-pruned tree across a hop — so a unit test that builds a tree by hand cannot see this
+  class of defect at all. `ps.test.ts` now walks the real projection (the write `sshd` makes → the
+  patch row → `applyPatches` → `filterTreeForRead` → `ps`), which is the shape any later claim
+  about what a visitor sees should copy. Act 13 in `e2e-shared-network-verification.md` is the
+  browser-level proof.
 
 - **`AvailabilityRule` is inert — enforce it or delete it.** Every command declares one
   (`{kind:'any-machine'}`, `'localhost-only'`, `'installed-package'`) and **nothing in production

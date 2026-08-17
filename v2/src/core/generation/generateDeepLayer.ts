@@ -26,9 +26,9 @@ import { buildRemoteHostFs } from './remoteHostFs';
 import { ROUTER_HOSTNAMES } from './routerFs';
 import { DEVICE_TYPES } from '../network/homeNetwork';
 import { applyPatches, type Patch } from '../filesystem/applyPatches';
-import { formatPidfileContent } from '../services/pidfile';
+import { formatPidfileContent, PIDFILE_PERMISSIONS } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import type { Directory, FilePermissions } from '../filesystem/types';
+import type { Directory } from '../filesystem/types';
 import type { LanHost, LanHostKind } from './generateHomeLan';
 
 /** The gateway that FRONTS a deep layer — the seed for that layer's `/24`. Its
@@ -124,14 +124,6 @@ export const generateDeepLayer = (
         }
       : null;
   return { subnet, host, childGateway };
-};
-
-/** A pidfile under `/var/run`: world-readable (so a scan sees the port),
- *  root-written (the daemon runs as root). */
-const PIDFILE_PERMISSIONS: FilePermissions = {
-  read: ['root', 'user', 'guest'],
-  write: ['root'],
-  execute: [],
 };
 
 /** Force `sshd:22` onto the generated NPC tree: a deep host is a reachable target

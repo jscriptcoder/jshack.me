@@ -50,7 +50,12 @@ import type {
   TerminalLine,
 } from './types';
 import { SERVICE_CATALOG, type ServiceSpec } from '../services/serviceCatalog';
-import { formatPidfileContent, parsePidfilePort, pidfilePath } from '../services/pidfile';
+import {
+  formatPidfileContent,
+  parsePidfilePort,
+  pidfilePath,
+  PIDFILE_PERMISSIONS,
+} from '../services/pidfile';
 import { errorLine, streamedResult, text } from './streaming';
 
 const PORT_MIN = 1;
@@ -146,10 +151,14 @@ export async function* bringUp(
   yield text(`Starting ${daemon.banner}...`);
   await env.sleep(STARTUP_DELAY_MS);
 
+  // Permissions are NAMED rather than defaulted: a write that omits them takes
+  // the caller's own tier defaults, and a daemon is root-only, so the pidfile
+  // would come out root-readable — invisible to anyone who later hops onto this
+  // box, since the server prunes what it hands them to their tier.
   const result = await env.patches.write(
     pidfilePath(daemon.spec),
     formatPidfileContent(daemon.spec, port),
-    { isNew: true },
+    { isNew: true, permissions: PIDFILE_PERMISSIONS },
   );
   if (!result.ok) {
     yield errorLine(`${daemon.name}: ${WRITE_ERROR[result.error]}`);

@@ -36,7 +36,7 @@ import {
 import { ACCESS_LOG_PERMISSIONS } from '../logging/accessLog';
 import { AUTH_LOG_PERMISSIONS } from '../logging/authLog';
 import { KERN_LOG_PERMISSIONS } from '../logging/kernLog';
-import { formatPidfileContent } from '../services/pidfile';
+import { formatPidfileContent, PIDFILE_PERMISSIONS } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 
 /** The AP gateway's root account plaintext password, seeded from the ESSID alone
@@ -101,14 +101,6 @@ export const seedApGatewayHasSsh = (essid: string): boolean =>
  *  executable. The router has only a root account, so root-only is the boundary.
  *  The switch's `acl.conf` shares the same root-only boundary. */
 const GATEWAY_CONFIG_PERMISSIONS: FilePermissions = { read: ['root'], write: ['root'], execute: [] };
-
-/** A service pidfile under `/var/run`: world-readable (so `nmap`/`ps` see the
- *  port), root-written (the daemon runs as root). */
-const PIDFILE_PERMISSIONS: FilePermissions = {
-  read: ['root', 'user', 'guest'],
-  write: ['root'],
-  execute: [],
-};
 
 /** The seeded `/etc/iptables/rules.v4` — a documented header plus a commented
  *  example. Opt-in default: NO active forward (it parses to an empty table), so

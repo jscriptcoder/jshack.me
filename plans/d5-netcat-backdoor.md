@@ -64,9 +64,27 @@ writing any code.**
 
 ---
 
-### Slice 0: A visitor can see what the box they entered is running
+### Slice 0: A visitor can see what the box they entered is running — DONE (v0.143.0)
 
 **Branch**: `fix/pidfile-visible-to-visitors`
+
+**As-built.** Shipped as planned; the diagnosis held. `PIDFILE_PERMISSIONS` now lives in
+`services/pidfile.ts` and all four producers resolve it. Mutation: `pidfile.ts` 100% (71 killed,
+0 survived) and `bringUp` 100% (10 killed, 0 survived) — `daemon.ts`'s whole-file 64.80% is the
+`manual`/`description` prose class §4 already documents, all outside the changed region.
+Wire-check `scripts/testPidfileVisibility.ts` 4/4; its third check seeds a pidfile in the
+PRE-FIX shape and asserts it is still pruned, so the first two cannot pass for a reason other
+than permissions. §9 rewritten as CLOSED, including that its own first diagnosis was wrong.
+
+Two things worth carrying into later slices:
+
+- **Four daemon test files asserted the write's exact options object**, so changing the write's
+  shape touched `sshd`, `vsftpd` and both web-server suites. Slice 2 adds the nc pidfile write —
+  expect the same fan-out, and reach for the shared `PIDFILE_WRITE` constant `sshd.test.ts` now
+  declares rather than adding a fifth literal.
+- **A Stryker run that dies leaves `.stryker-tmp/` behind and `npm run lint` then reports
+  hundreds of phantom errors inside it** (eslint ignores only `dist`/`coverage`). Recorded in §4.
+  If a lint run explodes, check the paths before believing it.
 
 **Value**: An intruder standing on another player's box runs `ps` and gets rows instead of a bare
 header. Closes the §9 defect, and it is what makes every later slice's `ps` observable across a hop.
