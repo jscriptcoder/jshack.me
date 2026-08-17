@@ -815,6 +815,17 @@ cites `apt install` stamping a world-executable binary. **The fix is one argumen
    backdoor is user tier, so `/boot` is refused by the ordinary walker, and `su` cannot run to fix
    that. Bricking works only through a root-planted listener — someone's own deliberate root
    shell, which is precisely the real hazard.
+
+   **AMENDED 2026-08-17, at D5 slice 4's approval: the rule is WIDER than the two commands named
+   above.** No pty blocks everything that has to reach a human through the terminal — `ssh`, `scp`
+   and `ftp` all prompt for a password, and `lynx` draws a screen. This decision named the two
+   famous ones and read them as the whole set; they are two instances of one property. The widening
+   is *more* faithful, not less: a pty-less `ssh` really does fail at password auth. It is also what
+   makes the three doors differ — `ftp` moves files, `nc` looks and breaks, and **`ssh` is the only
+   one you can pivot ONWARD from**, so a cracked password stays worth having. `apt` is deliberately
+   NOT blocked: it is the one named tool that genuinely works over a pty-less shell, and tier
+   already refuses it everywhere that matters. Still no allowlist — each command declares the
+   refusal itself.
 8. **A planted listener survives a reboot.** Inherited, not designed: the pidfile is a patch row
    and `reboot` never touches the journal, exactly as a stopped service already behaves. A real
    bind shell never survives a power cycle, so this is a knowing departure — taken because `kill`

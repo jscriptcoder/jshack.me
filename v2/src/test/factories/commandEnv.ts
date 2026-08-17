@@ -25,6 +25,7 @@ import type {
   FtpApi,
   ScpApi,
   SshApi,
+  NcApi,
   SuApi,
   HydraApi,
 } from '../../core/commands/types';
@@ -130,6 +131,17 @@ export const mockSshApi = (overrides: Partial<SshApi> = {}): SshApi => ({
   ...overrides,
 });
 
+/** The backdoor seam. Loud when unstubbed for the same reason ssh's is: a connect
+ *  that silently refused would read as "no listener there", which is a different
+ *  fact about the world than "this test forgot to wire the door". */
+export const mockNcApi = (overrides: Partial<NcApi> = {}): NcApi => ({
+  connect: NOT_IMPLEMENTED('nc.connect'),
+  connectPublic: NOT_IMPLEMENTED('nc.connectPublic'),
+  connectSameLan: NOT_IMPLEMENTED('nc.connectSameLan'),
+  connectInnerGateway: NOT_IMPLEMENTED('nc.connectInnerGateway'),
+  ...overrides,
+});
+
 /** The ftp door seam. `authenticate` throws unless a test stubs it — an unstubbed
  *  login must be loud rather than silently refusing, which reads as a bad password.
  *  `enter`/`leave` default to no-ops: most tests care what the command DID, not that
@@ -230,6 +242,7 @@ export const mockCommandEnv = (overrides: Partial<CommandEnv> = {}): CommandEnv 
   log: mockLogApi(),
   homeNetwork: mockHomeNetwork(),
   ssh: mockSshApi(),
+  nc: mockNcApi(),
   ftp: mockFtpApi(),
   scp: mockScpApi(),
   su: mockSuApi(),

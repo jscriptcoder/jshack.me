@@ -210,6 +210,10 @@ export const su: Command = {
   category: 'general',
   tier: 'guest',
   availability: { kind: 'localhost-only' },
+  // The password prompt has nowhere to appear, which is why a backdoor cannot be
+  // escalated out of — the one thing that keeps a found listener worth less than
+  // a cracked login.
+  withoutTty: 'su: must be run from a terminal',
   manual: {
     synopsis: 'su [username]',
     description:

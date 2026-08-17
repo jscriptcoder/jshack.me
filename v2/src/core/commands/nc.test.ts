@@ -1,10 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { nc } from './nc';
 import { commandRegistry } from './registry';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
   mockIdentity,
+  mockNcApi,
   mockNetworkViewFromConnectivity,
   mockPatchApi,
   mockScanApi,
@@ -13,13 +14,14 @@ import {
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { PIDFILE_PERMISSIONS, readOpenPorts } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { assignHomeNetwork } from '../network/homeNetwork';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
-import { asAbsPath, asNetworkAddress, asPlayerKeyHex, type UserType } from '../types';
+import { asAbsPath, asMachineId, asNetworkAddress, asPlayerKeyHex, type UserType } from '../types';
 import type { FilePermissions } from '../filesystem/types';
-import type { CommandEnv, CommandResult, PatchResult } from './types';
+import type { CommandEnv, CommandResult, NcApi, PatchResult } from './types';
 
 /**
  * `nc <host> <port>` — point netcat at a port and learn what answers.
@@ -48,10 +50,23 @@ const onlineConnectivity = (essid: string): ConnectivityState => {
 
 const SELF_IP = assignHomeNetwork(PUBKEY, ESSID).localIp;
 
+/** No door anywhere — the default world for every test about banners and refusals.
+ *  A closed port is now the BOX's answer rather than this side's: a planted listener
+ *  lives in a journal only the server replays, so netcat has to knock before it can
+ *  say a port is shut. */
+const noDoors = (): NcApi =>
+  mockNcApi({
+    connect: async () => ({ ok: false, error: 'host_unreachable' }),
+    connectPublic: async () => ({ ok: false, error: 'host_unreachable' }),
+    connectSameLan: async () => ({ ok: false, error: 'host_unreachable' }),
+    connectInnerGateway: async () => ({ ok: false, error: 'host_unreachable' }),
+  });
+
 const onlineEnv = (overrides: Partial<Parameters<typeof mockCommandEnv>[0]> = {}) =>
   mockCommandEnv({
     identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
     network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+    nc: noDoors(),
     ...overrides,
   });
 
@@ -589,5 +604,235 @@ describe('nc against a port a listener is holding', () => {
     const { text } = sync(await nc.execute(onlineEnv(), [host.ip, '4444'], NO_FLAGS));
 
     expect(text).toBe(`nc: connect to ${host.ip} port 4444: Connection refused`);
+  });
+});
+
+describe('nc when a listener answers instead of a service', () => {
+  const OPENED = { ok: true, username: 'mallory', userType: 'user' } as const;
+
+  /** The env plus the spies, so a test can say both what the player saw and which
+   *  door was knocked on — the two halves of "reachability decides the gate". */
+  const withDoors = (overrides: Partial<NcApi> = {}) => {
+    const connect = vi.fn(async () => ({ ...OPENED }));
+    const connectPublic = vi.fn(async () => ({ ...OPENED, machineId: 'ws-remote' }));
+    const connectSameLan = vi.fn(async () => ({ ...OPENED, machineId: 'ws-neighbour' }));
+    const connectInnerGateway = vi.fn(async () => ({ ...OPENED, machineId: 'gw-inner' }));
+    const pushSession = vi.fn();
+    const setCwd = vi.fn();
+    const env = onlineEnv({
+      nc: mockNcApi({
+        connect,
+        connectPublic,
+        connectSameLan,
+        connectInnerGateway,
+        ...overrides,
+      }),
+      pushSession,
+      setCwd,
+    });
+    return { env, connect, connectPublic, connectSameLan, connectInnerGateway, pushSession, setCwd };
+  };
+
+  it('drops the player into a shell as whoever the box says planted it', async () => {
+    const host = lanHostServing(22, 'ssh');
+    const { env, pushSession, setCwd } = withDoors();
+
+    const { text, exitCode } = sync(await nc.execute(env, [host.ip, '4444'], NO_FLAGS));
+
+    expect(pushSession).toHaveBeenCalledWith(
+      expect.objectContaining({ username: 'mallory', userType: 'user', kind: 'nc' }),
+    );
+    expect(setCwd).toHaveBeenCalledWith(asAbsPath('/home/mallory'));
+    expect(text).toBe(`Connecting to ${host.ip}:4444...\nConnected to ${host.ip}.`);
+    expect(exitCode).toBe(0);
+  });
+
+  it('lands on the machine the shared resolver names, never one the client invented', async () => {
+    const host = lanHostServing(22, 'ssh');
+    const { env, pushSession } = withDoors();
+
+    await nc.execute(env, [host.ip, '4444'], NO_FLAGS);
+
+    expect(pushSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        machineId: resolveLanHostIdentity(host, ESSID).machineId,
+      }),
+    );
+  });
+
+  it('asks nobody when the catalog can already name the port — a banner is not a way in', async () => {
+    const host = lanHostServing(22, 'ssh');
+    const { env, connect, pushSession } = withDoors();
+
+    await drain(await nc.execute(env, [host.ip, '22'], NO_FLAGS));
+
+    expect(connect).not.toHaveBeenCalled();
+    expect(pushSession).not.toHaveBeenCalled();
+  });
+
+  it('refuses in netcat’s own words when the box says there is no door', async () => {
+    const host = lanHostServing(22, 'ssh');
+    const { env, pushSession } = withDoors({
+      connect: async () => ({ ok: false, error: 'host_unreachable' }),
+    });
+
+    const { text, exitCode } = sync(await nc.execute(env, [host.ip, '4444'], NO_FLAGS));
+
+    expect(text).toBe(`nc: connect to ${host.ip} port 4444: Connection refused`);
+    expect(exitCode).toBe(1);
+    expect(pushSession).not.toHaveBeenCalled();
+  });
+
+  it('knocks at the door the address decides, not one door for everything', async () => {
+    const occupantIp = asNetworkAddress(emptyAddress());
+    const lan = withDoors();
+    await nc.execute(lan.env, [lanHostServing(22, 'ssh').ip, '4444'], NO_FLAGS);
+
+    const neighbour = withDoors();
+    const neighbourEnv = {
+      ...neighbour.env,
+      scan: mockScanApi({
+        resolveOccupants: async () => [
+          {
+            workstation_machine_id: 'ws-neighbour',
+            localIp: occupantIp,
+            machineName: 'skylab-neighbour',
+          },
+        ],
+      }),
+    };
+    await nc.execute(neighbourEnv, [occupantIp, '4444'], NO_FLAGS);
+
+    const stranger = withDoors();
+    const strangerEnv = {
+      ...stranger.env,
+      scan: mockScanApi({ resolvePublic: async () => ({ found: true, ports: [] }) }),
+    };
+    await nc.execute(strangerEnv, ['203.0.113.7', '4444'], NO_FLAGS);
+
+    expect(lan.connect).toHaveBeenCalledTimes(1);
+    expect(neighbour.connectSameLan).toHaveBeenCalledTimes(1);
+    expect(stranger.connectPublic).toHaveBeenCalledTimes(1);
+  });
+
+  it('routes an inner gateway through its own door, as ssh does', async () => {
+    const inner = generateHomeLan(ESSID).hosts.find(
+      (host) => (host.kind === 'router' || host.kind === 'switch') && !host.ip.endsWith('.1'),
+    );
+    if (inner === undefined) throw new Error('no inner gateway on the generated LAN');
+    const { env, connectInnerGateway, pushSession } = withDoors();
+
+    await nc.execute(env, [inner.ip, '4444'], NO_FLAGS);
+
+    expect(connectInnerGateway).toHaveBeenCalledTimes(1);
+    expect(pushSession).toHaveBeenCalledWith(expect.objectContaining({ machineId: 'gw-inner' }));
+  });
+});
+
+describe('what nc actually sends when it knocks', () => {
+  const opened = { ok: true, username: 'mallory', userType: 'user' } as const;
+
+  it('names the box, the port and the session it is opening — not just the endpoint', async () => {
+    const host = lanHostServing(22, 'ssh');
+    const connect = vi.fn<NcApi['connect']>(async () => opened);
+    const pushSession = vi.fn();
+    const env = onlineEnv({
+      nc: mockNcApi({ connect }),
+      pushSession,
+      session: mockSession({ id: 'sess-below' }),
+    });
+
+    await nc.execute(env, [host.ip, '4444'], NO_FLAGS);
+
+    expect(connect).toHaveBeenCalledWith({
+      sessionId: expect.stringContaining('nc-4444-'),
+      essid: ESSID,
+      targetIp: host.ip,
+      port: 4444,
+      parentSessionId: 'sess-below',
+      sourceIp: null,
+    });
+    // The row the client keeps and the one the server was asked for are the same
+    // session — an id invented twice would leave the shell holding a row nobody has.
+    const sent = connect.mock.calls[0][0];
+    expect(pushSession).toHaveBeenCalledWith(expect.objectContaining({ id: sent.sessionId }));
+  });
+
+  it('names the LAN and the address when the door is a neighbour’s', async () => {
+    const occupantIp = asNetworkAddress(emptyAddress());
+    const connectSameLan = vi.fn<NcApi['connectSameLan']>(async () => ({
+      ...opened,
+      machineId: 'ws-neighbour',
+    }));
+    const env = onlineEnv({
+      nc: mockNcApi({ connectSameLan }),
+      session: mockSession({ id: 'sess-below' }),
+      scan: mockScanApi({
+        resolveOccupants: async () => [
+          {
+            workstation_machine_id: 'ws-neighbour',
+            localIp: occupantIp,
+            machineName: 'skylab-neighbour',
+          },
+        ],
+      }),
+    });
+
+    await nc.execute(env, [occupantIp, '4444'], NO_FLAGS);
+
+    expect(connectSameLan).toHaveBeenCalledWith({
+      sessionId: expect.stringContaining('nc-4444-'),
+      essid: ESSID,
+      targetIp: occupantIp,
+      port: 4444,
+      parentSessionId: 'sess-below',
+      sourceIp: null,
+    });
+  });
+
+  it('names the gateway it is reaching THROUGH, not a host behind it', async () => {
+    const inner = generateHomeLan(ESSID).hosts.find(
+      (host) => (host.kind === 'router' || host.kind === 'switch') && !host.ip.endsWith('.1'),
+    );
+    if (inner === undefined) throw new Error('no inner gateway on the generated LAN');
+    const connectInnerGateway = vi.fn<NcApi['connectInnerGateway']>(async () => ({
+      ...opened,
+      machineId: 'gw-inner',
+    }));
+    const env = onlineEnv({
+      nc: mockNcApi({ connectInnerGateway }),
+      session: mockSession({ id: 'sess-below' }),
+    });
+
+    await nc.execute(env, [inner.ip, '4444'], NO_FLAGS);
+
+    expect(connectInnerGateway).toHaveBeenCalledWith({
+      sessionId: expect.stringContaining('nc-4444-'),
+      essid: ESSID,
+      target: inner.ip,
+      port: 4444,
+      parentSessionId: 'sess-below',
+      sourceIp: null,
+    });
+  });
+
+  it('tells a cross-network door where the knock is being made FROM', async () => {
+    const connectPublic = vi.fn<NcApi['connectPublic']>(async () => ({ ...opened, machineId: 'ws-remote' }));
+    const env = onlineEnv({
+      nc: mockNcApi({ connectPublic }),
+      scan: mockScanApi({ resolvePublic: async () => ({ found: true, ports: [] }) }),
+      session: mockSession({ id: 'sess-below', machineId: asMachineId('ws-mine') }),
+    });
+
+    await nc.execute(env, ['203.0.113.7', '4444'], NO_FLAGS);
+
+    expect(connectPublic).toHaveBeenCalledWith({
+      sessionId: expect.stringContaining('nc-4444-'),
+      target: '203.0.113.7',
+      callerMachineId: 'ws-mine',
+      port: 4444,
+      parentSessionId: 'sess-below',
+      sourceIp: null,
+    });
   });
 });

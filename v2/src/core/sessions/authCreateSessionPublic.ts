@@ -35,8 +35,7 @@ import {
   type ResolvePublicTargetDeps,
 } from '../network/resolvePublicTarget';
 import { derivePid } from '../logging/syslog';
-import { SERVICE_CATALOG, type SweepLog } from '../services/serviceCatalog';
-import { readOpenPorts } from '../services/pidfile';
+import type { SweepLog } from '../services/serviceCatalog';
 import { standingVantage, type FindActiveSession } from '../patches/authorizeMachineAccess';
 import {
   resolveVantageSourceIp,
@@ -52,7 +51,7 @@ import { asGameTime } from '../types';
 import type { PatchRow } from '../patches/upsertPatch';
 import {
   DOOR_KINDS,
-  SERVICE_BY_DOOR,
+  reachDoor,
   type AuthSessionRow,
   type HandlerResponse,
 } from './authCreateSession';
@@ -88,8 +87,10 @@ const authCreateSessionPublicSchema = z
     action: z.literal('authCreateSessionPublic'),
     session_id: z.string().min(1),
     target: z.string().min(1),
-    username: z.string().min(1),
-    password: z.string(),
+    // Optional for the same reason the own-LAN gate's are: a backdoor has no
+    // credential to send. A password door still requires both.
+    username: z.string().min(1).optional(),
+    password: z.string().optional(),
     port: z.number().int().positive().optional(),
     parent_session_id: z.string().min(1).nullable().optional(),
     source_ip: z.string().min(1).nullable().optional(),
@@ -192,12 +193,38 @@ export const handleAuthCreateSessionPublic = async (
   // is a door to every daemon — you would `ftp` into a box that only runs sshd, and the
   // wrong log would carry the visit. The far side's liveness is already the resolver's;
   // WHICH service answers there is this handler's, because only it knows the door.
-  const spec = SERVICE_CATALOG[SERVICE_BY_DOOR[payload.kind]];
-  const serving = readOpenPorts(target.fs).some(
-    (open) => open.port === target.reachedPort && open.service === spec.service,
-  );
-  if (!serving) {
+  const reached = reachDoor(payload.kind, target.fs, target.reachedPort);
+  if (reached === null) {
     return { status: 404, body: { error: 'service_not_running' } };
+  }
+
+  // A backdoor reached across the network behaves exactly as one reached from the
+  // next desk: it admits whoever its pidfile names and records nothing. The forward
+  // changed how far the knock travelled, not what is behind the door.
+  if (reached.kind === 'listener') {
+    const { user, userType } = reached.admits;
+    const { error } = await deps.insertSession({
+      session_id: payload.session_id,
+      player_key: publicKey,
+      machine_id: target.machineId,
+      credentials: { username: user, userType },
+      parent_session_id: payload.parent_session_id ?? null,
+      source_ip: payload.source_ip ?? null,
+      kind: payload.kind,
+      essid: target.essid,
+    });
+    if (error) {
+      return { status: 500, body: { error: 'insert_failed' } };
+    }
+    return {
+      status: 200,
+      body: { ok: true, username: user, userType, machine_id: target.machineId },
+    };
+  }
+
+  const spec = reached.spec;
+  if (payload.username === undefined || payload.password === undefined) {
+    return { status: 401, body: { error: 'invalid_credentials' } };
   }
 
   // Validate against the TARGET's own /etc/passwd (the gateway is root-only; a

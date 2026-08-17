@@ -40,10 +40,11 @@ other half.
       and a port; `nmap` shows the port `open` with SERVICE `unknown`
 - [x] `kill <pid>` removes a listener and its port closes for everyone; `kill` on a service NAME
       refuses and points at `systemctl` (a service has no pid to aim at); the kill requires root
-- [ ] Connecting to a listener opens a session at the tier its pidfile records, with no credential
+- [x] Connecting to a listener opens a session at the tier its pidfile records, with no credential
       asked for and nothing written to any log
-- [ ] `su` and `nano` refuse inside an nc session in their real words; everything else runs, so a
-      root-planted listener can brick and a user-tier one cannot
+- [x] Everything needing a terminal refuses inside an nc session — `su`, `nano`, `ssh`, `scp`,
+      `ftp`, `lynx` — while everything else runs, so a root-planted listener can brick and a
+      user-tier one cannot
 - [ ] Killing a listener drops whoever is inside it on their next command
 - [ ] ~10% of generated NPC hosts run a listener at user tier, measured across a population
 - [ ] A listener behind a NAT forward is reachable, scannable and enterable from off-LAN, proven by
@@ -365,9 +366,56 @@ the same four errors; `daemon.ts` has a third copy).
 
 ---
 
-### Slice 4: Connecting to a backdoor drops you in a shell
+### Slice 4: Connecting to a backdoor drops you in a shell — DONE (v0.147.0)
 
 **Branch**: `feat/nc-backdoor-session`
+
+**As-built.** Shipped as designed, with **one design change forced by a discovery** and three
+findings worth carrying:
+
+- **`nc` now ASKS THE BOX rather than consulting its own map** (approved mid-slice). The client's
+  own-LAN resolution reads `resolveLanHostIdentity(host, essid).baseFs` — the GENERATED tree, with
+  no journal replay — and `nmap`'s reads `buildRemoteHostFs`. The four gates DO replay it. So a
+  listener planted on a rooted NPC host is visible from ON the box (`ps` works) and invisible from
+  outside it, which would have made this slice's own demo impossible. The client now uses its local
+  view only to answer "does the catalog name this port?" (banner, no round trip); anything else goes
+  to the gate. **This changed slice 1's shipped behavior**: an own-LAN refusal now costs a round
+  trip, so `nc.test.ts` gained a default `noDoors()` seam.
+- **The replay gap is wider than `nc` and is NOT fixed here.** `systemctl stop sshd` on a rooted NPC
+  host is invisible to the player's own scan for the same reason, and `resolveInnerGatewayTarget`
+  builds a DEEP host's tree with `buildDeepHostFs` and never replays its journal at all — so a
+  listener planted on a deep NPC cannot be reached through that gate. The inner-gateway arm is wired
+  and tested against the GATEWAY itself, whose journal is replayed. Backlog candidate, and it bears
+  on slice 6.
+- **`SERVICE_BY_DOOR` was narrowed by TYPE, not retyped to labels** (improving on settled call 5).
+  `Record<Exclude<DoorKind,'nc'>, keyof typeof SERVICE_CATALOG>`: a backdoor knocks on no daemon, so
+  it has no service row and no `sweepLog`, and the type now says so. Adding `'nc'` to `DOOR_KINDS`
+  then broke `authCreateSessionPublic.ts`'s compile — the compiler enforcing "four gates, one path".
+- **A FIFTH copy of the `PatchResult`→reason map** was found in `runLine.ts` (`REDIRECT_WRITE_MESSAGE`).
+  Slice 3 swept `commands/`; this one lives in `shell/`. Folded into `PATCH_ERROR_REASON`, which also
+  killed its surviving `modified_since_open` mutant.
+
+Mutation, behavioral regions: `authCreateSession.ts` **95.12%** (156 killed, 8 survived — the
+`payload.username === undefined` guard cluster is EQUIVALENT, since `accountIn` returns null for a
+missing user and produces the same 401 either way; `{kind:'passwd'}` → `{kind:""}` is equivalent for
+the same reason, only `'listener'` is ever compared). `runLine.ts`'s TTY gate **100%**; `su.ts` and
+`nano.ts` 1/1. `nc.ts` L90–324: the knock's payload objects all survived the first pass — the tests
+asserted WHICH door was knocked on but not WHAT was sent, so a mutant emptying the payload knocked
+at the right endpoint with no address, port or session id. Four payload assertions killed them. Two
+dead branches (`target.kind === 'lan' &&`, `machineId === null`) were REMOVED rather than tested,
+via `Exclude<Target,{kind:'nowhere'}>` and folding the machine id into the success arm.
+
+**Known gaps, recorded rather than hidden:**
+- the inner-gateway arm's REFUSAL branch (`nc.ts:190`) has no coverage — the other three arms'
+  refusals are covered by the default seam
+- one full-suite run showed a single failure that two subsequent runs did not reproduce; unidentified
+
+**Wire-check `scripts/testNcBackdoorSession.ts` 6/6.** Its second and third checks are the slice's
+whole security claim and only provable live: a payload naming `username: 'root'` against a
+`userType=user` listener lands a **user** row, while a root-PLANTED listener really does land root —
+the pair together, because either alone cannot tell a tier that is read from one pinned to the safe
+answer. The fifth asserts zero `auth.log` rows on the target: a handler that returns without logging
+could still be logged by a shared helper further down, which only the real journal can rule out.
 
 **Value**: The door itself — a login with no credential, at the tier its pidfile records. First
 time the game lets you back into a box without knowing anything about it.
@@ -377,41 +425,103 @@ step reads the pidfile instead of `/etc/passwd` → session row at that tier →
 **Class**: Behavior change.
 **Required implementation skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
 
-**All four gates in this slice, not some of them.** `SERVICE_BY_DOOR` gains `nc: 'unknown'`, so the
-shipped reached-port check works untouched, and the credential STEP becomes pluggable across
+**All four gates in this slice, not some of them.** The credential STEP becomes pluggable across
 `authCreateSession`, `authCreateSessionSameLan`, `authCreateSessionPublic` and
 `authCreateSessionInnerGateway` at once. Applying it to some gates now and the rest later would
 recreate exactly the asymmetry D4 slice 3 existed to remove. `SessionKind` already carries `'nc'`
 (`types.ts:39`) — no schema change.
 
-**The no-TTY gate — one design call to settle at RED.** Two candidate seams: a central check in
-`runLine.ts` beside the existing command-not-found path, driven by a new `requiresTty` field on
-`Command`; or the check inside `su.ts` and `nano.ts` themselves. **Recommend central**, so a third
-TTY-dependent command cannot forget — but only if `runLine` genuinely reads the field, because §9
-already records `AvailabilityRule` as a declared-and-unenforced field ("enforce it or delete it")
-and a second inert declaration would be the same mistake twice.
-
 **Demoable single-player, no generation needed**: root an NPC host (NPC root 12%, or the gateway at
 40%), `apt install netcat` there, plant, exit, `nc` back in.
 
+### Settled at approval (2026-08-17) — six calls, recorded so they are not re-opened
+
+1. **The no-TTY rule is WIDER than the two commands the epic named, and this changes locked
+   decision 7.** A bind shell has no pty, and that blocks everything which has to reach a human
+   through the terminal — not just `su` and `nano` but `ssh`, `scp` and `ftp` (all four prompt for a
+   password through `env.prompt`) and `lynx` (a full-screen browser). The epic named the two famous
+   ones; the property is the same for all six. **This is what makes the three doors differ**: `ftp`
+   moves files, `nc` looks and breaks, `ssh` is the only one you can pivot ONWARD from — so a
+   cracked password stays worth having. It is also the more realistic reading, not a concession
+   against realism: a pty-less `ssh` really does fail at password auth. Still no allowlist — each
+   command answers for itself.
+2. **`apt` is NOT blocked.** It is the one named tool that genuinely works over a pty-less shell,
+   which is why `apt install netcat` is the real reflex. The outcome is already delivered by TIER:
+   `apt` needs root, a generated listener is user tier (locked decision 10), and a root-planted one
+   is your own door on a box where you already had root. Blocking it would be the first entry in
+   something list-shaped, for one case: re-entering your own backdoor.
+3. **One field carrying its own message: `withoutTty?: string` on `Command`**, read in
+   `runLine.ts`'s `prepareStage` beside the command-not-found path (exit 1). A boolean would need a
+   second field for the wording; this way declaring the rule and enforcing it are the SAME act, so
+   it cannot rot into §9's `AvailabilityRule` ("enforce it or delete it" — inert, and a mutation
+   survivor on every command added since). `prepareStage` validates every stage up front, so
+   `su | grep x` refuses too, for free. `su` and `nano` keep their canonical real strings; the other
+   four use su's wording generalized — `<command>: must be run from a terminal` — so nothing is
+   invented per command. `identity` and `reset` stay exempt: game commands, outside the fiction.
+4. **Do NOT reach for `AvailabilityRule` as the mechanism.** It already declares `localhost-only` on
+   `ssh`/`scp`/`ftp`/`apt`/`su`, which looks like exactly this rule — but it is not merely inert, it
+   is WRONG on two: `su` works on another player's workstation today (the shipped
+   `elevateCrossPlayer` path) and `apt` must work on a remote box (`scripts/testRemoteAptInstall.ts`,
+   5/5, which this slice's demo depends on). Enforcing it would break both. §9's decision stays its
+   own slice.
+5. **`SERVICE_BY_DOOR` cannot gain `nc: 'unknown'` as the epic wrote it.** Its values are
+   `keyof typeof SERVICE_CATALOG`, and there is no `unknown` row — adding one means inventing a
+   `sweepLog` that locked decision 3 calls a lie, plus a banner and placement for a service that does
+   not exist. Map a door to the service LABEL instead (`UNKNOWN_SERVICE` for nc), which is what the
+   reached-port check already compares (`open.service === …`), leaving the catalog lookup only where
+   a spec is genuinely needed. **The nc door varies in TWO steps, not one**: the credential (pidfile,
+   not `/etc/passwd`) AND the log (nothing, ever — locked decision 6), so model a door as a small
+   record per kind rather than an `if (kind === 'nc')` in four handlers.
+6. **All four CLIENT arms ship with the four gates.** Four gates no client can reach would be the
+   same declared-and-unenforced mistake as the field above — and `nc` reaches only one of them
+   today, because `resolveOpenPorts` deliberately returns `[]` for a fellow occupant. Route as `ssh`
+   does: an occupant address goes to the same-LAN gate and **the server answers from the real
+   journal**. That PRESERVES slice 1's rule rather than bending it — nothing is invented client-side
+   from the generated world, and an occupant's sshd port still fails the reached-port check and
+   refuses in netcat's own words.
+
+**Also delete in this slice**: the `mode_change` variant `{kind:'nc', target:{ip,port}}`
+(`types.ts:93`). Nothing produces it, `state.ts:232` narrows `OverlayMode` to `'nano' | 'lynx'` so
+the UI could not render it, and this slice's shape — a hop via `pushSession`, not an overlay — means
+nothing ever will. Leaving it invites a future reader to build the screen the design just rejected.
+(`mysql`/`redis` are the same class but belong to unshipped commands; out of scope.)
+
 **Acceptance criteria**
-- `nc <host> <port>` where a listener answers opens a session and prompts — no password asked
-- The session's user and tier come from the PIDFILE, read server-side; a client claim is ignored
-- Nothing is written to `auth.log` or any other log, on connect or on plant
-- `su` refuses with `su: must be run from a terminal`; `nano` with `Error opening terminal: unknown`
-- Everything else runs: a root-planted listener can `rm /boot/vmlinuz`; a user-tier one is refused
-  by the ordinary walker
-- A port serving a SERVICE still gets slice 1's banner, not a session
+
+*The door*
+- `nc <host> <port>` where a LISTENER answers opens a session on that box — no password asked — and
+  the prompt becomes that host's; `exit` pops back
+- The session's user and tier come from the PIDFILE, read server-side: a client claiming `root`
+  against a `userType=user` listener lands as **user**
+- A port serving a SERVICE still gets slice 1's banner and closes — a session is what a listener
+  gives you, and nothing else
+- Nothing is written to `auth.log` or any other log, on connect or on plant, on success or refusal
+- A port with neither listener nor service still refuses in netcat's own words; a bricked or
+  unreachable host still times out
+- All four arms land a session: own LAN, a fellow occupant, a public IP, an inner gateway
+
+*The shell you land in*
+- `su` → `su: must be run from a terminal`; `nano` → `Error opening terminal: unknown`
+- `ssh`, `scp`, `ftp`, `lynx` → `<command>: must be run from a terminal`
+- Everything else runs, gated only by TIER: a root-planted listener can `rm /boot/vmlinuz`; a
+  user-tier one is refused by the ordinary walker. No command allowlist anywhere
+- The refusal fires before execution and PER STAGE (`su | grep x` refuses) and ONLY inside an nc
+  session — `su` on your own box is untouched
+- You land in the recorded user's HOME directory, as every other hop already does
+- A pidfile whose `userType` is unparseable is not a door: `readRunningProcesses` skips it, so it
+  refuses rather than defaulting to a tier nobody granted
 
 **RED**: Connect to a planted listener and assert a session exists at the pidfile's tier — fails
 today. Second RED: `su` inside that session refuses.
 **GREEN**: The pluggable credential step, the `nc` session kind wiring, the TTY gate.
 **MUTATE**: Meaningful — the service-vs-listener branch, the tier derivation, the TTY predicate.
 **KILL MUTANTS**: Assert the tier comes from the pidfile and NOT from the caller — a mutant that
-trusts a client-supplied tier must fail. This is the slice's security-relevant survivor.
+trusts a client-supplied tier must fail. This is the slice's security-relevant survivor. Assert the
+TTY refusal fires only for `kind:'nc'`, or a mutant that refuses everywhere survives.
 **REFACTOR**: Assess whether the four gates' credential steps now share enough to hoist.
 **Wire-check**: **Required** — `api/` changes, and `tsc` cannot see DB columns or constraints.
-Prove the pidfile-derived tier lands correctly on a real session row.
+Prove the pidfile-derived tier lands correctly on a real session row, that a client-claimed tier is
+ignored, and that NO auth.log row is written.
 **Open question — RESOLVED 2026-08-17, ahead of the slice.** *Does `apt install` work against a
 remote rooted box?* **Yes.** Settled live by `scripts/testRemoteAptInstall.ts`, 5/5:
 
@@ -564,7 +674,7 @@ Per slice, from `v2/`:
 3. **Typecheck** — `npm run typecheck` (`tsc -b`; a plain `tsc --noEmit` is a NO-OP here)
 4. **Lint/format** — `npm run lint` (v2 has no Prettier)
 5. **Version bump** on every feature slice — `v2/package.json` AND `v2/package-lock.json`
-   (`npm install --package-lock-only`). Current: **0.146.0**
+   (`npm install --package-lock-only`). Current: **0.147.0**
 6. **Wire-check** where the slice says required — `scripts/test*.ts` against `vercel dev` +
    supabase. `tsc` cannot see DB columns or constraints, so an `api/` regression ships green
    without one

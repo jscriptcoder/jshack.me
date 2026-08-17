@@ -28,6 +28,7 @@ import type {
   FtpApi,
   ScpApi,
   SshApi,
+  NcApi,
   HydraApi,
   SuApi,
   TerminalLine,
@@ -115,6 +116,13 @@ export type BuildCommandEnvArgs = {
    *  UI wires it to the `authCreateServerSessionInnerGateway` adapter (signed
    *  `authCreateSessionInnerGateway` round-trip). Optional here for terse test setups. */
   readonly onSshAuthenticateInnerGateway?: SshApi['authenticateInnerGateway'];
+  /** The four backdoor seams — back `env.nc.*`. Each rides the same signed endpoint its
+   *  ssh counterpart does, asked for an `nc`-kind row: how far the knock travels is the
+   *  gate's business, and what is behind the door is the pidfile's. */
+  readonly onNcConnect?: NcApi['connect'];
+  readonly onNcConnectPublic?: NcApi['connectPublic'];
+  readonly onNcConnectSameLan?: NcApi['connectSameLan'];
+  readonly onNcConnectInnerGateway?: NcApi['connectInnerGateway'];
   /** The ftp login seam — backs `env.ftp.authenticate`. The UI wires it to the same
    *  `authCreateSession` round-trip `ssh` uses, asked for an `ftp`-kind row. */
   readonly onFtpAuthenticate?: FtpApi['authenticate'];
@@ -297,6 +305,12 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
     authenticateSameLan: args.onSshAuthenticateSameLan ?? notWired('ssh.authenticateSameLan'),
     authenticateInnerGateway:
       args.onSshAuthenticateInnerGateway ?? notWired('ssh.authenticateInnerGateway'),
+  },
+  nc: {
+    connect: args.onNcConnect ?? notWired('nc.connect'),
+    connectPublic: args.onNcConnectPublic ?? notWired('nc.connectPublic'),
+    connectSameLan: args.onNcConnectSameLan ?? notWired('nc.connectSameLan'),
+    connectInnerGateway: args.onNcConnectInnerGateway ?? notWired('nc.connectInnerGateway'),
   },
   ftp: {
     authenticate: args.onFtpAuthenticate ?? notWired('ftp.authenticate'),

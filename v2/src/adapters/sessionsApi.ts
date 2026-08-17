@@ -25,6 +25,12 @@ import {
   type UserType,
 } from '../core/types';
 import type {
+  NcConnectParams,
+  NcConnectResult,
+  NcInnerGatewayParams,
+  NcPublicParams,
+  NcPublicResult,
+  NcSameLanParams,
   PublicDoorAuthParams,
   Identity,
   InnerGatewayAuthParams,
@@ -444,3 +450,114 @@ const crackOutcome = async (response: Response): Promise<HydraCrackResult> => {
     wordlistFound: parsed.data.wordlistFound,
   };
 };
+
+/** Open a door that asks for nothing, at whichever gate the address decided.
+ *
+ * The four functions below are the ssh adapters minus the credential: the payload
+ * carries where the knock is aimed and nothing about who is knocking, because the
+ * pidfile on the far side already says who it admits. What comes back therefore
+ * includes the USERNAME as well as the tier — the caller never knew it, which is the
+ * whole difference from a password door.
+ *
+ * A 401 cannot happen here (there is no credential to reject), so anything that is
+ * not a 200 with a usable body collapses to the two facts netcat can actually report:
+ * the door was not there, or the wire failed.
+ */
+
+/** The half of a door's answer every arm shares. Null for a body that is missing
+ *  either half — never a session with no user or no tier. */
+const openedDoor = (body: unknown): { username: string; userType: UserType } | null => {
+  const username = (body as { username?: unknown } | null)?.username;
+  const userType = (body as { userType?: unknown } | null)?.userType;
+  return typeof username === 'string' && username.length > 0 && isUserType(userType)
+    ? { username, userType }
+    : null;
+};
+
+const doorFailure = (
+  status: number,
+): { readonly ok: false; readonly error: 'host_unreachable' | 'network_error' } =>
+  status === 404 ? { ok: false, error: 'host_unreachable' } : { ok: false, error: 'network_error' };
+
+export const ncConnectServer = async (
+  deps: SessionsClientDeps,
+  params: NcConnectParams,
+): Promise<NcConnectResult> => {
+  try {
+    const response = await post(deps, 'authCreateSession', {
+      session_id: params.sessionId,
+      essid: params.essid,
+      target_ip: params.targetIp,
+      port: params.port,
+      parent_session_id: params.parentSessionId,
+      source_ip: params.sourceIp,
+      kind: 'nc',
+    });
+    if (!response.ok) return doorFailure(response.status);
+    const opened = openedDoor(await response.json());
+    return opened === null ? { ok: false, error: 'network_error' } : { ok: true, ...opened };
+  } catch {
+    return { ok: false, error: 'network_error' };
+  }
+};
+
+/** The three arms that land on a box whose id only the server can resolve. They differ
+ *  only in the action they post and the address field it names, so they share the
+ *  body parse — a 200 missing the machine id is malformed, never a landing. */
+const ncConnectVia = async (
+  deps: SessionsClientDeps,
+  action: string,
+  payload: Record<string, unknown>,
+): Promise<NcPublicResult> => {
+  try {
+    const response = await post(deps, action, { ...payload, kind: 'nc' });
+    if (!response.ok) return doorFailure(response.status);
+    const body: unknown = await response.json();
+    const opened = openedDoor(body);
+    const machineId = (body as { machine_id?: unknown } | null)?.machine_id;
+    return opened !== null && typeof machineId === 'string'
+      ? { ok: true, ...opened, machineId }
+      : { ok: false, error: 'network_error' };
+  } catch {
+    return { ok: false, error: 'network_error' };
+  }
+};
+
+export const ncConnectServerPublic = (
+  deps: SessionsClientDeps,
+  params: NcPublicParams,
+): Promise<NcPublicResult> =>
+  ncConnectVia(deps, 'authCreateSessionPublic', {
+    session_id: params.sessionId,
+    target: params.target,
+    port: params.port,
+    parent_session_id: params.parentSessionId,
+    source_ip: params.sourceIp,
+    caller_machine_id: params.callerMachineId,
+  });
+
+export const ncConnectServerSameLan = (
+  deps: SessionsClientDeps,
+  params: NcSameLanParams,
+): Promise<NcPublicResult> =>
+  ncConnectVia(deps, 'authCreateSessionSameLan', {
+    session_id: params.sessionId,
+    essid: params.essid,
+    target_ip: params.targetIp,
+    port: params.port,
+    parent_session_id: params.parentSessionId,
+    source_ip: params.sourceIp,
+  });
+
+export const ncConnectServerInnerGateway = (
+  deps: SessionsClientDeps,
+  params: NcInnerGatewayParams,
+): Promise<NcPublicResult> =>
+  ncConnectVia(deps, 'authCreateSessionInnerGateway', {
+    session_id: params.sessionId,
+    essid: params.essid,
+    target: params.target,
+    port: params.port,
+    parent_session_id: params.parentSessionId,
+    source_ip: params.sourceIp,
+  });

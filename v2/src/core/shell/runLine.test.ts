@@ -2,7 +2,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { runCommandLine } from './runLine';
 import { cat } from '../commands/cat';
 import { echo } from '../commands/echo';
+import { ftp } from '../commands/ftp';
 import { grep } from '../commands/grep';
+import { lynx } from '../commands/lynx';
+import { nano } from '../commands/nano';
+import { scp } from '../commands/scp';
+import { ssh } from '../commands/ssh';
+import { su } from '../commands/su';
 import type {
   Command,
   CommandEnv,
@@ -11,7 +17,7 @@ import type {
   PatchResult,
   TerminalLine,
 } from '../commands/types';
-import { mockCommandEnv, mockFsViewFromTree } from '../../test/factories/commandEnv';
+import { mockCommandEnv, mockFsViewFromTree, mockSession } from '../../test/factories/commandEnv';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 import { asAbsPath } from '../types';
 
@@ -594,5 +600,94 @@ describe('runCommandLine', () => {
       expect(result.exitCode).toBe(1);
       expect(contentOf(result.lines)).toContain('missing.txt');
     });
+  });
+});
+
+describe('a shell with no terminal behind it', () => {
+  const NEEDS_TTY = 'needy: must be run from a terminal';
+
+  /** Reached through a planted listener rather than a login — the one session
+   *  kind with no pty behind it. */
+  const throughABackdoor = (env: CommandEnv): CommandEnv => ({
+    ...env,
+    session: mockSession({ kind: 'nc' }),
+  });
+
+  /** A command that cannot work without a terminal, and reports whether it was
+   *  reached at all — the refusal has to arrive INSTEAD of the command, not
+   *  after it has already done its work. */
+  const needsTerminal = (execute: Command['execute']): Command => ({
+    ...baseFixture('needy'),
+    withoutTty: NEEDS_TTY,
+    execute,
+  });
+
+  const ran = () => vi.fn(async () => ({ kind: 'sync', lines: [], exitCode: 0 }) as CommandResult);
+
+  const only = (command: Command): ReadonlyMap<string, Command> =>
+    new Map([[command.name, command]]);
+
+  it('refuses a command that needs one, in that command’s own words, without running it', async () => {
+    const execute = ran();
+    const command = needsTerminal(execute);
+
+    const result = expectSync(await runCommandLine(throughABackdoor(mockCommandEnv()), 'needy', only(command)));
+
+    expect(result.lines).toEqual([errorLine(NEEDS_TTY)]);
+    expect(result.exitCode).toBe(1);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('runs that same command wherever there IS a terminal', async () => {
+    const execute = ran();
+    const command = needsTerminal(execute);
+
+    const result = expectSync(await runCommandLine(mockCommandEnv(), 'needy', only(command)));
+
+    expect(result.exitCode).toBe(0);
+    expect(execute).toHaveBeenCalled();
+  });
+
+  it('leaves everything that needs no terminal alone, so there is no allowlist to fall off', async () => {
+    const result = expectSync(
+      await runCommandLine(throughABackdoor(aliceEnv()), 'cat notes.txt', commands),
+    );
+
+    expect(contentOf(result.lines)).toContain('hello world');
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('refuses before ANY stage runs, so a pipe cannot smuggle it past', async () => {
+    const execute = ran();
+    const command = needsTerminal(execute);
+    const staged = new Map([...pipeCommands, [command.name, command]]);
+
+    const result = expectSync(
+      await runCommandLine(throughABackdoor(aliceEnv()), 'echo hi | needy', staged),
+    );
+
+    expect(result.lines).toEqual([errorLine(NEEDS_TTY)]);
+    expect(result.exitCode).toBe(1);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('says so in each real command’s own voice', async () => {
+    const refusals = await Promise.all(
+      [su, nano, ssh, scp, ftp, lynx].map(async (command) =>
+        contentOf(
+          expectSync(await runCommandLine(throughABackdoor(aliceEnv()), command.name, only(command)))
+            .lines,
+        ),
+      ),
+    );
+
+    expect(refusals).toEqual([
+      'su: must be run from a terminal',
+      'Error opening terminal: unknown',
+      'ssh: must be run from a terminal',
+      'scp: must be run from a terminal',
+      'ftp: must be run from a terminal',
+      'lynx: must be run from a terminal',
+    ]);
   });
 });

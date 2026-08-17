@@ -21,9 +21,11 @@
  * connecting to one is not.
  */
 
-import { generateHomeLan } from '../generation/generateHomeLan';
-import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
+import { isInnerGateway, resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { isPublicIp } from '../generation/ip';
+import { homeDirectory } from '../sessions/homeDirectory';
+import { asMachineId, type UserType } from '../types';
 import {
   formatListenerContent,
   listenerPidfilePath,
@@ -87,32 +89,116 @@ const parsePort = (raw: string): number | null => {
   return Number.isInteger(port) && port >= LOWEST_PORT && port <= HIGHEST_PORT ? port : null;
 };
 
-/** Everything open on the target, or null when nothing holds that address at all.
- *  An address on another network is the server's to resolve; one on the player's
- *  own LAN is the deterministic world's, read from the same tree a scan reads; a
- *  fellow occupant's is neither, so it resolves to NO ports rather than to some
- *  other box's. */
-const resolveOpenPorts = async (
-  env: CommandEnv,
-  host: string,
-  essid: string,
-): Promise<readonly OpenPort[] | null> => {
+/** Where a knock at this address has to be sent, and whatever the player's own side
+ *  can already say about what is open there. The arms mirror `ssh`'s exactly,
+ *  because a backdoor is reachable from precisely the places a login is. */
+type Target =
+  | { readonly kind: 'nowhere' }
+  | { readonly kind: 'public'; readonly ports: readonly OpenPort[] }
+  | { readonly kind: 'occupant' }
+  | {
+      readonly kind: 'lan';
+      readonly host: LanHost;
+      readonly ports: readonly OpenPort[];
+      readonly innerGateway: boolean;
+    };
+
+const resolveTarget = async (env: CommandEnv, host: string, essid: string): Promise<Target> => {
   if (isPublicIp(host)) {
     const resolution = await env.scan.resolvePublic(host);
-    return resolution.found ? resolution.ports : null;
+    return resolution.found ? { kind: 'public', ports: resolution.ports } : { kind: 'nowhere' };
   }
+
   // A fellow occupant's services live on THEIR box and cannot be derived from the
   // shared seed — the generated tree keys on the address alone, so reading it here
   // would answer for a machine that is not ours to describe, in the voice of
   // whichever NPC that octet would have rolled. They are up; what they run is
-  // theirs. Checked BEFORE the generated LAN so a real occupant wins an octet
-  // collision, the same precedence the scan merge and the ssh login already take.
+  // theirs to say, which is why an occupant carries no ports and every knock at
+  // one goes to the gate. Checked BEFORE the generated LAN so a real occupant wins
+  // an octet collision, the same precedence the scan merge and the ssh login take.
   const occupants = await env.scan.resolveOccupants(essid);
-  if (occupants.some((occupant) => occupant.localIp === host)) return [];
+  if (occupants.some((occupant) => occupant.localIp === host)) return { kind: 'occupant' };
 
   const lanHost = generateHomeLan(essid).hosts.find((candidate) => candidate.ip === host);
-  if (lanHost === undefined) return null;
-  return readOpenPorts(resolveLanHostIdentity(lanHost, essid).baseFs);
+  if (lanHost === undefined) return { kind: 'nowhere' };
+  return {
+    kind: 'lan',
+    host: lanHost,
+    ports: readOpenPorts(resolveLanHostIdentity(lanHost, essid).baseFs),
+    innerGateway: isInnerGateway(lanHost),
+  };
+};
+
+/** Who opened, or that nobody did. The machine id is part of SUCCESS rather than a
+ *  field that might be missing: a door that opened onto no box is not a state this
+ *  command has to carry a guard for. */
+type Knock =
+  | {
+      readonly ok: true;
+      readonly username: string;
+      readonly userType: UserType;
+      readonly machineId: string;
+    }
+  | { readonly ok: false };
+
+/** An address nothing holds never reaches a door, so `knock` is only ever handed a
+ *  target that resolved — which is what lets each arm below be the last word rather
+ *  than one more guard. */
+type ReachedTarget = Exclude<Target, { kind: 'nowhere' }>;
+
+/** Knock, and see who opens. This has to be asked of the BOX rather than of the
+ *  player's own map of the world: a listener somebody planted lives in that
+ *  machine's journal, which only the server replays — so a port this side reads as
+ *  closed may still be a door. Netcat opens a socket instead of consulting a table,
+ *  and this is that socket. Each arm rides the gate its `ssh` counterpart does, so
+ *  how far the knock travels stays the gate's business and who is behind the door
+ *  stays the pidfile's. */
+const knock = async (
+  env: CommandEnv,
+  target: ReachedTarget,
+  request: { readonly host: string; readonly port: number; readonly essid: string },
+  sessionId: string,
+): Promise<Knock> => {
+  const shared = {
+    sessionId,
+    port: request.port,
+    parentSessionId: env.session.id,
+    sourceIp: null,
+  };
+  if (target.kind === 'public') {
+    const opened = await env.nc.connectPublic({
+      ...shared,
+      target: request.host,
+      callerMachineId: env.session.machineId,
+    });
+    return opened.ok ? { ...opened } : { ok: false };
+  }
+  if (target.kind === 'occupant') {
+    const opened = await env.nc.connectSameLan({
+      ...shared,
+      essid: request.essid,
+      targetIp: request.host,
+    });
+    return opened.ok ? { ...opened } : { ok: false };
+  }
+  if (target.innerGateway) {
+    const opened = await env.nc.connectInnerGateway({
+      ...shared,
+      essid: request.essid,
+      target: request.host,
+    });
+    return opened.ok ? { ...opened } : { ok: false };
+  }
+  // An ordinary host on the player's own LAN: the only arm whose machine id the
+  // client can derive for itself, from the same resolver the gate used.
+  const opened = await env.nc.connect({
+    ...shared,
+    essid: request.essid,
+    targetIp: request.host,
+  });
+  return opened.ok
+    ? { ...opened, machineId: resolveLanHostIdentity(target.host, request.essid).machineId }
+    : { ok: false };
 };
 
 /** The service answering on `port`, or null when nothing is. A port with no
@@ -205,13 +291,35 @@ const execute: Command['execute'] = async (env, args, flags) => {
     return error(OWN_BOX);
   }
 
-  const openPorts = await resolveOpenPorts(env, host, wlan0.association.essid);
-  if (openPorts === null) return connectError(host, port, 'Connection timed out');
+  const essid = wlan0.association.essid;
+  const target = await resolveTarget(env, host, essid);
+  if (target.kind === 'nowhere') return connectError(host, port, 'Connection timed out');
 
-  const service = serviceOnPort(openPorts, port);
-  if (service === null) return connectError(host, port, 'Connection refused');
+  // A port the catalog can name is answered without asking anyone: a daemon greets
+  // and hangs up, which is a banner grab rather than a way in.
+  const service = target.kind === 'occupant' ? null : serviceOnPort(target.ports, port);
+  if (service !== null) return streamedResult(conversation(env, host, port, service.banner));
 
-  return streamedResult(conversation(env, host, port, service.banner));
+  const sessionId = `nc-${port}-${env.now()}`;
+  await env.sleep(CONNECT_DELAY_MS);
+  const opened = await knock(env, target, { host, port, essid }, sessionId);
+  if (!opened.ok) return connectError(host, port, 'Connection refused');
+
+  env.pushSession({
+    id: sessionId,
+    playerKey: env.session.playerKey,
+    machineId: asMachineId(opened.machineId),
+    username: opened.username,
+    userType: opened.userType,
+    kind: 'nc',
+    createdAt: env.now(),
+  });
+  env.setCwd(homeDirectory({ username: opened.username, userType: opened.userType }));
+  return {
+    kind: 'sync',
+    lines: [text(`Connecting to ${host}:${port}...`), text(`Connected to ${host}.`)],
+    exitCode: 0,
+  };
 };
 
 export const nc: Command = {

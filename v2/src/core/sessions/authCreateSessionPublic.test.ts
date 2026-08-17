@@ -14,6 +14,7 @@ import { computeApGatewayId } from '../identity/router';
 import { computeWorkstationId } from '../identity/workstation';
 import { lanAddressFor, type LanLeaseRow } from '../network/lanAddress';
 import type { OwnerPatchRow } from '../network/materializeWorkstationFs';
+import { formatListenerContent } from '../services/pidfile';
 import { asGameTime } from '../types';
 import {
   AUTH_LOG_OWNER,
@@ -1179,5 +1180,101 @@ describe('handleAuthCreateSessionPublic', () => {
         kind: 'ftp',
       });
     });
+  });
+});
+
+describe('a backdoor reached across the network', () => {
+  const BACKDOOR_PORT = 4444;
+  const FORWARDED = 4444;
+
+  /** Alice left a listener on her own workstation, and forwarded the port to it. */
+  const listenerUp = (content: string): OwnerPatchRow => ({
+    ...sshdUp,
+    path: `/var/run/nc-${BACKDOOR_PORT}.pid`,
+    content,
+  });
+
+  const plantedByMallory = listenerUp(
+    formatListenerContent({ port: BACKDOOR_PORT, user: 'mallory', userType: 'user' }),
+  );
+
+  const backdoorForward = forwards(forwardTo(FORWARDED, ALICE_LAN_IP, BACKDOOR_PORT));
+
+  const knock = (over: Record<string, unknown> = {}) =>
+    envelope(BOB, {
+      session_id: 'nc-1',
+      target: TARGET,
+      port: FORWARDED,
+      kind: 'nc',
+      ...over,
+    });
+
+  it('lands a session on the occupant’s box as whoever planted the listener', async () => {
+    const { deps, insertSession } = makeDeps({
+      patches: patchesByMachine({
+        [AP_GATEWAY_ID]: [backdoorForward],
+        [ALICE_WS]: [plantedByMallory],
+      }),
+    });
+
+    const result = await handleAuthCreateSessionPublic(knock(), deps);
+
+    expect(result.status).toBe(200);
+    expect(insertSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        machine_id: ALICE_WS,
+        credentials: { username: 'mallory', userType: 'user' },
+        kind: 'nc',
+      }),
+    );
+  });
+
+  it('writes no line on the box it just let a stranger into', async () => {
+    const { deps, upsertPatch } = makeDeps({
+      patches: patchesByMachine({
+        [AP_GATEWAY_ID]: [backdoorForward],
+        [ALICE_WS]: [plantedByMallory],
+      }),
+    });
+
+    await handleAuthCreateSessionPublic(knock(), deps);
+
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  // The shared resolver refuses a forward whose internal port nothing is serving
+  // before this handler ever sees it — so the refusal is `host_unreachable`, not a
+  // door-specific one. Worth pinning: it means a listener counts as "serving" to the
+  // routing layer exactly as a daemon does, which is what makes a forwarded backdoor
+  // reachable at all.
+  it('reaches nothing when the forward lands on a port no listener holds', async () => {
+    const { deps, insertSession } = makeDeps({
+      patches: patchesByMachine({
+        [AP_GATEWAY_ID]: [forwards(forwardTo(FORWARDED, ALICE_LAN_IP, 9999))],
+        [ALICE_WS]: [plantedByMallory],
+      }),
+    });
+
+    const result = await handleAuthCreateSessionPublic(knock(), deps);
+
+    expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+
+  it('is not an ssh door — a forward to a listener refuses a password login', async () => {
+    const { deps, insertSession } = makeDeps({
+      patches: patchesByMachine({
+        [AP_GATEWAY_ID]: [backdoorForward],
+        [ALICE_WS]: [plantedByMallory],
+      }),
+    });
+
+    const result = await handleAuthCreateSessionPublic(
+      knock({ kind: 'ssh', username: 'guest', password: ALICE_GUEST_PW }),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 404, body: { error: 'service_not_running' } });
+    expect(insertSession).not.toHaveBeenCalled();
   });
 });

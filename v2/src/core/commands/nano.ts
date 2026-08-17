@@ -61,6 +61,8 @@ export const nano: Command = {
   category: 'filesystem',
   tier: 'guest',
   availability: { kind: 'any-machine' },
+  // curses has no screen to draw on; the wording is the real one's.
+  withoutTty: 'Error opening terminal: unknown',
   manual: {
     synopsis: 'nano [file]',
     description:

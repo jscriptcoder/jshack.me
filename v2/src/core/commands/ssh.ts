@@ -356,6 +356,9 @@ export const ssh: Command = {
   category: 'network',
   tier: 'guest',
   availability: { kind: 'localhost-only' },
+  // No terminal, no password prompt — so a backdoor is a room you can search but
+  // not a door you can pivot onward through. That is what a real login buys.
+  withoutTty: 'ssh: must be run from a terminal',
   flags: { '-p': 'string' },
   manual: {
     synopsis: 'ssh [-p port] user@host',

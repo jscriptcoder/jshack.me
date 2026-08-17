@@ -25,8 +25,6 @@ import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { lanAddressesByOwner, type LanLeaseRow } from '../network/lanAddress';
 import { materializeWorkstationFs, type OwnerPatchRow } from '../network/materializeWorkstationFs';
-import { readOpenPorts } from '../services/pidfile';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { canBoot } from '../boot/bootFiles';
 import { md5 } from '../generation/md5';
 import { accountIn } from './passwdAccount';
@@ -44,7 +42,7 @@ import {
 } from '../patches/appendMachineLog';
 import { asGameTime } from '../types';
 import type { PatchRow } from '../patches/upsertPatch';
-import type { AuthSessionRow, HandlerResponse } from './authCreateSession';
+import { DOOR_KINDS, reachDoor, type AuthSessionRow, type HandlerResponse } from './authCreateSession';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
 /** The occupancy fields a same-LAN connect needs: whose row it is (the LAN-boundary
@@ -102,9 +100,13 @@ const authCreateSessionSameLanSchema = z
     session_id: z.string().min(1),
     essid: z.string().min(1),
     target_ip: z.string().min(1),
-    username: z.string().min(1),
-    password: z.string(),
+    // Optional because a backdoor has neither to send — the pidfile names its own
+    // user. A password door still requires both.
+    username: z.string().min(1).optional(),
+    password: z.string().optional(),
     port: z.number().int().positive().optional(),
+    // Absent means ssh, so every shipped caller keeps working untouched.
+    kind: z.enum(DOOR_KINDS).default('ssh'),
     parent_session_id: z.string().min(1).nullable().optional(),
     source_ip: z.string().min(1).nullable().optional(),
   })
@@ -227,11 +229,41 @@ export const handleAuthCreateSessionSameLan = async (
   // stopped them is a distinction no client can act on (the adapter maps every 404 to
   // `host_unreachable` before the command sees it).
   const port = payload.port ?? DEFAULT_SSH_PORT;
-  const listening = readOpenPorts(workstationFs).some(
-    (open) => open.port === port && open.service === SERVICE_CATALOG.ssh.service,
-  );
-  if (!listening) {
+  const reached = reachDoor(payload.kind, workstationFs, port);
+  if (reached === null) {
     return { status: 404, body: { error: 'host_unreachable' } };
+  }
+
+  // A backdoor on a neighbour's box admits whoever its pidfile names and records
+  // nothing — the same door as anywhere else, reached over a shorter wire.
+  if (reached.kind === 'listener') {
+    const { user, userType } = reached.admits;
+    const { error } = await deps.insertSession({
+      session_id: payload.session_id,
+      player_key: publicKey,
+      machine_id: target.workstation_machine_id,
+      credentials: { username: user, userType },
+      parent_session_id: payload.parent_session_id ?? null,
+      source_ip: payload.source_ip ?? null,
+      kind: payload.kind,
+      essid: payload.essid,
+    });
+    if (error) {
+      return { status: 500, body: { error: 'insert_failed' } };
+    }
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        username: user,
+        userType,
+        machine_id: target.workstation_machine_id,
+      },
+    };
+  }
+
+  if (payload.username === undefined || payload.password === undefined) {
+    return { status: 401, body: { error: 'invalid_credentials' } };
   }
 
   // Validate against A's own /etc/passwd. Unknown user and wrong password are one 401 —

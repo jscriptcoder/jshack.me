@@ -38,6 +38,12 @@ import type {
   DeepScanRecordParams,
   RemoteAuthParams,
   RemoteAuthResult,
+  NcConnectParams,
+  NcConnectResult,
+  NcInnerGatewayParams,
+  NcPublicParams,
+  NcPublicResult,
+  NcSameLanParams,
   SameLanAuthParams,
   ScanRecordParams,
   Session,
@@ -94,6 +100,10 @@ import { createSyncChannel, type SyncChannel } from '../adapters/crossTabSync';
 import {
   authCreateServerSession,
   authCreateServerSessionInnerGateway,
+  ncConnectServer,
+  ncConnectServerInnerGateway,
+  ncConnectServerPublic,
+  ncConnectServerSameLan,
   authCreateServerSessionPublic,
   authCreateServerSessionSameLan,
   authElevateServerSession,
@@ -461,6 +471,30 @@ const sshAuthenticateSameLan = (params: SameLanAuthParams): Promise<PublicAuthRe
   sessionsClientDeps === undefined
     ? Promise.resolve({ ok: false, error: 'network_error' })
     : authCreateServerSessionSameLan(sessionsClientDeps, params);
+
+/** Open a backdoor, at whichever gate the address decided (backs `env.nc.*`). No
+ *  credential goes out and the user comes back: the pidfile on the far side is what
+ *  says who is admitted. Each degrades to a network error before `startGame` wires
+ *  the sessions client, exactly as its ssh counterpart does. */
+const ncConnect = (params: NcConnectParams): Promise<NcConnectResult> =>
+  sessionsClientDeps === undefined
+    ? Promise.resolve({ ok: false, error: 'network_error' })
+    : ncConnectServer(sessionsClientDeps, params);
+
+const ncConnectPublic = (params: NcPublicParams): Promise<NcPublicResult> =>
+  sessionsClientDeps === undefined
+    ? Promise.resolve({ ok: false, error: 'network_error' })
+    : ncConnectServerPublic(sessionsClientDeps, params);
+
+const ncConnectSameLan = (params: NcSameLanParams): Promise<NcPublicResult> =>
+  sessionsClientDeps === undefined
+    ? Promise.resolve({ ok: false, error: 'network_error' })
+    : ncConnectServerSameLan(sessionsClientDeps, params);
+
+const ncConnectInnerGateway = (params: NcInnerGatewayParams): Promise<NcPublicResult> =>
+  sessionsClientDeps === undefined
+    ? Promise.resolve({ ok: false, error: 'network_error' })
+    : ncConnectServerInnerGateway(sessionsClientDeps, params);
 
 /** Authenticate an ssh login through a NAT forward on the player's own inner gateway
  *  (backs `env.ssh.authenticateInnerGateway`). Degrades to a network error before
@@ -1314,6 +1348,10 @@ const executeLine = async (line: string): Promise<void> => {
     onSshAuthenticatePublic: sshAuthenticatePublic,
     onSshAuthenticateSameLan: sshAuthenticateSameLan,
     onSshAuthenticateInnerGateway: sshAuthenticateInnerGateway,
+    onNcConnect: ncConnect,
+    onNcConnectPublic: ncConnectPublic,
+    onNcConnectSameLan: ncConnectSameLan,
+    onNcConnectInnerGateway: ncConnectInnerGateway,
     onSuElevate: suElevate,
     onHydraCrack: hydraCrack,
     onHydraCrackPublic: hydraCrackPublic,

@@ -45,7 +45,12 @@ import {
 } from '../patches/appendMachineLog';
 import { asGameTime } from '../types';
 import type { PatchRow } from '../patches/upsertPatch';
-import type { AuthSessionRow, HandlerResponse } from './authCreateSession';
+import {
+  DOOR_KINDS,
+  listenerOn,
+  type AuthSessionRow,
+  type HandlerResponse,
+} from './authCreateSession';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
 export type AuthCreateSessionInnerGatewayDeps = {
@@ -79,9 +84,13 @@ const authCreateSessionInnerGatewaySchema = z
     session_id: z.string().min(1),
     essid: z.string().min(1),
     target: z.string().min(1),
-    username: z.string().min(1),
-    password: z.string(),
+    // Optional because a backdoor has neither to send — the pidfile names its own
+    // user. A password door still requires both.
+    username: z.string().min(1).optional(),
+    password: z.string().optional(),
     port: z.number().int().positive().optional(),
+    // Absent means ssh, so every shipped caller keeps working untouched.
+    kind: z.enum(DOOR_KINDS).default('ssh'),
     parent_session_id: z.string().min(1).nullable().optional(),
     source_ip: z.string().min(1).nullable().optional(),
   })
@@ -159,6 +168,42 @@ export const handleAuthCreateSessionInnerGateway = async (
     return { status: resolved.status, body: { error: resolved.error } };
   }
   const resolution = resolved.target;
+
+  // Only a backdoor asks who is behind the port here. An ssh reach is already routed
+  // by `machineServing`, and putting a service check on that path would change a
+  // shipped one this slice has no business changing.
+  if (payload.kind === 'nc') {
+    const admits = listenerOn(resolution.fs, resolution.reachedPort);
+    if (admits === null) {
+      return { status: 404, body: { error: 'host_unreachable' } };
+    }
+    const { error } = await deps.insertSession({
+      session_id: payload.session_id,
+      player_key: publicKey,
+      machine_id: resolution.machineId,
+      credentials: { username: admits.user, userType: admits.userType },
+      parent_session_id: payload.parent_session_id ?? null,
+      source_ip: payload.source_ip ?? null,
+      kind: payload.kind,
+      essid: payload.essid,
+    });
+    if (error) {
+      return { status: 500, body: { error: 'insert_failed' } };
+    }
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        username: admits.user,
+        userType: admits.userType,
+        machine_id: resolution.machineId,
+      },
+    };
+  }
+
+  if (payload.username === undefined || payload.password === undefined) {
+    return { status: 401, body: { error: 'invalid_credentials' } };
+  }
 
   // Validate against the TARGET's own /etc/passwd (the deep NPC, or the gateway for
   // its own port). An unknown user OR a wrong password is one 401 — the response

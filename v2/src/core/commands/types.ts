@@ -90,7 +90,11 @@ export type ModeChange =
   // fetching, so a refused connection is reported in the terminal rather than on a
   // screen that has nothing to show.
   | { readonly kind: 'lynx'; readonly url: string; readonly content: string }
-  | { readonly kind: 'nc'; readonly target: { readonly ip: NetworkAddress; readonly port: number } }
+  // No `nc` variant. A backdoor is a HOP, not a screen: `nc` pushes an ordinary
+  // session and the shell answers on the far box, minus what needs a terminal. The
+  // overlay this once declared was never produced and the UI narrows `OverlayMode`
+  // to exclude it, so it was a design that looked shipped — deleted rather than
+  // left to invite someone to build it.
   | { readonly kind: 'mysql'; readonly target: { readonly ip: NetworkAddress } }
   | { readonly kind: 'redis'; readonly target: { readonly ip: NetworkAddress } };
 
@@ -545,6 +549,47 @@ export type FtpTransfer = {
   readonly bytes: number;
 };
 
+/** What `nc` hands a door that asks for nothing. Structurally the ssh params MINUS
+ *  the credential, because that is exactly what a backdoor is: the pidfile already
+ *  names its user and tier, so there is nothing for a client to send and nothing for
+ *  it to claim. Written as an `Omit` rather than a fresh literal so a field added to
+ *  the ssh side cannot quietly go missing here. */
+export type NcConnectParams = Omit<RemoteAuthParams, 'username' | 'password'> & {
+  /** The port the listener holds. Unlike a daemon, which is answered wherever it
+   *  happens to listen, a backdoor IS its port — nothing else identifies it. */
+  readonly port: number;
+};
+export type NcPublicParams = Omit<PublicDoorAuthParams, 'username' | 'password'>;
+export type NcSameLanParams = Omit<SameLanAuthParams, 'username' | 'password'>;
+export type NcInnerGatewayParams = Omit<InnerGatewayAuthParams, 'username' | 'password'>;
+
+/** The outcome of opening a backdoor. The USERNAME comes back as well as the tier —
+ *  the caller never knew it, which is the whole difference from a password door. */
+export type NcConnectResult =
+  | { readonly ok: true; readonly username: string; readonly userType: UserType }
+  | { readonly ok: false; readonly error: 'host_unreachable' | 'network_error' };
+
+/** Same, for the doors that land on a box whose id only the server can resolve. */
+export type NcPublicResult =
+  | {
+      readonly ok: true;
+      readonly username: string;
+      readonly userType: UserType;
+      readonly machineId: string;
+    }
+  | { readonly ok: false; readonly error: 'host_unreachable' | 'network_error' };
+
+/** The four doors `nc` can knock on, one per reachability arm — the same four `ssh`
+ *  has, because a backdoor is reachable from exactly the places a login is. Keeping
+ *  them separate rather than routing server-side is what lets each gate keep owning
+ *  its own resolution: how you get there is not what is behind the door. */
+export type NcApi = {
+  readonly connect: (params: NcConnectParams) => Promise<NcConnectResult>;
+  readonly connectPublic: (params: NcPublicParams) => Promise<NcPublicResult>;
+  readonly connectSameLan: (params: NcSameLanParams) => Promise<NcPublicResult>;
+  readonly connectInnerGateway: (params: NcInnerGatewayParams) => Promise<NcPublicResult>;
+};
+
 export type SshApi = {
   readonly authenticate: (params: RemoteAuthParams) => Promise<RemoteAuthResult>;
   readonly authenticatePublic: (params: PublicAuthParams) => Promise<PublicAuthResult>;
@@ -755,6 +800,7 @@ export type CommandEnv = {
   readonly log: LogApi;
   readonly homeNetwork: HomeNetworkApi;
   readonly ssh: SshApi;
+  readonly nc: NcApi;
   readonly ftp: FtpApi;
   readonly scp: ScpApi;
   readonly su: SuApi;
@@ -874,6 +920,24 @@ export type Command = {
    *  (`nmap -sV`) keep them unambiguous. Stack members must all be
    *  `'boolean'`-typed. Literal-match wins over expansion. */
   readonly stacking?: boolean;
+  /** What this command says when the shell has no terminal behind it — a
+   *  session reached through a planted listener rather than a login. Present
+   *  means it needs one; absent means it runs anywhere.
+   *
+   *  The VALUE is the refusal, deliberately: a boolean would need a second
+   *  field for the wording, and a field nobody had to fill in is a field that
+   *  can be declared without being enforced — which is what `AvailabilityRule`
+   *  above became. Here, declaring the rule and saying what it sounds like are
+   *  the same act.
+   *
+   *  It is a property of the COMMAND, not a list held somewhere central: the
+   *  set is whatever has to reach a human through the terminal — a masked
+   *  password prompt (`su`, `ssh`, `scp`, `ftp`) or a full screen (`nano`,
+   *  `lynx`) — so a command that grows a prompt answers the question where it
+   *  is written. `apt` deliberately has none: it genuinely works over a
+   *  pty-less shell, which is why installing tools on a box you have opened is
+   *  the real reflex. */
+  readonly withoutTty?: string;
   readonly execute: (
     env: CommandEnv,
     args: readonly string[],

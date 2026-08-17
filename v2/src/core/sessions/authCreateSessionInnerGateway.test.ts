@@ -1,3 +1,4 @@
+import { formatListenerContent } from '../services/pidfile';
 import { describe, expect, it, vi } from 'vitest';
 import {
   handleAuthCreateSessionInnerGateway,
@@ -897,5 +898,62 @@ describe('handleAuthCreateSessionInnerGateway — deep-reach auth.log trace', ()
     );
 
     expect(appended).toHaveLength(0);
+  });
+});
+
+describe('a backdoor behind the inner gateway', () => {
+  const BACKDOOR_PORT = 4444;
+
+  /** A listener on the inner gateway ITSELF — a box whose journal this path really
+   *  does replay, unlike the deep NPC below it. */
+  const plantedOnGateway = (content: string): OwnerPatchRow => ({
+    ...forwardPatch,
+    path: `/var/run/nc-${BACKDOOR_PORT}.pid`,
+    content,
+  });
+
+  const mallorysListener = plantedOnGateway(
+    formatListenerContent({ port: BACKDOOR_PORT, user: 'mallory', userType: 'root' }),
+  );
+
+  const knock = (over: Record<string, unknown> = {}) =>
+    envelope({ session_id: 'nc-1', kind: 'nc', port: BACKDOOR_PORT, ...over });
+
+  it('opens as whoever planted it, ignoring the account the caller named', async () => {
+    const { deps, insertSession } = makeDeps(async () => ({
+      data: [mallorysListener],
+      error: null,
+    }));
+
+    const result = await handleAuthCreateSessionInnerGateway(knock(), deps);
+
+    expect(result.status).toBe(200);
+    expect(insertSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        machine_id: GATEWAY_ID,
+        credentials: { username: 'mallory', userType: 'root' },
+        kind: 'nc',
+      }),
+    );
+  });
+
+  it('records nothing on the gateway it just opened', async () => {
+    const { deps, appended } = makeDeps(async () => ({
+      data: [mallorysListener],
+      error: null,
+    }));
+
+    await handleAuthCreateSessionInnerGateway(knock(), deps);
+
+    expect(appended).toEqual([]);
+  });
+
+  it('is no door onto a forwarded port that reaches a password service', async () => {
+    const { deps, insertSession } = makeDeps();
+
+    const result = await handleAuthCreateSessionInnerGateway(knock({ port: 2222 }), deps);
+
+    expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    expect(insertSession).not.toHaveBeenCalled();
   });
 });
