@@ -19,6 +19,7 @@ import type {
 } from '../commands/types';
 import { mockCommandEnv, mockFsViewFromTree, mockSession } from '../../test/factories/commandEnv';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
+import { formatListenerContent } from '../services/pidfile';
 import { asAbsPath } from '../types';
 
 /** A `user`-tier session in /home/alice with two files she owns (and can read). */
@@ -689,5 +690,113 @@ describe('a shell with no terminal behind it', () => {
       'ftp: must be run from a terminal',
       'lynx: must be run from a terminal',
     ]);
+  });
+});
+
+describe('a backdoor whose listener was killed underneath it', () => {
+  const MY_PORT = 4444;
+  const CLOSED = 'nc: connection closed by foreign host';
+
+  const listenerPidfile = (port: number) =>
+    buildFile(formatListenerContent({ port, user: 'mallory', userType: 'root' }), {
+      owner: 'root',
+    });
+
+  const servicePidfile = () => buildFile('sshd:port=22', { owner: 'root' });
+
+  /** The box the intruder is standing on, with whatever `/var/run` currently holds
+   *  — the only thing that decides whether their socket is still there. `notes.txt`
+   *  gives every command in these tests something real to have done, so a session
+   *  that was NOT closed is visible as output rather than as an absence. */
+  const standingOn = (
+    varRun: Parameters<typeof buildDirectory>[0],
+    session: Parameters<typeof mockSession>[0] = { kind: 'nc', port: MY_PORT },
+  ) => {
+    const popSession = vi.fn();
+    const env = mockCommandEnv({
+      session: mockSession(session),
+      popSession,
+      fs: mockFsViewFromTree(
+        buildDirectory({
+          var: buildDirectory({ run: buildDirectory(varRun) }),
+          home: buildDirectory({
+            alice: buildDirectory({ 'notes.txt': buildFile('hello world\n', { owner: 'alice' }) }, { owner: 'alice' }),
+          }),
+        }),
+        { userType: 'root', cwd: asAbsPath('/home/alice') },
+      ),
+    });
+    return { env, popSession };
+  };
+
+  it('closes the connection on the next command, instead of running it', async () => {
+    const { env, popSession } = standingOn({ 'sshd.pid': servicePidfile() });
+
+    const result = expectSync(await runCommandLine(env, 'cat notes.txt', commands));
+
+    expect(result.lines).toEqual([errorLine(CLOSED)]);
+    expect(result.exitCode).toBe(1);
+    expect(popSession).toHaveBeenCalled();
+  });
+
+  it('leaves the session alone while the listener is still there', async () => {
+    const { env, popSession } = standingOn({
+      'nc-4444.pid': listenerPidfile(MY_PORT),
+      'sshd.pid': servicePidfile(),
+    });
+
+    const result = expectSync(await runCommandLine(env, 'cat notes.txt', commands));
+
+    expect(contentOf(result.lines)).toContain('hello world');
+    expect(popSession).not.toHaveBeenCalled();
+  });
+
+  it('is not fooled by a service stopping — that is a different verb on a different thing', async () => {
+    const { env, popSession } = standingOn({ 'nc-4444.pid': listenerPidfile(MY_PORT) });
+
+    const result = expectSync(await runCommandLine(env, 'cat notes.txt', commands));
+
+    expect(contentOf(result.lines)).toContain('hello world');
+    expect(popSession).not.toHaveBeenCalled();
+  });
+
+  it('asks after ITS OWN port, not whether any listener at all survived', async () => {
+    const { env, popSession } = standingOn({ 'nc-31337.pid': listenerPidfile(31337) });
+
+    const result = expectSync(await runCommandLine(env, 'cat notes.txt', commands));
+
+    expect(result.lines).toEqual([errorLine(CLOSED)]);
+    expect(popSession).toHaveBeenCalled();
+  });
+
+  // Even carrying the port it arrived on: a login forks a child that outlives
+  // whatever started it, which is why stopping sshd leaves its sessions up. Only
+  // netcat serves from the same process it listens with.
+  it('never closes a session that was reached by logging in, whatever port it came in on', async () => {
+    const { env, popSession } = standingOn(
+      {},
+      { kind: 'ssh', username: 'alice', userType: 'root', port: MY_PORT },
+    );
+
+    const result = expectSync(await runCommandLine(env, 'cat notes.txt', commands));
+
+    expect(contentOf(result.lines)).toContain('hello world');
+    expect(popSession).not.toHaveBeenCalled();
+  });
+
+  it('closes before any stage of a pipeline runs', async () => {
+    const { env } = standingOn({});
+
+    const result = expectSync(await runCommandLine(env, 'echo hi | grep hi', pipeCommands));
+
+    expect(result.lines).toEqual([errorLine(CLOSED)]);
+  });
+
+  it('answers a command the box does not even have with the closed socket', async () => {
+    const { env } = standingOn({});
+
+    const result = expectSync(await runCommandLine(env, 'notacommand', commands));
+
+    expect(result.lines).toEqual([errorLine(CLOSED)]);
   });
 });

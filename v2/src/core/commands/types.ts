@@ -51,6 +51,11 @@ export type Session = {
   readonly userType: UserType;
   readonly kind: SessionKind;
   readonly createdAt: EpochMs;
+  /** The port whose LISTENER admitted this session — a backdoor's only, because a
+   *  backdoor is the only door that has to keep asking whether it is still there.
+   *  Every other kind spends its port reaching the box and never needs it again,
+   *  so it goes unrecorded rather than carried as a field that means nothing. */
+  readonly port?: number;
 };
 
 export type HopChain = readonly Session[];

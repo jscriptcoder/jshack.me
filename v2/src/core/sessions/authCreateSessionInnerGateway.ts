@@ -45,12 +45,8 @@ import {
 } from '../patches/appendMachineLog';
 import { asGameTime } from '../types';
 import type { PatchRow } from '../patches/upsertPatch';
-import {
-  DOOR_KINDS,
-  listenerOn,
-  type AuthSessionRow,
-  type HandlerResponse,
-} from './authCreateSession';
+import { DOOR_KINDS, type AuthSessionRow, type HandlerResponse } from './authCreateSession';
+import { listenerOn } from '../services/pidfile';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
 export type AuthCreateSessionInnerGatewayDeps = {

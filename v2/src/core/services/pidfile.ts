@@ -193,6 +193,19 @@ export const readRunningProcesses = (root: Directory): readonly RunningProcess[]
   });
 };
 
+/** The listener holding `port` on this box, or null when none does — everything a
+ *  backdoor knows about who is coming in.
+ *
+ *  Asked by the login gates to decide whether to open a door, and by the shell on
+ *  every line typed through one to decide whether it is still open. One reader for
+ *  both, because they are the same question a moment apart: a box that admitted a
+ *  visitor and a box that still holds them must not be able to disagree. */
+export const listenerOn = (fs: Directory, port: number | undefined): Listener | null =>
+  readRunningProcesses(fs).find(
+    (running): running is Extract<RunningProcess, { kind: 'listener' }> =>
+      running.kind === 'listener' && running.port === port,
+  ) ?? null;
+
 /** The open ports a machine advertises, as a port scan sees them. Shared by every
  *  reader (the `nmap` display + the server scan action) so the ports a scan SHOWS
  *  and the ports it LOGS can never drift. A listener projects as `unknown` — open,

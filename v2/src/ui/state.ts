@@ -1312,6 +1312,15 @@ const executeLine = async (line: string): Promise<void> => {
         ),
   ]);
 
+  // A backdoor is the one session that can be taken away while it is being held,
+  // and the pidfile that decides it lives in the TARGET's journal — where another
+  // player's `kill` lands, on a machine this client is not watching. Re-pull it
+  // before the line runs, so the shell asks a box that is current instead of the
+  // one the player walked into. This is the whole "pull, not a push": it costs a
+  // round-trip only while standing in a backdoor, and nothing is polled — an
+  // intruder who types nothing learns nothing.
+  if (currentSession.kind === 'nc') await refetchPatches();
+
   // Fresh abort controller per run — Ctrl-C aborts it, which rejects the
   // command's `env.sleep` and unwinds a streamed command mid-flight.
   const controller = new AbortController();

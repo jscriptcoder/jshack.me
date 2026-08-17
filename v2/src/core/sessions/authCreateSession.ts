@@ -28,12 +28,7 @@ import { materializeMachineFs, type OwnerPatchRow } from '../network/materialize
 import { canBoot } from '../boot/bootFiles';
 import { md5 } from '../generation/md5';
 import { SERVICE_CATALOG, type ServiceSpec, type SweepLog } from '../services/serviceCatalog';
-import {
-  readOpenPorts,
-  readRunningProcesses,
-  type Listener,
-  type RunningProcess,
-} from '../services/pidfile';
+import { listenerOn, readOpenPorts, type Listener } from '../services/pidfile';
 import type { Directory } from '../filesystem/types';
 import { derivePid } from '../logging/syslog';
 import {
@@ -209,15 +204,6 @@ export type ReachedDoor =
  *  `reachedPort` narrows the match to the port the request actually arrived on —
  *  which a routed forward always knows and an own-LAN knock only knows for a
  *  backdoor, since a daemon is answered wherever it happens to be listening. */
-/** The listener holding `port` on this box, or null when none does — everything a
- *  backdoor knows about who is coming in. Exported for the gates whose reachability
- *  is decided elsewhere and which only need the door's identity. */
-export const listenerOn = (fs: Directory, port: number | undefined): Listener | null =>
-  readRunningProcesses(fs).find(
-    (running): running is Extract<RunningProcess, { kind: 'listener' }> =>
-      running.kind === 'listener' && running.port === port,
-  ) ?? null;
-
 export const reachDoor = (
   kind: DoorKind,
   fs: Directory,
