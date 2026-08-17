@@ -1101,6 +1101,15 @@ produced a green PASS on its own:
 The general rule: an assertion that would pass if the code under test did NOTHING is not a check.
 On shared, deterministically-named machines that is the default outcome, not an edge case.
 
+**Selecting a generated LAN host by "not `.1`" picks an INNER GATEWAY, not an ordinary box.**
+`generateHomeLan` returns `kind: 'machine' | 'router' | 'switch'` in ascending-octet order, and a
+router or switch above `.1` is an inner gateway whose base FS is a ROUTER tree — not the
+`buildRemoteHostFs` box an "NPC host" check means. `testRemoteAptInstall.ts` was written with a
+`!ip.endsWith('.1')` filter and silently asserted against `core-rtr` (`inner-gw-…`); it passed, so
+nothing pointed at the wrong tree. **Select on `kind === 'machine'`** for an ordinary sibling, and
+use `isInnerGateway(host)` when a gateway is what you actually want. The two resolve through
+different arms of `resolveTargetBaseFs`, so a check on one proves nothing about the other.
+
 **SEED INSERTS MUST FAIL LOUDLY — a rejected seed is a check that tests nothing.** A bare
 `await sr.from('patches').insert([...])` swallows its error, so a row the schema refuses leaves
 the scenario un-built while the check still runs and "passes" against the *unmodified* world.

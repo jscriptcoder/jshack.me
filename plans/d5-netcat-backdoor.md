@@ -276,10 +276,30 @@ trusts a client-supplied tier must fail. This is the slice's security-relevant s
 **REFACTOR**: Assess whether the four gates' credential steps now share enough to hoist.
 **Wire-check**: **Required** — `api/` changes, and `tsc` cannot see DB columns or constraints.
 Prove the pidfile-derived tier lands correctly on a real session row.
-**Open question this slice must answer first**: **does `apt install` work against a remote rooted
-box?** The demo path depends on it, the L2 walker should permit a root session to write
-`/usr/bin`, and nothing proves it. **Wire-check this BEFORE committing to the demo path** — if it
-fails, locked decision 14 needs revisiting with the owner, not working around.
+**Open question — RESOLVED 2026-08-17, ahead of the slice.** *Does `apt install` work against a
+remote rooted box?* **Yes.** Settled live by `scripts/testRemoteAptInstall.ts`, 5/5:
+
+| case | result |
+|---|---|
+| root session on an ordinary NPC LAN host (`kind: 'machine'`) → `/usr/bin/nc` | **200**, row lands |
+| **guest** session on the same host → `/usr/bin/nc` | **403 `permission_denied`** |
+| root session on another player's workstation | **200**, row lands |
+| no session on the target | **403 `no_session`** |
+| root session on an inner gateway | **200**, row lands |
+
+Locked decision 14 stands as written, and the demo path is safe to build on. Three things the
+check pinned down that the plan had only assumed:
+
+- **Installing netcat is exactly ONE write.** `nc` has no entry in `libraryDeps`, so the library
+  loop writes nothing and there are no extra files — `/usr/bin/nc` with `is_new: true` and
+  world-executable perms is the whole install.
+- **The server refuses a guest, which matters more than the happy path.** `apt`'s root gate is
+  CLIENT-side (`handleInstall` reads `env.session.userType`), and §7 records that a client with a
+  valid keypair can mint its own session — so L2 is the only real gate, and it holds. Without
+  this, `apt install` would be privilege escalation on any box you can open a guest shell on.
+- **A rooted inner gateway is plantable too**, on a different tree (router FS, not
+  `buildRemoteHostFs`). Consistent with the grill's "possible by construction" note; asserted so a
+  future divergence between the two resolver arms is caught rather than discovered.
 
 ---
 
