@@ -1196,7 +1196,7 @@ state costs you more than one wrong attempt.
     running" is false when nginx was the one that came up.
   - Real Unix reserves ports below 1024 for root, which is tempting to model here. Don't: the root
     gate fires before a port is ever parsed, so the rule would be an unreachable branch.
-- **`pidfile.ts` owns the ONLY answer to "what is running here".** `readRunningServices` walks
+- **`pidfile.ts` owns the ONLY answer to "what is running here".** `readRunningProcesses` walks
   `/var/run` and is the single policy; `readOpenPorts` is a projection of it for callers that want
   a port scan's view, and `daemonName` is the name both the pidfile line and `ps`'s COMMAND column
   use. A second walk anywhere would let a scan of a box and a survey run on it disagree about what

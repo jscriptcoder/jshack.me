@@ -38,8 +38,8 @@ other half.
       closed port, an unknown host and localhost each refuse in netcat's own words
 - [x] `nc -l <port>` as root writes `/var/run/nc-<port>.pid`; `ps` lists it with a PID, an owner
       and a port; `nmap` shows the port `open` with SERVICE `unknown`
-- [ ] `kill <pid>` removes a listener and its port closes for everyone; `kill` on a service refuses
-      and points at `systemctl`; both require root
+- [x] `kill <pid>` removes a listener and its port closes for everyone; `kill` on a service NAME
+      refuses and points at `systemctl` (a service has no pid to aim at); the kill requires root
 - [ ] Connecting to a listener opens a session at the tier its pidfile records, with no credential
       asked for and nothing written to any log
 - [ ] `su` and `nano` refuse inside an nc session in their real words; everything else runs, so a
@@ -274,13 +274,63 @@ cannot distinguish a stable PID from a random one.
 
 ---
 
-### Slice 3: A defender takes a listener away
+### Slice 3: A defender takes a listener away — DONE (v0.146.0)
 
 **Branch**: `feat/kill-listener`
 
+**As-built.** Shipped as planned, with **one acceptance criterion replaced** at approval and three
+added after mutation:
+
+- **The service-refusal criterion was unreachable and was re-aimed at the NAME.** The plan said a
+  pid belonging to a service refuses and names `systemctl` — but after slice 2 a service has no
+  pid at all (`ps` prints `-`), so no number a player can type resolves to one. It was the same
+  shape as the below-1024 gate this plan already refuses to port. Replaced with `kill sshd` →
+  `kill: sshd: use "systemctl stop sshd"`, which is reachable, and is what a player would really
+  type given the survey hands them no number. It echoes the name AS TYPED — `systemctl stop
+  apache2` really works, so translating it to the shared unit name would hand them a program they
+  never mentioned. Argument shape is checked before privilege, so a guest gets the pointer rather
+  than a root refusal that would be advice that does not work.
+- `systemctl.ts` grew one export, `isUnitName`. **Name-only, deliberately**: `unitFor` gates on
+  `binaryExists` so a guest cannot enumerate a box's packages, but whether the program is installed
+  HERE is `systemctl`'s question — `kill` answering it would answer it in the wrong voice. It uses
+  `Object.hasOwn`, because both `in` and a bare lookup walk the prototype chain and would make
+  `kill toString` a service.
+- `-9` is **not** declared, per "follow legacy": legacy read it as the pid and refused it. v2's
+  flag binder intercepts dash tokens before a command sees them, so the refusal arrives as
+  `unrecognized option: -9` (exit 2) — same outcome, different words, and the words are not kill's
+  to choose. Non-root says `kill: must be run as root` (the house voice, not legacy's
+  `Operation not permitted`), and success is SILENT, as the real thing and legacy both are.
+
+Mutation, behavioral regions: `kill.ts` L1–88 **100%** (52 killed, 0 survived), the hoisted
+`PATCH_ERROR_REASON` **100%** (5/5), `systemctl.ts`'s `isUnitName` **100%** (1/1). Whole-file
+`kill.ts` 69.51% is the `manual`/`description` prose class §4 documents — all 22 of those survivors
+sit at or below the `Command` literal.
+
+Three survivors from the first pass were REAL, and each became a test:
+
+- **`running.kind === 'listener'` → `true` survived.** This is the plan's predicted mutant, arriving
+  in a different shape than predicted: with no service-pid branch to test, the discriminator is
+  guarded instead by a box running sshd where the player types `listenerPid(box, 22)` — a real
+  number the derivation defines for any port. Unguarded, `kill` reports success and removes a
+  `/var/run/nc-22.pid` that never existed, telling a defender they shut a door that is still open.
+- **`pid >= 1` → `pid > 1` survived.** `kill 1` is the boundary between "that is not a PID" and "no
+  process here has it" — two different next moves for a player, and legacy handed 1 to init.
+- **`lines: []` → `["Stryker was here"]` survived a `text` assertion**, because
+  `[undefined].join('\n')` is `''`. A command that emits a content-free line READS as silent. The
+  test now asserts the lines array, not the joined string — worth remembering for every future
+  silent-success command.
+
+**REFACTOR done, and it grew.** The plan's target was three copies of the `PatchResult` → reason
+map; slice 2's as-built corrected that to three, and `kill` made **four** (`daemon.ts`, `nc.ts`,
+`systemctl.ts`, `kill.ts` — byte-identical). Hoisted to `PATCH_ERROR_REASON` in `commands/types.ts`,
+beside the `PatchResult` type it maps from (`types.ts` already carries a runtime export,
+`COMMAND_CATEGORIES`). Commands still prefix their own name: which door refused is the caller's to
+say. Slices 4–5 should USE it rather than adding a fifth literal.
+
 **Value**: The defender's answer to a backdoor — and D4's first deferred verb, arriving where it
 has something worth killing.
-**Path**: `kill <pid>` → root gate → resolve the pid through `readRunningServices` →
+**Path**: `kill <pid>` → root gate → resolve the pid by matching `listenerPid` over
+`readRunningProcesses` →
 `env.patches.remove(pidfilePath)` → the port closes for the owner's scan, a neighbour's and a
 stranger's, through the same journal path `systemctl stop` already uses.
 **Class**: Behavior change.
@@ -295,9 +345,13 @@ non-root kill-your-own branch (`kill.ts:177`) is unreachable here; do not port i
 - `kill <listener pid>` removes the pidfile; `ps` no longer lists it and `nmap` no longer shows the
   port
 - A pid that matches nothing → `kill: (<pid>): No such process`
-- A pid belonging to a service → refused, naming `systemctl stop <unit>`
+- A SERVICE NAME → refused, naming `systemctl stop <name as typed>` (REPLACES the plan's
+  service-pid criterion, which slice 2's derived-pid design made unreachable)
 - Non-root → refused, and the listener survives
 - A listener SURVIVES a reboot and is still killable afterwards
+- ADDED AFTER MUTATION: a number that lands on a service's port takes nothing away; `kill 1` is
+  "No such process" while `kill 0` is not a process ID; success emits NO LINES rather than lines
+  that merely read as empty
 
 **RED**: Plant, `kill`, then assert `ps` is empty and the port is gone — fails today.
 **GREEN**: `kill` with the pid lookup and the two refusals.
@@ -428,7 +482,7 @@ change proves necessary.
 
 **Value**: A player scanning a LAN they have never touched finds a port they cannot account for,
 connects, and is in — the discovery loop that justifies connect-mode existing.
-**Path**: `remoteHostFs.ts` seeded generation → a listener pidfile at 0.10 → `readRunningServices`
+**Path**: `remoteHostFs.ts` seeded generation → a listener pidfile at 0.10 → `readRunningProcesses`
 reads it exactly as a planted one → `nmap` shows `unknown` → `nc` lands a user-tier session.
 **Class**: Behavior change.
 **Required implementation skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
@@ -510,7 +564,7 @@ Per slice, from `v2/`:
 3. **Typecheck** — `npm run typecheck` (`tsc -b`; a plain `tsc --noEmit` is a NO-OP here)
 4. **Lint/format** — `npm run lint` (v2 has no Prettier)
 5. **Version bump** on every feature slice — `v2/package.json` AND `v2/package-lock.json`
-   (`npm install --package-lock-only`). Current: **0.145.0**
+   (`npm install --package-lock-only`). Current: **0.146.0**
 6. **Wire-check** where the slice says required — `scripts/test*.ts` against `vercel dev` +
    supabase. `tsc` cannot see DB columns or constraints, so an `api/` regression ships green
    without one

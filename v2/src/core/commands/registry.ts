@@ -29,6 +29,7 @@ import { ifconfig } from './ifconfig';
 import { gobuster } from './gobuster';
 import { lynx } from './lynx';
 import { john } from './john';
+import { kill } from './kill';
 import { ls } from './ls';
 import { man } from './man';
 import { mkdir } from './mkdir';
@@ -70,6 +71,7 @@ const builtins: readonly Command[] = [
   identity,
   ifconfig,
   john,
+  kill,
   ls,
   lynx,
   man,
