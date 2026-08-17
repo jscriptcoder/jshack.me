@@ -8,6 +8,7 @@ import {
   mockSession,
 } from '../../test/factories/commandEnv';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
+import { PIDFILE_PERMISSIONS } from '../services/pidfile';
 import { vsftpd } from './daemon';
 
 /**
@@ -113,7 +114,11 @@ describe('vsftpd', () => {
     // — the program and the protocol are not the same word, and both readers depend
     // on getting their own.
     expect(writes).toEqual([
-      { path: '/var/run/vsftpd.pid', content: 'vsftpd:port=21', options: { isNew: true } },
+      {
+        path: '/var/run/vsftpd.pid',
+        content: 'vsftpd:port=21',
+        options: { isNew: true, permissions: PIDFILE_PERMISSIONS },
+      },
     ]);
     expect(lines).toEqual([
       { kind: 'text', content: 'Starting FTP server...' },

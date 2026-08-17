@@ -11,11 +11,31 @@
  */
 
 import { asAbsPath, type AbsPath } from '../types';
-import type { Directory } from '../filesystem/types';
+import type { Directory, FilePermissions } from '../filesystem/types';
 import { SERVICE_CATALOG, type ServiceSpec } from './serviceCatalog';
 
 /** The directory holding every running service's pidfile. */
 export const VAR_RUN = '/var/run';
+
+/**
+ * A pidfile's permissions: world-readable, root-written, never executed.
+ *
+ * World-readable is load-bearing rather than incidental. A cross-player hop is
+ * server-served, and the server prunes the box it hands back to what the
+ * visitor's tier may read — so a root-only pidfile is dropped in transit and
+ * `ps` reports a bare header on a box that is plainly serving. What a machine is
+ * RUNNING is public; changing it is root's, which the write tier keeps.
+ *
+ * Shared by every producer — the daemons, and all three world generators — for
+ * the same reason the FORMAT is: a pidfile the world planted and one an owner
+ * started must look identical to whoever walks in, or the box tells two stories
+ * about itself depending on who opened the door.
+ */
+export const PIDFILE_PERMISSIONS: FilePermissions = {
+  read: ['root', 'user', 'guest'],
+  write: ['root'],
+  execute: [],
+};
 
 /** The daemon name written into the pidfile line — the pidfile's basename
  *  (`sshd.pid` → `sshd`), matching legacy's `sshd:port=22` content. Also the

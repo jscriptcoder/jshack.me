@@ -8,6 +8,8 @@ import {
   mockSession,
 } from '../../test/factories/commandEnv';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
+import type { FilePermissions } from '../filesystem/types';
+import { PIDFILE_PERMISSIONS } from '../services/pidfile';
 import { sshd } from './daemon';
 
 /**
@@ -27,7 +29,19 @@ const NO_FLAGS = new Map<string, string | true>();
 type WriteCall = {
   readonly path: string;
   readonly content: string;
-  readonly options?: { readonly isNew?: boolean } | undefined;
+  readonly options?:
+    | { readonly isNew?: boolean; readonly permissions?: FilePermissions }
+    | undefined;
+};
+
+/** The write a successful start makes. Permissions are NAMED on it rather than
+ *  left to default: an omitted set takes the caller's tier defaults, and a daemon
+ *  is root-only, so the pidfile would come out root-readable and vanish from the
+ *  pruned tree the server hands anyone who later hops onto this box. */
+const PIDFILE_WRITE: WriteCall = {
+  path: '/var/run/sshd.pid',
+  content: 'sshd:port=22',
+  options: { isNew: true, permissions: PIDFILE_PERMISSIONS },
 };
 
 type SshdEnvOpts = {
@@ -113,9 +127,7 @@ describe('sshd', () => {
 
     const { lines, exitCode } = await streamResult(await sshd.execute(env, [], NO_FLAGS));
 
-    expect(writes).toEqual([
-      { path: '/var/run/sshd.pid', content: 'sshd:port=22', options: { isNew: true } },
-    ]);
+    expect(writes).toEqual([PIDFILE_WRITE]);
     // Exact output: a success renders as plain `text` lines with the daemon banner.
     expect(lines).toEqual([
       { kind: 'text', content: 'Starting OpenSSH server...' },
@@ -246,8 +258,6 @@ describe('sshd', () => {
     const { exitCode } = await streamResult(await sshd.execute(env, [], NO_FLAGS));
 
     expect(exitCode).toBe(0);
-    expect(writes).toEqual([
-      { path: '/var/run/sshd.pid', content: 'sshd:port=22', options: { isNew: true } },
-    ]);
+    expect(writes).toEqual([PIDFILE_WRITE]);
   });
 });

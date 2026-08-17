@@ -30,7 +30,7 @@
 
 import { createPrng } from './prng';
 import { SERVICE_CATALOG, type ServiceSpec } from '../services/serviceCatalog';
-import { formatPidfileContent } from '../services/pidfile';
+import { formatPidfileContent, PIDFILE_PERMISSIONS } from '../services/pidfile';
 import {
   createBinaryEntries,
   LOCALHOST_PREINSTALLED_TOOLS,
@@ -59,17 +59,11 @@ import { ACCESS_LOG_PERMISSIONS } from '../logging/accessLog';
 import { VSFTPD_LOG_PERMISSIONS } from '../logging/vsftpdLog';
 import { AUTH_LOG_PERMISSIONS } from '../logging/authLog';
 import { KERN_LOG_PERMISSIONS } from '../logging/kernLog';
-import type { Directory, FileEntry, FilePermissions } from '../filesystem/types';
+import type { Directory, FileEntry } from '../filesystem/types';
 import type { LanHost } from './generateHomeLan';
 
-/** A pidfile: world-readable, root-writable, never executed. */
-const PIDFILE_PERMS: FilePermissions = {
-  read: ['root', 'user', 'guest'],
-  write: ['root'],
-  execute: [],
-};
-
-const pidfile = (content: string, owner: string): FileEntry => file(content, PIDFILE_PERMS, owner);
+const pidfile = (content: string, owner: string): FileEntry =>
+  file(content, PIDFILE_PERMISSIONS, owner);
 
 
 // --- NPC account content (seeded; cracking these is a later epic) ---
