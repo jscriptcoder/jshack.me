@@ -313,6 +313,9 @@ const execute: Command['execute'] = async (env, args, flags) => {
     userType: opened.userType,
     kind: 'nc',
     createdAt: env.now(),
+    // The door, kept: the shell re-asks whether this listener is still in the
+    // target's /var/run, and cannot ask without knowing which one let it in.
+    port,
   });
   env.setCwd(homeDirectory({ username: opened.username, userType: opened.userType }));
   return {

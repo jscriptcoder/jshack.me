@@ -45,7 +45,7 @@ other half.
 - [x] Everything needing a terminal refuses inside an nc session — `su`, `nano`, `ssh`, `scp`,
       `ftp`, `lynx` — while everything else runs, so a root-planted listener can brick and a
       user-tier one cannot
-- [ ] Killing a listener drops whoever is inside it on their next command
+- [x] Killing a listener drops whoever is inside it on their next command
 - [ ] ~10% of generated NPC hosts run a listener at user tier, measured across a population
 - [ ] A listener behind a NAT forward is reachable, scannable and enterable from off-LAN, proven by
       a wire-check and a two-player browser run
@@ -549,7 +549,7 @@ check pinned down that the plan had only assumed:
 
 ---
 
-### Slice 5: Killing a listener drops whoever is inside it
+### Slice 5: Killing a listener drops whoever is inside it — DONE (v0.148.0)
 
 **Branch**: `feat/nc-eviction`
 
@@ -583,6 +583,49 @@ evicts on any missing pidfile survives.
 **Wire-check**: `N/A` if the session end is the shipped `endSession`; **required** if any server
 change proves necessary.
 **Done when**: All criteria met, human approves the commit.
+
+**As built** (v0.148.0)
+
+- **The gate sits beside the no-TTY gate, and runs before the line is parsed.** Same shape of rule
+  (this session cannot do that), same seam, and it covers pipelines uniformly — `ls | grep x` can
+  no more slip past a dead socket than `su | grep x` could past a missing pty. Running it before
+  the parse is what makes a typo answer `nc: connection closed by foreign host` rather than
+  `command not found`: nothing the player typed reached the box, so the box was never there to
+  have looked.
+- **`Session` gained `port`, and only a backdoor sets it.** Every other kind spends its port
+  reaching the box and never needs it again; a backdoor is the one door that has to keep asking
+  whether it is still there. **No refresh gap exists to close**: `nc` is not in
+  `sessionRehydrate.ts`'s `HOP_KINDS`, so a reload abandons the session and closes the row rather
+  than restoring a shell that could never be evicted. Persisting the port server-side would have
+  bought nothing — which is why this slice needed no migration and no wire-check.
+- **THE FINDING: the unit gate was green and the game was unaffected.** `patches()` is refetched
+  after this client's own successful write (`wrapWithRefetch`) and on a machine change — never
+  before a read. The defender's `kill` lands on the target's journal from a different browser, so
+  the intruder's materialized `/var/run` kept showing a pidfile that was gone. Fixed with one
+  `refetchPatches()` before running a line **when the active session is `nc`** — a round-trip paid
+  only while standing in a backdoor. That is the locked "pull, not a push" in full: nothing is
+  polled, and an intruder who types nothing learns nothing.
+- **Caught by an integration test, not by review.** `state.test.ts` boots already associated
+  (`CONNECTED_ESSID_KEY` + a remembered lease), seeds `/usr/bin/nc` into the own box's journal the
+  way `apt install` stamps it, walks in through the real gate, then drops the pidfile from the
+  target's journal. It was RED (`mallory@laptop-25:/root# ls` ran happily) while all seven unit
+  tests were green — the gap this slice existed to close, visible only at the layer that has a
+  client and a server.
+- **`listenerOn` moved from `authCreateSession.ts` to `pidfile.ts`.** The gate asking "may I come
+  in" and the shell asking "am I still in" are the same question a moment apart, and a box that
+  admitted a visitor must not be able to disagree with the box that still holds them. The move
+  also keeps zod and the signed-request verifier out of the client bundle, which importing the
+  server handler would have dragged in. Slice 4's orphaned `reachDoor` doc comment was reunited
+  with `reachDoor` on the way past.
+- **Mutation**: `runLine.ts` 96.91% — zero survivors in the new gate; the remaining five plus one
+  no-coverage are slice 4's pre-existing set. One real survivor was killed on the way: dropping
+  `session.kind !== 'nc'` survived, because nothing else records a port today. Pinned with a login
+  session that DOES carry a port and still is not evicted — which is the rule stated properly
+  rather than an accident of what happens to set the field.
+- **`systemctl stop` still does not evict**, asserted in the same suite: the listener's pidfile is
+  what is asked after, so removing `sshd.pid` leaves the intruder exactly where they were. The
+  difference is real — sshd forks a child per session, netcat is the one process that both listens
+  and serves.
 
 ---
 
@@ -674,7 +717,7 @@ Per slice, from `v2/`:
 3. **Typecheck** — `npm run typecheck` (`tsc -b`; a plain `tsc --noEmit` is a NO-OP here)
 4. **Lint/format** — `npm run lint` (v2 has no Prettier)
 5. **Version bump** on every feature slice — `v2/package.json` AND `v2/package-lock.json`
-   (`npm install --package-lock-only`). Current: **0.147.0**
+   (`npm install --package-lock-only`). Current: **0.148.0**
 6. **Wire-check** where the slice says required — `scripts/test*.ts` against `vercel dev` +
    supabase. `tsc` cannot see DB columns or constraints, so an `api/` regression ships green
    without one

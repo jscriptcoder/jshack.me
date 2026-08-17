@@ -5,7 +5,7 @@ import { lanLeaseCacheIn } from '../core/network/lanLeaseCache';
 import { contentHash } from '../core/patches/contentHash';
 import { CONNECTED_ESSID_KEY } from './connectionPersistence';
 import { buildRemoteHostFs } from '../core/generation/remoteHostFs';
-import { formatPidfileContent, readOpenPorts } from '../core/services/pidfile';
+import { formatListenerContent, formatPidfileContent, readOpenPorts } from '../core/services/pidfile';
 import { SERVICE_CATALOG } from '../core/services/serviceCatalog';
 import { HTTP_DEFAULT_PORT } from '../core/network/http';
 import { BINARY_STUB } from '../core/generation/binaries';
@@ -1442,5 +1442,128 @@ describe('full-screen apps a command opens', () => {
       alert: expect.stringContaining(`lynx: (7) Failed to connect to ${THEIR_PUBLIC_IP} port 80`),
     });
     expect(state.overlayMode()).toMatchObject({ url: `http://${THEIR_PUBLIC_IP}/` });
+  });
+});
+
+/**
+ * A backdoor is the one door that can be taken away while somebody is standing in
+ * it: netcat is a single process that both listens and serves, so killing it takes
+ * the socket with it. The intruder, though, is a client holding the journal it
+ * fetched when it walked in, and the kill lands on a machine it is not watching.
+ * Unless the next line they type re-reads the target's journal first, the box they
+ * see stays the box as it was when they arrived, and the eviction is real only in
+ * a unit test.
+ */
+describe('a listener killed while an intruder is standing inside it', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const ESSID = 'ferro-cafe';
+  const LAN = generateHomeLan(ESSID);
+  const TARGET = LAN.hosts.find((host) => host.kind === 'machine');
+  if (TARGET === undefined) throw new Error(`no ordinary host generated on ${ESSID}`);
+  const TARGET_MACHINE_ID = machineIdForLanHost(TARGET, ESSID);
+  const PORT = 4444;
+  const CLOSED = 'nc: connection closed by foreign host';
+
+  const listenerPatch = {
+    path: `/var/run/nc-${PORT}.pid`,
+    content: formatListenerContent({ port: PORT, user: 'mallory', userType: 'root' }),
+    owner: 'root',
+  };
+
+  /** netcat on the player's own box, stamped the way `apt install` leaves it. */
+  const ownNetcat = {
+    path: '/usr/bin/nc',
+    content: BINARY_STUB,
+    owner: 'root',
+    permissions: {
+      read: ['root', 'user', 'guest'],
+      write: ['root'],
+      execute: ['root', 'user', 'guest'],
+    },
+  };
+
+  /** Boot already associated with the LAN, then walk in through the backdoor —
+   *  the real client path: the gate opens the door, the hop swaps the journal to
+   *  the target's, and the player is left standing on it. `killTheListener` is the
+   *  defender's `kill` seen from here: the pidfile leaves the target's journal,
+   *  which is the only place this client could ever learn it from. */
+  const enterTheBackdoor = async () => {
+    vi.resetModules();
+    const store = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => store.set(key, value),
+      removeItem: (key: string) => store.delete(key),
+    };
+    storage.setItem(CONNECTED_ESSID_KEY, ESSID);
+    lanLeaseCacheIn(storage).remember(ESSID, `${LAN.subnet}.77`);
+    vi.stubGlobal('localStorage', storage);
+
+    let targetJournal: readonly unknown[] = [listenerPatch];
+    const json = (body: unknown) => ({ ok: true, status: 200, json: async () => body });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: { body?: string }) => {
+        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<string, unknown>;
+        if (fields.action === 'listSessions') return json({ sessions: [] });
+        // The box answers for itself: the pidfile names who it admits, so the gate
+        // needs no credential to have been sent.
+        if (fields.action === 'authCreateSession') {
+          return json({ ok: true, username: 'mallory', userType: 'root' });
+        }
+        if (fields.action !== 'listPatches') return json({});
+        if (fields.machine_id === TARGET_MACHINE_ID) return json({ patches: targetJournal });
+        // netcat is the tool an intruder brings with them, so the player's own box
+        // only has it because they ran `apt install netcat` first.
+        return json({ patches: [ownNetcat] });
+      }),
+    );
+
+    const state = await import('./state');
+    state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
+    await vi.waitFor(() => expect(state.promptHost()).toBe('box'));
+    // The boot journal fetch is in flight; netcat only exists once it lands.
+    await vi.waitFor(async () => {
+      state.setInput('ls /usr/bin');
+      await state.runInput();
+      expect(state.scrollback().some((line) => line.content.includes('nc'))).toBe(true);
+    });
+    state.setInput(`nc ${TARGET.ip} ${PORT}`);
+    await state.runInput();
+    return {
+      state,
+      killTheListener: () => {
+        targetJournal = [];
+      },
+    };
+  };
+
+  const scrollbackOf = (state: typeof import('./state')): string =>
+    state
+      .scrollback()
+      .map((line) => line.content)
+      .join('\n');
+
+  it('closes the connection on the intruder’s next command and hands them back their own shell', async () => {
+    const { state, killTheListener } = await enterTheBackdoor();
+    expect(state.promptHost()).toBe(TARGET.hostname);
+
+    killTheListener();
+    state.setInput('ls');
+    await state.runInput();
+
+    expect(scrollbackOf(state)).toContain(CLOSED);
+    expect(state.promptHost()).not.toBe(TARGET.hostname);
+  });
+
+  it('leaves the intruder where they are while the listener is still running', async () => {
+    const { state } = await enterTheBackdoor();
+
+    state.setInput('ls');
+    await state.runInput();
+
+    expect(scrollbackOf(state)).not.toContain(CLOSED);
+    expect(state.promptHost()).toBe(TARGET.hostname);
   });
 });

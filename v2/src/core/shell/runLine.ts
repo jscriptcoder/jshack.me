@@ -38,9 +38,11 @@ import {
   type Command,
   type CommandEnv,
   type CommandResult,
+  type FsView,
   type Session,
   type TerminalLine,
 } from '../commands/types';
+import { listenerOn } from '../services/pidfile';
 import type { AbsPath } from '../types';
 import { tokenize } from './tokenize';
 import { parsePipeline, type Stage } from './pipeline';
@@ -70,6 +72,23 @@ type PrepareResult =
  *  here it is what separates the three doors: ftp moves files, a backdoor lets
  *  you look and break, and only a real login can be pivoted onward from. */
 const hasTty = (session: Session): boolean => session.kind !== 'nc';
+
+/** What netcat prints when the far side is gone. */
+const CONNECTION_CLOSED = 'nc: connection closed by foreign host';
+
+/** Whether the listener that admitted this session is still in the box's
+ *  `/var/run`. Asked through the same reader `nmap` and `ps` use, so the port a
+ *  defender sees closed and the socket an intruder is sitting on cannot disagree.
+ *
+ *  Only a backdoor is asked: a login forks a child that outlives whatever started
+ *  it, which is exactly why stopping sshd leaves its sessions up, while netcat is
+ *  the ONE process that both listens and serves — kill it and the socket it was
+ *  serving goes with it. A session that recorded no port names no door and is
+ *  left alone. */
+const socketAlive = (session: Session, fs: FsView): boolean =>
+  session.kind !== 'nc' ||
+  session.port === undefined ||
+  listenerOn(fs.root(), session.port) !== null;
 
 /** Resolve a stage to a runnable command + bound flags, or a shell error
  *  (command-not-found exit 127, a binder failure exit 2, or no terminal for a
@@ -217,6 +236,15 @@ export const runCommandLine = async (
   input: string,
   commands: ReadonlyMap<string, Command>,
 ): Promise<CommandResult> => {
+  // Before the line is even parsed: a submitted line is a write to the socket, and
+  // this is how a terminal learns the socket died — by writing to it. Nothing the
+  // player typed reaches the box, so a typo answers `connection closed` rather than
+  // `command not found`; the box is not there to have looked.
+  if (!socketAlive(env.session, env.fs)) {
+    env.popSession();
+    return syncError(CONNECTION_CLOSED, 1);
+  }
+
   const tokenized = tokenize(input);
   if (!tokenized.ok) {
     return syncError(`bash: ${tokenized.error}`, 2);

@@ -647,6 +647,15 @@ describe('nc when a listener answers instead of a service', () => {
     expect(exitCode).toBe(0);
   });
 
+  it('records the port it came in through, so the shell can tell when that door is gone', async () => {
+    const host = lanHostServing(22, 'ssh');
+    const { env, pushSession } = withDoors();
+
+    await nc.execute(env, [host.ip, '4444'], NO_FLAGS);
+
+    expect(pushSession).toHaveBeenCalledWith(expect.objectContaining({ port: 4444 }));
+  });
+
   it('lands on the machine the shared resolver names, never one the client invented', async () => {
     const host = lanHostServing(22, 'ssh');
     const { env, pushSession } = withDoors();
