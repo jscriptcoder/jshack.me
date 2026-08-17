@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { asAbsPath, type UserType } from '../types';
+import { asAbsPath, asMachineId, type UserType } from '../types';
 import type { CommandResult } from './types';
 import type { Directory } from '../filesystem/types';
 import {
@@ -18,6 +18,7 @@ import { filterTreeForRead } from '../patches/readFilter';
 import { basename } from '../filesystem/path';
 import { commandRegistry } from './registry';
 import { sshd } from './daemon';
+import { nc } from './nc';
 import { systemctl } from './systemctl';
 import { ps } from './ps';
 
@@ -51,13 +52,12 @@ const varRun = (pidfiles: Readonly<Record<string, string>>) =>
     }),
   });
 
-const psEnv = (
-  tree: ReturnType<typeof varRun>,
-  opts: { readonly userType?: UserType } = {},
-) => {
+type PsOpts = { readonly userType?: UserType; readonly machineId?: string };
+
+const psEnv = (tree: ReturnType<typeof varRun>, opts: PsOpts = {}) => {
   const userType = opts.userType ?? 'root';
   return mockCommandEnv({
-    session: mockSession({ userType }),
+    session: mockSession({ userType, machineId: asMachineId(opts.machineId ?? 'ws-alice') }),
     fs: mockFsViewFromTree(tree, { userType, cwd: () => asAbsPath('/') }),
   });
 };
@@ -69,10 +69,15 @@ const linesOf = (result: CommandResult): readonly string[] => {
 
 const runPs = async (
   tree: ReturnType<typeof varRun>,
-  opts: { readonly userType?: UserType } = {},
+  opts: PsOpts = {},
 ): Promise<readonly string[]> => linesOf(await ps.execute(psEnv(tree, opts), [], NO_FLAGS));
 
-const HEADER = 'USER      COMMAND     PORT';
+const HEADER = 'PID     USER      COMMAND     PORT';
+
+/** A service has no PID of its own: it is a unit the box manages, addressed by
+ *  name through `systemctl`, so the column is filled with the same dash a real
+ *  survey uses for "not applicable". */
+const NO_PID = '-       ';
 
 describe('ps', () => {
   it('lists each running service with the account it runs as and the port it holds', async () => {
@@ -80,7 +85,7 @@ describe('ps', () => {
       varRun({ 'sshd.pid': 'sshd:port=22', 'vsftpd.pid': 'vsftpd:port=21' }),
     );
 
-    expect(lines).toEqual([HEADER, 'root      sshd        22', 'root      vsftpd      21']);
+    expect(lines).toEqual([HEADER, NO_PID + 'root      sshd        22', NO_PID + 'root      vsftpd      21']);
   });
 
   it('reports the port a service was actually started on, not its default', async () => {
@@ -89,7 +94,7 @@ describe('ps', () => {
     // shut and miss the one that is open.
     const lines = await runPs(varRun({ 'vsftpd.pid': 'vsftpd:port=2121' }));
 
-    expect(lines).toEqual([HEADER, 'root      vsftpd      2121']);
+    expect(lines).toEqual([HEADER, NO_PID + 'root      vsftpd      2121']);
   });
 
   it('prints the header and no rows when nothing is running', async () => {
@@ -105,7 +110,7 @@ describe('ps', () => {
     // become a second policy, or a scan and a survey of one box could disagree.
     const lines = await runPs(varRun({ 'sshd.pid': 'sshd:port=22', 'crond.pid': 'crond:port=9' }));
 
-    expect(lines).toEqual([HEADER, 'root      sshd        22']);
+    expect(lines).toEqual([HEADER, NO_PID + 'root      sshd        22']);
   });
 
   it('does not report a directory wearing a pidfile name as a running service', async () => {
@@ -125,7 +130,7 @@ describe('ps', () => {
     // a defender a door is shut when it is open.
     const lines = await runPs(varRun({ 'sshd.pid': 'garbled' }));
 
-    expect(lines).toEqual([HEADER, 'root      sshd        22']);
+    expect(lines).toEqual([HEADER, NO_PID + 'root      sshd        22']);
   });
 
   it('answers a guest with the same rows it gives root', async () => {
@@ -146,8 +151,80 @@ describe('ps', () => {
     // asks it and never reaches for the player's own tree.
     const rootedHost = varRun({ 'vsftpd.pid': 'vsftpd:port=2121' });
 
-    expect(await runPs(rootedHost)).toEqual([HEADER, 'root      vsftpd      2121']);
+    expect(await runPs(rootedHost)).toEqual([HEADER, NO_PID + 'root      vsftpd      2121']);
   });
+});
+
+/**
+ * A listener is the row a defender is meant to notice.
+ *
+ * Everything else `ps` lists was started on purpose by whoever owns the box. A
+ * `nc` row was not — it names an account, a port nobody assigned, and a PID that
+ * is the handle for taking it away. It is the only row on the survey that is
+ * evidence.
+ */
+describe('ps on a box with a listener planted on it', () => {
+  const PLANTED = 'nc:port=4444,user=alice,userType=user';
+
+  it('names the account that planted it, the program, and the port it is holding', async () => {
+    const lines = await runPs(varRun({ 'nc-4444.pid': PLANTED }));
+
+    expect(lines).toEqual([HEADER, expect.stringMatching(/^\d+ +alice {5}nc {10}4444$/)]);
+  });
+
+  it('sits in the same table as the services, so one look covers the whole box', async () => {
+    // A defender who has to run two commands to find a backdoor is a defender who
+    // finds it late. The daemon they started and the process somebody left behind
+    // are both things running on their machine.
+    const lines = await runPs(varRun({ 'sshd.pid': 'sshd:port=22', 'nc-4444.pid': PLANTED }));
+
+    expect(lines).toEqual([
+      HEADER,
+      NO_PID + 'root      sshd        22',
+      expect.stringMatching(/^\d+ +alice {5}nc {10}4444$/),
+    ]);
+  });
+
+  it('answers with the same PID however many times it is asked', async () => {
+    // The number is what a defender types into `kill`. Renumbering between the
+    // look and the shot — which is what legacy did — means the shot lands on
+    // whatever moved into that slot.
+    const first = await runPs(varRun({ 'nc-4444.pid': PLANTED }));
+    const second = await runPs(varRun({ 'nc-4444.pid': PLANTED }));
+
+    expect(first).toEqual(second);
+  });
+
+  it('keeps that PID across a reboot, which rebuilds the box from its journal', async () => {
+    // A reboot replays the journal onto a freshly generated tree, so every node
+    // here is a new object. A PID derived from the box and the port survives
+    // that; one assigned while walking the directory does not.
+    const beforeReboot = await runPs(varRun({ 'nc-4444.pid': PLANTED }));
+
+    const rebuilt = varRun({ 'nc-4444.pid': PLANTED });
+    expect(await runPs(rebuilt)).toEqual(beforeReboot);
+  });
+
+  it('gives two listeners on one box two different PIDs', async () => {
+    const lines = await runPs(varRun({
+      'nc-4444.pid': PLANTED,
+      'nc-5555.pid': 'nc:port=5555,user=alice,userType=user',
+    }));
+    const pids = lines.slice(1).map((row) => row.split(/ +/)[0]);
+
+    expect(new Set(pids).size).toBe(2);
+  });
+
+  it('gives the same port on two different boxes two different PIDs', async () => {
+    // An intruder who plants 4444 across six machines must not find one number
+    // that kills all of them — the PID names a process on a box, not a port.
+    const planted = varRun({ 'nc-4444.pid': PLANTED });
+    const onAlices = await runPs(planted, { machineId: 'ws-alice' });
+    const onBobs = await runPs(planted, { machineId: 'ws-bob' });
+
+    expect(onAlices).not.toEqual(onBobs);
+  });
+
 });
 
 describe('ps as a player reaches it', () => {
@@ -171,7 +248,7 @@ describe('ps as a player reaches it', () => {
 
     const lines = linesOf(await command.execute(psEnv(tree, { userType: 'guest' }), [], NO_FLAGS));
 
-    expect(lines).toEqual([HEADER, 'root      sshd        22']);
+    expect(lines).toEqual([HEADER, NO_PID + 'root      sshd        22']);
   });
 });
 
@@ -185,8 +262,8 @@ describe('ps after a service is stopped', () => {
     const before = varRun(running);
     expect(await runPs(before)).toEqual([
       HEADER,
-      'root      sshd        22',
-      'root      vsftpd      21',
+      NO_PID + 'root      sshd        22',
+      NO_PID + 'root      vsftpd      21',
     ]);
 
     const removes: string[] = [];
@@ -216,7 +293,7 @@ describe('ps after a service is stopped', () => {
       Object.fromEntries(Object.entries(running).filter(([name]) => !removed.includes(name))),
     );
 
-    expect(await runPs(after)).toEqual([HEADER, 'root      vsftpd      21']);
+    expect(await runPs(after)).toEqual([HEADER, NO_PID + 'root      vsftpd      21']);
   });
 });
 
@@ -281,7 +358,7 @@ describe('ps on a box whose owner started a service', () => {
 
     const lines = await runPs(asHandedToVisitor(pidfile, 'guest'), { userType: 'guest' });
 
-    expect(lines).toEqual([HEADER, 'root      sshd        22']);
+    expect(lines).toEqual([HEADER, NO_PID + 'root      sshd        22']);
   });
 
   it('lists it to a user-tier visitor too', async () => {
@@ -291,7 +368,7 @@ describe('ps on a box whose owner started a service', () => {
 
     const lines = await runPs(asHandedToVisitor(pidfile, 'user'), { userType: 'user' });
 
-    expect(lines).toEqual([HEADER, 'root      sshd        22']);
+    expect(lines).toEqual([HEADER, NO_PID + 'root      sshd        22']);
   });
 
   it('still lets nobody but root write that pidfile — the read tier widens, the write tier does not', async () => {
@@ -304,5 +381,77 @@ describe('ps on a box whose owner started a service', () => {
     expect(createFsView(box, { userType: 'guest' }).canWrite(PIDFILE).allowed).toBe(false);
     expect(createFsView(box, { userType: 'user' }).canWrite(PIDFILE).allowed).toBe(false);
     expect(createFsView(box, { userType: 'root' }).canWrite(PIDFILE).allowed).toBe(true);
+  });
+});
+
+/**
+ * The same projection, for the pidfile an INTRUDER writes.
+ *
+ * `nc -l` is the fifth producer of a `/var/run` pidfile, and the first four had
+ * to be brought into line before a visitor could see any of them. A producer
+ * that names no permissions gets its own tier's defaults — root-only, since
+ * planting takes root — and the row would then be pruned on exactly the hop that
+ * matters: the owner walking back onto their own box through a door the intruder
+ * left, and finding it apparently clean.
+ */
+describe('ps on a box somebody planted a listener on', () => {
+  const LISTENER = asAbsPath('/var/run/nc-4444.pid');
+
+  /** Plant a listener as root and return the patch row its write becomes, taking
+   *  the same permissions the adapter would: those the command named, or its
+   *  tier's file defaults when it named none. */
+  const plantListener = async (): Promise<Patch> => {
+    const writes: { path: string; content: string; permissions?: Patch['permissions'] }[] = [];
+    const env = mockCommandEnv({
+      session: mockSession({ userType: 'root', username: 'mallory' }),
+      fs: mockFsViewFromTree(varRun({}), { userType: 'root', cwd: () => asAbsPath('/') }),
+      patches: {
+        ...mockPatchApi(),
+        write: async (path, content, options) => {
+          writes.push({ path, content, permissions: options?.permissions });
+          return { ok: true };
+        },
+      },
+    });
+
+    await nc.execute(env, ['4444'], new Map([['-l', true]]));
+
+    const call = writes[0];
+    if (call === undefined) throw new Error('nc -l wrote no pidfile');
+    return {
+      path: call.path,
+      content: call.content,
+      owner: 'root',
+      permissions: call.permissions ?? defaultFilePermissions('root'),
+    };
+  };
+
+  const asHandedToVisitor = (pidfile: Patch, userType: UserType): Directory =>
+    filterTreeForRead(applyPatches(varRun({}), [pidfile]), userType);
+
+  it('shows the backdoor to a guest standing on the box', async () => {
+    const lines = await runPs(asHandedToVisitor(await plantListener(), 'guest'), {
+      userType: 'guest',
+    });
+
+    expect(lines).toEqual([HEADER, expect.stringMatching(/^\d+ +mallory {3}nc {10}4444$/)]);
+  });
+
+  it('shows it to a user-tier visitor too', async () => {
+    const lines = await runPs(asHandedToVisitor(await plantListener(), 'user'), {
+      userType: 'user',
+    });
+
+    expect(lines).toEqual([HEADER, expect.stringMatching(/^\d+ +mallory {3}nc {10}4444$/)]);
+  });
+
+  it('still lets nobody but root touch that pidfile', async () => {
+    // Seeing a backdoor is what a defender is owed; removing it is root's, which
+    // is what makes `kill` a root verb rather than a courtesy.
+    const box = applyPatches(varRun({}), [await plantListener()]);
+
+    expect(createFsView(box, { userType: 'guest' }).canWrite(LISTENER).allowed).toBe(false);
+    expect(createFsView(box, { userType: 'user' }).canWrite(LISTENER).allowed).toBe(false);
+    expect(createFsView(box, { userType: 'root' }).canWrite(LISTENER).allowed).toBe(true);
   });
 });

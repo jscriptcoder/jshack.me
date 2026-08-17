@@ -24,13 +24,19 @@
 import { generateHomeLan } from '../generation/generateHomeLan';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { isPublicIp } from '../generation/ip';
-import { readOpenPorts, type OpenPort } from '../services/pidfile';
+import {
+  formatListenerContent,
+  listenerPidfilePath,
+  PIDFILE_PERMISSIONS,
+  readOpenPorts,
+  type OpenPort,
+} from '../services/pidfile';
 import { serviceByName, type ServiceSpec } from '../services/serviceCatalog';
 import { connectedWlan0, LOOPBACK_IPV4 } from '../network/interfaces';
 import { errorLine, streamedResult, text } from './streaming';
-import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
+import type { Command, CommandEnv, CommandResult, PatchResult, TerminalLine } from './types';
 
-const USAGE = 'nc: usage: nc <host> <port>';
+const USAGE = 'nc: usage: nc <host> <port> | nc -l <port>';
 
 const UNREACHABLE = 'nc: network is unreachable — connect to a network first';
 
@@ -40,6 +46,23 @@ const PORT_RANGE = 'nc: port must be between 1 and 65535';
  *  as the real thing does, having resolved everything that means "here" to the
  *  loopback before it ever opens a socket. */
 const OWN_BOX = 'nc: connect to localhost: Connection refused';
+
+/** Planting is forced root, not chosen: `/var/run` is root-writable, so a
+ *  user-tier plant would be refused by the walker anyway. Refusing up front says
+ *  WHY, in the words every other door on the box already uses. Legacy also
+ *  reserved ports below 1024 for root — unreachable behind this gate, so a high
+ *  port is refused for the same reason a low one is: you are not root. */
+const MUST_BE_ROOT = 'nc: must be run as root';
+
+const LISTEN_FLAG = '-l';
+
+/** patches.write failures, in netcat's voice. */
+const WRITE_ERROR: Record<Extract<PatchResult, { ok: false }>['error'], string> = {
+  no_session: 'Permission denied',
+  permission_denied: 'Permission denied',
+  network_error: 'I/O error',
+  modified_since_open: 'File changed on disk',
+};
 
 const LOWEST_PORT = 1;
 const HIGHEST_PORT = 65535;
@@ -122,7 +145,55 @@ async function* conversation(
   return 0;
 }
 
-const execute: Command['execute'] = async (env, args) => {
+/** Leave a listener on this box: refuse unless the line, the caller and the port
+ *  are all in order, then write the one file that IS the open port.
+ *
+ *  The gates read in the order a player meets them — what they typed, then
+ *  whether they may, then whether the door is free. Argument shape comes before
+ *  privilege because that is the order the same command already answers in
+ *  connect mode, and a player learning one mode should not have to learn the
+ *  other separately.
+ *
+ *  No connectivity gate: opening a socket needs a wire, leaving a file does not.
+ *  `env.network` follows the player's OWN machine rather than the box the shell
+ *  is standing on, so a gate here would refuse plants on a rooted host over the
+ *  state of a laptop three hops away. */
+const listen = async (env: CommandEnv, rawPort: string | undefined): Promise<CommandResult> => {
+  if (rawPort === undefined) return error(USAGE);
+  const port = parsePort(rawPort);
+  if (port === null) return error(PORT_RANGE);
+  if (env.session.userType !== 'root') return error(MUST_BE_ROOT);
+
+  // The raw node, bypassing the caller's read perms, exactly as a daemon checks
+  // its own pidfile: whether a port is taken is not a question about who is asking.
+  const planted = env.fs.stat(listenerPidfilePath(port));
+  if (planted !== null && planted.kind === 'file') {
+    return error(`nc: already listening on port ${port}`);
+  }
+  // Two refusals for two facts. Your own listener is something you can `kill`;
+  // the box's sshd is something you would have to stop, which is a different
+  // command and a louder one.
+  if (readOpenPorts(env.fs.root()).some((entry) => entry.port === port)) {
+    return error(`nc: port ${port} already in use`);
+  }
+
+  // Permissions are NAMED rather than defaulted, for the reason every other
+  // producer names them: a plant takes root, so the caller's own tier defaults
+  // would stamp the file root-readable — and the row would then be pruned in
+  // transit on exactly the hop where a visitor's `ps` should have shown it.
+  const written = await env.patches.write(
+    listenerPidfilePath(port),
+    formatListenerContent({ port, user: env.session.username, userType: env.session.userType }),
+    { isNew: true, permissions: PIDFILE_PERMISSIONS },
+  );
+  if (!written.ok) return error(`nc: ${WRITE_ERROR[written.error]}`);
+
+  return { kind: 'sync', lines: [text(`Listening on 0.0.0.0 ${port}`)], exitCode: 0 };
+};
+
+const execute: Command['execute'] = async (env, args, flags) => {
+  if (flags.get(LISTEN_FLAG) === true) return listen(env, args[0]);
+
   const host = args[0];
   const rawPort = args[1];
   if (host === undefined || rawPort === undefined) return error(USAGE);
@@ -153,19 +224,24 @@ export const nc: Command = {
   // Installed, never shipped: netcat is the tool an intruder brings with them, so a
   // box only has it because someone put it there.
   availability: { kind: 'installed-package', packageName: 'netcat' },
+  flags: { [LISTEN_FLAG]: 'boolean' },
   manual: {
-    synopsis: 'nc <host> <port>',
+    synopsis: 'nc <host> <port> | nc -l <port>',
     description:
       'Open a raw connection to a port and print whatever answers. Use it on a port a scan ' +
       'could not name, or to check what a service claims to be. The connection closes as soon ' +
-      'as the far side has spoken. Requires a network connection; install with "apt install netcat".',
+      'as the far side has spoken. With "-l" it does the opposite: it holds a port open on this ' +
+      'machine and leaves it there after you log out, which takes root. Connecting requires a ' +
+      'network; listening does not. Install with "apt install netcat".',
     arguments: [
       { name: 'host', description: 'The address to connect to, e.g. 192.168.1.5', required: true },
       { name: 'port', description: 'The port to connect to, e.g. 22', required: true },
+      { name: '-l', description: 'Listen on <port> instead of connecting (root only)' },
     ],
     examples: [
       { command: 'nc 192.168.1.5 22', description: 'See what is answering on the ssh port' },
       { command: 'nc 192.168.1.5 4444', description: 'Ask an unaccounted-for port what it is' },
+      { command: 'nc -l 4444', description: 'Hold port 4444 open on this machine' },
     ],
   },
   execute,

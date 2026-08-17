@@ -376,6 +376,22 @@ describe('nmap — self-host open ports (slice 1)', () => {
     expect(text).not.toContain('22/tcp');
   });
 
+  it('shows a planted listener as an open port it cannot name', async () => {
+    // The scanner is told nothing about listeners: it renders whatever the shared
+    // reader projects, and a listener projects as `unknown`. That is the honest
+    // answer and the whole point — an open port the world has no row for is the
+    // question `nc` exists to let a player ask.
+    const env = envWithVarRun({
+      'sshd.pid': 'sshd:port=22',
+      'nc-4444.pid': 'nc:port=4444,user=mallory,userType=root',
+    });
+
+    const { text } = await drain(await nmap.execute(env, [SELF_IP], new Map()));
+
+    expect(text).toContain('22/tcp   open  ssh');
+    expect(text).toContain('4444/tcp open  unknown');
+  });
+
   /** The port the GENERATOR opens on `host` for the service behind `pidfileName`, or
    *  null when it does not run that service. Lets the dispatch tests find a
    *  deterministic remote host that does — or does not — run a given service. */

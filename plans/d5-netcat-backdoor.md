@@ -36,7 +36,7 @@ other half.
 
 - [x] `nc <host> <port>` against a running service prints that service's banner and closes; a
       closed port, an unknown host and localhost each refuse in netcat's own words
-- [ ] `nc -l <port>` as root writes `/var/run/nc-<port>.pid`; `ps` lists it with a PID, an owner
+- [x] `nc -l <port>` as root writes `/var/run/nc-<port>.pid`; `ps` lists it with a PID, an owner
       and a port; `nmap` shows the port `open` with SERVICE `unknown`
 - [ ] `kill <pid>` removes a listener and its port closes for everyone; `kill` on a service refuses
       and points at `systemctl`; both require root
@@ -193,9 +193,45 @@ message is a survivor a shape-only assertion misses.
 
 ---
 
-### Slice 2: A player plants a listener, and can see it
+### Slice 2: A player plants a listener, and can see it — DONE (v0.145.0)
 
 **Branch**: `feat/nc-listen-plant`
+
+**As-built.** Shipped as planned, with **one shape change and four criteria added** at approval:
+
+- **The PID is derived where it is consumed, not stored.** `readRunningProcesses(root)` keeps its
+  one-argument signature and returns the union WITHOUT a `pid`; `ps` derives it from the machine id
+  it already holds, via `listenerPid(machineId, port)`. Storing it would have let a planter's client
+  author its own PID, and would have fanned the machine id through `readOpenPorts`, which has no use
+  for one. **Slice 3's `kill` must therefore resolve a pid by matching `listenerPid` over
+  `readRunningProcesses`, not by reading a field.**
+- `readRunningServices` → **`readRunningProcesses`**, `RunningService` → `RunningProcess`. The old
+  name would have been actively wrong the moment it returned listeners. Two call sites, no fan-out.
+- Added: the pidfile carries `PIDFILE_PERMISSIONS` (the fifth producer, and slice 0's exact defect);
+  listening needs NO network, because `env.network` follows the player's own box rather than the one
+  the shell stands on; malformed listener content is SKIPPED rather than defaulted, since unlike a
+  service there is nothing to fall back to; and connecting to a listener still refuses, pinning the
+  intermediate state slice 4 replaces.
+
+Mutation, behavioral regions: `pidfile.ts` **100%** (123 killed, 0 survived), `ps.ts` **100%**
+(15/15), `nc.ts` L1–218 **98.59%** (140 killed, 2 survived — both slice 1's recorded equivalents,
+unchanged). Whole-file `nc.ts` 79.01% / `ps.ts` 62.16% is the `manual`/`description` prose class §4
+documents; every one of those 52 survivors is at or below the `Command` literal.
+
+Four things worth carrying forward:
+
+- **`noUncheckedIndexedAccess` is OFF** (`tsconfig.app.json` sets only `strict`), so a regex
+  capture is typed `string`, not `string | undefined`. A defensive `capture === undefined` guard is
+  therefore DEAD CODE, and Stryker correctly reports it as a survivor. The first pass had one; the
+  fix was deleting the guard, not writing a test for it.
+- **Slice 0's predicted daemon-suite fan-out did not happen.** `nc -l` is a NEW call site, not a
+  change to the shared write's shape, so the four suites asserting the options object were untouched.
+  The `PIDFILE_WRITE` constant is still worth reaching for, but the warning was about the wrong risk.
+- **`WRITE_ERROR` now has two byte-identical copies** (`daemon.ts`, `nc.ts`). Deliberate, and
+  approved: slice 3's REFACTOR already targets that map, and a third copy is cheaper to hoist once
+  than to hoist twice. Slice 3 should now expect THREE sites, not two.
+- **The usage line names both modes** — `nc: usage: nc <host> <port> | nc -l <port>`. Connect mode's
+  existing assertion changed with it; one command, one usage line.
 
 **Value**: A player with root leaves something behind on a box, and both `ps` and `nmap` show it —
 the defender's alarm and the attacker's lure in one step.
@@ -474,7 +510,7 @@ Per slice, from `v2/`:
 3. **Typecheck** — `npm run typecheck` (`tsc -b`; a plain `tsc --noEmit` is a NO-OP here)
 4. **Lint/format** — `npm run lint` (v2 has no Prettier)
 5. **Version bump** on every feature slice — `v2/package.json` AND `v2/package-lock.json`
-   (`npm install --package-lock-only`). Current: **0.144.0**
+   (`npm install --package-lock-only`). Current: **0.145.0**
 6. **Wire-check** where the slice says required — `scripts/test*.ts` against `vercel dev` +
    supabase. `tsc` cannot see DB columns or constraints, so an `api/` regression ships green
    without one
