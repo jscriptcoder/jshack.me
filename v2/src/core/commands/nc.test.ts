@@ -3,18 +3,23 @@ import { nc } from './nc';
 import { commandRegistry } from './registry';
 import {
   mockCommandEnv,
+  mockFsViewFromTree,
   mockIdentity,
   mockNetworkViewFromConnectivity,
+  mockPatchApi,
   mockScanApi,
+  mockSession,
 } from '../../test/factories/commandEnv';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
-import { readOpenPorts } from '../services/pidfile';
+import { PIDFILE_PERMISSIONS, readOpenPorts } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { assignHomeNetwork } from '../network/homeNetwork';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
-import { asNetworkAddress, asPlayerKeyHex } from '../types';
-import type { CommandResult } from './types';
+import { asAbsPath, asNetworkAddress, asPlayerKeyHex, type UserType } from '../types';
+import type { FilePermissions } from '../filesystem/types';
+import type { CommandEnv, CommandResult, PatchResult } from './types';
 
 /**
  * `nc <host> <port>` — point netcat at a port and learn what answers.
@@ -255,12 +260,14 @@ describe('nc against a port on someone else’s box', () => {
 });
 
 describe('nc argument handling', () => {
-  it('shows usage when the host or the port is missing', async () => {
+  it('shows usage when the host or the port is missing, naming both modes', async () => {
+    // One usage line for one command. A player who typed too little has not yet
+    // said which half of netcat they wanted, so the answer names both.
     const noArgs = sync(await nc.execute(onlineEnv(), [], NO_FLAGS));
     const noPort = sync(await nc.execute(onlineEnv(), ['192.168.0.5'], NO_FLAGS));
 
-    expect(noArgs.text).toBe('nc: usage: nc <host> <port>');
-    expect(noPort.text).toBe('nc: usage: nc <host> <port>');
+    expect(noArgs.text).toBe('nc: usage: nc <host> <port> | nc -l <port>');
+    expect(noPort.text).toBe('nc: usage: nc <host> <port> | nc -l <port>');
     expect(noArgs.exitCode).toBe(1);
   });
 
@@ -316,5 +323,271 @@ describe('the banners the world’s doors answer with', () => {
       'HTTP/1.1 400 Bad Request',
       '220 FTP server ready.',
     ]);
+  });
+});
+
+/**
+ * `nc -l <port>` — leave something behind on a box you have taken.
+ *
+ * The other half of netcat, and the first thing in the game a player can leave on
+ * a machine that outlives the shell they left it from. Planting is a purely LOCAL
+ * act: it opens no connection, so it needs no network — a box whose owner pulled
+ * the wifi is still a box with a backdoor waiting on it.
+ *
+ * The gates read in the order a player meets them: what they typed, then whether
+ * they may, then whether the door is free.
+ */
+const LISTEN = new Map<string, string | true>([['-l', true]]);
+
+/** A `/var/run` holding the given pidfiles (basename → content), plus any
+ *  DIRECTORIES wearing a pidfile's name — something a root player can really
+ *  leave there, and the reason presence alone never settles what is running. */
+const varRun = (
+  pidfiles: Readonly<Record<string, string>>,
+  directories: readonly string[] = [],
+) =>
+  buildDirectory({
+    var: buildDirectory({
+      run: buildDirectory({
+        ...Object.fromEntries(
+          Object.entries(pidfiles).map(([name, content]) => [
+            name,
+            buildFile(content, { owner: 'root' }),
+          ]),
+        ),
+        ...Object.fromEntries(directories.map((name) => [name, buildDirectory({})])),
+      }),
+    }),
+  });
+
+type RecordedWrite = {
+  readonly path: string;
+  readonly content: string;
+  readonly isNew: boolean | undefined;
+  readonly permissions: FilePermissions | undefined;
+};
+
+/** A box with the given services/listeners already up, and a recording write.
+ *  Deliberately built on `mockCommandEnv`'s OFFLINE network, so every test here
+ *  proves listening needs no connection rather than one of them claiming it. */
+const listenEnv = (
+  opts: {
+    readonly userType?: UserType;
+    readonly username?: string;
+    readonly running?: Readonly<Record<string, string>>;
+    readonly runDirectories?: readonly string[];
+    readonly write?: CommandEnv['patches']['write'];
+  } = {},
+) => {
+  const userType = opts.userType ?? 'root';
+  const writes: RecordedWrite[] = [];
+  const env = mockCommandEnv({
+    session: mockSession({ userType, username: opts.username ?? 'mallory' }),
+    fs: mockFsViewFromTree(varRun(opts.running ?? {}, opts.runDirectories), {
+      userType,
+      cwd: () => asAbsPath('/'),
+    }),
+    patches: {
+      ...mockPatchApi(),
+      write:
+        opts.write ??
+        (async (path, content, options) => {
+          writes.push({
+            path,
+            content,
+            isNew: options?.isNew,
+            permissions: options?.permissions,
+          });
+          return { ok: true };
+        }),
+    },
+  });
+  return { env, writes };
+};
+
+describe('nc -l, planting a listener', () => {
+  it('reports the port it is holding, in netcat’s own words', async () => {
+    const { env } = listenEnv();
+
+    const { text, exitCode } = sync(await nc.execute(env, ['4444'], LISTEN));
+
+    expect(text).toBe('Listening on 0.0.0.0 4444');
+    expect(exitCode).toBe(0);
+  });
+
+  it('leaves a pidfile naming the account that planted it and the tier it holds', async () => {
+    // The tier is written down because the door it opens has to remember what it
+    // is worth: a listener planted by root lets its next visitor do root things,
+    // and one planted by a user does not.
+    const { env, writes } = listenEnv({ username: 'mallory' });
+
+    await nc.execute(env, ['4444'], LISTEN);
+
+    expect(writes).toEqual([
+      {
+        path: '/var/run/nc-4444.pid',
+        content: 'nc:port=4444,user=mallory,userType=root',
+        isNew: true,
+        permissions: PIDFILE_PERMISSIONS,
+      },
+    ]);
+  });
+
+  it('stamps the permissions that keep it visible one hop later', async () => {
+    // Named rather than defaulted: a write that omits them takes the caller's own
+    // tier defaults, and planting takes root, so the file would come out
+    // root-readable and vanish on exactly the hop where a visitor's `ps` should
+    // have shown it. The fifth producer is where that mistake comes back.
+    const { env, writes } = listenEnv();
+
+    await nc.execute(env, ['4444'], LISTEN);
+
+    expect(writes[0]?.permissions).toEqual({
+      read: ['root', 'user', 'guest'],
+      write: ['root'],
+      execute: [],
+    });
+  });
+
+  it('refuses anyone but root, and writes nothing', async () => {
+    // Forced rather than chosen: `/var/run` is root-writable, so a user-tier plant
+    // would be refused by the walker anyway. Refusing up front says why, in the
+    // words every other door on the box already uses.
+    const { env, writes } = listenEnv({ userType: 'user' });
+
+    const { text, exitCode } = sync(await nc.execute(env, ['4444'], LISTEN));
+
+    expect(text).toBe('nc: must be run as root');
+    expect(exitCode).toBe(1);
+    expect(writes).toEqual([]);
+  });
+
+  it('refuses a port it is already listening on', async () => {
+    const { env, writes } = listenEnv({
+      running: { 'nc-4444.pid': 'nc:port=4444,user=mallory,userType=root' },
+    });
+
+    const { text, exitCode } = sync(await nc.execute(env, ['4444'], LISTEN));
+
+    expect(text).toBe('nc: already listening on port 4444');
+    expect(exitCode).toBe(1);
+    expect(writes).toEqual([]);
+  });
+
+  it('refuses a port a daemon already holds, naming the conflict not the daemon', async () => {
+    // Two refusals because they are two facts. Your own listener is something you
+    // can `kill`; the box's sshd is something you would have to stop, which is a
+    // different command and a louder one.
+    const { env, writes } = listenEnv({ running: { 'sshd.pid': 'sshd:port=22' } });
+
+    const { text, exitCode } = sync(await nc.execute(env, ['22'], LISTEN));
+
+    expect(text).toBe('nc: port 22 already in use');
+    expect(exitCode).toBe(1);
+    expect(writes).toEqual([]);
+  });
+
+  it('reads the port a daemon was started on, not the one it usually takes', async () => {
+    // A defender who moved ftp to 2121 has freed 21. Guarding the catalog default
+    // instead of the pidfile would bar a door nobody is standing at and leave the
+    // real one bindable.
+    const { env, writes } = listenEnv({ running: { 'vsftpd.pid': 'vsftpd:port=2121' } });
+
+    expect(sync(await nc.execute(env, ['2121'], LISTEN)).text).toBe(
+      'nc: port 2121 already in use',
+    );
+    expect(sync(await nc.execute(env, ['21'], LISTEN)).text).toBe('Listening on 0.0.0.0 21');
+    expect(writes).toHaveLength(1);
+  });
+
+  it('refuses a port no host could listen on, in the words connect mode already uses', async () => {
+    // One command, one answer to "that is not a port". A second phrasing for the
+    // same mistake would be a second thing to learn for no gain.
+    for (const raw of ['0', '65536', 'abc', '4444.5', '-1']) {
+      const { env, writes } = listenEnv();
+
+      const { text, exitCode } = sync(await nc.execute(env, [raw], LISTEN));
+
+      expect(text).toBe('nc: port must be between 1 and 65535');
+      expect(exitCode).toBe(1);
+      expect(writes).toEqual([]);
+    }
+  });
+
+  it('accepts both ends of the range a port really has', async () => {
+    for (const raw of ['1', '65535']) {
+      const { env } = listenEnv();
+
+      expect(sync(await nc.execute(env, [raw], LISTEN)).text).toBe(`Listening on 0.0.0.0 ${raw}`);
+    }
+  });
+
+  it('names both of its modes when told to listen on nothing', async () => {
+    const { env } = listenEnv();
+
+    const { text, exitCode } = sync(await nc.execute(env, [], LISTEN));
+
+    expect(text).toBe('nc: usage: nc <host> <port> | nc -l <port>');
+    expect(exitCode).toBe(1);
+  });
+
+  it('reports a refused write rather than claiming a door it never opened', async () => {
+    // Each failure gets its own sentence because they send a player somewhere
+    // different: a refusal means try again as somebody else, a round-trip that
+    // never completed means try again at all.
+    const reasons = [
+      { error: 'permission_denied', expected: 'nc: Permission denied' },
+      { error: 'no_session', expected: 'nc: Permission denied' },
+      { error: 'network_error', expected: 'nc: I/O error' },
+      { error: 'modified_since_open', expected: 'nc: File changed on disk' },
+    ] as const;
+
+    for (const { error, expected } of reasons) {
+      const { env } = listenEnv({ write: async (): Promise<PatchResult> => ({ ok: false, error }) });
+
+      const { text, exitCode } = sync(await nc.execute(env, ['4444'], LISTEN));
+
+      expect(text).toBe(expected);
+      expect(exitCode).toBe(1);
+    }
+  });
+
+  it('does not call a directory wearing a listener’s name an open port', async () => {
+    // `mkdir /var/run/nc-4444.pid` is something a root player can really do, and
+    // the reader already refuses to count it as a running process. The plant gate
+    // has to agree: a box that is not listening on 4444 must not say it is, or
+    // one `mkdir` bars a door nobody is standing at.
+    const { env, writes } = listenEnv({ runDirectories: ['nc-4444.pid'] });
+
+    const { exitCode } = sync(await nc.execute(env, ['4444'], LISTEN));
+
+    expect(exitCode).toBe(0);
+    expect(writes).toHaveLength(1);
+  });
+
+  it('plants on a box with no network at all', async () => {
+    // Connect mode needs a wire; listening does not. `env.network` follows the
+    // player's own machine rather than the box the shell is standing on, so a
+    // connectivity gate here would refuse plants that have nothing to do with it.
+    const { env, writes } = listenEnv();
+    expect(env.network.isOnline()).toBe(false);
+
+    expect(sync(await nc.execute(env, ['4444'], LISTEN)).exitCode).toBe(0);
+    expect(writes).toHaveLength(1);
+  });
+});
+
+describe('nc against a port a listener is holding', () => {
+  it('still refuses, because nothing on that port knows how to answer yet', async () => {
+    // An open port nothing can name is the question this whole arc exists to
+    // pose. A scan calls it `unknown`, connecting is how a player asks — and
+    // until the door learns to answer, the honest reply is a shut port's.
+    const host = lanHostServing(22, 'ssh');
+    expect(readOpenPorts(buildRemoteHostFs(ESSID, host)).some((entry) => entry.port === 4444))
+      .toBe(false);
+
+    const { text } = sync(await nc.execute(onlineEnv(), [host.ip, '4444'], NO_FLAGS));
+
+    expect(text).toBe(`nc: connect to ${host.ip} port 4444: Connection refused`);
   });
 });
