@@ -9,6 +9,7 @@ import { generateDeepLayer } from './generateDeepLayer';
 import { computeDeepGatewayId } from '../identity/router';
 import { generateHomeLan, type LanHost } from './generateHomeLan';
 import type { Directory } from '../filesystem/types';
+import { readRunningProcesses } from '../services/pidfile';
 
 // A representative Ed25519 pubkey (64 hex chars) — used only to spell an id this network
 // does NOT generate. Nothing on the LAN or in the chain below it varies with an identity.
@@ -138,5 +139,54 @@ describe('resolving a machine id back to its box', () => {
     // The discriminator the cross-player check reads: a miss here is what routes a
     // foreign WORKSTATION to the server instead of rebuilding it from a local seed.
     expect(generatedBaseFsForMachineId(ESSID, `ed25519-${FOREIGN_KEY.slice(0, 8)}`)).toBeNull();
+  });
+});
+
+describe('the boxes the world never leaves a backdoor on', () => {
+  // A generated listener is a user-tier shell for whoever finds it. On an NPC box
+  // that is the discovery loop working as designed. On the AP gateway it would give
+  // away the contested root target the whole cracking curve is built around, and on
+  // an inner gateway or a switch it would open a chain door nobody earned.
+  //
+  // They are safe today because each takes a DIFFERENT generator from the NPC boxes,
+  // so there is no exclusion rule to get wrong — this is the test that notices if
+  // those generators are ever brought together.
+  const NETWORKS: readonly string[] = [
+    ESSID,
+    OTHER_ESSID,
+    'SHINRA-5G',
+    'ACME-CORP',
+    'TYRELL-NET',
+    'WEYLAND-NET',
+  ];
+
+  const listenersOn = (host: LanHost, essid: string): readonly { readonly port: number }[] =>
+    readRunningProcesses(baseFsForLanHost(host, essid)).flatMap((running) =>
+      running.kind === 'listener' ? [{ port: running.port }] : [],
+    );
+
+  const hostsOfKind = (essid: string, wanted: (host: LanHost) => boolean): readonly LanHost[] =>
+    generateHomeLan(essid).hosts.filter(wanted);
+
+  it('never plants one on a gateway or a switch, across every network tried', () => {
+    const carrying = NETWORKS.flatMap((essid) =>
+      hostsOfKind(essid, (host) => host.kind !== 'machine').flatMap((host) =>
+        listenersOn(host, essid).map((listener) => ({ essid, ip: host.ip, ...listener })),
+      ),
+    );
+
+    expect(carrying).toEqual([]);
+  });
+
+  it('plants them on the NPC machines of those same networks — the sweep is live', () => {
+    // Without this, the assertion above would pass just as well with the roll
+    // switched off, or if these networks generated nothing to look at.
+    const carrying = NETWORKS.flatMap((essid) =>
+      hostsOfKind(essid, (host) => host.kind === 'machine').flatMap((host) =>
+        listenersOn(host, essid),
+      ),
+    );
+
+    expect(carrying.length).toBeGreaterThan(0);
   });
 });

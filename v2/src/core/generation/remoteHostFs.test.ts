@@ -4,6 +4,13 @@ import { md5 } from './md5';
 import { DEFAULT_WORDLIST } from '../wordlist/defaultWordlist';
 import { resolveWebPath } from '../network/http';
 import { createFsView } from '../filesystem/fsView';
+import {
+  formatListenerContent,
+  PIDFILE_PERMISSIONS,
+  readRunningProcesses,
+  type Listener,
+} from '../services/pidfile';
+import { BACKDOOR_PORTS } from './remoteHostFs';
 import type { LanHost } from './generateHomeLan';
 import type { Directory, FileNode } from '../filesystem/types';
 
@@ -42,6 +49,24 @@ const pidfileContent = (fs: Directory, name: string): string | null => {
 };
 
 const OCTETS = Array.from({ length: 253 }, (_, index) => index + 2); // 2..254
+
+/**
+ * Eight networks x 253 octets — the sample every generation-time PROBABILITY is
+ * measured over. A per-host roll is a property of the WORLD rather than of any one
+ * box, so a rate is only observable across a population and a single host proves
+ * nothing. The whole sample regenerates in well under a second, and it is
+ * deterministic: the counts below are fixed, not sampled.
+ */
+const POPULATION_ESSIDS: readonly string[] = [
+  'BEAN-THERE-WIFI',
+  'SHINRA-5G',
+  'ACME-CORP',
+  'WEYLAND-NET',
+  'CRACK-ME-WIFI',
+  'HYDRA-CRACK-WIFI',
+  'FETCH-LOG-WIFI',
+  'TYRELL-NET',
+];
 
 const sshHosts = (): readonly { octet: number; port: number }[] =>
   OCTETS.flatMap((octet) => {
@@ -538,26 +563,6 @@ describe('buildRemoteHostFs', () => {
   });
 
   describe('the difficulty curve (not every account falls to the starting wordlist)', () => {
-    /**
-     * Whether an account is crackable is decided at GENERATION, by a per-account
-     * roll between a pool the starter wordlist covers and one it does not. That
-     * makes it a property of the WORLD rather than of any one box — so "rare" is
-     * only observable across a population, and a single host proves nothing.
-     *
-     * Eight networks x 253 octets. The whole sample regenerates in well under a
-     * second, and it is deterministic: these counts are fixed, not sampled.
-     */
-    const POPULATION_ESSIDS: readonly string[] = [
-      'BEAN-THERE-WIFI',
-      'SHINRA-5G',
-      'ACME-CORP',
-      'WEYLAND-NET',
-      'CRACK-ME-WIFI',
-      'HYDRA-CRACK-WIFI',
-      'FETCH-LOG-WIFI',
-      'TYRELL-NET',
-    ];
-
     /** Every password the shipped wordlist holds, by hash — exactly the test
      *  `hydra` applies to an account. An account "falls" when its hash is here. */
     const wordlistHashes = new Set(DEFAULT_WORDLIST.map(md5));
@@ -736,6 +741,121 @@ describe('buildRemoteHostFs', () => {
         { octet: 12, port: 80 },
       ]);
       expect(httpHosts().at(-1)).toEqual({ octet: 254, port: 80 });
+    });
+  });
+
+  describe('the backdoors the world already left behind', () => {
+    /** The listeners a generated host is carrying, read through the parser `nmap`
+     *  and `ps` use rather than by looking for a filename — so a pidfile this suite
+     *  counts is one the rest of the game also calls a running listener, and not
+     *  merely a file somebody dropped in `/var/run`. */
+    const listenersOf = (fs: Directory): readonly Listener[] =>
+      readRunningProcesses(fs).flatMap((running) =>
+        running.kind === 'listener' ? [running] : [],
+      );
+
+    /** The account a generated box gives uid 1000 — its own human user, the one
+     *  account between root and guest. */
+    const humanUserOf = (fs: Directory): string => {
+      const row = passwdRows(fs).find((fields) => fields[2] === '1000');
+      if (row === undefined) throw new Error('expected a uid-1000 account');
+      return row[0]!;
+    };
+
+    const POPULATION_HOSTS = POPULATION_ESSIDS.length * OCTETS.length;
+
+    /**
+     * Every generated listener in the population, with the box that carries it.
+     *
+     * Computed ONCE for the whole suite, for the reason the difficulty curve is:
+     * regenerating 2024 hosts per test is fast in a normal run but slow enough
+     * under mutation instrumentation to race Stryker's timeout, which turns a
+     * surviving mutant into a "killed by timeout" and makes the score depend on
+     * machine speed rather than on the tests.
+     */
+    const planted: readonly {
+      readonly essid: string;
+      readonly octet: number;
+      readonly fs: Directory;
+      readonly listener: Listener;
+    }[] = POPULATION_ESSIDS.flatMap((essid) =>
+      OCTETS.flatMap((octet) => {
+        const fs = buildRemoteHostFs(essid, host(octet));
+        return listenersOf(fs).map((listener) => ({ essid, octet, fs, listener }));
+      }),
+    );
+
+    it('leaves one on roughly a tenth of NPC hosts — a strange LAN has a door in it', () => {
+      // The rate is a property of the world, so a single box proves nothing. This
+      // deterministic 2024-host sample yields 194 listeners (9.6%, against a 0.10
+      // knob) — about one per 10-host LAN. The band brackets that while excluding
+      // the mutants that matter: plant-on-none (0), plant-on-every-host (2024), and
+      // a flipped roll comparison (keep next() >= chance ⇒ ~1830).
+      expect(planted.length).toBeGreaterThan(Math.round(POPULATION_HOSTS * 0.06));
+      expect(planted.length).toBeLessThan(Math.round(POPULATION_HOSTS * 0.15));
+    });
+
+    it('runs as the box own uid-1000 account at user tier — a foothold, never root', () => {
+      // A generated door hands out the tier its pidfile records, so root here would
+      // give away on every tenth NPC box what the CVE phase exists to earn. It is
+      // also why the account has to be one the box really has: a listener naming
+      // nobody in `/etc/passwd` is a login as a user the box cannot describe.
+      const wrongTier = planted
+        .filter(
+          ({ fs, listener }) =>
+            listener.userType !== 'user' || listener.user !== humanUserOf(fs),
+        )
+        .map(({ essid, octet, listener }) => ({ essid, octet, listener }));
+
+      expect(wrongTier).toEqual([]);
+      expect(planted.length).toBeGreaterThan(0);
+    });
+
+    it('draws the port from the backdoor pool, and spreads across the whole of it', () => {
+      // Both halves matter. Every port used is one the pool declares, so no listener
+      // lands on a port a service would answer on; and every port the pool declares
+      // gets used, so the pool is a draw rather than a constant with spare entries.
+      const used = [...new Set(planted.map(({ listener }) => listener.port))];
+
+      expect(used.sort((left, right) => left - right)).toEqual(
+        [...BACKDOOR_PORTS].sort((left, right) => left - right),
+      );
+    });
+
+    it('is the same door on every build — which box, which port, which account', () => {
+      // Two occupants scanning one LAN must find the same open port, and the box a
+      // player walks away from must be the box they come back to.
+      const carrier = planted[0]!;
+
+      expect(listenersOf(buildRemoteHostFs(carrier.essid, host(carrier.octet)))).toEqual([
+        carrier.listener,
+      ]);
+    });
+
+    it('writes the pidfile a player own `nc -l` writes — same name, shape and permissions', () => {
+      // A door the world left behind and a door a player planted must be
+      // indistinguishable to whoever finds one. Anything else tells an intruder
+      // which listeners have an owner watching them.
+      const { fs, listener } = planted[0]!;
+      const node = varRun(fs)?.entries.get(`nc-${listener.port}.pid`);
+
+      if (node === undefined || node.kind !== 'file') {
+        throw new Error(`expected /var/run/nc-${listener.port}.pid`);
+      }
+      expect(node.content).toBe(formatListenerContent(listener));
+      expect(node.perms).toEqual(PIDFILE_PERMISSIONS);
+      expect(node.owner).toBe('root');
+    });
+
+    it('leaves the accounts of the world already generated exactly where they were', () => {
+      // The roll seeds its OWN stream. Drawing from the host filesystem prng would
+      // shift every draw after it and silently re-roll every NPC username and
+      // password on every network. These rows were captured before the roll existed.
+      expect(rowFor(buildRemoteHostFs(ESSID, host(42)), 'root')[1]).toBe(
+        '36cf655efe569f20c40c42f8673004c8',
+      );
+      expect(humanUserOf(buildRemoteHostFs(ESSID, host(42)))).toBe('support');
+      expect(humanUserOf(buildRemoteHostFs(ESSID, host(7)))).toBe('pi');
     });
   });
 });

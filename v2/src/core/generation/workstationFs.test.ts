@@ -330,6 +330,11 @@ describe('buildWorkstationBaseFs', () => {
       const run = dirAt(buildWorkstationBaseFs(SEED_A, getConfig()), 'var', 'run');
       // Empty at boot (no service running yet); root writes the pidfile (sshd
       // runs as root), every tier can read/traverse so nmap/ps can see the port.
+      //
+      // Empty also means no LISTENER. The world plants those on NPC boxes as the
+      // door a player sweeping a strange LAN is meant to find; nobody opts into
+      // one on the machine they defend, and a listener here would be a free
+      // user-tier shell on it.
       expect(run.entries.size).toBe(0);
       expect(run.perms).toEqual({
         read: ['root', 'user', 'guest'],
