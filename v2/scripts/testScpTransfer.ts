@@ -12,9 +12,10 @@
 //   - scp rides sshd: the visit is written through the SSH spec into `auth.log`, and
 //     the door has no log of its own to leave a second line in. There is no
 //     `SERVICE_CATALOG.scp`, so a mapping that regressed would 500 rather than lie.
-//   - the listening check APPLIES to scp while ssh keeps its documented exemption —
-//     `payload.kind !== 'ssh' && !listening`. A box with sshd down is shut to a
-//     transfer and open to a login, and that asymmetry is deliberate.
+//   - the listening check applies to EVERY door alike, scp and ssh both. A box with
+//     sshd down is shut to a transfer and to a login, for one reason and with one
+//     error. The ssh exemption this script once asserted was removed once it was
+//     found to be protecting nothing.
 //   - the same on a public address: a forward names ONE internal port, so a forward
 //     onto A's vsftpd is not a door a transfer can open.
 //   - `resolveCrossPlayerFs` authorizes on ANY active row, so a transient scp row is
@@ -310,7 +311,7 @@ const main = async (): Promise<void> => {
     `status ${ended.status}; ended_at=${closed?.ended_at === null ? 'null' : 'set'}`,
   );
 
-  // --- 7/8. sshd down: shut to a transfer, open to a login. The asymmetry is the rule. ---
+  // --- 7/8. sshd down: shut to a transfer AND to a login. One question, asked once. ---
   const doorlessAccount = credential(doorless);
   const noDaemon = await lanLogin({
     sessionId: 'scp-nodoor-1',
@@ -324,16 +325,16 @@ const main = async (): Promise<void> => {
     noDaemon.status === 404,
     `status ${noDaemon.status} ${JSON.stringify(noDaemon.body)}`,
   );
-  const hopAnyway = await lanLogin({
+  const plainSsh = await lanLogin({
     sessionId: 'ssh-nodoor-1',
     host: doorless,
     username: doorlessAccount.username,
     password: doorlessAccount.password,
   });
   check(
-    '8. while a plain ssh login into the same box keeps its documented exemption',
-    hopAnyway.status === 200,
-    `status ${hopAnyway.status}`,
+    '8. and a plain ssh login into the same box is refused for the same reason',
+    plainSsh.status === 404 && errorOf(plainSsh.body) === 'service_not_running',
+    `status ${plainSsh.status} ${errorOf(plainSsh.body)}`,
   );
 
   // --- The far side: A's network, A's forwards, A's running daemons. ---
