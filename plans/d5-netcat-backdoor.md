@@ -913,6 +913,15 @@ Neither blocks close-out; both are recorded in
 
 ---
 
+## What slice 8 turned up next door — tracked in its own plan
+
+Fixing the shell's tree showed there are **three** sites that decide which filesystem a session
+reads, and they must agree: `scpTargetTree` (correct), `isCrossPlayerHop` (fixed here), and
+`ftpRoot` — which has **no cross-player check at all**, so an ftp session off the player's own LAN
+looks like it renders the intruder's own box. Read off the code, never observed. It is not D5
+(different door, shipped in D3) and it must not delay this plan's close-out, so it lives in
+[`ftp-cross-player-tree.md`](./ftp-cross-player-tree.md).
+
 ## Pre-PR Quality Gate
 
 Per slice, from `v2/`:
@@ -923,7 +932,7 @@ Per slice, from `v2/`:
 3. **Typecheck** — `npm run typecheck` (`tsc -b`; a plain `tsc --noEmit` is a NO-OP here)
 4. **Lint/format** — `npm run lint` (v2 has no Prettier)
 5. **Version bump** on every feature slice — `v2/package.json` AND `v2/package-lock.json`
-   (`npm install --package-lock-only`). Current: **0.150.0**
+   (`npm install --package-lock-only`). Current: **0.151.0**
 6. **Wire-check** where the slice says required — `scripts/test*.ts` against `vercel dev` +
    supabase. `tsc` cannot see DB columns or constraints, so an `api/` regression ships green
    without one

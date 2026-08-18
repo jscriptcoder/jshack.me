@@ -257,6 +257,14 @@ const [ftpSession, setFtpSession] = createSignal<Session | null>(null);
 const [ftpCwd, setFtpCwd] = createSignal<AbsPath>(asAbsPath('/'));
 const [ftpPatches, setFtpPatches] = createSignal<readonly Patch[]>([]);
 
+// And the SERVER-served tree of the ftp target when it is another player's box —
+// a second `servedRoot`, for the same reason `ftpPatches` is a second journal: the
+// shell's follows the ACTIVE session, and an ftp session is beside it, not above it.
+// Untagged, unlike the shell's: exactly one ftp session is held at a time and entering
+// one clears this, so the only way a tree for the wrong box could arrive is a late
+// answer — which `refreshFtpServedRoot` drops by session id.
+const [ftpServedRoot, setFtpServedRoot] = createSignal<Directory | null>(null);
+
 export { ftpSession };
 
 /** The prompt the terminal shows: an ftp session replaces it wholesale rather than
@@ -274,7 +282,8 @@ const enterFtpSession = (session: Session): void => {
   setFtpSession(session);
   setFtpCwd(homeDirectory(session));
   setFtpPatches([]);
-  void refetchFtpPatches(session);
+  setFtpServedRoot(null);
+  void refreshFtpTree(session);
 };
 
 /** Drop it and end the server row (backs `env.ftp.leave`). Fire-and-forget: the
@@ -284,6 +293,7 @@ const leaveFtpSession = (): void => {
   const ending = ftpSession();
   setFtpSession(null);
   setFtpPatches([]);
+  setFtpServedRoot(null);
   if (sessionsClientDeps !== undefined && ending !== null) {
     void endServerSession(sessionsClientDeps, ending.id);
   }
@@ -381,13 +391,34 @@ const activeRoot = (): Directory => {
   });
 };
 
+/** Whether the box an ftp session is held on is another player's — the machine-level
+ *  question `scpTargetTree` asks for the same reason, and deliberately NOT
+ *  `isCrossPlayerHop`: that one also asks whether the session lands you in a SHELL,
+ *  which an ftp session does not. It addresses a second machine from the prompt of the
+ *  first, so the kind that opened it says nothing about which tree it reads. */
+const isCrossPlayerFtpTarget = (session: Session): boolean =>
+  isCrossPlayerWorkstation({
+    machineId: session.machineId,
+    publicKeyHex: requireIdentity().publicKeyHex,
+    essid: currentEssid(),
+  });
+
 /** The tree an ftp session addresses: the TARGET's, with the TARGET's journal
  *  replayed over it, so the box shows the state it is actually in rather than the
  *  state it was generated in. Held apart from `activeRoot` on purpose — the shell
  *  and the ftp session are two machines at once, and one `root()` could only ever
- *  be one of them. */
-const ftpRoot = (session: Session): Directory =>
-  resolveActiveRoot({
+ *  be one of them.
+ *
+ *  Another player's box cannot be rebuilt here — we hold neither their seed nor their
+ *  rows — so the server materializes it and this shows an EMPTY listing until it
+ *  lands. Falling through to `resolveActiveRoot` instead would answer with the
+ *  intruder's OWN base, which is a listing of the wrong box that looks like a listing
+ *  of the right one. */
+const ftpRoot = (session: Session): Directory => {
+  const served = ftpServedRoot();
+  if (served !== null) return served;
+  if (isCrossPlayerFtpTarget(session)) return CROSS_PLAYER_LOADING_ROOT;
+  return resolveActiveRoot({
     session,
     ownWorkstationId: ownWorkstationId(),
     publicKeyHex: requireIdentity().publicKeyHex,
@@ -395,6 +426,7 @@ const ftpRoot = (session: Session): Directory =>
     ownBaseFs: seedFs(requireConfig(), requireIdentity()),
     patches: ftpPatches(),
   });
+};
 
 /** The address the player is reaching the remote box FROM — their own leased LAN
  *  address. Null off-network, which the server renders as `unknown` rather than
@@ -552,8 +584,8 @@ const recordFtpTransferFn = (transfer: FtpTransferRecord): Promise<void> =>
 /** Write to the machine an ftp session is held on (backs `env.ftp.write`). The
  *  SHIPPED patch client, aimed at the target and stamped with the session's account
  *  and tier — the server gate is reached with no idea a second door exists, which is
- *  the claim the whole door rests on. A landed write re-pulls the TARGET's journal,
- *  not the shell's, so the next `ls` at the prompt shows the file that just arrived.
+ *  the claim the whole door rests on. A landed write re-reads the TARGET, not the
+ *  shell, so the next `ls` at the prompt shows the file that just arrived.
  *  Refuses as a network error until `startGame` wires the client: a `put` that
  *  reported success while nothing left would be worse than one that failed. */
 const writeToFtpTarget = async (
@@ -567,7 +599,7 @@ const writeToFtpTarget = async (
     owner: session.username,
     tier: session.userType,
   }).write(...args);
-  if (written.ok) void refetchFtpPatches(session);
+  if (written.ok) void refreshFtpTree(session);
   return written;
 };
 
@@ -855,6 +887,28 @@ const refetchFtpPatches = async (session: Session): Promise<void> => {
   if (ftpSession()?.id !== session.id) return;
   setFtpPatches(journal);
 };
+
+/** Pull the TARGET's server-materialized tree for an ftp session on another player's
+ *  box, pruned to the tier the credential bought. A failure clears it, so the prompt
+ *  keeps showing an empty listing rather than the intruder's own files. Late answers
+ *  are dropped on the same rule the journal uses. */
+const refreshFtpServedRoot = async (session: Session): Promise<void> => {
+  const deps = networkClientDeps;
+  if (deps === undefined) return;
+  const tree = await resolveCrossPlayerFs(deps, session.machineId);
+  if (ftpSession()?.id !== session.id) return;
+  setFtpServedRoot(tree);
+};
+
+/** Re-read the box an ftp session is held on, from whichever source its tree is built
+ *  from: another player's box is SERVED whole, and anything this client can generate is
+ *  rebuilt locally with its journal replayed. Branched rather than doubled — pulling
+ *  both would pay a round trip for an answer that is thrown away, and refreshing only
+ *  the other one leaves the prompt looking at a tree the box no longer has. */
+const refreshFtpTree = async (session: Session): Promise<void> =>
+  isCrossPlayerFtpTarget(session)
+    ? await refreshFtpServedRoot(session)
+    : await refetchFtpPatches(session);
 
 /** Rebuild the hop chain from the server's active sessions so a `su` elevation
  *  survives a refresh. Replays the persisted (pushed) sessions onto the base
