@@ -5,7 +5,13 @@ import { lanLeaseCacheIn } from '../core/network/lanLeaseCache';
 import { contentHash } from '../core/patches/contentHash';
 import { CONNECTED_ESSID_KEY } from './connectionPersistence';
 import { buildRemoteHostFs } from '../core/generation/remoteHostFs';
-import { formatListenerContent, formatPidfileContent, readOpenPorts } from '../core/services/pidfile';
+import {
+  PIDFILE_PERMISSIONS,
+  formatListenerContent,
+  formatPidfileContent,
+  readOpenPorts,
+} from '../core/services/pidfile';
+import { applyPatches } from '../core/filesystem/applyPatches';
 import { SERVICE_CATALOG } from '../core/services/serviceCatalog';
 import { HTTP_DEFAULT_PORT } from '../core/network/http';
 import { BINARY_STUB } from '../core/generation/binaries';
@@ -1565,5 +1571,166 @@ describe('a listener killed while an intruder is standing inside it', () => {
 
     expect(scrollbackOf(state)).not.toContain(CLOSED);
     expect(state.promptHost()).toBe(TARGET.hostname);
+  });
+});
+
+describe('a backdoor on a box across the network', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  // The intruder's own LAN, and the OTHER network whose public IP they reach across.
+  const ESSID = 'ferro-cafe';
+  const LAN = generateHomeLan(ESSID);
+  const THEIR_ESSID = 'nakatomi-plaza';
+  const THEIR_PUBLIC_IP = '198.51.100.23';
+  const PORT = 31337;
+  const CLOSED = 'nc: connection closed by foreign host';
+
+  /** A box on that other network which runs sshd. Its own pidfile is the thing no
+   *  journal put there and no other box has, which is what makes "whose filesystem
+   *  am I looking at" a question with an answer. */
+  const THEIR_HOST = generateHomeLan(THEIR_ESSID).hosts.find(
+    (host) =>
+      host.kind === 'machine' &&
+      readOpenPorts(buildRemoteHostFs(THEIR_ESSID, host)).some((open) => open.service === 'ssh'),
+  );
+  if (THEIR_HOST === undefined) throw new Error(`no ssh-serving host generated on ${THEIR_ESSID}`);
+  const THEIR_BOX = machineIdForLanHost(THEIR_HOST, THEIR_ESSID);
+
+  const listenerPatch = {
+    path: `/var/run/nc-${PORT}.pid`,
+    content: formatListenerContent({ port: PORT, user: 'mallory', userType: 'root' }),
+    owner: 'root',
+    permissions: PIDFILE_PERMISSIONS,
+  };
+
+  /** The target as the SERVER materializes it: the box's own seeded tree with its
+   *  journal replayed over it. The listener leaves the tree and the journal together
+   *  when a defender kills it, because the server builds the one from the other. */
+  const theirTree = (listening: boolean) =>
+    applyPatches(buildRemoteHostFs(THEIR_ESSID, THEIR_HOST), listening ? [listenerPatch] : []);
+
+  /** netcat on the player's own box, stamped the way `apt install` leaves it. */
+  const ownNetcat = {
+    path: '/usr/bin/nc',
+    content: BINARY_STUB,
+    owner: 'root',
+    permissions: {
+      read: ['root', 'user', 'guest'],
+      write: ['root'],
+      execute: ['root', 'user', 'guest'],
+    },
+  };
+
+  const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
+  /** Boot associated with one LAN, then knock on a backdoor published on ANOTHER
+   *  network's public IP — the reach slice 7 proved on the wire. `killTheListener`
+   *  is the defender's `kill` seen from here: the pidfile leaves the target's
+   *  journal, and so leaves the tree the server materializes from it. */
+  const enterTheBackdoor = async () => {
+    vi.resetModules();
+    const store = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => store.set(key, value),
+      removeItem: (key: string) => store.delete(key),
+    };
+    storage.setItem(CONNECTED_ESSID_KEY, ESSID);
+    lanLeaseCacheIn(storage).remember(ESSID, `${LAN.subnet}.77`);
+    vi.stubGlobal('localStorage', storage);
+
+    let listening = true;
+    const actions: string[] = [];
+    const json = (body: unknown) => ({ ok: true, status: 200, json: async () => body });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: { body?: string }) => {
+        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<string, unknown>;
+        actions.push(String(fields.action));
+        if (fields.action === 'listSessions') return json({ sessions: [] });
+        // The address answers, but nothing the catalog can name is on that port — so
+        // netcat knocks instead of grabbing a banner.
+        if (fields.action === 'resolvePublicScan') return json({ found: true, ports: [] });
+        if (fields.action === 'authCreateSessionPublic') {
+          return json({ ok: true, username: 'mallory', userType: 'root', machine_id: THEIR_BOX });
+        }
+        // The stranger's box, materialized by the only party that can.
+        if (fields.action === 'resolveCrossPlayerFs') {
+          return json({ ok: true, tree: serializeTree(theirTree(listening)) });
+        }
+        if (fields.action !== 'listPatches') return json({});
+        if (fields.machine_id === THEIR_BOX) {
+          return json({ patches: listening ? [listenerPatch] : [] });
+        }
+        return json({ patches: [ownNetcat] });
+      }),
+    );
+
+    const state = await import('./state');
+    state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
+    await vi.waitFor(() => expect(state.promptHost()).toBe('box'));
+    // The boot journal fetch is in flight; netcat only exists once it lands.
+    await vi.waitFor(async () => {
+      state.setInput('ls /usr/bin');
+      await state.runInput();
+      expect(state.scrollback().some((line) => line.content.includes('nc'))).toBe(true);
+    });
+    state.setInput(`nc ${THEIR_PUBLIC_IP} ${PORT}`);
+    await state.runInput();
+    await settle();
+    return {
+      state,
+      actions,
+      killTheListener: () => {
+        listening = false;
+      },
+    };
+  };
+
+  /** Type one line and hand back only what it printed. */
+  const typeLine = async (state: typeof import('./state'), line: string): Promise<string> => {
+    const before = state.scrollback().length;
+    state.setInput(line);
+    await state.runInput();
+    return state
+      .scrollback()
+      .slice(before)
+      .map((entry) => entry.content)
+      .join('\n');
+  };
+
+  it('shows the box that was broken into, not the intruder own filesystem', async () => {
+    const { state } = await enterTheBackdoor();
+
+    // Act 14's exact pair. The planted listener alone would prove nothing — it rides
+    // the target's journal, which replays over ANY base — so the claim is the box's
+    // OWN seeded sshd, and the absence of the account only the intruder's box has.
+    expect(await typeLine(state, 'ls /var/run')).toContain(SERVICE_CATALOG.ssh.pidfile);
+    expect(await typeLine(state, 'cat /etc/passwd')).not.toContain('tester');
+  });
+
+  it('pays the re-pull only while standing in a backdoor, not on every line', async () => {
+    // The other half of "pull, not a push": a door that can be taken away has to
+    // re-ask the box before each line, and nothing else does. Charging every session
+    // for that would make the whole game re-fetch on every keystroke — invisible in a
+    // test that only reads output, which is why this one prices the line instead.
+    const { state, actions } = await enterTheBackdoor();
+
+    await typeLine(state, 'exit');
+    const spentBefore = actions.length;
+    await typeLine(state, 'ls');
+
+    expect(actions.slice(spentBefore)).toEqual([]);
+  });
+
+  it('still closes on the intruder when the defender kills the listener from off-LAN', async () => {
+    // Slice 5's eviction, held across the network. The tree an off-LAN backdoor reads
+    // is SERVED, so re-pulling only the journal before each line would leave the shell
+    // asking a stale copy whether its own door is still open — and told yes forever.
+    const { state, killTheListener } = await enterTheBackdoor();
+
+    killTheListener();
+
+    expect(await typeLine(state, 'ls')).toContain(CLOSED);
   });
 });

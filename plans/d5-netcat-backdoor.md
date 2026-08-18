@@ -30,7 +30,8 @@ The grill locked **six** slices. This plan has **eight**, from two splits:
    The final slice is then reach + live proof, not a second helping of the same rule.
 
 Net: slices 0–3 and 6–7 are the locked spine unchanged; slice 4 is narrowed and slice 5 is its
-other half.
+other half. **Slice 8 was added after all eight merged** — a defect the E2E run found in
+shipped behavior, not a re-scoping of the spine.
 
 ## Acceptance Criteria
 
@@ -47,8 +48,10 @@ other half.
       user-tier one cannot
 - [x] Killing a listener drops whoever is inside it on their next command
 - [x] ~10% of generated NPC hosts run a listener at user tier, measured across a population
-- [ ] A listener behind a NAT forward is reachable, scannable and enterable from off-LAN, proven by
-      a wire-check and a two-player browser run
+- [x] A listener behind a NAT forward is reachable, scannable and enterable from off-LAN — proven by
+      `scripts/testNcCrossPlayerReach.ts` 8/8. The browser run proved the AP-GATEWAY variant of the
+      same reach instead: planting on an occupant's box needs root on it, which is what the CVE
+      phase exists to sell and has not shipped
 - [x] `ps` on a box you have ENTERED lists what it is running (§9 defect closed)
 
 ## Reduction Program
@@ -790,30 +793,116 @@ two-player browser run of the full loop.
 
 ---
 
-## Before close-out — three items the E2E run turned up
+### Slice 8: An intruder in a backdoor sees the box they broke into — DONE (v0.151.0)
 
-D5's slices are all merged and its live proof is green. These came out of the 2026-08-18 run and
-want a decision before the plan file is deleted. Full diagnosis for each is in
-[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §9, so nothing is lost if
-this file goes first.
+**Branch**: `fix/nc-off-lan-served-tree`
 
-1. **A backdoor session on an off-LAN box shows the intruder's OWN filesystem** — the one worth
-   fixing before close-out. `ui/activeRoot.ts` falls back to `ownBaseFs` when the target is not
-   on the viewer's current LAN, and `isCrossPlayerHop` excludes `nc` on a comment that went stale
-   when slice 4 gave `nc` a shell. Not cosmetic: `env.patches` is bound to the TARGET, so a write
-   from that shell lands on the target's journal while the tree on screen is the intruder's own.
-   Cross-network only. Fix shape: add the shell-bearing service kinds to `isCrossPlayerHop`,
-   driven by a test — no server change needed. **Behaviour change: full TDD cycle.**
-2. **`scripts/testScpTransfer.ts` check 8 is stale** — asserts an ssh exemption PR #410 removed.
-   One-line test fix; production behaviour is correct and proved by `testDaemonGates` check 1.
-3. **`nmap` runs a 5-digit port into the STATE column** — `31337/tcpopen`. Cosmetic, but every
-   generated backdoor port is 4-5 digits so it shows up routinely.
+**As-built.** The one-line predicate change was HALF the fix. Five things worth carrying:
 
-**When these are settled, the close-out is:** fold the as-built into
-[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7 (the listener union,
-the units-vs-processes split, the no-TTY rule) and §9 (rewrite the `ps` entry as CLOSED — slice
-0 fixed it), update the D5 section of [`legacy-parity-epic.md`](./legacy-parity-epic.md) with
-the as-built and the next door, and **delete this file**.
+- **Widening `isCrossPlayerHop` alone breaks slice 5's eviction, and a test caught it.** An
+  off-LAN backdoor now reads a SERVED tree, and `executeLine`'s pre-line re-pull refreshed only
+  the JOURNAL — so the shell would have asked a stale copy whether its own door was still open and
+  been told yes for as long as the intruder kept typing. The guard test was written GREEN before
+  the predicate changed, went RED the moment it did, and named the second half of the fix:
+  re-pull whichever source this box's tree actually comes from. Cross-network eviction was never
+  exercised before; the own-LAN describe is all slice 5 had.
+- **The re-pull is now branched, not doubled.** A cross-player backdoor refreshes the served tree;
+  an own-LAN one refreshes the journal. Doing both would have paid a round trip that buys nothing
+  and quietly contradicted the "one round-trip, only in a backdoor" claim slice 5 locked.
+- **Three doc comments named the old rule** and moved with it. The `isCrossPlayerHop` docstring
+  had asserted "Service sessions (nc/mysql/…) have no served tree and are excluded" — true when
+  written, stale from slice 4 onward. A comment that states a rule is part of the rule.
+- **Mutation**: the `state.ts` re-pull branch **100%** (5 killed, 0 survived) after one real
+  survivor was killed — `kind === 'nc'` → `true` made every session re-fetch before every line,
+  invisible to any test that reads only output. Killed by a test that PRICES the line: back on
+  your own box after `exit`, a command must issue no requests at all. `activeRoot.ts` 92.59%
+  (25 killed, 2 survived); both survivors are in `baseFsFor`, untouched here, and both are
+  equivalent — dropping either guard falls through to `generatedBaseFsForMachineId`, which answers
+  `null` for an own-workstation id and for a null essid alike, so `?? ownBaseFs` returns the same
+  tree. The `essid === null` guard exists to satisfy that resolver's `string` parameter.
+- **Test-harness trap worth remembering: a served tree must be a REAL box.** The first version
+  hand-built the target's tree and every command answered `command not found`, then
+  `ls: error while loading shared libraries: libpcre.so`. The game models binaries and their
+  library deps, so a hand-rolled tree is not a box anybody can stand on. Rebuilt on
+  `buildRemoteHostFs` + `applyPatches` — which is also exactly what the server does, base plus
+  journal, so the fixture and production now compose the same two pieces.
+
+**Why this exists.** Act 14 found it on 2026-08-18, after every slice was merged and green.
+Standing in an `nc` shell on ANOTHER network's AP gateway, `ls /var/run` listed only the planted
+`nc-<port>.pid` and `cat /etc/iptables/rules.v4` said no such file — while `ssh` into the SAME box
+at the SAME public IP listed `sshd.pid` too and printed the seeded NAT table. Full diagnosis in
+[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §9, so it survives this file
+being deleted.
+
+**Not cosmetic.** `env.patches` is bound to the TARGET, so a write issued from that shell lands on
+the target's journal while the tree on screen is the intruder's own. The player is editing one box
+and looking at another.
+
+**Value**: A backdoor shows you the box you are standing on, like every other door already does.
+**Path**: `nc <public IP> <port>` lands an `nc` session on a foreign machine → `state.ts`'s
+`activeRoot()` asks `isCrossPlayerHop` → today `false`, so `resolveActiveRoot` falls back to
+`ownBaseFs` → with `nc` counted, `refreshServedRoot` fetches the TARGET's server-served tree and
+`activeRoot` renders that instead.
+**Class**: Behavior change — full TDD cycle.
+**Required implementation skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
+
+**Grounding, confirmed by reading the code (do not re-derive):**
+
+- The predicate is `activeRoot.ts:72`: `(session.kind === 'ssh' || session.kind === 'su') &&
+  isCrossPlayerWorkstation(...)`. The machine half is already right — B was on `SUITE-401` and the
+  target was `GROUND-ZERO-COFFEE`'s gateway, so `generatedBaseFsForMachineId` returns null and the
+  machine reads as foreign. **Only the kind half is wrong.**
+- **The RED is an INVERSION, not an addition.** `activeRoot.test.ts:296` currently asserts
+  `isCrossPlayerHop(session(FOREIGN_ID, 'nc'), …)` is `false`, on a comment saying service sessions
+  have no served tree. That comment went stale when slice 4 gave `nc` a shell. Rewrite the test and
+  its WHY together; a new test left beside the old one would contradict it.
+- **Two consumers, one predicate** — `state.ts:371` (`activeRoot()` shows
+  `CROSS_PLAYER_LOADING_ROOT` until the served tree arrives, never the own box) and `state.ts:957`
+  (`refreshServedRoot()` fetches it). One change moves both, which is why the fix is this small.
+- **Do NOT sweep the whole `SessionKind` union in.** `nc` is the only service kind bearing a shell
+  today; `mysql`/`redis` are unshipped and `ftp`/`scp` do not drive `activeRoot`. Confirm that at
+  RED time and say so in the comment, or the next reader adds the rest speculatively.
+- Three doc comments name the old rule and must move with it: `isCrossPlayerHop`'s own
+  ("Service sessions (nc/mysql/…) have no served tree and are excluded"),
+  `crossPlayerHop.ts`'s caller list, and `crossPlayerHop.test.ts:13`.
+
+**Acceptance criteria**
+- An `nc` session on a machine that is NOT on the viewer's current LAN resolves to that machine's
+  served tree — `/var/run` shows the box's own service pidfiles, not just the planted listener
+- An `nc` session on a host that IS on the viewer's LAN still resolves locally (unchanged — the
+  own-LAN case was never broken, and a round trip per read would be a regression)
+- The `ssh` and `su` cases are untouched, offline (`essid === null`) still falls back
+- While the served tree is in flight the intruder sees an EMPTY root, never their own box
+- `ftp`/`scp` sessions keep whatever tree they address today
+
+**RED**: Invert `activeRoot.test.ts`'s nc case, then a `resolveActiveRoot`-level test proving an
+off-LAN `nc` session no longer materializes the own base. Fails today.
+**GREEN**: Count the shell-bearing service kind in `isCrossPlayerHop`.
+**MUTATE**: Meaningful — the kind predicate is exactly the thing that was wrong. A mutant dropping
+either surviving kind, or widening to every kind, must fail.
+**KILL MUTANTS**: Assert the own-LAN `nc` case explicitly, or a mutant that routes EVERY nc session
+through the server survives while the game still looks correct.
+**REFACTOR**: Assess whether the kind test wants naming (`SHELL_SESSION_KINDS`) or reads better
+inline at two terms.
+**Wire-check**: **Required, and cheap.** The whole fix rests on a server behavior no unit test can
+see: `resolveCrossPlayerFs` must serve the target's tree to a caller holding only an `nc` session
+row. `authorizeMachineAccess` is believed to gate on an active session row regardless of kind —
+believed, not proven. Extend `scripts/testNcCrossPlayerReach.ts` with that check.
+**Done when**: All criteria met, wire-check green, §9's entry rewritten as CLOSED, human approves
+the commit.
+
+---
+
+## Two smaller items the E2E run turned up
+
+Neither blocks close-out; both are recorded in
+[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §9.
+
+1. **`scripts/testScpTransfer.ts` check 8 is stale** — it asserts an ssh daemon-check exemption that
+   PR #410 removed, so the sweep reads 44/45. One-line TEST fix; the production behavior is correct
+   and is proved by `testDaemonGates` check 1.
+2. **`nmap` runs a 5-digit port into the STATE column** — `31337/tcpopen`. Cosmetic, but every port
+   in the generated backdoor pool is 4-5 digits, so it shows up routinely now.
 
 ---
 

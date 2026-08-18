@@ -10,7 +10,7 @@ import { computeApGatewayId } from '../identity/router';
 /**
  * `isCrossPlayerWorkstation` is the machine-level "am I standing on ANOTHER
  * player's registered box?" check — the shared core of `ui/activeRoot`'s
- * `isCrossPlayerHop` (which adds the ssh-kind requirement for served-tree
+ * `isCrossPlayerHop` (which adds the shell-kind requirement for served-tree
  * dispatch) AND `su`'s routing decision (which doesn't care about the kind, only
  * the machine). A box is cross-player when it is neither your own workstation nor
  * a host on the LAN you're connected to — the only way to be there is a public-IP

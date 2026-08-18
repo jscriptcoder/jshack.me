@@ -8,7 +8,8 @@
 // A unit test asserts each handler's return value against fake deps. Only this
 // asserts the rows, the endpoints, and the two of them agreeing.
 //
-// Six things are checked, and the third and last carry the slice:
+// The checks below carry the slice; the third, the seventh and the last carry most
+// of it:
 //
 //   1. an outsider's scan of the AP's public IP lists the forwarded port, and calls
 //      it `unknown` — an open port nobody can name is what makes a stranger reach
@@ -22,7 +23,12 @@
 //   4. nothing is written to the box it just let a stranger into. A backdoor is
 //      silent on the far side of a NAT for the same reason it is silent on the LAN;
 //   5. the dead forward refuses the knock as well as hiding from the scan;
-//   6. killing the listener closes the port for the outside world too — it leaves
+//   6. an `nc` row on its own authorizes the SERVED tree, and the tree served is the
+//      target's. The shell an intruder stands in reads that tree, so a gate that
+//      answered only `ssh` would leave them looking at their own filesystem while
+//      their writes landed on the target — which is exactly what a browser run found.
+//      No unit test can see this: the session row is right either way;
+//   7. killing the listener closes the port for the outside world too — it leaves
 //      the scan AND refuses the knock that worked a moment ago. A door that
 //      survived its own process on the public IP would be one no defender could shut.
 //
@@ -45,10 +51,12 @@ import { computeApGatewayId } from '../src/core/identity/router';
 import { lanAddressFor } from '../src/core/network/lanAddress';
 import {
   formatListenerContent,
+  listenerOn,
   listenerPidfilePath,
   PIDFILE_PERMISSIONS,
   UNKNOWN_SERVICE,
 } from '../src/core/services/pidfile';
+import { deserializeTree } from '../src/core/filesystem/treeCodec';
 import { md5 } from '../src/core/generation/md5';
 import { AUTH_LOG_PATH } from '../src/core/logging/authLog';
 import { clearPublicIps, seedPublicIps } from './networkFixture';
@@ -280,7 +288,27 @@ check(
   `${logged} auth.log row(s) on ${ALICE_WS}`,
 );
 
-// === 5. The dead forward refuses the knock as well. =============================
+// === 5. The tree that shell reads is the TARGET's. ===============================
+// `authorizeMachineAccess` gates the served-tree fetch on an active session row
+// whatever kind it is — asserted here rather than believed, because the whole client
+// fix rests on it and `tsc` cannot see a session table.
+
+const served = await post(
+  NETWORK,
+  signRequest(carol, 'resolveCrossPlayerFs', { machine_id: ALICE_WS }),
+);
+const servedTree = (served.body as { tree?: unknown } | null)?.tree;
+const tree =
+  servedTree === undefined || servedTree === null
+    ? null
+    : deserializeTree(servedTree as Parameters<typeof deserializeTree>[0]);
+check(
+  'an nc row alone is served the target’s own tree, listener and all',
+  served.status === 200 && tree !== null && listenerOn(tree, BACKDOOR_PORT) !== null,
+  `status=${served.status} listener=${tree === null ? 'no tree' : String(listenerOn(tree, BACKDOOR_PORT) !== null)}`,
+);
+
+// === 6. The dead forward refuses the knock as well. =============================
 
 await sr.from('sessions').delete().eq('player_key', carol.publicKeyHex);
 const atNobody = await knock('nc-reach-2', DEAD_PUBLIC_PORT);
@@ -290,7 +318,7 @@ check(
   `status=${atNobody.status}`,
 );
 
-// === 6. Killing the listener shuts the public port too. =========================
+// === 7. Killing the listener shuts the public port too. =========================
 // The defender never touches the gateway: they kill a process on their own box, and
 // a port they never published stops answering the internet.
 

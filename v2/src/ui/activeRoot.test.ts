@@ -290,10 +290,26 @@ describe('isCrossPlayerHop', () => {
     expect(isCrossPlayerHop(session(OWN_ID, 'su'), ESSID, PUBKEY)).toBe(false);
   });
 
-  it('is false for a non-shell session kind (nc) even on a foreign machine', () => {
-    // Only an interactive FS shell (ssh / su) has a served tree to fetch; a service
-    // session (nc/mysql/…) does not, so it is not a cross-player hop.
-    expect(isCrossPlayerHop(session(FOREIGN_ID, 'nc'), ESSID, PUBKEY)).toBe(false);
+  it('is true for an nc session on a foreign machine (a backdoor lands you in a shell)', () => {
+    // A backdoor opens a real shell on the target, so it reads that box's tree like
+    // every other hop. While it was excluded, an intruder stood in a shell looking at
+    // their OWN filesystem while their writes landed on the target's journal.
+    expect(isCrossPlayerHop(session(FOREIGN_ID, 'nc'), ESSID, PUBKEY)).toBe(true);
+  });
+
+  it('is false for an nc session on a host that IS on your own LAN', () => {
+    // The own-LAN backdoor was never broken: the target is generated from the essid,
+    // so it rebuilds locally. Serving it would buy a round trip per read and nothing else.
+    const host = generateHomeLan(ESSID).hosts.at(-1)!;
+    expect(isCrossPlayerHop(session(hostMachineId(host, ESSID), 'nc'), ESSID, PUBKEY)).toBe(false);
+  });
+
+  it('is false for an ftp session, which addresses its own tree elsewhere', () => {
+    // `ftp` never routes through `activeRoot`: `ftpRoot` builds the tree the sub-shell
+    // addresses, deliberately held apart because the shell and the ftp session are two
+    // machines at once. Widening this predicate to every kind would claim a served tree
+    // for a session that never asks this question.
+    expect(isCrossPlayerHop(session(FOREIGN_ID, 'ftp'), ESSID, PUBKEY)).toBe(false);
   });
 
   it('is false when offline (no essid to resolve a LAN against)', () => {
