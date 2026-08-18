@@ -64,15 +64,24 @@ export const resolveActiveRoot = (args: {
  * your OWN base. The machine-level test is the shared `isCrossPlayerWorkstation`;
  * the shell-kind requirement is this dispatch's own.
  *
- * Both `ssh` (the original hop) and `su` (an elevation ON that same foreign box)
- * count: a su keeps you standing on the box you ssh'd into — its tree, now served
- * at the elevated tier — so `reboot`/`ls`/`cat` as root read A, not your own box
- * (Story 4). Service sessions (nc/mysql/…) have no served tree and are excluded.
+ * Every session kind that lands you in a SHELL counts, because the question is
+ * which box the shell is reading, not which door was used to reach it. `ssh` is
+ * the original hop; `su` is an elevation ON that same foreign box, and keeps you
+ * standing where you were — its tree, now served at the elevated tier — so
+ * `reboot`/`ls`/`cat` as root read the target, not your own box. `nc` joins them
+ * because a backdoor opens a shell too: while it was excluded, an intruder stood
+ * on another network's box reading their OWN filesystem, with writes from that
+ * shell landing on the target's journal.
+ *
+ * A kind that never asks this question stays out. `ftp` addresses its target
+ * through `ftpRoot`, held apart on purpose because the shell and the ftp session
+ * are two machines at once — so widening this to every kind would claim a served
+ * tree for a session that reads none.
  */
 export const isCrossPlayerHop = (
   session: Session,
   essid: string | null,
   publicKeyHex: string,
 ): boolean =>
-  (session.kind === 'ssh' || session.kind === 'su') &&
+  (session.kind === 'ssh' || session.kind === 'su' || session.kind === 'nc') &&
   isCrossPlayerWorkstation({ machineId: session.machineId, publicKeyHex, essid });

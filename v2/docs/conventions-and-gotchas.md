@@ -1490,26 +1490,43 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   self-contained refactor touching seven modules; it wants its own slice rather than a ride-along.
   (`const errorResult = …` is duplicated across seven command modules too, but that one is
   incidental shape rather than shared knowledge, and is fine as a local idiom.)
-- **A backdoor session on an OFF-LAN box shows the intruder's OWN filesystem.** Found by Act 14
-  on 2026-08-18 at v0.150.0, and the most serious of the three. Standing in an `nc` shell on
-  another network's AP gateway, `ls /var/run` listed only the planted `nc-<port>.pid` and
+- **CLOSED (v0.151.0) — a backdoor session on an OFF-LAN box showed the intruder's OWN
+  filesystem.** Found by Act 14 on 2026-08-18 at v0.150.0. Standing in an `nc` shell on another
+  network's AP gateway, `ls /var/run` listed only the planted `nc-<port>.pid` and
   `cat /etc/iptables/rules.v4` said no such file — while `ssh` into the SAME box at the SAME
   public IP, same tier, listed `sshd.pid` too and printed the seeded NAT table.
   **Cause:** `ui/activeRoot.ts` `baseFsFor` resolves a foreign machine's seeded base with
   `generatedBaseFsForMachineId(essid, machineId)` using the VIEWER's current essid, and falls
-  back to `ownBaseFs` when nothing matches. Off-LAN, nothing matches, so the intruder gets their
-  own workstation base with the target's journal replayed over it. `ssh` escapes this because
-  `isCrossPlayerHop` routes an off-LAN shell to the SERVER-served tree, and that predicate is
-  `kind === 'ssh' || kind === 'su'` with the comment "Service sessions (nc/mysql/…) have no
-  served tree and are excluded" — true until D5 slice 4 gave `nc` a shell, stale ever since.
-  **Not cosmetic:** `env.patches` is bound to the TARGET, so a write issued from that shell lands
-  on the target's journal while the tree on screen is the intruder's own.
-  **Scope:** cross-network only — an own-LAN backdoor resolves correctly because the target IS on
-  the viewer's current LAN. **No wire-check can catch it**: the session row is correct, it is the
-  tree the client renders that is wrong, which is exactly why the browser act exists.
-  **Shape of the fix:** add the shell-bearing service kinds to `isCrossPlayerHop`, driven by a
-  test. `authorizeMachineAccess` already gates the served-tree fetch on an active session row
-  regardless of kind, so an `nc` row authorizes it without a server change.
+  back to `ownBaseFs` when nothing matches. Off-LAN, nothing matches, so the intruder got their
+  own workstation base with the target's journal replayed over it. `ssh` escaped it because
+  `isCrossPlayerHop` routes an off-LAN shell to the SERVER-served tree, and that predicate was
+  `kind === 'ssh' || kind === 'su'` — carrying the comment "Service sessions (nc/mysql/…) have no
+  served tree and are excluded", true until D5 slice 4 gave `nc` a shell, stale ever since.
+  It was not cosmetic: `env.patches` is bound to the TARGET, so a write issued from that shell
+  landed on the target's journal while the tree on screen was the intruder's own.
+  **Fixed** by counting `nc` in `isCrossPlayerHop` — and that was only half of it. Three things
+  the fix turned up, all of which generalize past this bug:
+  - **A served tree is not refreshed by a journal re-pull.** An off-LAN backdoor reads the tree
+    the SERVER materialized, so slice 5's pre-line `refetchPatches()` left the shell asking a
+    stale copy whether its own door was still open — cross-network eviction would have silently
+    stopped working. `executeLine` now re-pulls whichever source the active tree comes from:
+    served for a cross-player hop, journal otherwise. **Any future "re-read the box before
+    acting" gate has the same two sources to choose between.**
+  - **"It costs a round trip only in a backdoor" is a testable claim, and needs a test that
+    prices a line** rather than reading its output. The mutant making the re-pull unconditional
+    survived everything else: it changes no output, only how chatty the client is. The test asserts
+    that a command on your own box issues NO requests at all.
+  - **A hand-built filesystem is not a box.** A fixture tree without `/usr/bin` answers
+    `command not found`, and one without library deps answers
+    `ls: error while loading shared libraries: libpcre.so`. Build a served tree as
+    `applyPatches(buildRemoteHostFs(essid, host), journal)` — base plus journal, the same two
+    pieces the server composes.
+
+  **What it says about coverage:** the session row was correct throughout, so no wire-check could
+  see it — it was the tree the CLIENT renders that was wrong, which is why the browser act exists.
+  The wire-check added alongside the fix proves the other half, the half no unit test can see:
+  `authorizeMachineAccess` gates the served-tree fetch on an active session row regardless of
+  kind, so an `nc` row authorizes it (`testNcCrossPlayerReach` 9/9).
 - **`scripts/testScpTransfer.ts` check 8 is a stale assertion — the sweep is 44/45, not 45/45.**
   It asserts "a plain ssh login into the same box keeps its documented exemption" (expects 200),
   but PR #410 removed ssh's daemon-check exemption so every login gate asks the same question;
