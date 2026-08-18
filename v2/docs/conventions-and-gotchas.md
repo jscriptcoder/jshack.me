@@ -1527,6 +1527,38 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   The wire-check added alongside the fix proves the other half, the half no unit test can see:
   `authorizeMachineAccess` gates the served-tree fetch on an active session row regardless of
   kind, so an `nc` row authorizes it (`testNcCrossPlayerReach` 9/9).
+- **CLOSED (v0.152.0) — an ftp session on an OFF-LAN box showed the intruder's OWN filesystem,
+  the same defect one door along.** Found by reading the code while closing the `nc` one above,
+  then reproduced: at `ftp>` on another network's box, `ls /home` printed `tester` — the
+  intruder's own account. **Cause:** `ftpRoot` called `resolveActiveRoot` with no cross-player
+  check at all, so off-LAN `baseFsFor` found no generated host for the target under the VIEWER's
+  essid and fell through to `?? ownBaseFs`. Worse than the `nc` case: `get` reads the same tree,
+  so taking a file off a stranger's box handed back a copy of the intruder's own while the
+  target's `vsftpd.log` itemised it as a file that left.
+  **Fixed** with a served tree held beside `ftpPatches` — a second one, for the same reason the
+  journal is a second one: the shell's `servedRoot` follows the ACTIVE session and an ftp session
+  is beside it, not above it. Three things worth carrying:
+  - **There were THREE places deciding which tree a session reads, and they must agree.**
+    `scpTargetTree` (always right), `activeRoot`/`isCrossPlayerHop` (fixed v0.151.0), `ftpRoot`
+    (fixed here). Two were found only after a browser act caught the first. **Any fourth reader
+    of a remote tree has the same question to answer**, and the answer is never "call
+    `resolveActiveRoot` and hope" — off-LAN that resolver's honest answer is your own box.
+  - **A fixture can be foreign in address and local in machine, and then it proves nothing.**
+    The shipped ftp suite reached its targets at a public IP but generated them on the essid the
+    player was CONNECTED to, so the local resolver always succeeded and the fallback never fired.
+    The same shape hid the `nc` defect in `activeRoot.test.ts`. **To exercise a cross-player path
+    the target must be generated on a DIFFERENT essid** — a public address alone does not make a
+    box foreign.
+  - **The ftp served tree is deliberately UNTAGGED, unlike the shell's.** Tagging it with its
+    machine id produced a mutant nothing could kill: one ftp session is held at a time and
+    entering one clears the tree, so a mismatched tag is unreachable. What replaced it is a test
+    of the race the tag was imagined to cover — a slow answer about the foreign box, landing after
+    the player opened a door on their own LAN — which fails loudly without the session-id guard.
+    Structure nobody can observe has no test that can fail; the guard that does the work does.
+
+  **What it says about coverage:** the wire-check added alongside proves the server half no unit
+  test can see — an `ftp` row alone authorizes `resolveCrossPlayerFs`, and the tree comes back
+  pruned to the tier the credential bought, not the box owner's (`testFtpCrossPlayer` 18/18).
 - **`scripts/testScpTransfer.ts` check 8 is a stale assertion — the sweep is 44/45, not 45/45.**
   It asserts "a plain ssh login into the same box keeps its documented exemption" (expects 200),
   but PR #410 removed ssh's daemon-check exemption so every login gate asks the same question;

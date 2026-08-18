@@ -7,11 +7,13 @@ import { CONNECTED_ESSID_KEY } from './connectionPersistence';
 import { buildRemoteHostFs } from '../core/generation/remoteHostFs';
 import {
   PIDFILE_PERMISSIONS,
+  daemonName,
   formatListenerContent,
   formatPidfileContent,
   readOpenPorts,
 } from '../core/services/pidfile';
-import { applyPatches } from '../core/filesystem/applyPatches';
+import { applyPatches, type Patch } from '../core/filesystem/applyPatches';
+import { defaultFilePermissions } from '../core/filesystem/defaultPermissions';
 import { SERVICE_CATALOG } from '../core/services/serviceCatalog';
 import { HTTP_DEFAULT_PORT } from '../core/network/http';
 import { BINARY_STUB } from '../core/generation/binaries';
@@ -777,6 +779,21 @@ describe('the ftp sub-shell', () => {
     expect(originEtc).not.toContain('remote-drop.txt');
   });
 
+  it('reads a box on your own LAN without asking the server again', async () => {
+    // A host this client can generate is rebuilt here, so a listing costs nothing. Only
+    // a box that cannot be rebuilt is worth a round trip — and a change that sent EVERY
+    // ftp read to the server would alter no output at all, which is why this prices the
+    // line instead of reading it.
+    const { state, sent } = await loginOverFtp();
+
+    const spentBefore = sent.length;
+    state.setInput('ls /etc');
+    await state.runInput();
+    await settle();
+
+    expect(sent.slice(spentBefore)).toEqual([]);
+  });
+
   it('starts the remote at the account’s home while the shell keeps its own directory', async () => {
     const { state } = await loginOverFtp();
 
@@ -999,6 +1016,328 @@ describe('the ftp sub-shell', () => {
     expect(lastLine(state)).toBe('/home/tester');
   });
 });
+
+/**
+ * The same door, on a box that is NOT on the player's own LAN. `ftpRoot` decides which
+ * filesystem the `ftp>` prompt reads, and off-LAN there is nothing local to rebuild the
+ * target from — so that tree has to come from the server, exactly as an off-LAN shell's
+ * does. Getting it wrong has one failure and it is not cosmetic: the local resolver falls
+ * back to the intruder's OWN base, so `ls` lists the box they are standing on while `get`
+ * hands back their own bytes and the target's log records a file as having left.
+ *
+ * The sub-shell suite above cannot see this. Its targets are generated on the essid the
+ * player is CONNECTED to and merely reached at a public address — foreign address, local
+ * machine — so the local resolver succeeds and the fallback never fires. Here the box
+ * belongs to another network entirely, which is the only arrangement that asks the
+ * question.
+ */
+describe('an ftp session on a box across the network', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  // The intruder's own LAN, and the OTHER network whose public address they reach.
+  const ESSID = 'ferro-cafe';
+  const LAN = generateHomeLan(ESSID);
+  const THEIR_ESSID = 'ground-zero-coffee';
+  const THEIR_PUBLIC_IP = '203.0.113.41';
+  const FORWARDED_PORT = 2121;
+
+  /** A box on that other network running an ftp door. Its own `vsftpd.pid` is the
+   *  discriminator: no journal put it there and the intruder's box has nothing like it,
+   *  so "whose filesystem is this" becomes a question with an answer. */
+  const THEIR_HOST = generateHomeLan(THEIR_ESSID).hosts.find(
+    (host) =>
+      host.kind === 'machine' &&
+      readOpenPorts(buildRemoteHostFs(THEIR_ESSID, host)).some((open) => open.service === 'ftp'),
+  );
+  if (THEIR_HOST === undefined) throw new Error(`no ftp-serving host generated on ${THEIR_ESSID}`);
+  const THEIR_BOX = machineIdForLanHost(THEIR_HOST, THEIR_ESSID);
+
+  /** A door on the player's OWN LAN — a box this client rebuilds locally, so nothing
+   *  about it is served. What it is for: giving a late answer about the foreign box
+   *  somewhere wrong to land. */
+  const HOME_HOST = LAN.hosts.find(
+    (host) =>
+      host.kind === 'machine' &&
+      readOpenPorts(buildRemoteHostFs(ESSID, host)).some((open) => open.service === 'ftp'),
+  );
+  if (HOME_HOST === undefined) throw new Error(`no ftp-serving host generated on ${ESSID}`);
+
+  /** Something only the target's journal holds, so a listing carrying it was fetched
+   *  rather than computed from the box the player is standing on. */
+  const theirDrop: Patch = {
+    path: '/etc/remote-drop.txt',
+    content: 'left behind\n',
+    owner: 'root',
+    permissions: { read: ['root', 'user', 'guest'], write: ['root'], execute: [] },
+  };
+
+  /** ftp on the player's own box, stamped the way `apt install` leaves it. */
+  const ownFtpClient = {
+    path: '/usr/bin/ftp',
+    content: BINARY_STUB,
+    owner: 'root',
+    permissions: {
+      read: ['root', 'user', 'guest'],
+      write: ['root'],
+      execute: ['root', 'user', 'guest'],
+    },
+  };
+
+  const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
+  /** Boot associated with one LAN, then log into an ftp door published on ANOTHER
+   *  network's public address — the reach the cross-player wire-check proves. Whatever
+   *  the session writes to the target is kept and answered back, from the journal AND
+   *  from the served tree, because the server composes the one from the other. */
+  const loginAcrossTheNetwork = async ({ holdTheTree = false, refuseWrites = false } = {}) => {
+    vi.resetModules();
+    const store = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => store.set(key, value),
+      removeItem: (key: string) => store.delete(key),
+    };
+    storage.setItem(CONNECTED_ESSID_KEY, ESSID);
+    lanLeaseCacheIn(storage).remember(ESSID, `${LAN.subnet}.77`);
+    vi.stubGlobal('localStorage', storage);
+
+    const sent: Record<string, unknown>[] = [];
+    const landedOnTarget: Patch[] = [];
+    const theirJournal = (): readonly Patch[] => [theirDrop, ...landedOnTarget];
+    const json = (body: unknown) => ({ ok: true, status: 200, json: async () => body });
+    // A tree the test releases by hand, so the moment before the server answers can be
+    // held open — and, once released, arrive LATE.
+    const held: ((body: unknown) => void)[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: { body?: string }) => {
+        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<string, unknown>;
+        sent.push(fields);
+        if (fields.action === 'listSessions') return json({ sessions: [] });
+        // A stranger's forward table lives on THEIR gateway: nothing about it is
+        // derivable on this box, so only the server can answer what the port serves.
+        if (fields.action === 'resolvePublicScan') {
+          return json({ found: true, ports: [{ port: FORWARDED_PORT, service: 'ftp' }] });
+        }
+        // The LAN door: this client already knows which box it is talking to, so the
+        // server only says whether the credential opened it.
+        if (fields.action === 'authCreateSession') return json({ ok: true, userType: 'guest' });
+        if (fields.action === 'authCreateSessionPublic') {
+          return json({ ok: true, username: 'guest', userType: 'guest', machine_id: THEIR_BOX });
+        }
+        // The stranger's box, materialized by the only party that can: seeded base with
+        // the journal replayed over it, which is what the endpoint actually returns.
+        if (fields.action === 'resolveCrossPlayerFs') {
+          // A tree that never lands is what the player sees for the first moment of
+          // every cross-player login, so it is a state the prompt has to have an answer
+          // for — not an error case.
+          if (holdTheTree) {
+            return new Promise((resolve) => {
+              held.push((body) => resolve(json(body)));
+            });
+          }
+          return json({
+            ok: true,
+            tree: serializeTree(
+              applyPatches(buildRemoteHostFs(THEIR_ESSID, THEIR_HOST), theirJournal()),
+            ),
+          });
+        }
+        if (fields.action === 'upsertPatch') {
+          // A door the defender has since shut: the row the write rode on is gone, so
+          // the box is unchanged and the client is told so.
+          if (refuseWrites) {
+            return { ok: false, status: 403, json: async () => ({ error: 'no_session' }) };
+          }
+          // Kept the way the server keeps it, so a read after a write can answer with
+          // it: stamped with the tier the credential bought, which is what a new file
+          // written through this door is owned by.
+          if (fields.machine_id === THEIR_BOX) {
+            landedOnTarget.push({
+              path: String(fields.path),
+              content: String(fields.content),
+              owner: 'guest',
+              permissions: defaultFilePermissions('guest'),
+            });
+          }
+          return json({ ok: true });
+        }
+        if (fields.action !== 'listPatches') return json({});
+        return json({ patches: fields.machine_id === THEIR_BOX ? theirJournal() : [ownFtpClient] });
+      }),
+    );
+
+    const state = await import('./state');
+    state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
+    await vi.waitFor(() => expect(state.promptHost()).toBe('box'));
+    // The boot journal fetch is in flight; the ftp client only exists once it lands.
+    await vi.waitFor(async () => {
+      state.setInput('ls /usr/bin');
+      await state.runInput();
+      expect(state.scrollback().some((line) => line.content.includes('ftp'))).toBe(true);
+    });
+    // The player names the forwarded port and the account, so only the password is asked.
+    state.setInput(`ftp -p ${FORWARDED_PORT} ${THEIR_PUBLIC_IP} guest`);
+    const run = state.runInput();
+    await vi.waitFor(() => expect(state.pendingPrompt()).toBeDefined());
+    state.setInput('hunter2');
+    state.submitPrompt();
+    await run;
+    await settle();
+    return {
+      state,
+      sent,
+      /** Let a held answer arrive — whenever the test says, which may be long after the
+       *  session that asked for it is gone. */
+      releaseTheTree: async () => {
+        held.forEach((resolve) =>
+          resolve({
+            ok: true,
+            tree: serializeTree(
+              applyPatches(buildRemoteHostFs(THEIR_ESSID, THEIR_HOST), theirJournal()),
+            ),
+          }),
+        );
+        await settle();
+      },
+      /** Log into a door on the player's OWN LAN, from the same boot. */
+      loginAtHome: async () => {
+        state.setInput(`ftp ${HOME_HOST.ip}`);
+        const homeRun = state.runInput();
+        await vi.waitFor(() => expect(state.pendingPrompt()).toBeDefined());
+        state.setInput('guest');
+        state.submitPrompt();
+        await vi.waitFor(() => expect(state.pendingPrompt()).toBeDefined());
+        state.setInput('hunter2');
+        state.submitPrompt();
+        await homeRun;
+        await settle();
+      },
+    };
+  };
+
+  /** Type one line and hand back only what it printed. */
+  const typeLine = async (state: typeof import('./state'), line: string): Promise<string> => {
+    const before = state.scrollback().length;
+    state.setInput(line);
+    await state.runInput();
+    await settle();
+    return state
+      .scrollback()
+      .slice(before)
+      .map((entry) => entry.content)
+      .join('\n');
+  };
+
+  it('lists the box the login opened, not the intruder own filesystem', async () => {
+    const { state } = await loginAcrossTheNetwork();
+
+    expect(state.inFtpSession()).toBe(true);
+    // The target's own daemon pidfile — seeded, journal-free, and absent from the box
+    // the player is standing on. The drop file alone would prove nothing: it rides the
+    // target's journal, which replays over ANY base.
+    expect(await typeLine(state, 'ls /var/run')).toContain(SERVICE_CATALOG.ftp.pidfile);
+    expect(await typeLine(state, 'ls /etc')).toContain('remote-drop.txt');
+    // And the account only the intruder's own box has is not on the box they logged into.
+    expect(await typeLine(state, 'ls /home')).not.toContain('tester');
+  });
+
+  it('leaves the shell underneath reading the player own box', async () => {
+    // Two machines at once. A fix that pointed the SHELL's served tree at the ftp
+    // target would pass the listing test above and quietly move the box the player is
+    // standing on out from under them.
+    const { state } = await loginAcrossTheNetwork();
+
+    expect(await typeLine(state, 'lls /home')).toContain('tester');
+
+    await typeLine(state, 'quit');
+    expect(state.inFtpSession()).toBe(false);
+    expect(state.promptHost()).toBe('box');
+    expect(await typeLine(state, 'ls /home')).toContain('tester');
+  });
+
+  it('hands over the target bytes, off a path the intruder own box does not have', async () => {
+    // `get` reads through the same tree the listing does, so a wrong tree does not just
+    // mislead — it hands the player a copy of their own file while the target's log
+    // records that one left. The pidfile is proof of origin: no journal put it there and
+    // the intruder's box has no such file to confuse it with.
+    const { state, sent } = await loginAcrossTheNetwork();
+
+    const taken = await typeLine(state, `get /var/run/${SERVICE_CATALOG.ftp.pidfile}`);
+
+    expect(taken).toContain('bytes received');
+    const landed = sent.find(
+      (payload) =>
+        payload.action === 'upsertPatch' &&
+        payload.path === `/home/tester/${SERVICE_CATALOG.ftp.pidfile}`,
+    );
+    expect(landed?.content).toContain(`${daemonName(SERVICE_CATALOG.ftp)}:port=`);
+  });
+
+  it('shows nothing while the target tree is in flight, never the intruder own box', async () => {
+    // The moment before the server answers. Falling through to the local resolver here
+    // would flash the intruder's own filesystem at the `ftp>` prompt — briefly, and
+    // indistinguishably from the real thing.
+    const { state } = await loginAcrossTheNetwork({ holdTheTree: true });
+
+    expect(await typeLine(state, 'ls /home')).not.toContain('tester');
+  });
+
+  it('does not re-read the box when the write was refused', async () => {
+    // A read costs a round trip on a foreign box, so it is worth only a write that
+    // LANDED. Charging for a refused one changes nothing on screen — which is why this
+    // prices the line rather than reading it.
+    const { state, sent } = await loginAcrossTheNetwork({ refuseWrites: true });
+
+    const spentBefore = sent.length;
+    await typeLine(state, 'put /var/www/html/index.html /tmp/dropped.html');
+
+    expect(sent.slice(spentBefore).map((payload) => payload.action)).not.toContain(
+      'resolveCrossPlayerFs',
+    );
+  });
+
+  it('drops an answer about a box the player has already left', async () => {
+    // The tree is held UNTAGGED — one ftp session at a time, and entering one clears
+    // it — so this guard is the whole of what stops a slow answer about the foreign box
+    // from painting over a door opened since. Landing it on a box on the player's OWN
+    // LAN is the case with somewhere wrong to go.
+    const { state, releaseTheTree, loginAtHome } = await loginAcrossTheNetwork({
+      holdTheTree: true,
+    });
+
+    await typeLine(state, 'quit');
+    await loginAtHome();
+    await releaseTheTree();
+
+    expect(state.inFtpSession()).toBe(true);
+    expect(await typeLine(state, 'ls /etc')).not.toContain('remote-drop.txt');
+  });
+
+  it('drops a late answer when the player has left the prompt entirely', async () => {
+    // The same guard with nothing standing behind it: the player quit, so there is no
+    // session for the answer to belong to. Asking one for its id is what breaks here.
+    const { state, releaseTheTree } = await loginAcrossTheNetwork({ holdTheTree: true });
+
+    await typeLine(state, 'quit');
+    await releaseTheTree();
+
+    expect(state.inFtpSession()).toBe(false);
+    expect(await typeLine(state, 'ls /home')).toContain('tester');
+  });
+
+  it('shows a landed put to the next listing, across the network as on the LAN', async () => {
+    // The half slice 8 had to be told about by a test: once the prompt reads a SERVED
+    // tree, re-pulling the target's JOURNAL after a write refreshes a source the tree is
+    // no longer built from, and the file that just arrived never appears.
+    const { state } = await loginAcrossTheNetwork();
+
+    await typeLine(state, 'put /var/www/html/index.html /tmp/dropped.html');
+
+    expect(await typeLine(state, 'ls /tmp')).toContain('dropped.html');
+  });
+});
+
 
 /**
  * `nano <file>` returns a `mode_change`, which the terminal must turn into an

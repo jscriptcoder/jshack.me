@@ -29,10 +29,13 @@ import { lanAddressFor } from '../src/core/network/lanAddress';
 import { VSFTPD_LOG_PATH } from '../src/core/logging/vsftpdLog';
 import { AUTH_LOG_PATH } from '../src/core/logging/authLog';
 import { md5 } from '../src/core/generation/md5';
+import { deserializeTree, type SerializedDirectory } from '../src/core/filesystem/treeCodec';
+import type { Directory, FileNode } from '../src/core/filesystem/types';
 import { clearPublicIps, seedPublicIps } from './networkFixture';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
+const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
 const url = process.env.SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -64,6 +67,15 @@ const post = async (
 
 const errorOf = (body: unknown): string | undefined =>
   typeof body === 'object' && body !== null ? (body as { error?: string }).error : undefined;
+
+const entryAt = (tree: Directory, ...segments: readonly string[]): FileNode | undefined => {
+  let node: FileNode | undefined = tree;
+  for (const segment of segments) {
+    if (node === undefined || node.kind !== 'directory') return undefined;
+    node = node.entries.get(segment);
+  }
+  return node;
+};
 
 // --- The parties. A (the defender) runs the door; B (the visitor) lives on a different
 //     network entirely and reaches it only by A's public address. ---
@@ -426,6 +438,52 @@ check(
   afterPivot !== null &&
     latestLine(afterPivot.content).includes(`Client "${C_PUBLIC_IP}"`),
   afterPivot === null ? 'no row' : latestLine(afterPivot.content),
+);
+
+// --- 17/18. The tree the door hands over. `authorizeMachineAccess` gates the served-tree
+//     fetch on an active session row whatever kind it is — asserted here rather than
+//     believed, because the client renders whatever comes back and `tsc` cannot see a
+//     session table. Every row B holds on A's box is an ftp login; the pivot row is on C.
+//     Two files, because "the target's tree" and "the tier the credential bought" are two
+//     claims and one file can only carry one of them. ---
+const worldReadable = { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] };
+const userOnly = { read: ['root', 'user'], write: ['root'], execute: ['root'] };
+await sr.from('patches').insert([
+  {
+    writer_key: defender.publicKeyHex,
+    machine_id: A_WS,
+    path: '/srv/on-a-box.txt',
+    content: 'BELONGS_TO_A',
+    owner: 'root',
+    permissions: worldReadable,
+    node_type: 'file',
+  },
+  {
+    writer_key: defender.publicKeyHex,
+    machine_id: A_WS,
+    path: '/srv/above-the-door.txt',
+    content: 'NOT_FOR_GUESTS',
+    owner: 'root',
+    permissions: userOnly,
+    node_type: 'file',
+  },
+]);
+
+const served = await post(NETWORK, signRequest(visitor, 'resolveCrossPlayerFs', { machine_id: A_WS }));
+const servedTree =
+  served.status === 200
+    ? deserializeTree((served.body as { tree: SerializedDirectory }).tree)
+    : null;
+const onABox = servedTree === null ? undefined : entryAt(servedTree, 'srv', 'on-a-box.txt');
+check(
+  "17. an ftp row alone is served the target's own tree",
+  served.status === 200 && onABox?.kind === 'file' && onABox.content === 'BELONGS_TO_A',
+  `status=${served.status} file=${onABox?.kind === 'file' ? onABox.content : 'absent'}`,
+);
+check(
+  '18. and the tree is filtered to the tier the credential bought, not the box owner’s',
+  servedTree !== null && entryAt(servedTree, 'srv', 'above-the-door.txt') === undefined,
+  servedTree === null ? 'no tree' : `above-the-door=${String(entryAt(servedTree, 'srv', 'above-the-door.txt') !== undefined)}`,
 );
 
 await clean();
