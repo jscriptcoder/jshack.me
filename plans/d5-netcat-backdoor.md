@@ -702,13 +702,25 @@ survives — and that mutant is a locked-decision-1 regression.
 
 ---
 
-### Slice 7: A stranger's backdoor, across the network — CODE DONE (v0.150.0), LIVE PROOF PENDING
+### Slice 7: A stranger's backdoor, across the network — DONE (v0.150.0), LIVE PROOF GREEN
 
 **Branch**: `feat/nc-cross-player-reach`
 
-**Status.** The unit half is written, green and committed. The wire-check script and Act 14
-are WRITTEN BUT NOT RUN — both need `vercel dev` + supabase up, which was not available at
-commit time. **This slice is not done until both are green**; do not close D5 on it.
+**Status.** Code merged (PR #422, `bd9a167`). Live proof RUN on 2026-08-18 at v0.150.0 and
+green — but the browser act found a defect that should be fixed before D5 closes. See
+"Before close-out" at the bottom of this file.
+
+**Live proof, as run:**
+- `scripts/testNcCrossPlayerReach.ts` — **8/8**. `nc <public IP> <forwarded port>` landed a real
+  session row on the occupant's box with `user=mallory tier=root`, and deleting the listener row
+  dropped the port from the scan AND turned the same knock into a 404.
+- **Full wire sweep — 45 scripts, 44 fully green.** The one shortfall is
+  `testScpTransfer` 18/19, a stale assertion unrelated to D5 (details in
+  `conventions-and-gotchas.md` §9).
+- **Act 14 — 13 steps, 11 as written.** Recorded in full in
+  `e2e-shared-network-verification.md`. Two runbook errors in the draft act were corrected in
+  place (`ifconfig` shows no public IP; `whoami`/`hostname` are not commands), and the
+  predicted own-LAN blind spot was confirmed exactly.
 
 **As-built so far.** The "nearly free" hypothesis HELD: not one line of production code
 changed, and every new test passed on its first run. What was missing was proof, not
@@ -775,6 +787,33 @@ provable only live.
 [`e2e-shared-network-verification.md`](../v2/docs/e2e-shared-network-verification.md) — a
 two-player browser run of the full loop.
 **Done when**: All criteria met, wire-check and Act 14 green, human approves the commit.
+
+---
+
+## Before close-out — three items the E2E run turned up
+
+D5's slices are all merged and its live proof is green. These came out of the 2026-08-18 run and
+want a decision before the plan file is deleted. Full diagnosis for each is in
+[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §9, so nothing is lost if
+this file goes first.
+
+1. **A backdoor session on an off-LAN box shows the intruder's OWN filesystem** — the one worth
+   fixing before close-out. `ui/activeRoot.ts` falls back to `ownBaseFs` when the target is not
+   on the viewer's current LAN, and `isCrossPlayerHop` excludes `nc` on a comment that went stale
+   when slice 4 gave `nc` a shell. Not cosmetic: `env.patches` is bound to the TARGET, so a write
+   from that shell lands on the target's journal while the tree on screen is the intruder's own.
+   Cross-network only. Fix shape: add the shell-bearing service kinds to `isCrossPlayerHop`,
+   driven by a test — no server change needed. **Behaviour change: full TDD cycle.**
+2. **`scripts/testScpTransfer.ts` check 8 is stale** — asserts an ssh exemption PR #410 removed.
+   One-line test fix; production behaviour is correct and proved by `testDaemonGates` check 1.
+3. **`nmap` runs a 5-digit port into the STATE column** — `31337/tcpopen`. Cosmetic, but every
+   generated backdoor port is 4-5 digits so it shows up routinely.
+
+**When these are settled, the close-out is:** fold the as-built into
+[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7 (the listener union,
+the units-vs-processes split, the no-TTY rule) and §9 (rewrite the `ps` entry as CLOSED — slice
+0 fixed it), update the D5 section of [`legacy-parity-epic.md`](./legacy-parity-epic.md) with
+the as-built and the next door, and **delete this file**.
 
 ---
 

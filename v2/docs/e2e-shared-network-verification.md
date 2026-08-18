@@ -931,61 +931,102 @@ in `conventions-and-gotchas.md` §9.
 
 ### Act 14 — a stranger's backdoor, across the network (D5)
 
-**Written 2026-08-18 against v0.150.0. NOT YET RUN.** The wire-check
-(`scripts/testNcCrossPlayerReach.ts`) proves the same loop against the real endpoints; this
-act is what a player sees while walking it. Delete this banner and record the results when it
-has been run.
+**Run 2026-08-18 against v0.150.0. Thirteen steps; eleven passed as written. Two runbook
+errors found and corrected in place, and one REAL DEFECT found (below) that no wire-check
+could have caught.**
 
-Two occupants of one AP: A (the box that ends up with a door in it) and B (who plants it).
-B then leaves the WiFi and joins another network, so the final reach really is from off-LAN
-rather than a neighbour reaching sideways.
+Two identities: A (`skylab`, `alice`) and B (`nebuchadnezzar`, `bob`), both on
+`GROUND-ZERO-COFFEE` (`192.168.181.0/24`, gateway `router01` at `.1`, public IP
+`162.146.1.124`). B then left for `SUITE-401` (`192.168.94.71`, public `45.7.194.128`), so the
+final reach really was from another network.
 
-**Why the gateway, not A's workstation.** A backdoor is planted with `nc -l`, which needs
-root on the box you are standing on. Root on another player's *workstation* is what the CVE
-phase exists to sell, and it is not available yet — so today the only box an intruder can
-plant on is the **AP gateway**, which is precisely the contested root target the crack phase
-already targets. That makes this act runnable now, and it exercises the shorter of the two
-paths: the gateway answers on the public IP directly, so a listener there is published to the
-internet with nobody touching the NAT table. The forward path (a listener on an occupant's box,
-reached through `rules.v4`) is proved on the wire instead — checks 1-4 of the script — because
-it cannot be reached in a browser until workstation root can be.
+**Why the gateway, not A's workstation.** A backdoor is planted with `nc -l`, which needs root
+on the box you are standing on. Root on another player's *workstation* is what the CVE phase
+exists to sell, and it is not available yet — so today the only box an intruder can plant on is
+the **AP gateway**, which is precisely the contested root target the crack phase already
+targets. It also exercises the shorter of the two paths: the gateway answers on the public IP
+directly, so a listener there is published to the internet with nobody touching the NAT table.
+The forward path (a listener on an occupant's box, reached through `rules.v4`) is proved on the
+wire instead — `scripts/testNcCrossPlayerReach.ts`, 8/8 — because a browser cannot reach it
+until workstation root can be.
 
-| # | Who | Command | Expected |
+| # | Who | Command | Result |
 |---|---|---|---|
-| 1 | B | `nmap <A's LAN>/24`, find `.1` | the gateway, `22/ssh` |
-| 2 | B | crack the gateway root per §4, `ssh root@<gateway>` | `root@<gateway hostname>:~#` |
-| 3 | B | `apt install netcat` | installs; `nc` resolves afterwards |
+| 1 | B | `nmap 192.168.181.1` | `router01`, `22/tcp open ssh` — hostname matches the offline `seedApGatewayHostname` |
+| 2 | B | `ssh root@192.168.181.1` + `seedApGatewayAdminPw` (`undertow_11`) | `root@ap-gw:/root#` |
+| 3 | B | `apt install netcat` | `Setting up netcat ...` |
 | 4 | B | `nc -l 31337` | `Listening on 0.0.0.0 31337` |
-| 5 | B | `ps` | an `nc` row with a PID, owner `root`, port `31337` |
-| 6 | B | `exit`, `nmcli disconnect`, `airdump`, join a DIFFERENT ESSID | B is now off A's LAN entirely |
-| 7 | B | `ifconfig` → note B's own public IP is NOT A's | the two networks are really distinct |
-| 8 | B | `nmap <A's AP public IP>` | `22/ssh` **and** `31337/unknown` |
-| 9 | B | `nc <A's AP public IP> 31337` | `Connected to <public IP>.` — a root shell on the gateway, no password asked |
-| 10 | B | `whoami`, `hostname` | `root`, and the gateway's hostname — not B's own box |
-| 11 | A | `ssh root@<gateway>`, `ps`, `kill <the PID from step 5>` | the row disappears |
-| 12 | B | any command in the session from step 9 | `nc: connection closed by foreign host`, back on B's own prompt |
-| 13 | B | `nmap <A's AP public IP>` again | `22/ssh` only — `31337` is gone |
+| 5 | B | `ps` | `- root sshd 22` and `20904 root nc 31337` |
+| 6 | B | `exit`, then `nmap 192.168.181.1` again | `22/tcp open ssh` only — **the asymmetry below, confirmed** |
+| 7 | B | `nmcli disconnect`, `airdump`, `aircrack`, `nmcli connect SUITE-401` | `assigned 192.168.94.71` — off A's LAN entirely |
+| 8 | B | `nmap 162.146.1.124` | `22/tcp open ssh` **and** `31337/tcp open unknown` |
+| 9 | B | `nc 162.146.1.124 31337` | `Connected to 162.146.1.124.` then `root@ap-gw:/root#`, **no password asked** |
+| 10 | B | `ls /var/run`, `cat /etc/iptables/rules.v4` | **DEFECT — see below.** Only `nc-31337.pid`; the gateway's own `sshd.pid` and `rules.v4` are missing |
+| 11 | A | `ssh root@192.168.181.1`, `ps`, `kill 20904` | the `nc` row disappears; `sshd` stands |
+| 12 | B | `ls /var/run` in the session from step 9 | `nc: connection closed by foreign host`, back at `root@nebuchadnezzar:/root#` |
+| 13 | B | `nmap 162.146.1.124` | `22/tcp open ssh` only — `31337` is gone |
 
-**What only the browser shows here.** Step 9 is the whole D5 arc in one line: a port nobody
+**What only the browser showed.** Step 9 is the whole D5 arc in one line: a port nobody
 advertised, on an address B reached from a different network, opening a root shell with no
-credential. Steps 11-13 are the defender's half — A kills a process on a box they own, and the
-public IP stops answering, without A ever having seen the NAT table or known the port existed.
+credential. Steps 11-13 are the defender's half — A killed a process on a box she owns and the
+public IP stopped answering, without ever seeing the NAT table or knowing the port existed.
 
-Step 12 is the eviction from slice 5 reaching across two networks: the shell B is holding is
-not polled, so the close lands on B's next keystroke rather than immediately. That delay is
-the design, not a lag — an intruder who types nothing learns nothing.
+Step 12 is slice 5's eviction reaching across two networks. The close landed on B's next
+keystroke rather than immediately, which is the design: the shell is not polled, so an intruder
+who types nothing learns nothing.
 
-**Expect step 8 and an own-LAN scan to disagree, and do not file it as a D5 regression.**
-A scan of a PUBLIC IP is server-resolved: it replays the gateway's journal, so it sees the
-planted listener. An own-LAN `nmap` is resolved in the client, which replays no journals — the
-`.1` gateway is read from `buildApGatewayBaseFs(essid)` and an NPC sibling from
-`buildRemoteHostFs`, both seeded trees. So after step 4, re-running step 1 shows the gateway's
-`22/ssh` and NOT `31337`, while step 8 shows both. Standing ON the box (`ps`, step 5) is
-correct either way, because that tree is materialized.
+#### Defect found: a backdoor session on an off-LAN box shows YOUR filesystem, not the target's
 
-The practical consequence is worth stating plainly: **an intruder can see their own planted
-door from outside, but not from the LAN they planted it on.** Recorded in
-`conventions-and-gotchas.md`; it predates D5 and is the same gap Act 4 hit from the other side.
+Step 10. Standing in the nc shell on the gateway, `ls /var/run` listed only `nc-31337.pid` and
+`cat /etc/iptables/rules.v4` said no such file — while `ps` still reported the listener.
+
+It is not the server. **`ssh root@162.146.1.124` from the same position, into the same box,
+listed `nc-31337.pid` AND `sshd.pid` and printed the seeded NAT table.** Same box, same public
+IP, same tier, one door away.
+
+The cause is `ui/activeRoot.ts`. `baseFsFor` resolves a foreign machine's seeded base with
+`generatedBaseFsForMachineId(essid, machineId)` using the viewer's CURRENT essid, and falls
+back to `ownBaseFs` when nothing matches. B is on `SUITE-401`, the machine is
+`GROUND-ZERO-COFFEE`'s gateway, so nothing matches and B gets **his own workstation base with
+the gateway's journal replayed over it** — which is exactly what was on screen: B's own
+skeleton, `/var/run` empty except the one pidfile the journal carries.
+
+`ssh` avoids it because `isCrossPlayerHop` routes an off-LAN shell to the SERVER-served tree —
+and that predicate is `kind === 'ssh' || kind === 'su'`, with the comment "Service sessions
+(nc/mysql/...) have no served tree and are excluded." That was true until D5 slice 4 gave `nc` a
+shell; it has been stale since.
+
+**Scope.** Cross-network only. An own-LAN backdoor resolves correctly, because the target IS on
+the viewer's current LAN. The wire-check cannot see it at all: it asserts the session ROW, and
+the row is right — it is the tree the client then renders that is wrong.
+
+**Worth fixing before D5 closes**, and it is not cosmetic: `env.patches` is bound to the TARGET,
+so a write issued from that shell lands on the target's journal while the tree on screen is the
+intruder's own. `authorizeMachineAccess` gates the served-tree fetch on an active session row
+regardless of kind, so an `nc` row already authorizes it — adding the shell-bearing service
+kinds to `isCrossPlayerHop` is the shape of the fix, driven by a test.
+
+#### Cosmetic: `nmap` runs a 5-digit port into the STATE column
+
+Step 8 rendered `31337/tcpopen  unknown` — the PORT column pads for four digits, so
+`31337/tcp` eats the separating space. Legible, but wrong, and the generated backdoor pool is
+full of 4-5 digit ports.
+
+#### Two runbook errors, corrected above
+
+- **`ifconfig` does not show a public IP** — only `inet`, `netmask`, `gateway`, `ether`. The
+  draft's step 7 asked B to read A's public IP from it. There is no in-game way to learn a
+  foreign AP's public IP today (a contract supplies it in the real loop), so the run took it
+  from `network_public_ips` per the skill's section 6.
+- **`whoami` and `hostname` are not commands** — both answered `command not found`. Identity and
+  location are shown by the prompt itself, and proved by reading a file only that box has.
+
+**The own-LAN blind spot, confirmed as predicted.** Step 6: B planted `31337`, saw it in `ps`
+while standing on the gateway, then scanned that same gateway from the LAN and got `22/ssh`
+alone — while step 8 from outside showed both. A public-IP scan is server-resolved and replays
+the journal; an own-LAN `nmap` is client-resolved from seeded trees only. **An intruder can see
+their own planted door from outside, but not from the LAN they planted it on.** Recorded in
+`conventions-and-gotchas.md` section 9; it predates D5.
 
 ---
 

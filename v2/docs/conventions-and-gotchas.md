@@ -1490,6 +1490,35 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   self-contained refactor touching seven modules; it wants its own slice rather than a ride-along.
   (`const errorResult = …` is duplicated across seven command modules too, but that one is
   incidental shape rather than shared knowledge, and is fine as a local idiom.)
+- **A backdoor session on an OFF-LAN box shows the intruder's OWN filesystem.** Found by Act 14
+  on 2026-08-18 at v0.150.0, and the most serious of the three. Standing in an `nc` shell on
+  another network's AP gateway, `ls /var/run` listed only the planted `nc-<port>.pid` and
+  `cat /etc/iptables/rules.v4` said no such file — while `ssh` into the SAME box at the SAME
+  public IP, same tier, listed `sshd.pid` too and printed the seeded NAT table.
+  **Cause:** `ui/activeRoot.ts` `baseFsFor` resolves a foreign machine's seeded base with
+  `generatedBaseFsForMachineId(essid, machineId)` using the VIEWER's current essid, and falls
+  back to `ownBaseFs` when nothing matches. Off-LAN, nothing matches, so the intruder gets their
+  own workstation base with the target's journal replayed over it. `ssh` escapes this because
+  `isCrossPlayerHop` routes an off-LAN shell to the SERVER-served tree, and that predicate is
+  `kind === 'ssh' || kind === 'su'` with the comment "Service sessions (nc/mysql/…) have no
+  served tree and are excluded" — true until D5 slice 4 gave `nc` a shell, stale ever since.
+  **Not cosmetic:** `env.patches` is bound to the TARGET, so a write issued from that shell lands
+  on the target's journal while the tree on screen is the intruder's own.
+  **Scope:** cross-network only — an own-LAN backdoor resolves correctly because the target IS on
+  the viewer's current LAN. **No wire-check can catch it**: the session row is correct, it is the
+  tree the client renders that is wrong, which is exactly why the browser act exists.
+  **Shape of the fix:** add the shell-bearing service kinds to `isCrossPlayerHop`, driven by a
+  test. `authorizeMachineAccess` already gates the served-tree fetch on an active session row
+  regardless of kind, so an `nc` row authorizes it without a server change.
+- **`scripts/testScpTransfer.ts` check 8 is a stale assertion — the sweep is 44/45, not 45/45.**
+  It asserts "a plain ssh login into the same box keeps its documented exemption" (expects 200),
+  but PR #410 removed ssh's daemon-check exemption so every login gate asks the same question;
+  the box runs no sshd, so the correct answer is now 404. `scripts/testDaemonGates.ts` check 1
+  asserts the CURRENT behaviour and passes. The script was written in PR #403, before #410
+  landed on the same day. One-line test fix; the production behaviour is right.
+- **`nmap` runs a 5-digit port into the STATE column.** `31337/tcpopen  unknown` — the PORT
+  column pads for four digits. Cosmetic, but every port in the generated backdoor pool
+  (`BACKDOOR_PORTS`) is 4-5 digits, so it shows up routinely now.
 - **An own-LAN `nmap` replays no journals, so it cannot see a planted door.** The client
   resolves an own-LAN scan from seeded trees — the `.1` AP gateway from `buildApGatewayBaseFs`,
   every NPC sibling from `buildRemoteHostFs` — while a scan of a PUBLIC IP is server-resolved
