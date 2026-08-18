@@ -46,7 +46,7 @@ other half.
       `ftp`, `lynx` — while everything else runs, so a root-planted listener can brick and a
       user-tier one cannot
 - [x] Killing a listener drops whoever is inside it on their next command
-- [ ] ~10% of generated NPC hosts run a listener at user tier, measured across a population
+- [x] ~10% of generated NPC hosts run a listener at user tier, measured across a population
 - [ ] A listener behind a NAT forward is reachable, scannable and enterable from off-LAN, proven by
       a wire-check and a two-player browser run
 - [x] `ps` on a box you have ENTERED lists what it is running (§9 defect closed)
@@ -629,9 +629,44 @@ change proves necessary.
 
 ---
 
-### Slice 6: The world already has backdoors
+### Slice 6: The world already has backdoors — DONE (v0.149.0)
 
 **Branch**: `feat/generated-backdoors`
+
+**As-built.** Shipped as planned; the rate, the pool and the tier are all as locked. Six
+observations worth carrying:
+
+- **Two of the four exclusions had no predicate to write.** `baseFsForLanHost` already sends
+  routers and switches to their own generators and the player's box comes from
+  `buildWorkstationBaseFs`, so nothing in `buildRemoteHostFs` could have planted on them. The
+  plan expected a mutant per exclusion; there was no branch to mutate. They are covered instead
+  by a REGRESSION guard in `lanHostIdentity.test.ts` that sweeps six networks — paired with a
+  second test asserting the NPC machines of those same networks DO carry listeners, without
+  which the first would pass just as well with the roll switched off. The workstation half needed
+  nothing: `workstationFs.test.ts` already asserts `/var/run` is EMPTY at boot, which is
+  strictly stronger; only its comment was extended to say why that now matters.
+- **The one link nothing else covered was generator → login gate.** Every backdoor test from
+  slice 4 hands the listener to `reachDoor` through the JOURNAL. A door the world planted lives
+  in the base tree instead, so `authCreateSession.test.ts` gained a test that knocks on a box
+  exactly as the generator made it, with an empty journal. It passed first try — the gate reads
+  `resolveLanHostIdentity(...).baseFs` — but it was the only thing standing between "we generate
+  a pidfile" and "a player can walk through it", and it was untested.
+- **A home LAN often has NO backdoor at all, and that is the rate working.** `BEAN-THERE-WIFI`
+  carries zero across its eight machines; `NAKATOMI-PLAZA` carries two. The gate test therefore
+  samples several networks for a carrier rather than trusting one ESSID, and the population
+  suite measures over 8 ESSIDs x 253 octets (194 of 2024 = 9.6%).
+- **The roll seeds its OWN stream** (`backdoor-<essid>-<ip>`), mirroring `hostServices`. Drawing
+  from the host-filesystem prng would have shifted every draw after it and silently re-rolled
+  every NPC username and password on every network. A preservation test pins two hosts' accounts
+  to values captured BEFORE the roll existed, so that mistake cannot be made later either.
+- **Mutation: `remoteHostFs.ts` 95.24% (20 killed, 1 survived), `pidfile.ts` 100% (4 killed).**
+  The single survivor is `>=` -> `>` on the placement comparison, and it is provably EQUIVALENT
+  rather than a gap: `prng.next()` returns `k / 2**32`, and `0.1 * 2**32 = 429496729.6` is not an
+  integer, so the boundary the mutant moves can never be hit. Recorded rather than chased.
+- **`listenerPidfileName` was hoisted into `pidfile.ts`.** A generator stamps a `/var/run` entry
+  NAME while `nc -l` writes an absolute path; both now compose one function, because a
+  world-planted door that is named differently from a player-planted one is a door a defender
+  can tell apart at a glance.
 
 **Value**: A player scanning a LAN they have never touched finds a port they cannot account for,
 connects, and is in — the discovery loop that justifies connect-mode existing.
@@ -717,7 +752,7 @@ Per slice, from `v2/`:
 3. **Typecheck** — `npm run typecheck` (`tsc -b`; a plain `tsc --noEmit` is a NO-OP here)
 4. **Lint/format** — `npm run lint` (v2 has no Prettier)
 5. **Version bump** on every feature slice — `v2/package.json` AND `v2/package-lock.json`
-   (`npm install --package-lock-only`). Current: **0.148.0**
+   (`npm install --package-lock-only`). Current: **0.149.0**
 6. **Wire-check** where the slice says required — `scripts/test*.ts` against `vercel dev` +
    supabase. `tsc` cannot see DB columns or constraints, so an `api/` regression ships green
    without one

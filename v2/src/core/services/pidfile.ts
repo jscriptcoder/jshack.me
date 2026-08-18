@@ -107,9 +107,15 @@ const HIGHEST_PID = 32767;
 export const listenerPid = (machineId: MachineId, port: number): number =>
   createPrng(`${machineId}:nc:${port}`).nextInt(LOWEST_PID, HIGHEST_PID);
 
+/** What a listener on `port` calls its pidfile, e.g. `nc-4444.pid`. The NAME
+ *  rather than the path, because a generator stamps a `/var/run` entry while a
+ *  command writes an absolute path — and a world-planted door has to be named
+ *  exactly what a player-planted one is, or a defender can tell them apart. */
+export const listenerPidfileName = (port: number): string => `${LISTENER_PREFIX}${port}.pid`;
+
 /** Where a listener on `port` is planted, e.g. `/var/run/nc-4444.pid`. */
 export const listenerPidfilePath = (port: number): AbsPath =>
-  asAbsPath(`${VAR_RUN}/${LISTENER_PREFIX}${port}.pid`);
+  asAbsPath(`${VAR_RUN}/${listenerPidfileName(port)}`);
 
 /** Who is behind a planted listener, and what a visitor coming through it is
  *  worth. Recorded because nothing else in the world knows: a service's account

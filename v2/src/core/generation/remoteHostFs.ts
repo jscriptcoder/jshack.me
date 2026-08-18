@@ -30,7 +30,13 @@
 
 import { createPrng } from './prng';
 import { SERVICE_CATALOG, type ServiceSpec } from '../services/serviceCatalog';
-import { formatPidfileContent, PIDFILE_PERMISSIONS } from '../services/pidfile';
+import {
+  formatListenerContent,
+  formatPidfileContent,
+  listenerPidfileName,
+  PIDFILE_PERMISSIONS,
+  type Listener,
+} from '../services/pidfile';
 import {
   createBinaryEntries,
   LOCALHOST_PREINSTALLED_TOOLS,
@@ -81,6 +87,40 @@ const HOST_USERNAMES: readonly string[] = [
 ];
 
 export type HostService = { readonly spec: ServiceSpec; readonly port: number };
+
+/**
+ * The ports a listener the world left behind is drawn from — legacy's pool, carried
+ * over unchanged so a v2 network reads like the one players already know. Every
+ * entry sits outside the service catalog's ports, so a generated backdoor can never
+ * land on a port a daemon would have answered on.
+ */
+export const BACKDOOR_PORTS: readonly number[] = [
+  4444, 31337, 8888, 1337, 9999, 5555, 6666, 1234,
+];
+
+/** The fraction of NPC hosts carrying a listener nobody who lives on the box put
+ *  there. Rare enough that finding one is a find, common enough that sweeping a
+ *  strange LAN is worth doing — the discovery loop connect mode exists for. */
+const BACKDOOR_PLACEMENT = 0.1;
+
+/**
+ * The listener a host is carrying, or null when it carries none — deterministic per
+ * `(ESSID, host)`, exactly as the services are, because two occupants scanning one
+ * box must find the same open port.
+ *
+ * Seeded on its OWN stream rather than drawn from the host filesystem's, so adding
+ * it leaves every account and password already generated where they were.
+ *
+ * It runs as the box's own uid-1000 account at USER tier. The account, because a
+ * door opening onto a user the box cannot describe is a login as nobody; the tier,
+ * because a root shell on every tenth NPC box would hand out for free what the
+ * whole cracking curve exists to make you earn.
+ */
+const hostBackdoor = (essid: string, host: LanHost, username: string): Listener | null => {
+  const prng = createPrng(`backdoor-${essid}-${host.ip}`);
+  if (prng.next() >= BACKDOOR_PLACEMENT) return null;
+  return { port: prng.pick(BACKDOOR_PORTS), user: username, userType: 'user' };
+};
 
 /**
  * The services a host runs, with their listen ports — deterministic per
@@ -141,12 +181,21 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
   ]);
 
   const services = hostServices(essid, host);
-  const pidfiles = Object.fromEntries(
-    services.map(
-      ({ spec, port }) =>
-        [spec.pidfile, pidfile(formatPidfileContent(spec, port), spec.runUser)] as const,
+  const backdoor = hostBackdoor(essid, host, username);
+  // A door the world left behind and a door a player planted are the same file, and
+  // root owns both: the listener RUNS as the account its line names, but the pidfile
+  // is root's to write, exactly as `nc -l` leaves it.
+  const pidfiles = {
+    ...Object.fromEntries(
+      services.map(
+        ({ spec, port }) =>
+          [spec.pidfile, pidfile(formatPidfileContent(spec, port), spec.runUser)] as const,
+      ),
     ),
-  );
+    ...(backdoor === null
+      ? {}
+      : { [listenerPidfileName(backdoor.port)]: pidfile(formatListenerContent(backdoor), 'root') }),
+  };
 
   const serves = services.some(({ spec }) => spec === SERVICE_CATALOG.http);
   const servesFtp = services.some(({ spec }) => spec === SERVICE_CATALOG.ftp);

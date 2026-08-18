@@ -25,6 +25,7 @@ import {
   listenerPidfilePath,
   PIDFILE_PERMISSIONS,
   readOpenPorts,
+  readRunningProcesses,
   type Listener,
 } from '../services/pidfile';
 import { derivePid } from '../logging/syslog';
@@ -988,6 +989,52 @@ describe('a door with no credential behind it', () => {
         ...over,
       }),
     );
+
+  /** A box the WORLD left a listener on — the network as well as the host, because a
+   *  home LAN of eight machines rolling a tenth often has none, which is the rate
+   *  working rather than a fault. Nothing in the journal supplies this one: it is in
+   *  the tree the generator built. */
+  const worldsOwnBackdoor = (): {
+    readonly essid: string;
+    readonly host: LanHost;
+    readonly listener: Listener;
+  } => {
+    const carrier = ['BEAN-THERE-WIFI', 'NAKATOMI-PLAZA', 'SHINRA-5G']
+      .flatMap((essid) =>
+        generateHomeLan(essid).hosts.flatMap((host) =>
+          readRunningProcesses(buildRemoteHostFs(essid, host)).flatMap((running) =>
+            running.kind === 'listener' ? [{ essid, host, listener: running }] : [],
+          ),
+        ),
+      )
+      .at(0);
+    if (carrier === undefined) throw new Error('no generated listener on any sampled network');
+    return carrier;
+  };
+
+  it('opens the doors the WORLD left behind, not only the ones a player planted', async () => {
+    // Every other test here hands the listener to the gate through the journal. This
+    // one takes a box exactly as the generator made it, with an empty journal, because
+    // a door the world planted is only a door if the gate reads the box's own tree —
+    // and that is the one link between generating a backdoor and being able to walk
+    // through it that nothing else covers.
+    const id = generateIdentity();
+    const { essid, host, listener } = worldsOwnBackdoor();
+    const { deps, insertSession } = makeDeps();
+
+    const result = await handleAuthCreateSession(
+      knock(id, host, { essid, port: listener.port }),
+      deps,
+    );
+
+    expect(result.status).toBe(200);
+    expect(insertSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        credentials: { username: listener.user, userType: 'user' },
+        kind: 'nc',
+      }),
+    );
+  });
 
   it('opens a session as whoever left the listener, with nothing asked for', async () => {
     const id = generateIdentity();
