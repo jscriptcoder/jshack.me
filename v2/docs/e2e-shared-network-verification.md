@@ -929,6 +929,66 @@ in `conventions-and-gotchas.md` §9.
 
 ---
 
+### Act 14 — a stranger's backdoor, across the network (D5)
+
+**Written 2026-08-18 against v0.150.0. NOT YET RUN.** The wire-check
+(`scripts/testNcCrossPlayerReach.ts`) proves the same loop against the real endpoints; this
+act is what a player sees while walking it. Delete this banner and record the results when it
+has been run.
+
+Two occupants of one AP: A (the box that ends up with a door in it) and B (who plants it).
+B then leaves the WiFi and joins another network, so the final reach really is from off-LAN
+rather than a neighbour reaching sideways.
+
+**Why the gateway, not A's workstation.** A backdoor is planted with `nc -l`, which needs
+root on the box you are standing on. Root on another player's *workstation* is what the CVE
+phase exists to sell, and it is not available yet — so today the only box an intruder can
+plant on is the **AP gateway**, which is precisely the contested root target the crack phase
+already targets. That makes this act runnable now, and it exercises the shorter of the two
+paths: the gateway answers on the public IP directly, so a listener there is published to the
+internet with nobody touching the NAT table. The forward path (a listener on an occupant's box,
+reached through `rules.v4`) is proved on the wire instead — checks 1-4 of the script — because
+it cannot be reached in a browser until workstation root can be.
+
+| # | Who | Command | Expected |
+|---|---|---|---|
+| 1 | B | `nmap <A's LAN>/24`, find `.1` | the gateway, `22/ssh` |
+| 2 | B | crack the gateway root per §4, `ssh root@<gateway>` | `root@<gateway hostname>:~#` |
+| 3 | B | `apt install netcat` | installs; `nc` resolves afterwards |
+| 4 | B | `nc -l 31337` | `Listening on 0.0.0.0 31337` |
+| 5 | B | `ps` | an `nc` row with a PID, owner `root`, port `31337` |
+| 6 | B | `exit`, `nmcli disconnect`, `airdump`, join a DIFFERENT ESSID | B is now off A's LAN entirely |
+| 7 | B | `ifconfig` → note B's own public IP is NOT A's | the two networks are really distinct |
+| 8 | B | `nmap <A's AP public IP>` | `22/ssh` **and** `31337/unknown` |
+| 9 | B | `nc <A's AP public IP> 31337` | `Connected to <public IP>.` — a root shell on the gateway, no password asked |
+| 10 | B | `whoami`, `hostname` | `root`, and the gateway's hostname — not B's own box |
+| 11 | A | `ssh root@<gateway>`, `ps`, `kill <the PID from step 5>` | the row disappears |
+| 12 | B | any command in the session from step 9 | `nc: connection closed by foreign host`, back on B's own prompt |
+| 13 | B | `nmap <A's AP public IP>` again | `22/ssh` only — `31337` is gone |
+
+**What only the browser shows here.** Step 9 is the whole D5 arc in one line: a port nobody
+advertised, on an address B reached from a different network, opening a root shell with no
+credential. Steps 11-13 are the defender's half — A kills a process on a box they own, and the
+public IP stops answering, without A ever having seen the NAT table or known the port existed.
+
+Step 12 is the eviction from slice 5 reaching across two networks: the shell B is holding is
+not polled, so the close lands on B's next keystroke rather than immediately. That delay is
+the design, not a lag — an intruder who types nothing learns nothing.
+
+**Expect step 8 and an own-LAN scan to disagree, and do not file it as a D5 regression.**
+A scan of a PUBLIC IP is server-resolved: it replays the gateway's journal, so it sees the
+planted listener. An own-LAN `nmap` is resolved in the client, which replays no journals — the
+`.1` gateway is read from `buildApGatewayBaseFs(essid)` and an NPC sibling from
+`buildRemoteHostFs`, both seeded trees. So after step 4, re-running step 1 shows the gateway's
+`22/ssh` and NOT `31337`, while step 8 shows both. Standing ON the box (`ps`, step 5) is
+correct either way, because that tree is materialized.
+
+The practical consequence is worth stating plainly: **an intruder can see their own planted
+door from outside, but not from the LAN they planted it on.** Recorded in
+`conventions-and-gotchas.md`; it predates D5 and is the same gap Act 4 hit from the other side.
+
+---
+
 ## 6. What a failure means
 
 | Symptom | Look at |

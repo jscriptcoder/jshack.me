@@ -702,9 +702,45 @@ survives — and that mutant is a locked-decision-1 regression.
 
 ---
 
-### Slice 7: A stranger's backdoor, across the network
+### Slice 7: A stranger's backdoor, across the network — CODE DONE (v0.150.0), LIVE PROOF PENDING
 
 **Branch**: `feat/nc-cross-player-reach`
+
+**Status.** The unit half is written, green and committed. The wire-check script and Act 14
+are WRITTEN BUT NOT RUN — both need `vercel dev` + supabase up, which was not available at
+commit time. **This slice is not done until both are green**; do not close D5 on it.
+
+**As-built so far.** The "nearly free" hypothesis HELD: not one line of production code
+changed, and every new test passed on its first run. What was missing was proof, not
+mechanism — slice 4's decision to land the credential step in all four gates at once had
+already wired the reach. Four things worth carrying:
+
+- **A listener on the AP GATEWAY needs no forward at all.** The gateway answers on the public
+  IP directly, so `machineServing` returns `{kind:'router'}` and `gatewayTarget` passes the
+  destination port straight to `reachDoor`. Plant there and the port is published to the
+  internet the instant it exists, with nobody touching the NAT table. Untested on both the scan
+  and the gate side until now. It is also the ONLY backdoor a browser run can currently
+  demonstrate: `nc -l` needs root on the box you stand on, and root on another player's
+  workstation is what the CVE phase exists to sell — while the AP gateway is the contested root
+  target the crack phase already targets. Act 14 therefore walks the gateway path, and the
+  forward path is proved on the wire instead.
+- **Every pre-existing backdoor test forwarded 4444 to 4444**, so a gate reading the PUBLIC end
+  of a forward instead of the internal end passed all of them. The new tests split the two
+  numbers; confirmed load-bearing by mutating `reachedPort: forwarded.internalPort` to
+  `publicPort` and watching only the split-port tests fail.
+- **A forward pointing at an NPC reaches nothing** — forwards resolve against occupant leases,
+  and NPCs lease none. Slice 6 made forwarding a generated backdoor the first thing a player
+  will try, so the boundary is now pinned behavior rather than an accident of resolution order.
+- **Mutation** (the code the new tests cover, since no production code changed):
+  `scanResult.ts` 100% (26 killed), `natHosts.ts` 100% (7 killed), `resolvePublicTarget.ts`
+  102 killed / 3 NoCoverage. The three are `?? []` null-fallback `ArrayDeclaration` mutants,
+  unreachable unless a lookup returns null — pre-existing and untouched here.
+
+**Found and DEFERRED (not D5's):** an own-LAN `nmap` replays no journals, so a listener planted
+on the AP gateway is visible to an outsider scanning the public IP and invisible to every
+occupant scanning the LAN it sits on. Diagnosis, why it must be server-side, and the shape of
+the fix are recorded in `conventions-and-gotchas.md` §9. It predates D5; Act 14 only made it
+observable, and Act 14 documents it so a future runner does not file it as a regression.
 
 **Value**: The persistence loop closes — plant on a box, forward the port, and reach it from
 anywhere. Mostly PROOF rather than new mechanism, and deliberately last for the same reason D4's
@@ -752,7 +788,7 @@ Per slice, from `v2/`:
 3. **Typecheck** — `npm run typecheck` (`tsc -b`; a plain `tsc --noEmit` is a NO-OP here)
 4. **Lint/format** — `npm run lint` (v2 has no Prettier)
 5. **Version bump** on every feature slice — `v2/package.json` AND `v2/package-lock.json`
-   (`npm install --package-lock-only`). Current: **0.149.0**
+   (`npm install --package-lock-only`). Current: **0.150.0**
 6. **Wire-check** where the slice says required — `scripts/test*.ts` against `vercel dev` +
    supabase. `tsc` cannot see DB columns or constraints, so an `api/` regression ships green
    without one

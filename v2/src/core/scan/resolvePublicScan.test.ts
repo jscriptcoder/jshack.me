@@ -13,6 +13,11 @@ import { md5 } from '../generation/md5';
 import { seedApGatewayHostname } from '../generation/routerFs';
 import { formatNmapScanAggregate, KERN_LOG_OWNER, KERN_LOG_PERMISSIONS } from '../logging/kernLog';
 import { asGameTime } from '../types';
+import {
+  formatListenerContent,
+  listenerPidfilePath,
+  PIDFILE_PERMISSIONS,
+} from '../services/pidfile';
 import type { OwnerPatchRow } from '../network/materializeWorkstationFs';
 import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
 import type { PatchRow } from '../patches/upsertPatch';
@@ -87,8 +92,8 @@ const forwards = (...lines: readonly string[]): OwnerPatchRow => ({
   updated_at: '2026-06-17T00:00:01.000Z',
   writer_key: ALICE.publicKeyHex,
 });
-const forwardTo = (publicPort: number, internalIp: string): string =>
-  `forward ${publicPort} to ${internalIp}:22`;
+const forwardTo = (publicPort: number, internalIp: string, internalPort = 22): string =>
+  `forward ${publicPort} to ${internalIp}:${internalPort}`;
 const aliceForward = forwards(forwardTo(2222, ALICE_LAN_IP));
 const bobForward = forwards(forwardTo(3333, BOB_LAN_IP));
 const bothForwards = forwards(forwardTo(2222, ALICE_LAN_IP), forwardTo(3333, BOB_LAN_IP));
@@ -368,6 +373,136 @@ describe('handleResolvePublicScan', () => {
           data: [{ owner_key: ALICE.publicKeyHex, octet: ALICE_OCTET }],
           error: null,
         }),
+      });
+
+      const result = await handleResolvePublicScan(envelope(scanner, TARGET), deps);
+
+      expect(result.body).toMatchObject({ ports: [SSH_22] });
+    });
+  });
+
+  describe('a backdoor published to the whole internet', () => {
+    // The forward is what turns a listener into something a stranger can find. Every
+    // case below already has a twin above for a DAEMON; they are repeated for a
+    // listener because a door that behaved differently depending on which kind of
+    // process was holding it is exactly the drift one shared reader exists to prevent.
+    const BACKDOOR_PORT = 4444;
+    const PUBLIC_PORT = 31337;
+
+    /** A listener left on Alice's box, as her journal carries it. */
+    const listenerUp: OwnerPatchRow = {
+      path: listenerPidfilePath(BACKDOOR_PORT),
+      content: formatListenerContent({ port: BACKDOOR_PORT, user: 'mallory', userType: 'root' }),
+      owner: 'root',
+      permissions: PIDFILE_PERMISSIONS,
+      node_type: 'file',
+      updated_at: '2026-06-17T00:00:00.000Z',
+      writer_key: ALICE.publicKeyHex,
+    };
+
+    const backdoorForward = forwards(forwardTo(PUBLIC_PORT, ALICE_LAN_IP, BACKDOOR_PORT));
+
+    it('shows a stranger the port, and cannot tell them what answers on it', async () => {
+      // `unknown` is the whole point. A scanner that guessed would be answering a
+      // question only the port can, and an open port nobody can name is the thing
+      // that makes a stranger reach for `nc` in the first place.
+      const scanner = generateIdentity();
+      const { deps } = makeDeps({
+        patches: patchesByMachine({
+          [AP_GATEWAY_ID]: [backdoorForward],
+          [ALICE_WS]: [listenerUp],
+        }),
+      });
+
+      const result = await handleResolvePublicScan(envelope(scanner, TARGET), deps);
+
+      expect(result.body).toMatchObject({
+        ports: [SSH_22, { port: PUBLIC_PORT, service: 'unknown' }],
+      });
+    });
+
+    it('publishes it at the PUBLIC port, never the internal one it maps to', async () => {
+      // The two are different numbers here deliberately: a forward that leaked its
+      // internal port would hand an outsider the address behind the NAT.
+      const scanner = generateIdentity();
+      const { deps } = makeDeps({
+        patches: patchesByMachine({
+          [AP_GATEWAY_ID]: [backdoorForward],
+          [ALICE_WS]: [listenerUp],
+        }),
+      });
+
+      const result = await handleResolvePublicScan(envelope(scanner, TARGET), deps);
+
+      const ports = (result.body as { readonly ports: readonly { readonly port: number }[] }).ports;
+      expect(ports.map(({ port }) => port)).toEqual([22, PUBLIC_PORT]);
+    });
+
+    it('drops it the moment the listener is killed, though the box is still serving', async () => {
+      // sshd up, listener gone: the box boots and answers on 22, and the forward's
+      // OWN internal port answers nothing. This is the defender's kill reaching all
+      // the way out to the public IP.
+      const scanner = generateIdentity();
+      const { deps } = makeDeps({
+        patches: patchesByMachine({ [AP_GATEWAY_ID]: [backdoorForward], [ALICE_WS]: [sshdUp] }),
+      });
+
+      const result = await handleResolvePublicScan(envelope(scanner, TARGET), deps);
+
+      expect(result.body).toMatchObject({ ports: [SSH_22] });
+    });
+
+    it('drops it when the box behind it is bricked, listener pidfile and all', async () => {
+      const scanner = generateIdentity();
+      const { deps } = makeDeps({
+        patches: patchesByMachine({
+          [AP_GATEWAY_ID]: [backdoorForward],
+          [ALICE_WS]: [listenerUp, bootTombstone],
+        }),
+      });
+
+      const result = await handleResolvePublicScan(envelope(scanner, TARGET), deps);
+
+      expect(result.body).toMatchObject({ ports: [SSH_22] });
+    });
+
+    it('shows one left on the GATEWAY itself, which needs no forward to be reachable', async () => {
+      // The AP gateway is the contested root target, and it answers on the public IP
+      // directly — so a listener planted there is published to the internet the
+      // moment it exists, with nobody having to touch the NAT table. It is the one
+      // backdoor an intruder can reach the outside world with before the CVE phase
+      // hands them root on anybody's workstation.
+      const scanner = generateIdentity();
+      const onGateway: OwnerPatchRow = {
+        ...listenerUp,
+        content: formatListenerContent({
+          port: PUBLIC_PORT,
+          user: 'mallory',
+          userType: 'root',
+        }),
+        path: listenerPidfilePath(PUBLIC_PORT),
+      };
+      const { deps } = makeDeps({
+        patches: patchesByMachine({ [AP_GATEWAY_ID]: [onGateway] }),
+      });
+
+      const result = await handleResolvePublicScan(envelope(scanner, TARGET), deps);
+
+      expect(result.body).toMatchObject({
+        ports: [SSH_22, { port: PUBLIC_PORT, service: 'unknown' }],
+      });
+    });
+
+    it('drops it when the holder has left the WiFi, listener still in their journal', async () => {
+      // A lease outlives occupancy; reachability does not. The listener is still
+      // recorded on Alice's box — she has simply taken it off this network.
+      const scanner = generateIdentity();
+      const { deps } = makeDeps({
+        patches: patchesByMachine({
+          [AP_GATEWAY_ID]: [backdoorForward],
+          [ALICE_WS]: [listenerUp],
+        }),
+        listOccupantsByEssid: async () => ({ data: [bobOccupant], error: null }),
       });
 
       const result = await handleResolvePublicScan(envelope(scanner, TARGET), deps);
