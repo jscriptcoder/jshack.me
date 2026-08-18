@@ -975,7 +975,8 @@ Step 12 is slice 5's eviction reaching across two networks. The close landed on 
 keystroke rather than immediately, which is the design: the shell is not polled, so an intruder
 who types nothing learns nothing.
 
-#### Defect found: a backdoor session on an off-LAN box shows YOUR filesystem, not the target's
+#### Defect found (FIXED in v0.151.0 — see Act 15): a backdoor session on an off-LAN box
+#### shows YOUR filesystem, not the target's
 
 Step 10. Standing in the nc shell on the gateway, `ls /var/run` listed only `nc-31337.pid` and
 `cat /etc/iptables/rules.v4` said no such file — while `ps` still reported the listener.
@@ -1027,6 +1028,54 @@ alone — while step 8 from outside showed both. A public-IP scan is server-reso
 the journal; an own-LAN `nmap` is client-resolved from seeded trees only. **An intruder can see
 their own planted door from outside, but not from the LAN they planted it on.** Recorded in
 `conventions-and-gotchas.md` section 9; it predates D5.
+
+### Act 15 — the same door, after the fix (D5 slice 8)
+
+**Run 2026-08-18 against v0.151.0, to answer Act 14's defect and nothing else. Both halves
+pass.** Act 14 is left exactly as it was: it is the record of what a browser found that a green
+unit suite and a green wire sweep both missed, and that is worth keeping intact.
+
+One identity this time (`bob` / `nebuchadnezzar`), because the wifi list is seeded PER PLAYER and
+a second identity's scan did not contain the target ESSID — see the note below. The defender's
+`kill` is therefore applied at the journal, which is all `kill` does (`patches.remove`) and what
+`scripts/testNcCrossPlayerReach.ts` already simulates. What is under test here is the INTRUDER's
+client noticing, which is the half slice 8 changed.
+
+| # | Command | Result |
+|---|---|---|
+| 1 | `aircrack` + `nmcli connect GROUND-ZERO-COFFEE` | `assigned 192.168.181.218` |
+| 2 | `ssh root@192.168.181.1` (`undertow_11`) | `root@ap-gw:/root#` |
+| 3 | `ls /var/run`, `cat /etc/iptables/rules.v4` | **ground truth**: `sshd.pid`, and the NAT table |
+| 4 | `apt install netcat`, `nc -l 31337`, `ps` | `20904 root nc 31337` |
+| 5 | `exit`, `nmcli disconnect`, then onto `MIDNIGHT-DINER` | `assigned 192.168.202.145` — another network |
+| 6 | `nmap 162.146.1.124` | `22/tcp open ssh` **and** `31337/tcp open unknown` |
+| 7 | `nc 162.146.1.124 31337` | `root@ap-gw:/root#`, no password asked |
+| 8 | `ls /var/run` | **`nc-31337.pid` AND `sshd.pid`** — Act 14 showed only the first |
+| 9 | `cat /etc/iptables/rules.v4` | **the NAT table, byte-identical to step 3** — Act 14 said no such file |
+| 10 | `ls /etc` | `iptables`, `passwd` — the gateway's own tree, control before the kill |
+| 11 | the listener's pidfile leaves the journal | (the defender's `kill`) |
+| 12 | `ls` | **`nc: connection closed by foreign host`**, back at `root@nebuchadnezzar:/root#` |
+| 13 | `nmap 162.146.1.124` | `22/tcp open ssh` only |
+
+**Steps 8 and 9 are the fix.** The comparison that matters is against step 3, taken from an `ssh`
+session on the same box before the listener existed: the backdoor now shows the same box the
+login does.
+
+**Step 12 is the half nobody had ever run.** Widening the served-tree predicate to `nc` means an
+off-LAN backdoor stops reading the journal and starts reading the SERVED tree — so the pre-line
+re-pull had to follow it, or a defender's kill would never have reached an intruder on another
+network. Slice 5's eviction was only ever exercised on the player's own LAN; this is the first
+time it has been shown across two.
+
+#### Two things this run establishes about the runbook itself
+
+- **The wifi list is seeded per identity, so two players do not necessarily share a network.**
+  A second identity (`alice` / `skylab`) scanned six networks and `GROUND-ZERO-COFFEE` was not
+  among them, so she could not reach the contested gateway at all. Act 14's two-player run worked
+  because those identities happened to share one. **A future act needing two players on one LAN
+  cannot assume it** — check `airdump` on both before planning around it.
+- **`31337/tcpopen` is still there** (step 6), untouched and still cosmetic: the PORT column pads
+  for four digits. Recorded in `conventions-and-gotchas.md` section 9.
 
 ---
 

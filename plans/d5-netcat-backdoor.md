@@ -793,9 +793,16 @@ two-player browser run of the full loop.
 
 ---
 
-### Slice 8: An intruder in a backdoor sees the box they broke into — DONE (v0.151.0)
+### Slice 8: An intruder in a backdoor sees the box they broke into — DONE (v0.151.0), LIVE PROOF GREEN
 
 **Branch**: `fix/nc-off-lan-served-tree`
+
+**Live proof.** `scripts/testNcCrossPlayerReach.ts` **9/9** (the new check proves an `nc` row
+alone authorizes the served-tree fetch), and **Act 15** in
+[`e2e-shared-network-verification.md`](../v2/docs/e2e-shared-network-verification.md) — 13 steps,
+all as written. Act 14's `ls /var/run` and `cat rules.v4` now match, byte for byte, what an `ssh`
+session on the same box shows; and the defender's kill reached an intruder on another network,
+which had never been run in a browser before.
 
 **As-built.** The one-line predicate change was HALF the fix. Five things worth carrying:
 
