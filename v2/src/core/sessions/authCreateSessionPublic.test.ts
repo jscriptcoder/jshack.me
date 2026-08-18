@@ -1261,6 +1261,77 @@ describe('a backdoor reached across the network', () => {
     expect(insertSession).not.toHaveBeenCalled();
   });
 
+  it('knocks on the INTERNAL port the forward names, not the public one it was reached at', async () => {
+    // Every other test here forwards 4444 to 4444, so a gate that asked about the
+    // PUBLIC port would pass all of them. Split the two numbers and the plumbing has
+    // to be real: the listener holds 4444 inside, and the outside world reaches it at
+    // 31337. A gate reading the wrong end finds no door and refuses.
+    const PUBLIC_PORT = 31337;
+    const { deps, insertSession } = makeDeps({
+      patches: patchesByMachine({
+        [AP_GATEWAY_ID]: [forwards(forwardTo(PUBLIC_PORT, ALICE_LAN_IP, BACKDOOR_PORT))],
+        [ALICE_WS]: [plantedByMallory],
+      }),
+    });
+
+    const result = await handleAuthCreateSessionPublic(knock({ port: PUBLIC_PORT }), deps);
+
+    expect(result.status).toBe(200);
+    expect(insertSession).toHaveBeenCalledWith(
+      expect.objectContaining({ machine_id: ALICE_WS, kind: 'nc' }),
+    );
+  });
+
+  it('opens one left on the GATEWAY itself, reached at the public IP with no forward', async () => {
+    // The AP gateway answers on the public IP directly, so a listener planted there
+    // is published to the internet the moment it exists — no NAT table entry, no
+    // occupant, nothing for the AP's owners to notice missing. It is also the only
+    // backdoor an intruder can expose before the CVE phase gives them root on
+    // somebody's workstation, since the gateway is the box the crack phase targets.
+    const GATEWAY_PORT = 31337;
+    const onGateway: OwnerPatchRow = {
+      ...plantedByMallory,
+      path: `/var/run/nc-${GATEWAY_PORT}.pid`,
+      content: formatListenerContent({
+        port: GATEWAY_PORT,
+        user: 'mallory',
+        userType: 'root',
+      }),
+    };
+    const { deps, insertSession } = makeDeps({
+      patches: patchesByMachine({ [AP_GATEWAY_ID]: [onGateway] }),
+    });
+
+    const result = await handleAuthCreateSessionPublic(knock({ port: GATEWAY_PORT }), deps);
+
+    expect(result.status).toBe(200);
+    expect(insertSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        machine_id: AP_GATEWAY_ID,
+        credentials: { username: 'mallory', userType: 'root' },
+        kind: 'nc',
+      }),
+    );
+  });
+
+  it('reaches nothing when the forward points at an NPC rather than an occupant', async () => {
+    // The world now leaves backdoors on NPC boxes, so forwarding one is the first
+    // thing a player will try. It cannot work: a forward is resolved against the
+    // occupants of the AP, and an NPC leases nothing. Their doors are an own-LAN
+    // find, and this is the line between the two.
+    const { deps, insertSession } = makeDeps({
+      patches: patchesByMachine({
+        [AP_GATEWAY_ID]: [forwards(forwardTo(FORWARDED, lanAddressFor(ESSID, 251), BACKDOOR_PORT))],
+        [ALICE_WS]: [plantedByMallory],
+      }),
+    });
+
+    const result = await handleAuthCreateSessionPublic(knock(), deps);
+
+    expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+
   it('is not an ssh door — a forward to a listener refuses a password login', async () => {
     const { deps, insertSession } = makeDeps({
       patches: patchesByMachine({

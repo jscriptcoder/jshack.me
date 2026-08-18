@@ -1490,6 +1490,22 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   self-contained refactor touching seven modules; it wants its own slice rather than a ride-along.
   (`const errorResult = …` is duplicated across seven command modules too, but that one is
   incidental shape rather than shared knowledge, and is fine as a local idiom.)
+- **An own-LAN `nmap` replays no journals, so it cannot see a planted door.** The client
+  resolves an own-LAN scan from seeded trees — the `.1` AP gateway from `buildApGatewayBaseFs`,
+  every NPC sibling from `buildRemoteHostFs` — while a scan of a PUBLIC IP is server-resolved
+  and replays the target's journal. So a listener planted on the AP gateway is visible to
+  anyone scanning the public IP and invisible to every occupant scanning the LAN it sits on.
+  It cuts both ways and is worse for the defender: the tool built to give signals gives none,
+  though standing on the box (`ssh` then `ps`) still shows it, because that tree is
+  materialized. NPC root is crackable at 12%, so this is reachable gameplay rather than a
+  corner. **The fix has to be server-side** — `listPatches` is gated on an active session, so
+  the client cannot read a machine's journal it has no session on. `nmap` already routes an
+  INNER gateway's single-IP scan server-side for exactly this reason, and the line after it
+  records the carve-out that leaves the edge `.1` and the siblings behind; the work is
+  finishing that, as a `resolveSameLanScan` action mirroring `resolveInnerGatewayScan`. Open
+  design call first: route single-IP scans only (matching the precedent) or batch a range, since
+  a `/24` would otherwise resolve up to 253 journals. Found by writing D5's Act 14; it predates
+  D5, which only made it observable. Needs its own slice + wire-check.
 - **Wire-checks are not in CI** — all 43 run only by hand against a local `vercel dev` +
   supabase, and they are the ONLY thing that proves `api/` runtime correctness (`tsc` cannot
   see DB columns or constraints). A regression there ships green. Raised repeatedly and
