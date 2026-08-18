@@ -1365,21 +1365,65 @@ the attribution.
 have ENTERED shows nothing, because pidfiles are root-only and a foreign session's tree is
 projected at the tier the credential bought. Found by the Act 13 browser run; recorded in §9.
 
-**➡️ NEXT: D5 — `nc` connect + `nc -l` backdoor. GRILLED 2026-08-16, not yet planned.** Fifteen
-locked decisions and a six-slice spine are in "D5 — resolved scope & decisions" above; read that
-first. The headlines: the listener enters the ONE `/var/run` walk as a discriminated union rather
-than a catalog row; services stay units (`systemctl`) while listeners become processes (`kill
-<pid>`); a backdoor is silent, because a real one is; the shell is full minus what needs a TTY, so
-`su` cannot run and a user-tier foothold cannot be escalated in place; and the door's credential
-STEP becomes pluggable across the four shipped login gates rather than adding a fifth.
+**✅ D5 — `nc` connect + the `nc -l` backdoor. COMPLETE 2026-08-18 (#415-#423, v0.151.0).**
+Nine slices; the plan file is deleted and its as-built lives in
+[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7 (the `/var/run` union,
+the derived PID, units-vs-processes, the no-TTY shell and pull eviction) and §9, with the browser
+runs in [`e2e-shared-network-verification.md`](../v2/docs/e2e-shared-network-verification.md)
+Acts 14 and 15.
 
-The grill also found that **§9's `ps`-shows-nothing defect is misdiagnosed** — it is a permissions
-drift between two producers (`daemon.ts:149` omits the `PIDFILE_PERMISSIONS` the generator stamps),
-not the read-filter change §9 proposes, and D5 owns the one-argument fix as slice 0.
+**A player can now leave something behind, and a defender can find it and take it away.** Plant a
+listener on a box you have rooted, forward the port, and walk back in from another network with no
+credential asked for and nothing written to any log — into a shell that is full minus what needs a
+TTY, so a root-planted door can brick and a user-tier one cannot be escalated in place. The
+defender's half is `ps` to see it, `nmap` to find the port it opened, and `kill <pid>` to remove
+it, which drops whoever is inside on their next command. ~10% of generated NPC machines already
+carry one, so the first backdoor a player finds is one the world left.
 
-**Plan it next** (`planning`), starting from the slice spine. The one thing planning must settle
-before slice 4 commits: whether `apt install` works against a remote rooted box — decision 14
-depends on it and `tsc` cannot see the answer, so it needs a wire-check.
+All fifteen grilled decisions survived contact. What planning added to the locked six-slice spine:
+eviction split out of the connect slice (two concepts, two observables), and the credential step
+landed in **all four** login gates at once rather than own-LAN first — D4 slice 3's lesson applied
+in advance, since a rule applied to some gates and not others is the drift that slice existed to
+remove. Adding `'nc'` to `DOOR_KINDS` then broke `authCreateSessionPublic`'s compile, which is the
+compiler enforcing "four gates, one path".
+
+Five things it settled that outlive the plan:
+
+- **Slice 0 fixed the `ps` defect D4 left open, and the first diagnosis was wrong.** It was a
+  permissions drift between two producers, not the read-filter change §9 had proposed — the grill
+  caught that before any code. §9 is rewritten CLOSED, including the wrong diagnosis.
+- **`nc` asks the BOX rather than consulting its own map**, forced mid-slice by a discovery: the
+  client's own-LAN resolution reads the GENERATED tree with no journal replay, so a listener
+  planted on a rooted NPC is visible from ON the box and invisible from outside it. The local view
+  now answers only "does the catalog name this port?"; anything else is a round trip.
+- **The replay gap is wider than `nc` and is NOT closed.** An own-LAN `nmap` replays no journals
+  either, so a door planted on the AP gateway is invisible to every occupant scanning that LAN
+  while an outsider scanning the public IP sees it. Diagnosis and the shape of the server-side fix
+  are in §9; it predates D5, which only made it observable. **It needs its own slice.**
+- **Two browser acts, and the second existed because the first found a defect.** Act 14 proved the
+  reach; standing in that shell it also showed `ls /var/run` disagreeing with what `ssh` into the
+  same box printed. That became slice 8 — and then its twin one door along, `ftpRoot`, which
+  shipped as its own PR (#424, v0.152.0). **Three sites decide which tree a session reads and they
+  must all agree**; §9 carries the rule and the fixture blind spot that hid both.
+- **The wire sweep caught its own rot.** `testScpTransfer` check 8 asserted an `ssh` exemption
+  PR #410 had removed the same day the script was written — the sweep read 44/45 for two doors
+  before anyone looked. Fixed at close-out; a wire-check written against behavior that is itself
+  in flight needs re-running after the PR it raced.
+
+**What D5 deliberately did not do**, and who inherits it: no push channel for eviction (a pull is
+how a real terminal behaves, and it cost nothing); no below-1024 root rule (the root gate fires
+before a port is parsed, so it would be an unreachable branch); no `-9` (v2's flag binder answers
+first, and the words are not `kill`'s to choose). The own-LAN journal-replay gap and `nmap`'s
+5-digit port padding are both open in §9.
+
+**➡️ NEXT: D6 — a player reads a machine's database (`mysql`).** Fourth door in the locked order
+(ftp → daemons → nc → **mysql** → redis → snmp → node), and the row above names its scope: a
+`mysqld` catalog row plus placement, a generated schema and data worth reading, the `mysql>` prompt
+behind a parser/formatter/executor, and hydra's `mysql` service. **Not yet grilled** — run
+`grill-me` against that row before planning, as D3/D3b/D4/D5 each did. Two things already known
+about it: D3's sub-shell shape is what a `mysql>` prompt inherits (`ftp` set the pattern and
+D5 slice 4 showed a prompt can be a real hop instead), and a door with nothing behind it is a
+protocol demo — the generated database ships with the door, per locked decision 4.
 
 Per slice, before any code: load `tdd`, `testing`, `mutation-testing`, `refactoring`; run full
 RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR; present before starting the next. Any `api/` change

@@ -157,7 +157,7 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
   the editor open); a refused one leaves it alone. Wire-check `scripts/testModifiedSinceOpen.ts`;
   three-player browser verification in `e2e-shared-network-verification.md` §6.
 
-**Current version: 0.136.0.**
+**Current version: 0.152.0.**
 
 **Current epic — legacy parity, IN PROGRESS:** `plans/legacy-parity-epic.md` — every remaining
 way into a machine (doors → discovery → CVE vulnerabilities), grilled to nine locked
@@ -1112,6 +1112,16 @@ produced a green PASS on its own:
 The general rule: an assertion that would pass if the code under test did NOTHING is not a check.
 On shared, deterministically-named machines that is the default outcome, not an edge case.
 
+**The 45 checks are individually clean and NOT sweep-safe — run them one at a time.** Driving
+the whole directory back-to-back in one loop produced three RED scripts
+(`testCrossPlayerConnectionTrace` 3/7, `testCrossPlayerRead` 6/7, `testCrossPlayerRouter` 6/8)
+that were **7/7, 7/7 and 8/8 when each was run alone**. Nothing was wrong with the code or the
+checks: this is the stale-row rule above at suite scale. Machines are ESSID-seeded, so scripts
+share `machine_id`s and public-IP rows, and each one's setup-time cleanup only covers the machines
+IT knows about. A close-out sweep is therefore a series of individual runs, and **a RED from a
+back-to-back loop must be re-run alone before it is believed** — the count in a sweep report means
+"scripts that passed individually", not "scripts that pass in sequence".
+
 **Selecting a generated LAN host by "not `.1`" picks an INNER GATEWAY, not an ordinary box.**
 `generateHomeLan` returns `kind: 'machine' | 'router' | 'switch'` in ascending-octet order, and a
 router or switch above `.1` is an inner gateway whose base FS is a ROUTER tree — not the
@@ -1204,6 +1214,19 @@ state costs you more than one wrong attempt.
   `/var/run` entry is skipped, and a **DIRECTORY** wearing a pidfile's name is not a running daemon
   — `mkdir /var/run/sshd.pid` is something a root player can really do, and reading it as a service
   would let anyone fake a serving box, or bar their own door, with one command.
+  - **`/var/run` holds a UNION, and a listener joined it as a variant rather than a catalog row.**
+    D5's `nc -l` backdoor is a `RunningProcess` of `kind: 'listener'` beside the daemons — it has
+    no service to bind, no banner to serve and no `SweepLog`, so a `SERVICE_CATALOG` row would have
+    been four empty columns and a fifth door for every consumer to special-case. The projection is
+    what keeps the two honest: `nmap` shows a listener's port `open` with SERVICE `unknown` for
+    free, because it reads the same walk.
+  - **A listener's PID is DERIVED where it is consumed, never stored.** `listenerPid(machineId,
+    port)` computes it; `readRunningProcesses` keeps its one-argument signature and returns no
+    `pid`. Storing one would let a planter's own client author the number a defender then types,
+    and would fan the machine id through `readOpenPorts`, which has no use for it. **`kill`
+    therefore resolves a pid by matching `listenerPid` across the walk, not by reading a field** —
+    and must check the `kind` discriminator first, or it reports success for a `/var/run/nc-22.pid`
+    that never existed and tells a defender they shut a door that is still open.
 - **`systemctl` speaks as the UNIT; only `start` speaks as the program.** `stop` and `status`
   answer `nginx.service - web server` however the player typed it, so stopping via `apache2` can
   never claim apache2 was the one running. `start` keeps the program's banner, because starting IS
@@ -1215,6 +1238,17 @@ state costs you more than one wrong attempt.
     a guest enumerate a box's packages by probing.
   - **`systemctl` never calls `popSession`.** A stop shuts the door without emptying the room:
     live sessions survive and only new logins are refused, as real sshd does.
+- **A service is a UNIT and a listener is a PROCESS — that is why there are two verbs.**
+  `systemctl stop <name>` is the only way to shut a daemon and `kill <pid>` the only way to remove
+  a backdoor, and neither answers for the other: `ps` prints `-` in the PID column for a service,
+  so no number a player can type resolves to one, and `kill sshd` answers
+  `kill: sshd: use "systemctl stop sshd"` — echoing the name AS TYPED, because `systemctl stop
+  apache2` really works and translating it to the shared unit name would hand the player a program
+  they never mentioned. **`kill` checks argument shape before privilege**, so a guest gets the
+  pointer rather than a root refusal that would be advice they cannot take. Success is silent, as
+  the real thing is. The split is not arbitrary: sshd forks a child per session, so a stop leaves
+  the room full, while netcat is the one process that both listens and serves — which is why only
+  `kill` evicts.
 - **The admin tools are planted, not apt-installable.** `systemctl` ships in `/usr/bin` on every
   machine via `SERVICE_CONTROL_TOOLS` — a box you have rooted must be controllable with what is
   already on it, or stopping a service would depend on the box having internet. `ps` was already in
@@ -1363,6 +1397,22 @@ state costs you more than one wrong attempt.
   protocol's own numbered responses (`250`/`550`/`257`) because they are control-channel
   commands, and the `l`-prefixed trio speaks unnumbered because nothing it does touches the
   control channel.
+- **A backdoor shell is a real hop minus what needs a TTY, and the gates that say so run BEFORE
+  the line is parsed.** `nc` is not a sub-shell: it lands a session at the tier its pidfile records
+  and everything runs there, except the six commands a raw socket cannot carry — `su`, `nano`,
+  `ssh`, `scp`, `ftp`, `lynx`. That is the mechanic, not a limitation to route around: a root-planted
+  listener can brick a box while a user-tier one cannot be escalated in place, because `su` is
+  exactly what needs a pty. **The eviction check sits beside the no-TTY check**, same seam, same
+  shape of rule (*this session cannot do that*), and running both before the parse is what makes a
+  typo into a dead backdoor answer `nc: connection closed by foreign host` rather than `command not
+  found` — nothing the player typed reached the box, so the box was never there to have looked. It
+  also covers pipelines uniformly: `ls | grep x` can no more slip past a dead socket than `su | grep
+  x` can past a missing pty.
+  - **Eviction is a PULL, not a push.** The intruder learns the socket died by writing to it, as a
+    real terminal does. `Session` gained a `port` for it, and only a backdoor sets one — every
+    other door spends its port reaching the box and never needs it again, while a backdoor is the
+    one that has to keep asking whether it is still there. No push channel, and no widening of
+    `endSession`, which is deliberately scoped so a caller can only end their OWN rows.
 - **D2.4's `reachedPort` rule binds the LOGIN gate too, and did not until v0.136.0.** hydra
   had checked the service on the reached port since v0.120.0; `authCreateSessionPublic` never
   had, so a forward to :22 was an `ftp` door and a forward to :21 an `ssh` one. Both now
@@ -1559,12 +1609,16 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   **What it says about coverage:** the wire-check added alongside proves the server half no unit
   test can see — an `ftp` row alone authorizes `resolveCrossPlayerFs`, and the tree comes back
   pruned to the tier the credential bought, not the box owner's (`testFtpCrossPlayer` 18/18).
-- **`scripts/testScpTransfer.ts` check 8 is a stale assertion — the sweep is 44/45, not 45/45.**
-  It asserts "a plain ssh login into the same box keeps its documented exemption" (expects 200),
-  but PR #410 removed ssh's daemon-check exemption so every login gate asks the same question;
-  the box runs no sshd, so the correct answer is now 404. `scripts/testDaemonGates.ts` check 1
-  asserts the CURRENT behaviour and passes. The script was written in PR #403, before #410
-  landed on the same day. One-line test fix; the production behaviour is right.
+- **CLOSED (D5 close-out) — `testScpTransfer` check 8 asserted behavior a PR had removed the
+  same day, and the sweep read 44/45 for two doors before anyone looked.** The check expected 200
+  for "a plain ssh login into the same box keeps its documented exemption"; #410 removed that
+  exemption so every login gate asks the same question, and a box running no sshd now answers 404
+  `service_not_running`. The script was written in #403 and #410 landed the same day, so it was
+  never green after its own merge. Production was right throughout — `testDaemonGates` check 1
+  asserts the shipped behavior and passes. **The lesson is the race, not the assertion:** a
+  wire-check written against behavior that is itself in flight has to be re-run after the PR it
+  raced, because nothing else will notice. The script's header comment carried the same stale
+  claim and moved with it — a comment that states a rule is part of the rule.
 - **`nmap` runs a 5-digit port into the STATE column.** `31337/tcpopen  unknown` — the PORT
   column pads for four digits. Cosmetic, but every port in the generated backdoor pool
   (`BACKDOOR_PORTS`) is 4-5 digits, so it shows up routinely now.
