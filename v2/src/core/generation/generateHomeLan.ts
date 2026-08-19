@@ -23,7 +23,8 @@
  */
 
 import { createPrng } from './prng';
-import { DEVICE_TYPES } from '../network/homeNetwork';
+import { machineRole } from './machineRole';
+import { HOSTNAME_PREFIXES } from './pools/hostnames';
 import { lanSubnetPrefix } from '../network/lanAddress';
 import { seedApGatewayHostname, seedInnerGatewayHostname } from './routerFs';
 import type { Ipv4 } from '../network/interfaces';
@@ -78,13 +79,19 @@ export const generateHomeLan = (essid: string): HomeLan => {
     hostname: seedInnerGatewayHostname(essid, gatewayOctet),
     kind: 'router',
   };
-  const siblings: readonly LanHost[] = siblingOctets.map(
-    (octet): LanHost => ({
-      ip: `${subnet}.${octet}`,
-      hostname: `${prng.pick(DEVICE_TYPES)}-${octet}`,
+  // The name says what the box is for as well as where it is. The ROLE comes off its
+  // own stream — appending a draw here would move every value picked after it,
+  // including the switch's octet below, and the lease allocator excludes these octets
+  // when it issues an occupant an address. Naming is still exactly ONE `pick` per
+  // sibling, whatever the chosen pool's size, so the addresses do not move.
+  const siblings: readonly LanHost[] = siblingOctets.map((octet): LanHost => {
+    const ip = `${subnet}.${octet}`;
+    return {
+      ip,
+      hostname: `${prng.pick(HOSTNAME_PREFIXES[machineRole(essid, ip)])}-${octet}`,
       kind: 'machine',
-    }),
-  );
+    };
+  });
 
   // The switch is a SECOND inner gateway. It is drawn LAST, from the octets the
   // gateway+sibling draw left behind, so it can never collide with them and — by

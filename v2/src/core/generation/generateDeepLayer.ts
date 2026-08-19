@@ -24,7 +24,8 @@
 import { createPrng } from './prng';
 import { buildRemoteHostFs } from './remoteHostFs';
 import { ROUTER_HOSTNAMES } from './routerFs';
-import { DEVICE_TYPES } from '../network/homeNetwork';
+import { machineRole } from './machineRole';
+import { HOSTNAME_PREFIXES } from './pools/hostnames';
 import { applyPatches, type Patch } from '../filesystem/applyPatches';
 import { formatPidfileContent, PIDFILE_PERMISSIONS } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
@@ -107,9 +108,14 @@ export const generateDeepLayer = (
   // is drawn unconditionally so a terminal layer's NPC stays byte-stable.
   const usableOctets = Array.from({ length: 253 }, (_unused, index) => index + 2);
   const [hostOctet, childOctet] = prng.pickN(usableOctets, 2);
+  // Seeded by the LAYER as well as the address: two layers can draw the same 10.x.y
+  // subnet, so an address alone would give them the same box twice. Its own stream,
+  // as on the home LAN, so the octets already drawn above do not move.
+  const hostIp = `${subnet}.${hostOctet}`;
+  const hostRole = machineRole(`${essid}-${frontingGateway.machineId}`, hostIp);
   const host: LanHost = {
-    ip: `${subnet}.${hostOctet}`,
-    hostname: `${prng.pick(DEVICE_TYPES)}-${hostOctet}`,
+    ip: hostIp,
+    hostname: `${prng.pick(HOSTNAME_PREFIXES[hostRole])}-${hostOctet}`,
     kind: 'machine',
   };
   // A router fronts a deeper layer, so a child gateway hangs here — dual-homed at the
