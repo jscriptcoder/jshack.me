@@ -263,7 +263,7 @@ PHASE 1 — THE DOORS  (near-term focus)
   D5  nc connect + nc -l backdoor                     ✔ COMPLETE v0.151.0 (#415-#423)
   D5b machines get a kind, and it shows               ← IN PROGRESS (2 of 5 shipped)
       D5b slice 1 a LAN reads as a population          ✔ SHIPPED v0.153.0 (#428)
-      D5b slice 2 a name matches what it runs          ✔ SHIPPED v0.154.0
+      D5b slice 2 a name matches what it runs          ✔ SHIPPED v0.154.0 (#429)
       D5b slice 3 a box admits what it is              ← NEXT
   D6  mysql
   D7  rediscli

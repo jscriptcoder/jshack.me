@@ -3,7 +3,7 @@
 **Branch**: one per slice, `feat/d5b-<slice>`
 **Status**: Active
 **Grill record**: ["D5b — resolved scope & decisions"](legacy-parity-epic.md#d5b--resolved-scope--decisions-grill-me-2026-08-18) — ten locked decisions, not to be re-litigated here.
-**Current version**: 0.153.0 (slice 1 shipped). Each slice is a feature change, so each bumps the minor in both `v2/package.json` and `v2/package-lock.json`.
+**Current version**: 0.154.0 (slices 1–2 shipped; slice 3 is on `feat/d5b-role-config-file`). Each slice is a feature change, so each bumps the minor in both `v2/package.json` and `v2/package-lock.json`.
 
 ## Goal
 
@@ -152,7 +152,7 @@ scripts each other's stale rows.
 
 ---
 
-### Slice 2: What a box is called matches what it runs — ✔ COMPLETE (v0.154.0)
+### Slice 2: What a box is called matches what it runs — ✔ COMPLETE (v0.154.0, #429)
 
 **Value**: A player who reads `web-04` off a scan and probes it is usually right. The name stops
 being decoration and becomes a lead.
@@ -233,7 +233,8 @@ population test green both before and after the constant's relocation; mutation 
 ### Slice 3: A box admits what it is when you read it
 
 **Value**: The three roles whose door has not shipped stop being empty promises. A player standing
-on a box at the lowest tier can tell what it is for.
+on a box at the lowest tier can tell what it is for — and reads something the hostname did not
+already tell them.
 **Path**: `ssh`/`nc`/`ftp` onto a generated host → `ls /etc` or `cat` as **guest** → the role's
 config file.
 **Class**: Behavior change.
@@ -246,29 +247,56 @@ config file.
 - A **guest** can read it — unlike `/etc/passwd`, which guest must not read.
 - A database box carries `mysql.cnf` before any `mysqld` exists to run, and a camera carries
   `device.conf`.
+- **The contents are a real config, not a label.** A database box's file names its data directory
+  and bind address; a webserver's names its document root and listen port; a fileserver's names
+  its share path. The box's own hostname and the port its signature service is on are interpolated,
+  so the file is about THIS box and reading it is worth doing.
+- **The file follows the ROLE, not the service.** A `db-11` carries `mysql.cnf` with nothing
+  listening, and a `www-04` that failed its http roll still carries `httpd.conf` — unlike
+  `/var/log/vsftpd.log`, which follows its daemon. A config states what a box is configured to be;
+  a log claims something happened. Only the second is a lie on a box that never ran it.
+- A host whose name matches no role carries no config file — the same flat fallback `placementOf`
+  takes, and what leaves the existing synthetic-`host-N` suite untouched.
+- Nothing already generated moves: the template draw takes its **own seed stream**, as
+  `pickWebPage` and `hostBackdoor` do, so every NPC account and password stays where it is.
 - Routers and switches are unchanged: `routerFs` already lays down its own config, and this slice
   does not touch that builder.
 
 **RED**: A test reading the role config file from a generated box's `/etc` as guest — failing
 today because `/etc` holds only `passwd`. A companion test asserts guest **can** read it while
 `/etc/passwd` stays unreadable to guest, so the new permission constant is not quietly wider than
-intended.
+intended. A third asserts the content is this box's: the hostname it was built for appears in the
+file, which no fixed stub could satisfy.
 
-**GREEN**: A per-role config filename map (legacy's `serviceConfigNames`, `machineConfig.ts:160`),
-a `SERVICE_CONFIG_FILE` permission constant in `baseFs.ts` — world-readable, root-write, never
+**GREEN**: A per-role config filename map (legacy's `serviceConfigNames`,
+`machineConfig.ts:160`, adopted verbatim) and role-keyed template pools in
+`pools/configFiles.ts` beside `pools/webPages.ts`, carried over from legacy's
+`configTemplatesByRole` (`pools/filesystem.ts:88`) rather than authored fresh; a
+`SERVICE_CONFIG_FILE` permission constant in `baseFs.ts` — world-readable, root-write, never
 executable, mirroring `WEB_PAGE_FILE`'s reasoning — and a second entry in the `/etc` dir.
 
-**MUTATE**: Stryker over the config-file construction and the permission constant. Mutants that
-matter: guest removed from or root removed from the read list, the role lookup returning a fixed
-name, and the file omitted for one role.
+**Deliberate deviation from legacy, decided at planning**: legacy's templates interpolate
+`{{user}}` — the box's uid-1000 account name. v2's do not. `/etc/passwd` is guest-unreadable on
+purpose because account names and inline hashes are what a player is meant to earn, and a
+guest-readable file that names the account hands back half of that for free. Hostname and port
+only. Slice 5 is where account names get their attention.
+
+**MUTATE**: Stryker over the config-file construction, the template fill, and the permission
+constant. Mutants that matter: guest removed from or root removed from the read list, the role
+lookup returning a fixed name, the file omitted for one role, and the interpolation dropped so
+every box of a role reads identically.
 
 **KILL MUTANTS**: The guest-readable assertion is what kills the permission mutants; assert on the
-whole permission value, not on one list.
+whole permission value, not on one list. Slice 1's rare-role trap does **not** recur here — a role
+is reached by NAMING a host (`namedHost('db', 11)`, slice 2's helper) rather than by sampling a
+population, so `dns` and `mailserver` are as reachable as `workstation`. Assert each role's file
+by name, and that no pool is empty.
 
 **REFACTOR**: Assess whether `/etc` construction in `buildRemoteHostFs` now wants its own function.
 
 **Done when**: acceptance criteria met; the tier boundary proved in both directions (config
-readable by guest, `passwd` still not); mutation report presented.
+readable by guest, `passwd` still not); the existing suite green untouched, which is the evidence
+that no draw moved; mutation report presented.
 
 ---
 
@@ -386,7 +414,10 @@ There is no DDD glossary in this repo; the term check is satisfied by adopting l
   shipped 4–7 names per role and `DEVICE_TYPES` for `workstation`; repeats within one LAN are
   visible on the larger networks and may want revisiting once placement makes names load-bearing.
 - Which roles earn a web bucket beyond `iot`.
-- Config file contents — a stub header naming the role, or something with recon value.
+- ~~Config file contents~~ — **settled at slice 3 planning**: a real config with recon value,
+  carried over from legacy's `configTemplatesByRole` rather than a stub header naming the role. A
+  file whose only content is "this is a camera" says nothing the hostname did not. `{{user}}` is
+  dropped from legacy's fill set — see the deviation note in slice 3.
 - ~~The deep-layer role seed's composition~~ — **settled in slice 1**: `${essid}-${parentMachineId}`,
   so a deep host's role varies by which gateway fronts it rather than by address alone.
 
