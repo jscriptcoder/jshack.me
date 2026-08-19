@@ -16,7 +16,7 @@
  * inherit somebody else's placement — and so the lookup has no missing-row branch.
  */
 
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
+import type { SERVICE_CATALOG } from '../services/serviceCatalog';
 import type { MachineRole } from './machineRole';
 
 /** One row of the catalog — the literal spec of a service the world ships, as
@@ -51,9 +51,10 @@ const PLACEMENT_BY_ROLE: Readonly<Record<MachineRole, Partial<Record<ServiceName
   // flavour dressed up as a rule.
   mailserver: {},
   dns: {},
-  // Still empty: a gateway's sshd is decided by the router builder's own private
-  // constant, not from here.
-  router: {},
+  // Every gateway bears sshd — the reachability a forward, a pivot and the whole
+  // chain behind an inner gateway all rest on. Pinned at 1 rather than guaranteed
+  // in code, so a later world can make it vary without reshaping any caller.
+  router: { ssh: 1 },
   // A switch forwards frames; it hangs no layer and hands out no shell of its own.
   switch: {},
 };

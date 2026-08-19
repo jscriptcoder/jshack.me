@@ -77,9 +77,10 @@ describe('seedApGatewayHasSsh', () => {
     expect(seedApGatewayHasSsh(ESSID_A)).toBe(seedApGatewayHasSsh(ESSID_A));
   });
 
-  it('is pinned true this story — every router runs its own sshd', () => {
-    // The decision-3 boolean is pinned to 1.0 for Story 5.1: routers always
-    // bear sshd:22. Sampling many keys catches any threshold below 1.0.
+  it('runs sshd on every router — the reachability a forward and a pivot rest on', () => {
+    // The rate lives in the role placement table, pinned at 1: a gateway you might
+    // not be able to reach would make a forward a coin toss and strand whatever
+    // hangs behind it. Sampling many keys catches any threshold below 1.0.
     const keys = Array.from({ length: 32 }, (_unused, index) =>
       index.toString(16).padStart(2, '0').repeat(32),
     );
