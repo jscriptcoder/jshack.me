@@ -326,12 +326,13 @@ inherits D2.6b's postponed job**: a `password_reset`-shaped effect is now the ro
 player obtains a plaintext they did not already hold, so V2's split must produce one or the
 wordlist progression stays inert. See "Next action" for why `/etc/passwd` does not count.
 
-**D5b must land before D6** (placement is recommended, not locked): role-weighted placement is
-what makes "find a database box" mean something, rather than a flat probability sprinkling mysql
-across a LAN of phones. It also **must land before ship** — it re-rolls the generated world, and
-the no-backward-compat licence sunsets at multiplayer announce. Every earlier door stays
-role-agnostic, so D5b is additive to all of them: it changes which content and services get
-picked, never the shape of what is stamped or how a door authorizes.
+**D5b landed before D6** ✔ (v0.157.0), as this ordering required (placement was recommended, not
+locked): role-weighted placement is what makes "find a database box" mean something, rather than a
+flat probability sprinkling mysql across a LAN of phones. It also had to land **before ship** — it
+re-rolls the generated world, and the no-backward-compat licence sunsets at multiplayer announce.
+D6 therefore arrives to a `database` role that already has a placement cell waiting for `mysqld`.
+Every earlier door stays role-agnostic, so D5b is additive to all of them: it changes which
+content and services get picked, never the shape of what is stamped or how a door authorizes.
 
 ---
 
