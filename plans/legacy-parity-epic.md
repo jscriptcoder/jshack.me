@@ -267,7 +267,14 @@ PHASE 1 — THE DOORS  (near-term focus)
       D5b slice 3 a box admits what it is              ✔ SHIPPED v0.155.0 (#430)
       D5b slice 4 the page a box serves fits the box   ✔ SHIPPED v0.156.0 (#431)
       D5b slice 5 the account you crack fits the box   ✔ SHIPPED v0.157.0
-  D6  mysql                                           ← NEXT (not yet grilled)
+  D6  mysql                                           ← NEXT (GRILLED 2026-08-19, not planned)
+      D6 slice 1 a box runs a database
+      D6 slice 2 a player cracks a database account
+      D6 slice 3 a player reads a database
+      D6 slice 4 a player changes a database
+      D6 slice 5 a database on a deep layer answers
+      D6 slice 6 a player runs their own database      (deferred half)
+      D6 slice 7 a player reaches another's database   (deferred half)
   D7  rediscli
   D8  snmpwalk / snmpset
   D9  node scripting
@@ -1099,6 +1106,206 @@ identity function in the cross-player system inside a slice about flavour.
 - **The deep-layer role seed's composition**, given deep hosts seed off `parentMachineId` rather
   than the essid.
 
+## D6 — resolved scope & decisions (grill-me, 2026-08-19)
+
+**A player reads — and rewrites — a machine's database.** The fourth door in the locked order, and
+the first one whose credential is not the box's own. A `db-11` stops being a name with a config
+file behind it and becomes a box with something in it worth taking.
+
+### Grounding that reshaped the scope before any decision
+
+- **Legacy ships a complete mysql** — 2,274 lines across `commands/mysql/{parser,executor,
+  formatter,types}.ts`, `generation/generateDatabase.ts` + `pools/database.ts`,
+  `filesystem/mysqlDataHelpers.ts` and `logging/handlers/mysqlAuth.ts`. The parser, executor and
+  formatter are pure functions over a parsed statement and a `MysqlDatabase`; they port almost
+  verbatim. What MOVES is where the executor runs, not what it does.
+- **Legacy stores the database as a FILE**, `/var/lib/mysql/data.json`, read and written through
+  the filesystem, with mutations persisted straight back. v2's whole cross-player persistence is
+  journal patches over files, so legacy's storage choice is the one that costs v2 nothing.
+- **Legacy's database carries its OWN accounts, and says so deliberately.** `mysqlDataHelpers.ts`:
+  "userType derives from the JSON entry directly, NOT from `/etc/passwd` — MySQL users may not have
+  system accounts."
+- **v2's ftp door states the opposite rule for itself** — "one `/etc/passwd`, one tier — the door
+  adds no authorization dimension" (`ftp.ts`). mysql is the first door where those two positions
+  collide, which is why decision 2 is a decision rather than an inheritance.
+- **`authorizeMachineAccess` never looks at session KIND.** Its entire rule is own-workstation
+  bypass, else an active `sessions` row for `(player_key, machine_id)`. A mysql session row
+  inserted naively therefore grants `listPatches` and `upsertPatch` on the target — read AND write
+  of the whole box at that row's tier. **A `readonly` database credential would have been a guest
+  shell.** This is what forced decision 8.
+- **`SessionKind` already contains `'mysql'`, `'redis'` and `'mission'`** — inherited from legacy,
+  unused by the auth path. `DOOR_KINDS`, which the four gates actually compile against, does not.
+- **There is no single "resolve this address from my vantage" function.** Sessions fan out to four
+  handlers (`authCreateSession{,Public,SameLan,InnerGateway}`), hydra to three. A new door pays
+  that fan-out TWICE — once for its statement path, once for its sweep. It is the largest cost in
+  the story and the reason vantages are sliced rather than assumed.
+- **D5b already claims the datadir.** Every `database` box's `/etc` config is a real `[mysqld]`
+  stanza naming `port=3306`, `datadir=/var/lib/mysql`, `user=mysql` — guest-readable today, and
+  pointing at a directory that does not exist. D6 is what pays that note.
+- **`{ name: 'mysql' }` is already in `APT_PACKAGES`.** `apt install mysql` succeeds today and
+  plants a binary for a command the registry has never heard of. (`metasploit`, `snmp`,
+  `redis-tools` and `node` sit there too — the apt list advertises the whole roadmap.)
+- **The flat rate would have drowned the role.** At a flat `0.08` with no role cells beyond
+  `database`, per 100 drawn machines: `database` 7 × 0.9 = 6.3, everything else 77 × 0.08 = 6.2.
+  **Fewer than half the database boxes in the world would be named `db-*`**, and most of the rest
+  would be phones and TVs — exactly what D5b's naming was built to stop being a lie.
+
+### Forced rather than chosen (planning should not re-litigate)
+
+- **The banner cannot be MySQL's real greeting.** The catalog demands banners be version-free
+  because versions belong to `/var/lib/dpkg/status`, and MySQL's greeting IS a version string. The
+  bad-handshake error is what is left, and it follows the `http` row's precedent: what the daemon
+  says to a client speaking the wrong thing at it.
+- **Writes must exist or the credential tiers are unobservable.** Three account tiers with a
+  read-only surface are three names for one capability — structure nobody can observe, and no test
+  that can fail. Decision 2 obliges decision 4.
+- **The player's own box runs no services at boot.** `/var/run` ships empty and the player starts
+  daemons by hand, so a player-side database is a daemon command plus a boot-time datadir, on the
+  same precedent `workstationFs.ts` states for `/var/www/html/index.html`: a freshly started server
+  must have something to answer with.
+- **Functional loot is not D6's to invent.** D2.6b (harvestable plaintext) is postponed by owner
+  decision and V2 inherits it as a `password_reset`-shaped effect. A working password in a
+  generated table would answer that parked question through the one door where the wordlist did not
+  earn it.
+
+### Locked decisions
+
+**1. The database is a real file at legacy's path** — `/var/lib/mysql/data.json`. Writes ride the
+journal like every other write; a dump leaves the box through `ftp` or `scp` because the file is
+really there. **Cost accepted:** `cat` is a second path to the data for whoever already holds root
+on the box, and `ls /var/lib` tells a visitor a database is present before any `mysql` is typed.
+
+**2. mysql accounts live in the database file, not `/etc/passwd`** — legacy's `credentials` array,
+md5-hashed, three tiers. **This is the first door in the epic to add an authorization dimension,
+and it is deliberate**: ssh and ftp ask the same question twice ("who are you on this box"), while
+mysql asks one `/etc/passwd` genuinely cannot answer ("who are you to this database"). **A mysql
+connection grants zero filesystem read.** Rejected: mapping database root to a root-tier session —
+it would make a mysql credential strictly better than an ssh one, and every other door decoration.
+
+**3. Statements execute SERVER-side, per statement, with no own-LAN exception.** The server
+materializes the target with journal replay, reads the datadir, executes, and returns only a result
+set. Applies D5's `nc` lesson in advance: own-LAN resolution replays no journals, so a client-side
+executor would show a pristine database to one occupant and a mutated one to another. It also all
+but closes the shared-file write-wipe for this door — read, mutate and write happen inside one
+request, so there is no player-held stale buffer.
+
+**4. The full statement set, tiered.** `SELECT`/`SHOW TABLES`/`DESCRIBE` for every account,
+`UPDATE`/`DELETE` for `user` and above, `DROP TABLE` for `root` only. The ladder reads as recon /
+sabotage / demolition. **Cost accepted:** a dropped table is permanent and journal-derived, like the
+`/boot` brick, but silent until the owner looks.
+
+**5. The door is symmetric; the player's half ships later.** A player's box can run a database and
+be attacked through it — that is slices 6-7, not "never". A door that cannot be turned on a person
+would be the first single-player feature in a cross-player epic.
+
+**6. Crackability is the world's existing mechanic, unchanged.** Database passwords draw from the
+same two pools through `drawPassword`, on the tuned ladder: `readonly` → `guest` (1), the drawn app
+account → `npcUser` (0.7), database root → `npcRoot` (0.12). **Demolition is therefore rare** — one
+box in eight hands over its `DROP`. **Database root is drawn independently of system root**: two
+locks, two keys, which is what justifies the door existing.
+
+**7. One catalog row and four placement cells.** `mysqld.pid` / `3306` / `runUser: mysql` /
+`ERROR 1043 (08S01): Bad handshake` / flat `placement: 0.08`. Roles: `database { mysql: 0.9 }`,
+`webserver { mysql: 0.2 }` (the classic pairing — some web boxes, not all), `iot { mysql: 0 }` (a
+doorbell runs an appliance, not a database), `workstation { mysql: 0.03 }` (a developer's laptop is
+a rare treat). **`database`'s ftp stand-in comes down 0.6 → 0.4**: D5b put it there because the role
+had no door of its own, and that job is over — it stays above the flat rate only because a dump has
+to leave the box somehow.
+
+**8. A mysql connection is NOT a session row.** The credential is re-validated on every statement.
+Given decision 3 that costs nothing, and it buys three things: zero-filesystem-read becomes
+structural rather than enforced (there is no row, so there is nothing to leak); daemon liveness is
+re-checked every statement, so `systemctl stop mysqld` and `kill <pid>` evict a connected player for
+free and honestly; and `authorizeMachineAccess` — the most load-bearing function in the codebase —
+needs no carve-out. **Cost accepted:** the datadir write cannot ride `upsertPatch`, so the handler
+writes it directly and **must stay hard-scoped to that one path, forever**; `sessions` lists nothing
+and the box shows no live connection; and the password rides each request.
+
+**9. Own-LAN and inner-gateway vantages in D6; public-IP and same-LAN arrive with the player's half,
+together.** The two deferred vantages have no reachable database until a player can run one, so
+shipping them now would be handlers with nothing behind them. This is NOT the drift D4 slice 3
+closed — that was one rule applied unevenly across gates that all had live targets. The moment
+`mysqld` becomes a player command, both remaining vantages land in the same slice.
+
+**10. The `mysql>` prompt is parallel, not a hop**, like `ftp` and unlike `ssh`/`nc` — forced by
+decision 2, since a connection with no filesystem read has no tree to stand on. The mode swallows
+every line as SQL (`ftpShell.ts`'s stated rule: an outer `cat` at an inner prompt would quietly read
+the wrong machine). Credentials are prompted and masked, not passed as arguments. **Semicolons are
+lenient**, as legacy's normalizer already is — real mysql's `->` continuation is fidelity that pays
+off in a tool you live in, not one you visit to read four tables, and a player stuck at `->` is a
+support cost with no gameplay behind it. Legacy's ASCII formatter ports verbatim.
+
+**11. The content exists for BELIEVABILITY, not for missions or loot.** Nothing generated is a
+password, key or token that works anywhere — `api_keys.key_value` and `sessions.token` are inert.
+Legacy's mission machinery (`enrichForDbExfiltrate`, `tamperScenarios`, `fixScenarios`,
+`sabotageTargetTables` — most of what makes `pools/database.ts` 508 lines) does **not** port; it is
+scaffolding for a mechanic v2 does not have. The database is **about its box**: the `users` table is
+seeded from the host's real accounts among plausible colleagues drawn from D5b's role-keyed pool.
+**`config.site_name` derives from the page the box actually serves**, so a `www-04` publishing a
+plumbing company does not hold `AcmeCorp`'s tables — the seam the `webserver` cell would otherwise
+hand the most engaged player in the game. `smtp_host: 'mail.internal'` is audited out: it names a
+host that resolves nowhere until X1 ships `nslookup`.
+
+**12. Reads are silent, writes are attributable.** `/var/log/mysql.log` takes the connect line
+(user, source IP, database name) and the access-denied line, as legacy's did, **plus a line for
+every `UPDATE`/`DELETE`/`DROP`**. `SELECT` never writes. The asymmetry is the design and it matches
+the shape the rest of the game already has — a scan is loud, a backdoor is silent, a brick is
+obvious — and it is the only thing that makes a quiet single-row `UPDATE` discoverable at all.
+
+**13. Five slices, then two.** See the spine below. `hydra` comes BEFORE the prompt: without a sweep
+there is no way to obtain a database credential, so the door would otherwise ship unopenable.
+
+### Folded in as routine (recorded so they are not re-decided)
+
+- `nmap`, `ps` and `systemctl status` see `mysqld` for free the moment the catalog row exists — they
+  read `/var/run`, not a service list.
+- `apt install mysql` starts meaning something; the package row already exists.
+- Ctrl-C at either credential prompt aborts holding nothing (exit 130), as `ftp` does.
+- `man`/`help` entries ship with the command, as every other door's did.
+
+### Slice spine (each vertical + observable)
+
+- **Slice 1 — a box runs a database.** Catalog row, the four placement cells, `generateDatabase`
+  ported without the mission half, the datadir planted, `config.site_name` linked to the served
+  page. `nmap` returns `3306/tcp open mysql` on `db-11`; `nc :3306` answers with the bad handshake;
+  `ssh` in and `ls /var/lib/mysql` agrees with `ps` and `systemctl status`. **The `[mysqld]`
+  config's `datadir` claim is honoured for the first time since D5b wrote it.**
+- **Slice 2 — a player cracks a database account.** `hydra <host> mysql` against the database's own
+  `credentials`, own-LAN, writing attempt lines to `mysql.log`. `readonly` falls almost always, the
+  app account often, database root rarely — and the defender greps the wall of denials.
+- **Slice 3 — a player reads a database.** The `mysql>` prompt, the read set, the per-statement
+  endpoint, the connect line. `mysql db-11` → `SHOW TABLES` / `DESCRIBE` / `SELECT` in ASCII tables.
+  **This is the epic row's stated acceptance.**
+- **Slice 4 — a player changes a database.** The write set, the tier ladder, the mutation lines.
+  `readonly` is refused an `UPDATE`; the app account changes a row; database root drops a table;
+  every write leaves a line and every read leaves none.
+- **Slice 5 — a database on a deep layer answers.** The inner-gateway vantage, for the statement
+  endpoint and for hydra.
+
+**Deferred half — two slices, and they must not be one:**
+
+- **Slice 6 — a player runs their own database.** `mysqld` as a daemon command plus the workstation
+  boot datadir. `mysqld` → `:3306` open on your own box with something real behind it.
+- **Slice 7 — a player reaches another player's database.** Public-IP and same-LAN vantages, for the
+  statement endpoint AND hydra, landing together.
+
+### Open for planning (named, deliberately not decided)
+
+- **Which of legacy's seven table templates are retained, and their row counts.** Believability is
+  the criterion, not parity.
+- **How `config.site_name` re-derives the served page** without coupling the two generators badly —
+  both seed off the same host, so the draw is available, but the shape of the reach matters.
+- **Whether a mutation log line carries the statement verbatim or a summary.** Verbatim is a
+  wonderful artefact for a defender to read; it also writes arbitrary player-typed text into a file
+  other players `cat`.
+- **Which existing `api/*.ts` file takes the statement action.** A file in `api/` IS a published
+  Vercel function, so no new file may be added for a helper.
+- **Whether `hydra <host> mysql` reports the database NAME alongside the credentials**, given the
+  connect line already knows it.
+- **Slice 1's seed stream.** It adds draws to generation, so it takes its own stream or it moves the
+  octets the lease allocator excludes and puts an occupant on top of an NPC — D5b's hardest-won
+  invariant, and the one that most directly threatens this slice.
+
 ## Open branches (named, not yet decided)
 
 1. ~~**`nc -l` semantics (D5)**~~ — **RESOLVED 2026-08-16 at D5's grill.** A session with no
@@ -1621,16 +1828,30 @@ to it — `mail-139` answers with `dkim`, `thermostat-207` with `mqtt`, a laptop
   meets rarely is worth having named when they do; X1's `nslookup` is what makes it answer.
 
 **➡️ NEXT: D6 — a player reads a machine's database (`mysql`)**, fourth door in the locked order
-(ftp → daemons → nc → **mysql** → redis → snmp → node): a `mysqld` catalog row plus placement, a
-generated schema and data worth reading, the `mysql>` prompt behind a parser/formatter/executor,
-and hydra's `mysql` service. **Not yet grilled.** Three things already known about it: D3's
-sub-shell shape is what a `mysql>` prompt inherits (`ftp` set the pattern, and D5 slice 4 showed a
-prompt can be a real hop instead), and a door with nothing behind it is a protocol demo — the
-generated database ships with the door, per locked decision 4. And **its placement cell is
-waiting for it** — D5b gave the `database` role the ftp signature because that was the only door it
-could express, so `mysqld` arrives to a table that already has a row with its name on it.
+(ftp → daemons → nc → **mysql** → redis → snmp → node). **GRILLED 2026-08-19 — thirteen locked
+decisions and a seven-slice spine in
+["D6 — resolved scope & decisions"](#d6--resolved-scope--decisions-grill-me-2026-08-19). Read that
+section, then run `planning` against slice 1.** Not yet planned.
 
-Run `grill-me` against each row before planning, as D3/D3b/D4/D5 each did.
+The three things that grill settled which the row above could not have predicted:
+
+- **A mysql session row would have handed over the whole box.** `authorizeMachineAccess` never
+  looks at session kind, so a `readonly` database credential would have granted `listPatches` and
+  `upsertPatch` on the target. D6 therefore mints **no session row at all** and re-validates the
+  credential per statement — which also makes `kill mysqld` evict a connected player for free.
+- **The flat placement rate would have drowned the role it was built for.** At `0.08` across the
+  roles with no cell, more database boxes in the world would have been phones and TVs than boxes
+  named `db-*`. The fix is suppression (`iot: 0`, `workstation: 0.03`), not the `database` cell.
+- **The content is for believability, not missions.** Legacy's mysql was built to carry mission
+  objectives; v2's carries none. The mission machinery does not port, nothing generated is loot
+  that works (that stays D2.6b's postponed job, inherited by V2), and `config.site_name` links to
+  the page the box actually serves so a web box's database is about its own site.
+
+**D5b paid its debts to this row**: the `database` placement cell was waiting, and every database
+box has been shipping an `[mysqld]` config naming a `datadir` that does not exist since v0.155.0 —
+slice 1 is what honours it.
+
+Run `grill-me` against each remaining row before planning, as D3/D3b/D4/D5/D5b/D6 each did.
 
 Per slice, before any code: load `tdd`, `testing`, `mutation-testing`, `refactoring`; run full
 RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR; present before starting the next. Any `api/` change
