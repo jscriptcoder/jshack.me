@@ -64,6 +64,7 @@ import { CRACK_CHANCE, drawPassword } from './passwordPools';
 import { pickWebPage } from './pools/webPages';
 import { roleConfigFile } from './pools/configFiles';
 import { roleOfHostname } from './pools/hostnames';
+import { pickUsername } from './pools/usernames';
 import { placementOf } from './rolePlacement';
 import { ACCESS_LOG_PERMISSIONS } from '../logging/accessLog';
 import { VSFTPD_LOG_PERMISSIONS } from '../logging/vsftpdLog';
@@ -74,21 +75,6 @@ import type { LanHost } from './generateHomeLan';
 
 const pidfile = (content: string, owner: string): FileEntry =>
   file(content, PIDFILE_PERMISSIONS, owner);
-
-
-// --- NPC account content (seeded; cracking these is a later epic) ---
-
-/** Common service-account names an NPC box's non-root user is drawn from. */
-const HOST_USERNAMES: readonly string[] = [
-  'admin',
-  'ubuntu',
-  'pi',
-  'deploy',
-  'dev',
-  'operator',
-  'support',
-  'backup',
-];
 
 export type HostService = { readonly spec: ServiceSpec; readonly port: number };
 
@@ -160,7 +146,13 @@ export const hostServices = (essid: string, host: LanHost): readonly HostService
  */
 export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
   const prng = createPrng(`host-fs-${essid}-${host.ip}`);
-  const username = prng.pick(HOST_USERNAMES);
+
+  // What the box is FOR, read back off the hostname (as its services are), because a
+  // deep-layer NPC is named from its fronting gateway's stream and nothing here can
+  // see that seed. It decides who lives on the box and what the box keeps in /etc; a
+  // name no role claims gets a generic account and no config at all.
+  const role = roleOfHostname(host.hostname);
+  const username = pickUsername({ prng, role });
   const passwd = generatePasswd([
     {
       username: 'root',
@@ -208,11 +200,8 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
       : { [listenerPidfileName(backdoor.port)]: pidfile(formatListenerContent(backdoor), 'root') }),
   };
 
-  // What the box is FOR, and so what it keeps in /etc. Read back off the hostname
-  // (as its services are), because a deep-layer NPC is named from its fronting
-  // gateway's stream and nothing here can see that seed. A name no role claims keeps
-  // no config: there is nothing for such a box to admit to.
-  const role = roleOfHostname(host.hostname);
+  // A name no role claims keeps no config: there is nothing for such a box to admit
+  // to.
   const config =
     role === undefined
       ? null
