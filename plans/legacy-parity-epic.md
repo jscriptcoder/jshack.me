@@ -297,7 +297,7 @@ POST-SHIP — MISSIONS
 | **D3b** | **A player carries a file between two machines they hold** | `scp <src> <user>@<host>:<path> [port] [pw]`; the **transient** auth session (validate → transfer → end, legacy's `withTransientAuthSession`); two-endpoint resolution (local read + remote write through NAT/forwards); async progress + cancellation. Closes D2.5's named gap — **carrying a grown wordlist onto a rooted box** | FTP mode (D3's); recursive `-r`; directory transfer — decide at planning | A `scp /usr/share/wordlists/passwords.txt root@<NPC host>:/root/` → sweeps from that box with a list the shipped wordlist does not hold; a tier the credential does not carry refuses the write |
 | **D4** ✔ | **A defender controls what their box exposes** — **✔ SHIPPED** as slices 0–3 (#407–#410, v0.140.0–v0.142.0); grill record in ["D4 — resolved scope & decisions"](#d4--resolved-scope--decisions-grill-me-2026-08-16), as-built in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7/§9 and [`e2e-shared-network-verification.md`](../v2/docs/e2e-shared-network-verification.md) Act 13 | `systemctl start/stop/status/restart` + `ps`, sharing ONE implementation with the shipped `sshd`/`vsftpd`/`nginx` commands (collapsed first, slice 0); symmetric pidfile open/close; runs anywhere you stand; the two login-gate fixes (`ssh` exemption + same-LAN service check) | `kill` and session **eviction** (→ D5, where a planted backdoor is worth killing); `chmod` (independent capability, out of the epic row); `enable`/`disable`; a service-state log | A `systemctl stop sshd` → pidfile gone → B's scan drops `:22` and ssh-via-forward `404`s; A `ps` lists what is running; A restarts it and reachability returns |
 | **D5** ✔ | **A player plants a backdoor and re-enters through it** — **✔ SHIPPED** as slices 0–8 (#415–#423, v0.143.0–v0.151.0); grill record in ["D5 — resolved scope & decisions"](#d5--resolved-scope--decisions-grill-me-2026-08-16), as-built in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7/§9 and [`e2e-shared-network-verification.md`](../v2/docs/e2e-shared-network-verification.md) Acts 14-15 | `nc <host> <port>` → restricted NC shell (no PATH); `nc -l <port>` listener with owner metadata in the pidfile; **backdoor chain forwarding** — append a `forward` on every gateway out to the public edge and report the reachable address | Exploit-planted backdoors (Phase 3) | B (inside a host) `nc -l 4444` → forward auto-appended → B leaves, `nc <public IP> <fwd>` → lands as the listener's owner; the defender greps `rules.v4` and finds the breadcrumb |
-| **D5b** | **NPC machines have a kind, and it shows** — **GRILLED 2026-08-18**; the record in ["D5b — resolved scope & decisions"](#d5b--resolved-scope--decisions-grill-me-2026-08-18) supersedes the sketch in this row | A real role model, widening `LanHost.kind` (today `'machine' \| 'router' \| 'switch'`, `generateHomeLan.ts:31`) toward legacy's nine — webserver, database, mailserver, fileserver, iot, dns, switch, router, workstation; role-driven hostnames (today `DEVICE_TYPES` is consumer devices — `desktop-7`, `iphone-12` — and golden-locked at `homeNetwork.ts:30`); **role-weighted service placement** (a database box almost always runs mysql; a phone almost never runs nginx); role-keyed content pools, starting with the web pages D1 ships flat | Mission-specific roles (post-ship) | `nmap` a LAN and the boxes read as a *population*: `web-04` serves nginx and a corporate portal, `db-11` runs mysql, `cam-31` is an IoT box with a camera panel. A player can tell what a box probably is before touching it |
+| **D5b** ✔ | **NPC machines have a kind, and it shows** — **✔ SHIPPED** as slices 1–5 (#428–#432, v0.153.0–v0.157.0); grill record in ["D5b — resolved scope & decisions"](#d5b--resolved-scope--decisions-grill-me-2026-08-18), close-out in ["D5b — what shipped"](#d5b--what-shipped-and-what-it-deliberately-did-not-do-closed-2026-08-19-v01570), as-built in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7 | A real role model, widening `LanHost.kind` (today `'machine' \| 'router' \| 'switch'`, `generateHomeLan.ts:31`) toward legacy's nine — webserver, database, mailserver, fileserver, iot, dns, switch, router, workstation; role-driven hostnames (today `DEVICE_TYPES` is consumer devices — `desktop-7`, `iphone-12` — and golden-locked at `homeNetwork.ts:30`); **role-weighted service placement** (a database box almost always runs mysql; a phone almost never runs nginx); role-keyed content pools, starting with the web pages D1 ships flat | Mission-specific roles (post-ship) | `nmap` a LAN and the boxes read as a *population*: `web-04` serves nginx and a corporate portal, `db-11` runs mysql, `cam-31` is an IoT box with a camera panel. A player can tell what a box probably is before touching it |
 | **D6** | **A player reads a machine's database** | `mysqld` catalog row + placement; **generated schema + data** (legacy `generateDatabase.ts`, `pools/database.ts`); `mysql <host> <user> [pw]` → `mysql>` prompt (parser/formatter/executor); hydra `mysql` service | Writes/`UPDATE` — decide at planning | B `hydra <host> mysql` → creds → `SHOW TABLES` / `SELECT` returns generated data worth reading |
 | **D7** | **A player reads a machine's key-value store** | `redis` catalog row + placement; generated data (`generateRedisData.ts`, `pools/redis.ts`); `rediscli <host> [pw]` → `redis>` prompt | — | B `rediscli <host>` → `KEYS *` / `GET` |
 | **D8** | **A player reconfigures a device without holding a shell on it** | `snmpwalk <host> [community]` (public = basic, RW = full); `snmpset <host> <community> <oid=value>`; `snmpd.conf` firewall + ACL OID parsers → live port overrides; hydra community strings | — | B `snmpwalk` with `public` → basic info; B cracks the RW community → `snmpset firewallSSH permit` → port 22 opens **without B ever logging in** |
@@ -1588,43 +1588,46 @@ before a port is parsed, so it would be an unreachable branch); no `-9` (v2's fl
 first, and the words are not `kill`'s to choose). The own-LAN journal-replay gap and `nmap`'s
 5-digit port padding are both open in §9.
 
-**➡️ NEXT: close D5b out, then grill D6.** D5b is **CODE COMPLETE** at v0.157.0 — all five slices
-shipped (v0.153.0 – v0.157.0). A generated LAN is now a population a player can read end to end: a
-scan returns `cam-31` and `db-11` rather than `iphone-40`, the names predict the ports, a box you
-stand on keeps a config in `/etc` a **guest** can read, the page it serves fits it, and the account
-`hydra` hands back belongs to the box — `mail-139` answers with `dkim`, `thermostat-207` with
-`mqtt`, `warehouse-235` with `reporting`, and a laptop with somebody's name. What remains is the
-close-out this plan asks for: fold the as-built into
-[`v2/docs/conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) and the D5b row above,
-then delete [`d5b-machine-roles.md`](d5b-machine-roles.md).
+### D5b — what shipped, and what it deliberately did not do (closed 2026-08-19, v0.157.0)
 
-**One correction worth carrying up, because it was a locked decision.** Decision 9 accepted that
-role-keying the account pool would re-roll every NPC password in the world. Measuring the generator
-says it does not: `pick` consumes exactly one `next()` whatever the pool's width, and the host-fs
-seed is the box's address rather than its name. Every password in the world stayed where it was, and
-D5b re-rolled **nothing at all** except what a box is named and what it carries.
+Five slices, `#428`–`#432`, v0.153.0 – v0.157.0. The plan file is gone; the durable part lives in
+[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7. A generated LAN reads as a
+population end to end: `nmap` returns `cam-31` and `db-11` rather than `iphone-40`, a webserver-named
+box answers `:80` at 0.95 where a camera offers `:22` at 0.1, a box you stand on keeps an `/etc`
+config a **guest** can read, the page it serves fits it, and the account `hydra` hands back belongs
+to it — `mail-139` answers with `dkim`, `thermostat-207` with `mqtt`, a laptop with somebody's name.
 
-**Why D5b sat before D6**, now settled rather than pending: *D5b had to land before D6*, because
-role-weighted placement is what makes "find a database box" mean something rather than a flat
-probability sprinkling mysql across a LAN of phones. It also **had to land before ship** — it
-re-rolls the generated world, so every door that shipped first is a door whose placement gets
-re-rolled under it, and the no-backward-compat licence that makes the re-roll free sunsets at
-multiplayer announce. **GRILLED 2026-08-18, PLANNED 2026-08-19, SHIPPED 2026-08-19** — ten locked
-decisions in ["D5b — resolved scope & decisions"](#d5b--resolved-scope--decisions-grill-me-2026-08-18),
-delivered as five slices. Two things the grill narrowed are worth keeping after the plan file goes:
-the role is **derived, not stored**, so `LanHost.kind` was never widened and no wire format moved;
-and `DEVICE_TYPES` was not replaced but re-homed as the `workstation` role's prefix pool, while the
-golden lock on it turned out to belong to the PLAYER's own hostname and stayed put. Every earlier
-door stayed role-agnostic, so D5b was additive to all of them: it changed which content and services
-get picked, never the shape of what is stamped or how a door authorizes.
+- **The role is DERIVED and read back off the hostname.** `LanHost.kind` was never widened, no wire
+  format moved, and nothing about a role travels. The hostname is the only carrier, which is why the
+  prefix pools are load-bearing — see the invariant in the conventions doc before renaming one.
+- **The whole epic re-rolled nothing but names.** Locked decision 10 accepted new NPC `machine_id`s
+  (the hostname feeds `hostMachineId`) and that is real. Locked decision 9 accepted re-rolling every
+  NPC password, and **that cost was never charged**: `pick` consumes one `next()` at any pool width
+  and the host-fs seed is the box's address, so every credential in the world stayed put. The octets
+  never moved either, which is what kept the lease allocator honest.
+- **Three roles took a placement cell before their door exists** — `fileserver` and `database` wear
+  the ftp signature (a dump has to leave the box somehow, and ftp is the only door either can
+  express today), `iot` suppresses ssh to 0.1. `workstation`, `mailserver` and `dns` stay flat,
+  because a cell invented before its door ships is a number with no claim behind it. **D6 inherits
+  the `database` cell**: when `mysqld` lands it gets a real one.
+- **What it deliberately did not do**, and who inherits it: no web bucket for `database` or
+  `fileserver` (15% of served pages between them — the `/etc` config already speaks for both, and
+  the volume question belongs to the generated-content epic); no split of `iot` into camera and
+  sensor, so a TV can draw `modbus`; no revisit of prefix-pool DEPTH, where repeats inside one large
+  LAN are visible (4–7 names per role, against 15 per role for accounts). All three are content
+  decisions, and the generated-world-content epic is where they belong.
+- **`dns` exists with nothing to run against it.** Kept at 3% on the reading that a role a player
+  meets rarely is worth having named when they do; X1's `nslookup` is what makes it answer.
 
-**Then D6 — a player reads a machine's database (`mysql`)**, fourth door in the locked order
+**➡️ NEXT: D6 — a player reads a machine's database (`mysql`)**, fourth door in the locked order
 (ftp → daemons → nc → **mysql** → redis → snmp → node): a `mysqld` catalog row plus placement, a
 generated schema and data worth reading, the `mysql>` prompt behind a parser/formatter/executor,
-and hydra's `mysql` service. **Not yet grilled either.** Two things already known about it: D3's
+and hydra's `mysql` service. **Not yet grilled.** Three things already known about it: D3's
 sub-shell shape is what a `mysql>` prompt inherits (`ftp` set the pattern, and D5 slice 4 showed a
 prompt can be a real hop instead), and a door with nothing behind it is a protocol demo — the
-generated database ships with the door, per locked decision 4. Its placement is D5b's to decide.
+generated database ships with the door, per locked decision 4. And **its placement cell is
+waiting for it** — D5b gave the `database` role the ftp signature because that was the only door it
+could express, so `mysqld` arrives to a table that already has a row with its name on it.
 
 Run `grill-me` against each row before planning, as D3/D3b/D4/D5 each did.
 
