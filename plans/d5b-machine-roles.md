@@ -3,7 +3,7 @@
 **Branch**: one per slice, `feat/d5b-<slice>`
 **Status**: Active
 **Grill record**: ["D5b — resolved scope & decisions"](legacy-parity-epic.md#d5b--resolved-scope--decisions-grill-me-2026-08-18) — ten locked decisions, not to be re-litigated here.
-**Current version**: 0.155.0 (slices 1–3 shipped; slice 4 is on `feat/d5b-role-web-pages`). Each slice is a feature change, so each bumps the minor in both `v2/package.json` and `v2/package-lock.json`.
+**Current version**: 0.156.0 (slices 1–4 shipped). Each slice is a feature change, so each bumps the minor in both `v2/package.json` and `v2/package-lock.json`.
 
 ## Goal
 
@@ -23,7 +23,7 @@ can read: `cam-31` is a camera, `web-04` publishes something, `db-11` is worth c
       or a database box is a find.
 - [x] `ls /etc` on a generated box as **guest** names what the box is for — `mysql.cnf` on a
       database box, `device.conf` on a camera — including on the roles whose door has not shipped.
-- [ ] `curl http://<camera>` returns something a camera would serve, not the corporate-portal page.
+- [x] `curl http://<camera>` returns something a camera would serve, not the corporate-portal page.
 - [ ] `hydra <camera> ssh` returns an account that belongs on a camera (`sensor`, `mqtt`), not
       `deploy`.
 - [x] Every host's own address is unchanged by this work: NPC octets are byte-stable, so no
@@ -336,7 +336,7 @@ that no draw moved; mutation report presented.
 
 ---
 
-### Slice 4: The page a box serves fits the box
+### Slice 4: The page a box serves fits the box — ✔ COMPLETE (v0.156.0)
 
 **Value**: A camera stops serving an internal corporate portal, and so does somebody's laptop. The
 contradiction slice 1 created by naming boxes is closed for half of every page the world serves.
@@ -398,6 +398,40 @@ whether that question belongs to slice 5, where the fifth lands.
 
 **Done when**: acceptance criteria met; the general bucket's pages proved byte-identical; the
 no-dead-links property test passing over every bucket; mutation report presented.
+
+**As built** — shipped v0.156.0.
+
+- `pickWebPage` takes `role: DrawnRole | undefined`, the type `roleOfHostname` returns and
+  `placementOf` already accepts. `WEB_PAGES` became `GENERAL_SERVER_PAGES`; `IOT_PAGES` and
+  `WORKSTATION_PAGES` sit beside it, four entries each, and `PAGES_BY_ROLE` is a
+  **`ReadonlyMap<DrawnRole | undefined, readonly string[]>`** — keyed by a role OR by the absence of
+  one, so the lookup is total and the function is one expression:
+  `pick(PAGES_BY_ROLE.get(role) ?? GENERAL_SERVER_PAGES)`.
+- **That Map shape came out of the mutation run.** The first pass left one survivor — the
+  `role === undefined ? undefined : PAGES_BY_ROLE[role]` guard, which is equivalent, since indexing
+  an object with `undefined` yields `undefined` at runtime and the guard existed only to satisfy the
+  type. Removing the branch was better code on its own merits and took the score to 22/22.
+- **Byte stability was proved two ways, not asserted once.** At every address where a `www-`, `db-`,
+  `mail-`, `nas-` or `dns-` box and a nameless box both serve, the page is identical — and an md5
+  golden pins the four general templates, captured before the buckets existed so it blesses nothing
+  this slice did.
+- **A preservation test failed for the wrong reason first, and that was worth catching.** It
+  compared `www-N` against `host-N` at every address; `webserver` publishes at 0.95 where a nameless
+  box rolls 0.3, so most comparisons had a page on one side only. Corrected to compare where both
+  serve, with a guard that more than 50 addresses qualify — WHICH hosts serve is the placement
+  table's business, not this slice's.
+- Every entry of every bucket is proved reachable across the population, the width pinned at 4 as
+  the general pool's already was. Slice 3's lesson applied without being relearned.
+- Authoring rule made explicit in the module docstring: **no page hints at a mechanic the game does
+  not have.** "Default password unchanged" would send a player after something that does not exist —
+  the same sin as linking a path the host cannot serve.
+- Refactor assessed, nothing merged: the four role-keyed tables this epic has accumulated
+  (`HOSTNAME_PREFIXES`, `PLACEMENT_BY_ROLE`, `CONFIG_BY_ROLE`, `PAGES_BY_ROLE`) are keyed alike but
+  are not the same knowledge — adding a hostname prefix implies nothing about pages, and they change
+  for different reasons. One home would be a table every generation module depends on, with each
+  cell typed separately anyway. Slice 5 lands the fifth and may revisit.
+- Evidence: 3030 tests across 154 files; typecheck and lint clean; mutation 22/22 on
+  `pools/webPages.ts`. No wire-checks — nothing in `api/` changed.
 ---
 
 ### Slice 5: The account you crack fits the box
