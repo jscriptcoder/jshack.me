@@ -3,7 +3,7 @@
 **Branch**: one per slice, `feat/d5b-<slice>`
 **Status**: Active
 **Grill record**: ["D5b — resolved scope & decisions"](legacy-parity-epic.md#d5b--resolved-scope--decisions-grill-me-2026-08-18) — ten locked decisions, not to be re-litigated here.
-**Current version**: 0.155.0 (slices 1–3 shipped). Each slice is a feature change, so each bumps the minor in both `v2/package.json` and `v2/package-lock.json`.
+**Current version**: 0.155.0 (slices 1–3 shipped; slice 4 is on `feat/d5b-role-web-pages`). Each slice is a feature change, so each bumps the minor in both `v2/package.json` and `v2/package-lock.json`.
 
 ## Goal
 
@@ -338,8 +338,8 @@ that no draw moved; mutation report presented.
 
 ### Slice 4: The page a box serves fits the box
 
-**Value**: A camera stops serving an internal corporate portal. The contradiction slice 1 created
-by naming boxes is closed.
+**Value**: A camera stops serving an internal corporate portal, and so does somebody's laptop. The
+contradiction slice 1 created by naming boxes is closed for half of every page the world serves.
 **Path**: `curl http://<host>` → `buildRemoteHostFs`'s `/var/www/html/index.html` → `pickWebPage`
 → the role's bucket.
 **Class**: Behavior change.
@@ -347,30 +347,57 @@ by naming boxes is closed.
 **Reduction program**: `N/A`.
 **Transition/terminal evidence**: `N/A`.
 
+**Which roles earn a bucket — settled by measurement, not by guess.** Over 40 generated LANs, the
+84 boxes serving `:80` break down as: `webserver` 29.8%, `workstation` 27.4%, `iot` 23.8%,
+`fileserver` 10.7%, `database` 4.8%, `dns` + `mailserver` 3.6%. The planning sketch assumed `iot`
+was the contradiction to fix; it is under a quarter of it. **A personal machine serves more pages
+than a camera does** — there are more than twice as many workstations, and the flat 0.3 http rate
+applies to both — so `laptop-7` returning "Internal corporate portal v3.1.0" is the same lie a
+player meets slightly more often. Two buckets ship: `iot` and `workstation`, together 51% of served
+pages. What is left on the general bucket is mostly `webserver` (29.8%), which is what those four
+pages already read as. `database` and `fileserver` are deferred: between them 15%, and both already
+say what they are through the `/etc` config slice 3 gave them.
+
 **Acceptance criteria** (present and confirm before any code):
-- A camera-role host that serves the web returns a page that reads as a camera's.
-- A role with no bucket authored returns a page from the general-server bucket — today's four
-  pages, unchanged.
-- No page links a path its host does not serve; the existing property test covers the new buckets
-  as well as the old.
+- A camera-role host that serves the web returns a page that reads as a camera's, and a
+  workstation-role one returns a page that reads as somebody's own machine — neither returns the
+  corporate portal.
+- A role with no bucket authored — `webserver`, `fileserver`, `database`, `mailserver`, `dns` — and
+  a host whose name claims no role both return today's four general-server pages, **byte-identical**
+  to what they return now. `pick` consumes one `next()` whatever the pool's length, so swapping in a
+  role-keyed pool is draw-stable, exactly as slice 1's hostname pools were.
+- Every new page holds to the properties the four existing ones already hold to: it names the host
+  serving it, it links no path its host does not serve, and it leaks recon that promises nothing —
+  a version and a careless comment, the two things `curl` shows that a browser will not.
+- Every entry of every bucket is reachable across the population. Slice 3's trap, carried forward: a
+  page a player can meet that no test has ever read is a page that can be blanked unnoticed.
 
-**RED**: A test fetching the page from a generated `iot` host and asserting it is not drawn from
-the general bucket — failing today because `pickWebPage` has one pool.
+**RED**: A test fetching the page from a generated `iot` host and from a `workstation` one,
+asserting each reads as its kind — failing today because `pickWebPage` has one pool and both get the
+corporate portal. Paired with a byte-stability test for the general bucket, written **before** the
+change so it proves the invariant rather than blessing whatever happens.
 
-**GREEN**: `pickWebPage` grows its `role` argument as its docstring promised; `WEB_PAGES` becomes
-the general-server bucket; an `iot` bucket is authored. The seed stays the caller's own composed
-stream — unchanged.
+**GREEN**: `pickWebPage` grows its `role` argument as its docstring promised, typed
+`DrawnRole | undefined` to match what `roleOfHostname` returns and what `placementOf` already takes.
+`WEB_PAGES` becomes the general-server bucket; `iot` and `workstation` buckets are authored beside
+it in a `Partial<Record<DrawnRole, readonly string[]>>` — sparse on purpose here, unlike
+`rolePlacement`'s full record, because an absent row means "nothing particular to serve" and the
+general bucket is the right answer for it. The seed stays the caller's own composed stream,
+unchanged. `renderPage.test.ts`'s call site takes the new argument.
 
-**MUTATE**: Stryker over `pickWebPage`. Mutants that matter: the role argument ignored, the
-fallback returning empty rather than the general bucket, and the hostname interpolation dropped.
+**MUTATE**: Stryker over `pickWebPage`. Mutants that matter: the role argument ignored, the fallback
+returning empty rather than the general bucket, the hostname interpolation dropped, and any single
+page blanked.
 
-**KILL MUTANTS**: Assert on page content, not on which bucket was consulted.
+**KILL MUTANTS**: Assert on page content, not on which bucket was consulted. Bucket entries are
+proved reachable over the population sweep, as slice 3's templates are.
 
-**REFACTOR**: Assess bucket organisation only if a second bucket lands in this slice.
+**REFACTOR**: Assess bucket organisation now that a second bucket exists — and whether the four
+role-keyed pools this epic has accumulated (hostnames, placement, configs, pages) want one home, or
+whether that question belongs to slice 5, where the fifth lands.
 
-**Done when**: acceptance criteria met; the no-dead-links property test passing over every bucket;
-mutation report presented.
-
+**Done when**: acceptance criteria met; the general bucket's pages proved byte-identical; the
+no-dead-links property test passing over every bucket; mutation report presented.
 ---
 
 ### Slice 5: The account you crack fits the box
@@ -449,7 +476,11 @@ There is no DDD glossary in this repo; the term check is satisfied by adopting l
 - Prefix pool depth per role, before repeats inside one LAN start to read as generated. Slice 1
   shipped 4–7 names per role and `DEVICE_TYPES` for `workstation`; repeats within one LAN are
   visible on the larger networks and may want revisiting once placement makes names load-bearing.
-- Which roles earn a web bucket beyond `iot`.
+- ~~Which roles earn a web bucket beyond `iot`~~ — **settled at slice 4 planning**: `iot` AND
+  `workstation`, chosen by measuring 40 generated LANs rather than by intuition. A personal machine
+  turns out to serve more pages than a camera does (27.4% of served pages against 23.8%), so fixing
+  only the camera would have left the larger half of the same lie standing. `database` and
+  `fileserver` deferred — 15% between them, and slice 3's config file already speaks for both.
 - ~~Config file contents~~ — **settled at slice 3 planning**: a real config with recon value,
   carried over from legacy's `configTemplatesByRole` rather than a stub header naming the role. A
   file whose only content is "this is a camera" says nothing the hostname did not. `{{user}}` is

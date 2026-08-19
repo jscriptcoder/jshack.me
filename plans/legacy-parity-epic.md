@@ -264,7 +264,7 @@ PHASE 1 — THE DOORS  (near-term focus)
   D5b machines get a kind, and it shows               ← IN PROGRESS (3 of 5 shipped)
       D5b slice 1 a LAN reads as a population          ✔ SHIPPED v0.153.0 (#428)
       D5b slice 2 a name matches what it runs          ✔ SHIPPED v0.154.0 (#429)
-      D5b slice 3 a box admits what it is              ✔ SHIPPED v0.155.0
+      D5b slice 3 a box admits what it is              ✔ SHIPPED v0.155.0 (#430)
       D5b slice 4 the page a box serves fits the box   ← NEXT
   D6  mysql
   D7  rediscli
