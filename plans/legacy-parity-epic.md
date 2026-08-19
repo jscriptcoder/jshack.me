@@ -260,7 +260,8 @@ PHASE 1 — THE DOORS  (near-term focus)
       D4 slice 1 a defender shuts a door               ✔ SHIPPED v0.140.0
       D4 slice 2 a player sees what a box runs         ✔ SHIPPED v0.141.0
       D4 slice 3 every login gate asks one question    ✔ SHIPPED v0.142.0
-  D5  nc connect + nc -l backdoor
+  D5  nc connect + nc -l backdoor                     ✔ COMPLETE v0.151.0 (#415-#423)
+  D5b machines get a kind, and it shows               ← NEXT (grilled, not yet planned)
   D6  mysql
   D7  rediscli
   D8  snmpwalk / snmpset
@@ -290,8 +291,8 @@ POST-SHIP — MISSIONS
 | **D3** | **A player moves files without a shell** — **ftp only; `scp` split out to D3b 2026-08-14** | `vsftpd` daemon + catalog row + placement; `ftp <host> [user] [pw]` + FTP mode command set (`get`/`put`/`ls`/`cd`/`lls`/`lcd`/`lpwd`/`quit`); `vsftpd.log` trace; ftp as a hydra service. **No content generator** — the target's FS is the content | Virtual users (`virtual_users.conf`); `scp` (→ D3b) | B `hydra`s ftp creds → `ftp <host>` → `get` a file → `put` one the owner then sees; the session authorizes at its tier through L1/L2 exactly as ssh does (decision 2) |
 | **D3b** | **A player carries a file between two machines they hold** | `scp <src> <user>@<host>:<path> [port] [pw]`; the **transient** auth session (validate → transfer → end, legacy's `withTransientAuthSession`); two-endpoint resolution (local read + remote write through NAT/forwards); async progress + cancellation. Closes D2.5's named gap — **carrying a grown wordlist onto a rooted box** | FTP mode (D3's); recursive `-r`; directory transfer — decide at planning | A `scp /usr/share/wordlists/passwords.txt root@<NPC host>:/root/` → sweeps from that box with a list the shipped wordlist does not hold; a tier the credential does not carry refuses the write |
 | **D4** ✔ | **A defender controls what their box exposes** — **✔ SHIPPED** as slices 0–3 (#407–#410, v0.140.0–v0.142.0); grill record in ["D4 — resolved scope & decisions"](#d4--resolved-scope--decisions-grill-me-2026-08-16), as-built in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7/§9 and [`e2e-shared-network-verification.md`](../v2/docs/e2e-shared-network-verification.md) Act 13 | `systemctl start/stop/status/restart` + `ps`, sharing ONE implementation with the shipped `sshd`/`vsftpd`/`nginx` commands (collapsed first, slice 0); symmetric pidfile open/close; runs anywhere you stand; the two login-gate fixes (`ssh` exemption + same-LAN service check) | `kill` and session **eviction** (→ D5, where a planted backdoor is worth killing); `chmod` (independent capability, out of the epic row); `enable`/`disable`; a service-state log | A `systemctl stop sshd` → pidfile gone → B's scan drops `:22` and ssh-via-forward `404`s; A `ps` lists what is running; A restarts it and reachability returns |
-| **D5** | **A player plants a backdoor and re-enters through it** | `nc <host> <port>` → restricted NC shell (no PATH); `nc -l <port>` listener with owner metadata in the pidfile; **backdoor chain forwarding** — append a `forward` on every gateway out to the public edge and report the reachable address | Exploit-planted backdoors (Phase 3) | B (inside a host) `nc -l 4444` → forward auto-appended → B leaves, `nc <public IP> <fwd>` → lands as the listener's owner; the defender greps `rules.v4` and finds the breadcrumb |
-| **D5b** | **NPC machines have a kind, and it shows** | A real role model, widening `LanHost.kind` (today `'machine' \| 'router' \| 'switch'`, `generateHomeLan.ts:31`) toward legacy's nine — webserver, database, mailserver, fileserver, iot, dns, switch, router, workstation; role-driven hostnames (today `DEVICE_TYPES` is consumer devices — `desktop-7`, `iphone-12` — and golden-locked at `homeNetwork.ts:30`); **role-weighted service placement** (a database box almost always runs mysql; a phone almost never runs nginx); role-keyed content pools, starting with the web pages D1 ships flat | Mission-specific roles (post-ship) | `nmap` a LAN and the boxes read as a *population*: `web-04` serves nginx and a corporate portal, `db-11` runs mysql, `cam-31` is an IoT box with a camera panel. A player can tell what a box probably is before touching it |
+| **D5** ✔ | **A player plants a backdoor and re-enters through it** — **✔ SHIPPED** as slices 0–8 (#415–#423, v0.143.0–v0.151.0); grill record in ["D5 — resolved scope & decisions"](#d5--resolved-scope--decisions-grill-me-2026-08-16), as-built in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7/§9 and [`e2e-shared-network-verification.md`](../v2/docs/e2e-shared-network-verification.md) Acts 14-15 | `nc <host> <port>` → restricted NC shell (no PATH); `nc -l <port>` listener with owner metadata in the pidfile; **backdoor chain forwarding** — append a `forward` on every gateway out to the public edge and report the reachable address | Exploit-planted backdoors (Phase 3) | B (inside a host) `nc -l 4444` → forward auto-appended → B leaves, `nc <public IP> <fwd>` → lands as the listener's owner; the defender greps `rules.v4` and finds the breadcrumb |
+| **D5b** | **NPC machines have a kind, and it shows** — **GRILLED 2026-08-18**; the record in ["D5b — resolved scope & decisions"](#d5b--resolved-scope--decisions-grill-me-2026-08-18) supersedes the sketch in this row | A real role model, widening `LanHost.kind` (today `'machine' \| 'router' \| 'switch'`, `generateHomeLan.ts:31`) toward legacy's nine — webserver, database, mailserver, fileserver, iot, dns, switch, router, workstation; role-driven hostnames (today `DEVICE_TYPES` is consumer devices — `desktop-7`, `iphone-12` — and golden-locked at `homeNetwork.ts:30`); **role-weighted service placement** (a database box almost always runs mysql; a phone almost never runs nginx); role-keyed content pools, starting with the web pages D1 ships flat | Mission-specific roles (post-ship) | `nmap` a LAN and the boxes read as a *population*: `web-04` serves nginx and a corporate portal, `db-11` runs mysql, `cam-31` is an IoT box with a camera panel. A player can tell what a box probably is before touching it |
 | **D6** | **A player reads a machine's database** | `mysqld` catalog row + placement; **generated schema + data** (legacy `generateDatabase.ts`, `pools/database.ts`); `mysql <host> <user> [pw]` → `mysql>` prompt (parser/formatter/executor); hydra `mysql` service | Writes/`UPDATE` — decide at planning | B `hydra <host> mysql` → creds → `SHOW TABLES` / `SELECT` returns generated data worth reading |
 | **D7** | **A player reads a machine's key-value store** | `redis` catalog row + placement; generated data (`generateRedisData.ts`, `pools/redis.ts`); `rediscli <host> [pw]` → `redis>` prompt | — | B `rediscli <host>` → `KEYS *` / `GET` |
 | **D8** | **A player reconfigures a device without holding a shell on it** | `snmpwalk <host> [community]` (public = basic, RW = full); `snmpset <host> <community> <oid=value>`; `snmpd.conf` firewall + ACL OID parsers → live port overrides; hydra community strings | — | B `snmpwalk` with `public` → basic info; B cracks the RW community → `snmpset firewallSSH permit` → port 22 opens **without B ever logging in** |
@@ -926,6 +927,172 @@ cites `apt install` stamping a world-executable binary. **The fix is one argumen
 
 ---
 
+## D5b — resolved scope & decisions (grill-me, 2026-08-18)
+
+**A LAN stops being a bag of boxes and becomes a population.** Every generated NPC gains a role it
+did not have, and that role decides what the box is called, what it runs, what it serves, who
+lives on it, and what it admits when you read its `/etc`.
+
+### Grounding that reshaped the scope before any decision
+
+- **`machine` is an unsplit role, not a different axis.** `LanHostKind` (`generateHomeLan.ts:31`)
+  is already a subset of legacy's nine — legacy's `MachineRole` (`src/generation/types.ts:19`) is
+  the same `router`/`switch` plus seven machine roles. This splits a placeholder rather than
+  introducing a concept.
+- **Legacy was role-DETERMINED, not role-weighted.** `portTemplatesByRole` (`pools/ports.ts:11`)
+  fixes the port set per role — a webserver always has 22/80/443, a database always 3306, no
+  probability anywhere. v2 is the opposite: independent flat rolls (ssh `0.4`, http `0.3`, ftp
+  `0.3`). The epic's word "weighted" describes neither codebase. It is a third model, and it is the
+  one this slice builds.
+- **Legacy assigned roles uniformly** — `prng.pick(allRoles)` over seven (`topology.ts:287`), with
+  only the entry machine constrained. There was no "what kind of network is this" concept to
+  inherit, so the weighting here is new work, not a port.
+- **`themedNetworks/` is not a LAN role model.** It is hand-authored internet destinations with
+  HTTP request handlers (`findit.io`, `techparts.io`) — the epic's X2, not this row. Nothing about
+  per-LAN archetypes exists to inherit.
+- **Role is needed at exactly two sites, and both already hold the seed.** `hostServices` has ONE
+  caller, `buildRemoteHostFs`, because services bake into `/var/run` at build time and everything
+  downstream — `nmap`, `ps`, `readOpenPorts` — reads the filesystem rather than the roll.
+- **`pools/webPages.ts` predicted this slice in its own docstring**: "When hosts gain a kind … this
+  grows a `role` argument and the pool becomes role-keyed buckets; today's entries are the
+  general-server bucket, so that change is additive and no caller moves." The seam is pre-built.
+- **`DEVICE_TYPES` has two callers and only one is an NPC.** The other is `assignHomeNetwork`
+  (`homeNetwork.ts:53`) — the PLAYER's own DHCP hostname, and the one that is golden-locked.
+- **The hostname is inside the machine_id.** `hostMachineId` (`remoteHostId.ts:20`) prefixes the
+  host's own name to a hash of `host:essid:ip`. The docstring's "derived from its network
+  COORDINATES" is true of the suffix; the prefix is the name. **Renaming every NPC re-keys every
+  NPC machine_id.**
+
+### Forced rather than chosen (planning should not re-litigate)
+
+- **The catalog holds three services.** `ssh`, `http`, `ftp`. `mysql` is D6, `redis` D7, `snmp` D8.
+  A role whose signature service has not shipped is a name, a weighting and a config file until it
+  does. This is why decision 1 carries a cost rather than avoiding one.
+- **`nmap`'s host list includes real players.** Fellow occupants and the player's own box are rows
+  in the same table (`nmap.test.ts:797`) and carry no role, so no role can ever be total in that
+  OUTPUT even though it is total for generated hosts.
+- **Renaming re-keys.** Given `hostMachineId` above, orphaned NPC rows are a consequence of naming,
+  not a separate choice made alongside it.
+
+### Locked decisions
+
+**1. All seven machine roles ship now — empty columns and all.** `webserver`, `database`,
+`fileserver`, `workstation`, `mailserver`, `iot`, `dns`. The world reads as a full population
+immediately and each later door becomes a table edit rather than a re-roll. **Cost accepted:** at
+D5b a `db-11` runs no database, because none exists yet. Decision 9 is what keeps that box from
+being empty, and decision 4 is what keeps it rare.
+
+**2. Placement is sparse per-role overrides over today's flat default.** `spec.placement` stays a
+service-level property and remains the answer for any `(role, service)` cell nobody names. A role
+names only the cells that differ — `iot { ssh: 0.15 }`, `webserver { http: 0.9 }`. Rejected: a full
+9×7 table (63 numbers nobody would tune, and population-testing each cell is impractical when
+today's assertions sweep 8 networks × 253 octets), and legacy's deterministic templates (they
+delete the variance the ftp row deliberately bought — "a share of these hosts run NO ssh at all",
+the box a `:22` sweep can never open).
+
+**3. Role is DERIVED, not stored.** `hostRole(seed, host)` sits beside `hostServices` and
+`hostBackdoor`; `LanHost` is untouched. Two occupants scanning one box agree because they run the
+same derivation, which is the property `generateHomeLan`'s docstring exists to protect — and it is
+D5's own lesson applied again, where a listener's PID is derived for exactly that reason. No wire
+change, and the 85 test files that pattern-match `kind` stay as they are.
+
+**4. The draw is weighted, not uniform.** `workstation` and `iot` common; `webserver` and
+`fileserver` occasional; `database`, `mailserver`, `dns` rare. These are home wifi LANs reached by
+wardriving — `generateHomeLan`, ESSID-seeded, found with `airdump` — so a mailserver on a flat's
+network should be a find, not a coin flip. It also softens decision 1 for free: the roles with
+nothing behind them yet are exactly the ones a player meets seldom.
+
+**5. Names keep `<prefix>-<octet>`; the prefix becomes role-keyed.** `cam-31`, `web-04`, `db-11`.
+Uniqueness stays free from the octet and a hostname keeps encoding its address, which the terminal
+leans on constantly. Today's consumer `DEVICE_TYPES` is not deleted — it becomes the `workstation`
+and `iot` prefix pools. Rejected: legacy's full-name pools (`web01`, `db-primary`), which drop the
+address encoding and need a dedup legacy never had.
+
+**6. The role is total, so `router` and `switch` are members — known from `kind`, never drawn.**
+The union is legacy's nine. `routerFs` KEEPS its own builder (it has a different job: gateway
+config, forwards, NAT, the chain out to the public edge), but its private `ROUTER_SSH_PROBABILITY
+= 1` moves into the shared table as the router row's `ssh` override. One table describes what every
+host in the world runs, read by two builders — a net removal of one hardcoded constant, with no
+slice-sized risk to the NAT machinery every cross-player door stands on.
+
+**7. Deep-layer NPCs get roles; players never do.** `generateDeepLayer` builds hosts identically,
+so the derivation drops in with a different seed — and the layers behind an inner gateway are
+exactly where someone is hunting something worth finding, so they must not be the flattest part of
+the world. A player's box is excluded: its services are what they installed and its name is the
+golden-locked DHCP draw, so a role would be a label nothing generates and nothing honours.
+`assignHomeNetwork` and its golden lock are untouched by this slice.
+
+**8. `nmap`'s third column stays `KIND`.** `machine`/`router`/`switch` is the one fact true of
+every row, generated or human. Role reaches the player through the hostname and through what a port
+scan finds — the recon loop the game is built on. Rejected on a gameplay ground, not a cosmetic
+one: any role column leaves occupant rows either wearing a label we declined to invent or showing a
+blank, and that blank tells a player which addresses on a shared LAN belong to real people, for
+free, before touching anything.
+
+**9. Web pages, NPC account names and one `/etc` config file are all role-keyed, sparsely.**
+Pages: `pickWebPage` grows its role argument as promised, today's four become the general-server
+bucket, and buckets are authored only where a flat page now reads as a contradiction — `cam-31`
+serving "Internal corporate portal v3.1.0" being the first. Accounts: the uid-1000 name comes from
+a role pool (`sensor`, `mqtt` on a camera; `mailops` on a mailserver) rather than the flat eight,
+because it is the name `hydra` targets and the one a player types at `su`. Config: legacy's
+`serviceConfigNames` (`machineConfig.ts:160`) — one world-readable file per role, so `ls /etc` is a
+tell at guest tier, the lowest recon a player has. That file is what gives `database`, `mailserver`
+and `dns` something real to find before their doors ship.
+
+**10. The NPC machine_id re-key is accepted, not avoided.** Renaming changes every NPC
+`machine_id`, orphaning any server row holding one. The no-backward-compat licence exists for this,
+and the slice re-rolls the world anyway — names, services, accounts, passwords. The id also stays
+readable, which is worth real money when debugging a cross-player hop. Rejected: making the id
+purely coordinate-derived first, which is the right long-run shape but puts the most load-bearing
+identity function in the cross-player system inside a slice about flavour.
+
+### Folded in as routine (recorded so they are not re-decided)
+
+- **The account pool change re-rolls every NPC password.** The username is drawn from the same prng
+  immediately before the password, so touching the pool shifts the draw — and with it the wordlist
+  progression's difficulty. Free under the licence, but it is a re-roll of the crack curve, not
+  only of names.
+- **Population evidence, not single-host assertions.** Every probability here is proved the way
+  D2.2's crackable knobs and D5's `0.10` backdoor placement were — measured across a sample large
+  enough to reject a flipped or doubled value, per `remoteHostFs.test.ts`'s 8 networks × 253
+  octets.
+- **The golden locks split cleanly.** `homeNetwork.test.ts`'s golden is the PLAYER side and must
+  not move. `generateHomeLan.test.ts`'s golden is the NPC side and is expected to.
+- **A wire-check holding a machine_id across the rename will fail confusingly.** That is decision
+  10's blast radius meeting the existing rule that ESSID-seeded ids make scripts each other's stale
+  rows. Re-run alone before believing a RED.
+
+### Slice spine (each vertical + observable)
+
+- **Slice 1 — a LAN reads as a population.** `hostRole` + the weighted draw + role-keyed hostname
+  pools, for LAN siblings and deep-layer hosts alike. `nmap <subnet>` returns `cam-31`, `web-04`,
+  `db-11` where it returned `iphone-40` and `desktop-7`. The walking skeleton: the role exists and
+  shows, before anything depends on it.
+- **Slice 2 — what a box is called matches what it runs.** Sparse placement overrides, plus the
+  router constant moving into the shared table. A `web-04` answers on `:80` far more often than a
+  phone does, and a `cam-31` rarely offers `:22` — measured across a population.
+- **Slice 3 — a box admits what it is when you read it.** The `/etc` role config file, guest-
+  readable. `ls /etc` on `db-11` shows `mysql.cnf` before any mysql exists to run.
+- **Slice 4 — the page a box serves fits the box.** Role-keyed `pickWebPage` buckets with the
+  general-server fallback. `curl http://cam-31` returns a camera panel, not a corporate portal.
+- **Slice 5 — the account you crack fits the box.** Role-keyed NPC account names. `hydra <cam-31>
+  ssh` hands back `sensor`, not `deploy`.
+
+### Open for planning (named, deliberately not decided)
+
+- **The seven weights.** How rare is rare — and whether `dns` deserves to exist on a home LAN at
+  all before X1 ships `nslookup`.
+- **Which override cells get written now, and their values.** In particular whether the three
+  service-less roles take a today-expressible signature (`fileserver { ftp: 0.9 }`,
+  `database { ftp: 0.6 }` — a dump has to leave somehow) or stay unweighted until their door lands.
+- **Prefix pool contents per role**, and how deep each pool must be before repeats inside one LAN
+  start to read as generated.
+- **Which roles earn a web bucket beyond `iot`**, and whether each bucket honours the existing
+  property test that no page links a path its host does not serve.
+- **Config file contents** — a stub header naming the role, or something with recon value in it.
+- **The deep-layer role seed's composition**, given deep hosts seed off `parentMachineId` rather
+  than the essid.
+
 ## Open branches (named, not yet decided)
 
 1. ~~**`nc -l` semantics (D5)**~~ — **RESOLVED 2026-08-16 at D5's grill.** A session with no
@@ -1416,14 +1583,30 @@ before a port is parsed, so it would be an unreachable branch); no `-9` (v2's fl
 first, and the words are not `kill`'s to choose). The own-LAN journal-replay gap and `nmap`'s
 5-digit port padding are both open in §9.
 
-**➡️ NEXT: D6 — a player reads a machine's database (`mysql`).** Fourth door in the locked order
-(ftp → daemons → nc → **mysql** → redis → snmp → node), and the row above names its scope: a
-`mysqld` catalog row plus placement, a generated schema and data worth reading, the `mysql>` prompt
-behind a parser/formatter/executor, and hydra's `mysql` service. **Not yet grilled** — run
-`grill-me` against that row before planning, as D3/D3b/D4/D5 each did. Two things already known
-about it: D3's sub-shell shape is what a `mysql>` prompt inherits (`ftp` set the pattern and
-D5 slice 4 showed a prompt can be a real hop instead), and a door with nothing behind it is a
-protocol demo — the generated database ships with the door, per locked decision 4.
+**➡️ NEXT: D5b — NPC machines have a kind, and it shows.** Not a door — the world the remaining
+doors get placed into, and the epic's own sequencing rule puts it here: *D5b must land before D6*,
+because role-weighted placement is what makes "find a database box" mean something rather than a
+flat probability sprinkling mysql across a LAN of phones. It also **must land before ship** — it
+re-rolls the generated world, so every door that ships first is a door whose placement gets
+re-rolled under it, and the no-backward-compat licence that makes the re-roll free sunsets at
+multiplayer announce. **GRILLED 2026-08-18, not yet planned** — ten locked decisions and a
+five-slice spine in ["D5b — resolved scope & decisions"](#d5b--resolved-scope--decisions-grill-me-2026-08-18),
+which narrowed the row above in two ways worth carrying up here: the role is **derived, not
+stored**, so `LanHost.kind` is not widened at all and no wire format moves; and `DEVICE_TYPES` is
+not replaced but re-homed, becoming the `workstation` and `iot` prefix pools, while the golden lock
+on it turns out to belong to the PLAYER's own hostname and stays put. Every earlier door stays
+role-agnostic, so D5b is additive to all of them: it changes which content and services get
+picked, never the shape of what is stamped or how a door authorizes.
+
+**Then D6 — a player reads a machine's database (`mysql`)**, fourth door in the locked order
+(ftp → daemons → nc → **mysql** → redis → snmp → node): a `mysqld` catalog row plus placement, a
+generated schema and data worth reading, the `mysql>` prompt behind a parser/formatter/executor,
+and hydra's `mysql` service. **Not yet grilled either.** Two things already known about it: D3's
+sub-shell shape is what a `mysql>` prompt inherits (`ftp` set the pattern, and D5 slice 4 showed a
+prompt can be a real hop instead), and a door with nothing behind it is a protocol demo — the
+generated database ships with the door, per locked decision 4. Its placement is D5b's to decide.
+
+Run `grill-me` against each row before planning, as D3/D3b/D4/D5 each did.
 
 Per slice, before any code: load `tdd`, `testing`, `mutation-testing`, `refactoring`; run full
 RED-GREEN-MUTATE-KILL MUTANTS-REFACTOR; present before starting the next. Any `api/` change
