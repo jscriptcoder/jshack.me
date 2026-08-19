@@ -734,6 +734,23 @@ the change — could be DELETED with the whole suite green. Mutation was the onl
 found it. Whenever a dep is faked in every test of its consumer, the real implementation needs
 its own direct test, or it is effectively unverified.
 
+**An entry no test ever DRAWS can be blanked without anything failing — assert over the POPULATION,
+not over a sample.** Keying a content pool by role multiplies the entries a suite has to reach, and
+a test that reads two hosts of a role reads 2 of that role's 5 templates: the other 3 mutate to `""`
+and survive. The same trap was walked into twice in one epic — first with rare ROLES (`dns` is drawn
+at 3%, so a handful of fixtures never meets one), then with unreached entries INSIDE a role's pool.
+The fix has one shape: sweep the 253 host octets against each role's hostname prefix, collect the
+distinct results, and assert on the SET — its width, its membership, and that no entry came back
+empty. Six survivors and fifteen timeouts became 91/91 with none, and the run fell from 8 minutes to
+3, because the sweep also replaced per-test regeneration with one shared pass.
+
+**Compute a population sweep ONCE per block, never per test.** Regenerating it inside each `it` is
+fast in a normal run and slow enough under mutation instrumentation to race Stryker's timeout —
+which silently converts a SURVIVING mutant into "killed by timeout" and makes the score depend on
+how loaded the machine was. A deterministic read-only sample shared across a describe couples
+nothing, and it is the reason the account and credential blocks in `remoteHostFs.test.ts` build
+their sample in a block-level constant.
+
 **A population test over SYSTEMATIC seeds converges far slower than the sample size suggests.**
 Measuring a probability knob across `NET-0`, `NET-1`, … looks like an n=400 sample and is not:
 those strings differ by a few characters, so their FNV-1a hashes are correlated. A 0.40 knob read
@@ -1199,6 +1216,53 @@ state costs you more than one wrong attempt.
 ---
 
 ## 7. Architecture invariants
+
+- **What a generated box IS gets DERIVED, and read back off its NAME — nothing about a role
+  travels.** `generation/machineRole.ts` draws the role from the box's coordinates; everything
+  downstream — `hostServices`, the `/etc` config, the page it serves, the account it carries —
+  reads it BACK off the hostname through the one reverse lookup, `pools/hostnames.ts`'s
+  `roleOfHostname`. Not as an optimisation: re-deriving is impossible at that layer, because a
+  deep-layer NPC's role is drawn from `${essid}-${parentMachineId}`, a seed the host-fs builder
+  cannot see. Two consequences. **The prefix pools are load-bearing** — renaming a prefix silently
+  re-roles every box wearing it, and `DEVICE_TYPES` is the `workstation` pool itself rather than a
+  copy, so it is not edited casually. And **a name no role claims is an ordinary case, not a gap**:
+  such a box draws a generic account, keeps no `/etc` config, and serves the general page. Every
+  role-keyed lookup has to answer for `undefined`, and the honest answer is usually a fallback
+  rather than a guard.
+
+- **`prng.pick` consumes exactly ONE `next()` whatever the pool's width — which is what let an
+  epic of content ship for free.** `pick` is `items[nextInt(0, items.length - 1)]`, so replacing a
+  flat pool with a role-keyed one of any length leaves the stream identical and every value drawn
+  after it exactly where it was. Adding a DRAW does the opposite: it re-rolls everything
+  downstream, and in the LAN generator's stream that moves the NPC octets `api/network.ts` feeds
+  the lease allocator as an exclusion set — issuing an occupant an address an NPC already holds.
+  Hence the rule every content pool follows: **new content takes its OWN seed stream**
+  (`etc-config-…`, `web-page-…`, `backdoor-…`), never an append to a shared one.
+  - **The one exception is the opposite of what it looks like.** The NPC username is drawn from
+    the host-fs stream immediately before the three passwords, so `pickUsername` takes the
+    CALLER's prng rather than a seed of its own — giving it one would REMOVE that draw from the
+    sequence and re-roll every credential in the world. D5b's plan had this backwards and booked
+    the re-roll as an accepted cost; measuring the generator says it was never charged. A test in
+    `remoteHostFs.test.ts` holds it hash for hash against the nameless box at the same address.
+
+- **Five tables key off `DrawnRole`, and they are five tables on purpose.** Hostname prefixes,
+  service placement, `/etc` configs, web pages and usernames share a key and nothing else: the
+  cells are a string list, a per-service probability record, a filename-plus-templates record, a
+  sparse string list and a string list with its own fallback; two are sparse and three total; and
+  no requirement moves two of them at once, because adding a hostname prefix implies nothing about
+  accounts. Merging them was assessed when the fifth landed and declined — it would create one
+  table every generation module depends on, with every cell typed separately anyway. The shared
+  key is `DrawnRole`, and that already has one home.
+
+- **Generated content may not claim what the game cannot honour.** Four forms of one rule, each
+  learned by shipping the violation first. A page must not **link a path its host does not serve**
+  (`/admin/`, `/metrics` — the recon the page invited always dead-ended). A page must not **hint at
+  a mechanic that does not exist** — "default password unchanged" sends a player after nothing, the
+  same sin as the dead link. A config or an account must not **name a daemon this world cannot
+  run**: legacy put `postgres` under a `mysql.cnf` and `samba` beside a `vsftpd.conf`, and an
+  account is weaker evidence than a config stanza but is read the same way. And **no account name
+  belongs to two roles**, the generic pool included — a name that could have come from two kinds of
+  box is not evidence, which is the whole reason the pool is keyed.
 
 - **A daemon is a DESCRIPTOR, not a module — adding one is a catalog row plus a `Daemon`.**
   `commands/daemon.ts` is one implementation behind four front doors (`sshd`, `vsftpd`, `nginx`,
@@ -1810,8 +1874,13 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   - **D2.6b's harvestable loot placement** — postponed as a credential-layer item above, and it is
     content too: a file on a reachable box holding an uncrackable-pool plaintext behind a tier gate.
     If this epic runs before the CVE phase, it is the natural home.
-  - **Role-keyed pools at D5b.** `webPages.ts:14` already names the shape: today's flat entries
-    become the general-server bucket and no caller moves, once `LanHost.kind` widens.
+  - **~~Role-keyed pools at D5b.~~ Landed 2026-08-19 (v0.153.0-v0.157.0).** A generated box now
+    keeps an `/etc` config, serves a page and carries an account that all fit what it is. What is
+    still owed here is the VOLUME, not the keying: one page per box and one config per box, where an
+    inhabited box would have several. Two roles were also deliberately left on the general page
+    bucket — `database` and `fileserver`, 15% of served pages between them, on the reading that
+    slice 3's `/etc` config already speaks for both. Widening either is a content decision, and this
+    epic is where it belongs.
   Until it lands, expect thin worlds behind working tools — the accepted trade, and NOT the same
   failure as a mechanic with no input (D2.6b): here the tool is correct and the world is empty.
 - **Three things D1b left behind** (plan closed 2026-08-14 at v0.129.0, Act 9 green; the plan file
