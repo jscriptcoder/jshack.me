@@ -682,6 +682,170 @@ describe('buildRemoteHostFs', () => {
     });
   });
 
+  describe('the account a box carries (who lives on it says what it is)', () => {
+    /** One prefix per role, plus the name no role claims. The prefixes are the ones
+     *  a generated LAN actually hands out, so the account read here is the account a
+     *  player meets. */
+    const ACCOUNT_PREFIXES: readonly string[] = [
+      'desktop',
+      'cam',
+      'www',
+      'nas',
+      'db',
+      'mail',
+      'dns',
+      'host',
+    ];
+
+    /**
+     * Every distinct uid-1000 account name the boxes of one kind carry across a
+     * LAN's worth of addresses. A box carries ONE account, so anything claimed about
+     * what a kind of box carries has to be claimed over the population — a name a
+     * player can meet that no test has read is a name that can be blanked unnoticed.
+     *
+     * Computed ONCE for the whole block. Eight prefixes over 253 addresses is the
+     * sample the difficulty curve below already pays for, and regenerating it per
+     * test is fast in a normal run but slow enough under mutation instrumentation to
+     * race Stryker's timeout — which turns a surviving mutant into a "killed by
+     * timeout" and makes the score depend on machine speed rather than on the tests.
+     */
+    const accountsByPrefix: ReadonlyMap<string, readonly string[]> = new Map(
+      ACCOUNT_PREFIXES.map((prefix) => [
+        prefix,
+        [
+          ...new Set(
+            OCTETS.map((octet) => npcUserRow(buildRemoteHostFs(ESSID, namedHost(prefix, octet)))[0]),
+          ),
+        ].sort(),
+      ]),
+    );
+
+    const accountsOn = (prefix: string): readonly string[] => {
+      const names = accountsByPrefix.get(prefix);
+      if (names === undefined) throw new Error(`no account sample for "${prefix}"`);
+      return names;
+    };
+
+    it('gives a camera an account a camera would carry, not a build server one', () => {
+      // The whole point of naming the boxes was that a player could read a scan. An
+      // account is the last thing on a generated box that still reads the same
+      // everywhere, and it is the one `hydra` hands back — so `deploy` on a doorbell
+      // undoes at the login prompt what the hostname said at the scan.
+      expect(accountsOn('cam')).toEqual(
+        [
+          'device',
+          'iotuser',
+          'sensor',
+          'mqtt',
+          'telemetry',
+          'gateway',
+          'controller',
+          'monitor',
+          'zigbee',
+          'modbus',
+          'plcuser',
+          'firmware',
+          'otauser',
+          'camadmin',
+          'rtsp',
+        ].sort(),
+      );
+    });
+
+    it('gives a mail server an account a mail server would carry', () => {
+      // A second role asserted whole, so "it fits the box" cannot be satisfied by one
+      // special-cased pool with everything else still falling back.
+      expect(accountsOn('mail')).toEqual(
+        [
+          'postmaster',
+          'mailadm',
+          'dovecot',
+          'smtp-svc',
+          'mailops',
+          'listadm',
+          'relay',
+          'quarantine',
+          'mxops',
+          'imapuser',
+          'spamfilter',
+          'mailarch',
+          'dkim',
+          'fetchmail',
+          'popuser',
+        ].sort(),
+      );
+    });
+
+    it('never lets two kinds of box share an account name', () => {
+      // What makes the account evidence rather than flavour: a name a player reads
+      // has to point at one kind of box. It is also what stops a swapped pool from
+      // surviving on an overlap — with the sets disjoint, a camera drawing a mail
+      // server's names is visible, where a shared `admin` would have hidden it.
+      const named = ACCOUNT_PREFIXES.flatMap((prefix) =>
+        accountsOn(prefix).map((name) => ({ prefix, name })),
+      );
+      const shared = named.filter((entry) =>
+        named.some((other) => other.name === entry.name && other.prefix !== entry.prefix),
+      );
+
+      expect(shared).toEqual([]);
+    });
+
+    it('draws every kind from a pool wide enough that one LAN does not repeat itself', () => {
+      // A LAN holds a handful of boxes of any one kind, so a pool this wide keeps two
+      // cameras on one network from reading as the same camera. Every entry is proved
+      // reachable by being counted here, and every entry has to read as an account
+      // name — a blanked pool entry is a passwd row with no name in it.
+      ACCOUNT_PREFIXES.filter((prefix) => prefix !== 'host').forEach((prefix) =>
+        expect(accountsOn(prefix)).toHaveLength(15),
+      );
+
+      ACCOUNT_PREFIXES.forEach((prefix) =>
+        accountsOn(prefix).forEach((name) => expect(name).toMatch(/^[a-z][a-z0-9-]*$/)),
+      );
+    });
+
+    it('leaves a box whose name claims no role carrying exactly what it always did', () => {
+      // The fallback is not a gap to be filled later: a deep NPC named from a
+      // gateway's stream can wear a name no role claims, and a generic service
+      // account is the right answer for it. These eight are what such a box carried
+      // before any pool was keyed, unchanged.
+      expect(accountsOn('host')).toEqual(
+        ['admin', 'ubuntu', 'pi', 'deploy', 'dev', 'operator', 'support', 'backup'].sort(),
+      );
+    });
+
+    it('moves the name over the door and not one password behind it', () => {
+      // `pick` consumes one `next()` whatever the pool's width, and the host-fs seed
+      // is the ADDRESS rather than the name — so a `cam-7` and a nameless box at the
+      // same address draw the same stream. Every hash must land where it landed
+      // before: which accounts fall to the shipped wordlist is the difficulty curve,
+      // and naming the accounts is not entitled to move it.
+      const moved = OCTETS.filter((octet) => {
+        const named = buildRemoteHostFs(ESSID, namedHost('cam', octet));
+        const nameless = buildRemoteHostFs(ESSID, host(octet));
+        return (
+          rowFor(named, 'root')[1] !== rowFor(nameless, 'root')[1] ||
+          rowFor(named, 'guest')[1] !== rowFor(nameless, 'guest')[1] ||
+          npcUserRow(named)[1] !== npcUserRow(nameless)[1]
+        );
+      });
+
+      expect(moved).toEqual([]);
+    });
+
+    it('plants the account a home of its own, whatever the box turned out to be', () => {
+      // The passwd row and the tree have to agree about who lives here, or `ssh` lands
+      // an account in a directory that is not theirs.
+      const tree = buildRemoteHostFs(ESSID, namedHost('mail', 42));
+      const userRow = npcUserRow(tree);
+      const username = userRow[0] ?? '';
+
+      expect(userRow[2]).toBe('1000');
+      expect(userRow[5]).toBe(`/home/${username}`);
+      expect(dirAt(tree, 'home', username).owner).toBe(username);
+    });
+  });
   describe('the difficulty curve (not every account falls to the starting wordlist)', () => {
     /** Every password the shipped wordlist holds, by hash — exactly the test
      *  `hydra` applies to an account. An account "falls" when its hash is here. */
