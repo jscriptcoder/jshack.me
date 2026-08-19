@@ -424,6 +424,117 @@ describe('buildRemoteHostFs', () => {
       expect(standard).toBeGreaterThan(alt); // mostly :80
       expect(alt).toBeGreaterThan(0); // but at least one non-standard
     });
+
+    /** The template a NAMED box serves — its own name substituted back out, exactly
+     *  as `servedTemplate` does for the role-less hosts. */
+    const servedTemplateFor = (prefix: string, octet: number): string | null => {
+      const page = servedPage(buildRemoteHostFs(ESSID, namedHost(prefix, octet)));
+      return page === null
+        ? null
+        : page.replace(new RegExp(`${prefix}-${octet}`, 'g'), '{{hostname}}');
+    };
+
+    /** Every distinct page a role serves across a LAN's worth of addresses. One host
+     *  reads one entry of a bucket, so anything claimed about what a role serves has
+     *  to be claimed over the population — or an entry a player can meet is one no
+     *  test has read. */
+    const servedBy = (prefix: string): readonly string[] => [
+      ...new Set(
+        OCTETS.flatMap((octet) => {
+          const template = servedTemplateFor(prefix, octet);
+          return template === null ? [] : [template];
+        }),
+      ),
+    ];
+
+    it('serves a camera something a camera would serve, and a laptop its owner something of theirs', () => {
+      // What makes the page recon rather than wallpaper is that it fits the box the
+      // scan already named. A `cam-31` answering with an internal corporate portal
+      // tells the player the world is furniture; these vocabularies are what "reads
+      // as its kind" means, and the general pages use none of them.
+      const camera = servedBy('cam');
+      const laptop = servedBy('laptop');
+      // Every entry of a bucket is reached across this sample, the same width the
+      // general pool is pinned to above: a page a player can meet that no test has
+      // read is a page that can be blanked with nothing noticing.
+      expect(camera).toHaveLength(4);
+      expect(laptop).toHaveLength(4);
+
+      camera.forEach((page) => expect(page).toMatch(/stream|camera|firmware|snapshot/i));
+      laptop.forEach((page) => expect(page).toMatch(/dev server|localhost|it works|notes/i));
+    });
+
+    it('never serves a camera or a laptop what a web server serves', () => {
+      // The disjointness is the claim a marker alone cannot make: not merely that a
+      // camera page says "stream", but that the corporate portal never lands on one.
+      const general = new Set(servedBy('www'));
+      expect(general.size).toBeGreaterThan(0);
+
+      expect(servedBy('cam').filter((page) => general.has(page))).toEqual([]);
+      expect(servedBy('laptop').filter((page) => general.has(page))).toEqual([]);
+      expect(servedBy('cam').filter((page) => new Set(servedBy('laptop')).has(page))).toEqual([]);
+    });
+
+    it('leaves every other role serving exactly what it served before, host for host', () => {
+      // `pick` consumes one `next()` whatever the pool's length, so keying the pool by
+      // role moves no draw: a box with no bucket of its own must land on the very page
+      // it lands on today, byte for byte. Asserted against the role-LESS host at the
+      // same address, which is the page this test was written to protect.
+      const compared = (prefix: string): readonly number[] =>
+        OCTETS.filter(
+          (octet) => servedTemplateFor(prefix, octet) !== null && servedTemplate(octet) !== null,
+        );
+      const moved = (prefix: string): readonly string[] =>
+        compared(prefix)
+          .filter((octet) => servedTemplateFor(prefix, octet) !== servedTemplate(octet))
+          .map((octet) => `${prefix}-${octet}`);
+
+      ['www', 'db', 'mail', 'nas', 'dns'].forEach((prefix) => {
+        // WHICH hosts serve is the placement table's business and differs by role —
+        // a webserver publishes at 0.95 where a nameless box rolls 0.3 — so the
+        // comparison is over the addresses where both have a page at all.
+        expect(compared(prefix).length).toBeGreaterThan(50);
+        expect(moved(prefix)).toEqual([]);
+      });
+    });
+
+    it('keeps the general pages themselves untouched', () => {
+      // The test above proves nothing moved BETWEEN pools; this proves the pool the
+      // rest fall back to is still the same four pages. Captured before the buckets
+      // existed, so it blesses nothing that this slice did.
+      const templates = [
+        ...new Set(
+          OCTETS.flatMap((octet) => {
+            const template = servedTemplate(octet);
+            return template === null ? [] : [template];
+          }),
+        ),
+      ];
+
+      expect(templates).toHaveLength(4);
+      expect(md5(templates.sort().join('\n'))).toBe('e2ffd35907ba2dce11ad487d6f1286c4');
+    });
+
+    it('holds every bucket to what the general pages already promise', () => {
+      // A new pool is not exempt from the properties the old one earned: name the host
+      // (or the page is wallpaper), link nothing you cannot serve (or the server lies),
+      // and leave a comment `curl` shows that a browser will not (or there is no reason
+      // to run both).
+      ['cam', 'laptop', 'www'].forEach((prefix) => {
+        const octets = OCTETS.filter((octet) => servedTemplateFor(prefix, octet) !== null);
+        expect(octets.length).toBeGreaterThan(0);
+
+        octets.forEach((octet) => {
+          const fs = buildRemoteHostFs(ESSID, namedHost(prefix, octet));
+          const page = servedPage(fs);
+          if (page === null) throw new Error(`no page on ${prefix}-${octet}`);
+
+          expect(page).toContain(`${prefix}-${octet}`);
+          expect(page).toMatch(/<!--[\s\S]*-->/);
+          expect(unservedLinks(fs, page)).toEqual([]);
+        });
+      });
+    });
   });
 
   describe('base filesystem skeleton (an operable remote box)', () => {
