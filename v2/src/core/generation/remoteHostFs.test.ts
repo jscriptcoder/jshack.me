@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildRemoteHostFs } from './remoteHostFs';
+import { buildRemoteHostFs, hostServices } from './remoteHostFs';
 import { md5 } from './md5';
 import { DEFAULT_WORDLIST } from '../wordlist/defaultWordlist';
 import { resolveWebPath } from '../network/http';
@@ -741,6 +741,84 @@ describe('buildRemoteHostFs', () => {
         { octet: 12, port: 80 },
       ]);
       expect(httpHosts().at(-1)).toEqual({ octet: 254, port: 80 });
+    });
+  });
+
+  describe('what a box is called decides what it runs', () => {
+    /** A host as a generated LAN would name it: the prefix carries what the box is
+     *  for, which is the only thing about the role that travels with the host. */
+    const namedHost = (prefix: string, octet: number): LanHost => ({
+      ip: `${SUBNET}.${octet}`,
+      hostname: `${prefix}-${octet}`,
+      kind: 'machine',
+    });
+
+    /** How many of the 8 x 253 population run `service` when every host wears
+     *  `prefix`. A service seeds on `(service, essid, ip)` and never on the name, so
+     *  the DRAW is identical whatever the box is called and only the threshold it is
+     *  compared against moves — which is what makes two prefixes' counts directly
+     *  comparable rather than two independent samples. */
+    const runningCount = (prefix: string, service: string): number =>
+      POPULATION_ESSIDS.reduce(
+        (total, essid) =>
+          total +
+          OCTETS.filter((octet) =>
+            hostServices(essid, namedHost(prefix, octet)).some(
+              ({ spec }) => spec.service === service,
+            ),
+          ).length,
+        0,
+      );
+
+    it('publishes from nearly every webserver, and from few of the phones', () => {
+      // 1916 of the 2024 wear :80 as a webserver against 629 as a phone. The band
+      // excludes every mutant that matters: the override ignored (629, the flat
+      // rate), skip-none (2024), skip-all (0), and a flipped threshold (108 — the
+      // complement). The ratio is the part a player feels: reading `www-` off a scan
+      // has to beat guessing.
+      const webserver = runningCount('www', 'http');
+      const workstation = runningCount('desktop', 'http');
+
+      expect(webserver).toBeGreaterThan(1800);
+      expect(webserver).toBeLessThan(2000);
+      expect(workstation).toBeLessThan(750);
+      expect(webserver).toBeGreaterThan(2 * workstation);
+    });
+
+    it('hands you no shell on a camera — an iot box is not a box you log into', () => {
+      // 216 of 2024, against the flat 823 an unclaimed name still gets. Low enough
+      // that a camera you CAN log into is a find; not zero, because a shell that
+      // never exists is a role the sweep may as well skip.
+      const iot = runningCount('cam', 'ssh');
+
+      expect(iot).toBeGreaterThan(130);
+      expect(iot).toBeLessThan(290);
+      expect(iot).toBeLessThan(runningCount('desktop', 'ssh'));
+    });
+
+    it('opens ftp on nearly every fileserver, and on most database boxes', () => {
+      // The door a dump leaves by, and the one service in today's catalog either
+      // role can express — so it is where their signature has to live until their
+      // own door ships. 1806 and 1169 of 2024, against a flat 556.
+      const fileserver = runningCount('nas', 'ftp');
+      const database = runningCount('db', 'ftp');
+
+      expect(fileserver).toBeGreaterThan(1700);
+      expect(fileserver).toBeLessThan(1950);
+      expect(database).toBeGreaterThan(1050);
+      expect(database).toBeLessThan(1400);
+      // Both are marked boxes, but a fileserver is the one that exists to hand files
+      // over. Swapping the two cells keeps both bands' shape and fails here.
+      expect(fileserver).toBeGreaterThan(database);
+    });
+
+    it('leaves a pairing the table says nothing about generating at exactly the flat rate', () => {
+      // The overrides are sparse by design: a role with nothing to say about a
+      // service must fall through to the catalog's own placement, unchanged to the
+      // host. A name no role claims falls through the same way.
+      expect(runningCount('desktop', 'ssh')).toBe(runningCount('host', 'ssh'));
+      expect(runningCount('mail', 'ssh')).toBe(runningCount('host', 'ssh'));
+      expect(runningCount('www', 'ftp')).toBe(runningCount('host', 'ftp'));
     });
   });
 
