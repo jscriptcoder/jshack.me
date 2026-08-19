@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { generateHomeLan } from './generateHomeLan';
+import { generateHomeLan, type LanHost } from './generateHomeLan';
 import { assignHomeNetwork } from '../network/homeNetwork';
 import { seedApGatewayHostname, seedInnerGatewayHostname } from './routerFs';
+import { DRAWN_ROLES, machineRole } from './machineRole';
+import { HOSTNAME_PREFIXES } from './pools/hostnames';
 
 /**
  * `generateHomeLan` is the pure topology generator behind `nmap <subnet>`. Given an
@@ -23,21 +25,56 @@ const ESSID = 'BEAN-THERE-WIFI';
 // gateway) at .213, and the full sibling population. Nothing is held vacant: with one
 // shared population there is no per-viewer address to reserve, and the lease allocator
 // is what keeps an occupant off these octets.
+//
+// This reads as somebody's flat, which is what it is: four personal devices, a NAS,
+// a couple of web boxes and a television. NAMES here are expected to move when the
+// roles or their pools change — the addresses beside them are not, and are pinned
+// separately so updating this literal cannot quietly re-bless a drifted octet.
 const GOLDEN_HOSTS = [
   { ip: '192.168.29.1', hostname: 'vpn-gw', kind: 'router' },
   { ip: '192.168.29.28', hostname: 'desktop-28', kind: 'machine' },
   { ip: '192.168.29.74', hostname: 'laptop-74', kind: 'machine' },
   { ip: '192.168.29.85', hostname: 'core-rtr', kind: 'router' },
-  { ip: '192.168.29.87', hostname: 'tablet-87', kind: 'machine' },
+  { ip: '192.168.29.87', hostname: 'backup-87', kind: 'machine' },
   { ip: '192.168.29.149', hostname: 'tablet-149', kind: 'machine' },
-  { ip: '192.168.29.154', hostname: 'laptop-154', kind: 'machine' },
+  { ip: '192.168.29.154', hostname: 'www-154', kind: 'machine' },
   { ip: '192.168.29.164', hostname: 'desktop-164', kind: 'machine' },
-  { ip: '192.168.29.187', hostname: 'tablet-187', kind: 'machine' },
+  { ip: '192.168.29.187', hostname: 'tv-187', kind: 'machine' },
   { ip: '192.168.29.213', hostname: 'pfsense01', kind: 'switch' },
-  { ip: '192.168.29.229', hostname: 'iphone-229', kind: 'machine' },
+  { ip: '192.168.29.229', hostname: 'nginx-229', kind: 'machine' },
 ];
 
 const octetOf = (ip: string): number => Number(ip.split('.')[3]);
+
+/** `cam-31` → `cam`. Machines are named `<prefix>-<octet>`; gateways are not. */
+const prefixOf = (hostname: string): string => hostname.slice(0, hostname.lastIndexOf('-'));
+
+const machinesOf = (essid: string): readonly LanHost[] =>
+  generateHomeLan(essid).hosts.filter((host) => host.kind === 'machine');
+
+// Enough networks that every role's pool is actually drawn from. The eight pinned
+// above hold ~47 machines between them, and the rarest roles are a few percent —
+// so a name pool could be emptied and no name would change.
+const NAMING_SAMPLE: readonly string[] = Array.from(
+  { length: 60 },
+  (_unused, index) => `ROLE-SAMPLE-${index}`,
+);
+
+const sampledMachines = (): readonly { essid: string; host: LanHost }[] =>
+  NAMING_SAMPLE.flatMap((essid) => machinesOf(essid).map((host) => ({ essid, host })));
+
+// The address layout each of these ESSIDs generates, captured from the seeded
+// generator. Deliberately holds octets ONLY — see the test that consumes it.
+const GOLDEN_OCTETS: Readonly<Record<string, readonly number[]>> = {
+  'BEAN-THERE-WIFI': [1, 28, 74, 85, 87, 149, 154, 164, 187, 213, 229],
+  'SHINRA-5G': [1, 27, 28, 56, 101, 124, 152, 154, 199, 227],
+  'ACME-CORP': [1, 40, 52, 62, 138, 192, 221, 223],
+  'WEYLAND-NET': [1, 114, 150, 166, 168, 178, 195, 205],
+  'CRACK-ME-WIFI': [1, 49, 78, 102, 123, 244],
+  'HYDRA-CRACK-WIFI': [1, 4, 181, 236, 238, 248],
+  'FETCH-LOG-WIFI': [1, 13, 39, 66, 82, 86, 98, 118, 136, 208, 234],
+  'TYRELL-NET': [1, 34, 42, 86, 122, 139, 177, 186, 194, 207, 235],
+};
 
 describe('generateHomeLan', () => {
   it('sits on the same /24 the join issues addresses on', () => {
@@ -191,5 +228,96 @@ describe('generateHomeLan', () => {
     expect(generateHomeLan(ESSID)).toEqual(first);
     expect(first.subnet).toBe('192.168.29');
     expect(first.hosts).toEqual(GOLDEN_HOSTS);
+  });
+
+  it('names every machine from the pool of the role it actually holds', () => {
+    // The name is the ONLY thing a subnet sweep tells a player about what a box is
+    // for — the scan's third column reports kind, which stays structural, and the
+    // ports need a second scan to see. So a name that disagreed with the role would
+    // not be cosmetic: it would be the world lying in the one place a player reads
+    // before deciding what to touch.
+    const mismatched = sampledMachines()
+      .filter(
+        ({ essid, host }) =>
+          !HOSTNAME_PREFIXES[machineRole(essid, host.ip)].includes(prefixOf(host.hostname)),
+      )
+      .map(({ essid, host }) => `${essid} ${host.hostname}`);
+
+    expect(mismatched).toEqual([]);
+  });
+
+  it('draws from every role pool in that sample, so none goes unchecked', () => {
+    // Without this the test above is only as good as its sample: the rarest roles are
+    // a few percent each, so a pool nothing draws from could be emptied silently and
+    // every assertion would still hold.
+    const rolesSeen = new Set(sampledMachines().map(({ essid, host }) => machineRole(essid, host.ip)));
+
+    expect(DRAWN_ROLES.filter((role) => !rolesSeen.has(role))).toEqual([]);
+  });
+
+  it('gives every machine a name and not a bare address', () => {
+    // A prefix that agrees with an EMPTY pool still agrees with it. `-31` and
+    // `undefined-31` are both consistent and both wrong.
+    const nameless = sampledMachines()
+      .filter(({ host }) => !/^[a-z][a-z0-9]*$/.test(prefixOf(host.hostname)))
+      .map(({ essid, host }) => `${essid} ${host.hostname}`);
+
+    expect(nameless).toEqual([]);
+  });
+
+  it('holds only well-formed names in every pool, drawn or not', () => {
+    // The generated-name check above can only see prefixes the sample happens to
+    // draw, and a pool entry nothing drew could be anything at all. Stated here it
+    // also covers names added later that today's weights make rare.
+    const malformed = DRAWN_ROLES.flatMap((role) =>
+      HOSTNAME_PREFIXES[role]
+        .filter((prefix) => !/^[a-z][a-z0-9]*$/.test(prefix))
+        .map((prefix) => `${role}: "${prefix}"`),
+    );
+
+    expect(malformed).toEqual([]);
+  });
+
+  it('gives no two roles a name in common, so a prefix names one thing', () => {
+    // Reading a box off its name only works while the reading is unambiguous. A
+    // `db` that could also be a camera would make the whole scheme decorative.
+    const shared = DRAWN_ROLES.flatMap((role) =>
+      HOSTNAME_PREFIXES[role]
+        .filter((prefix) =>
+          DRAWN_ROLES.some((other) => other !== role && HOSTNAME_PREFIXES[other].includes(prefix)),
+        )
+        .map((prefix) => `${prefix} (${role})`),
+    );
+
+    expect(shared).toEqual([]);
+  });
+
+  it('keeps the octet in the name, so a name still says where the box is', () => {
+    const misplaced = sampledMachines()
+      .filter(({ host }) => host.hostname !== `${prefixOf(host.hostname)}-${octetOf(host.ip)}`)
+      .map(({ essid, host }) => `${essid} ${host.hostname} at .${octetOf(host.ip)}`);
+
+    expect(misplaced).toEqual([]);
+  });
+
+  it('keeps every host octet fixed, whatever the hosts end up being called', () => {
+    // The lease allocator excludes these octets when it issues an occupant an
+    // address, deriving the excluded set from this very generator. So an octet that
+    // MOVES hands an occupant an address an NPC already holds — which deletes that
+    // machine from every occupant's view and orphans whatever has been written to
+    // it. Renaming hosts is allowed; re-addressing them is not.
+    //
+    // Pinned APART from the golden above, and without hostnames, so that a
+    // deliberate rename can update the names there without silently re-blessing an
+    // address that drifted along with them. Eight ESSIDs because the sibling count
+    // is itself drawn (3..8), so one network exercises one shape of the draw.
+    const layout = Object.fromEntries(
+      Object.keys(GOLDEN_OCTETS).map((essid) => [
+        essid,
+        generateHomeLan(essid).hosts.map((host) => octetOf(host.ip)),
+      ]),
+    );
+
+    expect(layout).toEqual(GOLDEN_OCTETS);
   });
 });

@@ -1122,6 +1122,15 @@ IT knows about. A close-out sweep is therefore a series of individual runs, and 
 back-to-back loop must be re-run alone before it is believed** — the count in a sweep report means
 "scripts that passed individually", not "scripts that pass in sequence".
 
+**`testDeepChainReach` poisons its own next run — it is not even RE-RUN-safe.** Its last check
+bricks an intermediate gateway, and the brick is a row that outlives the process. Run it a second
+time and the same gateway is already bricked, so every earlier step fails `403 no_session` while
+the brick check itself passes — 1/6, with the one PASS being the tell. This survives a
+`supabase stop`/`start`, because stopping backs the data up to the docker volume and starting
+restores it: **a database is weeks old unless somebody reset it.** `npx supabase db reset` returns
+it to 6/6. A red script whose FINAL check leaves state behind should be suspected of this before
+it is suspected of a regression — and the test that settles it is a reset, not a re-run.
+
 **Selecting a generated LAN host by "not `.1`" picks an INNER GATEWAY, not an ordinary box.**
 `generateHomeLan` returns `kind: 'machine' | 'router' | 'switch'` in ascending-octet order, and a
 router or switch above `.1` is an inner gateway whose base FS is a ROUTER tree — not the

@@ -7,6 +7,8 @@ import {
 } from './generateDeepLayer';
 import { generateHomeLan, type LanHost } from './generateHomeLan';
 import { buildRemoteHostFs } from './remoteHostFs';
+import { DRAWN_ROLES } from './machineRole';
+import { HOSTNAME_PREFIXES } from './pools/hostnames';
 import { computeDeepGatewayId } from '../identity/router';
 import { readOpenPorts } from '../services/pidfile';
 
@@ -28,6 +30,34 @@ const SWITCH_GW: FrontingGateway = { machineId: 'switch-bbbb2222', kind: 'switch
 const octetOf = (ip: string): number => Number(ip.split('.')[3]);
 
 describe('generateDeepLayer', () => {
+  it('names deep NPCs for their roles, so the world does not flatten as you go in', () => {
+    // The layers behind an inner gateway are where somebody is hunting a box worth
+    // finding, so they must not be the one part of the world that still reads as a
+    // bag of phones. Sampled across gateways because a role is a property of the
+    // world: one deep layer holds one box, and one box proves nothing about a mix.
+    const deepHosts = Array.from(
+      { length: 40 },
+      (_unused, index) =>
+        generateDeepLayer(ESSID, { machineId: `inner-gw-${index}`, kind: 'router' }).host,
+    );
+    const rolesFound = new Set(
+      deepHosts.map((host) => {
+        const prefix = host.hostname.slice(0, host.hostname.lastIndexOf('-'));
+        return DRAWN_ROLES.find((role) => HOSTNAME_PREFIXES[role].includes(prefix));
+      }),
+    );
+
+    expect(rolesFound.has(undefined)).toBe(false);
+    expect(rolesFound.size).toBeGreaterThan(1);
+  });
+
+  it('keeps the deep NPC named for its address as the home LAN does', () => {
+    const deep = generateDeepLayer(ESSID, ROUTER_GW);
+    const prefix = deep.host.hostname.slice(0, deep.host.hostname.lastIndexOf('-'));
+
+    expect(deep.host.hostname).toBe(`${prefix}-${octetOf(deep.host.ip)}`);
+  });
+
   it('is deterministic for the same network and fronting gateway', () => {
     expect(generateDeepLayer(ESSID, ROUTER_GW)).toEqual(
       generateDeepLayer(ESSID, ROUTER_GW),
@@ -50,8 +80,8 @@ describe('generateDeepLayer', () => {
     expect(deep.host.kind).toBe('machine');
     expect(deep.host.ip.startsWith(`${deep.subnet}.`)).toBe(true);
     expect(octet).not.toBe(1);
-    // A DHCP-style `<device>-<octet>` name (like the home siblings) — its identity on
-    // the LAN, which seeds the host's machine_id.
+    // A `<role prefix>-<octet>` name (like the home siblings) — its identity on the
+    // LAN, which seeds the host's machine_id.
     expect(deep.host.hostname).toMatch(new RegExp(`-${octet}$`));
   });
 
@@ -76,7 +106,7 @@ describe('generateDeepLayer', () => {
     // so a mutated kind-seed namespace also shifts it and fails here.
     expect(generateDeepLayer(ESSID, ROUTER_GW)).toEqual({
       subnet: '10.252.148',
-      host: { ip: '10.252.148.179', hostname: 'workstation-179', kind: 'machine' },
+      host: { ip: '10.252.148.179', hostname: 'speaker-179', kind: 'machine' },
       childGateway: { ip: '10.252.148.160', hostname: 'core-rtr-160', kind: 'switch' },
     });
   });
