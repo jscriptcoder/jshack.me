@@ -261,7 +261,7 @@ PHASE 1 — THE DOORS  (near-term focus)
       D4 slice 2 a player sees what a box runs         ✔ SHIPPED v0.141.0
       D4 slice 3 every login gate asks one question    ✔ SHIPPED v0.142.0
   D5  nc connect + nc -l backdoor                     ✔ COMPLETE v0.151.0 (#415-#423)
-  D5b machines get a kind, and it shows               ← NEXT (grilled, not yet planned)
+  D5b machines get a kind, and it shows               ← NEXT (planned — 5 slices)
   D6  mysql
   D7  rediscli
   D8  snmpwalk / snmpset
@@ -1005,8 +1005,8 @@ nothing behind them yet are exactly the ones a player meets seldom.
 **5. Names keep `<prefix>-<octet>`; the prefix becomes role-keyed.** `cam-31`, `web-04`, `db-11`.
 Uniqueness stays free from the octet and a hostname keeps encoding its address, which the terminal
 leans on constantly. Today's consumer `DEVICE_TYPES` is not deleted — it becomes the `workstation`
-and `iot` prefix pools. Rejected: legacy's full-name pools (`web01`, `db-primary`), which drop the
-address encoding and need a dedup legacy never had.
+role's pool unchanged, and every other role gets one of its own. Rejected: legacy's full-name pools
+(`web01`, `db-primary`), which drop the address encoding and need a dedup legacy never had.
 
 **6. The role is total, so `router` and `switch` are members — known from `kind`, never drawn.**
 The union is legacy's nine. `routerFs` KEEPS its own builder (it has a different job: gateway
@@ -1589,14 +1589,15 @@ because role-weighted placement is what makes "find a database box" mean somethi
 flat probability sprinkling mysql across a LAN of phones. It also **must land before ship** — it
 re-rolls the generated world, so every door that ships first is a door whose placement gets
 re-rolled under it, and the no-backward-compat licence that makes the re-roll free sunsets at
-multiplayer announce. **GRILLED 2026-08-18, not yet planned** — ten locked decisions and a
-five-slice spine in ["D5b — resolved scope & decisions"](#d5b--resolved-scope--decisions-grill-me-2026-08-18),
-which narrowed the row above in two ways worth carrying up here: the role is **derived, not
-stored**, so `LanHost.kind` is not widened at all and no wire format moves; and `DEVICE_TYPES` is
-not replaced but re-homed, becoming the `workstation` and `iot` prefix pools, while the golden lock
-on it turns out to belong to the PLAYER's own hostname and stays put. Every earlier door stays
-role-agnostic, so D5b is additive to all of them: it changes which content and services get
-picked, never the shape of what is stamped or how a door authorizes.
+multiplayer announce. **GRILLED 2026-08-18, PLANNED 2026-08-19** — ten locked decisions in
+["D5b — resolved scope & decisions"](#d5b--resolved-scope--decisions-grill-me-2026-08-18), turned
+into five slices in [`d5b-machine-roles.md`](d5b-machine-roles.md). The grill narrowed the row
+above in two ways worth carrying up here: the role is **derived, not stored**, so `LanHost.kind` is
+not widened at all and no wire format moves; and `DEVICE_TYPES` is not replaced but re-homed,
+becoming the `workstation` role's prefix pool, while the golden lock on it turns out to belong to
+the PLAYER's own hostname and stays put. Every earlier door stays role-agnostic, so D5b is additive
+to all of them: it changes which content and services get picked, never the shape of what is
+stamped or how a door authorizes.
 
 **Then D6 — a player reads a machine's database (`mysql`)**, fourth door in the locked order
 (ftp → daemons → nc → **mysql** → redis → snmp → node): a `mysqld` catalog row plus placement, a
