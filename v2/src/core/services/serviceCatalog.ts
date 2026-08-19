@@ -3,16 +3,14 @@
  * world knows about. Ported in spirit from legacy `INFRA_PID_CONFIGS`.
  *
  * Adding a service is ONE row; tuning a knob is ONE number. The `sshd` command
- * (writer), the generator (planter, Slice 2), and the pidfile readers (`nmap`,
- * later `ssh`/`ps`) all read from here, so the pidfile name/port stays DRY — one
- * description, many consumers.
+ * (writer), the generator (planter), and the pidfile readers (`nmap`, `ssh`,
+ * `ps`) all read from here, so the pidfile name/port stays DRY — one description,
+ * many consumers.
  *
- * Discipline (don't gold-plate): ROWS arrive when a service ships; COLUMNS arrive
- * when a slice consumes them. Slice 1 carried only what the `sshd` writer + the
- * pidfile parser need. Slice 2 adds the GENERATION knobs — `placement` and the
- * port spread (`altPorts`/`altPortChance`), consumed by the per-host FS
- * generator. CVE/version columns come with the epic that needs them — never
- * speculatively.
+ * Discipline (don't gold-plate): ROWS arrive when a service ships, COLUMNS when
+ * something consumes them — the generation knobs (`placement`, `altPorts`,
+ * `altPortChance`) landed with the per-host FS generator that reads them.
+ * CVE/version columns come with the epic that needs them, never speculatively.
  */
 
 import type { AbsPath } from '../types';
@@ -71,14 +69,18 @@ export type ServiceSpec = {
    *  version baked in here would be a second, contradicting source of truth for
    *  the fact vulnerabilities are keyed on. */
   readonly banner: string;
-  /** Slice 2 (generation): the fraction of NON-self hosts that run this service.
-   *  Each host rolls independently — no per-LAN guarantee. */
+  /** The fraction of hosts that run this service across the world at large. Each
+   *  host rolls independently — no per-LAN guarantee.
+   *
+   *  This is the rate for a box with nothing particular to say about the service.
+   *  What a box is FOR can raise or lower it (a webserver nearly always publishes;
+   *  a camera seldom offers a shell) — see `rolePlacement`. */
   readonly placement: number;
-  /** Slice 2 (generation): non-standard ports the service sometimes listens on.
-   *  Empty ⇒ always `defaultPort`. */
+  /** Non-standard ports the service sometimes listens on. Empty ⇒ always
+   *  `defaultPort`. */
   readonly altPorts: readonly number[];
-  /** Slice 2 (generation): the chance a generated host uses an `altPorts` entry
-   *  instead of `defaultPort`. */
+  /** The chance a generated host uses an `altPorts` entry instead of
+   *  `defaultPort`. */
   readonly altPortChance: number;
   /** Where a wordlist attack on this service lands in the target's logs. */
   readonly sweepLog: SweepLog;
