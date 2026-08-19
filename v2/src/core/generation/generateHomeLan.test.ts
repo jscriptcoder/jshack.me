@@ -39,6 +39,19 @@ const GOLDEN_HOSTS = [
 
 const octetOf = (ip: string): number => Number(ip.split('.')[3]);
 
+// The address layout each of these ESSIDs generates, captured from the seeded
+// generator. Deliberately holds octets ONLY — see the test that consumes it.
+const GOLDEN_OCTETS: Readonly<Record<string, readonly number[]>> = {
+  'BEAN-THERE-WIFI': [1, 28, 74, 85, 87, 149, 154, 164, 187, 213, 229],
+  'SHINRA-5G': [1, 27, 28, 56, 101, 124, 152, 154, 199, 227],
+  'ACME-CORP': [1, 40, 52, 62, 138, 192, 221, 223],
+  'WEYLAND-NET': [1, 114, 150, 166, 168, 178, 195, 205],
+  'CRACK-ME-WIFI': [1, 49, 78, 102, 123, 244],
+  'HYDRA-CRACK-WIFI': [1, 4, 181, 236, 238, 248],
+  'FETCH-LOG-WIFI': [1, 13, 39, 66, 82, 86, 98, 118, 136, 208, 234],
+  'TYRELL-NET': [1, 34, 42, 86, 122, 139, 177, 186, 194, 207, 235],
+};
+
 describe('generateHomeLan', () => {
   it('sits on the same /24 the join issues addresses on', () => {
     // The generated population and the leased occupants have to land on ONE subnet,
@@ -191,5 +204,26 @@ describe('generateHomeLan', () => {
     expect(generateHomeLan(ESSID)).toEqual(first);
     expect(first.subnet).toBe('192.168.29');
     expect(first.hosts).toEqual(GOLDEN_HOSTS);
+  });
+
+  it('keeps every host octet fixed, whatever the hosts end up being called', () => {
+    // The lease allocator excludes these octets when it issues an occupant an
+    // address, deriving the excluded set from this very generator. So an octet that
+    // MOVES hands an occupant an address an NPC already holds — which deletes that
+    // machine from every occupant's view and orphans whatever has been written to
+    // it. Renaming hosts is allowed; re-addressing them is not.
+    //
+    // Pinned APART from the golden above, and without hostnames, so that a
+    // deliberate rename can update the names there without silently re-blessing an
+    // address that drifted along with them. Eight ESSIDs because the sibling count
+    // is itself drawn (3..8), so one network exercises one shape of the draw.
+    const layout = Object.fromEntries(
+      Object.keys(GOLDEN_OCTETS).map((essid) => [
+        essid,
+        generateHomeLan(essid).hosts.map((host) => octetOf(host.ip)),
+      ]),
+    );
+
+    expect(layout).toEqual(GOLDEN_OCTETS);
   });
 });
