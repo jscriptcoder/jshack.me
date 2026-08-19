@@ -261,13 +261,13 @@ PHASE 1 — THE DOORS  (near-term focus)
       D4 slice 2 a player sees what a box runs         ✔ SHIPPED v0.141.0
       D4 slice 3 every login gate asks one question    ✔ SHIPPED v0.142.0
   D5  nc connect + nc -l backdoor                     ✔ COMPLETE v0.151.0 (#415-#423)
-  D5b machines get a kind, and it shows               ← IN PROGRESS (4 of 5 shipped)
+  D5b machines get a kind, and it shows               ✔ COMPLETE v0.157.0 — all 5 slices
       D5b slice 1 a LAN reads as a population          ✔ SHIPPED v0.153.0 (#428)
       D5b slice 2 a name matches what it runs          ✔ SHIPPED v0.154.0 (#429)
       D5b slice 3 a box admits what it is              ✔ SHIPPED v0.155.0 (#430)
-      D5b slice 4 the page a box serves fits the box   ✔ SHIPPED v0.156.0
-      D5b slice 5 the account you crack fits the box   ← NEXT
-  D6  mysql
+      D5b slice 4 the page a box serves fits the box   ✔ SHIPPED v0.156.0 (#431)
+      D5b slice 5 the account you crack fits the box   ✔ SHIPPED v0.157.0
+  D6  mysql                                           ← NEXT (not yet grilled)
   D7  rediscli
   D8  snmpwalk / snmpset
   D9  node scripting
@@ -1588,31 +1588,35 @@ before a port is parsed, so it would be an unreachable branch); no `-9` (v2's fl
 first, and the words are not `kill`'s to choose). The own-LAN journal-replay gap and `nmap`'s
 5-digit port padding are both open in §9.
 
-**➡️ NEXT: D5b slice 5 — the account you crack fits the box.** D5b is **IN PROGRESS**: four of five
-slices shipped (v0.153.0 – v0.156.0), so a scan reads as a population, the names predict the ports,
-a box you stand on says what it is built to be, and the page it serves fits it — `cam-4` answers
-`:80` with a live view naming its own rtsp stream, `desktop-28` with a Hugo preview somebody left
-running, and `db-11` keeps a `mysql.cnf` a **guest** can read before any `mysqld` exists to run.
-What is left is the last thing that still reads as generic: the account. `hydra` hands back `deploy`
-on a camera as readily as on a build server. Slice 5 keys the NPC account pool by role, which
-re-rolls every NPC password in the world — free under the no-backward-compat licence, and locked
-decision 9's accepted cost. It is also where the fifth role-keyed table lands, and so where the
-question of whether they want one home gets answered from evidence rather than anticipated.
+**➡️ NEXT: close D5b out, then grill D6.** D5b is **CODE COMPLETE** at v0.157.0 — all five slices
+shipped (v0.153.0 – v0.157.0). A generated LAN is now a population a player can read end to end: a
+scan returns `cam-31` and `db-11` rather than `iphone-40`, the names predict the ports, a box you
+stand on keeps a config in `/etc` a **guest** can read, the page it serves fits it, and the account
+`hydra` hands back belongs to the box — `mail-139` answers with `dkim`, `thermostat-207` with
+`mqtt`, `warehouse-235` with `reporting`, and a laptop with somebody's name. What remains is the
+close-out this plan asks for: fold the as-built into
+[`v2/docs/conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) and the D5b row above,
+then delete [`d5b-machine-roles.md`](d5b-machine-roles.md).
 
-**Why D5b sits before D6 at all**, unchanged by the four slices shipped so far: *D5b must land before D6*, because
+**One correction worth carrying up, because it was a locked decision.** Decision 9 accepted that
+role-keying the account pool would re-roll every NPC password in the world. Measuring the generator
+says it does not: `pick` consumes exactly one `next()` whatever the pool's width, and the host-fs
+seed is the box's address rather than its name. Every password in the world stayed where it was, and
+D5b re-rolled **nothing at all** except what a box is named and what it carries.
+
+**Why D5b sat before D6**, now settled rather than pending: *D5b had to land before D6*, because
 role-weighted placement is what makes "find a database box" mean something rather than a flat
-probability sprinkling mysql across a LAN of phones. It also **must land before ship** — it
-re-rolls the generated world, so every door that ships first is a door whose placement gets
+probability sprinkling mysql across a LAN of phones. It also **had to land before ship** — it
+re-rolls the generated world, so every door that shipped first is a door whose placement gets
 re-rolled under it, and the no-backward-compat licence that makes the re-roll free sunsets at
-multiplayer announce. **GRILLED 2026-08-18, PLANNED 2026-08-19** — ten locked decisions in
-["D5b — resolved scope & decisions"](#d5b--resolved-scope--decisions-grill-me-2026-08-18), turned
-into five slices in [`d5b-machine-roles.md`](d5b-machine-roles.md). The grill narrowed the row
-above in two ways worth carrying up here: the role is **derived, not stored**, so `LanHost.kind` is
-not widened at all and no wire format moves; and `DEVICE_TYPES` is not replaced but re-homed,
-becoming the `workstation` role's prefix pool, while the golden lock on it turns out to belong to
-the PLAYER's own hostname and stays put. Every earlier door stays role-agnostic, so D5b is additive
-to all of them: it changes which content and services get picked, never the shape of what is
-stamped or how a door authorizes.
+multiplayer announce. **GRILLED 2026-08-18, PLANNED 2026-08-19, SHIPPED 2026-08-19** — ten locked
+decisions in ["D5b — resolved scope & decisions"](#d5b--resolved-scope--decisions-grill-me-2026-08-18),
+delivered as five slices. Two things the grill narrowed are worth keeping after the plan file goes:
+the role is **derived, not stored**, so `LanHost.kind` was never widened and no wire format moved;
+and `DEVICE_TYPES` was not replaced but re-homed as the `workstation` role's prefix pool, while the
+golden lock on it turned out to belong to the PLAYER's own hostname and stayed put. Every earlier
+door stayed role-agnostic, so D5b was additive to all of them: it changed which content and services
+get picked, never the shape of what is stamped or how a door authorizes.
 
 **Then D6 — a player reads a machine's database (`mysql`)**, fourth door in the locked order
 (ftp → daemons → nc → **mysql** → redis → snmp → node): a `mysqld` catalog row plus placement, a

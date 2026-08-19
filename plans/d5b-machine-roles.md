@@ -3,7 +3,7 @@
 **Branch**: one per slice, `feat/d5b-<slice>`
 **Status**: Active
 **Grill record**: ["D5b — resolved scope & decisions"](legacy-parity-epic.md#d5b--resolved-scope--decisions-grill-me-2026-08-18) — ten locked decisions, not to be re-litigated here.
-**Current version**: 0.156.0 (slices 1–4 shipped). Each slice is a feature change, so each bumps the minor in both `v2/package.json` and `v2/package-lock.json`.
+**Current version**: 0.157.0 (all five slices shipped). Each slice is a feature change, so each bumps the minor in both `v2/package.json` and `v2/package-lock.json`.
 
 ## Goal
 
@@ -24,7 +24,7 @@ can read: `cam-31` is a camera, `web-04` publishes something, `db-11` is worth c
 - [x] `ls /etc` on a generated box as **guest** names what the box is for — `mysql.cnf` on a
       database box, `device.conf` on a camera — including on the roles whose door has not shipped.
 - [x] `curl http://<camera>` returns something a camera would serve, not the corporate-portal page.
-- [ ] `hydra <camera> ssh` returns an account that belongs on a camera (`sensor`, `mqtt`), not
+- [x] `hydra <camera> ssh` returns an account that belongs on a camera (`sensor`, `mqtt`), not
       `deploy`.
 - [x] Every host's own address is unchanged by this work: NPC octets are byte-stable, so no
       occupant's issued lease can collide with an NPC that moved.
@@ -230,7 +230,7 @@ population test green both before and after the constant's relocation; mutation 
 
 ---
 
-### Slice 3: A box admits what it is when you read it — ✔ COMPLETE (v0.155.0)
+### Slice 3: A box admits what it is when you read it — ✔ COMPLETE (v0.155.0, #430)
 
 **Value**: The three roles whose door has not shipped stop being empty promises. A player standing
 on a box at the lowest tier can tell what it is for — and reads something the hostname did not
@@ -336,7 +336,7 @@ that no draw moved; mutation report presented.
 
 ---
 
-### Slice 4: The page a box serves fits the box — ✔ COMPLETE (v0.156.0)
+### Slice 4: The page a box serves fits the box — ✔ COMPLETE (v0.156.0, #431)
 
 **Value**: A camera stops serving an internal corporate portal, and so does somebody's laptop. The
 contradiction slice 1 created by naming boxes is closed for half of every page the world serves.
@@ -434,7 +434,7 @@ no-dead-links property test passing over every bucket; mutation report presented
   `pools/webPages.ts`. No wire-checks — nothing in `api/` changed.
 ---
 
-### Slice 5: The account you crack fits the box
+### Slice 5: The account you crack fits the box — ✔ COMPLETE (v0.157.0)
 
 **Value**: The name a player types at `su`, and the one `hydra` hands back, belongs to the box it
 came from.
@@ -456,10 +456,11 @@ account pool.
 failing today because the pool is one flat list of eight.
 
 **GREEN**: A role-keyed account pool record replacing `HOST_USERNAMES` at its single draw site.
-**Recorded, not discovered:** the username is drawn from the host-fs prng immediately before the
-password, so this re-rolls every NPC password in the world. That is free under the
-no-backward-compat licence and is locked decision 9's accepted cost. Preserving the old draw order
-with a dummy pick was considered and rejected as a hack that buys nothing before launch.
+**Planned as costly, measured as free:** the username is drawn from the host-fs prng immediately
+before the passwords, and locked decision 9 accepted that keying it would re-roll every NPC password
+in the world. It does not. `pick` consumes exactly one `next()` whatever the pool's width, and the
+host-fs seed is the address rather than the name — so the passwords do not move, and the question of
+preserving draw order with a dummy pick never arises.
 
 **MUTATE**: Stryker over the account draw. Mutants that matter: the role ignored so one pool always
 wins, and a pool swapped between roles.
@@ -473,6 +474,44 @@ from evidence rather than anticipated.
 
 **Done when**: acceptance criteria met; the crackable-proportion population test unchanged;
 mutation report presented.
+
+**As built** — shipped v0.157.0.
+
+- `pools/usernames.ts` holds `USERNAMES_BY_ROLE`, total over the seven roles at fifteen names each,
+  plus the eight generic names a box whose name claims no role keeps. `pickUsername({ prng, role })`
+  takes the CALLER's prng — the opposite of `pickWebPage` and `roleConfigFile`, and for the same
+  reason they take their own seed. `roleOfHostname` moved to the top of `buildRemoteHostFs`, where
+  it now decides who lives on the box as well as what it keeps in `/etc`.
+- **The cost this slice was planned to pay is not charged.** Locked decision 9 accepted re-rolling
+  every NPC password in the world; measuring the generator says otherwise. `pick` is
+  `items[nextInt(0, items.length - 1)]` — exactly one `next()` whatever the pool's width — and the
+  host-fs seed is `host-fs-${essid}-${ip}`, which never held the hostname. A pool of 8 and a pool of
+  15 leave the stream identical, so **every password is where it was, hash for hash**; only the name
+  over the door moved. The RED block includes that as a preservation test across 253 addresses
+  (`moves the name over the door and not one password behind it`), so the invariant is held rather
+  than believed. The difficulty curve and `homeNetwork`'s golden never moved, which is why the
+  3030-test suite absorbed this slice without a single edit.
+- **The pools are pairwise disjoint, including against the generic eight** — a deliberate deviation
+  from legacy, which shared `admin` and `operator` across workstation, iot and router, and spelled a
+  mail daemon and a person called D. Kim identically. A name that could have come from two kinds of
+  box is not evidence, which was the whole reason for keying the pool; the shared names live in the
+  generic pool, where drawing one claims nothing. It is also what stops a swapped pool surviving on
+  an overlap, which is what the KILL MUTANTS note asked for.
+- **No name claims a daemon this world does not run.** Legacy's database pool held `postgres`,
+  `mongo`, `redis` and `cassandra`, and its fileserver pool `nfs` and `samba` — on boxes whose
+  config files here say `mysql.cnf` and `vsftpd.conf`. Slice 3's rule, applied to a weaker signal
+  that is read the same way.
+- **The refactor question this slice was to answer, answered from evidence: they do not want one
+  home.** Five role-keyed tables now exist — prefixes, placement, configs, pages, usernames. They
+  share a key and nothing else: the cell types are a string list, a per-service probability record, a
+  filename-plus-templates record, a sparse string list and a string list with its own fallback; two
+  are sparse and three total; and no requirement moves two of them at once, because adding a hostname
+  prefix implies nothing about accounts. Merging them would create a table every generation module
+  depends on, with each cell typed separately anyway — structure nobody could observe. The shared key
+  is `DrawnRole`, and that already has one home.
+- Evidence: 3037 tests across 154 files (3030 before, +7); typecheck and lint clean; mutation
+  **126/126 on `pools/usernames.ts`** and 1/1 on the changed draw site, no survivors and no timeouts
+  on the first run. No wire-checks — nothing in `api/` changed.
 
 ---
 
