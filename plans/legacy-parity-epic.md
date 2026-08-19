@@ -261,10 +261,11 @@ PHASE 1 — THE DOORS  (near-term focus)
       D4 slice 2 a player sees what a box runs         ✔ SHIPPED v0.141.0
       D4 slice 3 every login gate asks one question    ✔ SHIPPED v0.142.0
   D5  nc connect + nc -l backdoor                     ✔ COMPLETE v0.151.0 (#415-#423)
-  D5b machines get a kind, and it shows               ← IN PROGRESS (2 of 5 shipped)
+  D5b machines get a kind, and it shows               ← IN PROGRESS (3 of 5 shipped)
       D5b slice 1 a LAN reads as a population          ✔ SHIPPED v0.153.0 (#428)
       D5b slice 2 a name matches what it runs          ✔ SHIPPED v0.154.0 (#429)
-      D5b slice 3 a box admits what it is              ← NEXT
+      D5b slice 3 a box admits what it is              ✔ SHIPPED v0.155.0
+      D5b slice 4 the page a box serves fits the box   ← NEXT
   D6  mysql
   D7  rediscli
   D8  snmpwalk / snmpset
@@ -1586,16 +1587,17 @@ before a port is parsed, so it would be an unreachable branch); no `-9` (v2's fl
 first, and the words are not `kill`'s to choose). The own-LAN journal-replay gap and `nmap`'s
 5-digit port padding are both open in §9.
 
-**➡️ NEXT: D5b slice 3 — a box admits what it is when you read it.** D5b is **IN PROGRESS**:
-slices 1 and 2 shipped (v0.153.0, v0.154.0), so a scan reads as a population AND the names predict
-the ports — `www-154` publishes on nearly every generated instance, `cam-31` hands you a shell on
-hardly any, `nas-` and `db-` open ftp because that is the only door either can express until mysql
-ships. What is still missing is everything a player finds AFTER getting on the box: the three roles
-whose door has not shipped are still empty promises. Slice 3 gives every role an `/etc` config file
-a **guest** can read, so a box at the lowest tier can say what it is for; slices 4 and 5 make the
-page it serves and the account you crack fit the box too.
+**➡️ NEXT: D5b slice 4 — the page a box serves fits the box.** D5b is **IN PROGRESS**: slices 1, 2
+and 3 shipped (v0.153.0, v0.154.0, v0.155.0), so a scan reads as a population, the names predict the
+ports, and a box you stand on says what it is built to be — `www-154` publishes on nearly every
+generated instance, `cam-31` hands you a shell on hardly any, and `db-11` keeps a `mysql.cnf` naming
+its data directory before any `mysqld` exists to run. A **guest** reads that file, so it is the
+lowest tier of recon in the game and the first thing the three doorless roles have ever had to say
+for themselves. What is still missing is the content a player pulls off a box that IS answering:
+slice 4 stops a camera serving an internal corporate portal, and slice 5 makes the account `hydra`
+hands back belong to the box it came from.
 
-**Why D5b sits before D6 at all**, unchanged by slices 1 and 2: *D5b must land before D6*, because
+**Why D5b sits before D6 at all**, unchanged by the three slices shipped so far: *D5b must land before D6*, because
 role-weighted placement is what makes "find a database box" mean something rather than a flat
 probability sprinkling mysql across a LAN of phones. It also **must land before ship** — it
 re-rolls the generated world, so every door that ships first is a door whose placement gets

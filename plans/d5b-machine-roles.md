@@ -3,7 +3,7 @@
 **Branch**: one per slice, `feat/d5b-<slice>`
 **Status**: Active
 **Grill record**: ["D5b — resolved scope & decisions"](legacy-parity-epic.md#d5b--resolved-scope--decisions-grill-me-2026-08-18) — ten locked decisions, not to be re-litigated here.
-**Current version**: 0.154.0 (slices 1–2 shipped; slice 3 is on `feat/d5b-role-config-file`). Each slice is a feature change, so each bumps the minor in both `v2/package.json` and `v2/package-lock.json`.
+**Current version**: 0.155.0 (slices 1–3 shipped). Each slice is a feature change, so each bumps the minor in both `v2/package.json` and `v2/package-lock.json`.
 
 ## Goal
 
@@ -21,7 +21,7 @@ can read: `cam-31` is a camera, `web-04` publishes something, `db-11` is worth c
       measured over the 8×253 sample, not asserted on one host.
 - [x] A LAN's roles read as a home network: personal devices and cameras are common, a mailserver
       or a database box is a find.
-- [ ] `ls /etc` on a generated box as **guest** names what the box is for — `mysql.cnf` on a
+- [x] `ls /etc` on a generated box as **guest** names what the box is for — `mysql.cnf` on a
       database box, `device.conf` on a camera — including on the roles whose door has not shipped.
 - [ ] `curl http://<camera>` returns something a camera would serve, not the corporate-portal page.
 - [ ] `hydra <camera> ssh` returns an account that belongs on a camera (`sensor`, `mqtt`), not
@@ -230,7 +230,7 @@ population test green both before and after the constant's relocation; mutation 
 
 ---
 
-### Slice 3: A box admits what it is when you read it
+### Slice 3: A box admits what it is when you read it — ✔ COMPLETE (v0.155.0)
 
 **Value**: The three roles whose door has not shipped stop being empty promises. A player standing
 on a box at the lowest tier can tell what it is for — and reads something the hostname did not
@@ -297,6 +297,42 @@ by name, and that no pool is empty.
 **Done when**: acceptance criteria met; the tier boundary proved in both directions (config
 readable by guest, `passwd` still not); the existing suite green untouched, which is the evidence
 that no draw moved; mutation report presented.
+
+**As built** — shipped v0.155.0.
+
+- `core/generation/pools/configFiles.ts` holds `CONFIG_BY_ROLE` — a filename, five templates, and
+  for two roles a catalog service — plus `roleConfigFile({ role, hostname, seed, ports })`. The
+  filenames are legacy's `serviceConfigNames` verbatim; the templates are adapted from its
+  `configTemplatesByRole`, not copied.
+- **The port is read off the box for the roles whose daemon the world ships** (`webserver` → http,
+  `fileserver` → ftp), falling back to the catalog default where the box is not running it. So
+  `www-4` answering on 8000 keeps a config stating 8000, and `nas-88` on 2121 states 2121: the file
+  and a scan cannot disagree. Every other role bakes the conventional port as a literal — a
+  `mysql.cnf` says 3306 because nothing can contradict it until D6 puts a `mysqld` there to be
+  scanned, at which point the row grows a `service` and the interpolation arrives with it.
+- **Every template stays in its role's own idiom.** Legacy filed postgres configs under `mysql.cnf`
+  and samba under `vsftpd.conf`; carried over, those would have contradicted D6 the moment mysql
+  shipped. No template bakes 8080 or 8000 either, so the alt-port test cannot pass by accident.
+- `SERVICE_CONFIG_FILE` in `baseFs.ts` mirrors `WEB_PAGE_FILE` — world-read, root-write, never
+  executable — and sits beside `PASSWD_FILE` as the deliberate contrast: passwd guards the account
+  names and inline hashes a player earns, and this file names neither.
+- The role is read back off the hostname, as slice 2's placement is, and a name no role claims keeps
+  no config. That fallback is why the whole pre-existing suite, whose hosts are synthetic `host-N`,
+  is untouched by this slice.
+- **Mutation caught slice 1's trap wearing a new costume.** The first run scored 93.41% with six
+  survivors: five templates that could be blanked to `""` unnoticed — four of them `dns` — and the
+  seed, which could be blanked because nothing compared two boxes. The tests read two octets per
+  role, so three of every five pool entries had never been drawn. Not rare *roles* this time but
+  unreached *entries inside* a role's pool. Fixed by asserting over a LAN's worth of addresses per
+  role — every config names the host it sits on and leaves no placeholder unfilled — plus a second
+  test that two boxes of one role do not keep byte-identical files. 91/91 after, timeouts 15 → 0,
+  runtime 8 min → 3 min. **Any per-box pool added by a later slice inherits this: assert it over the
+  population, or the entries a player meets are the ones no test has read.**
+- Refactor assessed, nothing changed: `/etc` is six lines with one conditional spread, so extracting
+  it would add a name and a hop without removing a branch, and `roleOfHostname`'s second call per
+  box is a map lookup that would cost `hostServices` a wider signature to avoid.
+- Evidence: 3025 tests across 154 files; typecheck and lint clean. No wire-checks — nothing in
+  `api/` changed and no machine_id moved.
 
 ---
 
