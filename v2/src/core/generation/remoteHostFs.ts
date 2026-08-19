@@ -239,7 +239,11 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
             html: dir(
               {
                 'index.html': file(
-                  pickWebPage({ seed: `web-page-${essid}-${host.ip}`, hostname: host.hostname }),
+                  pickWebPage({
+                    role,
+                    seed: `web-page-${essid}-${host.ip}`,
+                    hostname: host.hostname,
+                  }),
                   WEB_PAGE_FILE,
                 ),
               },
