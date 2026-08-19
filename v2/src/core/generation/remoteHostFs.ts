@@ -53,6 +53,7 @@ import {
   HOME_DIR,
   PASSWD_FILE,
   ROOT_DIR,
+  SERVICE_CONFIG_FILE,
   SHELL,
   TMP_DIR,
   TRAVERSABLE_DIR,
@@ -61,6 +62,7 @@ import {
 import { md5 } from './md5';
 import { CRACK_CHANCE, drawPassword } from './passwordPools';
 import { pickWebPage } from './pools/webPages';
+import { roleConfigFile } from './pools/configFiles';
 import { roleOfHostname } from './pools/hostnames';
 import { placementOf } from './rolePlacement';
 import { ACCESS_LOG_PERMISSIONS } from '../logging/accessLog';
@@ -206,6 +208,23 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
       : { [listenerPidfileName(backdoor.port)]: pidfile(formatListenerContent(backdoor), 'root') }),
   };
 
+  // What the box is FOR, and so what it keeps in /etc. Read back off the hostname
+  // (as its services are), because a deep-layer NPC is named from its fronting
+  // gateway's stream and nothing here can see that seed. A name no role claims keeps
+  // no config: there is nothing for such a box to admit to.
+  const role = roleOfHostname(host.hostname);
+  const config =
+    role === undefined
+      ? null
+      : roleConfigFile({
+          role,
+          hostname: host.hostname,
+          // Its OWN stream, like the page and the backdoor: continuing the tree's
+          // draws would have re-rolled every account and password in the world.
+          seed: `etc-config-${essid}-${host.ip}`,
+          ports: new Map(services.map(({ spec, port }) => [spec.service, port])),
+        });
+
   const serves = services.some(({ spec }) => spec === SERVICE_CATALOG.http);
   const servesFtp = services.some(({ spec }) => spec === SERVICE_CATALOG.ftp);
 
@@ -236,7 +255,13 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
     {
       bin: dir(createBinaryEntries(SYSTEM_UTILITY_NAMES), TRAVERSABLE_DIR),
       boot: bootDir(),
-      etc: dir({ passwd: file(passwd, PASSWD_FILE) }, TRAVERSABLE_DIR),
+      etc: dir(
+        {
+          passwd: file(passwd, PASSWD_FILE),
+          ...(config === null ? {} : { [config.name]: file(config.content, SERVICE_CONFIG_FILE) }),
+        },
+        TRAVERSABLE_DIR,
+      ),
       home: dir({ [username]: dir({}, HOME_DIR, username) }, TRAVERSABLE_DIR),
       lib: dir(createLibraryEntries(SYSTEM_LIBRARIES), TRAVERSABLE_DIR),
       root: dir({}, ROOT_DIR),
