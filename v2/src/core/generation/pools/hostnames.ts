@@ -21,7 +21,7 @@
  */
 
 import { DEVICE_TYPES } from '../../network/homeNetwork';
-import type { DrawnRole } from '../machineRole';
+import { DRAWN_ROLES, type DrawnRole } from '../machineRole';
 
 export const HOSTNAME_PREFIXES: Readonly<Record<DrawnRole, readonly string[]>> = {
   workstation: DEVICE_TYPES,
@@ -31,4 +31,28 @@ export const HOSTNAME_PREFIXES: Readonly<Record<DrawnRole, readonly string[]>> =
   database: ['db', 'mysql', 'datastore', 'records', 'warehouse'],
   mailserver: ['mail', 'smtp', 'imap', 'relay', 'mx'],
   dns: ['dns', 'ns', 'resolver', 'bind'],
+};
+
+/** Every prefix mapped back to the role that owns it. Built once, and only sound
+ *  because no prefix appears twice in the table above. */
+const ROLE_BY_PREFIX: ReadonlyMap<string, DrawnRole> = new Map(
+  DRAWN_ROLES.flatMap((role) =>
+    HOSTNAME_PREFIXES[role].map((prefix): readonly [string, DrawnRole] => [prefix, role]),
+  ),
+);
+
+/**
+ * What the box calling itself `hostname` is FOR, or undefined for a name no role
+ * claims.
+ *
+ * Read BACK off the name rather than re-derived from the coordinates, because a
+ * deep-layer NPC is named from its fronting gateway's stream and nothing downstream
+ * of `generateDeepLayer` can see that seed. Re-deriving would hand a deep `cam-179`
+ * the role its address alone would have rolled, and its ports would then contradict
+ * the name a player just read off the scan.
+ */
+export const roleOfHostname = (hostname: string): DrawnRole | undefined => {
+  const separator = hostname.lastIndexOf('-');
+  if (separator < 0) return undefined;
+  return ROLE_BY_PREFIX.get(hostname.slice(0, separator));
 };

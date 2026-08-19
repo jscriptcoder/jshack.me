@@ -61,6 +61,8 @@ import {
 import { md5 } from './md5';
 import { CRACK_CHANCE, drawPassword } from './passwordPools';
 import { pickWebPage } from './pools/webPages';
+import { roleOfHostname } from './pools/hostnames';
+import { placementOf } from './rolePlacement';
 import { ACCESS_LOG_PERMISSIONS } from '../logging/accessLog';
 import { VSFTPD_LOG_PERMISSIONS } from '../logging/vsftpdLog';
 import { AUTH_LOG_PERMISSIONS } from '../logging/authLog';
@@ -124,21 +126,28 @@ const hostBackdoor = (essid: string, host: LanHost, username: string): Listener 
 
 /**
  * The services a host runs, with their listen ports — deterministic per
- * `(service, ESSID, host)`. Each service rolls independently against its
- * `placement`; a running service takes `defaultPort` unless a further roll under
+ * `(service, ESSID, host)`. Each service rolls independently against the placement
+ * rate for what the box IS (`www-04` publishes; `cam-31` seldom offers a shell),
+ * falling back to the catalog's flat rate for a role with nothing to say about that
+ * service. A running service takes `defaultPort` unless a further roll under
  * `altPortChance` picks an `altPorts` entry. Two occupants scanning one box must
  * report the same open ports, so the roll cannot depend on who is scanning.
+ *
+ * The role moves the THRESHOLD only, never the stream: a box that keeps a service
+ * lands on exactly the port it always would have.
  */
-export const hostServices = (essid: string, host: LanHost): readonly HostService[] =>
-  Object.values(SERVICE_CATALOG).flatMap((spec) => {
+export const hostServices = (essid: string, host: LanHost): readonly HostService[] => {
+  const role = roleOfHostname(host.hostname);
+  return Object.values(SERVICE_CATALOG).flatMap((spec) => {
     const prng = createPrng(`svc-${spec.service}-${essid}-${host.ip}`);
-    if (prng.next() >= spec.placement) return [];
+    if (prng.next() >= placementOf(role, spec)) return [];
     const port =
       spec.altPorts.length > 0 && prng.next() < spec.altPortChance
         ? prng.pick(spec.altPorts)
         : spec.defaultPort;
     return [{ spec, port }];
   });
+};
 
 /**
  * The generated base filesystem for `host` — a full operable Linux box, seeded

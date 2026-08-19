@@ -261,7 +261,10 @@ PHASE 1 — THE DOORS  (near-term focus)
       D4 slice 2 a player sees what a box runs         ✔ SHIPPED v0.141.0
       D4 slice 3 every login gate asks one question    ✔ SHIPPED v0.142.0
   D5  nc connect + nc -l backdoor                     ✔ COMPLETE v0.151.0 (#415-#423)
-  D5b machines get a kind, and it shows               ← NEXT (planned — 5 slices)
+  D5b machines get a kind, and it shows               ← IN PROGRESS (2 of 5 shipped)
+      D5b slice 1 a LAN reads as a population          ✔ SHIPPED v0.153.0 (#428)
+      D5b slice 2 a name matches what it runs          ✔ SHIPPED v0.154.0
+      D5b slice 3 a box admits what it is              ← NEXT
   D6  mysql
   D7  rediscli
   D8  snmpwalk / snmpset
@@ -1583,10 +1586,18 @@ before a port is parsed, so it would be an unreachable branch); no `-9` (v2's fl
 first, and the words are not `kill`'s to choose). The own-LAN journal-replay gap and `nmap`'s
 5-digit port padding are both open in §9.
 
-**➡️ NEXT: D5b — NPC machines have a kind, and it shows.** Not a door — the world the remaining
-doors get placed into, and the epic's own sequencing rule puts it here: *D5b must land before D6*,
-because role-weighted placement is what makes "find a database box" mean something rather than a
-flat probability sprinkling mysql across a LAN of phones. It also **must land before ship** — it
+**➡️ NEXT: D5b slice 3 — a box admits what it is when you read it.** D5b is **IN PROGRESS**:
+slices 1 and 2 shipped (v0.153.0, v0.154.0), so a scan reads as a population AND the names predict
+the ports — `www-154` publishes on nearly every generated instance, `cam-31` hands you a shell on
+hardly any, `nas-` and `db-` open ftp because that is the only door either can express until mysql
+ships. What is still missing is everything a player finds AFTER getting on the box: the three roles
+whose door has not shipped are still empty promises. Slice 3 gives every role an `/etc` config file
+a **guest** can read, so a box at the lowest tier can say what it is for; slices 4 and 5 make the
+page it serves and the account you crack fit the box too.
+
+**Why D5b sits before D6 at all**, unchanged by slices 1 and 2: *D5b must land before D6*, because
+role-weighted placement is what makes "find a database box" mean something rather than a flat
+probability sprinkling mysql across a LAN of phones. It also **must land before ship** — it
 re-rolls the generated world, so every door that ships first is a door whose placement gets
 re-rolled under it, and the no-backward-compat licence that makes the re-roll free sunsets at
 multiplayer announce. **GRILLED 2026-08-18, PLANNED 2026-08-19** — ten locked decisions in

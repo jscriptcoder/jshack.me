@@ -36,6 +36,7 @@ import {
 import { ACCESS_LOG_PERMISSIONS } from '../logging/accessLog';
 import { AUTH_LOG_PERMISSIONS } from '../logging/authLog';
 import { KERN_LOG_PERMISSIONS } from '../logging/kernLog';
+import { placementOf } from './rolePlacement';
 import { formatPidfileContent, PIDFILE_PERMISSIONS } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 
@@ -87,15 +88,12 @@ export const seedApGatewayHostname = (essid: string): string =>
 export const seedInnerGatewayHostname = (essid: string, octet: number): string =>
   createPrng(`inner-gw-host-${essid}:${octet}`).pick(ROUTER_HOSTNAMES);
 
-/** The fraction of routers that run their own `sshd`. Pinned to 1.0 for Story
- *  5.1 — every router bears `sshd:22`. The seam stays so a later story can make
- *  sshd presence vary per router without reshaping callers. */
-const ROUTER_SSH_PROBABILITY = 1;
-
 /** Whether this AP's gateway runs `sshd`, seeded deterministically from the ESSID
- *  (the `ap-gw-ssh-` namespace). Currently always true (knob = 1.0). */
+ *  (the `ap-gw-ssh-` namespace). The rate is the router row's, read from the same
+ *  table every other box's placement comes from — currently 1, so every gateway
+ *  bears sshd:22. */
 export const seedApGatewayHasSsh = (essid: string): boolean =>
-  createPrng(`ap-gw-ssh-${essid}`).next() < ROUTER_SSH_PROBABILITY;
+  createPrng(`ap-gw-ssh-${essid}`).next() < placementOf('router', SERVICE_CATALOG.ssh);
 
 /** `/etc/iptables/rules.v4`: root reads + edits it (`nano`), no one else. Not an
  *  executable. The router has only a root account, so root-only is the boundary.

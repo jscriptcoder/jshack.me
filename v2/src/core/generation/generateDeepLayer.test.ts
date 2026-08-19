@@ -7,8 +7,8 @@ import {
 } from './generateDeepLayer';
 import { generateHomeLan, type LanHost } from './generateHomeLan';
 import { buildRemoteHostFs } from './remoteHostFs';
-import { DRAWN_ROLES } from './machineRole';
-import { HOSTNAME_PREFIXES } from './pools/hostnames';
+import type { DrawnRole } from './machineRole';
+import { roleOfHostname } from './pools/hostnames';
 import { computeDeepGatewayId } from '../identity/router';
 import { readOpenPorts } from '../services/pidfile';
 
@@ -40,17 +40,36 @@ describe('generateDeepLayer', () => {
       (_unused, index) =>
         generateDeepLayer(ESSID, { machineId: `inner-gw-${index}`, kind: 'router' }).host,
     );
-    const rolesFound = new Set(
-      deepHosts.map((host) => {
-        const prefix = host.hostname.slice(0, host.hostname.lastIndexOf('-'));
-        return DRAWN_ROLES.find((role) => HOSTNAME_PREFIXES[role].includes(prefix));
-      }),
-    );
+    const rolesFound = new Set(deepHosts.map((host) => roleOfHostname(host.hostname)));
 
     expect(rolesFound.has(undefined)).toBe(false);
     expect(rolesFound.size).toBeGreaterThan(1);
   });
 
+  it('gives a deep box the services its NAME promises, not the ones its address would roll', () => {
+    // A deep NPC is named from its FRONTING GATEWAY's stream, which nothing
+    // downstream of the generator can see. Re-deriving the role from `(essid, ip)`
+    // instead of reading it off the name would hand a deep `www-179` the flat rate
+    // — the name a player just read off the scan contradicted by the ports behind
+    // it. Sampled across gateways, because one deep layer holds one box.
+    const deepHosts = Array.from(
+      { length: 200 },
+      (_unused, index) =>
+        generateDeepLayer(ESSID, { machineId: `inner-gw-${index}`, kind: 'router' }).host,
+    );
+    const servingRate = (role: DrawnRole): number => {
+      const named = deepHosts.filter((host) => roleOfHostname(host.hostname) === role);
+      const serving = named.filter((host) =>
+        readOpenPorts(buildDeepHostFs(ESSID, host)).some(({ service }) => service === 'http'),
+      );
+      return serving.length / named.length;
+    };
+
+    // 34 of 38 webserver-named deep hosts publish, against 15 of 60 phones. Under a
+    // role re-derived from the address both would sit at the flat rate.
+    expect(servingRate('webserver')).toBeGreaterThan(0.8);
+    expect(servingRate('workstation')).toBeLessThan(0.45);
+  });
   it('keeps the deep NPC named for its address as the home LAN does', () => {
     const deep = generateDeepLayer(ESSID, ROUTER_GW);
     const prefix = deep.host.hostname.slice(0, deep.host.hostname.lastIndexOf('-'));
