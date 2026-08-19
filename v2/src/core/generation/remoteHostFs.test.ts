@@ -12,7 +12,7 @@ import {
 } from '../services/pidfile';
 import { BACKDOOR_PORTS } from './remoteHostFs';
 import type { LanHost } from './generateHomeLan';
-import type { Directory, FileNode } from '../filesystem/types';
+import type { Directory, FileEntry, FileNode } from '../filesystem/types';
 
 /**
  * `buildRemoteHostFs` is the pure per-host filesystem generator for the LAN's
@@ -31,6 +31,15 @@ const SUBNET = '192.168.50';
 const host = (octet: number): LanHost => ({
   ip: `${SUBNET}.${octet}`,
   hostname: `host-${octet}`,
+  kind: 'machine',
+});
+
+/** A host as a generated LAN would name it: the prefix carries what the box is for,
+ *  which is the only thing about the role that travels with the host. `host` above
+ *  wears a name no role claims, which is what makes it the fallback's witness. */
+const namedHost = (prefix: string, octet: number): LanHost => ({
+  ip: `${SUBNET}.${octet}`,
+  hostname: `${prefix}-${octet}`,
   kind: 'machine',
 });
 
@@ -745,14 +754,6 @@ describe('buildRemoteHostFs', () => {
   });
 
   describe('what a box is called decides what it runs', () => {
-    /** A host as a generated LAN would name it: the prefix carries what the box is
-     *  for, which is the only thing about the role that travels with the host. */
-    const namedHost = (prefix: string, octet: number): LanHost => ({
-      ip: `${SUBNET}.${octet}`,
-      hostname: `${prefix}-${octet}`,
-      kind: 'machine',
-    });
-
     /** How many of the 8 x 253 population run `service` when every host wears
      *  `prefix`. A service seeds on `(service, essid, ip)` and never on the name, so
      *  the DRAW is identical whatever the box is called and only the threshold it is
@@ -934,6 +935,157 @@ describe('buildRemoteHostFs', () => {
       );
       expect(humanUserOf(buildRemoteHostFs(ESSID, host(42)))).toBe('support');
       expect(humanUserOf(buildRemoteHostFs(ESSID, host(7)))).toBe('pi');
+    });
+  });
+
+  describe('the config a box keeps in /etc (what it is built to be)', () => {
+    /** Every role's prefix paired with the file that role keeps. The names are
+     *  legacy's, adopted rather than coined, so a `mysql.cnf` means in v2 what it
+     *  meant in the app this one replaces. */
+    const ROLE_FILES: readonly { readonly prefix: string; readonly filename: string }[] = [
+      { prefix: 'desktop', filename: 'ssh_config' },
+      { prefix: 'cam', filename: 'device.conf' },
+      { prefix: 'www', filename: 'httpd.conf' },
+      { prefix: 'nas', filename: 'vsftpd.conf' },
+      { prefix: 'db', filename: 'mysql.cnf' },
+      { prefix: 'mail', filename: 'postfix.conf' },
+      { prefix: 'dns', filename: 'named.conf' },
+    ];
+
+    /** The one file in `/etc` that is not `passwd`, or null where the box keeps
+     *  none. It names the file as well as reading it, so a config under the wrong
+     *  name fails as loudly as a missing one — and a second config throws rather
+     *  than being silently picked between. */
+    const roleConfigOf = (
+      fs: Directory,
+    ): { readonly name: string; readonly file: FileEntry } | null => {
+      const found = [...dirAt(fs, 'etc').entries].filter(([name]) => name !== 'passwd');
+      if (found.length > 1) {
+        throw new Error(`expected one config in /etc, found ${found.length}`);
+      }
+      const entry = found[0];
+      if (entry === undefined) return null;
+      const [name, node] = entry;
+      if (node.kind !== 'file') throw new Error(`/etc/${name} is not a file`);
+      return { name, file: node };
+    };
+
+    const configOn = (
+      prefix: string,
+      octet: number,
+    ): { readonly name: string; readonly file: FileEntry } => {
+      const config = roleConfigOf(buildRemoteHostFs(ESSID, namedHost(prefix, octet)));
+      if (config === null) throw new Error(`no /etc config on ${prefix}-${octet}`);
+      return config;
+    };
+
+    /** The port `service` answers on for a named box, or null when nothing is
+     *  listening for it there. */
+    const portOf = (prefix: string, octet: number, service: string): number | null => {
+      const running = hostServices(ESSID, namedHost(prefix, octet)).find(
+        ({ spec }) => spec.service === service,
+      );
+      return running === undefined ? null : running.port;
+    };
+
+    it('names the file for the daemon the box is built around', () => {
+      ROLE_FILES.forEach(({ prefix, filename }) => {
+        expect(configOn(prefix, 40).name).toBe(filename);
+      });
+    });
+
+    it('lets a guest read it, while /etc/passwd stays out of reach', () => {
+      // The point of the file is that a player at the LOWEST tier can tell what a
+      // box is for. That is only a wider door if it opens onto what passwd holds —
+      // the account names and inline hashes the cracking curve exists to make you
+      // earn — so both halves are asserted together, on the whole permission value
+      // rather than on one list. Never executable: a config is data, like a page.
+      const tree = buildRemoteHostFs(ESSID, namedHost('db', 11));
+      const config = roleConfigOf(tree);
+      if (config === null) throw new Error('no /etc config on db-11');
+
+      expect(config.file.owner).toBe('root');
+      expect(config.file.perms).toEqual({
+        read: ['root', 'user', 'guest'],
+        write: ['root'],
+        execute: [],
+      });
+      const passwd = dirAt(tree, 'etc').entries.get('passwd');
+      if (passwd?.kind !== 'file') throw new Error('missing /etc/passwd');
+      expect(passwd.perms.read).not.toContain('guest');
+    });
+
+    /** What a role keeps across a LAN's worth of addresses. The file is drawn per
+     *  box, so one host reads one entry of the pool: anything asserted about a role's
+     *  config has to be asserted over the population, or a pool entry a player can
+     *  meet is one no test has ever read. */
+    const configsAcross = (
+      prefix: string,
+    ): readonly { readonly hostname: string; readonly content: string }[] =>
+      OCTETS.map((octet) => ({
+        hostname: `${prefix}-${octet}`,
+        content: configOn(prefix, octet).file.content,
+      }));
+
+    it('writes it about THIS box, and finishes writing it, on every box of every role', () => {
+      // Two claims that share a sweep. Naming the host is what makes the file recon
+      // rather than a label — the hostname is already on the scan, so a file that
+      // reads the same everywhere taught the player nothing. And a field the fill
+      // does not know about renders as a literal brace pair, which reads as broken
+      // furniture; that is also what holds the deliberate omission of the box's
+      // account name, since there is no fill for it and adding one to a template
+      // surfaces here rather than quietly leaking what /etc/passwd guards.
+      ROLE_FILES.forEach(({ prefix }) => {
+        configsAcross(prefix).forEach(({ hostname, content }) => {
+          expect(content).toContain(hostname);
+          expect(content).not.toMatch(/\{\{[a-z]+\}\}/);
+        });
+      });
+    });
+
+    it('does not hand every box of a role the same file', () => {
+      // The draw is seeded per box. Seeded by anything the box does not vary, every
+      // camera in the world keeps a byte-identical config and the pool is decoration
+      // — so compare the files with each host's own name taken back out of them.
+      ROLE_FILES.forEach(({ prefix }) => {
+        const shapes = new Set(
+          configsAcross(prefix).map(({ hostname, content }) => content.split(hostname).join('')),
+        );
+
+        expect(shapes.size).toBeGreaterThan(1);
+      });
+    });
+
+    it('states the port the box really publishes on, so the file cannot contradict a scan', () => {
+      // A webserver answering on 8080 must not keep a config claiming :80. The
+      // alt-port hosts are what prove the port is read off the box rather than baked
+      // into the template.
+      const alt = OCTETS.map((octet) => ({ octet, port: portOf('www', octet, 'http') })).find(
+        ({ port }) => port !== null && port !== 80,
+      );
+      if (alt === undefined || alt.port === null) throw new Error('no alt-port webserver in sample');
+
+      expect(configOn('www', alt.octet).file.content).toContain(String(alt.port));
+    });
+
+    it('carries the config for what the box IS, not for what it happens to run', () => {
+      // Unlike /var/log/vsftpd.log, which follows its daemon: a log on a box that
+      // never ran one claims something happened. A config claims only what the box
+      // is set up to be — which is the whole reason a `db-` box can carry one before
+      // any mysqld exists in the world to run.
+      const silent = OCTETS.find((octet) => portOf('www', octet, 'http') === null);
+      if (silent === undefined) throw new Error('no non-publishing webserver in sample');
+
+      expect(configOn('www', silent).name).toBe('httpd.conf');
+      expect(configOn('www', silent).file.content).toContain('80');
+      expect(configOn('db', 11).name).toBe('mysql.cnf');
+    });
+
+    it('leaves a host whose name claims nothing without one', () => {
+      // `host-42` matches no role, the same fallback placement takes. It is also
+      // what every test above this block stands on: their boxes are named that way,
+      // so an unconditional config file would have moved all of them.
+      expect(roleConfigOf(buildRemoteHostFs(ESSID, host(42)))).toBeNull();
     });
   });
 });
