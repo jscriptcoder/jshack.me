@@ -16,7 +16,7 @@ can read: `cam-31` is a camera, `web-04` publishes something, `db-11` is worth c
 - [x] `nmap <subnet>` on a generated LAN returns hostnames that name what the boxes are — `cam-31`,
       `web-04`, `db-11` — rather than `iphone-40` and `desktop-7`, and the same ESSID returns the
       same population to every occupant on every reload.
-- [ ] Across a population, a webserver-named box answers on `:80` far more often than a phone-named
+- [x] Across a population, a webserver-named box answers on `:80` far more often than a phone-named
       one does, and a camera-named box offers `:22` far less often than today's flat rate — each
       measured over the 8×253 sample, not asserted on one host.
 - [x] A LAN's roles read as a home network: personal devices and cameras are common, a mailserver
@@ -152,7 +152,7 @@ scripts each other's stale rows.
 
 ---
 
-### Slice 2: What a box is called matches what it runs
+### Slice 2: What a box is called matches what it runs — ✔ COMPLETE (v0.154.0)
 
 **Value**: A player who reads `web-04` off a scan and probes it is usually right. The name stops
 being decoration and becomes a lead.
@@ -193,6 +193,40 @@ brackets for the flat path.
 
 **Done when**: acceptance criteria met; the un-overridden-pairing count unchanged; the router
 population test green both before and after the constant's relocation; mutation report presented.
+
+**As built** — shipped v0.154.0.
+
+- `core/generation/rolePlacement.ts` holds `PLACEMENT_BY_ROLE` and `placementOf(role, spec)`. Every
+  role carries a row, empty where it has nothing to say, so a role added later cannot inherit
+  somebody else's placement and the lookup has no missing-row branch. Cells shipped: `iot`
+  `{ ssh: 0.1 }`, `webserver` `{ http: 0.95 }`, `fileserver` `{ ftp: 0.9 }`, `database`
+  `{ ftp: 0.6 }`, `router` `{ ssh: 1 }`.
+- **The role is read BACK off the hostname** (`roleOfHostname` in `pools/hostnames.ts`), not
+  re-derived from the coordinates. The plan assumed a lookup by seed; that would have been wrong
+  for deep hosts, which are named from their fronting gateway's stream — invisible to anything
+  downstream of `generateDeepLayer`. Proved by doing it: with the role re-derived from
+  `machineRole(essid, ip)`, webserver-named deep hosts serve at 0.39 — the flat rate — and the
+  deep-layer test goes red. Slice 1's "no two roles share a name" test became load-bearing here.
+- Counts over the 8 x 253 sample: `www` http 1916 (flat 629), `cam` ssh 216 (flat 823), `nas` ftp
+  1806 and `db` ftp 1169 (flat 556). An un-overridden pairing is unchanged to the host, which the
+  whole existing suite proves incidentally — its synthetic `host-N` names match no role, so every
+  count captured before this slice still holds.
+- The override moves the THRESHOLD only, never the stream: a box that keeps a service lands on the
+  port it always would have, and the ssh/http rolls captured before ftp existed did not move.
+- **The router value shipped in the commit that reads it, not before.** The first mutation run left
+  `router: { ssh: 1 }` -> `{}` alive because nothing consulted the row yet; the row went out empty
+  and the value arrived with `routerFs`. `rolePlacement.ts` finished at 100% (13/13).
+- Surviving mutants, all pre-existing and reported rather than fixed: `>=`/`<` boundary flips on
+  continuous PRNG draws (equivalent — `next()` never lands exactly on a threshold), the
+  `altPorts.length > 0` guard no catalog row exercises, and three on `seedApGatewayHasSsh` that are
+  alive only because its rate is pinned at 1, which makes seed and comparison genuinely unable to
+  matter. The last three survived identically against the old private constant.
+- Two comment-only changes rode along: the catalog's `Slice 2 (generation):` field tags and
+  `routerFs`'s `Story 5.1` tag are gone, and `placement` now says it is the rate for a box with
+  nothing particular to say about the service. **103 such tags remain across 60 files** — a sweep
+  of its own, not this slice's.
+- No wire-checks: nothing in `api/` changed and no machine_id moved. Slice 1 remains the only slice
+  in this plan that needs them.
 
 ---
 
@@ -342,9 +376,12 @@ There is no DDD glossary in this repo; the term check is satisfied by adopting l
 - ~~The seven weights~~ — **settled in slice 1**: 32/26/16/12/7/4/3. `dns` kept its place at 3
   even with no `nslookup` to run against it, on the reading that a role a player meets rarely is
   worth having named when they do.
-- Which override cells get values now — in particular whether `fileserver` and `database` take a
-  today-expressible signature through ftp (a dump has to leave the box somehow) or stay unweighted
-  until their own door lands. **This is slice 2's first question.**
+- ~~Which override cells get values now~~ — **settled in slice 2**: `iot { ssh: 0.1 }`,
+  `webserver { http: 0.95 }`, `fileserver { ftp: 0.9 }`, `database { ftp: 0.6 }`, `router
+  { ssh: 1 }`. `fileserver` and `database` took the ftp signature now rather than waiting for
+  their own door — a dump has to leave the box somehow, and ftp is the only door either can
+  express today. `workstation`, `mailserver` and `dns` stay flat: a cell invented before its
+  door ships is a number with no claim behind it.
 - Prefix pool depth per role, before repeats inside one LAN start to read as generated. Slice 1
   shipped 4–7 names per role and `DEVICE_TYPES` for `workstation`; repeats within one LAN are
   visible on the larger networks and may want revisiting once placement makes names load-bearing.
