@@ -269,8 +269,8 @@ PHASE 1 — THE DOORS  (near-term focus)
       D5b slice 5 the account you crack fits the box   ✔ SHIPPED v0.157.0
   D6  mysql                                           ← IN PROGRESS (planned, plans/d6-mysql.md)
       D6 slice 1 a box runs a database                ✔ SHIPPED v0.158.0 (#434)
-      D6 slice 2 a player cracks a database account   ← IN PROGRESS (feat/d6-mysql-crack)
-      D6 slice 3 a player reads a database
+      D6 slice 2 a player cracks a database account   ✔ SHIPPED v0.159.0 (#437)
+      D6 slice 3 a player reads a database            ← NEXT (feat/d6-mysql-prompt)
       D6 slice 4 a player changes a database
       D6 slice 5 a database on a deep layer answers
       D6 slice 6 a player runs their own database      (deferred half)
@@ -1836,9 +1836,19 @@ holds a real database, and one that does not holds no `/var/lib/mysql` at all. I
 then paid in full across **#435 and #436**, which took `pools/database.ts` from a score inflated by
 masked timeouts to **88.69% with 0 timeouts** and 44 survivors that are each accounted for — 42
 column-metadata mutants slice 3 must kill by asserting `DESCRIBE` **over the population**, and 2
-equivalent float comparisons. Slice 2 (a player cracks a database account) is now underway on
-`feat/d6-mysql-crack` and is the first D6 slice to touch `api/`, so it needs a
-`scripts/testMysqlSweep.ts` wire-check run live before it counts.
+equivalent float comparisons. **Slice 2 then shipped v0.159.0 (#437)** — `hydra <host> mysql` returns the
+accounts in the box's database rather than its `/etc/passwd`, which was a SHIPPED BUG and not a
+missing feature: slice 1's catalog row made the door reachable while all three vantage handlers
+still read the wrong file, so on a box holding a `root` in both it returned the right name against
+the wrong secret. Proven by `scripts/testMysqlSweepTrace.ts` **13/13** on the wire. Two things it
+taught that the plan had not predicted: the **application account is the commonest** credential a
+sweep returns (67.7% of database boxes, against `readonly`'s 48.8% and root's 12.0%, measured over
+800 networks) because half the databases carry no `readonly`; and this slice's `api/` production
+diff was **empty**, so the row's blanket "slices 2-5 and 7 touch `api/`" does not hold — the wire
+-check earned its place for a narrower reason, that a `patches` row at a SECOND log path lands and
+reads back under a key the upsert's conflict target does not swallow.
+
+**Slice 3 (a player reads a database) is NEXT**, on `feat/d6-mysql-prompt`.
 
 The three things that grill settled which the row above could not have predicted:
 

@@ -420,8 +420,10 @@ decisions. The ship gate is legacy parity **minus missions**; missions are a pos
     through `resolvePublicTarget` exactly as `ssh` and `hydra` do, so the credential `hydra`
     reports on a forwarded port is the one that opens it. Proved live end to end in Act 11 of
     [`e2e-shared-network-verification.md`](./e2e-shared-network-verification.md).
-  - **Wire-checks:** `testFtpSession` (14/14), `testFtpRemoteRead` (7/7), `testFtpPut` (12/12),
-    `testFtpTransferTrace` (13/13), `testFtpSweepTrace` (8/8), `testFtpCrossPlayer` (16/16).
+  - **Wire-checks:** `testFtpSession` (**12/14** — the two backward-compat checks have been
+    failing for a while; real baseline and the open product question in §9), `testFtpRemoteRead`
+    (7/7), `testFtpPut` (12/12), `testFtpTransferTrace` (13/13), `testFtpSweepTrace` (8/8),
+    `testFtpCrossPlayer` (16/16).
     Several of them pin the ESSID to a fixture network deliberately: most generated LANs hold no
     host running BOTH doors, and without one "ftp wrote elsewhere" only means "a different
     machine". Pick the fixture ESSID for the box you need before assuming a generator bug.

@@ -1,9 +1,9 @@
 # Plan: D6 — a player reads a machine's database (`mysql`)
 
-**Branch**: one `feat/d6-*` per slice — slice 2 is `feat/d6-mysql-crack`
-**Status**: Active — slice 1 LANDED (v0.158.0, #434, `29bc042`) and its mutation debt PAID
-(#435 `f1c4dd6`, #436 `8add9fa`); slice 2 STARTED on `feat/d6-mysql-crack`, hydra work not
-yet begun
+**Branch**: one `feat/d6-*` per slice — slice 3 is `feat/d6-mysql-prompt`
+**Status**: Active — slices 1 and 2 LANDED (v0.158.0 #434 `29bc042`; v0.159.0 #437 `a6bdead`),
+slice 1's mutation debt PAID (#435 `f1c4dd6`, #436 `8add9fa`). Slice 3 NOT STARTED, and opens
+owing the debt named under its own heading.
 
 > Decisions are LOCKED in [`legacy-parity-epic.md`](legacy-parity-epic.md) §"D6 — resolved scope &
 > decisions (grill-me, 2026-08-19)". This file sequences them; it does not re-open them. Where
@@ -21,8 +21,12 @@ database a player can find, crack, read, change, and be caught changing.
       the daemon's own bad-handshake line — slice 1
 - [x] A box running `mysqld` holds a real generated database at `/var/lib/mysql/data.json`; a box
       that is not running one holds no `/var/lib/mysql` at all — slice 1
-- [ ] `hydra <host> mysql` returns database accounts — `readonly` almost always, the app account
-      often, database root rarely — and leaves a wall of denials in `/var/log/mysql.log`
+- [x] `hydra <host> mysql` returns database accounts and leaves a wall of denials in
+      `/var/log/mysql.log` — slice 2. **PLANNING CORRECTION, measured over 800 networks rather
+      than assumed**: `readonly` sits on 48.8% of database boxes and falls every single time, the
+      app account on 67.7%, database root on 12.0%. So the APP ACCOUNT is the commonest credential
+      a sweep returns — not `readonly`, which this line had first — because half the databases
+      carry no `readonly` at all. Root being rarest is the only part that survived contact
 - [ ] `mysql <host>` + a cracked credential reaches a `mysql>` prompt where `SHOW TABLES`,
       `DESCRIBE` and `SELECT` return the box's own data in legacy's ASCII tables
 - [ ] The tier ladder is observable: `readonly` is refused an `UPDATE`, the app account performs
@@ -152,7 +156,7 @@ stanzas may well be clearer than a table.
 
 ---
 
-### Slice 2: A player cracks a database account
+### Slice 2: A player cracks a database account ✔ LANDED (v0.159.0, #437, `a6bdead`)
 
 **Value**: A player obtains a credential for a database they have found. Without this the door
 ships unopenable, which is why it precedes the prompt.
@@ -577,9 +581,10 @@ Recorded in the deferred backlog with the current baseline, so the doc stops cla
 The general lesson, now in the conventions doc: **a wire-check that selects its own fixture can go
 dead silently.** An exit 2 is not a failure, nothing runs these in CI, and the registry kept
 reporting a pass count for a script that had not executed in months.
-**Slice 2 is COMPLETE**: all nine acceptance criteria met, wire-check green, the two neighbouring
-hydra wire-checks green. Left before merge: the version bump (0.158.0 -> 0.159.0, both
-`package.json` and `package-lock.json`) and the PR.
+**Slice 2 is COMPLETE and MERGED** — v0.159.0, PR #437, squashed onto `main` as `a6bdead`
+(17 files, +1713/-37). All nine acceptance criteria met; `testMysqlSweepTrace` **13/13** against
+live `vercel dev` + supabase; `testHydraOwnLan` 23/23 and the repaired `testFtpSweepTrace` 8/8;
+3104 unit tests, `tsc -b` and `eslint` clean.
 
 **RED**: Handler-level behavior tests — the account-source assertion (criterion 1) fails against
 today's code, which is the honest RED. Plus a population sweep for criterion 3, edge tests for 4-6,
@@ -600,6 +605,20 @@ the `timeout` column read before the score is believed.
 **Path**: `mysql <host>` → masked credential prompt → per-statement server action → validate
 against the datadir `credentials` → parse → execute → format → result set only.
 **Class**: Behavior change. **Skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
+
+**Opens owing one debt, and standing next to a second that is not its own.**
+
+1. **OWED HERE — 42 column-METADATA mutants** in `pools/database.ts` (`nullable` flips, `key`,
+   `defaultValue`) survive because nothing renders that metadata yet. `DESCRIBE` is the thing that
+   renders it, so this slice is where they become killable. **`DESCRIBE` must be asserted over the
+   population, not over one table on one box** — a single fixture agrees with whatever the pool
+   happens to hold — or all 42 persist behind a number that looks finished.
+2. **NOT owed here, but do not widen it** — no vantage fixture sweeps a database, so reverting both
+   vantage handlers to `accountsIn(target.fs)` leaves the whole suite green (measured, with the
+   mutant, above). Slices 5 and 7 own that. This slice adds a `mysql>` prompt on the own-LAN
+   vantage only; if it invents a gateway fixture for any other reason, give that fixture a database
+   box so 5 has something to build on.
+
 **Acceptance criteria**: `mysql <host>` on a box with no mysqld refuses **before** prompting;
 a good credential reaches `mysql>`; `SHOW TABLES` / `DESCRIBE` / `SELECT` (with `WHERE … AND …`)
 return legacy's ASCII tables and `N rows in set`; a bad credential is refused with one
