@@ -10,6 +10,8 @@ import { machineIdForLanHost, resolveLanHostIdentity } from '../generation/lanHo
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { DEFAULT_WORDLIST, WORDLIST_PATH, formatWordlist } from '../wordlist/defaultWordlist';
 import { accountsIn } from './passwdAccount';
+import { sweepAccounts } from '../wordlist/passwordSweep';
+import { parseMysqlDatabase, type MysqlDatabase } from '../mysql/types';
 import { md5 } from '../generation/md5';
 import {
   AUTH_LOG_OWNER,
@@ -18,9 +20,16 @@ import {
   formatSshdAuthLine,
 } from '../logging/authLog';
 import { VSFTPD_LOG_PATH, formatVsftpdLoginLine } from '../logging/vsftpdLog';
+import {
+  MYSQL_LOG_OWNER,
+  MYSQL_LOG_PATH,
+  MYSQL_LOG_PERMISSIONS,
+  formatMysqlAttemptLine,
+} from '../logging/mysqlLog';
 import { derivePid } from '../logging/syslog';
 import { asAbsPath, asGameTime } from '../types';
 import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
+import type { Directory } from '../filesystem/types';
 import type { OwnerPatchRow } from '../network/materializeMachineFs';
 import type {
   ListPathPatchesResult,
@@ -81,6 +90,18 @@ const ftpHostOn = (essid: string): LanHost => {
   return host;
 };
 
+/** A LAN host that runs mysqld — the database door, and the only one in the catalog
+ *  whose accounts are not the box's own. */
+const mysqlHostOn = (essid: string): LanHost => {
+  const host = generateHomeLan(essid).hosts.find(
+    (candidate) =>
+      candidate.kind === 'machine' &&
+      hostServices(essid, candidate).some(({ spec }) => spec === SERVICE_CATALOG.mysql),
+  );
+  if (host === undefined) throw new Error('no mysql-running host on LAN');
+  return host;
+};
+
 /** A LAN host running NO ssh — the "nothing listening there" refusal. */
 const sshlessHostOn = (essid: string): LanHost => {
   const host = generateHomeLan(essid).hosts.find(
@@ -89,6 +110,19 @@ const sshlessHostOn = (essid: string): LanHost => {
       !hostServices(essid, candidate).some(({ spec }) => spec === SERVICE_CATALOG.ssh),
   );
   if (host === undefined) throw new Error('every host on LAN runs ssh');
+  return host;
+};
+
+/** A LAN host running ssh but NO database — the box that separates a refusal about
+ *  the DOOR from a refusal about the machine. Its shell opens to the same wordlist
+ *  that its database door must turn away. */
+const databaselessHostOn = (essid: string): LanHost => {
+  const host = generateHomeLan(essid).hosts.find((candidate) => {
+    if (candidate.kind !== 'machine') return false;
+    const services = hostServices(essid, candidate).map(({ spec }) => spec);
+    return services.includes(SERVICE_CATALOG.ssh) && !services.includes(SERVICE_CATALOG.mysql);
+  });
+  if (host === undefined) throw new Error('every ssh host on LAN runs a database');
   return host;
 };
 
@@ -119,6 +153,36 @@ const accountsWithPasswords = (
   });
 };
 
+/** One file's content on a regenerated host, or undefined when nothing there is a
+ *  file. The datadir is read the same way the daemon reads its own. */
+const fileOn = (host: LanHost, segments: readonly string[]): string | undefined => {
+  const parent = segments.slice(0, -1).reduce<Directory | undefined>((node, segment) => {
+    const next = node?.entries.get(segment);
+    return next !== undefined && next.kind === 'directory' ? next : undefined;
+  }, resolveLanHostIdentity(host, ESSID).baseFs);
+  const leaf = parent?.entries.get(segments.at(-1) ?? '');
+  return leaf !== undefined && leaf.kind === 'file' ? leaf.content : undefined;
+};
+
+/** The database a mysql box keeps. */
+const databaseOn = (host: LanHost): MysqlDatabase => {
+  const raw = fileOn(host, ['var', 'lib', 'mysql', 'data.json']);
+  const database = raw === null || raw === undefined ? null : parseMysqlDatabase(raw);
+  if (database === null) throw new Error(`no database on ${host.hostname}`);
+  return database;
+};
+
+/** Every DATABASE account on a host paired with its real plaintext — the mysql half
+ *  of `accountsWithPasswords`, drawn on a stream the box's own accounts never share. */
+const databaseAccountsWithPasswords = (
+  host: LanHost,
+  candidates: readonly string[],
+): readonly { readonly username: string; readonly password: string }[] =>
+  databaseOn(host).credentials.flatMap((credential) => {
+    const password = candidates.find((candidate) => md5(candidate) === credential.passwordHash);
+    return password === undefined ? [] : [{ username: credential.username, password }];
+  });
+
 /** One writer's row at the wordlist path — the shape `apt install hydra` leaves
  *  behind. `updated_at` and `writer_key` are what a reader decides the winner on
  *  when several writers have written the same file on one machine. */
@@ -131,6 +195,19 @@ const wordlistRow = (
   writer_key: 'the-caller',
   ...over,
 });
+
+/** A patch row at the datadir path — `null` content is the file being deleted, which
+ *  is what root removing it leaves behind. */
+const datadirRow = (content: string | null): OwnerPatchRow =>
+  ({
+    path: asAbsPath('/var/lib/mysql/data.json'),
+    content,
+    owner: 'root',
+    permissions: null,
+    node_type: 'file',
+    updated_at: '2026-08-09T11:00:00.000Z',
+    writer_key: 'b'.repeat(64),
+  }) as OwnerPatchRow;
 
 type DepOverrides = Partial<HydraCrackDeps> & {
   readonly wordlist?: readonly string[] | null;
@@ -209,6 +286,28 @@ const traceLine = (
     time: asGameTime(FIXED_NOW),
     pid: derivePid(FIXED_NOW),
   });
+
+/** One line the sweep is expected to leave on the target's mysql.log. An accepted
+ *  attempt names the database it opened; a refused one has none to name. */
+const mysqlTraceLine = (
+  outcome: 'success' | 'failure',
+  user: string,
+  database?: string,
+): string =>
+  formatMysqlAttemptLine({
+    outcome,
+    user,
+    fromIp: ATTACKER_IP,
+    hostname: '',
+    time: asGameTime(FIXED_NOW),
+    pid: derivePid(FIXED_NOW),
+    ...(database === undefined ? {} : { database }),
+  });
+
+/** Every DATABASE account on a host, in datadir order — the order a sweep attacks
+ *  them in, and so the order their trace lines must appear in. */
+const databaseAccountNamesOn = (host: LanHost): readonly string[] =>
+  databaseOn(host).credentials.map((credential) => credential.username);
 
 /** The lines a sweep actually wrote, in order — the content of the single patch
  *  the handler upserts, minus the trailing newline the appender adds. */
@@ -613,6 +712,38 @@ describe('handleHydraCrack', () => {
     const response = await handleHydraCrack(envelope, deps);
 
     expect(response.status).toBe(400);
+  });
+
+  it('ignores a wordlist the request brought with it, database door included', async () => {
+    // The list is a FILE on the box the player is standing on, and the progression is
+    // growing that file. A request that could carry its own list would hand every
+    // player the finished wordlist on their first login, and the database door is
+    // where that would hurt most — its accounts are the ones a player is meant to
+    // have to work for.
+    //
+    // The payload schema is loose, so an extra field is not rejected; it is simply
+    // never read, and this is what says so. The caller's machine holds a list that
+    // opens nothing here, while the request carries the one that opens everything —
+    // so a handler that glanced at the request would return the whole ladder rather
+    // than nothing at all.
+    const identity = generateIdentity();
+    const host = mysqlHostOn(ESSID);
+    const database = databaseAccountsWithPasswords(host, KNOWN_POOL);
+    const { deps } = makeDeps({ wordlist: ['no-such-word'] });
+    const envelope = signRequest(identity, 'hydraCrack', {
+      essid: ESSID,
+      target_ip: host.ip,
+      service: 'mysql',
+      caller_machine_id: computeWorkstationId(WORKSTATION, identity.publicKeyHex),
+      source_ip: ATTACKER_IP,
+      wordlist: database.map((account) => account.password),
+    });
+
+    const response = await handleHydraCrack(envelope, deps);
+
+    expect(database.length).toBeGreaterThan(0);
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ cracked: [], wordlistFound: true });
   });
 
   it("reads the TARGET host's journal, keyed by the machine it resolved", async () => {
@@ -1038,6 +1169,208 @@ describe('the trace a hydra sweep leaves on its target', () => {
       );
     });
 
+    it('writes a mysql sweep to mysql.log, in the database daemon own shape', async () => {
+      const identity = generateIdentity();
+      const host = mysqlHostOn(ESSID);
+      const { deps, upsertPatch } = makeDeps({ wordlist: ['no-such-word'] });
+
+      await handleHydraCrack(
+        signedCrack(identity, { target_ip: host.ip, service: 'mysql' }),
+        deps,
+      );
+
+      const row = upsertPatch.mock.calls[0]?.[0];
+      expect(row?.path).toBe(MYSQL_LOG_PATH);
+      expect(writtenLines(upsertPatch)[0]).toBe(
+        mysqlTraceLine('failure', databaseAccountNamesOn(host)[0] ?? ''),
+      );
+    });
+
+    it('denies in mysql own words, not another daemon-s', async () => {
+      // Asserting the line EQUALS what the formatter produces cannot catch a change
+      // inside the formatter — both sides move together, the same blind spot a name
+      // pool compared against itself has. The shape is what closes it: a defender
+      // reading this file sees mysql's ISO-with-microseconds stamp and its own
+      // refusal wording, and would see neither if the sshd formatter were wired here.
+      const identity = generateIdentity();
+      const host = mysqlHostOn(ESSID);
+      const { deps, upsertPatch } = makeDeps({ wordlist: ['no-such-word'] });
+
+      await handleHydraCrack(
+        signedCrack(identity, { target_ip: host.ip, service: 'mysql' }),
+        deps,
+      );
+
+      expect(writtenLines(upsertPatch)[0]).toMatch(
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.000000Z\t\d+ Connect\tAccess denied for user '[^']+'@'[^']+' \(using password: YES\)$/,
+      );
+    });
+
+    it('leaves auth.log untouched when the door swept was mysql', async () => {
+      const identity = generateIdentity();
+      const host = mysqlHostOn(ESSID);
+      const { deps, upsertPatch } = makeDeps({ wordlist: ['no-such-word'] });
+
+      await handleHydraCrack(
+        signedCrack(identity, { target_ip: host.ip, service: 'mysql' }),
+        deps,
+      );
+
+      const paths = upsertPatch.mock.calls.map(([row]) => row.path);
+      expect(paths).not.toContain(AUTH_LOG_PATH);
+    });
+
+    it("lands on the TARGET's mysql.log, root-owned and readable by every tier", async () => {
+      // Same rule auth.log follows: a guest-tier occupant must be able to `cat` the
+      // attack, and only the daemon may write it.
+      const identity = generateIdentity();
+      const host = mysqlHostOn(ESSID);
+      const { machineId } = resolveLanHostIdentity(host, ESSID);
+      const { deps, upsertPatch } = makeDeps({ wordlist: ['no-such-word'] });
+
+      await handleHydraCrack(
+        signedCrack(identity, { target_ip: host.ip, service: 'mysql' }),
+        deps,
+      );
+
+      expect(upsertPatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          writer_key: identity.publicKeyHex,
+          machine_id: machineId,
+          path: MYSQL_LOG_PATH,
+          owner: MYSQL_LOG_OWNER,
+          permissions: MYSQL_LOG_PERMISSIONS,
+          node_type: 'file',
+        }),
+      );
+    });
+
+    it('records one line per password tried against the database, not one per account', async () => {
+      // The volume IS the behaviour: a sweep is the noisiest thing a player can do to
+      // a box, and a defender reading the file back has to see that. One line per
+      // account would price the attack at a fraction of what it cost.
+      const identity = generateIdentity();
+      const host = mysqlHostOn(ESSID);
+      const words = ['no-such-word', 'nor-this-one', 'nor-that'];
+      const { deps, upsertPatch } = makeDeps({ wordlist: words });
+
+      await handleHydraCrack(
+        signedCrack(identity, { target_ip: host.ip, service: 'mysql' }),
+        deps,
+      );
+
+      expect(writtenLines(upsertPatch)).toHaveLength(
+        words.length * databaseAccountNamesOn(host).length,
+      );
+    });
+
+    it('records the database account that fell, after only the words tried before it', async () => {
+      // The words after the match were never sent, so they cannot appear. This is the
+      // line that tells a defender the sweep LANDED rather than merely happened.
+      const identity = generateIdentity();
+      const host = mysqlHostOn(ESSID);
+      const database = databaseAccountsWithPasswords(host, KNOWN_POOL);
+      const fell = database[0];
+      const { deps, upsertPatch } = makeDeps({
+        wordlist: ['no-such-word', fell?.password ?? ''],
+      });
+
+      await handleHydraCrack(
+        signedCrack(identity, { target_ip: host.ip, service: 'mysql', username: fell?.username }),
+        deps,
+      );
+
+      expect(writtenLines(upsertPatch)).toEqual([
+        mysqlTraceLine('failure', fell?.username ?? ''),
+        mysqlTraceLine('success', fell?.username ?? '', databaseOn(host).name),
+      ]);
+    });
+
+    it('names the database on the line that opened it', async () => {
+      // The defender's most useful signal: a wall of denials that names nothing,
+      // then one Connect that names a database, is a sweep that LANDED. A refusal
+      // cannot carry the name — a client that never authenticated was never told
+      // which database it would have reached — so the name appearing at all is what
+      // separates the attempt that worked from the hundreds that did not.
+      //
+      // Asserted as a shape rather than against the formatter, because a test that
+      // compares the line to the function that wrote it moves whenever that function
+      // does and can never catch it changing.
+      const identity = generateIdentity();
+      const host = mysqlHostOn(ESSID);
+      const fell = databaseAccountsWithPasswords(host, KNOWN_POOL)[0];
+      const { deps, upsertPatch } = makeDeps({ wordlist: [fell?.password ?? ''] });
+
+      await handleHydraCrack(
+        signedCrack(identity, { target_ip: host.ip, service: 'mysql', username: fell?.username }),
+        deps,
+      );
+
+      expect(writtenLines(upsertPatch)[0]).toMatch(
+        new RegExp(
+          `^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.000000Z\\t\\d+ Connect\\t` +
+            `${fell?.username ?? ''}@${ATTACKER_IP} on ${databaseOn(host).name} using TCP/IP$`,
+        ),
+      );
+    });
+
+    it('appends a mysql sweep to what the log already holds', async () => {
+      // A sweep must not erase the connection history the box already recorded.
+      const identity = generateIdentity();
+      const host = mysqlHostOn(ESSID);
+      const earlier =
+        '2026-08-09T10:00:00.000000Z\t99 Connect\treadonly@10.0.0.9 on shop using TCP/IP\n';
+      const { deps, upsertPatch } = makeDeps({
+        wordlist: ['no-such-word'],
+        readAuthLog: async () => ({ data: { content: earlier }, error: null }),
+      });
+
+      await handleHydraCrack(
+        signedCrack(identity, { target_ip: host.ip, service: 'mysql' }),
+        deps,
+      );
+
+      expect(upsertPatch.mock.calls[0]?.[0].content).toBe(
+        `${earlier}${databaseAccountNamesOn(host)
+          .map((name) => mysqlTraceLine('failure', name))
+          .join('\n')}\n`,
+      );
+    });
+
+    it('refuses a box that runs no database, and writes nothing, however weak the box is', async () => {
+      // The refusal has to be about the DOOR, not about the machine or the wordlist.
+      // So this box is one whose every unix account is in the list being swept: its
+      // shell falls in the very same breath its database door is turned away, which
+      // is the control that gives the refusal its meaning. A handler that reached for
+      // `/etc/passwd` when it found no datadir would answer 200 here and hand back
+      // three accounts — the loudest possible version of the bug this door exists to
+      // avoid.
+      //
+      // And nothing is written either way: the refusal comes before anything is
+      // attacked, so a box with no mysqld cannot be probed through its own log for
+      // whether it ever had one.
+      const identity = generateIdentity();
+      const host = databaselessHostOn(ESSID);
+      const box = accountsWithPasswords(host, KNOWN_POOL);
+      const wordlist = box.map((account) => account.password);
+      const database = makeDeps({ wordlist });
+      const shell = makeDeps({ wordlist });
+
+      const refused = await handleHydraCrack(
+        signedCrack(identity, { target_ip: host.ip, service: 'mysql' }),
+        database.deps,
+      );
+      const opened = await handleHydraCrack(
+        signedCrack(identity, { target_ip: host.ip, service: 'ssh' }),
+        shell.deps,
+      );
+
+      expect(box.length).toBeGreaterThan(0);
+      expect(refused).toEqual({ status: 404, body: { error: 'service_not_running' } });
+      expect(database.upsertPatch).not.toHaveBeenCalled();
+      expect(opened.body.cracked).toEqual(box);
+    });
+
     it('refuses a service the world has no row for, and writes nothing', async () => {
       // `hydra <host> telnet` names a door the game does not model. It is answered
       // exactly like a service that is not running — the caller learns nothing about
@@ -1054,5 +1387,349 @@ describe('the trace a hydra sweep leaves on its target', () => {
       expect(response).toEqual({ status: 404, body: { error: 'service_not_running' } });
       expect(upsertPatch).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('the database door answers for its own accounts', () => {
+  it("reports the datadir's credentials rather than the box's /etc/passwd", async () => {
+    // A mysql account lives in `/var/lib/mysql/data.json`; a unix account lives in
+    // `/etc/passwd`. The two are drawn on separate streams, so cracking a box buys
+    // nothing toward its database and the reverse. The wordlist here holds BOTH
+    // sets on purpose: a sweep reading the wrong file still reports something, which
+    // is what makes this an assertion about the SOURCE and not about the sweep.
+    const identity = generateIdentity();
+    const host = mysqlHostOn(ESSID);
+    const database = databaseAccountsWithPasswords(host, KNOWN_POOL);
+    const box = accountsWithPasswords(host, KNOWN_POOL);
+    const { deps } = makeDeps({
+      wordlist: [...database, ...box].map((account) => account.password),
+    });
+
+    const response = await handleHydraCrack(
+      signedCrack(identity, { target_ip: host.ip, service: 'mysql' }),
+      deps,
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body.cracked).toEqual(database);
+  });
+
+  it('never opens one of the box own accounts through the database door', async () => {
+    // The sharper half of the same claim. This box holds a `root` in BOTH files
+    // under different passwords, so a sweep that read `/etc/passwd` hands back the
+    // right name against the wrong secret — the one failure that would read to a
+    // player as success, right up until the credential is used.
+    const identity = generateIdentity();
+    const host = mysqlHostOn(ESSID);
+    const database = databaseAccountsWithPasswords(host, KNOWN_POOL);
+    const box = accountsWithPasswords(host, KNOWN_POOL);
+    const { deps } = makeDeps({
+      wordlist: [...database, ...box].map((account) => account.password),
+    });
+
+    const response = await handleHydraCrack(
+      signedCrack(identity, { target_ip: host.ip, service: 'mysql' }),
+      deps,
+    );
+
+    for (const account of box) {
+      expect(response.body.cracked).not.toContainEqual(account);
+    }
+  });
+
+  it('exposes no accounts when the datadir has been deleted', async () => {
+    // The daemon is still listening — the pidfile says so — but there is nothing
+    // behind it to authenticate against. Nothing to attack is the honest answer, and
+    // falling back to the box's own accounts here is exactly the failure this door
+    // exists to avoid: root can delete this file, and a tamperer must not be able to
+    // turn the database door into a second shell door.
+    const identity = generateIdentity();
+    const host = mysqlHostOn(ESSID);
+    const box = accountsWithPasswords(host, KNOWN_POOL);
+    const { deps, upsertPatch } = makeDeps({
+      wordlist: box.map((account) => account.password),
+      findPatches: async () => ({ data: [datadirRow(null)], error: null }),
+    });
+
+    const response = await handleHydraCrack(
+      signedCrack(identity, { target_ip: host.ip, service: 'mysql' }),
+      deps,
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ cracked: [], wordlistFound: true });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('exposes no accounts when the datadir holds something that is not a database', async () => {
+    // A hand-edited datadir reads back as no database at all, the same as a missing
+    // one. The tamperer learns nothing about how their edit failed, and the sweep
+    // records nothing — an attempt that was never made must not appear in the log.
+    const identity = generateIdentity();
+    const host = mysqlHostOn(ESSID);
+    const box = accountsWithPasswords(host, KNOWN_POOL);
+    const { deps, upsertPatch } = makeDeps({
+      wordlist: box.map((account) => account.password),
+      findPatches: async () => ({
+        data: [datadirRow(JSON.stringify({ name: 'shop_prod', tables: {} }))],
+        error: null,
+      }),
+    });
+
+    const response = await handleHydraCrack(
+      signedCrack(identity, { target_ip: host.ip, service: 'mysql' }),
+      deps,
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ cracked: [], wordlistFound: true });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('still sweeps /etc/passwd when the door asked for is ssh', async () => {
+    // The control, on the SAME box: teaching the database door to read its datadir
+    // must not move the door every shipped trace already depends on.
+    const identity = generateIdentity();
+    const host = mysqlHostOn(ESSID);
+    const box = accountsWithPasswords(host, KNOWN_POOL);
+    const { deps } = makeDeps({ wordlist: box.map((account) => account.password) });
+
+    const response = await handleHydraCrack(
+      signedCrack(identity, { target_ip: host.ip, service: 'ssh' }),
+      deps,
+    );
+
+    expect(response.body.cracked).toEqual(box);
+  });
+
+  it('still sweeps /etc/passwd when the door asked for is ftp', async () => {
+    // The control that turned out to be missing. Before this branch every door read
+    // `/etc/passwd` because the handler said so; now each row names its own source,
+    // and a row pointed at the wrong one is a mistake nothing else here would catch.
+    //
+    // The ftp traces already on this file cannot catch it. `ftpHostOn` finds the same
+    // box `mysqlHostOn` does — it runs ssh, ftp and mysql — and both of that box's
+    // ladders begin with an account called `root`, so a first trace line reading
+    // `Failed password for root` is the same line whichever file was consulted. A
+    // coincidence of names hiding a wrong source is the same blind spot as a drawn
+    // name checked against the pool it came from, and it is closed the same way:
+    // assert the thing that actually differs, which is the whole list.
+    const identity = generateIdentity();
+    const host = ftpHostOn(ESSID);
+    const box = accountsWithPasswords(host, KNOWN_POOL);
+    const database = databaseAccountsWithPasswords(host, KNOWN_POOL);
+    const { deps } = makeDeps({
+      wordlist: [...box, ...database].map((account) => account.password),
+    });
+
+    const response = await handleHydraCrack(
+      signedCrack(identity, { target_ip: host.ip, service: 'ftp' }),
+      deps,
+    );
+
+    expect(database.length).toBeGreaterThan(0);
+    expect(response.body.cracked).toEqual(box);
+  });
+
+  it('keeps a box-s shell and its database behind two different keys', async () => {
+    // The two locks are drawn on separate streams, so neither is a step toward the
+    // other: a player who has rooted the box still has to sweep the database, and a
+    // player holding the database still has to get onto the box. Both directions are
+    // checked, because a shared stream would leak either way round.
+    //
+    // Each sweep is given the OTHER door's entire set of passwords — not a wordlist
+    // that merely fails, but the one that would open the box next door. The disjoint
+    // check is what keeps that meaningful: if the two ever drew the same password for
+    // the same box, these sweeps would be handed their own key and the claim would
+    // quietly stop being tested.
+    const identity = generateIdentity();
+    const host = mysqlHostOn(ESSID);
+    const shellPasswords = accountsWithPasswords(host, KNOWN_POOL).map(
+      (account) => account.password,
+    );
+    const databasePasswords = databaseAccountsWithPasswords(host, KNOWN_POOL).map(
+      (account) => account.password,
+    );
+    const shell = makeDeps({ wordlist: databasePasswords });
+    const database = makeDeps({ wordlist: shellPasswords });
+
+    const throughTheShell = await handleHydraCrack(
+      signedCrack(identity, { target_ip: host.ip, service: 'ssh' }),
+      shell.deps,
+    );
+    const throughTheDatabase = await handleHydraCrack(
+      signedCrack(identity, { target_ip: host.ip, service: 'mysql' }),
+      database.deps,
+    );
+
+    expect(shellPasswords.filter((password) => databasePasswords.includes(password))).toEqual([]);
+    expect(shellPasswords.length).toBeGreaterThan(0);
+    expect(databasePasswords.length).toBeGreaterThan(0);
+    expect(throughTheShell.body.cracked).toEqual([]);
+    expect(throughTheDatabase.body.cracked).toEqual([]);
+  });
+});
+
+/**
+ * How often a database account falls is a property of the WORLD, not of a box. One
+ * host proves nothing about a one-in-eight chance, and two sampled hosts prove less
+ * than they look like they do — a curve read off a sample small enough to be lucky is
+ * a curve that can be retuned to anything without a test noticing.
+ *
+ * So this block sweeps a population and reads the rates off it. The sweep is the real
+ * one: the accounts come from the catalog row the mysql door actually consults, and
+ * they are cracked by the same `sweepAccounts` the handler runs, against the wordlist
+ * a player starts the game holding. What is left out is only the envelope — that the
+ * handler hands back exactly this sweep is asserted per-host above, and signing eight
+ * hundred networks' worth of requests to re-assert it would buy nothing.
+ */
+describe('the database difficulty curve (which database accounts a starting wordlist opens)', () => {
+  /** What one box's database door yields to a player holding nothing but the wordlist
+   *  the game ships with. The box itself is discarded — only its verdict is kept. */
+  type DatabaseDoor = {
+    readonly where: string;
+    readonly usernames: readonly string[];
+    readonly fell: readonly string[];
+  };
+
+  /** Eight hundred networks, swept ONCE for the whole block.
+   *
+   *  A LAN carries a handful of boxes and only some of them run a database, so a
+   *  population wide enough to put a 0.12 rate on a real footing has to come from
+   *  many networks rather than many addresses on one. This yields several hundred
+   *  databases — enough that the retunings that matter (the knobs swapped, a roll
+   *  flipped, every account crackable, none) land outside every band below.
+   *
+   *  Computed once for the reason the generation populations are: regenerating it per
+   *  test is quick in an ordinary run but slow enough under mutation instrumentation
+   *  to race Stryker's timeout, which scores a surviving mutant as killed and makes
+   *  the number a measure of the machine rather than of the tests. Deterministic and
+   *  read-only, so sharing it across tests couples nothing. */
+  const DATABASE_DOORS: readonly DatabaseDoor[] = Array.from(
+    { length: 800 },
+    (_unused, index) => `POPULATION-NET-${index}`,
+  ).flatMap((essid) =>
+    generateHomeLan(essid)
+      .hosts.filter(
+        (host) =>
+          host.kind === 'machine' &&
+          hostServices(essid, host).some(({ spec }) => spec === SERVICE_CATALOG.mysql),
+      )
+      .map((host) => {
+        const { baseFs } = resolveLanHostIdentity(host, essid);
+        const accounts = SERVICE_CATALOG.mysql.accountsOn(baseFs);
+        const { cracked } = sweepAccounts({
+          accounts,
+          username: undefined,
+          wordlist: formatWordlist(DEFAULT_WORDLIST),
+          hostname: host.hostname,
+          fromIp: ATTACKER_IP,
+          stamp: FIXED_NOW,
+          formatAttempt: formatMysqlAttemptLine,
+          database: SERVICE_CATALOG.mysql.databaseOn?.(baseFs),
+        });
+        return {
+          where: `${essid} ${host.ip}`,
+          usernames: accounts.map((account) => account.username),
+          fell: cracked.map((credential) => credential.username),
+        };
+      }),
+  );
+
+  /** The application account is the rung with no fixed name: `root` and `readonly`
+   *  are called what they are called on every box, and whatever else the ladder holds
+   *  is the account the box's own software connects as. */
+  const isAppAccount = (username: string): boolean =>
+    username !== 'root' && username !== 'readonly';
+
+  const doorsHolding = (username: string): readonly DatabaseDoor[] =>
+    DATABASE_DOORS.filter((door) => door.usernames.includes(username));
+
+  const doorsOpenedAt = (username: string): readonly DatabaseDoor[] =>
+    DATABASE_DOORS.filter((door) => door.fell.includes(username));
+
+  const appAccountsOpened = DATABASE_DOORS.filter((door) =>
+    door.fell.some(isAppAccount),
+  ).length;
+
+  /** A complaint kept small however wrong the world turns out to be: a failure that
+   *  renders several hundred generated databases takes longer to print than the suite
+   *  takes to run, and under mutation instrumentation that reads as a timeout rather
+   *  than a kill. A count and three examples fail just as loudly. */
+  const noneOf = (
+    offenders: readonly string[],
+  ): { readonly count: number; readonly sample: readonly string[] } => ({
+    count: offenders.length,
+    sample: offenders.slice(0, 3),
+  });
+
+  const NONE = { count: 0, sample: [] };
+
+  const share = (fraction: number): number => Math.round(DATABASE_DOORS.length * fraction);
+
+  it('puts a real ladder behind every database door a box advertises', () => {
+    // The guard the rates below stand on. A box whose scan reports 3306 but whose
+    // datadir yields no accounts is a door that cannot be knocked on, and it would
+    // also quietly shrink the denominator every rate here is measured against — so a
+    // curve could be moved by boxes going missing rather than by passwords changing.
+    //
+    // The shape is asserted at the same time because the tiers below are read off it:
+    // exactly one `root`, at most one `readonly`, and one further account that is
+    // neither. Two accounts sharing a name, or an application account called `root`,
+    // would put a credential in a tier it does not belong to and move the curve
+    // without moving a single password.
+    const misshapen = DATABASE_DOORS.filter(
+      (door) =>
+        door.usernames.filter((username) => username === 'root').length !== 1 ||
+        door.usernames.filter((username) => username === 'readonly').length > 1 ||
+        new Set(door.usernames).size !== door.usernames.length ||
+        door.usernames.filter(isAppAccount).length !== 1,
+    ).map((door) => door.where);
+
+    expect(DATABASE_DOORS.length).toBeGreaterThan(400);
+    expect(noneOf(misshapen)).toEqual(NONE);
+  });
+
+  it('opens every read-only account in the world, without exception', () => {
+    // Not a probability — the always-open door. `readonly` exists on about half the
+    // databases in the world, and every one that exists falls to the list a player
+    // starts with. It is the rung that makes a database readable at all, so a single
+    // survivor would be a box a player can find, scan, and never get into.
+    //
+    // The count guards the claim from passing by emptiness: "every one of none fell"
+    // is true of a world with no read-only accounts in it.
+    const held = doorsHolding('readonly');
+    const shut = held.filter((door) => !door.fell.includes('readonly')).map((door) => door.where);
+
+    expect(held.length).toBeGreaterThan(100);
+    expect(noneOf(shut)).toEqual(NONE);
+  });
+
+  it('lets the application account fall on most databases — a swept LAN yields a writer', () => {
+    // The rung that makes a database WRITABLE, and the one a player meets most often.
+    // The band excludes every account crackable (every door), none (0), the roll
+    // flipped (~0.30), and the root and application knobs wired to each other (~0.12).
+    expect(appAccountsOpened).toBeGreaterThan(share(0.63));
+    expect(appAccountsOpened).toBeLessThan(share(0.77));
+  });
+
+  it('keeps database root shut on most databases — rooting one is a find, not a routine', () => {
+    // What makes the statements only database root may run rare rather than routine.
+    // Same band the box's own root is held to, and it excludes the same retunings:
+    // every root crackable (every door), none (0), the roll flipped (~0.88), and the
+    // knobs swapped (~0.70).
+    expect(doorsOpenedAt('root').length).toBeGreaterThan(share(0.09));
+    expect(doorsOpenedAt('root').length).toBeLessThan(share(0.15));
+  });
+
+  it('makes database root the rarest of the three, and the application account the commonest', () => {
+    // The ladder as a player actually experiences it, which is NOT the ladder the
+    // per-account chances describe. A `readonly` that exists always falls and an
+    // application account only usually does — but half the databases in the world
+    // carry no `readonly` at all, so across the world the application account is the
+    // credential a sweep hands back most often. Stating the order the other way round
+    // is the mistake this test exists to prevent.
+    expect(doorsOpenedAt('root').length).toBeLessThan(doorsOpenedAt('readonly').length);
+    expect(doorsOpenedAt('readonly').length).toBeLessThan(appAccountsOpened);
   });
 });

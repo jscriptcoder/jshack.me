@@ -64,7 +64,7 @@ const post = async (envelope: unknown): Promise<{ status: number; body: unknown 
 // Chosen because it generates a host running BOTH doors — the ssh control and the
 // ftp claim have to land on the same box, or "ftp wrote elsewhere" could just mean
 // "a different machine". Only some ESSIDs produce one; the guard below says so.
-const ESSID = 'VSFTPD-LAB';
+const ESSID = 'VSFTPD-LAB-3';
 
 const attacker = generateIdentity();
 const attackerMachine = computeWorkstationId('tracelab', attacker.publicKeyHex);

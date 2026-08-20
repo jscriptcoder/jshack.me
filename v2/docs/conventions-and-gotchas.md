@@ -422,9 +422,14 @@ decisions. The ship gate is legacy parity **minus missions**; missions are a pos
     [`e2e-shared-network-verification.md`](./e2e-shared-network-verification.md).
   - **Wire-checks:** `testFtpSession` (14/14), `testFtpRemoteRead` (7/7), `testFtpPut` (12/12),
     `testFtpTransferTrace` (13/13), `testFtpSweepTrace` (8/8), `testFtpCrossPlayer` (16/16).
-    Several of them pin the ESSID to **`VSFTPD-LAB`** deliberately: most generated LANs hold no
+    Several of them pin the ESSID to a fixture network deliberately: most generated LANs hold no
     host running BOTH doors, and without one "ftp wrote elsewhere" only means "a different
     machine". Pick the fixture ESSID for the box you need before assuming a generator bug.
+    **`testFtpSweepTrace` needs both doors and now pins `VSFTPD-LAB-3` (`www-197`)**; it had been
+    exiting 2 on `VSFTPD-LAB`, which no longer holds such a box, so the check was dead while still
+    recorded here as passing. The four ftp-only scripts still pin `VSFTPD-LAB` and are unaffected.
+    A wire-check that selects its own fixture can go dead silently — an exit 2 is not a failure,
+    and nothing runs these in CI.
   - **Still open, and named rather than smuggled:** `ssh` does not gate on a listening sshd
     (§9) and the web door files its sweeps in `auth.log` (§9).
 
@@ -751,6 +756,15 @@ how loaded the machine was. A deterministic read-only sample shared across a des
 nothing, and it is the reason the account and credential blocks in `remoteHostFs.test.ts` build
 their sample in a block-level constant.
 
+**A Stryker TIMEOUT is scored as a KILL, so `timeoutMS` is a correctness setting, not a patience
+setting.** `stryker.config.json` ran at `30000` until 2026-08-20, which was under the budget the
+generation suites need even when they are structured correctly. Raising it to **120000** converted
+78 timeouts on `pools/database.ts` into 78 verdicts, and every single one of them was a SURVIVOR:
+the killed count stayed at exactly 311 across both runs, so the masking was total rather than
+partial. **Any mutation figure in this repo measured before that change is inflated by an unknown
+number of survivors** and must be re-measured before it is cited as evidence. Read the `timeout`
+column of a clear-text report first: a non-zero one means the score is not yet a fact.
+
 **A population test over SYSTEMATIC seeds converges far slower than the sample size suggests.**
 Measuring a probability knob across `NET-0`, `NET-1`, … looks like an n=400 sample and is not:
 those strings differ by a few characters, so their FNV-1a hashes are correlated. A 0.40 knob read
@@ -812,6 +826,15 @@ the machine is online while `wlan0` is not).
 `reports/stryker-incremental.json`** for the untouched mutants in that file — a range-scoped
 run reported survivors that a full run had killed. After a scoped run, confirm any survivor by
 hand-mutating the line and running the test file.
+
+**`reports/mutation/mutation.json` is NOT written by this repo's configured reporters.**
+`stryker.config.json` sets `["html", "clear-text", "progress"]`, so that file silently persists
+from whichever older run last had a json reporter enabled — it can be a different SCOPE
+entirely. Parsing it after a scoped run yields a confident, fully-formatted classification of
+somebody else's mutants; it named 44 survivors in `pools/database.ts` while the run that had
+just finished was 13 survivors in `mysql/datadir.ts`. Read the FRESH `mutation.html` instead
+(the payload is at `app.report = `, with `"+"` string splices to strip before `raw_decode`), or
+work from the clear-text output. Check the file's mtime before trusting it.
 
 **Do NOT run Stryker and the v2 dev server at the same time.** A concurrent `vercel:dev`
 (vite/3100) makes Stryker report **false survivors** (verify by hand-mutating) and silently
@@ -1594,6 +1617,17 @@ state costs you more than one wrong attempt.
 
 Forward-looking direction not yet built (preserved as pointers; design when actually built).
 
+- **`testFtpSession` is 12/14 against a live stack, and has been for a while.** Two checks fail:
+  `a login that names no kind is still an ssh hop` (reads back `kind=no row`) and `and ending one
+  without a reason still reads as the player leaving` (`end_reason=undefined`). Both are the
+  BACKWARD-COMPAT pair — a session created the way the pre-`kind` client created one — so what
+  they guard is that an old-shaped login still lands a row at all. `no row` says it does not.
+  Found while running the neighbouring wire-checks for D6 slice 2, on a freshly `supabase
+  start`ed stack with migrations applied. Not caused by that slice, which touches neither
+  `authCreateSession` nor `api/sessions.ts`'s session path. Deliberately left unfixed rather than
+  patched on a guess: it needs someone to decide whether the old shape is still supposed to work,
+  and the answer is a product call about launch compatibility, not a test fix. Until it is
+  answered the doc's `testFtpSession (14/14)` is wrong; treat 12/14 as the current baseline.
 **Story-5b / multiplayer deferred** (detail in `plans/multiplayer-crossplayer-epic.md`
 §"Remaining work"):
 
@@ -2025,6 +2059,23 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   byte-identical resubmit; idempotency + per-request authz carry the real guarantee). Keep
   `noopNonceStore` everywhere; revisit at multiplayer-hardening (design preserved in the
   epic).
+- **Is the hand-rolled tree walk's mutation noise a house-wide cost or a local one?** Six
+  modules reach a known path by walking `entries.get()` a directory at a time, each guarding
+  every level with `x === undefined || x.kind !== 'directory'`: `sessions/passwdAccount.ts`,
+  `services/pidfile.ts`, `commands/ssh.ts`, `network/iptablesRules.ts`, `network/switchAcl.ts`
+  and `mysql/datadir.ts`. On the last of those the guards produce **13 surviving mutants of 46**
+  — every one on the four guard lines, twelve needing a system directory to be a FILE or absent
+  (states the generator never draws and no patch creates) and one provably equivalent, since a
+  directory where `data.json` should be yields `undefined` content that `parseMysqlDatabase`
+  already answers `null` for. Accepted there as §4's type-narrowing class.
+  **The assumption worth checking is that the other five behave the same.** It was reasoned, not
+  measured. If they do, that is a repo-wide floor on the mutation score of every path reader and
+  an argument for one shared `directoryAt(fs, segments)` that concentrates the guards in a single
+  place; if they do NOT, then `datadir.ts` is doing something the others are not, and the reasoning
+  that waved its survivors through is wrong. Cheap to settle — scope Stryker to those five files
+  and read the survivor lines. Do it before citing "type-narrowing, accept it" for a third module,
+  and note that a shared walker is exactly the kind of abstraction worth proposing collapsed:
+  six call sites is the evidence, not the guard count.
 
 **Game-design / content ideas** (same game; may carry to v2):
 
