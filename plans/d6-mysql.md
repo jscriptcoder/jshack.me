@@ -4,7 +4,7 @@
 **Status**: Active — slices 1 and 2 LANDED (v0.158.0 #434 `29bc042`; v0.159.0 #437 `a6bdead`),
 slice 1's mutation debt PAID (#435 `f1c4dd6`, #436 `8add9fa`). **Slice 3 IN PROGRESS** on
 `feat/d6-mysql-prompt` — criteria grilled to 21 (`32ef71b`), criteria 3, 4, 5 and 20 landed
-(`71aecb0`, `aad87b6` + the working tree). The door opens end to end; it is not yet registered.
+(`71aecb0`, `aad87b6`, `597dd2b`). The door opens end to end; it is not yet registered.
 Progress and what is written-but-untested are under slice 3's own heading.
 
 > Decisions are LOCKED in [`legacy-parity-epic.md`](legacy-parity-epic.md) §"D6 — resolved scope &
