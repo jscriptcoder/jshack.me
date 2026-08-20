@@ -330,6 +330,10 @@ describe('the banners the world’s doors answer with', () => {
   // contradicting source of truth for the fact CVEs are keyed on. `SSH-2.0` and
   // `HTTP/1.1` are PROTOCOL identifiers, which is a different thing from a patch
   // level — neither one narrows a box to a build anyone could look up.
+  //
+  // mysql is the row that shows what the rule costs: its REAL greeting is a version
+  // string, so the only thing it can say here is the handshake it refuses. A door
+  // may identify itself; it may not date itself.
   it('name the protocol and the daemon, never the build', () => {
     const banners = Object.values(SERVICE_CATALOG).map((spec) => spec.banner);
 
@@ -337,6 +341,7 @@ describe('the banners the world’s doors answer with', () => {
       'SSH-2.0-OpenSSH',
       'HTTP/1.1 400 Bad Request',
       '220 FTP server ready.',
+      'ERROR 1043 (08S01): Bad handshake',
     ]);
   });
 });

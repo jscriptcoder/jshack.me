@@ -11,6 +11,8 @@ import {
   type Listener,
 } from '../services/pidfile';
 import { BACKDOOR_PORTS } from './remoteHostFs';
+import { parseMysqlDatabase, type MysqlDatabase } from '../mysql/types';
+import { filterTreeToAllowlist } from '../patches/readFilter';
 import type { LanHost } from './generateHomeLan';
 import type { Directory, FileEntry, FileNode } from '../filesystem/types';
 
@@ -534,6 +536,194 @@ describe('buildRemoteHostFs', () => {
           expect(unservedLinks(fs, page)).toEqual([]);
         });
       });
+    });
+  });
+
+  describe('the database surface (a box that runs one has one)', () => {
+    /** Every address of this kind whose box runs the database daemon. A per-host
+     *  roll is a property of the WORLD, so what a role does differently is only
+     *  observable across a population — one box proves nothing either way. */
+    const runsMysqlOn = (prefix: string): readonly number[] =>
+      OCTETS.filter(
+        (octet) =>
+          pidfileContent(buildRemoteHostFs(ESSID, namedHost(prefix, octet)), 'mysqld.pid') !== null,
+      );
+
+    it('plants a mysqld.pid owned by the account its own config says it runs as', () => {
+      // The `/etc/mysql.cnf` a database box has carried since the roles landed says
+      // `user=mysql`, and `ps` prints a pidfile's runUser: an owner of `root` here
+      // would put the box's own config and the box's own process table in
+      // disagreement about who is running the daemon.
+      const octet = runsMysqlOn('db')[0];
+      const fs = buildRemoteHostFs(ESSID, namedHost('db', octet));
+      const node = varRun(fs)?.entries.get('mysqld.pid');
+
+      expect(node?.kind === 'file' ? node.content : null).toBe('mysqld:port=3306');
+      expect(node?.kind === 'file' ? node.owner : null).toBe('mysql');
+    });
+
+    it('runs a database on the boxes named for one, seldom elsewhere, and never on a camera', () => {
+      // The whole point of naming a box `db-11`. A flat world rate applied to every
+      // role would put more databases on phones and televisions than on the boxes
+      // the name promises — which makes the name a lie rather than a lead. The hard
+      // zero is the load-bearing one: an appliance runs an appliance.
+      const onDatabases = runsMysqlOn('db').length;
+      const onWebservers = runsMysqlOn('www').length;
+      const onUnclaimed = runsMysqlOn('host').length;
+      const onWorkstations = runsMysqlOn('desktop').length;
+
+      expect(runsMysqlOn('cam')).toEqual([]);
+      expect(onDatabases).toBeGreaterThan(onWebservers);
+      expect(onWebservers).toBeGreaterThan(onUnclaimed);
+      expect(onUnclaimed).toBeGreaterThan(onWorkstations);
+      expect(onWorkstations).toBeGreaterThan(0);
+    });
+
+    it('runs it on nearly every database box, so the name is worth reading', () => {
+      // A rate low enough to make `db-` a coin flip would leave the player scanning
+      // names that mean nothing. Held against the population rather than a band, so
+      // the claim is the one the table makes: almost all of them.
+      expect(runsMysqlOn('db').length).toBeGreaterThan(OCTETS.length * 0.8);
+    });
+
+    /** The parsed database a box keeps, or null where it keeps none. */
+    const databaseOn = (prefix: string, octet: number): MysqlDatabase | null => {
+      const fs = buildRemoteHostFs(ESSID, namedHost(prefix, octet));
+      const varDir = fs.entries.get('var');
+      if (varDir === undefined || varDir.kind !== 'directory') return null;
+      const lib = varDir.entries.get('lib');
+      if (lib === undefined || lib.kind !== 'directory') return null;
+      const mysql = lib.entries.get('mysql');
+      if (mysql === undefined || mysql.kind !== 'directory') return null;
+      const data = mysql.entries.get('data.json');
+      if (data === undefined || data.kind !== 'file') return null;
+      return parseMysqlDatabase(data.content);
+    };
+
+    /** The datadir file itself, for the claims about how it is guarded. */
+    const datadirFileOn = (prefix: string, octet: number): FileEntry => {
+      const fs = buildRemoteHostFs(ESSID, namedHost(prefix, octet));
+      const node = dirAt(fs, 'var', 'lib', 'mysql').entries.get('data.json');
+      if (node === undefined || node.kind !== 'file') throw new Error('no datadir file');
+      return node;
+    };
+
+    it('keeps a real database on the box that runs one', () => {
+      // A daemon with nothing behind it is a protocol demo. The tables are what make
+      // the door worth opening, so they arrive with it rather than after it.
+      const database = databaseOn('db', runsMysqlOn('db')[0]);
+
+      expect(database?.name).toMatch(/^[a-z_]+$/);
+      expect(Object.keys(database?.tables ?? {})).toContain('users');
+      expect(Object.keys(database?.tables ?? {}).length).toBeGreaterThanOrEqual(3);
+      expect(database?.credentials.map((credential) => credential.userType)).toContain('root');
+    });
+
+    it('plants no datadir at all on a box that runs no database', () => {
+      // The rule /var/www already follows: a directory nobody is listening on is a
+      // promise the box cannot keep, and `ls /var/lib` is recon a player acts on.
+      const silent = OCTETS.find(
+        (octet) =>
+          pidfileContent(buildRemoteHostFs(ESSID, namedHost('cam', octet)), 'mysqld.pid') === null,
+      );
+      if (silent === undefined) throw new Error('no database-free host in sample');
+
+      expect(databaseOn('cam', silent)).toBeNull();
+    });
+
+    it('guards the database from every tier but root, even on the box itself', () => {
+      // The door's whole point is that its credential is not the box's own. A guest
+      // who could `cat` the datadir would hold every table without ever cracking the
+      // database — and the account hashes in it, which are what slice 2 attacks.
+      const file = datadirFileOn('db', runsMysqlOn('db')[0]);
+
+      expect(file.perms.read).toEqual(['root']);
+      expect(file.perms.write).toEqual(['root']);
+      expect(file.perms.execute).toEqual([]);
+    });
+
+    it('holds the account the box really carries among the people in its users table', () => {
+      // What makes it THIS box's database rather than a database. The box's own user
+      // has a home directory a visitor can see, so finding their row here is the
+      // thing that ties the two halves of the machine together.
+      const octet = runsMysqlOn('db')[0];
+      const account = npcUserRow(buildRemoteHostFs(ESSID, namedHost('db', octet)))[0];
+      const usernames = (databaseOn('db', octet)?.tables['users']?.rows ?? []).map(
+        (row) => row['username'],
+      );
+
+      expect(usernames).toContain(account);
+      expect(usernames.length).toBeGreaterThan(1);
+    });
+
+    it('calls the site by the name the box answers to, on every box that keeps a config', () => {
+      // The page a serving box publishes is titled with its hostname, so a config row
+      // naming some other company would be the one seam a player who opens both doors
+      // on one box is guaranteed to find. The config table is DRAWN rather than
+      // guaranteed, so this is asserted over the population: a box a player can meet
+      // whose row no test has read is a row that can be blanked unnoticed.
+      const named = runsMysqlOn('db').flatMap((octet) => {
+        const row = (databaseOn('db', octet)?.tables['config']?.rows ?? []).find(
+          (candidate) => candidate['key'] === 'site_name',
+        );
+        return row === undefined ? [] : [{ octet, value: row['value'] }];
+      });
+
+      expect(named.length).toBeGreaterThan(20);
+      expect(named.filter(({ octet, value }) => value !== `db-${octet}`)).toEqual([]);
+    });
+
+    it('shows a stranger with no session nothing of the database at all', () => {
+      // File permissions guard the box's own tiers; the tier-3 allowlist guards
+      // everyone with no session on it, and they are different mechanisms. A datadir
+      // that leaked here would hand the account hashes to anyone who could reach the
+      // host — no credential, no sweep, no line in any log.
+      const external = filterTreeToAllowlist(
+        buildRemoteHostFs(ESSID, namedHost('db', runsMysqlOn('db')[0])),
+      );
+      const varDir = external.entries.get('var');
+      const lib = varDir?.kind === 'directory' ? varDir.entries.get('lib') : undefined;
+
+      expect(lib).toBeUndefined();
+    });
+
+    it('plants /var/log/mysql.log empty where the daemon runs, and nowhere else', () => {
+      // Follows its daemon, like access.log and vsftpd.log: a log on a box that never
+      // ran one claims something happened.
+      const running = runsMysqlOn('db')[0];
+      const silent = OCTETS.find(
+        (octet) =>
+          pidfileContent(buildRemoteHostFs(ESSID, namedHost('cam', octet)), 'mysqld.pid') === null,
+      );
+      if (silent === undefined) throw new Error('no database-free host in sample');
+
+      const log = dirAt(buildRemoteHostFs(ESSID, namedHost('db', running)), 'var', 'log').entries.get(
+        'mysql.log',
+      );
+
+      expect(log?.kind === 'file' ? log.content : null).toBe('');
+      expect(
+        dirAt(buildRemoteHostFs(ESSID, namedHost('cam', silent)), 'var', 'log').entries.get(
+          'mysql.log',
+        ),
+      ).toBeUndefined();
+    });
+
+    it('keeps its config pointing at the directory the database is really in', () => {
+      // The `/etc/mysql.cnf` a database box carries has named a datadir since before
+      // any database existed to sit in one. Now that one does, a template naming a
+      // different path sends a player who read the config to an empty directory —
+      // which is the config lying about its own box, over the whole pool.
+      const datadirs = OCTETS.map((octet) => {
+        const config = dirAt(buildRemoteHostFs(ESSID, namedHost('db', octet)), 'etc').entries.get(
+          'mysql.cnf',
+        );
+        const content = config?.kind === 'file' ? config.content : '';
+        return content.split('\n').find((line) => line.startsWith('datadir='));
+      }).filter((line): line is string => line !== undefined);
+
+      expect(datadirs.length).toBeGreaterThan(0);
+      expect([...new Set(datadirs)]).toEqual(['datadir=/var/lib/mysql']);
     });
   });
 
@@ -1072,17 +1262,22 @@ describe('buildRemoteHostFs', () => {
       expect(iot).toBeLessThan(runningCount('desktop', 'ssh'));
     });
 
-    it('opens ftp on nearly every fileserver, and on most database boxes', () => {
-      // The door a dump leaves by, and the one service in today's catalog either
-      // role can express — so it is where their signature has to live until their
-      // own door ships. 1806 and 1169 of 2024, against a flat 556.
+    it('opens ftp on nearly every fileserver, and on a fair share of database boxes', () => {
+      // The door a dump leaves by. A fileserver exists to hand files over, so it is
+      // nearly always up. A database box now has a door of its own, so its ftp cell
+      // no longer has to carry the role's whole signature — it came down when mysqld
+      // shipped and sits just above the flat rate, because a dump still has to leave
+      // somehow. 1806 and 776 of 2024, against a flat 556.
       const fileserver = runningCount('nas', 'ftp');
       const database = runningCount('db', 'ftp');
 
       expect(fileserver).toBeGreaterThan(1700);
       expect(fileserver).toBeLessThan(1950);
-      expect(database).toBeGreaterThan(1050);
-      expect(database).toBeLessThan(1400);
+      expect(database).toBeGreaterThan(700);
+      expect(database).toBeLessThan(900);
+      // Still elevated, not retired: a database box hands files over more readily
+      // than a box the table says nothing about.
+      expect(database).toBeGreaterThan(runningCount('host', 'ftp'));
       // Both are marked boxes, but a fileserver is the one that exists to hand files
       // over. Swapping the two cells keeps both bands' shape and fails here.
       expect(fileserver).toBeGreaterThan(database);

@@ -29,6 +29,12 @@ import {
   formatVsftpdConnectLine,
   formatVsftpdLoginLine,
 } from '../logging/vsftpdLog';
+import {
+  MYSQL_LOG_OWNER,
+  MYSQL_LOG_PATH,
+  MYSQL_LOG_PERMISSIONS,
+  formatMysqlAttemptLine,
+} from '../logging/mysqlLog';
 
 /** Where a credential sweep against this service is recorded on the target, and how
  *  each attempt is written there.
@@ -147,6 +153,37 @@ export const SERVICE_CATALOG = {
       permissions: VSFTPD_LOG_PERMISSIONS,
       formatAttempt: formatVsftpdLoginLine,
       formatArrival: formatVsftpdConnectLine,
+    },
+  },
+  // The only door whose credential is not the box's own: mysql accounts live in the
+  // datadir, not in /etc/passwd, so cracking a box and cracking its database are two
+  // locks with two keys. Rarer than every other row — a database daemon on a random
+  // home box should read as somebody's mistake, and what makes a db- box worth
+  // finding is the role override rather than this rate.
+  mysql: {
+    service: 'mysql',
+    pidfile: 'mysqld.pid',
+    defaultPort: 3306,
+    // Not root, unlike every row above: the /etc/mysql.cnf a database box has carried
+    // since the roles landed says `user=mysql`, and `ps` prints this field. Running it
+    // as root would put the box's own config and its own process table in disagreement
+    // about who holds the daemon.
+    runUser: 'mysql',
+    // What mysqld says to a client that speaks no mysql at it. Its REAL greeting is a
+    // version string, which this field may not carry — so the handshake it refuses is
+    // the only thing left that identifies the port in its own words.
+    banner: 'ERROR 1043 (08S01): Bad handshake',
+    placement: 0.08,
+    // No alternate ports, alone among the rows. The config file on every database box
+    // states `port=3306` as a literal, so a box listening anywhere else would be
+    // contradicted by a file a guest can read.
+    altPorts: [],
+    altPortChance: 0,
+    sweepLog: {
+      path: MYSQL_LOG_PATH,
+      owner: MYSQL_LOG_OWNER,
+      permissions: MYSQL_LOG_PERMISSIONS,
+      formatAttempt: formatMysqlAttemptLine,
     },
   },
 } as const satisfies Record<string, ServiceSpec>;

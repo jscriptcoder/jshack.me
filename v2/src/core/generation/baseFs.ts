@@ -30,6 +30,18 @@ export const PASSWD_FILE: FilePermissions = {
   write: ['root'],
   execute: ['root'],
 };
+/** `/var/lib/mysql/data.json`: root ONLY, and narrower than `PASSWD_FILE` beside it.
+ *  Two reasons. It holds the database's own account hashes, which are what a sweep has
+ *  to work for — a tier that could read them would be handed the answer key. And the
+ *  door it belongs to grants no filesystem access at all, so the file must not be
+ *  reachable by the tiers that door hands out; the only way to read it directly is to
+ *  already own the box, which is a different achievement from cracking its database.
+ *  Never executable: it is data. */
+export const DATADIR_FILE: FilePermissions = {
+  read: ['root'],
+  write: ['root'],
+  execute: [],
+};
 /** A user's home directory: root + the owning user. */
 export const HOME_DIR: FilePermissions = {
   read: ['root', 'user'],

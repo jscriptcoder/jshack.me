@@ -95,7 +95,7 @@ const CONFIG_BY_ROLE: Readonly<Record<DrawnRole, RoleConfig>> = {
       '[mysqld]\n# {{hostname}}\nport=3306\ndatadir=/var/lib/mysql\nuser=mysql\nbind-address=0.0.0.0\nsocket=/var/run/mysqld/mysqld.sock',
       '[mysqld]\n# {{hostname}}\nport=3306\nserver-id=1\nlog_bin=mysql-bin\nbinlog_do_db=app_prod\nmax_connections=200\ninnodb_buffer_pool_size=256M',
       '[mysqld]\n# {{hostname}}\nport=3306\nskip-name-resolve\nmax_allowed_packet=64M\nslow_query_log=1\nslow_query_log_file=/var/log/mysql/slow.log\nlong_query_time=2',
-      '[mysqld]\n# {{hostname}}\nport=3306\ndatadir=/srv/mysql\ncharacter-set-server=utf8mb4\ncollation-server=utf8mb4_general_ci\ninnodb_file_per_table=1',
+      '[mysqld]\n# {{hostname}}\nport=3306\ndatadir=/var/lib/mysql\ncharacter-set-server=utf8mb4\ncollation-server=utf8mb4_general_ci\ninnodb_file_per_table=1',
       '[mysqld]\n# replica of {{hostname}}\nport=3306\nread_only=1\nrelay_log=relay-bin\nreplicate_do_db=app_prod\nexpire_logs_days=7\nsync_binlog=1',
     ],
   },
