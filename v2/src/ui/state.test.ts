@@ -1340,6 +1340,181 @@ describe('an ftp session on a box across the network', () => {
 
 
 /**
+ * The `mysql>` prompt is the same shape as `ftp>` and arrives for a different
+ * reason. An ftp session holds a server row; this holds only the credential,
+ * because the door mints no row at all — so the sub-shell is the whole of what a
+ * connection IS, and the refusal it owes is sharper: at `mysql>` an outer `cat`
+ * would read the box the player is standing on, and this connection reaches no
+ * filesystem whatsoever.
+ */
+describe('the mysql sub-shell', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  // Not the ftp block's LAN: roughly one box in twelve runs a database, so the
+  // network has to be chosen for having one rather than reused for convenience.
+  const ESSID = 'BEAN-THERE-WIFI';
+  const LAN = generateHomeLan(ESSID);
+  const DATABASE_HOST = LAN.hosts.find(
+    (host) =>
+      host.kind === 'machine' &&
+      readOpenPorts(buildRemoteHostFs(ESSID, host)).some(
+        (open) => open.service === SERVICE_CATALOG.mysql.service,
+      ),
+  );
+  if (DATABASE_HOST === undefined) throw new Error(`need a database host on ${ESSID}`);
+
+  const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
+  /** Boot online with a LAN lease and the client already installed. `mysql` is
+   *  apt-gated like the ftp client, so the box has to already carry it — the player
+   *  would have run `apt install mysql` before ever reaching this door. */
+  const bootOnline = async (opened = true) => {
+    vi.resetModules();
+    const store = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => store.set(key, value),
+      removeItem: (key: string) => store.delete(key),
+    };
+    storage.setItem(CONNECTED_ESSID_KEY, ESSID);
+    lanLeaseCacheIn(storage).remember(ESSID, `${LAN.subnet}.77`);
+    vi.stubGlobal('localStorage', storage);
+
+    const sent: Record<string, unknown>[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: { body?: string }) => {
+        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<string, unknown>;
+        sent.push(fields);
+        if (fields.action === 'listSessions') {
+          return { ok: true, status: 200, json: async () => ({ sessions: [] }) };
+        }
+        if (fields.action === 'mysqlConnect') {
+          return { ok: opened, status: opened ? 200 : 401, json: async () => ({ ok: opened }) };
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            patches: [
+              {
+                path: '/usr/bin/mysql',
+                content: BINARY_STUB,
+                owner: 'root',
+                permissions: {
+                  read: ['root', 'user', 'guest'],
+                  write: ['root'],
+                  execute: ['root', 'user', 'guest'],
+                },
+              },
+            ],
+          }),
+        };
+      }),
+    );
+
+    const state = await import('./state');
+    state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
+    await vi.waitFor(() => expect(state.promptHost()).toBe('box'));
+    // The boot journal fetch is in flight; the client only exists once it lands.
+    await vi.waitFor(async () => {
+      state.setInput('ls /usr/bin');
+      await state.runInput();
+      expect(state.scrollback().some((entry) => entry.content.includes('mysql'))).toBe(true);
+    });
+    return { state, sent };
+  };
+
+  /** Open a connection by actually typing the command and answering both prompts —
+   *  the shipped path, not a poked signal. */
+  const typeMysqlLogin = async (state: typeof import('./state')): Promise<void> => {
+    state.setInput(`mysql ${DATABASE_HOST.ip}`);
+    const run = state.runInput();
+    await vi.waitFor(() => expect(state.pendingPrompt()).toBeDefined());
+    state.setInput('readonly');
+    state.submitPrompt();
+    await vi.waitFor(() => expect(state.pendingPrompt()).toBeDefined());
+    state.setInput('hunter2');
+    state.submitPrompt();
+    await run;
+    await settle();
+  };
+
+  const typeLine = async (state: typeof import('./state'), line: string): Promise<string> => {
+    const before = state.scrollback().length;
+    state.setInput(line);
+    await state.runInput();
+    return state
+      .scrollback()
+      .slice(before)
+      .map((entry) => entry.content)
+      .join('\n');
+  };
+
+  it('greets and lands at mysql> on a credential the database accepts', async () => {
+    const { state, sent } = await bootOnline();
+
+    await typeMysqlLogin(state);
+
+    expect(state.inMysqlSession()).toBe(true);
+    const printed = state
+      .scrollback()
+      .slice(-2)
+      .map((entry) => entry.content);
+    expect(printed).toEqual([
+      `Connected to ${DATABASE_HOST.hostname}.`,
+      'Welcome to the MySQL monitor. Commands end with ;',
+    ]);
+    // No row was asked for, at any tier. The other doors open one here; this one has
+    // nothing to open, which is what leaves it with no filesystem access to leak.
+    expect(sent.some((payload) => payload.action === 'authCreateSession')).toBe(false);
+  });
+
+  it('leaves the player at the shell when the database refuses', async () => {
+    const { state } = await bootOnline(false);
+
+    await typeMysqlLogin(state);
+
+    expect(state.inMysqlSession()).toBe(false);
+    expect(state.scrollback().at(-1)?.content).toContain('ERROR 1045 (28000)');
+  });
+
+  it('answers an outer shell command with SQL syntax rather than running it', async () => {
+    const { state } = await bootOnline();
+    await typeMysqlLogin(state);
+
+    const output = await typeLine(state, 'cat /etc/passwd');
+
+    // The security boundary of the sub-shell: falling through to the registry would
+    // read the machine the player is STANDING on while they believe they are
+    // addressing the database. `alice` is in that file and must not appear.
+    expect(output).toContain('Unsupported SQL syntax');
+    expect(output).not.toContain('tester:');
+    expect(state.inMysqlSession()).toBe(true);
+  });
+
+  it('hands back the same shell it never left', async () => {
+    const { state } = await bootOnline();
+    const before = { host: state.promptHost(), user: state.promptUsername(), cwd: state.cwd() };
+
+    await typeMysqlLogin(state);
+
+    // The connection is BESIDE the shell, not above it — an `ssh` login would have
+    // moved all three, and the prompt reading `mysql>` is a swap, not a hop.
+    expect(state.promptHost()).toBe(before.host);
+    expect(state.promptUsername()).toBe(before.user);
+    expect(state.cwd()).toBe(before.cwd);
+
+    const output = await typeLine(state, 'quit');
+
+    expect(output).toContain('Bye');
+    expect(state.inMysqlSession()).toBe(false);
+    expect(await typeLine(state, 'pwd')).toContain(before.cwd);
+  });
+});
+
+
+/**
  * `nano <file>` returns a `mode_change`, which the terminal must turn into an
  * open editor (the `editorMode` signal) — `executeLine` previously DROPPED
  * `mode_change` results entirely. `saveEditor` then persists the buffer through

@@ -100,7 +100,10 @@ export type ModeChange =
   // overlay this once declared was never produced and the UI narrows `OverlayMode`
   // to exclude it, so it was a design that looked shipped — deleted rather than
   // left to invite someone to build it.
-  | { readonly kind: 'mysql'; readonly target: { readonly ip: NetworkAddress } }
+  // No `mysql` variant either, and for the same reason one door along: the database
+  // prompt is a SUB-SHELL over the same terminal, not a screen. It holds no session
+  // row and shows nothing the scrollback cannot, so `mysql` returns its greeting and
+  // the terminal swaps the prompt — there was never a mode to change to.
   | { readonly kind: 'redis'; readonly target: { readonly ip: NetworkAddress } };
 
 // ---- Sub-API interfaces (the parts of CommandEnv) ----
@@ -665,6 +668,15 @@ export type MysqlConnectResult = { readonly ok: true } | { readonly ok: false };
  *  statements. */
 export type MysqlApi = {
   readonly connect: (params: MysqlConnectParams) => Promise<MysqlConnectResult>;
+  /** Hold the opened connection and put the terminal at `mysql>`. What is held is
+   *  exactly what `connect` was given, and that is the mechanism rather than a
+   *  coincidence: with no session row to name, every statement re-sends the whole
+   *  credential, so the prompt has to keep it. */
+  readonly enter: (connection: MysqlConnectParams) => void;
+  /** Drop it and hand the terminal back to the shell that never moved. Nothing to
+   *  end server-side — there was never a row — so unlike `ftp.leave` this is purely
+   *  local state. */
+  readonly leave: () => void;
 };
 
 /** What `hydra` hands the crack action. `callerMachineId` names the box whose

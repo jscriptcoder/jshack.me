@@ -11,7 +11,7 @@ import { connectedWlan0 } from '../network/interfaces';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { readOpenPorts } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import type { Command, CommandEnv, CommandResult } from './types';
+import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
 
 const USAGE = 'usage: mysql [-p port] <host> [user]';
 
@@ -40,6 +40,17 @@ const accessDenied = (username: string, fromIp: string): CommandResult =>
   errorResult(
     `ERROR 1045 (28000): Access denied for user '${username}'@'${fromIp}' (using password: YES)`,
   );
+
+/** The client line, then the server's own -- ftp's shape. Deliberately VERSION-FREE:
+ *  the real monitor's greeting leads with one, and a version string is the single
+ *  thing the service catalog bans, which is also why this door's `nc` banner is the
+ *  bad-handshake error rather than a banner. No connection id either: the box's
+ *  listener pid is per-BOX, so it would read the same two logins apart, and with no
+ *  session row there is nothing else to count connections with. */
+const greeting = (hostname: string): readonly TerminalLine[] => [
+  { kind: 'text', content: `Connected to ${hostname}.` },
+  { kind: 'text', content: 'Welcome to the MySQL monitor. Commands end with ;' },
+];
 
 type Credential = { readonly username: string; readonly password: string };
 
@@ -98,7 +109,19 @@ const lanConnect = async (
   });
   if (!opened.ok) return accessDenied(credential.username, sourceIp);
 
-  return errorResult('not implemented');
+  // What is held is exactly what was sent. There is no session row to name, so every
+  // statement re-sends the whole credential -- which is what makes this door reach no
+  // filesystem structurally rather than by a rule somebody has to keep.
+  const connection = {
+    essid,
+    targetIp: target,
+    username: credential.username,
+    password: credential.password,
+    sourceIp,
+  };
+  env.mysql.enter(connection);
+
+  return { kind: 'sync', lines: greeting(host.hostname), exitCode: 0 };
 };
 
 const execute: Command['execute'] = async (env, args) => {
@@ -130,5 +153,31 @@ export const mysql: Command = {
   // Prompts for an account and a masked password before its sub-shell ever opens.
   withoutTty: 'mysql: must be run from a terminal',
   flags: { '-p': 'string' },
+  manual: {
+    synopsis: 'mysql [-p port] <host> [user]',
+    description:
+      'Open a database on a remote host running a MySQL server. The account is the ' +
+      "DATABASE's own, not the machine's — a box's shell users mean nothing here, and " +
+      'a login grants no access to its files. Prompts for the password and, on success, ' +
+      'leaves you at a "mysql>" prompt where every line you type is SQL. Your shell ' +
+      'stays exactly where it was — "quit" hands it straight back.',
+    arguments: [
+      { name: 'host', description: 'The host IP to connect to, e.g. 192.168.1.5', required: true },
+      {
+        name: 'user',
+        description: 'The database account to log in as. Omitted, you are asked for it.',
+        required: false,
+      },
+      {
+        name: '-p',
+        description: 'The PORT to connect on, not the password. Defaults to 3306.',
+        required: false,
+      },
+    ],
+    examples: [
+      { command: 'mysql 192.168.1.5', description: 'Connect to the database on 192.168.1.5' },
+      { command: 'mysql 192.168.1.5 readonly', description: 'Connect as the readonly account' },
+    ],
+  },
   execute,
 };

@@ -612,6 +612,18 @@ This is the sibling of the same-pool blind spot recorded below: there, an oracle
 the generator reads moves with it; here, a fixture that fails every check agrees with every mutant.
 In both cases the test is shaped so that nothing it could catch is left to catch.
 
+**A hand-mutation harness owns the files it snapshots — don't edit them while it runs.** The
+house pattern (a Python script that applies one mutant, runs the spec, restores) reads every target
+file ONCE at startup and restores from that snapshot. Run it in the background and edit one of those
+files in the meantime and the edit is silently reverted when the battery finishes; nothing errors,
+because a restore is a plain write. A manual page written mid-battery vanished this way and only the
+next full suite run caught it. Either wait for the battery, or edit files it does not touch.
+
+**A mutant that survives a timeout stays applied.** The same harness restores in a `finally`, but a
+tool-level timeout kills the process outright — so a battery that runs long leaves the CURRENT
+mutant in the tree. Checking one marker is not enough (the control had been restored while a later
+mutant had not). Re-run the affected specs, or `git diff`, before trusting a green.
+
 Provably-equivalent mutant classes — accept (don't chase) when they recur:
 
 - **Type-narrowing defensive checks** — e.g. `raw === true` against a `string | true |
@@ -972,6 +984,19 @@ of errors in instrumented copies of your own files, `@ts-nocheck` first among th
 config change riding along on an unrelated slice.
 
 ---
+
+### Testing gotchas found at the rendered layer
+
+- **A masked prompt has no `textbox` role.** `Terminal.tsx` renders `type={masked ? 'password' :
+  'text'}`, and `<input type="password">` has NO implicit ARIA role — so
+  `getByRole('textbox', { name: /terminal input/i })`, which every other test in that file uses,
+  cannot find the field a password is typed into. Use `getByLabelText(/terminal input/i)` there.
+- **Wait on WHICH prompt is pending, not on the field appearing.** A credential prompt keeps the
+  input mounted, so finding it proves nothing about whose question it is holding — and between two
+  prompts the busy bar takes it away for a beat. Wait on `pendingPrompt()?.masked`, then re-find.
+- **The prompt renders `whitespace-pre`, so its trailing space is a rendered character.** Testing
+  Library's default matcher collapses whitespace, so `findByText('mysql>')` passes against
+  `'mysql>  '`. Assert `.textContent` exactly when the constant's spacing is the claim.
 
 ## 5. Operational gotchas
 

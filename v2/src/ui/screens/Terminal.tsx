@@ -13,6 +13,8 @@ import {
   pendingPrompt,
   FTP_PROMPT,
   inFtpSession,
+  inMysqlSession,
+  MYSQL_PROMPT,
   promptHost,
   promptTier,
   promptUsername,
@@ -53,8 +55,10 @@ const LINE_COLOR: Record<TerminalLine['kind'], string> = {
  *  pending prompt's message (e.g. `Password:`) while one is active. */
 const livePrompt = () =>
   pendingPrompt()?.message ??
-  // At `ftp>` the shell's user@host:cwd would name a machine the player is no
-  // longer typing at, so the ftp prompt replaces it rather than decorating it.
+  // At `ftp>` or `mysql>` the shell's user@host:cwd would name a machine the player
+  // is no longer typing at, so the sub-shell's prompt replaces it rather than
+  // decorating it.
+  (inMysqlSession() ? MYSQL_PROMPT : undefined) ??
   (inFtpSession() ? FTP_PROMPT : undefined) ??
   formatPrompt({
     username: promptUsername(),

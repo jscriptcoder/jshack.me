@@ -45,6 +45,7 @@ import { reset } from './reset';
 import { rm } from './rm';
 import { hydra } from './hydra';
 import { ftp } from './ftp';
+import { mysql } from './mysql';
 import { scp } from './scp';
 import { ssh } from './ssh';
 import { su } from './su';
@@ -89,6 +90,7 @@ const builtins: readonly Command[] = [
   rm,
   hydra,
   ftp,
+  mysql,
   scp,
   ssh,
   sshd,

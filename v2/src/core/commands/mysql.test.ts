@@ -255,6 +255,84 @@ describe('mysql', () => {
     expect(sync(result).exitCode).toBe(130);
   });
 
+  it('greets and hands the player the prompt when the credential opens', async () => {
+    const { databaseHost } = pickHosts();
+    const enter = vi.fn();
+    const env = mysqlEnv({ mysql: { connect: async () => ({ ok: true }), enter } });
+
+    const result = await mysql.execute(env, [databaseHost.ip], new Map());
+
+    // Whole-value, because what is ABSENT is the claim. The catalog bans version
+    // strings, and the real monitor's greeting is one -- the same reason this door's
+    // `nc` banner is the bad-handshake error rather than a banner. A connection id
+    // is missing for a second reason: the box's listener pid is per-BOX, so printing
+    // it would be the same number two logins apart.
+    expect(sync(result).lines).toEqual([
+      { kind: 'text', content: `Connected to ${databaseHost.hostname}.` },
+      { kind: 'text', content: 'Welcome to the MySQL monitor. Commands end with ;' },
+    ]);
+    expect(sync(result).exitCode).toBe(0);
+    // The greeting alone would be a command that prints two lines and ends.
+    expect(enter).toHaveBeenCalled();
+  });
+
+  it('names the box, not the address the player typed, in the line it greets with', async () => {
+    const { databaseHost } = pickHosts();
+    const env = mysqlEnv({ mysql: { connect: async () => ({ ok: true }) } });
+
+    const result = await mysql.execute(env, [databaseHost.ip], new Map());
+
+    // The address is what got us here; the hostname is what answered. A greeting
+    // built from `args[0]` renders the IP and passes every other assertion above,
+    // because the fixture reaches the box BY its address.
+    expect(linesOf(result)).not.toContain(databaseHost.ip);
+  });
+
+  it('keeps the whole credential, because every statement re-sends it', async () => {
+    const { databaseHost } = pickHosts();
+    const enter = vi.fn();
+    const env = mysqlEnv({ mysql: { connect: async () => ({ ok: true }), enter } });
+
+    await mysql.execute(env, [databaseHost.ip], new Map());
+
+    // Whole-value again, and the password is the load-bearing field: there is no
+    // session row to name, so a prompt that dropped it after the login could never
+    // ask the daemon anything again.
+    expect(enter).toHaveBeenCalledWith({
+      essid: ESSID,
+      targetIp: databaseHost.ip,
+      username: 'readonly',
+      password: 'hunter2',
+      sourceIp: LOCAL_IP,
+    });
+  });
+
+  it('opens no prompt when the credential is refused', async () => {
+    const { databaseHost } = pickHosts();
+    const enter = vi.fn();
+    const env = mysqlEnv({ mysql: { connect: async () => ({ ok: false }), enter } });
+
+    const result = await mysql.execute(env, [databaseHost.ip], new Map());
+
+    // The refusal already has its own test; what is new is that nothing was held.
+    // A door that greets on the way to refusing leaves the player at a `mysql>` no
+    // credential is behind.
+    expect(enter).not.toHaveBeenCalled();
+    expect(sync(result).exitCode).toBe(1);
+  });
+
+  it('documents -p as the port, which is not what the real client means by it', async () => {
+    const documented = mysql.manual?.arguments?.find((argument) => argument.name === '-p');
+
+    // The real client reads `-p` as the PASSWORD and `-P` as the port. This door
+    // reads it as the port, because `ftp` and `hydra` already do and a player who
+    // learned it once should not have to unlearn it here. A manual that copied the
+    // real one would send them to type their password onto the command line, which
+    // is the one thing this door refuses to accept there.
+    expect(documented?.description).toContain('PORT');
+    expect(mysql.manual?.synopsis).toBe('mysql [-p port] <host> [user]');
+  });
+
   it('names its own usage when no host is given', async () => {
     const prompt = vi.fn(async () => 'hunter2');
 

@@ -3,8 +3,9 @@
 **Branch**: one `feat/d6-*` per slice — slice 3 is `feat/d6-mysql-prompt`
 **Status**: Active — slices 1 and 2 LANDED (v0.158.0 #434 `29bc042`; v0.159.0 #437 `a6bdead`),
 slice 1's mutation debt PAID (#435 `f1c4dd6`, #436 `8add9fa`). **Slice 3 IN PROGRESS** on
-`feat/d6-mysql-prompt` — criteria grilled to 21 (`32ef71b`), criteria 3, 4, 5 and 20 landed
-(`71aecb0`, `aad87b6`, `597dd2b`). The door opens end to end; it is not yet registered.
+`feat/d6-mysql-prompt` — criteria grilled to 21 (`32ef71b`), criteria 3, 4, 5, 6, 7 and 20 landed
+(`71aecb0`, `aad87b6`, `597dd2b` + the working tree). The door opens end to end and is REGISTERED:
+`mysql <host>` is typeable, greets, and leaves the player at `mysql>`. v0.160.0.
 Progress and what is written-but-untested are under slice 3's own heading.
 
 > Decisions are LOCKED in [`legacy-parity-epic.md`](legacy-parity-epic.md) §"D6 — resolved scope &
@@ -861,10 +862,69 @@ inert, and criterion 1 is only PARTLY met.
 a box that does run a database, and a command listed before it works is a worse lie than a missing
 one. Registration lands with criterion 6, the increment that opens the prompt.
 
-**Next**: criterion 6 — the two-line greeting and the `mysql>` prompt, which is where
-`registry.ts` registration lands and where the command first becomes typeable. The door opens end to
-end now, so registering it no longer ships something that cannot work. That increment is also the
-first player-visible change in this slice, so it carries the version bump.
+**Criterion 6 ✔ LANDED, and criterion 7 with it.** `mysqlShell.ts` + 4 tests, 4 more on the
+command, 4 at the UI seam and 1 rendered end to end — 159 files / 3140 tests, v0.160.0, the first
+player-visible change in this slice. `mysql` is in `registry.ts` and carries a manual page.
+
+The greeting is asserted by WHOLE-VALUE equality, because what is absent is the claim. The real
+monitor leads with a version string and the catalog bans those — the same reason this door's `nc`
+banner is the bad-handshake error rather than a banner. No connection id either: `listenerPid` is
+per-BOX, so it would read the same number two logins apart. And it names the HOSTNAME, not the
+address typed to reach it, which is a single substitution away and now killed.
+
+**The prompt turned out to be a sub-shell, not a mode.** `ModeChange` had carried a speculative
+`{ kind: 'mysql' }` variant since before any of this existed; nothing ever produced it and nothing
+ever will, because the database prompt holds no screen and no session — it swaps the terminal's
+prompt and answers the typed line from a command map, exactly as `ftp>` does. Deleted, on the
+comment already sitting above it for `nc`: a design that looks shipped invites someone to build it.
+
+**Scope taken beyond criterion 6, deliberately.** A prompt with no way out is a trap and a prompt
+that falls through to the registry is the leak criterion 8 forbids, so this increment also lands the
+dispatch guard and `exit`/`quit` — which is criterion 7 in full (cwd, tier and the shell prompt all
+proven untouched across a login and a `quit`). Criterion 9's semicolon rule holds for the way out
+only; the verb table it sits ahead of does not exist yet.
+
+An unrecognised line gets legacy's `ERROR: Unsupported SQL syntax…`, NOT `1064`. The two are
+different buckets in the parser being ported, and the distinction is the one criterion 12 rests on:
+telling a player their statement is malformed when the truth is that it is unsupported sends them to
+fix spelling that was never wrong. `cat` at `mysql>` is unrecognised and stays unrecognised; when
+the read verbs land they slot in AHEAD of this fallback, so nothing written here is a lie to undo.
+
+**Mutants: 20 applied, 20 killed.** Control (a three-part rename) survived first, so the verdicts
+discriminate. Killed at the command: the greeting naming the address instead of the box; the
+greeting carrying a server version; the connection never held; the connection held even on a
+REFUSAL, which would strand the player at a prompt no credential is behind; the password dropped
+from what is held, which every later statement needs; the held connection naming the target as its
+own source; and a good login reporting failure. At the prompt: the way out made case-sensitive; a
+trailing semicolon kept; `quit` printing `Bye` while holding the connection; `quit` saying something
+else; a bare Enter answered as unsupported syntax; and an unrecognised line logging the player out,
+which would turn every typo into a logout. At the seams: the typed line falling through to the outer
+registry; the command not registered at all; the terminal never swapping the prompt in; the terminal
+showing `ftp>` for a database; the prompt appended to the shell's rather than replacing it; `quit`
+leaving the prompt held; and the prompt losing its trailing space.
+
+**The last four of those cost a test at a layer that had none.** The first battery left ONE survivor
+— deleting the prompt swap from `Terminal.tsx` — because every other check lived at the state layer,
+where `inMysqlSession()` is true and nobody looks at what the player SEES. A terminal that answered
+SQL while still showing `alice@workstation:/home/alice$` passed the whole suite. `Terminal.test.tsx`
+now drives one login end to end through the rendered field. Two things it taught: a masked prompt
+renders `type="password"`, which has NO implicit textbox role, so `getByRole('textbox')` cannot find
+the field the password is typed into; and the prompt renders `whitespace-pre`, so its trailing space
+is a rendered character — the default text matcher collapses exactly the difference that is visible.
+
+**No wire-check.** Nothing under `api/` or in `adapters/` changed; `mysqlConnect`'s round trip was
+proven live at `597dd2b` and this increment only decides what the client does with the answer.
+
+**A harness gotcha worth not repeating.** The hand-mutation script snapshots every file it will
+touch when it starts and restores from that snapshot at the end. Editing one of those files while it
+runs in the background silently loses the edit — a manual page written mid-run was gone by the time
+the battery finished, and only the suite caught it. Snapshot, then keep hands off.
+
+**Next**: criteria 8-12 — the verb table. `SHOW TABLES`, `DESCRIBE` and `SELECT` rendering legacy's
+ASCII tables, `Empty set (0.00 sec)` on its own path, and write verbs parsing so they can be refused
+with `1142` rather than called malformed. That increment brings the statement round-trip, which is
+where the held credential is re-sent and where criterion 19's liveness arm finally has somewhere to
+live.
 
 ---
 

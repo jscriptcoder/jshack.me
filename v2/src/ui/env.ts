@@ -154,6 +154,11 @@ export type BuildCommandEnvArgs = {
    *  the doors above share: a database connection mints no row, so this validates a
    *  credential against the target's datadir and returns whether it opened. */
   readonly onMysqlConnect?: MysqlApi['connect'];
+  /** Hold/drop the `mysql>` prompt — the UI owns the signal the prompt and the
+   *  sub-shell dispatch both read. What is held is the credential itself, because
+   *  there is no session row to hold instead. */
+  readonly onMysqlEnter?: MysqlApi['enter'];
+  readonly onMysqlLeave?: MysqlApi['leave'];
   /** The transfer door's three seams — backs `env.scp`. The login is the same
    *  `authCreateSession` round-trip, asked for an `scp`-kind row; the write is the
    *  shipped patch client aimed at whatever machine the session landed on; the end
@@ -341,6 +346,11 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
     // "refused" on its own would report a wrong password for a credential no daemon
     // ever saw.
     connect: args.onMysqlConnect ?? notWired('mysql.connect'),
+    // Terminal state, so an unwired seam no-ops rather than throwing — the same as
+    // ftp's pair. A command that opened a connection has already succeeded; failing
+    // loudly here would turn a good login into an error.
+    enter: args.onMysqlEnter ?? (() => undefined),
+    leave: args.onMysqlLeave ?? (() => undefined),
   },
   scp: {
     authenticate: args.onScpAuthenticate ?? notWired('scp.authenticate'),

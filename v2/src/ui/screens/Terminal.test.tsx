@@ -1,9 +1,22 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@solidjs/testing-library';
 import { Terminal } from './Terminal';
-import { setOverlayMode, startGame } from '../state';
+import {
+  pendingPrompt,
+  runInput,
+  scrollback,
+  setInput,
+  setOverlayMode,
+  startGame,
+} from '../state';
 import { SEED_CONFIG } from '../seed';
 import { CONNECTED_ESSID_KEY } from '../connectionPersistence';
+import { generateHomeLan } from '../../core/generation/generateHomeLan';
+import { buildRemoteHostFs } from '../../core/generation/remoteHostFs';
+import { readOpenPorts } from '../../core/services/pidfile';
+import { SERVICE_CATALOG } from '../../core/services/serviceCatalog';
+import { lanLeaseCacheIn } from '../../core/network/lanLeaseCache';
+import { BINARY_STUB } from '../../core/generation/binaries';
 
 /** Fresh terminal state per test — the module-singleton session + signals are
  *  rebuilt by `startGame`, which also clears the scrollback, so this both
@@ -617,5 +630,98 @@ describe('Terminal full-screen apps', () => {
     expect(await screen.findByRole('textbox', { name: /terminal input/i })).toBe(
       document.activeElement,
     );
+  });
+});
+
+/**
+ * A sub-shell REPLACES the prompt rather than decorating it. Everything else about
+ * the `mysql>` prompt is settled in the state layer, but not this: the player being
+ * "left at mysql>" is a thing they SEE, and a terminal that answered SQL while still
+ * showing `tester@box:/home/tester$` would pass every assertion one layer down.
+ */
+describe('a sub-shell prompt', () => {
+  const ESSID = 'BEAN-THERE-WIFI';
+  const LAN = generateHomeLan(ESSID);
+  const DATABASE_HOST = LAN.hosts.find(
+    (host) =>
+      host.kind === 'machine' &&
+      readOpenPorts(buildRemoteHostFs(ESSID, host)).some(
+        (open) => open.service === SERVICE_CATALOG.mysql.service,
+      ),
+  );
+  if (DATABASE_HOST === undefined) throw new Error(`need a database host on ${ESSID}`);
+
+  it('reads mysql> once a database opens, and hands the shell prompt back on quit', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: { body?: string }) => {
+        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<string, unknown>;
+        if (fields.action === 'mysqlConnect') {
+          return new Response(JSON.stringify({ ok: true }), { status: 200 });
+        }
+        // The client is apt-gated, so the box has to already carry it.
+        return new Response(
+          JSON.stringify({
+            sessions: [],
+            patches: [
+              {
+                path: '/usr/bin/mysql',
+                content: BINARY_STUB,
+                owner: 'root',
+                permissions: {
+                  read: ['root', 'user', 'guest'],
+                  write: ['root'],
+                  execute: ['root', 'user', 'guest'],
+                },
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+    localStorage.setItem(CONNECTED_ESSID_KEY, ESSID);
+    lanLeaseCacheIn(localStorage).remember(ESSID, `${LAN.subnet}.77`);
+    startGame(SEED_CONFIG);
+    render(() => <Terminal />);
+    // The boot journal fetch is in flight; the client only exists once it lands.
+    // Driven through the state seam rather than the DOM, because the busy bar takes
+    // the input field away mid-command and this warm-up is not what is under test.
+    await vi.waitFor(async () => {
+      setInput('ls /usr/bin');
+      await runInput();
+      expect(scrollback().some((entry) => entry.content.includes('mysql'))).toBe(true);
+    });
+
+    runCommand(`mysql ${DATABASE_HOST.ip}`);
+    // Answered through the FIELD, because a credential prompt keeps the input
+    // typeable and that is the path the player takes. Waited on by which prompt is
+    // pending rather than by the field appearing: the field never went away, so
+    // finding it proves nothing about whose question it is holding.
+    await vi.waitFor(() => expect(pendingPrompt()?.masked).toBe(false));
+    const account = await awaitPrompt();
+    fireEvent.input(account, { target: { value: 'readonly' } });
+    fireEvent.keyDown(account, { key: 'Enter' });
+    await vi.waitFor(() => expect(pendingPrompt()?.masked).toBe(true));
+    // By label, not by role: a masked prompt renders `type="password"`, which has no
+    // implicit textbox role at all — the field the player types the password into is
+    // invisible to every other lookup in this file.
+    const password = screen.getByLabelText(/terminal input/i);
+    fireEvent.input(password, { target: { value: 'hunter2' } });
+    fireEvent.keyDown(password, { key: 'Enter' });
+
+    await screen.findByText('Welcome to the MySQL monitor. Commands end with ;');
+    // The shell's own prompt names a machine the player is no longer typing at —
+    // and one this door reaches no files on. It must be GONE, not merely joined.
+    // Exact, including the trailing space: the prompt renders `whitespace-pre`, so
+    // the gap before the cursor is a rendered character rather than layout, and the
+    // default text matcher collapses exactly the difference that would be visible.
+    expect((await screen.findByText('mysql>')).textContent).toBe('mysql> ');
+    expect(screen.queryByText('alice@workstation:/home/alice$')).not.toBeInTheDocument();
+
+    runCommand('quit');
+
+    await screen.findByText('Bye');
+    expect(await screen.findByText('alice@workstation:/home/alice$')).toBeInTheDocument();
   });
 });

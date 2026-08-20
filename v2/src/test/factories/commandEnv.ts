@@ -173,6 +173,11 @@ export const mockFtpApi = (overrides: Partial<FtpApi> = {}): FtpApi => ({
  *  a different fact about the world than a test that forgot to wire the door. */
 export const mockMysqlApi = (overrides: Partial<MysqlApi> = {}): MysqlApi => ({
   connect: NOT_IMPLEMENTED('mysql.connect'),
+  // No-ops by default, as ftp's are: holding and dropping the prompt is UI state,
+  // and a test that does not care which terminal mode it left behind should not
+  // have to stub one.
+  enter: () => undefined,
+  leave: () => undefined,
   ...overrides,
 });
 
