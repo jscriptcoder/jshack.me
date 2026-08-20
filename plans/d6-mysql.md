@@ -445,7 +445,55 @@ Non-vacuous in both directions, by hand-applied mutants:
 | ssh row's `accountsOn` pointed at `databaseAccountsIn` | the shell opens to the database's passwords |
 
 **No production code changed.**
-**Still open on this slice**: criteria 7 and 8, and the `scripts/testMysqlSweep.ts` wire-check.
+**Criteria 7 and 8 DONE — and 8 was not the formality it looked like.**
+
+**Criterion 7 — the wordlist.** The branch's whole production diff is two lines per handler,
+identical in all three: `accountsIn(fs)` became `spec.accountsOn(fs)`, plus the optional
+`database`. The wordlist read is untouched, which is the first half of "unchanged, and must
+not regress".
+
+The second half wanted a test that did not exist. `hydraCrackSchema` is a `looseObject`, so a
+client CAN attach a `wordlist` field to the payload — it is not rejected, it is simply never
+read, and nothing said so. `ignores a wordlist the request brought with it, database door
+included` now does: the caller's machine holds a list that opens nothing on the target, the
+request carries the one that opens the whole ladder, and the answer is `cracked: []` with
+`wordlistFound: true`. Killed by teaching the handler to glance at `payload.wordlist`. The
+database door is the right place to make the claim — its accounts are the ones a player is
+meant to work for, so a request-supplied list would hurt most there.
+
+**Criterion 8 — the other doors. One of them was unguarded, and this branch is what made
+that possible.** Before, every door read `/etc/passwd` because the handler said so; a row
+cannot point at the wrong source when there is no row. Now each row names its own source,
+and pointing one at the wrong file is a new class of mistake. Each of the three legacy rows
+was pointed at `databaseAccountsIn` by hand to see what noticed:
+
+| row | tests that failed |
+| --- | --- |
+| `ssh` | 16 |
+| `http` | 1 — `reaches the http service behind the port that forwards to it`, in the public suite |
+| `ftp` | **0** |
+
+The ftp door had nothing holding it to `/etc/passwd`. Its two existing tests assert log
+ROUTING — that the trace lands in `vsftpd.log` and not in `auth.log` — and they cannot catch
+a wrong source, because `ftpHostOn` finds the same box `mysqlHostOn` does (it runs ssh, ftp
+AND mysql) and both of that box's ladders begin with an account called `root`. A first trace
+line reading `Failed password for root` is the same line whichever file was consulted. A
+coincidence of names hiding a wrong source is the same blind spot as a drawn name checked
+against the pool it came from, and it is closed the same way: assert the thing that actually
+differs, which is the whole list. `still sweeps /etc/passwd when the door asked for is ftp`
+now fails when the ftp row moves.
+
+**The gap that remains, measured rather than assumed.** Reverting BOTH vantage handlers to
+`accountsIn(target.fs)` — the shipped bug, on the gateway and public paths — leaves all 3103
+tests green. The lines themselves are exercised (the http mutant above fails a public-suite
+test, so `spec.accountsOn` does run there); what has no test is the MYSQL door through those
+two vantages. That is exactly what criterion 9 assigned to slices 5 and 7, which will build
+the fixtures — a deep host running mysqld behind a forward, and a public IP forwarding to
+3306 — rather than half-building them here. Recorded with the mutant that proves it so those
+slices have a target and not a hope.
+
+**No production code changed.**
+**Still open on this slice**: the `scripts/testMysqlSweep.ts` wire-check, and the version bump at PR time. All nine acceptance criteria are met.
 
 **RED**: Handler-level behavior tests — the account-source assertion (criterion 1) fails against
 today's code, which is the honest RED. Plus a population sweep for criterion 3, edge tests for 4-6,

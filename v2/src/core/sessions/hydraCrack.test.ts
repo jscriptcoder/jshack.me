@@ -714,6 +714,38 @@ describe('handleHydraCrack', () => {
     expect(response.status).toBe(400);
   });
 
+  it('ignores a wordlist the request brought with it, database door included', async () => {
+    // The list is a FILE on the box the player is standing on, and the progression is
+    // growing that file. A request that could carry its own list would hand every
+    // player the finished wordlist on their first login, and the database door is
+    // where that would hurt most — its accounts are the ones a player is meant to
+    // have to work for.
+    //
+    // The payload schema is loose, so an extra field is not rejected; it is simply
+    // never read, and this is what says so. The caller's machine holds a list that
+    // opens nothing here, while the request carries the one that opens everything —
+    // so a handler that glanced at the request would return the whole ladder rather
+    // than nothing at all.
+    const identity = generateIdentity();
+    const host = mysqlHostOn(ESSID);
+    const database = databaseAccountsWithPasswords(host, KNOWN_POOL);
+    const { deps } = makeDeps({ wordlist: ['no-such-word'] });
+    const envelope = signRequest(identity, 'hydraCrack', {
+      essid: ESSID,
+      target_ip: host.ip,
+      service: 'mysql',
+      caller_machine_id: computeWorkstationId(WORKSTATION, identity.publicKeyHex),
+      source_ip: ATTACKER_IP,
+      wordlist: database.map((account) => account.password),
+    });
+
+    const response = await handleHydraCrack(envelope, deps);
+
+    expect(database.length).toBeGreaterThan(0);
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ cracked: [], wordlistFound: true });
+  });
+
   it("reads the TARGET host's journal, keyed by the machine it resolved", async () => {
     // Reading the wrong machine's journal would sweep a passwd belonging to some
     // other box — and report credentials `ssh` would refuse on this one.
@@ -1467,6 +1499,35 @@ describe('the database door answers for its own accounts', () => {
       deps,
     );
 
+    expect(response.body.cracked).toEqual(box);
+  });
+
+  it('still sweeps /etc/passwd when the door asked for is ftp', async () => {
+    // The control that turned out to be missing. Before this branch every door read
+    // `/etc/passwd` because the handler said so; now each row names its own source,
+    // and a row pointed at the wrong one is a mistake nothing else here would catch.
+    //
+    // The ftp traces already on this file cannot catch it. `ftpHostOn` finds the same
+    // box `mysqlHostOn` does — it runs ssh, ftp and mysql — and both of that box's
+    // ladders begin with an account called `root`, so a first trace line reading
+    // `Failed password for root` is the same line whichever file was consulted. A
+    // coincidence of names hiding a wrong source is the same blind spot as a drawn
+    // name checked against the pool it came from, and it is closed the same way:
+    // assert the thing that actually differs, which is the whole list.
+    const identity = generateIdentity();
+    const host = ftpHostOn(ESSID);
+    const box = accountsWithPasswords(host, KNOWN_POOL);
+    const database = databaseAccountsWithPasswords(host, KNOWN_POOL);
+    const { deps } = makeDeps({
+      wordlist: [...box, ...database].map((account) => account.password),
+    });
+
+    const response = await handleHydraCrack(
+      signedCrack(identity, { target_ip: host.ip, service: 'ftp' }),
+      deps,
+    );
+
+    expect(database.length).toBeGreaterThan(0);
     expect(response.body.cracked).toEqual(box);
   });
 
