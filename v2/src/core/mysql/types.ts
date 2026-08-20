@@ -24,7 +24,6 @@ export const mysqlColumnTypeSchema = z.enum([
   'INT',
   'VARCHAR',
   'TEXT',
-  'DATE',
   'DATETIME',
   'BOOLEAN',
   'FLOAT',

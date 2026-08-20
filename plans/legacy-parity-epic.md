@@ -267,9 +267,9 @@ PHASE 1 — THE DOORS  (near-term focus)
       D5b slice 3 a box admits what it is              ✔ SHIPPED v0.155.0 (#430)
       D5b slice 4 the page a box serves fits the box   ✔ SHIPPED v0.156.0 (#431)
       D5b slice 5 the account you crack fits the box   ✔ SHIPPED v0.157.0
-  D6  mysql                                           ← NEXT (GRILLED 2026-08-19, not planned)
-      D6 slice 1 a box runs a database
-      D6 slice 2 a player cracks a database account
+  D6  mysql                                           ← IN PROGRESS (planned, plans/d6-mysql.md)
+      D6 slice 1 a box runs a database                ✔ SHIPPED v0.158.0 (#434)
+      D6 slice 2 a player cracks a database account   ← NEXT
       D6 slice 3 a player reads a database
       D6 slice 4 a player changes a database
       D6 slice 5 a database on a deep layer answers
@@ -1830,8 +1830,11 @@ to it — `mail-139` answers with `dkim`, `thermostat-207` with `mqtt`, a laptop
 **➡️ NEXT: D6 — a player reads a machine's database (`mysql`)**, fourth door in the locked order
 (ftp → daemons → nc → **mysql** → redis → snmp → node). **GRILLED 2026-08-19 — thirteen locked
 decisions and a seven-slice spine in
-["D6 — resolved scope & decisions"](#d6--resolved-scope--decisions-grill-me-2026-08-19). Read that
-section, then run `planning` against slice 1.** Not yet planned.
+["D6 — resolved scope & decisions"](#d6--resolved-scope--decisions-grill-me-2026-08-19). PLANNED in
+[`d6-mysql.md`](d6-mysql.md), and **slice 1 shipped v0.158.0 (#434)** — a box that runs `mysqld` now
+holds a real database, and one that does not holds no `/var/lib/mysql` at all. Slice 2 (a player
+cracks a database account) is the next branch and the first D6 slice to touch `api/`, so it needs a
+`scripts/testMysqlSweep.ts` wire-check run live before it counts.
 
 The three things that grill settled which the row above could not have predicted:
 

@@ -11,7 +11,8 @@ import {
   type Listener,
 } from '../services/pidfile';
 import { BACKDOOR_PORTS } from './remoteHostFs';
-import { parseMysqlDatabase, type MysqlDatabase } from '../mysql/types';
+import { parseMysqlDatabase, type MysqlDatabase, type MysqlRow } from '../mysql/types';
+import { DB_NAME_PREFIXES, DB_NAME_SUFFIXES, MYSQL_USERNAMES } from './pools/database';
 import { filterTreeToAllowlist } from '../patches/readFilter';
 import type { LanHost } from './generateHomeLan';
 import type { Directory, FileEntry, FileNode } from '../filesystem/types';
@@ -114,6 +115,33 @@ const dirAt = (fs: Directory, ...segments: readonly string[]): Directory => {
   }
   if (node.kind !== 'directory') throw new Error('target is not a directory');
   return node;
+};
+
+/** A file at a path, or undefined when any segment on the way is missing. The
+ *  forgiving twin of `dirAt`: what a box does NOT have is half of what these tests
+ *  claim, and a throw would say "broken" where the answer is "absent". */
+const fileAt = (fs: Directory, ...segments: readonly string[]): FileEntry | undefined => {
+  let node: FileNode = fs;
+  for (const segment of segments) {
+    if (node.kind !== 'directory') return undefined;
+    const next = node.entries.get(segment);
+    if (next === undefined) return undefined;
+    node = next;
+  }
+  return node.kind === 'file' ? node : undefined;
+};
+
+/** Whether a directory exists at a path — an empty one is still a promise the box
+ *  makes, so its presence is a claim of its own. */
+const dirExistsAt = (fs: Directory, ...segments: readonly string[]): boolean => {
+  let node: FileNode = fs;
+  for (const segment of segments) {
+    if (node.kind !== 'directory') return false;
+    const next = node.entries.get(segment);
+    if (next === undefined) return false;
+    node = next;
+  }
+  return node.kind === 'directory';
 };
 
 /** The raw `/etc/passwd` content — every account at once, for assertions that would
@@ -540,26 +568,116 @@ describe('buildRemoteHostFs', () => {
   });
 
   describe('the database surface (a box that runs one has one)', () => {
-    /** Every address of this kind whose box runs the database daemon. A per-host
-     *  roll is a property of the WORLD, so what a role does differently is only
-     *  observable across a population — one box proves nothing either way. */
-    const runsMysqlOn = (prefix: string): readonly number[] =>
-      OCTETS.filter(
-        (octet) =>
-          pidfileContent(buildRemoteHostFs(ESSID, namedHost(prefix, octet)), 'mysqld.pid') !== null,
-      );
+    /** What one generated box says about the database door, read off the box while it
+     *  is being built so the box itself can be discarded. */
+    type DatabaseBox = {
+      readonly prefix: string;
+      readonly octet: number;
+      readonly runsMysqld: boolean;
+      readonly pidfile: FileEntry | undefined;
+      readonly account: string;
+      readonly database: MysqlDatabase | null;
+      readonly datadirFile: FileEntry | undefined;
+      readonly hasDatadirDir: boolean;
+      readonly mysqlLog: FileEntry | undefined;
+      readonly configDatadir: string | undefined;
+    };
+
+    const inspect = (prefix: string, octet: number): DatabaseBox => {
+      const fs = buildRemoteHostFs(ESSID, namedHost(prefix, octet));
+      const pidfile = fileAt(fs, 'var', 'run', 'mysqld.pid');
+      const datadirFile = fileAt(fs, 'var', 'lib', 'mysql', 'data.json');
+      const config = fileAt(fs, 'etc', 'mysql.cnf');
+
+      return {
+        prefix,
+        octet,
+        runsMysqld: pidfile !== undefined,
+        pidfile,
+        account: npcUserRow(fs)[0],
+        database: datadirFile === undefined ? null : parseMysqlDatabase(datadirFile.content),
+        datadirFile,
+        hasDatadirDir: dirExistsAt(fs, 'var', 'lib', 'mysql'),
+        mysqlLog: fileAt(fs, 'var', 'log', 'mysql.log'),
+        configDatadir:
+          config === undefined
+            ? undefined
+            : config.content.split('\n').find((line) => line.startsWith('datadir=')),
+      };
+    };
+
+    /**
+     * Five kinds of box over a LAN's worth of addresses, generated ONCE for the whole
+     * block.
+     *
+     * Both things this block claims need a population rather than a host. A placement
+     * rate is a property of the WORLD — one box proves nothing either way. And what a
+     * database HOLDS is the same claim seen from the other side: the tables past
+     * `users` are drawn two-to-four from seven, so a value a player can meet is a
+     * value a two-host sample never reads, and a value no test reads is one that can
+     * be blanked without anything failing.
+     *
+     * Computed once for the reason the account block below records: regenerating this
+     * per test is quick in an ordinary run but slow enough under mutation
+     * instrumentation to race Stryker's timeout — which scores a surviving mutant as
+     * killed and makes the number a measure of the machine rather than of the tests.
+     */
+    const POPULATION: readonly DatabaseBox[] = ['db', 'www', 'host', 'desktop', 'cam'].flatMap(
+      (prefix) => OCTETS.map((octet) => inspect(prefix, octet)),
+    );
+
+    const boxesOn = (prefix: string): readonly DatabaseBox[] =>
+      POPULATION.filter((box) => box.prefix === prefix);
+
+    const runsMysqlOn = (prefix: string): readonly DatabaseBox[] =>
+      boxesOn(prefix).filter((box) => box.runsMysqld);
+
+    /** Every database this sample of the world contains, whatever kind of box keeps
+     *  it — the sample every claim about CONTENT is made over. */
+    const DATABASES: readonly { readonly box: DatabaseBox; readonly database: MysqlDatabase }[] =
+      POPULATION.flatMap((box) => (box.database === null ? [] : [{ box, database: box.database }]));
+
+    /** Every row of one named table, across every database that drew it. */
+    const rowsOf = (table: string): readonly MysqlRow[] =>
+      DATABASES.flatMap(({ database }) => database.tables[table]?.rows ?? []);
+
+    /** The distinct values one column takes across the whole world — a pool's real
+     *  width as a player would experience it, rather than as the source declares it. */
+    const valuesIn = (table: string, column: string): readonly unknown[] => [
+      ...new Set(rowsOf(table).map((row) => row[column])),
+    ];
+
+    /** Where a complaint came from: a box's name, never the box. */
+    const where = (box: DatabaseBox): string => `${box.prefix}-${box.octet}`;
+
+    /**
+     * A sweep's verdict, kept small however wrong the world turns out to be.
+     *
+     * A population of a thousand boxes can raise a thousand complaints, and an
+     * assertion that renders them all takes longer to FAIL than the whole file takes
+     * to run — a diff over a thousand generated databases is megabytes of text. Under
+     * mutation instrumentation that is reported as a timeout rather than as a kill,
+     * which hands the score back to the machine. A count and three examples fail just
+     * as loudly, in constant time, and read better when the failure is real.
+     */
+    const noneOf = (
+      offenders: readonly string[],
+    ): { readonly count: number; readonly sample: readonly string[] } => ({
+      count: offenders.length,
+      sample: offenders.slice(0, 3),
+    });
+
+    const NONE = { count: 0, sample: [] };
 
     it('plants a mysqld.pid owned by the account its own config says it runs as', () => {
       // The `/etc/mysql.cnf` a database box has carried since the roles landed says
       // `user=mysql`, and `ps` prints a pidfile's runUser: an owner of `root` here
       // would put the box's own config and the box's own process table in
       // disagreement about who is running the daemon.
-      const octet = runsMysqlOn('db')[0];
-      const fs = buildRemoteHostFs(ESSID, namedHost('db', octet));
-      const node = varRun(fs)?.entries.get('mysqld.pid');
+      const { pidfile } = runsMysqlOn('db')[0];
 
-      expect(node?.kind === 'file' ? node.content : null).toBe('mysqld:port=3306');
-      expect(node?.kind === 'file' ? node.owner : null).toBe('mysql');
+      expect(pidfile?.content).toBe('mysqld:port=3306');
+      expect(pidfile?.owner).toBe('mysql');
     });
 
     it('runs a database on the boxes named for one, seldom elsewhere, and never on a camera', () => {
@@ -572,7 +690,7 @@ describe('buildRemoteHostFs', () => {
       const onUnclaimed = runsMysqlOn('host').length;
       const onWorkstations = runsMysqlOn('desktop').length;
 
-      expect(runsMysqlOn('cam')).toEqual([]);
+      expect(noneOf(runsMysqlOn('cam').map(where))).toEqual(NONE);
       expect(onDatabases).toBeGreaterThan(onWebservers);
       expect(onWebservers).toBeGreaterThan(onUnclaimed);
       expect(onUnclaimed).toBeGreaterThan(onWorkstations);
@@ -586,32 +704,10 @@ describe('buildRemoteHostFs', () => {
       expect(runsMysqlOn('db').length).toBeGreaterThan(OCTETS.length * 0.8);
     });
 
-    /** The parsed database a box keeps, or null where it keeps none. */
-    const databaseOn = (prefix: string, octet: number): MysqlDatabase | null => {
-      const fs = buildRemoteHostFs(ESSID, namedHost(prefix, octet));
-      const varDir = fs.entries.get('var');
-      if (varDir === undefined || varDir.kind !== 'directory') return null;
-      const lib = varDir.entries.get('lib');
-      if (lib === undefined || lib.kind !== 'directory') return null;
-      const mysql = lib.entries.get('mysql');
-      if (mysql === undefined || mysql.kind !== 'directory') return null;
-      const data = mysql.entries.get('data.json');
-      if (data === undefined || data.kind !== 'file') return null;
-      return parseMysqlDatabase(data.content);
-    };
-
-    /** The datadir file itself, for the claims about how it is guarded. */
-    const datadirFileOn = (prefix: string, octet: number): FileEntry => {
-      const fs = buildRemoteHostFs(ESSID, namedHost(prefix, octet));
-      const node = dirAt(fs, 'var', 'lib', 'mysql').entries.get('data.json');
-      if (node === undefined || node.kind !== 'file') throw new Error('no datadir file');
-      return node;
-    };
-
     it('keeps a real database on the box that runs one', () => {
       // A daemon with nothing behind it is a protocol demo. The tables are what make
       // the door worth opening, so they arrive with it rather than after it.
-      const database = databaseOn('db', runsMysqlOn('db')[0]);
+      const { database } = runsMysqlOn('db')[0];
 
       expect(database?.name).toMatch(/^[a-z_]+$/);
       expect(Object.keys(database?.tables ?? {})).toContain('users');
@@ -619,41 +715,57 @@ describe('buildRemoteHostFs', () => {
       expect(database?.credentials.map((credential) => credential.userType)).toContain('root');
     });
 
-    it('plants no datadir at all on a box that runs no database', () => {
+    it('plants the datadir on exactly the boxes running the daemon, and nowhere else', () => {
       // The rule /var/www already follows: a directory nobody is listening on is a
       // promise the box cannot keep, and `ls /var/lib` is recon a player acts on.
-      const silent = OCTETS.find(
-        (octet) =>
-          pidfileContent(buildRemoteHostFs(ESSID, namedHost('cam', octet)), 'mysqld.pid') === null,
-      );
-      if (silent === undefined) throw new Error('no database-free host in sample');
+      // Held over the population, because the box that would leak one is by
+      // definition a box no single-host test picked.
+      const stray = POPULATION.filter((box) => box.hasDatadirDir !== box.runsMysqld).map(where);
+      const empty = POPULATION.filter(
+        (box) => box.runsMysqld && box.datadirFile === undefined,
+      ).map(where);
 
-      expect(databaseOn('cam', silent)).toBeNull();
+      expect(noneOf(stray)).toEqual(NONE);
+      expect(noneOf(empty)).toEqual(NONE);
+    });
+
+    it('keeps every datadir it writes readable as the database it claims to be', () => {
+      // The file is JSON on disk and a schema on the way back in, so a generator that
+      // emitted one malformed table would ship a box whose door opens onto nothing.
+      // Only a sweep can say this: the tables past `users` are drawn, not given.
+      const unreadable = POPULATION.filter(
+        (box) => box.datadirFile !== undefined && box.database === null,
+      ).map(where);
+
+      expect(noneOf(unreadable)).toEqual(NONE);
+      expect(DATABASES.length).toBeGreaterThan(200);
     });
 
     it('guards the database from every tier but root, even on the box itself', () => {
       // The door's whole point is that its credential is not the box's own. A guest
       // who could `cat` the datadir would hold every table without ever cracking the
       // database — and the account hashes in it, which are what slice 2 attacks.
-      const file = datadirFileOn('db', runsMysqlOn('db')[0]);
+      const wronglyGuarded = DATABASES.filter(
+        ({ box }) =>
+          box.datadirFile?.perms.read.join(',') !== 'root' ||
+          box.datadirFile.perms.write.join(',') !== 'root' ||
+          box.datadirFile.perms.execute.length !== 0,
+      ).map(({ box }) => where(box));
 
-      expect(file.perms.read).toEqual(['root']);
-      expect(file.perms.write).toEqual(['root']);
-      expect(file.perms.execute).toEqual([]);
+      expect(noneOf(wronglyGuarded)).toEqual(NONE);
     });
 
     it('holds the account the box really carries among the people in its users table', () => {
       // What makes it THIS box's database rather than a database. The box's own user
       // has a home directory a visitor can see, so finding their row here is the
-      // thing that ties the two halves of the machine together.
-      const octet = runsMysqlOn('db')[0];
-      const account = npcUserRow(buildRemoteHostFs(ESSID, namedHost('db', octet)))[0];
-      const usernames = (databaseOn('db', octet)?.tables['users']?.rows ?? []).map(
-        (row) => row['username'],
-      );
+      // thing that ties the two halves of the machine together — and it has to hold
+      // on every box, since the account is drawn per box and the table is not.
+      const orphaned = DATABASES.flatMap(({ box, database }) => {
+        const usernames = (database.tables['users']?.rows ?? []).map((row) => row['username']);
+        return usernames.includes(box.account) && usernames.length > 1 ? [] : [where(box)];
+      });
 
-      expect(usernames).toContain(account);
-      expect(usernames.length).toBeGreaterThan(1);
+      expect(noneOf(orphaned)).toEqual(NONE);
     });
 
     it('calls the site by the name the box answers to, on every box that keeps a config', () => {
@@ -662,15 +774,18 @@ describe('buildRemoteHostFs', () => {
       // on one box is guaranteed to find. The config table is DRAWN rather than
       // guaranteed, so this is asserted over the population: a box a player can meet
       // whose row no test has read is a row that can be blanked unnoticed.
-      const named = runsMysqlOn('db').flatMap((octet) => {
-        const row = (databaseOn('db', octet)?.tables['config']?.rows ?? []).find(
+      const rows = DATABASES.flatMap(({ box, database }) => {
+        const row = (database.tables['config']?.rows ?? []).find(
           (candidate) => candidate['key'] === 'site_name',
         );
-        return row === undefined ? [] : [{ octet, value: row['value'] }];
+        return row === undefined ? [] : [{ box, value: row['value'] }];
       });
+      const misnamed = rows
+        .filter(({ box, value }) => value !== where(box))
+        .map(({ box, value }) => `${where(box)}: ${String(value)}`);
 
-      expect(named.length).toBeGreaterThan(20);
-      expect(named.filter(({ octet, value }) => value !== `db-${octet}`)).toEqual([]);
+      expect(rows.length).toBeGreaterThan(20);
+      expect(noneOf(misnamed)).toEqual(NONE);
     });
 
     it('shows a stranger with no session nothing of the database at all', () => {
@@ -678,9 +793,8 @@ describe('buildRemoteHostFs', () => {
       // everyone with no session on it, and they are different mechanisms. A datadir
       // that leaked here would hand the account hashes to anyone who could reach the
       // host — no credential, no sweep, no line in any log.
-      const external = filterTreeToAllowlist(
-        buildRemoteHostFs(ESSID, namedHost('db', runsMysqlOn('db')[0])),
-      );
+      const { prefix, octet } = runsMysqlOn('db')[0];
+      const external = filterTreeToAllowlist(buildRemoteHostFs(ESSID, namedHost(prefix, octet)));
       const varDir = external.entries.get('var');
       const lib = varDir?.kind === 'directory' ? varDir.entries.get('lib') : undefined;
 
@@ -690,23 +804,15 @@ describe('buildRemoteHostFs', () => {
     it('plants /var/log/mysql.log empty where the daemon runs, and nowhere else', () => {
       // Follows its daemon, like access.log and vsftpd.log: a log on a box that never
       // ran one claims something happened.
-      const running = runsMysqlOn('db')[0];
-      const silent = OCTETS.find(
-        (octet) =>
-          pidfileContent(buildRemoteHostFs(ESSID, namedHost('cam', octet)), 'mysqld.pid') === null,
-      );
-      if (silent === undefined) throw new Error('no database-free host in sample');
-
-      const log = dirAt(buildRemoteHostFs(ESSID, namedHost('db', running)), 'var', 'log').entries.get(
-        'mysql.log',
+      const stray = POPULATION.filter(
+        (box) => (box.mysqlLog !== undefined) !== box.runsMysqld,
+      ).map(where);
+      const prewritten = POPULATION.flatMap((box) =>
+        box.mysqlLog === undefined || box.mysqlLog.content === '' ? [] : [where(box)],
       );
 
-      expect(log?.kind === 'file' ? log.content : null).toBe('');
-      expect(
-        dirAt(buildRemoteHostFs(ESSID, namedHost('cam', silent)), 'var', 'log').entries.get(
-          'mysql.log',
-        ),
-      ).toBeUndefined();
+      expect(noneOf(stray)).toEqual(NONE);
+      expect(noneOf(prewritten)).toEqual(NONE);
     });
 
     it('keeps its config pointing at the directory the database is really in', () => {
@@ -714,16 +820,217 @@ describe('buildRemoteHostFs', () => {
       // any database existed to sit in one. Now that one does, a template naming a
       // different path sends a player who read the config to an empty directory —
       // which is the config lying about its own box, over the whole pool.
-      const datadirs = OCTETS.map((octet) => {
-        const config = dirAt(buildRemoteHostFs(ESSID, namedHost('db', octet)), 'etc').entries.get(
-          'mysql.cnf',
-        );
-        const content = config?.kind === 'file' ? config.content : '';
-        return content.split('\n').find((line) => line.startsWith('datadir='));
-      }).filter((line): line is string => line !== undefined);
+      const configured = boxesOn('db').filter((box) => box.configDatadir !== undefined);
+      const elsewhere = configured
+        .filter((box) => box.configDatadir !== 'datadir=/var/lib/mysql')
+        .map((box) => `${where(box)}: ${String(box.configDatadir)}`);
 
-      expect(datadirs.length).toBeGreaterThan(0);
-      expect([...new Set(datadirs)]).toEqual(['datadir=/var/lib/mysql']);
+      expect(configured.length).toBeGreaterThan(0);
+      expect(noneOf(elsewhere)).toEqual(NONE);
+    });
+
+    it('puts every row under the columns its own table declares', () => {
+      // A row carrying a key its table never declared, or missing one it did, is a
+      // table that cannot be printed: `SELECT *` renders the COLUMNS and reads each
+      // row by them, so the two drifting apart is a blank column or a lost cell.
+      const mismatched = DATABASES.flatMap(({ box, database }) =>
+        Object.entries(database.tables).flatMap(([table, { columns, rows }]) => {
+          const declared = columns.map((column) => column.name).join(',');
+          return rows
+            .filter((row) => Object.keys(row).join(',') !== declared)
+            .map((row) => `${where(box)} ${table}: ${Object.keys(row).join(',')} vs ${declared}`);
+        }),
+      );
+
+      expect(noneOf(mismatched)).toEqual(NONE);
+    });
+
+    it('never leaves a blank where a value belongs, on any box in the world', () => {
+      // An empty cell reads as a bug rather than as a quiet database, and this is
+      // what makes every string in the content pool load-bearing: blank any one of
+      // them and some box in the world shows the gap.
+      const blanks = DATABASES.flatMap(({ box, database }) => [
+        ...(database.name === '' ? [`${where(box)}: database name`] : []),
+        ...Object.entries(database.tables).flatMap(([table, { columns, rows }]) => [
+          ...(table === '' ? [`${where(box)}: unnamed table`] : []),
+          ...columns.filter((column) => column.name === '').map(() => `${where(box)}: ${table} column`),
+          ...rows.flatMap((row) =>
+            Object.entries(row)
+              .filter(([, value]) => value === '')
+              .map(([column]) => `${where(box)}: ${table}.${column}`),
+          ),
+        ]),
+        ...database.credentials.flatMap((credential) => [
+          ...(credential.username === '' ? [`${where(box)}: nameless account`] : []),
+          ...(credential.passwordHash === '' ? [`${where(box)}: unhashed account`] : []),
+        ]),
+      ]);
+
+      expect(noneOf(blanks)).toEqual(NONE);
+    });
+
+    it('draws every entry of every pool a table can show, so none of it ships unreachable', () => {
+      // The lesson the role work left behind, and the one this door is most exposed
+      // to: the tables past `users` are drawn two-to-four from seven, so an entry no
+      // database ever draws is content that can be blanked without a test noticing.
+      // Held as WIDTHS: the claim is that the pool is wide enough for two boxes to
+      // read differently, and that none of it is dead.
+      const widths: readonly (readonly [string, string, number])[] = [
+        ['users', 'role', 2],
+        ['audit_log', 'action', 5],
+        ['orders', 'customer', 5],
+        ['orders', 'product', 5],
+        ['orders', 'status', 4],
+        ['employees', 'name', 6],
+        ['employees', 'department', 6],
+        ['employees', 'clearance', 4],
+        ['inventory', 'sku', 6],
+        ['inventory', 'warehouse', 3],
+        ['config', 'key', 5],
+      ];
+      const observed = widths.map(
+        ([table, column]) => [table, column, valuesIn(table, column).length] as const,
+      );
+      const domains = new Set(rowsOf('users').map((row) => String(row['email']).split('@')[1]));
+      const uploadLimits = new Set(
+        rowsOf('config')
+          .filter((row) => row['key'] === 'max_upload_mb')
+          .map((row) => row['value']),
+      );
+
+      expect(observed).toEqual(widths);
+      expect(domains.size).toBe(3);
+      expect(uploadLimits.size).toBe(4);
+    });
+
+    it('names its database and its application account from the pools those names live in', () => {
+      // A name a generator can produce that no test has read is a name that can be
+      // deleted from the pool unnoticed — and these three are the names a player sees
+      // first, at the prompt and in the credential hydra hands back.
+      const appAccounts = new Set(
+        DATABASES.flatMap(({ database }) =>
+          database.credentials
+            .filter((credential) => credential.userType === 'user')
+            .map((credential) => credential.username),
+        ),
+      );
+      const prefixes = new Set(DATABASES.map(({ database }) => database.name.split('_')[0]));
+      const suffixes = new Set(DATABASES.map(({ database }) => database.name.split('_')[1]));
+
+      expect([...appAccounts].sort()).toEqual([...MYSQL_USERNAMES].sort());
+      expect([...prefixes].sort()).toEqual([...DB_NAME_PREFIXES].sort());
+      expect([...suffixes].sort()).toEqual([...DB_NAME_SUFFIXES].sort());
+    });
+
+    it('numbers its rows the way a table a player has seen before is numbered', () => {
+      // Ascending from the table's own first number, one at a time, no repeats. The
+      // orders table starts at 1000 because a shop whose first order is #1 reads as a
+      // fresh install rather than as a business someone runs.
+      const misnumbered = DATABASES.flatMap(({ box, database }) =>
+        Object.entries(database.tables).flatMap(([table, { rows }]) => {
+          const first = table === 'orders' ? 1000 : 1;
+          const expected = rows.map((_row, index) => first + index).join(',');
+          const actual = rows.map((row) => row['id']).join(',');
+          return actual === expected ? [] : [`${where(box)} ${table}: ${actual}`];
+        }),
+      );
+
+      expect(noneOf(misnumbered)).toEqual(NONE);
+    });
+
+    it('fills each drawn table with as many rows as that table promises', () => {
+      // A table of one row reads as a fixture. The bands are the shape of the
+      // content decision, and they are only visible across the population.
+      const bands: readonly (readonly [string, number, number])[] = [
+        ['audit_log', 3, 8],
+        ['orders', 3, 7],
+        ['employees', 3, 6],
+        ['inventory', 3, 6],
+        ['config', 5, 5],
+      ];
+      const observed = bands.map(([table]) => {
+        const counts = DATABASES.flatMap(({ database }) => {
+          const drawn = database.tables[table];
+          return drawn === undefined ? [] : [drawn.rows.length];
+        });
+        return [table, Math.min(...counts), Math.max(...counts)] as const;
+      });
+
+      expect(observed).toEqual(bands);
+    });
+
+    it('prices what it sells the way a price list does, and never below nothing', () => {
+      // Amounts and prices end in .99 — the arithmetic that builds them is the
+      // difference between a catalogue and a column of round numbers.
+      const money = [
+        ...rowsOf('orders').map((row) => row['amount']),
+        ...rowsOf('inventory').map((row) => row['price']),
+      ];
+      const oddlyPriced = money
+        .filter((value) => !String(value).endsWith('.99') || Number(value) <= 0)
+        .map((value) => String(value));
+
+      expect(money.length).toBeGreaterThan(100);
+      expect(noneOf(oddlyPriced)).toEqual(NONE);
+    });
+
+    it('puts the one cleared employee at the top of the table and leaves the rest mixed', () => {
+      // The row worth reading is the first one. If the condition that places it moved,
+      // either nobody is cleared or everybody is, and the table stops rewarding a read.
+      const leading = new Set(
+        DATABASES.flatMap(({ database }) => {
+          const rows = database.tables['employees']?.rows ?? [];
+          return rows.length === 0 ? [] : [rows[0]?.['clearance']];
+        }),
+      );
+
+      expect([...leading]).toEqual(['top-secret']);
+      expect(valuesIn('employees', 'clearance').length).toBe(4);
+    });
+
+    it('leaves most accounts and keys active, but not all of them', () => {
+      // A flag that is always the same value is a column with nothing to say. Both
+      // values have to appear, and the majority has to be the plausible one.
+      const employees = rowsOf('employees').map((row) => row['active']);
+      const keys = rowsOf('api_keys').map((row) => row['active']);
+      const activeShare = (flags: readonly unknown[]): number =>
+        flags.filter((flag) => flag === 1).length / flags.length;
+
+      expect([...new Set(employees)].sort()).toEqual([0, 1]);
+      expect([...new Set(keys)].sort()).toEqual([0, 1]);
+      expect(activeShare(employees)).toBeGreaterThan(activeShare(keys));
+      expect(activeShare(keys)).toBeGreaterThan(0.5);
+    });
+
+    it('lists no item twice in one inventory', () => {
+      // The SKU column is declared UNIQUE, so a table repeating one contradicts its
+      // own schema in front of a player who ran DESCRIBE.
+      const repeated = DATABASES.flatMap(({ box, database }) => {
+        const skus = (database.tables['inventory']?.rows ?? []).map((row) => row['sku']);
+        return new Set(skus).size === skus.length ? [] : [where(box)];
+      });
+
+      expect(noneOf(repeated)).toEqual(NONE);
+    });
+
+    it('gives every database a root and an application account, and a read-only one about half the time', () => {
+      // The ladder a player meets: the read-only account nearly always falls, the
+      // application account usually, root about one database in eight. The shape of
+      // the credential list is what makes the rarity of root meaningful.
+      const ladders = DATABASES.map(({ database }) =>
+        database.credentials.map((credential) => credential.userType).join(','),
+      );
+      const withReadonly = ladders.filter((ladder) => ladder.endsWith('guest')).length;
+      const unhashed = DATABASES.flatMap(({ box, database }) =>
+        database.credentials
+          .filter((credential) => !/^[0-9a-f]{32}$/.test(credential.passwordHash))
+          .map((credential) => `${where(box)}: ${credential.username}`),
+      );
+
+      expect([...new Set(ladders)].sort()).toEqual(['root,user', 'root,user,guest'].sort());
+      expect(withReadonly / ladders.length).toBeGreaterThan(0.4);
+      expect(withReadonly / ladders.length).toBeLessThan(0.6);
+      expect(noneOf(unhashed)).toEqual(NONE);
     });
   });
 
