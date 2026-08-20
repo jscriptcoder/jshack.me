@@ -1469,6 +1469,44 @@ describe('the database door answers for its own accounts', () => {
 
     expect(response.body.cracked).toEqual(box);
   });
+
+  it('keeps a box-s shell and its database behind two different keys', async () => {
+    // The two locks are drawn on separate streams, so neither is a step toward the
+    // other: a player who has rooted the box still has to sweep the database, and a
+    // player holding the database still has to get onto the box. Both directions are
+    // checked, because a shared stream would leak either way round.
+    //
+    // Each sweep is given the OTHER door's entire set of passwords — not a wordlist
+    // that merely fails, but the one that would open the box next door. The disjoint
+    // check is what keeps that meaningful: if the two ever drew the same password for
+    // the same box, these sweeps would be handed their own key and the claim would
+    // quietly stop being tested.
+    const identity = generateIdentity();
+    const host = mysqlHostOn(ESSID);
+    const shellPasswords = accountsWithPasswords(host, KNOWN_POOL).map(
+      (account) => account.password,
+    );
+    const databasePasswords = databaseAccountsWithPasswords(host, KNOWN_POOL).map(
+      (account) => account.password,
+    );
+    const shell = makeDeps({ wordlist: databasePasswords });
+    const database = makeDeps({ wordlist: shellPasswords });
+
+    const throughTheShell = await handleHydraCrack(
+      signedCrack(identity, { target_ip: host.ip, service: 'ssh' }),
+      shell.deps,
+    );
+    const throughTheDatabase = await handleHydraCrack(
+      signedCrack(identity, { target_ip: host.ip, service: 'mysql' }),
+      database.deps,
+    );
+
+    expect(shellPasswords.filter((password) => databasePasswords.includes(password))).toEqual([]);
+    expect(shellPasswords.length).toBeGreaterThan(0);
+    expect(databasePasswords.length).toBeGreaterThan(0);
+    expect(throughTheShell.body.cracked).toEqual([]);
+    expect(throughTheDatabase.body.cracked).toEqual([]);
+  });
 });
 
 /**

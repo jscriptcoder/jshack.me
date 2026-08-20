@@ -406,7 +406,46 @@ anything. Both halves proven load-bearing by hand-applied mutants:
 | ssh row's `accountsOn` pointed at `databaseAccountsIn` | the control box gives up nothing — kills the control half |
 
 **No production code changed.**
-**Still open on this slice**: criteria 2, 7, 8 and the `scripts/testMysqlSweep.ts` wire-check.
+**Criterion 2 DONE — one half was already discharged, and checking that was the work.**
+
+The criterion has two halves, and they turned out to be worth very different amounts.
+
+**The hash half needed no new test.** Criterion 1's `reports the datadir's credentials rather
+than the box's /etc/passwd` compares the handler's answer to
+`databaseAccountsWithPasswords`, whose expected value is DEFINED as "for each stored
+credential, the wordlist word whose md5 equals its `passwordHash`". Equality with that list
+already means every returned credential opens the entry it names — a sweep reporting a name
+against a password that does not open it could not equal it. A restatement was written
+first, then removed: hand-mutating the sweep to report `words[0]` instead of the matched
+word killed it along with seven other tests including criterion 1's, so it added an oracle
+rooted in the stored file but no failure any other test would have missed.
+
+`tsc` is what prompted the check. `HandlerResponse.body` is `Record<string, unknown>`, so
+hashing the returned plaintext needs a narrowing helper the suite does not otherwise have —
+about fifteen lines of test infrastructure for a claim already asserted. The opaque body is
+the codebase saying tests read this through matchers, and routing around it to restate an
+existing assertion is not what that infrastructure would have bought.
+
+**The independence half was genuinely untested, and is now the criterion's whole weight.**
+`keeps a box-s shell and its database behind two different keys` hands each door the OTHER
+door's entire set of passwords — not a wordlist that merely fails, but the one that opens
+the box next door — and requires both to return nothing. Both directions are checked,
+because a shared stream would leak either way round.
+
+The disjoint guard is what keeps it meaningful. If the two streams ever drew the same
+password for the same box, each sweep would be handed its own key and the claim would
+quietly stop being tested rather than failing. On the fixture the two sets are disjoint, and
+the test says so out loud.
+
+Non-vacuous in both directions, by hand-applied mutants:
+
+| hand-applied mutant | direction killed |
+| --- | --- |
+| mysql row's `accountsOn` back to `accountsIn` | the database door opens to the shell's passwords |
+| ssh row's `accountsOn` pointed at `databaseAccountsIn` | the shell opens to the database's passwords |
+
+**No production code changed.**
+**Still open on this slice**: criteria 7 and 8, and the `scripts/testMysqlSweep.ts` wire-check.
 
 **RED**: Handler-level behavior tests — the account-source assertion (criterion 1) fails against
 today's code, which is the honest RED. Plus a population sweep for criterion 3, edge tests for 4-6,
