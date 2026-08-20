@@ -25,6 +25,8 @@ import {
   type UserType,
 } from '../core/types';
 import type {
+  MysqlConnectParams,
+  MysqlConnectResult,
   NcConnectParams,
   NcConnectResult,
   NcInnerGatewayParams,
@@ -345,6 +347,38 @@ export const listServerSessions = async (deps: SessionsClientDeps): Promise<read
     return rows.map((row) => summaryToSession(deps, row));
   } catch {
     return [];
+  }
+};
+
+/**
+ * Open a database on a LAN host — the signed `mysqlConnect` round-trip behind
+ * `env.mysql.connect`.
+ *
+ * Everything that is not a 200 collapses to the same "did not open", and a
+ * transport failure collapses with them. The seam has ONE refusal to carry because
+ * an answer that separated a wrong password from an account the database has never
+ * held would enumerate its accounts for anyone willing to type names at it — and a
+ * client that received the distinction could leak it however carefully the command
+ * is written.
+ *
+ * No session comes back because none is created: the credential is re-validated on
+ * every statement, so there is no row to hold and nothing here to keep.
+ */
+export const connectDatabase = async (
+  deps: SessionsClientDeps,
+  params: MysqlConnectParams,
+): Promise<MysqlConnectResult> => {
+  try {
+    const response = await post(deps, 'mysqlConnect', {
+      essid: params.essid,
+      target_ip: params.targetIp,
+      username: params.username,
+      password: params.password,
+      source_ip: params.sourceIp,
+    });
+    return { ok: response.ok };
+  } catch {
+    return { ok: false };
   }
 };
 

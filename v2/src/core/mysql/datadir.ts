@@ -11,7 +11,7 @@
  * would only tell a tamperer how their edit failed.
  */
 
-import { parseMysqlDatabase, type MysqlDatabase } from './types';
+import { parseMysqlDatabase, type MysqlCredential, type MysqlDatabase } from './types';
 import type { Directory } from '../filesystem/types';
 import type { SweepableAccount } from '../wordlist/passwordSweep';
 
@@ -49,6 +49,18 @@ export const databaseAccountsIn = (fs: Directory): readonly SweepableAccount[] =
     hash: credential.passwordHash,
   }));
 };
+
+/**
+ * One database account by name, or null when the database holds no such account.
+ *
+ * Null is ALSO the answer for a box with no database, and the caller must not tell
+ * the two apart: `accountIn`'s sibling for the door whose accounts are not the
+ * box's own. A wrong password and an account that was never there have to collapse
+ * into one refusal upstream, or the error enumerates the account list for anyone
+ * willing to type names at it.
+ */
+export const credentialIn = (fs: Directory, username: string): MysqlCredential | null =>
+  databaseIn(fs)?.credentials.find((credential) => credential.username === username) ?? null;
 
 /** The name of the database a box serves, or undefined when it serves none. What an
  *  accepted connection is recorded as having opened. */

@@ -15,6 +15,7 @@ import {
 import type { LanLeaseRow } from '../src/core/network/lanAddress';
 import { handleAuthCreateSessionInnerGateway } from '../src/core/sessions/authCreateSessionInnerGateway';
 import { handleHydraCrack } from '../src/core/sessions/hydraCrack';
+import { handleMysqlConnect } from '../src/core/sessions/mysqlConnect';
 import { handleHydraCrackPublic } from '../src/core/sessions/hydraCrackPublic';
 import { handleHydraCrackInnerGateway } from '../src/core/sessions/hydraCrackInnerGateway';
 import type { OwnerPatchRow } from '../src/core/network/materializeWorkstationFs';
@@ -466,6 +467,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }),
       readAuthLog: readAuthLogVia({ supabase, label: 'inner-gateway auth-log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'inner-gateway auth-log upsert' }),
+    });
+    res.status(status).json(body);
+    return;
+  }
+
+  if (actionOf(req.body) === 'mysqlConnect') {
+    // A database login on an own-LAN host. NO session row is created — a database
+    // connection has none, and the credential is re-validated on every statement
+    // instead. The handler READS the target's journal (its real datadir, and what it
+    // is actually running) and WRITES one line to its own /var/log/mysql.log, the
+    // trace an accepted and a refused connection both leave.
+    const { status, body } = await handleMysqlConnect(req.body, {
+      nonceStore: noopNonceStore,
+      now: () => Date.now(),
+      findPatches: findPatchesVia({ supabase, label: 'mysql target journal lookup' }),
+      readMysqlLog: readAuthLogVia({ supabase, label: 'mysql log read' }),
+      upsertPatch: upsertPatchVia({ supabase, label: 'mysql log upsert' }),
     });
     res.status(status).json(body);
     return;

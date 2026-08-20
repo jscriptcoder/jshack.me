@@ -38,6 +38,8 @@ import type {
   DeepScanRecordParams,
   RemoteAuthParams,
   RemoteAuthResult,
+  MysqlConnectParams,
+  MysqlConnectResult,
   NcConnectParams,
   NcConnectResult,
   NcInnerGatewayParams,
@@ -107,6 +109,7 @@ import {
   authCreateServerSessionPublic,
   authCreateServerSessionSameLan,
   authElevateServerSession,
+  connectDatabase,
   crackCredentials,
   crackCredentialsInnerGateway,
   crackCredentialsPublic,
@@ -550,6 +553,14 @@ const hydraCrack = (params: HydraCrackParams): Promise<HydraCrackResult> =>
   sessionsClientDeps === undefined
     ? Promise.resolve({ ok: false, error: 'network_error' })
     : crackCredentials(sessionsClientDeps, params);
+
+/** Open a database on a LAN host server-side (backs `env.mysql.connect`). Before the
+ *  client is wired there is no daemon to ask, and the one refusal this seam carries is
+ *  the honest answer: nothing opened. */
+const mysqlConnect = (params: MysqlConnectParams): Promise<MysqlConnectResult> =>
+  sessionsClientDeps === undefined
+    ? Promise.resolve({ ok: false })
+    : connectDatabase(sessionsClientDeps, params);
 
 /** Crack credentials behind a stranger's PUBLIC IP server-side (backs
  *  `env.hydra.crackPublic`). Degrades the same way before the client is wired. */
@@ -1427,6 +1438,7 @@ const executeLine = async (line: string): Promise<void> => {
     onNcConnectSameLan: ncConnectSameLan,
     onNcConnectInnerGateway: ncConnectInnerGateway,
     onSuElevate: suElevate,
+    onMysqlConnect: mysqlConnect,
     onHydraCrack: hydraCrack,
     onHydraCrackPublic: hydraCrackPublic,
     onHydraCrackInnerGateway: hydraCrackInnerGateway,

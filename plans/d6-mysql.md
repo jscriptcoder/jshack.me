@@ -3,8 +3,8 @@
 **Branch**: one `feat/d6-*` per slice — slice 3 is `feat/d6-mysql-prompt`
 **Status**: Active — slices 1 and 2 LANDED (v0.158.0 #434 `29bc042`; v0.159.0 #437 `a6bdead`),
 slice 1's mutation debt PAID (#435 `f1c4dd6`, #436 `8add9fa`). **Slice 3 IN PROGRESS** on
-`feat/d6-mysql-prompt` — criteria grilled to 21 (`32ef71b`), criteria 3 and 4 landed and 5 half
-landed (`71aecb0` + the working tree).
+`feat/d6-mysql-prompt` — criteria grilled to 21 (`32ef71b`), criteria 3, 4, 5 and 20 landed
+(`71aecb0`, `aad87b6` + the working tree). The door opens end to end; it is not yet registered.
 Progress and what is written-but-untested are under slice 3's own heading.
 
 > Decisions are LOCKED in [`legacy-parity-epic.md`](legacy-parity-epic.md) §"D6 — resolved scope &
@@ -798,11 +798,51 @@ first to prove the harness discriminates rather than reporting KILLED for everyt
 - The prompt wording `Enter user: ` and the no-default rule — criterion 2. (`Enter password: ` and
   `masked: true` ARE now asserted.)
 
-**OWED: criterion 5's server half.** That an unknown account and a wrong password collapse to one
-answer is decided where the datadir is read, and that code does not exist yet. Nothing in the
-command layer can fail if the server ever stops collapsing them — the seam has only one refusal to
-return. Until the handler lands this is a design that cannot be violated by the client, not a
-proven claim about the daemon.
+**Criterion 5's server half ✔ DISCHARGED, and criterion 20 with it.**
+`core/sessions/mysqlConnect.ts` + 12 tests, plus `credentialIn` in `core/mysql/datadir.ts` —
+`accountIn`'s sibling for the door whose accounts are not the box's own. RED was behavioural, not a
+missing module: a skeleton that verified the envelope and refused everything failed 9 of 11 on
+status and on writes, so the tests were failing about behaviour before a line of the gate existed.
+
+The sharpest test is the one that costs nothing to get wrong: a box's OWN unix account, with its
+REAL shell password, opens nothing here. `/etc/passwd` and the datadir are drawn on separate
+streams, and a gate that read the wrong one would pass every other test in the file.
+
+The two refusals are proven identical rather than merely documented — same status, same body, byte
+for byte, asserted by comparing the two responses to each other rather than each to a literal.
+
+**Mutants: 14 applied, 13 killed, 1 equivalent.** Control (a rename) survived first, so the
+verdicts discriminate. Killed: the gate reading `/etc/passwd`; the account name ignored so any name
+opens; the refusal naming WHICH half was wrong; the password never checked; the journal ignored so
+the seeded baseline is authenticated against; the daemon never checked for listening; the listening
+check reading ssh's port; a bricked box still answering; every attempt logged as an acceptance; the
+trace forgetting where it came from; the log replacing history instead of appending; the trace
+written on the caller instead of the target; and an opened connection reporting more than that it
+opened. The equivalent one — a refusal carrying a `database` field — changes no rendered line,
+because `mysqlLog.test.ts` already asserts a refusal names no database EVEN WHEN one is supplied.
+That claim lives at the formatter, which is the right layer for it.
+
+**Wire-check: `scripts/testMysqlConnect.ts`, 13/13 live** against `vercel dev` + supabase, and the
+neighbouring `testMysqlSweepTrace.ts` re-run 13/13 as a regression control because the endpoint's
+dispatch changed. What only the live run could prove: that the `mysqlConnect` action is DISPATCHED
+at all (a new action on an existing route is invisible to unit tests, which call the handler
+directly); that the row lands at the target's machine id and path with an owner and permissions the
+table accepts; that an account planted by editing the datadir through `patches` really logs in; and
+that **no `sessions` row appears** — criterion 18's mechanism, which is an absence in a table a spy
+never sees.
+
+The live run also corrected the test rather than the code: the log-growth check expected five lines
+for what were only four attempts. It now asserts one line per attempt AND the split — 1 accepted, 3
+refused — which is the stronger claim the number was standing in for.
+
+Worth knowing for later fixtures: on `MYSQL-LAB-3` the chosen box's database account and its unix
+account are BOTH named `root`. That is an accident, and a useful one — the two-locks test contrasts
+the same name under two passwords, so it cannot pass by the names simply differing.
+
+**Known simplification, owed by criterion 19.** The client adapter collapses every non-200 into the
+seam's one refusal, so a daemon stopped between the local reachability check and the call reads to
+the player as a wrong password. Criterion 19's liveness drop is where that arm gets added; the
+window is one prompt wide.
 
 **`env.mysql.connect` is wired to `notWired` in the UI**, the house shape for a seam with no adapter
 behind it. It cannot fire — the command is still unregistered — and if someone registers it before
@@ -821,11 +861,10 @@ inert, and criterion 1 is only PARTLY met.
 a box that does run a database, and a command listed before it works is a worse lie than a missing
 one. Registration lands with criterion 6, the increment that opens the prompt.
 
-**Next**: the SERVER half — a `core/mysql` connect handler validating the credential against the
-datadir, its `api/` route, and `scripts/testMysqlQuery.ts`. It discharges criterion 5's owed half and
-criterion 20's connect line in one go, because `logLoginAttempt` is already where that decision sits.
-It comes BEFORE criterion 6: registering the command while every login throws `notWired` would ship
-a door that cannot open.
+**Next**: criterion 6 — the two-line greeting and the `mysql>` prompt, which is where
+`registry.ts` registration lands and where the command first becomes typeable. The door opens end to
+end now, so registering it no longer ships something that cannot work. That increment is also the
+first player-visible change in this slice, so it carries the version bump.
 
 ---
 
