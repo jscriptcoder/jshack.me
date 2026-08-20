@@ -1,7 +1,7 @@
 # Plan: D6 — a player reads a machine's database (`mysql`)
 
-**Branch**: `docs/grill-d6` (this plan) → `feat/d6-*` per slice
-**Status**: Active — slice 1 ready for acceptance-criteria approval
+**Branch**: one `feat/d6-*` per slice — slice 2 is `feat/d6-mysql-crack`
+**Status**: Active — slice 1 LANDED (v0.158.0, #434, `29bc042`); slice 2 next, not started
 
 > Decisions are LOCKED in [`legacy-parity-epic.md`](legacy-parity-epic.md) §"D6 — resolved scope &
 > decisions (grill-me, 2026-08-19)". This file sequences them; it does not re-open them. Where
@@ -15,10 +15,10 @@ database a player can find, crack, read, change, and be caught changing.
 
 ## Acceptance Criteria (the row's, across all slices)
 
-- [ ] `nmap` a LAN and a database box reports `3306/tcp open mysql`; `nc <host> 3306` answers with
-      the daemon's own bad-handshake line
-- [ ] A box running `mysqld` holds a real generated database at `/var/lib/mysql/data.json`; a box
-      that is not running one holds no `/var/lib/mysql` at all
+- [x] `nmap` a LAN and a database box reports `3306/tcp open mysql`; `nc <host> 3306` answers with
+      the daemon's own bad-handshake line — slice 1
+- [x] A box running `mysqld` holds a real generated database at `/var/lib/mysql/data.json`; a box
+      that is not running one holds no `/var/lib/mysql` at all — slice 1
 - [ ] `hydra <host> mysql` returns database accounts — `readonly` almost always, the app account
       often, database root rarely — and leaves a wall of denials in `/var/log/mysql.log`
 - [ ] `mysql <host>` + a cracked credential reaches a `mysql>` prompt where `SHOW TABLES`,
@@ -37,7 +37,27 @@ it counts — `tsc` cannot see DB columns or constraints.
 
 ---
 
-### Slice 1: A box runs a database
+### Slice 1: A box runs a database ✔ LANDED (v0.158.0, #434, `29bc042`)
+
+**As built** — all nine acceptance criteria met. The catalog row, the four `PLACEMENT_BY_ROLE`
+cells (`database { mysql: 0.9, ftp: 0.4 }`, `webserver { mysql: 0.2 }`, `workstation { mysql: 0.03 }`,
+`iot { mysql: 0 }`), `core/mysql/types.ts` (Zod, closing legacy's `as MysqlDatabase` cast),
+`core/generation/generateDatabase.ts` on its own `mysql-db-${essid}-${host.ip}` stream,
+`core/generation/pools/database.ts` (eight templates, mission half not ported), `core/logging/mysqlLog.ts`,
+and the conditional datadir + empty `mysql.log` in `buildRemoteHostFs`. One config-pool lie fixed on
+the way: a `mysql.cnf` template shipped `datadir=/srv/mysql`, which no box has ever held.
+
+**Mutation results** (Stryker, 56 min): `serviceCatalog.ts` 100%, `rolePlacement.ts` 100%,
+`generateDatabase.ts` 100%, `remoteHostFs.ts` 95.24% (1 survivor), `mysql/types.ts` 83.33%
+(3 survivors + 1 no-coverage), **`pools/database.ts` 57.84% (164 survivors, and 150 of its 225
+"kills" are timeouts, which Stryker scores as kills)**.
+
+**Debt this slice left — PAID on `feat/d6-mysql-crack` before any hydra work.** The pool score was
+the D5b failure repeated at ten times the scale: an entry no test ever DRAWS can be blanked without
+anything failing. Fixed with D5b's own remedy — one population computed **once per block**, and
+sweeps that read every pool entry across it. `pools/database.ts` 57.84% → **100%, 0 survivors**;
+`generateDatabase.ts` and `remoteHostFs.ts` also 100%/0. See slice 2 for what the sweeps assert and
+for the two findings that turned out to be production changes rather than test gaps.
 
 **Value**: A player scanning or standing on a LAN can tell that a box holds a database, and find
 it where the box's own config has been saying it would since v0.155.0.
@@ -130,6 +150,33 @@ ships unopenable, which is why it precedes the prompt.
 **Path**: `hydra <host> mysql` → the sweep handler → the target's datadir `credentials` array →
 attempt lines appended to the target's `/var/log/mysql.log`.
 **Class**: Behavior change. **Skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
+
+**First commit on this branch ✔ DONE, before any hydra work.** Slice 1's mutation debt, paid while
+the pool was still the thing being read. Evidenced by the surviving-mutant count falling rather
+than by RED — for test-strengthening against unchanged production code, the mutants ARE the failing
+evidence.
+
+What the sweeps assert, over one population of 5 prefixes x 253 addresses built once: every datadir
+parses; every row carries exactly the columns its table declares; no blank value anywhere in the
+world; every content pool drawn to its declared width; database and app-account names drawn from
+their full pools; row ids ascending from each table's own first number; per-table row-count bands;
+prices ending in `.99`; SKUs unique within an inventory; the credential ladder's shape and rate.
+
+Two findings were production changes, not test gaps:
+
+- **`'DATE'` was dead** in `mysqlColumnTypeSchema` — no template emits it, against the module's own
+  rule that a type no template emits is a formatter branch no player can reach. Removed.
+- **`parseMysqlDatabase` had no negative tests at all**, so `mysqlColumnSchema` could be gutted to
+  `z.object({})` with nothing failing — on the one function whose entire job is guarding a file a
+  rooted player can edit. It now has its own eight behaviour tests.
+
+**Left deliberately unkilled**: `catch {}` in `parseMysqlDatabase` is equivalent (an empty catch
+returns `undefined` exactly as the explicit return does) — now covered rather than uncovered, which
+is the part that mattered. **Deferred to slice 3**: column-METADATA mutants (`nullable` flips,
+`key`, `defaultValue`) have no observable consequence until `DESCRIBE` renders them; asserting them
+now would be asserting implementation shape. Slice 3 must assert `DESCRIBE` over the population,
+not one table on one box, or they persist.
+
 **Acceptance criteria**: `hydra <host> mysql` sweeps the **database's own accounts**, not
 `/etc/passwd`; `readonly` falls on nearly every box, the app account often, database root rarely;
 a host with no mysqld answers `service_not_running`; every attempt appends one line to the
