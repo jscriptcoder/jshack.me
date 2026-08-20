@@ -2043,6 +2043,23 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   byte-identical resubmit; idempotency + per-request authz carry the real guarantee). Keep
   `noopNonceStore` everywhere; revisit at multiplayer-hardening (design preserved in the
   epic).
+- **Is the hand-rolled tree walk's mutation noise a house-wide cost or a local one?** Six
+  modules reach a known path by walking `entries.get()` a directory at a time, each guarding
+  every level with `x === undefined || x.kind !== 'directory'`: `sessions/passwdAccount.ts`,
+  `services/pidfile.ts`, `commands/ssh.ts`, `network/iptablesRules.ts`, `network/switchAcl.ts`
+  and `mysql/datadir.ts`. On the last of those the guards produce **13 surviving mutants of 46**
+  — every one on the four guard lines, twelve needing a system directory to be a FILE or absent
+  (states the generator never draws and no patch creates) and one provably equivalent, since a
+  directory where `data.json` should be yields `undefined` content that `parseMysqlDatabase`
+  already answers `null` for. Accepted there as §4's type-narrowing class.
+  **The assumption worth checking is that the other five behave the same.** It was reasoned, not
+  measured. If they do, that is a repo-wide floor on the mutation score of every path reader and
+  an argument for one shared `directoryAt(fs, segments)` that concentrates the guards in a single
+  place; if they do NOT, then `datadir.ts` is doing something the others are not, and the reasoning
+  that waved its survivors through is wrong. Cheap to settle — scope Stryker to those five files
+  and read the survivor lines. Do it before citing "type-narrowing, accept it" for a third module,
+  and note that a shared walker is exactly the kind of abstraction worth proposing collapsed:
+  six call sites is the evidence, not the guard count.
 
 **Game-design / content ideas** (same game; may carry to v2):
 

@@ -325,7 +325,54 @@ unreachable rather than merely untested: a door with no database has no accounts
 success always arrives with one. `mysql/datadir.ts` 71.74%, 33 killed, 13 survivors — the same four
 type-narrowing guard lines as before, unchanged.
 
-**Still open on this slice**: criteria 2, 3, 4, 7, 8 and the `scripts/testMysqlSweep.ts` wire-check.
+**Criterion 3 DONE — the curve is read off the world, not off two boxes.**
+
+Eight hundred generated networks, swept ONCE for the block, yield **492 database doors**
+— every `machine` a scan reports 3306 on, and no router (a gateway advertising mysql has
+no datadir behind it, which is why the population takes only machines). The accounts come
+from `SERVICE_CATALOG.mysql.accountsOn` and are cracked by `sweepAccounts` against
+`formatWordlist(DEFAULT_WORDLIST)` — the door's own account source and the handler's own
+sweep, against the list a player starts holding. Only the signed envelope is out of frame;
+that the handler returns exactly this sweep is asserted per-host by criterion 1, and
+signing 800 networks' worth of requests would re-prove it 492 times for nothing.
+
+What the world actually draws, measured rather than assumed:
+
+| rung | of 492 databases | knob |
+| --- | --- | --- |
+| carries a `readonly` | 240 (48.8%) | `prng.next() < 0.5` |
+| `readonly` falls | 240 of 240 (**100%**) | `guest` 1 |
+| app account falls | 333 (67.7%) | `npcUser` 0.70 |
+| `root` falls | 59 (**12.0%**) | `npcRoot` 0.12 |
+
+The ladder correction above is now a test rather than a paragraph: `root` (59) < `readonly`
+(240) < app (333). The app account is the credential a sweep hands back most often, because
+half the databases carry no `readonly` at all — the ordering the plan's original prose had
+backwards.
+
+**Green on FIRST RUN, so there was no honest RED** — the generator already drew these rates
+and criterion 1 already pointed the door at the datadir. Rather than assume the tests were
+therefore worth having, five mutants were applied by hand, one at a time:
+
+| hand-applied mutant | tests killed |
+| --- | --- |
+| `npcRoot` ↔ `npcUser` swapped | app band, root band, ordering |
+| `hasReadonly` never true | readonly, ordering |
+| `drawPassword` roll flipped to `>=` | readonly, app band, root band, ordering |
+| mysql row back to `accountsIn` (the shipped bug) | ladder shape, readonly, app band, ordering |
+| `guest` chance 1 → 0.5 | readonly |
+
+Every one of the five tests dies to at least one, and the bands were chosen to exclude every
+retuning listed rather than to bracket the number that happened to come out. Worth recording:
+the shipped-bug mutant does NOT move the root band — a box's `/etc/passwd` root falls at
+roughly the same 12% its database root does, so a rate alone could never have caught the door
+reading the wrong file. The ladder SHAPE is what catches it, because a passwd ladder has two
+accounts that are neither `root` nor `readonly` and a database ladder has exactly one.
+
+**No production code changed**, so the evidence is the hand-applied mutants rather than a
+Stryker delta — the same footing #435 and #436 stood on.
+
+**Still open on this slice**: criteria 2, 4, 7, 8 and the `scripts/testMysqlSweep.ts` wire-check.
 
 **RED**: Handler-level behavior tests — the account-source assertion (criterion 1) fails against
 today's code, which is the honest RED. Plus a population sweep for criterion 3, edge tests for 4-6,

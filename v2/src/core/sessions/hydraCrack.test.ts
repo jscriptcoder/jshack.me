@@ -10,6 +10,7 @@ import { machineIdForLanHost, resolveLanHostIdentity } from '../generation/lanHo
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { DEFAULT_WORDLIST, WORDLIST_PATH, formatWordlist } from '../wordlist/defaultWordlist';
 import { accountsIn } from './passwdAccount';
+import { sweepAccounts } from '../wordlist/passwordSweep';
 import { parseMysqlDatabase, type MysqlDatabase } from '../mysql/types';
 import { md5 } from '../generation/md5';
 import {
@@ -1436,5 +1437,169 @@ describe('the database door answers for its own accounts', () => {
     );
 
     expect(response.body.cracked).toEqual(box);
+  });
+});
+
+/**
+ * How often a database account falls is a property of the WORLD, not of a box. One
+ * host proves nothing about a one-in-eight chance, and two sampled hosts prove less
+ * than they look like they do — a curve read off a sample small enough to be lucky is
+ * a curve that can be retuned to anything without a test noticing.
+ *
+ * So this block sweeps a population and reads the rates off it. The sweep is the real
+ * one: the accounts come from the catalog row the mysql door actually consults, and
+ * they are cracked by the same `sweepAccounts` the handler runs, against the wordlist
+ * a player starts the game holding. What is left out is only the envelope — that the
+ * handler hands back exactly this sweep is asserted per-host above, and signing eight
+ * hundred networks' worth of requests to re-assert it would buy nothing.
+ */
+describe('the database difficulty curve (which database accounts a starting wordlist opens)', () => {
+  /** What one box's database door yields to a player holding nothing but the wordlist
+   *  the game ships with. The box itself is discarded — only its verdict is kept. */
+  type DatabaseDoor = {
+    readonly where: string;
+    readonly usernames: readonly string[];
+    readonly fell: readonly string[];
+  };
+
+  /** Eight hundred networks, swept ONCE for the whole block.
+   *
+   *  A LAN carries a handful of boxes and only some of them run a database, so a
+   *  population wide enough to put a 0.12 rate on a real footing has to come from
+   *  many networks rather than many addresses on one. This yields several hundred
+   *  databases — enough that the retunings that matter (the knobs swapped, a roll
+   *  flipped, every account crackable, none) land outside every band below.
+   *
+   *  Computed once for the reason the generation populations are: regenerating it per
+   *  test is quick in an ordinary run but slow enough under mutation instrumentation
+   *  to race Stryker's timeout, which scores a surviving mutant as killed and makes
+   *  the number a measure of the machine rather than of the tests. Deterministic and
+   *  read-only, so sharing it across tests couples nothing. */
+  const DATABASE_DOORS: readonly DatabaseDoor[] = Array.from(
+    { length: 800 },
+    (_unused, index) => `POPULATION-NET-${index}`,
+  ).flatMap((essid) =>
+    generateHomeLan(essid)
+      .hosts.filter(
+        (host) =>
+          host.kind === 'machine' &&
+          hostServices(essid, host).some(({ spec }) => spec === SERVICE_CATALOG.mysql),
+      )
+      .map((host) => {
+        const { baseFs } = resolveLanHostIdentity(host, essid);
+        const accounts = SERVICE_CATALOG.mysql.accountsOn(baseFs);
+        const { cracked } = sweepAccounts({
+          accounts,
+          username: undefined,
+          wordlist: formatWordlist(DEFAULT_WORDLIST),
+          hostname: host.hostname,
+          fromIp: ATTACKER_IP,
+          stamp: FIXED_NOW,
+          formatAttempt: formatMysqlAttemptLine,
+          database: SERVICE_CATALOG.mysql.databaseOn?.(baseFs),
+        });
+        return {
+          where: `${essid} ${host.ip}`,
+          usernames: accounts.map((account) => account.username),
+          fell: cracked.map((credential) => credential.username),
+        };
+      }),
+  );
+
+  /** The application account is the rung with no fixed name: `root` and `readonly`
+   *  are called what they are called on every box, and whatever else the ladder holds
+   *  is the account the box's own software connects as. */
+  const isAppAccount = (username: string): boolean =>
+    username !== 'root' && username !== 'readonly';
+
+  const doorsHolding = (username: string): readonly DatabaseDoor[] =>
+    DATABASE_DOORS.filter((door) => door.usernames.includes(username));
+
+  const doorsOpenedAt = (username: string): readonly DatabaseDoor[] =>
+    DATABASE_DOORS.filter((door) => door.fell.includes(username));
+
+  const appAccountsOpened = DATABASE_DOORS.filter((door) =>
+    door.fell.some(isAppAccount),
+  ).length;
+
+  /** A complaint kept small however wrong the world turns out to be: a failure that
+   *  renders several hundred generated databases takes longer to print than the suite
+   *  takes to run, and under mutation instrumentation that reads as a timeout rather
+   *  than a kill. A count and three examples fail just as loudly. */
+  const noneOf = (
+    offenders: readonly string[],
+  ): { readonly count: number; readonly sample: readonly string[] } => ({
+    count: offenders.length,
+    sample: offenders.slice(0, 3),
+  });
+
+  const NONE = { count: 0, sample: [] };
+
+  const share = (fraction: number): number => Math.round(DATABASE_DOORS.length * fraction);
+
+  it('puts a real ladder behind every database door a box advertises', () => {
+    // The guard the rates below stand on. A box whose scan reports 3306 but whose
+    // datadir yields no accounts is a door that cannot be knocked on, and it would
+    // also quietly shrink the denominator every rate here is measured against — so a
+    // curve could be moved by boxes going missing rather than by passwords changing.
+    //
+    // The shape is asserted at the same time because the tiers below are read off it:
+    // exactly one `root`, at most one `readonly`, and one further account that is
+    // neither. Two accounts sharing a name, or an application account called `root`,
+    // would put a credential in a tier it does not belong to and move the curve
+    // without moving a single password.
+    const misshapen = DATABASE_DOORS.filter(
+      (door) =>
+        door.usernames.filter((username) => username === 'root').length !== 1 ||
+        door.usernames.filter((username) => username === 'readonly').length > 1 ||
+        new Set(door.usernames).size !== door.usernames.length ||
+        door.usernames.filter(isAppAccount).length !== 1,
+    ).map((door) => door.where);
+
+    expect(DATABASE_DOORS.length).toBeGreaterThan(400);
+    expect(noneOf(misshapen)).toEqual(NONE);
+  });
+
+  it('opens every read-only account in the world, without exception', () => {
+    // Not a probability — the always-open door. `readonly` exists on about half the
+    // databases in the world, and every one that exists falls to the list a player
+    // starts with. It is the rung that makes a database readable at all, so a single
+    // survivor would be a box a player can find, scan, and never get into.
+    //
+    // The count guards the claim from passing by emptiness: "every one of none fell"
+    // is true of a world with no read-only accounts in it.
+    const held = doorsHolding('readonly');
+    const shut = held.filter((door) => !door.fell.includes('readonly')).map((door) => door.where);
+
+    expect(held.length).toBeGreaterThan(100);
+    expect(noneOf(shut)).toEqual(NONE);
+  });
+
+  it('lets the application account fall on most databases — a swept LAN yields a writer', () => {
+    // The rung that makes a database WRITABLE, and the one a player meets most often.
+    // The band excludes every account crackable (every door), none (0), the roll
+    // flipped (~0.30), and the root and application knobs wired to each other (~0.12).
+    expect(appAccountsOpened).toBeGreaterThan(share(0.63));
+    expect(appAccountsOpened).toBeLessThan(share(0.77));
+  });
+
+  it('keeps database root shut on most databases — rooting one is a find, not a routine', () => {
+    // What makes the statements only database root may run rare rather than routine.
+    // Same band the box's own root is held to, and it excludes the same retunings:
+    // every root crackable (every door), none (0), the roll flipped (~0.88), and the
+    // knobs swapped (~0.70).
+    expect(doorsOpenedAt('root').length).toBeGreaterThan(share(0.09));
+    expect(doorsOpenedAt('root').length).toBeLessThan(share(0.15));
+  });
+
+  it('makes database root the rarest of the three, and the application account the commonest', () => {
+    // The ladder as a player actually experiences it, which is NOT the ladder the
+    // per-account chances describe. A `readonly` that exists always falls and an
+    // application account only usually does — but half the databases in the world
+    // carry no `readonly` at all, so across the world the application account is the
+    // credential a sweep hands back most often. Stating the order the other way round
+    // is the mistake this test exists to prevent.
+    expect(doorsOpenedAt('root').length).toBeLessThan(doorsOpenedAt('readonly').length);
+    expect(doorsOpenedAt('readonly').length).toBeLessThan(appAccountsOpened);
   });
 });
