@@ -1255,6 +1255,34 @@ obvious — and it is the only thing that makes a quiet single-row `UPDATE` disc
 **13. Five slices, then two.** See the spine below. `hydra` comes BEFORE the prompt: without a sweep
 there is no way to obtain a database credential, so the door would otherwise ship unopenable.
 
+### Amended at slice-3 planning (2026-08-20) — the database has its own `/etc/passwd`
+
+**14. The datadir's `credentials` array is reachable from `mysql>` as a table, on `/etc/passwd`'s
+exact permission shape.** Listed by `SHOW TABLES` and describable at every tier; `SELECT` refused
+below `user` with `ERROR 1142`. This is not an analogy — it is the same rule one door in. `/etc` is
+traversable at every tier so a guest sees `passwd` in an `ls`, while `PASSWD_FILE` is
+`read: ['root', 'user']` so a guest cannot read it. The database answers "who are you to this
+database" the way the box answers "who are you on this machine", and the bottom rung can SEE what
+the next credential buys.
+
+**This needed reconciling with decision 11** ("nothing generated is a password, key or token that
+works anywhere"), because a database credential hash IS working material for the very door it came
+from. The reconciliation is that it transfers **no capability, only silence**: `john`'s own
+docstring records that it and `hydra` run the same wordlist through the same `md5`, so for any hash
+a player can reach the two return an identical set of plaintexts. Cracking database root's hash
+offline therefore yields root at exactly the 12% `hydra` already yields it — measured in slice 2.
+What changes is who finds out: a sweep writes a wall of denials into the target's own `mysql.log`,
+and `john` writes nothing anywhere. **That is the middle tier's reward, and the measured ladder is
+untouched.**
+
+Slice 1's `DATADIR_FILE` is NOT amended and stays root-ONLY on the filesystem, narrower than
+`PASSWD_FILE` beside it. Reading the file and querying the door remain two different achievements —
+which is the whole reason decision 2 exists.
+
+**Consequence for the spine:** slice 3 ships one tier rung after all. It belongs to the READ set
+(who may read the account table) rather than being a preview of slice 4's write ladder, so slice 4's
+scope is unchanged.
+
 ### Folded in as routine (recorded so they are not re-decided)
 
 - `nmap`, `ps` and `systemctl status` see `mysqld` for free the moment the catalog row exists — they

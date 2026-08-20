@@ -619,16 +619,126 @@ against the datadir `credentials` → parse → execute → format → result se
    vantage only; if it invents a gateway fixture for any other reason, give that fixture a database
    box so 5 has something to build on.
 
-**Acceptance criteria**: `mysql <host>` on a box with no mysqld refuses **before** prompting;
-a good credential reaches `mysql>`; `SHOW TABLES` / `DESCRIBE` / `SELECT` (with `WHERE … AND …`)
-return legacy's ASCII tables and `N rows in set`; a bad credential is refused with one
-indistinguishable error; the prompt is **parallel** — cwd, tier and hop chain are untouched and
-`quit` returns to the same shell; **every line typed at `mysql>` is SQL** and no outer command
-leaks through; semicolons optional; the connect line lands in `mysql.log` with user, source IP and
-database name; **no file other than the datadir is read from the target at any tier**; and killing
-the daemon drops the player on their next statement.
+**Acceptance criteria** — GRILLED AND SETTLED 2026-08-20, five owner decisions taken against the
+codebase rather than against the plan's own prose. The paragraph this replaces packed eleven claims
+into one sentence and hid three more. Each line below is something a test can fail.
+
+**Reaching the door**
+
+1. `mysql [-p port] <host> [user]`. **`-p` is the PORT**, as it is for `ftp` and `hydra` — the real
+   client's `-p` means password and `-P` means port, and consistency across v2's doors beats
+   fidelity to a flag letter, since slice 5 needs the port to reach a forwarded 3306. A username may
+   be named on the command line because it is not a secret; the password never may (decision 10).
+   No `-u` alias — one way in.
+2. When no user is named, prompt for one **with no default**. `ftp` offers the player's own account;
+   here that is a wrong guess every single time, because database accounts are `root`, `readonly` or
+   a drawn app name and never the box's unix users. A default nobody accepts is worse than none.
+3. A box with no mysqld refuses **before either prompt**, decided locally from the deterministic
+   generated FS, with legacy's `ERROR 2003 (HY000): Can't connect to MySQL server on
+   '<ip>:3306' (Connection refused)`. **The sharp assertion is that `env.prompt` is never called** —
+   not the message. A door that takes a credential and hands it to a service that is not there is
+   the failure ftp's docstring already names.
+4. Ctrl-C at either prompt aborts holding nothing, exit 130, as `ftp` does.
+5. A bad credential is refused with **one indistinguishable error**: an unknown user and a wrong
+   password produce the same string, `ERROR 1045 (28000): Access denied for user '<u>'@'<ip>'
+   (using password: YES)`. Its log half already shipped in slice 2.
+6. A good credential prints `Connected to <hostname>.` then `Welcome to the MySQL monitor.
+   Commands end with ;` and leaves the player at `mysql>` — ftp's shape of a client line followed by
+   the server's own greeting. **Version-free**: the catalog bans version strings and MySQL's real
+   greeting IS one, which is why this door's `nc` banner is the bad-handshake error. **No connection
+   id**: `listenerPid` is per-BOX, so printing it as a connection id is a lie two logins apart, and
+   with no session row there is nothing to count connections with.
+
+**The prompt**
+
+7. **Parallel, not a hop** — cwd, tier and hop chain untouched, and `quit` hands back a shell that
+   never went anywhere.
+8. **Every line typed is SQL.** No outer command leaks through, on `ftpShell.ts`'s stated rule: an
+   outer `cat` at an inner prompt would quietly read the wrong machine.
+9. **Semicolons optional.** `exit`/`quit`/`help` are parsed ahead of the verb table, so they need
+   none and are never "unsupported syntax".
+
+**The read set**
+
+10. `SHOW TABLES`, `DESCRIBE` and `SELECT` (with `WHERE … AND …`) render legacy's ASCII tables and
+    `N rows in set (0.00 sec)`. The formatter ports verbatim.
+11. **A `SELECT` matching nothing renders `Empty set (0.00 sec)`** — not a table with a zero count.
+    A different formatter path, which the old criterion's "and `N rows in set`" concealed.
+12. **Write verbs PARSE and are refused**, unconditionally in this slice, with `ERROR 1142 (42000):
+    UPDATE command denied to user '<u>'@'<ip>' for table '<t>'`. True for `readonly` and the app
+    account, which between them are what nearly every player holds first. A database-root credential
+    is under-told for exactly one slice — the accepted cost of never telling a player that their
+    well-formed statement is a syntax error, which is what porting only the read verbs would do.
+    Slice 4 turns the refusal from unconditional into tier-conditional with no visible regression
+    for the common case.
+
+**`credentials` — the database's own `/etc/passwd`**
+
+13. The datadir's account list is reachable as a table named **`credentials`**. The name is free: the
+    pool draws `api_keys`, `audit_log`, `config`, `employees`, `inventory`, `orders`, `sessions` and
+    `users`, so a generated table can never collide with it.
+14. It is **LISTED by `SHOW TABLES` and DESCRIBABLE at every tier**, while `SELECT` is refused below
+    `user` with `ERROR 1142 (42000): SELECT command denied to user 'readonly'@'<ip>' for table
+    'credentials'`. This mirrors the filesystem exactly rather than by analogy: `/etc` is traversable
+    at every tier so a guest sees `passwd` in `ls`, while `PASSWD_FILE` is `read: ['root', 'user']`
+    so a guest cannot read it. **The database gets the same shape one door in**, and the bottom rung
+    can SEE what the next credential buys.
+15. **The hashes render inline, as passwd's do — and this transfers no capability.** `john` and
+    `hydra` run the same wordlist through the same `md5`, so cracking database root's hash offline
+    yields root at exactly the 12% hydra already yields it. What it transfers is **silence**: hydra
+    leaves a wall of denials in the target's own `mysql.log` and `john` writes nothing anywhere.
+    That is the middle tier's reward, and it costs the ladder slice 2 measured nothing.
+16. Note what this makes slice 3: **the slice ships one tier rung after all**, and it belongs to the
+    READ set rather than being a preview of slice 4's ladder. Slice 1's `DATADIR_FILE` is unaffected
+    and stays root-ONLY on the filesystem — reading the file and querying the door remain two
+    different achievements.
+
+**What the server may say back**
+
+17. **The response carries the rendered output and nothing else**, asserted by whole-value equality
+    so an added field fails. Criterion 14 is what makes this load-bearing rather than hygiene: a body
+    carrying the parsed database hands `readonly` the exact rows criterion 14 refuses, in a field the
+    terminal never renders and anyone watching the wire can read.
+18. **No `sessions` row is minted, at any tier.** Decision 8's mechanism, and what makes
+    zero-filesystem-read structural rather than enforced — there is no row, so there is nothing to
+    leak, and `authorizeMachineAccess` needs no carve-out.
+
+**Liveness**
+
+19. A daemon stopped mid-session drops the player on their **next** statement — there is no push
+    channel, so the drop is necessarily lazy — with `ERROR 2013 (HY000): Lost connection to MySQL
+    server during query`. **The prompt then CLOSES**, returning the player to the shell they never
+    left, and prints no `Bye`: an eviction is not a quit and the difference is the whole signal. A
+    `mysql>` that answers every statement with the same error is the `->` continuation problem
+    decision 10 already declined to pay for.
+
+**Logging**
+
+20. The connect line lands in `/var/log/mysql.log` with user, source IP and database name — slice
+    2's `formatMysqlConnectLine`, reused rather than rewritten, on slice 2's finding that a sweep
+    that opens an account and a client that opens one are the same event to the daemon writing the
+    file.
+21. **A whole session of reads leaves the log exactly ONE line longer** (decision 12: `SELECT` never
+    writes). The assertion is the DELTA across a session of many statements, not the presence of the
+    connect line — a log that grew by one is the claim; a log CONTAINING a connect line is satisfied
+    by the login alone.
+
 **RED**: Command + prompt-mode tests (jsdom + `@solidjs/testing-library`), handler tests, and
-`scripts/testMysqlQuery.ts` proving the round trip and the zero-filesystem-read claim live.
+`scripts/testMysqlQuery.ts` for the live round trip.
+
+**How criteria 17-18 are actually proven** — three parts, because no one of them is sufficient:
+whole-value equality on the response body; an assertion that the `sessions` table gains no row; and
+on the wire, a grep of the RAW response body for any `passwordHash` substring after a `readonly`
+connect. The last one is shape-independent — it catches a leak down any path, including one added
+later by someone who never read this list.
+
+**How the DESCRIBE debt is discharged** — assert SHAPE over the population, never the pool. Slice 2's
+lesson is that an oracle read from the same array the generator reads moves with it and can never
+fail. So: every table renders exactly one `PRI`; a declared default renders non-blank while an
+absent one renders `NULL`; and both `YES` and `NO` occur in the `Null` column somewhere in the
+world. That kills the `nullable`, `key` and `defaultValue` mutants without freezing content into a
+golden.
+
 **Done when**: criteria met, wire-check green, commit approved.
 
 ---
