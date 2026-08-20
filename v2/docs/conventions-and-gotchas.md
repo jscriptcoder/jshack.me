@@ -593,6 +593,25 @@ as-built), then the cross-player architecture doc if the work touches cross-play
 
 ## 4. Mutation testing conventions
 
+**A negative fixture must be negative for the REASON UNDER TEST, not negative in general.** Twice in
+two slices a surviving mutant traced to the fixture rather than the assertion, so it is a rule now:
+
+- **D6 slice 2** — pointing every catalog row's account source at the database killed 16 tests for
+  `ssh`, 1 for `http`, and NONE for `ftp`. Its fixture box ran all three doors and both ladders
+  began with an account called `root`, so the trace line was identical whichever file was consulted.
+- **D6 slice 3** — pointing the `mysql` command's reachability check at ssh's port instead of 3306
+  killed nothing. The "no database" fixture was the first machine running NO SERVICE AT ALL, and a
+  box running nothing is refused on 3306 and on 22 alike, so no test could tell which port was read.
+
+Both are the same shape: the negative case was over-negative, and agreed with the mutant by accident.
+The fix is to pick a fixture where the two answers DIFFER — a box running ssh and no database, an
+account file whose ladders do not share a name. Before trusting a refusal test, ask **what else is
+also false about this fixture**, and whether the mutant would notice.
+
+This is the sibling of the same-pool blind spot recorded below: there, an oracle read from the array
+the generator reads moves with it; here, a fixture that fails every check agrees with every mutant.
+In both cases the test is shaped so that nothing it could catch is left to catch.
+
 Provably-equivalent mutant classes — accept (don't chase) when they recur:
 
 - **Type-narrowing defensive checks** — e.g. `raw === true` against a `string | true |

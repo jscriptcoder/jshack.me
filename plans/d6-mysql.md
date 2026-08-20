@@ -2,8 +2,9 @@
 
 **Branch**: one `feat/d6-*` per slice — slice 3 is `feat/d6-mysql-prompt`
 **Status**: Active — slices 1 and 2 LANDED (v0.158.0 #434 `29bc042`; v0.159.0 #437 `a6bdead`),
-slice 1's mutation debt PAID (#435 `f1c4dd6`, #436 `8add9fa`). Slice 3 NOT STARTED, and opens
-owing the debt named under its own heading.
+slice 1's mutation debt PAID (#435 `f1c4dd6`, #436 `8add9fa`). **Slice 3 IN PROGRESS** on
+`feat/d6-mysql-prompt` — criteria grilled to 21 (`32ef71b`), criterion 3 landed (`71aecb0`).
+Progress and what is written-but-untested are under slice 3's own heading.
 
 > Decisions are LOCKED in [`legacy-parity-epic.md`](legacy-parity-epic.md) §"D6 — resolved scope &
 > decisions (grill-me, 2026-08-19)". This file sequences them; it does not re-open them. Where
@@ -740,6 +741,46 @@ world. That kills the `nullable`, `key` and `defaultValue` mutants without freez
 golden.
 
 **Done when**: criteria met, wire-check green, commit approved.
+
+#### Progress
+
+**Criterion 3 ✔ LANDED** (`71aecb0`) — `src/core/commands/mysql.ts` + `mysql.test.ts`, 5 tests,
+gates green at 3109. RED was real: the first version had no reachability guard and went straight to
+asking, so against a box with no database it prompted TWICE, for a user and a masked password. The
+test names the silence rather than the wording, which is what the criterion asked for.
+
+**The mutant worth carrying forward.** Pointing the door at ssh's port instead of mysql's SURVIVED
+the first version of these tests — the ftp finding from slice 2 in a new place. The fixture picked
+the first machine running no database, and that box ran NOTHING AT ALL, so a check on 3306 and a
+check on 22 refuse it alike and no test could tell which port was read. The door could have been
+reading the wrong service with the suite fully green. The fixture now demands an ssh-serving host
+with no database, the only place the two answers differ, and the mutant dies there. Four more were
+applied and killed: guard removed, guard always refusing, the two refusal reasons swapped, and
+network-unreachable rewritten as connection-refused.
+
+Twice in two slices makes it a rule, now in the conventions doc: **a negative fixture must be
+negative for the reason under test, not negative in general.**
+
+**Written but NOT yet tested** — speculative until an increment demands it, and listed so it is not
+mistaken for covered:
+
+- The Ctrl-C path (`ABORTED`, exit 130) — criterion 4, untested.
+- The prompt wording `Enter user: ` / `Enter password: ` and the no-default rule — criterion 2,
+  untested.
+- `askCredential` skipping the first prompt when a user is named — criterion 1, untested.
+
+**Known gap, deliberate**: `-p` is declared in `flags` and named in USAGE but never read — `port` is
+always `SERVICE_CATALOG.mysql.defaultPort`. `ftp` has the same shape, honouring `-p` only on its
+public path, so this is slice 5's to make real rather than a defect here. Until then the flag is
+inert, and criterion 1 is only PARTLY met.
+
+**NOT registered in `registry.ts`.** It would be typeable while still answering `not implemented` on
+a box that does run a database, and a command listed before it works is a worse lie than a missing
+one. Registration lands with criterion 6, the increment that opens the prompt.
+
+**Next**: criteria 4-5 together — Ctrl-C holding nothing, and the one indistinguishable `ERROR 1045`
+for a bad credential. They come as a pair because both need the server-side auth call, whose shape
+everything after depends on.
 
 ---
 
