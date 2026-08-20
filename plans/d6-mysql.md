@@ -493,7 +493,93 @@ the fixtures — a deep host running mysqld behind a forward, and a public IP fo
 slices have a target and not a hope.
 
 **No production code changed.**
-**Still open on this slice**: the `scripts/testMysqlSweep.ts` wire-check, and the version bump at PR time. All nine acceptance criteria are met.
+**Wire-check GREEN — `scripts/testMysqlSweepTrace.ts`, 13/13 against live `vercel dev` + supabase.**
+
+**What `api/` actually exposes, checked rather than assumed.** There is no `api/hydra*.ts`.
+`api/` is three endpoint files, and hydra is three ACTIONS multiplexed inside `api/sessions.ts`
+(`hydraCrack` at :474, `hydraCrackPublic` at :495, `hydraCrackInnerGateway`). This branch's
+production diff under `api/` is **empty**, so the plan's blanket "slices 2–5 and 7 touch `api/`"
+does not hold for this slice.
+
+The two deps a database sweep newly exercises are generic despite their names.
+`readAuthLogVia` is fully path-parameterised — `.eq('path', path)` — and `upsertPatchVia` takes
+the row's own path. Routing a sweep to `/var/log/mysql.log` therefore needed no adapter change.
+`readAuthLog` is a misleading name for a generic machine-log read, not a hardcoded path.
+
+**So the wire-check is load-bearing, but narrowly, and not for the reason the plan gave.** The
+datadir is seeded in `buildRemoteHostFs` — base FS, generated server-side, no row involved — so
+there is no round-trip there to prove. What only the wire can settle is that a `patches` row at
+`/var/log/mysql.log` LANDS and reads back: unit tests assert path, owner and permissions against
+an injected spy, and `patches` is keyed on `(machine_id, path, writer_key)`. A sweep that wrote
+both logs under one key, or lost the second row to the upsert's conflict target, or tripped a
+constraint the table enforces, passes every unit test in the suite. `testFtpSweepTrace.ts` exists
+for exactly this reason and says so in its own header.
+
+Written as a port of that script, with the four claims ftp has no analogue for: the accounts come
+from the datadir and not `/etc/passwd`, the accepted line names the database, the refusals name
+none, and the ssh control still returns the box's OWN accounts.
+
+**The fixture took finding.** `BEAN-THERE-WIFI` — the suite's own ESSID — is unusable: its
+`laptop-74` runs all three doors, but its database gives up NOTHING to the starting wordlist, so
+there would be no accepted line and the database-naming claim would have nothing to assert.
+`MYSQL-LAB-3` was chosen because `records-186` runs mysql AND ssh, and all three of its rungs
+fall:
+
+    target records-186 192.168.254.186 — database "app_master",
+      expecting ["data_admin:cisco","readonly:guest","root:linksys"]
+      and none of ["guest:letmein","reporting:netgear"]
+
+The two ladders share no pair, which is what makes "no unix account appears" a sharp claim rather
+than a lucky one. The script guards both properties and exits 2 rather than passing quietly on a
+box with nothing to find.
+
+The expectation is computed from the DATADIR FILE, never through `spec.accountsOn` — an
+expectation read through the catalog column would move with the very column the check exists to
+test.
+
+**Run it with the stack up:**
+
+    npx dotenv -e .env.development.local -- npx tsx scripts/testMysqlSweepTrace.ts
+
+**Result: 13/13.** The endpoint returned exactly the datadir's three rungs —
+`root:linksys`, `data_admin:cisco`, `readonly:guest` — and none of the box's own
+`guest:letmein` or `reporting:netgear`, which the same wordlist opens. The trace landed as 33
+lines at `/var/log/mysql.log`, root-owned and root-write, with the accepted line naming
+`app_master` and no refusal naming it. `auth.log` had no row at all until the ssh control ran,
+which then wrote 57 lines there and left the database log untouched.
+
+**The two existing hydra wire-checks were run too, because criterion 8 rests on them.**
+`testHydraOwnLan` passed 23/23 unchanged. `testFtpSweepTrace` did NOT run at all — it exited 2
+on `ESSID VSFTPD-LAB has no host running BOTH ftp and ssh`.
+
+That is a PRE-EXISTING breakage on `main`, not a regression here, and the proof is structural
+rather than a hunch: this branch touched no file under `src/core/generation/`, and its
+`serviceCatalog` diff adds only `accountsOn` and `databaseOn` — no `service`, `defaultPort`,
+`altPorts`, `altPortChance` or placement value moved, and those are the only fields
+`hostServices` reads. The rolls it returns for that ESSID are byte-identical to main's. Some
+earlier merged change moved that network's hosts and the check has been dead since, still
+recorded as 8/8 in the conventions doc.
+
+Repaired here because criterion 8 is unverifiable while it cannot run: the ESSID moves to
+`VSFTPD-LAB-3`, whose `www-197` runs both doors. One line, and the script is back to its
+documented **8/8**.
+
+The other four ftp scripts pin the same ESSID, so all four were run to see whether the fix needed
+to be wider. It did not — they need a box running ftp ALONE, which `VSFTPD-LAB` still has:
+`testFtpRemoteRead` 7/7, `testFtpPut` 12/12, `testFtpTransferTrace` 13/13. `testFtpSession` came
+back **12/14** against its documented 14/14, failing the two BACKWARD-COMPAT checks (a login
+naming no `kind` reads back `no row`; ending one without a reason reads back
+`end_reason=undefined`). Also not this branch — it touches neither `authCreateSession` nor the
+session path in `api/sessions.ts` — and deliberately NOT fixed here, because whether the old
+login shape is still meant to work is a launch-compatibility decision rather than a test repair.
+Recorded in the deferred backlog with the current baseline, so the doc stops claiming 14/14.
+
+The general lesson, now in the conventions doc: **a wire-check that selects its own fixture can go
+dead silently.** An exit 2 is not a failure, nothing runs these in CI, and the registry kept
+reporting a pass count for a script that had not executed in months.
+**Slice 2 is COMPLETE**: all nine acceptance criteria met, wire-check green, the two neighbouring
+hydra wire-checks green. Left before merge: the version bump (0.158.0 -> 0.159.0, both
+`package.json` and `package-lock.json`) and the PR.
 
 **RED**: Handler-level behavior tests — the account-source assertion (criterion 1) fails against
 today's code, which is the honest RED. Plus a population sweep for criterion 3, edge tests for 4-6,

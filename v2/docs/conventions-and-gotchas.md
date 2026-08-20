@@ -422,9 +422,14 @@ decisions. The ship gate is legacy parity **minus missions**; missions are a pos
     [`e2e-shared-network-verification.md`](./e2e-shared-network-verification.md).
   - **Wire-checks:** `testFtpSession` (14/14), `testFtpRemoteRead` (7/7), `testFtpPut` (12/12),
     `testFtpTransferTrace` (13/13), `testFtpSweepTrace` (8/8), `testFtpCrossPlayer` (16/16).
-    Several of them pin the ESSID to **`VSFTPD-LAB`** deliberately: most generated LANs hold no
+    Several of them pin the ESSID to a fixture network deliberately: most generated LANs hold no
     host running BOTH doors, and without one "ftp wrote elsewhere" only means "a different
     machine". Pick the fixture ESSID for the box you need before assuming a generator bug.
+    **`testFtpSweepTrace` needs both doors and now pins `VSFTPD-LAB-3` (`www-197`)**; it had been
+    exiting 2 on `VSFTPD-LAB`, which no longer holds such a box, so the check was dead while still
+    recorded here as passing. The four ftp-only scripts still pin `VSFTPD-LAB` and are unaffected.
+    A wire-check that selects its own fixture can go dead silently — an exit 2 is not a failure,
+    and nothing runs these in CI.
   - **Still open, and named rather than smuggled:** `ssh` does not gate on a listening sshd
     (§9) and the web door files its sweeps in `auth.log` (§9).
 
@@ -1612,6 +1617,17 @@ state costs you more than one wrong attempt.
 
 Forward-looking direction not yet built (preserved as pointers; design when actually built).
 
+- **`testFtpSession` is 12/14 against a live stack, and has been for a while.** Two checks fail:
+  `a login that names no kind is still an ssh hop` (reads back `kind=no row`) and `and ending one
+  without a reason still reads as the player leaving` (`end_reason=undefined`). Both are the
+  BACKWARD-COMPAT pair — a session created the way the pre-`kind` client created one — so what
+  they guard is that an old-shaped login still lands a row at all. `no row` says it does not.
+  Found while running the neighbouring wire-checks for D6 slice 2, on a freshly `supabase
+  start`ed stack with migrations applied. Not caused by that slice, which touches neither
+  `authCreateSession` nor `api/sessions.ts`'s session path. Deliberately left unfixed rather than
+  patched on a guess: it needs someone to decide whether the old shape is still supposed to work,
+  and the answer is a product call about launch compatibility, not a test fix. Until it is
+  answered the doc's `testFtpSession (14/14)` is wrong; treat 12/14 as the current baseline.
 **Story-5b / multiplayer deferred** (detail in `plans/multiplayer-crossplayer-epic.md`
 §"Remaining work"):
 
