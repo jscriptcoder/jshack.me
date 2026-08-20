@@ -23,7 +23,18 @@ import { derivePid } from '../logging/syslog';
 import { asGameTime } from '../types';
 import { orderPatchesForReplay } from '../patches/orderPatchesForReplay';
 import type { PathPatchRow } from '../patches/upsertPatch';
-import type { NamedPasswdAccount } from '../sessions/passwdAccount';
+
+/** What a wordlist sweep needs to know about one account: the name to report, and
+ *  the hash a candidate password is checked against.
+ *
+ *  Deliberately NARROWER than either door's own account type. A `/etc/passwd` row
+ *  carries a tier the sweep never reads, and a database credential is not a passwd
+ *  row at all — naming only these two fields lets both doors satisfy the sweep
+ *  without either having to pretend to be the other. */
+export type SweepableAccount = {
+  readonly username: string;
+  readonly hash: string;
+};
 
 export type CrackedCredential = {
   readonly username: string;
@@ -58,9 +69,9 @@ const wordsIn = (content: string): readonly string[] =>
  *  A named account that does not exist yields nothing to try — the same silence a
  *  real sweep gives, revealing no account list. */
 const accountsUnderAttack = (
-  accounts: readonly NamedPasswdAccount[],
+  accounts: readonly SweepableAccount[],
   username: string | undefined,
-): readonly NamedPasswdAccount[] =>
+): readonly SweepableAccount[] =>
   username === undefined ? accounts : accounts.filter((account) => account.username === username);
 
 /** How a sweep went against one account: where in the wordlist its password was
@@ -69,12 +80,12 @@ const accountsUnderAttack = (
  *  weak the real password is) and how many passwords were TRIED before it did,
  *  which is what the defender's log records. */
 type AccountSweep = {
-  readonly account: NamedPasswdAccount;
+  readonly account: SweepableAccount;
   readonly matchedAt: number;
 };
 
 export const sweepAccounts = (options: {
-  readonly accounts: readonly NamedPasswdAccount[];
+  readonly accounts: readonly SweepableAccount[];
   readonly username: string | undefined;
   readonly wordlist: string;
   readonly hostname: string;

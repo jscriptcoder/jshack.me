@@ -751,6 +751,15 @@ how loaded the machine was. A deterministic read-only sample shared across a des
 nothing, and it is the reason the account and credential blocks in `remoteHostFs.test.ts` build
 their sample in a block-level constant.
 
+**A Stryker TIMEOUT is scored as a KILL, so `timeoutMS` is a correctness setting, not a patience
+setting.** `stryker.config.json` ran at `30000` until 2026-08-20, which was under the budget the
+generation suites need even when they are structured correctly. Raising it to **120000** converted
+78 timeouts on `pools/database.ts` into 78 verdicts, and every single one of them was a SURVIVOR:
+the killed count stayed at exactly 311 across both runs, so the masking was total rather than
+partial. **Any mutation figure in this repo measured before that change is inflated by an unknown
+number of survivors** and must be re-measured before it is cited as evidence. Read the `timeout`
+column of a clear-text report first: a non-zero one means the score is not yet a fact.
+
 **A population test over SYSTEMATIC seeds converges far slower than the sample size suggests.**
 Measuring a probability knob across `NET-0`, `NET-1`, … looks like an n=400 sample and is not:
 those strings differ by a few characters, so their FNV-1a hashes are correlated. A 0.40 knob read
@@ -812,6 +821,15 @@ the machine is online while `wlan0` is not).
 `reports/stryker-incremental.json`** for the untouched mutants in that file — a range-scoped
 run reported survivors that a full run had killed. After a scoped run, confirm any survivor by
 hand-mutating the line and running the test file.
+
+**`reports/mutation/mutation.json` is NOT written by this repo's configured reporters.**
+`stryker.config.json` sets `["html", "clear-text", "progress"]`, so that file silently persists
+from whichever older run last had a json reporter enabled — it can be a different SCOPE
+entirely. Parsing it after a scoped run yields a confident, fully-formatted classification of
+somebody else's mutants; it named 44 survivors in `pools/database.ts` while the run that had
+just finished was 13 survivors in `mysql/datadir.ts`. Read the FRESH `mutation.html` instead
+(the payload is at `app.report = `, with `"+"` string splices to strip before `raw_decode`), or
+work from the clear-text output. Check the file's mtime before trusting it.
 
 **Do NOT run Stryker and the v2 dev server at the same time.** A concurrent `vercel:dev`
 (vite/3100) makes Stryker report **false survivors** (verify by hand-mutating) and silently

@@ -42,7 +42,6 @@ import {
 } from '../logging/crossPlayerSourceIp';
 import { readOpenPorts } from '../services/pidfile';
 import { serviceByName } from '../services/serviceCatalog';
-import { accountsIn } from './passwdAccount';
 import { sweepAccounts, wordlistOn } from '../wordlist/passwordSweep';
 import { WORDLIST_PATH } from '../wordlist/defaultWordlist';
 import {
@@ -166,7 +165,7 @@ export const handleHydraCrackPublic = async (
   }
 
   const { cracked, trace } = sweepAccounts({
-    accounts: accountsIn(target.fs),
+    accounts: spec.accountsOn(target.fs),
     username: payload.username,
     wordlist: content,
     hostname: target.hostname,

@@ -32,7 +32,6 @@ import { authorizeMachineAccess, type FindActiveSession } from '../patches/autho
 import { resolveInnerGatewayTarget } from '../network/resolveInnerGatewayTarget';
 import { readOpenPorts } from '../services/pidfile';
 import { serviceByName } from '../services/serviceCatalog';
-import { accountsIn } from './passwdAccount';
 import { sweepAccounts, wordlistOn } from '../wordlist/passwordSweep';
 import { WORDLIST_PATH } from '../wordlist/defaultWordlist';
 import type { OwnerPatchRow } from '../network/materializeMachineFs';
@@ -145,7 +144,7 @@ export const handleHydraCrackInnerGateway = async (
   // which this seam is never told and must not invent, so that sweep goes unrecorded —
   // the same silence `ssh` keeps there, and the own-LAN sweep is what traces that target.
   const { cracked, trace } = sweepAccounts({
-    accounts: accountsIn(target.fs),
+    accounts: spec.accountsOn(target.fs),
     username: payload.username,
     wordlist: content,
     hostname: target.hostname,

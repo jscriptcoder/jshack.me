@@ -54,7 +54,6 @@ import {
 import { readOpenPorts } from '../services/pidfile';
 import { WORDLIST_PATH } from '../wordlist/defaultWordlist';
 import { serviceByName, type SweepLog } from '../services/serviceCatalog';
-import { accountsIn } from './passwdAccount';
 import { sweepAccounts, wordlistOn } from '../wordlist/passwordSweep';
 import {
   appendMachineLog,
@@ -235,7 +234,7 @@ export const handleHydraCrack = async (
   }
 
   const { cracked, trace } = sweepAccounts({
-    accounts: accountsIn(hostFs),
+    accounts: spec.accountsOn(hostFs),
     username: payload.username,
     wordlist: content,
     hostname: host.hostname,

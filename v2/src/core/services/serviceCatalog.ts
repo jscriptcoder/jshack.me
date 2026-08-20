@@ -14,7 +14,10 @@
  */
 
 import type { AbsPath } from '../types';
-import type { FilePermissions } from '../filesystem/types';
+import type { Directory, FilePermissions } from '../filesystem/types';
+import { accountsIn } from '../sessions/passwdAccount';
+import { databaseAccountsIn } from '../mysql/datadir';
+import type { SweepableAccount } from '../wordlist/passwordSweep';
 import {
   AUTH_LOG_OWNER,
   AUTH_LOG_PATH,
@@ -90,6 +93,15 @@ export type ServiceSpec = {
   readonly altPortChance: number;
   /** Where a wordlist attack on this service lands in the target's logs. */
   readonly sweepLog: SweepLog;
+  /** Which of a box's accounts this door authenticates, and so which ones a sweep of
+   *  it attacks.
+   *
+   *  Nearly every door answers to the box's own `/etc/passwd`; the database door is
+   *  the exception. Keeping the answer on the ROW is what stops each sweep handler
+   *  from guessing: read from a fixed file instead, a sweep of one door reports the
+   *  accounts of another — the right names against the wrong secrets, which reads to
+   *  a player as a working credential right up until they use it. */
+  readonly accountsOn: (fs: Directory) => readonly SweepableAccount[];
 };
 
 const SYSLOG_AUTH_SWEEP: SweepLog = {
@@ -110,6 +122,7 @@ export const SERVICE_CATALOG = {
     altPorts: [2222, 8022],
     altPortChance: 0.2,
     sweepLog: SYSLOG_AUTH_SWEEP,
+    accountsOn: accountsIn,
   },
   // One row for the web, not one per server program: `nginx` and `apache2` are two
   // ways to open the SAME port, so they share this identity and cannot both bind it.
@@ -131,6 +144,7 @@ export const SERVICE_CATALOG = {
     // deciding it here. A real HTTP brute-force belongs in access.log as a run of
     // 401s — that is the web door's call to make, not the ftp door's.
     sweepLog: SYSLOG_AUTH_SWEEP,
+    accountsOn: accountsIn,
   },
   // As common as the web and below ssh: a box you can log into is ordinary, and a
   // box that will hand you its files without one should be about as findable as a
@@ -154,6 +168,7 @@ export const SERVICE_CATALOG = {
       formatAttempt: formatVsftpdLoginLine,
       formatArrival: formatVsftpdConnectLine,
     },
+    accountsOn: accountsIn,
   },
   // The only door whose credential is not the box's own: mysql accounts live in the
   // datadir, not in /etc/passwd, so cracking a box and cracking its database are two
@@ -185,6 +200,10 @@ export const SERVICE_CATALOG = {
       permissions: MYSQL_LOG_PERMISSIONS,
       formatAttempt: formatMysqlAttemptLine,
     },
+    // The one row that does not read `/etc/passwd`: a database's accounts live in its
+    // datadir, drawn on their own stream, so cracking this box's shell and cracking its
+    // database are two locks with two keys.
+    accountsOn: databaseAccountsIn,
   },
 } as const satisfies Record<string, ServiceSpec>;
 

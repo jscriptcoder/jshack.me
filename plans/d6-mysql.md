@@ -1,7 +1,9 @@
 # Plan: D6 — a player reads a machine's database (`mysql`)
 
 **Branch**: one `feat/d6-*` per slice — slice 2 is `feat/d6-mysql-crack`
-**Status**: Active — slice 1 LANDED (v0.158.0, #434, `29bc042`); slice 2 next, not started
+**Status**: Active — slice 1 LANDED (v0.158.0, #434, `29bc042`) and its mutation debt PAID
+(#435 `f1c4dd6`, #436 `8add9fa`); slice 2 STARTED on `feat/d6-mysql-crack`, hydra work not
+yet begun
 
 > Decisions are LOCKED in [`legacy-parity-epic.md`](legacy-parity-epic.md) §"D6 — resolved scope &
 > decisions (grill-me, 2026-08-19)". This file sequences them; it does not re-open them. Where
@@ -158,10 +160,11 @@ ships unopenable, which is why it precedes the prompt.
 attempt lines appended to the target's `/var/log/mysql.log`.
 **Class**: Behavior change. **Skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
 
-**First commit on this branch ✔ DONE, before any hydra work.** Slice 1's mutation debt, paid while
-the pool was still the thing being read. Evidenced by the surviving-mutant count falling rather
-than by RED — for test-strengthening against unchanged production code, the mutants ARE the failing
-evidence.
+**Slice 1's mutation debt ✔ PAID AHEAD OF THIS SLICE**, as #435 (`f1c4dd6`) and #436 (`8add9fa`),
+while the pool was still the thing being READ rather than the thing hydra reads THROUGH. Evidenced
+by the surviving-mutant count falling rather than by RED — for test-strengthening against unchanged
+production code, the mutants ARE the failing evidence. The hydra work below therefore starts from a
+clean branch and owes a real RED.
 
 What the sweeps assert, over one population of 5 prefixes x 253 addresses built once: every datadir
 parses; every row carries exactly the columns its table declares; no blank value anywhere in the
@@ -195,15 +198,108 @@ until `DESCRIBE` renders them; asserting them now would be asserting implementat
 must assert `DESCRIBE` over the population, not one table on one box**, or all 42 persist behind a
 number that looks finished.
 
-**Acceptance criteria**: `hydra <host> mysql` sweeps the **database's own accounts**, not
-`/etc/passwd`; `readonly` falls on nearly every box, the app account often, database root rarely;
-a host with no mysqld answers `service_not_running`; every attempt appends one line to the
-target's `mysql.log` and nothing is written when nothing was attempted; the wordlist is still read
-from the caller's machine journal, never the request.
-**RED**: Handler-level behavior tests plus a `scripts/testMysqlSweep.ts` **wire-check** — an `api/`
-change is unproven until it runs live.
-**MUTATE**: Stryker over the handler. **Done when**: criteria met, wire-check green, commit
-approved.
+**GROUNDING FOUND WHILE WRITING THESE CRITERIA — this slice fixes a SHIPPED BUG, it does not add
+a missing feature.** Slice 1 added the `mysql` catalog row, which made `serviceByName('mysql')`
+resolve and `readOpenPorts` report the port. `hydra <host> mysql` is therefore reachable TODAY, and
+all three vantage handlers reach `sweepAccounts({ accounts: accountsIn(fs) })` unconditionally
+— `hydraCrack.ts:238`, `hydraCrackInnerGateway.ts:148`, `hydraCrackPublic.ts:169`. A sweep of the
+database door currently attacks the box's **`/etc/passwd`**, reports its unix accounts as database
+logins, and writes them into `/var/log/mysql.log` in mysql's own format. The RED for this slice is
+a real failing assertion against live behavior, not a new-feature stub.
+
+The seam is already the right shape: `sweepAccounts` takes `NamedPasswdAccount[]` (`username`,
+`hash`, `userType`) and a `formatAttempt`, and `MysqlCredential` is `username`, `passwordHash`,
+`userType` over the SAME `UserType = 'guest' | 'user' | 'root'`. The adapter is lossless and the
+sweep, the wordlist gate and the trace need no change. What is missing is only **which accounts a
+service exposes**, and that answer belongs beside `sweepLog` in the catalog row — the one place
+already trusted to say how a door is logged.
+
+**LADDER CORRECTION.** The prose above ("`readonly` falls on nearly every box") is not what the
+generator draws, and a test written to it would fail. `generateDatabase` gives every database a
+`root` (`CRACK_CHANCE.npcRoot` 0.12) and an app account (`npcUser` 0.7), and a `readonly` only
+`prng.next() < 0.5` of the time (`guest` 1). `DEFAULT_WORDLIST` is a superset of
+`CRACKABLE_PASSWORDS`, so with the shipped list the per-box crack rates are **app 0.70 > readonly
+0.50 > root 0.12** — the app account falls more often than `readonly` does, because half of
+databases have no `readonly` at all. The ladder holds per-ACCOUNT (a `readonly` that exists always
+falls), not per-box. Criterion 3 states it the way the world actually draws it.
+
+**Acceptance criteria** (present to human before any code):
+
+1. On a box running mysqld, `hydra <host> mysql` attacks **exactly the datadir's `credentials`** —
+   `root`, the app account, and `readonly` when present. **No unix account of the box appears in
+   the result**, even when that account's password is in the wordlist. `hydra <host>` and
+   `hydra <host> ssh` still sweep `/etc/passwd`, unchanged.
+2. A credential this returns is a DATABASE credential: `md5(password)` equals the matching entry's
+   `passwordHash` in `/var/lib/mysql/data.json`. Cracking the box's ssh yields nothing toward its
+   database and the reverse — the two are drawn on independent streams.
+3. Over a population computed **once per block** (the D5b shape, never two sampled hosts): about
+   half of databases carry a `readonly`; **every `readonly` that exists falls** to the default
+   wordlist; app accounts fall near 0.70 and `root` near 0.12 of databases. `root` is the rarest of
+   the three.
+4. A host with no mysqld answers **`service_not_running`** and writes nothing — including a host
+   whose `/etc/passwd` accounts would have cracked, which is what proves the refusal is about the
+   database door rather than the box.
+5. A host running mysqld whose datadir is **missing or unparseable** exposes **no accounts**: 200,
+   `cracked: []`, and **nothing appended to `mysql.log`**. Same silence as a named account that does
+   not exist — a rooted player who edits the file learns nothing about how their tampering failed.
+6. Every password TRIED appends exactly one line to the target's `/var/log/mysql.log`, in mysql's
+   own format — `Access denied for user '<u>'@'<ip>' (using password: YES)` per failure, the
+   `Connect` line for the one that opened — appended, never replacing what was there. **Nothing is
+   written when nothing was attempted**: refused, dead, serviceless, empty wordlist, unknown named
+   account, or criterion 5's empty datadir.
+7. The wordlist is still read from the **caller's machine journal**, machine-scoped, never from the
+   request — unchanged, and must not regress.
+8. **Every existing hydra behavior holds**: the ssh, ftp and http doors sweep exactly as before, and
+   the existing own-LAN, inner-gateway and public tests and wire-checks stay green.
+9. **The lie is not left standing behind a gateway or a public IP.** The account source is chosen in
+   ONE shared place read by all three vantage handlers, so `hydra -p <fwd> <inner> mysql` and
+   `hydra <public-ip> mysql` stop reporting unix accounts the moment own-LAN does. Slices 5 and 7
+   then PROVE those vantages rather than implement them. — **DECIDED: yes, fix all three.**
+
+**PROGRESS — criteria 1 and 5 DONE, uncommitted.**
+
+RED was real: `hydra <host> mysql` against `laptop-74@192.168.29.74` on `BEAN-THERE-WIFI` returned
+the box's `/etc/passwd` (`root/dovetail_7`, `tnguyen/welcome1`, `guest/changeme`) where the datadir
+holds `root/undertow_11` and `api_svc/quartzite8`. That host runs ssh, ftp AND mysql and carries a
+`root` in BOTH files under DIFFERENT passwords — one fixture covers the claim, the counter-claim
+and the ssh control, with no invention.
+
+GREEN is an `accountsOn` column on the catalog row, beside `sweepLog` and for the same reason: a
+door's own behaviour belongs on its row, not guessed by three handlers. `ssh`/`http`/`ftp` point at
+`accountsIn`; `mysql` points at `databaseAccountsIn` in the new `core/mysql/datadir.ts`. All three
+vantage handlers now read `spec.accountsOn(fs)`, so criterion 9 landed with criterion 1 rather than
+waiting for slices 5 and 7.
+
+`sweepAccounts` stopped borrowing `NamedPasswdAccount` and now declares `SweepableAccount`
+(`username` + `hash`) — the two fields it actually reads. A passwd row carries a tier the sweep
+never looks at, and a database credential is not a passwd row at all; naming only the two lets both
+doors satisfy the sweep without either pretending to be the other.
+
+**Mutation**: `hydraCrack.ts` **100%** (116 killed), `mysql/datadir.ts` **70.45%** (31 killed),
+**0 timeouts, 0 no-coverage** in both. All 13 survivors sit on the four fixed-path guard lines of
+the directory walk: twelve need a box where `/var`, `/var/lib` or `/var/lib/mysql` is a FILE or
+absent, and the thirteenth (`datadir.kind !== 'file'` → `false`) is provably equivalent — a
+directory there yields `undefined` content, which `parseMysqlDatabase` already answers `null` for.
+Type-narrowing defensive checks, the class §4 of `conventions-and-gotchas.md` says to accept.
+
+Criteria 5's two tests passed on FIRST run, so they were never RED. Rather than assume they were
+therefore worth having, the fallback mutant they exist to kill was applied by hand —
+`if (database === null) return accountsIn(fs)`, the plausible wrong implementation that would
+reintroduce the bug in subtler form. Exactly those two failed and nothing else.
+
+**Still open on this slice**: criteria 2, 3, 4, 6, 7, 8 and the `scripts/testMysqlSweep.ts`
+wire-check.
+
+**RED**: Handler-level behavior tests — the account-source assertion (criterion 1) fails against
+today's code, which is the honest RED. Plus a population sweep for criterion 3, edge tests for 4-6,
+and `scripts/testMysqlSweep.ts` as the live oracle: an `api/` change is unproven until it runs
+against `vercel dev` + supabase.
+**GREEN**: An `accountsFor`-shaped answer on the catalog row (mysql reads the datadir through
+`parseMysqlDatabase` and maps `passwordHash` → `hash`; every other row keeps `accountsIn`), read by
+all three handlers at their existing `sweepAccounts` call.
+**MUTATE**: Stryker over the handler and the new account source — with `timeoutMS` now 120000, and
+the `timeout` column read before the score is believed.
+**Done when**: criteria 1-9 met, wire-check green, commit approved.
 
 ---
 

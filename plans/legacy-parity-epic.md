@@ -269,7 +269,7 @@ PHASE 1 — THE DOORS  (near-term focus)
       D5b slice 5 the account you crack fits the box   ✔ SHIPPED v0.157.0
   D6  mysql                                           ← IN PROGRESS (planned, plans/d6-mysql.md)
       D6 slice 1 a box runs a database                ✔ SHIPPED v0.158.0 (#434)
-      D6 slice 2 a player cracks a database account   ← NEXT
+      D6 slice 2 a player cracks a database account   ← IN PROGRESS (feat/d6-mysql-crack)
       D6 slice 3 a player reads a database
       D6 slice 4 a player changes a database
       D6 slice 5 a database on a deep layer answers
@@ -1832,8 +1832,12 @@ to it — `mail-139` answers with `dkim`, `thermostat-207` with `mqtt`, a laptop
 decisions and a seven-slice spine in
 ["D6 — resolved scope & decisions"](#d6--resolved-scope--decisions-grill-me-2026-08-19). PLANNED in
 [`d6-mysql.md`](d6-mysql.md), and **slice 1 shipped v0.158.0 (#434)** — a box that runs `mysqld` now
-holds a real database, and one that does not holds no `/var/lib/mysql` at all. Slice 2 (a player
-cracks a database account) is the next branch and the first D6 slice to touch `api/`, so it needs a
+holds a real database, and one that does not holds no `/var/lib/mysql` at all. Its mutation debt was
+then paid in full across **#435 and #436**, which took `pools/database.ts` from a score inflated by
+masked timeouts to **88.69% with 0 timeouts** and 44 survivors that are each accounted for — 42
+column-metadata mutants slice 3 must kill by asserting `DESCRIBE` **over the population**, and 2
+equivalent float comparisons. Slice 2 (a player cracks a database account) is now underway on
+`feat/d6-mysql-crack` and is the first D6 slice to touch `api/`, so it needs a
 `scripts/testMysqlSweep.ts` wire-check run live before it counts.
 
 The three things that grill settled which the row above could not have predicted:
