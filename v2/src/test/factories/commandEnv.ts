@@ -23,6 +23,7 @@ import type {
   ScanApi,
   Session,
   FtpApi,
+  MysqlApi,
   ScpApi,
   SshApi,
   NcApi,
@@ -167,6 +168,14 @@ export const mockFtpApi = (overrides: Partial<FtpApi> = {}): FtpApi => ({
   ...overrides,
 });
 
+/** The database door seam. Loud when unstubbed for the same reason ssh's and ftp's
+ *  are: a connect that silently refused would read as a rejected credential, which is
+ *  a different fact about the world than a test that forgot to wire the door. */
+export const mockMysqlApi = (overrides: Partial<MysqlApi> = {}): MysqlApi => ({
+  connect: NOT_IMPLEMENTED('mysql.connect'),
+  ...overrides,
+});
+
 /** The transfer door seam. `authenticate` and `write` throw unless a test stubs
  *  them, for the same reason ftp's do: a transfer that silently reported success
  *  while nothing left the machine is the one failure this command must never fake.
@@ -244,6 +253,7 @@ export const mockCommandEnv = (overrides: Partial<CommandEnv> = {}): CommandEnv 
   ssh: mockSshApi(),
   nc: mockNcApi(),
   ftp: mockFtpApi(),
+  mysql: mockMysqlApi(),
   scp: mockScpApi(),
   su: mockSuApi(),
   hydra: mockHydraApi(),

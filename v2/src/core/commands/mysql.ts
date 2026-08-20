@@ -7,6 +7,7 @@
  */
 
 import { generateHomeLan } from '../generation/generateHomeLan';
+import { connectedWlan0 } from '../network/interfaces';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { readOpenPorts } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
@@ -27,6 +28,18 @@ const errorResult = (content: string, exitCode = 1): CommandResult => ({
 
 /** Ctrl-C at either prompt: nothing was sent, nothing is held. */
 const ABORTED: CommandResult = { kind: 'sync', lines: [], exitCode: 130 };
+
+/** The one refusal a credential can earn, naming the account TYPED and the address
+ *  the daemon saw it arrive from — the client half of the line the target's
+ *  `/var/log/mysql.log` records for the same attempt.
+ *
+ *  An unknown account and a wrong password produce this same sentence, which is why
+ *  the seam brings back no reason to render: an error that told them apart would let
+ *  a player enumerate the database's accounts by typing names at it. */
+const accessDenied = (username: string, fromIp: string): CommandResult =>
+  errorResult(
+    `ERROR 1045 (28000): Access denied for user '${username}'@'${fromIp}' (using password: YES)`,
+  );
 
 type Credential = { readonly username: string; readonly password: string };
 
@@ -50,10 +63,19 @@ const askCredential = async (
  *  player was shown is a door that opens — BEFORE anything is typed. */
 const lanConnect = async (
   env: CommandEnv,
-  target: string,
-  port: number,
-  essid: string,
-  named: string | undefined,
+  {
+    target,
+    port,
+    essid,
+    sourceIp,
+    named,
+  }: {
+    readonly target: string;
+    readonly port: number;
+    readonly essid: string;
+    readonly sourceIp: string;
+    readonly named: string | undefined;
+  },
 ): Promise<CommandResult> => {
   const host = generateHomeLan(essid).hosts.find((candidate) => candidate.ip === target);
   if (host === undefined) return unreachable(target, port, 'No route to host');
@@ -67,6 +89,15 @@ const lanConnect = async (
   const credential = await askCredential(env, named);
   if (credential === null) return ABORTED;
 
+  const opened = await env.mysql.connect({
+    essid,
+    targetIp: target,
+    username: credential.username,
+    password: credential.password,
+    sourceIp,
+  });
+  if (!opened.ok) return accessDenied(credential.username, sourceIp);
+
   return errorResult('not implemented');
 };
 
@@ -75,13 +106,19 @@ const execute: Command['execute'] = async (env, args) => {
   if (target === undefined) return errorResult(USAGE);
 
   const port = SERVICE_CATALOG.mysql.defaultPort;
-  const essid = env.network.interfaces().find((iface) => iface.kind === 'wireless')?.association
-    ?.essid;
-  if (essid === undefined || !env.network.isOnline()) {
-    return unreachable(target, port, 'Network is unreachable');
-  }
+  // One question, four ways to answer no — and the address comes back with it, so
+  // the refusal below can name what the daemon would have seen without a fallback
+  // for an address that cannot be missing by the time we are here.
+  const wlan0 = connectedWlan0(env.network);
+  if (wlan0 === null) return unreachable(target, port, 'Network is unreachable');
 
-  return lanConnect(env, target, port, essid, args[1]);
+  return lanConnect(env, {
+    target,
+    port,
+    essid: wlan0.association.essid,
+    sourceIp: wlan0.ipv4,
+    named: args[1],
+  });
 };
 
 export const mysql: Command = {

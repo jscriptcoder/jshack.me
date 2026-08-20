@@ -634,6 +634,39 @@ export type SuApi = {
   readonly elevate: (params: SuElevateParams) => Promise<RemoteAuthResult>;
 };
 
+/** What `mysql` hands the connect action. No `sessionId` and no `parentSessionId`,
+ *  alone among the doors: a database connection mints NO session row, so there is
+ *  nothing to name it and nothing to hang it from. The credential travels with every
+ *  statement instead, which is what makes "this door reads no filesystem" structural
+ *  rather than enforced. */
+export type MysqlConnectParams = {
+  readonly essid: string;
+  readonly targetIp: string;
+  readonly username: string;
+  readonly password: string;
+  /** The address the target's `/var/log/mysql.log` records the connection from.
+   *  Never null, unlike the other doors' — the caller has already resolved a
+   *  connected `wlan0` to get here, and an association without an address is not on
+   *  the network at all. */
+  readonly sourceIp: string;
+};
+
+/** The outcome of a database login: opened, or refused.
+ *
+ *  The refusal carries NO reason, and that is the point rather than an omission. An
+ *  unknown account and a wrong password have to be one answer — an error that told
+ *  them apart would let a player enumerate which accounts the database has by typing
+ *  names at it. Saying nothing is how the client is kept unable to leak the
+ *  difference even by accident. */
+export type MysqlConnectResult = { readonly ok: true } | { readonly ok: false };
+
+/** The database door, client side. One call and no session pair, unlike `ftp`'s:
+ *  there is no row to enter and none to leave, so nothing here holds state between
+ *  statements. */
+export type MysqlApi = {
+  readonly connect: (params: MysqlConnectParams) => Promise<MysqlConnectResult>;
+};
+
 /** What `hydra` hands the crack action. `callerMachineId` names the box whose
  *  wordlist is consulted — the server verifies it belongs to the caller rather
  *  than trusting it, so it is a lookup key, not a privilege claim. `username`
@@ -807,6 +840,7 @@ export type CommandEnv = {
   readonly ssh: SshApi;
   readonly nc: NcApi;
   readonly ftp: FtpApi;
+  readonly mysql: MysqlApi;
   readonly scp: ScpApi;
   readonly su: SuApi;
   readonly scan: ScanApi;

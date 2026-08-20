@@ -3,6 +3,7 @@ import { mysql } from './mysql';
 import {
   mockCommandEnv,
   mockIdentity,
+  mockMysqlApi,
   mockNetworkViewFromConnectivity,
   mockSession,
 } from '../../test/factories/commandEnv';
@@ -13,7 +14,7 @@ import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { assignHomeNetwork } from '../network/homeNetwork';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
 import { asEpochMs, asMachineId, asPlayerKeyHex } from '../types';
-import type { CommandResult } from './types';
+import type { CommandResult, MysqlApi } from './types';
 
 /**
  * `mysql <host>` — the fourth door, and the first whose credential is not the box's
@@ -30,6 +31,9 @@ import type { CommandResult } from './types';
 const PUBKEY = 'a'.repeat(64);
 const ESSID = 'BEAN-THERE-WIFI';
 const NOW = 1700000000000;
+/** The player's OWN address on this LAN — what the target's daemon sees the
+ *  connection arrive from, and so what its refusal names. Never the target's. */
+const LOCAL_IP = assignHomeNetwork(PUBKEY, ESSID).localIp;
 
 const onlineConnectivity = (essid: string): ConnectivityState => {
   const cold = buildColdStartConnectivity(PUBKEY);
@@ -74,6 +78,7 @@ const pickHosts = (): { readonly databaseHost: LanHost; readonly noDatabaseHost:
 
 type EnvOver = {
   readonly prompt?: (opts: { message: string; masked: boolean }) => Promise<string>;
+  readonly mysql?: Partial<MysqlApi>;
 };
 
 const mysqlEnv = (over: EnvOver = {}) =>
@@ -87,6 +92,7 @@ const mysqlEnv = (over: EnvOver = {}) =>
       userType: 'root',
     }),
     now: () => asEpochMs(NOW),
+    mysql: mockMysqlApi(over.mysql),
     // Distinct answers per prompt: a user and a password that read the same would
     // let the two be swapped without a test noticing.
     prompt: over.prompt ?? (async ({ masked }) => (masked ? 'hunter2' : 'readonly')),
@@ -122,7 +128,9 @@ describe('mysql', () => {
   it('asks for a credential when the box really is running one', async () => {
     const { databaseHost } = pickHosts();
     const prompt = vi.fn(async () => 'hunter2');
-    const env = mysqlEnv({ prompt });
+    // Refused at the daemon, which is beside the point here: this box HAS a door, and
+    // the claim is only that the door was knocked on.
+    const env = mysqlEnv({ prompt, mysql: { connect: async () => ({ ok: false }) } });
 
     await mysql.execute(env, [databaseHost.ip], new Map());
 
@@ -157,6 +165,94 @@ describe('mysql', () => {
     // refusal cannot be coming from the door being shut.
     expect(prompt).not.toHaveBeenCalled();
     expect(linesOf(result)).toContain('(Network is unreachable)');
+  });
+
+  it('refuses a bad credential without saying which half of it was wrong', async () => {
+    const { databaseHost } = pickHosts();
+    const connect = vi.fn(async () => ({ ok: false as const }));
+
+    const result = await mysql.execute(mysqlEnv({ mysql: { connect } }), [databaseHost.ip], new Map());
+
+    // Two substitutions away from a sentence about a different machine: the account
+    // NAMED is the one typed rather than the session's, and the address is the
+    // player's own rather than the target they aimed at.
+    expect(linesOf(result)).toBe(
+      `ERROR 1045 (28000): Access denied for user 'readonly'@'${LOCAL_IP}' (using password: YES)`,
+    );
+    expect(sync(result).exitCode).toBe(1);
+  });
+
+  it('hands the daemon exactly what was typed', async () => {
+    const { databaseHost } = pickHosts();
+    const connect = vi.fn(async () => ({ ok: false as const }));
+
+    await mysql.execute(mysqlEnv({ mysql: { connect } }), [databaseHost.ip], new Map());
+
+    // Whole-value: a field dropped, swapped or quietly added is the same defect as a
+    // wrong one, and the password is the field with the most to lose.
+    expect(connect).toHaveBeenCalledWith({
+      essid: ESSID,
+      targetIp: databaseHost.ip,
+      username: 'readonly',
+      password: 'hunter2',
+      sourceIp: LOCAL_IP,
+    });
+  });
+
+  it('takes the account from the command line without asking for one', async () => {
+    const { databaseHost } = pickHosts();
+    const connect = vi.fn(async () => ({ ok: false as const }));
+    const prompt = vi.fn(async () => 'hunter2');
+
+    await mysql.execute(mysqlEnv({ mysql: { connect }, prompt }), [databaseHost.ip, 'root'], new Map());
+
+    // A named account is not a secret, so it skips its prompt — but the password
+    // never may, which is why exactly ONE prompt is still owed.
+    expect(prompt).toHaveBeenCalledTimes(1);
+    expect(prompt).toHaveBeenCalledWith({ message: 'Enter password: ', masked: true });
+    expect(connect).toHaveBeenCalledWith(expect.objectContaining({ username: 'root' }));
+  });
+
+  it('aborts holding nothing when the account prompt is interrupted', async () => {
+    const { databaseHost } = pickHosts();
+    const connect = vi.fn(async () => ({ ok: false as const }));
+    const interrupted = async () => {
+      throw new Error('aborted');
+    };
+
+    const result = await mysql.execute(
+      mysqlEnv({ mysql: { connect }, prompt: interrupted }),
+      [databaseHost.ip],
+      new Map(),
+    );
+
+    // Ctrl-C means the player decided not to, and a command that still sent what it
+    // had would hand the credential over at precisely that moment.
+    expect(connect).not.toHaveBeenCalled();
+    expect(sync(result).lines).toEqual([]);
+    expect(sync(result).exitCode).toBe(130);
+  });
+
+  it('aborts holding nothing when the password prompt is interrupted', async () => {
+    const { databaseHost } = pickHosts();
+    const connect = vi.fn(async () => ({ ok: false as const }));
+    const prompt = vi.fn(async ({ masked }: { message: string; masked: boolean }) => {
+      if (masked) throw new Error('aborted');
+      return 'readonly';
+    });
+
+    const result = await mysql.execute(
+      mysqlEnv({ mysql: { connect }, prompt }),
+      [databaseHost.ip],
+      new Map(),
+    );
+
+    // The SECOND prompt: by then an account name HAS been typed, so a command that
+    // guarded only the first has something to send and would send it.
+    expect(prompt).toHaveBeenCalledTimes(2);
+    expect(connect).not.toHaveBeenCalled();
+    expect(sync(result).lines).toEqual([]);
+    expect(sync(result).exitCode).toBe(130);
   });
 
   it('names its own usage when no host is given', async () => {

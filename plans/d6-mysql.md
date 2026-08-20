@@ -3,7 +3,8 @@
 **Branch**: one `feat/d6-*` per slice — slice 3 is `feat/d6-mysql-prompt`
 **Status**: Active — slices 1 and 2 LANDED (v0.158.0 #434 `29bc042`; v0.159.0 #437 `a6bdead`),
 slice 1's mutation debt PAID (#435 `f1c4dd6`, #436 `8add9fa`). **Slice 3 IN PROGRESS** on
-`feat/d6-mysql-prompt` — criteria grilled to 21 (`32ef71b`), criterion 3 landed (`71aecb0`).
+`feat/d6-mysql-prompt` — criteria grilled to 21 (`32ef71b`), criteria 3 and 4 landed and 5 half
+landed (`71aecb0` + the working tree).
 Progress and what is written-but-untested are under slice 3's own heading.
 
 > Decisions are LOCKED in [`legacy-parity-epic.md`](legacy-parity-epic.md) §"D6 — resolved scope &
@@ -761,13 +762,55 @@ network-unreachable rewritten as connection-refused.
 Twice in two slices makes it a rule, now in the conventions doc: **a negative fixture must be
 negative for the reason under test, not negative in general.**
 
-**Written but NOT yet tested** — speculative until an increment demands it, and listed so it is not
-mistaken for covered:
+**Criterion 4 ✔ LANDED, criterion 5 HALF landed.** Five tests, 10 in the file, suite at 3114.
 
-- The Ctrl-C path (`ABORTED`, exit 130) — criterion 4, untested.
-- The prompt wording `Enter user: ` / `Enter password: ` and the no-default rule — criterion 2,
-  untested.
-- `askCredential` skipping the first prompt when a user is named — criterion 1, untested.
+The increment's real work was deciding the **shape of the server-side auth call**, which is why
+these two came as a pair. `MysqlApi.connect` mints no session and takes no `sessionId` — decision
+8 — and its refusal deliberately **carries no reason**: `{ ok: true } | { ok: false }`. An unknown
+account and a wrong password have to read alike, and a seam that brought back WHICH one failed
+would let a client leak the difference by accident. Structural beats enforced, so the reason is not
+there to render.
+
+Criterion 5's client half is proven: the refusal names the account TYPED (not the session's) and the
+player's OWN address (not the target's), both a single substitution away and both now killed.
+`execute` switched to `connectedWlan0`, the pattern curl/gobuster/hydra/lynx/nc already share —
+which collapses four ways of being offline into one answer AND hands back the address, so the
+refusal needs no fallback for an address that cannot be missing by then.
+
+**Criterion 4 was characterisation, not RED** — the abort guard was already written without a test,
+so the tests passed on arrival and the evidence is the mutants below. Recorded plainly because a
+"RED" that was green the moment it was written is not evidence of anything.
+
+**Mutants: 9 applied by hand, 9 killed**, with a behaviour-preserving control (a local rename) run
+first to prove the harness discriminates rather than reporting KILLED for everything:
+
+| | |
+|---|---|
+| M1 | Ctrl-C yields an empty credential instead of nothing |
+| M2 / M3 | abort exits 0 / abort prints a line |
+| M4 / M5 | refusal names the session's user / the target's address |
+| M6 | a named account is prompted for anyway |
+| M7 / M8 | wrong source address sent / account name sent as its own password |
+| M9 | refusal branch inverted |
+
+**Still written but NOT tested** — narrowed, not cleared:
+
+- The prompt wording `Enter user: ` and the no-default rule — criterion 2. (`Enter password: ` and
+  `masked: true` ARE now asserted.)
+
+**OWED: criterion 5's server half.** That an unknown account and a wrong password collapse to one
+answer is decided where the datadir is read, and that code does not exist yet. Nothing in the
+command layer can fail if the server ever stops collapsing them — the seam has only one refusal to
+return. Until the handler lands this is a design that cannot be violated by the client, not a
+proven claim about the daemon.
+
+**`env.mysql.connect` is wired to `notWired` in the UI**, the house shape for a seam with no adapter
+behind it. It cannot fire — the command is still unregistered — and if someone registers it before
+the endpoint exists it throws loudly instead of reporting a wrong password for a credential no
+daemon ever saw.
+
+**No version bump**, as with criterion 3: nothing a player can reach changed. The bump lands with
+registration.
 
 **Known gap, deliberate**: `-p` is declared in `flags` and named in USAGE but never read — `port` is
 always `SERVICE_CATALOG.mysql.defaultPort`. `ftp` has the same shape, honouring `-p` only on its
@@ -778,9 +821,11 @@ inert, and criterion 1 is only PARTLY met.
 a box that does run a database, and a command listed before it works is a worse lie than a missing
 one. Registration lands with criterion 6, the increment that opens the prompt.
 
-**Next**: criteria 4-5 together — Ctrl-C holding nothing, and the one indistinguishable `ERROR 1045`
-for a bad credential. They come as a pair because both need the server-side auth call, whose shape
-everything after depends on.
+**Next**: the SERVER half — a `core/mysql` connect handler validating the credential against the
+datadir, its `api/` route, and `scripts/testMysqlQuery.ts`. It discharges criterion 5's owed half and
+criterion 20's connect line in one go, because `logLoginAttempt` is already where that decision sits.
+It comes BEFORE criterion 6: registering the command while every login throws `notWired` would ship
+a door that cannot open.
 
 ---
 

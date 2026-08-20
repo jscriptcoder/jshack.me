@@ -26,6 +26,7 @@ import type {
   Session,
   FsView,
   FtpApi,
+  MysqlApi,
   ScpApi,
   SshApi,
   NcApi,
@@ -149,6 +150,10 @@ export type BuildCommandEnvArgs = {
    *  round-trip, adding the session and the vantage the command has no business
    *  naming. */
   readonly onFtpTransfer?: FtpApi['recordTransfer'];
+  /** The database login seam — backs `env.mysql.connect`. Not the session round-trip
+   *  the doors above share: a database connection mints no row, so this validates a
+   *  credential against the target's datadir and returns whether it opened. */
+  readonly onMysqlConnect?: MysqlApi['connect'];
   /** The transfer door's three seams — backs `env.scp`. The login is the same
    *  `authCreateSession` round-trip, asked for an `scp`-kind row; the write is the
    *  shipped patch client aimed at whatever machine the session landed on; the end
@@ -330,6 +335,12 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
     // have already moved by the time this is called, and a logging failure must
     // not un-move them.
     recordTransfer: args.onFtpTransfer ?? (() => undefined),
+  },
+  mysql: {
+    // Loud when unwired, like every other door's login: a connect that answered
+    // "refused" on its own would report a wrong password for a credential no daemon
+    // ever saw.
+    connect: args.onMysqlConnect ?? notWired('mysql.connect'),
   },
   scp: {
     authenticate: args.onScpAuthenticate ?? notWired('scp.authenticate'),
