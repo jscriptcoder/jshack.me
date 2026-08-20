@@ -372,7 +372,41 @@ accounts that are neither `root` nor `readonly` and a database ladder has exactl
 **No production code changed**, so the evidence is the hand-applied mutants rather than a
 Stryker delta — the same footing #435 and #436 stood on.
 
-**Still open on this slice**: criteria 2, 4, 7, 8 and the `scripts/testMysqlSweep.ts` wire-check.
+**Criterion 4 DONE — the refusal is about the door, and now says so.**
+
+A test for this already existed, and it was passing for a reason weaker than the claim it
+made. It swept a box with no mysqld using the wordlist `['no-such-word']` — so nothing on
+that box would have cracked whatever door was asked for, and the 404 could as easily have
+been about the wordlist or the machine as about the database. Criterion 4 is precisely the
+strengthening that closes that: the box has to be one that WOULD have fallen.
+
+It now sweeps `www-154` — a box running ssh and http and no database — with a wordlist
+holding every one of its unix passwords. The database door answers `service_not_running`
+and writes nothing, while the SAME box under the SAME wordlist gives its shell up through
+`hydra <host> ssh`, returning `root`, `webadmin` and `guest`. That pairing is the whole
+claim: a handler reaching for `/etc/passwd` when it found no datadir would answer 200 here
+and hand back three accounts, which is the loudest possible version of the bug this door
+exists to avoid.
+
+The two doors get their own `makeDeps`, because they share a journal otherwise and the ssh
+sweep's own `auth.log` write lands on the counter the mysql half asserts is untouched. The
+first draft of this test failed exactly that way — a useful reminder that "wrote nothing"
+is a claim about one handler call, not about the test.
+
+New helper `databaselessHostOn`, which picks a host for the property the claim needs
+(runs ssh, runs no mysqld) rather than reusing `sshlessHostOn`, which selected for the
+absence of a different service and only happened not to run a database.
+
+**Green on first run** — the handler already refuses on the pidfiles before it sweeps
+anything. Both halves proven load-bearing by hand-applied mutants:
+
+| hand-applied mutant | effect |
+| --- | --- |
+| `readOpenPorts(...).find(port => port.service !== spec.service)` | mysql resolves to the box's ssh port, 200 instead of 404 — kills the refusal half |
+| ssh row's `accountsOn` pointed at `databaseAccountsIn` | the control box gives up nothing — kills the control half |
+
+**No production code changed.**
+**Still open on this slice**: criteria 2, 7, 8 and the `scripts/testMysqlSweep.ts` wire-check.
 
 **RED**: Handler-level behavior tests — the account-source assertion (criterion 1) fails against
 today's code, which is the honest RED. Plus a population sweep for criterion 3, edge tests for 4-6,

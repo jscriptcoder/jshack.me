@@ -113,6 +113,19 @@ const sshlessHostOn = (essid: string): LanHost => {
   return host;
 };
 
+/** A LAN host running ssh but NO database — the box that separates a refusal about
+ *  the DOOR from a refusal about the machine. Its shell opens to the same wordlist
+ *  that its database door must turn away. */
+const databaselessHostOn = (essid: string): LanHost => {
+  const host = generateHomeLan(essid).hosts.find((candidate) => {
+    if (candidate.kind !== 'machine') return false;
+    const services = hostServices(essid, candidate).map(({ spec }) => spec);
+    return services.includes(SERVICE_CATALOG.ssh) && !services.includes(SERVICE_CATALOG.mysql);
+  });
+  if (host === undefined) throw new Error('every ssh host on LAN runs a database');
+  return host;
+};
+
 /** A LAN host other than `host` — the box a player STANDS on while attacking
  *  something else on the same network. */
 const lanHostOtherThan = (host: LanHost): LanHost => {
@@ -1292,20 +1305,38 @@ describe('the trace a hydra sweep leaves on its target', () => {
       );
     });
 
-    it('writes nothing to mysql.log when the box runs no database', async () => {
-      // The refusal comes before anything is attacked, so a box with no mysqld cannot
-      // be probed through its own log for whether it ever had one.
+    it('refuses a box that runs no database, and writes nothing, however weak the box is', async () => {
+      // The refusal has to be about the DOOR, not about the machine or the wordlist.
+      // So this box is one whose every unix account is in the list being swept: its
+      // shell falls in the very same breath its database door is turned away, which
+      // is the control that gives the refusal its meaning. A handler that reached for
+      // `/etc/passwd` when it found no datadir would answer 200 here and hand back
+      // three accounts — the loudest possible version of the bug this door exists to
+      // avoid.
+      //
+      // And nothing is written either way: the refusal comes before anything is
+      // attacked, so a box with no mysqld cannot be probed through its own log for
+      // whether it ever had one.
       const identity = generateIdentity();
-      const host = sshlessHostOn(ESSID);
-      const { deps, upsertPatch } = makeDeps({ wordlist: ['no-such-word'] });
+      const host = databaselessHostOn(ESSID);
+      const box = accountsWithPasswords(host, KNOWN_POOL);
+      const wordlist = box.map((account) => account.password);
+      const database = makeDeps({ wordlist });
+      const shell = makeDeps({ wordlist });
 
-      const response = await handleHydraCrack(
+      const refused = await handleHydraCrack(
         signedCrack(identity, { target_ip: host.ip, service: 'mysql' }),
-        deps,
+        database.deps,
+      );
+      const opened = await handleHydraCrack(
+        signedCrack(identity, { target_ip: host.ip, service: 'ssh' }),
+        shell.deps,
       );
 
-      expect(response).toEqual({ status: 404, body: { error: 'service_not_running' } });
-      expect(upsertPatch).not.toHaveBeenCalled();
+      expect(box.length).toBeGreaterThan(0);
+      expect(refused).toEqual({ status: 404, body: { error: 'service_not_running' } });
+      expect(database.upsertPatch).not.toHaveBeenCalled();
+      expect(opened.body.cracked).toEqual(box);
     });
 
     it('refuses a service the world has no row for, and writes nothing', async () => {
