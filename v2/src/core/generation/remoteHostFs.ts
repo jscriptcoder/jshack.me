@@ -58,6 +58,7 @@ import {
   TMP_DIR,
   TRAVERSABLE_DIR,
   WEB_PAGE_FILE,
+  DATADIR_FILE,
 } from './baseFs';
 import { md5 } from './md5';
 import { CRACK_CHANCE, drawPassword } from './passwordPools';
@@ -66,10 +67,12 @@ import { roleConfigFile } from './pools/configFiles';
 import { roleOfHostname } from './pools/hostnames';
 import { pickUsername } from './pools/usernames';
 import { placementOf } from './rolePlacement';
+import { generateDatabase } from './generateDatabase';
 import { ACCESS_LOG_PERMISSIONS } from '../logging/accessLog';
 import { VSFTPD_LOG_PERMISSIONS } from '../logging/vsftpdLog';
 import { AUTH_LOG_PERMISSIONS } from '../logging/authLog';
 import { KERN_LOG_PERMISSIONS } from '../logging/kernLog';
+import { MYSQL_LOG_PERMISSIONS } from '../logging/mysqlLog';
 import type { Directory, FileEntry } from '../filesystem/types';
 import type { LanHost } from './generateHomeLan';
 
@@ -216,6 +219,38 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
 
   const serves = services.some(({ spec }) => spec === SERVICE_CATALOG.http);
   const servesFtp = services.some(({ spec }) => spec === SERVICE_CATALOG.ftp);
+  const servesDatabase = services.some(({ spec }) => spec === SERVICE_CATALOG.mysql);
+
+  // A datadir exists only where a daemon is serving it, exactly as a web root does. An
+  // empty /var/lib/mysql on every box would promise a database that is not there, and
+  // listing `/var/lib` is recon a player acts on. The database is built from its OWN
+  // stream: continuing the tree's draws would re-roll every account and password in
+  // the world.
+  const datadir = servesDatabase
+    ? {
+        lib: dir(
+          {
+            mysql: dir(
+              {
+                'data.json': file(
+                  JSON.stringify(
+                    generateDatabase({
+                      seed: `mysql-db-${essid}-${host.ip}`,
+                      hostname: host.hostname,
+                      account: username,
+                      role,
+                    }),
+                  ),
+                  DATADIR_FILE,
+                ),
+              },
+              TRAVERSABLE_DIR,
+            ),
+          },
+          TRAVERSABLE_DIR,
+        ),
+      }
+    : {};
 
   // A web root exists only where something serves it. Stamping an empty `/var/www`
   // on every box would publish a directory nobody is listening on — and the
@@ -280,10 +315,16 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
               // a box no client can reach never has a line written, so an empty file
               // there is furniture claiming the box once ran a daemon it never did.
               ...(servesFtp ? { 'vsftpd.log': file('', VSFTPD_LOG_PERMISSIONS) } : {}),
+              // Follows its daemon, the third of three. Unlike the /etc config beside
+              // it, which states what the box is SET UP to be and stays true on a box
+              // whose daemon is down, a log claims something happened.
+              ...(servesDatabase ? { 'mysql.log': file('', MYSQL_LOG_PERMISSIONS) } : {}),
             },
             TRAVERSABLE_DIR,
           ),
           run: dir(pidfiles, TRAVERSABLE_DIR),
+          // /var/lib, where the box's own config says the database is.
+          ...datadir,
           ...webRoot,
         },
         TRAVERSABLE_DIR,

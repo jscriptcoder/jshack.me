@@ -29,23 +29,28 @@ type CatalogService = (typeof SERVICE_CATALOG)[keyof typeof SERVICE_CATALOG];
 type ServiceName = CatalogService['service'];
 
 const PLACEMENT_BY_ROLE: Readonly<Record<MachineRole, Partial<Record<ServiceName, number>>>> = {
-  // Somebody's own machine, and the world's default sort of box. It is what the
-  // flat rates were tuned against, so it overrides nothing.
-  workstation: {},
+  // Somebody's own machine, and the world's default sort of box: it is what the flat
+  // rates were tuned against, so it overrides almost nothing. The exception is the
+  // database, where the flat rate would put one on a twelfth of all laptops. A
+  // developer running a local one is real, so this is a rare find rather than none.
+  workstation: { mysql: 0.03 },
   // A camera, a doorbell, a speaker. It runs an appliance, not an operating system
   // you were meant to log into — so a shell on one is a genuine find rather than
   // the ordinary way in.
-  iot: { ssh: 0.1 },
+  iot: { ssh: 0.1, mysql: 0 },
   // Publishing is the whole point of the box. One that serves nothing would make
-  // the name a lie, which is the failure this table exists to prevent.
-  webserver: { http: 0.95 },
+  // the name a lie, which is the failure this table exists to prevent. The database
+  // is the classic pairing and the one follow-on the web door has — read the page,
+  // then find the tables behind it — on some of them, not all: a static site needs
+  // nothing behind it.
+  webserver: { http: 0.95, mysql: 0.2 },
   // Files have to leave the box somehow, and ftp is the only door in today's
   // catalog that carries them. Nearly always up: it is what the box is for.
   fileserver: { ftp: 0.9 },
-  // A database box has no door of its own until mysql ships, so ftp is where its
-  // signature has to live: often enough that a dump is a real prospect, seldom
-  // enough that it is not simply a fileserver by another name.
-  database: { ftp: 0.6 },
+  // What the box is FOR, at last. The ftp rate comes DOWN with it: 0.6 was a stand-in
+  // for a role with no door of its own, and that job is over — it stays above the flat
+  // rate only because a dump still has to leave the box somehow.
+  database: { mysql: 0.9, ftp: 0.4 },
   // Nothing to say yet — the doors that would distinguish these two (smtp, dns)
   // are not in the catalog, and inventing an ftp or http rate for them would be
   // flavour dressed up as a rule.
