@@ -1013,6 +1013,102 @@ describe('buildRemoteHostFs', () => {
       expect(noneOf(repeated)).toEqual(NONE);
     });
 
+    it('writes every generated string in the shape its column promises', () => {
+      // A token that is not hex, a timestamp that lost its leading zeroes, an address
+      // with no domain after the @ — each still reads as a VALUE, so a sweep looking
+      // for blanks walks straight past them. Shape is the only thing that catches a
+      // string that is present and wrong, and these are the strings a player sees
+      // most: `SELECT * FROM sessions` is a wall of them.
+      const shapes: readonly (readonly [string, string, RegExp])[] = [
+        ['users', 'created_at', /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:00$/],
+        ['users', 'email', /^[a-z0-9._-]+@[a-z]+\.[a-z]+$/],
+        ['orders', 'created_at', /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:00$/],
+        ['audit_log', 'timestamp', /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:00$/],
+        ['sessions', 'expires_at', /^\d{4}-\d{2}-\d{2} 23:59:59$/],
+        ['sessions', 'token', /^[0-9a-f]{32}$/],
+        ['api_keys', 'key_value', /^ak_[0-9a-f]{24}$/],
+      ];
+      const unread = shapes.filter(([table]) => rowsOf(table).length === 0).map(([table]) => table);
+      const malformed = shapes.flatMap(([table, column, shape]) =>
+        rowsOf(table)
+          .filter((row) => !shape.test(String(row[column])))
+          .map((row) => `${table}.${column}: ${String(row[column])}`),
+      );
+
+      expect(noneOf(unread)).toEqual(NONE);
+      expect(noneOf(malformed)).toEqual(NONE);
+    });
+
+    it('names the database from two pool words, with both halves really there', () => {
+      // A blanked entry in either name pool still produces a name — `_prod`, `app_` —
+      // and a name that is not empty passes every check that asks whether a value is
+      // missing. Comparing the drawn names against the pool cannot catch it either:
+      // the test reads the same pool the generator does, so both sides move together.
+      const malformed = DATABASES.filter(
+        ({ database }) => !/^[a-z]+_[a-z]+$/.test(database.name),
+      ).map(({ box, database }) => `${where(box)}: ${database.name}`);
+
+      expect(noneOf(malformed)).toEqual(NONE);
+    });
+
+    it('makes the first person in the users table the admin and the rest ordinary', () => {
+      // The box's own account leads the table, so the admin row is the account a
+      // player has already met on the machine — which is what makes reading the
+      // users table tell them something they can act on.
+      const misranked = DATABASES.flatMap(({ box, database }) =>
+        (database.tables['users']?.rows ?? []).flatMap((row, index) =>
+          row['role'] === (index === 0 ? 'admin' : 'user')
+            ? []
+            : [`${where(box)} row ${index}: ${String(row['role'])}`],
+        ),
+      );
+
+      expect(noneOf(misranked)).toEqual(NONE);
+    });
+
+    it('points every session and every key at a user the same database really holds', () => {
+      // A foreign key to nobody is the one kind of wrong a player can PROVE with a
+      // second SELECT. Both tables number their rows from the same sequence the users
+      // table is numbered by, so every one has to land on a row that exists.
+      const dangling = DATABASES.flatMap(({ box, database }) => {
+        const userIds = new Set((database.tables['users']?.rows ?? []).map((row) => row['id']));
+        return ['sessions', 'api_keys'].flatMap((table) =>
+          (database.tables[table]?.rows ?? [])
+            .filter((row) => !userIds.has(row['user_id']))
+            .map((row) => `${where(box)} ${table}: user_id ${String(row['user_id'])}`),
+        );
+      });
+
+      expect(noneOf(dangling)).toEqual(NONE);
+    });
+
+    it('leaves some people without a live session or a key of their own', () => {
+      // Both tables are a SLICE of the people a box knows, never all of them: a world
+      // where every account always holds a live session and an API key is a world
+      // with nothing to notice. One box could legitimately be full, so the claim is
+      // only sayable across the population — somewhere, the slice has to be short.
+      const rowCounts = (table: string): readonly number[] =>
+        DATABASES.flatMap(({ database }) => {
+          const drawn = database.tables[table];
+          return drawn === undefined ? [] : [drawn.rows.length];
+        });
+
+      expect(Math.min(...rowCounts('sessions'))).toBe(1);
+      expect(Math.min(...rowCounts('api_keys'))).toBe(1);
+    });
+
+    it('pays its employees a salary a person could live on', () => {
+      // The arithmetic that scales the draw is the difference between a salary and a
+      // rounding error: a column reading 0.045 is a bug a player would screenshot.
+      const salaries = rowsOf('employees').map((row) => Number(row['salary']));
+      const implausible = salaries
+        .filter((salary) => salary < 45000 || salary > 150000 || salary % 1000 !== 0)
+        .map((salary) => String(salary));
+
+      expect(salaries.length).toBeGreaterThan(100);
+      expect(noneOf(implausible)).toEqual(NONE);
+    });
+
     it('gives every database a root and an application account, and a read-only one about half the time', () => {
       // The ladder a player meets: the read-only account nearly always falls, the
       // application account usually, root about one database in eight. The shape of

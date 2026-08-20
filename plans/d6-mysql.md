@@ -52,12 +52,19 @@ the way: a `mysql.cnf` template shipped `datadir=/srv/mysql`, which no box has e
 (3 survivors + 1 no-coverage), **`pools/database.ts` 57.84% (164 survivors, and 150 of its 225
 "kills" are timeouts, which Stryker scores as kills)**.
 
-**Debt this slice left — PAID on `feat/d6-mysql-crack` before any hydra work.** The pool score was
-the D5b failure repeated at ten times the scale: an entry no test ever DRAWS can be blanked without
+**Debt this slice left — PAID across #435 and #436, before any hydra work.** The pool score was the
+D5b failure repeated at ten times the scale: an entry no test ever DRAWS can be blanked without
 anything failing. Fixed with D5b's own remedy — one population computed **once per block**, and
-sweeps that read every pool entry across it. `pools/database.ts` 57.84% → **100%, 0 survivors**;
-`generateDatabase.ts` and `remoteHostFs.ts` also 100%/0. See slice 2 for what the sweeps assert and
-for the two findings that turned out to be production changes rather than test gaps.
+sweeps that read every pool entry across it.
+
+`pools/database.ts` **57.84% → 88.69%**, with 0 timeouts. The 44 that remain are 42 column-METADATA
+mutants (slice 3's, below) and 2 equivalent float comparisons.
+
+**Read the score before this one with suspicion.** `timeoutMS` was 30000 and Stryker scores a
+timeout as a KILL, so both the 57.84% and the 100% first reported for the fix were inflated by
+masked survivors — every one of the 78 timeouts turned out to be a survivor once the budget was
+raised to 120000. Any mutation number in this repo measured before that config change is subject to
+the same error, D5b's close-out figures included.
 
 **Value**: A player scanning or standing on a LAN can tell that a box holds a database, and find
 it where the box's own config has been saying it would since v0.155.0.
@@ -170,12 +177,23 @@ Two findings were production changes, not test gaps:
   `z.object({})` with nothing failing — on the one function whose entire job is guarding a file a
   rooted player can edit. It now has its own eight behaviour tests.
 
-**Left deliberately unkilled**: `catch {}` in `parseMysqlDatabase` is equivalent (an empty catch
-returns `undefined` exactly as the explicit return does) — now covered rather than uncovered, which
-is the part that mattered. **Deferred to slice 3**: column-METADATA mutants (`nullable` flips,
-`key`, `defaultValue`) have no observable consequence until `DESCRIBE` renders them; asserting them
-now would be asserting implementation shape. Slice 3 must assert `DESCRIBE` over the population,
-not one table on one box, or they persist.
+A second pass (#436) closed what the first missed once the timeout config stopped hiding it: string
+SHAPE (a timestamp that lost its padding, a token that is not hex, an address with no domain — all
+present, all wrong, none blank), the database name's two halves, admin-first in `users`, session and
+key rows pointing at users that exist, the slice that leaves some people without either, and
+salaries that are livable. Each was proven against a hand-applied mutant, not assumed.
+
+The name-shape sweep carries a lesson worth keeping: comparing drawn names against the imported
+pool can **never** catch a blanked entry, because the test reads the same array the generator does
+and both sides move together. Shape is what closes it, without freezing content into a golden.
+
+**Left deliberately unkilled**: `catch {}` in `parseMysqlDatabase`, and `prng.next() > 0.1` → `>=`
+in two places — equivalent mutants, all three (an empty catch returns `undefined` exactly as the
+explicit return does; exact float equality does not occur). **Deferred to slice 3**: 42
+column-METADATA mutants (`nullable` flips, `key`, `defaultValue`) have no observable consequence
+until `DESCRIBE` renders them; asserting them now would be asserting implementation shape. **Slice 3
+must assert `DESCRIBE` over the population, not one table on one box**, or all 42 persist behind a
+number that looks finished.
 
 **Acceptance criteria**: `hydra <host> mysql` sweeps the **database's own accounts**, not
 `/etc/passwd`; `readonly` falls on nearly every box, the app account often, database root rarely;
