@@ -145,6 +145,7 @@ export const handleHydraCrackInnerGateway = async (
   // the same silence `ssh` keeps there, and the own-LAN sweep is what traces that target.
   const { cracked, trace } = sweepAccounts({
     accounts: spec.accountsOn(target.fs),
+    database: spec.databaseOn?.(target.fs),
     username: payload.username,
     wordlist: content,
     hostname: target.hostname,

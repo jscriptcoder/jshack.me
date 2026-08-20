@@ -63,15 +63,20 @@ export const formatMysqlConnectLine = ({
   `${formatMysqlTimestamp(time)}\t${pid} Connect\t${user}@${fromIp} on ${database} using TCP/IP`;
 
 /** Render one credential attempt as its `/var/log/mysql.log` line. A refusal names no
- *  database, for the reason in the module docstring; an acceptance is the connect line
- *  above with the database this attempt is being made against. */
+ *  database, for the reason in the module docstring; an acceptance IS the connect line
+ *  above, naming the database the credential opened. */
 export const formatMysqlAttemptLine = ({
   outcome,
   user,
   fromIp,
   time,
   pid,
+  database,
 }: CredentialAttempt): string =>
   outcome === 'success'
-    ? `${formatMysqlTimestamp(time)}\t${pid} Connect\t${user}@${fromIp} using TCP/IP`
+    ? // One shape for an accepted connection, not two: a sweep that opens an account
+      // and a client that opens one are the same event to the daemon writing this file.
+      // The fallback is never taken — a door with no database has no accounts to
+      // accept, so a success here always arrived with one.
+      formatMysqlConnectLine({ user, fromIp, time, pid, database: database ?? '' })
     : `${formatMysqlTimestamp(time)}\t${pid} Connect\tAccess denied for user '${user}'@'${fromIp}' (using password: YES)`;

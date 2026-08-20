@@ -16,7 +16,7 @@
 import type { AbsPath } from '../types';
 import type { Directory, FilePermissions } from '../filesystem/types';
 import { accountsIn } from '../sessions/passwdAccount';
-import { databaseAccountsIn } from '../mysql/datadir';
+import { databaseAccountsIn, databaseNameIn } from '../mysql/datadir';
 import type { SweepableAccount } from '../wordlist/passwordSweep';
 import {
   AUTH_LOG_OWNER,
@@ -102,6 +102,13 @@ export type ServiceSpec = {
    *  accounts of another — the right names against the wrong secrets, which reads to
    *  a player as a working credential right up until they use it. */
   readonly accountsOn: (fs: Directory) => readonly SweepableAccount[];
+  /** What an accepted credential on this door opens, read off the target — the name
+   *  that turns one line in a wall of denials into evidence the sweep landed.
+   *
+   *  Absent for every door that admits you to the BOX, the same way `formatArrival` is
+   *  absent for daemons whose first line is already the attempt. Only the database
+   *  door opens something narrower than the machine, so only it has a name to give. */
+  readonly databaseOn?: (fs: Directory) => string | undefined;
 };
 
 const SYSLOG_AUTH_SWEEP: SweepLog = {
@@ -204,6 +211,7 @@ export const SERVICE_CATALOG = {
     // datadir, drawn on their own stream, so cracking this box's shell and cracking its
     // database are two locks with two keys.
     accountsOn: databaseAccountsIn,
+    databaseOn: databaseNameIn,
   },
 } as const satisfies Record<string, ServiceSpec>;
 

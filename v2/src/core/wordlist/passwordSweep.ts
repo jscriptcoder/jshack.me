@@ -94,6 +94,10 @@ export const sweepAccounts = (options: {
   /** How the attacked service writes one attempt into its own log. The sweep knows
    *  what was tried; the service knows how that reads to its defender. */
   readonly formatAttempt: (attempt: CredentialAttempt) => string;
+  /** What an accepted credential on this door opens, when that is narrower than the
+   *  box — the database name, for the one door that has one. `undefined` everywhere
+   *  else, and ignored by every formatter that has nothing to do with it. */
+  readonly database: string | undefined;
 }): Sweep => {
   const words = wordsIn(options.wordlist);
   const sweeps: readonly AccountSweep[] = accountsUnderAttack(
@@ -116,6 +120,7 @@ export const sweepAccounts = (options: {
     Array.from({ length: matchedAt === -1 ? words.length : matchedAt + 1 }, (_unused, attempt) =>
       options.formatAttempt({
         outcome: attempt === matchedAt ? 'success' : 'failure',
+        ...(options.database === undefined ? {} : { database: options.database }),
         user: account.username,
         fromIp: options.fromIp,
         hostname: options.hostname,

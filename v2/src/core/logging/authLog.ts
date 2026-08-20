@@ -65,6 +65,11 @@ export type CredentialAttempt = {
   readonly hostname: string;
   readonly time: GameTime;
   readonly pid: number;
+  /** What an ACCEPTED attempt opened, when the door opens something narrower than the
+   *  box. Only the database door has one: a shell or file door admits you to the
+   *  machine itself and has nothing further to name, so this is absent for them and
+   *  their formatters never read it. */
+  readonly database?: string;
 };
 
 /** Render an ssh login attempt as the REMOTE host's `/var/log/auth.log` line —

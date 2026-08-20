@@ -287,8 +287,45 @@ therefore worth having, the fallback mutant they exist to kill was applied by ha
 `if (database === null) return accountsIn(fs)`, the plausible wrong implementation that would
 reintroduce the bug in subtler form. Exactly those two failed and nothing else.
 
-**Still open on this slice**: criteria 2, 3, 4, 6, 7, 8 and the `scripts/testMysqlSweep.ts`
-wire-check.
+**Criterion 6 DONE — and it settled a decision slice 1 had left contradicted.**
+
+The routing was already right: slice 1's `sweepLog` column sends a mysql sweep to `mysql.log` in
+mysql's own shape, so the eight tests for it passed on first run. Proven non-vacuous by pointing
+the mysql row at `SYSLOG_AUTH_SWEEP` — six of the eight failed.
+
+**A formatter-based assertion cannot catch its own formatter changing.** Swapping the success and
+failure arms of `formatMysqlAttemptLine` — denials rendered as accepted connections and the reverse,
+which would completely mislead a defender — killed exactly ONE test: the SHAPE regex. The seven that
+compare a line to the function that wrote it all passed the mutant. Same blind spot as comparing a
+drawn name against the pool it was drawn from; the fix is the same one — assert the shape.
+
+**The contradiction**: `formatMysqlAttemptLine`'s own docstring said an acceptance "is the connect
+line above with the database this attempt is being made against", and the module docstring called a
+Connect naming a database "the defender's most useful signal". The implementation named no database
+— `formatAttempt` only receives a `CredentialAttempt`, so slice 1 had nowhere to put it and the
+success arm quietly dropped it. **DECIDED (owner, 2026-08-20): name it, fix the code.** A sweep that
+opens an account and a client that opens one are the same event to the daemon writing the file, so
+there is one accepted-connection shape, not two — `formatMysqlAttemptLine`'s success arm now IS
+`formatMysqlConnectLine`.
+
+Threaded as an optional `database` on `CredentialAttempt`, a `database` option on `sweepAccounts`,
+and a `databaseOn` column beside `accountsOn` — optional exactly as `sweepLog.formatArrival` is,
+because only the database door opens something narrower than the box. `exactOptionalPropertyTypes`
+is ON, so the sweep option is `database: string | undefined` matching the `username` beside it,
+not `database?: string`.
+
+**`mysqlLog.ts` had NO test file** — the only log formatter without one, `accessLog`, `authLog`,
+`kernLog`, `syslog` and `vsftpdLog` all having theirs. Slice 1's gap, closed here with eight tests
+including the one that matters most: a refusal must not name the database EVEN WHEN one is supplied,
+or a sweep that opened nothing learns as much as one that opened everything.
+
+**Mutation**: `mysqlLog.ts` **96.55% total, 100% of covered** — 28 killed, **0 survivors**. Its one
+unflagged mutant is the `database ?? ''` fallback, reported **NoCoverage**, which is proof the arm is
+unreachable rather than merely untested: a door with no database has no accounts to accept, so a
+success always arrives with one. `mysql/datadir.ts` 71.74%, 33 killed, 13 survivors — the same four
+type-narrowing guard lines as before, unchanged.
+
+**Still open on this slice**: criteria 2, 3, 4, 7, 8 and the `scripts/testMysqlSweep.ts` wire-check.
 
 **RED**: Handler-level behavior tests — the account-source assertion (criterion 1) fails against
 today's code, which is the honest RED. Plus a population sweep for criterion 3, edge tests for 4-6,

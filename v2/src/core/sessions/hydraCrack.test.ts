@@ -19,6 +19,12 @@ import {
   formatSshdAuthLine,
 } from '../logging/authLog';
 import { VSFTPD_LOG_PATH, formatVsftpdLoginLine } from '../logging/vsftpdLog';
+import {
+  MYSQL_LOG_OWNER,
+  MYSQL_LOG_PATH,
+  MYSQL_LOG_PERMISSIONS,
+  formatMysqlAttemptLine,
+} from '../logging/mysqlLog';
 import { derivePid } from '../logging/syslog';
 import { asAbsPath, asGameTime } from '../types';
 import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
@@ -266,6 +272,28 @@ const traceLine = (
     time: asGameTime(FIXED_NOW),
     pid: derivePid(FIXED_NOW),
   });
+
+/** One line the sweep is expected to leave on the target's mysql.log. An accepted
+ *  attempt names the database it opened; a refused one has none to name. */
+const mysqlTraceLine = (
+  outcome: 'success' | 'failure',
+  user: string,
+  database?: string,
+): string =>
+  formatMysqlAttemptLine({
+    outcome,
+    user,
+    fromIp: ATTACKER_IP,
+    hostname: '',
+    time: asGameTime(FIXED_NOW),
+    pid: derivePid(FIXED_NOW),
+    ...(database === undefined ? {} : { database }),
+  });
+
+/** Every DATABASE account on a host, in datadir order — the order a sweep attacks
+ *  them in, and so the order their trace lines must appear in. */
+const databaseAccountNamesOn = (host: LanHost): readonly string[] =>
+  databaseOn(host).credentials.map((credential) => credential.username);
 
 /** The lines a sweep actually wrote, in order — the content of the single patch
  *  the handler upserts, minus the trailing newline the appender adds. */
@@ -1093,6 +1121,190 @@ describe('the trace a hydra sweep leaves on its target', () => {
       expect(writtenLines(upsertPatch)[0]).toBe(
         traceLine('failure', accountNamesOn(host)[0] ?? '', host),
       );
+    });
+
+    it('writes a mysql sweep to mysql.log, in the database daemon own shape', async () => {
+      const identity = generateIdentity();
+      const host = mysqlHostOn(ESSID);
+      const { deps, upsertPatch } = makeDeps({ wordlist: ['no-such-word'] });
+
+      await handleHydraCrack(
+        signedCrack(identity, { target_ip: host.ip, service: 'mysql' }),
+        deps,
+      );
+
+      const row = upsertPatch.mock.calls[0]?.[0];
+      expect(row?.path).toBe(MYSQL_LOG_PATH);
+      expect(writtenLines(upsertPatch)[0]).toBe(
+        mysqlTraceLine('failure', databaseAccountNamesOn(host)[0] ?? ''),
+      );
+    });
+
+    it('denies in mysql own words, not another daemon-s', async () => {
+      // Asserting the line EQUALS what the formatter produces cannot catch a change
+      // inside the formatter — both sides move together, the same blind spot a name
+      // pool compared against itself has. The shape is what closes it: a defender
+      // reading this file sees mysql's ISO-with-microseconds stamp and its own
+      // refusal wording, and would see neither if the sshd formatter were wired here.
+      const identity = generateIdentity();
+      const host = mysqlHostOn(ESSID);
+      const { deps, upsertPatch } = makeDeps({ wordlist: ['no-such-word'] });
+
+      await handleHydraCrack(
+        signedCrack(identity, { target_ip: host.ip, service: 'mysql' }),
+        deps,
+      );
+
+      expect(writtenLines(upsertPatch)[0]).toMatch(
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.000000Z\t\d+ Connect\tAccess denied for user '[^']+'@'[^']+' \(using password: YES\)$/,
+      );
+    });
+
+    it('leaves auth.log untouched when the door swept was mysql', async () => {
+      const identity = generateIdentity();
+      const host = mysqlHostOn(ESSID);
+      const { deps, upsertPatch } = makeDeps({ wordlist: ['no-such-word'] });
+
+      await handleHydraCrack(
+        signedCrack(identity, { target_ip: host.ip, service: 'mysql' }),
+        deps,
+      );
+
+      const paths = upsertPatch.mock.calls.map(([row]) => row.path);
+      expect(paths).not.toContain(AUTH_LOG_PATH);
+    });
+
+    it("lands on the TARGET's mysql.log, root-owned and readable by every tier", async () => {
+      // Same rule auth.log follows: a guest-tier occupant must be able to `cat` the
+      // attack, and only the daemon may write it.
+      const identity = generateIdentity();
+      const host = mysqlHostOn(ESSID);
+      const { machineId } = resolveLanHostIdentity(host, ESSID);
+      const { deps, upsertPatch } = makeDeps({ wordlist: ['no-such-word'] });
+
+      await handleHydraCrack(
+        signedCrack(identity, { target_ip: host.ip, service: 'mysql' }),
+        deps,
+      );
+
+      expect(upsertPatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          writer_key: identity.publicKeyHex,
+          machine_id: machineId,
+          path: MYSQL_LOG_PATH,
+          owner: MYSQL_LOG_OWNER,
+          permissions: MYSQL_LOG_PERMISSIONS,
+          node_type: 'file',
+        }),
+      );
+    });
+
+    it('records one line per password tried against the database, not one per account', async () => {
+      // The volume IS the behaviour: a sweep is the noisiest thing a player can do to
+      // a box, and a defender reading the file back has to see that. One line per
+      // account would price the attack at a fraction of what it cost.
+      const identity = generateIdentity();
+      const host = mysqlHostOn(ESSID);
+      const words = ['no-such-word', 'nor-this-one', 'nor-that'];
+      const { deps, upsertPatch } = makeDeps({ wordlist: words });
+
+      await handleHydraCrack(
+        signedCrack(identity, { target_ip: host.ip, service: 'mysql' }),
+        deps,
+      );
+
+      expect(writtenLines(upsertPatch)).toHaveLength(
+        words.length * databaseAccountNamesOn(host).length,
+      );
+    });
+
+    it('records the database account that fell, after only the words tried before it', async () => {
+      // The words after the match were never sent, so they cannot appear. This is the
+      // line that tells a defender the sweep LANDED rather than merely happened.
+      const identity = generateIdentity();
+      const host = mysqlHostOn(ESSID);
+      const database = databaseAccountsWithPasswords(host, KNOWN_POOL);
+      const fell = database[0];
+      const { deps, upsertPatch } = makeDeps({
+        wordlist: ['no-such-word', fell?.password ?? ''],
+      });
+
+      await handleHydraCrack(
+        signedCrack(identity, { target_ip: host.ip, service: 'mysql', username: fell?.username }),
+        deps,
+      );
+
+      expect(writtenLines(upsertPatch)).toEqual([
+        mysqlTraceLine('failure', fell?.username ?? ''),
+        mysqlTraceLine('success', fell?.username ?? '', databaseOn(host).name),
+      ]);
+    });
+
+    it('names the database on the line that opened it', async () => {
+      // The defender's most useful signal: a wall of denials that names nothing,
+      // then one Connect that names a database, is a sweep that LANDED. A refusal
+      // cannot carry the name — a client that never authenticated was never told
+      // which database it would have reached — so the name appearing at all is what
+      // separates the attempt that worked from the hundreds that did not.
+      //
+      // Asserted as a shape rather than against the formatter, because a test that
+      // compares the line to the function that wrote it moves whenever that function
+      // does and can never catch it changing.
+      const identity = generateIdentity();
+      const host = mysqlHostOn(ESSID);
+      const fell = databaseAccountsWithPasswords(host, KNOWN_POOL)[0];
+      const { deps, upsertPatch } = makeDeps({ wordlist: [fell?.password ?? ''] });
+
+      await handleHydraCrack(
+        signedCrack(identity, { target_ip: host.ip, service: 'mysql', username: fell?.username }),
+        deps,
+      );
+
+      expect(writtenLines(upsertPatch)[0]).toMatch(
+        new RegExp(
+          `^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.000000Z\\t\\d+ Connect\\t` +
+            `${fell?.username ?? ''}@${ATTACKER_IP} on ${databaseOn(host).name} using TCP/IP$`,
+        ),
+      );
+    });
+
+    it('appends a mysql sweep to what the log already holds', async () => {
+      // A sweep must not erase the connection history the box already recorded.
+      const identity = generateIdentity();
+      const host = mysqlHostOn(ESSID);
+      const earlier =
+        '2026-08-09T10:00:00.000000Z\t99 Connect\treadonly@10.0.0.9 on shop using TCP/IP\n';
+      const { deps, upsertPatch } = makeDeps({
+        wordlist: ['no-such-word'],
+        readAuthLog: async () => ({ data: { content: earlier }, error: null }),
+      });
+
+      await handleHydraCrack(
+        signedCrack(identity, { target_ip: host.ip, service: 'mysql' }),
+        deps,
+      );
+
+      expect(upsertPatch.mock.calls[0]?.[0].content).toBe(
+        `${earlier}${databaseAccountNamesOn(host)
+          .map((name) => mysqlTraceLine('failure', name))
+          .join('\n')}\n`,
+      );
+    });
+
+    it('writes nothing to mysql.log when the box runs no database', async () => {
+      // The refusal comes before anything is attacked, so a box with no mysqld cannot
+      // be probed through its own log for whether it ever had one.
+      const identity = generateIdentity();
+      const host = sshlessHostOn(ESSID);
+      const { deps, upsertPatch } = makeDeps({ wordlist: ['no-such-word'] });
+
+      const response = await handleHydraCrack(
+        signedCrack(identity, { target_ip: host.ip, service: 'mysql' }),
+        deps,
+      );
+
+      expect(response).toEqual({ status: 404, body: { error: 'service_not_running' } });
+      expect(upsertPatch).not.toHaveBeenCalled();
     });
 
     it('refuses a service the world has no row for, and writes nothing', async () => {

@@ -49,3 +49,7 @@ export const databaseAccountsIn = (fs: Directory): readonly SweepableAccount[] =
     hash: credential.passwordHash,
   }));
 };
+
+/** The name of the database a box serves, or undefined when it serves none. What an
+ *  accepted connection is recorded as having opened. */
+export const databaseNameIn = (fs: Directory): string | undefined => databaseIn(fs)?.name;

@@ -235,6 +235,7 @@ export const handleHydraCrack = async (
 
   const { cracked, trace } = sweepAccounts({
     accounts: spec.accountsOn(hostFs),
+    database: spec.databaseOn?.(hostFs),
     username: payload.username,
     wordlist: content,
     hostname: host.hostname,
