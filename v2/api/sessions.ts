@@ -16,6 +16,7 @@ import type { LanLeaseRow } from '../src/core/network/lanAddress';
 import { handleAuthCreateSessionInnerGateway } from '../src/core/sessions/authCreateSessionInnerGateway';
 import { handleHydraCrack } from '../src/core/sessions/hydraCrack';
 import { handleMysqlConnect } from '../src/core/sessions/mysqlConnect';
+import { handleMysqlStatement } from '../src/core/sessions/mysqlStatement';
 import { handleHydraCrackPublic } from '../src/core/sessions/hydraCrackPublic';
 import { handleHydraCrackInnerGateway } from '../src/core/sessions/hydraCrackInnerGateway';
 import type { OwnerPatchRow } from '../src/core/network/materializeWorkstationFs';
@@ -484,6 +485,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findPatches: findPatchesVia({ supabase, label: 'mysql target journal lookup' }),
       readMysqlLog: readAuthLogVia({ supabase, label: 'mysql log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'mysql log upsert' }),
+    });
+    res.status(status).json(body);
+    return;
+  }
+
+  if (actionOf(req.body) === 'mysqlStatement') {
+    // One statement against an own-LAN host's database. The credential is re-sent
+    // and re-validated here because the connection minted no session row to trust
+    // instead. The handler READS the target's journal (its real datadir, and what it
+    // is actually running) and writes NOTHING: a session of reads leaves the box's
+    // /var/log/mysql.log exactly as the login left it. What comes back is rendered
+    // text only -- rows would hand the client what the account could not select.
+    const { status, body } = await handleMysqlStatement(req.body, {
+      nonceStore: noopNonceStore,
+      findPatches: findPatchesVia({ supabase, label: 'mysql statement journal lookup' }),
     });
     res.status(status).json(body);
     return;

@@ -27,6 +27,8 @@ import {
 import type {
   MysqlConnectParams,
   MysqlConnectResult,
+  MysqlStatementParams,
+  MysqlStatementResult,
   NcConnectParams,
   NcConnectResult,
   NcInnerGatewayParams,
@@ -379,6 +381,45 @@ export const connectDatabase = async (
     return { ok: response.ok };
   } catch {
     return { ok: false };
+  }
+};
+
+/** What a statement's answer is allowed to be. Parsed rather than trusted: the body
+ *  is rendered text, and a response that carried anything else -- rows, a parsed
+ *  database -- would be a leak this client should refuse to read rather than pass on. */
+const statementAnswerSchema = z.object({
+  output: z.array(z.string()),
+  failed: z.boolean(),
+});
+
+/**
+ * Run one statement — the signed `mysqlStatement` round-trip behind `env.mysql.run`.
+ *
+ * The whole credential goes with it because no session row exists to name instead,
+ * and everything that is not a well-formed 200 collapses to `lost`. The box gone,
+ * the daemon stopped, the credential no longer in the datadir, the request never
+ * arriving: from the prompt's side those are one condition, and separating them
+ * would tell a player which of their own tampering took effect.
+ */
+export const runDatabaseStatement = async (
+  deps: SessionsClientDeps,
+  params: MysqlStatementParams,
+): Promise<MysqlStatementResult> => {
+  try {
+    const response = await post(deps, 'mysqlStatement', {
+      essid: params.essid,
+      target_ip: params.targetIp,
+      username: params.username,
+      password: params.password,
+      statement: params.statement,
+      source_ip: params.sourceIp,
+    });
+    if (!response.ok) return { kind: 'lost' };
+    const answer = statementAnswerSchema.safeParse(await response.json());
+    if (!answer.success) return { kind: 'lost' };
+    return { kind: 'answered', output: answer.data.output, failed: answer.data.failed };
+  } catch {
+    return { kind: 'lost' };
   }
 };
 

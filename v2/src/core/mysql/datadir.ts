@@ -15,9 +15,15 @@ import { parseMysqlDatabase, type MysqlCredential, type MysqlDatabase } from './
 import type { Directory } from '../filesystem/types';
 import type { SweepableAccount } from '../wordlist/passwordSweep';
 
-/** The database a box serves, or null when it serves none. Walked a directory at a
- *  time, the way every other reader of a known path on a generated box walks it. */
-const databaseIn = (fs: Directory): MysqlDatabase | null => {
+/**
+ * The database a box serves, or null when it serves none. Walked a directory at a
+ * time, the way every other reader of a known path on a generated box walks it.
+ *
+ * Exported for the statement door, which needs the whole database rather than one
+ * account out of it — and needs it read from the box's CURRENT filesystem, so a
+ * table dropped between two statements is gone on the second.
+ */
+export const databaseIn = (fs: Directory): MysqlDatabase | null => {
   const varDir = fs.entries.get('var');
   if (varDir === undefined || varDir.kind !== 'directory') return null;
   const lib = varDir.entries.get('lib');

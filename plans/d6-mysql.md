@@ -1,12 +1,20 @@
 # Plan: D6 — a player reads a machine's database (`mysql`)
 
-**Branch**: one `feat/d6-*` per slice — slice 3 is `feat/d6-mysql-prompt`
+**Branch**: one `feat/d6-*` per slice, except slice 3, which outgrew one — `feat/d6-mysql-prompt`
+(the door) then `feat/d6-mysql-verbs` (the statements), stacked
 **Status**: Active — slices 1 and 2 LANDED (v0.158.0 #434 `29bc042`; v0.159.0 #437 `a6bdead`),
-slice 1's mutation debt PAID (#435 `f1c4dd6`, #436 `8add9fa`). **Slice 3 IN PROGRESS** on
-`feat/d6-mysql-prompt` — criteria grilled to 21 (`32ef71b`), criteria 3, 4, 5, 6, 7 and 20 landed
-(`71aecb0`, `aad87b6`, `597dd2b`, `6209bf7`). The door opens end to end and is REGISTERED:
-`mysql <host>` is typeable, greets, and leaves the player at `mysql>`. v0.160.0.
-Progress and what is written-but-untested are under slice 3's own heading.
+slice 1's mutation debt PAID (#435 `f1c4dd6`, #436 `8add9fa`). **Slice 3 IN PROGRESS**, across two
+branches — criteria grilled to 21 (`32ef71b`).
+
+- `feat/d6-mysql-prompt`, **PR #438 open**: criteria 3, 4, 5, 6, 7 and 20 (`71aecb0`, `aad87b6`,
+  `597dd2b`, `6209bf7`). The door opens and is REGISTERED — `mysql <host>` is typeable, greets, and
+  leaves the player at `mysql>`. v0.160.0.
+- `feat/d6-mysql-verbs`, stacked on it: criteria 8, 9, 10, 11 and 12, with 17, 18, 19 and 21 falling
+  out of the same wiring. The engine is at `19932cd`; the wire is the commit after it on that
+  branch. v0.161.0.
+
+Slice 3 now owes only criteria 1's `-p` (inert until slice 5), 2 (untested), 13-16 (the
+`credentials` table) and the DESCRIBE population debt. Details under slice 3's own heading.
 
 > Decisions are LOCKED in [`legacy-parity-epic.md`](legacy-parity-epic.md) §"D6 — resolved scope &
 > decisions (grill-me, 2026-08-19)". This file sequences them; it does not re-open them. Where
@@ -920,11 +928,67 @@ touch when it starts and restores from that snapshot at the end. Editing one of 
 runs in the background silently loses the edit — a manual page written mid-run was gone by the time
 the battery finished, and only the suite caught it. Snapshot, then keep hands off.
 
-**Next**: criteria 8-12 — the verb table. `SHOW TABLES`, `DESCRIBE` and `SELECT` rendering legacy's
-ASCII tables, `Empty set (0.00 sec)` on its own path, and write verbs parsing so they can be refused
-with `1142` rather than called malformed. That increment brings the statement round-trip, which is
-where the held credential is re-sent and where criterion 19's liveness arm finally has somewhere to
-live.
+#### Criteria 8-12 — the verb table and the statement round-trip
+
+**Landed: 8, 9, 10, 11, 12 — and 17, 18, 19 and 21 came with them**, because all four are claims
+about the round-trip rather than about the verbs, and the round-trip did not exist until now.
+
+**Where execution lives, and why.** The client sends the line; the server parses, executes, renders,
+and returns text. Criterion 17 forced it: a response carrying rows hands the client every row the
+account was not allowed to select, in a field the terminal never draws and anyone watching the wire
+can read. Criterion 19 confirmed it — a stopped daemon can only be discovered by a request that goes
+somewhere. So the client's local set is exactly what needs no database: empty, `exit`, `quit`,
+`help`.
+
+**One module, not three.** `core/mysql/statements.ts` holds parsing, execution and rendering
+together. They are three views of one question — what does the player see when they type this line —
+and three public contracts would invite a caller to hold a parsed statement or a raw result set,
+which are the two things criterion 17 says nothing outside may hold.
+
+**Write verbs are parsed precisely so they can be refused as a PERMISSION problem.** A well-formed
+`UPDATE` told it has a syntax error sends the player to rewrite a statement that was already
+correct; what they need is a better account, and `1142` is the only answer that says so. The denial
+is raised BEFORE the table is resolved — one that fired only for tables that exist would answer
+"does this table exist?" for an account with no right to ask.
+
+**"Ports verbatim" was measured, not asserted.** Every golden block was captured by running legacy's
+own formatter over the same fixture, then the temp harness was deleted from the frozen tree. One
+deliberate departure: a row missing a column renders `NULL` rather than the JavaScript word
+`undefined`, because the datadir is root-owned on a box a player can reach as root, so a row missing
+a cell is something a player can arrange.
+
+**`reachMysqlHost` is now shared** by both database doors. Checking the pidfiles per statement is
+what lets a stopped daemon drop a session, since there is no session row to invalidate — criterion
+19's mechanism, and the reason the extraction is load-bearing rather than tidiness.
+
+**Mutation: 33 applied, 33 killed, control survived.** The first pass killed 28 and left 5, and all
+five were blind spots in the fixture rather than equivalent mutants. In `orders` every numeric header
+happens to be exactly as wide as its widest value, no column carries a default, and nothing is
+referenced in the wrong case — so right-aligning headers, ignoring defaults and treating text as
+numeric all render it identically. **The general rule this is an instance of: a golden-output fixture
+has to VARY in the dimension each formatting rule acts on, or the rule is decoration a test cannot
+see.** A second table with varying widths and a default kills all five.
+
+**Wire-check: `scripts/testMysqlQuery.ts`, 10/10 live.** It proves the things no unit test can see —
+that the action is dispatched at all, that the body carries `output` and `failed` and nothing else
+over the wire, that the credential is re-checked per statement, that a session of reads leaves
+`mysql.log` exactly one line longer (criterion 21's DELTA, not the presence of a line), that no
+`sessions` row exists at any point (criterion 18), that a datadir edited through `patches` is really
+replayed, and that deleting the pidfile stops the answers (criterion 19). `testMysqlConnect.ts` was
+re-run at 13/13 to prove the `reachMysqlHost` extraction preserved the login door.
+
+**Next**: criteria 13-16 — the `credentials` table. It is LISTED by `SHOW TABLES` and DESCRIBABLE at
+every tier while `SELECT` is refused below `user`, mirroring the filesystem exactly: `/etc` is
+traversable at every tier so a guest sees `passwd` in `ls`, while `PASSWD_FILE` is `read: ['root',
+'user']`. The bottom rung can SEE what the next credential buys. That slice also introduces the
+FIRST tier-conditional refusal, which is where criterion 12's unconditional denial starts to give
+way to slice 4's ladder.
+
+**Still owed by slice 3**: criterion 2 (the `Enter user: ` wording and the no-default rule are
+implemented but untested), criterion 1's `-p` (parsed, inert until slice 5 needs a forwarded 3306),
+and **the 42 column-metadata mutants**. `DESCRIBE` now renders that metadata and the formatter's
+handling of it is fully killed, but the POOL's own cells are still unpinned — the debt is a golden
+assertion over the generated population, not over one table on one box, and it has not been paid.
 
 ---
 
