@@ -286,6 +286,67 @@ describe('a statement on a database behind a forward', () => {
       .filter((row) => row.path === asAbsPath('/var/lib/mysql/data.json'));
     expect(datadirWrites.map((row) => row.machine_id)).toEqual([DEEP.machineId]);
   });
+
+  it('reaches the datadir and the daemon own log on the deep box, and nothing else', async () => {
+    const { deps, upsertPatch } = deepDeps([deepLaddered()]);
+    const table = Object.keys(DEEP.database.tables)[0] ?? 'orders';
+
+    const response = await deepStatement('dba', ROOT_PASSWORD, `DROP TABLE ${table}`, deps);
+
+    // Over EVERY path written, and both halves of each address. The gateway carried
+    // the packet and ran nothing, so a line filed against it sends a defender reading
+    // the wrong box's history — and NAT itself keeps no record to find.
+    expect(response.status).toBe(200);
+    expect(upsertPatch.mock.calls.map(([row]) => [row.machine_id, row.path])).toEqual([
+      [DEEP.machineId, asAbsPath('/var/lib/mysql/data.json')],
+      [DEEP.machineId, MYSQL_LOG_PATH],
+    ]);
+  });
+
+  it('names the address NAT showed the box in the line it leaves behind', async () => {
+    const { deps, upsertPatch } = deepDeps([deepLaddered()]);
+    const table = Object.keys(DEEP.database.tables)[0] ?? 'orders';
+
+    await deepStatement('readonly', GUEST_PASSWORD, `DROP TABLE ${table}`, deps);
+
+    // The refusal the player read and the evidence the defender finds have to be the
+    // same address. Written from the caller's claim instead, the trace would name an
+    // attacker at a 192.168.x address this daemon has never been able to see.
+    expect(loggedLines(upsertPatch)).toEqual([
+      `2026-08-21T09:14:02.000000Z	6000 Denied	DROP command denied to user 'readonly'@'${DEEP.natIp}' for table '${table}'`,
+    ]);
+  });
+
+  it('drops a player whose daemon was stopped between two statements', async () => {
+    const { deps } = deepDeps([deepLaddered(), patchRow('/var/run/mysqld.pid', null)]);
+
+    const response = await deepStatement('dba', ROOT_PASSWORD, 'SHOW TABLES', deps);
+
+    // Reachability is re-checked per statement because there is no session to
+    // invalidate and no push channel — so the next statement is the only place a
+    // stopped daemon can surface. The client turns this into `Lost connection`.
+    expect(response).toEqual({ status: 404, body: { error: 'service_not_running' } });
+  });
+
+  it('drops a player whose forward was pulled between two statements', async () => {
+    const { deps } = deepDeps([deepLaddered()]);
+
+    const response = await handleMysqlStatement(
+      await signedStatement(generateIdentity(), {
+        essid: DEEP.essid,
+        target_ip: DEEP.gateway.ip,
+        port: FORWARD_PORT + 1,
+        username: 'dba',
+        password: ROOT_PASSWORD,
+        statement: 'SHOW TABLES',
+      }),
+      deps,
+    );
+
+    // The forward is re-resolved per statement rather than held open, so a rule the
+    // gateway no longer carries reaches nothing — exactly as if it never had.
+    expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+  });
 });
 
 describe('answering a statement against a real box', () => {

@@ -219,8 +219,12 @@ const main = async (): Promise<void> => {
     `status ${opened.status} ${JSON.stringify(opened.body)}`,
   );
   check(
-    'and the answer carries nothing but that it opened',
-    JSON.stringify(opened.body) === JSON.stringify({ ok: true }),
+    'and the answer carries nothing but that it opened and which box answered',
+    // The hostname is the greeting's, and it has to come from the box that ANSWERED:
+    // through a forward the client knows only the gateway's address, so a name looked
+    // up on the caller's side would greet the wrong machine. Nothing else crosses —
+    // no rows, no account list, no datadir.
+    JSON.stringify(opened.body) === JSON.stringify({ ok: true, hostname: target.hostname }),
     `body ${JSON.stringify(opened.body)}`,
   );
 

@@ -888,4 +888,20 @@ describe('the database door', () => {
     // against whatever holds 3306 on the gateway — or nothing at all.
     expect((await sentPayload(fetchSpy)).port).toBe(33306);
   });
+
+  it('turns any refusal of a statement into a lost connection, whatever its name', async () => {
+    // The prompt has one way to end badly and the player has one thing to do about
+    // it. A daemon stopped under a live session and a forward pulled out from under
+    // one are the same event from the prompt: the box stopped answering.
+    const stopped = vi.fn(async () => jsonResponse(404, { error: 'service_not_running' }));
+    const pulled = vi.fn(async () => jsonResponse(404, { error: 'host_unreachable' }));
+    const statement = { ...connectParams({ port: 33306 }), statement: 'SHOW TABLES' };
+
+    expect(
+      await runDatabaseStatement(makeDeps(stopped as unknown as typeof fetch), statement),
+    ).toEqual({ kind: 'lost' });
+    expect(
+      await runDatabaseStatement(makeDeps(pulled as unknown as typeof fetch), statement),
+    ).toEqual({ kind: 'lost' });
+  });
 });

@@ -1306,6 +1306,43 @@ type rather than being adapted to each other.
     connection to MySQL server during query`; pulling the forward mid-session does the same, by the
     same path
 
+#### Found while building commit 3 — criteria 9, 11 and 12 needed no production change
+
+Every one of them was already true when commit 2 landed, and for one reason: routing
+was moved into `reachMysqlHost`, so both doors take `machineId`, `hostFs` and
+`sourceIp` from whatever the route resolved. The log write, the datadir write and the
+per-statement reachability re-check all read those same three fields, so they followed
+the route down to the deep box without being told to. The adapter's blanket
+`!response.ok -> lost` covered the drop for the same kind of reason.
+
+So commit 3 is PROOF, not behaviour: five tests that go green on arrival. That makes
+mutation the only evidence that they are worth anything, and the battery is the record
+— 8 real mutants, all killed, both behaviour-preserving controls surviving:
+
+| Mutant | |
+|---|---|
+| deep `sourceIp` -> `null` | killed |
+| deep `machineId` -> the gateway's | killed |
+| drop the listening gate | killed |
+| accept an unresolved forward | killed |
+| `reachedPort` -> default 3306 | killed |
+| statement log prefers the payload address | killed |
+| connect log prefers the payload address | killed |
+| a refused statement is no longer `lost` | killed |
+
+Two things the LIVE run caught that no unit test could:
+
+- **`testMysqlConnect.ts` still asserted the old contract.** Commit 2 made the connect
+  answer carry `hostname`; the script asserted the body was exactly `{ok:true}`. It had
+  been typechecked and never run since. Updated to the current contract.
+- **`testMysqlDeep.ts` seeded its gateway session under a DERIVED id.** `session_id` is
+  computed from the gateway, so it is identical every run, while the acting identity is
+  fresh each time. Cleaning up by `player_key` alone left the previous run's row holding
+  the id and the insert failed on it — surfacing as `403 no_session`, i.e. as the door
+  refusing rather than as a dirty table. The first run passed only because the table was
+  empty. Now deleted by `session_id` too, and the insert's error is checked rather than
+  swallowed.
+
 #### Found while building commit 2 — the terminal deep box's journal is never read
 
 `resolveInnerGatewayTarget` replays each GATEWAY's journal down the chain (to read
