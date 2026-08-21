@@ -1,7 +1,8 @@
 # Plan: D6 — a player reads a machine's database (`mysql`)
 
 **Branch**: one `feat/d6-*` per slice, except slice 3, which outgrew one — `feat/d6-mysql-prompt`
-(the door) then `feat/d6-mysql-verbs` (the statements), stacked
+(the door), `feat/d6-mysql-verbs` (the statements), then `feat/d6-mysql-credentials` (the account
+list), each stacked on the one before
 **Status**: Active — slices 1 and 2 LANDED (v0.158.0 #434 `29bc042`; v0.159.0 #437 `a6bdead`),
 slice 1's mutation debt PAID (#435 `f1c4dd6`, #436 `8add9fa`). **Slice 3 IN PROGRESS**, across two
 branches — criteria grilled to 21 (`32ef71b`).
@@ -12,9 +13,11 @@ branches — criteria grilled to 21 (`32ef71b`).
 - `feat/d6-mysql-verbs`, stacked on it, **PR #439 open**: criteria 8, 9, 10, 11 and 12, with 17, 18,
   19 and 21 falling out of the same wiring. The engine is at `19932cd`, the wire at `e19ad45`.
   v0.161.0.
+- `feat/d6-mysql-credentials`, stacked on that: criteria 13, 14, 15 and 16 — the account list as a
+  table, and the first tier-conditional refusal in this door. v0.162.0.
 
-Slice 3 now owes only criteria 1's `-p` (inert until slice 5), 2 (untested), 13-16 (the
-`credentials` table) and the DESCRIBE population debt. Details under slice 3's own heading.
+Slice 3 now owes only criteria 1's `-p` (inert until slice 5), 2 (untested) and the DESCRIBE
+population debt. Details under slice 3's own heading.
 
 > Decisions are LOCKED in [`legacy-parity-epic.md`](legacy-parity-epic.md) §"D6 — resolved scope &
 > decisions (grill-me, 2026-08-19)". This file sequences them; it does not re-open them. Where
@@ -38,8 +41,9 @@ database a player can find, crack, read, change, and be caught changing.
       app account on 67.7%, database root on 12.0%. So the APP ACCOUNT is the commonest credential
       a sweep returns — not `readonly`, which this line had first — because half the databases
       carry no `readonly` at all. Root being rarest is the only part that survived contact
-- [ ] `mysql <host>` + a cracked credential reaches a `mysql>` prompt where `SHOW TABLES`,
-      `DESCRIBE` and `SELECT` return the box's own data in legacy's ASCII tables
+- [x] `mysql <host>` + a cracked credential reaches a `mysql>` prompt where `SHOW TABLES`,
+      `DESCRIBE` and `SELECT` return the box's own data in legacy's ASCII tables — slice 3. The
+      behaviour is delivered; what slice 3 still owes is test debt, not a gap a player can see
 - [ ] The tier ladder is observable: `readonly` is refused an `UPDATE`, the app account performs
       one, only database root may `DROP TABLE`
 - [ ] Every mutation appends to `/var/log/mysql.log`; no `SELECT` ever does
@@ -977,12 +981,67 @@ over the wire, that the credential is re-checked per statement, that a session o
 replayed, and that deleting the pidfile stops the answers (criterion 19). `testMysqlConnect.ts` was
 re-run at 13/13 to prove the `reachMysqlHost` extraction preserved the login door.
 
-**Next**: criteria 13-16 — the `credentials` table. It is LISTED by `SHOW TABLES` and DESCRIBABLE at
-every tier while `SELECT` is refused below `user`, mirroring the filesystem exactly: `/etc` is
-traversable at every tier so a guest sees `passwd` in `ls`, while `PASSWD_FILE` is `read: ['root',
-'user']`. The bottom rung can SEE what the next credential buys. That slice also introduces the
-FIRST tier-conditional refusal, which is where criterion 12's unconditional denial starts to give
-way to slice 4's ladder.
+#### Criteria 13-16 — the account list as a table
+
+**Landed: 13, 14, 15 and 16.** The datadir's accounts are readable as a table named `credentials`,
+listed by `SHOW TABLES` and describable at EVERY tier while its `SELECT` is refused below `user`.
+
+**The mirror is exact rather than an analogy, and that is what settled the design.** `/etc` is a
+traversable directory, so a guest who runs `ls` sees `passwd` sitting in it; `PASSWD_FILE` is
+`read: ['root', 'user']`, so that same guest cannot open it. This table has the same shape one door
+in. The bottom rung sees a `password_hash` column it may not read, which is what tells it there is
+something here worth a better credential — a ladder nobody can see the top of is not a ladder.
+
+**Legacy has no `credentials` table**, so unlike every other block in this slice there was no
+oracle to capture: `src/commands/mysql/executor.ts` never mentions one. The columns are chosen, not
+ported — `username` / `password_hash` / `user_type`, which are `MysqlCredential`'s own field names,
+so what a rooted player reads in `data.json` and what the door renders are the same three words.
+`user_type` is exposed deliberately: `root` gives its tier away by its name, but app-versus-readonly
+does not, and that distinction is what makes criterion 15's reward legible.
+
+**It is a VIEW over the account list, not an entry in `tables`, and it wins over a stored table of
+the same name.** The datadir is root-owned on a box a player can reach AS root, so a decoy is
+something a player can arrange — and what a reader gets here has to be the list that actually
+decides logins, or planting an empty `credentials` table would hide the real accounts from the next
+player through the door. A stored one is also dropped from the listing, which would otherwise name
+the same table twice.
+
+**The tier is derived, never declared.** It comes off the credential the statement just validated
+against; the client sends no tier and could not be believed if it did, since no session row holds
+one that was decided earlier. Proven by mutation rather than by reading the code: pinning
+`userType` to a constant in the handler turns two tests red.
+
+**Two smaller calls, both following rules this door already had.** The refusal fires BEFORE the
+field list is resolved — an account with no right to read the table has no right to be told which
+of its columns exist, and a refusal that said `Unknown column` would be a working column oracle for
+exactly the tier that must not have one. And it echoes the table as the player SPELLED it, matching
+the write denial, because confirming a table's exact casing is one more thing this answer should
+not say. `denyWrite` and this refusal collapsed into one `deny` — the same knowledge, which is how
+this door spells a 1142.
+
+**One existing claim changed, and the change is the point.** `SHOW TABLES` against a datadir with
+no tables no longer renders an empty grid, because the account list is always there. The empty-grid
+path is re-pinned where it is still reachable: `DESCRIBE` of a table a tamperer has stripped of its
+columns.
+
+**Mutation: 20 applied, 20 killed, control survived** — and unlike the last battery, no survivors to
+chase, because the fixture was built with the varying-dimension rule already in hand (three
+usernames of different widths, three tiers, a planted decoy).
+
+**Wire-check: `testMysqlQuery.ts`, 16/16 live** (was 10/10). Six new checks, on `MYSQL-LAB-3`'s
+`records-186`, which carries all three tiers with every password recoverable. The one worth naming:
+**no stored hash appears anywhere in the RAW bytes of the refusal**, checked as a substring over
+the response text rather than over a parsed shape. A whole-value assertion only guards the fields
+somebody thought to name; this guards a field added later by someone who never read the file.
+`testMysqlConnect.ts` re-run at 13/13.
+
+**Criterion 16 needed no work** — it is the claim that `DATADIR_FILE` stays root-ONLY on the
+filesystem, so reading the file and querying the door remain two different achievements, and
+`remoteHostFs.test.ts` already asserts exactly that over a population of generated boxes.
+
+**Next**: slice 4 — the tier ladder for WRITES. Criterion 12's unconditional denial becomes
+conditional: `readonly` is refused an `UPDATE`, the app account performs one, only database root
+may `DROP TABLE`, and every mutation appends to `/var/log/mysql.log` while no `SELECT` ever does.
 
 **Still owed by slice 3**: criterion 2 (the `Enter user: ` wording and the no-default rule are
 implemented but untested), criterion 1's `-p` (parsed, inert until slice 5 needs a forwarded 3306),
