@@ -9,9 +9,9 @@ branches — criteria grilled to 21 (`32ef71b`).
 - `feat/d6-mysql-prompt`, **PR #438 open**: criteria 3, 4, 5, 6, 7 and 20 (`71aecb0`, `aad87b6`,
   `597dd2b`, `6209bf7`). The door opens and is REGISTERED — `mysql <host>` is typeable, greets, and
   leaves the player at `mysql>`. v0.160.0.
-- `feat/d6-mysql-verbs`, stacked on it: criteria 8, 9, 10, 11 and 12, with 17, 18, 19 and 21 falling
-  out of the same wiring. The engine is at `19932cd`; the wire is the commit after it on that
-  branch. v0.161.0.
+- `feat/d6-mysql-verbs`, stacked on it, **PR #439 open**: criteria 8, 9, 10, 11 and 12, with 17, 18,
+  19 and 21 falling out of the same wiring. The engine is at `19932cd`, the wire at `e19ad45`.
+  v0.161.0.
 
 Slice 3 now owes only criteria 1's `-p` (inert until slice 5), 2 (untested), 13-16 (the
 `credentials` table) and the DESCRIBE population debt. Details under slice 3's own heading.
