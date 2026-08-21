@@ -1,6 +1,7 @@
 # Plan: D6 — a player reads a machine's database (`mysql`)
 
-**Branch**: one `feat/d6-*` per slice — slice 3 is `feat/d6-mysql-prompt`
+**Branch**: one `feat/d6-*` per slice, except slice 3, which outgrew one — `feat/d6-mysql-prompt`
+(the door) then `feat/d6-mysql-verbs` (the statements), stacked
 **Status**: Active — slices 1 and 2 LANDED (v0.158.0 #434 `29bc042`; v0.159.0 #437 `a6bdead`),
 slice 1's mutation debt PAID (#435 `f1c4dd6`, #436 `8add9fa`). **Slice 3 IN PROGRESS**, across two
 branches — criteria grilled to 21 (`32ef71b`).
