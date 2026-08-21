@@ -57,12 +57,12 @@ database a player can find, crack, read, change, and be caught changing.
 - [x] Every mutation appends to `/var/log/mysql.log`; no `SELECT` ever does — slice 4. A refused
       write appends one too, under `Denied`: an attempted privilege violation is the most
       interesting thing this file can hold
-- [ ] A database on a deep layer answers, through a forward, with the same refusals as own-LAN
+- [x] A database on a deep layer answers, through a forward, with the same refusals as own-LAN
       — slice 5
-- [ ] A mysql connection reads no file on the target other than the datadir, at any tier — slice 5,
+- [x] A mysql connection reads no file on the target other than the datadir, at any tier — slice 5,
       which found it already TRUE and unproven: the parser admits six verbs and none of them names
       a path
-- [ ] `systemctl stop mysqld` / `kill <pid>` drops a connected player on their next statement —
+- [x] `systemctl stop mysqld` / `kill <pid>` drops a connected player on their next statement —
       slice 5, likewise already true: the reach re-reads the pidfiles per statement and everything
       that is not a well-formed 200 collapses to `lost`
 
@@ -1220,13 +1220,39 @@ since a refused write leaves a line of its own.
 
 ---
 
-### Slice 5: A database on a deep layer answers
+### Slice 5: A database on a deep layer answers ✔ LANDED (v0.166.0, #442, `29bba64`)
 
 **Value**: The vantage where the interesting boxes actually live.
 **Path**: inner-gateway resolution → the mysql door; the hydra sweep is proven, not built.
 **Class**: Behavior change. **Skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
 **RED**: Handler + command tests, then `scripts/testMysqlDeep.ts` live.
 **Done when**: criteria met, wire-check green, commit approved.
+
+#### As built — all twelve criteria, three commits, squashed onto `main` as `29bba64`
+
+**1-3, the port stops being a lie** (client only). `-p` is THE PORT everywhere; an own-LAN port
+that is not 3306 is `ERROR 2003`, and a malformed `-p` prints usage and reaches nothing rather
+than falling back to a door the player never typed.
+
+**4-7, the deep reach** (`api/`). Routing moved INTO `reachMysqlHost`, so one function serves both
+vantages and the two doors cannot drift apart by hand — which is also why half of commit 3 turned
+out to be already true. The greeting reads `hostname` off the server's answer, the only side that
+knows the deep box's own name. `reachMysqlHost` materializes the journal on top of whatever the
+resolver handed back; the resolver's own gap stays open, recorded below and in the backlog.
+
+**8-12, the address, the record, and the proofs** (`1752475c`). Criteria 9, 11 and 12 needed no
+production change at all — see the section below, and the mutation battery that is their only
+evidence. Live at close-out: `testMysqlDeep.ts` 13/13 (run twice), `testMysqlConnect` 13/13,
+`testMysqlQuery` 17/17, `testMysqlMutate` 14/14, `testMysqlSweepTrace` 13/13, and
+`testInnerGatewayReach` 14/14 — the last proving the shared resolver path left ssh and hydra
+undisturbed. `hydra -p <fwd> <gw> mysql` returned a database account off the deep box. 3269 tests,
+`tsc -b` and `eslint` clean.
+
+**Still owed, carried forward past D6's fifth slice**: criterion 2 (the `Enter user: ` wording and
+the no-default rule, implemented but untested since slice 3), the **42 column-metadata mutants** in
+`pools/database.ts` — which want a golden over the generated POPULATION, not one table on one box
+— and the deep-terminal-NPC resolver gap, now a backlog item in
+`v2/docs/conventions-and-gotchas.md` §9.
 
 #### Grilled 2026-08-21 — twelve criteria, three commits
 
