@@ -39,6 +39,8 @@ import type {
   RemoteAuthParams,
   RemoteAuthResult,
   MysqlConnectParams,
+  MysqlStatementParams,
+  MysqlStatementResult,
   MysqlConnectResult,
   NcConnectParams,
   NcConnectResult,
@@ -110,6 +112,7 @@ import {
   authCreateServerSessionSameLan,
   authElevateServerSession,
   connectDatabase,
+  runDatabaseStatement,
   crackCredentials,
   crackCredentialsInnerGateway,
   crackCredentialsPublic,
@@ -590,6 +593,14 @@ const mysqlConnect = (params: MysqlConnectParams): Promise<MysqlConnectResult> =
   sessionsClientDeps === undefined
     ? Promise.resolve({ ok: false })
     : connectDatabase(sessionsClientDeps, params);
+
+/** Run one statement against a LAN host's database (backs `env.mysql.run`). Before
+ *  the client is wired there is no daemon to ask, and `lost` is the honest answer:
+ *  the prompt closes rather than pretending to hold a connection to nothing. */
+const mysqlStatement = (params: MysqlStatementParams): Promise<MysqlStatementResult> =>
+  sessionsClientDeps === undefined
+    ? Promise.resolve({ kind: 'lost' })
+    : runDatabaseStatement(sessionsClientDeps, params);
 
 /** Crack credentials behind a stranger's PUBLIC IP server-side (backs
  *  `env.hydra.crackPublic`). Degrades the same way before the client is wired. */
@@ -1468,6 +1479,7 @@ const executeLine = async (line: string): Promise<void> => {
     onNcConnectInnerGateway: ncConnectInnerGateway,
     onSuElevate: suElevate,
     onMysqlConnect: mysqlConnect,
+    onMysqlStatement: mysqlStatement,
     onMysqlEnter: enterMysqlSession,
     onMysqlLeave: leaveMysqlSession,
     onHydraCrack: hydraCrack,
@@ -1502,11 +1514,16 @@ const executeLine = async (line: string): Promise<void> => {
     // the player is STANDING on while they believe they are addressing the database
     // — and this connection reaches no filesystem at all, so falling through would
     // answer with the one machine the credential bought no access to.
-    const result = inMysqlSession()
-      ? await runMysqlLine(env, line)
-      : inFtpSession()
-        ? await runFtpLine(env, line)
-        : await runCommandLine(env, line, commandRegistry);
+    // The held credential goes with the line, because there is no session row to
+    // send instead. Reading it here rather than from the env is also what keeps the
+    // sub-shell honest: it cannot run a statement the prompt is not holding.
+    const connection = mysqlConnection();
+    const result =
+      connection !== null
+        ? await runMysqlLine(env, line, connection)
+        : inFtpSession()
+          ? await runFtpLine(env, line)
+          : await runCommandLine(env, line, commandRegistry);
     if (result.kind === 'sync') {
       setScrollback((previous) => [...previous, ...result.lines]);
       return;

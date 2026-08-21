@@ -33,14 +33,10 @@
 import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { generateHomeLan } from '../generation/generateHomeLan';
-import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
-import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs';
-import { canBoot } from '../boot/bootFiles';
 import { md5 } from '../generation/md5';
+import { reachMysqlHost, type HandlerResponse, type MysqlHostLookup } from './mysqlHost';
 import { credentialIn, databaseNameIn } from '../mysql/datadir';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { readOpenPorts } from '../services/pidfile';
 import { derivePid } from '../logging/syslog';
 import { appendMachineLog } from '../patches/appendMachineLog';
 import { asGameTime } from '../types';
@@ -49,15 +45,10 @@ import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appen
 import type { PatchRow } from '../patches/upsertPatch';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
-export type MysqlConnectDeps = {
+export type MysqlConnectDeps = MysqlHostLookup & {
   readonly nonceStore: NonceStore;
   /** The server's wall clock, epoch-ms (UTC) — stamps the mysql.log line. */
   readonly now: () => number;
-  /** The TARGET host's journal, replayed over its seeded base so the gate reads the
-   *  box's real datadir and its real running services. */
-  readonly findPatches: (query: {
-    readonly machine_id: string;
-  }) => Promise<{ readonly data: readonly OwnerPatchRow[] | null; readonly error: unknown }>;
   /** The TARGET's current `/var/log/mysql.log` — the read half of the trace, so a
    *  connection appends to the box's history instead of replacing it. */
   readonly readMysqlLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
@@ -65,10 +56,7 @@ export type MysqlConnectDeps = {
   readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
 };
 
-export type HandlerResponse = {
-  readonly status: number;
-  readonly body: Record<string, unknown>;
-};
+export type { HandlerResponse };
 
 // Loose so the envelope fields (action/ts/nonce) pass through; the refine rejects a
 // client-supplied player_key (the server stamps it from the verified signature).
@@ -142,39 +130,15 @@ export const handleMysqlConnect = async (
   }
   const { publicKey, payload } = verified;
 
-  // Resolve the target on the caller's OWN regenerated LAN — which proves target_ip
-  // is a real reachable host rather than an arbitrary address, and yields what is
-  // needed to rebuild its filesystem.
-  const host = generateHomeLan(payload.essid).hosts.find(
-    (candidate) => candidate.ip === payload.target_ip,
-  );
-  if (host === undefined) {
-    return { status: 404, body: { error: 'host_unreachable' } };
-  }
-
-  const { machineId, baseFs } = resolveLanHostIdentity(host, payload.essid);
-
-  const patches = await deps.findPatches({ machine_id: machineId });
-  if (patches.error) {
-    return { status: 500, body: { error: 'patches_lookup_failed' } };
-  }
-  const hostFs = materializeMachineFs(baseFs, patches.data);
-
-  // A bricked box is dark before anything is asked of it, so a dead machine cannot
-  // be probed for which database accounts it used to have.
-  if (!canBoot(hostFs).ok) {
-    return { status: 404, body: { error: 'host_unreachable' } };
-  }
-
-  // The pidfiles are the truth about what is listening — the same source `nmap`
-  // reads. A stopped daemon has nothing to authenticate against, and its log stays
-  // exactly as this request found it.
-  const listening = readOpenPorts(hostFs).some(
-    (open) => open.service === SERVICE_CATALOG.mysql.service,
-  );
-  if (!listening) {
-    return { status: 404, body: { error: 'service_not_running' } };
-  }
+  // Shared with the statement door, so a login and the queries behind it can never
+  // disagree about whether the box is up or the daemon is listening. A stopped
+  // daemon's log stays exactly as this request found it.
+  const reach = await reachMysqlHost(deps, {
+    essid: payload.essid,
+    targetIp: payload.target_ip,
+  });
+  if (!reach.ok) return reach.refusal;
+  const { host, machineId, hostFs } = reach.reached;
 
   const credential = credentialIn(hostFs, payload.username);
   const opened = credential !== null && md5(payload.password) === credential.passwordHash;

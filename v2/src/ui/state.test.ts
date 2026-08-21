@@ -1368,7 +1368,7 @@ describe('the mysql sub-shell', () => {
   /** Boot online with a LAN lease and the client already installed. `mysql` is
    *  apt-gated like the ftp client, so the box has to already carry it — the player
    *  would have run `apt install mysql` before ever reaching this door. */
-  const bootOnline = async (opened = true) => {
+  const bootOnline = async ({ opened = true, statementsFail = false } = {}) => {
     vi.resetModules();
     const store = new Map<string, string>();
     const storage = {
@@ -1391,6 +1391,24 @@ describe('the mysql sub-shell', () => {
         }
         if (fields.action === 'mysqlConnect') {
           return { ok: opened, status: opened ? 200 : 401, json: async () => ({ ok: opened }) };
+        }
+        // The statement door answers with RENDERED TEXT and nothing else -- the same
+        // shape the real handler returns, so what the terminal prints here is what a
+        // player would see rather than a fixture's idea of it.
+        if (fields.action === 'mysqlStatement') {
+          // Every non-200 is one condition to the prompt: the connection it stands
+          // for is no longer there.
+          if (statementsFail) return { ok: false, status: 404, json: async () => ({}) };
+          const sql = String(fields['statement']);
+          const answer = /^\s*SHOW\s+TABLES/i.test(sql)
+            ? { output: ['+--------------+', '| Tables_in_db |', '+--------------+'], failed: false }
+            : {
+                output: [
+                  'ERROR: Unsupported SQL syntax. This MySQL instance supports basic queries only.',
+                ],
+                failed: true,
+              };
+          return { ok: true, status: 200, json: async () => answer };
         }
         return {
           ok: true,
@@ -1427,14 +1445,19 @@ describe('the mysql sub-shell', () => {
 
   /** Open a connection by actually typing the command and answering both prompts —
    *  the shipped path, not a poked signal. */
+  /** The account typed at the prompt. Named because every statement re-sends it,
+   *  and that is the claim rather than an implementation detail. */
+  const MYSQL_USER = 'readonly';
+  const MYSQL_PASSWORD = 'hunter2';
+
   const typeMysqlLogin = async (state: typeof import('./state')): Promise<void> => {
     state.setInput(`mysql ${DATABASE_HOST.ip}`);
     const run = state.runInput();
     await vi.waitFor(() => expect(state.pendingPrompt()).toBeDefined());
-    state.setInput('readonly');
+    state.setInput(MYSQL_USER);
     state.submitPrompt();
     await vi.waitFor(() => expect(state.pendingPrompt()).toBeDefined());
-    state.setInput('hunter2');
+    state.setInput(MYSQL_PASSWORD);
     state.submitPrompt();
     await run;
     await settle();
@@ -1471,7 +1494,7 @@ describe('the mysql sub-shell', () => {
   });
 
   it('leaves the player at the shell when the database refuses', async () => {
-    const { state } = await bootOnline(false);
+    const { state } = await bootOnline({ opened: false });
 
     await typeMysqlLogin(state);
 
@@ -1479,8 +1502,8 @@ describe('the mysql sub-shell', () => {
     expect(state.scrollback().at(-1)?.content).toContain('ERROR 1045 (28000)');
   });
 
-  it('answers an outer shell command with SQL syntax rather than running it', async () => {
-    const { state } = await bootOnline();
+  it('sends an outer shell command to the database instead of running it', async () => {
+    const { state, sent } = await bootOnline();
     await typeMysqlLogin(state);
 
     const output = await typeLine(state, 'cat /etc/passwd');
@@ -1488,9 +1511,44 @@ describe('the mysql sub-shell', () => {
     // The security boundary of the sub-shell: falling through to the registry would
     // read the machine the player is STANDING on while they believe they are
     // addressing the database. `alice` is in that file and must not appear.
-    expect(output).toContain('Unsupported SQL syntax');
     expect(output).not.toContain('tester:');
+    expect(output).toContain('Unsupported SQL syntax');
+    // And it went to the DATABASE, carrying the held credential -- the refusal is the
+    // server's answer rather than a guess this client made on its behalf.
+    const asked = sent.filter((payload) => payload.action === 'mysqlStatement');
+    expect(asked.map((payload) => payload['statement'])).toEqual(['cat /etc/passwd']);
     expect(state.inMysqlSession()).toBe(true);
+  });
+
+  it('carries the held credential with every statement, having no session to name', async () => {
+    const { state, sent } = await bootOnline();
+    await typeMysqlLogin(state);
+
+    await typeLine(state, 'SHOW TABLES');
+    await typeLine(state, 'SELECT 1');
+
+    // Decision 8's mechanism, visible: each statement re-sends the whole credential,
+    // and no session row was ever minted to send instead.
+    const asked = sent.filter((payload) => payload.action === 'mysqlStatement');
+    expect(asked).toHaveLength(2);
+    for (const payload of asked) {
+      expect(payload['username']).toBe(MYSQL_USER);
+      expect(payload['password']).toBe(MYSQL_PASSWORD);
+    }
+    expect(sent.some((payload) => payload.action === 'authCreateSession')).toBe(false);
+  });
+
+  it('closes the prompt when the box stops answering, and does not say Bye', async () => {
+    const { state } = await bootOnline({ statementsFail: true });
+    await typeMysqlLogin(state);
+
+    const output = await typeLine(state, 'SHOW TABLES');
+
+    // There is no session row to invalidate and no push channel, so the drop can only
+    // be discovered by the next statement. An eviction is not a quit.
+    expect(output).toContain('ERROR 2013 (HY000): Lost connection to MySQL server during query');
+    expect(output).not.toContain('Bye');
+    expect(state.inMysqlSession()).toBe(false);
   });
 
   it('hands back the same shell it never left', async () => {

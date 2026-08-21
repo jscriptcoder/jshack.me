@@ -677,7 +677,36 @@ export type MysqlApi = {
    *  end server-side — there was never a row — so unlike `ftp.leave` this is purely
    *  local state. */
   readonly leave: () => void;
+  /** Run one statement and get back what a terminal would print. */
+  readonly run: (params: MysqlStatementParams) => Promise<MysqlStatementResult>;
 };
+
+/** What one statement is sent with: the whole held credential, again. There is no
+ *  session id to send instead — that is decision 8's mechanism, not an oversight —
+ *  which is also why a datadir edited between two statements bites on the second. */
+export type MysqlStatementParams = MysqlConnectParams & {
+  /** The line exactly as the player typed it. Parsed on the server, so a syntax
+   *  error is the database's answer rather than the client's guess. */
+  readonly statement: string;
+};
+
+/**
+ * What came back from a statement.
+ *
+ * `answered` carries rendered lines and nothing else — never rows. A response
+ * carrying the result set would hand this client every row the account was not
+ * allowed to select, in a field the terminal never draws and anyone watching the
+ * wire can read.
+ *
+ * `lost` is every other outcome collapsed: the box gone, the daemon stopped, the
+ * credential no longer valid, the request never arriving. From the prompt's side
+ * they are one condition — the connection this prompt stands for is no longer
+ * there — and there is no session to invalidate, so the next statement is the only
+ * thing that can discover it.
+ */
+export type MysqlStatementResult =
+  | { readonly kind: 'answered'; readonly output: readonly string[]; readonly failed: boolean }
+  | { readonly kind: 'lost' };
 
 /** What `hydra` hands the crack action. `callerMachineId` names the box whose
  *  wordlist is consulted — the server verifies it belongs to the caller rather

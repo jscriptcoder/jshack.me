@@ -985,6 +985,33 @@ config change riding along on an unrelated slice.
 
 ---
 
+### Porting a renderer: capture the oracle, do not retype it
+
+When a v2 module claims to reproduce legacy output "verbatim" — an ASCII table, a log line, a banner
+— **capture the expected blocks by running legacy's own code over the same fixture**, then delete the
+temp harness from the frozen tree. A throwaway `src/**/__oracle.test.ts` at the repo root that writes
+its output to a file is enough (vitest swallows `console.log` there; use `writeFileSync`).
+
+**Why:** hand-typed goldens make "ports verbatim" an assertion about arithmetic you did in your head.
+Captured ones make it a measurement. When the two agree it costs five minutes; when they disagree you
+have just found the bug before writing it. Verify the frozen tree is clean afterwards — the legacy app
+is FROZEN and a stray test file in it is a real change.
+
+### A golden-output fixture must vary in the dimension each rule acts on
+
+A rendering rule is only tested if the fixture can tell it apart from its absence. Column alignment is
+invisible when every cell happens to be exactly as wide as its header; a default-value column is
+invisible when no column carries a default; case-insensitive matching is invisible when nothing is
+referenced in the wrong case.
+
+**Why:** these are not equivalent mutants, they are equivalent FIXTURES — the rule is real and
+unprotected, and the mutation score reads clean because the harness cannot distinguish the two.
+Mutation testing surfaces it; a coverage number never will.
+
+**How to apply:** for each rule the renderer implements, ask what fixture value would make its absence
+visible, and make sure one exists. Adding a second, deliberately awkward fixture beside the realistic
+one is usually cheaper than reworking the realistic one — and it leaves the realistic goldens stable.
+
 ### Testing gotchas found at the rendered layer
 
 - **A masked prompt has no `textbox` role.** `Terminal.tsx` renders `type={masked ? 'password' :

@@ -159,6 +159,10 @@ export type BuildCommandEnvArgs = {
    *  there is no session row to hold instead. */
   readonly onMysqlEnter?: MysqlApi['enter'];
   readonly onMysqlLeave?: MysqlApi['leave'];
+  /** One statement, answered server-side — backs `env.mysql.run`. The rendering
+   *  happens on the side that can see the whole database, so only its output
+   *  crosses the wire. */
+  readonly onMysqlStatement?: MysqlApi['run'];
   /** The transfer door's three seams — backs `env.scp`. The login is the same
    *  `authCreateSession` round-trip, asked for an `scp`-kind row; the write is the
    *  shipped patch client aimed at whatever machine the session landed on; the end
@@ -351,6 +355,9 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
     // loudly here would turn a good login into an error.
     enter: args.onMysqlEnter ?? (() => undefined),
     leave: args.onMysqlLeave ?? (() => undefined),
+    // Loud when unwired, like the login: a prompt that silently answered its own
+    // statements would be reading a database that is not there.
+    run: args.onMysqlStatement ?? notWired('mysql.run'),
   },
   scp: {
     authenticate: args.onScpAuthenticate ?? notWired('scp.authenticate'),

@@ -16,7 +16,12 @@
  */
 
 import { normalizeStatement } from '../mysql/statements';
-import type { CommandEnv, CommandResult, TerminalLine } from './types';
+import type {
+  CommandEnv,
+  CommandResult,
+  MysqlConnectParams,
+  TerminalLine,
+} from './types';
 
 const text = (content: string): TerminalLine => ({ kind: 'text', content });
 
@@ -26,10 +31,11 @@ const result = (lines: readonly TerminalLine[], exitCode = 0): CommandResult => 
   exitCode,
 });
 
-/** What a line this door does not recognise gets back. NOT a syntax error: telling a
- *  player their statement is malformed when the truth is that it is unsupported sends
- *  them to fix spelling that was never wrong. */
-const UNSUPPORTED = 'ERROR: Unsupported SQL syntax. This MySQL instance supports basic queries only.';
+/** What an evicted prompt says. There is no push channel and no session row to
+ *  invalidate, so a daemon stopped mid-session can only be discovered by the next
+ *  statement -- which makes the drop necessarily lazy, and this the first the player
+ *  hears of it. */
+const LOST = 'ERROR 2013 (HY000): Lost connection to MySQL server during query';
 
 /** What `help` lists, as synopsis/description pairs rather than pre-aligned strings:
  *  the column is computed from the longest synopsis, so adding a verb here cannot
@@ -57,7 +63,14 @@ const helpLines = (): readonly TerminalLine[] => [
   ),
 ];
 
-export const runMysqlLine = async (env: CommandEnv, line: string): Promise<CommandResult> => {
+/** The held connection is passed IN rather than read from the env, unlike `ftp>`
+ *  whose adapter holds a server-side session. There is no session here to hold: the
+ *  credential itself is what the prompt keeps, and it has to travel with the line. */
+export const runMysqlLine = async (
+  env: CommandEnv,
+  line: string,
+  connection: MysqlConnectParams,
+): Promise<CommandResult> => {
   const statement = normalizeStatement(line);
 
   // A bare Enter at a prompt is not a mistake -- say nothing back.
@@ -73,5 +86,22 @@ export const runMysqlLine = async (env: CommandEnv, line: string): Promise<Comma
 
   if (/^help$/i.test(statement)) return result(helpLines());
 
-  return result([{ kind: 'error', content: UNSUPPORTED }], 1);
+  // Everything else is the database's to answer. This client cannot tell a missing
+  // table from an unreadable one from a stopped daemon, and a guess at any of them
+  // would be a guess printed as fact.
+  const answer = await env.mysql.run({ ...connection, statement: line });
+
+  // An eviction closes the prompt and prints no `Bye`: a quit is the player leaving,
+  // this is the box leaving, and a prompt that answered every statement with the
+  // same error would strand them somewhere that reaches nothing.
+  if (answer.kind === 'lost') {
+    env.mysql.leave();
+    return result([{ kind: 'error', content: LOST }], 1);
+  }
+
+  const kind = answer.failed ? 'error' : 'text';
+  return result(
+    answer.output.map((content) => ({ kind, content })),
+    answer.failed ? 1 : 0,
+  );
 };
