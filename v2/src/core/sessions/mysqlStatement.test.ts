@@ -152,6 +152,10 @@ describe('answering a statement against a real box', () => {
     // The username and the address are re-sent with every statement precisely
     // because no session row holds them; a denial naming somebody else would mean
     // the credential being checked is not the credential the prompt is holding.
+    //
+    // The account list is the statement to ask it with: it is the one write refused
+    // at every tier, so what comes back is about the identity being carried and not
+    // about which rung this box happened to hand out.
     const host = mysqlHostOn(ESSID);
     const { identity, credential } = openOn(host);
     const { deps } = makeDeps();
@@ -161,7 +165,7 @@ describe('answering a statement against a real box', () => {
         target_ip: host.ip,
         username: credential.username,
         password: credential.password,
-        statement: 'DROP TABLE users',
+        statement: 'DROP TABLE credentials',
         source_ip: '10.9.9.9',
       }),
       deps,
@@ -171,7 +175,7 @@ describe('answering a statement against a real box', () => {
     expect(response.body).toEqual({
       failed: true,
       output: [
-        `ERROR 1142 (42000): DROP command denied to user '${credential.username}'@'10.9.9.9' for table 'users'`,
+        `ERROR 1142 (42000): DROP command denied to user '${credential.username}'@'10.9.9.9' for table 'credentials'`,
       ],
     });
   });
