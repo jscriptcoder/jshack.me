@@ -67,6 +67,7 @@ const mysqlConnectSchema = z
     action: z.literal('mysqlConnect'),
     essid: z.string().min(1),
     target_ip: z.string().min(1),
+    port: z.number().int().positive(),
     username: z.string().min(1),
     password: z.string(),
     source_ip: z.string().min(1).nullable().optional(),
@@ -136,9 +137,10 @@ export const handleMysqlConnect = async (
   const reach = await reachMysqlHost(deps, {
     essid: payload.essid,
     targetIp: payload.target_ip,
+    port: payload.port,
   });
   if (!reach.ok) return reach.refusal;
-  const { host, machineId, hostFs } = reach.reached;
+  const { hostname, machineId, hostFs, sourceIp } = reach.reached;
 
   const credential = credentialIn(hostFs, payload.username);
   const opened = credential !== null && md5(payload.password) === credential.passwordHash;
@@ -146,21 +148,33 @@ export const handleMysqlConnect = async (
   // The host is resolved by now, so the attempt CAN be recorded — the daemon writes
   // up accepted and refused connections alike. (A refusal above logs nothing: there
   // is no machine, or no daemon, to log on.)
+  // The ROUTE decides the address whenever it can: through a forward the box has only
+  // ever seen the fronting gateway's `.1`, whoever is behind it, so echoing the caller's
+  // claim would write a line no daemon could have produced. On the caller's own LAN the
+  // route knows nothing and the claim stands. ONE value, used for both the line written
+  // here and the refusal handed back, so what the player reads and what the defender
+  // finds cannot be different addresses for the same attempt.
+  const fromIp = sourceIp ?? payload.source_ip ?? 'unknown';
+
   await recordAttempt(deps, {
     writerKey: publicKey,
     machineId,
-    hostname: host.hostname,
+    hostname,
     username: payload.username,
-    fromIp: payload.source_ip ?? 'unknown',
+    fromIp,
     hostFs,
     opened,
   });
 
   if (!opened) {
-    return { status: 401, body: { error: 'invalid_credentials' } };
+    return { status: 401, body: { error: 'invalid_credentials', from: fromIp } };
   }
 
+  // The name comes back because through a forward it is unknowable any other way: a
+  // deep box's address is absent from the generated LAN, so the client greets with what
+  // actually answered rather than with what it guessed.
+  //
   // No session row, at any tier. There is nothing to insert and nothing to leak:
   // the credential is re-validated on the next statement instead.
-  return { status: 200, body: { ok: true } };
+  return { status: 200, body: { ok: true, hostname } };
 };

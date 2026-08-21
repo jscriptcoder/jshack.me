@@ -8,7 +8,12 @@ import { hostServices } from '../generation/remoteHostFs';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { asAbsPath } from '../types';
 import { md5 } from '../generation/md5';
-import { databaseOn, knownDatabaseCredential, mysqlHostOn } from '../../test/factories/lanDatabase';
+import {
+  databaseOn,
+  deepDatabaseFixture,
+  knownDatabaseCredential,
+  mysqlHostOn,
+} from '../../test/factories/lanDatabase';
 import { parseMysqlDatabase } from '../mysql/types';
 import { MYSQL_LOG_PATH } from '../logging/mysqlLog';
 import type { PatchRow } from '../patches/upsertPatch';
@@ -102,11 +107,13 @@ const signedStatement = (
     readonly password: string;
     readonly statement: string;
     readonly source_ip?: string | null;
+    readonly port?: number;
   },
 ) =>
   signRequest(identity, 'mysqlStatement', {
     essid: request.essid ?? ESSID,
     target_ip: request.target_ip,
+    port: request.port ?? SERVICE_CATALOG.mysql.defaultPort,
     username: request.username,
     password: request.password,
     statement: request.statement,
@@ -143,6 +150,204 @@ const laddered = (host: LanHost) =>
       ],
     }),
   );
+
+
+/** The same box every deep-vantage test in this file runs against, and the forward
+ *  that is the only way to name it. */
+const DEEP = deepDatabaseFixture();
+const FORWARD_PORT = 33306;
+
+/** Journals per machine: the gateway's carries the forward, the deep box's carries
+ *  whatever the test planted in its datadir. A mock answering the same rows for every
+ *  id would give the deep box the gateway's forward table as well. */
+const deepDeps = (deepPatches: readonly OwnerPatchRow[] = []) => {
+  const rows: Readonly<Record<string, readonly OwnerPatchRow[]>> = {
+    [DEEP.gatewayMachineId]: [
+      patchRow('/etc/iptables/rules.v4', `forward ${FORWARD_PORT} to ${DEEP.layer.host.ip}:3306`),
+    ],
+    [DEEP.machineId]: deepPatches,
+  };
+  const upsertPatch = vi.fn<MysqlStatementDeps['upsertPatch']>(async () => ({ error: null }));
+  const deps: MysqlStatementDeps = {
+    nonceStore: freshStore,
+    findPatches: vi.fn<MysqlStatementDeps['findPatches']>(async ({ machine_id }) => ({
+      data: rows[machine_id] ?? [],
+      error: null,
+    })),
+    upsertPatch,
+    readMysqlLog: vi.fn<MysqlStatementDeps['readMysqlLog']>(async () => ({
+      data: { content: null },
+      error: null,
+    })),
+    now: () => STAMPED_AT,
+  };
+  return { deps, upsertPatch };
+};
+
+/** The three rungs on the DEEP box's datadir, planted for the same reason they are
+ *  planted on a LAN box: which tiers a generated database carries is a roll. */
+const deepLaddered = () =>
+  patchRow(
+    '/var/lib/mysql/data.json',
+    JSON.stringify({
+      ...DEEP.database,
+      credentials: [
+        { username: 'dba', passwordHash: md5(ROOT_PASSWORD), userType: 'root' },
+        { username: 'app_rw', passwordHash: md5(APP_PASSWORD), userType: 'user' },
+        { username: 'readonly', passwordHash: md5(GUEST_PASSWORD), userType: 'guest' },
+      ],
+    }),
+  );
+
+const deepStatement = async (
+  username: string,
+  password: string,
+  statement: string,
+  deps: MysqlStatementDeps,
+) =>
+  handleMysqlStatement(
+    await signedStatement(generateIdentity(), {
+      essid: DEEP.essid,
+      target_ip: DEEP.gateway.ip,
+      port: FORWARD_PORT,
+      username,
+      password,
+      statement,
+    }),
+    deps,
+  );
+
+describe('a statement on a database behind a forward', () => {
+  it('answers from the deep box the forward leads to', async () => {
+    const { deps } = deepDeps([deepLaddered()]);
+
+    const response = await deepStatement('readonly', GUEST_PASSWORD, 'SHOW TABLES', deps);
+
+    // The tables are the DEEP box's own. Answering from anywhere else — the gateway,
+    // a regenerated baseline — would render a database this box does not hold.
+    const rendered = JSON.stringify(response.body);
+    expect(response.status).toBe(200);
+    for (const table of Object.keys(DEEP.database.tables)) {
+      expect(rendered).toContain(table);
+    }
+  });
+
+  it('refuses a write at the same tier as it would on the caller own LAN', async () => {
+    const { deps } = deepDeps([deepLaddered()]);
+    const table = Object.keys(DEEP.database.tables)[0] ?? 'orders';
+
+    const response = await deepStatement(
+      'readonly',
+      GUEST_PASSWORD,
+      `DROP TABLE ${table}`,
+      deps,
+    );
+
+    // The address is the one NAT showed the box, not the one the caller claimed:
+    // through a forward the daemon has never seen a 192.168.x address in its life.
+    expect(response).toEqual({
+      status: 200,
+      body: {
+        output: [
+          `ERROR 1142 (42000): DROP command denied to user 'readonly'@'${DEEP.natIp}' for table '${table}'`,
+        ],
+        failed: true,
+      },
+    });
+  });
+
+  it('answers from the datadir as the JOURNAL holds it, not as the box was seeded', async () => {
+    const cloned = Object.values(DEEP.database.tables)[0];
+    if (cloned === undefined) throw new Error('the deep database holds no table to clone');
+    const planted = {
+      ...DEEP.database,
+      tables: { ...DEEP.database.tables, planted_ledger: cloned },
+      credentials: [{ username: 'dba', passwordHash: md5(ROOT_PASSWORD), userType: 'root' }],
+    };
+    const { deps } = deepDeps([patchRow('/var/lib/mysql/data.json', JSON.stringify(planted))]);
+
+    const response = await deepStatement('dba', ROOT_PASSWORD, 'SHOW TABLES', deps);
+
+    // The deep box is the one hop of the chain whose journal nothing used to replay.
+    // Left unread, every change a player makes down here is written and never seen.
+    expect(JSON.stringify(response.body)).toContain('planted_ledger');
+  });
+
+  it('files a change against the deep box, not the gateway it was reached through', async () => {
+    const { deps, upsertPatch } = deepDeps([deepLaddered()]);
+    const table = Object.keys(DEEP.database.tables)[0] ?? 'orders';
+
+    await deepStatement('dba', ROOT_PASSWORD, `DROP TABLE ${table}`, deps);
+
+    // The gateway forwarded the packet; it did not run the statement. A write filed
+    // against it would answer Query OK while the change lands on no database at all.
+    const datadirWrites = upsertPatch.mock.calls
+      .map(([row]) => row)
+      .filter((row) => row.path === asAbsPath('/var/lib/mysql/data.json'));
+    expect(datadirWrites.map((row) => row.machine_id)).toEqual([DEEP.machineId]);
+  });
+
+  it('reaches the datadir and the daemon own log on the deep box, and nothing else', async () => {
+    const { deps, upsertPatch } = deepDeps([deepLaddered()]);
+    const table = Object.keys(DEEP.database.tables)[0] ?? 'orders';
+
+    const response = await deepStatement('dba', ROOT_PASSWORD, `DROP TABLE ${table}`, deps);
+
+    // Over EVERY path written, and both halves of each address. The gateway carried
+    // the packet and ran nothing, so a line filed against it sends a defender reading
+    // the wrong box's history — and NAT itself keeps no record to find.
+    expect(response.status).toBe(200);
+    expect(upsertPatch.mock.calls.map(([row]) => [row.machine_id, row.path])).toEqual([
+      [DEEP.machineId, asAbsPath('/var/lib/mysql/data.json')],
+      [DEEP.machineId, MYSQL_LOG_PATH],
+    ]);
+  });
+
+  it('names the address NAT showed the box in the line it leaves behind', async () => {
+    const { deps, upsertPatch } = deepDeps([deepLaddered()]);
+    const table = Object.keys(DEEP.database.tables)[0] ?? 'orders';
+
+    await deepStatement('readonly', GUEST_PASSWORD, `DROP TABLE ${table}`, deps);
+
+    // The refusal the player read and the evidence the defender finds have to be the
+    // same address. Written from the caller's claim instead, the trace would name an
+    // attacker at a 192.168.x address this daemon has never been able to see.
+    expect(loggedLines(upsertPatch)).toEqual([
+      `2026-08-21T09:14:02.000000Z	6000 Denied	DROP command denied to user 'readonly'@'${DEEP.natIp}' for table '${table}'`,
+    ]);
+  });
+
+  it('drops a player whose daemon was stopped between two statements', async () => {
+    const { deps } = deepDeps([deepLaddered(), patchRow('/var/run/mysqld.pid', null)]);
+
+    const response = await deepStatement('dba', ROOT_PASSWORD, 'SHOW TABLES', deps);
+
+    // Reachability is re-checked per statement because there is no session to
+    // invalidate and no push channel — so the next statement is the only place a
+    // stopped daemon can surface. The client turns this into `Lost connection`.
+    expect(response).toEqual({ status: 404, body: { error: 'service_not_running' } });
+  });
+
+  it('drops a player whose forward was pulled between two statements', async () => {
+    const { deps } = deepDeps([deepLaddered()]);
+
+    const response = await handleMysqlStatement(
+      await signedStatement(generateIdentity(), {
+        essid: DEEP.essid,
+        target_ip: DEEP.gateway.ip,
+        port: FORWARD_PORT + 1,
+        username: 'dba',
+        password: ROOT_PASSWORD,
+        statement: 'SHOW TABLES',
+      }),
+      deps,
+    );
+
+    // The forward is re-resolved per statement rather than held open, so a rule the
+    // gateway no longer carries reaches nothing — exactly as if it never had.
+    expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+  });
+});
 
 describe('answering a statement against a real box', () => {
   it('renders the box own tables and returns nothing but the rendering', async () => {
@@ -362,6 +567,7 @@ describe('the tier a statement runs at', () => {
       await signRequest(identity, 'mysqlStatement', {
         essid: ESSID,
         target_ip: host.ip,
+        port: SERVICE_CATALOG.mysql.defaultPort,
         username: login.username,
         password: login.password,
         statement: 'SELECT * FROM credentials',

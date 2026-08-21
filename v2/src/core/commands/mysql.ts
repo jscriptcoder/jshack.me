@@ -8,12 +8,28 @@
 
 import { generateHomeLan } from '../generation/generateHomeLan';
 import { connectedWlan0 } from '../network/interfaces';
-import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
+import { forwardsIntoDeepLayer, resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { readOpenPorts } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
 
 const USAGE = 'usage: mysql [-p port] <host> [user]';
+
+/** `-p <port>` — the port to connect ON, which is not what the real client reads it
+ *  as. Absent means the daemon's own 3306; `null` means the player typed something
+ *  that is no port, including a bare `-p` that named nothing.
+ *
+ *  Refused rather than defaulted, DELIBERATELY unlike the same flag on `hydra`, which
+ *  falls back to the default door. There the port only ever selects between doors on
+ *  one box; here it IS the address of the daemon, so quietly substituting a number
+ *  the player did not type would connect them somewhere they did not ask for and
+ *  never mention it. */
+const parsePort = (raw: string | true | undefined): number | null => {
+  if (raw === undefined) return SERVICE_CATALOG.mysql.defaultPort;
+  if (raw === true) return null;
+  const port = Number(raw);
+  return Number.isInteger(port) && port > 0 ? port : null;
+};
 
 /** Every failure to reach a daemon is one error code with a different parenthetical,
  *  as the real client's are — the code says "no connection", the reason says why. */
@@ -40,6 +56,14 @@ const accessDenied = (username: string, fromIp: string): CommandResult =>
   errorResult(
     `ERROR 1045 (28000): Access denied for user '${username}'@'${fromIp}' (using password: YES)`,
   );
+
+/** What the daemon's absence is called, for the two refusals that are not about a
+ *  credential at all. The same words this command already uses when it can see for
+ *  itself that nothing is listening. */
+const REACH_REASON: Readonly<Record<'unreachable' | 'refused', string>> = {
+  unreachable: 'No route to host',
+  refused: 'Connection refused',
+};
 
 /** The client line, then the server's own -- ftp's shape. Deliberately VERSION-FREE:
  *  the real monitor's greeting leads with one, and a version string is the single
@@ -72,7 +96,10 @@ const askCredential = async (
 /** A host on the player's OWN generated LAN. Reachability is deterministic there, so
  *  it is settled from the pidfiles — the same source `nmap` reads, so a door the
  *  player was shown is a door that opens — BEFORE anything is typed. */
-const lanConnect = async (
+/** Ask for the credential, send it, and hand over the prompt. Shared by both
+ *  vantages: what differs is only whether this client could see the box for itself
+ *  BEFORE prompting, and everything after the prompt is the same conversation. */
+const openDatabase = async (
   env: CommandEnv,
   {
     target,
@@ -88,57 +115,89 @@ const lanConnect = async (
     readonly named: string | undefined;
   },
 ): Promise<CommandResult> => {
-  const host = generateHomeLan(essid).hosts.find((candidate) => candidate.ip === target);
-  if (host === undefined) return unreachable(target, port, 'No route to host');
-
-  const { baseFs } = resolveLanHostIdentity(host, essid);
-  const listening = readOpenPorts(baseFs).some(
-    (open) => open.service === SERVICE_CATALOG.mysql.service,
-  );
-  if (!listening) return unreachable(target, port, 'Connection refused');
-
   const credential = await askCredential(env, named);
   if (credential === null) return ABORTED;
 
-  const opened = await env.mysql.connect({
-    essid,
-    targetIp: target,
-    username: credential.username,
-    password: credential.password,
-    sourceIp,
-  });
-  if (!opened.ok) return accessDenied(credential.username, sourceIp);
-
   // What is held is exactly what was sent. There is no session row to name, so every
   // statement re-sends the whole credential -- which is what makes this door reach no
-  // filesystem structurally rather than by a rule somebody has to keep.
+  // filesystem structurally rather than by a rule somebody has to keep. The PORT rides
+  // along with it, so each statement re-resolves the same forward the login came
+  // through, and a forward pulled out from under the player drops them on the next one.
   const connection = {
     essid,
     targetIp: target,
+    port,
     username: credential.username,
     password: credential.password,
     sourceIp,
   };
+  const opened = await env.mysql.connect(connection);
+  if (!opened.ok) {
+    // The address in the refusal is the daemon's own answer, not this client's guess:
+    // behind a forward the box never saw the player's address at all.
+    return opened.reason === 'denied'
+      ? accessDenied(credential.username, opened.fromIp)
+      : unreachable(target, port, REACH_REASON[opened.reason]);
+  }
+
   env.mysql.enter(connection);
 
-  return { kind: 'sync', lines: greeting(host.hostname), exitCode: 0 };
+  // Greeted with what ANSWERED, rather than with what this client looked up. Through a
+  // forward there is nothing to look up: the box's address is absent from the LAN.
+  return { kind: 'sync', lines: greeting(opened.hostname), exitCode: 0 };
 };
 
-const execute: Command['execute'] = async (env, args) => {
+/** The caller's own LAN, where this client can see for itself whether the box is
+ *  there and whether mysqld holds the port — so an unreachable target costs the player
+ *  no typing. Nothing behind a forward can be checked this way: that table lives in the
+ *  gateway's journal, which only the server replays. */
+const lanReach = (
+  essid: string,
+  target: string,
+  port: number,
+): CommandResult | null => {
+  const host = generateHomeLan(essid).hosts.find((candidate) => candidate.ip === target);
+  if (host === undefined) return unreachable(target, port, 'No route to host');
+
+  // BOTH halves, because either alone is a door that opens on the wrong thing: a
+  // port with no daemon behind it, or an open port belonging to somebody else's —
+  // and a database box is commonly listening on ssh and ftp as well.
+  const { baseFs } = resolveLanHostIdentity(host, essid);
+  const listening = readOpenPorts(baseFs).some(
+    (open) => open.port === port && open.service === SERVICE_CATALOG.mysql.service,
+  );
+  return listening ? null : unreachable(target, port, 'Connection refused');
+};
+
+const execute: Command['execute'] = async (env, args, flags) => {
   const target = args[0];
   if (target === undefined) return errorResult(USAGE);
 
-  const port = SERVICE_CATALOG.mysql.defaultPort;
+  const port = parsePort(flags.get('-p'));
+  if (port === null) return errorResult(USAGE);
+
   // One question, four ways to answer no — and the address comes back with it, so
   // the refusal below can name what the daemon would have seen without a fallback
   // for an address that cannot be missing by the time we are here.
   const wlan0 = connectedWlan0(env.network);
   if (wlan0 === null) return unreachable(target, port, 'Network is unreachable');
+  const essid = wlan0.association.essid;
 
-  return lanConnect(env, {
+  // A port on an inner gateway other than its own sshd addresses the hidden layer
+  // BEHIND it — the same rule `ssh -p <fwd> <inner>` and `hydra -p <fwd> <inner>` route
+  // by, so all three tools reach the same box. There is nothing to pre-flight there:
+  // the forward table is in the gateway's server-side journal, so the player is asked
+  // for a credential first and told afterwards, exactly as a real client refused at
+  // the socket would.
+  const refusal = forwardsIntoDeepLayer({ essid, target, port })
+    ? null
+    : lanReach(essid, target, port);
+  if (refusal !== null) return refusal;
+
+  return openDatabase(env, {
     target,
     port,
-    essid: wlan0.association.essid,
+    essid,
     sourceIp: wlan0.ipv4,
     named: args[1],
   });

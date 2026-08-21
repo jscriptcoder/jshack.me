@@ -36,6 +36,10 @@ import { generateHomeLan, type LanHost } from '../src/core/generation/generateHo
 import { hostServices } from '../src/core/generation/remoteHostFs';
 import { resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
+
+/** The port these checks address the daemon on. Own-LAN, so it is the daemon's own:
+ *  a forwarded port is what reaches a box on a deeper layer instead. */
+const MYSQL_PORT = SERVICE_CATALOG.mysql.defaultPort;
 import { parseMysqlDatabase, type MysqlDatabase } from '../src/core/mysql/types';
 import { DATADIR_PATH } from '../src/core/mysql/datadir';
 import { md5 } from '../src/core/generation/md5';
@@ -214,6 +218,7 @@ const say = (
     signRequest(identity, 'mysqlStatement', {
       essid: ESSID,
       target_ip: target.ip,
+      port: MYSQL_PORT,
       username: account.username,
       password: account.password,
       statement: sql,

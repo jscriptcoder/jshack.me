@@ -657,7 +657,9 @@ describe('a sub-shell prompt', () => {
       vi.fn(async (_url: string, init?: { body?: string }) => {
         const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<string, unknown>;
         if (fields.action === 'mysqlConnect') {
-          return new Response(JSON.stringify({ ok: true }), { status: 200 });
+          // The box names itself: a 200 without one is not an open door, because the
+          // greeting has nothing to greet.
+          return new Response(JSON.stringify({ ok: true, hostname: 'db-11' }), { status: 200 });
         }
         // The client is apt-gated, so the box has to already carry it.
         return new Response(

@@ -645,6 +645,10 @@ export type SuApi = {
 export type MysqlConnectParams = {
   readonly essid: string;
   readonly targetIp: string;
+  /** The port to connect ON. Against an inner gateway a port other than its own sshd
+   *  addresses the hidden layer BEHIND it, which is the only way a deep box can be
+   *  named at all — its address is absent from the generated LAN. */
+  readonly port: number;
   readonly username: string;
   readonly password: string;
   /** The address the target's `/var/log/mysql.log` records the connection from.
@@ -661,7 +665,18 @@ export type MysqlConnectParams = {
  *  them apart would let a player enumerate which accounts the database has by typing
  *  names at it. Saying nothing is how the client is kept unable to leak the
  *  difference even by accident. */
-export type MysqlConnectResult = { readonly ok: true } | { readonly ok: false };
+export type MysqlConnectResult =
+  /** The box's own name, which through a forward only the server can know. */
+  | { readonly ok: true; readonly hostname: string }
+  /** Nothing was there to refuse the credential: no route to the box, or no daemon on
+   *  the port reached. Distinct from `denied` and safe to be — a scan already tells
+   *  anyone who asks whether a box runs a database, so this separates a missing BOX
+   *  from a bad credential without ever separating the two halves of one. */
+  | { readonly ok: false; readonly reason: 'unreachable' | 'refused' }
+  /** The credential was refused. `fromIp` is the address the daemon SAW, which through
+   *  a forward is the fronting gateway's `.1` rather than the caller's — so the error
+   *  the player reads is the same string the box wrote down. */
+  | { readonly ok: false; readonly reason: 'denied'; readonly fromIp: string };
 
 /** The database door, client side. One call and no session pair, unlike `ftp`'s:
  *  there is no row to enter and none to leave, so nothing here holds state between

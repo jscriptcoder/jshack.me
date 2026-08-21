@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import {
+  connectDatabase,
+  runDatabaseStatement,
   authCreateServerSession,
   authCreateServerSessionInnerGateway,
   authCreateServerSessionPublic,
@@ -15,7 +17,7 @@ import { generateIdentity } from '../core/identity/identity';
 import { computeWorkstationId } from '../core/identity/workstation';
 import { verifySignedRequest } from '../core/signedRequest/verify';
 import { asEpochMs, asMachineId, asPlayerKeyHex } from '../core/types';
-import type { Session } from '../core/commands/types';
+import type { MysqlConnectParams, Session } from '../core/commands/types';
 
 const ENDPOINT = 'http://test.local/api/sessions';
 
@@ -760,5 +762,146 @@ describe('listServerSessions', () => {
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
 
     expect(await listServerSessions(deps)).toEqual([]);
+  });
+});
+
+
+/**
+ * The database door's client half.
+ *
+ * Two things it must carry that no other door does: the PORT, because through a NAT
+ * forward the port is the whole of the address, and the NAME of the box that answered,
+ * because a deep box's address is absent from the generated LAN and the greeting has
+ * nothing else to greet with.
+ *
+ * A wrong password and an account the database never held still collapse into one
+ * refusal. What does NOT collapse into it is a box that was not there — those are not
+ * claims about a credential, and on the caller's own LAN the command refuses them
+ * before it even prompts.
+ */
+describe('the database door', () => {
+  const connectParams = (over: Partial<MysqlConnectParams> = {}): MysqlConnectParams => ({
+    essid: 'BEAN-THERE-WIFI',
+    targetIp: '192.168.1.31',
+    port: 3306,
+    username: 'app_rw',
+    password: 'hunter-two',
+    sourceIp: '192.168.1.50',
+    ...over,
+  });
+
+  const sentPayload = async (fetchSpy: { mock: { calls: readonly unknown[][] } }) => {
+    const init = fetchSpy.mock.calls[0]?.[1] as { readonly body: string };
+    const envelope: unknown = JSON.parse(init.body);
+    const verified = await verifySignedRequest(envelope, z.looseObject({}), {
+      nonceStore: async () => ({ fresh: true }),
+    });
+    if (!verified.ok) throw new Error('the adapter sent something it did not sign');
+    return verified.payload as Record<string, unknown>;
+  };
+
+  it('sends the port it was asked to connect on, not the daemon default', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, hostname: 'db-11' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    await connectDatabase(deps, connectParams({ port: 33306 }));
+
+    // A forwarded port IS the address of a box on a hidden layer. Dropped here, every
+    // deep connection would land on whatever the gateway holds at 3306 instead.
+    expect((await sentPayload(fetchSpy)).port).toBe(33306);
+  });
+
+  it('opens with the name the box answered with', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, hostname: 'records-186' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await connectDatabase(deps, connectParams())).toEqual({
+      ok: true,
+      hostname: 'records-186',
+    });
+  });
+
+  it('treats a 200 that names no box as no door at all', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    // There is nothing to greet with, so there is nothing to enter. Passing it through
+    // as an open connection would leave the player at a prompt titled after nothing.
+    expect(await connectDatabase(deps, connectParams())).toEqual({
+      ok: false,
+      reason: 'unreachable',
+    });
+  });
+
+  it('refuses a credential at the address the DAEMON saw, not the one it was sent from', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(401, { error: 'invalid_credentials', from: '10.42.7.1' }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    // Through a forward the box was only ever shown the fronting gateway's `.1`. The
+    // command renders the 1045 line from this, so echoing the caller's own address
+    // would print a sentence the box's log flatly contradicts.
+    expect(await connectDatabase(deps, connectParams())).toEqual({
+      ok: false,
+      reason: 'denied',
+      fromIp: '10.42.7.1',
+    });
+  });
+
+  it('falls back to the address it sent from when the refusal names none', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(401, { error: 'invalid_credentials' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await connectDatabase(deps, connectParams())).toEqual({
+      ok: false,
+      reason: 'denied',
+      fromIp: '192.168.1.50',
+    });
+  });
+
+  it('tells a stopped daemon apart from a box that is not there', async () => {
+    const stopped = vi.fn(async () => jsonResponse(404, { error: 'service_not_running' }));
+    const missing = vi.fn(async () => jsonResponse(404, { error: 'host_unreachable' }));
+
+    // Two different sentences to the player: one says nothing is listening there, the
+    // other says nothing is there. Collapsing them would report a database the player
+    // just stopped as an address that never existed.
+    expect(await connectDatabase(makeDeps(stopped as unknown as typeof fetch), connectParams())).toEqual(
+      { ok: false, reason: 'refused' },
+    );
+    expect(await connectDatabase(makeDeps(missing as unknown as typeof fetch), connectParams())).toEqual(
+      { ok: false, reason: 'unreachable' },
+    );
+  });
+
+  it('sends the held port with every statement, so each one re-resolves the same forward', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { output: ['Empty set'], failed: false }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    await runDatabaseStatement(deps, {
+      ...connectParams({ port: 33306 }),
+      statement: 'SHOW TABLES',
+    });
+
+    // Without it a session opened through a forward would answer its first statement
+    // against whatever holds 3306 on the gateway — or nothing at all.
+    expect((await sentPayload(fetchSpy)).port).toBe(33306);
+  });
+
+  it('turns any refusal of a statement into a lost connection, whatever its name', async () => {
+    // The prompt has one way to end badly and the player has one thing to do about
+    // it. A daemon stopped under a live session and a forward pulled out from under
+    // one are the same event from the prompt: the box stopped answering.
+    const stopped = vi.fn(async () => jsonResponse(404, { error: 'service_not_running' }));
+    const pulled = vi.fn(async () => jsonResponse(404, { error: 'host_unreachable' }));
+    const statement = { ...connectParams({ port: 33306 }), statement: 'SHOW TABLES' };
+
+    expect(
+      await runDatabaseStatement(makeDeps(stopped as unknown as typeof fetch), statement),
+    ).toEqual({ kind: 'lost' });
+    expect(
+      await runDatabaseStatement(makeDeps(pulled as unknown as typeof fetch), statement),
+    ).toEqual({ kind: 'lost' });
   });
 });

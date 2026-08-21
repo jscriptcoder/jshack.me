@@ -16,10 +16,24 @@
  * same tree `cat` shows. A door reading a locally regenerated baseline would refuse
  * an account the player can see sitting in the datadir, or serve a table they
  * already dropped.
+ *
+ * TWO VANTAGES, one function. A port that addresses the hidden layer behind an inner
+ * gateway resolves down the forward chain instead of on the caller's own LAN, and the
+ * rest — materialize, boot-gate, is the daemon listening — is the same work on the same
+ * order. Routing here rather than in a second pair of handlers is what keeps the login
+ * and every statement behind it agreeing about the reach by construction.
+ *
+ * The chain resolver hands back the deep box's SEEDED tree: it replays each gateway's
+ * journal to read the forward table, but the box at the end of the chain is the one hop
+ * whose own journal nothing reads. That is survivable for a door that authenticates
+ * against seeded accounts and fatal for one that answers with DATA — a change written
+ * here would persist and never be read back — so this materializes on top of what the
+ * resolver returned. The gap itself is the resolver's to close for every door at once.
  */
 
-import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
+import { generateHomeLan } from '../generation/generateHomeLan';
+import { forwardsIntoDeepLayer, resolveLanHostIdentity } from '../generation/lanHostIdentity';
+import { resolveInnerGatewayTarget } from '../network/resolveInnerGatewayTarget';
 import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs';
 import { canBoot } from '../boot/bootFiles';
 import { readOpenPorts } from '../services/pidfile';
@@ -40,11 +54,18 @@ export type MysqlHostLookup = {
 };
 
 export type ReachedMysqlHost = {
-  readonly host: LanHost;
+  /** The box's own name, which through a forward only the server can know: a deep
+   *  address is absent from the generated LAN, so the client cannot look it up. */
+  readonly hostname: string;
   readonly machineId: string;
   /** The box's current filesystem — what the datadir and the pidfiles were read from,
    *  and what an accepted connection will be logged against. */
   readonly hostFs: Directory;
+  /** The address the box SAW this request arrive from, when the route decides it: the
+   *  fronting gateway's `.1`, because NAT is all a deep box is ever shown. `null` on the
+   *  caller's own LAN, where the address is the caller's and this seam is never told it
+   *  — the one thing it must not invent. */
+  readonly sourceIp: string | null;
 };
 
 export type MysqlHostReach =
@@ -53,10 +74,79 @@ export type MysqlHostReach =
 
 const UNREACHABLE: HandlerResponse = { status: 404, body: { error: 'host_unreachable' } };
 
+/** Everything after "which box is it": replay the box's journal, refuse it if it is
+ *  dark, and refuse it unless mysqld is the daemon on the port this request REACHED.
+ *  Shared by both vantages so neither can drift on the order or the refusals. */
+const openDatabaseOn = async (
+  deps: MysqlHostLookup,
+  box: {
+    readonly hostname: string;
+    readonly machineId: string;
+    readonly baseFs: Directory;
+    readonly reachedPort: number;
+    readonly sourceIp: string | null;
+  },
+): Promise<MysqlHostReach> => {
+  const patches = await deps.findPatches({ machine_id: box.machineId });
+  if (patches.error) {
+    return { ok: false, refusal: { status: 500, body: { error: 'patches_lookup_failed' } } };
+  }
+  const hostFs = materializeMachineFs(box.baseFs, patches.data);
+
+  // A bricked box is dark before anything is asked of it, so a dead machine cannot
+  // be probed for which database accounts it used to have.
+  if (!canBoot(hostFs).ok) return { ok: false, refusal: UNREACHABLE };
+
+  // The pidfiles are the truth about what is listening — the same source `nmap`
+  // reads. It must be mysqld ON THE PORT REACHED: a forward to sshd is not a door to
+  // the database, and neither is a LAN box's own ssh port.
+  const listening = readOpenPorts(hostFs).some(
+    (open) => open.port === box.reachedPort && open.service === SERVICE_CATALOG.mysql.service,
+  );
+  if (!listening) {
+    return { ok: false, refusal: { status: 404, body: { error: 'service_not_running' } } };
+  }
+
+  return {
+    ok: true,
+    reached: {
+      hostname: box.hostname,
+      machineId: box.machineId,
+      hostFs,
+      sourceIp: box.sourceIp,
+    },
+  };
+};
+
 export const reachMysqlHost = async (
   deps: MysqlHostLookup,
-  target: { readonly essid: string; readonly targetIp: string },
+  target: {
+    readonly essid: string;
+    readonly targetIp: string;
+    /** The port the request is addressed to. On an inner gateway a port other than its
+     *  own sshd addresses the layer BEHIND it, which is the whole of how a hidden box
+     *  is named at all. */
+    readonly port: number;
+  },
 ): Promise<MysqlHostReach> => {
+  if (forwardsIntoDeepLayer({ essid: target.essid, target: target.targetIp, port: target.port })) {
+    const resolved = await resolveInnerGatewayTarget(deps, {
+      essid: target.essid,
+      target: target.targetIp,
+      port: target.port,
+    });
+    if (!resolved.ok) {
+      return { ok: false, refusal: { status: resolved.status, body: { error: resolved.error } } };
+    }
+    return openDatabaseOn(deps, {
+      hostname: resolved.target.hostname,
+      machineId: resolved.target.machineId,
+      baseFs: resolved.target.fs,
+      reachedPort: resolved.target.reachedPort,
+      sourceIp: resolved.target.sourceIp,
+    });
+  }
+
   // Resolved on the caller's OWN regenerated LAN, which proves the address names a
   // reachable host rather than an arbitrary number, and yields what is needed to
   // rebuild its filesystem.
@@ -66,25 +156,13 @@ export const reachMysqlHost = async (
   if (host === undefined) return { ok: false, refusal: UNREACHABLE };
 
   const { machineId, baseFs } = resolveLanHostIdentity(host, target.essid);
-
-  const patches = await deps.findPatches({ machine_id: machineId });
-  if (patches.error) {
-    return { ok: false, refusal: { status: 500, body: { error: 'patches_lookup_failed' } } };
-  }
-  const hostFs = materializeMachineFs(baseFs, patches.data);
-
-  // A bricked box is dark before anything is asked of it, so a dead machine cannot
-  // be probed for which database accounts it used to have.
-  if (!canBoot(hostFs).ok) return { ok: false, refusal: UNREACHABLE };
-
-  // The pidfiles are the truth about what is listening — the same source `nmap`
-  // reads. A stopped daemon has nothing to authenticate against.
-  const listening = readOpenPorts(hostFs).some(
-    (open) => open.service === SERVICE_CATALOG.mysql.service,
-  );
-  if (!listening) {
-    return { ok: false, refusal: { status: 404, body: { error: 'service_not_running' } } };
-  }
-
-  return { ok: true, reached: { host, machineId, hostFs } };
+  return openDatabaseOn(deps, {
+    hostname: host.hostname,
+    machineId,
+    baseFs,
+    reachedPort: target.port,
+    // Never invented here. On the caller's own LAN the address the box saw is the
+    // caller's, which only the caller can state.
+    sourceIp: null,
+  });
 };

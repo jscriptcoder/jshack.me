@@ -78,6 +78,7 @@ const mysqlStatementSchema = z
     action: z.literal('mysqlStatement'),
     essid: z.string().min(1),
     target_ip: z.string().min(1),
+    port: z.number().int().positive(),
     username: z.string().min(1),
     password: z.string(),
     statement: z.string(),
@@ -106,9 +107,10 @@ export const handleMysqlStatement = async (
   const reach = await reachMysqlHost(deps, {
     essid: payload.essid,
     targetIp: payload.target_ip,
+    port: payload.port,
   });
   if (!reach.ok) return reach.refusal;
-  const { hostFs, machineId } = reach.reached;
+  const { hostFs, machineId, sourceIp } = reach.reached;
 
   const credential = credentialIn(hostFs, payload.username);
   if (credential === null || md5(payload.password) !== credential.passwordHash) return INVALID;
@@ -126,7 +128,10 @@ export const handleMysqlStatement = async (
     // From the credential that just validated, never from the payload. A client that
     // named its own tier would be naming its own permissions.
     userType: credential.userType,
-    sourceIp: payload.source_ip ?? 'unknown',
+    // The route's address wins over the caller's claim: a refusal through a forward
+    // names the `.1` the box actually saw, so the error the player reads and the line
+    // the defender finds are the same string.
+    sourceIp: sourceIp ?? payload.source_ip ?? 'unknown',
   });
 
   if (changed !== undefined) {

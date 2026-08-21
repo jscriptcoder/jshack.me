@@ -40,6 +40,10 @@ import { generateHomeLan, type LanHost } from '../src/core/generation/generateHo
 import { hostServices } from '../src/core/generation/remoteHostFs';
 import { resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
+
+/** The port these checks address the daemon on. Own-LAN, so it is the daemon's own:
+ *  a forwarded port is what reaches a box on a deeper layer instead. */
+const MYSQL_PORT = SERVICE_CATALOG.mysql.defaultPort;
 import { pidfilePath } from '../src/core/services/pidfile';
 import { parseMysqlDatabase } from '../src/core/mysql/types';
 import { ALL_GENERATED_PASSWORDS } from '../src/core/generation/passwordPools';
@@ -206,6 +210,7 @@ const connect = (password: string) =>
     signRequest(client, 'mysqlConnect', {
       essid: ESSID,
       target_ip: target.ip,
+      port: MYSQL_PORT,
       username: login.username,
       password,
       source_ip: CLIENT_IP,
@@ -220,6 +225,7 @@ const statementAs = (
     signRequest(client, 'mysqlStatement', {
       essid: ESSID,
       target_ip: target.ip,
+      port: MYSQL_PORT,
       username: account.username,
       password: account.password,
       statement: sql,
