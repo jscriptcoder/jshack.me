@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { mysqlDatabaseSchema } from './types';
 import { runStatement } from './statements';
 import type { MysqlDatabase } from './types';
+import type { UserType } from '../types';
 
 /**
  * What a database says back to a statement typed at `mysql>`.
@@ -43,6 +44,8 @@ const database = (overrides: Partial<MysqlDatabase> = {}): MysqlDatabase =>
     },
     credentials: [
       { username: 'root', passwordHash: 'd41d8cd98f00b204e9800998ecf8427e', userType: 'root' },
+      { username: 'app_rw', passwordHash: '5f4dcc3b5aa765d61d8327deb882cf99', userType: 'user' },
+      { username: 'readonly', passwordHash: '098f6bcd4621d373cade4e832627b4f6', userType: 'guest' },
     ],
     ...overrides,
   });
@@ -75,14 +78,24 @@ const run = (line: string, overrides: Partial<MysqlDatabase> = {}) =>
     database: database(overrides),
     line,
     username: 'readonly',
+    userType: 'guest',
     sourceIp: '192.168.1.42',
   });
 
-const runAs = (identity: { readonly username: string; readonly sourceIp: string }, line: string) =>
-  runStatement({ database: database(), line, ...identity });
+const runAs = (
+  identity: {
+    readonly username: string;
+    readonly userType: UserType;
+    readonly sourceIp: string;
+  },
+  line: string,
+) => runStatement({ database: database(), line, ...identity });
 
 describe('reading a database at the prompt', () => {
-  it('lists the tables under the database own name', () => {
+  it('lists the tables under the database own name, account list included', () => {
+    // `credentials` is listed at EVERY tier, this caller being the bottom one. Same
+    // shape as `/etc`, which is traversable to a guest who cannot open `passwd`: you
+    // are told the thing is there, and told separately that you may not read it.
     expect(run('SHOW TABLES')).toEqual({
       failed: false,
       output: [
@@ -91,8 +104,9 @@ describe('reading a database at the prompt', () => {
         '+--------------------+',
         '| orders             |',
         '| users              |',
+        '| credentials        |',
         '+--------------------+',
-        '2 rows in set (0.00 sec)',
+        '3 rows in set (0.00 sec)',
       ],
     });
   });
@@ -296,14 +310,33 @@ describe('what a database refuses to read', () => {
     expect(tampered.output.join(' ')).not.toContain('undefined');
   });
 
-  it('reports a database with no tables as having none rather than failing', () => {
+  it('lists the account list even when the datadir holds no tables of its own', () => {
+    // The account list is not one table among the drawn ones — it is always there. So
+    // this door can never answer a player with an empty grid, whatever a tamperer with
+    // root on the box deletes from the datadir.
     expect(run('SHOW TABLES', { tables: {} }).output).toEqual([
       '+--------------------+',
       '| Tables_in_app_prod |',
       '+--------------------+',
+      '| credentials        |',
       '+--------------------+',
-      '0 rows in set (0.00 sec)',
+      '1 row in set (0.00 sec)',
     ]);
+  });
+
+  it('describes a table stripped of its columns as having none rather than failing', () => {
+    // A datadir a player can reach as root is a datadir a player can hollow out. An
+    // empty grid is the honest answer to a table with nothing in it; a crash would
+    // tell the tamperer their edit landed.
+    expect(run('DESCRIBE hollow', { tables: { hollow: { columns: [], rows: [] } } }).output).toEqual(
+      [
+        '+-------+------+------+-----+---------+-------+',
+        '| Field | Type | Null | Key | Default | Extra |',
+        '+-------+------+------+-----+---------+-------+',
+        '+-------+------+------+-----+---------+-------+',
+        '0 rows in set (0.00 sec)',
+      ],
+    );
   });
 });
 
@@ -332,7 +365,8 @@ describe('what a database refuses to write', () => {
     // them, so a denial that named the wrong one would mean the credential the
     // prompt is holding is not the credential being checked.
     expect(
-      runAs({ username: 'app_rw', sourceIp: '10.0.0.7' }, 'DROP TABLE users').output,
+      runAs({ username: 'app_rw', userType: 'user', sourceIp: '10.0.0.7' }, 'DROP TABLE users')
+        .output,
     ).toEqual([
       "ERROR 1142 (42000): DROP command denied to user 'app_rw'@'10.0.0.7' for table 'users'",
     ]);
@@ -369,5 +403,161 @@ describe('what a database refuses to write', () => {
         output: ['ERROR 1064 (42000): You have an error in your SQL syntax'],
       });
     }
+  });
+});
+
+/**
+ * The account list, readable as a table — the database's own `/etc/passwd`.
+ *
+ * The mirror is exact rather than an analogy. `/etc` is a traversable directory, so a
+ * guest who runs `ls` sees `passwd` sitting in it; `PASSWD_FILE` is
+ * `read: ['root', 'user']`, so that same guest cannot open it. This table has the same
+ * shape one door in — listed and describable at every tier, readable only above guest —
+ * so the bottom rung can see exactly what the next credential buys. A ladder nobody can
+ * see the top of is not a ladder.
+ *
+ * It is a VIEW over the datadir's account list rather than an entry in its tables, and
+ * the tier it is checked against comes from the account the connection validated as.
+ */
+describe('the credentials table', () => {
+  const CREDENTIALS_SHAPE = [
+    '+---------------+--------------+------+-----+---------+-------+',
+    '| Field         | Type         | Null | Key | Default | Extra |',
+    '+---------------+--------------+------+-----+---------+-------+',
+    '| username      | varchar(255) | NO   | PRI | NULL    |       |',
+    '| password_hash | varchar(255) | NO   |     | NULL    |       |',
+    '| user_type     | varchar(255) | NO   |     | NULL    |       |',
+    '+---------------+--------------+------+-----+---------+-------+',
+    '3 rows in set (0.00 sec)',
+  ];
+
+  const DENIED_TO_READONLY =
+    "ERROR 1142 (42000): SELECT command denied to user 'readonly'@'192.168.1.42' for table 'credentials'";
+
+  const asUser = (line: string) =>
+    runAs({ username: 'app_rw', userType: 'user', sourceIp: '10.0.0.7' }, line);
+
+  const asRoot = (line: string) =>
+    runAs({ username: 'root', userType: 'root', sourceIp: '10.0.0.7' }, line);
+
+  it('describes at the bottom tier, so a guest reads the shape of what it cannot read', () => {
+    // Seeing that a `password_hash` column is sitting there is the whole point: it is
+    // what tells the bottom rung this door has something behind it worth a better
+    // credential, without handing over a single hash.
+    expect(run('DESCRIBE credentials')).toEqual({ failed: false, output: CREDENTIALS_SHAPE });
+  });
+
+  it('renders the account list with the hashes inline once the tier is high enough', () => {
+    // Inline, the way passwd's own rows carry theirs. This transfers no capability
+    // hydra does not already transfer — `john` runs the same wordlist through the same
+    // md5 — so what the middle tier actually buys is SILENCE. A sweep leaves a wall of
+    // denials in the target's own `mysql.log`; an offline crack writes nothing anywhere.
+    expect(asUser('SELECT * FROM credentials')).toEqual({
+      failed: false,
+      output: [
+        '+----------+----------------------------------+-----------+',
+        '| username | password_hash                    | user_type |',
+        '+----------+----------------------------------+-----------+',
+        '| root     | d41d8cd98f00b204e9800998ecf8427e | root      |',
+        '| app_rw   | 5f4dcc3b5aa765d61d8327deb882cf99 | user      |',
+        '| readonly | 098f6bcd4621d373cade4e832627b4f6 | guest     |',
+        '+----------+----------------------------------+-----------+',
+        '3 rows in set (0.00 sec)',
+      ],
+    });
+  });
+
+  it('answers database root exactly as it answers the application account', () => {
+    // Above the line is above the line. Root's reward is the write set it will earn,
+    // not a different view of this table — and a WHERE works here like anywhere.
+    expect(asRoot("SELECT username FROM credentials WHERE user_type = 'root'")).toEqual({
+      failed: false,
+      output: [
+        '+----------+',
+        '| username |',
+        '+----------+',
+        '| root     |',
+        '+----------+',
+        '1 row in set (0.00 sec)',
+      ],
+    });
+  });
+
+  it('refuses the bottom tier a SELECT, naming the connection that asked', () => {
+    expect(run('SELECT * FROM credentials')).toEqual({
+      failed: true,
+      output: [DENIED_TO_READONLY],
+    });
+  });
+
+  it('refuses before the field list, so the denial cannot answer which columns exist', () => {
+    // The same rule that puts a write denial ahead of table resolution. An account with
+    // no right to read this table has no right to be told what is in it — a refusal
+    // that said `Unknown column` instead would be a working column oracle for exactly
+    // the tier that must not have one.
+    expect(run('SELECT nosuchcolumn FROM credentials').output).toEqual([DENIED_TO_READONLY]);
+  });
+
+  it('still lets the bottom tier read the ordinary tables', () => {
+    // The refusal belongs to this table, not to the tier. A guest who lost every SELECT
+    // would have nothing to do at the prompt at all, and cracking one would stop being
+    // worth the wall of denials it costs.
+    expect(run('SELECT email FROM users')).toEqual({
+      failed: false,
+      output: [
+        '+-----------------+',
+        '| email           |',
+        '+-----------------+',
+        '| ada@example.com |',
+        '+-----------------+',
+        '1 row in set (0.00 sec)',
+      ],
+    });
+  });
+
+  it('is not shadowed by a table of the same name planted in the datadir', () => {
+    // The datadir is root-owned on a box a player can reach AS root, so a decoy is
+    // something a player can arrange. The account list a reader gets has to be the one
+    // that actually decides logins: otherwise planting an empty `credentials` table
+    // would hide the real accounts from the next player through this door, and the
+    // listing would name the same table twice.
+    const planted: Partial<MysqlDatabase> = {
+      tables: {
+        credentials: {
+          columns: [{ name: 'nothing', type: 'VARCHAR', nullable: true }],
+          rows: [{ nothing: 'decoy' }],
+        },
+      },
+    };
+
+    expect(run('SHOW TABLES', planted).output).toEqual([
+      '+--------------------+',
+      '| Tables_in_app_prod |',
+      '+--------------------+',
+      '| credentials        |',
+      '+--------------------+',
+      '1 row in set (0.00 sec)',
+    ]);
+    expect(run('DESCRIBE credentials', planted).output).toEqual(CREDENTIALS_SHAPE);
+  });
+
+  it('matches the name in any case, and echoes back the spelling the player used', () => {
+    // Case-insensitive like every other table name here. The denial echoes the typed
+    // spelling rather than the canonical one for the same reason it fires before
+    // resolution: confirming a table's exact casing is one more thing a refusal to an
+    // account with no right to ask should not say.
+    expect(run('DESCRIBE CREDENTIALS').output).toEqual(CREDENTIALS_SHAPE);
+    expect(run('SELECT * FROM Credentials').output).toEqual([
+      "ERROR 1142 (42000): SELECT command denied to user 'readonly'@'192.168.1.42' for table 'Credentials'",
+    ]);
+  });
+
+  it('refuses a write on it as a write, not as a table nobody may touch', () => {
+    // Nothing special is needed: the unconditional write denial already fires ahead of
+    // any table resolution, so this table is unwritable without a rule of its own — and
+    // it says DROP, which is the verb the player actually typed.
+    expect(run('DROP TABLE credentials').output).toEqual([
+      "ERROR 1142 (42000): DROP command denied to user 'readonly'@'192.168.1.42' for table 'credentials'",
+    ]);
   });
 });

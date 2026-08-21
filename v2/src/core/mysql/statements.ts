@@ -20,6 +20,7 @@
  */
 
 import type { MysqlColumn, MysqlColumnType, MysqlDatabase, MysqlRow, MysqlTable } from './types';
+import type { UserType } from '../types';
 
 export type StatementRequest = {
   readonly database: MysqlDatabase;
@@ -28,6 +29,10 @@ export type StatementRequest = {
   /** The account the connection was opened with. Re-sent with every statement
    *  because there is no session row holding it, and named back in a denial. */
   readonly username: string;
+  /** The tier that account carries in the datadir. Derived server-side from the
+   *  credential the statement just validated against, never sent by the client — a
+   *  client that named its own tier would be naming its own permissions. */
+  readonly userType: UserType;
   /** The address the connection came from, as the denial spells it. */
   readonly sourceIp: string;
 };
@@ -261,7 +266,13 @@ const unknownColumn = (name: string, clause: string): StatementResult =>
   refused(`ERROR 1054 (42S22): Unknown column '${name}' in '${clause}'`);
 
 const showTables = (database: MysqlDatabase): StatementResult => {
-  const names = Object.keys(database.tables);
+  // Appended rather than sorted in: the listing is the datadir's own key order, and
+  // re-sorting to make room for this one would reorder every other box's tables. A
+  // stored table of the same name is dropped, or the listing would name it twice.
+  const names = [
+    ...Object.keys(database.tables).filter((name) => !isCredentialsTable(name)),
+    CREDENTIALS_TABLE,
+  ];
   return succeeded([
     ...asciiTable([`Tables_in_${database.name}`], names.map((name) => [name]), [false]),
     countLine(names.length),
@@ -329,24 +340,82 @@ const select = (table: MysqlTable, statement: Statement & { kind: 'select' }): S
 };
 
 /**
- * Every write is refused, at every tier, for now.
+ * How this door spells a permission refusal, whatever earned it.
  *
- * The refusal comes BEFORE the table is resolved, and that is the point: a denial
- * that fired only for tables that exist would answer "does this table exist?" for an
- * account with no right to ask. The table name is echoed back as the player spelled
- * it, the way the real client echoes it.
+ * Both callers refuse BEFORE resolving anything, and that is the point: a denial that
+ * fired only for tables that exist would answer "does this table exist?" for an
+ * account with no right to ask. For the same reason the table is echoed back as the
+ * player SPELLED it rather than as the database holds it — confirming a table's exact
+ * casing is one more thing this answer should not say.
  */
-const denyWrite = (
-  request: StatementRequest,
-  statement: Statement & { readonly kind: 'write' },
-): StatementResult =>
+const deny = (request: StatementRequest, verb: string, table: string): StatementResult =>
   refused(
-    `ERROR 1142 (42000): ${statement.verb} command denied to user '${request.username}'@'${request.sourceIp}' for table '${statement.table}'`,
+    `ERROR 1142 (42000): ${verb} command denied to user '${request.username}'@'${request.sourceIp}' for table '${table}'`,
   );
+
+/**
+ * The account list, readable as a table — the database's own `/etc/passwd`.
+ *
+ * A VIEW over the datadir's accounts rather than an entry in its tables, and it wins
+ * over a stored table of the same name. What a player reads here has to be the list
+ * that actually decides logins: the datadir is root-owned on a box a player can reach
+ * AS root, so a planted `credentials` table is something a player can arrange, and a
+ * decoy that shadowed this would hide the real accounts from the next player through
+ * the door. Nothing generated ever collides with the name — the pool draws `api_keys`,
+ * `audit_log`, `config`, `employees`, `inventory`, `orders`, `sessions` and `users`.
+ */
+const CREDENTIALS_TABLE = 'credentials';
+
+const CREDENTIALS_COLUMNS: readonly MysqlColumn[] = [
+  { name: 'username', type: 'VARCHAR', nullable: false, key: 'PRI' },
+  { name: 'password_hash', type: 'VARCHAR', nullable: false },
+  { name: 'user_type', type: 'VARCHAR', nullable: false },
+];
+
+/**
+ * Which tiers may read it: the same two `PASSWD_FILE.read` names, because it guards the
+ * same kind of secret one door in. Held here rather than imported from the filesystem's
+ * permissions — those are two rules that agree, not one rule in two places, and the day
+ * this door's ladder moves it must not drag `/etc/passwd` along with it.
+ *
+ * Listing and `DESCRIBE` are deliberately NOT gated. `/etc` is traversable at every
+ * tier, so a guest sees `passwd` in `ls` and learns there is something there worth
+ * earning; this table has the same shape, because a ladder nobody can see the top of is
+ * not a ladder.
+ */
+const CREDENTIALS_READERS: readonly UserType[] = ['root', 'user'];
+
+const isCredentialsTable = (name: string): boolean => name.toLowerCase() === CREDENTIALS_TABLE;
+
+const credentialsTable = (database: MysqlDatabase): MysqlTable => ({
+  columns: CREDENTIALS_COLUMNS,
+  rows: database.credentials.map((credential) => ({
+    username: credential.username,
+    password_hash: credential.passwordHash,
+    user_type: credential.userType,
+  })),
+});
+
+const readCredentials = (
+  request: StatementRequest,
+  statement: Extract<Statement, { readonly kind: 'describe' | 'select' }>,
+): StatementResult => {
+  const table = credentialsTable(request.database);
+  if (statement.kind === 'describe') return describe(table);
+  // Ahead of the field list, so a refusal cannot double as a column oracle for the one
+  // tier that must not have one.
+  if (!CREDENTIALS_READERS.includes(request.userType)) {
+    return deny(request, 'SELECT', statement.table);
+  }
+  return select(table, statement);
+};
 
 const execute = (request: StatementRequest, statement: Statement): StatementResult => {
   if (statement.kind === 'showTables') return showTables(request.database);
-  if (statement.kind === 'write') return denyWrite(request, statement);
+  // Every write is still refused, at every tier: the ladder for writes is not built yet.
+  if (statement.kind === 'write') return deny(request, statement.verb, statement.table);
+
+  if (isCredentialsTable(statement.table)) return readCredentials(request, statement);
 
   const resolved = resolveTableName(request.database, statement.table);
   const table = resolved === undefined ? undefined : request.database.tables[resolved];

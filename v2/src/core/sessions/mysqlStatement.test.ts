@@ -6,6 +6,7 @@ import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { hostServices } from '../generation/remoteHostFs';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { asAbsPath } from '../types';
+import { md5 } from '../generation/md5';
 import { databaseOn, knownDatabaseCredential, mysqlHostOn } from '../../test/factories/lanDatabase';
 import type { OwnerPatchRow } from '../network/materializeMachineFs';
 import type { NonceStore } from '../signedRequest/nonceStore';
@@ -208,8 +209,8 @@ describe('what a statement cannot reach', () => {
   });
 
   it('refuses a box that is not running a database', async () => {
-    // Criterion 19's server half: the pidfiles are the truth about what is
-    // listening, so a daemon stopped between two statements stops answering them.
+    // The pidfiles are the truth about what is listening, so a daemon stopped
+    // between two statements stops answering them.
     const host = databaselessHostOn(ESSID);
     const { deps } = makeDeps();
 
@@ -274,5 +275,113 @@ describe('what a statement cannot reach', () => {
     );
 
     expect(findPatches).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Which tier a statement runs at, and where that tier comes from.
+ *
+ * From the credential the statement just validated against — the datadir's own record
+ * of the account — and from nowhere else. A client that could name its own tier would
+ * be naming its own permissions, and there is no session row anywhere holding a tier
+ * that was decided earlier and could be trusted now.
+ *
+ * The datadir here is PLANTED rather than found. The generator gives a read-only
+ * account to about half of all databases, so a claim that needs the bottom rung has to
+ * arrange one instead of hoping the box it picked has one.
+ */
+describe('the tier a statement runs at', () => {
+  const APP_PASSWORD = 'let-me-read';
+  const GUEST_PASSWORD = 'let-me-look';
+
+  const laddered = (host: LanHost) =>
+    patchRow(
+      '/var/lib/mysql/data.json',
+      JSON.stringify({
+        ...databaseOn(ESSID, host),
+        credentials: [
+          { username: 'app_rw', passwordHash: md5(APP_PASSWORD), userType: 'user' },
+          { username: 'readonly', passwordHash: md5(GUEST_PASSWORD), userType: 'guest' },
+        ],
+      }),
+    );
+
+  const ask = async (
+    host: LanHost,
+    identity: ReturnType<typeof generateIdentity>,
+    login: { readonly username: string; readonly password: string },
+    extra: Record<string, unknown> = {},
+  ) => {
+    const { deps } = makeDeps([laddered(host)]);
+    return handleMysqlStatement(
+      await signRequest(identity, 'mysqlStatement', {
+        essid: ESSID,
+        target_ip: host.ip,
+        username: login.username,
+        password: login.password,
+        statement: 'SELECT * FROM credentials',
+        source_ip: CLIENT_IP,
+        ...extra,
+      }),
+      deps,
+    );
+  };
+
+  it('refuses the account list to a read-only account, and leaks no hash doing it', async () => {
+    const host = mysqlHostOn(ESSID);
+    const response = await ask(host, generateIdentity(), {
+      username: 'readonly',
+      password: GUEST_PASSWORD,
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      failed: true,
+      output: [
+        `ERROR 1142 (42000): SELECT command denied to user 'readonly'@'${CLIENT_IP}' for table 'credentials'`,
+      ],
+    });
+    // Shape-independent, and that is the point: whatever fields the body grows, no
+    // stored hash appears anywhere in it. A whole-value check only catches a leak in
+    // a field somebody thought to look at; this catches one down a path added later
+    // by someone who never read this test.
+    for (const hash of [md5(APP_PASSWORD), md5(GUEST_PASSWORD)]) {
+      expect(JSON.stringify(response.body)).not.toContain(hash);
+    }
+  });
+
+  it('serves the same account list to the application account', async () => {
+    // The refusal above belongs to the tier, not to the table being unreadable by
+    // everyone — otherwise `credentials` would be a table nobody can use and the rung
+    // below would have nothing to climb toward.
+    const host = mysqlHostOn(ESSID);
+    const response = await ask(host, generateIdentity(), {
+      username: 'app_rw',
+      password: APP_PASSWORD,
+    });
+
+    expect(response.status).toBe(200);
+    expect(String(response.body['output'])).toContain(md5(GUEST_PASSWORD));
+    expect(response.body['failed']).toBe(false);
+  });
+
+  it('takes the tier from the datadir account, not from anything the client sends', async () => {
+    // The envelope is loose enough to carry this field and the signature covers it,
+    // so it arrives intact and correctly signed — and is still never read. The tier
+    // is a property of the account, and the account is a row on the target's disk.
+    const host = mysqlHostOn(ESSID);
+    const response = await ask(
+      host,
+      generateIdentity(),
+      { username: 'readonly', password: GUEST_PASSWORD },
+      { user_type: 'root' },
+    );
+
+    expect(response.body).toEqual({
+      failed: true,
+      output: [
+        `ERROR 1142 (42000): SELECT command denied to user 'readonly'@'${CLIENT_IP}' for table 'credentials'`,
+      ],
+    });
   });
 });

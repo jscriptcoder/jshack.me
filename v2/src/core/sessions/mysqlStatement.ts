@@ -2,10 +2,9 @@
  * handleMysqlStatement — one statement, answered against a box's real database.
  *
  * The credential arrives again here, with every statement, because the connection
- * minted no session row to trust instead. That is the mechanism behind decision 8
- * rather than an inefficiency: there is no row to leak, no row to authorize a
- * filesystem read with, and no row for `authorizeMachineAccess` to need a carve-out
- * for. It also means a datadir edited between two statements takes effect on the
+ * minted no session row to trust instead. That is the whole mechanism rather than an
+ * inefficiency: there is no row to leak, no row to authorize a filesystem read with,
+ * and no row for `authorizeMachineAccess` to need a carve-out for. It also means a datadir edited between two statements takes effect on the
  * second — the account list is re-read, not remembered.
  *
  * Reachability is the login door's, shared: same LAN resolution, same boot check,
@@ -90,6 +89,9 @@ export const handleMysqlStatement = async (
     database,
     line: payload.statement,
     username: payload.username,
+    // From the credential that just validated, never from the payload. A client that
+    // named its own tier would be naming its own permissions.
+    userType: credential.userType,
     sourceIp: payload.source_ip ?? 'unknown',
   });
 

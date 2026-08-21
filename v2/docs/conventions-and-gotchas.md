@@ -624,6 +624,20 @@ tool-level timeout kills the process outright — so a battery that runs long le
 mutant in the tree. Checking one marker is not enough (the control had been restored while a later
 mutant had not). Re-run the affected specs, or `git diff`, before trusting a green.
 
+**The harness must decode child output as UTF-8 explicitly.** Python's `subprocess` decodes with
+the ANSI codepage on Windows (cp1252), and vitest prints the box-drawing characters this project's
+goldens are made of — so the reader threads die with `UnicodeDecodeError` part-way through a
+battery. The verdicts stay CORRECT, because `returncode` comes from the process rather than the
+buffer, which is exactly what makes it dangerous: the run looks broken, the transcript is shredded,
+and the control's verdict scrolls away in stack traces. Pass `encoding='utf-8', errors='replace'`.
+
+**A large quoted heredoc silently writes nothing.** `cat > file <<'EOF'` with a body of roughly 150
+lines or more fails the whole command with ``unexpected EOF while looking for matching `'`` and
+leaves the target untouched — so the next command runs against stale content and the failure reads
+as a logic bug in code that was never written. Hit twice in one session, on a test file and on a
+patch script. Write the body to a file by other means and `cat` it into place, or keep heredocs
+short; either way, check the line count before trusting the write.
+
 Provably-equivalent mutant classes — accept (don't chase) when they recur:
 
 - **Type-narrowing defensive checks** — e.g. `raw === true` against a `string | true |

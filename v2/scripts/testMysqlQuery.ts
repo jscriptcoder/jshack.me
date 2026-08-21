@@ -20,6 +20,13 @@
 //     journal has to really be found and replayed; the unit test hands it over.
 //   - A daemon stopped by deleting its pidfile stops answering — which is what closes
 //     the player's prompt, and it has to be decided from the box's real filesystem.
+//   - The account list is LISTED and DESCRIBABLE to the bottom rung while its SELECT is
+//     refused — the tier ladder, decided from the datadir on the target rather than from
+//     anything the client said about itself.
+//   - No stored hash appears ANYWHERE in the bytes that come back from that refusal.
+//     Shape-independent on purpose: a whole-value assertion only guards the fields
+//     somebody thought to name, and this guards a field added later by someone who
+//     never read this file.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testMysqlQuery.ts
@@ -58,14 +65,25 @@ const check = (name: string, pass: boolean, detail: string) => {
   console.log(`${pass ? 'PASS' : 'FAIL'}  ${name}  —  ${detail}`);
 };
 
-const post = async (envelope: unknown): Promise<{ status: number; body: unknown }> => {
+/** The RAW text comes back alongside the parsed body: a hash-leak check has to read
+ *  the bytes that crossed, not a shape somebody chose to parse them into. */
+const post = async (
+  envelope: unknown,
+): Promise<{ status: number; body: unknown; raw: string }> => {
   const response = await fetch(SESSIONS, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(envelope),
   });
-  const body = await response.json().catch(() => null);
-  return { status: response.status, body };
+  const raw = await response.text();
+  const body = ((): unknown => {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  })();
+  return { status: response.status, body, raw };
 };
 
 // The same LAN the login smoke uses, so a failure here is about the statement door
@@ -106,15 +124,33 @@ if (database === null) {
   process.exit(2);
 }
 
-const login = database.credentials.flatMap((credential) => {
+const accounts = database.credentials.flatMap((credential) => {
   const password = ALL_GENERATED_PASSWORDS.find(
     (candidate) => md5(candidate) === credential.passwordHash,
   );
-  return password === undefined ? [] : [{ username: credential.username, password }];
-})[0];
+  return password === undefined
+    ? []
+    : [{ username: credential.username, password, userType: credential.userType }];
+});
+
+const login = accounts[0];
+
+// The tier claims need both rungs on ONE box, and the generator gives a read-only
+// account to about half of all databases — so this is a property of the ESSID, checked
+// rather than assumed.
+const guest = accounts.find((account) => account.userType === 'guest');
+const reader = accounts.find((account) => account.userType !== 'guest');
 
 if (login === undefined) {
   console.error(`${target.hostname} has no recoverable database account.`);
+  process.exit(2);
+}
+
+if (guest === undefined || reader === undefined) {
+  console.error(
+    `${target.hostname} has no recoverable account on BOTH sides of the credentials ` +
+      `line — pick another ESSID.`,
+  );
   process.exit(2);
 }
 
@@ -176,17 +212,23 @@ const connect = (password: string) =>
     }),
   );
 
-const statement = (sql: string, password = login.password) =>
+const statementAs = (
+  account: { readonly username: string; readonly password: string },
+  sql: string,
+) =>
   post(
     signRequest(client, 'mysqlStatement', {
       essid: ESSID,
       target_ip: target.ip,
-      username: login.username,
-      password,
+      username: account.username,
+      password: account.password,
       statement: sql,
       source_ip: CLIENT_IP,
     }),
   );
+
+const statement = (sql: string, password = login.password) =>
+  statementAs({ username: login.username, password }, sql);
 
 const rendered = (body: unknown): string => {
   const output = Object.getOwnPropertyDescriptor(body ?? {}, 'output')?.value;
@@ -246,10 +288,57 @@ const main = async (): Promise<void> => {
     `status ${stale.status} ${JSON.stringify(stale.body)}`,
   );
 
+  // The account list, one door in. Listed and describable at every tier, readable only
+  // above guest — `/etc` is traversable to a guest who still cannot open `passwd`.
+  const listedToGuest = await statementAs(guest, 'SHOW TABLES');
+  check(
+    'the account list is listed to the bottom rung, beside the tables it may read',
+    rendered(listedToGuest.body).includes('| credentials'),
+    rendered(listedToGuest.body)
+      .split('\n')
+      .find((line) => line.includes('credentials')) ?? '(absent)',
+  );
+
+  const shapeToGuest = await statementAs(guest, 'DESCRIBE credentials');
+  check(
+    'and describable to it, so the bottom rung sees what the next credential buys',
+    rendered(shapeToGuest.body).includes('| password_hash |') &&
+      rendered(shapeToGuest.body).includes('| user_type'),
+    rendered(shapeToGuest.body).split('\n')[3] ?? '(nothing)',
+  );
+
+  const refusedToGuest = await statementAs(guest, 'SELECT * FROM credentials');
+  check(
+    'while its SELECT is refused below user, naming the connection that asked',
+    rendered(refusedToGuest.body) ===
+      `ERROR 1142 (42000): SELECT command denied to user '${guest.username}'@'${CLIENT_IP}' ` +
+        `for table 'credentials'`,
+    rendered(refusedToGuest.body),
+  );
+  check(
+    'and NO stored hash crosses the wire in that refusal, in any field',
+    database.credentials.every(({ passwordHash }) => !refusedToGuest.raw.includes(passwordHash)),
+    `${refusedToGuest.raw.length} bytes back, ${database.credentials.length} hashes looked for`,
+  );
+
+  const servedToReader = await statementAs(reader, 'SELECT * FROM credentials');
+  check(
+    'the same statement serves every hash inline one rung up',
+    database.credentials.every(({ passwordHash }) => servedToReader.raw.includes(passwordHash)),
+    rendered(servedToReader.body).split('\n').at(-1) ?? '(nothing)',
+  );
+
+  const ordinaryToGuest = await statementAs(guest, `SELECT * FROM ${firstTable}`);
+  check(
+    'and the bottom rung still reads the ordinary tables — the refusal is that table own',
+    /\d+ rows? in set \(0\.00 sec\)|Empty set/.test(rendered(ordinaryToGuest.body)),
+    rendered(ordinaryToGuest.body).split('\n').at(-1) ?? '(nothing)',
+  );
+
   check(
     'a session of reads leaves mysql.log exactly one line longer — the login line',
     (await logLineCount()) === afterLogin,
-    `${afterLogin} line(s) after login, ${await logLineCount()} after five statements`,
+    `${afterLogin} line(s) after login, ${await logLineCount()} after a session of reads`,
   );
   check(
     'and NO session row exists, at any point',
