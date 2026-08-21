@@ -12,8 +12,8 @@
 //     moment ago is refused once the password is wrong, with no session row anywhere
 //     to have kept it alive.
 //   - A whole session of reads leaves `/var/log/mysql.log` exactly ONE line longer —
-//     the login's. Unit tests inject a fake `upsertPatch`; only the table can show
-//     that nothing else wrote to it.
+//     the login's — while a single refused WRITE adds one more. Unit tests inject a
+//     fake `upsertPatch`; only the table can show what did and did not reach it.
 //   - NO row appears in `sessions`, at any point. A spy cannot prove an absence in a
 //     table it never sees.
 //   - A table added by EDITING the datadir through `patches` is listed. Live, the
@@ -271,14 +271,6 @@ const main = async (): Promise<void> => {
     rendered(selected.body).split('\n').at(-1) ?? '(nothing)',
   );
 
-  const denied = await statement(`DROP TABLE ${firstTable}`);
-  check(
-    'a write is refused as a PERMISSION problem, naming this connection',
-    rendered(denied.body) ===
-      `ERROR 1142 (42000): DROP command denied to user '${login.username}'@'${CLIENT_IP}' for table '${firstTable}'`,
-    rendered(denied.body),
-  );
-
   // The whole point of re-validating per statement: nothing server-side remembers
   // that this credential worked a moment ago, because nothing ever recorded it.
   const stale = await statement('SHOW TABLES', 'not-the-password');
@@ -344,6 +336,23 @@ const main = async (): Promise<void> => {
     'and NO session row exists, at any point',
     (await sessionRowCount()) === 0,
     `${await sessionRowCount()} row(s) for this player`,
+  );
+
+  // Deliberately AFTER the delta check above: a refused write leaves a line of its
+  // own, so asking for one earlier would make the reads-only claim untrue. Asked as
+  // the bottom rung, because a write is a permission problem only BELOW the tier that
+  // may run it — the ladder itself is exercised in testMysqlMutate.
+  const denied = await statementAs(guest, `DROP TABLE ${firstTable}`);
+  check(
+    'a write is refused as a PERMISSION problem, naming this connection',
+    rendered(denied.body) ===
+      `ERROR 1142 (42000): DROP command denied to user '${guest.username}'@'${CLIENT_IP}' for table '${firstTable}'`,
+    rendered(denied.body),
+  );
+  check(
+    'and THAT does leave a line — a refused write is what the file is for',
+    (await logLineCount()) === afterLogin + 1,
+    `${afterLogin} line(s) before the refusal, ${await logLineCount()} after`,
   );
 
   // A rooted player edits the datadir; the next statement has to see it.

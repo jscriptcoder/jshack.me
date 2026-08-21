@@ -16,9 +16,21 @@
  * never draws and anyone watching the wire can read — so the rendering happens here,
  * on the side that can see the whole database, and only its output crosses.
  *
- * Nothing is written. These deps carry no way to write, so a session of reads leaves
- * the target's `mysql.log` exactly as the login left it: one line, whatever the
- * player goes on to type.
+ * A statement that CHANGES the database writes the datadir back and nothing else.
+ * These deps carry exactly one way to write for exactly that, and the engine decides
+ * when it is used: only a statement that produced a new database gets persisted, so a
+ * session of reads still leaves the box precisely as the login left it. That used to
+ * be structural and is now a rule, which is why there are tests standing on it.
+ *
+ * A write that cannot be recorded is a write that did not happen, and the player is
+ * told so. The datadir write IS the statement here rather than a note about one:
+ * answering `Query OK` over a failed journal write would show them their old rows on
+ * the next statement and read as the game losing writes.
+ *
+ * The mysql.log line is the opposite kind of write — a note ABOUT the statement — so
+ * it is best-effort, the way the login door's line is. It comes last for the same
+ * reason: a line saying something changed, written over a change that did not land,
+ * would send a defender looking for an edit nobody made.
  */
 
 import { z } from 'zod';
@@ -26,12 +38,34 @@ import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { md5 } from '../generation/md5';
 import { reachMysqlHost, type HandlerResponse, type MysqlHostLookup } from './mysqlHost';
-import { credentialIn, databaseIn } from '../mysql/datadir';
+import { credentialIn, databaseIn, DATADIR_OWNER, DATADIR_PATH } from '../mysql/datadir';
 import { runStatement } from '../mysql/statements';
+import { DATADIR_FILE } from '../generation/baseFs';
+import { appendMachineLog, type MachineLogReadQuery, type MachineLogReadResult } from '../patches/appendMachineLog';
+import {
+  formatMysqlStatementLine,
+  MYSQL_LOG_OWNER,
+  MYSQL_LOG_PATH,
+  MYSQL_LOG_PERMISSIONS,
+} from '../logging/mysqlLog';
+import { derivePid } from '../logging/syslog';
+import { asGameTime } from '../types';
 import type { NonceStore } from '../signedRequest/nonceStore';
+import type { PatchRow } from '../patches/upsertPatch';
 
 export type MysqlStatementDeps = MysqlHostLookup & {
   readonly nonceStore: NonceStore;
+  /** Write a patch — the datadir a statement changed, and the line the daemon records
+   *  about having changed it. Kept to those two paths by the caller below rather than
+   *  by the shape of this type, so the test that names every path the door writes is
+   *  the thing holding it. */
+  readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
+  /** The server's wall clock, epoch-ms (UTC) — stamps the mysql.log line. */
+  readonly now: () => number;
+  /** The TARGET's current `/var/log/mysql.log`. The read half of an append: without
+   *  it the daemon would replace the box's history with one line every time it had
+   *  something to say. */
+  readonly readMysqlLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
 };
 
 export type { HandlerResponse };
@@ -67,14 +101,14 @@ export const handleMysqlStatement = async (
   if (!verified.ok) {
     return { status: STATUS_BY_VERIFY_REASON[verified.reason], body: { error: verified.reason } };
   }
-  const { payload } = verified;
+  const { payload, publicKey } = verified;
 
   const reach = await reachMysqlHost(deps, {
     essid: payload.essid,
     targetIp: payload.target_ip,
   });
   if (!reach.ok) return reach.refusal;
-  const { hostFs } = reach.reached;
+  const { hostFs, machineId } = reach.reached;
 
   const credential = credentialIn(hostFs, payload.username);
   if (credential === null || md5(payload.password) !== credential.passwordHash) return INVALID;
@@ -85,7 +119,7 @@ export const handleMysqlStatement = async (
   const database = databaseIn(hostFs);
   if (database === null) return INVALID;
 
-  const { output, failed } = runStatement({
+  const { output, failed, database: changed, logged } = runStatement({
     database,
     line: payload.statement,
     username: payload.username,
@@ -94,6 +128,47 @@ export const handleMysqlStatement = async (
     userType: credential.userType,
     sourceIp: payload.source_ip ?? 'unknown',
   });
+
+  if (changed !== undefined) {
+    // The whole document goes back, because that is what a database is here: one JSON
+    // file a daemon reads in full. The owner and permissions are re-stated rather than
+    // inherited, so a rewrite cannot quietly widen the one file on the box that holds
+    // the hashes a sweep has to work for.
+    const { error } = await deps.upsertPatch({
+      writer_key: publicKey,
+      machine_id: machineId,
+      path: DATADIR_PATH,
+      content: JSON.stringify(changed),
+      owner: DATADIR_OWNER,
+      permissions: DATADIR_FILE,
+      node_type: 'file',
+    });
+    if (error) return { status: 500, body: { error: 'datadir_write_failed' } };
+  }
+
+  if (logged !== undefined) {
+    const stamp = deps.now();
+    try {
+      await appendMachineLog(
+        { readLog: deps.readMysqlLog, upsertPatch: deps.upsertPatch },
+        {
+          writerKey: publicKey,
+          machineId,
+          path: MYSQL_LOG_PATH,
+          owner: MYSQL_LOG_OWNER,
+          permissions: MYSQL_LOG_PERMISSIONS,
+        },
+        formatMysqlStatementLine({
+          time: asGameTime(stamp),
+          pid: derivePid(stamp),
+          tag: logged.tag,
+          detail: logged.detail,
+        }),
+      );
+    } catch {
+      // best-effort: the statement's outcome stands regardless of a logging failure.
+    }
+  }
 
   return { status: 200, body: { output, failed } };
 };

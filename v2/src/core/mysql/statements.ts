@@ -1,11 +1,11 @@
 /**
  * What a database answers to one statement.
  *
- * This is the whole read path behind `mysql>`, and it is deliberately one module:
- * parsing, executing and rendering are three views of a single question — what does
- * the player see when they type this line — and splitting them into three public
- * contracts would invite callers to hold a parsed statement or a raw result set,
- * which are precisely the two things nothing outside here may hold.
+ * This is the whole statement path behind `mysql>`, and it is deliberately one
+ * module: parsing, executing and rendering are three views of a single question —
+ * what does the player see when they type this line — and splitting them into three
+ * public contracts would invite callers to hold a parsed statement or a raw result
+ * set, which are precisely the two things nothing outside here may hold.
  *
  * That is not tidiness. A response carrying rows rather than rendered text hands the
  * client every row the account was not allowed to select, in a field the terminal
@@ -17,6 +17,11 @@
  * numbers right-aligned and text left, `NULL` for an absent value, `Empty set` on its
  * own path rather than a headerless table. A player who learned to read these tables
  * in the old client reads the same tables here.
+ *
+ * A statement that CHANGES the database hands back a new one beside its output; it
+ * never edits the one it was given. Nothing here reaches a disk — what a caller does
+ * with that database is the caller's, and the fact that only a write produces one is
+ * what lets a caller persist without deciding anything about verbs for itself.
  */
 
 import type { MysqlColumn, MysqlColumnType, MysqlDatabase, MysqlRow, MysqlTable } from './types';
@@ -37,11 +42,39 @@ export type StatementRequest = {
   readonly sourceIp: string;
 };
 
+/** One line's worth of what happened, for the daemon's own log. `Query` is a change
+ *  that landed and carries the statement that made it; `Denied` is a write an account
+ *  was not allowed to run and carries the refusal, without the error code the player
+ *  was shown — the same split the `Access denied` line beside it already makes. */
+export type StatementLogEntry = {
+  readonly tag: 'Query' | 'Denied';
+  readonly detail: string;
+};
+
 export type StatementResult = {
   /** Rendered lines, ready to print. Never rows, never a parsed statement. */
   readonly output: readonly string[];
   /** Whether the terminal should draw this in the error colour and exit non-zero. */
   readonly failed: boolean;
+  /**
+   * What the daemon should write in its own log about this statement, absent when it
+   * should write nothing — which is every read, refused or not, and every write that
+   * never became one.
+   *
+   * The tag and the text, never a time or a file: this is the only thing that knows
+   * what a statement DID, and knowing that is what decides whether there is a line at
+   * all. Where the line goes is the caller's business.
+   */
+  readonly logged?: StatementLogEntry;
+  /**
+   * The database as this statement left it, present ONLY when the statement changed
+   * it — absent for every read, every syntax error and every refusal.
+   *
+   * Its presence is what a caller keys the datadir write on, rather than the verb: a
+   * refused DROP is a write verb that produced nothing, and a caller deciding from the
+   * verb would persist an unchanged database and record a mutation that never happened.
+   */
+  readonly database?: MysqlDatabase;
 };
 
 /**
@@ -79,7 +112,22 @@ type Statement =
       readonly columns: readonly string[] | '*';
       readonly where: readonly WhereCondition[];
     }
-  | { readonly kind: 'write'; readonly verb: WriteVerb; readonly table: string };
+  | {
+      readonly kind: 'write';
+      readonly verb: 'UPDATE';
+      readonly table: string;
+      readonly sets: readonly WhereCondition[];
+      readonly where: readonly WhereCondition[];
+    }
+  | {
+      readonly kind: 'write';
+      readonly verb: 'DELETE';
+      readonly table: string;
+      readonly where: readonly WhereCondition[];
+    }
+  | { readonly kind: 'write'; readonly verb: 'DROP'; readonly table: string };
+
+type Write = Extract<Statement, { readonly kind: 'write' }>;
 
 type ParseOutcome =
   | { readonly ok: true; readonly statement: Statement }
@@ -133,25 +181,31 @@ const parseSelect = (statement: string): Statement | null => {
   return { kind: 'select', table: match[2], columns, where };
 };
 
-/** A write's clauses are parsed and then discarded. Only their WELL-FORMEDNESS is
- *  load-bearing here — it is what earns the statement a permission denial instead of
- *  a syntax error — and holding on to values this door will not apply would be
- *  keeping the makings of a mutation nothing is allowed to perform. */
+/** A SET assignment and a WHERE condition are the same production, `col = 'value'`,
+ *  so one parser reads both — which is also why one type describes both. */
 const parseUpdate = (statement: string): Statement | null => {
   const match = statement.match(/^UPDATE\s+(\w+)\s+SET\s+(.+?)(?:\s+WHERE\s+(.+))?$/i);
-  if (match === null || parseWhere(match[3]) === null) return null;
+  if (match === null) return null;
 
-  // A SET assignment and a WHERE condition are the same production, `col = 'value'`.
+  const where = parseWhere(match[3]);
+  if (where === null) return null;
+
   const assignments = match[2].split(/\s*,\s*/).map((part) => part.trim().match(CONDITION));
-  if (assignments.some((assignment) => assignment === null)) return null;
+  const matched = assignments.filter((assignment) => assignment !== null);
+  if (matched.length !== assignments.length) return null;
 
-  return { kind: 'write', verb: 'UPDATE', table: match[1] };
+  const sets = matched.map((assignment) => ({ column: assignment[1], value: assignment[2] }));
+  return { kind: 'write', verb: 'UPDATE', table: match[1], sets, where };
 };
 
 const parseDelete = (statement: string): Statement | null => {
   const match = statement.match(/^DELETE\s+FROM\s+(\w+)(?:\s+WHERE\s+(.+))?$/i);
-  if (match === null || parseWhere(match[2]) === null) return null;
-  return { kind: 'write', verb: 'DELETE', table: match[1] };
+  if (match === null) return null;
+
+  const where = parseWhere(match[2]);
+  if (where === null) return null;
+
+  return { kind: 'write', verb: 'DELETE', table: match[1], where };
 };
 
 const parseDropTable = (statement: string): Statement | null => {
@@ -237,6 +291,14 @@ const countLine = (count: number): string =>
 const cellValue = (value: string | number | null): string => (value === null ? 'NULL' : `${value}`);
 
 const succeeded = (output: readonly string[]): StatementResult => ({ output, failed: false });
+
+/** A success that also hands back what the caller should persist. Separate from
+ *  `succeeded` so that a read cannot acquire a database by editing one line. */
+const wrote = (output: readonly string[], database: MysqlDatabase): StatementResult => ({
+  output,
+  failed: false,
+  database,
+});
 
 const refused = (message: string): StatementResult => ({ output: [message], failed: true });
 
@@ -348,10 +410,11 @@ const select = (table: MysqlTable, statement: Statement & { kind: 'select' }): S
  * player SPELLED it rather than as the database holds it — confirming a table's exact
  * casing is one more thing this answer should not say.
  */
+const denialMessage = (request: StatementRequest, verb: string, table: string): string =>
+  `${verb} command denied to user '${request.username}'@'${request.sourceIp}' for table '${table}'`;
+
 const deny = (request: StatementRequest, verb: string, table: string): StatementResult =>
-  refused(
-    `ERROR 1142 (42000): ${verb} command denied to user '${request.username}'@'${request.sourceIp}' for table '${table}'`,
-  );
+  refused(`ERROR 1142 (42000): ${denialMessage(request, verb, table)}`);
 
 /**
  * The account list, readable as a table — the database's own `/etc/passwd`.
@@ -410,10 +473,163 @@ const readCredentials = (
   return select(table, statement);
 };
 
+/**
+ * Which tiers may run which verb — the ladder, as data.
+ *
+ * `DROP` sits a rung above the other two because editing rows and removing the thing
+ * rows live in are different powers: the application account is the commonest one a
+ * sweep returns, and it can rewrite a table's contents all day without being able to
+ * take the table away. Database root turns up on about one database box in eight,
+ * which is what makes the top rung worth the climb.
+ *
+ * A tier absent from a verb's list is refused it. Nothing lists `guest`, so the rung a
+ * sweep lands on half the time reads and nothing more.
+ */
+const WRITERS: Readonly<Record<WriteVerb, readonly UserType[]>> = {
+  UPDATE: ['root', 'user'],
+  DELETE: ['root', 'user'],
+  DROP: ['root'],
+};
+
+/** Legacy's two lines for a row verb, and its own separate constant for the drop —
+ *  0.01 where everything else says 0.00. Legacy keeps them in two functions for
+ *  exactly that reason, and one shared formatter would normalise the difference away. */
+const mutationLines = (changed: number, matched: number): readonly string[] => [
+  `Query OK, ${changed} ${changed === 1 ? 'row' : 'rows'} affected (0.00 sec)`,
+  `Rows matched: ${matched}  Changed: ${changed}  Warnings: 0`,
+];
+
+const DROP_LINE = 'Query OK, 0 rows affected (0.01 sec)';
+
+const unknownDropTarget = (database: MysqlDatabase, requested: string): StatementResult =>
+  refused(`ERROR 1051 (42S02): Unknown table '${database.name}.${requested}'`);
+
+const withTable = (
+  database: MysqlDatabase,
+  name: string,
+  table: MysqlTable,
+): MysqlDatabase => ({ ...database, tables: { ...database.tables, [name]: table } });
+
+const withoutTable = (database: MysqlDatabase, name: string): MysqlDatabase => ({
+  ...database,
+  tables: Object.fromEntries(Object.entries(database.tables).filter(([key]) => key !== name)),
+});
+
+/**
+ * One row with its assignments applied, or THE SAME ROW when none of them moved it.
+ *
+ * The identity is load-bearing: it is how the caller counts changed rows apart from
+ * matched ones. Values are compared as the strings they were typed as, which is what
+ * makes `SET amount = '5'` against a numeric 5 a match that changed nothing — and why
+ * a column is left holding its own type rather than being rewritten with an equal
+ * string.
+ */
+const withAssignments = (row: MysqlRow, sets: readonly WhereCondition[]): MysqlRow =>
+  sets.reduce<MysqlRow>((current, set) => {
+    const key = Object.keys(current).find(
+      (name) => name.toLowerCase() === set.column.toLowerCase(),
+    );
+    if (key === undefined || `${current[key]}` === set.value) return current;
+    return { ...current, [key]: set.value };
+  }, row);
+
+const update = (
+  request: StatementRequest,
+  statement: Extract<Write, { readonly verb: 'UPDATE' }>,
+  name: string,
+  table: MysqlTable,
+): StatementResult => {
+  // Assignments before the condition, which is the order legacy checks them — and the
+  // only thing a statement naming an absent column in both halves can tell apart.
+  const unknownInSets = firstUnknownColumn(
+    statement.sets.map((set) => set.column),
+    table.columns,
+  );
+  if (unknownInSets !== undefined) return unknownColumn(unknownInSets, 'field list');
+
+  const unknownInWhere = firstUnknownColumn(
+    statement.where.map((condition) => condition.column),
+    table.columns,
+  );
+  if (unknownInWhere !== undefined) return unknownColumn(unknownInWhere, 'where clause');
+
+  const applied = table.rows.map((row) =>
+    matchesWhere(row, statement.where) ? withAssignments(row, statement.sets) : row,
+  );
+  const matched = table.rows.filter((row) => matchesWhere(row, statement.where)).length;
+  const changed = applied.filter((row, index) => row !== table.rows[index]).length;
+
+  return wrote(
+    mutationLines(changed, matched),
+    withTable(request.database, name, { ...table, rows: applied }),
+  );
+};
+
+const remove = (
+  request: StatementRequest,
+  statement: Extract<Write, { readonly verb: 'DELETE' }>,
+  name: string,
+  table: MysqlTable,
+): StatementResult => {
+  const unknownInWhere = firstUnknownColumn(
+    statement.where.map((condition) => condition.column),
+    table.columns,
+  );
+  if (unknownInWhere !== undefined) return unknownColumn(unknownInWhere, 'where clause');
+
+  const rows = table.rows.filter((row) => !matchesWhere(row, statement.where));
+  const deleted = table.rows.length - rows.length;
+
+  return wrote(
+    mutationLines(deleted, deleted),
+    withTable(request.database, name, { ...table, rows }),
+  );
+};
+
+const write = (request: StatementRequest, statement: Write): StatementResult => {
+  // Both refusals fire before the table is resolved, and both spell the same 1142: a
+  // verb an account may not run must not double as a way to ask what exists. The
+  // account list is unwritable at EVERY tier, root included — it is a view over the
+  // list that decides who may log in, so writing it reaches back into the login door.
+  if (
+    !WRITERS[statement.verb].includes(request.userType) ||
+    isCredentialsTable(statement.table)
+  ) {
+    // Recorded, unlike the refused read one function up. An attempt to change
+    // something an account may not change is the most interesting thing this file can
+    // hold, and a wall of these is what tells a defender they are being worked on. It
+    // does mean the bottom rung can cause writes on a target — which is already true
+    // of every credential sweep that reaches this box.
+    return {
+      ...deny(request, statement.verb, statement.table),
+      logged: {
+        tag: 'Denied',
+        detail: denialMessage(request, statement.verb, statement.table),
+      },
+    };
+  }
+
+  const name = resolveTableName(request.database, statement.table);
+  const table = name === undefined ? undefined : request.database.tables[name];
+  if (name === undefined || table === undefined) {
+    // Legacy gives the drop its own code here, 1051 where the row verbs say 1146.
+    return statement.verb === 'DROP'
+      ? unknownDropTarget(request.database, statement.table)
+      : unknownTable(request.database, statement.table);
+  }
+
+  if (statement.verb === 'DROP') {
+    return wrote([DROP_LINE], withoutTable(request.database, name));
+  }
+
+  return statement.verb === 'UPDATE'
+    ? update(request, statement, name, table)
+    : remove(request, statement, name, table);
+};
+
 const execute = (request: StatementRequest, statement: Statement): StatementResult => {
   if (statement.kind === 'showTables') return showTables(request.database);
-  // Every write is still refused, at every tier: the ladder for writes is not built yet.
-  if (statement.kind === 'write') return deny(request, statement.verb, statement.table);
+  if (statement.kind === 'write') return write(request, statement);
 
   if (isCredentialsTable(statement.table)) return readCredentials(request, statement);
 
@@ -425,6 +641,19 @@ const execute = (request: StatementRequest, statement: Statement): StatementResu
 };
 
 export const runStatement = (request: StatementRequest): StatementResult => {
-  const parsed = parseStatement(normalizeStatement(request.line));
-  return parsed.ok ? execute(request, parsed.statement) : refused(parsed.message);
+  const statement = normalizeStatement(request.line);
+  const parsed = parseStatement(statement);
+  if (!parsed.ok) return refused(parsed.message);
+
+  const result = execute(request, parsed.statement);
+  // A change is recorded exactly when a change was produced — one rule with two
+  // consequences rather than two rules that have to agree, so what reached the disk
+  // and what the log says about it cannot drift apart.
+  //
+  // The statement goes in NORMALIZED, which is the whole answer to storing a player's
+  // own text in a file other players read: every tab and newline is already gone, so
+  // there is no forging a second entry and no faking the tab-delimited columns.
+  return result.database === undefined
+    ? result
+    : { ...result, logged: { tag: 'Query', detail: statement } };
 };

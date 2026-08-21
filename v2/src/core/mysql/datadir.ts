@@ -12,8 +12,25 @@
  */
 
 import { parseMysqlDatabase, type MysqlCredential, type MysqlDatabase } from './types';
-import type { Directory } from '../filesystem/types';
+import { asAbsPath } from '../types';
+import type { Directory, FileNode } from '../filesystem/types';
 import type { SweepableAccount } from '../wordlist/passwordSweep';
+
+/**
+ * Where a box keeps its database: walked by the reader below, and named by whoever
+ * writes one back. ONE declaration, because a reader walking one path and a writer
+ * naming another are two facts that have to agree — and on the day they stop, a write
+ * lands somewhere nothing reads it and the change silently never happened.
+ */
+const DATADIR_SEGMENTS = ['var', 'lib', 'mysql', 'data.json'] as const;
+
+export const DATADIR_PATH = asAbsPath(`/${DATADIR_SEGMENTS.join('/')}`);
+
+/** Root's, like the file the generator lays down — and it has to STAY root's through
+ *  a rewrite. This file holds the hashes a sweep has to work for, so a write that
+ *  widened it would hand every tier on the box the answer key, quietly, with nothing
+ *  about the statement looking any different. */
+export const DATADIR_OWNER = 'root';
 
 /**
  * The database a box serves, or null when it serves none. Walked a directory at a
@@ -24,15 +41,14 @@ import type { SweepableAccount } from '../wordlist/passwordSweep';
  * table dropped between two statements is gone on the second.
  */
 export const databaseIn = (fs: Directory): MysqlDatabase | null => {
-  const varDir = fs.entries.get('var');
-  if (varDir === undefined || varDir.kind !== 'directory') return null;
-  const lib = varDir.entries.get('lib');
-  if (lib === undefined || lib.kind !== 'directory') return null;
-  const mysql = lib.entries.get('mysql');
-  if (mysql === undefined || mysql.kind !== 'directory') return null;
-  const datadir = mysql.entries.get('data.json');
-  if (datadir === undefined || datadir.kind !== 'file') return null;
-  return parseMysqlDatabase(datadir.content);
+  const datadir = DATADIR_SEGMENTS.reduce<FileNode | undefined>(
+    (node, segment) =>
+      node !== undefined && node.kind === 'directory' ? node.entries.get(segment) : undefined,
+    fs,
+  );
+  return datadir === undefined || datadir.kind !== 'file'
+    ? null
+    : parseMysqlDatabase(datadir.content);
 };
 
 /**

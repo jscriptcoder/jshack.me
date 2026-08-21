@@ -50,6 +50,31 @@ const formatMysqlTimestamp = (time: GameTime): string => {
   return `${day}T${clock}.000000Z`;
 };
 
+/**
+ * Render what one statement did, for the daemon's own log.
+ *
+ * `Query` is what real MySQL's general log calls a statement it ran, and it carries
+ * the statement — normalized upstream, so there is no forging a second line and no
+ * faking these tab-delimited columns with a player's own text. `Denied` is this
+ * game's, for a write an account was not allowed to run: mysql itself would put that
+ * in the error log, and this box keeps one file.
+ *
+ * A refusal carries the message without the error code the client was shown, the same
+ * split `Access denied` already makes above — the log says what happened, the client
+ * is told which error it was.
+ */
+export const formatMysqlStatementLine = ({
+  time,
+  pid,
+  tag,
+  detail,
+}: {
+  readonly time: GameTime;
+  readonly pid: number;
+  readonly tag: 'Query' | 'Denied';
+  readonly detail: string;
+}): string => `${formatMysqlTimestamp(time)}\t${pid} ${tag}\t${detail}`;
+
 /** Render an accepted connection, naming the database the client reached. */
 export const formatMysqlConnectLine = ({
   user,

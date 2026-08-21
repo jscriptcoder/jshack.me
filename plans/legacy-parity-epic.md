@@ -270,8 +270,8 @@ PHASE 1 — THE DOORS  (near-term focus)
   D6  mysql                                           ← IN PROGRESS (planned, plans/d6-mysql.md)
       D6 slice 1 a box runs a database                ✔ SHIPPED v0.158.0 (#434)
       D6 slice 2 a player cracks a database account   ✔ SHIPPED v0.159.0 (#437)
-      D6 slice 3 a player reads a database            ← NEXT (feat/d6-mysql-prompt)
-      D6 slice 4 a player changes a database
+      D6 slice 3 a player reads a database            ✔ SHIPPED v0.160.0-v0.162.0 (#438/#439/#440)
+      D6 slice 4 a player changes a database          ← NEXT (feat/d6-mysql-writes)
       D6 slice 5 a database on a deep layer answers
       D6 slice 6 a player runs their own database      (deferred half)
       D6 slice 7 a player reaches another's database   (deferred half)

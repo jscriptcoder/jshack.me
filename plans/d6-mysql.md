@@ -1,22 +1,29 @@
 # Plan: D6 — a player reads a machine's database (`mysql`)
 
-**Branch**: one `feat/d6-*` per slice, except slice 3, which outgrew one — `feat/d6-mysql-prompt`
-(the door), `feat/d6-mysql-verbs` (the statements), then `feat/d6-mysql-credentials` (the account
-list), each stacked on the one before
-**Status**: Active — slices 1 and 2 LANDED (v0.158.0 #434 `29bc042`; v0.159.0 #437 `a6bdead`),
-slice 1's mutation debt PAID (#435 `f1c4dd6`, #436 `8add9fa`). **Slice 3 IN PROGRESS**, across two
-branches — criteria grilled to 21 (`32ef71b`).
+**Branch**: one `feat/d6-*` per slice, except slice 3, which outgrew one and landed as three —
+`feat/d6-mysql-prompt` (the door), `feat/d6-mysql-verbs` (the statements), then
+`feat/d6-mysql-credentials` (the account list), each stacked on the one before. Slice 4 is on
+`feat/d6-mysql-writes`.
+**Status**: Active — slices 1, 2 and 3 LANDED (v0.158.0 #434 `29bc042`; v0.159.0 #437 `a6bdead`;
+v0.160.0-v0.162.0 #438 `04beaa4`, #439 `36e1ae0`, #440 `b058621`), slice 1's mutation debt PAID
+(#435 `f1c4dd6`, #436 `8add9fa`). **Slice 4 BUILT** on `feat/d6-mysql-writes`, all
+fifteen criteria, not yet opened as a PR — see its own heading.
 
-- `feat/d6-mysql-prompt`, **PR #438 open**: criteria 3, 4, 5, 6, 7 and 20 (`71aecb0`, `aad87b6`,
-  `597dd2b`, `6209bf7`). The door opens and is REGISTERED — `mysql <host>` is typeable, greets, and
-  leaves the player at `mysql>`. v0.160.0.
-- `feat/d6-mysql-verbs`, stacked on it, **PR #439 open**: criteria 8, 9, 10, 11 and 12, with 17, 18,
-  19 and 21 falling out of the same wiring. The engine is at `19932cd`, the wire at `e19ad45`.
-  v0.161.0.
-- `feat/d6-mysql-credentials`, stacked on that: criteria 13, 14, 15 and 16 — the account list as a
-  table, and the first tier-conditional refusal in this door. v0.162.0.
+Slice 3 was grilled to 21 criteria (`32ef71b`) and landed as three PRs in this order:
 
-Slice 3 now owes only criteria 1's `-p` (inert until slice 5), 2 (untested) and the DESCRIBE
+- `feat/d6-mysql-prompt` (#438, `04beaa4`, v0.160.0): criteria 3, 4, 5, 6, 7 and 20. The door opens
+  and is REGISTERED — `mysql <host>` is typeable, greets, and leaves the player at `mysql>`.
+- `feat/d6-mysql-verbs` (#439, `36e1ae0`, v0.161.0): criteria 8, 9, 10, 11 and 12, with 17, 18, 19
+  and 21 falling out of the same wiring.
+- `feat/d6-mysql-credentials` (#440, `b058621`, v0.162.0): criteria 13, 14, 15 and 16 — the account
+  list as a table, and the first tier-conditional refusal in this door.
+
+Those are the squashes. Each merge rebased what was left of the stack onto the one before it, so
+the branch SHAs this file cited while they were open no longer resolve — the commits they named are
+the same content under new hashes.
+
+**Slice 3's BEHAVIOUR is complete** — every criterion a player can see is on `main`. What it still
+owes is test debt: criterion 1's `-p` (inert until slice 5), 2 (untested) and the DESCRIBE
 population debt. Details under slice 3's own heading.
 
 > Decisions are LOCKED in [`legacy-parity-epic.md`](legacy-parity-epic.md) §"D6 — resolved scope &
@@ -44,9 +51,11 @@ database a player can find, crack, read, change, and be caught changing.
 - [x] `mysql <host>` + a cracked credential reaches a `mysql>` prompt where `SHOW TABLES`,
       `DESCRIBE` and `SELECT` return the box's own data in legacy's ASCII tables — slice 3. The
       behaviour is delivered; what slice 3 still owes is test debt, not a gap a player can see
-- [ ] The tier ladder is observable: `readonly` is refused an `UPDATE`, the app account performs
-      one, only database root may `DROP TABLE`
-- [ ] Every mutation appends to `/var/log/mysql.log`; no `SELECT` ever does
+- [x] The tier ladder is observable: `readonly` is refused an `UPDATE`, the app account performs
+      one, only database root may `DROP TABLE` — slice 4
+- [x] Every mutation appends to `/var/log/mysql.log`; no `SELECT` ever does — slice 4. A refused
+      write appends one too, under `Denied`: an attempted privilege violation is the most
+      interesting thing this file can hold
 - [ ] A mysql connection reads no file on the target other than the datadir, at any tier
 - [ ] `systemctl stop mysqld` / `kill <pid>` drops a connected player on their next statement
 
@@ -614,7 +623,7 @@ the `timeout` column read before the score is believed.
 
 ---
 
-### Slice 3: A player reads a database
+### Slice 3: A player reads a database ✔ LANDED (v0.160.0-v0.162.0, #438 `04beaa4`, #439 `36e1ae0`, #440 `b058621`)
 
 **Value**: The epic row's stated acceptance — a player reads generated data worth reading.
 **Path**: `mysql <host>` → masked credential prompt → per-statement server action → validate
@@ -1058,16 +1067,149 @@ attacked rather than only read.
 **Path**: `UPDATE`/`DELETE`/`DROP TABLE` at `mysql>` → the same per-statement action → tier check →
 scoped datadir write → mutation line in `mysql.log`.
 **Class**: Behavior change. **Skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
-**Acceptance criteria**: `readonly` is refused `UPDATE`/`DELETE`/`DROP`; the app account may
-`UPDATE`/`DELETE` but not `DROP`; database root may do all three; a mutation **persists** and is
-seen by a second occupant; each mutation appends one line to `mysql.log` and no `SELECT` ever
-does; **the write reaches `/var/lib/mysql/data.json` and no other path** — proven by a test that
-attempts to make it write elsewhere.
-**RED**: Tier-ladder behavior tests, a two-occupant persistence test, and
-`scripts/testMysqlMutate.ts` for the live write path.
-**Open for this slice**: whether the log line carries the statement verbatim (a fine artefact for a
-defender; also arbitrary player text in a file others `cat`) or a summary.
+
+**This slice destroys a structural guarantee, and that is the thing to watch.** `MysqlStatementDeps`
+currently carries NO way to write — which is why "a session of reads leaves `mysql.log` exactly as
+the login left it" is true by construction rather than by discipline. After this slice the door can
+write, so that claim becomes a rule tests have to hold. It is criterion 14 below, and it is the one
+most likely to rot silently.
+
+**There IS a legacy oracle for the write half**, unlike the account list: `executor.ts` implements
+`update`, `delete` and `drop_table` with `formatMutationResult`/`formatDropResult`. Capture it,
+do not retype it. Legacy has NO tier check anywhere — no `1142`, no `userType` — so the ladder is
+v2's, as the `credentials` refusal was.
+
+**Acceptance criteria** — GRILLED AND SETTLED 2026-08-21; three owner decisions taken. The
+paragraph this replaces packed seven claims into one sentence and left the log line open.
+
+**The ladder**
+
+1. `readonly` (guest) is refused all three write verbs with the `ERROR 1142 (42000): <VERB> command
+   denied to user '<u>'@'<ip>' for table '<t>'` slice 3 already ships. No visible change for the
+   commonest credential a sweep returns.
+2. The application account may `UPDATE` and `DELETE`, and is refused `DROP TABLE` with that same
+   1142. Editing rows and removing the thing rows live in are different powers.
+3. Database root may do all three. This is the first statement in the door that only root can run,
+   and at 12% recovery it is meant to stay rare.
+4. The denial still fires BEFORE the table is resolved — slice 3's rule, now tier-conditional
+   rather than unconditional, so a refused verb still cannot answer "does this table exist?".
+
+**What a write says back**
+
+5. `UPDATE` and `DELETE` render legacy's `Query OK, N row(s) affected (0.00 sec)` followed by
+   `Rows matched: M  Changed: N  Warnings: 0`, captured from `formatMutationResult`.
+6. `DROP TABLE` renders `Query OK, 0 rows affected (0.01 sec)`. Note the constant: legacy's
+   `formatDropResult` says **0.01**, not 0.00, and is a separate function for exactly that reason.
+   A shared formatter would quietly normalise the difference away.
+7. **`matched` and `changed` are different numbers.** Legacy counts a row as matched when the WHERE
+   selects it and as changed only when a SET actually moves a value, so `SET x = '<what it already
+   holds>'` renders `Rows matched: 3  Changed: 0`. The fixture MUST contain a row already holding
+   the value being set, or the two counters are indistinguishable and both mutants survive.
+8. A write naming an unknown column is `ERROR 1054` in `field list` or `where clause`, as the reads
+   already are — but only for a tier that may write at all; below that the 1142 wins, per 4.
+
+**Where the write lands**
+
+9. The write reaches `/var/lib/mysql/data.json` and NO other path — asserted over every path the
+   door writes, not by reading back the one we expected.
+10. It is a patch on the target machine, so a second occupant of the same LAN sees the change on
+    their next statement. This is the claim that makes a database a shared object rather than a
+    private one.
+11. What is written back is the WHOLE database re-serialized and it must still parse. A write that
+    produced an unreadable datadir would shut the door on everyone, its owner included, and the
+    reader already collapses "unparseable" into "no database here".
+
+**The record** — the open question, resolved
+
+12. A successful mutation appends exactly ONE line, the statement VERBATIM under `Query`:
+    `<stamp>\t<pid> Query\t<the normalized statement>`. This is what real MySQL's general log
+    does, and the "arbitrary player text in a file others read" objection mostly dissolves:
+    `normalizeStatement` collapses every tab and newline before the engine sees the line, so a
+    player can neither forge a second line nor fake the tab-delimited columns. A defender who reads
+    this file learns what actually changed, which is what makes a compromised box recoverable.
+13. A REFUSED write appends exactly one line too:
+    `<stamp>\t<pid> Denied\t<VERB> command denied to user '<u>'@'<ip>' for table '<t>'`, mirroring
+    the existing `Access denied` refusal shape. Slice 2 already settled the principle — a wall of
+    denials is the defender's best signal — and an attempted privilege violation is the most
+    interesting thing this file can hold. It does mean a bottom-rung account can cause writes on a
+    target, which hydra already does by design.
+14. **No `SELECT` ever appends, refused or not.** So the file records connections and attempts to
+    CHANGE things, and nothing else. The refused `credentials` read from slice 3 writes nothing,
+    and slice 3's delta assertion over a session of reads must stay green unchanged.
+
+**The account list**
+
+15. `credentials` refuses EVERY write at EVERY tier, root included, with the 1142. It is a view
+    over the account list rather than stored rows: writing it means writing `database.credentials`,
+    a different path from writing `database.tables`, and it decides who may log in — which reaches
+    back into the login door. Worth its own slice later; not this one.
+
+**RED**: Tier-ladder behavior tests at the engine, a written-paths spy at the handler, a
+two-occupant persistence test, and `scripts/testMysqlMutate.ts` for the live write path.
+
+**Watch for**: `parseUpdate` currently PARSES the SET assignments and throws them away on purpose —
+its comment says holding values this door will not apply would be keeping the makings of a mutation
+nothing is allowed to perform. That comment marks the slice boundary exactly, and this slice is
+where it stops being true.
+
+**Also expect to touch**: `testMysqlQuery.ts` asserts that root is refused `DROP TABLE users`.
+Root may drop after this slice, so that check has to move down the ladder rather than be deleted.
+
 **Done when**: criteria met, wire-check green, commit approved.
+
+#### As built — all fifteen criteria, three increments
+
+**1-8 and 15, the ladder and the answer** (`4bfd223`, v0.163.0). `WRITERS` holds the ladder as
+data: nothing lists `guest`, `DROP` lists only `root`. The refusal and the account-list rule are
+one condition, so both fire before the table is resolved and both spell the same 1142.
+
+**Two parity details the criteria did not name, both found by capturing rather than assuming.**
+Legacy's `DROP` carries its own error code for a missing table — `ERROR 1051 (42S02): Unknown
+table '<db>.<t>'`, where the row verbs say 1146. And `matched` diverges from `changed` because
+legacy compares STRING forms: `SET amount = '5'` against a numeric 5 is a match that moved
+nothing, and the column keeps its number rather than being rewritten with an equal string. The
+existing fixture already held a row carrying the value being set, so no fixture was invented to
+make the two counters differ.
+
+**9-11, where it lands** (`50f28c1`). The datadir goes back whole, owner and permissions
+re-stated rather than inherited — a rewrite must not quietly widen the one file on the box that
+holds the hashes a sweep has to work for. A failed journal write returns **500
+`datadir_write_failed`** rather than `Query OK`: OWNER DECISION 2026-08-21, on the grounds that
+the datadir write IS the statement rather than a note about one, and a rendered success over a
+lost write would read as the game losing writes.
+
+The datadir's location became ONE declaration that the reader walks and the writer names. It had
+been a hand-rolled four-level walk plus a path string somewhere else — two facts that have to
+agree, and on the day they stopped, a write would land where nothing reads it.
+
+**12-14, the record.** A `Query` line carries the statement NORMALIZED, which is the whole answer
+to holding a player's own text in a file others read: every tab and newline is gone before the
+engine sees the line, so there is no forging a second entry and no faking the tab-delimited
+columns. A `Denied` line carries the refusal without the error code the client was shown — the
+same split the `Access denied` line beside it already makes.
+
+**The Query line and the datadir write are one rule, not two.** A change is recorded exactly when
+a change was produced, so what reached the disk and what the log says about it cannot drift
+apart. Reads write neither, refused reads included: a file that logged every `SELECT` would bury
+the two lines worth finding, and a player who could see what everyone read would learn more from
+the log than from the database.
+
+**Mutation across the three increments: 57 applied, 57 killed, every control survived.** One real
+survivor, caught in the second: the datadir write filed against the WRONG MACHINE — `Query OK`
+answered while the change lands on no box at all. Every assertion had pinned the path, the owner,
+the writer key and the content, and none had pinned the box. The machine and the path are
+asserted together now, against the generator rather than a constant.
+
+**Wire-checks: `testMysqlMutate.ts` 14/14 live**, new for this slice, plus `testMysqlQuery.ts`
+17/17 and `testMysqlConnect.ts` 13/13 re-run. The claim only a live run can make is the second
+player: a different identity, signing as themselves, reading the change back out of the real
+journal — an injected one cannot show it, because the claim is precisely that the row is keyed on
+the machine and not on whoever wrote it.
+
+**Both existing scripts moved rather than being deleted.** `testMysqlQuery.ts` asked for its write
+refusal as whichever account the box drew, which is a refusal only BELOW the tier that may run the
+verb; it asks as the bottom rung now, and after its reads-only log-delta claim rather than before,
+since a refused write leaves a line of its own.
 
 ---
 
