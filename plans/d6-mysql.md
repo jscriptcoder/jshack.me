@@ -1,32 +1,30 @@
 # Plan: D6 — a player reads a machine's database (`mysql`)
 
-**Branch**: one `feat/d6-*` per slice, except slice 3, which outgrew one — `feat/d6-mysql-prompt`
-(the door), `feat/d6-mysql-verbs` (the statements), then `feat/d6-mysql-credentials` (the account
-list), each stacked on the one before
-**Status**: Active — slices 1 and 2 LANDED (v0.158.0 #434 `29bc042`; v0.159.0 #437 `a6bdead`),
-slice 1's mutation debt PAID (#435 `f1c4dd6`, #436 `8add9fa`). **Slice 3 IN PROGRESS**, across
-three branches — criteria grilled to 21 (`32ef71b`). Its behaviour is complete and two of the
-three have landed.
+**Branch**: one `feat/d6-*` per slice, except slice 3, which outgrew one and landed as three —
+`feat/d6-mysql-prompt` (the door), `feat/d6-mysql-verbs` (the statements), then
+`feat/d6-mysql-credentials` (the account list), each stacked on the one before. Slice 4 is on
+`feat/d6-mysql-writes`.
+**Status**: Active — slices 1, 2 and 3 LANDED (v0.158.0 #434 `29bc042`; v0.159.0 #437 `a6bdead`;
+v0.160.0-v0.162.0 #438 `04beaa4`, #439 `36e1ae0`, #440 `b058621`), slice 1's mutation debt PAID
+(#435 `f1c4dd6`, #436 `8add9fa`). **Slice 4 IN PROGRESS** on `feat/d6-mysql-writes`, with its
+decision tree resolved on 2026-08-21 — see its own heading.
 
-- `feat/d6-mysql-prompt` ✔ **LANDED** (v0.160.0, PR #438, squashed onto `main` as `04beaa4`):
-  criteria 3, 4, 5, 6, 7 and 20 (`71aecb0`, `aad87b6`, `597dd2b`, `6209bf7`). The door opens and is
-  REGISTERED — `mysql <host>` is typeable, greets, and leaves the player at `mysql>`.
-- `feat/d6-mysql-verbs` ✔ **LANDED** (v0.161.0, PR #439, squashed onto `main` as `36e1ae0`):
-  criteria 8, 9, 10, 11 and 12, with 17, 18, 19 and 21 falling out of the same wiring.
-- `feat/d6-mysql-credentials`, **PR #440 open, now targeting `main` directly**: criteria 13, 14, 15
-  and 16 — the account list as a table, and the first tier-conditional refusal in this door
-  (`d172e6e`). v0.162.0. The last of slice 3.
+Slice 3 was grilled to 21 criteria (`32ef71b`) and landed as three PRs in this order:
 
-Only the last of those is still a branch; the other two are commits on `main`. Each merge rebased
-what was left of the stack onto its squash, so the branch SHAs this file cited before a given merge
-no longer resolve — the commits they named are the same content under new hashes.
+- `feat/d6-mysql-prompt` (#438, `04beaa4`, v0.160.0): criteria 3, 4, 5, 6, 7 and 20. The door opens
+  and is REGISTERED — `mysql <host>` is typeable, greets, and leaves the player at `mysql>`.
+- `feat/d6-mysql-verbs` (#439, `36e1ae0`, v0.161.0): criteria 8, 9, 10, 11 and 12, with 17, 18, 19
+  and 21 falling out of the same wiring.
+- `feat/d6-mysql-credentials` (#440, `b058621`, v0.162.0): criteria 13, 14, 15 and 16 — the account
+  list as a table, and the first tier-conditional refusal in this door.
 
-**Slice 3's BEHAVIOUR is complete** — every criterion a player can see is on one of those three
-PRs. What it still owes is test debt: criterion 1's `-p` (inert until slice 5), 2 (untested) and
-the DESCRIBE population debt. Details under slice 3's own heading.
+Those are the squashes. Each merge rebased what was left of the stack onto the one before it, so
+the branch SHAs this file cited while they were open no longer resolve — the commits they named are
+the same content under new hashes.
 
-**Slice 4 is next, on `feat/d6-mysql-writes`**, with its decision tree resolved on 2026-08-21 —
-see its own heading.
+**Slice 3's BEHAVIOUR is complete** — every criterion a player can see is on `main`. What it still
+owes is test debt: criterion 1's `-p` (inert until slice 5), 2 (untested) and the DESCRIBE
+population debt. Details under slice 3's own heading.
 
 > Decisions are LOCKED in [`legacy-parity-epic.md`](legacy-parity-epic.md) §"D6 — resolved scope &
 > decisions (grill-me, 2026-08-19)". This file sequences them; it does not re-open them. Where
@@ -623,7 +621,7 @@ the `timeout` column read before the score is believed.
 
 ---
 
-### Slice 3: A player reads a database
+### Slice 3: A player reads a database ✔ LANDED (v0.160.0-v0.162.0, #438 `04beaa4`, #439 `36e1ae0`, #440 `b058621`)
 
 **Value**: The epic row's stated acceptance — a player reads generated data worth reading.
 **Path**: `mysql <host>` → masked credential prompt → per-statement server action → validate
