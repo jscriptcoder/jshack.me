@@ -1,9 +1,12 @@
 # Plan: D6 — a player reads a machine's database (`mysql`)
 
-**Branch**: one `feat/d6-*` per slice — slice 2 is `feat/d6-mysql-crack`
-**Status**: Active — slice 1 LANDED (v0.158.0, #434, `29bc042`) and its mutation debt PAID
-(#435 `f1c4dd6`, #436 `8add9fa`); slice 2 STARTED on `feat/d6-mysql-crack`, hydra work not
-yet begun
+**Branch**: one `feat/d6-*` per slice — slice 3 is `feat/d6-mysql-prompt`
+**Status**: Active — slices 1 and 2 LANDED (v0.158.0 #434 `29bc042`; v0.159.0 #437 `a6bdead`),
+slice 1's mutation debt PAID (#435 `f1c4dd6`, #436 `8add9fa`). **Slice 3 IN PROGRESS** on
+`feat/d6-mysql-prompt` — criteria grilled to 21 (`32ef71b`), criteria 3, 4, 5, 6, 7 and 20 landed
+(`71aecb0`, `aad87b6`, `597dd2b`, `6209bf7`). The door opens end to end and is REGISTERED:
+`mysql <host>` is typeable, greets, and leaves the player at `mysql>`. v0.160.0.
+Progress and what is written-but-untested are under slice 3's own heading.
 
 > Decisions are LOCKED in [`legacy-parity-epic.md`](legacy-parity-epic.md) §"D6 — resolved scope &
 > decisions (grill-me, 2026-08-19)". This file sequences them; it does not re-open them. Where
@@ -21,8 +24,12 @@ database a player can find, crack, read, change, and be caught changing.
       the daemon's own bad-handshake line — slice 1
 - [x] A box running `mysqld` holds a real generated database at `/var/lib/mysql/data.json`; a box
       that is not running one holds no `/var/lib/mysql` at all — slice 1
-- [ ] `hydra <host> mysql` returns database accounts — `readonly` almost always, the app account
-      often, database root rarely — and leaves a wall of denials in `/var/log/mysql.log`
+- [x] `hydra <host> mysql` returns database accounts and leaves a wall of denials in
+      `/var/log/mysql.log` — slice 2. **PLANNING CORRECTION, measured over 800 networks rather
+      than assumed**: `readonly` sits on 48.8% of database boxes and falls every single time, the
+      app account on 67.7%, database root on 12.0%. So the APP ACCOUNT is the commonest credential
+      a sweep returns — not `readonly`, which this line had first — because half the databases
+      carry no `readonly` at all. Root being rarest is the only part that survived contact
 - [ ] `mysql <host>` + a cracked credential reaches a `mysql>` prompt where `SHOW TABLES`,
       `DESCRIBE` and `SELECT` return the box's own data in legacy's ASCII tables
 - [ ] The tier ladder is observable: `readonly` is refused an `UPDATE`, the app account performs
@@ -152,7 +159,7 @@ stanzas may well be clearer than a table.
 
 ---
 
-### Slice 2: A player cracks a database account
+### Slice 2: A player cracks a database account ✔ LANDED (v0.159.0, #437, `a6bdead`)
 
 **Value**: A player obtains a credential for a database they have found. Without this the door
 ships unopenable, which is why it precedes the prompt.
@@ -577,9 +584,10 @@ Recorded in the deferred backlog with the current baseline, so the doc stops cla
 The general lesson, now in the conventions doc: **a wire-check that selects its own fixture can go
 dead silently.** An exit 2 is not a failure, nothing runs these in CI, and the registry kept
 reporting a pass count for a script that had not executed in months.
-**Slice 2 is COMPLETE**: all nine acceptance criteria met, wire-check green, the two neighbouring
-hydra wire-checks green. Left before merge: the version bump (0.158.0 -> 0.159.0, both
-`package.json` and `package-lock.json`) and the PR.
+**Slice 2 is COMPLETE and MERGED** — v0.159.0, PR #437, squashed onto `main` as `a6bdead`
+(17 files, +1713/-37). All nine acceptance criteria met; `testMysqlSweepTrace` **13/13** against
+live `vercel dev` + supabase; `testHydraOwnLan` 23/23 and the repaired `testFtpSweepTrace` 8/8;
+3104 unit tests, `tsc -b` and `eslint` clean.
 
 **RED**: Handler-level behavior tests — the account-source assertion (criterion 1) fails against
 today's code, which is the honest RED. Plus a population sweep for criterion 3, edge tests for 4-6,
@@ -600,17 +608,323 @@ the `timeout` column read before the score is believed.
 **Path**: `mysql <host>` → masked credential prompt → per-statement server action → validate
 against the datadir `credentials` → parse → execute → format → result set only.
 **Class**: Behavior change. **Skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
-**Acceptance criteria**: `mysql <host>` on a box with no mysqld refuses **before** prompting;
-a good credential reaches `mysql>`; `SHOW TABLES` / `DESCRIBE` / `SELECT` (with `WHERE … AND …`)
-return legacy's ASCII tables and `N rows in set`; a bad credential is refused with one
-indistinguishable error; the prompt is **parallel** — cwd, tier and hop chain are untouched and
-`quit` returns to the same shell; **every line typed at `mysql>` is SQL** and no outer command
-leaks through; semicolons optional; the connect line lands in `mysql.log` with user, source IP and
-database name; **no file other than the datadir is read from the target at any tier**; and killing
-the daemon drops the player on their next statement.
+
+**Opens owing one debt, and standing next to a second that is not its own.**
+
+1. **OWED HERE — 42 column-METADATA mutants** in `pools/database.ts` (`nullable` flips, `key`,
+   `defaultValue`) survive because nothing renders that metadata yet. `DESCRIBE` is the thing that
+   renders it, so this slice is where they become killable. **`DESCRIBE` must be asserted over the
+   population, not over one table on one box** — a single fixture agrees with whatever the pool
+   happens to hold — or all 42 persist behind a number that looks finished.
+2. **NOT owed here, but do not widen it** — no vantage fixture sweeps a database, so reverting both
+   vantage handlers to `accountsIn(target.fs)` leaves the whole suite green (measured, with the
+   mutant, above). Slices 5 and 7 own that. This slice adds a `mysql>` prompt on the own-LAN
+   vantage only; if it invents a gateway fixture for any other reason, give that fixture a database
+   box so 5 has something to build on.
+
+**Acceptance criteria** — GRILLED AND SETTLED 2026-08-20, five owner decisions taken against the
+codebase rather than against the plan's own prose. The paragraph this replaces packed eleven claims
+into one sentence and hid three more. Each line below is something a test can fail.
+
+**Reaching the door**
+
+1. `mysql [-p port] <host> [user]`. **`-p` is the PORT**, as it is for `ftp` and `hydra` — the real
+   client's `-p` means password and `-P` means port, and consistency across v2's doors beats
+   fidelity to a flag letter, since slice 5 needs the port to reach a forwarded 3306. A username may
+   be named on the command line because it is not a secret; the password never may (decision 10).
+   No `-u` alias — one way in.
+2. When no user is named, prompt for one **with no default**. `ftp` offers the player's own account;
+   here that is a wrong guess every single time, because database accounts are `root`, `readonly` or
+   a drawn app name and never the box's unix users. A default nobody accepts is worse than none.
+3. A box with no mysqld refuses **before either prompt**, decided locally from the deterministic
+   generated FS, with legacy's `ERROR 2003 (HY000): Can't connect to MySQL server on
+   '<ip>:3306' (Connection refused)`. **The sharp assertion is that `env.prompt` is never called** —
+   not the message. A door that takes a credential and hands it to a service that is not there is
+   the failure ftp's docstring already names.
+4. Ctrl-C at either prompt aborts holding nothing, exit 130, as `ftp` does.
+5. A bad credential is refused with **one indistinguishable error**: an unknown user and a wrong
+   password produce the same string, `ERROR 1045 (28000): Access denied for user '<u>'@'<ip>'
+   (using password: YES)`. Its log half already shipped in slice 2.
+6. A good credential prints `Connected to <hostname>.` then `Welcome to the MySQL monitor.
+   Commands end with ;` and leaves the player at `mysql>` — ftp's shape of a client line followed by
+   the server's own greeting. **Version-free**: the catalog bans version strings and MySQL's real
+   greeting IS one, which is why this door's `nc` banner is the bad-handshake error. **No connection
+   id**: `listenerPid` is per-BOX, so printing it as a connection id is a lie two logins apart, and
+   with no session row there is nothing to count connections with.
+
+**The prompt**
+
+7. **Parallel, not a hop** — cwd, tier and hop chain untouched, and `quit` hands back a shell that
+   never went anywhere.
+8. **Every line typed is SQL.** No outer command leaks through, on `ftpShell.ts`'s stated rule: an
+   outer `cat` at an inner prompt would quietly read the wrong machine.
+9. **Semicolons optional.** `exit`/`quit`/`help` are parsed ahead of the verb table, so they need
+   none and are never "unsupported syntax".
+
+**The read set**
+
+10. `SHOW TABLES`, `DESCRIBE` and `SELECT` (with `WHERE … AND …`) render legacy's ASCII tables and
+    `N rows in set (0.00 sec)`. The formatter ports verbatim.
+11. **A `SELECT` matching nothing renders `Empty set (0.00 sec)`** — not a table with a zero count.
+    A different formatter path, which the old criterion's "and `N rows in set`" concealed.
+12. **Write verbs PARSE and are refused**, unconditionally in this slice, with `ERROR 1142 (42000):
+    UPDATE command denied to user '<u>'@'<ip>' for table '<t>'`. True for `readonly` and the app
+    account, which between them are what nearly every player holds first. A database-root credential
+    is under-told for exactly one slice — the accepted cost of never telling a player that their
+    well-formed statement is a syntax error, which is what porting only the read verbs would do.
+    Slice 4 turns the refusal from unconditional into tier-conditional with no visible regression
+    for the common case.
+
+**`credentials` — the database's own `/etc/passwd`**
+
+13. The datadir's account list is reachable as a table named **`credentials`**. The name is free: the
+    pool draws `api_keys`, `audit_log`, `config`, `employees`, `inventory`, `orders`, `sessions` and
+    `users`, so a generated table can never collide with it.
+14. It is **LISTED by `SHOW TABLES` and DESCRIBABLE at every tier**, while `SELECT` is refused below
+    `user` with `ERROR 1142 (42000): SELECT command denied to user 'readonly'@'<ip>' for table
+    'credentials'`. This mirrors the filesystem exactly rather than by analogy: `/etc` is traversable
+    at every tier so a guest sees `passwd` in `ls`, while `PASSWD_FILE` is `read: ['root', 'user']`
+    so a guest cannot read it. **The database gets the same shape one door in**, and the bottom rung
+    can SEE what the next credential buys.
+15. **The hashes render inline, as passwd's do — and this transfers no capability.** `john` and
+    `hydra` run the same wordlist through the same `md5`, so cracking database root's hash offline
+    yields root at exactly the 12% hydra already yields it. What it transfers is **silence**: hydra
+    leaves a wall of denials in the target's own `mysql.log` and `john` writes nothing anywhere.
+    That is the middle tier's reward, and it costs the ladder slice 2 measured nothing.
+16. Note what this makes slice 3: **the slice ships one tier rung after all**, and it belongs to the
+    READ set rather than being a preview of slice 4's ladder. Slice 1's `DATADIR_FILE` is unaffected
+    and stays root-ONLY on the filesystem — reading the file and querying the door remain two
+    different achievements.
+
+**What the server may say back**
+
+17. **The response carries the rendered output and nothing else**, asserted by whole-value equality
+    so an added field fails. Criterion 14 is what makes this load-bearing rather than hygiene: a body
+    carrying the parsed database hands `readonly` the exact rows criterion 14 refuses, in a field the
+    terminal never renders and anyone watching the wire can read.
+18. **No `sessions` row is minted, at any tier.** Decision 8's mechanism, and what makes
+    zero-filesystem-read structural rather than enforced — there is no row, so there is nothing to
+    leak, and `authorizeMachineAccess` needs no carve-out.
+
+**Liveness**
+
+19. A daemon stopped mid-session drops the player on their **next** statement — there is no push
+    channel, so the drop is necessarily lazy — with `ERROR 2013 (HY000): Lost connection to MySQL
+    server during query`. **The prompt then CLOSES**, returning the player to the shell they never
+    left, and prints no `Bye`: an eviction is not a quit and the difference is the whole signal. A
+    `mysql>` that answers every statement with the same error is the `->` continuation problem
+    decision 10 already declined to pay for.
+
+**Logging**
+
+20. The connect line lands in `/var/log/mysql.log` with user, source IP and database name — slice
+    2's `formatMysqlConnectLine`, reused rather than rewritten, on slice 2's finding that a sweep
+    that opens an account and a client that opens one are the same event to the daemon writing the
+    file.
+21. **A whole session of reads leaves the log exactly ONE line longer** (decision 12: `SELECT` never
+    writes). The assertion is the DELTA across a session of many statements, not the presence of the
+    connect line — a log that grew by one is the claim; a log CONTAINING a connect line is satisfied
+    by the login alone.
+
 **RED**: Command + prompt-mode tests (jsdom + `@solidjs/testing-library`), handler tests, and
-`scripts/testMysqlQuery.ts` proving the round trip and the zero-filesystem-read claim live.
+`scripts/testMysqlQuery.ts` for the live round trip.
+
+**How criteria 17-18 are actually proven** — three parts, because no one of them is sufficient:
+whole-value equality on the response body; an assertion that the `sessions` table gains no row; and
+on the wire, a grep of the RAW response body for any `passwordHash` substring after a `readonly`
+connect. The last one is shape-independent — it catches a leak down any path, including one added
+later by someone who never read this list.
+
+**How the DESCRIBE debt is discharged** — assert SHAPE over the population, never the pool. Slice 2's
+lesson is that an oracle read from the same array the generator reads moves with it and can never
+fail. So: every table renders exactly one `PRI`; a declared default renders non-blank while an
+absent one renders `NULL`; and both `YES` and `NO` occur in the `Null` column somewhere in the
+world. That kills the `nullable`, `key` and `defaultValue` mutants without freezing content into a
+golden.
+
 **Done when**: criteria met, wire-check green, commit approved.
+
+#### Progress
+
+**Criterion 3 ✔ LANDED** (`71aecb0`) — `src/core/commands/mysql.ts` + `mysql.test.ts`, 5 tests,
+gates green at 3109. RED was real: the first version had no reachability guard and went straight to
+asking, so against a box with no database it prompted TWICE, for a user and a masked password. The
+test names the silence rather than the wording, which is what the criterion asked for.
+
+**The mutant worth carrying forward.** Pointing the door at ssh's port instead of mysql's SURVIVED
+the first version of these tests — the ftp finding from slice 2 in a new place. The fixture picked
+the first machine running no database, and that box ran NOTHING AT ALL, so a check on 3306 and a
+check on 22 refuse it alike and no test could tell which port was read. The door could have been
+reading the wrong service with the suite fully green. The fixture now demands an ssh-serving host
+with no database, the only place the two answers differ, and the mutant dies there. Four more were
+applied and killed: guard removed, guard always refusing, the two refusal reasons swapped, and
+network-unreachable rewritten as connection-refused.
+
+Twice in two slices makes it a rule, now in the conventions doc: **a negative fixture must be
+negative for the reason under test, not negative in general.**
+
+**Criterion 4 ✔ LANDED, criterion 5 HALF landed.** Five tests, 10 in the file, suite at 3114.
+
+The increment's real work was deciding the **shape of the server-side auth call**, which is why
+these two came as a pair. `MysqlApi.connect` mints no session and takes no `sessionId` — decision
+8 — and its refusal deliberately **carries no reason**: `{ ok: true } | { ok: false }`. An unknown
+account and a wrong password have to read alike, and a seam that brought back WHICH one failed
+would let a client leak the difference by accident. Structural beats enforced, so the reason is not
+there to render.
+
+Criterion 5's client half is proven: the refusal names the account TYPED (not the session's) and the
+player's OWN address (not the target's), both a single substitution away and both now killed.
+`execute` switched to `connectedWlan0`, the pattern curl/gobuster/hydra/lynx/nc already share —
+which collapses four ways of being offline into one answer AND hands back the address, so the
+refusal needs no fallback for an address that cannot be missing by then.
+
+**Criterion 4 was characterisation, not RED** — the abort guard was already written without a test,
+so the tests passed on arrival and the evidence is the mutants below. Recorded plainly because a
+"RED" that was green the moment it was written is not evidence of anything.
+
+**Mutants: 9 applied by hand, 9 killed**, with a behaviour-preserving control (a local rename) run
+first to prove the harness discriminates rather than reporting KILLED for everything:
+
+| | |
+|---|---|
+| M1 | Ctrl-C yields an empty credential instead of nothing |
+| M2 / M3 | abort exits 0 / abort prints a line |
+| M4 / M5 | refusal names the session's user / the target's address |
+| M6 | a named account is prompted for anyway |
+| M7 / M8 | wrong source address sent / account name sent as its own password |
+| M9 | refusal branch inverted |
+
+**Still written but NOT tested** — narrowed, not cleared:
+
+- The prompt wording `Enter user: ` and the no-default rule — criterion 2. (`Enter password: ` and
+  `masked: true` ARE now asserted.)
+
+**Criterion 5's server half ✔ DISCHARGED, and criterion 20 with it.**
+`core/sessions/mysqlConnect.ts` + 12 tests, plus `credentialIn` in `core/mysql/datadir.ts` —
+`accountIn`'s sibling for the door whose accounts are not the box's own. RED was behavioural, not a
+missing module: a skeleton that verified the envelope and refused everything failed 9 of 11 on
+status and on writes, so the tests were failing about behaviour before a line of the gate existed.
+
+The sharpest test is the one that costs nothing to get wrong: a box's OWN unix account, with its
+REAL shell password, opens nothing here. `/etc/passwd` and the datadir are drawn on separate
+streams, and a gate that read the wrong one would pass every other test in the file.
+
+The two refusals are proven identical rather than merely documented — same status, same body, byte
+for byte, asserted by comparing the two responses to each other rather than each to a literal.
+
+**Mutants: 14 applied, 13 killed, 1 equivalent.** Control (a rename) survived first, so the
+verdicts discriminate. Killed: the gate reading `/etc/passwd`; the account name ignored so any name
+opens; the refusal naming WHICH half was wrong; the password never checked; the journal ignored so
+the seeded baseline is authenticated against; the daemon never checked for listening; the listening
+check reading ssh's port; a bricked box still answering; every attempt logged as an acceptance; the
+trace forgetting where it came from; the log replacing history instead of appending; the trace
+written on the caller instead of the target; and an opened connection reporting more than that it
+opened. The equivalent one — a refusal carrying a `database` field — changes no rendered line,
+because `mysqlLog.test.ts` already asserts a refusal names no database EVEN WHEN one is supplied.
+That claim lives at the formatter, which is the right layer for it.
+
+**Wire-check: `scripts/testMysqlConnect.ts`, 13/13 live** against `vercel dev` + supabase, and the
+neighbouring `testMysqlSweepTrace.ts` re-run 13/13 as a regression control because the endpoint's
+dispatch changed. What only the live run could prove: that the `mysqlConnect` action is DISPATCHED
+at all (a new action on an existing route is invisible to unit tests, which call the handler
+directly); that the row lands at the target's machine id and path with an owner and permissions the
+table accepts; that an account planted by editing the datadir through `patches` really logs in; and
+that **no `sessions` row appears** — criterion 18's mechanism, which is an absence in a table a spy
+never sees.
+
+The live run also corrected the test rather than the code: the log-growth check expected five lines
+for what were only four attempts. It now asserts one line per attempt AND the split — 1 accepted, 3
+refused — which is the stronger claim the number was standing in for.
+
+Worth knowing for later fixtures: on `MYSQL-LAB-3` the chosen box's database account and its unix
+account are BOTH named `root`. That is an accident, and a useful one — the two-locks test contrasts
+the same name under two passwords, so it cannot pass by the names simply differing.
+
+**Known simplification, owed by criterion 19.** The client adapter collapses every non-200 into the
+seam's one refusal, so a daemon stopped between the local reachability check and the call reads to
+the player as a wrong password. Criterion 19's liveness drop is where that arm gets added; the
+window is one prompt wide.
+
+**`env.mysql.connect` is wired to `notWired` in the UI**, the house shape for a seam with no adapter
+behind it. It cannot fire — the command is still unregistered — and if someone registers it before
+the endpoint exists it throws loudly instead of reporting a wrong password for a credential no
+daemon ever saw.
+
+**No version bump**, as with criterion 3: nothing a player can reach changed. The bump lands with
+registration.
+
+**Known gap, deliberate**: `-p` is declared in `flags` and named in USAGE but never read — `port` is
+always `SERVICE_CATALOG.mysql.defaultPort`. `ftp` has the same shape, honouring `-p` only on its
+public path, so this is slice 5's to make real rather than a defect here. Until then the flag is
+inert, and criterion 1 is only PARTLY met.
+
+**NOT registered in `registry.ts`.** It would be typeable while still answering `not implemented` on
+a box that does run a database, and a command listed before it works is a worse lie than a missing
+one. Registration lands with criterion 6, the increment that opens the prompt.
+
+**Criterion 6 ✔ LANDED, and criterion 7 with it.** `mysqlShell.ts` + 4 tests, 4 more on the
+command, 4 at the UI seam and 1 rendered end to end — 159 files / 3140 tests, v0.160.0, the first
+player-visible change in this slice. `mysql` is in `registry.ts` and carries a manual page.
+
+The greeting is asserted by WHOLE-VALUE equality, because what is absent is the claim. The real
+monitor leads with a version string and the catalog bans those — the same reason this door's `nc`
+banner is the bad-handshake error rather than a banner. No connection id either: `listenerPid` is
+per-BOX, so it would read the same number two logins apart. And it names the HOSTNAME, not the
+address typed to reach it, which is a single substitution away and now killed.
+
+**The prompt turned out to be a sub-shell, not a mode.** `ModeChange` had carried a speculative
+`{ kind: 'mysql' }` variant since before any of this existed; nothing ever produced it and nothing
+ever will, because the database prompt holds no screen and no session — it swaps the terminal's
+prompt and answers the typed line from a command map, exactly as `ftp>` does. Deleted, on the
+comment already sitting above it for `nc`: a design that looks shipped invites someone to build it.
+
+**Scope taken beyond criterion 6, deliberately.** A prompt with no way out is a trap and a prompt
+that falls through to the registry is the leak criterion 8 forbids, so this increment also lands the
+dispatch guard and `exit`/`quit` — which is criterion 7 in full (cwd, tier and the shell prompt all
+proven untouched across a login and a `quit`). Criterion 9's semicolon rule holds for the way out
+only; the verb table it sits ahead of does not exist yet.
+
+An unrecognised line gets legacy's `ERROR: Unsupported SQL syntax…`, NOT `1064`. The two are
+different buckets in the parser being ported, and the distinction is the one criterion 12 rests on:
+telling a player their statement is malformed when the truth is that it is unsupported sends them to
+fix spelling that was never wrong. `cat` at `mysql>` is unrecognised and stays unrecognised; when
+the read verbs land they slot in AHEAD of this fallback, so nothing written here is a lie to undo.
+
+**Mutants: 20 applied, 20 killed.** Control (a three-part rename) survived first, so the verdicts
+discriminate. Killed at the command: the greeting naming the address instead of the box; the
+greeting carrying a server version; the connection never held; the connection held even on a
+REFUSAL, which would strand the player at a prompt no credential is behind; the password dropped
+from what is held, which every later statement needs; the held connection naming the target as its
+own source; and a good login reporting failure. At the prompt: the way out made case-sensitive; a
+trailing semicolon kept; `quit` printing `Bye` while holding the connection; `quit` saying something
+else; a bare Enter answered as unsupported syntax; and an unrecognised line logging the player out,
+which would turn every typo into a logout. At the seams: the typed line falling through to the outer
+registry; the command not registered at all; the terminal never swapping the prompt in; the terminal
+showing `ftp>` for a database; the prompt appended to the shell's rather than replacing it; `quit`
+leaving the prompt held; and the prompt losing its trailing space.
+
+**The last four of those cost a test at a layer that had none.** The first battery left ONE survivor
+— deleting the prompt swap from `Terminal.tsx` — because every other check lived at the state layer,
+where `inMysqlSession()` is true and nobody looks at what the player SEES. A terminal that answered
+SQL while still showing `alice@workstation:/home/alice$` passed the whole suite. `Terminal.test.tsx`
+now drives one login end to end through the rendered field. Two things it taught: a masked prompt
+renders `type="password"`, which has NO implicit textbox role, so `getByRole('textbox')` cannot find
+the field the password is typed into; and the prompt renders `whitespace-pre`, so its trailing space
+is a rendered character — the default text matcher collapses exactly the difference that is visible.
+
+**No wire-check.** Nothing under `api/` or in `adapters/` changed; `mysqlConnect`'s round trip was
+proven live at `597dd2b` and this increment only decides what the client does with the answer.
+
+**A harness gotcha worth not repeating.** The hand-mutation script snapshots every file it will
+touch when it starts and restores from that snapshot at the end. Editing one of those files while it
+runs in the background silently loses the edit — a manual page written mid-run was gone by the time
+the battery finished, and only the suite caught it. Snapshot, then keep hands off.
+
+**Next**: criteria 8-12 — the verb table. `SHOW TABLES`, `DESCRIBE` and `SELECT` rendering legacy's
+ASCII tables, `Empty set (0.00 sec)` on its own path, and write verbs parsing so they can be refused
+with `1142` rather than called malformed. That increment brings the statement round-trip, which is
+where the held credential is re-sent and where criterion 19's liveness arm finally has somewhere to
+live.
 
 ---
 

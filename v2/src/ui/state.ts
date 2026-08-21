@@ -38,6 +38,8 @@ import type {
   DeepScanRecordParams,
   RemoteAuthParams,
   RemoteAuthResult,
+  MysqlConnectParams,
+  MysqlConnectResult,
   NcConnectParams,
   NcConnectResult,
   NcInnerGatewayParams,
@@ -107,6 +109,7 @@ import {
   authCreateServerSessionPublic,
   authCreateServerSessionSameLan,
   authElevateServerSession,
+  connectDatabase,
   crackCredentials,
   crackCredentialsInnerGateway,
   crackCredentialsPublic,
@@ -134,6 +137,7 @@ import { type HistoryNav, idleNav, navigateDown, navigateUp } from '../core/shel
 import { homePathFor, seedFs, seedSession } from './seed';
 import { rehydrateSessionStack } from './sessionRehydrate';
 import { runFtpLine } from '../core/commands/ftpShell';
+import { runMysqlLine } from '../core/commands/mysqlShell';
 import { persistConnection, restoreConnection } from './connectionPersistence';
 
 // ---- Config-derived game state, assigned once by `startGame`. ----
@@ -265,7 +269,35 @@ const [ftpPatches, setFtpPatches] = createSignal<readonly Patch[]>([]);
 // answer — which `refreshFtpServedRoot` drops by session id.
 const [ftpServedRoot, setFtpServedRoot] = createSignal<Directory | null>(null);
 
+// The database connection the terminal is holding, or null. A sub-shell like ftp's,
+// and for the same reason: while it is set the typed line is answered by the SQL
+// parser instead of the registry, and the prompt reads `mysql>`. What is held is the
+// credential rather than a session id, because this door mints no row — every
+// statement re-sends it, which is what keeps the connection reaching no filesystem.
+const [mysqlConnection, setMysqlConnection] = createSignal<MysqlConnectParams | null>(null);
+
 export { ftpSession };
+
+/** The prompt the terminal shows while a database connection is held — replacing the
+ *  shell's wholesale, as `ftp>` does: at `mysql>` the cwd and tier would name a
+ *  machine the player is no longer typing at, and one this door cannot read at all. */
+export const inMysqlSession = (): boolean => mysqlConnection() !== null;
+
+/** What the terminal shows while a connection is held. */
+export const MYSQL_PROMPT = 'mysql> ';
+
+/** Hold an opened connection (backs `env.mysql.enter`). No cwd, no journal and no
+ *  tree to pull: a database connection reaches no filesystem, so there is nothing
+ *  here but the credential the next statement will re-send. */
+const enterMysqlSession = (connection: MysqlConnectParams): void => {
+  setMysqlConnection(connection);
+};
+
+/** Drop it (backs `env.mysql.leave`). Nothing to end server-side, because nothing was
+ *  ever opened there — unlike `leaveFtpSession`, which closes a real row. */
+const leaveMysqlSession = (): void => {
+  setMysqlConnection(null);
+};
 
 /** The prompt the terminal shows: an ftp session replaces it wholesale rather than
  *  decorating it, because at `ftp>` the cwd and tier on the shell prompt would name
@@ -550,6 +582,14 @@ const hydraCrack = (params: HydraCrackParams): Promise<HydraCrackResult> =>
   sessionsClientDeps === undefined
     ? Promise.resolve({ ok: false, error: 'network_error' })
     : crackCredentials(sessionsClientDeps, params);
+
+/** Open a database on a LAN host server-side (backs `env.mysql.connect`). Before the
+ *  client is wired there is no daemon to ask, and the one refusal this seam carries is
+ *  the honest answer: nothing opened. */
+const mysqlConnect = (params: MysqlConnectParams): Promise<MysqlConnectResult> =>
+  sessionsClientDeps === undefined
+    ? Promise.resolve({ ok: false })
+    : connectDatabase(sessionsClientDeps, params);
 
 /** Crack credentials behind a stranger's PUBLIC IP server-side (backs
  *  `env.hydra.crackPublic`). Degrades the same way before the client is wired. */
@@ -1427,6 +1467,9 @@ const executeLine = async (line: string): Promise<void> => {
     onNcConnectSameLan: ncConnectSameLan,
     onNcConnectInnerGateway: ncConnectInnerGateway,
     onSuElevate: suElevate,
+    onMysqlConnect: mysqlConnect,
+    onMysqlEnter: enterMysqlSession,
+    onMysqlLeave: leaveMysqlSession,
     onHydraCrack: hydraCrack,
     onHydraCrackPublic: hydraCrackPublic,
     onHydraCrackInnerGateway: hydraCrackInnerGateway,
@@ -1455,16 +1498,22 @@ const executeLine = async (line: string): Promise<void> => {
     // the registry. This refusal is the security boundary of the sub-shell: falling
     // through would run the OUTER shell's `ls`/`cat`/`rm` against the machine the
     // player is standing on while they believe they are addressing the remote.
-    const result = inFtpSession()
-      ? await runFtpLine(env, line)
-      : await runCommandLine(env, line, commandRegistry);
+    // Same refusal one door along: at `mysql>` an outer `cat` would read the box
+    // the player is STANDING on while they believe they are addressing the database
+    // — and this connection reaches no filesystem at all, so falling through would
+    // answer with the one machine the credential bought no access to.
+    const result = inMysqlSession()
+      ? await runMysqlLine(env, line)
+      : inFtpSession()
+        ? await runFtpLine(env, line)
+        : await runCommandLine(env, line, commandRegistry);
     if (result.kind === 'sync') {
       setScrollback((previous) => [...previous, ...result.lines]);
       return;
     }
     if (result.kind === 'mode_change') {
-      // Only the apps with a screen open one; the rest (nc/ftp/mysql/redis) stay
-      // no-ops until theirs land. The narrow is load-bearing — it is what types
+      // Only the apps with a screen open one; the rest (nc/ftp/mysql are hops or
+      // sub-shells and declare none; redis stays a no-op until its door lands). The narrow is load-bearing — it is what types
       // the mode as an `OverlayMode` — so widening it before a screen exists
       // fails to compile rather than opening a blank overlay.
       const { mode } = result;

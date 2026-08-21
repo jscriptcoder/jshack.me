@@ -269,8 +269,8 @@ PHASE 1 — THE DOORS  (near-term focus)
       D5b slice 5 the account you crack fits the box   ✔ SHIPPED v0.157.0
   D6  mysql                                           ← IN PROGRESS (planned, plans/d6-mysql.md)
       D6 slice 1 a box runs a database                ✔ SHIPPED v0.158.0 (#434)
-      D6 slice 2 a player cracks a database account   ← IN PROGRESS (feat/d6-mysql-crack)
-      D6 slice 3 a player reads a database
+      D6 slice 2 a player cracks a database account   ✔ SHIPPED v0.159.0 (#437)
+      D6 slice 3 a player reads a database            ← NEXT (feat/d6-mysql-prompt)
       D6 slice 4 a player changes a database
       D6 slice 5 a database on a deep layer answers
       D6 slice 6 a player runs their own database      (deferred half)
@@ -1255,6 +1255,34 @@ obvious — and it is the only thing that makes a quiet single-row `UPDATE` disc
 **13. Five slices, then two.** See the spine below. `hydra` comes BEFORE the prompt: without a sweep
 there is no way to obtain a database credential, so the door would otherwise ship unopenable.
 
+### Amended at slice-3 planning (2026-08-20) — the database has its own `/etc/passwd`
+
+**14. The datadir's `credentials` array is reachable from `mysql>` as a table, on `/etc/passwd`'s
+exact permission shape.** Listed by `SHOW TABLES` and describable at every tier; `SELECT` refused
+below `user` with `ERROR 1142`. This is not an analogy — it is the same rule one door in. `/etc` is
+traversable at every tier so a guest sees `passwd` in an `ls`, while `PASSWD_FILE` is
+`read: ['root', 'user']` so a guest cannot read it. The database answers "who are you to this
+database" the way the box answers "who are you on this machine", and the bottom rung can SEE what
+the next credential buys.
+
+**This needed reconciling with decision 11** ("nothing generated is a password, key or token that
+works anywhere"), because a database credential hash IS working material for the very door it came
+from. The reconciliation is that it transfers **no capability, only silence**: `john`'s own
+docstring records that it and `hydra` run the same wordlist through the same `md5`, so for any hash
+a player can reach the two return an identical set of plaintexts. Cracking database root's hash
+offline therefore yields root at exactly the 12% `hydra` already yields it — measured in slice 2.
+What changes is who finds out: a sweep writes a wall of denials into the target's own `mysql.log`,
+and `john` writes nothing anywhere. **That is the middle tier's reward, and the measured ladder is
+untouched.**
+
+Slice 1's `DATADIR_FILE` is NOT amended and stays root-ONLY on the filesystem, narrower than
+`PASSWD_FILE` beside it. Reading the file and querying the door remain two different achievements —
+which is the whole reason decision 2 exists.
+
+**Consequence for the spine:** slice 3 ships one tier rung after all. It belongs to the READ set
+(who may read the account table) rather than being a preview of slice 4's write ladder, so slice 4's
+scope is unchanged.
+
 ### Folded in as routine (recorded so they are not re-decided)
 
 - `nmap`, `ps` and `systemctl status` see `mysqld` for free the moment the catalog row exists — they
@@ -1836,9 +1864,19 @@ holds a real database, and one that does not holds no `/var/lib/mysql` at all. I
 then paid in full across **#435 and #436**, which took `pools/database.ts` from a score inflated by
 masked timeouts to **88.69% with 0 timeouts** and 44 survivors that are each accounted for — 42
 column-metadata mutants slice 3 must kill by asserting `DESCRIBE` **over the population**, and 2
-equivalent float comparisons. Slice 2 (a player cracks a database account) is now underway on
-`feat/d6-mysql-crack` and is the first D6 slice to touch `api/`, so it needs a
-`scripts/testMysqlSweep.ts` wire-check run live before it counts.
+equivalent float comparisons. **Slice 2 then shipped v0.159.0 (#437)** — `hydra <host> mysql` returns the
+accounts in the box's database rather than its `/etc/passwd`, which was a SHIPPED BUG and not a
+missing feature: slice 1's catalog row made the door reachable while all three vantage handlers
+still read the wrong file, so on a box holding a `root` in both it returned the right name against
+the wrong secret. Proven by `scripts/testMysqlSweepTrace.ts` **13/13** on the wire. Two things it
+taught that the plan had not predicted: the **application account is the commonest** credential a
+sweep returns (67.7% of database boxes, against `readonly`'s 48.8% and root's 12.0%, measured over
+800 networks) because half the databases carry no `readonly`; and this slice's `api/` production
+diff was **empty**, so the row's blanket "slices 2-5 and 7 touch `api/`" does not hold — the wire
+-check earned its place for a narrower reason, that a `patches` row at a SECOND log path lands and
+reads back under a key the upsert's conflict target does not swallow.
+
+**Slice 3 (a player reads a database) is NEXT**, on `feat/d6-mysql-prompt`.
 
 The three things that grill settled which the row above could not have predicted:
 

@@ -420,8 +420,10 @@ decisions. The ship gate is legacy parity **minus missions**; missions are a pos
     through `resolvePublicTarget` exactly as `ssh` and `hydra` do, so the credential `hydra`
     reports on a forwarded port is the one that opens it. Proved live end to end in Act 11 of
     [`e2e-shared-network-verification.md`](./e2e-shared-network-verification.md).
-  - **Wire-checks:** `testFtpSession` (14/14), `testFtpRemoteRead` (7/7), `testFtpPut` (12/12),
-    `testFtpTransferTrace` (13/13), `testFtpSweepTrace` (8/8), `testFtpCrossPlayer` (16/16).
+  - **Wire-checks:** `testFtpSession` (**12/14** — the two backward-compat checks have been
+    failing for a while; real baseline and the open product question in §9), `testFtpRemoteRead`
+    (7/7), `testFtpPut` (12/12), `testFtpTransferTrace` (13/13), `testFtpSweepTrace` (8/8),
+    `testFtpCrossPlayer` (16/16).
     Several of them pin the ESSID to a fixture network deliberately: most generated LANs hold no
     host running BOTH doors, and without one "ftp wrote elsewhere" only means "a different
     machine". Pick the fixture ESSID for the box you need before assuming a generator bug.
@@ -590,6 +592,37 @@ as-built), then the cross-player architecture doc if the work touches cross-play
 ---
 
 ## 4. Mutation testing conventions
+
+**A negative fixture must be negative for the REASON UNDER TEST, not negative in general.** Twice in
+two slices a surviving mutant traced to the fixture rather than the assertion, so it is a rule now:
+
+- **D6 slice 2** — pointing every catalog row's account source at the database killed 16 tests for
+  `ssh`, 1 for `http`, and NONE for `ftp`. Its fixture box ran all three doors and both ladders
+  began with an account called `root`, so the trace line was identical whichever file was consulted.
+- **D6 slice 3** — pointing the `mysql` command's reachability check at ssh's port instead of 3306
+  killed nothing. The "no database" fixture was the first machine running NO SERVICE AT ALL, and a
+  box running nothing is refused on 3306 and on 22 alike, so no test could tell which port was read.
+
+Both are the same shape: the negative case was over-negative, and agreed with the mutant by accident.
+The fix is to pick a fixture where the two answers DIFFER — a box running ssh and no database, an
+account file whose ladders do not share a name. Before trusting a refusal test, ask **what else is
+also false about this fixture**, and whether the mutant would notice.
+
+This is the sibling of the same-pool blind spot recorded below: there, an oracle read from the array
+the generator reads moves with it; here, a fixture that fails every check agrees with every mutant.
+In both cases the test is shaped so that nothing it could catch is left to catch.
+
+**A hand-mutation harness owns the files it snapshots — don't edit them while it runs.** The
+house pattern (a Python script that applies one mutant, runs the spec, restores) reads every target
+file ONCE at startup and restores from that snapshot. Run it in the background and edit one of those
+files in the meantime and the edit is silently reverted when the battery finishes; nothing errors,
+because a restore is a plain write. A manual page written mid-battery vanished this way and only the
+next full suite run caught it. Either wait for the battery, or edit files it does not touch.
+
+**A mutant that survives a timeout stays applied.** The same harness restores in a `finally`, but a
+tool-level timeout kills the process outright — so a battery that runs long leaves the CURRENT
+mutant in the tree. Checking one marker is not enough (the control had been restored while a later
+mutant had not). Re-run the affected specs, or `git diff`, before trusting a green.
 
 Provably-equivalent mutant classes — accept (don't chase) when they recur:
 
@@ -951,6 +984,19 @@ of errors in instrumented copies of your own files, `@ts-nocheck` first among th
 config change riding along on an unrelated slice.
 
 ---
+
+### Testing gotchas found at the rendered layer
+
+- **A masked prompt has no `textbox` role.** `Terminal.tsx` renders `type={masked ? 'password' :
+  'text'}`, and `<input type="password">` has NO implicit ARIA role — so
+  `getByRole('textbox', { name: /terminal input/i })`, which every other test in that file uses,
+  cannot find the field a password is typed into. Use `getByLabelText(/terminal input/i)` there.
+- **Wait on WHICH prompt is pending, not on the field appearing.** A credential prompt keeps the
+  input mounted, so finding it proves nothing about whose question it is holding — and between two
+  prompts the busy bar takes it away for a beat. Wait on `pendingPrompt()?.masked`, then re-find.
+- **The prompt renders `whitespace-pre`, so its trailing space is a rendered character.** Testing
+  Library's default matcher collapses whitespace, so `findByText('mysql>')` passes against
+  `'mysql>  '`. Assert `.textContent` exactly when the constant's spacing is the claim.
 
 ## 5. Operational gotchas
 
@@ -1588,6 +1634,11 @@ state costs you more than one wrong attempt.
   `test(v2):`). The `(#N)` suffix is appended automatically on squash.
 - Commit messages end with the `Co-Authored-By` trailer; PR bodies end with the Claude Code
   generation trailer (see root `.claude/CLAUDE.md` harness rules).
+- **Never write "+ the working tree" in a plan header.** It is true for the minutes between writing
+  the plan update and committing it, and false forever after — sending whoever picks the work up
+  hunting for uncommitted changes in a clean tree. Twice now in one slice. A plan update committed
+  ALONGSIDE the work it describes cannot name its own hash, so name only the commits that already
+  exist and let the next update add this one.
 - Cut a branch per slice off `main`; never commit straight to `main` for code.
 - **Do not stack a PR on a branch that will be squash-merged with `--delete-branch`.** Merging
   the base deletes its branch, and GitHub then **closes** the stacked PR instead of retargeting
