@@ -494,12 +494,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // One statement against an own-LAN host's database. The credential is re-sent
     // and re-validated here because the connection minted no session row to trust
     // instead. The handler READS the target's journal (its real datadir, and what it
-    // is actually running) and writes NOTHING: a session of reads leaves the box's
-    // /var/log/mysql.log exactly as the login left it. What comes back is rendered
-    // text only -- rows would hand the client what the account could not select.
+    // is actually running); a statement that CHANGES the database writes the datadir
+    // back and nothing else, and a session of reads still writes nothing at all. What
+    // comes back is rendered text only -- rows would hand the client what the account
+    // could not select.
     const { status, body } = await handleMysqlStatement(req.body, {
       nonceStore: noopNonceStore,
       findPatches: findPatchesVia({ supabase, label: 'mysql statement journal lookup' }),
+      upsertPatch: upsertPatchVia({ supabase, label: 'mysql datadir upsert' }),
     });
     res.status(status).json(body);
     return;

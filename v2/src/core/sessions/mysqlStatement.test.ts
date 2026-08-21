@@ -3,11 +3,13 @@ import { handleMysqlStatement, type MysqlStatementDeps } from './mysqlStatement'
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { hostServices } from '../generation/remoteHostFs';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { asAbsPath } from '../types';
 import { md5 } from '../generation/md5';
 import { databaseOn, knownDatabaseCredential, mysqlHostOn } from '../../test/factories/lanDatabase';
+import { parseMysqlDatabase } from '../mysql/types';
 import type { OwnerPatchRow } from '../network/materializeMachineFs';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
@@ -54,13 +56,17 @@ const patchRow = (path: string, content: string | null): OwnerPatchRow =>
     writer_key: 'b'.repeat(64),
   }) as OwnerPatchRow;
 
-const makeDeps = (patches: readonly OwnerPatchRow[] = []) => {
+const makeDeps = (
+  patches: readonly OwnerPatchRow[] = [],
+  upsertResult: { readonly error: unknown } = { error: null },
+) => {
   const findPatches = vi.fn<MysqlStatementDeps['findPatches']>(async () => ({
     data: patches,
     error: null,
   }));
-  const deps: MysqlStatementDeps = { nonceStore: freshStore, findPatches };
-  return { deps, findPatches };
+  const upsertPatch = vi.fn<MysqlStatementDeps['upsertPatch']>(async () => upsertResult);
+  const deps: MysqlStatementDeps = { nonceStore: freshStore, findPatches, upsertPatch };
+  return { deps, findPatches, upsertPatch };
 };
 
 const signedStatement = (
@@ -87,6 +93,32 @@ const openOn = (host: LanHost) => {
   const credential = knownDatabaseCredential(ESSID, host);
   return { identity: generateIdentity(), credential };
 };
+
+/**
+ * A datadir carrying all three rungs, planted on a real generated box.
+ *
+ * Planted rather than found: the generator gives a read-only account to about half of
+ * all databases and database root to roughly one box in eight, so a test that went
+ * looking for a particular tier would pass or fail on which host the ESSID happened
+ * to draw. Everything else about the box is its own — the tables, the name, the
+ * filesystem the datadir sits in.
+ */
+const ROOT_PASSWORD = 'let-me-in';
+const APP_PASSWORD = 'let-me-read';
+const GUEST_PASSWORD = 'let-me-look';
+
+const laddered = (host: LanHost) =>
+  patchRow(
+    '/var/lib/mysql/data.json',
+    JSON.stringify({
+      ...databaseOn(ESSID, host),
+      credentials: [
+        { username: 'dba', passwordHash: md5(ROOT_PASSWORD), userType: 'root' },
+        { username: 'app_rw', passwordHash: md5(APP_PASSWORD), userType: 'user' },
+        { username: 'readonly', passwordHash: md5(GUEST_PASSWORD), userType: 'guest' },
+      ],
+    }),
+  );
 
 describe('answering a statement against a real box', () => {
   it('renders the box own tables and returns nothing but the rendering', async () => {
@@ -295,21 +327,6 @@ describe('what a statement cannot reach', () => {
  * arrange one instead of hoping the box it picked has one.
  */
 describe('the tier a statement runs at', () => {
-  const APP_PASSWORD = 'let-me-read';
-  const GUEST_PASSWORD = 'let-me-look';
-
-  const laddered = (host: LanHost) =>
-    patchRow(
-      '/var/lib/mysql/data.json',
-      JSON.stringify({
-        ...databaseOn(ESSID, host),
-        credentials: [
-          { username: 'app_rw', passwordHash: md5(APP_PASSWORD), userType: 'user' },
-          { username: 'readonly', passwordHash: md5(GUEST_PASSWORD), userType: 'guest' },
-        ],
-      }),
-    );
-
   const ask = async (
     host: LanHost,
     identity: ReturnType<typeof generateIdentity>,
@@ -387,5 +404,152 @@ describe('the tier a statement runs at', () => {
         `ERROR 1142 (42000): SELECT command denied to user 'readonly'@'${CLIENT_IP}' for table 'credentials'`,
       ],
     });
+  });
+});
+
+/**
+ * Where a change lands, once an account is allowed to make one.
+ *
+ * This is the door's first write, and the guarantee it spends is a real one: until
+ * now these deps carried no way to write at all, so "a statement changes nothing on
+ * the target" held by construction. It is a rule now, and the last two tests here are
+ * what hold it.
+ *
+ * The datadir is written as a WHOLE file rather than edited in place, because that is
+ * what a database is here — one JSON document a daemon reads back. What matters is
+ * that what lands still parses and still carries everything it carried before: the
+ * reader collapses "unparseable" into "this box has no database", so a bad write
+ * would shut the door on everyone, the player who made it included.
+ */
+describe('where a write lands', () => {
+  const DATADIR = '/var/lib/mysql/data.json';
+
+  const write = async (
+    login: { readonly username: string; readonly password: string },
+    statement: string,
+    upsertResult: { readonly error: unknown } = { error: null },
+  ) => {
+    const host = mysqlHostOn(ESSID);
+    const identity = generateIdentity();
+    const { deps, upsertPatch } = makeDeps([laddered(host)], upsertResult);
+    const response = await handleMysqlStatement(
+      await signedStatement(identity, {
+        target_ip: host.ip,
+        username: login.username,
+        password: login.password,
+        statement,
+      }),
+      deps,
+    );
+    return { host, identity, response, upsertPatch };
+  };
+
+  const APP = { username: 'app_rw', password: APP_PASSWORD };
+  const DBA = { username: 'dba', password: ROOT_PASSWORD };
+  const READONLY = { username: 'readonly', password: GUEST_PASSWORD };
+
+  it('reaches the datadir on the box the statement named, and no other path', async () => {
+    // Over EVERY path the door wrote, not "one of them was the datadir". A door that
+    // also touched something else would pass the second check and fail this one.
+    //
+    // The machine is half the address and the easier half to get wrong: a change
+    // filed against the wrong box vanishes silently, and the player is told Query OK
+    // over rows that will not have moved when they look again.
+    const { host, response, upsertPatch } = await write(APP, "UPDATE orders SET id = '1'");
+
+    expect(response.status).toBe(200);
+    expect(upsertPatch.mock.calls.map(([row]) => [row.machine_id, row.path])).toEqual([
+      [resolveLanHostIdentity(host, ESSID).machineId, DATADIR],
+    ]);
+  });
+
+  it('writes it back as the root-only file it was', async () => {
+    // The datadir holds the hashes a sweep has to work for. A write that widened its
+    // permissions would hand the answer key to every tier on the box — and it would
+    // do it quietly, since nothing about the statement would look different.
+    const { upsertPatch } = await write(APP, "UPDATE orders SET id = '1'");
+    const [row] = upsertPatch.mock.calls[0] ?? [];
+
+    expect(row).toMatchObject({
+      path: DATADIR,
+      owner: 'root',
+      node_type: 'file',
+      permissions: { read: ['root'], write: ['root'], execute: [] },
+    });
+  });
+
+  it('records the change under the key of the player who made it', async () => {
+    const { identity, upsertPatch } = await write(APP, "UPDATE orders SET id = '1'");
+    const [row] = upsertPatch.mock.calls[0] ?? [];
+
+    expect(row?.writer_key).toBe(identity.publicKeyHex);
+  });
+
+  it('is what the next occupant of the LAN reads, not just its author', async () => {
+    // The claim that makes a database a shared object rather than a private one: the
+    // journal is the machine's, so somebody else's next statement meets the change.
+    const first = await write(DBA, 'DROP TABLE orders');
+    const [written] = first.upsertPatch.mock.calls[0] ?? [];
+    expect(written?.content).toBeDefined();
+    if (written?.content === undefined || written.content === null) return;
+
+    const { deps } = makeDeps([patchRow(DATADIR, written.content)]);
+    const second = await handleMysqlStatement(
+      await signedStatement(generateIdentity(), {
+        target_ip: first.host.ip,
+        username: APP.username,
+        password: APP.password,
+        statement: 'SHOW TABLES',
+      }),
+      deps,
+    );
+
+    expect(String(second.body['output'])).not.toContain('orders');
+  });
+
+  it('writes back a whole database that still reads as one', async () => {
+    // A datadir that stopped parsing would read as "no database on this box" — the
+    // reader deliberately cannot tell those apart — and the door would close on
+    // everyone. So the account list has to survive a statement about tables.
+    const { host, upsertPatch } = await write(DBA, 'DROP TABLE orders');
+    const [row] = upsertPatch.mock.calls[0] ?? [];
+    const written = parseMysqlDatabase(row?.content ?? '');
+
+    expect(written).not.toBeNull();
+    expect(written?.name).toBe(databaseOn(ESSID, host).name);
+    expect(written?.credentials.map((credential) => credential.username)).toEqual([
+      'dba',
+      'app_rw',
+      'readonly',
+    ]);
+    expect(Object.keys(written?.tables ?? {})).not.toContain('orders');
+  });
+
+  it('tells the player nothing landed when the write could not be recorded', async () => {
+    // The write IS the statement here, not a note about one. Answering Query OK while
+    // nothing persisted would show the player old rows on their next statement and
+    // read as the game losing writes.
+    const { response, upsertPatch } = await write(APP, "UPDATE orders SET id = '1'", {
+      error: new Error('journal unreachable'),
+    });
+
+    expect(upsertPatch).toHaveBeenCalledTimes(1);
+    expect(response).toEqual({ status: 500, body: { error: 'datadir_write_failed' } });
+  });
+
+  it('writes nothing at all for a read', async () => {
+    for (const statement of ['SHOW TABLES', 'DESCRIBE orders', 'SELECT * FROM orders']) {
+      const { upsertPatch } = await write(DBA, statement);
+      expect(upsertPatch, statement).not.toHaveBeenCalled();
+    }
+  });
+
+  it('writes nothing for a write it refused', async () => {
+    for (const login of [READONLY, APP]) {
+      const { upsertPatch } = await write(login, 'DROP TABLE orders');
+      expect(upsertPatch, login.username).not.toHaveBeenCalled();
+    }
+    const { upsertPatch } = await write(DBA, "UPDATE credentials SET password_hash = 'x'");
+    expect(upsertPatch).not.toHaveBeenCalled();
   });
 });

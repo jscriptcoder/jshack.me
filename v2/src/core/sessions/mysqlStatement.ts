@@ -16,9 +16,16 @@
  * never draws and anyone watching the wire can read — so the rendering happens here,
  * on the side that can see the whole database, and only its output crosses.
  *
- * Nothing is written. These deps carry no way to write, so a session of reads leaves
- * the target's `mysql.log` exactly as the login left it: one line, whatever the
- * player goes on to type.
+ * A statement that CHANGES the database writes the datadir back and nothing else.
+ * These deps carry exactly one way to write for exactly that, and the engine decides
+ * when it is used: only a statement that produced a new database gets persisted, so a
+ * session of reads still leaves the box precisely as the login left it. That used to
+ * be structural and is now a rule, which is why there are tests standing on it.
+ *
+ * A write that cannot be recorded is a write that did not happen, and the player is
+ * told so. The datadir write IS the statement here rather than a note about one:
+ * answering `Query OK` over a failed journal write would show them their old rows on
+ * the next statement and read as the game losing writes.
  */
 
 import { z } from 'zod';
@@ -26,12 +33,18 @@ import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { md5 } from '../generation/md5';
 import { reachMysqlHost, type HandlerResponse, type MysqlHostLookup } from './mysqlHost';
-import { credentialIn, databaseIn } from '../mysql/datadir';
+import { credentialIn, databaseIn, DATADIR_OWNER, DATADIR_PATH } from '../mysql/datadir';
 import { runStatement } from '../mysql/statements';
+import { DATADIR_FILE } from '../generation/baseFs';
 import type { NonceStore } from '../signedRequest/nonceStore';
+import type { PatchRow } from '../patches/upsertPatch';
 
 export type MysqlStatementDeps = MysqlHostLookup & {
   readonly nonceStore: NonceStore;
+  /** Write a patch — here, the one file a statement is ever allowed to change. Kept
+   *  to the datadir by the caller below rather than by the shape of this type, so the
+   *  test that names every path the door writes is the thing holding it. */
+  readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
 };
 
 export type { HandlerResponse };
@@ -67,14 +80,14 @@ export const handleMysqlStatement = async (
   if (!verified.ok) {
     return { status: STATUS_BY_VERIFY_REASON[verified.reason], body: { error: verified.reason } };
   }
-  const { payload } = verified;
+  const { payload, publicKey } = verified;
 
   const reach = await reachMysqlHost(deps, {
     essid: payload.essid,
     targetIp: payload.target_ip,
   });
   if (!reach.ok) return reach.refusal;
-  const { hostFs } = reach.reached;
+  const { hostFs, machineId } = reach.reached;
 
   const credential = credentialIn(hostFs, payload.username);
   if (credential === null || md5(payload.password) !== credential.passwordHash) return INVALID;
@@ -85,7 +98,7 @@ export const handleMysqlStatement = async (
   const database = databaseIn(hostFs);
   if (database === null) return INVALID;
 
-  const { output, failed } = runStatement({
+  const { output, failed, database: changed } = runStatement({
     database,
     line: payload.statement,
     username: payload.username,
@@ -94,6 +107,23 @@ export const handleMysqlStatement = async (
     userType: credential.userType,
     sourceIp: payload.source_ip ?? 'unknown',
   });
+
+  if (changed !== undefined) {
+    // The whole document goes back, because that is what a database is here: one JSON
+    // file a daemon reads in full. The owner and permissions are re-stated rather than
+    // inherited, so a rewrite cannot quietly widen the one file on the box that holds
+    // the hashes a sweep has to work for.
+    const { error } = await deps.upsertPatch({
+      writer_key: publicKey,
+      machine_id: machineId,
+      path: DATADIR_PATH,
+      content: JSON.stringify(changed),
+      owner: DATADIR_OWNER,
+      permissions: DATADIR_FILE,
+      node_type: 'file',
+    });
+    if (error) return { status: 500, body: { error: 'datadir_write_failed' } };
+  }
 
   return { status: 200, body: { output, failed } };
 };

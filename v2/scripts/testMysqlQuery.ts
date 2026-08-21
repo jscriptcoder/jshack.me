@@ -271,11 +271,14 @@ const main = async (): Promise<void> => {
     rendered(selected.body).split('\n').at(-1) ?? '(nothing)',
   );
 
-  const denied = await statement(`DROP TABLE ${firstTable}`);
+  // Asked as the bottom rung on purpose. The account this script logs in with is
+  // whichever one the box happened to draw, and a write is a permission problem only
+  // BELOW the tier that may run it — the ladder itself is exercised in testMysqlMutate.
+  const denied = await statementAs(guest, `DROP TABLE ${firstTable}`);
   check(
     'a write is refused as a PERMISSION problem, naming this connection',
     rendered(denied.body) ===
-      `ERROR 1142 (42000): DROP command denied to user '${login.username}'@'${CLIENT_IP}' for table '${firstTable}'`,
+      `ERROR 1142 (42000): DROP command denied to user '${guest.username}'@'${CLIENT_IP}' for table '${firstTable}'`,
     rendered(denied.body),
   );
 
