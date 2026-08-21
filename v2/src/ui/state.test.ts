@@ -1390,7 +1390,15 @@ describe('the mysql sub-shell', () => {
           return { ok: true, status: 200, json: async () => ({ sessions: [] }) };
         }
         if (fields.action === 'mysqlConnect') {
-          return { ok: opened, status: opened ? 200 : 401, json: async () => ({ ok: opened }) };
+          // A 200 names the box the client greets with; a 401 names the address the
+          // daemon saw, which is what the client renders the refusal from.
+          return opened
+            ? { ok: true, status: 200, json: async () => ({ ok: true, hostname: DATABASE_HOST.hostname }) }
+            : {
+                ok: false,
+                status: 401,
+                json: async () => ({ error: 'invalid_credentials', from: '192.168.1.50' }),
+              };
         }
         // The statement door answers with RENDERED TEXT and nothing else -- the same
         // shape the real handler returns, so what the terminal prints here is what a

@@ -356,16 +356,23 @@ export const listServerSessions = async (deps: SessionsClientDeps): Promise<read
  * Open a database on a LAN host — the signed `mysqlConnect` round-trip behind
  * `env.mysql.connect`.
  *
- * Everything that is not a 200 collapses to the same "did not open", and a
- * transport failure collapses with them. The seam has ONE refusal to carry because
- * an answer that separated a wrong password from an account the database has never
- * held would enumerate its accounts for anyone willing to type names at it — and a
- * client that received the distinction could leak it however carefully the command
- * is written.
+ * A wrong password and an account the database has never held collapse into ONE
+ * refusal, because an answer that separated them would enumerate its accounts for
+ * anyone willing to type names at it. What does NOT collapse into it is a box that was
+ * not there or a daemon that was not listening: a scan already tells anyone who asks,
+ * and on the caller's own LAN this client refuses those before it even prompts.
+ *
+ * The refusal carries the address the daemon SAW, and the success carries the box's
+ * NAME, for the same reason: through a forward neither is knowable here. A deep box's
+ * address is absent from the generated LAN, and the only address it was ever shown is
+ * the fronting gateway's `.1`.
  *
  * No session comes back because none is created: the credential is re-validated on
  * every statement, so there is no row to hold and nothing here to keep.
  */
+const openedDatabase = z.object({ hostname: z.string().min(1) });
+const refusedDatabase = z.object({ from: z.string().min(1) });
+
 export const connectDatabase = async (
   deps: SessionsClientDeps,
   params: MysqlConnectParams,
@@ -374,13 +381,33 @@ export const connectDatabase = async (
     const response = await post(deps, 'mysqlConnect', {
       essid: params.essid,
       target_ip: params.targetIp,
+      port: params.port,
       username: params.username,
       password: params.password,
       source_ip: params.sourceIp,
     });
-    return { ok: response.ok };
+    const body: unknown = await response.json().catch(() => null);
+    if (response.ok) {
+      const opened = openedDatabase.safeParse(body);
+      // A 200 the client cannot read is not an open door: it has no box to name.
+      return opened.success
+        ? { ok: true, hostname: opened.data.hostname }
+        : { ok: false, reason: 'unreachable' };
+    }
+    if (response.status === 401) {
+      const refused = refusedDatabase.safeParse(body);
+      return {
+        ok: false,
+        reason: 'denied',
+        fromIp: refused.success ? refused.data.from : params.sourceIp,
+      };
+    }
+    // A daemon that is not listening is the one non-credential refusal worth telling
+    // apart; everything else — no route, a dead hop, a server error — is "not there".
+    const stopped = z.object({ error: z.literal('service_not_running') }).safeParse(body);
+    return { ok: false, reason: stopped.success ? 'refused' : 'unreachable' };
   } catch {
-    return { ok: false };
+    return { ok: false, reason: 'unreachable' };
   }
 };
 
@@ -409,6 +436,7 @@ export const runDatabaseStatement = async (
     const response = await post(deps, 'mysqlStatement', {
       essid: params.essid,
       target_ip: params.targetIp,
+      port: params.port,
       username: params.username,
       password: params.password,
       statement: params.statement,

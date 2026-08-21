@@ -12,6 +12,16 @@
  */
 
 import { generateHomeLan, type LanHost } from '../../core/generation/generateHomeLan';
+import { crackableEssidPool } from '../../core/generation/generateWifi';
+import {
+  buildDeepHostFs,
+  generateDeepLayer,
+  type DeepLayer,
+} from '../../core/generation/generateDeepLayer';
+import { computeInnerGatewayId } from '../../core/identity/router';
+import { hostMachineId } from '../../core/generation/remoteHostId';
+import { databaseIn } from '../../core/mysql/datadir';
+import { readOpenPorts } from '../../core/services/pidfile';
 import { hostServices } from '../../core/generation/remoteHostFs';
 import { resolveLanHostIdentity } from '../../core/generation/lanHostIdentity';
 import { ALL_GENERATED_PASSWORDS } from '../../core/generation/passwordPools';
@@ -54,19 +64,87 @@ export const databaseOn = (essid: string, host: LanHost): MysqlDatabase => {
 
 /** One database account with its real plaintext, recovered by matching the stored
  *  hash against the pool every generated password is drawn from. */
-export const knownDatabaseCredential = (
-  essid: string,
-  host: LanHost,
+export const knownDatabaseCredentialIn = (
+  database: MysqlDatabase,
+  label: string,
 ): { readonly username: string; readonly password: string } => {
-  const found = databaseOn(essid, host).credentials.flatMap((credential) => {
+  const found = database.credentials.flatMap((credential) => {
     const password = ALL_GENERATED_PASSWORDS.find(
       (candidate) => md5(candidate) === credential.passwordHash,
     );
     return password === undefined ? [] : [{ username: credential.username, password }];
   });
   const credential = found[0];
-  if (credential === undefined) {
-    throw new Error(`no recoverable database account on ${host.hostname}`);
-  }
+  if (credential === undefined) throw new Error(`no recoverable database account on ${label}`);
   return credential;
 };
+
+/** A box on a hidden layer that really serves a database, and the gateway fronting it.
+ *
+ *  Searched for rather than named, because both facts are per-network rolls: a twelfth
+ *  of layers run a database at all, and only some of those carry an account whose
+ *  plaintext a test can recover. Naming one essid would leave this passing on a fixture
+ *  and failing on a re-roll.
+ *
+ *  Everything here is the generator's: the layer's subnet, the box's services, its own
+ *  database. What the tests supply is the forward that exposes it, which is the one
+ *  thing a player has to do by hand. */
+export type DeepDatabaseFixture = {
+  readonly essid: string;
+  /** The Layer-1 inner gateway whose forward table is the only door to the layer. */
+  readonly gateway: LanHost;
+  readonly gatewayMachineId: string;
+  readonly layer: DeepLayer;
+  readonly machineId: string;
+  /** The box's SEEDED tree — no journal replayed, which is exactly what the chain
+   *  resolver hands back and why the door has to materialize on top of it. */
+  readonly fs: Directory;
+  /** The only address NAT ever shows this box: the fronting gateway's downstream `.1`. */
+  readonly natIp: string;
+  readonly database: MysqlDatabase;
+};
+
+const octetOf = (host: LanHost): number => Number(host.ip.split('.')[3]);
+
+const innerGatewayOn = (essid: string): LanHost | undefined =>
+  generateHomeLan(essid).hosts.find(
+    (host) => (host.kind === 'router' || host.kind === 'switch') && octetOf(host) !== 1,
+  );
+
+const deepDatabaseOn = (essid: string): DeepDatabaseFixture | null => {
+  const gateway = innerGatewayOn(essid);
+  if (gateway === undefined || gateway.kind !== 'router') return null;
+  const gatewayMachineId = computeInnerGatewayId(essid, octetOf(gateway));
+  const layer = generateDeepLayer(essid, { machineId: gatewayMachineId, kind: 'router' });
+  const fs = buildDeepHostFs(essid, layer.host);
+  const database = databaseIn(fs);
+  if (database === null) return null;
+  if (!readOpenPorts(fs).some((open) => open.service === SERVICE_CATALOG.mysql.service)) return null;
+  const recoverable = database.credentials.some((credential) =>
+    ALL_GENERATED_PASSWORDS.some((word) => md5(word) === credential.passwordHash),
+  );
+  if (!recoverable) return null;
+  return {
+    essid,
+    gateway,
+    gatewayMachineId,
+    layer,
+    machineId: hostMachineId(layer.host, essid),
+    fs,
+    natIp: `${layer.subnet}.1`,
+    database,
+  };
+};
+
+export const deepDatabaseFixture = (): DeepDatabaseFixture => {
+  const essid = crackableEssidPool.find((candidate) => deepDatabaseOn(candidate) !== null);
+  const fixture = essid === undefined ? null : deepDatabaseOn(essid);
+  if (fixture === null) throw new Error('no network fronts a deep database');
+  return fixture;
+};
+
+export const knownDatabaseCredential = (
+  essid: string,
+  host: LanHost,
+): { readonly username: string; readonly password: string } =>
+  knownDatabaseCredentialIn(databaseOn(essid, host), host.hostname);

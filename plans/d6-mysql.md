@@ -1306,6 +1306,27 @@ type rather than being adapted to each other.
     connection to MySQL server during query`; pulling the forward mid-session does the same, by the
     same path
 
+#### Found while building commit 2 — the terminal deep box's journal is never read
+
+`resolveInnerGatewayTarget` replays each GATEWAY's journal down the chain (to read
+`rules.v4`, and to boot-gate every hop), but the box at the END of the chain comes back as
+`buildDeepHostFs(...)` — its seeded tree, with no journal replayed and no boot gate. ssh
+and hydra never noticed, because seeded accounts are all they read off it.
+
+The database door reads DATA, so it notices immediately: a write would persist to the
+journal and the next statement would re-read the seeded base and show the old rows.
+Criteria 4, 7 and 9 all fail without a fix.
+
+**DECISION (2026-08-21)**: fix it in the mysql door — `reachMysqlHost` materializes on top
+of whatever the resolver returned, which is what it already does for own-LAN, so both
+vantages materialize in one function. ssh and hydra keep the behaviour their wire-checks
+proved. The resolver's own gap stays open and is now a backlog item:
+
+> **Deep terminal NPC is never materialized or boot-gated.** An account added to a deep
+> box's `/etc/passwd` cannot log in, and a deep box bricked through its journal still
+> answers. Fixing it in `resolveInnerGatewayTarget` closes it for every door at once, but
+> changes ssh and hydra, so it needs `testInnerGatewayReach.ts` re-run live alongside.
+
 **Wire-check** (DECISION): a NEW `scripts/testMysqlDeep.ts`, not an extension of
 `testInnerGatewayReach.ts`. That script picks its ESSID by requiring depth >= 2; adding a mysql leg
 would make it require a deep mysqld too — a 12.8% roll that moves the fixture under 13 already-passing

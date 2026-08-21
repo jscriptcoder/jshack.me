@@ -8,6 +8,7 @@ import {
   mockSession,
 } from '../../test/factories/commandEnv';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
+import { isInnerGateway } from '../generation/lanHostIdentity';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
 import { readOpenPorts } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
@@ -80,6 +81,18 @@ const pickHosts = (): { readonly databaseHost: LanHost; readonly noDatabaseHost:
  *  refused: the flag addresses a port, and a port is not a door until the right daemon
  *  is behind it. Derived rather than written as 22, so a re-roll of the fixture's
  *  services cannot leave this asserting against a port nothing listens on. */
+/** The LAN's inner gateway — the one kind of host where a port addresses something
+ *  BEHIND it rather than the box itself. */
+const innerGatewayOn = (essid: string): LanHost => {
+  const gateway = generateHomeLan(essid).hosts.find(isInnerGateway);
+  if (gateway === undefined) throw new Error('no inner gateway on this LAN');
+  return gateway;
+};
+
+/** Deliberately neither 3306 nor the gateway's own 22: this is the port a player
+ *  opened on their gateway, and what it reaches is the gateway's business. */
+const FORWARD_PORT = 33306;
+
 const otherServicePortOn = (host: LanHost): number => {
   const port = readOpenPorts(buildRemoteHostFs(ESSID, host)).find(
     (open) => open.service !== SERVICE_CATALOG.mysql.service,
@@ -142,7 +155,7 @@ describe('mysql', () => {
     const prompt = vi.fn(async () => 'hunter2');
     // Refused at the daemon, which is beside the point here: this box HAS a door, and
     // the claim is only that the door was knocked on.
-    const env = mysqlEnv({ prompt, mysql: { connect: async () => ({ ok: false }) } });
+    const env = mysqlEnv({ prompt, mysql: { connect: async () => ({ ok: false, reason: 'denied' as const, fromIp: LOCAL_IP }) } });
 
     await mysql.execute(env, [databaseHost.ip], new Map());
 
@@ -181,7 +194,7 @@ describe('mysql', () => {
 
   it('refuses a bad credential without saying which half of it was wrong', async () => {
     const { databaseHost } = pickHosts();
-    const connect = vi.fn(async () => ({ ok: false as const }));
+    const connect = vi.fn(async () => ({ ok: false as const, reason: 'denied' as const, fromIp: LOCAL_IP }));
 
     const result = await mysql.execute(mysqlEnv({ mysql: { connect } }), [databaseHost.ip], new Map());
 
@@ -196,7 +209,7 @@ describe('mysql', () => {
 
   it('hands the daemon exactly what was typed', async () => {
     const { databaseHost } = pickHosts();
-    const connect = vi.fn(async () => ({ ok: false as const }));
+    const connect = vi.fn(async () => ({ ok: false as const, reason: 'denied' as const, fromIp: LOCAL_IP }));
 
     await mysql.execute(mysqlEnv({ mysql: { connect } }), [databaseHost.ip], new Map());
 
@@ -205,6 +218,7 @@ describe('mysql', () => {
     expect(connect).toHaveBeenCalledWith({
       essid: ESSID,
       targetIp: databaseHost.ip,
+      port: 3306,
       username: 'readonly',
       password: 'hunter2',
       sourceIp: LOCAL_IP,
@@ -213,7 +227,7 @@ describe('mysql', () => {
 
   it('takes the account from the command line without asking for one', async () => {
     const { databaseHost } = pickHosts();
-    const connect = vi.fn(async () => ({ ok: false as const }));
+    const connect = vi.fn(async () => ({ ok: false as const, reason: 'denied' as const, fromIp: LOCAL_IP }));
     const prompt = vi.fn(async () => 'hunter2');
 
     await mysql.execute(mysqlEnv({ mysql: { connect }, prompt }), [databaseHost.ip, 'root'], new Map());
@@ -227,7 +241,7 @@ describe('mysql', () => {
 
   it('aborts holding nothing when the account prompt is interrupted', async () => {
     const { databaseHost } = pickHosts();
-    const connect = vi.fn(async () => ({ ok: false as const }));
+    const connect = vi.fn(async () => ({ ok: false as const, reason: 'denied' as const, fromIp: LOCAL_IP }));
     const interrupted = async () => {
       throw new Error('aborted');
     };
@@ -247,7 +261,7 @@ describe('mysql', () => {
 
   it('aborts holding nothing when the password prompt is interrupted', async () => {
     const { databaseHost } = pickHosts();
-    const connect = vi.fn(async () => ({ ok: false as const }));
+    const connect = vi.fn(async () => ({ ok: false as const, reason: 'denied' as const, fromIp: LOCAL_IP }));
     const prompt = vi.fn(async ({ masked }: { message: string; masked: boolean }) => {
       if (masked) throw new Error('aborted');
       return 'readonly';
@@ -270,7 +284,9 @@ describe('mysql', () => {
   it('greets and hands the player the prompt when the credential opens', async () => {
     const { databaseHost } = pickHosts();
     const enter = vi.fn();
-    const env = mysqlEnv({ mysql: { connect: async () => ({ ok: true }), enter } });
+    const env = mysqlEnv({
+      mysql: { connect: async () => ({ ok: true, hostname: databaseHost.hostname }), enter },
+    });
 
     const result = await mysql.execute(env, [databaseHost.ip], new Map());
 
@@ -288,22 +304,24 @@ describe('mysql', () => {
     expect(enter).toHaveBeenCalled();
   });
 
-  it('names the box, not the address the player typed, in the line it greets with', async () => {
+  it('greets with the name the box ANSWERED with, not one looked up here', async () => {
     const { databaseHost } = pickHosts();
-    const env = mysqlEnv({ mysql: { connect: async () => ({ ok: true }) } });
+    // Deliberately not this box's real name, and not its address either. Only the
+    // server can name a box reached through a forward, because a deep address is
+    // absent from the generated LAN — so the name has to come back with the answer.
+    const env = mysqlEnv({ mysql: { connect: async () => ({ ok: true, hostname: 'records-186' }) } });
 
     const result = await mysql.execute(env, [databaseHost.ip], new Map());
 
-    // The address is what got us here; the hostname is what answered. A greeting
-    // built from `args[0]` renders the IP and passes every other assertion above,
-    // because the fixture reaches the box BY its address.
+    expect(linesOf(result)).toContain('Connected to records-186.');
     expect(linesOf(result)).not.toContain(databaseHost.ip);
+    expect(linesOf(result)).not.toContain(databaseHost.hostname);
   });
 
   it('keeps the whole credential, because every statement re-sends it', async () => {
     const { databaseHost } = pickHosts();
     const enter = vi.fn();
-    const env = mysqlEnv({ mysql: { connect: async () => ({ ok: true }), enter } });
+    const env = mysqlEnv({ mysql: { connect: async () => ({ ok: true, hostname: 'db-fixture' }), enter } });
 
     await mysql.execute(env, [databaseHost.ip], new Map());
 
@@ -313,6 +331,7 @@ describe('mysql', () => {
     expect(enter).toHaveBeenCalledWith({
       essid: ESSID,
       targetIp: databaseHost.ip,
+      port: 3306,
       username: 'readonly',
       password: 'hunter2',
       sourceIp: LOCAL_IP,
@@ -322,7 +341,7 @@ describe('mysql', () => {
   it('opens no prompt when the credential is refused', async () => {
     const { databaseHost } = pickHosts();
     const enter = vi.fn();
-    const env = mysqlEnv({ mysql: { connect: async () => ({ ok: false }), enter } });
+    const env = mysqlEnv({ mysql: { connect: async () => ({ ok: false, reason: 'denied' as const, fromIp: LOCAL_IP }), enter } });
 
     const result = await mysql.execute(env, [databaseHost.ip], new Map());
 
@@ -350,7 +369,7 @@ describe('mysql', () => {
     const prompt = vi.fn(async () => 'hunter2');
     // Refused at the daemon, which is beside the point: the claim is that naming the
     // right port explicitly reaches the same door as naming none.
-    const env = mysqlEnv({ prompt, mysql: { connect: async () => ({ ok: false }) } });
+    const env = mysqlEnv({ prompt, mysql: { connect: async () => ({ ok: false, reason: 'denied' as const, fromIp: LOCAL_IP }) } });
 
     await mysql.execute(env, [databaseHost.ip], new Map([['-p', '3306']]));
 
@@ -468,6 +487,96 @@ describe('mysql', () => {
 
     expect(prompt).not.toHaveBeenCalled();
     expect(linesOf(result)).toBe('usage: mysql [-p port] <host> [user]');
+  });
+
+  describe('a database behind a forward', () => {
+    it('sends a forwarded port on to the gateway instead of looking for the box here', async () => {
+      const gateway = innerGatewayOn(ESSID);
+      const prompt = vi.fn(async () => 'hunter2');
+      const connect = vi.fn(async () => ({
+        ok: false as const,
+        reason: 'denied' as const,
+        fromIp: LOCAL_IP,
+      }));
+
+      await mysql.execute(
+        mysqlEnv({ prompt, mysql: { connect } }),
+        [gateway.ip],
+        new Map([['-p', String(FORWARD_PORT)]]),
+      );
+
+      // Nothing here can answer whether that port leads anywhere: the forward table
+      // lives in the gateway's server-side journal. Pre-flighting it against this LAN
+      // would refuse every deep connection, because no deep box has a LAN address.
+      expect(prompt).toHaveBeenCalled();
+      expect(connect).toHaveBeenCalledWith(
+        expect.objectContaining({ targetIp: gateway.ip, port: FORWARD_PORT }),
+      );
+    });
+
+    it('holds the port it opened on, so every statement re-resolves the same forward', async () => {
+      const gateway = innerGatewayOn(ESSID);
+      const enter = vi.fn();
+      const env = mysqlEnv({
+        mysql: { connect: async () => ({ ok: true, hostname: 'records-186' }), enter },
+      });
+
+      await mysql.execute(env, [gateway.ip], new Map([['-p', String(FORWARD_PORT)]]));
+
+      // Dropped from the held connection, the first statement would go to 3306 on the
+      // GATEWAY — and a forward pulled mid-session could never drop the player either.
+      expect(enter).toHaveBeenCalledWith(
+        expect.objectContaining({ targetIp: gateway.ip, port: FORWARD_PORT }),
+      );
+    });
+
+    it('reports a box that was not there as a connection failure, not a bad credential', async () => {
+      const gateway = innerGatewayOn(ESSID);
+      const env = mysqlEnv({
+        mysql: { connect: async () => ({ ok: false, reason: 'unreachable' as const }) },
+      });
+
+      const result = await mysql.execute(env, [gateway.ip], new Map([['-p', String(FORWARD_PORT)]]));
+
+      // Nothing refused the credential, because nothing was there to hear it. Saying
+      // "Access denied" would tell the player their password was wrong when the truth
+      // is that the port they opened forwards nowhere.
+      expect(linesOf(result)).toBe(
+        `ERROR 2003 (HY000): Can't connect to MySQL server on '${gateway.ip}:${FORWARD_PORT}' (No route to host)`,
+      );
+    });
+
+    it('tells a stopped daemon apart from a forward that leads nowhere', async () => {
+      const gateway = innerGatewayOn(ESSID);
+      const env = mysqlEnv({
+        mysql: { connect: async () => ({ ok: false, reason: 'refused' as const }) },
+      });
+
+      const result = await mysql.execute(env, [gateway.ip], new Map([['-p', String(FORWARD_PORT)]]));
+
+      // The box is there and the forward is good; the daemon is not running. A player
+      // who has just stopped one should read that, not "no route".
+      expect(linesOf(result)).toBe(
+        `ERROR 2003 (HY000): Can't connect to MySQL server on '${gateway.ip}:${FORWARD_PORT}' (Connection refused)`,
+      );
+    });
+
+    it('refuses at the address the DAEMON saw, which is not the player own', async () => {
+      const gateway = innerGatewayOn(ESSID);
+      const env = mysqlEnv({
+        mysql: {
+          connect: async () => ({ ok: false, reason: 'denied' as const, fromIp: '10.42.7.1' }),
+        },
+      });
+
+      const result = await mysql.execute(env, [gateway.ip], new Map([['-p', String(FORWARD_PORT)]]));
+
+      // Behind NAT the box never saw the player's address at all, so the line it wrote
+      // down names the fronting gateway's `.1`. Rendering the player's own here would
+      // put the error they read and the evidence they left in disagreement.
+      expect(linesOf(result)).toContain("'readonly'@'10.42.7.1'");
+      expect(linesOf(result)).not.toContain(LOCAL_IP);
+    });
   });
 
   it('names its own usage when no host is given', async () => {

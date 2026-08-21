@@ -587,11 +587,11 @@ const hydraCrack = (params: HydraCrackParams): Promise<HydraCrackResult> =>
     : crackCredentials(sessionsClientDeps, params);
 
 /** Open a database on a LAN host server-side (backs `env.mysql.connect`). Before the
- *  client is wired there is no daemon to ask, and the one refusal this seam carries is
- *  the honest answer: nothing opened. */
+ *  client is wired there is no daemon to ask, and `unreachable` is the honest answer:
+ *  nothing refused the credential, because nothing was there to hear it. */
 const mysqlConnect = (params: MysqlConnectParams): Promise<MysqlConnectResult> =>
   sessionsClientDeps === undefined
-    ? Promise.resolve({ ok: false })
+    ? Promise.resolve({ ok: false, reason: 'unreachable' })
     : connectDatabase(sessionsClientDeps, params);
 
 /** Run one statement against a LAN host's database (backs `env.mysql.run`). Before

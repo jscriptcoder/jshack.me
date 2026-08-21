@@ -18,6 +18,7 @@ import type { CommandResult, MysqlApi, MysqlStatementResult } from './types';
 const CONNECTION = {
   essid: 'BEAN-THERE-WIFI',
   targetIp: '192.168.1.31',
+  port: 3306,
   username: 'app_rw',
   password: 'hunter-two',
   sourceIp: '192.168.1.50',

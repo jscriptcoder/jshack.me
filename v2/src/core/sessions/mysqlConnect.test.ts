@@ -3,6 +3,9 @@ import { handleMysqlConnect, type MysqlConnectDeps } from './mysqlConnect';
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
+import { deepDatabaseFixture, knownDatabaseCredentialIn } from '../../test/factories/lanDatabase';
+import { databaseIn } from '../mysql/datadir';
+import { readOpenPorts } from '../services/pidfile';
 import { hostServices } from '../generation/remoteHostFs';
 import { ALL_GENERATED_PASSWORDS } from '../generation/passwordPools';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
@@ -165,11 +168,13 @@ const signedConnect = (
     readonly username: string;
     readonly password: string;
     readonly source_ip?: string | null;
+    readonly port?: number;
   },
 ) =>
   signRequest(identity, 'mysqlConnect', {
     essid: request.essid ?? ESSID,
     target_ip: request.target_ip,
+    port: request.port ?? SERVICE_CATALOG.mysql.defaultPort,
     username: request.username,
     password: request.password,
     source_ip: request.source_ip === undefined ? CLIENT_IP : request.source_ip,
@@ -188,6 +193,31 @@ const logLine = (outcome: 'success' | 'failure', user: string, host: LanHost, da
     ...(database === undefined ? {} : { database }),
   });
 
+
+const DEEP = deepDatabaseFixture();
+
+/** Deliberately neither 3306 nor 22: the port the player opened on the GATEWAY has
+ *  nothing to do with the port the daemon listens on behind it. */
+const FORWARD_PORT = 33306;
+
+/** The player's own root `nano /etc/iptables/rules.v4` on the gateway — the opt-in
+ *  that exposes the layer at all. Without it the deep box has no address anyone can
+ *  name. */
+const forwardTo = (destination: string): OwnerPatchRow =>
+  patchRow('/etc/iptables/rules.v4', `forward ${FORWARD_PORT} to ${destination}`);
+
+/** Journals per machine, because the chain walk asks for one machine at a time and a
+ *  mock answering the same rows for every id would hand the gateway's forward table to
+ *  the deep box as well. */
+const journals = (rows: Readonly<Record<string, readonly OwnerPatchRow[]>>) =>
+  vi.fn<MysqlConnectDeps['findPatches']>(async ({ machine_id }) => ({
+    data: rows[machine_id] ?? [],
+    error: null,
+  }));
+
+const throughForward = (destination = `${DEEP.layer.host.ip}:3306`) =>
+  journals({ [DEEP.gatewayMachineId]: [forwardTo(destination)] });
+
 describe('handleMysqlConnect', () => {
   it('opens the database for one of its own accounts', async () => {
     const identity = generateIdentity();
@@ -200,7 +230,7 @@ describe('handleMysqlConnect', () => {
       deps,
     );
 
-    expect(response).toEqual({ status: 200, body: { ok: true } });
+    expect(response).toEqual({ status: 200, body: { ok: true, hostname: host.hostname } });
   });
 
   it('answers an unknown account and a wrong password with the same bytes', async () => {
@@ -225,7 +255,7 @@ describe('handleMysqlConnect', () => {
     // The claim is the SAMENESS. A refusal that named which half was wrong would let
     // a player enumerate the database's accounts by typing names at it.
     expect(wrongPassword).toEqual(noSuchAccount);
-    expect(wrongPassword).toEqual({ status: 401, body: { error: 'invalid_credentials' } });
+    expect(wrongPassword).toEqual({ status: 401, body: { error: 'invalid_credentials', from: CLIENT_IP } });
   });
 
   it('refuses a real password typed against an account it does not belong to', async () => {
@@ -246,7 +276,7 @@ describe('handleMysqlConnect', () => {
     // The password is genuinely one of this database's, which is what makes the
     // refusal meaningful: a gate that checked the hash against ANY account rather
     // than the one named would open here for a name the database has never held.
-    expect(response).toEqual({ status: 401, body: { error: 'invalid_credentials' } });
+    expect(response).toEqual({ status: 401, body: { error: 'invalid_credentials', from: CLIENT_IP } });
   });
 
   it('refuses the box own unix account, which is a key to a different lock', async () => {
@@ -263,7 +293,7 @@ describe('handleMysqlConnect', () => {
     // A real account with its real password — and it opens nothing here, because
     // `/etc/passwd` and the datadir are drawn on separate streams. A gate that read
     // the box's accounts instead would let this through.
-    expect(response).toEqual({ status: 401, body: { error: 'invalid_credentials' } });
+    expect(response).toEqual({ status: 401, body: { error: 'invalid_credentials', from: CLIENT_IP } });
   });
 
   it('opens an account somebody added by editing the datadir', async () => {
@@ -295,7 +325,7 @@ describe('handleMysqlConnect', () => {
 
     // The whole reason this gate is server-side: the datadir is a file, root can
     // edit it, and the accounts it holds after that edit are the real ones.
-    expect(response).toEqual({ status: 200, body: { ok: true } });
+    expect(response).toEqual({ status: 200, body: { ok: true, hostname: host.hostname } });
   });
 
   it('records an accepted connection on the target, naming the database it opened', async () => {
@@ -436,5 +466,167 @@ describe('handleMysqlConnect', () => {
 
     expect(response).toEqual({ status: 400, body: { error: 'envelope_invalid' } });
     expect(findPatches).not.toHaveBeenCalled();
+  });
+
+  describe('a database behind a forward', () => {
+    it('opens on the deep box the forward leads to, and names it', async () => {
+      const identity = generateIdentity();
+      const { username, password } = knownDatabaseCredentialIn(DEEP.database, DEEP.layer.host.hostname);
+      const { deps } = makeDeps({
+        findPatches: throughForward(),
+      });
+
+      const response = await handleMysqlConnect(
+        await signedConnect(identity, {
+          essid: DEEP.essid,
+          target_ip: DEEP.gateway.ip,
+          port: FORWARD_PORT,
+          username,
+          password,
+        }),
+        deps,
+      );
+
+      // The hostname is the whole point of answering with one: this box's address is
+      // absent from the generated LAN, so the client cannot name it any other way.
+      expect(response).toEqual({
+        status: 200,
+        body: { ok: true, hostname: DEEP.layer.host.hostname },
+      });
+    });
+
+    it('refuses a port the gateway forwards nowhere', async () => {
+      const identity = generateIdentity();
+      const { username, password } = knownDatabaseCredentialIn(DEEP.database, DEEP.layer.host.hostname);
+      const { deps } = makeDeps({
+        findPatches: throughForward(),
+      });
+
+      const response = await handleMysqlConnect(
+        await signedConnect(identity, {
+          essid: DEEP.essid,
+          target_ip: DEEP.gateway.ip,
+          port: FORWARD_PORT + 1,
+          username,
+          password,
+        }),
+        deps,
+      );
+
+      expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    });
+
+    it('refuses a forward that lands on a port no daemon holds', async () => {
+      const identity = generateIdentity();
+      const { username, password } = knownDatabaseCredentialIn(DEEP.database, DEEP.layer.host.hostname);
+      const { deps } = makeDeps({
+        findPatches: throughForward(`${DEEP.layer.host.ip}:9999`),
+      });
+
+      const response = await handleMysqlConnect(
+        await signedConnect(identity, {
+          essid: DEEP.essid,
+          target_ip: DEEP.gateway.ip,
+          port: FORWARD_PORT,
+          username,
+          password,
+        }),
+        deps,
+      );
+
+      expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    });
+
+    it('refuses a forward onto the right box on a port another daemon holds', async () => {
+      const identity = generateIdentity();
+      const { username, password } = knownDatabaseCredentialIn(DEEP.database, DEEP.layer.host.hostname);
+      const sshPort = readOpenPorts(DEEP.fs).find(
+        (open) => open.service !== SERVICE_CATALOG.mysql.service,
+      );
+      if (sshPort === undefined) throw new Error('need a second daemon on the deep box');
+      const { deps } = makeDeps({
+        findPatches: throughForward(`${DEEP.layer.host.ip}:${sshPort.port}`),
+      });
+
+      const response = await handleMysqlConnect(
+        await signedConnect(identity, {
+          essid: DEEP.essid,
+          target_ip: DEEP.gateway.ip,
+          port: FORWARD_PORT,
+          username,
+          password,
+        }),
+        deps,
+      );
+
+      // The forward really does reach this box, and something really is listening
+      // there. A forward to sshd is not a door to the database.
+      expect(response).toEqual({ status: 404, body: { error: 'service_not_running' } });
+    });
+
+    it('records the attempt at the address NAT showed the box, not the one the client claimed', async () => {
+      const identity = generateIdentity();
+      const { username, password } = knownDatabaseCredentialIn(DEEP.database, DEEP.layer.host.hostname);
+      const { deps, upsertPatch } = makeDeps({
+        findPatches: throughForward(),
+      });
+
+      await handleMysqlConnect(
+        await signedConnect(identity, {
+          essid: DEEP.essid,
+          target_ip: DEEP.gateway.ip,
+          port: FORWARD_PORT,
+          username,
+          password,
+          source_ip: '192.168.1.50',
+        }),
+        deps,
+      );
+
+      // The route decides the address, not where the player stands. A deep box behind
+      // NAT never sees a 192.168.x address, so echoing the client's claim would write
+      // a line no daemon could have produced.
+      const [written] = upsertPatch.mock.calls[0] ?? [];
+      expect(written?.machine_id).toBe(DEEP.machineId);
+      expect(written?.content).toContain(`@${DEEP.natIp}`);
+      expect(written?.content).not.toContain('192.168.1.50');
+    });
+
+    it('opens for an account added to the deep datadir by hand', async () => {
+      const identity = generateIdentity();
+      const database = databaseIn(DEEP.fs);
+      if (database === null) throw new Error('no database on the deep box');
+      const planted = {
+        ...database,
+        credentials: [
+          ...database.credentials,
+          { username: 'planted_dba', passwordHash: md5('plant-me'), userType: 'user' as const },
+        ],
+      };
+      const { deps } = makeDeps({
+        findPatches: journals({
+          [DEEP.gatewayMachineId]: [forwardTo(`${DEEP.layer.host.ip}:3306`)],
+          [DEEP.machineId]: [patchRow('/var/lib/mysql/data.json', JSON.stringify(planted))],
+        }),
+      });
+
+      const response = await handleMysqlConnect(
+        await signedConnect(identity, {
+          essid: DEEP.essid,
+          target_ip: DEEP.gateway.ip,
+          port: FORWARD_PORT,
+          username: 'planted_dba',
+          password: 'plant-me',
+        }),
+        deps,
+      );
+
+      // The deep box is the one hop of the chain whose journal nothing used to read.
+      // Left unreplayed, a write to this datadir persists and is never seen again.
+      expect(response).toEqual({
+        status: 200,
+        body: { ok: true, hostname: DEEP.layer.host.hostname },
+      });
+    });
   });
 });
