@@ -1634,6 +1634,11 @@ state costs you more than one wrong attempt.
   `test(v2):`). The `(#N)` suffix is appended automatically on squash.
 - Commit messages end with the `Co-Authored-By` trailer; PR bodies end with the Claude Code
   generation trailer (see root `.claude/CLAUDE.md` harness rules).
+- **Never write "+ the working tree" in a plan header.** It is true for the minutes between writing
+  the plan update and committing it, and false forever after — sending whoever picks the work up
+  hunting for uncommitted changes in a clean tree. Twice now in one slice. A plan update committed
+  ALONGSIDE the work it describes cannot name its own hash, so name only the commits that already
+  exist and let the next update add this one.
 - Cut a branch per slice off `main`; never commit straight to `main` for code.
 - **Do not stack a PR on a branch that will be squash-merged with `--delete-branch`.** Merging
   the base deletes its branch, and GitHub then **closes** the stacked PR instead of retargeting
