@@ -2,12 +2,13 @@
 
 **Branch**: one `feat/d6-*` per slice, except slice 3, which outgrew one and landed as three —
 `feat/d6-mysql-prompt` (the door), `feat/d6-mysql-verbs` (the statements), then
-`feat/d6-mysql-credentials` (the account list), each stacked on the one before. Slice 4 is on
-`feat/d6-mysql-writes`.
-**Status**: Active — slices 1, 2 and 3 LANDED (v0.158.0 #434 `29bc042`; v0.159.0 #437 `a6bdead`;
-v0.160.0-v0.162.0 #438 `04beaa4`, #439 `36e1ae0`, #440 `b058621`), slice 1's mutation debt PAID
-(#435 `f1c4dd6`, #436 `8add9fa`). **Slice 4 BUILT** on `feat/d6-mysql-writes`, all
-fifteen criteria, not yet opened as a PR — see its own heading.
+`feat/d6-mysql-credentials` (the account list), each stacked on the one before. Slice 4 landed on
+`feat/d6-mysql-writes`; slice 5 is on `feat/d6-mysql-deep`.
+**Status**: Active — slices 1, 2, 3 and 4 LANDED (v0.158.0 #434 `29bc042`; v0.159.0 #437
+`a6bdead`; v0.160.0-v0.162.0 #438 `04beaa4`, #439 `36e1ae0`, #440 `b058621`; v0.163.0 #441
+`3222dbd`), slice 1's mutation debt PAID (#435 `f1c4dd6`, #436 `8add9fa`). **Slice 5 IS NEXT**, on
+`feat/d6-mysql-deep` — the vantage where the interesting boxes live, and where criterion 1's `-p`
+stops being inert.
 
 Slice 3 was grilled to 21 criteria (`32ef71b`) and landed as three PRs in this order:
 
@@ -1060,7 +1061,7 @@ assertion over the generated population, not over one table on one box, and it h
 
 ---
 
-### Slice 4: A player changes a database
+### Slice 4: A player changes a database ✔ LANDED (v0.163.0, #441, `3222dbd`)
 
 **Value**: The three credential tiers become observable, and a database becomes a thing that can be
 attacked rather than only read.
@@ -1157,7 +1158,7 @@ Root may drop after this slice, so that check has to move down the ladder rather
 
 **Done when**: criteria met, wire-check green, commit approved.
 
-#### As built — all fifteen criteria, three increments
+#### As built — all fifteen criteria, three increments, squashed onto `main` as `3222dbd`
 
 **1-8 and 15, the ladder and the answer** (`4bfd223`, v0.163.0). `WRITERS` holds the ladder as
 data: nothing lists `guest`, `DROP` lists only `root`. The refusal and the account-list rule are
