@@ -5,22 +5,21 @@
 list), each stacked on the one before
 **Status**: Active — slices 1 and 2 LANDED (v0.158.0 #434 `29bc042`; v0.159.0 #437 `a6bdead`),
 slice 1's mutation debt PAID (#435 `f1c4dd6`, #436 `8add9fa`). **Slice 3 IN PROGRESS**, across
-three branches — criteria grilled to 21 (`32ef71b`). Its behaviour is complete and the first of the
-three has landed.
+three branches — criteria grilled to 21 (`32ef71b`). Its behaviour is complete and two of the
+three have landed.
 
 - `feat/d6-mysql-prompt` ✔ **LANDED** (v0.160.0, PR #438, squashed onto `main` as `04beaa4`):
   criteria 3, 4, 5, 6, 7 and 20 (`71aecb0`, `aad87b6`, `597dd2b`, `6209bf7`). The door opens and is
   REGISTERED — `mysql <host>` is typeable, greets, and leaves the player at `mysql>`.
-- `feat/d6-mysql-verbs`, **PR #439 open, now targeting `main` directly**: criteria 8, 9, 10, 11 and
-  12, with 17, 18, 19 and 21 falling out of the same wiring. The engine is at `d1eeb1a`, the wire at
-  `5c60908`. v0.161.0.
-- `feat/d6-mysql-credentials`, stacked on that, **PR #440 open**: criteria 13, 14, 15 and 16 —
-  the account list as a table, and the first tier-conditional refusal in this door (`f895b48`).
-  v0.162.0.
+- `feat/d6-mysql-verbs` ✔ **LANDED** (v0.161.0, PR #439, squashed onto `main` as `36e1ae0`):
+  criteria 8, 9, 10, 11 and 12, with 17, 18, 19 and 21 falling out of the same wiring.
+- `feat/d6-mysql-credentials`, **PR #440 open, now targeting `main` directly**: criteria 13, 14, 15
+  and 16 — the account list as a table, and the first tier-conditional refusal in this door
+  (`d172e6e`). v0.162.0. The last of slice 3.
 
-The three SHAs above are the ones a reader can check out today. The stack was rebased onto #438's
-squash when it merged, so the pre-merge SHAs this file used to cite no longer resolve — the commits
-they named are the same content under new hashes.
+Only the last of those is still a branch; the other two are commits on `main`. Each merge rebased
+what was left of the stack onto its squash, so the branch SHAs this file cited before a given merge
+no longer resolve — the commits they named are the same content under new hashes.
 
 **Slice 3's BEHAVIOUR is complete** — every criterion a player can see is on one of those three
 PRs. What it still owes is test debt: criterion 1's `-p` (inert until slice 5), 2 (untested) and
