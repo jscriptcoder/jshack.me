@@ -57,8 +57,14 @@ database a player can find, crack, read, change, and be caught changing.
 - [x] Every mutation appends to `/var/log/mysql.log`; no `SELECT` ever does — slice 4. A refused
       write appends one too, under `Denied`: an attempted privilege violation is the most
       interesting thing this file can hold
-- [ ] A mysql connection reads no file on the target other than the datadir, at any tier
-- [ ] `systemctl stop mysqld` / `kill <pid>` drops a connected player on their next statement
+- [ ] A database on a deep layer answers, through a forward, with the same refusals as own-LAN
+      — slice 5
+- [ ] A mysql connection reads no file on the target other than the datadir, at any tier — slice 5,
+      which found it already TRUE and unproven: the parser admits six verbs and none of them names
+      a path
+- [ ] `systemctl stop mysqld` / `kill <pid>` drops a connected player on their next statement —
+      slice 5, likewise already true: the reach re-reads the pidfiles per statement and everything
+      that is not a well-formed 200 collapses to `lost`
 
 ## Slices
 
@@ -1217,12 +1223,97 @@ since a refused write leaves a line of its own.
 ### Slice 5: A database on a deep layer answers
 
 **Value**: The vantage where the interesting boxes actually live.
-**Path**: inner-gateway resolution → both the statement action and the hydra sweep.
+**Path**: inner-gateway resolution → the mysql door; the hydra sweep is proven, not built.
 **Class**: Behavior change. **Skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
-**Acceptance criteria**: `mysql` and `hydra <host> mysql` work against a deep-layer `db-*` through
-a forward, with the same refusals as own-LAN; the trace lands on the box that ran the statement.
-**RED**: Handler tests + a wire-check extending the existing inner-gateway script coverage.
+**RED**: Handler + command tests, then `scripts/testMysqlDeep.ts` live.
 **Done when**: criteria met, wire-check green, commit approved.
+
+#### Grilled 2026-08-21 — twelve criteria, three commits
+
+Grounding first, because half of the stated slice turned out to be already built:
+
+- **The hydra half needs no production code.** `hydraCrackInnerGateway` resolves its service through
+  `serviceByName(payload.service)` and reads `accountsOn` / `databaseOn` / `sweepLog` off the catalog
+  row — it is service-generic, and `ftp` is already tested through it. `hydra.ts` dispatches on
+  `forwardsIntoDeepLayer` with no service in the condition. DECISION: prove it with a handler test
+  and a wire-check leg, write no code. If the proof fails, that failure is the RED and the work is
+  real.
+- **Two orphan criteria are also already true.** See the criteria list above. Slice 5 closes both,
+  since a door that reaches no file matters most when it is the only way into a hidden box.
+- **Mid-session loss is free.** `sessionsApi.ts` collapses everything that is not a well-formed 200
+  into `lost`, so a forward pulled out of `rules.v4` mid-session already renders `ERROR 2013` and
+  closes the prompt. A wire-check leg, not a code change.
+- **No new sharing exposure.** `hostMachineId` is `host:<essid>:<ip>` — no player key — so own-LAN
+  db boxes are ALREADY ESSID-shared and slice 4's writes carry this today. The deep datadir is shared
+  the same way and inherits the open shared-file write-wipe backlog item unchanged.
+- **The deep layer is worth the climb, measured over 800 networks.** 12.8% of layers run a database
+  and 45% of networks hold at least one somewhere in their chains — steady at every depth (12.8 /
+  12.8 / 11.3 / 13.1 / 10.7%), so following a chain keeps paying rather than front-loading. DECISION:
+  leave generation alone. Also measured: only 1.3% of database-bearing deep boxes are named `db-*`
+  (the rest are `mysql-*`, `datastore-*`, `warehouse-*`, `records-*`), so this file's earlier
+  "deep-layer `db-*`" phrasing was wrong and is dropped.
+
+**Shape** (DECISION): extend `reachMysqlHost` rather than add vantage modules. Every other door grew
+one module per vantage — `authCreateSession` x4, `hydraCrack` x3, `nc.connect` x4 — but the mysql door
+is two actions, so the precedent costs TWO twins and makes four handlers that must agree by hand.
+`mysqlHost.ts` already exists precisely because "the answers have to agree" between the login and
+every statement; routing inside it keeps that by construction. `reached.host` is used for exactly one
+thing (`host.hostname`), so the return type collapses to `{hostname, machineId, hostFs, sourceIp}` —
+which is the shape `resolveInnerGatewayTarget` already returns. The two resolvers converge on one
+type rather than being adapted to each other.
+
+**Commit 1 — the port stops being a lie** (client only, no `api/`, fully CI-provable):
+
+1. `mysql <host>` with no `-p` connects on 3306, unchanged
+2. `-p` is THE PORT everywhere, not just on a gateway: `-p 3306 <own-LAN db box>` connects, any
+   other port on an own-LAN host is `ERROR 2003 (HY000): Can't connect to MySQL server on
+   '<host>:<port>' (Connection refused)`. mysql has no `altPorts`, so on own LAN only 3306 answers
+3. `mysql -p abc <host>` and a bare valueless `mysql -p <host>` both print
+   `usage: mysql [-p port] <host> [user]` and reach nothing. DELIBERATELY UNLIKE hydra's `parsePort`,
+   which falls back to the default door: a flag that silently substitutes a port the player did not
+   type is the inert flag again, just quieter
+
+**Commit 2 — the deep reach** (`api/`):
+
+4. `mysql -p <fwd> <inner gateway>` reaches the `mysql>` prompt on the deep box the forward leads to,
+   given a database credential
+5. The greeting names the deep box's OWN hostname, which only the server can know: `mysqlConnect`
+   answers `{ok: true, hostname}` and BOTH paths greet from that field. Own-LAN keeps its local
+   lookup only for the pre-flight refusals, the one thing it is still needed for
+6. A port with no forward is `No route to host`; a forward to a box with no mysqld is
+   `Connection refused` — both AFTER the credential prompt. DECISION: a deep box cannot be
+   pre-flighted (forwards live in the gateway's server-side journal), and a probe action would only
+   duplicate what `nmap` through the forward already tells the player
+7. Reads, the write ladder and every refusal answer identically to own-LAN. Free by construction:
+   `runStatement` is pure over `(database, userType)` with nothing vantage-specific in it
+
+**Commit 3 — the address, the record, and the proofs** (`api/`):
+
+8. The address is decided by the ROUTE, not by where the player stands. The 1045 `Access denied`,
+   the 1142 denial and the box's own log line all name the fronting gateway's `.1` — the same string
+   on both sides, because NAT is all a deep box is ever shown. The server takes
+   `reach.sourceIp ?? payload.source_ip`: the route decides when it can, the caller's claim stands
+   when it cannot. The `sourceIp: null` case hydra has to keep silent about is UNREACHABLE here —
+   routers run only sshd, so a mysql reach that lands on the gateway itself always dies as
+   `service_not_running` before anything is written
+9. A change to a deep datadir lands on the DEEP box's machine id, and its `Query` / `Denied` line
+   lands in that box's `/var/log/mysql.log`. The gateway records nothing — NAT does not log
+10. `hydra -p <fwd> <gw> mysql` returns the deep box's DATABASE accounts and traces at the gateway's
+    `.1`. Proven, not built
+11. A mysql connection reads no file on the target but the datadir, at any tier, through a forward
+    exactly as on own LAN
+12. A stopped mysqld drops a connected player on their next statement with `ERROR 2013 (HY000): Lost
+    connection to MySQL server during query`; pulling the forward mid-session does the same, by the
+    same path
+
+**Wire-check** (DECISION): a NEW `scripts/testMysqlDeep.ts`, not an extension of
+`testInnerGatewayReach.ts`. That script picks its ESSID by requiring depth >= 2; adding a mysql leg
+would make it require a deep mysqld too — a 12.8% roll that moves the fixture under 13 already-passing
+ssh and hydra checks. The new script matches the four existing per-capability mysql scripts and leaves
+the proven ssh fixture untouched, at the cost of ~60 lines of duplicated gateway seeding.
+
+**Out of scope**: the public-IP and same-LAN vantages, which slice 7 owns and delivers together with
+their hydra fan-out. Slice 5 delivers the second of that slice's "four vantages".
 
 ---
 
