@@ -16,9 +16,11 @@
 //     the claim that makes a database a shared object rather than a private one, and
 //     it cannot be shown with an injected journal: it needs the real table, keyed on
 //     the machine rather than on whoever wrote the row.
-//   - A session of READS still writes nothing, and a refused write writes nothing. A
-//     spy proves an absence only in a table it can see; this proves it in the one the
-//     game actually keeps.
+//   - A session of READS still writes nothing — no datadir, no log line. A spy proves
+//     an absence only in a table it can see; this proves it in the one the game keeps.
+//   - The daemon's own log gains one line per change and one per refused change, and
+//     none for any read. The tags and their order are what a defender reads, so the
+//     whole sequence is asserted rather than counted.
 //   - The tier ladder decides live: the bottom rung is refused an UPDATE, the middle
 //     one performs it, and the account list is refused a write at every rung.
 //
@@ -171,6 +173,23 @@ const writtenPaths = async (): Promise<readonly string[]> => {
     .sort();
 };
 
+/** Every line the daemon has written to its own log for this machine, oldest first.
+ *  The rows are keyed per writer, so this reads them all rather than assuming one. */
+const logLines = async (): Promise<readonly string[]> => {
+  const { data } = await sr
+    .from('patches')
+    .select('content, updated_at')
+    .eq('machine_id', targetMachine)
+    .eq('path', String(MYSQL_LOG_PATH))
+    .order('updated_at', { ascending: true });
+  const rows = Array.isArray(data) ? data : [];
+  return rows
+    .map((row) => Object.getOwnPropertyDescriptor(row, 'content')?.value)
+    .filter((content): content is string => typeof content === 'string')
+    .flatMap((content) => content.split('\n'))
+    .filter((line) => line.trim() !== '');
+};
+
 /** The datadir as the TABLE holds it, which is the only place a persisted write is
  *  visible — the endpoint would happily render a change that never landed. */
 const storedDatadir = async (): Promise<MysqlDatabase | null> => {
@@ -226,7 +245,7 @@ const main = async (): Promise<void> => {
   await say(client, APP, 'SHOW TABLES');
   await say(client, APP, `SELECT * FROM ${PROBE}`);
   check(
-    'a session of reads writes nothing to the machine at all',
+    'a session of reads writes nothing to the machine at all — not even a log line',
     JSON.stringify(await writtenPaths()) === JSON.stringify(beforePaths),
     `${beforePaths.length} path(s) before, ${(await writtenPaths()).length} after two reads`,
   );
@@ -253,8 +272,9 @@ const main = async (): Promise<void> => {
   );
 
   check(
-    'the change is in the journal, at the datadir and on no other path',
-    JSON.stringify(await writtenPaths()) === JSON.stringify([String(DATADIR_PATH)]),
+    'the change is in the journal, at the datadir and the daemon own log and nowhere else',
+    JSON.stringify(await writtenPaths()) ===
+      JSON.stringify([String(MYSQL_LOG_PATH), String(DATADIR_PATH)].sort()),
     (await writtenPaths()).join(', ') || '(none)',
   );
 
@@ -315,10 +335,20 @@ const main = async (): Promise<void> => {
     rendered(afterDrop.body).split('\n').slice(3, 5).join(' / '),
   );
 
+  // What the daemon recorded about the whole run: two changes and three refusals,
+  // and not one of the six reads. The tags and the order are the file a defender
+  // reads, so they are asserted rather than counted.
+  const recorded = await logLines();
   check(
-    'the whole run touched the datadir and never the log — no statement is a connection',
-    !(await writtenPaths()).includes(String(MYSQL_LOG_PATH)),
-    (await writtenPaths()).join(', ') || '(none)',
+    'the log holds one line per change and per refusal, and none for any read',
+    recorded.map((line) => line.split('\t')[1]?.split(' ')[1]).join(',') ===
+      'Denied,Query,Denied,Denied,Query',
+    `${recorded.length} line(s): ${recorded.map((line) => line.split('\t')[1]).join(' | ')}`,
+  );
+  check(
+    'and a change is recorded as the statement that made it',
+    recorded.some((line) => line.endsWith(`Query\tUPDATE ${PROBE} SET note = 'moved' WHERE id = '1'`)),
+    recorded.find((line) => line.includes('Query'))?.split('\t')[2] ?? '(none)',
   );
 
   await clear();

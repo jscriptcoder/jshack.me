@@ -91,6 +91,11 @@ type Identity = {
 const runAs = (identity: Identity, line: string, from: MysqlDatabase = database()) =>
   runStatement({ database: from, line, ...identity });
 
+/** What the player sees, apart from what the door would write back. Lets a claim about
+ *  the answer stay whole-value while the new database is asserted by READING it, which
+ *  is how the next statement would meet it. */
+const said = ({ output, failed }: StatementResult) => ({ output, failed });
+
 /** The two rungs above the one `run` uses, named once so a test reads as the account
  *  it is about rather than as three fields that happen to differ. */
 const APP: Identity = { username: 'app_rw', userType: 'user', sourceIp: '10.0.0.7' };
@@ -356,7 +361,7 @@ describe('what a database refuses to write', () => {
       ["DELETE FROM orders WHERE id = '1'", 'DELETE'],
       ['DROP TABLE orders', 'DROP'],
     ]) {
-      expect(run(line), line).toEqual({
+      expect(said(run(line)), line).toEqual({
         failed: true,
         output: [
           `ERROR 1142 (42000): ${verb} command denied to user 'readonly'@'192.168.1.42' for table 'orders'`,
@@ -579,11 +584,6 @@ describe('the credentials table', () => {
  * and `formatDropResult` rather than typed out — including the two constants that
  * differ between them, which one shared formatter would have quietly normalised away.
  */
-
-/** What the player sees, apart from what the door would write back. Lets a claim about
- *  the answer stay whole-value while the new database is asserted by READING it, which
- *  is how the next statement would meet it. */
-const said = ({ output, failed }: StatementResult) => ({ output, failed });
 
 describe('the tier a write runs at', () => {
   it('lets the application account edit rows, counting what it moved apart from what it matched', () => {
@@ -831,5 +831,107 @@ describe('the account list under a write', () => {
     expect(runAs(ROOT, "UPDATE credentials SET x = '1'", planted).output).toEqual([
       "ERROR 1142 (42000): UPDATE command denied to user 'root'@'10.0.0.7' for table 'credentials'",
     ]);
+  });
+});
+
+/**
+ * What a statement leaves in the daemon's own record.
+ *
+ * `/var/log/mysql.log` already holds every connection this box accepted and every one
+ * it turned away. What it gains here is the two things a defender reading it actually
+ * needs: what CHANGED, and who was told they could not change it. Reads are absent on
+ * purpose — a file that logged every SELECT would bury the two lines worth finding
+ * under a session's worth of noise, and a player who could see what everyone read
+ * would learn more from the log than from the database.
+ *
+ * The engine names the tag and the text; it never stamps a time or picks a file. It is
+ * the only thing here that knows what a statement DID, which is what decides whether
+ * there is a line at all.
+ */
+describe('what a statement leaves in the record', () => {
+  it('records a change as the statement that made it, verbatim under Query', () => {
+    // What real MySQL's general log does. The objection to holding player text in a
+    // file others read mostly dissolves one line down: it is normalized first.
+    expect(runAs(APP, "UPDATE orders SET notes = 'rush'").logged).toEqual({
+      tag: 'Query',
+      detail: "UPDATE orders SET notes = 'rush'",
+    });
+    expect(runAs(APP, "DELETE FROM orders WHERE id = '1'").logged).toEqual({
+      tag: 'Query',
+      detail: "DELETE FROM orders WHERE id = '1'",
+    });
+    expect(runAs(ROOT, 'DROP TABLE orders').logged).toEqual({
+      tag: 'Query',
+      detail: 'DROP TABLE orders',
+    });
+  });
+
+  it('records the statement as the engine read it, not as the player spaced it', () => {
+    // The whole answer to "arbitrary player text in a file others cat". Every tab and
+    // newline is gone before the engine sees the line, so a player can neither forge a
+    // second entry nor fake the tab-delimited columns this file is read by. The
+    // trailing semicolon goes the same way, because it never carried anything.
+    const logged = runAs(APP, "UPDATE\torders\nSET notes = 'x\ty';  ").logged;
+
+    expect(logged).toEqual({ tag: 'Query', detail: "UPDATE orders SET notes = 'x y'" });
+  });
+
+  it('records a refused write as the denial, without the code the player was shown', () => {
+    // Mirrors the `Access denied` line this file already carries: the log says what
+    // happened, the client is told which error it was.
+    expect(runAs(APP, 'DROP TABLE orders').logged).toEqual({
+      tag: 'Denied',
+      detail: "DROP command denied to user 'app_rw'@'10.0.0.7' for table 'orders'",
+    });
+    expect(run("UPDATE orders SET notes = 'x'").logged).toEqual({
+      tag: 'Denied',
+      detail: "UPDATE command denied to user 'readonly'@'192.168.1.42' for table 'orders'",
+    });
+  });
+
+  it('records an attempt on the account list, which is the one most worth reading', () => {
+    expect(runAs(ROOT, "UPDATE credentials SET password_hash = 'x'").logged).toEqual({
+      tag: 'Denied',
+      detail: "UPDATE command denied to user 'root'@'10.0.0.7' for table 'credentials'",
+    });
+  });
+
+  it('records nothing for any read, refused or not', () => {
+    // Including the refused one. A `SELECT` turned away is still a SELECT, and this
+    // file is about attempts to CHANGE things.
+    for (const line of ['SHOW TABLES', 'DESCRIBE orders', 'SELECT * FROM orders']) {
+      expect(runAs(ROOT, line).logged, line).toBeUndefined();
+    }
+    expect(run('SELECT * FROM credentials').logged).toBeUndefined();
+  });
+
+  it('records nothing for a write that never became one', () => {
+    // A statement that could not parse, named a table that is not there, or named a
+    // column that is not there changed nothing and violated nothing. Recording it
+    // would fill the file with a player's typing.
+    for (const line of [
+      'UPDATE orders SET',
+      "UPDATE ghosts SET sku = 'X'",
+      "UPDATE orders SET nope = 'X'",
+      "DELETE FROM orders WHERE nope = '1'",
+      'DROP TABLE ghosts',
+    ]) {
+      expect(runAs(ROOT, line).logged, line).toBeUndefined();
+    }
+  });
+
+  it('records exactly when it hands back a database, never one without the other', () => {
+    // One rule with two consequences, rather than two rules that have to agree: a
+    // change that persisted and a change that was recorded cannot drift apart.
+    for (const line of [
+      "UPDATE orders SET notes = 'rush'",
+      'DELETE FROM orders',
+      'DROP TABLE orders',
+      'SELECT * FROM orders',
+      'UPDATE orders SET',
+    ]) {
+      const result = runAs(ROOT, line);
+      expect((result.database !== undefined) === (result.logged?.tag === 'Query'), line).toBe(true);
+    }
   });
 });

@@ -10,6 +10,8 @@ import { asAbsPath } from '../types';
 import { md5 } from '../generation/md5';
 import { databaseOn, knownDatabaseCredential, mysqlHostOn } from '../../test/factories/lanDatabase';
 import { parseMysqlDatabase } from '../mysql/types';
+import { MYSQL_LOG_PATH } from '../logging/mysqlLog';
+import type { PatchRow } from '../patches/upsertPatch';
 import type { OwnerPatchRow } from '../network/materializeMachineFs';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
@@ -56,18 +58,40 @@ const patchRow = (path: string, content: string | null): OwnerPatchRow =>
     writer_key: 'b'.repeat(64),
   }) as OwnerPatchRow;
 
+/** A fixed stamp, so a log line can be asserted whole rather than by the half of it
+ *  that does not move. 2026-08-21T09:14:02Z, which is what the formatter renders. */
+const STAMPED_AT = Date.UTC(2026, 7, 21, 9, 14, 2);
+
 const makeDeps = (
   patches: readonly OwnerPatchRow[] = [],
   upsertResult: { readonly error: unknown } = { error: null },
+  existingLog: string | null = null,
 ) => {
   const findPatches = vi.fn<MysqlStatementDeps['findPatches']>(async () => ({
     data: patches,
     error: null,
   }));
   const upsertPatch = vi.fn<MysqlStatementDeps['upsertPatch']>(async () => upsertResult);
-  const deps: MysqlStatementDeps = { nonceStore: freshStore, findPatches, upsertPatch };
-  return { deps, findPatches, upsertPatch };
+  const readMysqlLog = vi.fn<MysqlStatementDeps['readMysqlLog']>(async () => ({
+    data: { content: existingLog },
+    error: null,
+  }));
+  const deps: MysqlStatementDeps = {
+    nonceStore: freshStore,
+    findPatches,
+    upsertPatch,
+    readMysqlLog,
+    now: () => STAMPED_AT,
+  };
+  return { deps, findPatches, upsertPatch, readMysqlLog };
 };
+
+/** Every row the door wrote to the mysql log, in the order it wrote them. */
+const loggedLines = (upsertPatch: { readonly mock: { readonly calls: readonly (readonly [PatchRow])[] } }) =>
+  upsertPatch.mock.calls
+    .map(([row]) => row)
+    .filter((row) => row.path === MYSQL_LOG_PATH)
+    .flatMap((row) => (row.content ?? '').split('\n').filter((line) => line.trim() !== ''));
 
 const signedStatement = (
   identity: ReturnType<typeof generateIdentity>,
@@ -448,18 +472,21 @@ describe('where a write lands', () => {
   const DBA = { username: 'dba', password: ROOT_PASSWORD };
   const READONLY = { username: 'readonly', password: GUEST_PASSWORD };
 
-  it('reaches the datadir on the box the statement named, and no other path', async () => {
-    // Over EVERY path the door wrote, not "one of them was the datadir". A door that
-    // also touched something else would pass the second check and fail this one.
+  it('reaches the datadir and the daemon own log on the named box, and nothing else', async () => {
+    // Over EVERY path the door wrote, not "one of them was the datadir". Two paths are
+    // allowed to it and this names both, so a door that touched a third fails here
+    // rather than passing a check that only looked where it expected something.
     //
-    // The machine is half the address and the easier half to get wrong: a change
-    // filed against the wrong box vanishes silently, and the player is told Query OK
-    // over rows that will not have moved when they look again.
+    // The machine is half the address and the easier half to get wrong: a change filed
+    // against the wrong box vanishes silently, and the player is told Query OK over
+    // rows that will not have moved when they look again.
     const { host, response, upsertPatch } = await write(APP, "UPDATE orders SET id = '1'");
+    const machine = resolveLanHostIdentity(host, ESSID).machineId;
 
     expect(response.status).toBe(200);
     expect(upsertPatch.mock.calls.map(([row]) => [row.machine_id, row.path])).toEqual([
-      [resolveLanHostIdentity(host, ESSID).machineId, DATADIR],
+      [machine, DATADIR],
+      [machine, String(MYSQL_LOG_PATH)],
     ]);
   });
 
@@ -544,12 +571,138 @@ describe('where a write lands', () => {
     }
   });
 
-  it('writes nothing for a write it refused', async () => {
+  it('changes no datadir for a write it refused', async () => {
+    // A refusal still reaches the daemon's log — recording those is the point — so the
+    // claim is about the datadir specifically rather than about the door being silent.
+    const datadirWrites = (calls: readonly (readonly [PatchRow])[]) =>
+      calls.map(([row]) => row.path).filter((path) => path === DATADIR);
+
     for (const login of [READONLY, APP]) {
       const { upsertPatch } = await write(login, 'DROP TABLE orders');
-      expect(upsertPatch, login.username).not.toHaveBeenCalled();
+      expect(datadirWrites(upsertPatch.mock.calls), login.username).toEqual([]);
     }
     const { upsertPatch } = await write(DBA, "UPDATE credentials SET password_hash = 'x'");
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(datadirWrites(upsertPatch.mock.calls)).toEqual([]);
+  });
+});
+
+/**
+ * What a statement leaves in the daemon's own log.
+ *
+ * The file already holds every connection this box accepted and every one it turned
+ * away. It gains the two things a defender actually needs from it: what CHANGED, and
+ * who was told they could not change it. Nothing else — a file that logged every
+ * SELECT would bury those two lines under a session's worth of noise, and a player who
+ * could read what everyone else read would learn more from the log than the database.
+ */
+describe('what a statement leaves in the log', () => {
+  const say = async (
+    login: { readonly username: string; readonly password: string },
+    statement: string,
+    upsertResult: { readonly error: unknown } = { error: null },
+  ) => {
+    const host = mysqlHostOn(ESSID);
+    const { deps, upsertPatch, readMysqlLog } = makeDeps([laddered(host)], upsertResult);
+    const response = await handleMysqlStatement(
+      await signedStatement(generateIdentity(), {
+        target_ip: host.ip,
+        username: login.username,
+        password: login.password,
+        statement,
+      }),
+      deps,
+    );
+    return { response, upsertPatch, readMysqlLog };
+  };
+
+  const APP = { username: 'app_rw', password: APP_PASSWORD };
+  const DBA = { username: 'dba', password: ROOT_PASSWORD };
+  const READONLY = { username: 'readonly', password: GUEST_PASSWORD };
+
+  it('writes one Query line naming the statement that changed something', async () => {
+    // mysql's own stamp, its own tab-delimited columns, and the statement as the
+    // engine read it. A defender reading this file learns what actually changed,
+    // which is what makes a compromised box recoverable rather than merely lost.
+    const { upsertPatch } = await say(APP, "UPDATE orders SET id = '1'");
+
+    expect(loggedLines(upsertPatch)).toEqual([
+      "2026-08-21T09:14:02.000000Z\t6000 Query\tUPDATE orders SET id = '1'",
+    ]);
+  });
+
+  it('writes one Denied line for a write the account was not allowed to run', async () => {
+    const { upsertPatch } = await say(READONLY, 'DROP TABLE orders');
+
+    expect(loggedLines(upsertPatch)).toEqual([
+      `2026-08-21T09:14:02.000000Z\t6000 Denied\tDROP command denied to user 'readonly'@'${CLIENT_IP}' for table 'orders'`,
+    ]);
+  });
+
+  it('appends to the history rather than replacing it', async () => {
+    // The read half is what makes this an append. A door that only wrote would erase
+    // every connection the box had recorded, which is the one thing a trace file
+    // cannot survive.
+    const host = mysqlHostOn(ESSID);
+    const earlier = '2026-08-21T09:00:00.000000Z\t4400 Connect\tapp_rw@10.0.0.1 on x using TCP/IP';
+    const { deps, upsertPatch } = makeDeps([laddered(host)], { error: null }, `${earlier}\n`);
+
+    await handleMysqlStatement(
+      await signedStatement(generateIdentity(), {
+        target_ip: host.ip,
+        username: APP.username,
+        password: APP.password,
+        statement: "UPDATE orders SET id = '1'",
+      }),
+      deps,
+    );
+
+    expect(loggedLines(upsertPatch)).toEqual([
+      earlier,
+      "2026-08-21T09:14:02.000000Z\t6000 Query\tUPDATE orders SET id = '1'",
+    ]);
+  });
+
+  it('writes the log as the root-owned, world-readable file it is', async () => {
+    // Readable by any account once you are on the box — getting on the box is the
+    // gate. Root-only to WRITE, because the daemon's append models a system write and
+    // a visitor must never be able to edit away the record of their visit.
+    const { upsertPatch } = await say(READONLY, 'DROP TABLE orders');
+    const row = upsertPatch.mock.calls.map(([entry]) => entry).find((entry) => entry.path === MYSQL_LOG_PATH);
+
+    expect(row).toMatchObject({
+      owner: 'root',
+      node_type: 'file',
+      permissions: { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] },
+    });
+  });
+
+  it('writes nothing to the log for any read, refused or not', async () => {
+    for (const statement of ['SHOW TABLES', 'DESCRIBE orders', 'SELECT * FROM orders']) {
+      const { upsertPatch, readMysqlLog } = await say(DBA, statement);
+      expect(loggedLines(upsertPatch), statement).toEqual([]);
+      // Not even the read half: a door that read the log on every SELECT would cost a
+      // round trip per statement to decide it had nothing to say.
+      expect(readMysqlLog, statement).not.toHaveBeenCalled();
+    }
+    const refusedRead = await say(READONLY, 'SELECT * FROM credentials');
+    expect(loggedLines(refusedRead.upsertPatch)).toEqual([]);
+  });
+
+  it('writes nothing to the log for a write that never became one', async () => {
+    for (const statement of ['UPDATE orders SET', "UPDATE ghosts SET id = '1'"]) {
+      const { upsertPatch } = await say(DBA, statement);
+      expect(loggedLines(upsertPatch), statement).toEqual([]);
+    }
+  });
+
+  it('records no change it could not persist', async () => {
+    // The line says a change happened. If the datadir write failed, none did — and a
+    // log claiming otherwise would send a defender looking for an edit nobody made.
+    const { response, upsertPatch } = await say(APP, "UPDATE orders SET id = '1'", {
+      error: new Error('journal unreachable'),
+    });
+
+    expect(response.status).toBe(500);
+    expect(loggedLines(upsertPatch)).toEqual([]);
   });
 });

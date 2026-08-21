@@ -495,13 +495,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // and re-validated here because the connection minted no session row to trust
     // instead. The handler READS the target's journal (its real datadir, and what it
     // is actually running); a statement that CHANGES the database writes the datadir
-    // back and nothing else, and a session of reads still writes nothing at all. What
-    // comes back is rendered text only -- rows would hand the client what the account
-    // could not select.
+    // back, and the daemon records what changed -- or who was refused a change -- in
+    // its own /var/log/mysql.log. A session of reads still writes neither. What comes
+    // back is rendered text only -- rows would hand the client what the account could
+    // not select.
     const { status, body } = await handleMysqlStatement(req.body, {
       nonceStore: noopNonceStore,
+      now: () => Date.now(),
       findPatches: findPatchesVia({ supabase, label: 'mysql statement journal lookup' }),
-      upsertPatch: upsertPatchVia({ supabase, label: 'mysql datadir upsert' }),
+      readMysqlLog: readAuthLogVia({ supabase, label: 'mysql statement log read' }),
+      upsertPatch: upsertPatchVia({ supabase, label: 'mysql datadir + log upsert' }),
     });
     res.status(status).json(body);
     return;

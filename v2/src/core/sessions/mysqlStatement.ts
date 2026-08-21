@@ -26,6 +26,11 @@
  * told so. The datadir write IS the statement here rather than a note about one:
  * answering `Query OK` over a failed journal write would show them their old rows on
  * the next statement and read as the game losing writes.
+ *
+ * The mysql.log line is the opposite kind of write — a note ABOUT the statement — so
+ * it is best-effort, the way the login door's line is. It comes last for the same
+ * reason: a line saying something changed, written over a change that did not land,
+ * would send a defender looking for an edit nobody made.
  */
 
 import { z } from 'zod';
@@ -36,15 +41,31 @@ import { reachMysqlHost, type HandlerResponse, type MysqlHostLookup } from './my
 import { credentialIn, databaseIn, DATADIR_OWNER, DATADIR_PATH } from '../mysql/datadir';
 import { runStatement } from '../mysql/statements';
 import { DATADIR_FILE } from '../generation/baseFs';
+import { appendMachineLog, type MachineLogReadQuery, type MachineLogReadResult } from '../patches/appendMachineLog';
+import {
+  formatMysqlStatementLine,
+  MYSQL_LOG_OWNER,
+  MYSQL_LOG_PATH,
+  MYSQL_LOG_PERMISSIONS,
+} from '../logging/mysqlLog';
+import { derivePid } from '../logging/syslog';
+import { asGameTime } from '../types';
 import type { NonceStore } from '../signedRequest/nonceStore';
 import type { PatchRow } from '../patches/upsertPatch';
 
 export type MysqlStatementDeps = MysqlHostLookup & {
   readonly nonceStore: NonceStore;
-  /** Write a patch — here, the one file a statement is ever allowed to change. Kept
-   *  to the datadir by the caller below rather than by the shape of this type, so the
-   *  test that names every path the door writes is the thing holding it. */
+  /** Write a patch — the datadir a statement changed, and the line the daemon records
+   *  about having changed it. Kept to those two paths by the caller below rather than
+   *  by the shape of this type, so the test that names every path the door writes is
+   *  the thing holding it. */
   readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
+  /** The server's wall clock, epoch-ms (UTC) — stamps the mysql.log line. */
+  readonly now: () => number;
+  /** The TARGET's current `/var/log/mysql.log`. The read half of an append: without
+   *  it the daemon would replace the box's history with one line every time it had
+   *  something to say. */
+  readonly readMysqlLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
 };
 
 export type { HandlerResponse };
@@ -98,7 +119,7 @@ export const handleMysqlStatement = async (
   const database = databaseIn(hostFs);
   if (database === null) return INVALID;
 
-  const { output, failed, database: changed } = runStatement({
+  const { output, failed, database: changed, logged } = runStatement({
     database,
     line: payload.statement,
     username: payload.username,
@@ -123,6 +144,30 @@ export const handleMysqlStatement = async (
       node_type: 'file',
     });
     if (error) return { status: 500, body: { error: 'datadir_write_failed' } };
+  }
+
+  if (logged !== undefined) {
+    const stamp = deps.now();
+    try {
+      await appendMachineLog(
+        { readLog: deps.readMysqlLog, upsertPatch: deps.upsertPatch },
+        {
+          writerKey: publicKey,
+          machineId,
+          path: MYSQL_LOG_PATH,
+          owner: MYSQL_LOG_OWNER,
+          permissions: MYSQL_LOG_PERMISSIONS,
+        },
+        formatMysqlStatementLine({
+          time: asGameTime(stamp),
+          pid: derivePid(stamp),
+          tag: logged.tag,
+          detail: logged.detail,
+        }),
+      );
+    } catch {
+      // best-effort: the statement's outcome stands regardless of a logging failure.
+    }
   }
 
   return { status: 200, body: { output, failed } };

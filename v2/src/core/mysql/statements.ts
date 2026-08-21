@@ -42,11 +42,30 @@ export type StatementRequest = {
   readonly sourceIp: string;
 };
 
+/** One line's worth of what happened, for the daemon's own log. `Query` is a change
+ *  that landed and carries the statement that made it; `Denied` is a write an account
+ *  was not allowed to run and carries the refusal, without the error code the player
+ *  was shown — the same split the `Access denied` line beside it already makes. */
+export type StatementLogEntry = {
+  readonly tag: 'Query' | 'Denied';
+  readonly detail: string;
+};
+
 export type StatementResult = {
   /** Rendered lines, ready to print. Never rows, never a parsed statement. */
   readonly output: readonly string[];
   /** Whether the terminal should draw this in the error colour and exit non-zero. */
   readonly failed: boolean;
+  /**
+   * What the daemon should write in its own log about this statement, absent when it
+   * should write nothing — which is every read, refused or not, and every write that
+   * never became one.
+   *
+   * The tag and the text, never a time or a file: this is the only thing that knows
+   * what a statement DID, and knowing that is what decides whether there is a line at
+   * all. Where the line goes is the caller's business.
+   */
+  readonly logged?: StatementLogEntry;
   /**
    * The database as this statement left it, present ONLY when the statement changed
    * it — absent for every read, every syntax error and every refusal.
@@ -391,10 +410,11 @@ const select = (table: MysqlTable, statement: Statement & { kind: 'select' }): S
  * player SPELLED it rather than as the database holds it — confirming a table's exact
  * casing is one more thing this answer should not say.
  */
+const denialMessage = (request: StatementRequest, verb: string, table: string): string =>
+  `${verb} command denied to user '${request.username}'@'${request.sourceIp}' for table '${table}'`;
+
 const deny = (request: StatementRequest, verb: string, table: string): StatementResult =>
-  refused(
-    `ERROR 1142 (42000): ${verb} command denied to user '${request.username}'@'${request.sourceIp}' for table '${table}'`,
-  );
+  refused(`ERROR 1142 (42000): ${denialMessage(request, verb, table)}`);
 
 /**
  * The account list, readable as a table — the database's own `/etc/passwd`.
@@ -575,7 +595,18 @@ const write = (request: StatementRequest, statement: Write): StatementResult => 
     !WRITERS[statement.verb].includes(request.userType) ||
     isCredentialsTable(statement.table)
   ) {
-    return deny(request, statement.verb, statement.table);
+    // Recorded, unlike the refused read one function up. An attempt to change
+    // something an account may not change is the most interesting thing this file can
+    // hold, and a wall of these is what tells a defender they are being worked on. It
+    // does mean the bottom rung can cause writes on a target — which is already true
+    // of every credential sweep that reaches this box.
+    return {
+      ...deny(request, statement.verb, statement.table),
+      logged: {
+        tag: 'Denied',
+        detail: denialMessage(request, statement.verb, statement.table),
+      },
+    };
   }
 
   const name = resolveTableName(request.database, statement.table);
@@ -610,6 +641,19 @@ const execute = (request: StatementRequest, statement: Statement): StatementResu
 };
 
 export const runStatement = (request: StatementRequest): StatementResult => {
-  const parsed = parseStatement(normalizeStatement(request.line));
-  return parsed.ok ? execute(request, parsed.statement) : refused(parsed.message);
+  const statement = normalizeStatement(request.line);
+  const parsed = parseStatement(statement);
+  if (!parsed.ok) return refused(parsed.message);
+
+  const result = execute(request, parsed.statement);
+  // A change is recorded exactly when a change was produced — one rule with two
+  // consequences rather than two rules that have to agree, so what reached the disk
+  // and what the log says about it cannot drift apart.
+  //
+  // The statement goes in NORMALIZED, which is the whole answer to storing a player's
+  // own text in a file other players read: every tab and newline is already gone, so
+  // there is no forging a second entry and no faking the tab-delimited columns.
+  return result.database === undefined
+    ? result
+    : { ...result, logged: { tag: 'Query', detail: statement } };
 };
