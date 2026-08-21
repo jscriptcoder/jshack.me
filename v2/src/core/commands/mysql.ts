@@ -15,6 +15,22 @@ import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
 
 const USAGE = 'usage: mysql [-p port] <host> [user]';
 
+/** `-p <port>` — the port to connect ON, which is not what the real client reads it
+ *  as. Absent means the daemon's own 3306; `null` means the player typed something
+ *  that is no port, including a bare `-p` that named nothing.
+ *
+ *  Refused rather than defaulted, DELIBERATELY unlike the same flag on `hydra`, which
+ *  falls back to the default door. There the port only ever selects between doors on
+ *  one box; here it IS the address of the daemon, so quietly substituting a number
+ *  the player did not type would connect them somewhere they did not ask for and
+ *  never mention it. */
+const parsePort = (raw: string | true | undefined): number | null => {
+  if (raw === undefined) return SERVICE_CATALOG.mysql.defaultPort;
+  if (raw === true) return null;
+  const port = Number(raw);
+  return Number.isInteger(port) && port > 0 ? port : null;
+};
+
 /** Every failure to reach a daemon is one error code with a different parenthetical,
  *  as the real client's are — the code says "no connection", the reason says why. */
 const unreachable = (target: string, port: number, reason: string): CommandResult =>
@@ -91,9 +107,12 @@ const lanConnect = async (
   const host = generateHomeLan(essid).hosts.find((candidate) => candidate.ip === target);
   if (host === undefined) return unreachable(target, port, 'No route to host');
 
+  // BOTH halves, because either alone is a door that opens on the wrong thing: a
+  // port with no daemon behind it, or an open port belonging to somebody else's —
+  // and the box this runs against is listening on ssh and ftp as well.
   const { baseFs } = resolveLanHostIdentity(host, essid);
   const listening = readOpenPorts(baseFs).some(
-    (open) => open.service === SERVICE_CATALOG.mysql.service,
+    (open) => open.port === port && open.service === SERVICE_CATALOG.mysql.service,
   );
   if (!listening) return unreachable(target, port, 'Connection refused');
 
@@ -124,11 +143,13 @@ const lanConnect = async (
   return { kind: 'sync', lines: greeting(host.hostname), exitCode: 0 };
 };
 
-const execute: Command['execute'] = async (env, args) => {
+const execute: Command['execute'] = async (env, args, flags) => {
   const target = args[0];
   if (target === undefined) return errorResult(USAGE);
 
-  const port = SERVICE_CATALOG.mysql.defaultPort;
+  const port = parsePort(flags.get('-p'));
+  if (port === null) return errorResult(USAGE);
+
   // One question, four ways to answer no — and the address comes back with it, so
   // the refusal below can name what the daemon would have seen without a fallback
   // for an address that cannot be missing by the time we are here.

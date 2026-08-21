@@ -76,6 +76,18 @@ const pickHosts = (): { readonly databaseHost: LanHost; readonly noDatabaseHost:
   return { databaseHost, noDatabaseHost };
 };
 
+/** An open port on `host` that some OTHER daemon holds. `-p` naming it must still be
+ *  refused: the flag addresses a port, and a port is not a door until the right daemon
+ *  is behind it. Derived rather than written as 22, so a re-roll of the fixture's
+ *  services cannot leave this asserting against a port nothing listens on. */
+const otherServicePortOn = (host: LanHost): number => {
+  const port = readOpenPorts(buildRemoteHostFs(ESSID, host)).find(
+    (open) => open.service !== SERVICE_CATALOG.mysql.service,
+  );
+  if (port === undefined) throw new Error('need a second daemon on the database host');
+  return port.port;
+};
+
 type EnvOver = {
   readonly prompt?: (opts: { message: string; masked: boolean }) => Promise<string>;
   readonly mysql?: Partial<MysqlApi>;
@@ -331,6 +343,131 @@ describe('mysql', () => {
     // is the one thing this door refuses to accept there.
     expect(documented?.description).toContain('PORT');
     expect(mysql.manual?.synopsis).toBe('mysql [-p port] <host> [user]');
+  });
+
+  it('connects on the port it was handed, when that is the one the daemon holds', async () => {
+    const { databaseHost } = pickHosts();
+    const prompt = vi.fn(async () => 'hunter2');
+    // Refused at the daemon, which is beside the point: the claim is that naming the
+    // right port explicitly reaches the same door as naming none.
+    const env = mysqlEnv({ prompt, mysql: { connect: async () => ({ ok: false }) } });
+
+    await mysql.execute(env, [databaseHost.ip], new Map([['-p', '3306']]));
+
+    expect(prompt).toHaveBeenCalled();
+  });
+
+  it('refuses a port the daemon is not on, rather than quietly using the one it is', async () => {
+    const { databaseHost } = pickHosts();
+    const prompt = vi.fn(async () => 'hunter2');
+
+    const result = await mysql.execute(
+      mysqlEnv({ prompt }),
+      [databaseHost.ip],
+      new Map([['-p', '9999']]),
+    );
+
+    // The port the PLAYER typed is the one refused. A flag that fell back to 3306
+    // would connect here and never say it had ignored the number.
+    expect(prompt).not.toHaveBeenCalled();
+    expect(linesOf(result)).toContain(
+      `ERROR 2003 (HY000): Can't connect to MySQL server on '${databaseHost.ip}:9999' (Connection refused)`,
+    );
+  });
+
+  it('refuses a port another daemon holds — an open port is not this door', async () => {
+    const { databaseHost } = pickHosts();
+    const taken = otherServicePortOn(databaseHost);
+    const prompt = vi.fn(async () => 'hunter2');
+
+    const result = await mysql.execute(
+      mysqlEnv({ prompt }),
+      [databaseHost.ip],
+      new Map([['-p', String(taken)]]),
+    );
+
+    // This box really is listening there — on ssh or ftp. Checking that SOMETHING is
+    // open would admit it, and the player would be asked for a database credential to
+    // hand to a file server.
+    expect(prompt).not.toHaveBeenCalled();
+    expect(linesOf(result)).toContain(
+      `ERROR 2003 (HY000): Can't connect to MySQL server on '${databaseHost.ip}:${taken}' (Connection refused)`,
+    );
+  });
+
+  it('carries the port into the refusal for an address no host holds', async () => {
+    const prompt = vi.fn(async () => 'hunter2');
+
+    const result = await mysql.execute(
+      mysqlEnv({ prompt }),
+      ['192.168.99.99'],
+      new Map([['-p', '9999']]),
+    );
+
+    // Both refusals name the port, or one of them tells the player about a connection
+    // to 3306 they never asked for.
+    expect(linesOf(result)).toContain(
+      "ERROR 2003 (HY000): Can't connect to MySQL server on '192.168.99.99:9999' (No route to host)",
+    );
+  });
+
+  it('refuses a -p that is not a port instead of choosing one for the player', async () => {
+    const { databaseHost } = pickHosts();
+    const prompt = vi.fn(async () => 'hunter2');
+
+    const result = await mysql.execute(
+      mysqlEnv({ prompt }),
+      [databaseHost.ip],
+      new Map([['-p', 'abc']]),
+    );
+
+    expect(prompt).not.toHaveBeenCalled();
+    expect(linesOf(result)).toBe('usage: mysql [-p port] <host> [user]');
+  });
+
+  it('refuses port zero, which no daemon can be listening on', async () => {
+    const { databaseHost } = pickHosts();
+    const prompt = vi.fn(async () => 'hunter2');
+
+    const result = await mysql.execute(
+      mysqlEnv({ prompt }),
+      [databaseHost.ip],
+      new Map([['-p', '0']]),
+    );
+
+    expect(prompt).not.toHaveBeenCalled();
+    expect(linesOf(result)).toBe('usage: mysql [-p port] <host> [user]');
+  });
+
+  it('refuses a port with a fraction, which is a number but not a port', async () => {
+    const { databaseHost } = pickHosts();
+    const prompt = vi.fn(async () => 'hunter2');
+
+    const result = await mysql.execute(
+      mysqlEnv({ prompt }),
+      [databaseHost.ip],
+      new Map([['-p', '3306.5']]),
+    );
+
+    // Deliberately a fraction of the RIGHT port. Checking only that the number is
+    // positive lets this through, and the player is then refused for being on a port
+    // no daemon could hold rather than told they typed one that is not a port.
+    expect(prompt).not.toHaveBeenCalled();
+    expect(linesOf(result)).toBe('usage: mysql [-p port] <host> [user]');
+  });
+
+  it('refuses a bare -p, which named no port at all', async () => {
+    const { databaseHost } = pickHosts();
+    const prompt = vi.fn(async () => 'hunter2');
+
+    const result = await mysql.execute(
+      mysqlEnv({ prompt }),
+      [databaseHost.ip],
+      new Map([['-p', true]]),
+    );
+
+    expect(prompt).not.toHaveBeenCalled();
+    expect(linesOf(result)).toBe('usage: mysql [-p port] <host> [user]');
   });
 
   it('names its own usage when no host is given', async () => {
