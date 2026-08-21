@@ -73,4 +73,41 @@ describe('the mysql sub-shell', () => {
     expect(sync(result).exitCode).toBe(0);
     expect(leave).not.toHaveBeenCalled();
   });
+
+  it('answers help with the verbs this door accepts, without leaving', async () => {
+    const leave = vi.fn();
+
+    const result = await runMysqlLine(shellEnv({ leave }), 'help');
+
+    const output = linesOf(result);
+    expect(output.startsWith('Supported commands:')).toBe(true);
+    // Every verb the parser accepts is named here, write verbs included. A door that
+    // understands `UPDATE` and answers it with a permission denial does support it;
+    // hiding it would send the player looking for a syntax they already have.
+    for (const verb of [
+      'SHOW TABLES',
+      'DESCRIBE',
+      'SELECT',
+      'UPDATE',
+      'DELETE',
+      'DROP TABLE',
+      'exit',
+      'quit',
+    ]) {
+      expect(output, verb).toContain(verb);
+    }
+    expect(sync(result).exitCode).toBe(0);
+    expect(leave).not.toHaveBeenCalled();
+  });
+
+  it('takes help in any case and with or without a semicolon', async () => {
+    // Same rule as the way out: parsed ahead of the verb table, so a player who ends
+    // it with a semicolon out of habit is not told their request was unsupported.
+    for (const typed of ['help', 'HELP', 'help;', 'Help ;', '  help  ']) {
+      const result = await runMysqlLine(shellEnv(), typed);
+
+      expect(linesOf(result), typed).toContain('Supported commands:');
+      expect(sync(result).exitCode, typed).toBe(0);
+    }
+  });
 });
