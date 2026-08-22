@@ -1406,11 +1406,133 @@ their hydra fan-out. Slice 5 delivers the second of that slice's "four vantages"
 ### Slice 6: A player runs their own database
 
 **Value**: The door becomes symmetric — a player can own the thing others attack.
-**Path**: `mysqld` daemon command → own workstation `/var/run` + a boot-time datadir.
-**Class**: Behavior change. **Acceptance criteria**: `mysqld` opens `:3306` on the player's own box
-with a real database behind it, on the precedent `/var/www/html/index.html` states; `systemctl
-stop/start/status mysqld` behaves as the other three daemons do; the player can read their own
-database's credentials as root on their own box.
+**Path**: `apt install mysql` → `mysqld` on the player's own box → the door answers from their
+own chair.
+**Class**: Behavior change. **Skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
+**RED**: apt + daemon + generator + door tests, all client-side.
+**Done when**: criteria met, gates green, commit approved. **No `api/` change**, so gate 5 is
+`N/A` — the first slice since slice 1 that CI can prove end to end.
+
+#### Grilled 2026-08-22 — fifteen criteria, three commits
+
+**The database is BOUGHT, not born.** This file said boot-time, on the `/var/www/html/index.html`
+precedent. Rejected: that precedent exists so a freshly started web server has something to serve
+and the player has a real file to edit, and neither applies to a database nothing on the box can
+open yet. Bought instead makes running one a CHOICE WITH A CONSEQUENCE — you installed it, you
+started it, you are now a target — which is what "the door becomes symmetric" actually means. It
+also agrees with the world: mysql is the rarest catalog row, and a database on a random home box
+is meant to read as somebody's mistake.
+
+**One package, two binaries.** `{ name: 'mysql', binaries: ['mysql', 'mysqld'] }`, not a second
+`mysql-server` row. The catalog already ships multi-binary packages (`aircrack` three, `snmp`
+two), and `packageForBinary('mysqld')` then resolves the not-found hint for free. The one visible
+consequence is that after installing, `systemctl status mysqld` answers `inactive (dead)` rather
+than not-found — which is what installing a server should do.
+
+**Daemons live in `/usr/sbin`, however they arrive.** apt has exactly one destination today
+(`apt.ts:230` writes `/usr/bin/<binary>`), so `nginx` and `apache2` — daemons on any real box —
+sit in `/usr/bin`. The package row gains a way to say which of its binaries are daemons and apt
+installs those into `/usr/sbin`, fixing all three at once. Nothing functional turns on it
+(`binaryExists` searches `/bin`, `/usr/bin` and `/usr/sbin` alike); it is what the player sees
+when they list a directory, and afterwards the rule has no exceptions.
+
+**The datadir is per-player, and its root account is the player's own root password.** Drawn
+through the same `generateDatabase` the NPC boxes use, seeded from the owner's pubkey, so no two
+players hold the same database. A CONSTANT datadir was rejected on one chain: the first player to
+crack their own `app` account would hold a credential valid on every database in the game, and
+slice 7's sweep would be skippable forever. A wordlist can be a shared constant because knowing
+it buys nothing; a password file cannot.
+
+Its `root` is `md5(config.rootPassword)` — the password the player already chose for their own box
+— so they reach their own prompt with nothing to look up, print, store or delete. PLAYER BOXES
+ONLY; NPC generation is untouched. It costs one thing knowingly: a chosen password is almost never
+in the wordlist, so db root on a player box is effectively uncrackable and an attacker will not
+reach `DROP TABLE` there. Accepted — the drawn `app` and `readonly` accounts are the attack
+surface, cracking them still buys nothing toward the box, and the CVE arc is the route in that
+this one is not trying to provide.
+
+**Nothing else is installed.** No `/etc/mysql.cnf`: nothing in the game reads it, `nmap` already
+says `3306/tcp open mysql` more reliably, and a static `port=3306` would be contradicted the first
+time a player runs `mysqld 3307`, which `parsePort` allows. No `mysql` account in `/etc/passwd`
+either — `usernames.ts` draws `mysql` as one of ~13 names for a db box's ORDINARY user, so twelve
+NPC db boxes in thirteen already show `ps` owner `mysql` with no such account. Adding one to the
+player's box would make it the odd box, not the consistent one.
+
+**Your own box is not the server's business.** Statements against your own database stay on the
+CLIENT. The server-side door exists to stop a client writing to a box it does not own; on your own
+box there is nothing to protect — you are root and can `nano` the datadir. Every decision is
+already a pure shared function (`credentialIn`, `runStatement`, the log formatters), so what
+differs between your path and an attacker's is ~40 lines of wiring, not the rules. Addressing
+follows the web door verbatim (`webHost.ts:136`): `localhost`, `127.0.0.1` and the player's own
+LAN address are ONE leased address, and the source recorded is loopback or that address exactly as
+`curl` decides it. The cross-player direction still needs the server — that is slice 7's, and it
+is where `reachMysqlHost` learns about player-owned boxes, rather than inventing an own-machine
+authorization case here that nothing needs.
+
+**Your own lines are in your own log.** A daemon that recorded strangers but not its owner would
+be one that knows which is which. The defender's skill is READING the log — telling `127.0.0.1`
+from a stranger's address — and that skill is worth less if the file arrives pre-filtered.
+
+#### Acceptance criteria
+
+*The purchase*
+
+1. `mysqld` on a fresh box is `bash: mysqld: command not found. Install with: apt install mysql`,
+   through the existing `packageForBinary` hint, with no new wiring
+2. `apt install mysql` puts `mysql` in `/usr/bin` and `mysqld` in `/usr/sbin`; `nginx` and
+   `apache2` move to `/usr/sbin` by the same change; every non-daemon package is unmoved, and
+   apt's manual text stops claiming binaries go to `/usr/bin`
+3. The same install writes `/var/lib/mysql/data.json` root-only (`DATADIR_FILE`), holding a
+   database drawn for THIS player — name, tables, rows and accounts seeded from the owner's
+   pubkey. Two players differ; one player is stable across installs
+4. That database's `root` password is the player's own machine root password; `app` and
+   `readonly` are drawn at the world's usual chances. Generated NPC databases stay byte-identical
+5. Nothing else is written and nothing is printed: no `/etc/mysql.cnf`, no `mysql` line in
+   `/etc/passwd`, no password on stdout
+
+*The daemon*
+
+6. `mysqld` behaves as the other three: root-only, optional `[port]` defaulting to 3306, refused
+   when already running, streaming its start before the port opens, and writing
+   `/var/run/mysqld.pid` as `mysqld:port=3306`
+7. With it up, the box's own `nmap` and `ps` report the door — `3306/tcp open mysql`, owner
+   `mysql` — through the existing pidfile readers, with no code added for either
+8. `systemctl status|stop|start|restart mysqld` answers as it does for the other units, and a stop
+   survives a reboot, because the pidfile is a patch row like every other
+
+*The door, from your own chair*
+
+9. `mysql localhost`, `mysql 127.0.0.1` and `mysql <own LAN address>` all reach the player's own
+   database — one leased address, three names
+10. With no daemon up, or on a port it is not holding, the answer is `Connection refused` — the
+    same sentence a stranger's box gives, decided before any credential is typed
+11. The tier ladder is the same on your own box as on anyone else's: `readonly` refused an
+    `UPDATE`, `app` performs one, only db root may `DROP TABLE`
+12. Root can `cat /var/lib/mysql/data.json` and read the account hashes; no lower tier can — the
+    only way to read it directly is to already own the box
+13. A connect writes a connect line to the player's own `/var/log/mysql.log`, sourced `127.0.0.1`
+    or the LAN address they typed; mutations and denials write theirs; no `SELECT` writes anything
+14. The log file does not exist until the first line is written, and arrives root-owned with the
+    catalog's permissions — `appendMachineLog` already does this
+15. No statement against your own database reaches `api/` beyond the patch write the journal
+    already takes
+
+#### Commits
+
+1. **The daemon you can buy** — the apt destination field (`nginx`/`apache2` move too), the
+   `mysqld` `Daemon` row, the `systemctl` unit. Criteria 1, 2, 6, 7, 8
+2. **The database you bought** — `generateDatabase` seeded from identity, written at install.
+   Criteria 3, 4, 5, 12
+3. **The door from your own chair** — own-box addressing, the client-side statement path, the log.
+   Criteria 9, 10, 11, 13, 14, 15
+
+**Out of scope**: NPC boxes carrying the daemons they run, so a rooted box's doors can be closed —
+`systemctl stop nginx` already fails there today, for the same reason `mysqld` would, and `kill`
+cannot substitute because it refuses unit names and only removes listener pidfiles. Its own slice,
+immediately after this one, because it is a world-generation change wanting evidence about
+generated hosts rather than about the player's machine. Cross-player reach is slice 7's, and needs
+no server change to SEE this database: the datadir is a patch, so the server's existing journal
+replay already materializes it.
 
 ### Slice 7: A player reaches another player's database
 

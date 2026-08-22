@@ -1723,6 +1723,19 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   needs `testInnerGatewayReach.ts` re-run live in the same slice. Found while building D6
   slice 5, 2026-08-21.
 
+- **A generated box does not carry the daemons it runs, so its doors cannot be closed.**
+  `systemctl stop <unit>` is the ONLY way to shut a service — `kill` refuses unit names outright
+  and only removes listener (`nc -l`) pidfiles, and `ps` gives services no pid to aim at. But
+  `unitFor` resolves a unit only when its binary is present, and generated hosts plant just
+  `SYSTEM_DAEMON_NAMES` (`sshd`, `vsftpd`) in `/usr/sbin`. So on an NPC webserver you have rooted,
+  `systemctl stop nginx` finds no unit and port 80 stays open forever; a `mysqld` unit joins it the
+  day D6 slice 6 lands. The fix is one rule — a generated box plants, in `/usr/sbin`, the daemons
+  for the services it actually runs, mirroring the datadir rule at `remoteHostFs.ts:224` ("a
+  datadir exists only where a daemon is serving it"). Deliberately NOT done inside slice 6: it is a
+  world-generation change touching every generated host, so it wants its own slice and its own
+  regeneration evidence rather than riding along in one about the player's own machine. Owner
+  agreed 2026-08-22 to take it as the slice immediately after D6 slice 6.
+
 - **`testFtpSession` is 12/14 against a live stack, and has been for a while.** Two checks fail:
   `a login that names no kind is still an ssh hop` (reads back `kind=no row`) and `and ending one
   without a reason still reads as the player leaving` (`end_reason=undefined`). Both are the
