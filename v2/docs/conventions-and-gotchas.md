@@ -1793,9 +1793,10 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   rule landed: a generated box carries the packages for the services it runs, so `unitFor` finds
   the binary and `systemctl stop nginx` works on an NPC webserver. See the invariant in §7. What
   is still OPEN is only the slice's own remainder, tracked in `plans/d6-mysql.md` under slice 6b:
-  the end-to-end evidence over a rooted generated box (expected to need no production change), and
   the two apache-flavoured `/etc/httpd.conf` templates, which still disagree with the `nginx` that
-  same box's `ps` and pidfile name.
+  same box's `ps` and pidfile name. The end-to-end evidence landed as `generatedBoxDoors.test.ts`
+  and needed no production change, as predicted — except that it surfaced the scan half, recorded
+  with the own-LAN `nmap` entry below.
 
 - **Should `vsftpd` be an apt package rather than base image?** Raised while grilling slice 6b and
   deliberately parked, because the union rule above resolves it with no second decision: the day
@@ -1916,7 +1917,8 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
 - **`nmap` runs a 5-digit port into the STATE column.** `31337/tcpopen  unknown` — the PORT
   column pads for four digits. Cosmetic, but every port in the generated backdoor pool
   (`BACKDOOR_PORTS`) is 4-5 digits, so it shows up routinely now.
-- **An own-LAN `nmap` replays no journals, so it cannot see a planted door.** The client
+- **An own-LAN `nmap` replays no journals, so it cannot see a planted door — nor a CLOSED
+  one.** The client
   resolves an own-LAN scan from seeded trees — the `.1` AP gateway from `buildApGatewayBaseFs`,
   every NPC sibling from `buildRemoteHostFs` — while a scan of a PUBLIC IP is server-resolved
   and replays the target's journal. So a listener planted on the AP gateway is visible to
@@ -1924,7 +1926,14 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   It cuts both ways and is worse for the defender: the tool built to give signals gives none,
   though standing on the box (`ssh` then `ps`) still shows it, because that tree is
   materialized. NPC root is crackable at 12%, so this is reachable gameplay rather than a
-  corner. **The fix has to be server-side** — `listPatches` is gated on an active session, so
+  corner. **Second way it bites, found 2026-08-22:** a `systemctl stop` is a journal row too, so
+  once a generated box carries the daemon behind its doors (v0.168.0), a defender who shuts port
+  80 on a box they rooted still sees it open from their own `nmap`. That is the tool lying about
+  the player's OWN action rather than about somebody else's, and there is no local workaround —
+  a generated box carries no `nmap` (`LOCALHOST_PREINSTALLED_TOOLS` is the aircrack trio, plus
+  `systemctl`), so the confirming scan can only come from a box that replays nothing. The port
+  really is shut: `readOpenPorts` — the reader the display and the server's scan action share —
+  reports it gone, which is what `generatedBoxDoors.test.ts` pins. **The fix has to be server-side** — `listPatches` is gated on an active session, so
   the client cannot read a machine's journal it has no session on. `nmap` already routes an
   INNER gateway's single-IP scan server-side for exactly this reason, and the line after it
   records the carve-out that leaves the edge `.1` and the siblings behind; the work is
