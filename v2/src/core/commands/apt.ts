@@ -1,7 +1,8 @@
 /**
  * apt — package manager. `install <pkg>` writes the package's binary stub(s)
- * into `/usr/bin` so a previously not-found command becomes reachable (the
- * binary-availability wrapper resolves `/usr/bin/<name>` at run time).
+ * into `/usr/bin` — or `/usr/sbin` for the daemons a package ships — so a
+ * previously not-found command becomes reachable (the binary-availability
+ * wrapper searches all three binary directories at run time).
  *
  * Gates, in apt's own order: root first (real apt can't even take the dpkg lock
  * as a normal user), then connectivity (no repo fetch offline), then the package
@@ -45,6 +46,16 @@ const USAGE = [
 /** Apt's exit code for a failed operation (permission, fetch, locate, …). */
 const APT_ERROR = 100;
 
+/** Where an installed binary lands. A tool you run goes to `/usr/bin`; a DAEMON
+ *  you run to bring a service up goes to `/usr/sbin`, beside the `sshd` and
+ *  `vsftpd` every machine already ships.
+ *
+ *  Cosmetic to resolution — `binaryExists` searches both, plus `/bin` — and that
+ *  is the point: it is what the player sees when they list a directory, and a
+ *  world where every daemon is in one place has one fewer exception to learn. */
+const TOOL_DIR = '/usr/bin';
+const DAEMON_DIR = '/usr/sbin';
+
 /** World-executable binary perms — readable + runnable by every tier, writable
  *  only by root. Matches the system-binary shape so an installed tool behaves
  *  exactly like a pre-installed one. */
@@ -80,11 +91,19 @@ const offlineError = (): CommandResult =>
 const contentsOf = (
   packageName: string,
 ):
-  | { readonly binaries: readonly string[]; readonly extraFiles: readonly AptExtraFile[] }
+  | {
+      readonly binaries: readonly string[];
+      readonly daemons: readonly string[];
+      readonly extraFiles: readonly AptExtraFile[];
+    }
   | undefined => {
   const pkg = APT_PACKAGES.find((candidate) => candidate.name === packageName);
   if (pkg === undefined) return undefined;
-  return { binaries: pkg.binaries ?? [pkg.name], extraFiles: pkg.extraFiles ?? [] };
+  return {
+    binaries: pkg.binaries ?? [pkg.name],
+    daemons: pkg.daemons ?? [],
+    extraFiles: pkg.extraFiles ?? [],
+  };
 };
 
 /**
@@ -220,7 +239,7 @@ async function* installPackage(
     yield errorLine(`E: Unable to locate package ${packageName}`);
     return APT_ERROR;
   }
-  const { binaries, extraFiles } = contents;
+  const { binaries, daemons, extraFiles } = contents;
 
   yield text('The following NEW packages will be installed:');
   yield text(`  ${packageName}`);
@@ -228,7 +247,8 @@ async function* installPackage(
   yield text(`Setting up ${packageName} ...`);
 
   for (const binary of binaries) {
-    const result = await env.patches.write(asAbsPath(`/usr/bin/${binary}`), BINARY_STUB, {
+    const directory = daemons.includes(binary) ? DAEMON_DIR : TOOL_DIR;
+    const result = await env.patches.write(asAbsPath(`${directory}/${binary}`), BINARY_STUB, {
       isNew: true,
       permissions: INSTALLED_BINARY_PERMS,
     });
@@ -300,7 +320,7 @@ export const apt: Command = {
   manual: {
     synopsis: 'apt <install|list> [args]',
     description:
-      'Advanced Package Tool. "install" downloads a package and places its binaries in /usr/bin, making the tool available to run (requires root — run "su" first). "list" shows the installable catalog; "list --installed" shows only the packages already present. Both need a network connection.',
+      'Advanced Package Tool. "install" downloads a package and places its binaries where they belong — tools in /usr/bin, service daemons in /usr/sbin — making them available to run (requires root — run "su" first). "list" shows the installable catalog; "list --installed" shows only the packages already present. Both need a network connection.',
     arguments: [
       {
         name: 'operation',

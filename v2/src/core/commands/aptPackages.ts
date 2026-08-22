@@ -46,6 +46,14 @@ export type AptPackage = {
   readonly name: string;
   /** Binary names this package provides, when they differ from `name`. */
   readonly binaries?: readonly string[];
+  /** Which of this package's binaries are DAEMONS — the ones you run to bring a
+   *  service up. They install into `/usr/sbin` beside the pre-installed `sshd`
+   *  and `vsftpd` rather than into `/usr/bin` with the tools.
+   *
+   *  A marker over `binaries` rather than a second list, so a package that ships
+   *  both halves names each binary once: `mysql` provides the client and the
+   *  daemon, and only the second is admin's. */
+  readonly daemons?: readonly string[];
   /** Data files this package ships. Omitted by packages that ship only code. */
   readonly extraFiles?: readonly AptExtraFile[];
 };
@@ -80,11 +88,15 @@ export const APT_PACKAGES: readonly AptPackage[] = [
     ],
   },
   { name: 'snmp', binaries: ['snmpwalk', 'snmpset'] },
-  { name: 'mysql' },
+  // One package, both halves: the client you point at somebody else's database
+  // and the daemon that makes yours one. A player who installed `mysql` and then
+  // had to find out what the SERVER package was called would be reading a
+  // catalogue to learn a name the world never says out loud.
+  { name: 'mysql', binaries: ['mysql', 'mysqld'], daemons: ['mysqld'] },
   { name: 'redis-tools', binaries: ['rediscli'] },
   { name: 'lynx' },
-  { name: 'apache2' },
-  { name: 'nginx' },
+  { name: 'apache2', daemons: ['apache2'] },
+  { name: 'nginx', daemons: ['nginx'] },
 ];
 
 /** Binary name → package name, for the install hint. Derived from

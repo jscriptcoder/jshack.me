@@ -1,6 +1,6 @@
 /**
- * Starting a daemon — `sshd`, `vsftpd`, and THE web server under either of its
- * two names. One implementation, four front doors.
+ * Starting a daemon — `sshd`, `vsftpd`, `mysqld`, and THE web server under
+ * either of its two names. One implementation, five front doors.
  *
  * Every daemon opens its port the same way: it writes `/var/run/<name>.pid`
  * (`sshd:port=22`), which IS the source of truth for "the service is up / the
@@ -238,8 +238,9 @@ const VSFTPD: Daemon = {
 
 /** Both web-server programs write the `http` row's pidfile, so only one of them
  *  can be up. Unlike `sshd`, neither ships pre-installed: `apt install nginx` (or
- *  `apache2`) puts the binary in `/usr/bin`, and the existing binary-presence gate
- *  turns its absence into `command not found` with the install hint. */
+ *  `apache2`) puts the binary in `/usr/sbin` beside the daemons that do, and the
+ *  existing binary-presence gate turns its absence into `command not found` with
+ *  the install hint. */
 const webServerDaemon = ({
   name,
   banner,
@@ -268,10 +269,33 @@ const APACHE2 = webServerDaemon({
   description: 'Apache HTTP server',
 });
 
+/** The database daemon, and the first door whose credential is not the box's own
+ *  — what a player runs to become the thing `mysql <host>` opens. Bought rather
+ *  than shipped, like the web servers: `apt install mysql` brings the client and
+ *  this together, so the choice to serve one is a choice with a consequence. */
+const MYSQLD: Daemon = {
+  name: 'mysqld',
+  spec: SERVICE_CATALOG.mysql,
+  banner: 'MySQL server',
+  alreadyRunning: 'already running',
+  description: 'MySQL database server daemon',
+  availability: { kind: 'installed-package', packageName: 'mysql' },
+  manualDescription:
+    'Start the MySQL database server, opening the database port (default 3306) on this machine ' +
+    "so it accepts incoming connections. The accounts it answers to are the DATABASE's own, not " +
+    "this machine's — a login here grants no shell and no files. Must be run as root " +
+    '(run "su" first). Refuses to start if a database is already running.',
+  examples: [
+    { command: 'mysqld', description: 'Start the database on the default port 3306' },
+    { command: 'mysqld 3307', description: 'Start it on port 3307 instead' },
+  ],
+};
+
 export const sshd = daemonCommand(SSHD);
 export const vsftpd = daemonCommand(VSFTPD);
 export const nginx = daemonCommand(NGINX);
 export const apache2 = daemonCommand(APACHE2);
+export const mysqld = daemonCommand(MYSQLD);
 
 /** Each daemon keyed by the command name that starts it. `systemctl` reads this
  *  to bring a unit up through `bringUp` once it has established the port is
@@ -282,4 +306,5 @@ export const DAEMONS: Readonly<Record<string, Daemon>> = {
   vsftpd: VSFTPD,
   nginx: NGINX,
   apache2: APACHE2,
+  mysqld: MYSQLD,
 };

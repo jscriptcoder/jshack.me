@@ -275,6 +275,47 @@ describe('apt', () => {
       expect(writes.map((write) => write.path)).toEqual(['/usr/bin/nc']);
     });
 
+    it('installs a daemon into /usr/sbin, where the admin binaries already live', async () => {
+      // A web server is a daemon on any real box, and /usr/sbin is where a daemon
+      // belongs — the directory the pre-installed sshd and vsftpd already occupy.
+      // Nothing functional turns on it: the binary search spans /bin, /usr/bin and
+      // /usr/sbin alike, so this is what the player SEES when they list a
+      // directory. It matters because afterwards the rule has no exceptions.
+      const nginxInstall = aptEnv();
+      const apacheInstall = aptEnv();
+
+      await streamResult(await apt.execute(nginxInstall.env, ['install', 'nginx'], NO_FLAGS));
+      await streamResult(await apt.execute(apacheInstall.env, ['install', 'apache2'], NO_FLAGS));
+
+      expect(nginxInstall.writes.map((write) => write.path)).toEqual(['/usr/sbin/nginx']);
+      expect(apacheInstall.writes.map((write) => write.path)).toEqual(['/usr/sbin/apache2']);
+    });
+
+    it('installs a package that ships both a client and a daemon into both places', async () => {
+      // One package, two binaries, two shelves: the mysql CLIENT is a tool any
+      // tier runs to open somebody's database, while mysqld is the daemon root
+      // runs to become the box somebody opens. Buying one buys the other — a
+      // player who installed "mysql" and found no way to serve one would be
+      // reading a package list to work out what a second package was called.
+      const { env, writes } = aptEnv();
+
+      await streamResult(await apt.execute(env, ['install', 'mysql'], NO_FLAGS));
+
+      expect(writes.map((write) => write.path)).toEqual(['/usr/bin/mysql', '/usr/sbin/mysqld']);
+    });
+
+    it('stamps a daemon world-executable, exactly as it stamps any other binary', async () => {
+      // The destination changes; nothing else about the install does. A daemon
+      // self-gates root at RUNTIME — the perms are the ones a real /usr/sbin/sshd
+      // carries — so narrowing them here would refuse the player before their own
+      // daemon could explain why.
+      const { env, writes } = aptEnv();
+
+      await streamResult(await apt.execute(env, ['install', 'nginx'], NO_FLAGS));
+
+      expect(writes[0].options).toEqual({ isNew: true, permissions: WORLD_EXECUTABLE });
+    });
+
     it('refuses to install as a non-root user and writes nothing', async () => {
       const { env, writes } = aptEnv({ userType: 'user' });
 
@@ -569,6 +610,16 @@ describe('apt', () => {
 
     expect(text).toContain('Invalid operation frobnicate');
     expect(exitCode).toBe(100);
+  });
+
+  it('tells the player both places an install can land a binary', async () => {
+    // The manual said every binary goes to /usr/bin, which stopped being true the
+    // moment daemons moved. A player who reads the manual and then lists /usr/bin
+    // for the web server they just installed must not be sent to the wrong shelf.
+    const description = apt.manual?.description ?? '';
+
+    expect(description).toContain('/usr/bin');
+    expect(description).toContain('/usr/sbin');
   });
 
   it('writes no libraries for a real apt package (none map to a library today)', async () => {

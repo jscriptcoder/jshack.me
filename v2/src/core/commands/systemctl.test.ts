@@ -38,7 +38,8 @@ type SystemctlEnvOpts = {
   readonly userType?: UserType;
   /** `/var/run` pidfiles, basename → content (omit ⇒ nothing running). */
   readonly running?: Readonly<Record<string, string>>;
-  /** Extra `/usr/bin` binaries — the web servers arrive only via `apt install`. */
+  /** Daemons this box bought — the web servers and the database arrive only via
+   *  `apt install`, which lands them in `/usr/sbin` beside the ones that ship. */
   readonly installed?: readonly string[];
   readonly removeResult?: PatchResult;
 };
@@ -50,8 +51,8 @@ const binaries = (names: readonly string[]) =>
 
 /** An env whose `/var/run` holds the given pidfiles and whose patch calls are
  *  spies. `sshd` and `vsftpd` always exist in `/usr/sbin` (they ship on every
- *  machine); the web servers appear only when `installed` names them. Defaults:
- *  root, nothing running, patch calls succeed. */
+ *  machine); the bought daemons appear only when `installed` names them.
+ *  Defaults: root, nothing running, patch calls succeed. */
 const systemctlEnv = (opts: SystemctlEnvOpts = {}) => {
   const userType = opts.userType ?? 'root';
   const removes: string[] = [];
@@ -63,8 +64,8 @@ const systemctlEnv = (opts: SystemctlEnvOpts = {}) => {
   const tree = buildDirectory({
     var: buildDirectory({ run: buildDirectory(Object.fromEntries(pidfiles)) }),
     usr: buildDirectory({
-      bin: binaries(opts.installed ?? []),
-      sbin: binaries(['sshd', 'vsftpd']),
+      bin: buildDirectory({}),
+      sbin: binaries(['sshd', 'vsftpd', ...(opts.installed ?? [])]),
     }),
   });
   const env = mockCommandEnv({
@@ -470,6 +471,90 @@ describe('systemctl status', () => {
     const { text } = syncResult(await systemctl.execute(env, ['status', 'sshd'], NO_FLAGS));
 
     expect(text).toBe('○ sshd.service - OpenSSH server\n     Active: inactive (dead)');
+  });
+});
+
+/**
+ * The database a player bought is a unit like any other. It has to be: the ONLY
+ * way to shut a service is `systemctl stop` — `kill` refuses a unit name outright
+ * and a service has no pid to aim at — so a door with no unit behind it is a door
+ * that never closes.
+ */
+describe('systemctl and the database a player bought', () => {
+  it('reports a running database as active, with its port', async () => {
+    const { env } = systemctlEnv({
+      running: { 'mysqld.pid': 'mysqld:port=3306' },
+      installed: ['mysqld'],
+    });
+
+    const { text, exitCode } = syncResult(
+      await systemctl.execute(env, ['status', 'mysqld'], NO_FLAGS),
+    );
+
+    expect(text).toBe('● mysqld.service - MySQL server\n     Active: active (running) on port 3306');
+    expect(exitCode).toBe(0);
+  });
+
+  it('reports an installed-but-stopped database as inactive rather than absent', async () => {
+    // The line that tells a player the purchase worked: before `apt install mysql`
+    // there is no unit at all, and afterwards there is one, sitting dead until
+    // they start it.
+    const { env } = systemctlEnv({ installed: ['mysqld'] });
+
+    const { text } = syncResult(await systemctl.execute(env, ['status', 'mysqld'], NO_FLAGS));
+
+    expect(text).toBe('○ mysqld.service - MySQL server\n     Active: inactive (dead)');
+  });
+
+  it('closes the database port, removing the file every reader treats as open', async () => {
+    const { env, removes } = systemctlEnv({
+      running: { 'mysqld.pid': 'mysqld:port=3306' },
+      installed: ['mysqld'],
+    });
+
+    const { exitCode } = await streamResult(
+      await systemctl.execute(env, ['stop', 'mysqld'], NO_FLAGS),
+    );
+
+    expect(removes).toEqual([pidfilePath(SERVICE_CATALOG.mysql)]);
+    expect(exitCode).toBe(0);
+  });
+
+  it('opens it again through the daemon that owns the pidfile', async () => {
+    const { env, writes } = systemctlEnv({ installed: ['mysqld'] });
+
+    const { exitCode } = await streamResult(
+      await systemctl.execute(env, ['start', 'mysqld'], NO_FLAGS),
+    );
+
+    expect(writes).toEqual([{ path: '/var/run/mysqld.pid', content: 'mysqld:port=3306' }]);
+    expect(exitCode).toBe(0);
+  });
+
+  it('brings a restarted database back on the port it was actually running on', async () => {
+    const { env, writes } = systemctlEnv({
+      running: { 'mysqld.pid': 'mysqld:port=3307' },
+      installed: ['mysqld'],
+    });
+
+    await streamResult(await systemctl.execute(env, ['restart', 'mysqld'], NO_FLAGS));
+
+    expect(writes).toEqual([{ path: '/var/run/mysqld.pid', content: 'mysqld:port=3307' }]);
+  });
+
+  it('cannot start a database the box never bought', async () => {
+    // The same apt bypass the web servers are guarded against: the binary gate
+    // lives on the `mysqld` command, and routing around it would open 3306 on a
+    // box with no database on it at all.
+    const { env, writes } = systemctlEnv();
+
+    const { text, exitCode } = syncResult(
+      await systemctl.execute(env, ['start', 'mysqld'], NO_FLAGS),
+    );
+
+    expect(text).toBe('Unit mysqld.service could not be found.');
+    expect(exitCode).toBe(1);
+    expect(writes).toEqual([]);
   });
 });
 
