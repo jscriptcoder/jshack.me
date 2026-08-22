@@ -1792,11 +1792,11 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
 - **A rooted generated box can have its doors shut — RESOLVED 2026-08-22 (v0.168.0, #444).** The
   rule landed: a generated box carries the packages for the services it runs, so `unitFor` finds
   the binary and `systemctl stop nginx` works on an NPC webserver. See the invariant in §7. What
-  is still OPEN is only the slice's own remainder, tracked in `plans/d6-mysql.md` under slice 6b:
-  the two apache-flavoured `/etc/httpd.conf` templates, which still disagree with the `nginx` that
-  same box's `ps` and pidfile name. The end-to-end evidence landed as `generatedBoxDoors.test.ts`
-  and needed no production change, as predicted — except that it surfaced the scan half, recorded
-  with the own-LAN `nmap` entry below.
+  remained was the slice's own remainder, and slice 6b is now COMPLETE (v0.169.0): the end-to-end
+  evidence landed as `generatedBoxDoors.test.ts` needing no production change, as predicted, and the
+  two apache-flavoured `/etc/httpd.conf` templates were rewritten nginx-flavoured so a generated
+  webserver's config, its COMMAND column and its `/usr/sbin` all name one program. The one thing it
+  surfaced rather than closed is the scan half, recorded with the own-LAN `nmap` entry below.
 
 - **Should `vsftpd` be an apt package rather than base image?** Raised while grilling slice 6b and
   deliberately parked, because the union rule above resolves it with no second decision: the day

@@ -11,12 +11,12 @@ takes one branch per commit, since each is a separately reviewable claim.
 `f1c4dd6`, #436 `8add9fa`). Slice 6b commit 1 LANDED (v0.168.0 #444 `afb1a88a`), its docs on `main`
 as `bd9af1ac`.
 
-Slice 6b commit 2 LANDED — the end-to-end evidence, 8 tests and no production change, with
-criterion 6's `nmap` clause amended to the shared reader and its remaining half left in §9.
+**SLICE 6b IS COMPLETE** — all three commits landed, all 13 criteria met, with criterion 6's `nmap`
+clause amended to the shared reader (`readOpenPorts`) and its remaining half left in §9 as a
+backlog item needing its own slice, design call and wire-check.
 
-**SLICE 6b COMMIT 3 IS NEXT** — the two apache-flavoured `httpd.conf` templates, rewritten
-nginx-flavoured so a generated webserver's config, its COMMAND column and its `/usr/sbin` name one
-program. Then slice 7.
+**SLICE 7 IS NEXT** — a player reaches another player's database. It adds a fifth door to a world
+where, as of this slice, every door can now be shut by whoever holds root on the box behind it.
 
 Slice 3 was grilled to 21 criteria (`32ef71b`) and landed as three PRs in this order:
 
@@ -1604,7 +1604,7 @@ generated hosts rather than about the player's machine. Cross-player reach is sl
 no server change to SEE this database: the datadir is a patch, so the server's existing journal
 replay already materializes it.
 
-### Slice 6b: A generated box carries what it runs
+### Slice 6b: A generated box carries what it runs ✔ LANDED (v0.168.0-v0.169.0, #444 `afb1a88a`, #445 `a298ef2f`, #446)
 
 Carved out of slice 6 rather than discovered after it: slice 6's "Out of scope" note and the
 backlog entry in `v2/docs/conventions-and-gotchas.md` §9 both name it, and the owner agreed on
@@ -1738,7 +1738,48 @@ slice. Under the rule above it resolves itself with no second decision — the d
    production change: the mechanism is already there, and this is the first time anything proves it
    over a box the world generated. If that expectation is wrong, the gap is the interesting part of
    the slice. Criteria 6-9
-3. **The config names the program** — the two `httpd.conf` templates. Criterion 13
+3. **The config names the program** ✔ LANDED — the two `httpd.conf` templates. Criterion 13
+
+#### Commit 3 as-built
+
+Two of the five webserver templates were apache-flavoured — a `ServerRoot`/`Listen` one and a
+`<VirtualHost>` one, both logging to `/var/log/apache2/`. Rewritten nginx-flavoured, keeping five
+distinct shapes: the first is now a plain static server (`autoindex off`, `gzip on`,
+`error_log ... warn`), the third a virtual-host-flavoured one (`client_max_body_size`, both logs).
+Deleting them would have cost the pool two of its five; the point was never the count but that a
+player who cats the config, runs `ps` and lists `/usr/sbin` gets ONE answer.
+
+**RED** was two failures over the whole `www` population, not one box: the template is drawn per
+box, so a pool entry no host in the sample happened to draw is one no test has ever read. The
+positive claim is that every config states its host the way nginx does — `server_name <host>;`,
+against apache's bare `ServerName <host>` — and the negative that none names a web server the box
+does not carry (`apache2`, `ServerRoot`, `VirtualHost`, `DocumentRoot`). The negative asserts on an
+object carrying the hostname rather than a bare boolean, so a failure names the box that broke it.
+
+**The filename stays `httpd.conf`.** It is legacy's, adopted rather than coined, and generic — an
+httpd config is an http daemon's config whichever daemon writes it. Criterion 13 names that path
+itself, so this was settled before the commit.
+
+**Left alone deliberately**: `apache` and `httpd` remain in the webserver USERNAME pool, beside
+`caddy`, `varnish` and `proxy`. An account name is texture; it does not claim a running program the
+way a config file does, and a box with a leftover `apache` service account is ordinary.
+
+**Evidence**: RED 2 failures (`expected '<VirtualHost *:80>...' to contain 'server_name www-5;'`);
+3345/3345 over 163 files (was 3343 — the 2 new); `tsc -b` and `eslint .` clean; gate 5 `N/A`.
+Mutation `pools/configFiles.ts` **64/66 (96.97%)** — every mutant on the two rewritten templates
+killed. Both survivors are on the `dns` role, untouched by this commit and not a coverage gap:
+emptying that pool makes `remoteHostFs.test.ts` fail to COLLECT (0 tests run), so no covering test
+reports a failure and Stryker reads it as survived. Verified by hand rather than assumed.
+
+The determinism sweeps are correctly blind to this — they compare two generations of the same
+inputs to each other rather than pinning absolute bytes, which is what lets a pool be edited at all.
+The oracle that mattered is the pinned password hashes (`36cf655e...`), still green: the template
+edit shifted no PRNG draw, because the config draws its OWN stream.
+
+**Version bumped to v0.169.0**, deviating from this plan's "version bumped once for the slice" line
+— written when commit 3's nature was still open. Commit 2 changed no production code and took no
+bump; this one changes what every generated webserver in the world carries, so the always-apply rule
+in `.claude/CLAUDE.md` wins.
 
 #### The half this does not close
 
