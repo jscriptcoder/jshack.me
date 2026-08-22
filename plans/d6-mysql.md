@@ -1596,7 +1596,7 @@ generated hosts rather than about the player's machine. Cross-player reach is sl
 no server change to SEE this database: the datadir is a patch, so the server's existing journal
 replay already materializes it.
 
-### Slice 6b: A generated box carries the daemons it runs
+### Slice 6b: A generated box carries what it runs
 
 Carved out of slice 6 rather than discovered after it: slice 6's "Out of scope" note and the
 backlog entry in `v2/docs/conventions-and-gotchas.md` §9 both name it, and the owner agreed on
@@ -1609,29 +1609,127 @@ NPC webserver finds no unit and port 80 stays open forever, so the last step of 
 missing — and `kill` cannot substitute, because it refuses unit names outright and only removes
 listener (`nc -l`) pidfiles.
 
-**The rule**: a generated box plants, in `/usr/sbin`, the daemons for the services it actually
-runs — mirroring the datadir rule already stated at `remoteHostFs.ts:224` ("a datadir exists only
-where a daemon is serving it"). Today every generated host plants exactly `SYSTEM_DAEMON_NAMES`
-(`binaries.ts:85` — `sshd`, `vsftpd`) regardless of what it is serving, in all three tree builders
-(`remoteHostFs.ts:300`, `routerFs.ts:173`, `workstationFs.ts:144`).
+**The rule**: a generated box carries its base image PLUS, for each service it actually runs, the
+packages that either share that service's name or ship its daemon. Today every generated host
+plants exactly `SYSTEM_DAEMON_NAMES` (`binaries.ts:85` — `sshd`, `vsftpd`) regardless of what it is
+serving, in all three tree builders (`remoteHostFs.ts:300`, `routerFs.ts:173`,
+`workstationFs.ts:144`).
 
-**Grounding already in hand** (facts, not decisions):
-- `unitFor` resolves a unit only when its binary is present — that gate is why the doors cannot be
-  shut, and it is correct: it is what stops `systemctl` being an apt bypass.
-- The service to daemon-binary mapping already exists implicitly in `SERVICE_CATALOG`: the
-  `pidfile` field names it (`nginx.pid`, `vsftpd.pid`, `mysqld.pid`, `sshd.pid`). Whether the slice
-  reads it from there or adds an explicit field is a design call for the grill.
-- The web row is ONE identity for two programs (`nginx` and `apache2` are two ways to open the same
-  port), so "which binary does a generated webserver carry" is a question the catalog does not
-  currently answer.
+#### Grilled 2026-08-22 — the rule, and what it must not move
+
+**Additive, not exact.** The base image stays on every box; the slice only ADDS. The tempting
+version — "a box carries the daemons for the services it runs and no others", mirroring the datadir
+rule at `remoteHostFs.ts:224` — was rejected because it would strip `/usr/sbin/sshd` from the ~60%
+of hosts that draw no ssh (`placement: 0.4`) and collapse a distinction the world already models:
+`systemctl status` prints `○` for a binary present with no pidfile and `●` for one with, so
+"installed but stopped" is an expressible state and the ordinary condition of a real machine.
+Additive also mirrors the player's own box exactly — it ships `sshd`+`vsftpd` and apt-installs the
+rest.
+
+**The daemon name is `daemonName(spec)`, not a new field.** `pidfile.ts:56` already derives it by
+stripping `.pid`, and it is the single name `ps` prints in COMMAND, `nmap` reports as owner, and
+`systemctl` carries as a unit's `name`. A second field that must agree with the first is a rule
+somebody has to keep. This also settles the web without being asked: the http row's pidfile is
+`nginx.pid`, and `UNITS` already maps BOTH `nginx` and `apache2` to `name: 'nginx'`, so the service
+identity was decided nginx-shaped long before this slice. `apache2` stays what it is — a second
+front door the PLAYER can apt-install on their own box, never something a generated box runs.
+
+**The whole package, not the daemon alone.** A box that runs a service carries the binaries of the
+packages relevant to it, so a database box has `mysql` beside `mysqld` as a real one would. The
+daemon-only version was cheaper but left a database with no way to query it locally.
+
+**Which packages: name-match OR daemon-match** — one union, no exception list, because two of the
+four services have no package shipping their daemon at all:
+
+| service | `daemonName` | package | gains | into |
+|---|---|---|---|---|
+| `ssh` | `sshd` | — (base; client already in `/bin`) | nothing | — |
+| `ftp` | `vsftpd` | `ftp` (name match) | `ftp` | `/usr/bin` |
+| `http` | `nginx` | `nginx` (daemon match) | `nginx` | `/usr/sbin` |
+| `mysql` | `mysqld` | `mysql` (both matches, one package) | `mysql`, `mysqld` | `/usr/bin`, `/usr/sbin` |
+
+`daemons` is a marker over `binaries` (`aptPackages.ts:57`), so the daemon lookup lands on `nginx`
+rather than `apache2` without being told, and each binary keeps the destination apt would give it.
+
+**Binaries only — NEVER a package's `extraFiles`.** The `mysql` package ships the datadir drawn
+from the PLAYER's identity (`ownDatabase({ ownerKeyHex, ... })`). A generated box already holds its
+own, seeded per `(essid, host.ip)`; planting extraFiles would overwrite every NPC database in the
+world with the player's own.
+
+**Scope is `remoteHostFs.ts` alone**, settled by fact rather than choice:
+
+- `workstationFs.ts` is the PLAYER's box, not an NPC — already correct, and how it gets the other
+  three daemons is apt's business.
+- Routers only ever run ssh (`ap-gw-ssh-<essid>`), whose daemon is base image, so `routerFs.ts`
+  needs nothing.
+- Deep hosts come free: `buildDeepHostFs` is `applyPatches(buildRemoteHostFs(...),
+  [FORCE_SSHD_PATCH])`, and that patch only ADDS `/var/run/sshd.pid` — their services still come
+  from the same builder, and the forced door's binary is base image.
+- `AvailabilityRule` is declared but never enforced (`types.ts:1030` says so outright); the real
+  gate is `wrapWithBinaryCheck` resolving the file across `/bin`, `/usr/bin`, `/usr/sbin`. So
+  planting the file is genuinely sufficient — the command, its `systemctl` unit, and
+  `apt list --installed` all agree off it, with no change to any of the three.
+
+**The `httpd.conf` flavour is fixed here.** Two of the five webserver templates
+(`pools/configFiles.ts:74,76`) are apache-flavoured while the same box's `ps` and pidfile say
+`nginx`. The contradiction predates this slice but this slice makes it concrete — a player can now
+`cat` the config, `ls /usr/sbin` and `ps` the box and get two answers — and the slice already
+carries webserver-regeneration evidence, so folding it in costs one pool edit and no extra oracle.
+Both templates are REWRITTEN nginx-flavoured rather than deleted, keeping five for texture.
+
+**Parked, deliberately**: whether `vsftpd` should become an apt package rather than base image, so
+the daemon story is uniform across all four services. Raised by the owner while grilling this
+slice. Under the rule above it resolves itself with no second decision — the day `ftp` gains
+`daemons: ['vsftpd']`, fileservers start carrying both halves — which is why it is safe to defer.
+
+#### Acceptance criteria
+
+*What a box carries*
+
+1. A generated box that serves http carries `/usr/sbin/nginx`; one that does not, does not
+2. A generated box that serves mysql carries `/usr/sbin/mysqld` AND `/usr/bin/mysql`
+3. A generated box that serves ftp carries `/usr/bin/ftp`
+4. `sshd` and `vsftpd` are still on EVERY generated box, serving or not — the base image did not
+   shrink, and a box with the binary and no pidfile still reads `○` to `systemctl status`
+5. No generated box gains a package's `extraFiles`: every NPC datadir, web root, config file,
+   account and password is byte-identical to before
+
+*What it buys*
+
+6. On a box you have rooted that serves http: `systemctl stop nginx` shuts the port, `status` turns
+   `●` → `○`, a following `nmap` no longer reports it, and `start` brings it back
+7. The same for `mysqld` on a database box, and the stop survives a reboot — the pidfile is a patch
+   row like every other
+8. `apt list --installed` on such a box names the packages it carries, with no change to `apt`
+9. A deep-layer host behind a forward gets the same treatment, and its forced `sshd:22` still
+   resolves its unit
+
+*What must not move*
+
+10. Routers are unchanged — `routerFs.ts` still plants exactly the base image
+11. The player's own workstation is unchanged — `workstationFs.ts` still plants exactly the base
+    image, and `nginx`/`apache2`/`mysqld` still arrive there only by `apt install`
+12. `apache2` is still absent from every generated box: it remains the player's second front door
+
+*The config*
+
+13. `/etc/httpd.conf` on a generated webserver is nginx-flavoured in all five templates, so the
+    file, the COMMAND column and `/usr/sbin` name one program
+
+#### Commits
+
+1. **A box carries what it runs** — the rule in `remoteHostFs.ts`, driven off the same
+   `hostServices` draw the pidfiles at `:194` already follow. Criteria 1-5, 10-12
+2. **A door you can shut** — the end-to-end evidence on a rooted generated box. Expected to need NO
+   production change: the mechanism is already there, and this is the first time anything proves it
+   over a box the world generated. If that expectation is wrong, the gap is the interesting part of
+   the slice. Criteria 6-9
+3. **The config names the program** — the two `httpd.conf` templates. Criterion 13
 
 **Class**: Behavior change. **Skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
-**Expected gates**: no `api/` change, so gate 5 `N/A`. Wants regeneration evidence — this touches
-every generated host, so the existing generation sweeps are the oracle that NPC boxes did not
-otherwise shift.
-
-**Before RED**: grill the decision tree (`grill-me`), then write acceptance criteria and a commit
-split into this file the way slices 3-6 record theirs. Nothing above is a locked decision yet.
+**Gates**: no `api/` change anywhere, so gate 5 is `N/A` throughout. Version bumped once for the
+slice. The existing generation sweeps are the oracle for criterion 5 — this touches every generated
+host, so "nothing else moved" needs their evidence rather than an assertion.
 
 ### Slice 7: A player reaches another player's database
 
