@@ -2063,6 +2063,33 @@ describe('buildRemoteHostFs', () => {
       expect(configOn('db', 11).name).toBe('mysql.cnf');
     });
 
+    it('states the box in the words of the server that box actually runs', () => {
+      // The file, the COMMAND column and `/usr/sbin` have to name ONE program. A
+      // generated webserver runs nginx — its pidfile says so, which is what `ps`
+      // prints and what `systemctl` resolves a unit by — so its config is written
+      // the way nginx writes one: `server_name <host>;`, not apache's bare
+      // `ServerName <host>`. Asserted across the population because the template is
+      // drawn per box, so a pool entry no host in the sample happened to draw is one
+      // no test has ever read.
+      configsAcross('www').forEach(({ hostname, content }) => {
+        expect(content).toContain(`server_name ${hostname};`);
+      });
+    });
+
+    it('never names a web server the box does not carry', () => {
+      // `apache2` is real in this world — it is the second front door a PLAYER can
+      // apt-install on their own box — which is exactly why a generated box must not
+      // claim it. A player who cats the config, runs `ps` and lists `/usr/sbin` gets
+      // one answer or three, and the config was the odd one out.
+      const apacheTells = ['apache2', 'ServerRoot', 'VirtualHost', 'DocumentRoot'];
+
+      configsAcross('www').forEach(({ hostname, content }) => {
+        apacheTells.forEach((tell) => {
+          expect({ hostname, names: content.includes(tell) }).toEqual({ hostname, names: false });
+        });
+      });
+    });
+
     it('leaves a host whose name claims nothing without one', () => {
       // `host-42` matches no role, the same fallback placement takes. It is also
       // what every test above this block stands on: their boxes are named that way,

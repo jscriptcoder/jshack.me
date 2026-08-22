@@ -67,13 +67,22 @@ const CONFIG_BY_ROLE: Readonly<Record<DrawnRole, RoleConfig>> = {
       '# Modbus RTU — {{hostname}}\n[modbus]\ndevice=/dev/ttyS0\nbaudrate=9600\nparity=N\nstopbits=1\nunit_id=1\nregisters=0x0000-0x00FF\npoll_interval=5',
     ],
   },
+  // Every template here is NGINX's, and deliberately so. A generated webserver runs
+  // nginx — its pidfile names it, which is what `ps` prints and what `systemctl`
+  // resolves a unit by, and it is the binary the box carries in `/usr/sbin`. An
+  // apache-flavoured config would be the one thing on the box disagreeing with the
+  // other three, and a player who cats it, runs `ps` and lists `/usr/sbin` would get
+  // two answers about one program. `apache2` stays real elsewhere: it is the second
+  // front door a PLAYER can apt-install on their OWN box, never something the world
+  // hands out. The FILENAME is legacy's and stays generic — an httpd config is an
+  // http daemon's config whichever daemon writes it.
   webserver: {
     filename: 'httpd.conf',
     service: SERVICE_CATALOG.http,
     templates: [
-      'ServerRoot "/etc/httpd"\nListen {{port}}\nDocumentRoot "/var/www/html"\nServerName {{hostname}}\nErrorLog /var/log/apache2/error.log',
+      'server {\n  listen {{port}};\n  server_name {{hostname}};\n  root /var/www/html;\n  autoindex off;\n  gzip on;\n  error_log /var/log/nginx/error.log warn;\n}',
       'server {\n  listen {{port}};\n  server_name {{hostname}};\n  root /var/www/html;\n  index index.html;\n  access_log /var/log/nginx/access.log;\n}',
-      '<VirtualHost *:{{port}}>\n  ServerName {{hostname}}\n  DocumentRoot /var/www/html\n  ErrorLog /var/log/apache2/error.log\n  CustomLog /var/log/apache2/access.log combined\n</VirtualHost>',
+      'server {\n  listen {{port}};\n  server_name {{hostname}};\n  root /var/www/html;\n  client_max_body_size 16m;\n  error_log /var/log/nginx/error.log;\n  access_log /var/log/nginx/access.log combined;\n}',
       'upstream backend {\n  server 127.0.0.1:3000;\n}\nserver {\n  listen {{port}};\n  server_name {{hostname}};\n  location / {\n    proxy_pass http://backend;\n    proxy_set_header Host $host;\n  }\n}',
       'server {\n  listen {{port}} ssl;\n  server_name {{hostname}};\n  ssl_certificate /etc/ssl/certs/{{hostname}}.pem;\n  ssl_certificate_key /etc/ssl/private/{{hostname}}.key;\n  root /var/www/html;\n}',
     ],
