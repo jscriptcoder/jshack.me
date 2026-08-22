@@ -1526,6 +1526,49 @@ from a stranger's address — and that skill is worth less if the file arrives p
 3. **The door from your own chair** — own-box addressing, the client-side statement path, the log.
    Criteria 9, 10, 11, 13, 14, 15
 
+#### As built — commits 1 and 2 landed, commit 3 outstanding
+
+Branch `feat/d6-mysql-own`, version **v0.167.0** (bumped once, covers the whole slice).
+
+1. ✔ **The daemon you can buy** — `8ba575c6`. Criteria 1, 2, 6, 7, 8.
+   - `AptPackage.daemons` marks which of a package's binaries are daemons; apt writes those to
+     `/usr/sbin` and everything else to `/usr/bin`. `nginx` and `apache2` moved by the same change;
+     apt's manual names both destinations.
+   - `mysql` ships `['mysql', 'mysqld']` with `daemons: ['mysqld']`, so `packageForBinary('mysqld')`
+     resolves the install hint with no new wiring.
+   - `MYSQLD` is a fifth row on the shared daemon factory (`banner: 'MySQL server'`, availability
+     `installed-package` → `mysql`), plus a `DAEMONS` entry, a `systemctl` `UNITS` entry
+     (`title: 'MySQL server'`) and a `registry.ts` line.
+   - New `mysqld.test.ts` drives the real `ps` and the real `nmap` over the pidfile the daemon
+     actually wrote, so a wrong pidfile name or line leaves both readers nothing to find.
+2. ✔ **The database you bought** — `aa954408`. Criteria 3, 4, 5, 12.
+   - New `src/core/mysql/ownDatabase.ts`: `ownDatabase({ ownerKeyHex, hostname, fs })`. Draws through
+     `generateDatabase` on seed `mysql-db-own-<pubkey>`, then replaces ONLY the root credential's
+     hash with the box's own, read by NAME via `accountIn(fs, 'root')`.
+   - `AptExtraFile.content` is now `(env: CommandEnv) => string` rather than a constant — one shape,
+     no special case; hydra and gobuster return theirs from `() =>`.
+   - The `mysql` catalog row ships the datadir at `DATADIR_PATH` with `DATADIR_FILE` perms. Apt's
+     existing extra-file machinery gives the announce, the `/var/lib` + `/var/lib/mysql` mkdirs
+     (a workstation has neither), and the "already exists, keeping your copy" rule that stops a
+     reinstall wiping a database the player has been using.
+   - Two branches a root player reaches by editing their own passwd are tested: no root row (the
+     drawn password stands) and no ordinary user (the users table falls back to `guest`).
+   - Criterion 4's "NPC databases stay byte-identical" is evidenced by the existing generation suite
+     — including the `remoteHostFs` database-surface population sweep — staying green; nothing in
+     `generateDatabase` or `remoteHostFs` changed.
+   - Mutation: `ownDatabase.ts` 21/21 killed, `aptPackages.ts` 71/71, `apt.ts` clean in the changed
+     lines. The first run's one survivor was real and is recorded in the mutation-conventions doc.
+
+Also on the branch, not part of the slice: `462251cb` adds `.stryker-tmp` to the eslint ignores —
+the sandbox is a full copy of the repo, so `npm run lint` during a mutation run reported 550
+problems in code nobody wrote.
+
+**Next: commit 3, "The door from your own chair"** — criteria 9, 10, 11, 13, 14, 15. Own-box
+addressing following `webHost.ts:136` verbatim (`localhost`, `127.0.0.1` and the player's own LAN
+address are one leased address; source recorded is loopback or that address), the CLIENT-side
+statement path, and the connect/mutation/denial lines in the player's own `/var/log/mysql.log`.
+Nothing in `api/` changes anywhere in this slice, so gate 5 stays `N/A`.
+
 **Out of scope**: NPC boxes carrying the daemons they run, so a rooted box's doors can be closed —
 `systemctl stop nginx` already fails there today, for the same reason `mysqld` would, and `kill`
 cannot substitute because it refuses unit names and only removes listener pidfiles. Its own slice,

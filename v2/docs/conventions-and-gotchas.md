@@ -612,6 +612,23 @@ This is the sibling of the same-pool blind spot recorded below: there, an oracle
 the generator reads moves with it; here, a fixture that fails every check agrees with every mutant.
 In both cases the test is shaped so that nothing it could catch is left to catch.
 
+**A `find` whose predicate the DATA ORDER already satisfies hides its own mutant.** D6 slice 6:
+`accounts.find((account) => account.userType === 'root')` survived `ConditionalExpression → true`,
+because `/etc/passwd` lists root first on every box the suite builds, so "the first root-tier row"
+and "the first row" are the same row. The mutant was not equivalent — it diverges on a box whose
+passwd has been edited, where it would have mirrored the player's own row, whose hash is empty. The
+fix was not a test but the right question: the password being read is the one `su root` asks for, so
+read it BY NAME through the same `accountIn` every auth gate uses. Third member of the family above
+— this time it is the fixture's ORDER, rather than its negativity, that agrees with the mutant.
+
+**Read the mutation report from `reports/mutation/mutation.json`, not from captured stdout.** The
+`clear-text` reporter prints its per-mutant list as it goes, and a captured run keeps only the tail
+— a four-file run reported `124 survived` above a list showing 8, with no way to tell whether any
+sat in the changed lines. Run scoped batteries as
+`npx stryker run --mutate "<files>" --reporters json,progress` and read the JSON, which carries
+every mutant's file, line, mutator and status. Note it overwrites the previous report in place, so
+copy one you still need first.
+
 **A hand-mutation harness owns the files it snapshots — don't edit them while it runs.** The
 house pattern (a Python script that applies one mutant, runs the spec, restores) reads every target
 file ONCE at startup and restores from that snapshot. Run it in the background and edit one of those
