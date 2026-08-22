@@ -28,7 +28,7 @@ import type { Command, CommandEnv, CommandResult, PatchResult, TerminalLine } fr
 import { BINARY_STUB } from '../generation/binaries';
 import { LIBRARY_PERMS } from '../generation/libraries';
 import type { SystemLibrary } from '../generation/libraries';
-import { APT_PACKAGES, type AptExtraFile } from './aptPackages';
+import { APT_PACKAGES, type AptExtraFile } from '../packages/aptPackages';
 import { libraryDeps } from './libraryDeps';
 import { binaryExists } from './availability';
 import { errorLine, streamedResult, text } from './streaming';

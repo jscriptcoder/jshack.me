@@ -14,6 +14,7 @@ import { BACKDOOR_PORTS } from './remoteHostFs';
 import { parseMysqlDatabase, type MysqlDatabase, type MysqlRow } from '../mysql/types';
 import { DB_NAME_PREFIXES, DB_NAME_SUFFIXES, MYSQL_USERNAMES } from './pools/database';
 import { filterTreeToAllowlist } from '../patches/readFilter';
+import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import type { LanHost } from './generateHomeLan';
 import type { Directory, FileEntry, FileNode } from '../filesystem/types';
 
@@ -1215,6 +1216,113 @@ describe('buildRemoteHostFs', () => {
     });
   });
 
+  describe('the toolchain a box carries (what it runs decides what it holds)', () => {
+    /** The first octet on this ESSID whose box RUNS `service`. Read off
+     *  `hostServices` rather than off the pidfiles, because what a box HOLDS is meant
+     *  to follow what it runs rather than what it happens to have written down — and
+     *  a test that read the same file the generator wrote could not tell the two
+     *  apart. Throws rather than skipping: a sample with no such box would make every
+     *  claim below vacuously true. */
+    const servingOctet = (service: string): number => {
+      const octet = OCTETS.find((candidate) =>
+        hostServices(ESSID, host(candidate)).some(({ spec }) => spec.service === service),
+      );
+      if (octet === undefined) throw new Error(`no host on ${ESSID} serves ${service}`);
+      return octet;
+    };
+
+    /** The first octet whose box does NOT run `service` — the other half of every
+     *  claim, since a rule that planted a binary everywhere would pass all of them. */
+    const idleOctet = (service: string): number => {
+      const octet = OCTETS.find(
+        (candidate) =>
+          !hostServices(ESSID, host(candidate)).some(({ spec }) => spec.service === service),
+      );
+      if (octet === undefined) throw new Error(`every host on ${ESSID} serves ${service}`);
+      return octet;
+    };
+
+    const fsServing = (service: string): Directory =>
+      buildRemoteHostFs(ESSID, host(servingOctet(service)));
+
+    const fsIdle = (service: string): Directory =>
+      buildRemoteHostFs(ESSID, host(idleOctet(service)));
+
+    it('gives a box that serves the web the daemon its own port answers on', () => {
+      // The name is not a choice this makes: `ps` prints it in COMMAND, `nmap` reports
+      // it as the port's owner and `systemctl` carries it as the unit's name, all
+      // three off the one pidfile. A box whose process table says nginx must hold
+      // nginx, or the only way to shut its door is missing from it.
+      const fs = fsServing(SERVICE_CATALOG.http.service);
+      expect(fileAt(fs, 'usr', 'sbin', 'nginx')).toBeDefined();
+      // In `/usr/sbin` and NOWHERE else. Where a binary sits is the whole of what
+      // separates a daemon from a tool here, and a box that scattered both through
+      // both directories would teach the player an exception that is not real.
+      expect(fileAt(fs, 'usr', 'bin', 'nginx')).toBeUndefined();
+    });
+
+    it('leaves the web daemon off a box that serves no web', () => {
+      expect(fileAt(fsIdle(SERVICE_CATALOG.http.service), 'usr', 'sbin', 'nginx')).toBeUndefined();
+    });
+
+    it('gives a database box both halves of the package it runs', () => {
+      // The daemon alone would leave a database nobody standing on the box could
+      // query. apt ships the client and the daemon together and puts them in
+      // different places; a box the world is running one on holds both, in the
+      // destinations apt itself would have used.
+      const fs = fsServing(SERVICE_CATALOG.mysql.service);
+      expect(fileAt(fs, 'usr', 'sbin', 'mysqld')).toBeDefined();
+      expect(fileAt(fs, 'usr', 'bin', 'mysql')).toBeDefined();
+      // And each in ITS OWN place. This is the one package that ships both halves, so
+      // it is the only box in the world that can prove the split is real rather than
+      // an accident of every other package having a single binary.
+      expect(fileAt(fs, 'usr', 'bin', 'mysqld')).toBeUndefined();
+      expect(fileAt(fs, 'usr', 'sbin', 'mysql')).toBeUndefined();
+    });
+
+    it('leaves both halves off a box that runs no database', () => {
+      const fs = fsIdle(SERVICE_CATALOG.mysql.service);
+      expect(fileAt(fs, 'usr', 'sbin', 'mysqld')).toBeUndefined();
+      expect(fileAt(fs, 'usr', 'bin', 'mysql')).toBeUndefined();
+    });
+
+    it('gives a box that serves files the client its service is named for', () => {
+      // vsftpd is on every box already, so what an ftp box GAINS is the client — and
+      // with it a rooted fileserver can reach out as well as be reached.
+      const fs = fsServing(SERVICE_CATALOG.ftp.service);
+      expect(fileAt(fs, 'usr', 'bin', 'ftp')).toBeDefined();
+      // A tool, so `/usr/bin` — the daemon's directory holds vsftpd, which is a
+      // different program the player brings nothing to.
+      expect(fileAt(fs, 'usr', 'sbin', 'ftp')).toBeUndefined();
+    });
+
+    it('leaves the ftp client off a box that serves no files', () => {
+      expect(fileAt(fsIdle(SERVICE_CATALOG.ftp.service), 'usr', 'bin', 'ftp')).toBeUndefined();
+    });
+
+    it('keeps the base image on every box, whether it serves anything or not', () => {
+      // The rule ADDS and never takes away. A binary present with no pidfile is a
+      // service installed and stopped — the ordinary state of a real machine, and the
+      // one `systemctl status` prints a hollow marker for. Shrinking the base set to
+      // what each box happens to run would erase that state from the world.
+      const missing = OCTETS.filter((octet) => {
+        const sbin = dirAt(buildRemoteHostFs(ESSID, host(octet)), 'usr', 'sbin');
+        return !sbin.entries.has('sshd') || !sbin.entries.has('vsftpd');
+      });
+      expect(missing).toEqual([]);
+    });
+
+    it('plants apache2 on no generated box', () => {
+      // The web service has ONE identity and its pidfile names nginx. apache2 stays
+      // the player's second front door onto that same port — something they install
+      // on their own machine, never something the world is found running.
+      const carrying = OCTETS.filter((octet) =>
+        dirAt(buildRemoteHostFs(ESSID, host(octet)), 'usr', 'sbin').entries.has('apache2'),
+      );
+      expect(carrying).toEqual([]);
+    });
+  });
+
   describe('/etc/passwd (NPC accounts — every account has a real password)', () => {
     const fs = (): Directory => buildRemoteHostFs(ESSID, host(42));
 
@@ -1593,8 +1701,9 @@ describe('buildRemoteHostFs', () => {
     });
 
     it('ships the vsftpd binary in /usr/sbin, so a rooted box can bring the door up', () => {
-      // The DAEMON is present everywhere (as sshd is); the ftp CLIENT is apt-gated.
-      // That asymmetry is real: scp comes with openssh, ftp does not.
+      // The DAEMON is present everywhere, as sshd is, whether the box serves ftp or
+      // not. The CLIENT is not: it follows the service, so only a box actually
+      // serving files carries one.
       const sbin = dirAt(buildRemoteHostFs(ESSID, host(7)), 'usr', 'sbin');
       expect(sbin.entries.has('vsftpd')).toBe(true);
     });

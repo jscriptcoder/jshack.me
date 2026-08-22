@@ -31,12 +31,14 @@
 import { createPrng } from './prng';
 import { SERVICE_CATALOG, type ServiceSpec } from '../services/serviceCatalog';
 import {
+  daemonName,
   formatListenerContent,
   formatPidfileContent,
   listenerPidfileName,
   PIDFILE_PERMISSIONS,
   type Listener,
 } from '../services/pidfile';
+import { binariesForService } from '../packages/aptPackages';
 import {
   createBinaryEntries,
   LOCALHOST_PREINSTALLED_TOOLS,
@@ -187,6 +189,16 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
   ]);
 
   const services = hostServices(essid, host);
+  // What the box HOLDS follows what it runs, on the rule the datadir below already
+  // states: a machine serving a door carries the program behind it, so a player who
+  // has rooted it can shut that door with `systemctl stop`. Purely additive — the
+  // base image stays on every box, because a binary with no pidfile is a service
+  // installed and stopped, which is the ordinary condition of a real machine.
+  const toolchain = services.flatMap(({ spec }) =>
+    binariesForService({ service: spec.service, daemon: daemonName(spec) }),
+  );
+  const serviceTools = toolchain.filter(({ isDaemon }) => !isDaemon).map(({ binary }) => binary);
+  const serviceDaemons = toolchain.filter(({ isDaemon }) => isDaemon).map(({ binary }) => binary);
   const backdoor = hostBackdoor(essid, host, username);
   // A door the world left behind and a door a player planted are the same file, and
   // root owns both: the listener RUNS as the account its line names, but the pidfile
@@ -296,8 +308,18 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
       tmp: dir({}, TMP_DIR),
       usr: dir(
         {
-          bin: dir(createBinaryEntries([...LOCALHOST_PREINSTALLED_TOOLS, ...SERVICE_CONTROL_TOOLS]), TRAVERSABLE_DIR),
-          sbin: dir(createBinaryEntries(SYSTEM_DAEMON_NAMES), TRAVERSABLE_DIR),
+          bin: dir(
+            createBinaryEntries([
+              ...LOCALHOST_PREINSTALLED_TOOLS,
+              ...SERVICE_CONTROL_TOOLS,
+              ...serviceTools,
+            ]),
+            TRAVERSABLE_DIR,
+          ),
+          sbin: dir(
+            createBinaryEntries([...SYSTEM_DAEMON_NAMES, ...serviceDaemons]),
+            TRAVERSABLE_DIR,
+          ),
         },
         TRAVERSABLE_DIR,
       ),

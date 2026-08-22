@@ -9,15 +9,21 @@
  * (`bash: nmap: command not found. Install with: apt install nmap`), and what an
  * install should put on the box in the first place.
  *
+ * It lives BELOW the command layer because it is world data rather than a command's
+ * private table: the world generator reads it to decide which programs a box that
+ * runs a service carries, and a catalog that could only be read from inside `apt`
+ * would have to be restated wherever else a box is built. Nothing here imports
+ * `commands/` — which is why `AptExtraFile.content` takes a narrowed
+ * `PackageFileContext` rather than the whole command environment.
+ *
  * Ported from legacy `src/commands/availability.ts` (`APT_PACKAGES`); `description`
  * / `version` arrive with the version-and-patch work. The mapping itself is
  * faithful: these are the packages whose binaries the connectivity arc and later
  * exploit chains depend on.
  */
 
-import type { AbsPath } from '../types';
-import type { FilePermissions } from '../filesystem/types';
-import type { CommandEnv } from './types';
+import type { AbsPath, PlayerKeyHex } from '../types';
+import type { Directory, FilePermissions } from '../filesystem/types';
 import { DATADIR_FILE } from '../generation/baseFs';
 import { DATADIR_PATH } from '../mysql/datadir';
 import { ownDatabase } from '../mysql/ownDatabase';
@@ -46,8 +52,24 @@ export type AptExtraFile = {
    *  for every player: a wordlist is the world's and reads the same everywhere, but
    *  a database is its owner's, drawn from their identity and answering to their
    *  own root password. */
-  readonly content: (env: CommandEnv) => string;
+  readonly content: (box: PackageFileContext) => string;
   readonly permissions: FilePermissions;
+};
+
+/**
+ * What a shipped file is computed against: the box receiving it, narrowed to the
+ * three things a package's bytes can ask about.
+ *
+ * Narrow DELIBERATELY, rather than taking the whole command environment. This
+ * catalog is world data — the world generator reads it to decide what a box
+ * carries — and a package whose content could reach the shell would make that data
+ * depend on the layer above it. `CommandEnv` satisfies this shape structurally, so
+ * `apt` still passes its own env through unchanged.
+ */
+export type PackageFileContext = {
+  readonly identity: { readonly publicKeyHex: PlayerKeyHex };
+  readonly hostname: string;
+  readonly fs: { readonly root: () => Directory };
 };
 
 /** One installable apt package. `binaries` defaults to `[name]` when the
@@ -113,12 +135,12 @@ export const APT_PACKAGES: readonly AptPackage[] = [
     extraFiles: [
       {
         path: DATADIR_PATH,
-        content: (env) =>
+        content: (box) =>
           JSON.stringify(
             ownDatabase({
-              ownerKeyHex: env.identity.publicKeyHex,
-              hostname: env.hostname,
-              fs: env.fs.root(),
+              ownerKeyHex: box.identity.publicKeyHex,
+              hostname: box.hostname,
+              fs: box.fs.root(),
             }),
           ),
         permissions: DATADIR_FILE,
@@ -140,3 +162,52 @@ const binaryToPackage: ReadonlyMap<string, string> = new Map(
 /** The apt package that provides `binary`, or `undefined` if it isn't a known
  *  apt tool (a system utility, a builtin, or simply unknown). */
 export const packageForBinary = (binary: string): string | undefined => binaryToPackage.get(binary);
+
+/** A package's binaries, defaulted to its own name — the same shape the installer
+ *  lays down, so a caller never has to remember the default. */
+const binariesOf = (pkg: AptPackage): readonly string[] => pkg.binaries ?? [pkg.name];
+
+/** Which of a package's binaries are daemons — none, for the many that ship only a
+ *  tool. Paired with `binariesOf` so neither default has to be remembered twice. */
+const daemonsOf = (pkg: AptPackage): readonly string[] => pkg.daemons ?? [];
+
+/** One binary a box carries, and whether apt would file it as a daemon — which is
+ *  the whole of what decides `/usr/sbin` over `/usr/bin`. */
+export type ServiceBinary = {
+  readonly binary: string;
+  readonly isDaemon: boolean;
+};
+
+/**
+ * The binaries a machine RUNNING `service` carries: every package that either
+ * shares the service's name or ships its daemon.
+ *
+ * Read off the same catalog `apt install` installs from rather than restated
+ * wherever a box is built, so a package that grows a binary grows it on every box
+ * already running that service — and the world generator never has to be told
+ * which package a door belongs to.
+ *
+ * The union is also what lets the two services whose daemons ship with the base
+ * image fall out with no case of their own. Nothing in this catalog claims `sshd`
+ * or `vsftpd`, so ssh matches nothing at all, ftp matches on its NAME and gets
+ * only the client, and http and mysql match on their daemon.
+ *
+ * `extraFiles` are deliberately absent from this answer. The mysql package ships a
+ * datadir drawn from the PLAYER's identity; a generated box already holds its own,
+ * and laying the package's over it would overwrite every database in the world.
+ */
+export const binariesForService = ({
+  service,
+  daemon,
+}: {
+  readonly service: string;
+  readonly daemon: string;
+}): readonly ServiceBinary[] =>
+  APT_PACKAGES.filter(
+    (pkg) => pkg.name === service || daemonsOf(pkg).includes(daemon),
+  ).flatMap((pkg) =>
+    binariesOf(pkg).map((binary) => ({
+      binary,
+      isDaemon: daemonsOf(pkg).includes(binary),
+    })),
+  );

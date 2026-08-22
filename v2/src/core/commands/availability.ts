@@ -26,7 +26,7 @@ import { asAbsPath } from '../types';
 import type { UserType } from '../types';
 import type { FileNode } from '../filesystem/types';
 import type { Command, CommandEnv, CommandResult } from './types';
-import { packageForBinary } from './aptPackages';
+import { packageForBinary } from '../packages/aptPackages';
 
 /** Shell builtins — always available, no binary needed. Listed to MATCH the
  *  builtins v2 actually implements: adding a speculative entry for an
