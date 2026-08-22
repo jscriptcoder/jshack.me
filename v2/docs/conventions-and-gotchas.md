@@ -1696,6 +1696,37 @@ state costs you more than one wrong attempt.
   account the hashes a sweep is supposed to have to work for. The server has always accepted the
   field on `upsertPatch` (own-machine writes are authorized by machine, not by owner), so this
   needed no `api/` change — it is the CLIENT that used to have no way to say it.
+- **A generated box carries the packages for the services it runs — additively.** For each
+  running service it gets every apt package that either shares that service's name or ships its
+  daemon (`binariesForService`, `packages/aptPackages.ts`), each binary landing where apt itself
+  would put it: tools in `/usr/bin`, daemons in `/usr/sbin`. That union is why the two services
+  whose daemons come with the base image need no case of their own — nothing in the catalog
+  claims `sshd` or `vsftpd`, so ssh matches nothing, ftp matches on its NAME and gets only the
+  client, and http and mysql match on their daemon. The daemon's name is always
+  `daemonName(spec)` off the pidfile, never a second catalog field, because that is already the
+  one name `ps`, `nmap` and `systemctl` agree on.
+  - **The base image never shrinks.** `SYSTEM_DAEMON_NAMES` stays on every box whether it serves
+    those doors or not, because a binary present with NO pidfile is a service installed and
+    stopped — the ordinary condition of a real machine, and what `systemctl status` prints `○`
+    for. Planting only what each box runs would strip `sshd` from the ~60% of hosts that draw no
+    ssh and erase that state from the world.
+  - **Binaries only, never a package's `extraFiles`.** The `mysql` package ships a datadir drawn
+    from the PLAYER's identity; a generated box already holds its own, seeded per
+    `(essid, host.ip)`. Laying the package's over it would overwrite every NPC database.
+  - Why it matters: `unitFor` resolves a unit only when its binary is present, so before this a
+    rooted NPC webserver had no way to shut port 80 — `systemctl stop nginx` found no unit and
+    `kill` refuses unit names outright.
+- **`core/packages/` imports nothing from `core/commands/` — and neither does `core/generation/`.**
+  The apt catalog is world DATA, not a command's private table: the world generator reads it to
+  decide what a box carries. Its one tie upward was `AptExtraFile.content`, which now takes a
+  narrowed `PackageFileContext` (`identity.publicKeyHex`, `hostname`, `fs.root()`) instead of the
+  whole `CommandEnv`; `CommandEnv` satisfies it structurally, so `apt` passes its own env through
+  unchanged. Keep it that way — a package whose bytes could reach the shell would make world data
+  depend on the layer above it.
+  - Residual, and deliberately not chased: `packages/` still imports `generation/baseFs` and
+    `mysql/ownDatabase`. There is NO module cycle — those edges reach generation's primitives,
+    never back to a composer like `remoteHostFs` — so it is a diamond, not a loop. The shape is
+    pre-existing: `generation/` holds primitives and composers in one directory.
 - **Known deferred gap (L3 smart-server):** a client with a valid keypair can mint an
   `effect_one_shot`/root session via `createSession` and call `exploitRead` directly,
   skipping the in-game CVE flow. Accepted per the security model; real fix = server-side
@@ -1758,18 +1789,20 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   needs `testInnerGatewayReach.ts` re-run live in the same slice. Found while building D6
   slice 5, 2026-08-21.
 
-- **A generated box does not carry the daemons it runs, so its doors cannot be closed.**
-  `systemctl stop <unit>` is the ONLY way to shut a service — `kill` refuses unit names outright
-  and only removes listener (`nc -l`) pidfiles, and `ps` gives services no pid to aim at. But
-  `unitFor` resolves a unit only when its binary is present, and generated hosts plant just
-  `SYSTEM_DAEMON_NAMES` (`sshd`, `vsftpd`) in `/usr/sbin`. So on an NPC webserver you have rooted,
-  `systemctl stop nginx` finds no unit and port 80 stays open forever; a `mysqld` unit joins it the
-  day D6 slice 6 lands. The fix is one rule — a generated box plants, in `/usr/sbin`, the daemons
-  for the services it actually runs, mirroring the datadir rule at `remoteHostFs.ts:224` ("a
-  datadir exists only where a daemon is serving it"). Deliberately NOT done inside slice 6: it is a
-  world-generation change touching every generated host, so it wants its own slice and its own
-  regeneration evidence rather than riding along in one about the player's own machine. Owner
-  agreed 2026-08-22 to take it as the slice immediately after D6 slice 6.
+- **A rooted generated box can have its doors shut — RESOLVED 2026-08-22 (v0.168.0, #444).** The
+  rule landed: a generated box carries the packages for the services it runs, so `unitFor` finds
+  the binary and `systemctl stop nginx` works on an NPC webserver. See the invariant in §7. What
+  is still OPEN is only the slice's own remainder, tracked in `plans/d6-mysql.md` under slice 6b:
+  the end-to-end evidence over a rooted generated box (expected to need no production change), and
+  the two apache-flavoured `/etc/httpd.conf` templates, which still disagree with the `nginx` that
+  same box's `ps` and pidfile name.
+
+- **Should `vsftpd` be an apt package rather than base image?** Raised while grilling slice 6b and
+  deliberately parked, because the union rule above resolves it with no second decision: the day
+  the `ftp` package gains `daemons: ['vsftpd']`, fileservers start carrying both halves and every
+  other box stops carrying a daemon it never runs. Today `vsftpd` ships on every machine
+  (`SYSTEM_DAEMON_NAMES`) while the `ftp` package installs only the CLIENT — an asymmetry that is
+  historical rather than designed, since ftp landed before apt had a `daemons` field.
 
 - **`testFtpSession` is 12/14 against a live stack, and has been for a while.** Two checks fail:
   `a login that names no kind is still an ssh hop` (reads back `kind=no row`) and `and ending one
