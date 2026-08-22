@@ -91,6 +91,12 @@ export type ConnectivityState = {
  *  name for the player's own box, and one loopback address is enough for the world. */
 export const LOOPBACK_IPV4 = '127.0.0.1';
 
+/** The names a box answers to for ITSELF, whichever door is being knocked on. A
+ *  player testing their own server types `localhost` long before they type the
+ *  address they were leased, and every real box answers to both — so a door that
+ *  knew only one of them would read as broken rather than as picky. */
+export const LOOPBACK_NAMES: readonly string[] = ['localhost', LOOPBACK_IPV4];
+
 /** One locally-administered MAC: `02:` (the locally-administered-unicast
  *  prefix) followed by five seeded octets, lowercase hex. */
 const seededMac = (prng: Prng): MacAddress => {

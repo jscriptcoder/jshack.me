@@ -1678,6 +1678,24 @@ state costs you more than one wrong attempt.
   no name at all — so it takes `Pick<ActiveSession, 'userType' | 'essid'>`. Without that, every
   field added to the projection for one consumer breaks every fixture of every other one
   (adding `username` broke ~35 call sites; 20 were that module's).
+- **The player's OWN box answers its own database — the server door is for other people's.**
+  `commands/mysqlOwnBox.ts` runs the whole `mysql` conversation client-side when the target is
+  the box the player is standing on: the credential check, `runStatement`, the datadir rewrite
+  and the `/var/log/mysql.log` lines. It is not a second implementation — every decision is the
+  same shared function `handleMysqlConnect`/`handleMysqlStatement` call, so what differs is
+  where it runs. The reason the server exists at all is to stop a client writing to a box it
+  does not own, and on your own box there is nothing to protect: you are root, the datadir is a
+  file you can open in an editor. Addressing follows the web door: `localhost`, `127.0.0.1` and
+  the leased LAN address are ONE address, and the source recorded is loopback or that address
+  (`network/interfaces.ts` owns `LOOPBACK_NAMES`, shared by both doors). The cross-player
+  direction stays server-side — that is where `reachMysqlHost` learns about player-owned boxes.
+- **A SYSTEM write on the player's own box names its own owner.** `PatchApi.write` takes an
+  `owner` override for exactly this: a daemon's log line and the datadir it keeps are root's
+  whichever tier the shell that triggered them sits at. Without it a user-tier player running an
+  `UPDATE` would rewrite `/var/lib/mysql/data.json` as themselves and hand their own ordinary
+  account the hashes a sweep is supposed to have to work for. The server has always accepted the
+  field on `upsertPatch` (own-machine writes are authorized by machine, not by owner), so this
+  needed no `api/` change — it is the CLIENT that used to have no way to say it.
 - **Known deferred gap (L3 smart-server):** a client with a valid keypair can mint an
   `effect_one_shot`/root session via `createSession` and call `exploitRead` directly,
   skipping the in-game CVE flow. Accepted per the security model; real fix = server-side

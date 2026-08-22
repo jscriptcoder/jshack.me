@@ -1526,7 +1526,7 @@ from a stranger's address — and that skill is worth less if the file arrives p
 3. **The door from your own chair** — own-box addressing, the client-side statement path, the log.
    Criteria 9, 10, 11, 13, 14, 15
 
-#### As built — commits 1 and 2 landed, commit 3 outstanding
+#### As built — all fifteen criteria, three commits
 
 Branch `feat/d6-mysql-own`, version **v0.167.0** (bumped once, covers the whole slice).
 
@@ -1563,11 +1563,30 @@ Also on the branch, not part of the slice: `462251cb` adds `.stryker-tmp` to the
 the sandbox is a full copy of the repo, so `npm run lint` during a mutation run reported 550
 problems in code nobody wrote.
 
-**Next: commit 3, "The door from your own chair"** — criteria 9, 10, 11, 13, 14, 15. Own-box
-addressing following `webHost.ts:136` verbatim (`localhost`, `127.0.0.1` and the player's own LAN
-address are one leased address; source recorded is loopback or that address), the CLIENT-side
-statement path, and the connect/mutation/denial lines in the player's own `/var/log/mysql.log`.
-Nothing in `api/` changes anywhere in this slice, so gate 5 stays `N/A`.
+3. ✔ **The door from your own chair** — criteria 9, 10, 11, 13, 14, 15.
+   - New `commands/mysqlOwnBox.ts`: the whole conversation, client side. `ownBoxSource` answers
+     which address the daemon writes down (loopback name → `127.0.0.1`, the leased address →
+     itself, anything else → null, meaning somebody else's box). `connectOwnDatabase` and
+     `runOwnStatement` are the local halves of `env.mysql.connect` / `.run`, answering in the same
+     shapes so `mysql.ts` and `mysqlShell.ts` each route on ONE line and render one conversation.
+   - `LOOPBACK_NAMES` moved from `webHost.ts` to `network/interfaces.ts` beside `LOOPBACK_IPV4`:
+     the names a box answers to for itself are a network fact, not a web one, and both doors now
+     read the one list.
+   - `PatchApi.write` gained an `owner` override, used for both writes this path makes. A daemon's
+     log line and the datadir it keeps are root's whichever tier the shell sits at; without it a
+     user-tier player's `UPDATE` would rewrite the datadir as themselves and hand their own
+     account the hashes. `upsertPatch` has always taken the field, so `api/` did not change.
+   - Two branch collapses came out of the mutation run rather than out of design: `ownBoxAddress`
+     became `ownBoxSource` (the destination was `ownIp` in both arms, and the caller already held
+     it), and the statement path now reads the datadir ONCE and finds the account in what came
+     back — which removed an unreachable `database === null` guard and left a reachable one, since
+     root really can delete their own datadir between two statements.
+   - Mutation: `mysqlOwnBox.ts` 106/109, `mysql.ts` and `mysqlShell.ts` clean across every changed
+     line. The three survivors are equivalent and are recorded as such: `'failure' → ''` (the
+     formatter only ever compares against `'success'`), the `database` spread on a REFUSED attempt
+     (the refusal formatter never reads it), and `'answered' → ''` (only `'lost'` is compared).
+
+Nothing in `api/` changed anywhere in this slice, so gate 5 is `N/A` throughout.
 
 **Out of scope**: NPC boxes carrying the daemons they run, so a rooted box's doors can be closed —
 `systemctl stop nginx` already fails there today, for the same reason `mysqld` would, and `kill`

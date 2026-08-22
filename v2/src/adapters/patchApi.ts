@@ -102,6 +102,7 @@ export const createPatchApi = (deps: PatchClientDeps): PatchApi => ({
     options?: {
       readonly isNew?: boolean;
       readonly permissions?: FilePermissions;
+      readonly owner?: string;
       readonly baseContent?: string;
     },
   ) =>
@@ -109,7 +110,7 @@ export const createPatchApi = (deps: PatchClientDeps): PatchApi => ({
       machine_id: deps.machineId,
       path,
       content,
-      owner: deps.owner,
+      owner: options?.owner ?? deps.owner,
       permissions: options?.permissions ?? defaultFilePermissions(deps.tier),
       node_type: 'file',
       ...(options?.isNew ? { is_new: true } : {}),

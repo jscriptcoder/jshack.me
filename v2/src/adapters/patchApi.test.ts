@@ -105,6 +105,24 @@ describe('createPatchApi.mkdir', () => {
 });
 
 describe('createPatchApi.write and remove', () => {
+  it('lets a system write name its own owner instead of the session user', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    await createPatchApi(deps).write(asAbsPath('/var/log/mysql.log'), 'a line\n', {
+      owner: 'root',
+      isNew: true,
+    });
+
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    expect(verified.ok).toBe(true);
+    if (!verified.ok) return;
+    // A daemon's log line belongs to the daemon, not to whoever's shell triggered it.
+    // The session user here is `alice`, and a line stamped hers would be a file the
+    // box's ordinary user owns on a path only root is supposed to write.
+    expect(verified.payload).toMatchObject({ owner: 'root' });
+  });
+
   it('write (overwrite) sends file content with file-default permissions and NO is_new', async () => {
     const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true }));
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
