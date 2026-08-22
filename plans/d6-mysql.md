@@ -1403,7 +1403,7 @@ their hydra fan-out. Slice 5 delivers the second of that slice's "four vantages"
 
 ### Deferred half — after slice 5, and NOT one slice
 
-### Slice 6: A player runs their own database
+### Slice 6: A player runs their own database ✔ LANDED (v0.167.0, #443, `ec1982d8`)
 
 **Value**: The door becomes symmetric — a player can own the thing others attack.
 **Path**: `apt install mysql` → `mysqld` on the player's own box → the door answers from their
@@ -1526,7 +1526,7 @@ from a stranger's address — and that skill is worth less if the file arrives p
 3. **The door from your own chair** — own-box addressing, the client-side statement path, the log.
    Criteria 9, 10, 11, 13, 14, 15
 
-#### As built — all fifteen criteria, three commits
+#### As built — all fifteen criteria, three commits, squashed onto `main` as `ec1982d8`
 
 Branch `feat/d6-mysql-own`, version **v0.167.0** (bumped once, covers the whole slice).
 
@@ -1563,7 +1563,7 @@ Also on the branch, not part of the slice: `462251cb` adds `.stryker-tmp` to the
 the sandbox is a full copy of the repo, so `npm run lint` during a mutation run reported 550
 problems in code nobody wrote.
 
-3. ✔ **The door from your own chair** — criteria 9, 10, 11, 13, 14, 15.
+3. ✔ **The door from your own chair** — `70328049`. Criteria 9, 10, 11, 13, 14, 15.
    - New `commands/mysqlOwnBox.ts`: the whole conversation, client side. `ownBoxSource` answers
      which address the daemon writes down (loopback name → `127.0.0.1`, the leased address →
      itself, anything else → null, meaning somebody else's box). `connectOwnDatabase` and
@@ -1595,6 +1595,43 @@ immediately after this one, because it is a world-generation change wanting evid
 generated hosts rather than about the player's machine. Cross-player reach is slice 7's, and needs
 no server change to SEE this database: the datadir is a patch, so the server's existing journal
 replay already materializes it.
+
+### Slice 6b: A generated box carries the daemons it runs
+
+Carved out of slice 6 rather than discovered after it: slice 6's "Out of scope" note and the
+backlog entry in `v2/docs/conventions-and-gotchas.md` §9 both name it, and the owner agreed on
+2026-08-22 to take it as the slice immediately after slice 6. **Not a D6 acceptance criterion** —
+it is a world-generation change that D6 made visible, and it lands before slice 7 because slice 7
+adds a fifth door to a world where no door can be shut.
+
+**Value**: A box you have rooted is a box you can change. Today `systemctl stop nginx` on a rooted
+NPC webserver finds no unit and port 80 stays open forever, so the last step of owning a box is
+missing — and `kill` cannot substitute, because it refuses unit names outright and only removes
+listener (`nc -l`) pidfiles.
+
+**The rule**: a generated box plants, in `/usr/sbin`, the daemons for the services it actually
+runs — mirroring the datadir rule already stated at `remoteHostFs.ts:224` ("a datadir exists only
+where a daemon is serving it"). Today every generated host plants exactly `SYSTEM_DAEMON_NAMES`
+(`binaries.ts:85` — `sshd`, `vsftpd`) regardless of what it is serving, in all three tree builders
+(`remoteHostFs.ts:300`, `routerFs.ts:173`, `workstationFs.ts:144`).
+
+**Grounding already in hand** (facts, not decisions):
+- `unitFor` resolves a unit only when its binary is present — that gate is why the doors cannot be
+  shut, and it is correct: it is what stops `systemctl` being an apt bypass.
+- The service to daemon-binary mapping already exists implicitly in `SERVICE_CATALOG`: the
+  `pidfile` field names it (`nginx.pid`, `vsftpd.pid`, `mysqld.pid`, `sshd.pid`). Whether the slice
+  reads it from there or adds an explicit field is a design call for the grill.
+- The web row is ONE identity for two programs (`nginx` and `apache2` are two ways to open the same
+  port), so "which binary does a generated webserver carry" is a question the catalog does not
+  currently answer.
+
+**Class**: Behavior change. **Skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
+**Expected gates**: no `api/` change, so gate 5 `N/A`. Wants regeneration evidence — this touches
+every generated host, so the existing generation sweeps are the oracle that NPC boxes did not
+otherwise shift.
+
+**Before RED**: grill the decision tree (`grill-me`), then write acceptance criteria and a commit
+split into this file the way slices 3-6 record theirs. Nothing above is a locked decision yet.
 
 ### Slice 7: A player reaches another player's database
 
