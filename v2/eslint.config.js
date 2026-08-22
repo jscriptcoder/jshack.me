@@ -5,7 +5,11 @@ import solid from 'eslint-plugin-solid/configs/typescript';
 import prettierConfig from 'eslint-config-prettier';
 
 export default tseslint.config(
-  { ignores: ['dist', 'coverage'] },
+  // `.stryker-tmp` is a full COPY of the repo with mutants spliced into it, so
+  // linting it reports hundreds of errors in code nobody wrote — and it outlives
+  // the run whenever one is killed partway. The lint gate has to answer about the
+  // working tree, not about a sandbox.
+  { ignores: ['dist', 'coverage', '.stryker-tmp'] },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ['**/*.{ts,tsx}'],
