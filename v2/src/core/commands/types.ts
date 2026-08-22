@@ -149,6 +149,12 @@ export type PatchApi = {
     options?: {
       readonly isNew?: boolean;
       readonly permissions?: FilePermissions;
+      /** Who the node belongs to afterwards, overriding the session's own username.
+       *  For a write the SYSTEM makes rather than the player: a daemon's log line and
+       *  the datadir it keeps are root's whichever tier the shell that triggered them
+       *  sits at, and a rewrite that inherited the shell's owner would widen a file
+       *  nobody meant to widen. */
+      readonly owner?: string;
       /** The content this write was composed against, for a caller that was SHOWN
        *  the file first (an editor). The write is then refused if the machine no
        *  longer holds it, so a stale buffer cannot silently delete another

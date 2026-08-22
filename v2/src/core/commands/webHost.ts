@@ -27,13 +27,7 @@ import { generateHomeLan } from '../generation/generateHomeLan';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
 import { readOpenPorts } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { LOOPBACK_IPV4, type ConnectedWlan0 } from '../network/interfaces';
-
-/** The names a box answers to for ITSELF. A player testing their own web server types
- *  `localhost` long before they type the address they were leased, and every real box
- *  answers to both — so a failure here would read as a broken server rather than a
- *  missing alias. The address comes from `interfaces`, which already owns it. */
-const LOOPBACK_NAMES: readonly string[] = ['localhost', LOOPBACK_IPV4];
+import { LOOPBACK_IPV4, LOOPBACK_NAMES, type ConnectedWlan0 } from '../network/interfaces';
 
 /** A server that was reached, in the terms every caller needs. */
 export type ReachedHost = {

@@ -2,9 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { mysql } from './mysql';
 import {
   mockCommandEnv,
+  mockFsViewFromTree,
   mockIdentity,
   mockMysqlApi,
   mockNetworkViewFromConnectivity,
+  mockPatchApi,
   mockSession,
 } from '../../test/factories/commandEnv';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
@@ -14,8 +16,35 @@ import { readOpenPorts } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { assignHomeNetwork } from '../network/homeNetwork';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
-import { asEpochMs, asMachineId, asPlayerKeyHex } from '../types';
-import type { CommandResult, MysqlApi } from './types';
+import { runMysqlLine } from './mysqlShell';
+import { applyPatches } from '../filesystem/applyPatches';
+import { md5 } from '../generation/md5';
+import { parseMysqlDatabase, type MysqlDatabase } from '../mysql/types';
+import {
+  formatMysqlAttemptLine,
+  formatMysqlConnectLine,
+  formatMysqlStatementLine,
+  MYSQL_LOG_OWNER,
+  MYSQL_LOG_PATH,
+  MYSQL_LOG_PERMISSIONS,
+} from '../logging/mysqlLog';
+import { derivePid } from '../logging/syslog';
+import { buildWorkstationBaseFs } from '../generation/workstationFs';
+import { DATADIR_FILE } from '../generation/baseFs';
+import { DATADIR_OWNER, DATADIR_PATH } from '../mysql/datadir';
+import { ownDatabase } from '../mysql/ownDatabase';
+import { formatPidfileContent, PIDFILE_PERMISSIONS, pidfilePath } from '../services/pidfile';
+import {
+  asAbsPath,
+  asEpochMs,
+  asGameTime,
+  asMachineId,
+  asPlayerKeyHex,
+  type AbsPath,
+  type UserType,
+} from '../types';
+import type { Directory, FilePermissions } from '../filesystem/types';
+import type { CommandResult, FsView, MysqlApi, MysqlConnectParams, PatchApi } from './types';
 
 /**
  * `mysql <host>` — the fourth door, and the first whose credential is not the box's
@@ -36,11 +65,11 @@ const NOW = 1700000000000;
  *  connection arrive from, and so what its refusal names. Never the target's. */
 const LOCAL_IP = assignHomeNetwork(PUBKEY, ESSID).localIp;
 
-const onlineConnectivity = (essid: string): ConnectivityState => {
-  const cold = buildColdStartConnectivity(PUBKEY);
+const onlineConnectivity = (essid: string, pubkey: string = PUBKEY): ConnectivityState => {
+  const cold = buildColdStartConnectivity(pubkey);
   const wlan0 = cold.interfaces.get('wlan0');
   if (wlan0 === undefined || wlan0.kind !== 'wireless') throw new Error('no wlan0');
-  const { localIp } = assignHomeNetwork(PUBKEY, essid);
+  const { localIp } = assignHomeNetwork(pubkey, essid);
   return {
     interfaces: new Map(cold.interfaces).set('wlan0', {
       ...wlan0,
@@ -586,5 +615,686 @@ describe('mysql', () => {
 
     expect(prompt).not.toHaveBeenCalled();
     expect(linesOf(result)).toBe('usage: mysql [-p port] <host> [user]');
+  });
+});
+
+/**
+ * The same door, from your own chair.
+ *
+ * Everything above reaches somebody else's box, and the server decides what happens
+ * there because the client asking must not be trusted with another player's data.
+ * Your own box has nothing to protect from you: you are root on it and can open the
+ * datadir in an editor. So the whole conversation stays here, and what differs from
+ * an attacker's path is where the decision runs, never what it decides — the same
+ * `credentialIn`, the same `runStatement`, the same log formatters.
+ *
+ * These tests drive the real command and the real prompt over a real workstation tree
+ * carrying the datadir `apt install mysql` lays down and the pidfile `mysqld` writes,
+ * so a door that opens here is one the player really bought and really started. The
+ * server seam is left unimplemented throughout: a statement that took the cross-network
+ * path throws instead of quietly passing.
+ */
+describe('the database on your own box', () => {
+  const OWN_CONFIG = { machineName: 'workstation', username: 'alice', rootPassword: 'hunter2' };
+
+  /** An owner whose database draws all three rungs. Roughly half of them do, and the
+   *  bottom one cannot be demonstrated on a database that has no read-only account —
+   *  so this is a fixture choice, asserted below rather than assumed. */
+  const LADDER_KEY = '2'.repeat(64);
+
+  /** The server door, deliberately unreachable. A statement against your own box that
+   *  took the cross-network path would throw here rather than quietly pass. */
+  const NOT_WIRED = () => {
+    throw new Error('own-box mysql must not reach the server');
+  };
+
+  /** The same drawn accounts under a password the test can type. ONLY the hash moves:
+   *  the usernames and the tiers stay the generator's, because the tier is the thing
+   *  the ladder is read from and inventing one would prove nothing. */
+  const typeable = (database: MysqlDatabase): MysqlDatabase => ({
+    ...database,
+    credentials: database.credentials.map((credential) => ({
+      ...credential,
+      passwordHash: md5(OWN_CONFIG.rootPassword),
+    })),
+  });
+
+  /** The box after buying a database and starting the daemon. Both files come from the
+   *  production code that writes them rather than being typed here, so a change to
+   *  either format arrives in this fixture instead of drifting past it. */
+  const runningDatabaseBox = (
+    opts: { readonly ownerKey?: string; readonly database?: MysqlDatabase } = {},
+  ): Directory => {
+    const ownerKey = opts.ownerKey ?? PUBKEY;
+    const base = buildWorkstationBaseFs(ownerKey, OWN_CONFIG);
+    const database =
+      opts.database ??
+      ownDatabase({ ownerKeyHex: ownerKey, hostname: OWN_CONFIG.machineName, fs: base });
+    return applyPatches(base, [
+      {
+        path: DATADIR_PATH,
+        content: JSON.stringify(database),
+        owner: DATADIR_OWNER,
+        permissions: DATADIR_FILE,
+      },
+      {
+        path: pidfilePath(SERVICE_CATALOG.mysql),
+        content: formatPidfileContent(SERVICE_CATALOG.mysql, SERVICE_CATALOG.mysql.defaultPort),
+        owner: 'root',
+        permissions: PIDFILE_PERMISSIONS,
+      },
+      // The box's own sshd, up as it is on any workstation. A second daemon is not
+      // decoration: a door that only counted OPEN ports would open a database prompt
+      // onto 22, and a box running nothing else could never show it.
+      {
+        path: pidfilePath(SERVICE_CATALOG.ssh),
+        content: formatPidfileContent(SERVICE_CATALOG.ssh, SERVICE_CATALOG.ssh.defaultPort),
+        owner: 'root',
+        permissions: PIDFILE_PERMISSIONS,
+      },
+    ]);
+  };
+
+  /** A box whose filesystem changes under a command mid-run, the way a real one does:
+   *  `env.fs` reads live signals, so a `systemctl stop` or an edit in another tab is
+   *  visible to the very next read rather than at the next command. */
+  const liveBox = (initial: Directory, userType: UserType = 'user') => {
+    let tree = initial;
+    const view = () => mockFsViewFromTree(tree, { userType, cwd: () => asAbsPath('/') });
+    return {
+      become: (next: Directory) => {
+        tree = next;
+      },
+      fs: {
+        cwd: () => asAbsPath('/'),
+        read: (path: AbsPath) => view().read(path),
+        list: (path: AbsPath) => view().list(path),
+        stat: (path: AbsPath) => view().stat(path),
+        canWrite: (path: AbsPath) => view().canWrite(path),
+        root: () => tree,
+      } satisfies FsView,
+    };
+  };
+
+  /** Bought but never started: the datadir is there and the door is not. */
+  const boughtButNotStarted = (): Directory =>
+    applyPatches(buildWorkstationBaseFs(PUBKEY, OWN_CONFIG), [
+      {
+        path: DATADIR_PATH,
+        content: JSON.stringify(databaseOf(PUBKEY)),
+        owner: DATADIR_OWNER,
+        permissions: DATADIR_FILE,
+      },
+    ]);
+
+  /** The drawn account at one rung of the ladder. Thrown for rather than skipped: a
+   *  database missing a rung has to fail here, not quietly test two thirds of one. */
+  const accountAt = (database: MysqlDatabase, tier: UserType): string => {
+    const credential = database.credentials.find((each) => each.userType === tier);
+    if (credential === undefined) throw new Error(`the fixture database has no ${tier} account`);
+    return credential.username;
+  };
+
+  /** The database this box serves, drawn the way the box's own datadir was. */
+  const databaseOf = (ownerKey: string): MysqlDatabase =>
+    ownDatabase({
+      ownerKeyHex: ownerKey,
+      hostname: OWN_CONFIG.machineName,
+      fs: buildWorkstationBaseFs(ownerKey, OWN_CONFIG),
+    });
+
+  type WriteCall = {
+    readonly path: string;
+    readonly content: string;
+    readonly options:
+      | {
+          readonly isNew?: boolean;
+          readonly owner?: string;
+          readonly permissions?: FilePermissions;
+        }
+      | undefined;
+  };
+
+  type OwnEnvOpts = {
+    readonly ownerKey?: string;
+    readonly tree?: Directory;
+    /** A filesystem that answers differently as the run goes on, for the races a
+     *  fixed tree cannot show. */
+    readonly fs?: FsView;
+    readonly userType?: UserType;
+    readonly prompt?: (opts: { message: string; masked: boolean }) => Promise<string>;
+    readonly onEnter?: (connection: MysqlConnectParams) => void;
+    readonly write?: PatchApi['write'];
+  };
+
+  /** An env standing on the player's own box, with a `patches.write` spy — the only
+   *  thing this path may reach beyond the terminal. */
+  const ownEnv = (opts: OwnEnvOpts = {}) => {
+    const ownerKey = opts.ownerKey ?? PUBKEY;
+    const userType = opts.userType ?? 'user';
+    const tree = opts.tree ?? runningDatabaseBox({ ownerKey });
+    const writes: WriteCall[] = [];
+    const env = mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(ownerKey) }),
+      hostname: OWN_CONFIG.machineName,
+      network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID, ownerKey)),
+      session: mockSession({ username: OWN_CONFIG.username, userType }),
+      now: () => asEpochMs(NOW),
+      fs: opts.fs ?? mockFsViewFromTree(tree, { userType, cwd: () => asAbsPath('/') }),
+      patches: {
+        ...mockPatchApi(),
+        write:
+          opts.write ??
+          (async (path, content, options) => {
+            writes.push({ path, content, options });
+            return { ok: true };
+          }),
+      },
+      mysql: {
+        connect: NOT_WIRED,
+        enter: opts.onEnter ?? (() => undefined),
+        leave: () => undefined,
+        run: NOT_WIRED,
+      },
+      prompt:
+        opts.prompt ?? (async ({ masked }) => (masked ? OWN_CONFIG.rootPassword : 'root')),
+    });
+    return { env, writes };
+  };
+
+  /** Open the door and hand back the prompt, so a statement test starts where a player
+   *  starts: at `mysql>` holding whatever the connect step really held. */
+  const atPrompt = async (opts: OwnEnvOpts & { readonly account?: string } = {}) => {
+    const held: MysqlConnectParams[] = [];
+    const { env, writes } = ownEnv({ ...opts, onEnter: (connection) => held.push(connection) });
+    const opened = await mysql.execute(env, ['localhost', opts.account ?? 'root'], new Map());
+    const connection = held[0];
+    if (connection === undefined) throw new Error(`never opened: ${linesOf(opened)}`);
+    // The connect line is the story of the test above; a statement test starts from a
+    // clean sheet so what it asserts about is only what its own statement wrote.
+    writes.length = 0;
+    return {
+      env,
+      writes,
+      run: (line: string) => runMysqlLine(env, line, connection),
+    };
+  };
+
+  /** What every kind of eviction reads as at the prompt: the box gone, the daemon
+   *  stopped, the credential no longer valid. One condition from where the player is
+   *  sitting, and telling them apart would report on their own tampering. */
+  const LOST_CONNECTION = 'ERROR 2013 (HY000): Lost connection to MySQL server during query';
+
+  /** At `mysql>` on a box that can still change underneath the prompt. `become` takes
+   *  either a whole datadir or the bytes to leave in its place. */
+  const atLivePrompt = async ({
+    database,
+    account,
+  }: {
+    readonly database: MysqlDatabase;
+    readonly account: string;
+  }) => {
+    const box = liveBox(runningDatabaseBox({ ownerKey: LADDER_KEY, database }));
+    const held: MysqlConnectParams[] = [];
+    const { env } = ownEnv({
+      ownerKey: LADDER_KEY,
+      fs: box.fs,
+      onEnter: (connection) => held.push(connection),
+    });
+    const opened = await mysql.execute(env, ['localhost', account], new Map());
+    const connection = held[0];
+    if (connection === undefined) throw new Error(`never opened: ${linesOf(opened)}`);
+    return {
+      become: (datadir: MysqlDatabase | string) =>
+        box.become(
+          applyPatches(runningDatabaseBox({ ownerKey: LADDER_KEY, database }), [
+            {
+              path: DATADIR_PATH,
+              content: typeof datadir === 'string' ? datadir : JSON.stringify(datadir),
+              owner: DATADIR_OWNER,
+              permissions: DATADIR_FILE,
+            },
+          ]),
+        ),
+      run: (line: string) => runMysqlLine(env, line, connection),
+    };
+  };
+
+  const logWrites = (writes: readonly WriteCall[]) =>
+    writes.filter((write) => write.path === MYSQL_LOG_PATH);
+
+  const lastLogLine = (writes: readonly WriteCall[]): string => {
+    const written = logWrites(writes).at(-1);
+    if (written === undefined) throw new Error('nothing was written to mysql.log');
+    return written.content.trimEnd().split('\n').at(-1) ?? '';
+  };
+
+  it('opens the database when you name your own box by any of its names', async () => {
+    for (const name of ['localhost', '127.0.0.1', LOCAL_IP]) {
+      const { env } = ownEnv();
+
+      const result = await mysql.execute(env, [name, 'root'], new Map());
+
+      // One leased address under three names, exactly as the web door reads them — a
+      // box that answered to `localhost` but not to the address it was given would be
+      // two machines to its own owner.
+      expect(linesOf(result)).toContain(`Connected to ${OWN_CONFIG.machineName}.`);
+    }
+  });
+
+  it('holds the connection under the address it was leased, not the name typed', async () => {
+    const held: MysqlConnectParams[] = [];
+    const { env } = ownEnv({ onEnter: (connection) => held.push(connection) });
+
+    await mysql.execute(env, ['localhost', 'root'], new Map());
+
+    // One machine under one name. `localhost` names no machine to anybody but us, so a
+    // prompt that kept the word rather than the address would be holding a connection
+    // that means something different from the line the daemon just wrote down — and
+    // the statements after it would be resolving a different question each time.
+    expect(held[0]?.targetIp).toBe(LOCAL_IP);
+    expect(held[0]?.sourceIp).toBe('127.0.0.1');
+  });
+
+  it('refuses before asking for anything when the daemon is not running', async () => {
+    const prompt = vi.fn(async () => OWN_CONFIG.rootPassword);
+    const { env, writes } = ownEnv({ tree: boughtButNotStarted(), prompt });
+
+    const result = await mysql.execute(env, ['localhost'], new Map());
+
+    expect(linesOf(result)).toBe(
+      "ERROR 2003 (HY000): Can't connect to MySQL server on 'localhost:3306' (Connection refused)",
+    );
+    // The same silence a stranger's shut door earns, and for the same reason: a
+    // credential typed at a daemon that is not there is a credential given away.
+    expect(prompt).not.toHaveBeenCalled();
+    // And nothing to read afterwards. A refusal decided before the daemon exists is
+    // not the daemon's to record.
+    expect(writes).toEqual([]);
+  });
+
+  it('refuses a port its own daemon is not holding', async () => {
+    const prompt = vi.fn(async () => OWN_CONFIG.rootPassword);
+    const { env } = ownEnv({ prompt });
+
+    const result = await mysql.execute(env, ['localhost'], new Map([['-p', '3307']]));
+
+    // The door is open on 3306 and this is not 3306. Your own box is no more lenient
+    // about which port a daemon holds than anyone else's.
+    expect(linesOf(result)).toContain("on 'localhost:3307' (Connection refused)");
+    expect(prompt).not.toHaveBeenCalled();
+  });
+
+  it('records the connection it accepted in its own log, sourced from loopback', async () => {
+    const { env, writes } = ownEnv();
+
+    await mysql.execute(env, ['localhost', 'root'], new Map());
+
+    // A daemon that recorded strangers but not its owner would be one that knows which
+    // is which — and the defender's skill is telling `127.0.0.1` from an address that
+    // is not theirs, which is worth less if the file arrives pre-filtered.
+    expect(lastLogLine(writes)).toBe(
+      formatMysqlConnectLine({
+        user: 'root',
+        fromIp: '127.0.0.1',
+        time: asGameTime(asEpochMs(NOW)),
+        pid: derivePid(NOW),
+        database: databaseOf(PUBKEY).name,
+      }),
+    );
+  });
+
+  it('records the LAN address when that is the one they typed', async () => {
+    const { env, writes } = ownEnv();
+
+    await mysql.execute(env, [LOCAL_IP, 'root'], new Map());
+
+    // Three names for one box, two sources: a connection that came in over loopback
+    // says so, and one addressed to the leased address is written down as arriving
+    // there — the same split `curl` makes on the same box.
+    expect(lastLogLine(writes)).toContain(`root@${LOCAL_IP} on `);
+  });
+
+  it('records a refused credential without naming the database it did not reach', async () => {
+    const { env, writes } = ownEnv({ prompt: async () => 'not-the-password' });
+
+    const result = await mysql.execute(env, ['localhost', 'root'], new Map());
+
+    expect(linesOf(result)).toBe(
+      "ERROR 1045 (28000): Access denied for user 'root'@'127.0.0.1' (using password: YES)",
+    );
+    // A client that never authenticated was never told which database it would have
+    // reached, so the refusal cannot name one. That difference is the signal: a wall of
+    // denials followed by one Connect naming a database is a sweep that landed.
+    expect(lastLogLine(writes)).toBe(
+      formatMysqlAttemptLine({
+        outcome: 'failure',
+        user: 'root',
+        fromIp: '127.0.0.1',
+        hostname: OWN_CONFIG.machineName,
+        time: asGameTime(asEpochMs(NOW)),
+        pid: derivePid(NOW),
+      }),
+    );
+    expect(lastLogLine(writes)).not.toContain(databaseOf(PUBKEY).name);
+  });
+
+  it('creates the log root-owned with the catalog permissions, whatever tier you are', async () => {
+    // A user-tier shell: the write is the DAEMON's, and mysqld runs as root. A line
+    // that inherited the shell's owner would hand the box's ordinary user a file the
+    // world is supposed to have to get root for.
+    const { env, writes } = ownEnv({ userType: 'user' });
+
+    await mysql.execute(env, ['localhost', 'root'], new Map());
+
+    expect(logWrites(writes)).toEqual([
+      {
+        path: MYSQL_LOG_PATH,
+        content: expect.any(String),
+        // Marked new because a workstation is seeded without one: the file does not
+        // exist until the daemon has something to say.
+        options: {
+          isNew: true,
+          owner: MYSQL_LOG_OWNER,
+          permissions: MYSQL_LOG_PERMISSIONS,
+        },
+      },
+    ]);
+  });
+
+  it('appends to the log it already has rather than replacing it', async () => {
+    const earlier = '2026-01-01T00:00:00.000000Z\t1 Connect\tsomebody@10.0.0.9 on main using TCP/IP';
+    const withHistory = applyPatches(runningDatabaseBox(), [
+      {
+        path: MYSQL_LOG_PATH,
+        content: `${earlier}\n`,
+        owner: MYSQL_LOG_OWNER,
+        permissions: MYSQL_LOG_PERMISSIONS,
+      },
+    ]);
+    const { env, writes } = ownEnv({ tree: withHistory });
+
+    await mysql.execute(env, ['localhost', 'root'], new Map());
+
+    const written = logWrites(writes).at(-1);
+    expect(written?.content.split('\n').filter(Boolean)).toHaveLength(2);
+    expect(written?.content).toContain(earlier);
+    // An existing file is not a new one, so the row keeps whatever `is_new` it had —
+    // and a later `rm` of the log does the right thing about the base tree.
+    expect(written?.options?.isNew).toBeUndefined();
+  });
+
+  it('answers a read without writing anything down', async () => {
+    const { writes, run } = await atPrompt();
+
+    const result = await run('SELECT * FROM users;');
+
+    expect(sync(result).exitCode).toBe(0);
+    expect(linesOf(result)).toContain('rows in set');
+    // Reads are the one thing this file stays quiet about: a log that recorded every
+    // SELECT would bury the two events a defender is actually looking for.
+    expect(writes).toEqual([]);
+  });
+
+  it('lets the application account change a row, and writes the datadir back as root', async () => {
+    const ownerKey = LADDER_KEY;
+    const database = typeable(databaseOf(ownerKey));
+    const { writes, run } = await atPrompt({
+      ownerKey,
+      tree: runningDatabaseBox({ ownerKey, database }),
+      account: accountAt(database, 'user'),
+      userType: 'user',
+    });
+
+    const result = await run("UPDATE users SET role='auditor' WHERE id='1';");
+
+    expect(linesOf(result)).toContain('Query OK, 1 row affected');
+    const datadir = writes.find((write) => write.path === DATADIR_PATH);
+    // Root's, and it has to STAY root's through a rewrite: this is the file holding the
+    // hashes a sweep has to work for, and a write that widened it would hand every tier
+    // on the box the answer key with nothing about the statement looking different.
+    expect(datadir?.options).toEqual({
+      owner: DATADIR_OWNER,
+      permissions: DATADIR_FILE,
+    });
+    expect(parseMysqlDatabase(datadir?.content ?? '')?.tables.users?.rows[0]?.role).toBe('auditor');
+  });
+
+  it('records a change as a Query line naming the statement that made it', async () => {
+    const ownerKey = LADDER_KEY;
+    const database = typeable(databaseOf(ownerKey));
+    const { writes, run } = await atPrompt({
+      ownerKey,
+      tree: runningDatabaseBox({ ownerKey, database }),
+      account: accountAt(database, 'user'),
+    });
+
+    await run("UPDATE users SET role='auditor' WHERE id='1';");
+
+    expect(lastLogLine(writes)).toBe(
+      formatMysqlStatementLine({
+        time: asGameTime(asEpochMs(NOW)),
+        pid: derivePid(NOW),
+        tag: 'Query',
+        detail: "UPDATE users SET role='auditor' WHERE id='1'",
+      }),
+    );
+  });
+
+  it('refuses the read-only account a write, and records the refusal', async () => {
+    const ownerKey = LADDER_KEY;
+    const database = typeable(databaseOf(ownerKey));
+    // The fixture's whole point: without a guest account the bottom rung is untested
+    // and this would read as passing.
+    expect(accountAt(database, 'guest')).toBe('readonly');
+    const { writes, run } = await atPrompt({
+      ownerKey,
+      tree: runningDatabaseBox({ ownerKey, database }),
+      account: accountAt(database, 'guest'),
+      // Root on the BOX and read-only in the DATABASE at the same time. The ladder is
+      // the datadir's, never the shell's — the two are separate locks.
+      userType: 'root',
+    });
+
+    const result = await run("UPDATE users SET role='auditor' WHERE id='1';");
+
+    expect(sync(result).exitCode).toBe(1);
+    expect(linesOf(result)).toContain('command denied');
+    // Nothing changed, so nothing is written back — and the refusal is recorded, which
+    // is the line that tells a defender somebody was pushing at the ladder.
+    expect(writes.some((write) => write.path === DATADIR_PATH)).toBe(false);
+    expect(lastLogLine(writes)).toContain('Denied');
+  });
+
+  it('keeps DROP TABLE for the database root, on your box as on anyone else', async () => {
+    const ownerKey = LADDER_KEY;
+    const database = typeable(databaseOf(ownerKey));
+    const asApplication = await atPrompt({
+      ownerKey,
+      tree: runningDatabaseBox({ ownerKey, database }),
+      account: accountAt(database, 'user'),
+    });
+
+    const refused = await asApplication.run('DROP TABLE users;');
+
+    expect(sync(refused).exitCode).toBe(1);
+    expect(asApplication.writes.some((write) => write.path === DATADIR_PATH)).toBe(false);
+
+    const asRoot = await atPrompt({
+      ownerKey,
+      tree: runningDatabaseBox({ ownerKey, database }),
+      account: 'root',
+    });
+
+    const dropped = await asRoot.run('DROP TABLE users;');
+
+    // The other half: a ladder that refused everyone would pass the assertion above
+    // and leave the top rung unreachable.
+    expect(sync(dropped).exitCode).toBe(0);
+    const datadir = asRoot.writes.find((write) => write.path === DATADIR_PATH);
+    expect(parseMysqlDatabase(datadir?.content ?? '')?.tables.users).toBeUndefined();
+  });
+
+  it('drops the prompt when the daemon is stopped underneath it', async () => {
+    const held: MysqlConnectParams[] = [];
+    const { env } = ownEnv({ onEnter: (connection) => held.push(connection) });
+    const opened = await mysql.execute(env, ['localhost', 'root'], new Map());
+    const connection = held[0];
+    if (connection === undefined) throw new Error(`never opened: ${linesOf(opened)}`);
+    // `systemctl stop mysqld` while the prompt is open: same box, same datadir, no
+    // pidfile. There is no session row to invalidate and no push channel, so the next
+    // statement is the only thing that can discover it.
+    const stopped = ownEnv({ tree: boughtButNotStarted() }).env;
+
+    const result = await runMysqlLine(stopped, 'SELECT * FROM users;', connection);
+
+    expect(linesOf(result)).toBe(LOST_CONNECTION);
+  });
+
+  it('tells the player nothing changed when the change could not be recorded', async () => {
+    const ownerKey = LADDER_KEY;
+    const database = typeable(databaseOf(ownerKey));
+    const { run } = await atPrompt({
+      ownerKey,
+      tree: runningDatabaseBox({ ownerKey, database }),
+      account: accountAt(database, 'user'),
+      write: async () => ({ ok: false, error: 'network_error' }),
+    });
+
+    const result = await run("UPDATE users SET role='auditor' WHERE id='1';");
+
+    // A write that cannot be recorded is a write that did not happen. `Query OK` over a
+    // journal that never took it would show them their old rows on the next statement
+    // and read as the game losing writes.
+    expect(linesOf(result)).toBe(LOST_CONNECTION);
+  });
+
+  it('refuses a port another daemon on the box is holding', async () => {
+    const prompt = vi.fn(async () => OWN_CONFIG.rootPassword);
+    const { env } = ownEnv({ prompt });
+
+    const result = await mysql.execute(
+      env,
+      ['localhost'],
+      new Map([['-p', String(SERVICE_CATALOG.ssh.defaultPort)]]),
+    );
+
+    // A port is not a door until the right daemon is behind it. The box's own sshd is
+    // listening there, and a check that only counted open ports would open a database
+    // prompt onto it.
+    expect(linesOf(result)).toContain(
+      `on 'localhost:${SERVICE_CATALOG.ssh.defaultPort}' (Connection refused)`,
+    );
+    expect(prompt).not.toHaveBeenCalled();
+  });
+
+  it('refuses an account the database never had in the same words as a wrong password', async () => {
+    const { env, writes } = ownEnv();
+
+    const result = await mysql.execute(env, ['localhost', 'nobody'], new Map());
+
+    // Byte for byte the refusal a wrong password earns. An error that told them apart
+    // would let anyone standing at this prompt enumerate the account list by typing
+    // names at it — and on your own box that is a rehearsal for somebody else's.
+    expect(linesOf(result)).toBe(
+      "ERROR 1045 (28000): Access denied for user 'nobody'@'127.0.0.1' (using password: YES)",
+    );
+    expect(lastLogLine(writes)).toContain(
+      "Access denied for user 'nobody'@'127.0.0.1' (using password: YES)",
+    );
+  });
+
+  it('does not open a door that was closed while the password was being typed', async () => {
+    const box = liveBox(runningDatabaseBox());
+    const { env, writes } = ownEnv({
+      fs: box.fs,
+      // `systemctl stop mysqld` in another tab, after this client checked the door and
+      // before the player finished typing. The pre-flight is not a promise.
+      prompt: async ({ masked }) => {
+        if (masked) box.become(boughtButNotStarted());
+        return OWN_CONFIG.rootPassword;
+      },
+    });
+
+    const result = await mysql.execute(env, ['localhost', 'root'], new Map());
+
+    expect(linesOf(result)).toBe(
+      "ERROR 2003 (HY000): Can't connect to MySQL server on 'localhost:3306' (Connection refused)",
+    );
+    // And nothing written down: the daemon that would have recorded the attempt is the
+    // one that is no longer running.
+    expect(writes).toEqual([]);
+  });
+
+  it('drops the prompt when the account is deleted from the datadir under it', async () => {
+    const database = typeable(databaseOf(LADDER_KEY));
+    const account = accountAt(database, 'user');
+    const { become, run } = await atLivePrompt({ database, account });
+
+    // Root editing their own datadir — the same file `cat` shows them. There is no
+    // session row remembering who logged in, so the next statement is where it bites.
+    become({
+      ...database,
+      credentials: database.credentials.filter((each) => each.username !== account),
+    });
+    const result = await run('SELECT * FROM users;');
+
+    expect(linesOf(result)).toBe(LOST_CONNECTION);
+  });
+
+  it('drops the prompt when the account password is changed under it', async () => {
+    const database = typeable(databaseOf(LADDER_KEY));
+    const account = accountAt(database, 'user');
+    const { become, run } = await atLivePrompt({ database, account });
+
+    become({
+      ...database,
+      credentials: database.credentials.map((each) =>
+        each.username === account ? { ...each, passwordHash: md5('a-different-password') } : each,
+      ),
+    });
+    const result = await run('SELECT * FROM users;');
+
+    // The credential travels with every statement precisely so this can happen: what
+    // was accepted a moment ago is re-checked rather than remembered.
+    expect(linesOf(result)).toBe(LOST_CONNECTION);
+  });
+
+  it('drops the prompt when the datadir stops being a database at all', async () => {
+    const database = typeable(databaseOf(LADDER_KEY));
+    const { become, run } = await atLivePrompt({
+      database,
+      account: accountAt(database, 'user'),
+    });
+
+    // `echo nonsense > /var/lib/mysql/data.json`, which root on their own box can do.
+    // A daemon that carried on answering out of what it read at login would be serving
+    // a database the box no longer holds.
+    become('not a database at all');
+    const result = await run('SELECT * FROM users;');
+
+    expect(linesOf(result)).toBe(LOST_CONNECTION);
+  });
+
+  it('drops the line rather than clobbering a log it could not read', async () => {
+    // `mkdir /var/log/mysql.log` — a real thing root can do to their own box, and the
+    // one case where the read fails without the file being absent.
+    const occupied = applyPatches(runningDatabaseBox(), [
+      {
+        path: MYSQL_LOG_PATH,
+        content: null,
+        owner: 'root',
+        permissions: MYSQL_LOG_PERMISSIONS,
+        nodeType: 'directory',
+      },
+    ]);
+    const { env, writes } = ownEnv({ tree: occupied });
+
+    const result = await mysql.execute(env, ['localhost', 'root'], new Map());
+
+    // The connection still stands — logging must never break the thing it records —
+    // but replacing whatever is there with one line is worse than saying nothing.
+    expect(linesOf(result)).toContain(`Connected to ${OWN_CONFIG.machineName}.`);
+    expect(writes).toEqual([]);
   });
 });

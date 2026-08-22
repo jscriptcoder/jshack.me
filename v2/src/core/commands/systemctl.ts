@@ -46,6 +46,7 @@ import {
   apache2,
   bringUp,
   DAEMONS,
+  mysqld,
   nginx,
   runningPort,
   sshd,
@@ -111,6 +112,13 @@ const UNITS: Readonly<Record<string, Unit>> = {
     spec: SERVICE_CATALOG.http,
     start: apache2,
     daemon: DAEMONS.apache2,
+  },
+  mysqld: {
+    name: 'mysqld',
+    title: 'MySQL server',
+    spec: SERVICE_CATALOG.mysql,
+    start: mysqld,
+    daemon: DAEMONS.mysqld,
   },
 };
 
@@ -239,7 +247,11 @@ export const systemctl: Command = {
         required: true,
         values: [...VERBS],
       },
-      { name: 'unit', description: 'Service to act on (sshd, vsftpd, nginx)', required: true },
+      {
+        name: 'unit',
+        description: 'Service to act on (sshd, vsftpd, nginx, mysqld)',
+        required: true,
+      },
     ],
     examples: [
       { command: 'systemctl status sshd', description: 'Ask whether SSH is running, and on what port' },

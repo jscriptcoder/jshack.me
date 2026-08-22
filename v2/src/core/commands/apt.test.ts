@@ -2,15 +2,24 @@ import { describe, expect, it } from 'vitest';
 import { BINARY_STUB } from '../generation/binaries';
 import type { SystemLibrary } from '../generation/libraries';
 import type { Directory, FilePermissions } from '../filesystem/types';
-import { asAbsPath, type UserType } from '../types';
+import { asAbsPath, asPlayerKeyHex, type UserType } from '../types';
 import type { CommandResult, PatchResult, TerminalLine } from './types';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
+  mockIdentity,
   mockNetworkView,
   mockPatchApi,
   mockSession,
 } from '../../test/factories/commandEnv';
+import { applyPatches } from '../filesystem/applyPatches';
+import { createFsView } from '../filesystem/fsView';
+import { buildWorkstationBaseFs } from '../generation/workstationFs';
+import { DATADIR_FILE, PASSWD_FILE } from '../generation/baseFs';
+import { md5 } from '../generation/md5';
+import { DATADIR_OWNER, DATADIR_PATH } from '../mysql/datadir';
+import { parseMysqlDatabase } from '../mysql/types';
+import { accountIn, accountsIn } from '../sessions/passwdAccount';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 import { apt, installExtraFiles, installPackageLibraries } from './apt';
 import { APT_PACKAGES } from './aptPackages';
@@ -275,6 +284,50 @@ describe('apt', () => {
       expect(writes.map((write) => write.path)).toEqual(['/usr/bin/nc']);
     });
 
+    it('installs a daemon into /usr/sbin, where the admin binaries already live', async () => {
+      // A web server is a daemon on any real box, and /usr/sbin is where a daemon
+      // belongs — the directory the pre-installed sshd and vsftpd already occupy.
+      // Nothing functional turns on it: the binary search spans /bin, /usr/bin and
+      // /usr/sbin alike, so this is what the player SEES when they list a
+      // directory. It matters because afterwards the rule has no exceptions.
+      const nginxInstall = aptEnv();
+      const apacheInstall = aptEnv();
+
+      await streamResult(await apt.execute(nginxInstall.env, ['install', 'nginx'], NO_FLAGS));
+      await streamResult(await apt.execute(apacheInstall.env, ['install', 'apache2'], NO_FLAGS));
+
+      expect(nginxInstall.writes.map((write) => write.path)).toEqual(['/usr/sbin/nginx']);
+      expect(apacheInstall.writes.map((write) => write.path)).toEqual(['/usr/sbin/apache2']);
+    });
+
+    it('installs a package that ships both a client and a daemon into both places', async () => {
+      // One package, two binaries, two shelves: the mysql CLIENT is a tool any
+      // tier runs to open somebody's database, while mysqld is the daemon root
+      // runs to become the box somebody opens. Buying one buys the other — a
+      // player who installed "mysql" and found no way to serve one would be
+      // reading a package list to work out what a second package was called.
+      const { env, writes } = aptEnv();
+
+      await streamResult(await apt.execute(env, ['install', 'mysql'], NO_FLAGS));
+
+      // The BINARIES, specifically: this package also ships a database, and where
+      // that lands is a separate claim with its own tests below.
+      const binaries = writes.filter((write) => write.content === BINARY_STUB);
+      expect(binaries.map((write) => write.path)).toEqual(['/usr/bin/mysql', '/usr/sbin/mysqld']);
+    });
+
+    it('stamps a daemon world-executable, exactly as it stamps any other binary', async () => {
+      // The destination changes; nothing else about the install does. A daemon
+      // self-gates root at RUNTIME — the perms are the ones a real /usr/sbin/sshd
+      // carries — so narrowing them here would refuse the player before their own
+      // daemon could explain why.
+      const { env, writes } = aptEnv();
+
+      await streamResult(await apt.execute(env, ['install', 'nginx'], NO_FLAGS));
+
+      expect(writes[0].options).toEqual({ isNew: true, permissions: WORLD_EXECUTABLE });
+    });
+
     it('refuses to install as a non-root user and writes nothing', async () => {
       const { env, writes } = aptEnv({ userType: 'user' });
 
@@ -505,8 +558,8 @@ describe('apt', () => {
         // real catalog — so the two-file case is driven against a fixture.
         const { env, writes } = aptEnv();
         const extras = [
-          { path: asAbsPath('/usr/share/wordlists/a.txt'), content: 'alpha', permissions: WORDLIST_PERMS },
-          { path: asAbsPath('/usr/share/wordlists/b.txt'), content: 'bravo', permissions: WORDLIST_PERMS },
+          { path: asAbsPath('/usr/share/wordlists/a.txt'), content: () => 'alpha', permissions: WORDLIST_PERMS },
+          { path: asAbsPath('/usr/share/wordlists/b.txt'), content: () => 'bravo', permissions: WORDLIST_PERMS },
         ];
 
         const result = await drainExtraFiles(installExtraFiles(env, extras));
@@ -525,7 +578,7 @@ describe('apt', () => {
         const extras = [
           {
             path: asAbsPath('/usr/share/wordlists/passwords.txt'),
-            content: 'alpha',
+            content: () => 'alpha',
             permissions: WORDLIST_PERMS,
           },
         ];
@@ -569,6 +622,16 @@ describe('apt', () => {
 
     expect(text).toContain('Invalid operation frobnicate');
     expect(exitCode).toBe(100);
+  });
+
+  it('tells the player both places an install can land a binary', async () => {
+    // The manual said every binary goes to /usr/bin, which stopped being true the
+    // moment daemons moved. A player who reads the manual and then lists /usr/bin
+    // for the web server they just installed must not be sent to the wrong shelf.
+    const description = apt.manual?.description ?? '';
+
+    expect(description).toContain('/usr/bin');
+    expect(description).toContain('/usr/sbin');
   });
 
   it('writes no libraries for a real apt package (none map to a library today)', async () => {
@@ -802,5 +865,268 @@ describe('apt list', () => {
     expect(exitCode).toBe(100);
     expect(text).toContain('are you connected to a network');
     expect(text).not.toContain('nmap');
+  });
+});
+
+/**
+ * The database a player BUYS.
+ *
+ * `apt install mysql` lays a datadir down the way `apt install hydra` lays down a
+ * wordlist: announced, created with its containing directories, and left alone on a
+ * reinstall because the file belongs to the player the moment it lands. What is new
+ * is that the CONTENT is this player's own — drawn from their pubkey, so no two
+ * players hold the same database.
+ *
+ * A constant datadir was the alternative, and it fails on one chain: the first
+ * player to crack their own application account would hold a credential valid
+ * against every database in the game. A wordlist can be a shared constant because
+ * knowing it buys nothing; a password file cannot.
+ */
+describe('the database a player buys', () => {
+  const OWNER_KEY = 'b'.repeat(64);
+  const CONFIG = { machineName: 'workstation', username: 'alice', rootPassword: 'hunter2' };
+
+  const buyMysql = async (opts: { readonly ownerKey?: string; readonly onto?: Directory } = {}) => {
+    const ownerKey = opts.ownerKey ?? OWNER_KEY;
+    const tree = opts.onto ?? buildWorkstationBaseFs(ownerKey, CONFIG);
+    const writes: WriteCall[] = [];
+    const operations: Operation[] = [];
+    const env = mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(ownerKey) }),
+      hostname: CONFIG.machineName,
+      session: mockSession({ userType: 'root' }),
+      network: mockNetworkView({ isOnline: () => true }),
+      fs: mockFsViewFromTree(tree, { userType: 'root', cwd: () => asAbsPath('/') }),
+      patches: {
+        ...mockPatchApi(),
+        write: async (path, content, options) => {
+          writes.push({ path, content, options });
+          operations.push({ kind: 'write', path });
+          return { ok: true };
+        },
+        mkdir: async (path) => {
+          operations.push({ kind: 'mkdir', path });
+          return { ok: true };
+        },
+      },
+    });
+
+    const streamed = await streamResult(await apt.execute(env, ['install', 'mysql'], NO_FLAGS));
+    const datadir = writes.find((write) => write.path === DATADIR_PATH);
+    return {
+      writes,
+      operations,
+      streamed,
+      tree,
+      datadir,
+      database: parseMysqlDatabase(datadir?.content ?? ''),
+    };
+  };
+
+  /** The box as it stands once the install's datadir write has landed on it — what a
+   *  later `cat` reads, rather than the write call on its own. */
+  const withDatadir = (tree: Directory, datadir: WriteCall): Directory =>
+    applyPatches(tree, [
+      {
+        path: asAbsPath(datadir.path),
+        content: datadir.content,
+        owner: DATADIR_OWNER,
+        permissions: datadir.options?.permissions ?? DATADIR_FILE,
+      },
+    ]);
+
+  it('lays the datadir down root-only, announced, and marked new', async () => {
+    const { datadir, streamed } = await buyMysql();
+
+    expect(datadir).toEqual({
+      path: DATADIR_PATH,
+      content: expect.any(String),
+      options: { isNew: true, permissions: DATADIR_FILE },
+    });
+    expect(streamed.text).toContain(`Installing ${DATADIR_PATH} ...`);
+    expect(streamed.exitCode).toBe(0);
+  });
+
+  it('creates the /var/lib/mysql a workstation does not have, before writing into it', async () => {
+    // A fresh box has /var/log, /var/run and /var/www under /var and nothing else, so
+    // the datadir's parents have to arrive first — a write into a directory that does
+    // not exist is refused outright.
+    const { operations } = await buyMysql();
+
+    expect(operations).toEqual([
+      { kind: 'write', path: '/usr/bin/mysql' },
+      { kind: 'write', path: '/usr/sbin/mysqld' },
+      { kind: 'mkdir', path: '/var/lib' },
+      { kind: 'mkdir', path: '/var/lib/mysql' },
+      { kind: 'write', path: DATADIR_PATH },
+    ]);
+  });
+
+  it('holds a database drawn for THIS player — two owners never share one', async () => {
+    const mine = await buyMysql({ ownerKey: OWNER_KEY });
+    const theirs = await buyMysql({ ownerKey: 'c'.repeat(64) });
+
+    expect(mine.database).not.toBeNull();
+    expect(theirs.database).not.toBeNull();
+    expect(theirs.datadir?.content).not.toBe(mine.datadir?.content);
+  });
+
+  it('hands one player the same database however often they buy it', async () => {
+    // Deleting a shipped data file and reinstalling is the documented way to get it
+    // back. For a database that has to mean the SAME database, or a player could
+    // reroll their own accounts until the draw suited them.
+    const first = await buyMysql();
+    const second = await buyMysql();
+
+    expect(second.datadir?.content).toBe(first.datadir?.content);
+  });
+
+  it('answers to the root password the player chose for the box', async () => {
+    // Nothing to look up, print, store or delete: the database's root is the password
+    // they already typed at their own prompt. Read from the box's own /etc/passwd, so
+    // the two cannot say different things about one secret.
+    const { database, tree } = await buyMysql();
+
+    const dbRoot = database?.credentials.find((credential) => credential.username === 'root');
+    expect(dbRoot?.passwordHash).toBe(md5(CONFIG.rootPassword));
+    expect(dbRoot?.passwordHash).toBe(accountIn(tree, 'root')?.hash);
+  });
+
+  it('draws its other accounts, so cracking the box is not cracking the database', async () => {
+    // The attack surface this leaves standing. Root is effectively uncrackable now — a
+    // chosen password is almost never in the wordlist — which is the accepted cost, but
+    // the accounts below it are drawn on the world's usual ladder, and they are what a
+    // sweep of this door is for.
+    const { database, tree } = await buyMysql();
+
+    const others = (database?.credentials ?? []).filter(
+      (credential) => credential.username !== 'root',
+    );
+    const boxHashes = accountsIn(tree).map((account) => account.hash);
+    expect(others.length).toBeGreaterThan(0);
+    for (const credential of others) expect(boxHashes).not.toContain(credential.passwordHash);
+  });
+
+  it('leads its users table with the account whose home a visitor can see', async () => {
+    const { database } = await buyMysql();
+
+    const names = (database?.tables.users?.rows ?? []).map((row) => row.username);
+    expect(names[0]).toBe(CONFIG.username);
+  });
+
+  it('writes the two binaries and the datadir, and nothing else at all', async () => {
+    // No /etc/mysql.cnf: nothing in the game reads one, and a static `port=3306` would
+    // be contradicted the first time the player runs `mysqld 3307`. No `mysql` line in
+    // /etc/passwd either — NPC database boxes carry no such account, so adding one here
+    // would make the player's box the odd box rather than the consistent one.
+    const { writes } = await buyMysql();
+
+    expect(writes.map((write) => write.path)).toEqual([
+      '/usr/bin/mysql',
+      '/usr/sbin/mysqld',
+      DATADIR_PATH,
+    ]);
+  });
+
+  it('prints no password and no hash while it does it', async () => {
+    const { streamed, database } = await buyMysql();
+
+    expect(streamed.text).not.toContain(CONFIG.rootPassword);
+    for (const credential of database?.credentials ?? []) {
+      expect(streamed.text).not.toContain(credential.passwordHash);
+    }
+  });
+
+  it('lets root read the account hashes, and no tier below it', async () => {
+    // The only way to read this file directly is to already own the box, which is a
+    // different achievement from cracking its database — and the door the database
+    // opens grants no filesystem access at all, so the tiers it hands out must not
+    // reach the answer key.
+    const { tree, datadir } = await buyMysql();
+    if (datadir === undefined) throw new Error('no datadir written');
+    const box = withDatadir(tree, datadir);
+
+    expect(createFsView(box, { userType: 'root' }).read(DATADIR_PATH)).toEqual({
+      ok: true,
+      content: datadir.content,
+    });
+    expect(createFsView(box, { userType: 'user' }).read(DATADIR_PATH)).toEqual({
+      ok: false,
+      error: 'permission_denied',
+    });
+    expect(createFsView(box, { userType: 'guest' }).read(DATADIR_PATH)).toEqual({
+      ok: false,
+      error: 'permission_denied',
+    });
+  });
+
+  it('leaves a database the player has been using exactly where it is', async () => {
+    // The wordlist rule, and it matters more here: a reinstall that rewrote the datadir
+    // would destroy every row the player had inserted, every account they had added and
+    // every table they had dropped, with one line on screen to say so.
+    const mine = await buyMysql();
+    if (mine.datadir === undefined) throw new Error('no datadir written');
+    const livedIn = withDatadir(mine.tree, {
+      ...mine.datadir,
+      content: JSON.stringify({ name: 'mine', tables: {}, credentials: [] }),
+    });
+
+    const again = await buyMysql({ onto: livedIn });
+
+    expect(again.writes.map((write) => write.path)).toEqual(['/usr/bin/mysql', '/usr/sbin/mysqld']);
+    expect(again.streamed.text).toContain(`${DATADIR_PATH} already exists, keeping your copy`);
+  });
+
+  /** The box with the named rows cut out of `/etc/passwd` — something only root can
+   *  do, and root is exactly who installs a database. */
+  const withoutAccount = (tree: Directory, username: string): Directory => {
+    const passwd = createFsView(tree, { userType: 'root' }).read(asAbsPath('/etc/passwd'));
+    if (!passwd.ok) throw new Error('no passwd on the box');
+    return applyPatches(tree, [
+      {
+        path: asAbsPath('/etc/passwd'),
+        content: passwd.content
+          .split('\n')
+          .filter((line) => line.length > 0 && line.split(':')[0] !== username)
+          .join('\n'),
+        owner: 'root',
+        permissions: PASSWD_FILE,
+      },
+    ]);
+  };
+
+  it('keeps the drawn root password on a box that declares no root account', async () => {
+    // A box with nothing to mirror gets the password the draw gave it. Inventing one
+    // instead would put a secret on the box that its own passwd file has never heard
+    // of — and the install has to survive a vandalised passwd either way, because a
+    // root player editing that file is ordinary play.
+    const vandalised = withoutAccount(buildWorkstationBaseFs(OWNER_KEY, CONFIG), 'root');
+
+    const { database } = await buyMysql({ onto: vandalised });
+    const intact = await buyMysql();
+
+    const dbRoot = database?.credentials.find((credential) => credential.username === 'root');
+    expect(dbRoot?.passwordHash).not.toBe(md5(CONFIG.rootPassword));
+    // A real drawn hash, specifically — not whatever hash sits on whichever row came
+    // first once root's is gone. The player's own passwd row carries an EMPTY hash
+    // (they can always exit() back to their own shell), so mirroring the wrong
+    // account would leave the database's root answering to nothing at all.
+    expect(dbRoot?.passwordHash).toMatch(/^[0-9a-f]{32}$/);
+    // Everything else is the same draw: only the mirroring dropped out.
+    expect(database?.name).toBe(intact.database?.name);
+  });
+
+  it('leads the users table with guest on a box that declares no ordinary user', async () => {
+    // The one account every box keeps, so the table is still led by somebody who is
+    // really there rather than by a name invented to fill the row.
+    const vandalised = withoutAccount(
+      buildWorkstationBaseFs(OWNER_KEY, CONFIG),
+      CONFIG.username,
+    );
+
+    const { database } = await buyMysql({ onto: vandalised });
+
+    const names = (database?.tables.users?.rows ?? []).map((row) => row.username);
+    expect(names[0]).toBe('guest');
   });
 });

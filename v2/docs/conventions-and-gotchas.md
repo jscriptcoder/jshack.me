@@ -612,6 +612,23 @@ This is the sibling of the same-pool blind spot recorded below: there, an oracle
 the generator reads moves with it; here, a fixture that fails every check agrees with every mutant.
 In both cases the test is shaped so that nothing it could catch is left to catch.
 
+**A `find` whose predicate the DATA ORDER already satisfies hides its own mutant.** D6 slice 6:
+`accounts.find((account) => account.userType === 'root')` survived `ConditionalExpression → true`,
+because `/etc/passwd` lists root first on every box the suite builds, so "the first root-tier row"
+and "the first row" are the same row. The mutant was not equivalent — it diverges on a box whose
+passwd has been edited, where it would have mirrored the player's own row, whose hash is empty. The
+fix was not a test but the right question: the password being read is the one `su root` asks for, so
+read it BY NAME through the same `accountIn` every auth gate uses. Third member of the family above
+— this time it is the fixture's ORDER, rather than its negativity, that agrees with the mutant.
+
+**Read the mutation report from `reports/mutation/mutation.json`, not from captured stdout.** The
+`clear-text` reporter prints its per-mutant list as it goes, and a captured run keeps only the tail
+— a four-file run reported `124 survived` above a list showing 8, with no way to tell whether any
+sat in the changed lines. Run scoped batteries as
+`npx stryker run --mutate "<files>" --reporters json,progress` and read the JSON, which carries
+every mutant's file, line, mutator and status. Note it overwrites the previous report in place, so
+copy one you still need first.
+
 **A hand-mutation harness owns the files it snapshots — don't edit them while it runs.** The
 house pattern (a Python script that applies one mutant, runs the spec, restores) reads every target
 file ONCE at startup and restores from that snapshot. Run it in the background and edit one of those
@@ -1661,6 +1678,24 @@ state costs you more than one wrong attempt.
   no name at all — so it takes `Pick<ActiveSession, 'userType' | 'essid'>`. Without that, every
   field added to the projection for one consumer breaks every fixture of every other one
   (adding `username` broke ~35 call sites; 20 were that module's).
+- **The player's OWN box answers its own database — the server door is for other people's.**
+  `commands/mysqlOwnBox.ts` runs the whole `mysql` conversation client-side when the target is
+  the box the player is standing on: the credential check, `runStatement`, the datadir rewrite
+  and the `/var/log/mysql.log` lines. It is not a second implementation — every decision is the
+  same shared function `handleMysqlConnect`/`handleMysqlStatement` call, so what differs is
+  where it runs. The reason the server exists at all is to stop a client writing to a box it
+  does not own, and on your own box there is nothing to protect: you are root, the datadir is a
+  file you can open in an editor. Addressing follows the web door: `localhost`, `127.0.0.1` and
+  the leased LAN address are ONE address, and the source recorded is loopback or that address
+  (`network/interfaces.ts` owns `LOOPBACK_NAMES`, shared by both doors). The cross-player
+  direction stays server-side — that is where `reachMysqlHost` learns about player-owned boxes.
+- **A SYSTEM write on the player's own box names its own owner.** `PatchApi.write` takes an
+  `owner` override for exactly this: a daemon's log line and the datadir it keeps are root's
+  whichever tier the shell that triggered them sits at. Without it a user-tier player running an
+  `UPDATE` would rewrite `/var/lib/mysql/data.json` as themselves and hand their own ordinary
+  account the hashes a sweep is supposed to have to work for. The server has always accepted the
+  field on `upsertPatch` (own-machine writes are authorized by machine, not by owner), so this
+  needed no `api/` change — it is the CLIENT that used to have no way to say it.
 - **Known deferred gap (L3 smart-server):** a client with a valid keypair can mint an
   `effect_one_shot`/root session via `createSession` and call `exploitRead` directly,
   skipping the in-game CVE flow. Accepted per the security model; real fix = server-side
@@ -1722,6 +1757,19 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   for every door at once and is the better end state, but it CHANGES two shipped doors, so it
   needs `testInnerGatewayReach.ts` re-run live in the same slice. Found while building D6
   slice 5, 2026-08-21.
+
+- **A generated box does not carry the daemons it runs, so its doors cannot be closed.**
+  `systemctl stop <unit>` is the ONLY way to shut a service — `kill` refuses unit names outright
+  and only removes listener (`nc -l`) pidfiles, and `ps` gives services no pid to aim at. But
+  `unitFor` resolves a unit only when its binary is present, and generated hosts plant just
+  `SYSTEM_DAEMON_NAMES` (`sshd`, `vsftpd`) in `/usr/sbin`. So on an NPC webserver you have rooted,
+  `systemctl stop nginx` finds no unit and port 80 stays open forever; a `mysqld` unit joins it the
+  day D6 slice 6 lands. The fix is one rule — a generated box plants, in `/usr/sbin`, the daemons
+  for the services it actually runs, mirroring the datadir rule at `remoteHostFs.ts:224` ("a
+  datadir exists only where a daemon is serving it"). Deliberately NOT done inside slice 6: it is a
+  world-generation change touching every generated host, so it wants its own slice and its own
+  regeneration evidence rather than riding along in one about the player's own machine. Owner
+  agreed 2026-08-22 to take it as the slice immediately after D6 slice 6.
 
 - **`testFtpSession` is 12/14 against a live stack, and has been for a while.** Two checks fail:
   `a login that names no kind is still an ssh hop` (reads back `kind=no row`) and `and ending one

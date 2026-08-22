@@ -16,6 +16,7 @@
  */
 
 import { normalizeStatement } from '../mysql/statements';
+import { isOwnBoxConnection, runOwnStatement } from './mysqlOwnBox';
 import type {
   CommandEnv,
   CommandResult,
@@ -89,7 +90,15 @@ export const runMysqlLine = async (
   // Everything else is the database's to answer. This client cannot tell a missing
   // table from an unreadable one from a stopped daemon, and a guess at any of them
   // would be a guess printed as fact.
-  const answer = await env.mysql.run({ ...connection, statement: line });
+  //
+  // Which database, though, is a question this client CAN answer: on the player's own
+  // box the whole statement path stays here, because a round-trip to be told about a
+  // file they could open in an editor buys nothing. The answer comes back in one
+  // shape either way, so the prompt below reads it without knowing which it got.
+  const statementParams = { ...connection, statement: line };
+  const answer = isOwnBoxConnection(env, connection)
+    ? await runOwnStatement(env, statementParams)
+    : await env.mysql.run(statementParams);
 
   // An eviction closes the prompt and prints no `Bye`: a quit is the player leaving,
   // this is the box leaving, and a prompt that answered every statement with the

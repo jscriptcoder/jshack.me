@@ -11,6 +11,7 @@ import { connectedWlan0 } from '../network/interfaces';
 import { forwardsIntoDeepLayer, resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { readOpenPorts } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
+import { connectOwnDatabase, ownBoxSource, ownDaemonListening } from './mysqlOwnBox';
 import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
 
 const USAGE = 'usage: mysql [-p port] <host> [user]';
@@ -102,17 +103,25 @@ const askCredential = async (
 const openDatabase = async (
   env: CommandEnv,
   {
-    target,
+    typed,
+    address,
     port,
     essid,
     sourceIp,
     named,
+    own,
   }: {
-    readonly target: string;
+    /** The host AS THE PLAYER WROTE IT — what a refusal names them back. */
+    readonly typed: string;
+    /** The address the connection is held under, which for the player's own box is
+     *  the one it was leased rather than the name they reached it by. */
+    readonly address: string;
     readonly port: number;
     readonly essid: string;
     readonly sourceIp: string;
     readonly named: string | undefined;
+    /** Their own box, whose whole conversation stays on this client. */
+    readonly own: boolean;
   },
 ): Promise<CommandResult> => {
   const credential = await askCredential(env, named);
@@ -125,19 +134,24 @@ const openDatabase = async (
   // through, and a forward pulled out from under the player drops them on the next one.
   const connection = {
     essid,
-    targetIp: target,
+    targetIp: address,
     port,
     username: credential.username,
     password: credential.password,
     sourceIp,
   };
-  const opened = await env.mysql.connect(connection);
+  // ONE line of difference between the two vantages, and it is only about where the
+  // answer is worked out. Everything around it -- the prompts, the greeting, the
+  // refusal, the prompt handed over -- is one conversation either way.
+  const opened = own
+    ? await connectOwnDatabase(env, connection)
+    : await env.mysql.connect(connection);
   if (!opened.ok) {
     // The address in the refusal is the daemon's own answer, not this client's guess:
     // behind a forward the box never saw the player's address at all.
     return opened.reason === 'denied'
       ? accessDenied(credential.username, opened.fromIp)
-      : unreachable(target, port, REACH_REASON[opened.reason]);
+      : unreachable(typed, port, REACH_REASON[opened.reason]);
   }
 
   env.mysql.enter(connection);
@@ -189,17 +203,29 @@ const execute: Command['execute'] = async (env, args, flags) => {
   // the forward table is in the gateway's server-side journal, so the player is asked
   // for a credential first and told afterwards, exactly as a real client refused at
   // the socket would.
-  const refusal = forwardsIntoDeepLayer({ essid, target, port })
-    ? null
-    : lanReach(essid, target, port);
+  // Their own box first, because it is the one address on the LAN the generator does
+  // not describe: it has a real filesystem rather than a seeded one, and the pidfile
+  // that says whether the door is open is sitting in it.
+  const ownSource = ownBoxSource({ target, ownIp: wlan0.ipv4 });
+  const refusal = ownSource !== null
+    ? ownDaemonListening(env.fs.root(), port)
+      ? null
+      : unreachable(target, port, REACH_REASON.refused)
+    : forwardsIntoDeepLayer({ essid, target, port })
+      ? null
+      : lanReach(essid, target, port);
   if (refusal !== null) return refusal;
 
   return openDatabase(env, {
-    target,
+    typed: target,
+    // Their own box is held under the address it was LEASED, whichever of its three
+    // names they reached it by, so every statement after this re-resolves one machine.
+    address: ownSource === null ? target : wlan0.ipv4,
     port,
     essid,
-    sourceIp: wlan0.ipv4,
+    sourceIp: ownSource ?? wlan0.ipv4,
     named: args[1],
+    own: ownSource !== null,
   });
 };
 
