@@ -190,7 +190,7 @@ export async function* installExtraFiles(
       if (!result.ok) return result;
     }
     yield text(`Installing ${extraFile.path} ...`);
-    const result = await env.patches.write(extraFile.path, extraFile.content, {
+    const result = await env.patches.write(extraFile.path, extraFile.content(env), {
       isNew: true,
       permissions: extraFile.permissions,
     });

@@ -1,22 +1,26 @@
 /**
- * Apt package catalog — the binary/availability model's "tool → package"
- * knowledge (Slice 2: the `apt install <pkg>` hint).
+ * Apt package catalog — what each package IS: the binaries it provides, which of
+ * them are daemons, and the data files it lays down beside them.
  *
- * The gating decision stays purely FS-driven (`availability.ts` reads the
- * filesystem). This catalog is consulted ONLY to enrich the not-found error:
- * `bash: nmap: command not found. Install with: apt install nmap`. Producing
- * that hint inherently needs to know which package ships a given binary — that
- * lookup is what lives here.
+ * Whether a command RUNS is never decided here. That stays purely FS-driven
+ * (`availability.ts` reads the filesystem), so removing a binary makes its command
+ * not-found again with no list to keep in sync. This catalog answers the two
+ * questions the filesystem cannot: which package to name in the not-found hint
+ * (`bash: nmap: command not found. Install with: apt install nmap`), and what an
+ * install should put on the box in the first place.
  *
- * Ported from legacy `src/commands/availability.ts` (`APT_PACKAGES`). `extraFiles`
- * has since landed — a package can ship data files as well as binaries — while
- * `description` / `version` arrive with the version-and-patch work. The mapping
- * itself is faithful: these are the packages whose binaries the connectivity arc
- * and later exploit chains depend on.
+ * Ported from legacy `src/commands/availability.ts` (`APT_PACKAGES`); `description`
+ * / `version` arrive with the version-and-patch work. The mapping itself is
+ * faithful: these are the packages whose binaries the connectivity arc and later
+ * exploit chains depend on.
  */
 
 import type { AbsPath } from '../types';
 import type { FilePermissions } from '../filesystem/types';
+import type { CommandEnv } from './types';
+import { DATADIR_FILE } from '../generation/baseFs';
+import { DATADIR_PATH } from '../mysql/datadir';
+import { ownDatabase } from '../mysql/ownDatabase';
 import {
   DEFAULT_WORDLIST,
   formatWordlist,
@@ -36,7 +40,13 @@ import {
  *  curate. */
 export type AptExtraFile = {
   readonly path: AbsPath;
-  readonly content: string;
+  /** The bytes to lay down, computed against the box receiving them.
+   *
+   *  A function rather than a constant because not every shipped file is the same
+   *  for every player: a wordlist is the world's and reads the same everywhere, but
+   *  a database is its owner's, drawn from their identity and answering to their
+   *  own root password. */
+  readonly content: (env: CommandEnv) => string;
   readonly permissions: FilePermissions;
 };
 
@@ -72,7 +82,7 @@ export const APT_PACKAGES: readonly AptPackage[] = [
     extraFiles: [
       {
         path: WORDLIST_PATH,
-        content: formatWordlist(DEFAULT_WORDLIST),
+        content: () => formatWordlist(DEFAULT_WORDLIST),
         permissions: WORDLIST_PERMISSIONS,
       },
     ],
@@ -82,7 +92,7 @@ export const APT_PACKAGES: readonly AptPackage[] = [
     extraFiles: [
       {
         path: DIRLIST_PATH,
-        content: formatDirlist(DEFAULT_DIRLIST),
+        content: () => formatDirlist(DEFAULT_DIRLIST),
         permissions: DIRLIST_PERMISSIONS,
       },
     ],
@@ -92,7 +102,29 @@ export const APT_PACKAGES: readonly AptPackage[] = [
   // and the daemon that makes yours one. A player who installed `mysql` and then
   // had to find out what the SERVER package was called would be reading a
   // catalogue to learn a name the world never says out loud.
-  { name: 'mysql', binaries: ['mysql', 'mysqld'], daemons: ['mysqld'] },
+  {
+    name: 'mysql',
+    binaries: ['mysql', 'mysqld'],
+    daemons: ['mysqld'],
+    // The daemon arrives with a database to serve, the way hydra arrives with a
+    // wordlist to try. Bought rather than shipped from boot: a fresh box has nothing
+    // that could open one, and running a database is meant to be a choice with a
+    // consequence — you installed it, you started it, you are now a target.
+    extraFiles: [
+      {
+        path: DATADIR_PATH,
+        content: (env) =>
+          JSON.stringify(
+            ownDatabase({
+              ownerKeyHex: env.identity.publicKeyHex,
+              hostname: env.hostname,
+              fs: env.fs.root(),
+            }),
+          ),
+        permissions: DATADIR_FILE,
+      },
+    ],
+  },
   { name: 'redis-tools', binaries: ['rediscli'] },
   { name: 'lynx' },
   { name: 'apache2', daemons: ['apache2'] },
