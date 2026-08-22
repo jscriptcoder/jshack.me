@@ -22,7 +22,7 @@ import { parseMysqlDatabase } from '../mysql/types';
 import { accountIn, accountsIn } from '../sessions/passwdAccount';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 import { apt, installExtraFiles, installPackageLibraries } from './apt';
-import { APT_PACKAGES } from './aptPackages';
+import { APT_PACKAGES } from '../packages/aptPackages';
 import {
   DEFAULT_WORDLIST,
   formatWordlist,

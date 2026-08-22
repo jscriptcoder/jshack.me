@@ -9,15 +9,21 @@
  * (`bash: nmap: command not found. Install with: apt install nmap`), and what an
  * install should put on the box in the first place.
  *
+ * It lives BELOW the command layer because it is world data rather than a command's
+ * private table: the world generator reads it to decide which programs a box that
+ * runs a service carries, and a catalog that could only be read from inside `apt`
+ * would have to be restated wherever else a box is built. Nothing here imports
+ * `commands/` — which is why `AptExtraFile.content` takes a narrowed
+ * `PackageFileContext` rather than the whole command environment.
+ *
  * Ported from legacy `src/commands/availability.ts` (`APT_PACKAGES`); `description`
  * / `version` arrive with the version-and-patch work. The mapping itself is
  * faithful: these are the packages whose binaries the connectivity arc and later
  * exploit chains depend on.
  */
 
-import type { AbsPath } from '../types';
-import type { FilePermissions } from '../filesystem/types';
-import type { CommandEnv } from './types';
+import type { AbsPath, PlayerKeyHex } from '../types';
+import type { Directory, FilePermissions } from '../filesystem/types';
 import { DATADIR_FILE } from '../generation/baseFs';
 import { DATADIR_PATH } from '../mysql/datadir';
 import { ownDatabase } from '../mysql/ownDatabase';
@@ -46,8 +52,24 @@ export type AptExtraFile = {
    *  for every player: a wordlist is the world's and reads the same everywhere, but
    *  a database is its owner's, drawn from their identity and answering to their
    *  own root password. */
-  readonly content: (env: CommandEnv) => string;
+  readonly content: (box: PackageFileContext) => string;
   readonly permissions: FilePermissions;
+};
+
+/**
+ * What a shipped file is computed against: the box receiving it, narrowed to the
+ * three things a package's bytes can ask about.
+ *
+ * Narrow DELIBERATELY, rather than taking the whole command environment. This
+ * catalog is world data — the world generator reads it to decide what a box
+ * carries — and a package whose content could reach the shell would make that data
+ * depend on the layer above it. `CommandEnv` satisfies this shape structurally, so
+ * `apt` still passes its own env through unchanged.
+ */
+export type PackageFileContext = {
+  readonly identity: { readonly publicKeyHex: PlayerKeyHex };
+  readonly hostname: string;
+  readonly fs: { readonly root: () => Directory };
 };
 
 /** One installable apt package. `binaries` defaults to `[name]` when the
@@ -113,12 +135,12 @@ export const APT_PACKAGES: readonly AptPackage[] = [
     extraFiles: [
       {
         path: DATADIR_PATH,
-        content: (env) =>
+        content: (box) =>
           JSON.stringify(
             ownDatabase({
-              ownerKeyHex: env.identity.publicKeyHex,
-              hostname: env.hostname,
-              fs: env.fs.root(),
+              ownerKeyHex: box.identity.publicKeyHex,
+              hostname: box.hostname,
+              fs: box.fs.root(),
             }),
           ),
         permissions: DATADIR_FILE,
