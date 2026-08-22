@@ -3,12 +3,20 @@
 **Branch**: one `feat/d6-*` per slice, except slice 3, which outgrew one and landed as three —
 `feat/d6-mysql-prompt` (the door), `feat/d6-mysql-verbs` (the statements), then
 `feat/d6-mysql-credentials` (the account list), each stacked on the one before. Slice 4 landed on
-`feat/d6-mysql-writes`; slice 5 is on `feat/d6-mysql-deep`.
-**Status**: Active — slices 1, 2, 3 and 4 LANDED (v0.158.0 #434 `29bc042`; v0.159.0 #437
+`feat/d6-mysql-writes`, slice 5 on `feat/d6-mysql-deep`, slice 6 on `feat/d6-mysql-own`. Slice 6b
+takes one branch per commit, since each is a separately reviewable claim.
+**Status**: Active — slices 1 through 6 ALL LANDED (v0.158.0 #434 `29bc042`; v0.159.0 #437
 `a6bdead`; v0.160.0-v0.162.0 #438 `04beaa4`, #439 `36e1ae0`, #440 `b058621`; v0.163.0 #441
-`3222dbd`), slice 1's mutation debt PAID (#435 `f1c4dd6`, #436 `8add9fa`). **Slice 5 IS NEXT**, on
-`feat/d6-mysql-deep` — the vantage where the interesting boxes live, and where criterion 1's `-p`
-stops being inert.
+`3222dbd`; v0.166.0 #442 `29bba64`; v0.167.0 #443 `ec1982d8`), slice 1's mutation debt PAID (#435
+`f1c4dd6`, #436 `8add9fa`). Slice 6b commit 1 LANDED (v0.168.0 #444 `afb1a88a`), its docs on `main`
+as `bd9af1ac`.
+
+Slice 6b commit 2 LANDED — the end-to-end evidence, 8 tests and no production change, with
+criterion 6's `nmap` clause amended to the shared reader and its remaining half left in §9.
+
+**SLICE 6b COMMIT 3 IS NEXT** — the two apache-flavoured `httpd.conf` templates, rewritten
+nginx-flavoured so a generated webserver's config, its COMMAND column and its `/usr/sbin` name one
+program. Then slice 7.
 
 Slice 3 was grilled to 21 criteria (`32ef71b`) and landed as three PRs in this order:
 
@@ -1697,7 +1705,12 @@ slice. Under the rule above it resolves itself with no second decision — the d
 *What it buys*
 
 6. On a box you have rooted that serves http: `systemctl stop nginx` shuts the port, `status` turns
-   `●` → `○`, a following `nmap` no longer reports it, and `start` brings it back
+   `●` → `○`, `readOpenPorts` no longer reports it, and `start` brings it back. **Amended
+   2026-08-22** from "a following `nmap` no longer reports it": an own-LAN `nmap` resolves a
+   sibling's ports from `buildRemoteHostFs` with NO journal replayed (`nmap.ts:323`), so it cannot
+   see any journal row — a stop, or the planted door §9 already records. The oracle is therefore
+   the reader `nmap`'s display and the server's scan action BOTH run, which is the whole of what
+   this slice can honestly close; see "the half this does not close" below
 7. The same for `mysqld` on a database box, and the stop survives a reboot — the pidfile is a patch
    row like every other
 8. `apt list --installed` on such a box names the packages it carries, with no change to `apt`
@@ -1718,13 +1731,95 @@ slice. Under the rule above it resolves itself with no second decision — the d
 
 #### Commits
 
-1. **A box carries what it runs** — the rule in `remoteHostFs.ts`, driven off the same
-   `hostServices` draw the pidfiles at `:194` already follow. Criteria 1-5, 10-12
+1. **A box carries what it runs** ✔ LANDED (v0.168.0, #444, `afb1a88a`) — the rule in
+   `remoteHostFs.ts`, driven off the same `hostServices` draw the pidfiles at `:194` already
+   follow. Criteria 1-5, 10-12
 2. **A door you can shut** — the end-to-end evidence on a rooted generated box. Expected to need NO
    production change: the mechanism is already there, and this is the first time anything proves it
    over a box the world generated. If that expectation is wrong, the gap is the interesting part of
    the slice. Criteria 6-9
 3. **The config names the program** — the two `httpd.conf` templates. Criterion 13
+
+#### The half this does not close
+
+A door that shuts is invisible to the tool built to see it. `nmap` resolves an own-LAN sibling from
+the pristine seed, so the defender who closed port 80 still sees it open from their own box — and a
+generated box carries no `nmap` (only the aircrack trio and `systemctl`), so the confirming scan
+necessarily comes from a box that replays nothing. Standing ON the target still tells the truth:
+`ps`, `systemctl status` and every other reader run over the materialized tree.
+
+This PREDATES the slice — `v2/docs/conventions-and-gotchas.md` §9 has carried it since D5's Act 14,
+where a planted listener was the symptom. Commit 1 only gave it a second way to bite. The fix has to
+be SERVER-side (`listPatches` is gated on an active session, so a client cannot read the journal of
+a machine it holds no session on), mirroring the `resolveInnerGatewayScan` action `nmap` already
+routes an inner gateway through, and it opens a design call first: single-IP scans only, matching
+that precedent, or batch a range — a `/24` would otherwise resolve up to 253 journals. Owner chose
+2026-08-22 to leave it in §9 rather than name it a slice here, so it stays backlog until it is
+picked up on its own terms with its own wire-check.
+
+#### Commit 2 as-built
+
+`src/core/services/generatedBoxDoors.test.ts` — 8 tests, NO production change, exactly as this plan
+predicted. The suite went 3335 → 3343 and nothing else moved.
+
+What it adds that nothing else had: every `systemctl` test before it built its own `/var/run` and
+its own `/usr/sbin`, so it established what the command does given a box in a shape the TEST chose.
+A generated box's shape is chosen by a seed — which services it runs, which binaries it therefore
+holds, which ports its pidfiles claim. These tests regenerate the tree from the ESSID, run the real
+commands, and REPLAY each step's patch onto the tree the next step reads, which is what
+`resolveActiveRoot` does for a session on a remote box. A spy patch API would have left every step
+reading the same pristine tree and every assertion passing for the wrong reason.
+
+Proven: the web port of a generated box closes and reopens; the other doors on that box are
+untouched by the stop; a database box's port closes; a stop survives a reboot (proved by
+REGENERATING the base and replaying the row, so nothing is remembered between the two trees but the
+patch); a guest may look and may not shut; `apt list --installed` names `mysql` and never `apache2`;
+a deep host's forced `sshd:22` resolves its unit and shuts; and a deep host that serves the web can
+have that door shut too — the rule reaches the deep layer through `buildRemoteHostFs` rather than by
+being told about it.
+
+**Evidence.** Mutation testing is `N/A` — the commit changes no production code, so no score can
+move and the pre-existing ones stand. The proportionate substitute is stronger for the question
+actually being asked: with commit 1's rule stripped out of `remoteHostFs.ts`, **7 of the 8 fail**.
+The survivor is the deep-host forced-`sshd` test, correctly — `sshd` is base image and never
+depended on the rule. Gates: 3343/3343, `tsc -b` clean, `eslint .` clean, gate 5 `N/A`. No version
+bump: the slice bumped once, at commit 1.
+
+#### Commit 1 as-built (v0.168.0, #444, squashed onto `main` as `afb1a88a`)
+
+Four commits: `3b02c067` (slice 6 close-out), `63155616` (the grill above), `32688c36` (the
+refactor), `c3e4a9dc` (the feature). 9 files, +358/-21, with `aptPackages.ts` tracked as a rename.
+
+**The rule landed as one union** (`binariesForService`, `packages/aptPackages.ts`): every package
+whose name matches the service or whose `daemons` names the service's `daemonName(spec)`, each
+binary keeping apt's own destination. `remoteHostFs.ts` splits the result on `isDaemon` and appends
+tools to `/usr/bin`, daemons to `/usr/sbin` — additively, so `SYSTEM_DAEMON_NAMES` still ships
+everywhere.
+
+**A layering fix came first, as its own commit.** `binariesForService` reads the apt catalog, so
+the first cut had `generation/` importing `commands/` — the first time anything in the codebase did
+that. Moving the catalog alone would not have fixed it: its one tie upward was
+`AptExtraFile.content: (env: CommandEnv) => string`. The three content functions touch exactly three
+fields, so the parameter became a locally declared `PackageFileContext`; `CommandEnv` satisfies it
+structurally, and `apt` passes its own env through unchanged. `src/core/packages/` now imports
+nothing from `src/core/commands/`, and neither does `src/core/generation/`. Residual and deliberate:
+`packages/` still imports `generation/baseFs` and `mysql/ownDatabase` — a diamond, not a cycle,
+since those edges reach generation's primitives and never a composer. The refactor was verified in
+isolation (`git stash push --keep-index`): `tsc -b`, `eslint .`, 3327/3327 green with the feature
+stashed.
+
+**Evidence**: RED 3 failures (`expected undefined to be defined`); 3335/3335 tests over 162 files;
+`tsc -b` and `eslint .` clean; mutation `packages/aptPackages.ts` 87/88 (98.86%),
+`generation/remoteHostFs.ts` 106/111 (95.50%). Gate 5 `N/A`.
+
+Two survivors were real and got killed: both dropped a `.filter(...)`, putting tools and daemons in
+each other's directories with nothing noticing. Every positive assertion now carries its negative,
+and the mysql box — the only one shipping both halves — pins the split in both directions. The rest
+are five pre-existing probability rolls this slice never edited, plus one equivalent (`?? []` →
+a sentinel string, reachable only where `.includes()` can only be `false`).
+
+Criterion 5 is carried by the existing generation sweeps, population counts and byte-for-byte hash
+tests, all still green rather than re-asserted.
 
 **Class**: Behavior change. **Skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
 **Gates**: no `api/` change anywhere, so gate 5 is `N/A` throughout. Version bumped once for the
