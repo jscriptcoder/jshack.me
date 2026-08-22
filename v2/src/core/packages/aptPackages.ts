@@ -162,3 +162,52 @@ const binaryToPackage: ReadonlyMap<string, string> = new Map(
 /** The apt package that provides `binary`, or `undefined` if it isn't a known
  *  apt tool (a system utility, a builtin, or simply unknown). */
 export const packageForBinary = (binary: string): string | undefined => binaryToPackage.get(binary);
+
+/** A package's binaries, defaulted to its own name — the same shape the installer
+ *  lays down, so a caller never has to remember the default. */
+const binariesOf = (pkg: AptPackage): readonly string[] => pkg.binaries ?? [pkg.name];
+
+/** Which of a package's binaries are daemons — none, for the many that ship only a
+ *  tool. Paired with `binariesOf` so neither default has to be remembered twice. */
+const daemonsOf = (pkg: AptPackage): readonly string[] => pkg.daemons ?? [];
+
+/** One binary a box carries, and whether apt would file it as a daemon — which is
+ *  the whole of what decides `/usr/sbin` over `/usr/bin`. */
+export type ServiceBinary = {
+  readonly binary: string;
+  readonly isDaemon: boolean;
+};
+
+/**
+ * The binaries a machine RUNNING `service` carries: every package that either
+ * shares the service's name or ships its daemon.
+ *
+ * Read off the same catalog `apt install` installs from rather than restated
+ * wherever a box is built, so a package that grows a binary grows it on every box
+ * already running that service — and the world generator never has to be told
+ * which package a door belongs to.
+ *
+ * The union is also what lets the two services whose daemons ship with the base
+ * image fall out with no case of their own. Nothing in this catalog claims `sshd`
+ * or `vsftpd`, so ssh matches nothing at all, ftp matches on its NAME and gets
+ * only the client, and http and mysql match on their daemon.
+ *
+ * `extraFiles` are deliberately absent from this answer. The mysql package ships a
+ * datadir drawn from the PLAYER's identity; a generated box already holds its own,
+ * and laying the package's over it would overwrite every database in the world.
+ */
+export const binariesForService = ({
+  service,
+  daemon,
+}: {
+  readonly service: string;
+  readonly daemon: string;
+}): readonly ServiceBinary[] =>
+  APT_PACKAGES.filter(
+    (pkg) => pkg.name === service || daemonsOf(pkg).includes(daemon),
+  ).flatMap((pkg) =>
+    binariesOf(pkg).map((binary) => ({
+      binary,
+      isDaemon: daemonsOf(pkg).includes(binary),
+    })),
+  );
