@@ -30,7 +30,7 @@ deleted and the as-built lives in
 [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7 (the daemon descriptor,
 the single "what is running here" policy, the `env.fs` snapshot) and §9, with the browser run as
 Act 13 of [`e2e-shared-network-verification.md`](../v2/docs/e2e-shared-network-verification.md).
-**D6 ✅ COMPLETE (v0.171.0)** — seven slices plus 6b, #434 onward, closed out 2026-08-23: its plan
+**D6 ✅ COMPLETE (v0.171.0)** — seven slices plus 6b, #434–#448, closed out 2026-08-23: its plan
 file is deleted and the as-built lives in
 [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7 (the four-vantage reach,
 the cross-player data write, the occupant-beats-sibling rule) and §9 (its remaining test debt).
@@ -279,7 +279,7 @@ PHASE 1 — THE DOORS  (near-term focus)
       D6 slice 5 a database on a deep layer answers   ✔ SHIPPED v0.166.0 (#442)
       D6 slice 6 a player runs their own database     ✔ SHIPPED v0.167.0 (#443)
       D6 slice 6b a generated box carries what it runs ✔ SHIPPED v0.168.0-v0.169.0 (#444/#445/#446)
-      D6 slice 7 a player reaches another's database  ✔ SHIPPED v0.170.0-v0.171.0 (#447 + close-out)
+      D6 slice 7 a player reaches another's database  ✔ SHIPPED v0.170.0-v0.171.0 (#447/#448)
   D7  rediscli                                        ← NEXT (needs grill-me)
   D8  snmpwalk / snmpset
   D9  node scripting
@@ -1896,7 +1896,7 @@ root account, so whoever cracks the box and runs `su root` is holding the databa
 already. **Slice 6b** (v0.168.0-v0.169.0) was a world-generation correction D6 made visible — a
 generated box now carries the packages for the services it runs, so its doors can be shut.
 
-**Slice 7 (v0.170.0 #447, then the close-out PR at v0.171.0) is the cross-player one, and it shipped as TWO PRs split
+**Slice 7 (v0.170.0 #447, v0.171.0 #448) is the cross-player one, and it shipped as TWO PRs split
 by vantage.** It was grilled first, and the grill changed its shape: checking the gap map cell by
 cell found THREE gaps rather than the two the one-line plan claimed, and one of them was not a
 database gap at all.
