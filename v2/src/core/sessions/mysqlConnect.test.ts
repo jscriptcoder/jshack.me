@@ -297,6 +297,74 @@ const journals = (rows: Readonly<Record<string, readonly OwnerPatchRow[]>>) =>
 const throughForward = (destination = `${DEEP.layer.host.ip}:3306`) =>
   journals({ [DEEP.gatewayMachineId]: [forwardTo(destination)] });
 
+// ─── the same WiFi: a fellow occupant's box, with nothing in between ───
+//
+// No router, no NAT, no forward — two boxes on one LAN, so the address IS the box.
+// Which makes the whole reach the occupancy table: the caller must be ON the WiFi to
+// reach anything on it, the target must still be on it, and the address each answers
+// to is the LEASE the server issued rather than anything either client claims.
+const ATTACKER_OCTET = 61;
+const ATTACKER_LAN_IP = lanAddressFor(ESSID, ATTACKER_OCTET);
+const DEFENDER_SAME_LAN_IP = lanAddressFor(ESSID, DEFENDER_OCTET);
+
+/** A generated sibling that runs a database of its own, and the octet it stands on.
+ *  A lease can land there too — nothing stops the server issuing an occupant the
+ *  address a seeded box already fills — which is the collision the merge settles. */
+const NPC_MYSQL_HOST = mysqlHostOn(ESSID);
+const NPC_MYSQL_OCTET = Number(NPC_MYSQL_HOST.ip.split('.')[3]);
+
+/** An account of the sibling's OWN database that the defender's does not also hold.
+ *  Both are drawn from the same small pools, so a shared username and password is a
+ *  real possibility — and one would prove nothing about which box answered. */
+const NPC_ONLY_ACCOUNT = (() => {
+  const mine = new Set(
+    DEFENDER_DATABASE.credentials.map((credential) => `${credential.username}:${credential.passwordHash}`),
+  );
+  const found = databaseOn(NPC_MYSQL_HOST).credentials.flatMap((credential) => {
+    const password = ALL_GENERATED_PASSWORDS.find((word) => md5(word) === credential.passwordHash);
+    return password === undefined || mine.has(`${credential.username}:${credential.passwordHash}`)
+      ? []
+      : [{ username: credential.username, password }];
+  });
+  const account = found[0];
+  if (account === undefined) throw new Error('every sibling account is also the defender-s');
+  return account;
+})();
+
+const attackerOccupant = (attackerKey: string): NatOccupantRow => ({
+  owner_key: attackerKey,
+  workstation_machine_id: 'workstation-a1b2c3d4',
+  workstation_machine_name: 'trinity-box',
+  workstation_username: 'trinity',
+  workstation_root_hash: md5('a-different-password'),
+});
+
+/** Both players on one ESSID, each holding their own lease — the defender's box the
+ *  only one with a journal, since the attacker never has to be rebuilt to attack. */
+const sameLanDeps = (
+  attackerKey: string,
+  options: {
+    readonly defenderOctet?: number;
+    readonly occupants?: readonly NatOccupantRow[];
+    readonly over?: Partial<MysqlConnectDeps>;
+  } = {},
+) =>
+  makeDeps({
+    findPatches: journals({ [DEFENDER_WS]: [defenderMysqld, defenderDatadir] }),
+    listOccupantsByEssid: async () => ({
+      data: options.occupants ?? [defenderOccupant, attackerOccupant(attackerKey)],
+      error: null,
+    }),
+    listLeasesByEssid: async () => ({
+      data: [
+        { owner_key: DEFENDER.publicKeyHex, octet: options.defenderOctet ?? DEFENDER_OCTET },
+        { owner_key: attackerKey, octet: ATTACKER_OCTET },
+      ],
+      error: null,
+    }),
+    ...options.over,
+  });
+
 describe('handleMysqlConnect', () => {
   it('opens the database for one of its own accounts', async () => {
     const identity = generateIdentity();
@@ -890,6 +958,263 @@ describe('handleMysqlConnect', () => {
         status: 200,
         body: { ok: true, hostname: DEEP.layer.host.hostname },
       });
+    });
+  });
+
+  describe('a fellow occupant, on the WiFi they are both connected to', () => {
+    it('opens their database with no router in between', async () => {
+      const identity = generateIdentity();
+      const { deps } = sameLanDeps(identity.publicKeyHex);
+
+      const response = await handleMysqlConnect(
+        await signedConnect(identity, {
+          target_ip: DEFENDER_SAME_LAN_IP,
+          username: DEFENDER_DB_ACCOUNT.username,
+          password: DEFENDER_DB_ACCOUNT.password,
+        }),
+        deps,
+      );
+
+      expect(response).toEqual({ status: 200, body: { ok: true, hostname: DEFENDER_HOSTNAME } });
+    });
+
+    it("records the attempt on the defender's box at the address the LEASE says", async () => {
+      const identity = generateIdentity();
+      const { deps, upsertPatch } = sameLanDeps(identity.publicKeyHex);
+
+      await handleMysqlConnect(
+        await signedConnect(identity, {
+          target_ip: DEFENDER_SAME_LAN_IP,
+          username: DEFENDER_DB_ACCOUNT.username,
+          password: DEFENDER_DB_ACCOUNT.password,
+          source_ip: '10.0.0.1',
+        }),
+        deps,
+      );
+
+      // The defender's log is their evidence, so the address in it is the one the
+      // server issued the attacker, never the one the attacker's client typed. On this
+      // vantage that is a LEASE rather than a NAT address: the box really did see the
+      // attacker's own address, because there is nothing in between to rewrite it.
+      expect(upsertPatch).toHaveBeenCalledWith({
+        writer_key: DEFENDER.publicKeyHex,
+        machine_id: DEFENDER_WS,
+        path: MYSQL_LOG_PATH,
+        content: `${formatMysqlAttemptLine({
+          outcome: 'success',
+          user: DEFENDER_DB_ACCOUNT.username,
+          fromIp: ATTACKER_LAN_IP,
+          hostname: DEFENDER_HOSTNAME,
+          time: asGameTime(FIXED_NOW),
+          pid: derivePid(FIXED_NOW),
+          database: DEFENDER_DATABASE.name,
+        })}\n`,
+        owner: MYSQL_LOG_OWNER,
+        permissions: MYSQL_LOG_PERMISSIONS,
+        node_type: 'file',
+      });
+    });
+
+    it('answers as the player who took over an address the generator also filled', async () => {
+      const identity = generateIdentity();
+      const { deps } = sameLanDeps(identity.publicKeyHex, { defenderOctet: NPC_MYSQL_OCTET });
+
+      const response = await handleMysqlConnect(
+        await signedConnect(identity, {
+          target_ip: NPC_MYSQL_HOST.ip,
+          username: DEFENDER_DB_ACCOUNT.username,
+          password: DEFENDER_DB_ACCOUNT.password,
+        }),
+        deps,
+      );
+
+      // A real occupant beats a generated sibling on one octet — the precedence `nmap`
+      // already renders, so the box a player can see is the box that answers.
+      expect(response).toEqual({ status: 200, body: { ok: true, hostname: DEFENDER_HOSTNAME } });
+    });
+
+    it("refuses the generated sibling's own account at an address a player has taken", async () => {
+      const identity = generateIdentity();
+      const { deps } = sameLanDeps(identity.publicKeyHex, { defenderOctet: NPC_MYSQL_OCTET });
+
+      const response = await handleMysqlConnect(
+        await signedConnect(identity, {
+          target_ip: NPC_MYSQL_HOST.ip,
+          username: NPC_ONLY_ACCOUNT.username,
+          password: NPC_ONLY_ACCOUNT.password,
+        }),
+        deps,
+      );
+
+      // The sibling is not merely outranked, it is GONE from that address: its own
+      // credential opens nothing there, which is what separates a merge from a
+      // fallback that would try the seeded box next.
+      expect(response).toEqual({
+        status: 401,
+        body: { error: 'invalid_credentials', from: ATTACKER_LAN_IP },
+      });
+    });
+
+    it('reaches nothing on a WiFi the caller is not on', async () => {
+      const identity = generateIdentity();
+      const { deps, upsertPatch } = sameLanDeps(identity.publicKeyHex, {
+        occupants: [defenderOccupant],
+      });
+
+      const response = await handleMysqlConnect(
+        await signedConnect(identity, {
+          target_ip: DEFENDER_SAME_LAN_IP,
+          username: DEFENDER_DB_ACCOUNT.username,
+          password: DEFENDER_DB_ACCOUNT.password,
+        }),
+        deps,
+      );
+
+      // The LAN boundary: you reach a box on a WiFi by being on that WiFi. A caller who
+      // holds no occupancy row sees only the generated world, which has no host here.
+      expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+      expect(upsertPatch).not.toHaveBeenCalled();
+    });
+
+    it('loses the box when its owner leaves the WiFi, lease or no lease', async () => {
+      const identity = generateIdentity();
+      const { deps } = sameLanDeps(identity.publicKeyHex, {
+        occupants: [attackerOccupant(identity.publicKeyHex)],
+      });
+
+      const response = await handleMysqlConnect(
+        await signedConnect(identity, {
+          target_ip: DEFENDER_SAME_LAN_IP,
+          username: DEFENDER_DB_ACCOUNT.username,
+          password: DEFENDER_DB_ACCOUNT.password,
+        }),
+        deps,
+      );
+
+      // `nmcli disconnect` is the defence on this vantage. The lease outlives the
+      // occupancy row deliberately, so the address is still theirs — but occupancy IS
+      // the reach here, and without it the box is not on the LAN to be found.
+      expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    });
+
+    it('does not hand the caller their own leased address as somebody to attack', async () => {
+      const identity = generateIdentity();
+      const { deps } = sameLanDeps(identity.publicKeyHex);
+
+      const response = await handleMysqlConnect(
+        await signedConnect(identity, {
+          target_ip: ATTACKER_LAN_IP,
+          username: DEFENDER_DB_ACCOUNT.username,
+          password: DEFENDER_DB_ACCOUNT.password,
+        }),
+        deps,
+      );
+
+      // Your own box is the client's own-box path, which reads the real filesystem in
+      // front of the player rather than one rebuilt from an occupancy row.
+      expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    });
+
+    it('reads a store that answers with no rows at all as nobody on the WiFi', async () => {
+      const identity = generateIdentity();
+      const { deps } = sameLanDeps(identity.publicKeyHex, {
+        over: { listOccupantsByEssid: async () => ({ data: null, error: null }) },
+      });
+
+      const response = await handleMysqlConnect(
+        await signedConnect(identity, {
+          target_ip: DEFENDER_SAME_LAN_IP,
+          username: DEFENDER_DB_ACCOUNT.username,
+          password: DEFENDER_DB_ACCOUNT.password,
+        }),
+        deps,
+      );
+
+      // No rows and no error is a real answer from the store, and it means an empty
+      // WiFi rather than a broken one: the generated world is what is left.
+      expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    });
+
+    it('reads a lease store that answers with no rows as an unaddressed WiFi', async () => {
+      const identity = generateIdentity();
+      const { deps } = sameLanDeps(identity.publicKeyHex, {
+        over: { listLeasesByEssid: async () => ({ data: null, error: null }) },
+      });
+
+      const response = await handleMysqlConnect(
+        await signedConnect(identity, {
+          target_ip: DEFENDER_SAME_LAN_IP,
+          username: DEFENDER_DB_ACCOUNT.username,
+          password: DEFENDER_DB_ACCOUNT.password,
+        }),
+        deps,
+      );
+
+      expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    });
+
+    it('reaches nobody while the caller holds no lease of their own', async () => {
+      const identity = generateIdentity();
+      const { deps } = sameLanDeps(identity.publicKeyHex, {
+        over: {
+          listLeasesByEssid: async () => ({
+            data: [{ owner_key: DEFENDER.publicKeyHex, octet: DEFENDER_OCTET }],
+            error: null,
+          }),
+        },
+      });
+
+      const response = await handleMysqlConnect(
+        await signedConnect(identity, {
+          target_ip: DEFENDER_SAME_LAN_IP,
+          username: DEFENDER_DB_ACCOUNT.username,
+          password: DEFENDER_DB_ACCOUNT.password,
+        }),
+        deps,
+      );
+
+      // The target is plainly there, but a caller with no address on this LAN is a
+      // caller the box could not have answered — and one whose attempt could only be
+      // logged at an address the server would have to invent.
+      expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    });
+
+    it('reports an occupancy the store could not read as a failure, not as an empty WiFi', async () => {
+      const identity = generateIdentity();
+      const { deps } = sameLanDeps(identity.publicKeyHex, {
+        over: { listOccupantsByEssid: async () => ({ data: null, error: { message: 'down' } }) },
+      });
+
+      const response = await handleMysqlConnect(
+        await signedConnect(identity, {
+          target_ip: DEFENDER_SAME_LAN_IP,
+          username: DEFENDER_DB_ACCOUNT.username,
+          password: DEFENDER_DB_ACCOUNT.password,
+        }),
+        deps,
+      );
+
+      // Falling through to the generated world on a read failure would route a player's
+      // statements onto a seeded box standing where a real player is.
+      expect(response).toEqual({ status: 500, body: { error: 'occupants_lookup_failed' } });
+    });
+
+    it('reports leases the store could not read as a failure, not as an unaddressed LAN', async () => {
+      const identity = generateIdentity();
+      const { deps } = sameLanDeps(identity.publicKeyHex, {
+        over: { listLeasesByEssid: async () => ({ data: null, error: { message: 'down' } }) },
+      });
+
+      const response = await handleMysqlConnect(
+        await signedConnect(identity, {
+          target_ip: DEFENDER_SAME_LAN_IP,
+          username: DEFENDER_DB_ACCOUNT.username,
+          password: DEFENDER_DB_ACCOUNT.password,
+        }),
+        deps,
+      );
+
+      expect(response).toEqual({ status: 500, body: { error: 'leases_lookup_failed' } });
     });
   });
 });

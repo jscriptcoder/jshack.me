@@ -13,6 +13,12 @@ import { accountsIn } from './passwdAccount';
 import { sweepAccounts } from '../wordlist/passwordSweep';
 import { parseMysqlDatabase, type MysqlDatabase } from '../mysql/types';
 import { md5 } from '../generation/md5';
+import { workstationGuestPassword } from '../generation/workstationFs';
+import { lanAddressFor } from '../network/lanAddress';
+import { playerDatabaseOn } from '../../test/factories/lanDatabase';
+import { DATADIR_PATH } from '../mysql/datadir';
+import { formatPidfileContent, pidfilePath } from '../services/pidfile';
+import type { NatOccupantRow } from '../network/resolvePublicTarget';
 import {
   AUTH_LOG_OWNER,
   AUTH_LOG_PATH,
@@ -243,6 +249,10 @@ const makeDeps = (over: DepOverrides = {}) => {
     now: () => FIXED_NOW,
     findActiveSession,
     findPatches,
+    // Nobody else is on this WiFi by default: most of these tests are the caller's own
+    // generated world, where every box at an address is a seeded sibling.
+    listOccupantsByEssid: async () => ({ data: [], error: null }),
+    listLeasesByEssid: async () => ({ data: [], error: null }),
     listPathPatches,
     readAuthLog,
     upsertPatch,
@@ -1731,5 +1741,309 @@ describe('the database difficulty curve (which database accounts a starting word
     // is the mistake this test exists to prevent.
     expect(doorsOpenedAt('root').length).toBeLessThan(doorsOpenedAt('readonly').length);
     expect(doorsOpenedAt('readonly').length).toBeLessThan(appAccountsOpened);
+  });
+});
+
+/**
+ * A sweep against a FELLOW OCCUPANT of the same WiFi.
+ *
+ * This tool resolved its target on the caller's own GENERATED LAN, which meant every
+ * box it could attack was a seeded one: a player standing next to you was, to hydra,
+ * an address with nothing at it. The merge that `nmap`, `ssh` and `nc` already do —
+ * occupancy for the boundary, the lease for the address, a real occupant beating a
+ * generated sibling on one octet — lands here for EVERY service, not just for the
+ * database door that needed it. A tool that answered by a different rule depending on
+ * the service named would be the worst of both.
+ */
+const DEFENDER = generateIdentity();
+const DEFENDER_OCTET = 84;
+const DEFENDER_LAN_IP = lanAddressFor(ESSID, DEFENDER_OCTET);
+const DEFENDER_WS = 'workstation-c3d4e5f6';
+const DEFENDER_HOSTNAME = 'nebuchadnezzar';
+/** The password the player CHOSE for their box. No pool holds it, so no wordlist the
+ *  game hands out reaches root — which is why the guest account below is the door. */
+const DEFENDER_ROOT_PW = 'correct-horse-battery-staple';
+/** The guest account's password is drawn from the crackable pool and seeded from the
+ *  owner's pubkey alone, so it is the one account on a player's box a stranger can
+ *  reach with a wordlist. */
+const DEFENDER_GUEST_PW = workstationGuestPassword(DEFENDER.publicKeyHex);
+
+const ATTACKER_OCTET = 61;
+const ATTACKER_LAN_IP = lanAddressFor(ESSID, ATTACKER_OCTET);
+
+const defenderOccupant: NatOccupantRow = {
+  owner_key: DEFENDER.publicKeyHex,
+  workstation_machine_id: DEFENDER_WS,
+  workstation_machine_name: DEFENDER_HOSTNAME,
+  workstation_username: 'neo',
+  workstation_root_hash: md5(DEFENDER_ROOT_PW),
+};
+
+const attackerOccupantFor = (attackerKey: string): NatOccupantRow => ({
+  owner_key: attackerKey,
+  workstation_machine_id: 'workstation-a1b2c3d4',
+  workstation_machine_name: 'trinity-box',
+  workstation_username: 'trinity',
+  workstation_root_hash: md5('a-different-password'),
+});
+
+const defenderRow = (path: string, content: string): OwnerPatchRow => ({
+  path: asAbsPath(path),
+  content,
+  owner: 'root',
+  permissions: null,
+  node_type: 'file',
+  updated_at: '2026-08-09T10:00:00.000Z',
+  writer_key: DEFENDER.publicKeyHex,
+});
+
+const defenderSshd = defenderRow('/var/run/sshd.pid', 'sshd:port=22');
+const { database: DEFENDER_DATABASE, credential: DEFENDER_DB_ACCOUNT } =
+  playerDatabaseOn(defenderOccupant);
+const defenderMysqld = defenderRow(
+  pidfilePath(SERVICE_CATALOG.mysql),
+  formatPidfileContent(SERVICE_CATALOG.mysql, SERVICE_CATALOG.mysql.defaultPort),
+);
+const defenderDatadir = defenderRow(DATADIR_PATH, JSON.stringify(DEFENDER_DATABASE));
+
+const sameLanDeps = (
+  identity: ReturnType<typeof generateIdentity>,
+  options: {
+    readonly wordlist?: readonly string[];
+    readonly defenderRows?: readonly OwnerPatchRow[];
+    readonly defenderOctet?: number;
+    readonly occupants?: readonly NatOccupantRow[];
+    readonly over?: Partial<HydraCrackDeps>;
+  } = {},
+) => {
+  const journals: Readonly<Record<string, readonly OwnerPatchRow[]>> = {
+    [DEFENDER_WS]: options.defenderRows ?? [defenderSshd, defenderMysqld, defenderDatadir],
+  };
+  const { deps, upsertPatch } = makeDeps({
+    wordlist: options.wordlist ?? [DEFENDER_GUEST_PW],
+    findPatches: vi.fn<HydraCrackDeps['findPatches']>(async ({ machine_id }) => ({
+      data: journals[machine_id] ?? [],
+      error: null,
+    })),
+    listOccupantsByEssid: async () => ({
+      data: options.occupants ?? [defenderOccupant, attackerOccupantFor(identity.publicKeyHex)],
+      error: null,
+    }),
+    listLeasesByEssid: async () => ({
+      data: [
+        { owner_key: DEFENDER.publicKeyHex, octet: options.defenderOctet ?? DEFENDER_OCTET },
+        { owner_key: identity.publicKeyHex, octet: ATTACKER_OCTET },
+      ],
+      error: null,
+    }),
+    ...options.over,
+  });
+  return { deps, upsertPatch };
+};
+
+describe('sweeping a fellow occupant of the same WiFi', () => {
+  it("earns a shell account on a real player's box, which the generated LAN never held", async () => {
+    const identity = generateIdentity();
+    const { deps } = sameLanDeps(identity);
+
+    const { status, body } = await handleHydraCrack(
+      await signedCrack(identity, { target_ip: DEFENDER_LAN_IP }),
+      deps,
+    );
+
+    expect({ status, body }).toEqual({
+      status: 200,
+      body: {
+        port: 22,
+        cracked: expect.arrayContaining([{ username: 'guest', password: DEFENDER_GUEST_PW }]),
+        wordlistFound: true,
+      },
+    });
+  });
+
+  it('earns a database account on that same box, through the same tool', async () => {
+    const identity = generateIdentity();
+    const { deps } = sameLanDeps(identity, { wordlist: [DEFENDER_DB_ACCOUNT.password] });
+
+    const { status, body } = await handleHydraCrack(
+      await signedCrack(identity, { target_ip: DEFENDER_LAN_IP, service: 'mysql' }),
+      deps,
+    );
+
+    // The merge is the TARGET RESOLUTION's, not the database door's: every service in
+    // the catalog reaches a fellow occupant, which is why this arrives with the
+    // database rather than as a database feature.
+    expect({ status, body }).toEqual({
+      status: 200,
+      body: {
+        port: SERVICE_CATALOG.mysql.defaultPort,
+        cracked: expect.arrayContaining([DEFENDER_DB_ACCOUNT]),
+        wordlistFound: true,
+      },
+    });
+  });
+
+  it("leaves the sweep on the occupant's own log, under their key, at the leased address", async () => {
+    const identity = generateIdentity();
+    const { deps, upsertPatch } = sameLanDeps(identity);
+
+    await handleHydraCrack(
+      await signedCrack(identity, { target_ip: DEFENDER_LAN_IP, source_ip: '10.0.0.1' }),
+      deps,
+    );
+
+    // The system owns its logs, so every attacker accretes into ONE row on the
+    // defender's box; the attacker's identity lives in the line's address, and that
+    // address is the LEASE the server issued rather than the claim the client sent.
+    const [written] = upsertPatch.mock.calls.map(([row]) => row);
+    expect(written?.machine_id).toBe(DEFENDER_WS);
+    expect(written?.writer_key).toBe(DEFENDER.publicKeyHex);
+    expect(written?.content).toContain(`from ${ATTACKER_LAN_IP}`);
+    expect(written?.content).not.toContain('10.0.0.1');
+  });
+
+  it('sweeps the player who took over an address the generator also filled', async () => {
+    const identity = generateIdentity();
+    const npcHost = sshHostOn(ESSID);
+    const npcOctet = Number(npcHost.ip.split('.')[3]);
+    const { deps } = sameLanDeps(identity, { defenderOctet: npcOctet });
+
+    const { status, body } = await handleHydraCrack(
+      await signedCrack(identity, { target_ip: npcHost.ip }),
+      deps,
+    );
+
+    // A real occupant beats a generated sibling on one octet — the precedence `nmap`
+    // renders and `ssh` logs in by, now the one hydra attacks by.
+    expect({ status, body }).toEqual({
+      status: 200,
+      body: {
+        port: 22,
+        cracked: expect.arrayContaining([{ username: 'guest', password: DEFENDER_GUEST_PW }]),
+        wordlistFound: true,
+      },
+    });
+  });
+
+  it('finds nothing at that address for a caller who is not on the WiFi', async () => {
+    const identity = generateIdentity();
+    const { deps, upsertPatch } = sameLanDeps(identity, { occupants: [defenderOccupant] });
+
+    const { status, body } = await handleHydraCrack(
+      await signedCrack(identity, { target_ip: DEFENDER_LAN_IP }),
+      deps,
+    );
+
+    // The LAN boundary: you attack a box on a WiFi by being on that WiFi. A caller who
+    // holds no occupancy row sees only the generated world, which has nothing here.
+    expect({ status, body }).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('loses the box when its owner leaves the WiFi, lease or no lease', async () => {
+    const identity = generateIdentity();
+    const { deps } = sameLanDeps(identity, {
+      occupants: [attackerOccupantFor(identity.publicKeyHex)],
+    });
+
+    const { status, body } = await handleHydraCrack(
+      await signedCrack(identity, { target_ip: DEFENDER_LAN_IP }),
+      deps,
+    );
+
+    expect({ status, body }).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+  });
+
+  it('does not hand the caller their own leased address as somebody to sweep', async () => {
+    const identity = generateIdentity();
+    const { deps } = sameLanDeps(identity);
+
+    const { status, body } = await handleHydraCrack(
+      await signedCrack(identity, { target_ip: ATTACKER_LAN_IP }),
+      deps,
+    );
+
+    expect({ status, body }).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+  });
+
+  it('reads a store that answers with no rows at all as nobody on the WiFi', async () => {
+    const identity = generateIdentity();
+    const { deps } = sameLanDeps(identity, {
+      over: { listOccupantsByEssid: async () => ({ data: null, error: null }) },
+    });
+
+    const { status, body } = await handleHydraCrack(
+      await signedCrack(identity, { target_ip: DEFENDER_LAN_IP }),
+      deps,
+    );
+
+    // No rows and no error is a real answer from the store, and it means an empty WiFi
+    // rather than a broken one: the generated world is what is left to sweep.
+    expect({ status, body }).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+  });
+
+  it('reads a lease store that answers with no rows as an unaddressed WiFi', async () => {
+    const identity = generateIdentity();
+    const { deps } = sameLanDeps(identity, {
+      over: { listLeasesByEssid: async () => ({ data: null, error: null }) },
+    });
+
+    const { status, body } = await handleHydraCrack(
+      await signedCrack(identity, { target_ip: DEFENDER_LAN_IP }),
+      deps,
+    );
+
+    expect({ status, body }).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+  });
+
+  it('sweeps nobody while the caller holds no lease of their own', async () => {
+    const identity = generateIdentity();
+    const { deps } = sameLanDeps(identity, {
+      over: {
+        listLeasesByEssid: async () => ({
+          data: [{ owner_key: DEFENDER.publicKeyHex, octet: DEFENDER_OCTET }],
+          error: null,
+        }),
+      },
+    });
+
+    const { status, body } = await handleHydraCrack(
+      await signedCrack(identity, { target_ip: DEFENDER_LAN_IP }),
+      deps,
+    );
+
+    // The target is plainly there, but a caller with no address on this LAN has none
+    // for the trace to carry, and a trace at an invented address is worse than none.
+    expect({ status, body }).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+  });
+
+  it('reports an occupancy the store could not read as a failure, not as an empty WiFi', async () => {
+    const identity = generateIdentity();
+    const { deps } = sameLanDeps(identity, {
+      over: { listOccupantsByEssid: async () => ({ data: null, error: { message: 'down' } }) },
+    });
+
+    const { status, body } = await handleHydraCrack(
+      await signedCrack(identity, { target_ip: DEFENDER_LAN_IP }),
+      deps,
+    );
+
+    // Falling through to the generated world would sweep a seeded box standing at an
+    // address a real player holds, and write the trace onto the wrong machine.
+    expect({ status, body }).toEqual({ status: 500, body: { error: 'occupants_lookup_failed' } });
+  });
+
+  it('reports leases the store could not read as a failure, not as an unaddressed LAN', async () => {
+    const identity = generateIdentity();
+    const { deps } = sameLanDeps(identity, {
+      over: { listLeasesByEssid: async () => ({ data: null, error: { message: 'down' } }) },
+    });
+
+    const { status, body } = await handleHydraCrack(
+      await signedCrack(identity, { target_ip: DEFENDER_LAN_IP }),
+      deps,
+    );
+
+    expect({ status, body }).toEqual({ status: 500, body: { error: 'leases_lookup_failed' } });
   });
 });

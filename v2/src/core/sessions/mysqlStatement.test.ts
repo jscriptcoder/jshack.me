@@ -452,6 +452,137 @@ describe("a statement on another player's database, across the world", () => {
   });
 });
 
+// ─── the same WiFi: a statement typed at a box on the other side of the room ───
+//
+// The reach the connect door proved, re-read per statement: no router, no NAT, no
+// forward, and occupancy standing in for all three. The address each player answers
+// to is the LEASE, which is why nothing here trusts a `source_ip`.
+const ATTACKER = generateIdentity();
+const ATTACKER_OCTET = 61;
+const ATTACKER_LAN_IP = lanAddressFor(ESSID, ATTACKER_OCTET);
+const DEFENDER_SAME_LAN_IP = lanAddressFor(ESSID, DEFENDER_OCTET);
+
+const attackerOccupant: NatOccupantRow = {
+  owner_key: ATTACKER.publicKeyHex,
+  workstation_machine_id: 'workstation-a1b2c3d4',
+  workstation_machine_name: 'trinity-box',
+  workstation_username: 'trinity',
+  workstation_root_hash: md5('a-different-password'),
+};
+
+const sameLanDeps = (
+  rows: {
+    readonly defender?: readonly OwnerPatchRow[];
+    readonly occupants?: readonly NatOccupantRow[];
+  } = {},
+) => {
+  const journals: Readonly<Record<string, readonly OwnerPatchRow[]>> = {
+    [DEFENDER_WS]: rows.defender ?? [defenderMysqld, defenderLaddered()],
+  };
+  const upsertPatch = vi.fn<MysqlStatementDeps['upsertPatch']>(async () => ({ error: null }));
+  const deps: MysqlStatementDeps = {
+    nonceStore: freshStore,
+    findPatches: vi.fn<MysqlStatementDeps['findPatches']>(async ({ machine_id }) => ({
+      data: journals[machine_id] ?? [],
+      error: null,
+    })),
+    upsertPatch,
+    readMysqlLog: vi.fn<MysqlStatementDeps['readMysqlLog']>(async () => ({
+      data: { content: null },
+      error: null,
+    })),
+    now: () => STAMPED_AT,
+    findNetworkByPublicIp: async () => ({ data: null, error: null }),
+    listOccupantsByEssid: async () => ({
+      data: rows.occupants ?? [defenderOccupant, attackerOccupant],
+      error: null,
+    }),
+    listLeasesByEssid: async () => ({
+      data: [
+        { owner_key: DEFENDER.publicKeyHex, octet: DEFENDER_OCTET },
+        { owner_key: ATTACKER.publicKeyHex, octet: ATTACKER_OCTET },
+      ],
+      error: null,
+    }),
+    findHomeNetworkByOwnerKey: async () => ({ data: null, error: null }),
+  };
+  return { deps, upsertPatch };
+};
+
+const acrossTheRoom = async (
+  username: string,
+  password: string,
+  statement: string,
+  deps: MysqlStatementDeps,
+) =>
+  handleMysqlStatement(
+    await signedStatement(ATTACKER, {
+      target_ip: DEFENDER_SAME_LAN_IP,
+      username,
+      password,
+      statement,
+    }),
+    deps,
+  );
+
+describe("a statement on a fellow occupant's database, across the WiFi", () => {
+  it("writes the change to the DEFENDER's datadir, under the defender's own key", async () => {
+    const { deps, upsertPatch } = sameLanDeps();
+
+    const response = await acrossTheRoom('app_rw', APP_PASSWORD, OVERWRITE, deps);
+
+    expect(response.status).toBe(200);
+    // The same rule the public vantage settled, reached a shorter way: ONE row, the
+    // box owner's, where the intruder's change and the owner's own edits meet and fold
+    // last-write-wins rather than forking into a row each.
+    const [written] = upsertPatch.mock.calls
+      .map(([row]) => row)
+      .filter((row) => row.path === DATADIR_PATH);
+    expect(written?.writer_key).toBe(DEFENDER.publicKeyHex);
+    expect(written?.machine_id).toBe(DEFENDER_WS);
+    expect(written?.content).toContain('owned');
+  });
+
+  it('refuses a read-only account the same write it refuses on every other vantage', async () => {
+    const { deps, upsertPatch } = sameLanDeps();
+
+    const response = await acrossTheRoom('readonly', GUEST_PASSWORD, OVERWRITE, deps);
+
+    // The ladder is the database's, so it holds whoever is knocking and from wherever.
+    // The refusal names the attacker at the address the LEASE gave them: nothing
+    // rewrote the source on the way in, and nothing the client sent was believed.
+    expect(response.status).toBe(200);
+    expect(JSON.stringify(response.body)).toContain(
+      `command denied to user 'readonly'@'${ATTACKER_LAN_IP}'`,
+    );
+    expect(JSON.stringify(response.body)).not.toContain(CLIENT_IP);
+    expect(upsertPatch.mock.calls.map(([row]) => row.path)).not.toContain(DATADIR_PATH);
+  });
+
+  it('drops the intruder on the next statement when the defender leaves the WiFi', async () => {
+    const { deps, upsertPatch } = sameLanDeps({ occupants: [attackerOccupant] });
+
+    const response = await acrossTheRoom('app_rw', APP_PASSWORD, 'SHOW TABLES', deps);
+
+    // `nmcli disconnect` is this vantage's counter-move, and it takes effect on the
+    // next statement because the reach is re-read for every one.
+    expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('drops the intruder on the next statement when the defender stops the daemon', async () => {
+    const { deps, upsertPatch } = sameLanDeps({ defender: [defenderLaddered()] });
+
+    const response = await acrossTheRoom('app_rw', APP_PASSWORD, 'SHOW TABLES', deps);
+
+    // Not-running rather than unreachable, and the difference is the NAT: across the
+    // world a stopped daemon and an unopened forward are one silence, but a box on the
+    // same LAN is plainly there with its door shut.
+    expect(response).toEqual({ status: 404, body: { error: 'service_not_running' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+});
+
 describe('a statement on a database behind a forward', () => {
   it('answers from the deep box the forward leads to', async () => {
     const { deps } = deepDeps([deepLaddered()]);
