@@ -34,6 +34,10 @@ Act 13 of [`e2e-shared-network-verification.md`](../v2/docs/e2e-shared-network-v
 file is deleted and the as-built lives in
 [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7 (the four-vantage reach,
 the cross-player data write, the occupant-beats-sibling rule) and §9 (its remaining test debt).
+Its close-out **browser smoke test found one real defect** — a defender's own box silently
+reverting an intruder's writes — **fixed at v0.172.0 (#449)**, which also corrected the §7 claim
+that every vantage re-materializes per statement; three smaller findings from the same run are
+§9 backlog entries.
 **D5 🔍 GRILLED 2026-08-16, not yet planned** — fifteen locked decisions and a six-slice spine in
 "D5 — resolved scope & decisions"; it also found that §9's `ps` defect is misdiagnosed and owns
 the fix. Everything else is split-and-grilled only.
@@ -1918,6 +1922,22 @@ database gap at all.
   decided from the ADDRESS server-side, the cross-player write of DATA landing under the target's
   key (because `patches` folds rather than accumulates), and occupant-beats-sibling as a rule of
   target RESOLUTION rather than of any one service.
+
+**The close-out was a browser smoke test, and it earned its keep.** Two players on one WiFi,
+18 checks across the NPC vantage, the own box and the same-LAN neighbour — then one real defect:
+A ran a single statement on **her own** database and B's row reverted while B's line vanished from
+`/var/log/mysql.log`. Every vantage the SERVER answers re-materializes the target per statement;
+the own-box vantage answers on the CLIENT and composed its whole-file writes from the tree this
+client last pulled, refreshed by a cross-TAB hint but never by another player. So the accepted
+window was not one request, it was the owner's whole session, and the file being shortened was the
+defender's own evidence. Fixed at **v0.172.0 (#449)** with `env.fs.reload()`; the general rule is
+now §7 of the conventions doc — **a whole-file write to a path SOMEBODY ELSE can write must
+compose against the machine, never against the client's copy of it.** Three smaller findings are
+open on purpose in §9 (the mysql sub-shell echoing the shell prompt, a neighbour's ports invisible
+to `nmap`, and seeing yourself under a generated cover name); none blocks a player and each needs
+a decision rather than a fix. **A door is not proven by its wire-checks alone** — the wire-checks
+were 20/20 green and could not see this, because the defect lives in the one vantage no endpoint
+answers.
 
 **➡️ NEXT: D7 — `redis-cli`**, fifth door in the locked order. Run `grill-me` against it before
 planning, as D3/D3b/D4/D5/D5b/D6 each did.
