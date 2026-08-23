@@ -97,6 +97,18 @@ The single most common starting state. Every step below has a trap.
 NEW GAME → fill Workstation / Username / Root password ×2 → START
 ```
 
+**The form's four fields are `<input>`s too, and a `fill` right after clicking NEW GAME
+silently no-ops.** Two traps in one: the refs from the start-screen snapshot are stale on the
+form, and polling `document.querySelector('input') !== null` to decide "the terminal is ready"
+returns true while you are still LOOKING AT the form. Snapshot after the click, fill, then
+**read the values back** before pressing START — an empty form answers with `Enter a name for
+your workstation` and nothing else moves. Wait for the shell by polling the text for the prompt
+(`$`), not for an input:
+
+```bash
+agent-browser --session <name> eval "(()=>[...document.querySelectorAll('input')].map(e=>e.value).join('|'))()"
+```
+
 Then, in the terminal:
 
 | # | Command | Trap |

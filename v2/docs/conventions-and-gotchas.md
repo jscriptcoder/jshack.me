@@ -1841,6 +1841,35 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   needs `testInnerGatewayReach.ts` re-run live in the same slice. Found while building D6
   slice 5, 2026-08-21.
 
+- **Three findings from the D6 browser smoke test, left open on purpose (2026-08-23).** The run
+  that found the own-box write-wipe (fixed in v0.172.0, #449 — see the §7 invariant) turned up
+  three more, none of which blocks a player and none of which belonged in that fix.
+
+  1. **The `mysql` sub-shell echoes the SHELL prompt.** Every statement is scrolled back as
+     `root@box:/root# SHOW TABLES;` while the live prompt correctly reads `mysql> `. The echo in
+     `ui/state.ts` branches only on `inFtpSession()` (`FTP_PROMPT`); there is no
+     `inMysqlSession()` arm, so the sub-shell falls through to `commandEchoLine`.
+     `Terminal.tsx` already uses `MYSQL_PROMPT` for the live prompt, which is why the two
+     disagree. `ftp` got this right and `mysql` was missed — the cheapest of the three, and
+     whoever adds the arm should look for the next sub-shell that will need one rather than
+     adding a second special case.
+
+  2. **A fellow occupant's open ports are invisible to `nmap`.** A neighbour scans as
+     `Host is up.` with no port table, and the code says why: a real occupant's services live on
+     THEIR box, `buildRemoteHostFs` keys on the host IP alone, and letting them fall through
+     would FABRICATE the NPC ports that octet would have rolled. So the blank is correct and the
+     consequence is a PRODUCT gap, not a bug: nothing in the game tells a player that a
+     neighbour runs a database, and they have to guess the service and let `hydra` find it. Now
+     that same-LAN doors actually open, this is worth a decision — the honest fix is server-side
+     port resolution for an occupant, the same shape the public-IP scan already uses.
+
+  3. **You see yourself under a cover name; everyone else sees your real one.** In her own scan a
+     player shows as the generated `desktop-32` (`nmap.ts` names the self host from
+     `assignHomeNetwork(pubkey, essid).hostname`), while a neighbour's scan shows `alicebox`
+     (`mergeLanOccupants` names occupants from `workstation_machine_name`). Either the cover name
+     is intended — in which case it leaks to every occupant and buys nothing — or self should use
+     the workstation name. The two paths predate each other and were never reconciled; pick one.
+
 - **D6's remaining test debt, graduated on close-out (2026-08-23).** Two items, both narrow and
   both about assertions rather than behaviour. (1) The `mysql` client's prompt WORDING — `Enter
   user: ` and the no-default rule — is written and untested; the `Enter password: ` half and
