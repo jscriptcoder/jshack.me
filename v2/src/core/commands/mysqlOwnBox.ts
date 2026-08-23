@@ -13,6 +13,17 @@
  * with `handleMysqlConnect` and `handleMysqlStatement` rather than reimplemented, so
  * a rule that changes changes for both vantages at once.
  *
+ * Both of those decisions are read off the machine as it stands RIGHT NOW rather than
+ * off the tree this client is holding, and that is the one place the local vantage
+ * cannot take the shortcut. A shell can trust its own copy because the player is the
+ * only one editing it; these two files are not like that. A fellow occupant reaching
+ * this box's daemon writes BOTH of them, under this owner's key, and nothing pushes
+ * that here. Composing a whole-file write from the client's copy would not merely miss
+ * their write, it would REVERT it — silently erasing an intruder's edits from the
+ * datadir and their visit from the log, by the owner's own routine use of their own
+ * box. So both entry points open on `env.fs.reload()`, which is the round trip the
+ * paragraph above says this vantage saves, spent exactly where it buys correctness.
+ *
  * Two writes reach the journal and nothing else does: the datadir a statement
  * changed, and the line the daemon records about it. Both are stamped root-owned
  * with the catalog's permissions REGARDLESS of the tier the player's shell sits at,
@@ -46,6 +57,7 @@ import { connectedWlan0, LOOPBACK_IPV4, LOOPBACK_NAMES } from '../network/interf
 import type { Directory } from '../filesystem/types';
 import type {
   CommandEnv,
+  FsView,
   MysqlConnectParams,
   MysqlConnectResult,
   MysqlStatementParams,
@@ -100,9 +112,13 @@ export const ownDaemonListening = (fs: Directory, port: number): boolean =>
  * outcome than dropping the line. An absent file is not that failure — it is the
  * ordinary state of a box whose daemon has not had anything to say yet, and the
  * first line is what creates the file.
+ *
+ * The view is passed in rather than taken from `env` because it has to be the RELOADED
+ * one: this file is the defender's evidence, and evidence a login of their own can
+ * quietly shorten is none.
  */
-const appendOwnLog = async (env: CommandEnv, line: string): Promise<void> => {
-  const existing = env.fs.read(MYSQL_LOG_PATH);
+const appendOwnLog = async (env: CommandEnv, view: FsView, line: string): Promise<void> => {
+  const existing = view.read(MYSQL_LOG_PATH);
   if (!existing.ok && existing.error !== 'not_found') return;
 
   const current = existing.ok ? existing.content : '';
@@ -119,16 +135,17 @@ const appendOwnLog = async (env: CommandEnv, line: string): Promise<void> => {
 const recordAttempt = async (
   env: CommandEnv,
   attempt: {
-    readonly fs: Directory;
+    readonly view: FsView;
     readonly username: string;
     readonly fromIp: string;
     readonly opened: boolean;
   },
 ): Promise<void> => {
   const stamp = env.now();
-  const database = databaseNameIn(attempt.fs);
+  const database = databaseNameIn(attempt.view.root());
   await appendOwnLog(
     env,
+    attempt.view,
     SERVICE_CATALOG.mysql.sweepLog.formatAttempt({
       // Only `success` is ever inspected — the formatter reads the refusal off the
       // absence of it — so the two labels are not symmetric and never will be.
@@ -157,13 +174,14 @@ export const connectOwnDatabase = async (
   env: CommandEnv,
   params: MysqlConnectParams,
 ): Promise<MysqlConnectResult> => {
-  const fs = env.fs.root();
+  const view = await env.fs.reload();
+  const fs = view.root();
   if (!ownDaemonListening(fs, params.port)) return { ok: false, reason: 'refused' };
 
   const credential = credentialIn(fs, params.username);
   const opened = credential !== null && md5(params.password) === credential.passwordHash;
 
-  await recordAttempt(env, { fs, username: params.username, fromIp: params.sourceIp, opened });
+  await recordAttempt(env, { view, username: params.username, fromIp: params.sourceIp, opened });
 
   // Denied names the address the daemon saw, which on your own box is the address you
   // reached it by — the same string the line above it just recorded.
@@ -177,9 +195,10 @@ export const connectOwnDatabase = async (
  * `env.mysql.run`.
  *
  * Everything is re-read per statement, as the server re-reads it: the daemon, the
- * account list, the database itself. There is no session row holding any of it, so a
- * datadir edited in another tab and a daemon stopped mid-prompt both bite on the next
- * line rather than never.
+ * account list, the database itself — and re-read from the MACHINE, so it is not only
+ * a datadir edited in another tab and a daemon stopped mid-prompt that bite on the
+ * next line, but a row an occupant of this WiFi changed a moment ago. Re-reading the
+ * client's own copy would answer the first two and quietly overwrite the third.
  *
  * A write that could not be recorded is a write that did not happen. `lost` is what
  * the prompt shows for it — the same answer the server path gives when its datadir
@@ -190,7 +209,8 @@ export const runOwnStatement = async (
   env: CommandEnv,
   params: MysqlStatementParams,
 ): Promise<MysqlStatementResult> => {
-  const fs = env.fs.root();
+  const view = await env.fs.reload();
+  const fs = view.root();
   if (!ownDaemonListening(fs, params.port)) return { kind: 'lost' };
 
   // ONE read, with the account taken out of what it returned rather than looked up
@@ -235,6 +255,7 @@ export const runOwnStatement = async (
     const stamp = env.now();
     await appendOwnLog(
       env,
+      view,
       formatMysqlStatementLine({
         time: asGameTime(stamp),
         pid: derivePid(stamp),

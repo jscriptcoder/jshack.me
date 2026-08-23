@@ -121,6 +121,21 @@ export type FsView = {
   readonly canWrite: (path: AbsPath) => WalkResult;
   /** Full directory snapshot for the current machine. Used by walker-based ops. */
   readonly root: () => Directory;
+  /** The same view over the machine as it stands NOW, re-read from its journal.
+   *
+   *  Every other reader here answers from the tree this client last pulled, which is
+   *  right for the whole of a shell: the player is the only one editing, and a round
+   *  trip per `ls` would buy nothing. It stops being right the moment a file on this
+   *  box is one SOMEBODY ELSE can write — a fellow occupant reaching a daemon on it —
+   *  because nothing pushes their writes here. A caller that then composes a whole-file
+   *  write from the stale copy does not just miss the other write, it reverts it.
+   *
+   *  So this is for the writers that must compose against the machine rather than
+   *  against their own memory of it, and for nothing else. A view with nothing behind
+   *  it (a test, a client with no server) re-reads to what it already has, and a failed
+   *  read keeps the tree rather than blanking it: a transient error must not read as a
+   *  box whose files went away. */
+  readonly reload: () => Promise<FsView>;
 };
 
 export type FsReadResult =

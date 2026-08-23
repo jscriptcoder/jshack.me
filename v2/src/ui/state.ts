@@ -92,6 +92,7 @@ import { isOwnWorkstation, parseWorkstationId } from '../core/identity/workstati
 import {
   createPatchApi,
   fetchOwnPatches,
+  readOwnPatches,
   postAuthLog,
   recordDeepScan,
   recordFtpTransfer,
@@ -923,6 +924,21 @@ const refetchPatches = async (): Promise<void> => {
   setPatches(journal);
 };
 
+/** Backs `env.fs.reload`: pull this machine's journal and hand back the tree it makes.
+ *
+ *  The sibling above is fire-and-forget and takes `[]` for a failed read, which is
+ *  right when nothing is about to be composed from the answer. This one is called by a
+ *  daemon that IS about to write a whole file back, so a read that did not happen must
+ *  leave the tree exactly as it was: treating an unreachable server as a box with no
+ *  edits would hand that writer an empty datadir to overwrite the real one with. */
+const reloadActiveRoot = async (): Promise<Directory> => {
+  const deps = patchClientDeps;
+  if (deps === undefined) return activeRoot();
+  const result = await readOwnPatches(deps);
+  if (result.ok && patchClientDeps?.machineId === deps.machineId) setPatches(result.patches);
+  return activeRoot();
+};
+
 /** Pull the TARGET's journal for an ftp session — a SECOND journal, held beside the
  *  shell's, because the two machines are addressed at once and `patches()` follows
  *  the shell. A late answer for a session the player has since quit is dropped: it
@@ -1448,6 +1464,7 @@ const executeLine = async (line: string): Promise<void> => {
     session: currentSession,
     hostname: promptHost(),
     root: activeRoot(),
+    onFsReload: reloadActiveRoot,
     cwd,
     onCwdChange: setCwd,
     patches: activePatchApi,

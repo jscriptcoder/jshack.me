@@ -61,6 +61,9 @@ export const createFsView = (
      *  in the UI). The reader form lets `cd` mutate cwd without rebuilding
      *  the view. Both forms collapse to a getter internally. */
     readonly cwd?: AbsPath | (() => AbsPath);
+    /** Re-read the machine and hand back its tree as it stands. Absent, the view has
+     *  nothing behind it and re-reads to the tree it was built on. */
+    readonly onReload?: () => Promise<Directory>;
   } = {},
 ): FsView => {
   const userType = options.userType ?? 'user';
@@ -115,5 +118,9 @@ export const createFsView = (
     stat: (path: AbsPath): FileNode | null => resolve(path).node,
     canWrite: checkWrite,
     root: () => tree,
+    // Rebuilt through this same function so the reloaded view keeps the tier, the cwd
+    // getter and the reload seam itself: a second reload has to reach the machine too.
+    reload: async () =>
+      createFsView(options.onReload === undefined ? tree : await options.onReload(), options),
   };
 };
