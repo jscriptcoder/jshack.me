@@ -18,11 +18,16 @@
  * player chose for the box itself, read from the box's own `/etc/passwd` — so they
  * reach their own prompt with nothing to look up, print, store or delete. It costs
  * exactly what it sounds like: a chosen password is almost never in the wordlist, so
- * this account is effectively uncrackable and an attacker will not reach the
- * statements only root may run. That is accepted rather than overlooked. The drawn
- * accounts below it are the attack surface, cracking them still buys nothing toward
- * the box, and the version-vulnerability route is the way in that this door is not
- * trying to provide.
+ * this account is out of a SWEEP's reach and an attacker cracking their way in will
+ * not reach the statements only root may run. The drawn accounts below it are that
+ * attack surface, and cracking them still buys nothing toward the box.
+ *
+ * Out of a sweep's reach is not out of reach. Mirroring the password ties the two
+ * locks together in the other direction too: whoever cracks the box's root hash and
+ * runs `su root` is holding this account's password already, and can drop tables with
+ * it. That is deliberate — the harder attack path reaching what the easier one cannot
+ * is the reward for taking it — and it is the second way in, alongside the
+ * version-vulnerability route this door is not trying to provide.
  *
  * NPC generation is untouched: their databases keep drawing their own root, which is
  * what keeps cracking a box and cracking its database two locks with two keys.

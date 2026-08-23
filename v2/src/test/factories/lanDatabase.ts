@@ -28,6 +28,9 @@ import { ALL_GENERATED_PASSWORDS } from '../../core/generation/passwordPools';
 import { SERVICE_CATALOG } from '../../core/services/serviceCatalog';
 import { md5 } from '../../core/generation/md5';
 import { parseMysqlDatabase, type MysqlDatabase } from '../../core/mysql/types';
+import { ownDatabase } from '../../core/mysql/ownDatabase';
+import { materializeWorkstationFs } from '../../core/network/materializeWorkstationFs';
+import type { NatOccupantRow } from '../../core/network/resolvePublicTarget';
 import type { Directory } from '../../core/filesystem/types';
 
 /** A LAN host running mysqld — the only kind with a database to open. */
@@ -148,3 +151,27 @@ export const knownDatabaseCredential = (
   host: LanHost,
 ): { readonly username: string; readonly password: string } =>
   knownDatabaseCredentialIn(databaseOn(essid, host), host.hostname);
+
+/** A PLAYER's box that serves a database: the box rebuilt from the occupancy row the
+ *  server holds, and the database `apt install mysql` writes onto it — drawn from their
+ *  own key, so no two players hold the same one.
+ *
+ *  Derived rather than hand-written for the same reason everything else here is. A
+ *  fixture that invented a player's accounts would prove the door agrees with the
+ *  fixture; this proves it agrees with what the game actually puts on the box. */
+export const playerDatabaseOn = (
+  occupant: NatOccupantRow,
+): {
+  readonly database: MysqlDatabase;
+  readonly credential: { readonly username: string; readonly password: string };
+} => {
+  const database = ownDatabase({
+    ownerKeyHex: occupant.owner_key,
+    hostname: occupant.workstation_machine_name,
+    fs: materializeWorkstationFs(occupant, []),
+  });
+  return {
+    database,
+    credential: knownDatabaseCredentialIn(database, occupant.workstation_machine_name),
+  };
+};

@@ -138,9 +138,10 @@ export const handleMysqlConnect = async (
     essid: payload.essid,
     targetIp: payload.target_ip,
     port: payload.port,
+    actorKey: publicKey,
   });
   if (!reach.ok) return reach.refusal;
-  const { hostname, machineId, hostFs, sourceIp } = reach.reached;
+  const { hostname, machineId, hostFs, sourceIp, writerKey } = reach.reached;
 
   const credential = credentialIn(hostFs, payload.username);
   const opened = credential !== null && md5(payload.password) === credential.passwordHash;
@@ -157,7 +158,11 @@ export const handleMysqlConnect = async (
   const fromIp = sourceIp ?? payload.source_ip ?? 'unknown';
 
   await recordAttempt(deps, {
-    writerKey: publicKey,
+    // The TARGET's key once the box has an owner: the system owns its logs, so every
+    // attacker's lines accrete into one row on the defender's box rather than a row
+    // each, where the newest would erase the rest on replay. A generated box has no
+    // owner, and there the caller's own key is the only stable thing to write under.
+    writerKey: writerKey ?? publicKey,
     machineId,
     hostname,
     username: payload.username,

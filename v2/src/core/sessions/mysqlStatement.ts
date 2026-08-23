@@ -108,9 +108,18 @@ export const handleMysqlStatement = async (
     essid: payload.essid,
     targetIp: payload.target_ip,
     port: payload.port,
+    actorKey: publicKey,
   });
   if (!reach.ok) return reach.refusal;
-  const { hostFs, machineId, sourceIp } = reach.reached;
+  const { hostFs, machineId, sourceIp, writerKey } = reach.reached;
+
+  // Every row this door writes on the target lands under ONE key — the owner's, once
+  // the box has one. A datadir split across a row per attacker would fold to whichever
+  // was written last and silently drop the others' changes; kept as one row it is an
+  // ordinary last-write-wins file, which is what a database being edited by several
+  // people at once actually is. The owner's own edits land here too, so a defender's
+  // changes and an intruder's meet in the same row rather than forking it.
+  const targetWriterKey = writerKey ?? publicKey;
 
   const credential = credentialIn(hostFs, payload.username);
   if (credential === null || md5(payload.password) !== credential.passwordHash) return INVALID;
@@ -140,7 +149,7 @@ export const handleMysqlStatement = async (
     // inherited, so a rewrite cannot quietly widen the one file on the box that holds
     // the hashes a sweep has to work for.
     const { error } = await deps.upsertPatch({
-      writer_key: publicKey,
+      writer_key: targetWriterKey,
       machine_id: machineId,
       path: DATADIR_PATH,
       content: JSON.stringify(changed),
@@ -157,7 +166,7 @@ export const handleMysqlStatement = async (
       await appendMachineLog(
         { readLog: deps.readMysqlLog, upsertPatch: deps.upsertPatch },
         {
-          writerKey: publicKey,
+          writerKey: targetWriterKey,
           machineId,
           path: MYSQL_LOG_PATH,
           owner: MYSQL_LOG_OWNER,
