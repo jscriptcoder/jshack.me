@@ -3,7 +3,16 @@ import { handleMysqlConnect, type MysqlConnectDeps } from './mysqlConnect';
 import { signRequest } from '../signedRequest/sign';
 import { generateIdentity } from '../identity/identity';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
-import { deepDatabaseFixture, knownDatabaseCredentialIn } from '../../test/factories/lanDatabase';
+import {
+  deepDatabaseFixture,
+  knownDatabaseCredentialIn,
+  playerDatabaseOn,
+} from '../../test/factories/lanDatabase';
+import { computeApGatewayId } from '../identity/router';
+import { lanAddressFor, type LanLeaseRow } from '../network/lanAddress';
+import { formatPidfileContent, pidfilePath } from '../services/pidfile';
+import { DATADIR_PATH } from '../mysql/datadir';
+import type { ApNetworkLookup, NatOccupantRow } from '../network/resolvePublicTarget';
 import { databaseIn } from '../mysql/datadir';
 import { readOpenPorts } from '../services/pidfile';
 import { hostServices } from '../generation/remoteHostFs';
@@ -155,6 +164,12 @@ const makeDeps = (over: Partial<MysqlConnectDeps> = {}) => {
     findPatches,
     readMysqlLog,
     upsertPatch,
+    // No access point bears an address by default: these tests are the caller's OWN
+    // world, and a public address nobody registered reaches nothing.
+    findNetworkByPublicIp: async () => ({ data: null, error: null }),
+    listOccupantsByEssid: async () => ({ data: [], error: null }),
+    listLeasesByEssid: async () => ({ data: [], error: null }),
+    findHomeNetworkByOwnerKey: async () => ({ data: null, error: null }),
     ...over,
   };
   return { deps, findPatches, readMysqlLog, upsertPatch };
@@ -195,6 +210,70 @@ const logLine = (outcome: 'success' | 'failure', user: string, host: LanHost, da
 
 
 const DEEP = deepDatabaseFixture();
+
+// ─── another player's box, reached the only way an outsider can reach one ───
+//
+// A public IP names an ACCESS POINT, never a machine, so the port is the whole of
+// the address: the defender had to open a forward before their database existed to
+// anyone outside. Everything below the forward is the server's — the occupancy row,
+// the lease, the journal — because a client that could name a target box directly
+// would be a client that could reach a box its owner never published.
+const TARGET_PUBLIC_IP = '203.0.113.9';
+const TARGET_ESSID = 'PIED-PIPER-GUEST';
+const AP_GATEWAY_ID = computeApGatewayId(TARGET_ESSID);
+const AP_NETWORK: ApNetworkLookup = { router_machine_id: AP_GATEWAY_ID, essid: TARGET_ESSID };
+/** The attacker's own home address, as the server resolves it from their VERIFIED
+ *  key. A cross-player log line is the defender's only evidence, so the address in it
+ *  is never the one the client typed. */
+const ATTACKER_PUBLIC_IP = '198.51.100.22';
+
+const DEFENDER = generateIdentity();
+const DEFENDER_OCTET = 84;
+const DEFENDER_LAN_IP = lanAddressFor(TARGET_ESSID, DEFENDER_OCTET);
+const DEFENDER_WS = 'workstation-c3d4e5f6';
+const DEFENDER_HOSTNAME = 'nebuchadnezzar';
+const defenderOccupant: NatOccupantRow = {
+  owner_key: DEFENDER.publicKeyHex,
+  workstation_machine_id: DEFENDER_WS,
+  workstation_machine_name: DEFENDER_HOSTNAME,
+  workstation_username: 'neo',
+  workstation_root_hash: md5('correct-horse-battery-staple'),
+};
+const DEFENDER_LEASES: readonly LanLeaseRow[] = [
+  { owner_key: DEFENDER.publicKeyHex, octet: DEFENDER_OCTET },
+];
+const { database: DEFENDER_DATABASE, credential: DEFENDER_DB_ACCOUNT } =
+  playerDatabaseOn(defenderOccupant);
+
+/** The port the defender published. Deliberately neither 3306 nor 22: on a public
+ *  address the port is chosen by whoever wrote the forward. */
+const PUBLIC_PORT = 43306;
+const publicForward = (internalPort: number = SERVICE_CATALOG.mysql.defaultPort): OwnerPatchRow =>
+  patchRow('/etc/iptables/rules.v4', `forward ${PUBLIC_PORT} to ${DEFENDER_LAN_IP}:${internalPort}`);
+
+/** The defender ran `systemctl start mysqld` and, before that, `apt install mysql`.
+ *  A box that did neither has an empty `/var/run` and no datadir at all. */
+const defenderMysqld = patchRow(
+  pidfilePath(SERVICE_CATALOG.mysql),
+  formatPidfileContent(SERVICE_CATALOG.mysql, SERVICE_CATALOG.mysql.defaultPort),
+);
+const defenderDatadir = patchRow(DATADIR_PATH, JSON.stringify(DEFENDER_DATABASE));
+
+const crossPlayerDeps = (over: Partial<MysqlConnectDeps> = {}) =>
+  makeDeps({
+    findPatches: journals({
+      [AP_GATEWAY_ID]: [publicForward()],
+      [DEFENDER_WS]: [defenderMysqld, defenderDatadir],
+    }),
+    findNetworkByPublicIp: async () => ({ data: AP_NETWORK, error: null }),
+    listOccupantsByEssid: async () => ({ data: [defenderOccupant], error: null }),
+    listLeasesByEssid: async () => ({ data: DEFENDER_LEASES, error: null }),
+    findHomeNetworkByOwnerKey: async () => ({
+      data: { public_ip: ATTACKER_PUBLIC_IP },
+      error: null,
+    }),
+    ...over,
+  });
 
 /** Deliberately neither 3306 nor 22: the port the player opened on the GATEWAY has
  *  nothing to do with the port the daemon listens on behind it. */
@@ -452,6 +531,25 @@ describe('handleMysqlConnect', () => {
     expect(upsertPatch).not.toHaveBeenCalled();
   });
 
+  it('reports a journal the store could not read as a failure, not as an empty box', async () => {
+    const identity = generateIdentity();
+    const host = mysqlHostOn(ESSID);
+    const { username, password } = knownDatabaseCredential(host);
+    const { deps } = makeDeps({
+      findPatches: async () => ({ data: null, error: { message: 'connection reset' } }),
+    });
+
+    const response = await handleMysqlConnect(
+      await signedConnect(identity, { target_ip: host.ip, username, password }),
+      deps,
+    );
+
+    // An unreadable journal is not a box with no journal. Falling back to the seeded
+    // baseline would refuse an account the player added, serve a table they dropped,
+    // and hand back the box as it was the day the world was generated.
+    expect(response).toEqual({ status: 500, body: { error: 'patches_lookup_failed' } });
+  });
+
   it('refuses an unenveloped request before reading anything', async () => {
     const host = mysqlHostOn(ESSID);
     const { deps, findPatches } = makeDeps();
@@ -466,6 +564,171 @@ describe('handleMysqlConnect', () => {
 
     expect(response).toEqual({ status: 400, body: { error: 'envelope_invalid' } });
     expect(findPatches).not.toHaveBeenCalled();
+  });
+
+  describe("another player's database, reached by their public address", () => {
+    it('opens on the box behind the forward, and names it', async () => {
+      const identity = generateIdentity();
+      const { deps } = crossPlayerDeps();
+
+      const response = await handleMysqlConnect(
+        await signedConnect(identity, {
+          essid: TARGET_ESSID,
+          target_ip: TARGET_PUBLIC_IP,
+          port: PUBLIC_PORT,
+          username: DEFENDER_DB_ACCOUNT.username,
+          password: DEFENDER_DB_ACCOUNT.password,
+        }),
+        deps,
+      );
+
+      expect(response).toEqual({
+        status: 200,
+        body: { ok: true, hostname: DEFENDER_HOSTNAME },
+      });
+    });
+
+    it("records the attempt on the defender's own box, under the defender's key", async () => {
+      const identity = generateIdentity();
+      const { deps, upsertPatch } = crossPlayerDeps();
+
+      await handleMysqlConnect(
+        await signedConnect(identity, {
+          essid: TARGET_ESSID,
+          target_ip: TARGET_PUBLIC_IP,
+          port: PUBLIC_PORT,
+          username: DEFENDER_DB_ACCOUNT.username,
+          password: DEFENDER_DB_ACCOUNT.password,
+        }),
+        deps,
+      );
+
+      // The system owns its logs: every attacker's lines accrete into ONE row on the
+      // defender's box rather than one row each, where the newest would erase the rest.
+      expect(upsertPatch).toHaveBeenCalledWith({
+        writer_key: DEFENDER.publicKeyHex,
+        machine_id: DEFENDER_WS,
+        path: MYSQL_LOG_PATH,
+        content: `${formatMysqlAttemptLine({
+          outcome: 'success',
+          user: DEFENDER_DB_ACCOUNT.username,
+          fromIp: ATTACKER_PUBLIC_IP,
+          hostname: DEFENDER_HOSTNAME,
+          time: asGameTime(FIXED_NOW),
+          pid: derivePid(FIXED_NOW),
+          database: DEFENDER_DATABASE.name,
+        })}\n`,
+        owner: MYSQL_LOG_OWNER,
+        permissions: MYSQL_LOG_PERMISSIONS,
+        node_type: 'file',
+      });
+    });
+
+    it('writes the address the SERVER derived, never the one the client typed', async () => {
+      const identity = generateIdentity();
+      const { deps, upsertPatch } = crossPlayerDeps();
+
+      await handleMysqlConnect(
+        await signedConnect(identity, {
+          essid: TARGET_ESSID,
+          target_ip: TARGET_PUBLIC_IP,
+          port: PUBLIC_PORT,
+          username: DEFENDER_DB_ACCOUNT.username,
+          password: DEFENDER_DB_ACCOUNT.password,
+          source_ip: '10.0.0.1',
+        }),
+        deps,
+      );
+
+      const [written] = upsertPatch.mock.calls[0] ?? [];
+      expect(written?.content).toContain(`@${ATTACKER_PUBLIC_IP}`);
+      expect(written?.content).not.toContain('10.0.0.1');
+    });
+
+    it('refuses a database its owner never forwarded, before any password check', async () => {
+      const identity = generateIdentity();
+      const { deps, upsertPatch } = crossPlayerDeps({
+        findPatches: journals({ [DEFENDER_WS]: [defenderMysqld, defenderDatadir] }),
+      });
+
+      const response = await handleMysqlConnect(
+        await signedConnect(identity, {
+          essid: TARGET_ESSID,
+          target_ip: TARGET_PUBLIC_IP,
+          port: PUBLIC_PORT,
+          username: DEFENDER_DB_ACCOUNT.username,
+          password: DEFENDER_DB_ACCOUNT.password,
+        }),
+        deps,
+      );
+
+      // The opt-in is the whole mechanism: a box behind NAT is dark until its owner
+      // opens a door, and running a database is not the same as publishing one.
+      expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+      expect(upsertPatch).not.toHaveBeenCalled();
+    });
+
+    it('refuses once the defender has stopped the daemon, writing nothing', async () => {
+      const identity = generateIdentity();
+      const { deps, upsertPatch } = crossPlayerDeps({
+        findPatches: journals({
+          [AP_GATEWAY_ID]: [publicForward()],
+          [DEFENDER_WS]: [defenderDatadir],
+        }),
+      });
+
+      const response = await handleMysqlConnect(
+        await signedConnect(identity, {
+          essid: TARGET_ESSID,
+          target_ip: TARGET_PUBLIC_IP,
+          port: PUBLIC_PORT,
+          username: DEFENDER_DB_ACCOUNT.username,
+          password: DEFENDER_DB_ACCOUNT.password,
+        }),
+        deps,
+      );
+
+      // `systemctl stop mysqld` is the defender's counter-move, and it works from the
+      // outside in: the pidfiles are the truth about what is listening, so a stopped
+      // daemon leaves nothing to connect to and nothing to log.
+      //
+      // Unreachable rather than not-running, and deliberately: from outside somebody
+      // else's NAT a forward onto a dead port and a forward that was never opened are
+      // the same silence, which is what the gateway can actually observe. The door that
+      // told them apart would be telling an outsider which services a box behind the
+      // NAT has stopped. `ssh` answers the same way on the same address.
+      expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+      expect(upsertPatch).not.toHaveBeenCalled();
+    });
+
+    it('refuses a forward that reaches the box on a port no database holds', async () => {
+      const identity = generateIdentity();
+      const { deps } = crossPlayerDeps({
+        findPatches: journals({
+          [AP_GATEWAY_ID]: [publicForward(22)],
+          [DEFENDER_WS]: [
+            defenderMysqld,
+            defenderDatadir,
+            patchRow(pidfilePath(SERVICE_CATALOG.ssh), formatPidfileContent(SERVICE_CATALOG.ssh, 22)),
+          ],
+        }),
+      });
+
+      const response = await handleMysqlConnect(
+        await signedConnect(identity, {
+          essid: TARGET_ESSID,
+          target_ip: TARGET_PUBLIC_IP,
+          port: PUBLIC_PORT,
+          username: DEFENDER_DB_ACCOUNT.username,
+          password: DEFENDER_DB_ACCOUNT.password,
+        }),
+        deps,
+      );
+
+      // The port IS the address. A forward to sshd is not a door to the database, even
+      // on a box plainly running one.
+      expect(response).toEqual({ status: 404, body: { error: 'service_not_running' } });
+    });
   });
 
   describe('a database behind a forward', () => {

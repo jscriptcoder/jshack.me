@@ -254,6 +254,20 @@ describe('mysql', () => {
     });
   });
 
+  it('asks the server about a public address rather than refusing it locally', async () => {
+    // A public address names somebody else's access point, and which box sits behind
+    // which forward lives in that gateway's server-side journal. The client can see
+    // none of it, so pre-flighting the way it does on its own LAN would refuse every
+    // cross-player database in the game before the player finished typing.
+    const connect = vi.fn(async () => ({ ok: false as const, reason: 'denied' as const, fromIp: LOCAL_IP }));
+
+    await mysql.execute(mysqlEnv({ mysql: { connect } }), ['203.0.113.9'], new Map([['-p', '43306']]));
+
+    expect(connect).toHaveBeenCalledWith(
+      expect.objectContaining({ targetIp: '203.0.113.9', port: 43306 }),
+    );
+  });
+
   it('takes the account from the command line without asking for one', async () => {
     const { databaseHost } = pickHosts();
     const connect = vi.fn(async () => ({ ok: false as const, reason: 'denied' as const, fromIp: LOCAL_IP }));

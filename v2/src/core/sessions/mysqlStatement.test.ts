@@ -13,7 +13,13 @@ import {
   deepDatabaseFixture,
   knownDatabaseCredential,
   mysqlHostOn,
+  playerDatabaseOn,
 } from '../../test/factories/lanDatabase';
+import { computeApGatewayId } from '../identity/router';
+import { lanAddressFor } from '../network/lanAddress';
+import { formatPidfileContent, pidfilePath } from '../services/pidfile';
+import { DATADIR_PATH } from '../mysql/datadir';
+import type { NatOccupantRow } from '../network/resolvePublicTarget';
 import { parseMysqlDatabase } from '../mysql/types';
 import { MYSQL_LOG_PATH } from '../logging/mysqlLog';
 import type { PatchRow } from '../patches/upsertPatch';
@@ -87,6 +93,13 @@ const makeDeps = (
     upsertPatch,
     readMysqlLog,
     now: () => STAMPED_AT,
+    // No access point bears an address here: these tests are the caller's OWN world,
+    // and a public address they have not registered reaches nothing, which is exactly
+    // what an unallocated address should do.
+    findNetworkByPublicIp: async () => ({ data: null, error: null }),
+    listOccupantsByEssid: async () => ({ data: [], error: null }),
+    listLeasesByEssid: async () => ({ data: [], error: null }),
+    findHomeNetworkByOwnerKey: async () => ({ data: null, error: null }),
   };
   return { deps, findPatches, upsertPatch, readMysqlLog };
 };
@@ -157,6 +170,147 @@ const laddered = (host: LanHost) =>
 const DEEP = deepDatabaseFixture();
 const FORWARD_PORT = 33306;
 
+// ─── another player's box, reached the only way an outsider can reach one ───
+//
+// A public address names an ACCESS POINT, so the port is the whole of the address:
+// the defender opened a forward, and without it their database has no name an
+// outsider can say. Everything under the forward is the server's — the occupancy
+// row, the lease, the journal — because a client that could name the box directly
+// could reach one its owner never published.
+const TARGET_PUBLIC_IP = '203.0.113.9';
+const TARGET_ESSID = 'PIED-PIPER-GUEST';
+const AP_GATEWAY_ID = computeApGatewayId(TARGET_ESSID);
+const ATTACKER_PUBLIC_IP = '198.51.100.22';
+const PUBLIC_PORT = 43306;
+const DEFENDER_OCTET = 84;
+const DEFENDER_LAN_IP = lanAddressFor(TARGET_ESSID, DEFENDER_OCTET);
+const DEFENDER_WS = 'workstation-c3d4e5f6';
+const DEFENDER_HOSTNAME = 'nebuchadnezzar';
+/** The password the defender CHOSE for their box. No pool holds it, which is why the
+ *  only way to it is owning the box — and why the database account it opens is out of
+ *  a sweep's reach. */
+const DEFENDER_ROOT_PW = 'correct-horse-battery-staple';
+
+const occupantFor = (ownerKeyHex: string): NatOccupantRow => ({
+  owner_key: ownerKeyHex,
+  workstation_machine_id: DEFENDER_WS,
+  workstation_machine_name: DEFENDER_HOSTNAME,
+  workstation_username: 'neo',
+  workstation_root_hash: md5(DEFENDER_ROOT_PW),
+});
+
+const DEFENDER = generateIdentity();
+const defenderOccupant = occupantFor(DEFENDER.publicKeyHex);
+
+/** The defender's own drawn database, and a table and column really in it. A statement
+ *  naming a column the box does not have is answered as an unknown column long before
+ *  the tier is consulted, so a hand-written one would prove the parser rather than the
+ *  door. */
+const DEFENDER_DATABASE = playerDatabaseOn(defenderOccupant).database;
+const [DEFENDER_TABLE, DEFENDER_TABLE_SHAPE] = Object.entries(DEFENDER_DATABASE.tables)[0] ?? [];
+const DEFENDER_COLUMN = DEFENDER_TABLE_SHAPE?.columns[0]?.name;
+const OVERWRITE = `UPDATE ${DEFENDER_TABLE} SET ${DEFENDER_COLUMN} = 'owned'`;
+
+const publicForward = (internalPort: number = SERVICE_CATALOG.mysql.defaultPort): OwnerPatchRow =>
+  patchRow('/etc/iptables/rules.v4', `forward ${PUBLIC_PORT} to ${DEFENDER_LAN_IP}:${internalPort}`);
+
+const defenderMysqld = patchRow(
+  pidfilePath(SERVICE_CATALOG.mysql),
+  formatPidfileContent(SERVICE_CATALOG.mysql, SERVICE_CATALOG.mysql.defaultPort),
+);
+
+/** The three rungs on the defender's own datadir, planted for the same reason they
+ *  are planted on every other box here: which tiers a drawn database carries is a
+ *  roll, and the ladder is the thing under test. */
+const defenderLaddered = (): OwnerPatchRow =>
+  patchRow(
+    '/var/lib/mysql/data.json',
+    JSON.stringify({
+      ...DEFENDER_DATABASE,
+      credentials: [
+        { username: 'dba', passwordHash: md5(ROOT_PASSWORD), userType: 'root' },
+        { username: 'app_rw', passwordHash: md5(APP_PASSWORD), userType: 'user' },
+        { username: 'readonly', passwordHash: md5(GUEST_PASSWORD), userType: 'guest' },
+      ],
+    }),
+  );
+
+const crossPlayerDeps = (
+  rows: {
+    readonly gateway?: readonly OwnerPatchRow[];
+    readonly defender?: readonly OwnerPatchRow[];
+    readonly occupant?: NatOccupantRow;
+  } = {},
+) => {
+  const occupant = rows.occupant ?? defenderOccupant;
+  const journals: Readonly<Record<string, readonly OwnerPatchRow[]>> = {
+    [AP_GATEWAY_ID]: rows.gateway ?? [publicForward()],
+    [DEFENDER_WS]: rows.defender ?? [defenderMysqld, defenderLaddered()],
+  };
+  const upsertPatch = vi.fn<MysqlStatementDeps['upsertPatch']>(async () => ({ error: null }));
+  const deps: MysqlStatementDeps = {
+    nonceStore: freshStore,
+    findPatches: vi.fn<MysqlStatementDeps['findPatches']>(async ({ machine_id }) => ({
+      data: journals[machine_id] ?? [],
+      error: null,
+    })),
+    upsertPatch,
+    readMysqlLog: vi.fn<MysqlStatementDeps['readMysqlLog']>(async () => ({
+      data: { content: null },
+      error: null,
+    })),
+    now: () => STAMPED_AT,
+    findNetworkByPublicIp: async () => ({
+      data: { router_machine_id: AP_GATEWAY_ID, essid: TARGET_ESSID },
+      error: null,
+    }),
+    listOccupantsByEssid: async () => ({ data: [occupant], error: null }),
+    listLeasesByEssid: async () => ({
+      data: [{ owner_key: occupant.owner_key, octet: DEFENDER_OCTET }],
+      error: null,
+    }),
+    findHomeNetworkByOwnerKey: async () => ({
+      data: { public_ip: ATTACKER_PUBLIC_IP },
+      error: null,
+    }),
+  };
+  return { deps, upsertPatch };
+};
+
+const acrossTheWorld = async (
+  username: string,
+  password: string,
+  statement: string,
+  deps: MysqlStatementDeps,
+) =>
+  handleMysqlStatement(
+    await signedStatement(generateIdentity(), {
+      essid: TARGET_ESSID,
+      target_ip: TARGET_PUBLIC_IP,
+      port: PUBLIC_PORT,
+      username,
+      password,
+      statement,
+    }),
+    deps,
+  );
+
+/** A player whose OWN drawn database carries an account literally named `root` — the
+ *  one `ownDatabase` mirrors the box's chosen password onto. Searched for rather than
+ *  assumed, because whether a drawn database has that account at all is a per-player
+ *  roll, and a fixture that named one would pass on a roll it never made. */
+const defenderWhoseDatabaseHasRoot = () => {
+  for (let attempt = 0; attempt < 400; attempt += 1) {
+    const identity = generateIdentity();
+    const occupant = occupantFor(identity.publicKeyHex);
+    const { database } = playerDatabaseOn(occupant);
+    if (database.credentials.some((credential) => credential.username === 'root')) {
+      return { occupant, database };
+    }
+  }
+  throw new Error('no drawn player database carried a root account');
+};
+
 /** Journals per machine: the gateway's carries the forward, the deep box's carries
  *  whatever the test planted in its datadir. A mock answering the same rows for every
  *  id would give the deep box the gateway's forward table as well. */
@@ -180,6 +334,10 @@ const deepDeps = (deepPatches: readonly OwnerPatchRow[] = []) => {
       error: null,
     })),
     now: () => STAMPED_AT,
+    findNetworkByPublicIp: async () => ({ data: null, error: null }),
+    listOccupantsByEssid: async () => ({ data: [], error: null }),
+    listLeasesByEssid: async () => ({ data: [], error: null }),
+    findHomeNetworkByOwnerKey: async () => ({ data: null, error: null }),
   };
   return { deps, upsertPatch };
 };
@@ -216,6 +374,83 @@ const deepStatement = async (
     }),
     deps,
   );
+
+describe("a statement on another player's database, across the world", () => {
+  it("writes the change to the DEFENDER's datadir, under the defender's own key", async () => {
+    const { deps, upsertPatch } = crossPlayerDeps();
+
+    const response = await acrossTheWorld('app_rw', APP_PASSWORD, OVERWRITE, deps);
+
+    expect(response.status).toBe(200);
+    // ONE row, and it is the box owner's. The defender's own edits land under the same
+    // key at the same path, so an intruder's change and the owner's meet in one row
+    // that folds last-write-wins — rather than forking into a row each, where whichever
+    // was written last would silently erase the other's database.
+    const [written] = upsertPatch.mock.calls
+      .map(([row]) => row)
+      .filter((row) => row.path === DATADIR_PATH);
+    expect(written?.writer_key).toBe(DEFENDER.publicKeyHex);
+    expect(written?.machine_id).toBe(DEFENDER_WS);
+    expect(written?.content).toContain('owned');
+  });
+
+  it('refuses a read-only account the same write it refuses on a generated box', async () => {
+    const { deps, upsertPatch } = crossPlayerDeps();
+
+    const response = await acrossTheWorld('readonly', GUEST_PASSWORD, OVERWRITE, deps);
+
+    // The ladder is the database's, so it holds whoever is knocking and from wherever.
+    // A tier that softened across the network would make a stranger's box easier to
+    // change than a generated one.
+    expect(response.status).toBe(200);
+    expect(JSON.stringify(response.body)).toContain('command denied');
+    expect(upsertPatch.mock.calls.map(([row]) => row.path)).not.toContain(DATADIR_PATH);
+  });
+
+  it("opens the database as root to whoever holds the BOX's root password", async () => {
+    // The reward for the harder attack path. A player's database mirrors its root
+    // account onto the password they chose for the box, so it is out of a wordlist's
+    // reach — but an attacker who cracked that password and ran `su root` is typing it
+    // already, and it drops tables.
+    const { occupant, database } = defenderWhoseDatabaseHasRoot();
+    const table = Object.keys(database.tables)[0] ?? 'users';
+    const { deps, upsertPatch } = crossPlayerDeps({
+      occupant,
+      defender: [defenderMysqld, patchRow(DATADIR_PATH, JSON.stringify(database))],
+    });
+
+    const response = await acrossTheWorld('root', DEFENDER_ROOT_PW, `DROP TABLE ${table}`, deps);
+
+    expect(response.status).toBe(200);
+    expect(JSON.stringify(response.body)).not.toContain('command denied');
+    const [written] = upsertPatch.mock.calls
+      .map(([row]) => row)
+      .filter((row) => row.path === DATADIR_PATH);
+    expect(written?.content).not.toContain(`"${table}"`);
+  });
+
+  it('drops the player on the next statement when the defender pulls the forward', async () => {
+    const { deps, upsertPatch } = crossPlayerDeps({ gateway: [] });
+
+    const response = await acrossTheWorld('app_rw', APP_PASSWORD, 'SHOW TABLES', deps);
+
+    // The reach is re-read per statement, so revoking the forward takes effect on the
+    // next one rather than at some next login the intruder never has to make.
+    expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('drops the player on the next statement when the defender stops the daemon', async () => {
+    const { deps, upsertPatch } = crossPlayerDeps({ defender: [defenderLaddered()] });
+
+    const response = await acrossTheWorld('app_rw', APP_PASSWORD, 'SHOW TABLES', deps);
+
+    // Unreachable rather than not-running: from outside somebody else's NAT a forward
+    // onto a stopped daemon and a forward that was never opened are the same silence.
+    expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+});
 
 describe('a statement on a database behind a forward', () => {
   it('answers from the deep box the forward leads to', async () => {
@@ -515,7 +750,10 @@ describe('what a statement cannot reach', () => {
 
     const response = await handleMysqlStatement(
       await signedStatement(generateIdentity(), {
-        target_ip: '203.0.113.9',
+        // A LAN address no generated host holds. Deliberately not a public one: since
+        // the public vantage landed, an address outside the caller's world is a route
+        // to somebody else's box rather than a number that names nothing.
+        target_ip: '192.168.77.250',
         username: 'root',
         password: 'anything',
         statement: 'SHOW TABLES',
@@ -531,7 +769,7 @@ describe('what a statement cannot reach', () => {
 
     await handleMysqlStatement(
       await signedStatement(generateIdentity(), {
-        target_ip: '203.0.113.9',
+        target_ip: '192.168.77.250',
         username: 'root',
         password: 'anything',
         statement: 'SHOW TABLES',

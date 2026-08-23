@@ -8,15 +8,17 @@ takes one branch per commit, since each is a separately reviewable claim.
 **Status**: Active — slices 1 through 6 ALL LANDED (v0.158.0 #434 `29bc042`; v0.159.0 #437
 `a6bdead`; v0.160.0-v0.162.0 #438 `04beaa4`, #439 `36e1ae0`, #440 `b058621`; v0.163.0 #441
 `3222dbd`; v0.166.0 #442 `29bba64`; v0.167.0 #443 `ec1982d8`), slice 1's mutation debt PAID (#435
-`f1c4dd6`, #436 `8add9fa`). Slice 6b commit 1 LANDED (v0.168.0 #444 `afb1a88a`), its docs on `main`
-as `bd9af1ac`.
+`f1c4dd6`, #436 `8add9fa`). Slice 6b LANDED across three PRs (v0.168.0-v0.169.0 #444 `afb1a88a`,
+#445 `a298ef2f`, #446 `b0a964a2`), its docs on `main` as `bd9af1ac`.
 
 **SLICE 6b IS COMPLETE** — all three commits landed, all 13 criteria met, with criterion 6's `nmap`
 clause amended to the shared reader (`readOpenPorts`) and its remaining half left in §9 as a
 backlog item needing its own slice, design call and wire-check.
 
-**SLICE 7 IS NEXT** — a player reaches another player's database. It adds a fifth door to a world
-where, as of this slice, every door can now be shut by whoever holds root on the box behind it.
+**SLICE 7 PR 1 (the public vantage) IS BUILT** — grilled 2026-08-23 — a player reaches another player's database, as
+TWO PRs split by vantage, public first. Seven decisions are resolved under its own heading, and it
+CLOSES D6 on landing. It adds a fifth door to a world where, as of slice 6b, every door can be shut
+by whoever holds root on the box behind it.
 
 Slice 3 was grilled to 21 criteria (`32ef71b`) and landed as three PRs in this order:
 
@@ -1604,7 +1606,7 @@ generated hosts rather than about the player's machine. Cross-player reach is sl
 no server change to SEE this database: the datadir is a patch, so the server's existing journal
 replay already materializes it.
 
-### Slice 6b: A generated box carries what it runs ✔ LANDED (v0.168.0-v0.169.0, #444 `afb1a88a`, #445 `a298ef2f`, #446)
+### Slice 6b: A generated box carries what it runs ✔ LANDED (v0.168.0-v0.169.0, #444 `afb1a88a`, #445 `a298ef2f`, #446 `b0a964a2`)
 
 Carved out of slice 6 rather than discovered after it: slice 6's "Out of scope" note and the
 backlog entry in `v2/docs/conventions-and-gotchas.md` §9 both name it, and the owner agreed on
@@ -1867,15 +1869,176 @@ tests, all still green rather than re-asserted.
 slice. The existing generation sweeps are the oracle for criterion 5 — this touches every generated
 host, so "nothing else moved" needs their evidence rather than an assertion.
 
-### Slice 7: A player reaches another player's database
+### Slice 7: A player reaches another player's database — GRILLED 2026-08-23
 
 **Value**: Cross-player, the point of the epic.
-**Path**: public-IP and same-LAN vantages, for the statement action **and** hydra, together.
-**Class**: Behavior change. **Acceptance criteria**: B cracks and reads A's database across the
-world and through a shared LAN; A finds B's connect line and mutations in their own `mysql.log`;
-all four vantages now answer identically.
-**Note**: this slice carries two handler fan-outs and their wire-checks. If it exceeds one PR,
-split by vantage — never by "endpoint first, hydra later", which would leave a door nobody can open.
+**Class**: Behavior change. **Skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
+**Shape**: TWO PRs, split by vantage, public first. Each ships a COMPLETE loop for its vantage —
+the credential door and the data door together, never "endpoint first, hydra later", which would
+leave a door nobody can open.
+
+#### What is actually missing, checked cell by cell rather than assumed
+
+| door | own LAN (NPC) | deep layer | public IP | same LAN (occupant) |
+| --- | --- | --- | --- | --- |
+| `nmap` | shipped | shipped | shipped | shipped |
+| `ssh` | shipped | shipped | shipped | shipped (`authCreateSessionSameLan`) |
+| `hydra` | shipped | shipped | shipped, service-generic — **mysql unproven** | **MISSING** — NPC hosts only |
+| `mysql` connect/statement | shipped | shipped | **MISSING** | **MISSING** |
+
+Three findings that shrink this slice from what the one-line version implied:
+
+- **`hydra` public is already service-generic.** `hydraCrackPublic` takes `service: z.string()`,
+  resolves it through `serviceByName`, and matches `spec.accountsOn(fs)` / `spec.databaseOn?.(fs)`
+  against `readOpenPorts` at `reachedPort`. Nothing in it is ssh-shaped, so
+  `hydra <A's public IP> -p 3306 mysql` is plausibly already working — and
+  `hydraCrackPublic.test.ts` holds not one mysql case. Same shape as slice 5's finding: possibly
+  true, certainly unproven. PR 1 proves it FIRST and builds only what the proof shows missing.
+- **`reachMysqlHost` is the whole mysql fan-out**, and it is smaller than expected: it already
+  routes two vantages through one `openDatabaseOn`, and `resolvePublicTarget` returns
+  `{ fs, machineId, hostname, logWriterKey, essid, reachedPort }` — every field `openDatabaseOn`
+  needs. One mismatch to absorb: it hands back an ALREADY-MATERIALIZED tree where `openDatabaseOn`
+  expects a base to replay a journal onto.
+- **A player's box is a real target.** `ownDatabase` mirrors only the ROOT account onto the box's
+  chosen password; the drawn app and `readonly` accounts under it are ordinary crackable rows, so
+  a cross-player sweep has something to return.
+
+#### Resolved decisions (grill-me, 2026-08-23)
+
+1. **D6 pays for hydra's occupant merge, GENERICALLY — for every service, not just mysql.**
+   `hydraCrack` resolves its target from `generateHomeLan().hosts`, so it cannot sweep a fellow
+   occupant for ANY service; `nmapScan` already merges real occupants at the same point. Fixing it
+   mysql-only would leave one tool answering by a different rule depending on the service named.
+2. **The datadir stays ONE owner-keyed row, last write wins.** The shipped rule already splits by
+   target kind — caller's key for an NPC (`nmapScan:147`, `hydraCrack:250`, `mysqlConnect:160`),
+   target owner's key for a real occupant (`nmapScan:187`, the "system owns its logs" keystone) —
+   so slice 7 applies it rather than inventing one. What is new is that this is the first
+   cross-player write of DATA rather than a log. The shared-file write-wipe that decision names is
+   accepted here, and mysql is far less exposed to it than `nano`: the statement handler
+   re-materializes the datadir on EVERY statement, so there is no editor buffer to go stale and the
+   residual window is one in-flight request, not one editing session. A's own client-side writes
+   (`mysqlOwnBox` through `env.patches.write`) land under A's key too, so A's own edits and B's
+   attack converge into the SAME row rather than forking it.
+3. **Root on the box is root in its database — intended, and now a criterion.** B who cracked A's
+   root hash and ran `su root` holds the plaintext, and `ownDatabase` mirrors that password onto the
+   database's root account, so B can `DROP TABLE` on A's data. That is the reward for the harder
+   attack path reaching what the easier one cannot. `ownDatabase`'s header comment currently names
+   only the CVE arc as the way past an uncrackable db root; amend it to name this second route.
+4. **No new LAN-target seam — compose in place.** `nmapScan`, `authCreateSessionSameLan` and
+   `resolveOccupants` each compose `lanAddressesByOwner` today and agree; hydra and mysql do the
+   same. mysql needs no new structure at all, since `reachMysqlHost`/`openDatabaseOn` is already
+   its shared seam. A resolver layer over four working call sites would be structure no test can
+   observe failing.
+5. **Two PRs, public vantage first.** Public is the order the epic set (decision #2) and the
+   smaller change — a graft onto an existing resolver, with hydra's half possibly already green.
+   Same-LAN follows, carrying the wider-blast-radius occupant merge.
+6. **Three defender counter-moves become criteria; the self-brick does not.** A stopping `mysqld`
+   mid-session, A pulling the 3306 forward (public), A leaving the ESSID (same-LAN). Each vantage's
+   own gate gets proven rather than believed. A bricking their own box is already covered by the
+   Story 5.3 dark-gate and is an odd defence to spend a test on.
+7. **Slice 7 CLOSES D6.** On landing, graduate the four carried debts to their real owners and
+   delete this file: criterion 2's tests and the `pools/database.ts` column-metadata mutants are
+   D6's own test debt, the deep-layer seeded-tree gap belongs to the inner-gateway resolver (it is
+   every door's problem, as `mysqlHost.ts`'s header already says), and the own-LAN `nmap` gap is
+   §9's. Close-out goes to `legacy-parity-epic.md`.
+
+#### PR 1 — the public vantage
+
+- `mysql <A's public IP> -p <forwarded port>` with a cracked credential reaches a `mysql>` prompt on
+  A's box, and `SHOW TABLES` / `SELECT` return A's real rows
+- `hydra <A's public IP> -p <forwarded port> mysql` returns A's database accounts — proven first,
+  since it may already hold, and only then built
+- A mutation B runs writes A's datadir under **A's** owner key, and A sees the change from their own
+  prompt on their own box
+- A's `/var/log/mysql.log` holds B's connect line and B's mutation line, with a SERVER-derived
+  source IP — never a client claim
+- The tier ladder holds across the network: a cracked `readonly` is refused an `UPDATE` on A's box
+  exactly as on an NPC's
+- B who has rooted A's box reaches the database as root with the same password and may `DROP TABLE`
+  (decision 3)
+- No forward, no door: with 3306 absent from A's `rules.v4` the connect is refused before any
+  password check — the opt-in default the public path already enforces
+- A pulling the forward mid-session drops B on the next statement; A stopping `mysqld` mid-session
+  does the same
+
+#### PR 1 as-built
+
+**The hydra half was already true.** Four tests were added to `hydraCrackPublic.test.ts` and passed
+on the first run — `hydra <public IP> -p <fwd> mysql` earns an account in a stranger's database,
+records the sweep on the target's own `/var/log/mysql.log` under the TARGET's key, and leaves the
+database's root standing against the whole default wordlist. Since nothing was RED, the tests were
+proved non-vacuous by mutating production instead: pointing mysql's `accountsOn` at `/etc/passwd`
+kills the first, and dropping the `reachedPort` match kills the port-routing one. Characterisation,
+recorded as such rather than dressed up as a cycle.
+
+**The mysql half was RED, five failures, and small.** `reachMysqlHost` gained a third branch:
+`isPublicIp(targetIp)` → `resolvePublicTarget` → the same `openDatabaseOn`. The vantage is decided
+from the ADDRESS, server-side, never from anything the client says about where it is standing.
+
+Three shape changes fell out of it:
+
+- `openDatabaseOn` is now PURE — it takes an already-materialized tree rather than a base plus the
+  deps to replay one, because the public vantage arrives materialized (only the server can know
+  whose box is behind a stranger's forward).
+- `openGeneratedBox` wraps it for the two vantages that GENERATE their target, so there is still
+  exactly ONE place a journal read can fail. The first cut had one per branch; mutation testing
+  found both of the new ones uncovered, and collapsing them was the right answer rather than
+  writing the same test twice.
+- `ReachedMysqlHost` gained `writerKey: string | null`, mirroring `sourceIp`'s existing convention:
+  the TARGET's key once the box has an owner, `null` on an ownerless generated box where the
+  caller's own key is the only stable thing to write under. Both handlers now write every row —
+  datadir AND log — under `writerKey ?? publicKey`.
+
+**Two corrections came out of contact with the shipped code, and both were the code being right:**
+
+- A stopped `mysqld` behind a forward answers `host_unreachable`, not `service_not_running`. The
+  public resolver already gates the DNAT target's liveness, and that is correct: from outside
+  somebody else's NAT, a forward onto a dead port and a forward never opened are the same silence.
+  A door that told them apart would be telling an outsider which services a box behind the NAT has
+  stopped. `ssh` answers the same way. The test expectation moved, not the code.
+- Two shipped tests used `203.0.113.9` — a PUBLIC address — to mean "no host on my LAN". Since a
+  public address is now a vantage rather than a non-address, they were moved to a LAN address that
+  no generated host holds, which is what they always meant.
+
+**Known limitation, recorded rather than fixed.** The source IP in a cross-player line is derived
+from the attacker's VERIFIED key — their own home network — not from the box they are standing on.
+`hydra` does better because its payload carries `caller_machine_id`, so the server can read a
+session row's stamped ESSID; the mysql payload carries none. So a player who ssh'd onto someone
+else's box and ran `mysql` from there is traced to their own address rather than the hop's. That is
+the deferred PIVOT story's to close, and `crossPlayerSourceIp.ts`'s header already names itself as
+the one seam that changes when it ships.
+
+**Evidence**: RED 5 failures (`expected { error: 'host_unreachable' } to equal { ok: true, … }`);
+3362/3362 over 163 files (was 3345 — the 17 new); `tsc -b` and `eslint .` clean. **Gate 5 RUN LIVE** —
+`scripts/testMysqlCrossPlayer.ts` **8/8** against `vercel dev` + supabase: hydra reported `api_svc`
+and `mysqlConnect` then accepted it; the connection landed on the defender's SINGLE mysql.log row
+at the server-derived `198.51.100.45` rather than the `10.0.0.1` the client sent; the `UPDATE` wrote
+ONE datadir row under the defender's key; pulling the forward dropped the intruder on the next
+statement.
+mutation: `mysqlHost.ts` **100% — 79/79 killed, 0 survived, 0 uncovered**. `mysqlConnect.ts` 90.74%
+and `mysqlStatement.ts` 85.00%, both UNCHANGED from before this PR: every survivor sits on a line it
+never touched (the zod `.looseObject`/`.refine` envelope guards, the `'unknown'` source-IP fallback,
+the `database === null` and `logged !== undefined` branches). That is D6's carried mutation debt,
+which decision 7 graduates rather than pays here. Version **v0.170.0**, both files.
+
+#### PR 2 — the same-LAN vantage
+
+- `hydra` and `mysql` both resolve a FELLOW OCCUPANT at a LAN address: occupancy for the LAN
+  boundary, the lease for the address, self excluded, real occupant beating the NPC on an octet
+  collision — the rule `authCreateSessionSameLan` and `nmapScan` already follow
+- The occupant merge lands in `hydraCrack` for every service, so a same-LAN `hydra ... ssh` against
+  a fellow occupant works too (decision 1)
+- B on A's ESSID reaches A's database directly, with no router, NAT or forward involved
+- The source IP in A's log is the LAN address, not a NAT one
+- A running `nmcli disconnect` drops B on the next statement — occupancy IS the reach here
+- All four vantages answer identically: same refusals, same tier ladder, same log lines
+
+#### Gates
+
+Both PRs touch `api/`, so gate 5 is live for each. Precedent for the wire-check is the
+`testCrossPlayer*.ts` family plus `scripts/seedCrossPlayerTarget.ts`, which already seeds a second
+player — one new `scripts/testMysqlCrossPlayer*.ts` per PR, run against `vercel dev` + supabase.
+Version bumped once per PR, in both `package.json` and `package-lock.json`.
 
 ## Pre-PR Quality Gate
 

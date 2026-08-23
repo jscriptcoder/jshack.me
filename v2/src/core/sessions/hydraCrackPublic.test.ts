@@ -9,6 +9,11 @@ import { machineIdForLanHost } from '../generation/lanHostIdentity';
 import { seedApGatewayAdminPw, seedApGatewayHostname } from '../generation/routerFs';
 import { workstationGuestPassword } from '../generation/workstationFs';
 import { md5 } from '../generation/md5';
+import { DATADIR_PATH } from '../mysql/datadir';
+import { formatPidfileContent, pidfilePath } from '../services/pidfile';
+import { SERVICE_CATALOG } from '../services/serviceCatalog';
+import { MYSQL_LOG_OWNER, MYSQL_LOG_PATH, MYSQL_LOG_PERMISSIONS } from '../logging/mysqlLog';
+import { playerDatabaseOn } from '../../test/factories/lanDatabase';
 import { lanAddressFor } from '../network/lanAddress';
 import { DEFAULT_WORDLIST, WORDLIST_PATH, formatWordlist } from '../wordlist/defaultWordlist';
 import {
@@ -142,6 +147,39 @@ const sshdUp: OwnerPatchRow = {
 /** The resident also serves a web page. A box running two daemons is what makes the
  *  destination port an ADDRESS rather than a formality. */
 const nginxUp: OwnerPatchRow = { ...sshdUp, path: '/var/run/nginx.pid', content: 'nginx:port=80' };
+
+// The resident bought a database and started it. Its accounts live in the datadir
+// rather than in `/etc/passwd`, so it is a SECOND lock on the same box, opened by a
+// key that cracking the shell never yields. The datadir is a journal row because that
+// is how a player's box gets one at all: `apt install mysql` writes it, drawn from
+// their own key, so no two players hold the same database.
+const { database: RESIDENT_DATABASE, credential: RESIDENT_DB_ACCOUNT } =
+  playerDatabaseOn(residentOccupant);
+const mysqldUp: OwnerPatchRow = {
+  ...sshdUp,
+  path: pidfilePath(SERVICE_CATALOG.mysql),
+  content: formatPidfileContent(SERVICE_CATALOG.mysql, SERVICE_CATALOG.mysql.defaultPort),
+};
+const datadirUp: OwnerPatchRow = {
+  ...sshdUp,
+  path: DATADIR_PATH,
+  content: JSON.stringify(RESIDENT_DATABASE),
+};
+// A third door on the same gateway, and the only one that reaches 3306.
+const MYSQL_FORWARD_PORT = 5533;
+const MYSQL_FORWARD: OwnerPatchRow = {
+  ...RESIDENT_FORWARD,
+  content: `forward ${MYSQL_FORWARD_PORT} to ${RESIDENT_LAN_IP}:${SERVICE_CATALOG.mysql.defaultPort}`,
+};
+// Both doors on one gateway, in ONE rules file — two rows for one path would replay as
+// the second erasing the first, which is the fold working rather than two forwards.
+const SSH_AND_MYSQL_FORWARDS: OwnerPatchRow = {
+  ...RESIDENT_FORWARD,
+  content: [
+    `forward ${FORWARD_PORT} to ${RESIDENT_LAN_IP}:22`,
+    `forward ${MYSQL_FORWARD_PORT} to ${RESIDENT_LAN_IP}:${SERVICE_CATALOG.mysql.defaultPort}`,
+  ].join('\n'),
+};
 
 // 2026-08-09 11:04:07 UTC — the clock every trace line here is stamped with.
 const FIXED_NOW = Date.UTC(2026, 7, 9, 11, 4, 7);
@@ -750,6 +788,90 @@ describe('handleHydraCrackPublic', () => {
 
       expect({ status, body }).toEqual({ status: 404, body: { error: 'service_not_running' } });
       expect(upsertPatch).not.toHaveBeenCalled();
+    });
+
+    describe('a database published through a forward', () => {
+      // The cross-player database door, from the credential end. Everything the
+      // attacker needs is one address and a port their target chose to open.
+      const databaseDeps = (over: DepOverrides = {}): HydraCrackPublicDeps =>
+        forwardDeps({
+          gatewayPatches: [MYSQL_FORWARD],
+          occupantPatches: [mysqldUp, datadirUp],
+          wordlist: [RESIDENT_DB_ACCOUNT.password],
+          ...over,
+        });
+
+      it("earns an account in a stranger's database, published through their own forward", async () => {
+        const { status, body } = await handleHydraCrackPublic(
+          envelope({ port: MYSQL_FORWARD_PORT, service: 'mysql' }),
+          databaseDeps(),
+        );
+
+        expect({ status, body }).toEqual({
+          status: 200,
+          body: {
+            port: MYSQL_FORWARD_PORT,
+            cracked: [RESIDENT_DB_ACCOUNT],
+            wordlistFound: true,
+          },
+        });
+      });
+
+      it('records the sweep on the DATABASE\'s own log, on the target box, under their key', async () => {
+        const upsertPatch = vi.fn(async () => ({ error: null }));
+        await handleHydraCrackPublic(
+          envelope({ port: MYSQL_FORWARD_PORT, service: 'mysql' }),
+          databaseDeps({ upsertPatch }),
+        );
+
+        // Not auth.log: a database sweep is the daemon's business, and the defender
+        // looks for it where the daemon writes. The row is the TARGET's — the system
+        // owns its logs, so two attackers accrete into one file instead of erasing
+        // each other.
+        expect(upsertPatch).toHaveBeenCalledWith(
+          expect.objectContaining({
+            machine_id: RESIDENT_WS,
+            writer_key: RESIDENT.publicKeyHex,
+            path: asAbsPath(MYSQL_LOG_PATH),
+            owner: MYSQL_LOG_OWNER,
+            permissions: MYSQL_LOG_PERMISSIONS,
+          }),
+        );
+      });
+
+      it('leaves the database root standing against the whole default wordlist', async () => {
+        // Its password is the one the OWNER chose for the box, mirrored onto the
+        // database so they reach their own prompt with nothing to look up. No pool
+        // holds a chosen password, so a sweep never reaches the tier that may drop a
+        // table — owning the box is the only route to it.
+        const { body } = await handleHydraCrackPublic(
+          envelope({ port: MYSQL_FORWARD_PORT, service: 'mysql' }),
+          databaseDeps({ wordlist: DEFAULT_WORDLIST }),
+        );
+
+        expect(body).toEqual({
+          port: MYSQL_FORWARD_PORT,
+          cracked: expect.not.arrayContaining([{ username: 'root', password: RESIDENT_ROOT_PW }]),
+          wordlistFound: true,
+        });
+      });
+
+      it('refuses the database through a port that forwards to sshd, though the box runs both', async () => {
+        // The port IS the address. A credential reported for a door `mysql` would then
+        // refuse is the tool disagreement this whole path exists to prevent.
+        const upsertPatch = vi.fn(async () => ({ error: null }));
+        const { status, body } = await handleHydraCrackPublic(
+          envelope({ port: FORWARD_PORT, service: 'mysql' }),
+          databaseDeps({
+            gatewayPatches: [SSH_AND_MYSQL_FORWARDS],
+            occupantPatches: [sshdUp, mysqldUp, datadirUp],
+            upsertPatch,
+          }),
+        );
+
+        expect({ status, body }).toEqual({ status: 404, body: { error: 'service_not_running' } });
+        expect(upsertPatch).not.toHaveBeenCalled();
+      });
     });
 
     it('still reaches the gateway when no port is named — the default is unchanged', async () => {

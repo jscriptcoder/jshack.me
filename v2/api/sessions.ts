@@ -474,24 +474,47 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (actionOf(req.body) === 'mysqlConnect') {
-    // A database login on an own-LAN host. NO session row is created — a database
-    // connection has none, and the credential is re-validated on every statement
-    // instead. The handler READS the target's journal (its real datadir, and what it
-    // is actually running) and WRITES one line to its own /var/log/mysql.log, the
-    // trace an accepted and a refused connection both leave.
+    // A database login. NO session row is created — a database connection has none,
+    // and the credential is re-validated on every statement instead. The handler
+    // READS the target's journal (its real datadir, and what it is actually running)
+    // and WRITES one line to its own /var/log/mysql.log, the trace an accepted and a
+    // refused connection both leave.
+    //
+    // The target may be on the caller's own LAN, behind one of their gateways, or on
+    // a PUBLIC address belonging to somebody else's access point — the door decides
+    // from the address, server-side. The cross-player lookups below are what that last
+    // route resolves through: which network bears the address, who leases the box the
+    // forward names, and the attacker's own address for the line the defender reads.
     const { status, body } = await handleMysqlConnect(req.body, {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
       findPatches: findPatchesVia({ supabase, label: 'mysql target journal lookup' }),
       readMysqlLog: readAuthLogVia({ supabase, label: 'mysql log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'mysql log upsert' }),
+      findNetworkByPublicIp: findNetworkByPublicIpVia({
+        supabase,
+        label: 'mysql connect public-ip lookup',
+      }),
+      listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
+        supabase,
+        label: 'mysql connect occupant list',
+      }),
+      listLeasesByEssid: listLeasesByEssidVia({ supabase, label: 'mysql connect lan-lease list' }),
+      findHomeNetworkByOwnerKey: findHomeNetworkByOwnerKeyVia({
+        supabase,
+        occupancyLabel: 'mysql connect source-ip occupancy',
+        lookupLabel: 'mysql connect source-ip lookup',
+      }),
     });
     res.status(status).json(body);
     return;
   }
 
   if (actionOf(req.body) === 'mysqlStatement') {
-    // One statement against an own-LAN host's database. The credential is re-sent
+    // One statement against a database — own-LAN, deep, or another player's box across
+    // the world; the reach is the login door's, shared, so the two cannot disagree.
+    // Every row this writes on another player's box lands under THEIR key: the datadir
+    // is one file however many people are editing it, and their logs are the system's. The credential is re-sent
     // and re-validated here because the connection minted no session row to trust
     // instead. The handler READS the target's journal (its real datadir, and what it
     // is actually running); a statement that CHANGES the database writes the datadir
@@ -505,6 +528,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findPatches: findPatchesVia({ supabase, label: 'mysql statement journal lookup' }),
       readMysqlLog: readAuthLogVia({ supabase, label: 'mysql statement log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'mysql datadir + log upsert' }),
+      findNetworkByPublicIp: findNetworkByPublicIpVia({
+        supabase,
+        label: 'mysql statement public-ip lookup',
+      }),
+      listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
+        supabase,
+        label: 'mysql statement occupant list',
+      }),
+      listLeasesByEssid: listLeasesByEssidVia({ supabase, label: 'mysql statement lan-lease list' }),
+      findHomeNetworkByOwnerKey: findHomeNetworkByOwnerKeyVia({
+        supabase,
+        occupancyLabel: 'mysql statement source-ip occupancy',
+        lookupLabel: 'mysql statement source-ip lookup',
+      }),
     });
     res.status(status).json(body);
     return;

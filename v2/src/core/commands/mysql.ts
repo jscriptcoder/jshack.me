@@ -9,6 +9,7 @@
 import { generateHomeLan } from '../generation/generateHomeLan';
 import { connectedWlan0 } from '../network/interfaces';
 import { forwardsIntoDeepLayer, resolveLanHostIdentity } from '../generation/lanHostIdentity';
+import { isPublicIp } from '../generation/ip';
 import { readOpenPorts } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { connectOwnDatabase, ownBoxSource, ownDaemonListening } from './mysqlOwnBox';
@@ -197,6 +198,9 @@ const execute: Command['execute'] = async (env, args, flags) => {
   if (wlan0 === null) return unreachable(target, port, 'Network is unreachable');
   const essid = wlan0.association.essid;
 
+  // A PUBLIC address is somebody else's access point, and which box sits behind which
+  // forward lives in that gateway's server-side journal — so, exactly as with an inner
+  // gateway below, there is nothing here to pre-flight and the server answers.
   // A port on an inner gateway other than its own sshd addresses the hidden layer
   // BEHIND it — the same rule `ssh -p <fwd> <inner>` and `hydra -p <fwd> <inner>` route
   // by, so all three tools reach the same box. There is nothing to pre-flight there:
@@ -211,7 +215,7 @@ const execute: Command['execute'] = async (env, args, flags) => {
     ? ownDaemonListening(env.fs.root(), port)
       ? null
       : unreachable(target, port, REACH_REASON.refused)
-    : forwardsIntoDeepLayer({ essid, target, port })
+    : isPublicIp(target) || forwardsIntoDeepLayer({ essid, target, port })
       ? null
       : lanReach(essid, target, port);
   if (refusal !== null) return refusal;
