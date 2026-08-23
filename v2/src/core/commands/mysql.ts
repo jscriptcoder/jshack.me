@@ -184,6 +184,54 @@ const lanReach = (
   return listening ? null : unreachable(target, port, 'Connection refused');
 };
 
+/** Whether this client can settle reachability BEFORE asking the player for a
+ *  credential, and the refusal when it can settle it as "no".
+ *
+ *  It can only do that for the world it holds itself. Their own box it reads off the
+ *  real filesystem in front of them; the generated LAN it regenerates. Everything else
+ *  is the server's to answer: a public address, a port that addresses the layer behind
+ *  an inner gateway, and a FELLOW OCCUPANT, whose box is a real machine the generator
+ *  knows nothing about. Pre-flighting a neighbour against the generated world would
+ *  refuse every player on the WiFi before the password prompt — or, worse, refuse them
+ *  on behalf of the seeded box their lease displaced. */
+const preflightRefusal = async (
+  env: CommandEnv,
+  target: {
+    readonly typed: string;
+    readonly port: number;
+    readonly essid: string;
+    readonly ownSource: string | null;
+  },
+): Promise<CommandResult | null> => {
+  // Their own box first, because it is the one address on the LAN the generator does
+  // not describe: it has a real filesystem rather than a seeded one, and the pidfile
+  // that says whether the door is open is sitting in it.
+  if (target.ownSource !== null) {
+    return ownDaemonListening(env.fs.root(), target.port)
+      ? null
+      : unreachable(target.typed, target.port, REACH_REASON.refused);
+  }
+
+  // A PUBLIC address is somebody else's access point, and which box sits behind which
+  // forward lives in that gateway's server-side journal. A port on an inner gateway
+  // other than its own sshd addresses the hidden layer BEHIND it — the same rule
+  // `ssh -p <fwd> <inner>` and `hydra -p <fwd> <inner>` route by, so all three tools
+  // reach the same box. Neither can be checked here, so the player is asked for a
+  // credential first and told afterwards, exactly as a real client refused at the
+  // socket would be.
+  if (isPublicIp(target.typed) || forwardsIntoDeepLayer({ essid: target.essid, target: target.typed, port: target.port })) {
+    return null;
+  }
+
+  // A fellow occupant of this ESSID is reached DIRECTLY over the shared LAN. Asked
+  // after the two vantages above because those need no lookup at all, and the answer
+  // is the server's either way: what is behind a neighbour's address is theirs.
+  const occupants = await env.scan.resolveOccupants(target.essid);
+  if (occupants.some((occupant) => occupant.localIp === target.typed)) return null;
+
+  return lanReach(target.essid, target.typed, target.port);
+};
+
 const execute: Command['execute'] = async (env, args, flags) => {
   const target = args[0];
   if (target === undefined) return errorResult(USAGE);
@@ -198,26 +246,8 @@ const execute: Command['execute'] = async (env, args, flags) => {
   if (wlan0 === null) return unreachable(target, port, 'Network is unreachable');
   const essid = wlan0.association.essid;
 
-  // A PUBLIC address is somebody else's access point, and which box sits behind which
-  // forward lives in that gateway's server-side journal — so, exactly as with an inner
-  // gateway below, there is nothing here to pre-flight and the server answers.
-  // A port on an inner gateway other than its own sshd addresses the hidden layer
-  // BEHIND it — the same rule `ssh -p <fwd> <inner>` and `hydra -p <fwd> <inner>` route
-  // by, so all three tools reach the same box. There is nothing to pre-flight there:
-  // the forward table is in the gateway's server-side journal, so the player is asked
-  // for a credential first and told afterwards, exactly as a real client refused at
-  // the socket would.
-  // Their own box first, because it is the one address on the LAN the generator does
-  // not describe: it has a real filesystem rather than a seeded one, and the pidfile
-  // that says whether the door is open is sitting in it.
   const ownSource = ownBoxSource({ target, ownIp: wlan0.ipv4 });
-  const refusal = ownSource !== null
-    ? ownDaemonListening(env.fs.root(), port)
-      ? null
-      : unreachable(target, port, REACH_REASON.refused)
-    : isPublicIp(target) || forwardsIntoDeepLayer({ essid, target, port })
-      ? null
-      : lanReach(essid, target, port);
+  const refusal = await preflightRefusal(env, { typed: target, port, essid, ownSource });
   if (refusal !== null) return refusal;
 
   return openDatabase(env, {

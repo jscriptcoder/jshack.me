@@ -548,7 +548,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (actionOf(req.body) === 'hydraCrack') {
-    // Credential sweep against an own-LAN host. No session is created. The handler
+    // Credential sweep against a host on the caller's own LAN — a generated sibling, or
+    // a FELLOW OCCUPANT of the WiFi, who is a real player's box at a real lease and
+    // outranks the sibling the seed put on that octet. No session is created. The handler
     // READS the target's journal (to see its real passwd and what it is actually
     // running) and the caller's own wordlist patch — the wordlist exists solely as
     // a patch (apt wrote it; no base FS carries it), so that one row IS the file,
@@ -560,6 +562,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       now: () => Date.now(),
       findActiveSession: findActiveSessionVia({ supabase, label: 'hydra active-session lookup' }),
       findPatches: findPatchesVia({ supabase, label: 'hydra target journal lookup' }),
+      listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
+        supabase,
+        label: 'hydra same-lan occupant list',
+      }),
+      listLeasesByEssid: listLeasesByEssidVia({ supabase, label: 'hydra same-lan lease list' }),
       listPathPatches: listPathPatchesVia({ supabase, label: 'hydra wordlist read' }),
       readAuthLog: readAuthLogVia({ supabase, label: 'hydra auth-log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'hydra auth-log upsert' }),

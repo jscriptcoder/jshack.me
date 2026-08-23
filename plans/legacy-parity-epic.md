@@ -30,6 +30,10 @@ deleted and the as-built lives in
 [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7 (the daemon descriptor,
 the single "what is running here" policy, the `env.fs` snapshot) and §9, with the browser run as
 Act 13 of [`e2e-shared-network-verification.md`](../v2/docs/e2e-shared-network-verification.md).
+**D6 ✅ COMPLETE (v0.171.0)** — seven slices plus 6b, #434 onward, closed out 2026-08-23: its plan
+file is deleted and the as-built lives in
+[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7 (the four-vantage reach,
+the cross-player data write, the occupant-beats-sibling rule) and §9 (its remaining test debt).
 **D5 🔍 GRILLED 2026-08-16, not yet planned** — fifteen locked decisions and a six-slice spine in
 "D5 — resolved scope & decisions"; it also found that §9's `ps` defect is misdiagnosed and owns
 the fix. Everything else is split-and-grilled only.
@@ -267,15 +271,16 @@ PHASE 1 — THE DOORS  (near-term focus)
       D5b slice 3 a box admits what it is              ✔ SHIPPED v0.155.0 (#430)
       D5b slice 4 the page a box serves fits the box   ✔ SHIPPED v0.156.0 (#431)
       D5b slice 5 the account you crack fits the box   ✔ SHIPPED v0.157.0
-  D6  mysql                                           ← IN PROGRESS (planned, plans/d6-mysql.md)
+  D6  mysql                                           ✔ COMPLETE (v0.171.0)
       D6 slice 1 a box runs a database                ✔ SHIPPED v0.158.0 (#434)
       D6 slice 2 a player cracks a database account   ✔ SHIPPED v0.159.0 (#437)
       D6 slice 3 a player reads a database            ✔ SHIPPED v0.160.0-v0.162.0 (#438/#439/#440)
       D6 slice 4 a player changes a database          ✔ SHIPPED v0.163.0 (#441)
-      D6 slice 5 a database on a deep layer answers   ← NEXT (feat/d6-mysql-deep)
-      D6 slice 6 a player runs their own database      (deferred half)
-      D6 slice 7 a player reaches another's database   (deferred half)
-  D7  rediscli
+      D6 slice 5 a database on a deep layer answers   ✔ SHIPPED v0.166.0 (#442)
+      D6 slice 6 a player runs their own database     ✔ SHIPPED v0.167.0 (#443)
+      D6 slice 6b a generated box carries what it runs ✔ SHIPPED v0.168.0-v0.169.0 (#444/#445/#446)
+      D6 slice 7 a player reaches another's database  ✔ SHIPPED v0.170.0-v0.171.0 (#447 + close-out)
+  D7  rediscli                                        ← NEXT (needs grill-me)
   D8  snmpwalk / snmpset
   D9  node scripting
   D10 polish (long-tail comfort commands)
@@ -1855,11 +1860,12 @@ to it — `mail-139` answers with `dkim`, `thermostat-207` with `mqtt`, a laptop
 - **`dns` exists with nothing to run against it.** Kept at 3% on the reading that a role a player
   meets rarely is worth having named when they do; X1's `nslookup` is what makes it answer.
 
-**➡️ NEXT: D6 — a player reads a machine's database (`mysql`)**, fourth door in the locked order
+**✔ DONE: D6 — a player reads a machine's database (`mysql`)**, fourth door in the locked order
 (ftp → daemons → nc → **mysql** → redis → snmp → node). **GRILLED 2026-08-19 — thirteen locked
 decisions and a seven-slice spine in
 ["D6 — resolved scope & decisions"](#d6--resolved-scope--decisions-grill-me-2026-08-19). PLANNED in
-[`d6-mysql.md`](d6-mysql.md), and **slice 1 shipped v0.158.0 (#434)** — a box that runs `mysqld` now
+`d6-mysql.md` (deleted on close-out; the as-built lives here and in the conventions doc), and
+**slice 1 shipped v0.158.0 (#434)** — a box that runs `mysqld` now
 holds a real database, and one that does not holds no `/var/lib/mysql` at all. Its mutation debt was
 then paid in full across **#435 and #436**, which took `pools/database.ts` from a score inflated by
 masked timeouts to **88.69% with 0 timeouts** and 44 survivors that are each accounted for — 42
@@ -1876,7 +1882,45 @@ diff was **empty**, so the row's blanket "slices 2-5 and 7 touch `api/`" does no
 -check earned its place for a narrower reason, that a `patches` row at a SECOND log path lands and
 reads back under a key the upsert's conflict target does not swallow.
 
-**Slice 3 (a player reads a database) is NEXT**, on `feat/d6-mysql-prompt`.
+**D6 IS COMPLETE at v0.171.0**, and its plan file is deleted. Slices 4-7 after the block above:
+**slice 4** (v0.163.0 #441) put the tier ladder on the wire — `readonly` refused an `UPDATE`, the
+app account performing one, only database root dropping a table, with every mutation appending to
+`/var/log/mysql.log` and no `SELECT` ever doing so. **Slice 5** (v0.166.0 #442) reached a database
+on a deep layer through a forward, and found two of its criteria already true; it also found that
+the chain resolver hands back the terminal box's SEEDED tree, which is survivable for a door
+authenticating against seeded accounts and fatal for one answering with DATA — worked around in
+`reachMysqlHost`, recorded in §9 as the resolver's to close for every door at once. **Slice 6**
+(v0.167.0 #443) gave the player their own database, and with it the root chain that decision 3 of
+slice 7 later made explicit: `ownDatabase` mirrors the box's chosen password onto the database's
+root account, so whoever cracks the box and runs `su root` is holding the database's root password
+already. **Slice 6b** (v0.168.0-v0.169.0) was a world-generation correction D6 made visible — a
+generated box now carries the packages for the services it runs, so its doors can be shut.
+
+**Slice 7 (v0.170.0 #447, then the close-out PR at v0.171.0) is the cross-player one, and it shipped as TWO PRs split
+by vantage.** It was grilled first, and the grill changed its shape: checking the gap map cell by
+cell found THREE gaps rather than the two the one-line plan claimed, and one of them was not a
+database gap at all.
+
+- **PR 1 — the public vantage.** `hydra <A's public IP> -p <fwd> mysql` turned out to be already
+  working and completely untested (`hydraCrackPublic` was written service-generic), so it was
+  proved by MUTATING PRODUCTION rather than by a fabricated RED. The mysql half was RED and small:
+  a public address resolves through the same `resolvePublicTarget` that `ssh` and `hydra`
+  authenticate through, so a credential either earns is one this door then accepts by construction.
+  Wire-check `testMysqlCrossPlayer` 8/8 live.
+- **PR 2 — the same-LAN vantage, and the gap that was not the database's.** `hydraCrack` resolved
+  its target from `generateHomeLan().hosts` alone, so it could not sweep a fellow occupant for ANY
+  service. Fixing that generically (decision 1) is what makes a same-LAN `hydra … ssh` against a
+  neighbour work at all — a mysql-only fix would have left one tool answering by a different rule
+  depending on the service named. Wire-check `testMysqlSameLan` 12/12 live, including the two
+  claims only a live run makes: a real occupant answering at an address the generator also filled,
+  and that address falling back to the seeded sibling the moment the player leaves the WiFi.
+- **What it settled that outlives D6** is in §7 of the conventions doc: the four-vantage reach
+  decided from the ADDRESS server-side, the cross-player write of DATA landing under the target's
+  key (because `patches` folds rather than accumulates), and occupant-beats-sibling as a rule of
+  target RESOLUTION rather than of any one service.
+
+**➡️ NEXT: D7 — `redis-cli`**, fifth door in the locked order. Run `grill-me` against it before
+planning, as D3/D3b/D4/D5/D5b/D6 each did.
 
 The three things that grill settled which the row above could not have predicted:
 

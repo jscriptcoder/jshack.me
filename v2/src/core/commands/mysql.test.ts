@@ -7,8 +7,10 @@ import {
   mockMysqlApi,
   mockNetworkViewFromConnectivity,
   mockPatchApi,
+  mockScanApi,
   mockSession,
 } from '../../test/factories/commandEnv';
+import type { OccupantProjection } from '../network/resolveOccupants';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { isInnerGateway } from '../generation/lanHostIdentity';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
@@ -39,6 +41,7 @@ import {
   asEpochMs,
   asGameTime,
   asMachineId,
+  asNetworkAddress,
   asPlayerKeyHex,
   type AbsPath,
   type UserType,
@@ -133,7 +136,17 @@ const otherServicePortOn = (host: LanHost): number => {
 type EnvOver = {
   readonly prompt?: (opts: { message: string; masked: boolean }) => Promise<string>;
   readonly mysql?: Partial<MysqlApi>;
+  /** Fellow occupants of the ESSID. Defaults to none, so every own-LAN test keeps
+   *  seeing the generated world exactly as it did. */
+  readonly occupants?: readonly OccupantProjection[];
 };
+
+/** A fellow occupant of this ESSID, as the signed occupant read hands them back. */
+const occupantAt = (localIp: string): OccupantProjection => ({
+  workstation_machine_id: 'alice-rig-cafef00d',
+  localIp: asNetworkAddress(localIp),
+  machineName: 'alice-rig',
+});
 
 const mysqlEnv = (over: EnvOver = {}) =>
   mockCommandEnv({
@@ -146,6 +159,7 @@ const mysqlEnv = (over: EnvOver = {}) =>
       userType: 'root',
     }),
     now: () => asEpochMs(NOW),
+    scan: mockScanApi({ resolveOccupants: async () => over.occupants ?? [] }),
     mysql: mockMysqlApi(over.mysql),
     // Distinct answers per prompt: a user and a password that read the same would
     // let the two be swapped without a test noticing.
@@ -266,6 +280,56 @@ describe('mysql', () => {
     expect(connect).toHaveBeenCalledWith(
       expect.objectContaining({ targetIp: '203.0.113.9', port: 43306 }),
     );
+  });
+
+
+  it('asks the server about a fellow occupant rather than refusing them locally', async () => {
+    const connect = vi.fn(async () => ({ ok: false as const, reason: 'denied' as const, fromIp: LOCAL_IP }));
+    const occupant = occupantAt('192.168.29.42');
+
+    await mysql.execute(mysqlEnv({ mysql: { connect }, occupants: [occupant] }), [occupant.localIp], new Map());
+
+    // A fellow player's box is absent from the generated world, so pre-flighting
+    // against it would refuse every neighbour in the game before the player finished
+    // typing. What is behind their address is theirs to answer.
+    expect(connect).toHaveBeenCalledWith(
+      expect.objectContaining({ targetIp: occupant.localIp, port: 3306 }),
+    );
+  });
+
+  it('asks the server even where a generated sibling stands on the occupant address', async () => {
+    const { noDatabaseHost } = pickHosts();
+    const connect = vi.fn(async () => ({ ok: false as const, reason: 'denied' as const, fromIp: LOCAL_IP }));
+    const occupant = occupantAt(noDatabaseHost.ip);
+
+    await mysql.execute(mysqlEnv({ mysql: { connect }, occupants: [occupant] }), [occupant.localIp], new Map());
+
+    // The seeded box runs no database and would be refused out of hand. A real
+    // occupant beats it on that octet — the precedence `nmap` renders — so the
+    // question goes to the server rather than being answered from a world the player
+    // has already been shown is out of date.
+    expect(connect).toHaveBeenCalledWith(
+      expect.objectContaining({ targetIp: occupant.localIp, port: 3306 }),
+    );
+  });
+
+  it('still answers for its own LAN when the neighbour is at another address', async () => {
+    const { noDatabaseHost } = pickHosts();
+    const connect = vi.fn(async () => ({ ok: false as const, reason: 'denied' as const, fromIp: LOCAL_IP }));
+    const prompt = vi.fn(async () => 'hunter2');
+
+    const result = await mysql.execute(
+      mysqlEnv({ mysql: { connect }, prompt, occupants: [occupantAt('192.168.29.42')] }),
+      [noDatabaseHost.ip],
+      new Map(),
+    );
+
+    // Somebody being on the WiFi is not somebody being at THIS address. The generated
+    // box standing here runs no database, and the player is told so before typing a
+    // password rather than after a round trip.
+    expect(prompt).not.toHaveBeenCalled();
+    expect(connect).not.toHaveBeenCalled();
+    expect(linesOf(result)).toContain('Connection refused');
   });
 
   it('takes the account from the command line without asking for one', async () => {

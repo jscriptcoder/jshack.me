@@ -1564,6 +1564,39 @@ state costs you more than one wrong attempt.
   server-derived address, `null` means a generated host and the caller's own row with the
   address they reported. When that lookup fails it writes nothing rather than guessing —
   a line under the wrong key is worse than a line that never arrives.
+- **A cross-player write of DATA lands under the TARGET's key too, for a sharper reason than a
+  trace does.** `patches` is keyed `(machine_id, path, writer_key)`, so a row per attacker does
+  not accumulate — it FOLDS to whichever was written last, and the loser's content is gone. On a
+  log that costs a defender half their evidence; on the mysql datadir it silently drops the rest
+  of their database. So `mysqlStatement` writes the datadir under the box owner's key, the same
+  key the owner's own edits land under, and the two meet in one file that behaves like what it
+  is: a document several people are editing. The shared-file write-wipe this accepts is real but
+  far smaller here than in `nano` — the door re-materializes on EVERY statement, so the window is
+  one in-flight request rather than one editing session.
+
+- **The VANTAGE is decided from the ADDRESS, server-side, and ONE function decides it for a whole
+  door.** `reachMysqlHost` routes four of them — public IP, a fellow occupant of the caller's own
+  ESSID, a port that addresses the layer behind an inner gateway, and a generated sibling — and
+  every one of them ends in the same `openDatabaseOn`: same boot gate, same "is mysqld on the port
+  you REACHED", same refusals. Nothing a client says about where it is standing selects a branch.
+  Routing in the reach rather than in a second pair of handlers is what keeps a login and every
+  statement behind it agreeing about reachability by construction, which is what lets a defender
+  stopping a daemon (or pulling a forward, or leaving the WiFi) drop an intruder on their next
+  statement with no session row to invalidate.
+
+- **A real occupant BEATS the generated sibling standing on the same octet, and every tool has to
+  answer by that rule.** A lease is issued from the whole `/24` and nothing reserves the octets the
+  ESSID's seeded NPCs already fill, so the collision is ordinary rather than exotic. `nmap` merges,
+  `ssh` and `nc` check occupants first — and any tool that resolves its target from
+  `generateHomeLan().hosts` ALONE cannot see a player at all, which is what `hydra` did until D6
+  slice 7. The merge belongs to the target RESOLUTION, never to one service: fixing it for the
+  database door only would have left one tool answering by a different rule depending on which
+  service was named. The rule in full: occupancy is the LAN boundary (you reach a box on a WiFi by
+  being on it), the LEASE is the address, self is excluded, and an occupancy or lease read that
+  FAILS refuses rather than falling through — quietly dropping to the generated world would sweep,
+  or write to, a seeded box standing where a real player is. When a player leaves, the sibling
+  underneath answers again.
+
 - **A caller's claimed VANTAGE is checked, not believed** (`standingVantage`, beside the L1
   gate). Naming the box you operate from is what lets a trace record the network the target
   actually saw, so a caller naming a box they hold no session on is refused rather than
@@ -1788,6 +1821,15 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   for every door at once and is the better end state, but it CHANGES two shipped doors, so it
   needs `testInnerGatewayReach.ts` re-run live in the same slice. Found while building D6
   slice 5, 2026-08-21.
+
+- **D6's remaining test debt, graduated on close-out (2026-08-23).** Two items, both narrow and
+  both about assertions rather than behaviour. (1) The `mysql` client's prompt WORDING — `Enter
+  user: ` and the no-default rule — is written and untested; the `Enter password: ` half and
+  `masked: true` are asserted, and the gap shows up as a surviving `StringLiteral` mutant on
+  `mysql.ts`. (2) `pools/database.ts` sits at 88.69% with **42 surviving column-metadata mutants**
+  that need `DESCRIBE` asserted **over the population** rather than over one drawn box — the
+  assertion slice 3 owed and did not write. Neither blocks a player; both are cheap for whoever
+  next opens those files.
 
 - **A rooted generated box can have its doors shut — RESOLVED 2026-08-22 (v0.168.0, #444).** The
   rule landed: a generated box carries the packages for the services it runs, so `unitFor` finds

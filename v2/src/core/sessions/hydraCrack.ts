@@ -28,7 +28,12 @@
  *
  * Reachability mirrors `authCreateSession` exactly — unknown host, bricked box,
  * service not listening — so a dead machine is dark to every tool rather than
- * just to logins.
+ * just to logins. Including WHO is at the address: a fellow occupant of the same
+ * WiFi is a real box at a real lease, and it outranks the generated sibling the
+ * seed put on that octet. That merge is the target RESOLUTION's rather than any
+ * one service's, so every door in the catalog reaches a neighbour — a tool that
+ * answered by a different rule depending on the service named would be worse than
+ * one that could not reach them at all.
  *
  * The attempt is TRACED on the target, one `auth.log` line per password tried
  * rather than one per account. The volume is the behaviour: a sweep is the
@@ -42,9 +47,13 @@
 import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
-import { generateHomeLan } from '../generation/generateHomeLan';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { machineIdForLanHost, resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs';
+import { materializeWorkstationFs } from '../network/materializeWorkstationFs';
+import { lanAddressesByOwner, type LanLeaseRow } from '../network/lanAddress';
+import type { NatOccupantRow } from '../network/resolvePublicTarget';
+import type { Directory } from '../filesystem/types';
 import { canBoot } from '../boot/bootFiles';
 import { isOwnWorkstation } from '../identity/workstation';
 import {
@@ -78,6 +87,17 @@ export type HydraCrackDeps = {
   readonly findPatches: (query: {
     readonly machine_id: string;
   }) => Promise<{ readonly data: readonly OwnerPatchRow[] | null; readonly error: unknown }>;
+  /** Who is currently ON the ESSID. Occupancy is what makes a fellow player's box
+   *  present at all here — and it gates itself: only an occupant may sweep the LAN
+   *  they are on. The same read `nmap` and the same-LAN login resolve through. */
+  readonly listOccupantsByEssid: (
+    essid: string,
+  ) => Promise<{ readonly data: readonly NatOccupantRow[] | null; readonly error: unknown }>;
+  /** Every lease held on this ESSID, in ONE read: which occupant answers to the
+   *  address swept, and the address the trace is stamped with. */
+  readonly listLeasesByEssid: (
+    essid: string,
+  ) => Promise<{ readonly data: readonly LanLeaseRow[] | null; readonly error: unknown }>;
   /** Every writer's rows at the wordlist path on the machine the caller is
    *  standing on. Machine-scoped, exactly like the read behind a save's
    *  base-content check: the file belongs to the box, not to whoever wrote it
@@ -139,6 +159,110 @@ const recordSweep = async (
   }
 };
 
+/** The box a sweep is about to attack, whoever put it there. `rebuild` is the one
+ *  thing that differs between a generated sibling and a real player's workstation —
+ *  which baseline the journal's rows land on — so the journal is read ONCE, after
+ *  this, and every gate below it is shared. */
+type SweepTarget = {
+  readonly machineId: string;
+  readonly hostname: string;
+  readonly rebuild: (patches: readonly OwnerPatchRow[] | null) => Directory;
+  /** Whose row the trace accretes under: the TARGET OWNER's on a real player's box,
+   *  since the system owns its logs and two attackers must not erase each other; the
+   *  caller's own on a generated box nobody owns. */
+  readonly writerKey: string;
+  /** The address the target saw the sweep arrive from. */
+  readonly fromIp: string;
+};
+
+type SweepTargetResult =
+  | { readonly ok: true; readonly target: SweepTarget }
+  | { readonly ok: false; readonly response: HandlerResponse };
+
+/**
+ * Which box is at that address: a FELLOW OCCUPANT first, then the generated world.
+ *
+ * The LAN boundary comes first — only a live occupant of the ESSID may reach a box on
+ * it — so a caller with no occupancy row is simply shown the generated world, exactly
+ * as before. The address is the LEASE rather than a derivation, self is excluded (your
+ * own box is not somebody to sweep), and a real occupant wins an octet the generator
+ * also filled: the precedence `nmap` renders and `ssh` logs in by.
+ *
+ * A read that FAILS is a refusal rather than a fall-through: sweeping the seeded box
+ * standing where a real player is would write the trace onto the wrong machine.
+ */
+const resolveSweepTarget = async (
+  deps: HydraCrackDeps,
+  request: {
+    readonly essid: string;
+    readonly targetIp: string;
+    readonly callerKey: string;
+    readonly lanHosts: readonly LanHost[];
+    /** The address of the box the caller is STANDING on, when they are on a LAN box
+     *  rather than their own workstation. Server-derived either way. */
+    readonly standingIp: string | undefined;
+    /** What the client says its own address is — honest on the player's own
+     *  workstation, and never consulted for a cross-player target. */
+    readonly claimedIp: string | undefined;
+  },
+): Promise<SweepTargetResult> => {
+  const occupants = await deps.listOccupantsByEssid(request.essid);
+  if (occupants.error) {
+    return { ok: false, response: { status: 500, body: { error: 'occupants_lookup_failed' } } };
+  }
+  const rows = occupants.data ?? [];
+
+  if (rows.some((row) => row.owner_key === request.callerKey)) {
+    const leases = await deps.listLeasesByEssid(request.essid);
+    if (leases.error) {
+      return { ok: false, response: { status: 500, body: { error: 'leases_lookup_failed' } } };
+    }
+    const addresses = lanAddressesByOwner(request.essid, leases.data ?? []);
+    const callerAddress = addresses.get(request.callerKey);
+    const occupant = rows.find(
+      (row) =>
+        row.owner_key !== request.callerKey && addresses.get(row.owner_key) === request.targetIp,
+    );
+    // An occupant with no lease has no address here, and a caller with none has no
+    // address to be traced at — either way there is no neighbour at this address.
+    if (occupant !== undefined && callerAddress !== undefined) {
+      return {
+        ok: true,
+        target: {
+          machineId: occupant.workstation_machine_id,
+          hostname: occupant.workstation_machine_name,
+          rebuild: (patches) => materializeWorkstationFs(occupant, patches),
+          writerKey: occupant.owner_key,
+          // The lease, never the claim: a defender's log is their evidence, and the
+          // pivot the caller stands on still wins where there is one, because that is
+          // the box their neighbour would actually have seen.
+          fromIp: request.standingIp ?? callerAddress,
+        },
+      };
+    }
+  }
+
+  // The caller's OWN regenerated LAN — which proves target_ip names a reachable host
+  // rather than an arbitrary number, and yields what rebuilds its filesystem.
+  const host = request.lanHosts.find((candidate) => candidate.ip === request.targetIp);
+  if (host === undefined) {
+    return { ok: false, response: { status: 404, body: { error: 'host_unreachable' } } };
+  }
+  const { machineId, baseFs } = resolveLanHostIdentity(host, request.essid);
+  return {
+    ok: true,
+    target: {
+      machineId,
+      hostname: host.hostname,
+      rebuild: (patches) => materializeMachineFs(baseFs, patches),
+      // Nobody owns a generated box, so the caller's key is the only stable thing
+      // there is to write the trace under.
+      writerKey: request.callerKey,
+      fromIp: request.standingIp ?? request.claimedIp ?? 'unknown',
+    },
+  };
+};
+
 export const handleHydraCrack = async (
   body: unknown,
   deps: HydraCrackDeps,
@@ -179,22 +303,22 @@ export const handleHydraCrack = async (
   if (standing === undefined && !isOwnWorkstation(payload.caller_machine_id, publicKey)) {
     return { status: 403, body: { error: 'caller_not_on_lan' } };
   }
-  const fromIp = standing?.ip ?? payload.source_ip ?? 'unknown';
-
-  // Resolve the target on the caller's OWN regenerated LAN — proves target_ip is a
-  // real reachable host, and yields what is needed to rebuild its filesystem.
-  const host = lanHosts.find((candidate) => candidate.ip === payload.target_ip);
-  if (host === undefined) {
-    return { status: 404, body: { error: 'host_unreachable' } };
-  }
-
-  const { machineId, baseFs } = resolveLanHostIdentity(host, payload.essid);
+  const located = await resolveSweepTarget(deps, {
+    essid: payload.essid,
+    targetIp: payload.target_ip,
+    callerKey: publicKey,
+    lanHosts,
+    standingIp: standing?.ip,
+    claimedIp: payload.source_ip ?? undefined,
+  });
+  if (!located.ok) return located.response;
+  const { machineId, hostname, rebuild, writerKey, fromIp } = located.target;
 
   const patches = await deps.findPatches({ machine_id: machineId });
   if (patches.error) {
     return { status: 500, body: { error: 'patches_lookup_failed' } };
   }
-  const hostFs = materializeMachineFs(baseFs, patches.data);
+  const hostFs = rebuild(patches.data);
 
   // A bricked box is dark on every interface. Refuse before anything is attacked,
   // so a dead machine cannot be probed for which accounts it used to have.
@@ -238,7 +362,7 @@ export const handleHydraCrack = async (
     database: spec.databaseOn?.(hostFs),
     username: payload.username,
     wordlist: content,
-    hostname: host.hostname,
+    hostname,
     fromIp,
     stamp: deps.now(),
     formatAttempt: spec.sweepLog.formatAttempt,
@@ -247,7 +371,7 @@ export const handleHydraCrack = async (
   // Nothing tried, nothing recorded — an empty wordlist or a named account that
   // does not exist leaves the box's log exactly as it found it.
   if (trace.length > 0) {
-    await recordSweep(deps, { writerKey: publicKey, machineId, sweepLog: spec.sweepLog }, trace);
+    await recordSweep(deps, { writerKey, machineId, sweepLog: spec.sweepLog }, trace);
   }
 
   return { status: 200, body: { port: open.port, cracked, wordlistFound: true } };
