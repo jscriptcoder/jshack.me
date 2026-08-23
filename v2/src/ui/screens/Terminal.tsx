@@ -11,10 +11,7 @@ import {
   historyUp,
   input,
   pendingPrompt,
-  FTP_PROMPT,
-  inFtpSession,
-  inMysqlSession,
-  MYSQL_PROMPT,
+  subShellPrompt,
   promptHost,
   promptTier,
   promptUsername,
@@ -58,8 +55,7 @@ const livePrompt = () =>
   // At `ftp>` or `mysql>` the shell's user@host:cwd would name a machine the player
   // is no longer typing at, so the sub-shell's prompt replaces it rather than
   // decorating it.
-  (inMysqlSession() ? MYSQL_PROMPT : undefined) ??
-  (inFtpSession() ? FTP_PROMPT : undefined) ??
+  subShellPrompt() ??
   formatPrompt({
     username: promptUsername(),
     host: promptHost(),

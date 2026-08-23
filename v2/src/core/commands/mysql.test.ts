@@ -404,11 +404,25 @@ describe('mysql', () => {
     // it would be the same number two logins apart.
     expect(sync(result).lines).toEqual([
       { kind: 'text', content: `Connected to ${databaseHost.hostname}.` },
-      { kind: 'text', content: 'Welcome to the MySQL monitor. Commands end with ;' },
+      { kind: 'text', content: 'Welcome to the MySQL monitor. Type help for commands.' },
     ]);
     expect(sync(result).exitCode).toBe(0);
     // The greeting alone would be a command that prints two lines and ends.
     expect(enter).toHaveBeenCalled();
+  });
+
+  it('never tells the player a statement has to end with a semicolon', async () => {
+    // The real monitor's banner says commands end with `;`, and this door's parser
+    // does not care either way -- so printing it would be the greeting inventing a
+    // rule nothing enforces, and a player who trusts it types one every time.
+    const { databaseHost } = pickHosts();
+    const env = mysqlEnv({
+      mysql: { connect: async () => ({ ok: true, hostname: databaseHost.hostname }) },
+    });
+
+    const result = await mysql.execute(env, [databaseHost.ip], new Map());
+
+    expect(sync(result).lines.map((line) => line.content).join(' ')).not.toContain('end with ;');
   });
 
   it('greets with the name the box ANSWERED with, not one looked up here', async () => {

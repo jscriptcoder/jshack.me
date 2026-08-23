@@ -37,6 +37,10 @@ import { asMachineId, asPlayerKeyHex } from '../types';
 
 const PUBKEY = 'a'.repeat(64);
 
+/** The name this player gave their own box — what the registry hands every other
+ *  occupant of the LAN, and so what their own row is listed under too. */
+const OWN_NAME = 'alicebox';
+
 /** A connectivity state with wlan0 associated + addressed (online on `essid`),
  *  re-deriving the same LAN IP the player would actually have been issued. */
 const onlineConnectivity = (essid: string): ConnectivityState => {
@@ -52,6 +56,7 @@ const onlineEnv = (essid = 'BEAN-THERE-WIFI') =>
   mockCommandEnv({
     identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
     network: mockNetworkViewFromConnectivity(onlineConnectivity(essid)),
+    workstationName: OWN_NAME,
   });
 
 const drain = async (result: CommandResult): Promise<{ text: string; exitCode: number }> => {
@@ -147,7 +152,7 @@ describe('nmap', () => {
     expect(text).toContain('192.168.29.1'); // gateway
     expect(text).toContain('router');
     expect(text).toContain('192.168.29.188'); // self
-    expect(text).toContain('iphone-188');
+    expect(text).toContain(OWN_NAME);
     // The generator supplies NPC filler only; the player is placed separately at the
     // address wlan0 holds, so the LAN is the filler plus one.
     const lan = generateHomeLan('BEAN-THERE-WIFI');
@@ -374,6 +379,38 @@ describe('nmap — self-host open ports (slice 1)', () => {
     expect(text).toContain('Host is up.');
     expect(text).not.toContain('PORT');
     expect(text).not.toContain('22/tcp');
+  });
+
+  /** Your own row in your own scan carries the name you chose for the box, which is
+   *  the name every OTHER occupant of the LAN already sees you under
+   *  (`mergeLanOccupants` names them from the registry). Naming yourself from the
+   *  per-ESSID address derivation instead gave one machine two names — a cover only
+   *  you were behind, which nobody else was fooled by. */
+  it('names your own host by the name you chose, the one your neighbours already see', async () => {
+    const env = mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkViewFromConnectivity(onlineConnectivity('BEAN-THERE-WIFI')),
+      workstationName: OWN_NAME,
+    });
+
+    const { text } = await drain(await nmap.execute(env, [SELF_IP], new Map()));
+
+    expect(text).toContain(`Nmap scan report for ${OWN_NAME} (${SELF_IP})`);
+  });
+
+  it('carries that name into the discovery table a range scan streams', async () => {
+    const env = mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkViewFromConnectivity(onlineConnectivity('BEAN-THERE-WIFI')),
+      workstationName: OWN_NAME,
+    });
+
+    const { text } = await drain(await nmap.execute(env, ['192.168.29.0-254'], new Map()));
+
+    expect(text).toContain(OWN_NAME);
+    // The two rendering paths have to agree: a name the table shows and the single
+    // -host report does not is the same divergence one layer down.
+    expect(text).not.toContain('iphone-188');
   });
 
   it('shows a planted listener as an open port it cannot name', async () => {
@@ -1758,6 +1795,7 @@ describe('nmap — the player is listed at its leased address', () => {
       network: mockNetworkViewFromConnectivity({
         interfaces: new Map(cold.interfaces).set('wlan0', connected),
       }),
+      workstationName: OWN_NAME,
     });
   };
 
@@ -1825,7 +1863,7 @@ describe('nmap — the player is listed at its leased address', () => {
     // The lease is the authority on who answers at an address, so the player takes it
     // and the NPC is gone — one host there, and it is ours.
     expect(ipsIn(result.text).filter((ip) => ip === contested)).toHaveLength(1);
-    expect(result.text).toContain(assignHomeNetwork(PUBKEY, ESSID).hostname);
+    expect(result.text).toContain(OWN_NAME);
     expect(result.text).not.toContain('tablet-30');
   });
 });

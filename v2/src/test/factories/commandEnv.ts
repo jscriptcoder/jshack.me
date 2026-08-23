@@ -248,6 +248,7 @@ export const mockCommandEnv = (overrides: Partial<CommandEnv> = {}): CommandEnv 
   session: mockSession(),
   hopChain: [],
   hostname: 'workstation',
+  workstationName: 'workstation',
   now: () => asEpochMs(0),
   fs: mockFsViewFromTree(buildDirectory({})),
   network: mockNetworkView(),

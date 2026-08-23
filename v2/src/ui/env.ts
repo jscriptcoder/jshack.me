@@ -51,6 +51,10 @@ export type BuildCommandEnvArgs = {
    *  Optional here for terse test setups — defaults to `workstation` (the seed
    *  config's name); the UI always passes the real `promptHost()`. */
   readonly hostname?: string;
+  /** The player's OWN workstation name, wherever the shell is standing (backs
+   *  `env.workstationName`). Optional here for terse test setups — defaults to the
+   *  same seed-config name `hostname` does. */
+  readonly workstationName?: string;
   readonly root: Directory;
   /** Re-read the machine and hand back its tree as it stands (backs
    *  `env.fs.reload`). Absent — every terse test setup — the view re-reads to the
@@ -295,6 +299,7 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   session: args.session,
   hopChain: args.hopChain,
   hostname: args.hostname ?? 'workstation',
+  workstationName: args.workstationName ?? 'workstation',
   now: () => asEpochMs(Date.now()),
   fs: createFsView(args.root, {
     userType: args.session.userType,

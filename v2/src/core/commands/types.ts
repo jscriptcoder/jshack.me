@@ -901,6 +901,13 @@ export type CommandEnv = {
    *  now; `uname`/other loggers (ssh/ftp) later. */
   readonly hostname: string;
 
+  /** The PLAYER's own workstation name — `GameConfig.machineName`, the same value
+   *  the registry holds as `workstation_machine_name` and hands to every other
+   *  occupant of the LAN. Distinct from `hostname`, which names wherever the shell
+   *  is STANDING and so becomes the remote box's name after a hop. Read by commands
+   *  that must name the player's own box from anywhere. */
+  readonly workstationName: string;
+
   /** The local host wall clock (epoch-ms) — for ephemeral, non-authoritative
    *  values like session ids. This is NOT game time: the authoritative clock is
    *  server-side (it stamps `/var/log/auth.log`, and later CVE eligibility), so

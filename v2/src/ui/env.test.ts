@@ -22,8 +22,12 @@ const seedHome = homePathFor(SEED_CONFIG.username);
 const seedConnectivity = () => buildColdStartConnectivity('a'.repeat(64));
 const seedWifi = () => generateWifi({ seedPubkeyHex: 'a'.repeat(64) });
 
-const seedEnv = (userType: 'guest' | 'user' | 'root' = 'user') =>
+const seedEnv = (
+  userType: 'guest' | 'user' | 'root' = 'user',
+  names: { readonly hostname?: string; readonly workstationName?: string } = {},
+) =>
   buildCommandEnv({
+    ...names,
     identity: generateIdentity(),
     session: { ...seedSession(generateIdentity(), SEED_CONFIG), userType },
     root: seedFs(SEED_CONFIG, generateIdentity()),
@@ -49,6 +53,17 @@ describe('buildCommandEnv', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error('expected a readable /etc/passwd');
     expect(result.content).toContain('alice');
+  });
+
+  it('tells where the shell stands apart from whose box it is', () => {
+    // Two different questions, and a hop is where they part: after `ssh` the shell
+    // stands on the remote box, while the player's own workstation keeps the name
+    // their neighbours already see it under. A command that scans the player's own
+    // LAN needs the second one even while standing on the first.
+    const env = seedEnv('user', { hostname: 'srv-12', workstationName: 'alicebox' });
+
+    expect(env.hostname).toBe('srv-12');
+    expect(env.workstationName).toBe('alicebox');
   });
 
   it('denies /etc/passwd to a guest-tier session', () => {

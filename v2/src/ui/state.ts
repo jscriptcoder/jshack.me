@@ -311,6 +311,20 @@ export const inFtpSession = (): boolean => ftpSession() !== null;
 /** What the terminal shows while an ftp session is held. */
 export const FTP_PROMPT = 'ftp> ';
 
+/** The prompt of the sub-shell the player is typing at, or null at the shell itself.
+ *
+ *  The LIVE prompt and the scrollback ECHO both read this, so the two cannot disagree
+ *  about which machine a line was typed at. They did: the echo knew only about `ftp`,
+ *  so every statement sent to a database was scrolled back under `user@host:cwd` —
+ *  naming the one box that connection reaches no filesystem on. The next sub-shell
+ *  gets its prompt right in both places by being added here once.
+ */
+export const subShellPrompt = (): string | null => {
+  if (inMysqlSession()) return MYSQL_PROMPT;
+  if (inFtpSession()) return FTP_PROMPT;
+  return null;
+};
+
 /** Hold an authenticated ftp session (backs `env.ftp.enter`), landing on the target
  *  at the logged-in account's home and pulling that machine's journal so the box
  *  shows the state it is actually in, not the state it was generated in. */
@@ -1418,10 +1432,11 @@ const executeLine = async (line: string): Promise<void> => {
   const activePatchApi = patchApi;
   if (activePatchApi === undefined) throw new Error('startGame must be called before runInput');
 
+  const subShell = subShellPrompt();
   setScrollback((previous) => [
     ...previous,
-    inFtpSession()
-      ? { kind: 'prompt', content: `${FTP_PROMPT}${line}` }
+    subShell !== null
+      ? { kind: 'prompt', content: `${subShell}${line}` }
       : commandEchoLine(
           {
             username: currentSession.username,
@@ -1463,6 +1478,7 @@ const executeLine = async (line: string): Promise<void> => {
     identity: requireIdentity(),
     session: currentSession,
     hostname: promptHost(),
+    workstationName: config?.machineName ?? 'workstation',
     root: activeRoot(),
     onFsReload: reloadActiveRoot,
     cwd,

@@ -72,10 +72,14 @@ const REACH_REASON: Readonly<Record<'unreachable' | 'refused', string>> = {
  *  thing the service catalog bans, which is also why this door's `nc` banner is the
  *  bad-handshake error rather than a banner. No connection id either: the box's
  *  listener pid is per-BOX, so it would read the same two logins apart, and with no
- *  session row there is nothing else to count connections with. */
+ *  session row there is nothing else to count connections with. It also drops the
+ *  real monitor's `Commands end with ;`: this door's parser strips a trailing
+ *  semicolon and is equally happy without one, so printing that would be the greeting
+ *  inventing a rule nothing enforces — and a player who believes it types one every
+ *  time. `help` lists what the door actually accepts. */
 const greeting = (hostname: string): readonly TerminalLine[] => [
   { kind: 'text', content: `Connected to ${hostname}.` },
-  { kind: 'text', content: 'Welcome to the MySQL monitor. Commands end with ;' },
+  { kind: 'text', content: 'Welcome to the MySQL monitor. Type help for commands.' },
 ];
 
 type Credential = { readonly username: string; readonly password: string };

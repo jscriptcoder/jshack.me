@@ -745,6 +745,21 @@ describe('the ftp sub-shell', () => {
     );
   });
 
+  it('scrolls an ftp command back under the ftp prompt, not the shell one', async () => {
+    const { state } = await loginOverFtp();
+
+    const before = state.scrollback().length;
+    state.setInput('pwd');
+    await state.runInput();
+
+    // Whole line, not just its text: `kind` is what renders it as a prompt rather
+    // than as ordinary output, so a sub-shell echo has to arrive looking like one.
+    expect(state.scrollback()[before]).toEqual({
+      kind: 'prompt',
+      content: `${state.FTP_PROMPT}pwd`,
+    });
+  });
+
   it('leaves the shell exactly where it was — the ftp session is beside it, not above it', async () => {
     const { state } = await loginOverFtp();
 
@@ -1494,7 +1509,7 @@ describe('the mysql sub-shell', () => {
       .map((entry) => entry.content);
     expect(printed).toEqual([
       `Connected to ${DATABASE_HOST.hostname}.`,
-      'Welcome to the MySQL monitor. Commands end with ;',
+      'Welcome to the MySQL monitor. Type help for commands.',
     ]);
     // No row was asked for, at any tier. The other doors open one here; this one has
     // nothing to open, which is what leaves it with no filesystem access to leak.
@@ -1526,6 +1541,23 @@ describe('the mysql sub-shell', () => {
     const asked = sent.filter((payload) => payload.action === 'mysqlStatement');
     expect(asked.map((payload) => payload['statement'])).toEqual(['cat /etc/passwd']);
     expect(state.inMysqlSession()).toBe(true);
+  });
+
+  it('scrolls a statement back under the database prompt, not the shell one', async () => {
+    const { state } = await bootOnline();
+    await typeMysqlLogin(state);
+
+    const before = state.scrollback().length;
+    state.setInput('SHOW TABLES;');
+    await state.runInput();
+
+    // The live prompt already reads `mysql> `, so an echo carrying user@host:cwd
+    // leaves the scrollback claiming the player typed at a box this connection
+    // cannot reach at all — the two have to name the same place.
+    expect(state.scrollback()[before]).toEqual({
+      kind: 'prompt',
+      content: `${state.MYSQL_PROMPT}SHOW TABLES;`,
+    });
   });
 
   it('carries the held credential with every statement, having no session to name', async () => {

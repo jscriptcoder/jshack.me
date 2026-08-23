@@ -23,7 +23,6 @@ import { buildApGatewayBaseFs } from '../generation/routerFs';
 import { isPublicIp } from '../generation/ip';
 import { parseScanTarget, hostsInScanTarget } from '../network/scanTarget';
 import { mergeLanOccupants, withSelfHost } from '../network/mergeLanOccupants';
-import { assignHomeNetwork } from '../network/homeNetwork';
 import { readOpenPorts, type OpenPort } from '../services/pidfile';
 import { scanResult } from '../scan/scanResult';
 import { resolveDeepScanHosts } from '../scan/deepScanHosts';
@@ -255,11 +254,10 @@ const execute: Command['execute'] = async (env, args) => {
   // The generator supplies the AP's shared NPC filler only. The player's own host is
   // placed at the address `wlan0` actually holds — the LEASE the join issued — which
   // is the one part of this LAN that belongs to the viewer rather than to the network.
-  const baseLan = withSelfHost(
-    generateHomeLan(essid),
-    wlan0.ipv4,
-    assignHomeNetwork(env.identity.publicKeyHex, essid).hostname,
-  );
+  // It is named the way every OTHER occupant of this LAN already sees it: the
+  // workstation name the registry holds. A per-ESSID derivation would give one machine
+  // two names — a cover only its owner is behind, which nobody else is fooled by.
+  const baseLan = withSelfHost(generateHomeLan(essid), wlan0.ipv4, env.workstationName);
   const parsed = parseScanTarget(rawTarget, baseLan.subnet);
   if (!parsed.ok) {
     return error(parsed.reason === 'usage' ? USAGE : outOfRange(rawTarget, baseLan.subnet));

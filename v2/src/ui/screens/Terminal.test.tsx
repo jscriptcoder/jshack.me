@@ -712,7 +712,7 @@ describe('a sub-shell prompt', () => {
     fireEvent.input(password, { target: { value: 'hunter2' } });
     fireEvent.keyDown(password, { key: 'Enter' });
 
-    await screen.findByText('Welcome to the MySQL monitor. Commands end with ;');
+    await screen.findByText('Welcome to the MySQL monitor. Type help for commands.');
     // The shell's own prompt names a machine the player is no longer typing at —
     // and one this door reaches no files on. It must be GONE, not merely joined.
     // Exact, including the trailing space: the prompt renders `whitespace-pre`, so
