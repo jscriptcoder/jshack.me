@@ -1574,6 +1574,25 @@ state costs you more than one wrong attempt.
   far smaller here than in `nano` — the door re-materializes on EVERY statement, so the window is
   one in-flight request rather than one editing session.
 
+- **"Re-materializes on every statement" has to be true of the OWNER's door too, and for one
+  release it was not — corrected 2026-08-23.** The claim above held for every vantage the SERVER
+  answers and silently failed for the one the client answers. The own-box door composed its two
+  whole-file writes — the datadir and `/var/log/mysql.log` — from the tree this client was
+  holding, which is refreshed on start, on a write of its own, and on a cross-TAB hint, and never
+  by another player. So the window was not one in-flight request, it was the owner's whole
+  session: a live browser run had a neighbour's `UPDATE` revert to its old value, and the
+  neighbour's line vanish from the log, the moment the owner ran a statement of their own. The
+  direction is what makes it bad — the writer being reverted is the intruder, but the file being
+  shortened is the DEFENDER's evidence, destroyed by their own routine use of their own box.
+  `env.fs.reload()` is the fix and the general rule it stands for: **a whole-file write to a path
+  somebody else can write must compose against the MACHINE, never against the client's copy of
+  it.** A shell may trust its own tree because the player is the only one editing; the moment a
+  file is reachable through a daemon, that stops being true. The reload deliberately keeps the
+  existing tree when the read FAILS — an unreachable server is not a box whose files went away,
+  and blanking it would hand that writer an empty datadir to overwrite the real one with, which
+  is why `readOwnPatches` reports whether the read HAPPENED and `fetchOwnPatches` (whose `[]` is
+  fine for a reader) is now expressed in terms of it.
+
 - **The VANTAGE is decided from the ADDRESS, server-side, and ONE function decides it for a whole
   door.** `reachMysqlHost` routes four of them — public IP, a fellow occupant of the caller's own
   ESSID, a port that addresses the layer behind an inner gateway, and a generated sibling — and

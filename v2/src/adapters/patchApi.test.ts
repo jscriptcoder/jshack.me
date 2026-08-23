@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   createPatchApi,
   fetchOwnPatches,
+  readOwnPatches,
   postAuthLog,
   recordScan,
   type PatchClientDeps,
@@ -334,6 +335,70 @@ describe('recordScan', () => {
     await expect(
       recordScan(deps, { essid: 'E', target: '192.168.1.1', sourceIp: null }),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe('readOwnPatches', () => {
+  it('hands back the journal it read, marked as having been read', async () => {
+    const row = {
+      writer_key: 'x',
+      machine_id: 'm',
+      path: '/var/lib/mysql/data.json',
+      content: '{}',
+      owner: 'root',
+      permissions: null,
+      node_type: 'file',
+      updated_at: '2026-06-14T12:00:01.000000+00:00',
+    };
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, patches: [row] }));
+
+    expect(await readOwnPatches(makeDeps(fetchSpy as unknown as typeof fetch))).toEqual({
+      ok: true,
+      patches: [{ path: row.path, content: '{}', owner: 'root', nodeType: 'file' }],
+    });
+  });
+
+  it('reports a machine with no edits as a read that HAPPENED', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, patches: [] }));
+
+    // The empty answer is a real answer, and the caller may compose over it.
+    expect(await readOwnPatches(makeDeps(fetchSpy as unknown as typeof fetch))).toEqual({
+      ok: true,
+      patches: [],
+    });
+  });
+
+  it('reads an answer carrying no journal at all as a machine with no edits', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, null));
+
+    // A 200 with nothing in it is still an ANSWER: the server was reached and had
+    // nothing to say. Turning it into "the read did not happen" would stall the caller
+    // on a box that has genuinely never been written to.
+    expect(await readOwnPatches(makeDeps(fetchSpy as unknown as typeof fetch))).toEqual({
+      ok: true,
+      patches: [],
+    });
+  });
+
+  it('reports a refused read as not having happened, rather than as an empty machine', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(500, { error: 'boom' }));
+
+    // The whole reason this sits beside `fetchOwnPatches`: a caller about to write a
+    // whole file back cannot be handed `[]` for "the server did not answer", because
+    // it would compose its write over a box that looks like it has no edits.
+    expect(await readOwnPatches(makeDeps(fetchSpy as unknown as typeof fetch))).toEqual({
+      ok: false,
+    });
+  });
+
+  it('reports an unreachable server as not having happened either', async () => {
+    const fetchSpy = vi.fn(async () => {
+      throw new Error('offline');
+    });
+
+    expect(await readOwnPatches(makeDeps(fetchSpy as unknown as typeof fetch))).toEqual({
+      ok: false,
+    });
   });
 });
 

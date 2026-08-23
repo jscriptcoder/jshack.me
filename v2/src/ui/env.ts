@@ -52,6 +52,10 @@ export type BuildCommandEnvArgs = {
    *  config's name); the UI always passes the real `promptHost()`. */
   readonly hostname?: string;
   readonly root: Directory;
+  /** Re-read the machine and hand back its tree as it stands (backs
+   *  `env.fs.reload`). Absent — every terse test setup — the view re-reads to the
+   *  `root` it was built on, which is what a client with no server behind it holds. */
+  readonly onFsReload?: () => Promise<Directory>;
   /** Reader function — called every time `fs.cwd()` runs. Lets the UI's cwd
    *  signal flow through without rebuilding the env per command. */
   readonly cwd: () => AbsPath;
@@ -292,7 +296,11 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   hopChain: args.hopChain,
   hostname: args.hostname ?? 'workstation',
   now: () => asEpochMs(Date.now()),
-  fs: createFsView(args.root, { userType: args.session.userType, cwd: args.cwd }),
+  fs: createFsView(args.root, {
+    userType: args.session.userType,
+    cwd: args.cwd,
+    ...(args.onFsReload === undefined ? {} : { onReload: args.onFsReload }),
+  }),
   network: networkView(args.session, args.connectivity, args.wifiNetworks, args.rescanWifi),
   output: args.onOutputLine ? outputSinkFrom(args.onOutputLine) : outputStub(),
   patches: args.patches,

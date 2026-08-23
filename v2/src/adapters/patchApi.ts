@@ -283,17 +283,29 @@ const rowToPatch = (row: ServerPatchRow): Patch => ({
   ...(row.node_type ? { nodeType: row.node_type } : {}),
 });
 
+/** Read the caller's own-workstation patch journal, saying whether the read
+ *  HAPPENED. Callers that only want a tree can take the `[]`; a caller about to
+ *  compose a whole-file write over what comes back cannot, because an empty
+ *  journal and an unreachable server are the same value and wildly different
+ *  facts — one means the box has no edits, the other means we do not know. */
+export const readOwnPatches = async (
+  deps: PatchClientDeps,
+): Promise<{ readonly ok: true; readonly patches: readonly Patch[] } | { readonly ok: false }> => {
+  try {
+    const response = await post(deps, 'listPatches', { machine_id: deps.machineId });
+    if (!response.ok) return { ok: false };
+    const body: unknown = await response.json();
+    const rows = (body as { patches?: readonly ServerPatchRow[] } | null)?.patches ?? [];
+    return { ok: true, patches: rows.map(rowToPatch) };
+  } catch {
+    return { ok: false };
+  }
+};
+
 /** Read the caller's own-workstation patch journal. Returns `[]` on any
  *  failure so boot/refetch degrades to the base FS rather than crashing the
  *  terminal. */
 export const fetchOwnPatches = async (deps: PatchClientDeps): Promise<readonly Patch[]> => {
-  try {
-    const response = await post(deps, 'listPatches', { machine_id: deps.machineId });
-    if (!response.ok) return [];
-    const body: unknown = await response.json();
-    const rows = (body as { patches?: readonly ServerPatchRow[] } | null)?.patches ?? [];
-    return rows.map(rowToPatch);
-  } catch {
-    return [];
-  }
+  const result = await readOwnPatches(deps);
+  return result.ok ? result.patches : [];
 };

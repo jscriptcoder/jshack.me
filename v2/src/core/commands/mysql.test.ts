@@ -790,6 +790,9 @@ describe('the database on your own box', () => {
         stat: (path: AbsPath) => view().stat(path),
         canWrite: (path: AbsPath) => view().canWrite(path),
         root: () => tree,
+        // Re-reading this box reaches whatever it has become, which is the whole point
+        // of the seam: the machine is the authority, not a copy taken on the way in.
+        reload: async () => view(),
       } satisfies FsView,
     };
   };
@@ -1100,6 +1103,102 @@ describe('the database on your own box', () => {
     // An existing file is not a new one, so the row keeps whatever `is_new` it had —
     // and a later `rm` of the log does the right thing about the base tree.
     expect(written?.options?.isNew).toBeUndefined();
+  });
+
+  /** A client holding a STALE copy of its own box. Another occupant has written to the
+   *  machine since this client last pulled its journal, so what the machine holds and
+   *  what this client can see have diverged — which is the ordinary state of a box
+   *  somebody else is standing on, because nothing pushes their writes here. */
+  const staleClient = (
+    client: Directory,
+    machine: Directory,
+    userType: UserType = 'user',
+  ): FsView => {
+    const view = (tree: Directory) =>
+      mockFsViewFromTree(tree, { userType, cwd: () => asAbsPath('/') });
+    return { ...view(client), reload: async () => view(machine) };
+  };
+
+  /** The line an intruder's connection left on this box while the player was typing. */
+  const INTRUDER_LOG_LINE =
+    '2026-01-01T00:00:00.000000Z\t7\tConnect\tapp_rw@192.168.1.9 on ops_prod using TCP/IP';
+
+  const boxWithIntruderLogLine = (): Directory =>
+    applyPatches(runningDatabaseBox(), [
+      {
+        path: MYSQL_LOG_PATH,
+        content: `${INTRUDER_LOG_LINE}\n`,
+        owner: MYSQL_LOG_OWNER,
+        permissions: MYSQL_LOG_PERMISSIONS,
+      },
+    ]);
+
+  it('records a connect on the log the MACHINE holds, not on the copy this client pulled', async () => {
+    const { env, writes } = ownEnv({
+      fs: staleClient(runningDatabaseBox(), boxWithIntruderLogLine()),
+    });
+
+    await mysql.execute(env, ['localhost', 'root'], new Map());
+
+    // The intruder's line was written while the player was typing their password. A
+    // daemon that composed from the client's copy would replace the file with a
+    // history the intrusion is missing from — and this file IS the defender's
+    // evidence, so losing it to their own login is the worst way to lose it.
+    expect(logWrites(writes).at(-1)?.content).toContain(INTRUDER_LOG_LINE);
+  });
+
+  it('records a statement on the log the MACHINE holds, not on the copy this client pulled', async () => {
+    const { writes, run } = await atPrompt({
+      fs: staleClient(runningDatabaseBox(), boxWithIntruderLogLine()),
+    });
+
+    await run("UPDATE users SET role='auditor' WHERE id='1';");
+
+    expect(logWrites(writes).at(-1)?.content).toContain(INTRUDER_LOG_LINE);
+  });
+
+  /** The same database with one row changed by somebody else — the write this client
+   *  never saw, and the one its own next write is in a position to erase. */
+  const withIntruderRow = (database: MysqlDatabase): MysqlDatabase => {
+    const users = database.tables.users;
+    if (users === undefined) throw new Error('the fixture database has no users table');
+    if (users.rows.length < 2) throw new Error('the fixture users table has too few rows');
+    return {
+      ...database,
+      tables: {
+        ...database.tables,
+        users: {
+          ...users,
+          rows: users.rows.map((row, index) =>
+            index === 1 ? { ...row, role: 'intruder' } : row,
+          ),
+        },
+      },
+    };
+  };
+
+  it('composes a write over the datadir the MACHINE holds, not the copy this client pulled', async () => {
+    const ownerKey = LADDER_KEY;
+    const database = typeable(databaseOf(ownerKey));
+    const { writes, run } = await atPrompt({
+      ownerKey,
+      account: accountAt(database, 'user'),
+      fs: staleClient(
+        runningDatabaseBox({ ownerKey, database }),
+        runningDatabaseBox({ ownerKey, database: withIntruderRow(database) }),
+      ),
+    });
+
+    await run("UPDATE users SET role='auditor' WHERE id='1';");
+
+    // Both edits stand. The datadir is one document several people are editing, and a
+    // write composed against a stale copy does not merely lose the other edit — it
+    // silently REVERTS it, which reads to the intruder as the game losing their work
+    // and to the owner as nothing having happened at all.
+    const rows = parseMysqlDatabase(writes.find((write) => write.path === DATADIR_PATH)?.content ?? '')
+      ?.tables.users?.rows;
+    expect(rows?.[0]?.role).toBe('auditor');
+    expect(rows?.[1]?.role).toBe('intruder');
   });
 
   it('answers a read without writing anything down', async () => {

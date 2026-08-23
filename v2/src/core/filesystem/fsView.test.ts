@@ -195,6 +195,38 @@ describe('createFsView', () => {
     expect(createFsView(backing, { userType: 'user', cwd: asAbsPath('/') }).root()).toBe(backing);
   });
 
+  it('re-reads to the tree it already has when nothing is behind the view', async () => {
+    const backing = tree();
+    const fs = createFsView(backing, { userType: 'user', cwd: asAbsPath('/') });
+
+    // A client with no server behind it — a test, an offline box — has no second
+    // opinion to fetch. Answering with an EMPTY tree instead would be far worse than
+    // answering with a stale one: the callers that reload are the ones about to write
+    // a whole file back, and they would overwrite the real file with nothing.
+    expect((await fs.reload()).root()).toBe(backing);
+  });
+
+  it('carries the tier, the cwd and the reload seam into the view it reloads to', async () => {
+    const next = tree();
+    const fs = createFsView(tree(), {
+      userType: 'root',
+      cwd: asAbsPath('/home/alice'),
+      onReload: async () => next,
+    });
+
+    const reloaded = await fs.reload();
+
+    expect(reloaded.root()).toBe(next);
+    expect(reloaded.cwd()).toBe('/home/alice');
+    // The tier has to survive, or a reload would quietly become a privilege change.
+    expect(reloaded.read(asAbsPath('/root/secret.txt'))).toEqual({
+      ok: true,
+      content: 'classified',
+    });
+    // And a second statement reloads too: the seam is not spent by its first use.
+    expect((await reloaded.reload()).root()).toBe(next);
+  });
+
   it('defaults to the user tier and root cwd when options are omitted', () => {
     const fs = createFsView(tree());
     expect(fs.cwd()).toBe('/');
