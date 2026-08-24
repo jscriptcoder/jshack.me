@@ -79,7 +79,8 @@ filesystem readers, which need no changes.
 10. Around 6 stores in 10 carry a `requirepassHash` that is an md5 of a drawn password; the rest
     carry none. Both cases are reachable in a population sweep.
 11. The store's keys name the box's **real** non-guest accounts — the `root` and uid-1000 rows of
-    its own `/etc/passwd` — and never `guest`.
+    its own `/etc/passwd` — and never `guest`; and **no generated value pairs one of those names with
+    a secret**, on any box in the world.
 12. **Every existing generation golden holds**: no NPC octet, port, account name, password,
     machine_id, served page, `/etc` config or **mysql database** moves anywhere in the world.
 13. `nc <host> 6379` prints the banner, and a generated redis box carries `/usr/sbin/redis` so
@@ -114,25 +115,37 @@ filesystem readers, which need no changes.
 - **The `requirepass` draw belongs in THIS slice, not slice 3.** Whether a store is locked is a
   generation fact, and drawing it later would re-roll every value picked after it in the store's
   stream. Slice 3 lands only the `secretOn` column that *reads* the hash this slice writes.
-- **The `workstation` cell is a no-op and should not be written.** The locked number is `0.05`, and
-  the catalog's flat rate is also `0.05`, so `placementOf` returns the same value with or without
-  it — while `rolePlacement`'s own contract says a role names only the services it has something to
-  say about. Landing **three** cells (`webserver: 0.35`, `database: 0.3`, `iot: 0`) implements
-  decision 7's numbers exactly; a fourth would be decoration the module warns against. Flagged
-  rather than assumed, because the decision text says five.
+- **RESOLVED — the `workstation` cell is not written.** Three cells land: `webserver: 0.35`,
+  `database: 0.3`, `iot: 0`. The locked `0.05` for workstations arrives through the catalog's flat
+  rate, which is also `0.05`, so `placementOf` returns decision 7's number exactly either way.
+  **mysql writes a workstation cell because it has something to say** — `0.03` against a flat `0.08`,
+  with the reason on the row: the flat rate *"would put one on a twelfth of all laptops"*. Redis has
+  no such correction to make. All nine cells in the table today differ from their flat rate, so a
+  redis workstation cell would be the first that changes nothing — and `rolePlacement`'s own contract
+  is that a role names only the services it has something to say about. The comment on that same row
+  settles the pin-it-for-later argument too: workstation is *"the world's default sort of box: it is
+  what the flat rates were tuned against"*, so the flat rate already IS the workstation rate.
 - **Legacy's conf carries `requirepass` and names no host; v2's does the opposite.** The
   `requirepass` line is dropped (decision 5), and a `# {{hostname}}` header is added, because every
   config template in `configFiles.ts` names the box it sits on and a guest-readable file that could
   not be told from any other box's is recon worth nothing.
-- **`configDb` is the one legacy key generator that manufactures a right-name/wrong-secret pair.**
-  It draws a username from the box's own accounts and pairs it with a password from a hardcoded
-  pool: `mysql://<real-user>:s3cret!@localhost:3306/app_prod`. On the ~27% of database boxes running
-  both daemons that is a real account of a real door on the same box, attached to a secret that will
-  never work — the exact failure family D6 shipped in slice 2 and the grill cites. **Recommendation:
-  keep the generator, but draw its db_url username from the database-name pool rather than the box's
-  users**, so it names nobody real. The other credential-shaped generators (`config:smtp`,
-  `config:ldap`, `config:s3`, `api:key`, `webhook:*`) point at services that do not exist in the
-  world at all, so nothing can be tried against them and decision 11 holds as written.
+- **RESOLVED — `configDb` draws its username from `MYSQL_USERNAMES`, the way mysql already does.**
+  Legacy draws it from the box's own accounts and attaches a password:
+  `mysql://<real-user>:s3cret!@localhost:3306/app_prod`. That crosses a line `generateDatabase`
+  draws deliberately: the box's REAL uid-1000 account leads the `users` table as **content**, while
+  every secret-bearing row is drawn from a separate namespace — `'root'` plus `MYSQL_USERNAMES`
+  (`app_user`, `webapp`, `service`, `api_svc`…), whose pool comment states the rule outright:
+  *"never a system account, which is the whole point of the door: `/etc/passwd` cannot answer who
+  you are to a database."* **A real person's name never carries a secret.** Drawing `configDb`'s
+  username from that same pool keeps the value a believable mysql URL while making it a name no
+  `ssh` can be pointed at — and `MYSQL_USERNAMES` is the right pool by construction, because the
+  value IS a mysql connection string. It is a shared vocabulary, not a shared draw, so no stream
+  moves.
+- **`configDb` is the ONLY generator that crosses that line — the other fifteen port as-is.**
+  `config:smtp`, `config:ldap`, `config:s3`, `api:key` and `webhook:*` carry secrets but name only
+  service identities that exist nowhere in the world, so nothing can be tried against them.
+  `sess:*`, `cache:user:*`, `perms:*`, `token:reset:*` and `lock:*` name the box's real people but
+  attach no secret at all — which is decision 12's disclosure feature working exactly as intended.
 - **`corp.local` becomes the box's own name.** Legacy hardcodes `@corp.local`, `auth.corp.local` and
   `dc=corp,dc=local`. D6 met this and answered it: `config.site_name` is the **hostname**, because
   every generated page is titled `{{hostname}}` and no company identity exists anywhere in v2. The
@@ -166,7 +179,8 @@ filesystem readers, which need no changes.
 - A generator-stability test proving criterion 12 — the existing goldens are the oracle, and the
   mysql datadir is now one of them.
 
-**GREEN**: The catalog row; three cells in `PLACEMENT_BY_ROLE`; `RedisStore` + `parseRedisStore` in
+**GREEN**: The catalog row; three cells in `PLACEMENT_BY_ROLE` (`webserver`, `database`, `iot` — no
+`workstation` cell); `RedisStore` + `parseRedisStore` in
 `core/redis/types.ts` (a zod schema at the trust boundary, exactly as `parseMysqlDatabase` — the
 file is root-owned, and root on a box is a tier a player reaches); `generateRedisStore` +
 `pools/redis.ts` ported into `core/generation/`, with the corrections above; the conditional conf,
