@@ -39,7 +39,7 @@ reverting an intruder's writes — **fixed at v0.172.0 (#449)**, which also corr
 that every vantage re-materializes per statement. Of the three smaller findings from the same
 run, **two are closed at v0.173.0** (the sub-shell prompt echo and the self-scan cover name) and
 one stays a §9 backlog entry, because it is a product decision rather than a bug.
-**D7 🔍 GRILLED 2026-08-24, not yet planned** — twelve locked decisions and a seven-slice spine
+**D7 🔍 GRILLED + PLANNED 2026-08-24** — twelve locked decisions and a seven-slice spine
 in "D7 — resolved scope & decisions". It renames the epic's own row: the command is `rediscli`, and
 `redis-cli` is unusable because `node`'s sandbox makes every command name a JS parameter.
 **D5 🔍 GRILLED 2026-08-16, not yet planned** — fifteen locked decisions and a six-slice spine in
@@ -2170,8 +2170,9 @@ defects live in the one vantage no endpoint answers.
 
 **➡️ NEXT: D7 — `rediscli`**, fifth door in the locked order. **GRILLED 2026-08-24 — twelve
 locked decisions and a seven-slice spine in
-["D7 — resolved scope & decisions"](#d7--resolved-scope--decisions-grill-me-2026-08-24).** Not yet
-planned; slice 1 is next.
+["D7 — resolved scope & decisions"](#d7--resolved-scope--decisions-grill-me-2026-08-24).**
+**PLANNED 2026-08-24 in [`d7-redis.md`](d7-redis.md)** — slice 1's acceptance criteria are
+written and awaiting approval.
 
 Four things that grill settled which the row above could not have predicted:
 
