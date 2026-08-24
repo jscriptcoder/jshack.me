@@ -1841,18 +1841,18 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   needs `testInnerGatewayReach.ts` re-run live in the same slice. Found while building D6
   slice 5, 2026-08-21.
 
-- **Three findings from the D6 browser smoke test, left open on purpose (2026-08-23).** The run
-  that found the own-box write-wipe (fixed in v0.172.0, #449 — see the §7 invariant) turned up
-  three more, none of which blocks a player and none of which belonged in that fix.
+- **One finding from the D6 browser smoke test is still open (2026-08-23).** The run that found
+  the own-box write-wipe (fixed in v0.172.0, #449 — see the §7 invariant) turned up three more,
+  none of which blocks a player and none of which belonged in that fix. **Two are now closed at
+  v0.173.0** — the sub-shell prompt echo and the self-scan cover name, both below — and the
+  remaining one is a product decision rather than a bug.
 
-  1. **The `mysql` sub-shell echoes the SHELL prompt.** Every statement is scrolled back as
-     `root@box:/root# SHOW TABLES;` while the live prompt correctly reads `mysql> `. The echo in
-     `ui/state.ts` branches only on `inFtpSession()` (`FTP_PROMPT`); there is no
-     `inMysqlSession()` arm, so the sub-shell falls through to `commandEchoLine`.
-     `Terminal.tsx` already uses `MYSQL_PROMPT` for the live prompt, which is why the two
-     disagree. `ftp` got this right and `mysql` was missed — the cheapest of the three, and
-     whoever adds the arm should look for the next sub-shell that will need one rather than
-     adding a second special case.
+  1. **The `mysql` sub-shell echoed the SHELL prompt — RESOLVED (v0.173.0).** Every statement
+     scrolled back as `root@box:/root# SHOW TABLES;` while the live prompt correctly read
+     `mysql> `, because two places decided the same thing: the echo in `ui/state.ts` branched
+     only on `inFtpSession()`, while `Terminal.tsx` had a two-rung ladder. Both now read one
+     `subShellPrompt()`, so the next sub-shell gets the echo and the live prompt right by being
+     added once — the second special case the entry warned against was never written.
 
   2. **A fellow occupant's open ports are invisible to `nmap`.** A neighbour scans as
      `Host is up.` with no port table, and the code says why: a real occupant's services live on
@@ -1863,12 +1863,14 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
      that same-LAN doors actually open, this is worth a decision — the honest fix is server-side
      port resolution for an occupant, the same shape the public-IP scan already uses.
 
-  3. **You see yourself under a cover name; everyone else sees your real one.** In her own scan a
-     player shows as the generated `desktop-32` (`nmap.ts` names the self host from
-     `assignHomeNetwork(pubkey, essid).hostname`), while a neighbour's scan shows `alicebox`
-     (`mergeLanOccupants` names occupants from `workstation_machine_name`). Either the cover name
-     is intended — in which case it leaks to every occupant and buys nothing — or self should use
-     the workstation name. The two paths predate each other and were never reconciled; pick one.
+  3. **You saw yourself under a cover name — RESOLVED (v0.173.0).** In her own scan a player
+     showed as the generated `desktop-32` while every other path — occupants, public targets,
+     same-LAN sessions, elevation — named her `alicebox` from the registry, so the cover was one
+     only its owner was behind and it bought nothing. Self now uses the workstation name.
+     `env.workstationName` is new beside `env.hostname` because a hop is where the two part:
+     after `ssh` the shell STANDS on the remote box, while the player's own workstation keeps the
+     name their neighbours already see. `ping` passes a name it never renders, so no behaviour
+     was invented there.
 
 - **D6's remaining test debt, graduated on close-out (2026-08-23).** Two items, both narrow and
   both about assertions rather than behaviour. (1) The `mysql` client's prompt WORDING — `Enter

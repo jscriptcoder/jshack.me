@@ -36,8 +36,9 @@ file is deleted and the as-built lives in
 the cross-player data write, the occupant-beats-sibling rule) and §9 (its remaining test debt).
 Its close-out **browser smoke test found one real defect** — a defender's own box silently
 reverting an intruder's writes — **fixed at v0.172.0 (#449)**, which also corrected the §7 claim
-that every vantage re-materializes per statement; three smaller findings from the same run are
-§9 backlog entries.
+that every vantage re-materializes per statement. Of the three smaller findings from the same
+run, **two are closed at v0.173.0** (the sub-shell prompt echo and the self-scan cover name) and
+one stays a §9 backlog entry, because it is a product decision rather than a bug.
 **D5 🔍 GRILLED 2026-08-16, not yet planned** — fifteen locked decisions and a six-slice spine in
 "D5 — resolved scope & decisions"; it also found that §9's `ps` defect is misdiagnosed and owns
 the fix. Everything else is split-and-grilled only.
@@ -1932,12 +1933,15 @@ client last pulled, refreshed by a cross-TAB hint but never by another player. S
 window was not one request, it was the owner's whole session, and the file being shortened was the
 defender's own evidence. Fixed at **v0.172.0 (#449)** with `env.fs.reload()`; the general rule is
 now §7 of the conventions doc — **a whole-file write to a path SOMEBODY ELSE can write must
-compose against the machine, never against the client's copy of it.** Three smaller findings are
-open on purpose in §9 (the mysql sub-shell echoing the shell prompt, a neighbour's ports invisible
-to `nmap`, and seeing yourself under a generated cover name); none blocks a player and each needs
-a decision rather than a fix. **A door is not proven by its wire-checks alone** — the wire-checks
-were 20/20 green and could not see this, because the defect lives in the one vantage no endpoint
-answers.
+compose against the machine, never against the client's copy of it.** Three smaller findings were
+left open on purpose in §9, and **two of them closed at v0.173.0**: the mysql sub-shell echoed the
+shell prompt (two places deciding the same thing, now one `subShellPrompt()`) and a player saw
+herself under a generated cover name every other path already contradicted (self now uses the
+workstation name). What remains open is the one that is a product decision rather than a bug — a
+neighbour's open ports are invisible to `nmap`, so nothing tells a player their neighbour runs a
+database and they have to guess the service and let `hydra` find it. **A door is not proven by its
+wire-checks alone** — the wire-checks were 20/20 green and could not see any of this, because the
+defects live in the one vantage no endpoint answers.
 
 **➡️ NEXT: D7 — `redis-cli`**, fifth door in the locked order. Run `grill-me` against it before
 planning, as D3/D3b/D4/D5/D5b/D6 each did.
