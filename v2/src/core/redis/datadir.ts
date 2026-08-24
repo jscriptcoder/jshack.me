@@ -12,14 +12,9 @@ import { asAbsPath } from '../types';
 
 const DATADIR_SEGMENTS = ['var', 'lib', 'redis'] as const;
 
-/** The directory the conf names in its `dir` line. */
+/** The directory the conf names in its `dir` line.
+ *
+ *  The path to the FILE inside it, and the owner a rewrite has to preserve, belong to
+ *  whoever reads and writes the store. They are not declared here until then: an export
+ *  nothing consumes is a claim no test can check. */
 export const DATADIR_DIR = asAbsPath(`/${DATADIR_SEGMENTS.join('/')}`);
-
-/** The file inside it that holds the store. */
-export const DATADIR_PATH = asAbsPath(`${DATADIR_DIR}/data.json`);
-
-/** Root's, like the file the generator lays down — and it has to STAY root's through a
- *  rewrite. This file holds the hash a sweep has to work for, so a write that widened
- *  it would hand every tier on the box the answer key, quietly, with nothing about the
- *  statement looking any different. */
-export const DATADIR_OWNER = 'root';

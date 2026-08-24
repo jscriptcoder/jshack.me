@@ -168,6 +168,27 @@ const rowFor = (fs: Directory, username: string): readonly string[] => {
 };
 
 /** The single non-root, non-guest account — the seeded NPC user. */
+/**
+ * Compute once, but on FIRST USE rather than while the describe body is being built.
+ *
+ * A population sweep is too slow under mutation instrumentation to run per assertion —
+ * but computing it in the block body means a mutant that makes generation throw takes
+ * the whole SUITE down before any test runs, and Vitest then reports no test failures at
+ * all. Stryker reads that as SURVIVED, so a mutant the tests really do catch is scored
+ * as one they miss. Deferring the first call into a test turns the throw back into a
+ * test failure, which is a kill.
+ */
+const lazily = <T>(compute: () => T): (() => T) => {
+  const cache = new Map<number, T>();
+  return () => {
+    const computed = cache.get(0);
+    if (computed !== undefined) return computed;
+    const value = compute();
+    cache.set(0, value);
+    return value;
+  };
+};
+
 const npcUserRow = (fs: Directory): readonly string[] => {
   const row = passwdRows(fs).find((fields) => fields[0] !== 'root' && fields[0] !== 'guest');
   if (row === undefined) throw new Error('no NPC user row');
@@ -1185,19 +1206,22 @@ describe('buildRemoteHostFs', () => {
      * scores a surviving mutant as killed and makes the number a measure of the machine
      * rather than of the tests.
      */
-    const POPULATION: readonly StoreBox[] = ['www', 'db', 'host', 'desktop', 'cam'].flatMap(
-      (prefix) => OCTETS.map((octet) => inspect(prefix, octet)),
+    const population = lazily(() =>
+      ['www', 'db', 'host', 'desktop', 'cam'].flatMap((prefix) =>
+        OCTETS.map((octet) => inspect(prefix, octet)),
+      ),
     );
 
     const boxesOn = (prefix: string): readonly StoreBox[] =>
-      POPULATION.filter((box) => box.prefix === prefix);
+      population().filter((box) => box.prefix === prefix);
 
     const redisRateOn = (prefix: string): number =>
       boxesOn(prefix).filter((box) => box.runsRedis).length / boxesOn(prefix).length;
 
     /** Every store this sample of the world contains, whatever kind of box keeps it. */
-    const STORES: readonly { readonly box: StoreBox; readonly store: RedisStore }[] =
-      POPULATION.flatMap((box) => (box.store === null ? [] : [{ box, store: box.store }]));
+    const stores = lazily(() =>
+      population().flatMap((box) => (box.store === null ? [] : [{ box, store: box.store }])),
+    );
 
     /** Where a complaint came from: a box's name, never the box. A population of a
      *  thousand boxes can raise a thousand complaints, and an assertion that renders
@@ -1228,8 +1252,8 @@ describe('buildRemoteHostFs', () => {
      * Only the webserver prefix, which is where a store is likeliest — enough stores to
      * measure, at a fraction of the cost of sweeping every prefix eight times over.
      */
-    const LOCKS_ACROSS_THE_WORLD: readonly (RedisStore | null)[] = POPULATION_ESSIDS.flatMap(
-      (essid) =>
+    const locksAcrossTheWorld = lazily(() =>
+      POPULATION_ESSIDS.flatMap((essid) =>
         OCTETS.flatMap((octet) => {
           const storeFile = fileAt(
             buildRemoteHostFs(essid, namedHost('www', octet)),
@@ -1240,6 +1264,7 @@ describe('buildRemoteHostFs', () => {
           );
           return storeFile === undefined ? [] : [parseRedisStore(storeFile.content)];
         }),
+      ),
     );
 
     /** The names a value hands out ATTACHED to a secret: the user half of a URL that
@@ -1260,7 +1285,7 @@ describe('buildRemoteHostFs', () => {
     };
 
     it('plants a redis.pid naming the port the store answers on', () => {
-      const running = POPULATION.filter((box) => box.runsRedis)[0];
+      const running = population().filter((box) => box.runsRedis)[0];
 
       expect(running?.pidfile?.content).toBe('redis:port=6379');
       expect(running?.pidfile?.owner).toBe('redis');
@@ -1285,13 +1310,13 @@ describe('buildRemoteHostFs', () => {
     });
 
     it('keeps a real store on the box that runs one', () => {
-      const unreadable = POPULATION.filter((box) => box.runsRedis && box.store === null).map(where);
-      const wrongSize = STORES.filter(({ store }) => {
+      const unreadable = population().filter((box) => box.runsRedis && box.store === null).map(where);
+      const wrongSize = stores().filter(({ store }) => {
         const count = Object.keys(store.keys).length;
         return count < 8 || count > 15;
       }).map(({ box }) => where(box));
 
-      expect(STORES.length).toBeGreaterThan(0);
+      expect(stores().length).toBeGreaterThan(0);
       expect(noneOf(unreadable)).toEqual(NONE);
       expect(noneOf(wrongSize)).toEqual(NONE);
     });
@@ -1299,9 +1324,9 @@ describe('buildRemoteHostFs', () => {
     it('plants the store on exactly the boxes running the daemon, and nowhere else', () => {
       // An empty /var/lib/redis on every box would promise a store that is not there,
       // and listing /var/lib is recon a player acts on.
-      const disagreeing = POPULATION.filter((box) => box.hasStoreDir !== box.runsRedis).map(where);
+      const disagreeing = population().filter((box) => box.hasStoreDir !== box.runsRedis).map(where);
 
-      expect(POPULATION.filter((box) => box.runsRedis).length).toBeGreaterThan(0);
+      expect(population().filter((box) => box.runsRedis).length).toBeGreaterThan(0);
       expect(noneOf(disagreeing)).toEqual(NONE);
     });
 
@@ -1310,7 +1335,7 @@ describe('buildRemoteHostFs', () => {
       // rather than exotic. Composed as two independent entries, the second would
       // replace the first and a quarter of the database boxes in the world would lose
       // the database they were holding, with nothing failing to say so.
-      const both = POPULATION.filter((box) => box.runsRedis && box.runsMysqld);
+      const both = population().filter((box) => box.runsRedis && box.runsMysqld);
       const missing = both.filter((box) => !(box.hasStoreDir && box.hasDatabaseDir)).map(where);
 
       expect(both.length).toBeGreaterThan(0);
@@ -1320,7 +1345,7 @@ describe('buildRemoteHostFs', () => {
     it('guards the store from every tier but root, even on the box itself', () => {
       // It holds the hash a sweep has to work for. A tier that could read it would be
       // handed the answer key.
-      const wronglyGuarded = STORES.filter(
+      const wronglyGuarded = stores().filter(
         ({ box }) =>
           box.storeFile?.perms.read.join(',') !== 'root' ||
           box.storeFile.perms.write.join(',') !== 'root' ||
@@ -1331,7 +1356,7 @@ describe('buildRemoteHostFs', () => {
     });
 
     it('shows a stranger with no session nothing of the store at all', () => {
-      const box = STORES[0]?.box;
+      const box = stores()[0]?.box;
       const whole = buildRemoteHostFs(ESSID, namedHost(box?.prefix ?? 'www', box?.octet ?? 2));
       const pruned = filterTreeToAllowlist(whole);
 
@@ -1344,7 +1369,7 @@ describe('buildRemoteHostFs', () => {
       // The /etc slot a box's ROLE claims is already spoken for on a webserver, which is
       // where a store is most likely to be. A conf keyed by role would leave most stores
       // undescribed — and the box would contradict itself about where its own data is.
-      const disagreeing = POPULATION.filter(
+      const disagreeing = population().filter(
         (box) => (box.conf !== undefined) !== box.runsRedis,
       ).map(where);
       const webBoxes = boxesOn('www').filter((box) => box.runsRedis);
@@ -1354,7 +1379,7 @@ describe('buildRemoteHostFs', () => {
     });
 
     it('names the host it sits on, and the paths the rest of the box really uses', () => {
-      const box = STORES[0]?.box;
+      const box = stores()[0]?.box;
       const content = box?.conf?.content ?? '';
 
       expect(content).toContain(`${box?.prefix}-${box?.octet}`);
@@ -1364,25 +1389,64 @@ describe('buildRemoteHostFs', () => {
       expect(content).toContain('pidfile /var/run/redis.pid');
     });
 
+    it('draws every shape of key a store can hold, so none of the pool ships unreachable', () => {
+      // A generator no store in the world ever runs is a shape a player can never meet,
+      // and one that can be deleted with the whole suite green. The weights decide how
+      // OFTEN each appears; this is the claim that each appears at all.
+      const everyKey = stores().flatMap(({ store }) => Object.keys(store.keys));
+      const missing = [
+        'sess:jwt:',
+        'sess:',
+        'cache:user:',
+        'perms:',
+        'api:key:',
+        'app:config',
+        'config:smtp',
+        'config:s3',
+        'config:ldap',
+        'token:reset:',
+        'lock:',
+        'ratelimit:',
+        'stats:',
+        'queue:',
+        'cron:last_run:',
+        'webhook:',
+      ].filter((shape) => !everyKey.some((key) => key.startsWith(shape)));
+
+      expect(noneOf(missing)).toEqual(NONE);
+    });
+
+    it('writes the conf as lines, each stating one thing about the daemon', () => {
+      // Joined with nothing instead of newlines the file still CONTAINS every directive
+      // it should, and every `toContain` above still passes — while `cat` shows one
+      // run-on line that no redis would accept.
+      const lines = stores()[0]?.box.conf?.content.split('\n') ?? [];
+
+      expect(lines.length).toBe(7);
+      expect(lines).toContain('bind 0.0.0.0');
+      expect(lines).toContain('daemonize yes');
+      expect(lines[0]?.startsWith('# ')).toBe(true);
+    });
+
     it('lets a guest read the conf, because it names no secret to guard', () => {
-      expect(STORES[0]?.box.conf?.perms.read).toEqual(['root', 'user', 'guest']);
+      expect(stores()[0]?.box.conf?.perms.read).toEqual(['root', 'user', 'guest']);
     });
 
     it('never writes the password into the file a guest can read, on any box in the world', () => {
       // The rung this file sits on admits a guest, and says why it may: it names neither
       // an account nor a hash. A requirepass line makes that false and hands out for free
       // the loot the cracking curve exists to make a player earn.
-      const leaking = POPULATION.filter((box) => box.conf?.content.includes('requirepass')).map(
+      const leaking = population().filter((box) => box.conf?.content.includes('requirepass')).map(
         where,
       );
 
-      expect(POPULATION.filter((box) => box.conf !== undefined).length).toBeGreaterThan(0);
+      expect(population().filter((box) => box.conf !== undefined).length).toBeGreaterThan(0);
       expect(noneOf(leaking)).toEqual(NONE);
     });
 
     it('locks about six stores in ten and leaves the rest open', () => {
       // The crack is the main way in; the open find stays a real but secondary outcome.
-      const hashes = LOCKS_ACROSS_THE_WORLD.map((store) => store?.requirepassHash ?? null);
+      const hashes = locksAcrossTheWorld().map((store) => store?.requirepassHash ?? null);
       const locked = hashes.filter((hash) => hash !== null);
       const unhashed = locked.filter((hash) => !/^[0-9a-f]{32}$/.test(hash));
 
@@ -1395,11 +1459,11 @@ describe('buildRemoteHostFs', () => {
     it('plants /var/log/redis.log empty where the daemon runs, and nowhere else', () => {
       // A log claims something happened. On a box that never ran the daemon it is
       // furniture that lies about the box's past.
-      const disagreeing = POPULATION.filter(
+      const disagreeing = population().filter(
         (box) => (box.redisLog !== undefined) !== box.runsRedis,
       ).map(where);
 
-      expect(STORES[0]?.box.redisLog?.content).toBe('');
+      expect(stores()[0]?.box.redisLog?.content).toBe('');
       expect(noneOf(disagreeing)).toEqual(NONE);
     });
 
@@ -1408,17 +1472,17 @@ describe('buildRemoteHostFs', () => {
       // store hands out with no credential the names a whole permission rung protects.
       // Kept on purpose: it is the real-world exposed-store problem, and it gives the
       // open find a job beyond flavour.
-      const anonymous = STORES.filter(
+      const anonymous = stores().filter(
         ({ box, store }) =>
           !box.accounts.some((account) =>
             Object.values(store.keys).some((value) => value.includes(account)),
           ),
       ).map(({ box }) => where(box));
-      const naming = STORES.filter(({ store }) =>
+      const naming = stores().filter(({ store }) =>
         Object.values(store.keys).some((value) => value.includes('guest')),
       ).map(({ box }) => where(box));
 
-      expect(STORES.length).toBeGreaterThan(0);
+      expect(stores().length).toBeGreaterThan(0);
       expect(noneOf(anonymous)).toEqual(NONE);
       expect(noneOf(naming)).toEqual(NONE);
     });
@@ -1428,14 +1492,14 @@ describe('buildRemoteHostFs', () => {
       // the users table as CONTENT, while every secret-bearing row comes from a separate
       // namespace. A real name attached to a password is a credential that reads as
       // working right up until a player spends the attempt.
-      const paired = STORES.filter(({ box, store }) =>
+      const paired = stores().filter(({ box, store }) =>
         Object.values(store.keys).some((value) =>
           namesPairedWithSecret(value).some((name) => box.accounts.includes(name)),
         ),
       ).map(({ box }) => where(box));
 
       expect(
-        STORES.some(({ store }) =>
+        stores().some(({ store }) =>
           Object.values(store.keys).some((value) => namesPairedWithSecret(value).length > 0),
         ),
       ).toBe(true);

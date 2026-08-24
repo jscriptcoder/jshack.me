@@ -63,6 +63,32 @@ describe('a redis.log line', () => {
     );
   });
 
+  it('names every month it can print, so no line can date itself wrong', () => {
+    // A month the formatter never renders in a test is a month whose name can be blanked
+    // without anything failing — and the line would then read `20  2026`.
+    const names = Array.from({ length: 12 }, (_unused, month) =>
+      formatRedisConnectLine(attempt({ time: asGameTime(Date.UTC(2026, month, 20, 9, 14, 2)) }))
+        .split(' ')
+        .slice(2, 3)
+        .join(''),
+    );
+
+    expect(names).toEqual([
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ]);
+  });
+
   it('keeps the log readable by anyone on the box and writable only by the system', () => {
     // Getting onto the box is the gate; once there, the record of who else has been is
     // exactly what a defender is entitled to. Root-only write is what stops a visitor
