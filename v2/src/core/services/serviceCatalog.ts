@@ -38,6 +38,13 @@ import {
   MYSQL_LOG_PERMISSIONS,
   formatMysqlAttemptLine,
 } from '../logging/mysqlLog';
+import {
+  REDIS_LOG_OWNER,
+  REDIS_LOG_PATH,
+  REDIS_LOG_PERMISSIONS,
+  formatRedisAttemptLine,
+  formatRedisConnectLine,
+} from '../logging/redisLog';
 
 /** Where a credential sweep against this service is recorded on the target, and how
  *  each attempt is written there.
@@ -212,6 +219,44 @@ export const SERVICE_CATALOG = {
     // database are two locks with two keys.
     accountsOn: databaseAccountsIn,
     databaseOn: databaseNameIn,
+  },
+  // The only door whose secret belongs to the SERVICE rather than to a person. A store
+  // answers to one password and knows no accounts at all, which is what makes it a
+  // different door rather than a database with fewer verbs: there is no tier to climb,
+  // only a lock that is either there or is not — and four stores in ten have none.
+  redis: {
+    service: 'redis',
+    pidfile: 'redis.pid',
+    defaultPort: 6379,
+    // Not root, and not named for a hyphen either: a command name becomes a formal
+    // PARAMETER of the function a script runs, so `redis-server` would be a syntax
+    // error that took every script in the game down with it. `redis` is also what the
+    // conf on every box already calls its pidfile.
+    runUser: 'redis',
+    // What the store says to a client that speaks no redis at it. Real Redis reads a
+    // raw line as an inline command and rejects it, which is the only thing left that
+    // identifies the port in its own words once the version is withheld.
+    banner: '-ERR unknown command',
+    placement: 0.05,
+    // No alternate ports. The conf on every box that runs one states `port 6379` as a
+    // literal, so a store listening anywhere else would be contradicted by a file a
+    // guest can read.
+    altPorts: [],
+    altPortChance: 0,
+    sweepLog: {
+      path: REDIS_LOG_PATH,
+      owner: REDIS_LOG_OWNER,
+      permissions: REDIS_LOG_PERMISSIONS,
+      formatAttempt: formatRedisAttemptLine,
+      // Filled, unlike the database's: this protocol opens a socket first and names a
+      // password afterwards, or never. Against a store that asks for none, this line is
+      // the whole of what the defender ever sees.
+      formatArrival: formatRedisConnectLine,
+    },
+    // Nothing. A store has no accounts to attack — the secret is the service's, and a
+    // username invented to fill this column would be the right name against the wrong
+    // secret, which reads to a player as a working credential until they spend it.
+    accountsOn: () => [],
   },
 } as const satisfies Record<string, ServiceSpec>;
 

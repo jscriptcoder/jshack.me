@@ -12,6 +12,7 @@ import {
 } from '../services/pidfile';
 import { BACKDOOR_PORTS } from './remoteHostFs';
 import { parseMysqlDatabase, type MysqlDatabase, type MysqlRow } from '../mysql/types';
+import { parseRedisStore, type RedisStore } from '../redis/types';
 import { DB_NAME_PREFIXES, DB_NAME_SUFFIXES, MYSQL_USERNAMES } from './pools/database';
 import { filterTreeToAllowlist } from '../patches/readFilter';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
@@ -1131,6 +1132,375 @@ describe('buildRemoteHostFs', () => {
     });
   });
 
+
+  describe('the key-value store surface (a box that runs one has one)', () => {
+    /** What one generated box says about the key-value door, read off the box while it
+     *  is being built so the box itself can be discarded. */
+    type StoreBox = {
+      readonly prefix: string;
+      readonly octet: number;
+      readonly runsRedis: boolean;
+      readonly runsMysqld: boolean;
+      readonly pidfile: FileEntry | undefined;
+      readonly accounts: readonly string[];
+      readonly store: RedisStore | null;
+      readonly storeFile: FileEntry | undefined;
+      readonly hasStoreDir: boolean;
+      readonly hasDatabaseDir: boolean;
+      readonly redisLog: FileEntry | undefined;
+      readonly conf: FileEntry | undefined;
+    };
+
+    const inspect = (prefix: string, octet: number): StoreBox => {
+      const fs = buildRemoteHostFs(ESSID, namedHost(prefix, octet));
+      const pidfile = fileAt(fs, 'var', 'run', 'redis.pid');
+      const storeFile = fileAt(fs, 'var', 'lib', 'redis', 'data.json');
+
+      return {
+        prefix,
+        octet,
+        runsRedis: pidfile !== undefined,
+        runsMysqld: fileAt(fs, 'var', 'run', 'mysqld.pid') !== undefined,
+        pidfile,
+        accounts: [passwdRows(fs)[0]?.[0] ?? 'root', npcUserRow(fs)[0]],
+        store: storeFile === undefined ? null : parseRedisStore(storeFile.content),
+        storeFile,
+        hasStoreDir: dirExistsAt(fs, 'var', 'lib', 'redis'),
+        hasDatabaseDir: dirExistsAt(fs, 'var', 'lib', 'mysql'),
+        redisLog: fileAt(fs, 'var', 'log', 'redis.log'),
+        conf: fileAt(fs, 'etc', 'redis', 'redis.conf'),
+      };
+    };
+
+    /**
+     * Five kinds of box over a LAN's worth of addresses, generated ONCE for the whole
+     * block — the shape the database block beside this one records, and for the same
+     * two reasons. A placement rate is a property of the WORLD, so one box proves
+     * nothing about it; and a store draws 8-15 keys from a weighted pool, so a value a
+     * player can meet is a value a two-host sample never reads, and a value no test
+     * reads can be blanked without anything failing.
+     *
+     * Computed once because regenerating it per test is quick in an ordinary run but
+     * slow enough under mutation instrumentation to race Stryker's timeout — which
+     * scores a surviving mutant as killed and makes the number a measure of the machine
+     * rather than of the tests.
+     */
+    const POPULATION: readonly StoreBox[] = ['www', 'db', 'host', 'desktop', 'cam'].flatMap(
+      (prefix) => OCTETS.map((octet) => inspect(prefix, octet)),
+    );
+
+    const boxesOn = (prefix: string): readonly StoreBox[] =>
+      POPULATION.filter((box) => box.prefix === prefix);
+
+    const redisRateOn = (prefix: string): number =>
+      boxesOn(prefix).filter((box) => box.runsRedis).length / boxesOn(prefix).length;
+
+    /** Every store this sample of the world contains, whatever kind of box keeps it. */
+    const STORES: readonly { readonly box: StoreBox; readonly store: RedisStore }[] =
+      POPULATION.flatMap((box) => (box.store === null ? [] : [{ box, store: box.store }]));
+
+    /** Where a complaint came from: a box's name, never the box. A population of a
+     *  thousand boxes can raise a thousand complaints, and an assertion that renders
+     *  them all takes longer to FAIL than the file takes to run — reported as a timeout
+     *  rather than a kill, which hands the score back to the machine. */
+    const where = (box: StoreBox): string => `${box.prefix}-${box.octet}`;
+
+    const noneOf = (
+      offenders: readonly string[],
+    ): { readonly count: number; readonly sample: readonly string[] } => ({
+      count: offenders.length,
+      sample: offenders.slice(0, 3),
+    });
+
+    const NONE = { count: 0, sample: [] };
+
+    /**
+     * Whether each store in the world is locked, sampled across EIGHT networks rather
+     * than one.
+     *
+     * One network yields about two hundred stores, and these seeds differ only in a
+     * trailing octet — close enough that the generator's first draws correlate, and a
+     * single network's lock rate swings by a fifth either way on sampling alone. That is
+     * a property of the sample, not of the world: over the eight networks the house
+     * measures every other probability across, the rate lands where it was set. The
+     * ordering claims above need no such width, because an ordering survives the swing.
+     *
+     * Only the webserver prefix, which is where a store is likeliest — enough stores to
+     * measure, at a fraction of the cost of sweeping every prefix eight times over.
+     */
+    const LOCKS_ACROSS_THE_WORLD: readonly (RedisStore | null)[] = POPULATION_ESSIDS.flatMap(
+      (essid) =>
+        OCTETS.flatMap((octet) => {
+          const storeFile = fileAt(
+            buildRemoteHostFs(essid, namedHost('www', octet)),
+            'var',
+            'lib',
+            'redis',
+            'data.json',
+          );
+          return storeFile === undefined ? [] : [parseRedisStore(storeFile.content)];
+        }),
+    );
+
+    /** The names a value hands out ATTACHED to a secret: the user half of a URL that
+     *  carries a password, and the username a config object states beside one.
+     *
+     *  The NAME is what matters, not the presence of its letters somewhere in the text.
+     *  A database box can have a unix account called `mysql`, and every connection URL
+     *  in the world begins `mysql://` — a substring test would call that a leak and be
+     *  wrong about the one thing this claim is for. */
+    const namesPairedWithSecret = (value: string): readonly string[] => {
+      const fromUrl = [...value.matchAll(/\/\/([^:@/\s"]+):[^@/\s"]+@/g)].map((match) => match[1]);
+      const besideAPassword = /"(?:password|bind_password|secret|secret_key)"\s*:/.test(value)
+        ? [...value.matchAll(/"(?:username|user|bind_dn)"\s*:\s*"([^"]+)"/g)].map(
+            (match) => match[1],
+          )
+        : [];
+      return [...fromUrl, ...besideAPassword].filter((name) => name !== undefined);
+    };
+
+    it('plants a redis.pid naming the port the store answers on', () => {
+      const running = POPULATION.filter((box) => box.runsRedis)[0];
+
+      expect(running?.pidfile?.content).toBe('redis:port=6379');
+      expect(running?.pidfile?.owner).toBe('redis');
+    });
+
+    it('runs a store most often on the boxes serving the pages behind it, and never on a camera', () => {
+      // Legacy placed redis on database boxes only, which contradicts the data legacy
+      // itself generates: the keys are sessions, user caches and permissions — web
+      // application state. The webserver is the correction, which is what gives the web
+      // door a second follow-on: read the page, then read the sessions behind it.
+      expect(redisRateOn('www')).toBeGreaterThan(redisRateOn('db'));
+      expect(redisRateOn('db')).toBeGreaterThan(redisRateOn('host'));
+      expect(redisRateOn('cam')).toBe(0);
+    });
+
+    it('leaves an ordinary box at the flat rate the world already sets', () => {
+      // A laptop is what the flat rate was tuned against, so it takes that rate rather
+      // than a cell restating it.
+      expect(redisRateOn('desktop')).toBeCloseTo(redisRateOn('host'), 1);
+      expect(redisRateOn('host')).toBeGreaterThan(0);
+      expect(redisRateOn('host')).toBeLessThan(0.12);
+    });
+
+    it('keeps a real store on the box that runs one', () => {
+      const unreadable = POPULATION.filter((box) => box.runsRedis && box.store === null).map(where);
+      const wrongSize = STORES.filter(({ store }) => {
+        const count = Object.keys(store.keys).length;
+        return count < 8 || count > 15;
+      }).map(({ box }) => where(box));
+
+      expect(STORES.length).toBeGreaterThan(0);
+      expect(noneOf(unreadable)).toEqual(NONE);
+      expect(noneOf(wrongSize)).toEqual(NONE);
+    });
+
+    it('plants the store on exactly the boxes running the daemon, and nowhere else', () => {
+      // An empty /var/lib/redis on every box would promise a store that is not there,
+      // and listing /var/lib is recon a player acts on.
+      const disagreeing = POPULATION.filter((box) => box.hasStoreDir !== box.runsRedis).map(where);
+
+      expect(POPULATION.filter((box) => box.runsRedis).length).toBeGreaterThan(0);
+      expect(noneOf(disagreeing)).toEqual(NONE);
+    });
+
+    it('lets a box run a store and a database without either erasing the other', () => {
+      // Both datadirs live under /var/lib, and a box that runs both daemons is common
+      // rather than exotic. Composed as two independent entries, the second would
+      // replace the first and a quarter of the database boxes in the world would lose
+      // the database they were holding, with nothing failing to say so.
+      const both = POPULATION.filter((box) => box.runsRedis && box.runsMysqld);
+      const missing = both.filter((box) => !(box.hasStoreDir && box.hasDatabaseDir)).map(where);
+
+      expect(both.length).toBeGreaterThan(0);
+      expect(noneOf(missing)).toEqual(NONE);
+    });
+
+    it('guards the store from every tier but root, even on the box itself', () => {
+      // It holds the hash a sweep has to work for. A tier that could read it would be
+      // handed the answer key.
+      const wronglyGuarded = STORES.filter(
+        ({ box }) =>
+          box.storeFile?.perms.read.join(',') !== 'root' ||
+          box.storeFile.perms.write.join(',') !== 'root' ||
+          box.storeFile.perms.execute.length !== 0,
+      ).map(({ box }) => where(box));
+
+      expect(noneOf(wronglyGuarded)).toEqual(NONE);
+    });
+
+    it('shows a stranger with no session nothing of the store at all', () => {
+      const box = STORES[0]?.box;
+      const whole = buildRemoteHostFs(ESSID, namedHost(box?.prefix ?? 'www', box?.octet ?? 2));
+      const pruned = filterTreeToAllowlist(whole);
+
+      expect(dirExistsAt(whole, 'var', 'lib', 'redis')).toBe(true);
+      expect(dirExistsAt(pruned, 'var', 'lib', 'redis')).toBe(false);
+      expect(dirExistsAt(pruned, 'etc', 'redis')).toBe(false);
+    });
+
+    it('publishes a conf on every box running a store, whatever else the box is for', () => {
+      // The /etc slot a box's ROLE claims is already spoken for on a webserver, which is
+      // where a store is most likely to be. A conf keyed by role would leave most stores
+      // undescribed — and the box would contradict itself about where its own data is.
+      const disagreeing = POPULATION.filter(
+        (box) => (box.conf !== undefined) !== box.runsRedis,
+      ).map(where);
+      const webBoxes = boxesOn('www').filter((box) => box.runsRedis);
+
+      expect(webBoxes.length).toBeGreaterThan(0);
+      expect(noneOf(disagreeing)).toEqual(NONE);
+    });
+
+    it('names the host it sits on, and the paths the rest of the box really uses', () => {
+      const box = STORES[0]?.box;
+      const content = box?.conf?.content ?? '';
+
+      expect(content).toContain(`${box?.prefix}-${box?.octet}`);
+      expect(content).toContain('port 6379');
+      expect(content).toContain('dir /var/lib/redis');
+      expect(content).toContain('logfile /var/log/redis.log');
+      expect(content).toContain('pidfile /var/run/redis.pid');
+    });
+
+    it('lets a guest read the conf, because it names no secret to guard', () => {
+      expect(STORES[0]?.box.conf?.perms.read).toEqual(['root', 'user', 'guest']);
+    });
+
+    it('never writes the password into the file a guest can read, on any box in the world', () => {
+      // The rung this file sits on admits a guest, and says why it may: it names neither
+      // an account nor a hash. A requirepass line makes that false and hands out for free
+      // the loot the cracking curve exists to make a player earn.
+      const leaking = POPULATION.filter((box) => box.conf?.content.includes('requirepass')).map(
+        where,
+      );
+
+      expect(POPULATION.filter((box) => box.conf !== undefined).length).toBeGreaterThan(0);
+      expect(noneOf(leaking)).toEqual(NONE);
+    });
+
+    it('locks about six stores in ten and leaves the rest open', () => {
+      // The crack is the main way in; the open find stays a real but secondary outcome.
+      const hashes = LOCKS_ACROSS_THE_WORLD.map((store) => store?.requirepassHash ?? null);
+      const locked = hashes.filter((hash) => hash !== null);
+      const unhashed = locked.filter((hash) => !/^[0-9a-f]{32}$/.test(hash));
+
+      expect(hashes.length).toBeGreaterThan(500);
+      expect(locked.length / hashes.length).toBeGreaterThan(0.55);
+      expect(locked.length / hashes.length).toBeLessThan(0.65);
+      expect(unhashed.length).toBe(0);
+    });
+
+    it('plants /var/log/redis.log empty where the daemon runs, and nowhere else', () => {
+      // A log claims something happened. On a box that never ran the daemon it is
+      // furniture that lies about the box's past.
+      const disagreeing = POPULATION.filter(
+        (box) => (box.redisLog !== undefined) !== box.runsRedis,
+      ).map(where);
+
+      expect(STORES[0]?.box.redisLog?.content).toBe('');
+      expect(noneOf(disagreeing)).toEqual(NONE);
+    });
+
+    it('names the people the box really carries in its keys, and never the guest', () => {
+      // Those keys name real users, and /etc/passwd is guest-unreadable — so an open
+      // store hands out with no credential the names a whole permission rung protects.
+      // Kept on purpose: it is the real-world exposed-store problem, and it gives the
+      // open find a job beyond flavour.
+      const anonymous = STORES.filter(
+        ({ box, store }) =>
+          !box.accounts.some((account) =>
+            Object.values(store.keys).some((value) => value.includes(account)),
+          ),
+      ).map(({ box }) => where(box));
+      const naming = STORES.filter(({ store }) =>
+        Object.values(store.keys).some((value) => value.includes('guest')),
+      ).map(({ box }) => where(box));
+
+      expect(STORES.length).toBeGreaterThan(0);
+      expect(noneOf(anonymous)).toEqual(NONE);
+      expect(noneOf(naming)).toEqual(NONE);
+    });
+
+    it('never pairs a name the box really carries with a secret', () => {
+      // The database beside this one draws the same line: the box's real account leads
+      // the users table as CONTENT, while every secret-bearing row comes from a separate
+      // namespace. A real name attached to a password is a credential that reads as
+      // working right up until a player spends the attempt.
+      const paired = STORES.filter(({ box, store }) =>
+        Object.values(store.keys).some((value) =>
+          namesPairedWithSecret(value).some((name) => box.accounts.includes(name)),
+        ),
+      ).map(({ box }) => where(box));
+
+      expect(
+        STORES.some(({ store }) =>
+          Object.values(store.keys).some((value) => namesPairedWithSecret(value).length > 0),
+        ),
+      ).toBe(true);
+      expect(noneOf(paired)).toEqual(NONE);
+    });
+
+    it('leaves every box the accounts, services and database it had before the store arrived', () => {
+      // The store draws on its OWN stream. Continuing the host filesystem's sequence
+      // would move every value picked after it — including the octets the lease
+      // allocator excludes when it issues an occupant an address, which would put a
+      // player on top of an NPC. These are the values the generator produced before the
+      // store existed.
+      const readBox = (hostname: string, octet: number) => {
+        const fs = buildRemoteHostFs(ESSID, { ip: `${SUBNET}.${octet}`, hostname, kind: 'machine' });
+        const datadir = fileAt(fs, 'var', 'lib', 'mysql', 'data.json');
+        return {
+          passwd: passwdRows(fs)
+            .filter((fields) => fields.length > 1)
+            .map((fields) => fields.slice(0, 3).join(':')),
+          pidfiles: [...(varRun(fs)?.entries.keys() ?? [])]
+            .filter((name) => name !== 'redis.pid')
+            .sort(),
+          dbName: datadir === undefined ? null : parseMysqlDatabase(datadir.content)?.name,
+        };
+      };
+
+      expect(readBox('db-11', 11)).toEqual({
+        passwd: [
+          'root:d002d4825c449e44003e0d7c876057e3:0',
+          'sqladmin:0c4c43c0a94fc3d2210fa58dca6e09da:1000',
+          'guest:4cb9c8a8048fd02294477fcb1a41191a:1001',
+        ],
+        pidfiles: ['mysqld.pid', 'sshd.pid', 'vsftpd.pid'],
+        dbName: 'main_store',
+      });
+      expect(readBox('www-7', 7)).toEqual({
+        passwd: [
+          'root:d09ab9985607dc6b20edbb25c0d57f31:0',
+          'devops:ff9830c42660c1dd1942844f8069b74a:1000',
+          'guest:aabb2100033f0352fe7458e412495148:1001',
+        ],
+        pidfiles: ['nginx.pid', 'vsftpd.pid'],
+        dbName: null,
+      });
+      expect(readBox('host-42', 42)).toEqual({
+        passwd: [
+          'root:36cf655efe569f20c40c42f8673004c8:0',
+          'support:f4de0e02cf21722f17c09be7ba42b3ec:1000',
+          'guest:c21f969b5f03d33d43e04f8f136e7682:1001',
+        ],
+        pidfiles: [],
+        dbName: null,
+      });
+      expect(readBox('cam-31', 31)).toEqual({
+        passwd: [
+          'root:37065afef085c96205cbbe76e37832b2:0',
+          'telemetry:0c4c43c0a94fc3d2210fa58dca6e09da:1000',
+          'guest:0d107d09f5bbe40cade3de5c71e9e9b7:1001',
+        ],
+        pidfiles: ['nginx.pid'],
+        dbName: null,
+      });
+    });
+  });
+
   describe('base filesystem skeleton (an operable remote box)', () => {
     const fs = (): Directory => buildRemoteHostFs(ESSID, host(42));
 
@@ -1941,7 +2311,11 @@ describe('buildRemoteHostFs', () => {
     const roleConfigOf = (
       fs: Directory,
     ): { readonly name: string; readonly file: FileEntry } | null => {
-      const found = [...dirAt(fs, 'etc').entries].filter(([name]) => name !== 'passwd');
+      // Files only: the role config is the one FILE a box keeps for what it is, and
+      // /etc now also holds a directory for a config that follows a SERVICE instead.
+      const found = [...dirAt(fs, 'etc').entries].filter(
+        ([name, node]) => name !== 'passwd' && node.kind === 'file',
+      );
       if (found.length > 1) {
         throw new Error(`expected one config in /etc, found ${found.length}`);
       }

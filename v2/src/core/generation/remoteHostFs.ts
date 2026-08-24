@@ -70,11 +70,13 @@ import { roleOfHostname } from './pools/hostnames';
 import { pickUsername } from './pools/usernames';
 import { placementOf } from './rolePlacement';
 import { generateDatabase } from './generateDatabase';
+import { formatRedisConf, generateRedisStore } from './generateRedisStore';
 import { ACCESS_LOG_PERMISSIONS } from '../logging/accessLog';
 import { VSFTPD_LOG_PERMISSIONS } from '../logging/vsftpdLog';
 import { AUTH_LOG_PERMISSIONS } from '../logging/authLog';
 import { KERN_LOG_PERMISSIONS } from '../logging/kernLog';
 import { MYSQL_LOG_PERMISSIONS } from '../logging/mysqlLog';
+import { REDIS_LOG_PERMISSIONS } from '../logging/redisLog';
 import type { Directory, FileEntry } from '../filesystem/types';
 import type { LanHost } from './generateHomeLan';
 
@@ -232,37 +234,64 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
   const serves = services.some(({ spec }) => spec === SERVICE_CATALOG.http);
   const servesFtp = services.some(({ spec }) => spec === SERVICE_CATALOG.ftp);
   const servesDatabase = services.some(({ spec }) => spec === SERVICE_CATALOG.mysql);
+  const redisService = services.find(({ spec }) => spec === SERVICE_CATALOG.redis);
 
   // A datadir exists only where a daemon is serving it, exactly as a web root does. An
   // empty /var/lib/mysql on every box would promise a database that is not there, and
-  // listing `/var/lib` is recon a player acts on. The database is built from its OWN
-  // stream: continuing the tree's draws would re-roll every account and password in
-  // the world.
-  const datadir = servesDatabase
-    ? {
-        lib: dir(
-          {
-            mysql: dir(
-              {
-                'data.json': file(
-                  JSON.stringify(
-                    generateDatabase({
-                      seed: `mysql-db-${essid}-${host.ip}`,
-                      hostname: host.hostname,
-                      account: username,
-                      role,
-                    }),
-                  ),
-                  DATADIR_FILE,
+  // listing `/var/lib` is recon a player acts on. Each is built from its OWN stream:
+  // continuing the tree's draws would re-roll every account and password in the world.
+  //
+  // /var/lib is ONE directory that two daemons keep their state in, so the entries are
+  // composed before it is built. Written as two conditionals each contributing their own
+  // `lib`, the second would REPLACE the first rather than merge with it — and a box
+  // running both would silently lose whichever came first, which is a quarter of every
+  // box named for a database.
+  const stateEntries = {
+    ...(servesDatabase
+      ? {
+          mysql: dir(
+            {
+              'data.json': file(
+                JSON.stringify(
+                  generateDatabase({
+                    seed: `mysql-db-${essid}-${host.ip}`,
+                    hostname: host.hostname,
+                    account: username,
+                    role,
+                  }),
                 ),
-              },
-              TRAVERSABLE_DIR,
-            ),
-          },
-          TRAVERSABLE_DIR,
-        ),
-      }
-    : {};
+                DATADIR_FILE,
+              ),
+            },
+            TRAVERSABLE_DIR,
+          ),
+        }
+      : {}),
+    ...(redisService === undefined
+      ? {}
+      : {
+          redis: dir(
+            {
+              'data.json': file(
+                JSON.stringify(
+                  generateRedisStore({
+                    seed: `redis-store-${essid}-${host.ip}`,
+                    hostname: host.hostname,
+                    // The box's own non-guest accounts. An open store hands these out
+                    // with no credential at all, which is the permission rung this door
+                    // crosses on purpose.
+                    people: ['root', username],
+                  }),
+                ),
+                DATADIR_FILE,
+              ),
+            },
+            TRAVERSABLE_DIR,
+          ),
+        }),
+  };
+  const datadir =
+    Object.keys(stateEntries).length === 0 ? {} : { lib: dir(stateEntries, TRAVERSABLE_DIR) };
 
   // A web root exists only where something serves it. Stamping an empty `/var/www`
   // on every box would publish a directory nobody is listening on — and the
@@ -299,6 +328,27 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
         {
           passwd: file(passwd, PASSWD_FILE),
           ...(config === null ? {} : { [config.name]: file(config.content, SERVICE_CONFIG_FILE) }),
+          // The one /etc file that follows a SERVICE rather than a role. A store is
+          // likeliest on a webserver, whose role slot is already spoken for by its httpd
+          // config, so a conf keyed by role would leave most stores undescribed — and a
+          // box that cannot say where its own data is contradicts the daemon it runs.
+          ...(redisService === undefined
+            ? {}
+            : {
+                redis: dir(
+                  {
+                    'redis.conf': file(
+                      formatRedisConf({
+                        hostname: host.hostname,
+                        port: redisService.port,
+                        pidfilePath: `/var/run/${redisService.spec.pidfile}`,
+                      }),
+                      SERVICE_CONFIG_FILE,
+                    ),
+                  },
+                  TRAVERSABLE_DIR,
+                ),
+              }),
         },
         TRAVERSABLE_DIR,
       ),
@@ -341,6 +391,12 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
               // it, which states what the box is SET UP to be and stays true on a box
               // whose daemon is down, a log claims something happened.
               ...(servesDatabase ? { 'mysql.log': file('', MYSQL_LOG_PERMISSIONS) } : {}),
+              // The fourth, on the same rule. It is also the only one of them whose
+              // arrival line is the whole record of a visit, because a store that asks
+              // for no password produces no failures to sit beside it.
+              ...(redisService === undefined
+                ? {}
+                : { 'redis.log': file('', REDIS_LOG_PERMISSIONS) }),
             },
             TRAVERSABLE_DIR,
           ),

@@ -292,7 +292,7 @@ describe('wrapWithBinaryCheck — /usr/bin resolution + apt-install hint (slice 
     ['snmpset', 'snmp'],
     ['mysql', 'mysql'],
     ['mysqld', 'mysql'],
-    ['rediscli', 'redis-tools'],
+    ['rediscli', 'redis'],
     ['lynx', 'lynx'],
     ['apache2', 'apache2'],
     ['nginx', 'nginx'],
