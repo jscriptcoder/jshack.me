@@ -39,6 +39,9 @@ reverting an intruder's writes — **fixed at v0.172.0 (#449)**, which also corr
 that every vantage re-materializes per statement. Of the three smaller findings from the same
 run, **two are closed at v0.173.0** (the sub-shell prompt echo and the self-scan cover name) and
 one stays a §9 backlog entry, because it is a product decision rather than a bug.
+**D7 🔍 GRILLED 2026-08-24, not yet planned** — twelve locked decisions and a seven-slice spine
+in "D7 — resolved scope & decisions". It renames the epic's own row: the command is `rediscli`, and
+`redis-cli` is unusable because `node`'s sandbox makes every command name a JS parameter.
 **D5 🔍 GRILLED 2026-08-16, not yet planned** — fifteen locked decisions and a six-slice spine in
 "D5 — resolved scope & decisions"; it also found that §9's `ps` defect is misdiagnosed and owns
 the fix. Everything else is split-and-grilled only.
@@ -285,7 +288,7 @@ PHASE 1 — THE DOORS  (near-term focus)
       D6 slice 6 a player runs their own database     ✔ SHIPPED v0.167.0 (#443)
       D6 slice 6b a generated box carries what it runs ✔ SHIPPED v0.168.0-v0.169.0 (#444/#445/#446)
       D6 slice 7 a player reaches another's database  ✔ SHIPPED v0.170.0-v0.171.0 (#447/#448)
-  D7  rediscli                                        ← NEXT (needs grill-me)
+  D7  rediscli                                        🔍 GRILLED 2026-08-24 (7 slices)
   D8  snmpwalk / snmpset
   D9  node scripting
   D10 polish (long-tail comfort commands)
@@ -316,7 +319,7 @@ POST-SHIP — MISSIONS
 | **D5** ✔ | **A player plants a backdoor and re-enters through it** — **✔ SHIPPED** as slices 0–8 (#415–#423, v0.143.0–v0.151.0); grill record in ["D5 — resolved scope & decisions"](#d5--resolved-scope--decisions-grill-me-2026-08-16), as-built in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7/§9 and [`e2e-shared-network-verification.md`](../v2/docs/e2e-shared-network-verification.md) Acts 14-15 | `nc <host> <port>` → restricted NC shell (no PATH); `nc -l <port>` listener with owner metadata in the pidfile; **backdoor chain forwarding** — append a `forward` on every gateway out to the public edge and report the reachable address | Exploit-planted backdoors (Phase 3) | B (inside a host) `nc -l 4444` → forward auto-appended → B leaves, `nc <public IP> <fwd>` → lands as the listener's owner; the defender greps `rules.v4` and finds the breadcrumb |
 | **D5b** ✔ | **NPC machines have a kind, and it shows** — **✔ SHIPPED** as slices 1–5 (#428–#432, v0.153.0–v0.157.0); grill record in ["D5b — resolved scope & decisions"](#d5b--resolved-scope--decisions-grill-me-2026-08-18), close-out in ["D5b — what shipped"](#d5b--what-shipped-and-what-it-deliberately-did-not-do-closed-2026-08-19-v01570), as-built in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7 | A real role model, widening `LanHost.kind` (today `'machine' \| 'router' \| 'switch'`, `generateHomeLan.ts:31`) toward legacy's nine — webserver, database, mailserver, fileserver, iot, dns, switch, router, workstation; role-driven hostnames (today `DEVICE_TYPES` is consumer devices — `desktop-7`, `iphone-12` — and golden-locked at `homeNetwork.ts:30`); **role-weighted service placement** (a database box almost always runs mysql; a phone almost never runs nginx); role-keyed content pools, starting with the web pages D1 ships flat | Mission-specific roles (post-ship) | `nmap` a LAN and the boxes read as a *population*: `web-04` serves nginx and a corporate portal, `db-11` runs mysql, `cam-31` is an IoT box with a camera panel. A player can tell what a box probably is before touching it |
 | **D6** | **A player reads a machine's database** | `mysqld` catalog row + placement; **generated schema + data** (legacy `generateDatabase.ts`, `pools/database.ts`); `mysql <host> <user> [pw]` → `mysql>` prompt (parser/formatter/executor); hydra `mysql` service | Writes/`UPDATE` — decide at planning | B `hydra <host> mysql` → creds → `SHOW TABLES` / `SELECT` returns generated data worth reading |
-| **D7** | **A player reads a machine's key-value store** | `redis` catalog row + placement; generated data (`generateRedisData.ts`, `pools/redis.ts`); `rediscli <host> [pw]` → `redis>` prompt | — | B `rediscli <host>` → `KEYS *` / `GET` |
+| **D7** 🔍 | **A player reads a machine's key-value store** — **GRILLED 2026-08-24**, twelve locked decisions and a seven-slice spine in ["D7 — resolved scope & decisions"](#d7--resolved-scope--decisions-grill-me-2026-08-24) | `redis` catalog row + placement (flat 0.05, webserver 0.35, database 0.3); generated data (`generateRedisData.ts`, `pools/redis.ts`); `rediscli <host> [pw]` → `redis>` sub-shell, seven verbs; `requirepass` as an md5 in the root-only datadir; hydra `redis` service against the 60% that are locked | Redis 6 ACLs (they arrive as a VERSION difference in Phase 3, not as a door decision); `FLUSHALL`; `CONFIG GET`; `TYPE`/`SCAN`/`INFO` | B `rediscli <host>` → `KEYS *` / `GET` on the 40% that are open; `hydra <host> redis` → password (no login field) on the rest; an open store's arrival line is the defender's whole view |
 | **D8** | **A player reconfigures a device without holding a shell on it** | `snmpwalk <host> [community]` (public = basic, RW = full); `snmpset <host> <community> <oid=value>`; `snmpd.conf` firewall + ACL OID parsers → live port overrides; hydra community strings | — | B `snmpwalk` with `public` → basic info; B cracks the RW community → `snmpset firewallSSH permit` → port 22 opens **without B ever logging in** |
 | **D9** | **A player automates an attack with a script** | `node <path>`; sync + async modes; `await` unwrapping async commands; programmatic auth (`ssh(…, pw)`, `await hydra(…)`); `writeFile` helper | `script_exec` as a CVE effect (Phase 3) | A writes `/root/sweep.js` chaining `hydra` + `ssh`, runs `node /root/sweep.js`, and captures results to a file |
 | **D10** | **The terminal feels like legacy's** | `clear`, `theme`, `author`, `xterm`, `bash`, `whoami` — one polish slice | — | Each command behaves as legacy's did |
@@ -1344,6 +1347,228 @@ scope is unchanged.
   octets the lease allocator excludes and puts an occupant on top of an NPC — D5b's hardest-won
   invariant, and the one that most directly threatens this slice.
 
+## D7 — resolved scope & decisions (grill-me, 2026-08-24)
+
+**A player reads — and rewrites — a machine's key-value store.** The fifth door in the locked
+order, and the first whose secret belongs to the SERVICE rather than to a person. Four stores in
+ten have no secret at all, which is what makes this a different door rather than a mysql with
+fewer verbs.
+
+### Grounding that reshaped the scope before any decision
+
+- **v2 already carries three pieces of redis, and one contradicts D6.** `redis-tools` is a real apt
+  package with binary `rediscli` (`aptPackages.ts:150`), asserted in `availability.test.ts`;
+  `SessionKind` includes `'redis'`; and `ModeChange` still declares
+  `{ kind: 'redis'; target: { ip } }` — an OVERLAY. Three lines above it sits the note explaining
+  why mysql's variant was DELETED: a database prompt is a sub-shell over the same terminal, not a
+  screen. Both redis declarations are pure ghosts — declared, never constructed, never read.
+- **Redis has no accounts.** Legacy authenticates a single `requirepass`, no users. But
+  `ServiceSpec.accountsOn` is a REQUIRED column returning `SweepableAccount` = `{ username, hash }`,
+  and redis honestly has neither field. Legacy's own hydra proves it: its line reads
+  `[6379][redis] host: …   password: …` with no `login:` at all. **Redis 6 ACLs are the road not
+  taken** — real users exist there, but adopting them makes redis into D6 with different verbs, and
+  they arrive naturally as a VERSION difference once Phase 3 ships `dpkg` + `nmap -sV`.
+- **Three in four legacy stores have no password whatsoever** (`REQUIREPASS_CHANCE = 0.25`), and
+  once connected — authed or not — `SET` and `DEL` both work. There is no tier ladder, so D6's
+  whole slice 4 has no analogue here.
+- **`requirepass` is plaintext, and the rung it would sit on is world-readable.**
+  `SERVICE_CONFIG_FILE` admits guest and states why it may: *"this file names neither"* — neither
+  account names nor inline hashes. A `requirepass` line makes that comment false, and would ship
+  the harvestable plaintext loot **D2.6b postponed by owner decision**, through the back door.
+- **mysql is already split, and the split IS the house rule.** `/etc/mysql.cnf` is world-readable
+  and carries `port`, `datadir`, `user`, `bind-address` across five templates with not one password
+  among them; `/var/lib/mysql/data.json` is `DATADIR_FILE` (root only) and carries the hashes.
+  Every role config in the game works this way — `mysql.cnf`, `postfix.conf`, `named.conf`,
+  `device.conf`.
+- **The verb surface is tiny** — 59 lines of parser and 68 of executor, against mysql's 659-line
+  `statements.ts`.
+- **Legacy's generated content is web-application state**, not database state: `sess:<token>`,
+  `sess:jwt:*`, `cache:user:*`, `perms:<user>`, API keys — and it already draws the usernames from
+  the box's own non-guest accounts. Legacy nevertheless places redis on DATABASE-role boxes only,
+  contradicting the data legacy itself generates.
+- **v2 already has redis's log model and did not build it for redis.** `SweepLog` carries
+  `formatAttempt` plus an optional `formatArrival`, filled by ftp and left empty by sshd. Legacy's
+  redis handler reached the same split independently and wrote down why: *"real Redis treats
+  socket-open and AUTH as two events, one line each"*, where mysql sends credentials in the connect
+  handshake and so collapses them.
+
+### Forced rather than chosen (planning should not re-litigate)
+
+- **`rediscli` can never become `redis-cli`.** `node`'s sandbox is
+  `new Function(...contextKeys, content)` (`src/commands/node.ts:171,174,208`) — every command name
+  becomes a formal PARAMETER of one function, so a single hyphen is a `SyntaxError` that takes
+  `node` down for **every script in the game**, not merely that one command. Legacy already met
+  this constraint; nothing in v2's ~40-command registry carries a hyphen. **This binds every future
+  command name, not just redis's** — which is why the daemon is `redis` and not `redis-server`.
+- **`/var/log/redis.log` and `/var/lib/redis/` are named by the conf the box itself publishes.**
+  Any other path makes the box contradict its own file.
+- **The deep-layer resolver trap is waiting.** D6 slice 5 found the chain resolver hands back the
+  terminal box's SEEDED tree — survivable for a door authenticating against seeded accounts, fatal
+  for one answering with DATA. It was worked around in `reachMysqlHost` and recorded in §9 as the
+  resolver's to close for every door at once. Slice 5 hits it again.
+
+### Locked decisions
+
+**1. Bare password, no accounts — the contract widens rather than faking a username.**
+`ServiceSpec` gains an optional `secretOn: (fs) => string | undefined` beside `accountsOn`, and
+`accountsOn` becomes optional; a row fills one or the other. No discriminated union and no strategy
+object — the two functions ARE the discrimination, and `databaseOn` already established the pattern
+of an optional column only one row fills. A single `authOn` returning a tagged union would make
+every existing row change shape to say what it already says fine, which relocates mechanism rather
+than removing it. The sweep then **omits** the login field rather than blanking it:
+`[6379][redis] host: 10.0.1.20   password: hunter2`.
+
+**2. An open store gives reads AND writes to anyone who reaches it.** Authentic — it is the most
+famous real-world Redis exposure and the door's entire character. It also gives the epic something
+it lacks: a door where the FIND is the whole play, with no crack in between. This is the game's
+first no-credential write; every other door writes only behind a session or a re-validated
+credential, and `curl` reaches a page with no credential but only reads.
+
+**3. Both halves ship — the player's own store and the cross-player reach.** An NPC-only door is a
+dead end for what the epic is for; `redis-tools` having no daemon is a live defect either way (a
+generated box can run redis while `apt` provides no server — the exact asymmetry slice 6b was built
+to kill); and deferring is the more expensive order, not the cheaper one, because D6 slice 7's
+grill found three gaps where the one-line plan claimed two.
+
+**4. Daemon `redis`, package `redis` (renaming `redis-tools`), client `rediscli`.** Not
+`redis-server` (the hyphen constraint above), not `redisd` (a name no Linux box says). It matches
+the `nginx` and `apache2` rows exactly — package name IS daemon name, no `d` suffix — and legacy's
+own generated conf already says `pidfile /var/run/redis.pid`, so `ps` reads `redis:port=6379`. One
+package carrying client and server is the rule the mysql row already wrote down: a player who
+installed `redis` should not have to learn a second name the world never says out loud.
+
+**5. Split like mysql: the conf is public and secret-free; the secret is a hash in the datadir.**
+`/etc/redis/redis.conf` keeps `SERVICE_CONFIG_FILE` and carries `port 6379`, `bind`, `dir`,
+`logfile`, `pidfile`, `daemonize` — real recon, no secret. The `requirepass` moves into
+`/var/lib/redis/data.json` (`DATADIR_FILE`, root only) as an **md5 hash** beside the keys. This
+makes `hydra <host> redis` crack through the same `sweepAccounts` hashing path as every other door
+instead of needing a bespoke plaintext compare, and it keeps D2.6b postponed. The divergence from
+real redis is one v2 has already made once: real Linux has `/etc/shadow`, and v2 puts hashes inline
+in `/etc/passwd` instead. A player who `cat`s the conf looking for `requirepass` learns what real
+Redis tells them — `NOAUTH Authentication required.`
+
+**6. A player's own store mirrors the box's root password, with no opt-out.** `ownDatabase`'s
+reasoning transfers whole: they reach their own prompt with nothing to look up, a chosen password
+is almost never in the wordlist so their store is out of a SWEEP's reach, and whoever cracks the
+box's root hash and runs `su root` is holding it already — the harder path reaching what the easier
+one cannot. **The consequence, deliberately accepted: the wide-open store exists only on NPC
+boxes.** Cross-player damage should cost skill, and the free wipe never becomes reachable. No
+opt-out, because with the secret hashed there is no coherent `nano` story and the defender's lever
+already shipped in D4 — `systemctl stop redis`.
+
+**7. Placement, and how often a store is locked.** Flat `0.05`; `webserver: 0.35`; `database: 0.3`;
+`workstation: 0.05`; `iot: 0`. The webserver cell is the correction to legacy's database-only
+placement, and it gives the web door a SECOND follow-on distinct from mysql's `0.2` "find the tables
+behind it" — read the page, then read the **sessions** behind it. **60% of stores carry a
+`requirepass`, 40% are open** — raised from legacy's 25% so the crack is the main way in and the
+open find stays a real but secondary outcome, still landing 4 times in 10 for the epic row's
+`rediscli <host>` → `KEYS *` acceptance example.
+
+**8. A sub-shell that mints no session row, and both ghosts deleted.** No session row for the
+reason D6 found and more so: `authorizeMachineAccess` never looks at session kind, and a
+passwordless connection carries no credential at all, so a row would hand `listPatches` and
+`upsertPatch` to anyone who reaches 6379. The server instead re-derives the target's state from its
+own datadir — open, or locked with this hash — and re-validates per statement, which also makes
+`kill redis` evict a connected player for free. Prompt is **`redis> `**, bare: legacy's own
+(`SessionContext.tsx:506`), the epic row's, and the rhythm of `mysql> ` / `ftp> `. The target is
+named at connect time in the scrollback, and v0.173.0's echo fix means every statement scrolls back
+under `redis> ` — **the bare prompt is safe because of the fix that just shipped**, and redis is the
+third rung `subShellPrompt()` was consolidated to accept.
+
+**9. Seven verbs: `KEYS` `GET` `SET` `DEL` `DBSIZE` `AUTH` `QUIT`/`EXIT`.** `KEYS` keeps its glob,
+unknown input answers `(error) ERR unknown command '…'`, and invocation stays positional
+(`rediscli <host> [password]`) to match `mysql` and `ftp` rather than real redis-cli's `-a`.
+**Deliberately absent, so a later slice does not rediscover them as gaps:** `FLUSHALL` (a griefing
+amplifier, not a new capability — `DEL` already says a stranger can destroy your data);
+`CONFIG GET requirepass` (**impossible to answer honestly** now the secret is hashed — it would
+return a hash, a lie, or reopen decision 5, and a verb that must lie is worse than an absent one);
+`TYPE` (every value is a string); `SCAN` (a cursor over a store `KEYS` handles); `INFO` (it wants a
+version, and the catalog's banner comment is explicit that versions are `/var/lib/dpkg/status`'s to
+tell). `hydra` against an open store keeps legacy's genuinely useful refusal — *no password set
+(open access)* — because it tells the player to stop cracking and just connect.
+
+**10. `/var/log/redis.log`, world-readable and root-write like `mysql.log`.** Both `SweepLog` fields
+filled, ftp-style: an arrival line per connection, an attempt line per `AUTH`. Mutations append,
+reads never — D6 slice 4's rule and real Redis's behaviour both. **Accepted knowingly:** against an
+open store there is no `AUTH`, so there is no wall of failed attempts, and the defender's ENTIRE
+evidence is one arrival line naming the source IP plus a line per mutation. The 40% of stores that
+are open are also the ones where theft is nearly invisible.
+
+**11. Content is believability, not loot — and it is about the box it sits on.** D6's rule
+unchanged: nothing generated is loot that works; that stays D2.6b's postponed job. Redis is where
+it would erode fastest, because session tokens and API keys beg to be used more than a `customers`
+table does. Legacy's tie to the box's own non-guest accounts is kept and extended the way D6
+extended mysql — a webserver's store references the site that box actually serves. Legacy's 8–15
+key count and generator pool port as-is.
+
+**12. An open store discloses the box's account list, and that is a FEATURE.** Those keys name real
+users, and `/etc/passwd` is `PASSWD_FILE` — guest cannot read it — so a 40%-open store hands out
+with no credential the names a whole permission rung exists to protect. Kept on purpose: it is
+precisely the real-world *exposed Redis leaks your user table* problem, and it gives the open store
+a job beyond flavour. Mechanically modest — `hydraCrack` already sweeps EVERY account in a target's
+passwd without being told any names — so what a player gains is the ability to aim and a read on
+who matters, not a shortcut past the crack. Named here because it is a permission boundary crossed
+by a door, and D6 shipped a bug of exactly that family in slice 2.
+
+### Folded in as routine (recorded so they are not re-decided)
+
+- `nmap`, `ps` and `systemctl status` see `redis` for free once the catalog row exists — they read
+  `/var/run`, not a service list.
+- `apt install redis` starts meaning something the moment the package row gains its daemon.
+- Ctrl-C at the password prompt aborts holding nothing (exit 130), as `ftp` and `mysql` do.
+- `man`/`help` entries ship with the command, as every other door's did.
+- `rediscli` prints `Connecting to <ip>:6379…` then `Connected to Redis <hostname>.`, which is what
+  keeps the bare `redis> ` prompt honest about its target.
+
+### Slice spine (each vertical + observable)
+
+- **Slice 1 — a box runs a key-value store.** Catalog row (`redis`, 6379, banner, flat 0.05), the
+  five placement cells, `generateRedisData` + `pools/redis.ts` ported, the public conf and the
+  root-only datadir planted, the pidfile. The package rename `redis-tools` → `redis` with
+  `daemons: ['redis']` lands here. `nmap` returns `6379/tcp open redis`; `cat /etc/redis/redis.conf`
+  names the datadir; a box that runs no redis holds neither file.
+- **Slice 2 — a player opens an unlocked store.** The walking skeleton and the 40% case:
+  `rediscli <host>` → `redis> ` → `KEYS *` / `GET` / `DBSIZE` / `QUIT`, with the arrival line
+  landing in the target's `/var/log/redis.log`. **Both type ghosts deleted here.**
+- **Slice 3 — a player cracks a locked store.** `secretOn` lands; `hydra <host> redis` returns a
+  password with no login field; `NOAUTH` refuses everything before `AUTH`; an open store answers
+  *no password set (open access)*; attempt lines land in the target's log.
+- **Slice 4 — a player changes a store.** `SET` and `DEL` land and append; `GET`/`KEYS`/`DBSIZE`
+  never do. Open store: anyone writes. Locked store: only after `AUTH`.
+- **Slice 5 — a store on a deep layer answers.** The inner-gateway vantage, for the statement path
+  and for hydra — and into the seeded-tree resolver trap named above.
+- **Slice 6 — a player runs their own store.** `apt install redis` → `systemctl start redis` → the
+  mirrored `requirepass` hash. The own-box vantage answers on the CLIENT, so it composes against the
+  machine (`env.fs.reload()`) per the v0.172.0 invariant, not against this client's copy of it.
+- **Slice 7 — a player reaches another player's store.** The four vantages plus a wire-check.
+  Always locked, so always a password — the vacuous-authorization case never arises between players.
+
+**No 6b analogue.** Slice 6b's rule already shipped, so `daemons: ['redis']` makes a generated redis
+box's doors closable for free.
+
+**Two things D6 paid for that D7 gets free:** the four-vantage reach is now generic (§7), and
+`subShellPrompt()` is a ladder redis adds one rung to — v0.173.0's fix earning its keep on first
+reuse.
+
+### Open for planning (named, deliberately not decided)
+
+- **Which of legacy's key generators are retained, and the mix between them.** Believability is the
+  criterion, not parity — the same call D6 made about table templates.
+- **How a webserver's store reaches the site name** the box serves, without coupling the two
+  generators badly. Both seed off the same host, so the draw is available; the shape of the reach
+  is what matters.
+- **Whether a mutation log line carries the key and value verbatim or a summary.** Verbatim is a
+  fine artefact for a defender; it also writes arbitrary player-typed text into a file other players
+  `cat`. D6 left the same question open.
+- **Which existing `api/*.ts` file takes the statement action.** A file in `api/` IS a published
+  Vercel function, so no new file may be added for a helper.
+- **Slice 1's seed stream.** It adds draws to generation, so it takes its own stream or it moves the
+  octets the lease allocator excludes — D5b's hardest-won invariant, and the one that most directly
+  threatens this slice. The same trap slice 1 of D6 carried.
+- **Whether `secretOn` returning `undefined` and an absent `secretOn` need to read differently.** An
+  open store and a door with no secret concept are not the same statement, and only one row has an
+  opinion today.
+
 ## Open branches (named, not yet decided)
 
 1. ~~**`nc -l` semantics (D5)**~~ — **RESOLVED 2026-08-16 at D5's grill.** A session with no
@@ -1943,8 +2168,29 @@ database and they have to guess the service and let `hydra` find it. **A door is
 wire-checks alone** — the wire-checks were 20/20 green and could not see any of this, because the
 defects live in the one vantage no endpoint answers.
 
-**➡️ NEXT: D7 — `redis-cli`**, fifth door in the locked order. Run `grill-me` against it before
-planning, as D3/D3b/D4/D5/D5b/D6 each did.
+**➡️ NEXT: D7 — `rediscli`**, fifth door in the locked order. **GRILLED 2026-08-24 — twelve
+locked decisions and a seven-slice spine in
+["D7 — resolved scope & decisions"](#d7--resolved-scope--decisions-grill-me-2026-08-24).** Not yet
+planned; slice 1 is next.
+
+Four things that grill settled which the row above could not have predicted:
+
+- **Redis has no accounts, and the catalog assumed every door does.** `ServiceSpec.accountsOn` is a
+  required column returning `{ username, hash }`, and a `requirepass` is neither. Faking a username
+  would have reprised D6 slice 2's shipped bug — the right name against the wrong secret — so the
+  contract widens with a `secretOn` sibling and the sweep line omits the login field entirely.
+- **A hyphen in a command name would take `node` down for every script in the game.** Its sandbox is
+  `new Function(...contextKeys, content)`, so command names are formal PARAMETERS. That is why the
+  daemon is `redis` and not `redis-server`, why `rediscli` can never be "fixed" to `redis-cli`, and
+  it now binds every future command name. **This is the row's own name being wrong** — the epic has
+  said `redis-cli` since it was written.
+- **The plaintext `requirepass` would have shipped D2.6b through the back door.** It lands on a
+  world-readable rung whose comment says "this file names neither" — so redis is split the way
+  mysql already is: a public secret-free conf, and an md5 hash in the root-only datadir.
+- **Legacy places redis on database boxes only, contradicting the data legacy itself generates.**
+  The keys are `sess:*`, `cache:user:*`, `perms:*` — web-application state. The webserver cell is
+  the correction, and it gives the web door a second follow-on: read the page, then read the
+  sessions behind it.
 
 The three things that grill settled which the row above could not have predicted:
 
