@@ -621,6 +621,20 @@ fix was not a test but the right question: the password being read is the one `s
 read it BY NAME through the same `accountIn` every auth gate uses. Third member of the family above
 — this time it is the fixture's ORDER, rather than its negativity, that agrees with the mutant.
 
+**A whole-suite dry run is the thing that makes a mutation battery unrunnable here — scope
+the RUNNER, not just `--mutate`.** Stryker executes the entire suite under instrumentation
+before it applies a single mutant. At 3400+ jsdom tests that never finished on this machine:
+concurrency 15 blew the 5-minute dry-run limit, concurrency 4 tripped vitest's 5s per-test
+default on `ui/state.test.ts`'s module import (hence `testTimeout: 30000` in
+`vite.config.ts` — a timeout there is a correctness setting, exactly as `timeoutMS` is), and
+raising `--dryRunTimeoutMinutes` merely hung for 79 minutes with no sandbox writes. What
+works is a throwaway vitest config whose `include` lists ONLY the test files covering the
+modules under mutation, pointed at via `"vitest": { "configFile": ... }` in a throwaway
+stryker config: 180 tests in 3.5s instead of 3431 in 40s+, and the battery finishes in ~6
+minutes. Anything a mutant needs that the narrowed `include` omits reports as **NoCoverage**
+rather than as survived, so the narrowing is visible in the report rather than silent. Keep
+both files out of the repo — the `mutate` and `include` lists are per-slice and would rot.
+
 **Read the mutation report from `reports/mutation/mutation.json`, not from captured stdout.** The
 `clear-text` reporter prints its per-mutant list as it goes, and a captured run keeps only the tail
 — a four-file run reported `124 survived` above a list showing 8, with no way to tell whether any
@@ -662,6 +676,14 @@ Provably-equivalent mutant classes — accept (don't chase) when they recur:
 - **Stryker static load-throw** — a mutant that throws at module load (`Map([undefined])`)
   makes the Vitest runner report "no tests ran" → Stryker counts SURVIVED. Verify the throw
   by hand, then accept as tooling-equivalent.
+  **A describe-body population sweep has the same effect, and it reaches ACROSS blocks.**
+  D7 slice 1: stubbing any generated-content generator to `() => undefined` takes the suite
+  red — but the throw lands while a NEIGHBOURING block builds its own `POPULATION` eagerly,
+  so Vitest reports zero tests and Stryker scores a caught mutant as survived. Making the
+  new block lazy (compute once, on first use inside a test) flipped six of these to Killed
+  and left eight, because the eager block next door still generates every box. Before
+  believing a content generator "survived", stub it by hand: a suite that goes red is a
+  kill however the runner scored it.
 - **No-op type-re-narrowing `.filter(typeGuard)`** added only to satisfy types after a guard
   already guarantees the kind. Prefer reduce-append; else keep the imperative early-return
   loop.

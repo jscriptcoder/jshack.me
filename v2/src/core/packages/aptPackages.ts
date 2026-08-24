@@ -147,7 +147,13 @@ export const APT_PACKAGES: readonly AptPackage[] = [
       },
     ],
   },
-  { name: 'redis-tools', binaries: ['rediscli'] },
+  // One package, both halves, as mysql above: the client you point at somebody else's
+  // store and the daemon that makes yours one. The daemon is `redis` and not
+  // `redis-server` because a command name becomes a formal PARAMETER of the function a
+  // script runs — one hyphen is a syntax error that takes every script in the game down,
+  // not just this command. It matches the `nginx` and `apache2` rows exactly: the
+  // package name IS the daemon name, with no `d` suffix.
+  { name: 'redis', binaries: ['rediscli', 'redis'], daemons: ['redis'] },
   { name: 'lynx' },
   { name: 'apache2', daemons: ['apache2'] },
   { name: 'nginx', daemons: ['nginx'] },

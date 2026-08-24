@@ -332,8 +332,10 @@ describe('the banners the world’s doors answer with', () => {
   // level — neither one narrows a box to a build anyone could look up.
   //
   // mysql is the row that shows what the rule costs: its REAL greeting is a version
-  // string, so the only thing it can say here is the handshake it refuses. A door
-  // may identify itself; it may not date itself.
+  // string, so the only thing it can say here is the handshake it refuses. redis is the
+  // same lesson twice — its own greeting carries a version too, so what identifies the
+  // port is the error it answers a line of nonsense with. A door may identify itself; it
+  // may not date itself.
   it('name the protocol and the daemon, never the build', () => {
     const banners = Object.values(SERVICE_CATALOG).map((spec) => spec.banner);
 
@@ -342,6 +344,7 @@ describe('the banners the world’s doors answer with', () => {
       'HTTP/1.1 400 Bad Request',
       '220 FTP server ready.',
       'ERROR 1043 (08S01): Bad handshake',
+      '-ERR unknown command',
     ]);
   });
 });
