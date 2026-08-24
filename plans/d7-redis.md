@@ -1,7 +1,7 @@
 # Plan: D7 — a player reads (and rewrites) a machine's key-value store (`rediscli`)
 
 **Branch**: `docs/plan-d7-redis` (this plan) → `feat/d7-*` per slice
-**Status**: Active — slice 1 ready for acceptance-criteria approval
+**Status**: Active — **slice 1 SHIPPED v0.174.0 (#452)**; slice 2 is next and unplanned
 
 > Decisions are LOCKED in [`legacy-parity-epic.md`](legacy-parity-epic.md) §"D7 — resolved scope &
 > decisions (grill-me, 2026-08-24)". This file sequences them; it does not re-open them. Where
@@ -40,7 +40,36 @@ it counts — `tsc` cannot see DB columns or constraints.
 
 ---
 
-### Slice 1: A box runs a key-value store
+### Slice 1: A box runs a key-value store — SHIPPED v0.174.0 (#452)
+
+**As built.** All 13 criteria met; 3438 tests, typecheck and lint green. What the slice
+learned, beyond what was planned:
+
+- **The `/var/lib` collision was real and was caught by criterion 5.** Composed as two
+  spreads the second `lib` replaces the first, so a box running both daemons keeps only
+  one datadir — about a quarter of every `db-` box would have lost the database it held
+  the day before, silently.
+- **The conf follows the SERVICE**, planted under `servesRedis` beside the datadir and the
+  log. First `/etc` file in v2 to do so, and the first nested directory under `/etc` on a
+  generated box.
+- **Both open questions closed the way mysql already answered them.** Three placement
+  cells, not five — the `workstation` number IS the flat rate, and every other cell in the
+  table differs from its flat rate. And `configDb` draws its username from
+  `MYSQL_USERNAMES`, because `generateDatabase` already keeps real people in content and
+  every secret in a separate namespace. Checked against all sixteen generators: `configDb`
+  was the only one that crossed that line.
+- **Two test defects, both found before production was wrong.** A lock-rate claim measured
+  over one network read 0.476 against a 0.6 setting and prompted a production reorder that
+  measurement then showed changed nothing (0.582 vs 0.573 across eight networks) — reverted,
+  and the test now samples the width its claim needs. And a substring check for "a real name
+  paired with a secret" flagged boxes whose unix account is literally `mysql`, because every
+  connection URL begins `mysql://`.
+- **`generateRedisStore` costs 0.22ms against `generateDatabase`'s 0.19ms**; a fifth door
+  makes whole-host generation ~11% slower (134.3ms vs 120.6ms per 253 hosts).
+- **Mutation: 131/316 killed**, four real gaps closed (ten unrendered month names, the
+  conf's `bind`/`daemonize`/`join`, and `parseRedisStore`'s uncovered catch), two equivalent
+  mutants left, two speculative exports deleted rather than tested. The score understates
+  the tests: see the two tooling traps now recorded in `conventions-and-gotchas.md` §4.
 
 **Value**: A player scanning a LAN, or standing on a box they have taken, can tell it holds a
 key-value store and find it where the box's own config says it is.

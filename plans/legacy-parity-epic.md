@@ -39,8 +39,9 @@ reverting an intruder's writes — **fixed at v0.172.0 (#449)**, which also corr
 that every vantage re-materializes per statement. Of the three smaller findings from the same
 run, **two are closed at v0.173.0** (the sub-shell prompt echo and the self-scan cover name) and
 one stays a §9 backlog entry, because it is a product decision rather than a bug.
-**D7 🔍 GRILLED + PLANNED 2026-08-24** — twelve locked decisions and a seven-slice spine
-in "D7 — resolved scope & decisions". It renames the epic's own row: the command is `rediscli`, and
+**D7 🚧 IN PROGRESS — slice 1 shipped v0.174.0 (#452), slice 2 next** — twelve locked
+decisions and a seven-slice spine in "D7 — resolved scope & decisions"; per-slice status and
+as-built in `d7-redis.md`. It renames the epic's own row: the command is `rediscli`, and
 `redis-cli` is unusable because `node`'s sandbox makes every command name a JS parameter.
 **D5 🔍 GRILLED 2026-08-16, not yet planned** — fifteen locked decisions and a six-slice spine in
 "D5 — resolved scope & decisions"; it also found that §9's `ps` defect is misdiagnosed and owns
@@ -1522,11 +1523,14 @@ by a door, and D6 shipped a bug of exactly that family in slice 2.
 
 ### Slice spine (each vertical + observable)
 
-- **Slice 1 — a box runs a key-value store.** Catalog row (`redis`, 6379, banner, flat 0.05), the
-  five placement cells, `generateRedisData` + `pools/redis.ts` ported, the public conf and the
-  root-only datadir planted, the pidfile. The package rename `redis-tools` → `redis` with
-  `daemons: ['redis']` lands here. `nmap` returns `6379/tcp open redis`; `cat /etc/redis/redis.conf`
-  names the datadir; a box that runs no redis holds neither file.
+- **Slice 1 — a box runs a key-value store.** ✔ **SHIPPED v0.174.0 (#452).** Catalog row
+  (`redis`, 6379, banner, flat 0.05), the placement cells, `generateRedisStore` + `pools/redis.ts`
+  ported, the public conf and the root-only datadir planted, the pidfile, and the package rename
+  `redis-tools` → `redis` with `daemons: ['redis']`. **Three cells, not five** — the `workstation`
+  number is the flat rate, so a cell would be the first in that table to change nothing. **The conf
+  follows the SERVICE**, not the role, because a store is likeliest on a webserver whose `/etc` slot
+  belongs to httpd. **`/var/lib` is composed once**: as two spreads the second replaces the first,
+  and a box running both daemons would silently lose a datadir.
 - **Slice 2 — a player opens an unlocked store.** The walking skeleton and the 40% case:
   `rediscli <host>` → `redis> ` → `KEYS *` / `GET` / `DBSIZE` / `QUIT`, with the arrival line
   landing in the target's `/var/log/redis.log`. **Both type ghosts deleted here.**
@@ -2171,8 +2175,10 @@ defects live in the one vantage no endpoint answers.
 **➡️ NEXT: D7 — `rediscli`**, fifth door in the locked order. **GRILLED 2026-08-24 — twelve
 locked decisions and a seven-slice spine in
 ["D7 — resolved scope & decisions"](#d7--resolved-scope--decisions-grill-me-2026-08-24).**
-**PLANNED 2026-08-24 in [`d7-redis.md`](d7-redis.md)** — slice 1's acceptance criteria are
-written and awaiting approval.
+**PLANNED 2026-08-24 in [`d7-redis.md`](d7-redis.md)**, where the per-slice status and as-built
+live. **Slice 1 shipped v0.174.0 (#452).** ➡️ **Next: slice 2 — a player opens an unlocked
+store**, the walking skeleton and the 40% case, and where both redis type ghosts are deleted. It is
+the first D7 slice to touch `api/`, so it needs a `scripts/test*.ts` wire-check before it counts.
 
 Four things that grill settled which the row above could not have predicted:
 
