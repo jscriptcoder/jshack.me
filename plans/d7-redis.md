@@ -1,8 +1,8 @@
 # Plan: D7 — a player reads (and rewrites) a machine's key-value store (`rediscli`)
 
 **Branch**: `docs/plan-d7-redis` (this plan) → `feat/d7-*` per slice
-**Status**: Active — **slice 1 SHIPPED v0.174.0 (#452)**; **slice 2 PLANNED, awaiting
-approval of its 14 criteria** on `feat/d7-redis-open-store`
+**Status**: Active — **slices 1–2 SHIPPED (v0.174.0 #452, v0.175.0 #453)**; slice 3 is next
+and unplanned
 
 > Decisions are LOCKED in [`legacy-parity-epic.md`](legacy-parity-epic.md) §"D7 — resolved scope &
 > decisions (grill-me, 2026-08-24)". This file sequences them; it does not re-open them. Where
@@ -231,7 +231,39 @@ composition is the one place where a shared helper is load-bearing rather than t
 
 ---
 
-### Slice 2: A player opens an unlocked store
+### Slice 2: A player opens an unlocked store — SHIPPED v0.175.0 (#453)
+
+**As built.** All 14 criteria met; 3523 tests, typecheck and lint green, wire-check 12/12
+live. What the slice learned, beyond what was planned:
+
+- **The shared reach was one line from being two files.** `reachMysqlHost` turned out to be
+  347 lines of vantage resolution with exactly ONE naming a service, so the rename to
+  `reachServiceHost` was a parameter rather than an extraction — landed first, green on the
+  same 80 mysql tests before and after, and merged as its own commit so a regression in the
+  reach stays attributable to the rename rather than to the new door.
+- **Twelve production sites already share the listening predicate**, with differing checks —
+  some port-only, some port+service. Collapsing them would prevent the port-without-service
+  bug family D6 shipped once, but it is a repo-wide sweep and NOT this slice's; the REFACTOR
+  step was assessed and deliberately applied nothing. `ownBoxSource` crossing doors from
+  `mysqlOwnBox.ts` was left for the same reason — slice 6 gives it a real forcing function.
+- **The NOAUTH wall stands without a door until slice 3, knowingly.** A player who finds one
+  of the 6-in-10 locked stores reads `NOAUTH Authentication required.` and is told
+  `unknown command 'AUTH'` if they act on it. Honest — there is no way in yet — but it reads
+  as broken, and it is the one thing in this slice a player could mistake for a defect.
+- **Two pieces of machinery were deleted rather than tested**: the tokenizer's quoted-run
+  handling, which no verb in this slice uses and which belongs with `SET`, and a `trim()` the
+  filter already made redundant.
+- **The glob escape was a live crash in legacy.** `KEYS ?` compiles to `/^?$/` — "Nothing to
+  repeat" — so a player could take the daemon down by typing a question mark. v2 escapes `?`
+  as a literal and has the test that proves it.
+- **Mutation: 299/343 (87.2%)** across three rounds from 76.1%. Real gaps closed: the
+  `exit`/`quit` regex unanchored at BOTH ends, the glob escape untested against `.`, three
+  untouched preflight branches, and neither handler refusing a malformed signed payload.
+- **A second mis-scoring family found.** `rediscli.ts:99` reported Survived; hand-applying
+  that mutant took two tests in the same file red. Their fixtures are built at module scope,
+  so `perTest` attributes no test to the mutant and never runs the ones that kill it.
+  Recorded in `conventions-and-gotchas.md` §4 — hand-applying a suspicious survivor is now
+  the cheapest first step in triage.
 
 **Value**: The walking skeleton, and the 4-in-10 case where the FIND is the whole play with no crack
 in between. A player who scanned a box in slice 1 and read the conf naming its datadir can now stand

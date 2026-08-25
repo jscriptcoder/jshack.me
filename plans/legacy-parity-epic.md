@@ -39,7 +39,7 @@ reverting an intruder's writes — **fixed at v0.172.0 (#449)**, which also corr
 that every vantage re-materializes per statement. Of the three smaller findings from the same
 run, **two are closed at v0.173.0** (the sub-shell prompt echo and the self-scan cover name) and
 one stays a §9 backlog entry, because it is a product decision rather than a bug.
-**D7 🚧 IN PROGRESS — slice 1 shipped v0.174.0 (#452), slice 2 next** — twelve locked
+**D7 🚧 IN PROGRESS — slices 1–2 shipped (v0.174.0 #452, v0.175.0 #453), slice 3 next** — twelve locked
 decisions and a seven-slice spine in "D7 — resolved scope & decisions"; per-slice status and
 as-built in `d7-redis.md`. It renames the epic's own row: the command is `rediscli`, and
 `redis-cli` is unusable because `node`'s sandbox makes every command name a JS parameter.
@@ -1531,12 +1531,18 @@ by a door, and D6 shipped a bug of exactly that family in slice 2.
   follows the SERVICE**, not the role, because a store is likeliest on a webserver whose `/etc` slot
   belongs to httpd. **`/var/lib` is composed once**: as two spreads the second replaces the first,
   and a box running both daemons would silently lose a datadir.
-- **Slice 2 — a player opens an unlocked store.** The walking skeleton and the 40% case:
-  `rediscli <host>` → `redis> ` → `KEYS *` / `GET` / `DBSIZE` / `QUIT`, with the arrival line
-  landing in the target's `/var/log/redis.log`. **Both type ghosts deleted here.**
+- **Slice 2 — a player opens an unlocked store.** ✔ **SHIPPED v0.175.0 (#453).**
+  `rediscli <host>` → `redis> ` → `KEYS` / `GET` / `DBSIZE` / `QUIT`, one arrival line on the
+  target, both type ghosts deleted along with the `state.ts` narrow that existed only to keep
+  one of them out. **The reach became `reachServiceHost`** — one parameter, not a second copy,
+  so slice 5's seeded-tree trap stays one gap to close. **`NOAUTH` shipped HERE rather than
+  with `AUTH`**, because reads answering a locked store with no credential would have left 60%
+  of the world's stores open for a slice; the accepted cost is that a locked store names a verb
+  slice 3 has not landed yet.
 - **Slice 3 — a player cracks a locked store.** `secretOn` lands; `hydra <host> redis` returns a
-  password with no login field; `NOAUTH` refuses everything before `AUTH`; an open store answers
-  *no password set (open access)*; attempt lines land in the target's log.
+  password with no login field; an open store answers *no password set (open access)*; attempt
+  lines land in the target's log. **`AUTH` and the `[password]` positional land here too** — the
+  wall went up in slice 2, so this slice owns the way past it rather than the wall.
 - **Slice 4 — a player changes a store.** `SET` and `DEL` land and append; `GET`/`KEYS`/`DBSIZE`
   never do. Open store: anyone writes. Locked store: only after `AUTH`.
 - **Slice 5 — a store on a deep layer answers.** The inner-gateway vantage, for the statement path
@@ -2176,9 +2182,12 @@ defects live in the one vantage no endpoint answers.
 locked decisions and a seven-slice spine in
 ["D7 — resolved scope & decisions"](#d7--resolved-scope--decisions-grill-me-2026-08-24).**
 **PLANNED 2026-08-24 in [`d7-redis.md`](d7-redis.md)**, where the per-slice status and as-built
-live. **Slice 1 shipped v0.174.0 (#452).** ➡️ **Next: slice 2 — a player opens an unlocked
-store**, the walking skeleton and the 40% case, and where both redis type ghosts are deleted. It is
-the first D7 slice to touch `api/`, so it needs a `scripts/test*.ts` wire-check before it counts.
+live. **Slices 1–2 shipped (v0.174.0 #452, v0.175.0 #453)** — a box runs a store, and a player can
+open an unlocked one. ➡️ **Next: slice 3 — a player cracks a locked store**, where `secretOn`
+lands, `hydra <host> redis` returns a password with no login field, and **`AUTH` finally opens the
+wall slice 2 put up**: a locked store currently names a verb that does not exist yet, which is the
+one thing in the shipped door a player could mistake for a defect. Wire-check required, as every
+D7 slice from 2 on is — `tsc` cannot see DB columns.
 
 Four things that grill settled which the row above could not have predicted:
 
