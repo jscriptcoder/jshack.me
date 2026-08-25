@@ -31,6 +31,14 @@ const DATADIR_FILE_SEGMENTS = [...DATADIR_SEGMENTS, 'data.json'] as const;
  *  change silently never happened. */
 export const DATADIR_PATH = asAbsPath(`/${DATADIR_FILE_SEGMENTS.join('/')}`);
 
+/** Who owns the file once somebody writes one back. The daemon runs as root and the
+ *  generator plants the file as root, so a store rewritten through the port has to
+ *  arrive the same way — a writer that named its own owner would be a second
+ *  declaration of one fact, and the day the two disagreed a written store would be a
+ *  store its own reader could no longer open. The permissions come from the shared
+ *  `DATADIR_FILE`, which both datadirs on a box already answer to. */
+export const DATADIR_OWNER = 'root';
+
 /**
  * The store a box serves, or null when it serves none.
  *

@@ -7,10 +7,12 @@ import { hostServices } from '../generation/remoteHostFs';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { DATADIR_PATH } from '../redis/datadir';
+import { DATADIR_FILE } from '../generation/baseFs';
 import { ALL_GENERATED_PASSWORDS } from '../generation/passwordPools';
 import { md5 } from '../generation/md5';
 import {
   formatRedisAttemptLine,
+  formatRedisMutationLine,
   REDIS_LOG_OWNER,
   REDIS_LOG_PATH,
   REDIS_LOG_PERMISSIONS,
@@ -270,16 +272,28 @@ describe('what a statement leaves behind', () => {
     const host = openStoreHostOn(ESSID);
     const { deps, upsertPatch } = makeDeps();
 
-    for (const statement of ['KEYS *', 'GET nothing:here', 'DBSIZE', 'wat']) {
+    const quiet = [
+      'KEYS *',
+      'GET nothing:here',
+      'DBSIZE',
+      'wat',
+      // The two that LOOK like writes and are not. A verb keyed on its own name rather
+      // than on what it did would file both, handing a defender an intruder to chase
+      // who changed nothing on the box.
+      'DEL nothing:here',
+      'SET missing-its-value',
+    ];
+
+    for (const statement of quiet) {
       await handleRedisStatement(
         await signedStatement(identity, { target_ip: host.ip, statement }),
         deps,
       );
     }
 
-    // The rule the write verbs will be measured against: mutations append, reads never.
-    // It has to be watched from before the first write exists, or the first write to
-    // break it looks like the rule was never there.
+    // The rule the write verbs are measured against: mutations append, reads never.
+    // It was watched from before the first write existed, which is what makes it a rule
+    // the writes had to fit rather than one they could quietly have broken.
     expect(upsertPatch).not.toHaveBeenCalled();
   });
 });
@@ -553,5 +567,216 @@ describe('producing a locked store secret', () => {
     // Learning to write for one verb must not have made reads noisy: against an open
     // store the arrival line is still the defender's only evidence of a theft.
     expect(upsertPatch).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * What a statement CHANGES, and what the box keeps about it.
+ *
+ * The door's first write with nothing behind it. An open store takes a `SET` from
+ * whoever reached it — no account named, no tier, no credential produced — so the two
+ * rows this handler writes are the entire consequence: the store as it now stands, and
+ * one line in a file the box's own accounts can read saying who did it.
+ *
+ * The rule the reads have been measured against since the door opened stays exactly
+ * where it was. It just stops being a fact about the handler and becomes a fact about
+ * the verbs: mutations append, reads never, and a write that turned out to write
+ * nothing is a read.
+ */
+describe('changing a store through the door', () => {
+  const rowsAt = (upsertPatch: ReturnType<typeof makeDeps>['upsertPatch'], path: string) =>
+    upsertPatch.mock.calls.map(([row]) => row).filter((row) => row.path === path);
+
+  it('persists the whole store, root-owned, under the target own writer key', async () => {
+    const identity = generateIdentity();
+    const host = openStoreHostOn(ESSID);
+    const { machineId } = resolveLanHostIdentity(host, ESSID);
+    const before = storeOn(host);
+    const { deps, upsertPatch } = makeDeps();
+
+    const response = await handleRedisStatement(
+      await signedStatement(identity, {
+        target_ip: host.ip,
+        // Unquoted, because a generated session value carries no spaces and every
+        // quote in it is its own. Quotes are for values that need a space, and a
+        // quoted run cannot itself contain one.
+        statement: 'SET sess:planted {"username":"intruder"}',
+      }),
+      deps,
+    );
+
+    expect(response).toEqual({ status: 200, body: { output: ['OK'], failed: false } });
+
+    const [written] = rowsAt(upsertPatch, DATADIR_PATH);
+    expect(written).toMatchObject({
+      machine_id: machineId,
+      path: DATADIR_PATH,
+      // The literal rather than the constant: `owner: DATADIR_OWNER` agrees with that
+      // constant whatever it comes to say, and root IS the claim here — a store written
+      // back under any other owner is one the daemon that serves it cannot read.
+      owner: 'root',
+      // Re-stated rather than inherited: a rewrite must not be able to widen the one
+      // file on the box that holds a hash a sweep has to work for.
+      permissions: DATADIR_FILE,
+      node_type: 'file',
+    });
+    expect(parseRedisStore(written?.content ?? '')).toEqual({
+      keys: { ...before.keys, 'sess:planted': '{"username":"intruder"}' },
+      requirepassHash: before.requirepassHash,
+    });
+  });
+
+  it('appends what was done to the box own log, beside the arrival lines', async () => {
+    const identity = generateIdentity();
+    const host = openStoreHostOn(ESSID);
+    const { machineId } = resolveLanHostIdentity(host, ESSID);
+    const { deps, upsertPatch } = makeDeps();
+
+    await handleRedisStatement(
+      await signedStatement(identity, { target_ip: host.ip, statement: 'SET greeting hello' }),
+      deps,
+    );
+
+    const [logged] = rowsAt(upsertPatch, REDIS_LOG_PATH);
+    expect(logged).toMatchObject({
+      // The box it happened ON, named explicitly: `patches` is keyed on
+      // (machine_id, path, writer_key), so a line filed against the wrong machine is a
+      // line the defender never finds and every assertion about its CONTENT still passes.
+      machine_id: machineId,
+      path: REDIS_LOG_PATH,
+      owner: REDIS_LOG_OWNER,
+      permissions: REDIS_LOG_PERMISSIONS,
+    });
+    expect(logged?.content).toContain(
+      formatRedisMutationLine({
+        detail: 'SET greeting "hello"',
+        fromIp: CLIENT_IP,
+        time: asGameTime(FIXED_NOW),
+        pid: derivePid(FIXED_NOW),
+      }),
+    );
+  });
+
+  it('accretes onto the log the box already held rather than replacing it', async () => {
+    const identity = generateIdentity();
+    const host = openStoreHostOn(ESSID);
+    const { deps, upsertPatch } = makeDeps({
+      readRedisLog: vi.fn(async () => ({
+        data: { content: 'a line the box already held' },
+        error: null,
+      })),
+    });
+
+    await handleRedisStatement(
+      await signedStatement(identity, { target_ip: host.ip, statement: 'SET greeting hello' }),
+      deps,
+    );
+
+    expect(rowsAt(upsertPatch, REDIS_LOG_PATH)[0]?.content).toContain(
+      'a line the box already held',
+    );
+  });
+
+  it('removes a key and records the removal, without recording a removal that missed', async () => {
+    const identity = generateIdentity();
+    const host = openStoreHostOn(ESSID);
+    const held = Object.keys(storeOn(host).keys)[0] ?? '';
+    const { deps: hitDeps, upsertPatch: hitPatch } = makeDeps();
+    const { deps: missDeps, upsertPatch: missPatch } = makeDeps();
+
+    const hit = await handleRedisStatement(
+      await signedStatement(identity, { target_ip: host.ip, statement: `DEL ${held}` }),
+      hitDeps,
+    );
+    const miss = await handleRedisStatement(
+      await signedStatement(identity, { target_ip: host.ip, statement: 'DEL sess:never-existed' }),
+      missDeps,
+    );
+
+    expect(hit.body).toEqual({ output: ['(integer) 1'], failed: false });
+    expect(rowsAt(hitPatch, DATADIR_PATH)).toHaveLength(1);
+    expect(rowsAt(hitPatch, REDIS_LOG_PATH)).toHaveLength(1);
+
+    // A key the store never held is a write verb that wrote nothing. Persisting an
+    // unchanged store and filing a line about a removal that did not happen would give
+    // a defender an intruder to chase who had changed nothing.
+    expect(miss.body).toEqual({ output: ['(integer) 0'], failed: false });
+    expect(missPatch).not.toHaveBeenCalled();
+  });
+
+  it('never reports OK for a change that could not be stored', async () => {
+    const identity = generateIdentity();
+    const host = openStoreHostOn(ESSID);
+    const { deps, upsertPatch } = makeDeps({
+      upsertPatch: vi.fn(async () => ({ error: { message: 'the row was rejected' } })),
+    });
+
+    const response = await handleRedisStatement(
+      await signedStatement(identity, { target_ip: host.ip, statement: 'SET greeting hello' }),
+      deps,
+    );
+
+    // The client turns any non-200 into `lost`, so the player is dropped rather than
+    // told their write landed. Telling somebody OK about a change that did not happen
+    // is the one answer this door must never give.
+    expect(response).toEqual({ status: 500, body: { error: 'datadir_write_failed' } });
+    // And no line claiming a change that was never stored.
+    expect(rowsAt(upsertPatch, REDIS_LOG_PATH)).toHaveLength(0);
+  });
+
+  it('refuses a write to a locked store, and takes it once the password rides along', async () => {
+    const identity = generateIdentity();
+    const host = lockedStoreHostOn(ESSID);
+    const secret = plaintextOf(storeOn(host).requirepassHash ?? '');
+    const { deps: shutDeps, upsertPatch: shutPatch } = makeDeps();
+    const { deps: openDeps, upsertPatch: openPatch } = makeDeps();
+
+    const refused = await handleRedisStatement(
+      await signedStatement(identity, { target_ip: host.ip, statement: 'SET greeting hello' }),
+      shutDeps,
+    );
+    const taken = await handleRedisStatement(
+      await signedStatement(identity, {
+        target_ip: host.ip,
+        statement: 'SET greeting hello',
+        password: secret,
+      }),
+      openDeps,
+    );
+
+    expect(refused.body).toEqual({
+      output: ['(error) NOAUTH Authentication required.'],
+      failed: true,
+    });
+    expect(shutPatch).not.toHaveBeenCalled();
+
+    expect(taken.body).toEqual({ output: ['OK'], failed: false });
+    expect(rowsAt(openPatch, DATADIR_PATH)).toHaveLength(1);
+  });
+
+  it('gives a box running the daemon with no store one on its first write', async () => {
+    const identity = generateIdentity();
+    const host = openStoreHostOn(ESSID);
+    const { machineId } = resolveLanHostIdentity(host, ESSID);
+    // Somebody removed the file with an editor. `systemctl start redis` on a box that
+    // never held anything is the same state, and both are honest: an empty store is a
+    // store, and the first write is what gives it a file again.
+    const { deps, upsertPatch } = makeDeps({
+      findPatches: vi.fn(async ({ machine_id }) => ({
+        data: machine_id === machineId ? [patchRow(DATADIR_PATH, null)] : [],
+        error: null,
+      })),
+    });
+
+    const response = await handleRedisStatement(
+      await signedStatement(identity, { target_ip: host.ip, statement: 'SET greeting hello' }),
+      deps,
+    );
+
+    expect(response.body).toEqual({ output: ['OK'], failed: false });
+    expect(parseRedisStore(rowsAt(upsertPatch, DATADIR_PATH)[0]?.content ?? '')).toEqual({
+      keys: { greeting: 'hello' },
+      requirepassHash: null,
+    });
   });
 });

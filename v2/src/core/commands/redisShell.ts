@@ -57,6 +57,12 @@ const HELP_ROWS: readonly (readonly [string, string])[] = [
   ['AUTH <password>', 'Unlock a store that holds a secret'],
   ['KEYS [pattern]', 'List keys, optionally matching a glob'],
   ['GET <key>', 'Read one value'],
+  // The quoting rule belongs on the row, because it is the half of this verb's syntax
+  // a player cannot guess: the store takes exactly one value, so a value that needs a
+  // space needs quotes around it. A row promising a bare multi-word value would read as
+  // true and be refused by the door.
+  ['SET <key> <value>', 'Write a value, quoted if it contains a space'],
+  ['DEL <key>', 'Remove one key'],
   ['DBSIZE', 'Count the keys held'],
   ['exit / quit', 'Leave redis mode'],
 ];

@@ -34,10 +34,12 @@ import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { reachServiceHost, type HandlerResponse, type ServiceHostLookup } from './serviceHost';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { storeIn } from '../redis/datadir';
+import { storeIn, DATADIR_OWNER, DATADIR_PATH } from '../redis/datadir';
+import { DATADIR_FILE } from '../generation/baseFs';
 import { runStatement } from '../redis/statements';
 import { redisStoreSchema } from '../redis/types';
 import { derivePid } from '../logging/syslog';
+import { formatRedisMutationLine } from '../logging/redisLog';
 import { appendMachineLog } from '../patches/appendMachineLog';
 import { asGameTime } from '../types';
 import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
@@ -83,40 +85,27 @@ const redisStatementSchema = z
  *  was asked. */
 const EMPTY_STORE = redisStoreSchema.parse({ keys: {}, requirepassHash: null });
 
-/** Land a judged password on the target's own redis.log. Best-effort, like every other
- *  door's trace: the answer stands regardless of a logging failure, because a password
- *  that really was judged must not be un-judged by a write that did not land.
+/** Land one line on the target's own redis.log. Best-effort, like every other door's
+ *  trace: the answer stands regardless of a logging failure, because a password that
+ *  really was judged, or a key that really was set, must not be undone by a write to a
+ *  different file that did not land.
  *
- *  It names no account, because the store has none — the secret belongs to the service.
- *  What the line can say is who tried and whether they got in, which is why the field
- *  the other doors fill with a username is empty here and read by nobody. */
-const recordAttempt = async (
+ *  No line here names an account, because the store has none: its secret belongs to the
+ *  service, and its keys belong to whoever reached the port. What a line can say is who
+ *  was there, and what they did. */
+const recordOnTarget = async (
   deps: RedisStatementDeps,
-  attempt: {
-    readonly outcome: 'success' | 'failure';
-    readonly writerKey: string;
-    readonly machineId: string;
-    readonly hostname: string;
-    readonly fromIp: string;
-  },
+  target: { readonly writerKey: string; readonly machineId: string },
+  line: string,
 ): Promise<void> => {
-  const stamp = deps.now();
   const { sweepLog } = SERVICE_CATALOG.redis;
-  const line = sweepLog.formatAttempt({
-    outcome: attempt.outcome,
-    user: '',
-    fromIp: attempt.fromIp,
-    hostname: attempt.hostname,
-    time: asGameTime(stamp),
-    pid: derivePid(stamp),
-  });
 
   try {
     await appendMachineLog(
       { readLog: deps.readRedisLog, upsertPatch: deps.upsertPatch },
       {
-        writerKey: attempt.writerKey,
-        machineId: attempt.machineId,
+        writerKey: target.writerKey,
+        machineId: target.machineId,
         path: sweepLog.path,
         owner: sweepLog.owner,
         permissions: sweepLog.permissions,
@@ -151,26 +140,69 @@ export const handleRedisStatement = async (
   });
   if (!reach.ok) return reach.refusal;
 
-  const { output, failed, attempt } = runStatement({
+  const { output, failed, attempt, store, logged } = runStatement({
     store: storeIn(reach.reached.hostFs) ?? EMPTY_STORE,
     line: payload.statement,
     ...(payload.password === undefined ? {} : { password: payload.password }),
   });
 
-  // Only a password actually weighed leaves a mark. The ROUTE decides the address it is
-  // written up as, exactly as the arrival line's is: through a forward the box has only
-  // ever seen the fronting gateway.
-  if (attempt !== undefined) {
-    const { hostname, machineId, sourceIp, writerKey } = reach.reached;
-    await recordAttempt(deps, {
-      outcome: attempt,
-      // The TARGET's key once the box has an owner: the system owns its logs, so every
-      // visitor's lines accrete into one row rather than a row each.
-      writerKey: writerKey ?? publicKey,
-      machineId,
-      hostname,
-      fromIp: sourceIp ?? payload.source_ip ?? 'unknown',
+  const { hostname, machineId, sourceIp, writerKey } = reach.reached;
+  // The TARGET's key once the box has an owner: the system owns its files, so every
+  // visitor's changes and lines accrete into one row rather than a row each. The owner's
+  // own edits land there too, which is what puts a defender's changes and an intruder's
+  // in the same file rather than in two that disagree.
+  const targetWriterKey = writerKey ?? publicKey;
+  // The ROUTE decides the address every line is written up as: through a forward the box
+  // has only ever seen the fronting gateway, so what the player is told and what the
+  // defender finds are one string.
+  const fromIp = sourceIp ?? payload.source_ip ?? 'unknown';
+  const stamp = deps.now();
+
+  // The store goes back whole, because that is what a store is here: one JSON file the
+  // daemon reads in full. Owner and permissions are re-stated rather than inherited, so a
+  // rewrite through the port cannot quietly widen the one file on the box that holds a
+  // hash a sweep has to work for.
+  //
+  // Persisted BEFORE anything is recorded about it: a line saying a key was set, filed
+  // beside a store that never took the change, would send a defender after an intruder
+  // who changed nothing — and would tell the player OK about the same nothing.
+  if (store !== undefined) {
+    const { error } = await deps.upsertPatch({
+      writer_key: targetWriterKey,
+      machine_id: machineId,
+      path: DATADIR_PATH,
+      content: JSON.stringify(store),
+      owner: DATADIR_OWNER,
+      permissions: DATADIR_FILE,
+      node_type: 'file',
     });
+    if (error) return { status: 500, body: { error: 'datadir_write_failed' } };
+  }
+
+  // Only a password actually weighed leaves a mark of its own.
+  if (attempt !== undefined) {
+    await recordOnTarget(
+      deps,
+      { writerKey: targetWriterKey, machineId },
+      SERVICE_CATALOG.redis.sweepLog.formatAttempt({
+        outcome: attempt,
+        user: '',
+        fromIp,
+        hostname,
+        time: asGameTime(stamp),
+        pid: derivePid(stamp),
+      }),
+    );
+  }
+
+  // And only a statement that actually changed something. The detail arrives already
+  // rendered by the verb table, which is the side that knows what a value may be.
+  if (logged !== undefined) {
+    await recordOnTarget(
+      deps,
+      { writerKey: targetWriterKey, machineId },
+      formatRedisMutationLine({ detail: logged, fromIp, time: asGameTime(stamp), pid: derivePid(stamp) }),
+    );
   }
 
   // The judgement itself does not cross. What the target recorded is the target's; the

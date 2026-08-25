@@ -29,6 +29,10 @@
 //     handler call.
 //   - Each judged `AUTH` appends ONE attempt line to the target's own redis.log, in the
 //     same row the arrival went to, and the reads behind it append nothing.
+//   - A `SET` from a caller carrying NO credential lands the whole store back at the
+//     datadir path with root-only permissions the real table accepted, a later
+//     statement reads the value back out of the box, and `DEL` removes it. Both
+//     changes are recorded on the target and the reads between them are not.
 //   - STILL no session row after an accepted `AUTH`. That is the moment a door would be
 //     tempted to mint one, and a row here would hand `listPatches` to anyone who
 //     guessed a store password.
@@ -339,6 +343,97 @@ const main = async (): Promise<void> => {
     'and STILL no session row, now that a password has actually been accepted',
     (await sessionRowCount()) === 0,
     `${await sessionRowCount()} row(s) for this key`,
+  );
+
+  // ─── the store, changed ───
+  const PLANTED_KEY = 'sess:planted-by-a-stranger';
+  const PLANTED_VALUE = '{"username":"intruder","role":"admin"}';
+
+  const wrote = await ask(openHost, `SET ${PLANTED_KEY} ${PLANTED_VALUE}`);
+  check(
+    'an open store takes a write from a caller carrying no credential at all',
+    JSON.stringify(wrote.body) === JSON.stringify({ output: ['OK'], failed: false }),
+    `body ${JSON.stringify(wrote.body).slice(0, 120)}`,
+  );
+
+  const afterWrite = await rowsOn(openMachine);
+  const datadirRow = afterWrite.find((row) => row.path === DATADIR_PATH);
+  const storedBack = redisStoreSchema.safeParse(JSON.parse(datadirRow?.content ?? 'null'));
+  check(
+    'the WHOLE store lands at the datadir path, root-owned and root-readable only',
+    datadirRow !== undefined &&
+      datadirRow.owner === 'root' &&
+      JSON.stringify(readersOf(datadirRow.permissions)) ===
+        JSON.stringify(DATADIR_FILE.read as readonly string[]),
+    `owner ${datadirRow?.owner ?? 'none'}, readers ${JSON.stringify(readersOf(datadirRow?.permissions))}`,
+  );
+  check(
+    'holding the new key beside every key the generator seeded, and the lock untouched',
+    storedBack.success &&
+      storedBack.data.keys[PLANTED_KEY] === PLANTED_VALUE &&
+      Object.keys(storedBack.data.keys).length === Object.keys(openStore?.keys ?? {}).length + 1 &&
+      storedBack.data.requirepassHash === (openStore?.requirepassHash ?? null),
+    `${Object.keys(storedBack.success ? storedBack.data.keys : {}).length} key(s) stored`,
+  );
+
+  // The claim a unit test cannot make: the row really is what the door reads back. This
+  // is the journal replayed over the seeded base on a SECOND request, not a client
+  // echoing what it just sent.
+  const readBack = await ask(openHost, `GET ${PLANTED_KEY}`);
+  check(
+    'and a later statement reads the value back out of the box, not out of the client',
+    JSON.stringify(readBack.body) ===
+      JSON.stringify({ output: [`"${PLANTED_VALUE}"`], failed: false }),
+    `body ${JSON.stringify(readBack.body).slice(0, 160)}`,
+  );
+
+  const removed = await ask(openHost, `DEL ${PLANTED_KEY}`);
+  const missed = await ask(openHost, `DEL ${PLANTED_KEY}`);
+  check(
+    'a removal says how many it removed, and a second one says none',
+    JSON.stringify(removed.body) === JSON.stringify({ output: ['(integer) 1'], failed: false }) &&
+      JSON.stringify(missed.body) === JSON.stringify({ output: ['(integer) 0'], failed: false }),
+    `removed ${JSON.stringify(removed.body)}, again ${JSON.stringify(missed.body)}`,
+  );
+
+  const afterChanges = await rowsOn(openMachine);
+  const changeLog = afterChanges.find((row) => row.path === REDIS_LOG_PATH);
+  const changeLines = (changeLog?.content ?? '').trim().split('\n');
+  const mutationLines = changeLines.filter((line) => / SET | DEL /.test(line));
+  check(
+    'both changes are recorded on the TARGET, beside the arrival lines and after them',
+    mutationLines.length === 2 &&
+      mutationLines[0]?.includes(`Client ${CLIENT_IP} SET ${PLANTED_KEY} "${PLANTED_VALUE}"`) ===
+        true &&
+      mutationLines[1]?.includes(`Client ${CLIENT_IP} DEL ${PLANTED_KEY}`) === true,
+    `${changeLines.length} line(s), of which ${mutationLines.length} name a change`,
+  );
+  check(
+    'and the removal that found nothing left no line claiming one did',
+    changeLines.filter((line) => line.includes(` DEL ${PLANTED_KEY}`)).length === 1,
+    `${changeLines.filter((line) => line.includes(' DEL ')).length} removal line(s) for two DELs`,
+  );
+  check(
+    'the reads between them added nothing, so the box holds two rows and no more',
+    afterChanges.length === 2,
+    `${afterChanges.length} row(s): ${JSON.stringify(afterChanges.map((row) => row.path))}`,
+  );
+  check(
+    'and STILL no session row, now that a stranger has rewritten the box',
+    (await sessionRowCount()) === 0,
+    `${await sessionRowCount()} row(s) for this key`,
+  );
+
+  const shutWrite = await ask(lockedHost, 'SET greeting hello');
+  const shutRows = (await rowsOn(lockedMachine)).filter((row) => row.path === DATADIR_PATH);
+  check(
+    'a LOCKED store refuses the same write, and stores nothing at all',
+    JSON.stringify(shutWrite.body) ===
+      JSON.stringify({
+        output: ['(error) NOAUTH Authentication required.'],
+        failed: true,
+      }) && shutRows.length === 0,
+    `body ${JSON.stringify(shutWrite.body).slice(0, 120)}, ${shutRows.length} datadir row(s)`,
   );
 
   // ─── the journal is really replayed ───

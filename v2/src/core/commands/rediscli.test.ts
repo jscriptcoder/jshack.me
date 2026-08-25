@@ -330,6 +330,10 @@ describe('the command in the world', () => {
     // And it names the verb that opens a locked store, because the password argument is
     // only half the answer: a player who did not have it at connect time needs the other.
     expect(rediscli.manual?.description).toContain('AUTH <password>');
+    // And the two verbs that change a store, because a player who reached a prompt
+    // they can write to has no other place to learn that they can.
+    expect(rediscli.manual?.description).toContain('SET');
+    expect(rediscli.manual?.description).toContain('DEL');
   });
 
   it('is reachable from the box the player is standing on and nowhere else', () => {
