@@ -1,10 +1,17 @@
 /**
- * Reaching a box that serves a database, before anything is asked of it.
+ * Reaching a box that serves a named daemon, before anything is asked of it.
  *
- * Both database doors — the login and every statement behind it — have to establish
- * the same four things first: that the address names a real host on the caller's own
- * LAN, that the box boots, that mysqld is actually listening, and what the box's
- * filesystem currently IS. Only then is there something to authenticate against.
+ * Every door that answers with the box's own DATA — the database login and every
+ * statement behind it, the key-value connection and every statement behind that — has
+ * to establish the same four things first: that the address names a real host on the
+ * caller's own LAN, that the box boots, that the daemon is actually listening, and
+ * what the box's filesystem currently IS. Only then is there something to answer with.
+ *
+ * Which daemon is the only thing that differs, so it is a PARAMETER rather than a
+ * second copy of this file. Four vantages, a boot gate, a journal replay and a pidfile
+ * check are the same work in the same order whichever door asked — and the seeded-tree
+ * gap named at the bottom of this comment is one gap to close rather than one per
+ * door.
  *
  * They share it rather than each doing it because the answers have to agree. A login
  * that consulted the pidfiles and a statement that did not would leave a prompt
@@ -63,7 +70,6 @@ import { resolveInnerGatewayTarget } from '../network/resolveInnerGatewayTarget'
 import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs';
 import { canBoot } from '../boot/bootFiles';
 import { readOpenPorts } from '../services/pidfile';
-import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import type { Directory } from '../filesystem/types';
 
 export type HandlerResponse = {
@@ -74,16 +80,16 @@ export type HandlerResponse = {
 /** Everything reaching a host reads, and nothing that writes. Named as its own
  *  contract so a caller cannot hand this function a way to change the box it is only
  *  supposed to find — and built from the PUBLIC resolver's own dep set rather than a
- *  restatement of it, so the database door and `ssh` can never come to disagree about
+ *  restatement of it, so a data door and `ssh` can never come to disagree about
  *  what resolving a public address takes. */
-export type MysqlHostLookup = ResolvePublicTargetDeps & {
+export type ServiceHostLookup = ResolvePublicTargetDeps & {
   /** The attacker's own network, for the address a cross-player line records. Their
    *  VERIFIED key resolves it; a defender's log is evidence, so nothing a client sends
    *  can reach it. */
   readonly findHomeNetworkByOwnerKey: FindHomeNetworkByOwnerKey;
 };
 
-export type ReachedMysqlHost = {
+export type ReachedServiceHost = {
   /** The box's own name, which through a forward only the server can know: a deep
    *  address is absent from the generated LAN, so the client cannot look it up. */
   readonly hostname: string;
@@ -105,8 +111,8 @@ export type ReachedMysqlHost = {
   readonly writerKey: string | null;
 };
 
-export type MysqlHostReach =
-  | { readonly ok: true; readonly reached: ReachedMysqlHost }
+export type ServiceHostReach =
+  | { readonly ok: true; readonly reached: ReachedServiceHost }
   | { readonly ok: false; readonly refusal: HandlerResponse };
 
 const UNREACHABLE: HandlerResponse = { status: 404, body: { error: 'host_unreachable' } };
@@ -119,10 +125,11 @@ const UNREACHABLE: HandlerResponse = { status: 404, body: { error: 'host_unreach
  *  through at all — only the server can know whose box is behind a stranger's forward,
  *  so it arrives already rebuilt. */
 const openJournaledBox = async (
-  deps: MysqlHostLookup,
+  deps: ServiceHostLookup,
   box: {
     readonly hostname: string;
     readonly machineId: string;
+    readonly service: string;
     /** The rows made into a filesystem: over a seeded base for a generated box, over
      *  the owner's own identity for a player's. */
     readonly rebuild: (patches: readonly OwnerPatchRow[] | null) => Directory;
@@ -130,14 +137,15 @@ const openJournaledBox = async (
     readonly sourceIp: string | null;
     readonly writerKey: string | null;
   },
-): Promise<MysqlHostReach> => {
+): Promise<ServiceHostReach> => {
   const patches = await deps.findPatches({ machine_id: box.machineId });
   if (patches.error) {
     return { ok: false, refusal: { status: 500, body: { error: 'patches_lookup_failed' } } };
   }
-  return openDatabaseOn({
+  return openServiceOn({
     hostname: box.hostname,
     machineId: box.machineId,
+    service: box.service,
     hostFs: box.rebuild(patches.data),
     reachedPort: box.reachedPort,
     sourceIp: box.sourceIp,
@@ -173,7 +181,7 @@ type SameLanLookup =
  *  generated world would route a player's statements onto a seeded box standing where
  *  a real player is, and write their data to it. */
 const resolveSameLanOccupant = async (
-  deps: MysqlHostLookup,
+  deps: ServiceHostLookup,
   target: {
     readonly essid: string;
     readonly targetIp: string;
@@ -204,25 +212,30 @@ const resolveSameLanOccupant = async (
 };
 
 /** Everything after "which box is it, and what is it right now": refuse it if it is
- *  dark, and refuse it unless mysqld is the daemon on the port this request REACHED.
- *  Shared by every vantage so none can drift on the order or the refusals. */
-const openDatabaseOn = (box: {
+ *  dark, and refuse it unless the daemon asked for is the one on the port this request
+ *  REACHED. Shared by every vantage so none can drift on the order or the refusals. */
+const openServiceOn = (box: {
   readonly hostname: string;
   readonly machineId: string;
+  /** Which daemon has to be the one holding the reached port. The ONE thing that
+   *  differs between the doors that share this reach: everything above it — the four
+   *  vantages, the boot gate, the journal replay — is the same work in the same order
+   *  whether the caller is a database login or a key-value statement. */
+  readonly service: string;
   readonly hostFs: Directory;
   readonly reachedPort: number;
   readonly sourceIp: string | null;
   readonly writerKey: string | null;
-}): MysqlHostReach => {
+}): ServiceHostReach => {
   // A bricked box is dark before anything is asked of it, so a dead machine cannot
-  // be probed for which database accounts it used to have.
+  // be probed for what it used to hold.
   if (!canBoot(box.hostFs).ok) return { ok: false, refusal: UNREACHABLE };
 
   // The pidfiles are the truth about what is listening — the same source `nmap`
-  // reads. It must be mysqld ON THE PORT REACHED: a forward to sshd is not a door to
-  // the database, and neither is a LAN box's own ssh port.
+  // reads. It must be THE NAMED DAEMON ON THE PORT REACHED: a forward to sshd is not a
+  // door to the data behind it, and neither is a LAN box's own ssh port.
   const listening = readOpenPorts(box.hostFs).some(
-    (open) => open.port === box.reachedPort && open.service === SERVICE_CATALOG.mysql.service,
+    (open) => open.port === box.reachedPort && open.service === box.service,
   );
   if (!listening) {
     return { ok: false, refusal: { status: 404, body: { error: 'service_not_running' } } };
@@ -240,11 +253,14 @@ const openDatabaseOn = (box: {
   };
 };
 
-export const reachMysqlHost = async (
-  deps: MysqlHostLookup,
+export const reachServiceHost = async (
+  deps: ServiceHostLookup,
   target: {
     readonly essid: string;
     readonly targetIp: string;
+    /** The daemon the caller is reaching for, as the pidfiles name it. Passed rather
+     *  than assumed so a forward to sshd is never a door to somebody else's service. */
+    readonly service: string;
     /** The port the request is addressed to. On an inner gateway a port other than its
      *  own sshd addresses the layer BEHIND it, which is the whole of how a hidden box
      *  is named at all — and on a public address it is the ONLY thing that names a box,
@@ -254,7 +270,7 @@ export const reachMysqlHost = async (
      *  line records for them, which is why it is a key rather than an address. */
     readonly actorKey: string;
   },
-): Promise<MysqlHostReach> => {
+): Promise<ServiceHostReach> => {
   // A public address belongs to somebody else's access point, so the whole resolution
   // — which network, whose box behind which forward, is that box up and serving — is
   // the server's. It is the SAME resolver `ssh` and `hydra` authenticate through, so a
@@ -267,9 +283,10 @@ export const reachMysqlHost = async (
     if (!resolved.ok) {
       return { ok: false, refusal: { status: resolved.status, body: { error: resolved.error } } };
     }
-    return openDatabaseOn({
+    return openServiceOn({
       hostname: resolved.target.hostname,
       machineId: resolved.target.machineId,
+      service: target.service,
       // Already rebuilt from the owner's identity plus their journal — the one vantage
       // that arrives materialized, because only the server can know whose box it is.
       hostFs: resolved.target.fs,
@@ -294,6 +311,7 @@ export const reachMysqlHost = async (
     return openJournaledBox(deps, {
       hostname: occupant.workstation_machine_name,
       machineId: occupant.workstation_machine_id,
+      service: target.service,
       rebuild: (patches) => materializeWorkstationFs(occupant, patches),
       reachedPort: target.port,
       // Nothing rewrote the source on the way in: the box really did see the caller's
@@ -317,6 +335,7 @@ export const reachMysqlHost = async (
     return openJournaledBox(deps, {
       hostname: resolved.target.hostname,
       machineId: resolved.target.machineId,
+      service: target.service,
       rebuild: (patches) => materializeMachineFs(resolved.target.fs, patches),
       reachedPort: resolved.target.reachedPort,
       sourceIp: resolved.target.sourceIp,
@@ -337,6 +356,7 @@ export const reachMysqlHost = async (
   return openJournaledBox(deps, {
     hostname: host.hostname,
     machineId,
+    service: target.service,
     rebuild: (patches) => materializeMachineFs(baseFs, patches),
     reachedPort: target.port,
     // Never invented here. On the caller's own LAN the address the box saw is the
