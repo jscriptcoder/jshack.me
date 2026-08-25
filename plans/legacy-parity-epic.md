@@ -1561,8 +1561,18 @@ by a door, and D6 shipped a bug of exactly that family in slice 2.
   session from a deleted one is worth the difference. **The persist is keyed on the store having
   CHANGED, not on the verb**: a `DEL` that matched nothing files nothing, because nothing
   happened.
-- **Slice 5 — a store on a deep layer answers.** The inner-gateway vantage, for the statement path
-  and for hydra — and into the seeded-tree resolver trap named above.
+- **Slice 5 — a store on a deep layer answers.** The inner-gateway vantage, for the statement
+  path and for hydra. **PLANNED 2026-08-25, and the trap named above turned out to be half
+  inherited already**: slice 2's `reachServiceHost` carries D6's workaround, so the statement
+  path is expected to be already correct and wholly untested, and what is actually missing is a
+  way to NAME a deep target — `rediscli` has no `-p` where `mysql` and `hydra` both do.
+- **Slice 5b — a deep box's own journal is finally read.** Split out of slice 5 rather than
+  carried by it. The chain resolver boot-gates and replays every GATEWAY hop but hands the
+  terminal box back seeded, so an account a player added there cannot log in, a box bricked
+  through its own journal still answers, and a sweep reports what the door then refuses. Redis
+  is the first door where the sweep and the door read the SAME file, which turns that last one
+  from latent into reachable. Closes the §9 entry for `ssh`, `hydra` and both data doors at
+  once, and takes the compensating replay back out of `reachServiceHost`.
 - **Slice 6 — a player runs their own store.** `apt install redis` → `systemctl start redis` → the
   mirrored `requirepass` hash. The own-box vantage answers on the CLIENT, so it composes against the
   machine (`env.fs.reload()`) per the v0.172.0 invariant, not against this client's copy of it.

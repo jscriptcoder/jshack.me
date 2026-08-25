@@ -35,7 +35,7 @@ locked, rewrite, and be caught rewriting.
 
 ## Slices
 
-**Slice 1 is the only slice that can be proven without bringing the stack up.** Slices 2–5 and 7
+**Slice 1 is the only slice that can be proven without bringing the stack up.** Slices 2–5b and 7
 touch `api/` and each needs a `scripts/test*.ts` wire-check against `vercel dev` + supabase before
 it counts — `tsc` cannot see DB columns or constraints.
 
@@ -846,12 +846,195 @@ commit.
 
 ### Slice 5: A store on a deep layer answers
 
-**Value**: The inner-gateway vantage, for statements and for hydra.
-**Acceptance criteria**: both paths answer from behind a gateway with the terminal box's **live**
-tree, not its seeded one. **Walks into the resolver trap D6 slice 5 recorded** — the chain resolver
-hands back the terminal box's SEEDED tree, survivable for a door authenticating against seeded
-accounts and fatal for one answering with DATA. Decide here whether to close it for every door at
-once or repeat `reachMysqlHost`'s local workaround. **Class**: Behavior change. Wire-check required.
+**Value**: The hidden layer's stores become reachable. A player who rooted an inner gateway and read
+its forward table can point `rediscli` at a box whose address no scan on the LAN will ever show, and
+`hydra` can sweep it — the same two tools, one hop further in.
+**Path**: `rediscli -p <fwd> <inner gateway>` → `redisConnect` → `reachServiceHost`'s deep branch →
+`resolveInnerGatewayTarget` down the forward chain → the terminal box's tree with its journal
+replayed on top → statements, and the lines they append, landing on the DEEP box at the address the
+route shows it. `hydra -p <fwd> <inner gateway> redis` → `handleHydraCrackInnerGateway` → the same
+walk, so a password one reports is one the other accepts.
+**Class**: Behavior change.
+**Delivery**: Independent PR against trunk.
+**Required implementation skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
+`reduce-system-complexity` — `N/A`: this slice adds a flag and covers a path, and retires nothing.
+**Reduction program**: `N/A`. **Transition/terminal evidence**: `N/A`.
+
+**Grounding that reshaped this slice before any criteria — the plan's own question is moot:**
+
+- **"Repeat `reachMysqlHost`'s local workaround" is already done, and not by this slice.** Slice 2
+  turned that helper into `reachServiceHost`, and both redis handlers route through it. Its deep
+  branch already replays the terminal box's journal on top of what the resolver returned
+  (`serviceHost.ts:327`). So the STATEMENT path behind a forward is most likely already correct —
+  and completely untested: neither `redisConnect.test.ts` nor `redisStatement.test.ts` contains a
+  deep, gateway or forward case, and there is no `testRedisDeep.ts`. **That is D6 slice 5's shape
+  again**, which found two of its criteria already true.
+- **`hydra` is already service-generic on this path too.** `handleHydraCrackInnerGateway` reads
+  `spec.secretOn?.(target.fs)` and refuses `no_password_set`, so slice 3's widening reached it for
+  free, and the client's deep branch passes the service name straight through. Expect this half to
+  be proven by MUTATING PRODUCTION rather than by a fabricated RED, the way D6 slice 7 proved its
+  public vantage.
+- **What is genuinely missing is the ability to NAME a deep target.** A deep box is addressed as
+  gateway IP plus forwarded port, and `rediscli <host> [password]` has no port.
+  `mysql [-p port] <host> [user]` and `hydra [-p port] <host> [service] [user]` both do. **The port
+  already crosses the wire** — `rediscli.ts` sends `port: PORT` hardcoded — so this is a gap in the
+  client, not in the protocol. `-p` rather than `host:port`: one spelling per thing, and two doors
+  already spell it.
+- **The client would refuse a deep address before sending anything.** `preflightRefusal` resolves
+  against `generateHomeLan`, and a deep box is absent from it by design. It gains mysql's exact
+  two-vantage bypass — a public address, and a port that forwards into the deep layer, are the
+  server's to answer.
+
+**Deliberately NOT this slice's, and slice 5b's instead**: `hydra`'s deep sweep reads the SEEDED
+tree while the door reads the materialized one, so a stopped deep daemon is still swept and an
+edited `requirepassHash` is reported wrong. **That gap is already shipped** for `ssh`, `hydra` and
+mysql — this slice inherits it rather than introducing it, and 5b closes it for every door at once.
+
+**Acceptance criteria** (present to human before any code):
+
+1. `rediscli -p <fwd> <inner gateway IP>` reaches `redis> ` on the box behind that forward, and the
+   greeting names the DEEP box's hostname. That name is absent from the generated LAN, which is
+   exactly what proves the client did not resolve the target locally.
+2. `rediscli <inner gateway IP>` with no `-p` still reaches the gateway's OWN store when it runs
+   one, and a `-p` naming a port nothing forwards answers
+   `Could not connect to Redis at <host>:<port>: Connection refused`.
+3. A bare `-p`, a non-numeric `-p` and `-p 0` each answer
+   `usage: rediscli [-p port] <host> [password]` and send nothing. mysql's rule, one spelling —
+   a flag that named no port is not a flag that named the default.
+4. `KEYS *` and `GET` behind the forward answer from the deep box's **live** tree: a value written
+   by an earlier `SET` through the same forward reads back in a SEPARATE round-trip, and a key
+   deleted through it is gone. This is the criterion the seeded tree would fail.
+5. Every write lands on the DEEP box's machine id. The gateway carried the packet and ran nothing,
+   so a datadir row filed against the gateway is a change no store is ever read from.
+6. The arrival and mutation lines land in the DEEP box's own `/var/log/redis.log`, and the address
+   they carry is the ROUTE's — the fronting gateway's `.1`, because NAT is all a deep box is ever
+   shown, whoever is behind it. **The gateway records nothing at all**: NAT does not log, and an
+   absence is a claim only a real table can settle.
+7. A locked deep store refuses every statement with `NOAUTH Authentication required.` until `AUTH`,
+   and both attempt outcomes land in the deep box's own log rather than the gateway's.
+8. `hydra -p <fwd> <inner gateway IP> redis` prints the deep store's password with **no login
+   field**, and that password is the one `AUTH` then accepts **through the same forward** — the
+   construction rule this path already states out loud for `ssh`.
+9. An OPEN deep store answers *no password set (open access)* rather than an empty sweep, exactly as
+   it does on the caller's own LAN.
+10. A box bricked anywhere on the chain — including the terminal box itself — is dark before any
+    statement is answered, and `systemctl stop redis` on the deep box drops a connected player on
+    their next statement. Both hold for the DOOR, which reads the materialized tree; hydra's
+    disagreement with it is 5b's.
+11. `man rediscli` names `-p` and says what it addresses: a port on an inner gateway, which is the
+    only kind of host where the flag has anything to name. `help` at `redis> ` is UNCHANGED — the
+    flag is the client's and never a statement.
+12. Nothing about the own-box and own-LAN vantages changes: a `-p` against the player's own box
+    still consults the real pidfiles in front of it, and an ordinary `rediscli <lan host>` still
+    pre-flights against the generated world.
+13. `sessions` holds ZERO rows at any depth, and the wire-check `scripts/testRedisDeep.ts` — new,
+    modelled on `testMysqlDeep.ts` — runs green live.
+
+**RED** — behavior tests, before any production change:
+
+- `commands/rediscli.test.ts` — `-p` parsed and spent; the three refusals; a deep address and a
+  public one both bypassing the preflight rather than being refused locally; the greeting naming
+  what ANSWERED; the manual naming the flag.
+- `sessions/redisConnect.test.ts` — the deep vantage: the forward resolved, the deep box's own
+  hostname returned, the route's address recorded, a bricked chain and a stopped daemon refused.
+- `sessions/redisStatement.test.ts` — statements answering off the MATERIALIZED deep tree; a write
+  landing on the deep box's machine id; the mutation line in the deep box's log carrying the
+  gateway's `.1`; the gateway holding no rows of any kind.
+- `sessions/hydraCrackInnerGateway.test.ts` — `redis` swept behind a forward: a password with no
+  login field, and `no_password_set` on an open deep store.
+
+**GREEN**: `-p` parsing, `flags: { '-p': 'string' }`, the two-vantage preflight bypass, and a
+port-taking `storeListening` in `commands/rediscli.ts`; the manual's flag row. **The server side is
+expected to be already correct** — whatever turns out not to be gets fixed RED-first like anything
+else, and whatever IS gets a test that stands on it.
+
+**MUTATE**: Stryker over `commands/rediscli.ts`, plus `sessions/redisConnect.ts` and
+`redisStatement.ts` if either changes. Scoped-runner recipe from `conventions-and-gotchas.md` §4,
+and the three mis-scoring families it records. **For the halves that turn out already true, mutate
+production BY HAND** to prove the new tests actually stand on them — a test written against working
+code is the easiest kind to write vacuously, and slice 4 shipped one.
+**KILL MUTANTS**: Address survivors; ask when a survivor's value is ambiguous.
+**REFACTOR**: One candidate, to be assessed only if it earns it. `rediscli`'s `preflightRefusal` and
+`mysql`'s are now the same four-branch shape with different refusal strings. The expectation is to
+leave them: the strings ARE the doors, and this epic has twice declined to collapse a repo-wide
+family from inside one slice.
+**Wire-check**: new `scripts/testRedisDeep.ts`, modelled on `testMysqlDeep.ts`. What only a live
+stack can prove: that the redis actions route through a forward AT ALL — unit tests call the
+handlers directly, so a chain resolver wired only into `ssh` stays green there; that a value written
+through the forward is read back by a LATER request rather than echoed from a client's copy; that
+every row lands on the deep box's id and none on the gateway's; and that `sessions` stays empty.
+**Version**: bump `0.177.0` → `0.178.0` in `v2/package.json` + `v2/package-lock.json`.
+**Done when**: criteria 1–13 met, wire-check green, mutation report presented, human approves the
+commit.
+
+### Slice 5b: A deep box's own journal is finally read
+
+**Value**: One resolver gap, three doors. The box at the end of a forward chain is the one hop whose
+journal nothing reads — so an account a player added to a deep box cannot log in, a deep box bricked
+through its own journal still answers, and a sweep reports what the door will then refuse. Closing
+it in `resolveInnerGatewayTarget` fixes all three at once and lets the data doors stop compensating.
+**Path**: `resolveInnerGatewayTarget` replays the terminal box's journal and boot-gates it, exactly
+as it already does at every gateway hop → `ssh`, `hydra` and both data doors inherit it →
+`reachServiceHost`'s deep branch stops replaying a journal that has already arrived.
+**Class**: Behavior change.
+**Delivery**: Independent PR against trunk, **started after slice 5 merges** — criteria 3 and 4 are
+stated in redis's terms and slice 5 is what makes them sayable. Not a stack member: nothing here is
+built on slice 5's branch, and the two could not sensibly be reviewed as one.
+**Required implementation skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
+`reduce-system-complexity` — `N/A`. Mechanism does come out (the compensating replay and its second
+journal read), but as a CONSEQUENCE of a behavior fix rather than as a conserved-behavior reduction:
+there is no program, no bridge and no ledger, and the removal is the REFACTOR step of a RED-first
+slice. Recorded here so the `N/A` is a decision rather than an omission.
+
+**Why this is D7's to carry at all**: the §9 backlog entry says the resolver fix "closes it for
+every door at once and is the better end state, but it CHANGES two shipped doors, so it needs
+`testInnerGatewayReach.ts` re-run live in the same slice". D6 declined it under a workaround; D7
+is the third door to inherit that workaround, and redis is the first where the two sides read the
+SAME file — which turns a latent disagreement into one a player can produce.
+
+**Acceptance criteria** (present to human before any code):
+
+1. An account a player added to a deep box's `/etc/passwd` — having rooted it over ssh and run
+   `nano` — can `ssh` in through the forward. Today it cannot, and that is the defect a player
+   reaches first.
+2. A deep box bricked through its own journal is dark to `ssh` and to `hydra`, not only to the data
+   doors: every hop on the chain is boot-gated, the last one included.
+3. `systemctl stop redis` on a deep box makes `hydra -p <fwd> <inner> redis` answer
+   `service_not_running`. The sweep and the door agree about what is listening — the rule this path
+   already states out loud for `ssh`.
+4. A `requirepassHash` edited on a deep box is the one `hydra` reports AND the one `AUTH` then
+   accepts. Two sides of one rule; redis is the door where both sides read the same file.
+5. `reachServiceHost`'s deep branch no longer replays the journal a second time: ONE journal read
+   per reach, and the deep vantage arrives materialized exactly as the public one already does.
+   Every slice-5 criterion still holds, unchanged and re-run.
+6. Every shipped deep-layer behavior is unchanged, proven live rather than by unit suite:
+   `testInnerGatewayReach.ts` — the §9 entry's own stated condition for this fix — plus
+   `testDeepChainReach.ts`, `testMysqlDeep.ts` and `testRedisDeep.ts`.
+7. The §9 backlog entry is DELETED rather than amended, because it is closed. The `serviceHost.ts`
+   header comment that ends "the gap itself is the resolver's to close for every door at once" goes
+   with it — a comment describing a gap that no longer exists is worse than no comment.
+
+**RED** — behavior tests, before any production change:
+
+- `network/resolveInnerGatewayTarget.test.ts` — the terminal box's journal replayed into what it
+  hands back, and its own brick honoured, at the end of a one-hop chain and a multi-hop one.
+- `sessions/authCreateSessionInnerGateway.test.ts` — the added account logging in; a seeded account
+  removed from a deep box's `/etc/passwd` no longer logging in.
+- `sessions/hydraCrackInnerGateway.test.ts` — the stopped deep daemon refused, and the edited secret
+  reported as it now stands.
+
+**GREEN**: the replay and the boot gate in `resolveInnerGatewayTarget`; the compensation removed
+from `reachServiceHost`'s deep branch.
+**MUTATE**: Stryker over `network/resolveInnerGatewayTarget.ts` and `sessions/serviceHost.ts`.
+**KILL MUTANTS**: Address survivors; ask when a survivor's value is ambiguous.
+**REFACTOR**: The removal itself, assessed once the behavior tests are green — it is a refactor
+consequence, not the slice's justification.
+**Wire-check**: the four scripts in criterion 6, live. **This is the slice where a green unit suite
+proves least**: the resolver is precisely the seam `tsc` and stubbed deps both see straight through,
+and it is why the backlog entry named a live re-run as the condition rather than a suggestion.
+**Version**: bump `0.178.0` → `0.179.0` in `v2/package.json` + `v2/package-lock.json`.
+**Done when**: criteria 1–7 met, all four wire-checks green live, mutation report presented, human
+approves the commit.
 
 ### Slice 6: A player runs their own store
 
