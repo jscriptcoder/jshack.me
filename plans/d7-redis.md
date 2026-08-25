@@ -1,8 +1,8 @@
 # Plan: D7 — a player reads (and rewrites) a machine's key-value store (`rediscli`)
 
 **Branch**: `docs/plan-d7-redis` (this plan) → `feat/d7-*` per slice
-**Status**: Active — **slices 1–2 SHIPPED (v0.174.0 #452, v0.175.0 #453)**; slice 3 is next
-and unplanned
+**Status**: Active — **slices 1–2 SHIPPED (v0.174.0 #452, v0.175.0 #453)**; **slice 3 PLANNED,
+awaiting approval of its 13 criteria** on `feat/d7-redis-crack-store`
 
 > Decisions are LOCKED in [`legacy-parity-epic.md`](legacy-parity-epic.md) §"D7 — resolved scope &
 > decisions (grill-me, 2026-08-24)". This file sequences them; it does not re-open them. Where
@@ -423,23 +423,176 @@ commit.
 
 ### Slice 3: A player cracks a locked store
 
-**Value**: The 6-in-10 that are shut become openable, by the tool that opens every other door —
-and the wall slice 2 put in front of them gains its way through.
-**Path**: `hydra <host> redis` → the sweep handler → the target's `requirepassHash` → attempt lines
-in the target's log.
-**Class**: Behavior change. **Skills**: as slice 2.
-**Acceptance criteria**: `ServiceSpec` gains optional `secretOn` and `accountsOn` becomes optional,
-with **no existing row changing shape**; the sweep line omits the login field entirely
-(`[6379][redis] host: …   password: …`); an open store answers *no password set (open access)*; a
-host with no redis answers `service_not_running`; `AUTH <password>` opens a locked store's prompt
-and a wrong one answers `(error) ERR invalid password`; `AUTH` against an OPEN store answers
-`(error) ERR Client sent AUTH, but no password is set`; the `[password]` positional joins
-`rediscli` and pre-sends that same `AUTH`; attempt lines append to the target's log.
+**Value**: The 6-in-10 that are shut become openable, by the tool that opens every other door — and
+the wall slice 2 put in front of them gains its way through. A player who reached `redis> ` and was
+told `NOAUTH Authentication required.` can now go and get the password, and spend it.
+**Path**: `hydra <host> redis` → the sweep handler → the target's `requirepassHash` → a password with
+no login → `rediscli <host> [password]`, or `AUTH <password>` at the prompt → one `redisStatement`
+round-trip per line, now carrying it → attempt lines in the target's `/var/log/redis.log`.
+**Class**: Behavior change.
+**Required implementation skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
+`reduce-system-complexity` — `N/A`: this slice adds a verb and a column and retires nothing, so
+there is no net-reduction claim to make.
+**Reduction program**: `N/A`. **Transition/terminal evidence**: `N/A`.
+
 **Already shipped by slice 2, not re-litigated here**: the `NOAUTH Authentication required.` refusal
 itself. It landed with the statement door because leaving locked stores readable for the life of a
 slice was the vacuous-authorization bug D6 shipped in its own slice 2. Slice 3 owns the way PAST it,
 not the wall.
-**RED**: Handler tests plus a `scripts/testRedisSweep.ts` wire-check.
+
+**Acceptance criteria** (present to human before any code):
+
+1. `hydra <host> redis` against a locked store whose password is in the caller's wordlist prints
+   `[6379][redis] host: <ip>   password: <password>` — with **no `login:` field at all** — and
+   `1 valid password(s) found`. The password it prints is the one `AUTH` then accepts.
+2. A locked store whose password was drawn from the uncrackable pool answers
+   `0 valid passwords found — nothing in your wordlist matched`. Membership in the file is still the
+   only thing that decides it: roughly 3 in 10 locked stores hold until their password is harvested
+   by hand and appended.
+3. `hydra <host> redis` against an OPEN store — or against a running daemon with no datadir at all —
+   answers `hydra: that store has no password set (open access) — connect with rediscli`, and leaves
+   the target's log exactly as it found it. A box with no redis still answers `no such service on
+   that host — scan it first with nmap`, so "open" and "absent" stay distinguishable.
+4. A door with no logins is not described as though it had them. `hydra <host> redis` prints
+   `This service has no logins — attacking the store's own password` where the other doors print
+   `Enumerating accounts from the target...`, and `hydra <host> redis root` prints that same line and
+   sweeps the store's secret anyway instead of reporting a store that held.
+5. Every password tried lands on the TARGET as one `/var/log/redis.log` line —
+   `<pid>:M <stamp> # Client <ip> authentication failed`, with the matched one as
+   `* Client <ip> authenticated successfully` — appended to what the file already held, under the
+   target's own writer key. One line per password tried, none after the match, and nothing at all
+   when nothing was tried.
+6. `AUTH <password>` at `redis> ` answers `OK` on a locked store whose password it is,
+   `(error) ERR invalid password` on one it is not, and
+   `(error) ERR wrong number of arguments for 'auth' command` for a bare `AUTH`.
+7. `AUTH <anything>` against an OPEN store answers
+   `(error) ERR Client sent AUTH, but no password is set` — and writes no attempt line, because
+   nothing was judged.
+8. After an accepted `AUTH`, `KEYS` / `GET` / `DBSIZE` answer from the store for the rest of the
+   connection. After a refused one they still answer `(error) NOAUTH Authentication required.`, and
+   so does every statement on a connection that never sent one.
+9. Nothing is remembered server-side: the accepted password is re-sent with every statement, an
+   `AUTH` mints no `sessions` row (wire-check), and a store whose `requirepassHash` changes under a
+   held connection refuses that connection's very next statement.
+10. One attempt line per typed `AUTH` on a locked store, success or failure, appended to the target's
+    log. `KEYS`, `GET` and `DBSIZE` still write nothing — the rule slice 2's write-nothing test
+    stands on survives the handler learning to write.
+11. `rediscli <host> <password>` connects, sends that `AUTH` as its first statement and prints what
+    came back. A wrong password leaves the player at `redis> ` with the store still locked and free
+    to `AUTH` again; a right one leaves them able to read.
+12. `help` at `redis> ` lists `AUTH <password>` alongside the read verbs, aligned by the same
+    computed column, and `rediscli`'s own usage line and manual name the optional password.
+13. No vantage silently sweeps nothing: all three sweep handlers pass the store's secret, so a store
+    behind a published forward falls to `hydra -p <port> <public-ip> redis` by the rule the LAN one
+    falls to. The inner-gateway path inherits the seeded-tree caveat slice 5 owns — proven at unit
+    level here, live there.
+
+**PLANNING CORRECTIONS** — what grounding changed about the sketch above:
+
+- **`accountsOn` stays REQUIRED; only `secretOn` is new.** The sketch had both columns become
+  optional. Redis's row already carries `accountsOn: () => []` with a comment stating why a store has
+  no accounts to attack, and that statement is true and worth keeping — making the column optional
+  would delete it and churn three handler call sites to say the same thing with a gap. What
+  `secretOn`'s PRESENCE buys is not on the server at all: it is the static fact `hydra` reads
+  client-side, to stop telling a player it is enumerating accounts at a door that has none.
+- **The store's secret does not travel as a nameless account.** It enters `sweepAccounts` as its own
+  `secret: string | undefined` and comes back as a `CrackedCredential` whose `username` is optional —
+  `SweepableAccount` is not touched. Inventing a username to fill the field is exactly what the
+  catalog's redis row already forbids ("the right name against the wrong secret, which reads to a
+  player as a working credential until they spend it"), and redis's own log formatter ignores the
+  field already: `redisLog.test.ts` passes `user: ''` and asserts a named user changes nothing.
+- **A named login must not filter the secret out.** `accountsUnderAttack` drops every account whose
+  name was not asked for; run over a nameless secret that rule turns `hydra <host> redis root` into
+  `0 valid passwords found`, which reads as a hardened store rather than as a question the door
+  cannot be asked. A store has one lock, and naming a person does not change which lock it is.
+- **What the prompt HOLDS is no longer what `connect` was given.** Slice 2's `RedisApi` doc says
+  exactly that, and it stops being true here: the connection acquires a password.
+  `RedisConnection = RedisConnectParams & { password?: string }` keeps the credential off the connect
+  round-trip — a door that judges nothing at connect time must not be handed a secret there — and
+  that doc comment changes with it.
+- **The prompt NOTICES an accepted `AUTH`; it never answers one.** `redisShell` deliberately does not
+  recognise its own vocabulary, so that a player whose box died an hour ago finds out instead of
+  being politely corrected. That rule is about ANSWERING and survives intact: the line still makes
+  the trip, the daemon still judges it, and a store that died between two statements still answers
+  `lost` rather than `OK`. What the client adds is one rule — hold the password from an `AUTH` line
+  the box did not refuse.
+- **The statement handler starts writing, one slice earlier than slice 2 predicted.** Its
+  `upsertPatch` dep was declared unused there "because the write verbs land next"; its first real use
+  is the attempt line, not a mutation. Slice 2's module doc opens with "This handler writes NOTHING"
+  — that sentence changes, and the write-nothing test for READS stays exactly where it is, which is
+  criterion 10.
+- **`rediscli <host> <password>` prints its `AUTH` answer, `OK` included.** Real redis-cli is silent
+  on success. Departing because the greeting is already two chatty lines, and a silent success is
+  indistinguishable from a client that ignored the argument it was given.
+- **The wire-check fixture needs a locked store that is CRACKABLE.** The requirepass is drawn at
+  `CRACK_CHANCE.npcUser` (0.7), so roughly 3 in 10 locked stores cannot fall to the shipped wordlist
+  at all. The selector in `testRedisConnect.ts` already probes the generated LAN and fails loudly
+  with "pick another ESSID"; the sweep script extends it with that third condition rather than
+  hardcoding a host.
+- **If review asks for a split, `AUTH` ships first and hydra second — never the reverse.** Hydra
+  first strands a cracked password with no verb to spend it on, which is a worse dangling state than
+  today's. `AUTH` first stands alone: root on a box can already `cat` the datadir's md5, and cracking
+  a reachable hash with real tools is a route this world is deliberately built for. Recommending ONE
+  slice regardless — neither half closes the loop the criteria describe.
+
+**RED** — behavior tests, before any production change:
+
+- `core/redis/statements.test.ts` — `AUTH` accepted, refused and bare; the open-store answer; the
+  gate now keyed on the password SUPPLIED rather than on the hash alone; and the reported attempt
+  outcome present for a judged `AUTH` and absent for every other line.
+- `sessions/redisStatement.test.ts` — a locked store answering with the right password and refusing
+  with the wrong one; the attempt line's content, owner and permissions, and that it APPENDS; an open
+  store's `AUTH` writing nothing; reads still handing the fake `upsertPatch` exactly zero rows.
+- `sessions/hydraCrack.test.ts` — the secret swept, the credential coming back with no username, the
+  trace's content and volume, the open-store refusal leaving the log untouched, and a named login
+  failing to suppress the sweep.
+- `sessions/hydraCrackPublic.test.ts` — the same secret swept from that vantage, so no door is
+  crackable from one direction only.
+- `commands/hydra.test.ts` — the login-less result line, the no-logins status line, and the
+  `no_password_set` refusal in the player's words.
+- `commands/redisShell.test.ts` — the held password re-sent with each statement, an accepted `AUTH`
+  changing what is held, a refused one leaving it alone, and `AUTH` in the help list.
+- `commands/rediscli.test.ts` — the positional's pre-sent `AUTH` and its printed answer, and a wrong
+  password leaving the prompt held rather than dropping the player.
+- Watch the registry help-row assertion while doing it: `rediscli <host> [password]` becomes the
+  longest synopsis in its column, and slice 2 already had one test mis-model `padEnd` when a column
+  moved.
+
+**GREEN**: `services/serviceCatalog.ts` (the `secretOn?` column and redis's row reading
+`storeIn(fs)?.requirepassHash`); `wordlist/passwordSweep.ts` (the `secret` input and the login-less
+`CrackedCredential`); the `secret` argument and the no-secret guard in `sessions/hydraCrack.ts`,
+`hydraCrackPublic.ts` and `hydraCrackInnerGateway.ts`; the `AUTH` verb, the password-keyed gate and
+the reported attempt in `core/redis/statements.ts`; the password and the attempt-line write in
+`sessions/redisStatement.ts` (with the `now` and `readRedisLog` deps `redisConnect` already takes);
+the redisStatement branch in `api/sessions.ts`; the optional cracked username and the statement
+password in `adapters/sessionsApi.ts`; `RedisConnection` in `commands/types.ts`; `redisShell.ts`,
+`rediscli.ts`, `hydra.ts` and the held-connection signal in `ui/state.ts`.
+
+**MUTATE**: Stryker over `core/redis/statements.ts`, `sessions/redisStatement.ts`,
+`wordlist/passwordSweep.ts` and `commands/hydra.ts`. Scoped-runner recipe from
+`conventions-and-gotchas.md` §4 rather than a whole-repo run, and expect BOTH mis-scoring families
+that section now records — the load-throw one and the `perTest` module-scope-fixture one slice 2
+found. Hand-apply a suspicious survivor before treating it as a real gap; it is the cheapest first
+step in triage.
+**KILL MUTANTS**: Address survivors; ask when a survivor's value is ambiguous.
+**REFACTOR**: One candidate, to be assessed only if it earns it. The three sweep handlers now run
+four consecutive identical guards — unknown service, nothing listening, no wordlist, and the new no
+secret — around three near-identical `sweepAccounts` calls. That is the same repo-wide family slice 2
+named and deliberately left (`readOpenPorts(...).some(...)` in twelve places): collapsing it is a
+sweep of its own, not a redis slice's, and the expectation is to leave it again with the reason
+recorded.
+**Wire-check**, for what only a live stack can prove:
+- extend `scripts/testRedisConnect.ts` — an `AUTH` accepted and refused across the wire; the attempt
+  line landing in the real `patches` table with its owner and permissions accepted; still ZERO rows
+  in `sessions`; and a locked store answering `KEYS` once authenticated.
+- new `scripts/testRedisSweep.ts` — `hydraCrack` with `service: 'redis'` against a crackable locked
+  store returning a password with no login field; the trace landing in that box's
+  `/var/log/redis.log` rather than in `auth.log`; and an open store answering `no_password_set` with
+  its log untouched.
+
+**Version**: bump `0.175.0` → `0.176.0` in `v2/package.json` + `v2/package-lock.json`.
+**Done when**: criteria 1–13 met, both wire-checks green, mutation report presented, human approves
+the commit.
 
 ### Slice 4: A player changes a store
 
