@@ -82,6 +82,25 @@ export const formatRedisConnectLine = ({
 }: Pick<CredentialAttempt, 'fromIp' | 'time' | 'pid'>): string =>
   `${pid}:M ${formatRedisTimestamp(time)} * Client connected from ${fromIp}`;
 
+/**
+ * Render what a client CHANGED, for the store daemon's own log.
+ *
+ * A notice rather than a warning: a write is not by itself a failure, and against an
+ * open store it is the door working exactly as designed. Whether the stranger who made
+ * it should have is the defender's call, and this line is what lets them make it.
+ *
+ * The detail arrives already rendered — collapsed, bounded, and stripped of anything
+ * that could end a line — because the place that knows what a value is allowed to be is
+ * the verb table that parsed it, not the formatter that prints it.
+ */
+export const formatRedisMutationLine = ({
+  detail,
+  fromIp,
+  time,
+  pid,
+}: Pick<CredentialAttempt, 'fromIp' | 'time' | 'pid'> & { readonly detail: string }): string =>
+  `${pid}:M ${formatRedisTimestamp(time)} * Client ${fromIp} ${detail}`;
+
 /** Render one password attempt as its `/var/log/redis.log` line. It names no account,
  *  because the store has none: the secret belongs to the service, so what the log can
  *  say is who tried and whether they got in. */

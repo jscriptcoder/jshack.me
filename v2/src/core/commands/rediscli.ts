@@ -173,7 +173,9 @@ export const rediscli: Command = {
       '"quit" hands it straight back. A store that does hold a password answers ' +
       '"NOAUTH Authentication required." until you give it one — pass it here, or type ' +
       '"AUTH <password>" at the prompt. Recover a store password with "hydra <host> ' +
-      'redis".',
+      'redis". A store you can read is a store you can change: "SET <key> <value>" ' +
+      'writes one, quoting a value that contains a space, and "DEL <key>" removes one. ' +
+      'Both are recorded in the target\'s own /var/log/redis.log; reading is not.',
     arguments: [
       { name: 'host', description: 'The host IP to connect to, e.g. 192.168.1.5', required: true },
       { name: 'password', description: "The store's password, sent as an AUTH on connect" },

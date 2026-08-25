@@ -692,6 +692,12 @@ Provably-equivalent mutant classes — accept (don't chase) when they recur:
   to the mutant and never runs the ones that would kill it. Same rule as above, and it is
   now the cheapest check in the triage: hand-apply any survivor that looks like it should
   already be covered before writing a test for it.
+  **Third instance, D7 slice 4**: `storeIn`'s `datadir === undefined || datadir.kind !== 'file'`
+  in `redis/datadir.ts` reported Survived; forced to `false` by hand it took the "a box with
+  no store gains one on its first write" test red immediately. The pattern to distrust is now
+  specific enough to name — a survivor in a module the mutated file only IMPORTS, whose
+  killing test builds its world from generator output rather than from a literal. Two of the
+  three instances so far have been exactly that.
 - **No-op type-re-narrowing `.filter(typeGuard)`** added only to satisfy types after a guard
   already guarantees the kind. Prefer reduce-append; else keep the imperative early-return
   loop.

@@ -5,6 +5,7 @@ import {
   REDIS_LOG_PERMISSIONS,
   formatRedisAttemptLine,
   formatRedisConnectLine,
+  formatRedisMutationLine,
 } from './redisLog';
 import { asGameTime } from '../types';
 
@@ -100,5 +101,58 @@ describe('a redis.log line', () => {
       write: ['root'],
       execute: ['root'],
     });
+  });
+});
+
+/**
+ * The fourth line shape: what a client CHANGED.
+ *
+ * Against an open store this is the only evidence that anything was taken seriously —
+ * the arrival line says somebody came, and this says what they did while they were
+ * here. It is a notice rather than a warning, because a write is not by itself a
+ * failure: an open store letting a stranger set a key is the door working as designed,
+ * and it is the defender's job to decide whether that stranger should have.
+ *
+ * The statement arrives already rendered. This formatter neither trusts it nor squeezes
+ * it — the verb table does that where the line is parsed, so the two cannot disagree
+ * about what a value is allowed to be.
+ */
+describe('a redis.log line about a change', () => {
+  it('names who changed the store and what they ran', () => {
+    expect(
+      formatRedisMutationLine({
+        detail: 'SET sess:0a1b2c3d "{\\"username\\":\\"root\\"}"',
+        fromIp: '10.0.0.9',
+        time: asGameTime(Date.UTC(2026, 7, 20, 9, 14, 2)),
+        pid: 4471,
+      }),
+    ).toBe(
+      '4471:M 20 Aug 2026 09:14:02.000 * Client 10.0.0.9 SET sess:0a1b2c3d "{\\"username\\":\\"root\\"}"',
+    );
+  });
+
+  it('carries a removal the same way, because both are one thing a client did', () => {
+    expect(
+      formatRedisMutationLine({
+        detail: 'DEL perms:root',
+        fromIp: '192.168.1.50',
+        time: asGameTime(Date.UTC(2026, 7, 20, 9, 14, 9)),
+        pid: 4472,
+      }),
+    ).toBe('4472:M 20 Aug 2026 09:14:09.000 * Client 192.168.1.50 DEL perms:root');
+  });
+
+  it('shares the stamp and the severity mark with the lines beside it', () => {
+    // One file, read top to bottom by a defender. A change written in a shape the
+    // arrival lines do not share would be a line they skim past.
+    const at = asGameTime(Date.UTC(2026, 7, 20, 9, 14, 2));
+    const changed = formatRedisMutationLine({
+      detail: 'DEL stats:requests',
+      fromIp: '10.0.0.9',
+      time: at,
+      pid: 4471,
+    });
+
+    expect(changed.startsWith('4471:M 20 Aug 2026 09:14:02.000 * Client 10.0.0.9 ')).toBe(true);
   });
 });

@@ -256,3 +256,244 @@ describe('producing the secret', () => {
     expect(reply(`auth ${SECRET}`, SHUT).output).toEqual(['OK']);
   });
 });
+
+/**
+ * What a store lets a caller CHANGE, and what it records about it.
+ *
+ * The door's first write with nothing behind it: an open store takes a `SET` from
+ * whoever reached it, with no account, no tier and no credential to produce. That is
+ * the whole risk of an unlocked store made concrete, and the reason the record matters
+ * more here than anywhere else — the box's own log is the only thing that will say a
+ * stranger was ever there.
+ *
+ * Two rules separate a write from a read. A store comes back only when a verb actually
+ * wrote one, so a `DEL` that found nothing persists nothing and records nothing. And
+ * what the record says is the statement, rendered — collapsed, capped and stripped of
+ * anything that could forge a second line in a file every visitor appends to.
+ */
+describe('changing a store', () => {
+  const SECRET = 'summer2024';
+
+  const openStore = (): RedisStore =>
+    storeOf({ 'sess:0a1b2c3d': '{"username":"devops"}', 'stats:requests': '9' });
+
+  const shutStore = (): RedisStore =>
+    storeOf({ 'sess:0a1b2c3d': '{"username":"devops"}', 'stats:requests': '9' }, md5(SECRET));
+
+  const write = (line: string, store: RedisStore, password?: string): StoreStatementResult =>
+    runStatement({ store, line, ...(password === undefined ? {} : { password }) });
+
+  it('takes a key the store does not hold, and hands back the store that now holds it', () => {
+    expect(write('SET greeting hello', openStore())).toEqual({
+      output: ['OK'],
+      failed: false,
+      store: storeOf({
+        'sess:0a1b2c3d': '{"username":"devops"}',
+        'stats:requests': '9',
+        greeting: 'hello',
+      }),
+      logged: 'SET greeting "hello"',
+    });
+  });
+
+  it('replaces the value of a key it already holds, without adding one', () => {
+    const replaced = write('SET stats:requests 4471', openStore());
+
+    expect(replaced.store?.keys).toEqual({
+      'sess:0a1b2c3d': '{"username":"devops"}',
+      'stats:requests': '4471',
+    });
+    expect(Object.keys(replaced.store?.keys ?? {})).toHaveLength(2);
+  });
+
+  it('takes a quoted run as one value, which is the only way to give one a space', () => {
+    expect(write('SET greeting "hello world"', openStore()).store?.keys['greeting']).toBe(
+      'hello world',
+    );
+  });
+
+  it('takes a value whose own characters include quotes, when none of them is a space', () => {
+    // What a player actually types to poison a session. Every generated value is JSON
+    // with no space in it, so nothing needs quoting and every quote in the line belongs
+    // to the value — which is the only reason the store can be rewritten to look like
+    // the store.
+    expect(
+      write('SET sess:0a1b2c3d {"username":"intruder"}', openStore()).store?.keys[
+        'sess:0a1b2c3d'
+      ],
+    ).toBe('{"username":"intruder"}');
+  });
+
+  it('refuses a quoted run holding a quote rather than storing half of one', () => {
+    // Quoting is how a value gets a space, and a quote inside one ends it. This is the
+    // single shape a player can type that this door cannot express, and it fails loudly:
+    // the alternative is storing `he said ` and answering OK about the rest.
+    expect(write('SET note "he said "hi" loudly"', openStore()).output).toEqual([
+      "(error) ERR wrong number of arguments for 'set' command",
+    ]);
+  });
+
+  it('does not mistake two quoted runs for one, as the tool it replaces did', () => {
+    // Legacy joined everything after the key and stripped the outer quotes, so
+    // `SET k "a" "b"` stored `a" "b` — the same family as the pattern that compiled to
+    // an invalid regex. Two runs are two arguments, and two arguments after a key are
+    // one too many.
+    expect(write('SET pair "a" "b"', openStore()).output).toEqual([
+      "(error) ERR wrong number of arguments for 'set' command",
+    ]);
+  });
+
+  it('refuses a SET with no value, and one given more words than a value', () => {
+    const refused = ['SET greeting', 'SET greeting hello world'];
+
+    expect(refused.map((line) => write(line, openStore()))).toEqual(
+      refused.map(() => ({
+        output: ["(error) ERR wrong number of arguments for 'set' command"],
+        failed: true,
+      })),
+    );
+  });
+
+  it('removes a key it holds, says how many it removed, and records the removal', () => {
+    expect(write('DEL stats:requests', openStore())).toEqual({
+      output: ['(integer) 1'],
+      failed: false,
+      store: storeOf({ 'sess:0a1b2c3d': '{"username":"devops"}' }),
+      logged: 'DEL stats:requests',
+    });
+  });
+
+  it('records nothing for a DEL that found nothing, because nothing happened', () => {
+    // The whole-value assertion is the point: no store to persist and no line to
+    // append. A caller keyed on the VERB rather than on the write would file a mutation
+    // that never took place, against a key the store never held.
+    expect(write('DEL sess:nothing', openStore())).toEqual({
+      output: ['(integer) 0'],
+      failed: false,
+    });
+  });
+
+  it('refuses a DEL given no key, and one given more keys than it removes', () => {
+    // The second half is the shape that bit this door once already: a verb that reads
+    // the first token and shrugs at the rest removes one key while the player believes
+    // they removed two, and nothing on screen says otherwise.
+    const refused = ['DEL', 'DEL stats:requests sess:0a1b2c3d'];
+
+    expect(refused.map((line) => write(line, openStore()))).toEqual(
+      refused.map(() => ({
+        output: ["(error) ERR wrong number of arguments for 'del' command"],
+        failed: true,
+      })),
+    );
+  });
+
+  it('hands back no store and no record for anything that did not write one', () => {
+    const quiet = ['KEYS *', 'GET stats:requests', 'DBSIZE', 'cat /etc/passwd', 'SET greeting', ''];
+
+    expect(quiet.map((line) => write(line, openStore()).store)).toEqual(quiet.map(() => undefined));
+    expect(quiet.map((line) => write(line, openStore()).logged)).toEqual(
+      quiet.map(() => undefined),
+    );
+    // The anchor that keeps the two lists above a claim rather than a coincidence: a
+    // line that DID write hands both back, so neither can pass by never existing.
+    const wrote = write('SET greeting hello', openStore());
+    expect(wrote.store).toBeDefined();
+    expect(wrote.logged).toBeDefined();
+  });
+
+  it('takes the write verbs in any case, and names them in the record as the daemon would', () => {
+    expect(write('set greeting hello', openStore()).output).toEqual(['OK']);
+    expect(write('del stats:requests', openStore()).output).toEqual(['(integer) 1']);
+    // The record is the daemon describing what it did, not an echo of the player's
+    // spelling — so the verb is upper case there however it arrived.
+    expect(write('set greeting hello', openStore()).logged).toBe('SET greeting "hello"');
+  });
+
+  it('leaves the lock alone, so no write is a way in or a way to shut somebody out', () => {
+    const locked = shutStore();
+
+    expect(write('SET greeting hello', locked, SECRET).store?.requirepassHash).toBe(
+      locked.requirepassHash,
+    );
+    expect(write('DEL stats:requests', locked, SECRET).store?.requirepassHash).toBe(
+      locked.requirepassHash,
+    );
+  });
+
+  it('refuses a write before the secret is produced, and changes nothing', () => {
+    const writes = ['SET greeting hello', 'DEL sess:0a1b2c3d'];
+
+    expect(writes.map((line) => write(line, shutStore()))).toEqual(
+      writes.map(() => ({
+        output: ['(error) NOAUTH Authentication required.'],
+        failed: true,
+      })),
+    );
+  });
+
+  it('takes that same write once the statement carries the password', () => {
+    const accepted = write('SET greeting hello', shutStore(), SECRET);
+
+    expect(accepted.output).toEqual(['OK']);
+    expect(accepted.store?.keys['greeting']).toBe('hello');
+  });
+});
+
+/**
+ * What the record says, and what it cannot be made to say.
+ *
+ * `/var/log/redis.log` is world-readable where the store itself is root-only, and every
+ * visitor appends to it. So the one thing a caller controls about it — the statement —
+ * arrives rendered rather than raw: no character that could end a line, no run of
+ * whitespace that could fake a column, and no length that could bury the entries around
+ * it. The stored VALUE is left as the player wrote it; only the rendering is squeezed.
+ */
+describe('what a change leaves in the record', () => {
+  const openStore = (): RedisStore => storeOf({ 'stats:requests': '9' });
+
+  const write = (line: string): StoreStatementResult => runStatement({ store: openStore(), line });
+
+  it('keeps the spacing a quoted value was given, and collapses it only in the record', () => {
+    const spaced = write('SET spaced "two  spaces"');
+
+    // Deliberately unlike the database door, which normalizes before it parses and so
+    // squeezes the stored value too. A store that quietly returned something other than
+    // what was written would be answering GET with a value nobody set.
+    expect(spaced.store?.keys['spaced']).toBe('two  spaces');
+    expect(spaced.logged).toBe('SET spaced "two spaces"');
+  });
+
+  it('lets no control character reach the record or the store', () => {
+    const crafted = write('SET note "first\nsecond\ttab"');
+
+    expect(crafted.logged).toBe('SET note "first second tab"');
+    expect(crafted.store?.keys['note']).toBe('first second tab');
+  });
+
+  it('cannot be made into two commands by a line the prompt could not have typed', () => {
+    // A player at `redis> ` cannot type a newline; a crafted client can put one on the
+    // wire. Collapsed to a space, a smuggled second verb is just extra words on the
+    // first — which every verb here already refuses by arity.
+    const smuggled = write('SET note value\nDEL stats:requests');
+
+    expect(smuggled.output).toEqual([
+      "(error) ERR wrong number of arguments for 'set' command",
+    ]);
+    expect(smuggled.store).toBeUndefined();
+    expect(smuggled.logged).toBeUndefined();
+  });
+
+  it('caps a long value in the record, and leaves one at the limit whole', () => {
+    const atLimit = 'x'.repeat(100);
+    const overLimit = 'x'.repeat(101);
+
+    expect(write(`SET blob "${atLimit}"`).logged).toBe(`SET blob "${atLimit}"`);
+    expect(write(`SET blob "${overLimit}"`).logged).toBe(`SET blob "${'x'.repeat(100)}..."`);
+  });
+
+  it('caps the record without capping the data, because the store is not a log', () => {
+    const long = 'x'.repeat(400);
+
+    expect(write(`SET blob "${long}"`).store?.keys['blob']).toBe(long);
+  });
+});

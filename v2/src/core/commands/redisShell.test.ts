@@ -132,6 +132,19 @@ describe('what the prompt answers for itself', () => {
     expect(sync(result).exitCode).toBe(0);
   });
 
+  /** Every synopsis the list is expected to carry, longest-first where one could be
+   *  read as the start of another. Named once, because two tests below both need to
+   *  find where a row's verb ends and its description begins. */
+  const VERB_SYNOPSES = [
+    'AUTH <password>',
+    'KEYS [pattern]',
+    'GET <key>',
+    'SET <key> <value>',
+    'DEL <key>',
+    'DBSIZE',
+    'exit / quit',
+  ];
+
   it('says what each verb it lists is for, not merely that it exists', async () => {
     const listed = linesOf(await runRedisLine(shellEnv(), 'help', CONNECTION));
 
@@ -140,22 +153,56 @@ describe('what the prompt answers for itself', () => {
     const described = rows.map((row) =>
       row
         .trim()
-        .replace(/^(AUTH <password>|KEYS \[pattern\]|GET <key>|DBSIZE|exit \/ quit)\s*/, ''),
+        .replace(
+          /^(AUTH <password>|KEYS \[pattern\]|GET <key>|SET <key> <value>|DEL <key>|DBSIZE|exit \/ quit)\s*/,
+          '',
+        ),
     );
 
-    expect(rows).toHaveLength(5);
+    expect(rows).toHaveLength(7);
     // Each row led with one of the five synopses above — the replace found it — and
     // what remains is a sentence rather than the rest of an unrecognised row.
     expect(described.every((description) => description.split(' ').length >= 3)).toBe(true);
   });
 
-  it('lists no verb the store cannot answer yet', async () => {
+  it('lists the verbs that change a store, now that the store takes them', async () => {
     const listed = linesOf(await runRedisLine(shellEnv(), 'help', CONNECTION));
 
-    // A list is a promise. SET and DEL arrive with the slice that lands them, and a
-    // player who reads them here goes hunting for a syntax that does not exist.
-    expect(listed).not.toContain('SET');
-    expect(listed).not.toContain('DEL');
+    // A list is a promise, and it is now one the door keeps: a player who reads SET
+    // here can type it. It was deliberately absent while the store could only be read.
+    expect(listed).toContain('SET <key> <value>');
+    expect(listed).toContain('DEL <key>');
+  });
+
+  it('states the quoting rule where a player will need it', async () => {
+    const listed = linesOf(await runRedisLine(shellEnv(), 'help', CONNECTION));
+
+    // The half of SET's syntax a player cannot guess. A row promising a bare
+    // multi-word value would contradict the door, which refuses one — the two sides of
+    // one rule, where each is defensible alone and only the pair is wrong.
+    const setRow = listed.split('\n').find((line) => line.includes('SET <key> <value>')) ?? '';
+    expect(setRow.toLowerCase()).toContain('quot');
+  });
+
+  it('starts every description in one column, however long the longest verb has become', async () => {
+    const listed = linesOf(await runRedisLine(shellEnv(), 'help', CONNECTION));
+    const rows = listed.split('\n').slice(1);
+
+    // Deliberately not measured by looking for a run of spaces: the longest synopsis
+    // has exactly ONE space after it, so a rule like that reports the widest row as
+    // ragged when it is the row every other row is padded to match. The column is where
+    // a description begins once its own verb and the padding behind it are taken off.
+    const columnOf = (row: string): number => {
+      const synopsis = VERB_SYNOPSES.find((candidate) => row.trimStart().startsWith(candidate));
+      const afterVerb = row.indexOf(synopsis ?? '') + (synopsis ?? '').length;
+      const padded = row.slice(afterVerb);
+      return afterVerb + (padded.length - padded.trimStart().length);
+    };
+
+    expect(rows.every((row) => VERB_SYNOPSES.some((verb) => row.trimStart().startsWith(verb)))).toBe(
+      true,
+    );
+    expect(new Set(rows.map(columnOf)).size).toBe(1);
   });
 });
 
