@@ -2411,7 +2411,9 @@ describe('the redis sub-shell', () => {
           const word = line.trim().split(/\s+/)[0] ?? '';
           const answer = /^\s*KEYS/i.test(line)
             ? { output: ['1) "sess:0a1b2c3d"', '2) "stats:requests"'], failed: false }
-            : { output: [`(error) ERR unknown command '${word}'`], failed: true };
+            : /^\s*AUTH\s/i.test(line)
+              ? { output: ['OK'], failed: false }
+              : { output: [`(error) ERR unknown command '${word}'`], failed: true };
           return { ok: true, status: 200, json: async () => answer };
         }
         return {
@@ -2464,6 +2466,21 @@ describe('the redis sub-shell', () => {
       .map((entry) => entry.content)
       .join('\n');
   };
+
+  it('carries a password the store accepted on every statement after it', async () => {
+    const { state, sent } = await bootOnline();
+    await typeConnect(state);
+
+    expect(await typeLine(state, 'AUTH sunshine')).toContain('OK');
+    await typeLine(state, 'KEYS *');
+
+    // The AUTH carried nothing, because there was nothing to carry yet; every line
+    // after it carries what the store accepted. Nothing on either side of the wire
+    // remembers it instead — which is why a store whose secret changes evicts on the
+    // very next line.
+    const statements = sent.filter((payload) => payload['action'] === 'redisStatement');
+    expect(statements.map((payload) => payload['password'])).toEqual([undefined, 'sunshine']);
+  });
 
   it('greets and lands at redis> without asking the player anything', async () => {
     const { state, sent } = await bootOnline();

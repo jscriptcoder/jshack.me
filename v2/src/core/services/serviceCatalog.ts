@@ -17,6 +17,7 @@ import type { AbsPath } from '../types';
 import type { Directory, FilePermissions } from '../filesystem/types';
 import { accountsIn } from '../sessions/passwdAccount';
 import { databaseAccountsIn, databaseNameIn } from '../mysql/datadir';
+import { storeIn } from '../redis/datadir';
 import type { SweepableAccount } from '../wordlist/passwordSweep';
 import {
   AUTH_LOG_OWNER,
@@ -116,6 +117,17 @@ export type ServiceSpec = {
    *  absent for daemons whose first line is already the attempt. Only the database
    *  door opens something narrower than the machine, so only it has a name to give. */
   readonly databaseOn?: (fs: Directory) => string | undefined;
+  /** The ONE secret this door answers to, for the door that has no accounts to name —
+   *  read off the target and hashed exactly as an account's password is, so a sweep of
+   *  it obeys the same wordlist rule as every other door.
+   *
+   *  Its PRESENCE is the more useful half. It is the static fact that says this door
+   *  authenticates a service rather than a person, which is what lets a client stop
+   *  telling a player it is enumerating accounts at a door that has none — and what
+   *  turns a login they named into something to answer rather than something to filter
+   *  by. `undefined` where the row has one and the target's store is open: a lock that
+   *  is not there is not a lock that held. */
+  readonly secretOn?: (fs: Directory) => string | undefined;
 };
 
 const SYSLOG_AUTH_SWEEP: SweepLog = {
@@ -257,6 +269,10 @@ export const SERVICE_CATALOG = {
     // username invented to fill this column would be the right name against the wrong
     // secret, which reads to a player as a working credential until they spend it.
     accountsOn: () => [],
+    // The whole lock, with nobody's name on it. Four stores in ten have none, and this
+    // answering `undefined` for those is what tells a sweep the door was already open
+    // rather than that it held.
+    secretOn: (fs) => storeIn(fs)?.requirepassHash ?? undefined,
   },
 } as const satisfies Record<string, ServiceSpec>;
 

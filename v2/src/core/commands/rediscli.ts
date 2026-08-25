@@ -20,14 +20,15 @@
 
 import { generateHomeLan } from '../generation/generateHomeLan';
 import { connectedWlan0 } from '../network/interfaces';
+import { runRedisLine } from './redisShell';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { isPublicIp } from '../generation/ip';
 import { readOpenPorts } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { ownBoxSource } from './mysqlOwnBox';
-import type { Command, CommandEnv, CommandResult } from './types';
+import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
 
-const USAGE = 'usage: rediscli <host>';
+const USAGE = 'usage: rediscli <host> [password]';
 
 const PORT = SERVICE_CATALOG.redis.defaultPort;
 
@@ -54,14 +55,12 @@ const REACH_REASON: Readonly<Record<'unreachable' | 'refused', string>> = {
  *  hostname is what ANSWERED rather than what this client looked up: through a forward
  *  there is nothing to look up, because a deep box's address is absent from the LAN.
  *  It is also what keeps the bare `redis> ` prompt honest about its target. */
-const greeting = (target: string, hostname: string): CommandResult => ({
-  kind: 'sync',
-  lines: [
-    { kind: 'text', content: `Connecting to ${target}:${PORT}...` },
-    { kind: 'text', content: `Connected to Redis ${hostname}.` },
-  ],
-  exitCode: 0,
-});
+const greetingLines = (target: string, hostname: string): readonly TerminalLine[] => [
+  { kind: 'text', content: `Connecting to ${target}:${PORT}...` },
+  { kind: 'text', content: `Connected to Redis ${hostname}.` },
+];
+
+
 
 /** Whether the daemon is holding the port on a tree this client can see for itself.
  *  The pidfiles are the same source `nmap` reads, so a door the player was shown is a
@@ -111,7 +110,7 @@ const preflightRefusal = async (
 };
 
 const execute: Command['execute'] = async (env, args) => {
-  const target = args[0];
+  const [target, password] = args;
   if (target === undefined) return errorResult(USAGE);
 
   const wlan0 = connectedWlan0(env.network);
@@ -137,7 +136,23 @@ const execute: Command['execute'] = async (env, args) => {
   if (!opened.ok) return unreachable(target, REACH_REASON[opened.reason]);
 
   env.redis.enter(connection);
-  return greeting(target, opened.hostname);
+
+  // A password given here is spent as an ORDINARY statement once the store is open, rather than carried in the
+  // handshake: the connection judges nothing, and one that could be refused on the
+  // strength of a secret would tell a scanner which stores hold one. It goes through
+  // the prompt's own line runner, so a password this store accepts is held by exactly
+  // the rule that holds one typed at `redis> ` — and a box that died between the two
+  // is discovered rather than believed in.
+  //
+  // Its answer is PRINTED, where the real client is silent on success: a silent one
+  // here is indistinguishable from a client that ignored the argument it was handed.
+  const authed =
+    password === undefined ? null : await runRedisLine(env, `AUTH ${password}`, connection);
+  return {
+    kind: 'sync',
+    lines: [...greetingLines(target, opened.hostname), ...(authed?.lines ?? [])],
+    exitCode: authed?.exitCode ?? 0,
+  };
 };
 
 export const rediscli: Command = {
@@ -149,19 +164,26 @@ export const rediscli: Command = {
   // What it opens is a prompt, so there has to be a terminal for the prompt to be in.
   withoutTty: 'rediscli: must be run from a terminal',
   manual: {
-    synopsis: 'rediscli <host>',
+    synopsis: 'rediscli <host> [password]',
     description:
       'Open the key-value store on a remote host running a Redis server. There is no ' +
       'account and no login: a store answers to a single password or to nobody at all, ' +
       'and many answer to nobody. On success you are left at a "redis>" prompt where ' +
       'every line you type goes to the store. Your shell stays exactly where it was — ' +
       '"quit" hands it straight back. A store that does hold a password answers ' +
-      '"NOAUTH Authentication required." to everything you ask it.',
+      '"NOAUTH Authentication required." until you give it one — pass it here, or type ' +
+      '"AUTH <password>" at the prompt. Recover a store password with "hydra <host> ' +
+      'redis".',
     arguments: [
       { name: 'host', description: 'The host IP to connect to, e.g. 192.168.1.5', required: true },
+      { name: 'password', description: "The store's password, sent as an AUTH on connect" },
     ],
     examples: [
       { command: 'rediscli 192.168.1.5', description: 'Open the store on 192.168.1.5' },
+      {
+        command: 'rediscli 192.168.1.5 sunshine',
+        description: 'Open a locked store and unlock it in one go',
+      },
     ],
   },
   execute,

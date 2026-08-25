@@ -21,10 +21,12 @@
  * never draws and anyone watching the wire can read — so the rendering happens here, on
  * the side that can see the whole store, and only its output crosses.
  *
- * This handler writes NOTHING. Not the store, not a log line. Reads never append —
- * real Redis's behaviour and the database door's rule both — and against an open store
- * that silence is the defender's problem rather than an omission: the one arrival line
- * the connection left is their entire evidence that anything was read at all.
+ * This handler writes for exactly ONE line: an `AUTH` a store with a secret judged.
+ * Reads never append — real Redis's behaviour and the database door's rule both — and
+ * against an open store that silence is the defender's problem rather than an omission:
+ * the one arrival line the connection left is their entire evidence that anything was
+ * read at all. A store with no secret records no attempt either, because nothing was
+ * weighed; a line there would tell a defender somebody tried a lock their box lacks.
  */
 
 import { z } from 'zod';
@@ -35,15 +37,22 @@ import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { storeIn } from '../redis/datadir';
 import { runStatement } from '../redis/statements';
 import { redisStoreSchema } from '../redis/types';
+import { derivePid } from '../logging/syslog';
+import { appendMachineLog } from '../patches/appendMachineLog';
+import { asGameTime } from '../types';
+import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
 import type { NonceStore } from '../signedRequest/nonceStore';
 import type { PatchRow } from '../patches/upsertPatch';
 
 export type RedisStatementDeps = ServiceHostLookup & {
   readonly nonceStore: NonceStore;
-  /** Declared and deliberately unused while this door only reads. It is here because
-   *  the write verbs land next and the dep set is what the wiring in `api/` hands over
-   *  — and because a slice that quietly could not write would look identical to one
-   *  that chose not to. */
+  /** The server's wall clock, epoch-ms (UTC) — stamps an attempt line. */
+  readonly now: () => number;
+  /** The TARGET's current `/var/log/redis.log` — the read half of the trace, so a guess
+   *  accretes onto the box's history instead of replacing it. */
+  readonly readRedisLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
+  /** Write a patch. Today that is the one line a judged `AUTH` leaves on the target;
+   *  the write verbs will use the same seam for the store itself. */
   readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
 };
 
@@ -59,6 +68,10 @@ const redisStatementSchema = z
      *  verb is the daemon's answer rather than the client's guess — and so a prompt
      *  whose box has died discovers it instead of politely correcting their spelling. */
     statement: z.string(),
+    /** What the caller is holding, re-sent with EVERY statement. There is no session
+     *  row to hold it instead, so a connection that has been let in proves it again on
+     *  each line — and a store whose secret changed under one refuses it on the next. */
+    password: z.string().optional(),
     source_ip: z.string().min(1).nullable().optional(),
   })
   .refine((payload) => !('player_key' in payload));
@@ -69,6 +82,51 @@ const redisStatementSchema = z
  *  is another. Both hold no keys, and `DBSIZE` saying zero is the true answer to what
  *  was asked. */
 const EMPTY_STORE = redisStoreSchema.parse({ keys: {}, requirepassHash: null });
+
+/** Land a judged password on the target's own redis.log. Best-effort, like every other
+ *  door's trace: the answer stands regardless of a logging failure, because a password
+ *  that really was judged must not be un-judged by a write that did not land.
+ *
+ *  It names no account, because the store has none — the secret belongs to the service.
+ *  What the line can say is who tried and whether they got in, which is why the field
+ *  the other doors fill with a username is empty here and read by nobody. */
+const recordAttempt = async (
+  deps: RedisStatementDeps,
+  attempt: {
+    readonly outcome: 'success' | 'failure';
+    readonly writerKey: string;
+    readonly machineId: string;
+    readonly hostname: string;
+    readonly fromIp: string;
+  },
+): Promise<void> => {
+  const stamp = deps.now();
+  const { sweepLog } = SERVICE_CATALOG.redis;
+  const line = sweepLog.formatAttempt({
+    outcome: attempt.outcome,
+    user: '',
+    fromIp: attempt.fromIp,
+    hostname: attempt.hostname,
+    time: asGameTime(stamp),
+    pid: derivePid(stamp),
+  });
+
+  try {
+    await appendMachineLog(
+      { readLog: deps.readRedisLog, upsertPatch: deps.upsertPatch },
+      {
+        writerKey: attempt.writerKey,
+        machineId: attempt.machineId,
+        path: sweepLog.path,
+        owner: sweepLog.owner,
+        permissions: sweepLog.permissions,
+      },
+      line,
+    );
+  } catch {
+    // best-effort: the answer stands regardless of a logging failure.
+  }
+};
 
 export const handleRedisStatement = async (
   body: unknown,
@@ -93,10 +151,29 @@ export const handleRedisStatement = async (
   });
   if (!reach.ok) return reach.refusal;
 
-  const { output, failed } = runStatement({
+  const { output, failed, attempt } = runStatement({
     store: storeIn(reach.reached.hostFs) ?? EMPTY_STORE,
     line: payload.statement,
+    ...(payload.password === undefined ? {} : { password: payload.password }),
   });
 
+  // Only a password actually weighed leaves a mark. The ROUTE decides the address it is
+  // written up as, exactly as the arrival line's is: through a forward the box has only
+  // ever seen the fronting gateway.
+  if (attempt !== undefined) {
+    const { hostname, machineId, sourceIp, writerKey } = reach.reached;
+    await recordAttempt(deps, {
+      outcome: attempt,
+      // The TARGET's key once the box has an owner: the system owns its logs, so every
+      // visitor's lines accrete into one row rather than a row each.
+      writerKey: writerKey ?? publicKey,
+      machineId,
+      hostname,
+      fromIp: sourceIp ?? payload.source_ip ?? 'unknown',
+    });
+  }
+
+  // The judgement itself does not cross. What the target recorded is the target's; the
+  // client is told what a terminal prints and nothing beside it.
   return { status: 200, body: { output, failed } };
 };

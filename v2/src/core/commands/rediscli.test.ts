@@ -154,7 +154,7 @@ describe('what it says instead', () => {
 
     const result = await run(onLan({ connect }), []);
 
-    expect(linesOf(result)).toBe('usage: rediscli <host>');
+    expect(linesOf(result)).toBe('usage: rediscli <host> [password]');
     expect(sync(result).exitCode).toBe(1);
     expect(connect).not.toHaveBeenCalled();
   });
@@ -313,15 +313,118 @@ describe('the command in the world', () => {
   it('documents itself for man and help, with an example a player can copy', () => {
     // Criterion: `man rediscli` and `help` list the command. Both read the registry
     // row, so what they show is exactly this.
-    expect(rediscli.manual?.synopsis).toBe('rediscli <host>');
+    expect(rediscli.manual?.synopsis).toBe('rediscli <host> [password]');
     expect(rediscli.description.length).toBeGreaterThan(10);
-    expect(rediscli.manual?.examples?.[0]?.command).toContain('rediscli ');
     expect(rediscli.manual?.arguments?.[0]?.name).toBe('host');
+    // Every example is a line a player can copy, and every argument says what it is
+    // for. An example with no command, or an argument with no description, is a manual
+    // page that looks complete and teaches nothing.
+    expect(
+      rediscli.manual?.examples?.every(
+        (example) => example.command.startsWith('rediscli ') && example.description.length > 10,
+      ),
+    ).toBe(true);
+    expect(
+      rediscli.manual?.arguments?.every((argument) => argument.description.length > 10),
+    ).toBe(true);
+    // And it names the verb that opens a locked store, because the password argument is
+    // only half the answer: a player who did not have it at connect time needs the other.
+    expect(rediscli.manual?.description).toContain('AUTH <password>');
   });
 
   it('is reachable from the box the player is standing on and nowhere else', () => {
     // A store connection is made from where you stand. `localhost-only` is what every
     // other door that opens a prompt declares.
     expect(rediscli.availability).toEqual({ kind: 'localhost-only' });
+  });
+});
+
+/**
+ * The password argument, which is an `AUTH` sent early rather than a second kind of
+ * connection.
+ *
+ * The handshake still carries nothing: the store is opened exactly as it is for a
+ * player who typed no password, and the secret is spent afterwards as an ordinary
+ * statement. That is what the real client does with `-a`, and it is what keeps a
+ * scanner from learning which stores hold a secret by watching connections succeed.
+ */
+describe('opening a store with the password in hand', () => {
+  const connectingTo = (host: string, hostname: string) =>
+    `Connecting to ${host}:6379...\nConnected to Redis ${hostname}.`;
+
+  it('spends the password as its first statement, after the store is open', async () => {
+    const statement = vi.fn(async () => ({ kind: 'answered' as const, output: ['OK'], failed: false }));
+    const env = onLan({ connect: async () => ({ ok: true, hostname: 'www-07' }), run: statement });
+
+    const result = await run(env, [storeHost.ip, 'sunshine']);
+
+    expect(statement).toHaveBeenCalledWith(
+      expect.objectContaining({ statement: 'AUTH sunshine', targetIp: storeHost.ip }),
+    );
+    // Printed, where the real client is silent: the greeting is already two chatty
+    // lines, and a silent success is indistinguishable from a client that ignored the
+    // argument it was handed.
+    expect(linesOf(result)).toBe(`${connectingTo(storeHost.ip, 'www-07')}\nOK`);
+    expect(sync(result).exitCode).toBe(0);
+  });
+
+  it('holds the password once the store has accepted it', async () => {
+    const enter = vi.fn();
+    const statement = vi.fn(async () => ({ kind: 'answered' as const, output: ['OK'], failed: false }));
+    const env = onLan({ connect: async () => ({ ok: true, hostname: 'www-07' }), enter, run: statement });
+
+    await run(env, [storeHost.ip, 'sunshine']);
+
+    // Every later statement re-sends it — there is no session row holding it instead.
+    expect(enter).toHaveBeenLastCalledWith(expect.objectContaining({ password: 'sunshine' }));
+  });
+
+  it('leaves the player at the prompt when the store refused the password', async () => {
+    const leave = vi.fn();
+    const statement = vi.fn(async () => ({
+      kind: 'answered' as const,
+      output: ['(error) ERR invalid password'],
+      failed: true,
+    }));
+    const env = onLan({ connect: async () => ({ ok: true, hostname: 'www-07' }), leave, run: statement });
+
+    const result = await run(env, [storeHost.ip, 'guesswork']);
+
+    // A wrong password is not a refused connection. The store is open, the prompt is
+    // theirs, and they are free to AUTH again.
+    expect(linesOf(result)).toContain('(error) ERR invalid password');
+    expect(sync(result).exitCode).toBe(1);
+    expect(leave).not.toHaveBeenCalled();
+  });
+
+  it('says so when the store had no password to be given one', async () => {
+    const statement = vi.fn(async () => ({
+      kind: 'answered' as const,
+      output: ['(error) ERR Client sent AUTH, but no password is set'],
+      failed: true,
+    }));
+    const env = onLan({ connect: async () => ({ ok: true, hostname: 'www-07' }), run: statement });
+
+    expect(linesOf(await run(env, [storeHost.ip, 'sunshine']))).toContain(
+      'no password is set',
+    );
+  });
+
+  it('asks the store nothing extra when no password was typed', async () => {
+    const statement = vi.fn();
+    const env = onLan({ connect: async () => ({ ok: true, hostname: 'www-07' }), run: statement });
+
+    const result = await run(env, [storeHost.ip]);
+
+    expect(statement).not.toHaveBeenCalled();
+    expect(linesOf(result)).toBe(connectingTo(storeHost.ip, 'www-07'));
+  });
+
+  it('names the optional password where a player would look for it', async () => {
+    const refused = await run(onLan(), []);
+
+    expect(linesOf(refused)).toContain('rediscli <host> [password]');
+    expect(rediscli.manual?.synopsis).toBe('rediscli <host> [password]');
+    expect(rediscli.manual?.arguments?.map((argument) => argument.name)).toContain('password');
   });
 });

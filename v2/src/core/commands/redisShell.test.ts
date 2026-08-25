@@ -138,11 +138,13 @@ describe('what the prompt answers for itself', () => {
     // A synopsis with nothing beside it is a word the player still has to guess at.
     const rows = listed.split('\n').slice(1);
     const described = rows.map((row) =>
-      row.trim().replace(/^(KEYS \[pattern\]|GET <key>|DBSIZE|exit \/ quit)\s*/, ''),
+      row
+        .trim()
+        .replace(/^(AUTH <password>|KEYS \[pattern\]|GET <key>|DBSIZE|exit \/ quit)\s*/, ''),
     );
 
-    expect(rows).toHaveLength(4);
-    // Each row led with one of the four synopses above — the replace found it — and
+    expect(rows).toHaveLength(5);
+    // Each row led with one of the five synopses above — the replace found it — and
     // what remains is a sentence rather than the rest of an unrecognised row.
     expect(described.every((description) => description.split(' ').length >= 3)).toBe(true);
   });
@@ -233,5 +235,119 @@ describe('a store that stopped answering', () => {
     // A quit is the player leaving; this is the box leaving. Saying goodbye for it
     // would read as though they had chosen to go.
     expect(linesOf(result)).not.toContain('Bye');
+  });
+});
+
+/**
+ * Holding what the store let you in with.
+ *
+ * There is no session row anywhere, so being past a store's lock is not a state the
+ * server keeps — it is a password that rides on every statement. The prompt is the only
+ * thing that remembers it, and it learns it the same way the player does: by sending an
+ * `AUTH` and being told the daemon accepted it. It never judges one itself.
+ */
+describe('holding a store secret', () => {
+  const LOCKED = { ...CONNECTION, password: 'sunshine' } as const;
+
+  it('sends the password it is holding with every statement', async () => {
+    const run = vi.fn(async () => answered(['(integer) 2']));
+
+    await runRedisLine(shellEnv({ run }), 'DBSIZE', LOCKED);
+
+    // Re-sent rather than remembered: a store whose secret changed under this
+    // connection refuses the very next line, which is the whole eviction mechanism.
+    expect(run).toHaveBeenCalledWith({ ...LOCKED, statement: 'DBSIZE' });
+  });
+
+  it('holds the password once the daemon accepts an AUTH', async () => {
+    const enter = vi.fn();
+    const run = vi.fn(async () => answered(['OK']));
+
+    await runRedisLine(shellEnv({ enter, run }), 'AUTH sunshine', CONNECTION);
+
+    // The line still made the trip and the box still judged it. What the client adds is
+    // remembering what was accepted.
+    expect(run).toHaveBeenCalledWith({ ...CONNECTION, statement: 'AUTH sunshine' });
+    expect(enter).toHaveBeenCalledWith({ ...CONNECTION, password: 'sunshine' });
+  });
+
+  it('holds nothing when the daemon refused the password', async () => {
+    const enter = vi.fn();
+    const run = vi.fn(async () => answered(['(error) ERR invalid password'], true));
+
+    const result = await runRedisLine(shellEnv({ enter, run }), 'AUTH guesswork', CONNECTION);
+
+    expect(linesOf(result)).toBe('(error) ERR invalid password');
+    expect(enter).not.toHaveBeenCalled();
+  });
+
+  it('holds nothing when the box is gone, however the line was spelled', async () => {
+    const enter = vi.fn();
+    const leave = vi.fn();
+    const run = vi.fn(async (): Promise<RedisStatementResult> => ({ kind: 'lost' }));
+
+    await runRedisLine(shellEnv({ enter, leave, run }), 'AUTH sunshine', CONNECTION);
+
+    // A daemon that died mid-connection must not leave the prompt believing it is in.
+    expect(enter).not.toHaveBeenCalled();
+    expect(leave).toHaveBeenCalled();
+  });
+
+  it('replaces the password it was already holding when a second AUTH is accepted', async () => {
+    const enter = vi.fn();
+    const run = vi.fn(async () => answered(['OK']));
+
+    await runRedisLine(shellEnv({ enter, run }), 'AUTH moonlight', LOCKED);
+
+    expect(enter).toHaveBeenCalledWith({ ...LOCKED, password: 'moonlight' });
+  });
+
+  it('takes the verb in any case, and holds nothing for a line that only looks like one', async () => {
+    const enter = vi.fn();
+    const run = vi.fn(async () => answered(['OK']));
+    const env = shellEnv({ enter, run });
+
+    await runRedisLine(env, 'auth sunshine', CONNECTION);
+    expect(enter).toHaveBeenCalledWith({ ...CONNECTION, password: 'sunshine' });
+
+    enter.mockClear();
+    // Not an AUTH the daemon could have accepted — whatever it answered, there is no
+    // one password here to hold.
+    for (const typed of ['AUTH', 'AUTHOR sunshine', 'GET AUTH']) {
+      await runRedisLine(env, typed, CONNECTION);
+      expect(enter, typed).not.toHaveBeenCalled();
+    }
+  });
+
+  it('holds nothing for a line that merely CONTAINS an AUTH', async () => {
+    const enter = vi.fn();
+    const run = vi.fn(async () => answered(['OK']));
+    const env = shellEnv({ enter, run });
+
+    // Both ends of the anchor. A key whose name ends in `auth`, a verb that merely
+    // starts with it, and a line the daemon answered OK for some other reason must none
+    // of them leave this prompt believing it holds a password it never sent.
+    for (const typed of ['GET conf:auth sunshine', 'XAUTH sunshine', 'GET AUTH sunshine']) {
+      await runRedisLine(env, typed, CONNECTION);
+      expect(enter, typed).not.toHaveBeenCalled();
+    }
+  });
+
+  it('holds the password however the AUTH was spaced', async () => {
+    const enter = vi.fn();
+    const run = vi.fn(async () => answered(['OK']));
+
+    // The daemon splits on whitespace and does not care how much of it there was, so a
+    // prompt that only recognised a single space would drop a password the store had
+    // just accepted.
+    await runRedisLine(shellEnv({ enter, run }), 'AUTH   sunshine', CONNECTION);
+
+    expect(enter).toHaveBeenCalledWith({ ...CONNECTION, password: 'sunshine' });
+  });
+
+  it('lists AUTH among the verbs it will carry', async () => {
+    const result = await runRedisLine(shellEnv(), 'help', CONNECTION);
+
+    expect(linesOf(result)).toContain('AUTH <password>');
   });
 });

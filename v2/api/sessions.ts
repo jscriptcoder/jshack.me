@@ -594,12 +594,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // discover it by asking again.
     //
     // The handler READS the target's journal — the store somebody may have edited as
-    // root — and writes NOTHING. Reads never append, which is real Redis's behaviour
-    // and the database door's rule both; the write verbs and the lines they leave
-    // arrive with the slice that lands them.
+    // root — and writes for exactly one line: an `AUTH` a store with a secret judged.
+    // Reads never append, which is real Redis's behaviour and the database door's rule
+    // both; the write verbs and the lines they leave arrive with the slice that lands
+    // them.
     const { status, body } = await handleRedisStatement(req.body, {
       nonceStore: noopNonceStore,
+      now: () => Date.now(),
       findPatches: findPatchesVia({ supabase, label: 'redis statement journal lookup' }),
+      readRedisLog: readAuthLogVia({ supabase, label: 'redis statement log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'redis statement upsert' }),
       findNetworkByPublicIp: findNetworkByPublicIpVia({
         supabase,

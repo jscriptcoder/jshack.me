@@ -23,6 +23,15 @@
 //     of nothing.
 //   - A store edited THROUGH `patches` is the store that answers. Live, the journal has
 //     to really be found and replayed; the unit test hands it over.
+//   - `AUTH` is judged across the wire, and a statement carrying the accepted password
+//     is answered while one carrying none is still refused. Being past the lock is a
+//     claim every line makes, so it has to survive a real round-trip rather than a
+//     handler call.
+//   - Each judged `AUTH` appends ONE attempt line to the target's own redis.log, in the
+//     same row the arrival went to, and the reads behind it append nothing.
+//   - STILL no session row after an accepted `AUTH`. That is the moment a door would be
+//     tempted to mint one, and a row here would hand `listPatches` to anyone who
+//     guessed a store password.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testRedisConnect.ts
@@ -40,6 +49,8 @@ import { storeIn, DATADIR_PATH } from '../src/core/redis/datadir';
 import { redisStoreSchema } from '../src/core/redis/types';
 import { DATADIR_FILE } from '../src/core/generation/baseFs';
 import { REDIS_LOG_OWNER, REDIS_LOG_PATH } from '../src/core/logging/redisLog';
+import { ALL_GENERATED_PASSWORDS } from '../src/core/generation/passwordPools';
+import { md5 } from '../src/core/generation/md5';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;
@@ -152,16 +163,23 @@ const connect = (host: LanHost) =>
     }),
   );
 
-const ask = (host: LanHost, statement: string) =>
+const ask = (host: LanHost, statement: string, password?: string) =>
   post(
     signRequest(client, 'redisStatement', {
       essid: ESSID,
       target_ip: host.ip,
       port: PORT,
       statement,
+      ...(password === undefined ? {} : { password }),
       source_ip: CLIENT_IP,
     }),
   );
+
+/** The plaintext behind the chosen store's lock. Every generated secret comes from one
+ *  of the two pools, so a hash with no plaintext here means this ESSID is unusable for
+ *  the AUTH half rather than that the door is broken. */
+const secretOf = (hash: string): string | null =>
+  ALL_GENERATED_PASSWORDS.find((word) => md5(word) === hash) ?? null;
 
 /** Plant an edited store the way a rooted player would: one row at the datadir path on
  *  the target's machine, which is what the journal replay has to pick up. */
@@ -265,6 +283,62 @@ const main = async (): Promise<void> => {
     'not one of its keys appears anywhere in the response body',
     heldKeys.length > 0 && heldKeys.every((key) => !refusedBody.includes(key)),
     `${heldKeys.length} keys held, none leaked`,
+  );
+
+  // ─── the secret, produced ───
+  const secret = secretOf(lockedStore.requirepassHash ?? '');
+  if (secret === null) {
+    console.error(`the locked store on ${lockedHost.hostname} holds a secret from no pool`);
+    process.exit(2);
+  }
+
+  const guessed = await ask(lockedHost, 'AUTH not-the-one');
+  check(
+    'a wrong password is refused across the wire, and says so in the daemon own words',
+    JSON.stringify(guessed.body) ===
+      JSON.stringify({ output: ['(error) ERR invalid password'], failed: true }),
+    `body ${JSON.stringify(guessed.body).slice(0, 120)}`,
+  );
+
+  const accepted = await ask(lockedHost, `AUTH ${secret}`);
+  check(
+    'and the store accepts its own secret',
+    JSON.stringify(accepted.body) === JSON.stringify({ output: ['OK'], failed: false }),
+    `body ${JSON.stringify(accepted.body).slice(0, 120)}`,
+  );
+
+  const unlocked = await ask(lockedHost, 'KEYS *', secret);
+  const lockedKeys = Object.keys(lockedStore.keys).map((key, index) => `${index + 1}) "${key}"`);
+  check(
+    'a statement carrying the password is answered with the keys it was hiding',
+    JSON.stringify(unlocked.body) === JSON.stringify({ output: lockedKeys, failed: false }),
+    `body ${JSON.stringify(unlocked.body).slice(0, 160)}`,
+  );
+
+  const stillShut = await ask(lockedHost, 'KEYS *');
+  check(
+    'while a statement carrying none is refused exactly as before',
+    JSON.stringify(stillShut.body) ===
+      JSON.stringify({ output: ['(error) NOAUTH Authentication required.'], failed: true }),
+    `body ${JSON.stringify(stillShut.body).slice(0, 120)}`,
+  );
+
+  const lockedRows = await rowsOn(lockedMachine);
+  const lockedLog = lockedRows.find((row) => row.path === REDIS_LOG_PATH);
+  const lockedLines = (lockedLog?.content ?? '').trim().split('\n');
+  check(
+    'both judgements appended to the TARGET log, beside the arrival and in that order',
+    lockedRows.length === 1 &&
+      lockedLines.length === 3 &&
+      lockedLines[0]?.includes('Client connected from') === true &&
+      lockedLines[1]?.includes('authentication failed') === true &&
+      lockedLines[2]?.includes('authenticated successfully') === true,
+    `${lockedRows.length} row(s), ${lockedLines.length} line(s): ${JSON.stringify(lockedLines)}`,
+  );
+  check(
+    'and STILL no session row, now that a password has actually been accepted',
+    (await sessionRowCount()) === 0,
+    `${await sessionRowCount()} row(s) for this key`,
   );
 
   // ─── the journal is really replayed ───

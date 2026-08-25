@@ -10,6 +10,8 @@ import { seedApGatewayAdminPw, seedApGatewayHostname } from '../generation/route
 import { workstationGuestPassword } from '../generation/workstationFs';
 import { md5 } from '../generation/md5';
 import { DATADIR_PATH } from '../mysql/datadir';
+import { DATADIR_PATH as REDIS_DATADIR_PATH } from '../redis/datadir';
+import { redisStoreSchema } from '../redis/types';
 import { formatPidfileContent, pidfilePath } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { MYSQL_LOG_OWNER, MYSQL_LOG_PATH, MYSQL_LOG_PERMISSIONS } from '../logging/mysqlLog';
@@ -165,6 +167,27 @@ const datadirUp: OwnerPatchRow = {
   path: DATADIR_PATH,
   content: JSON.stringify(RESIDENT_DATABASE),
 };
+// The resident also runs a key-value store — the door with no accounts at all, whose
+// one secret belongs to the SERVICE. Published the same way, and swept by the same rule.
+const REDIS_SECRET = 'sunshine';
+const redisUp: OwnerPatchRow = {
+  ...sshdUp,
+  path: pidfilePath(SERVICE_CATALOG.redis),
+  content: formatPidfileContent(SERVICE_CATALOG.redis, SERVICE_CATALOG.redis.defaultPort),
+};
+const storeWith = (requirepassHash: string | null): OwnerPatchRow => ({
+  ...sshdUp,
+  path: REDIS_DATADIR_PATH,
+  content: JSON.stringify(
+    redisStoreSchema.parse({ keys: { 'sess:0a1b2c3d': '{"username":"root"}' }, requirepassHash }),
+  ),
+});
+const REDIS_FORWARD_PORT = 6699;
+const REDIS_FORWARD: OwnerPatchRow = {
+  ...RESIDENT_FORWARD,
+  content: `forward ${REDIS_FORWARD_PORT} to ${RESIDENT_LAN_IP}:${SERVICE_CATALOG.redis.defaultPort}`,
+};
+
 // A third door on the same gateway, and the only one that reaches 3306.
 const MYSQL_FORWARD_PORT = 5533;
 const MYSQL_FORWARD: OwnerPatchRow = {
@@ -870,6 +893,48 @@ describe('handleHydraCrackPublic', () => {
         );
 
         expect({ status, body }).toEqual({ status: 404, body: { error: 'service_not_running' } });
+        expect(upsertPatch).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('a store published through a forward', () => {
+      // The point of passing the store's secret to EVERY sweep handler rather than to
+      // the one this slice happened to be written against: a door crackable from the
+      // LAN and silently uncrackable from a vantage away is worse than one that could
+      // not be reached at all, because nothing about it looks broken.
+      it('gives up its password to the same sweep, from a vantage away', async () => {
+        const { status, body } = await handleHydraCrackPublic(
+          envelope({ port: REDIS_FORWARD_PORT, service: 'redis' }),
+          forwardDeps({
+            gatewayPatches: [REDIS_FORWARD],
+            occupantPatches: [redisUp, storeWith(md5(REDIS_SECRET))],
+            wordlist: ['nonsense', REDIS_SECRET],
+          }),
+        );
+
+        expect({ status, body }).toEqual({
+          status: 200,
+          body: {
+            port: REDIS_FORWARD_PORT,
+            cracked: [{ password: REDIS_SECRET }],
+            wordlistFound: true,
+          },
+        });
+      });
+
+      it('says an OPEN store has no password to find here either', async () => {
+        const upsertPatch = vi.fn(async () => ({ error: null }));
+        const { status, body } = await handleHydraCrackPublic(
+          envelope({ port: REDIS_FORWARD_PORT, service: 'redis' }),
+          forwardDeps({
+            gatewayPatches: [REDIS_FORWARD],
+            occupantPatches: [redisUp, storeWith(null)],
+            wordlist: DEFAULT_WORDLIST,
+            upsertPatch,
+          }),
+        );
+
+        expect({ status, body }).toEqual({ status: 404, body: { error: 'no_password_set' } });
         expect(upsertPatch).not.toHaveBeenCalled();
       });
     });
