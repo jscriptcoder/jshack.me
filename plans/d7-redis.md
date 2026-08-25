@@ -2,7 +2,7 @@
 
 **Branch**: `docs/plan-d7-redis` (this plan) → `feat/d7-*` per slice
 **Status**: Active — **slices 1–3 SHIPPED (v0.174.0 #452, v0.175.0 #453, v0.176.0 #454)**;
-**slice 4 NEXT, not yet planned** on `feat/d7-redis-write-store`
+**slice 4 BUILT, criteria approved 2026-08-25** on `feat/d7-redis-write-store`
 
 > Decisions are LOCKED in [`legacy-parity-epic.md`](legacy-parity-epic.md) §"D7 — resolved scope &
 > decisions (grill-me, 2026-08-24)". This file sequences them; it does not re-open them. Where
@@ -631,12 +631,178 @@ the commit.
 
 ### Slice 4: A player changes a store
 
-**Value**: The game's first no-credential write.
-**Acceptance criteria**: `SET` and `DEL` land and append to the target's log; `GET`/`KEYS`/`DBSIZE`
-never do; an open store accepts a write from anyone who reaches it; a locked store accepts one only
-after `AUTH`. **Carries the epic's open question** on whether a mutation line records the key and
-value verbatim or a summary — verbatim writes player-typed text into a file other players `cat`.
-**Class**: Behavior change. Wire-check required.
+**Value**: The game's first no-credential write. Every door before this one asked who you were
+before it let you change anything; an open store asks nothing, so a player who found one in slice 2
+can rewrite what it holds — and the box's own log is the only thing that will say they were there.
+**Path**: `SET`/`DEL` at `redis> ` → one `redisStatement` round-trip per line → the verb table, past
+the same gate the reads pass → the whole document written back to the target's
+`/var/lib/redis/data.json` → one mutation line appended to the target's `/var/log/redis.log`,
+beside the arrival line the connection left.
+**Class**: Behavior change.
+**Required implementation skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
+`reduce-system-complexity` — `N/A`: this slice adds two verbs and one formatter and retires
+nothing, so there is no net-reduction claim to make.
+**Reduction program**: `N/A`. **Transition/terminal evidence**: `N/A`.
+
+**Already shipped, not re-litigated here**: the `NOAUTH` gate (slice 2) and the statement handler's
+ability to write at all (slice 3, for the attempt line). What is new is that the content of a write
+comes off the wire rather than out of the server.
+
+**Acceptance criteria** (present to human before any code):
+
+1. `SET <key> <value>` on an open store answers `OK`, and a `GET <key>` in a SEPARATE round-trip
+   returns it — the change is on the box, not in a client's copy. Setting a key the store already
+   holds replaces the value and leaves `DBSIZE` where it was; setting a new one raises it by one.
+2. `SET <key> "<value with spaces>"` stores the value without its surrounding quotes. A bare
+   `SET <key>` and a three-word `SET <key> a b` each answer
+   `(error) ERR wrong number of arguments for 'set' command` and change nothing: a quoted run is one
+   value, and it is the only way to give a value a space.
+3. `DEL <key>` answers `(integer) 1` for a key the store holds, removes it, and leaves `GET` at
+   `(nil)` with `DBSIZE` one lower. For a key the store does not hold it answers `(integer) 0`,
+   changes nothing and **writes no line at all** — nothing happened, so the record says nothing
+   happened. A bare `DEL` answers `(error) ERR wrong number of arguments for 'del' command`.
+4. A store that changed is persisted as the WHOLE document at `/var/lib/redis/data.json`, under the
+   target's own writer key, root-owned and `read: ['root']` — owner and permissions re-stated on
+   every write rather than inherited, so a rewrite can never widen the one file on the box that
+   holds a hash a sweep has to work for. **`requirepassHash` survives every `SET` and `DEL`
+   untouched**: a write verb is not a way to unlock a store, or to lock someone else's.
+5. A write that could not be persisted never reports success. The handler answers 500, the client
+   turns that into `lost`, and the player is dropped with `Error: Server closed the connection`
+   rather than being told `OK` about a change that did not land.
+6. Every mutation that performed a write appends ONE line to the target's `/var/log/redis.log`,
+   appended to what the file already held, under the target's own writer key, root-owned and
+   world-readable, beside the arrival line the connection left:
+   - `<pid>:M <stamp> * Client <ip> SET <key> "<value>"`
+   - `<pid>:M <stamp> * Client <ip> DEL <key>`
+7. The logged detail is **normalized and capped**. Every run of whitespace collapses to one space
+   and no control character survives, so a crafted client cannot forge a second entry or a false
+   `authenticated successfully`; and a value longer than 100 characters is cut with a trailing `...`
+   so one `SET` cannot bury a file every visitor appends to. A statement carrying `\n`, `\t` and 500
+   characters produces exactly ONE line, of bounded length.
+8. **Reads still write nothing.** A session of `KEYS`/`GET`/`DBSIZE`, an unknown command, a `NOAUTH`
+   refusal, a rejected arity and a `DEL` that matched nothing leave the target byte-identical to how
+   the connection found it — no datadir patch, no log line, no row. Slice 2's write-nothing test now
+   guards READS specifically rather than the handler.
+9. **A locked store refuses a write exactly as it refuses a read.** `SET` and `DEL` answer
+   `(error) NOAUTH Authentication required.` before `AUTH`, change nothing and write nothing; after
+   an accepted `AUTH` on the same connection they land. A store whose `requirepassHash` changes
+   under a held connection refuses that connection's next `SET`.
+10. **An open store accepts a write from anyone who reaches it** — no account, no tier, no
+    credential, and one test that says so in those words. This is the game's first write with
+    nothing behind it, and the criterion exists so a later slice cannot quietly add a gate here and
+    call it a fix.
+11. A box running the daemon with **no readable store** gains one on its first write: the file is
+    created at the declared path with the declared owner and permissions, holding that one key and
+    `requirepassHash: null`. Reader and writer name the file from ONE declaration, so a write can
+    never land somewhere nothing reads it.
+12. `help` at `redis> ` lists `SET <key> <value>` and `DEL <key>` beside the read verbs, aligned by
+    the same computed column, and `man rediscli` names both. **The help text states the quoting
+    rule**, because a row promising an unquoted multi-word value would contradict criterion 2.
+13. The `scripts/testRedisConnect.ts` **wire-check** runs green live: a `SET` crossing the wire
+    lands in the real `patches` table at the datadir path with its owner and permissions accepted,
+    reads back through a second round-trip, `DEL` removes it, both mutation lines land in the
+    target's `redis.log` beside the arrival, a session of reads adds nothing, and there are still
+    ZERO rows in `sessions`.
+
+**PLANNING CORRECTIONS to record with these criteria:**
+
+- **The epic's open question is ANSWERED: verbatim, normalized, capped** (decided 2026-08-25).
+  D6 settled the same question for the database door — its `Query` line carries the statement, and
+  its test says why the objection dissolves: *"it is normalized first"*, so a player can neither
+  forge a second entry nor fake the columns. Two doors telling one story about their own general
+  log is worth more than a rule invented here. **What settled it was noticing the summary form buys
+  less than it looks**: the KEY is player-chosen too, so `SET <insult> x` writes graffiti into the
+  file under any form. The choice was payload size, not presence — and a defender being able to
+  tell a poisoned session from a deleted one is worth the difference. The cap is redis's own
+  addition, because a mysql statement is a statement and a redis value can be a blob.
+- **The normalization is the CRAFTED-CLIENT boundary, not the prompt's.** A player at `redis> `
+  cannot type a newline; the `statement` field on the wire can hold one. So control characters die
+  server-side at the parse, where slice 3's arity fix went and for the same reason — the client is
+  not the thing being defended against.
+- **Control characters die at the trust boundary; whitespace runs live only inside a quoted value.**
+  Unlike mysql, which normalizes BEFORE parsing so the collapse reaches the stored value too. Here
+  a value may legitimately hold a run of spaces, and a store that silently squeezed `"a  b"` would
+  answer `GET` with something the player did not write. But a stored newline would forge lines in
+  another player's `GET` output, so control characters go from the whole statement while runs
+  survive in the value and collapse only in the rendered log detail.
+- **`SET` takes exactly a key and a value, and a quoted run is one value** (decided 2026-08-25).
+  Following slice 3's arity fix rather than legacy's `parts.slice(2).join(' ')`, which carries a
+  reachable bug of the `KEYS ?` family slice 2 fixed: `SET k "a" "b"` strips the outer quotes and
+  stores `a" "b`. Real redis answers a syntax error for a stray third word, and a strict rule is one
+  the help row can state completely.
+- **The quoted-run tokenizing slice 2 DELETED comes back here, which is what it was deleted for.**
+  Its comment says the handling *"belongs with the verb that needs it, and would be untestable
+  machinery until then"*. `SET` is that verb. It returns as a token rule — a double-quoted run is
+  one token — not as legacy's post-hoc strip of a joined remainder.
+- **The datadir write is keyed on the verb having WRITTEN, not on the verb.** mysql names the trap:
+  *"a caller deciding from the verb would persist an unchanged database and record a mutation that
+  never happened"*. Legacy already classifies this door's two cases the same way — `SET` is always a
+  mutation, `DEL` only when the key was there — so precedent and principle agree. A `SET` of the
+  value a key already holds still counts: real Redis performs it, and hiding a write that happened
+  from the one file a defender reads, to save a patch, is the wrong trade.
+- **The datadir's owner and permissions have to move into `redis/datadir.ts`.** Today they live only
+  in the generator, which plants `DATADIR_FILE` from `baseFs`; a writer naming its own would be a
+  second declaration of one fact, and on the day they disagree a written store is a store the reader
+  can no longer read. `DATADIR_PATH`'s own comment already states that rule for the path — the owner
+  joins it as `DATADIR_OWNER`, exactly as `mysql/datadir.ts` exports one, with the shared
+  `DATADIR_FILE` permissions reused rather than restated.
+- **The client changes only in `help` and the manual.** The statement string already crosses and
+  `output`/`failed` already come back, so there is no adapter work. But `HELP_WIDTH` is computed
+  from the longest synopsis, and `SET <key> <value>` (17) is longer than `AUTH <password>` (15) — so
+  **the column moves again**. Slice 2 had a test mis-model `padEnd` when it moved and slice 3 broke
+  the row-count assertion; expect both.
+- **The two sides of one rule to watch, per slice 3's lesson.** The help row and the parser must
+  agree about quoting: a row reading `SET <key> <value>` while the parser demands a quoted run for a
+  spaced value is exactly the shape of slice 3's `AUTH` defect, where each side was correct alone.
+  Criterion 12 is what catches it. The second candidate pair is the log formatter and the
+  normalizer — a formatter that quoted a value the normalizer had already truncated would produce a
+  line neither side thinks it wrote.
+- **This is the first time this door writes something a PLAYER chose.** Slice 3 taught the handler
+  to write, but the attempt line's content is entirely the server's. That is why criterion 7 is a
+  test about a crafted client rather than about a player at a prompt.
+
+**RED** — behavior tests, before any production change:
+
+- `core/redis/statements.test.ts` — `SET` creating and replacing; the quoted value; both arity
+  refusals; `DEL` hit, miss and bare; the written store present only when the verb wrote and absent
+  for every read, refusal and missed `DEL`; the logged detail keyed the same way; the control
+  characters stripped, the runs collapsed and the value capped; `requirepassHash` surviving; and
+  `NOAUTH` covering both write verbs on a locked store.
+- `sessions/redisStatement.test.ts` — the datadir patch's path, content, owner and permissions; the
+  mutation line's content, appended beside the arrival rather than replacing it; a 500 and NO log
+  line when the patch fails; reads and a missed `DEL` handing the fake `upsertPatch` exactly zero
+  rows; a locked store refusing a write without the password and accepting it with; and the store
+  created on a box that had none.
+- `logging/redisLog.test.ts` — the two line shapes, and the cap at its boundary.
+- `commands/redisShell.test.ts` — the two new help rows, the moved column, and a `SET` line still
+  making the trip rather than being answered locally.
+- `commands/rediscli.test.ts` — the manual naming both verbs and the quoting rule.
+
+**GREEN**: `set` and `del` in `core/redis/statements.ts` (the quoted-run tokenizer back, the
+control-character strip, and `store?` / `logged?` on the result, keyed on having written);
+`formatRedisMutationLine` in `core/logging/redisLog.ts`; `DATADIR_OWNER` in `core/redis/datadir.ts`;
+the datadir write and the mutation append in `sessions/redisStatement.ts`; two rows in
+`redisShell.ts`'s `HELP_ROWS`; the manual in `rediscli.ts`.
+
+**MUTATE**: Stryker over `core/redis/statements.ts`, `sessions/redisStatement.ts` and
+`core/logging/redisLog.ts`. Scoped-runner recipe from `conventions-and-gotchas.md` §4 rather than a
+whole-repo run, and both mis-scoring families that section records — hand-apply a suspicious
+survivor before treating it as a real gap. Expect the valuable survivors on the length cap's
+boundary and the two arity checks, which is where slice 3's real defect lived.
+**KILL MUTANTS**: Address survivors; ask when a survivor's value is ambiguous.
+**REFACTOR**: One candidate, to be assessed only if it earns it. `redisStatement.ts` and
+`mysqlStatement.ts` now share a three-step shape — run, persist the document if it changed, append a
+line if one is owed. The expectation is to leave them: the two doors persist different things behind
+that shape, and this epic has twice declined to collapse a repo-wide family from inside one slice.
+**Wire-check**: extend `scripts/testRedisConnect.ts` rather than adding a script — the sweep script
+is hydra's. What only a live stack can prove: that a `SET`'s document is accepted by the real
+`patches` table at the datadir path with root-only permissions; that a second statement round-trip
+reads back what the first wrote, so the journal is really replayed over the seeded base rather than
+a client's copy being echoed; that both mutation lines land in the target's own `redis.log` beside
+the arrival; that reads add nothing; and that `sessions` still holds zero rows.
+**Version**: bump `0.176.0` → `0.177.0` in `v2/package.json` + `v2/package-lock.json`.
+**Done when**: criteria 1–13 met, wire-check green, mutation report presented, human approves the
+commit.
 
 ### Slice 5: A store on a deep layer answers
 
