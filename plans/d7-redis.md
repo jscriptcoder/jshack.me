@@ -1,7 +1,8 @@
 # Plan: D7 — a player reads (and rewrites) a machine's key-value store (`rediscli`)
 
 **Branch**: `docs/plan-d7-redis` (this plan) → `feat/d7-*` per slice
-**Status**: Active — **slice 1 SHIPPED v0.174.0 (#452)**; slice 2 is next and unplanned
+**Status**: Active — **slice 1 SHIPPED v0.174.0 (#452)**; **slice 2 PLANNED, awaiting
+approval of its 14 criteria** on `feat/d7-redis-open-store`
 
 > Decisions are LOCKED in [`legacy-parity-epic.md`](legacy-parity-epic.md) §"D7 — resolved scope &
 > decisions (grill-me, 2026-08-24)". This file sequences them; it does not re-open them. Where
@@ -232,30 +233,180 @@ composition is the one place where a shared helper is load-bearing rather than t
 
 ### Slice 2: A player opens an unlocked store
 
-**Value**: The walking skeleton and the 4-in-10 case — the door where the find *is* the whole play.
-**Path**: `rediscli <host>` → the sub-shell → the target's datadir → an arrival line in the target's
-`/var/log/redis.log`.
-**Class**: Behavior change. **Skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
-**Acceptance criteria**: `rediscli <host>` prints `Connecting to <ip>:6379…` / `Connected to Redis
-<hostname>.` and reaches `redis> `; `KEYS`, `GET`, `DBSIZE`, `QUIT`/`EXIT` answer; unknown input
-answers `(error) ERR unknown command '…'`; the arrival line lands in the target's log; the shell
-never moved (`subShellPrompt()` gains its third rung and no session row is minted).
-**Both type ghosts deleted here** — `SessionKind`'s `'redis'` and `ModeChange`'s redis overlay, plus
-the `state.ts` narrow comment that says redis "stays a no-op until its door lands".
-**RED**: Command-level behavior tests plus a `scripts/test*.ts` **wire-check**.
-**Done when**: criteria met, wire-check green, commit approved.
+**Value**: The walking skeleton, and the 4-in-10 case where the FIND is the whole play with no crack
+in between. A player who scanned a box in slice 1 and read the conf naming its datadir can now stand
+at that datadir's own prompt and read what it holds, with no credential at all.
+**Path**: `rediscli <host>` → the signed `redisConnect` round-trip → the four-vantage reach → the
+target's REAL `/var/lib/redis/data.json` (journal replayed over the seeded base) → `redis> ` → one
+`redisStatement` round-trip per line → one arrival line in the target's `/var/log/redis.log`.
+**Class**: Behavior change, carrying one behavior-preserving refactor as its first commit.
+**Required implementation skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
+`reduce-system-complexity` — `N/A`: the refactor below avoids a duplicate rather than retiring a
+mechanism, so there is no net-reduction claim to make.
+**Reduction program**: `N/A`. **Transition/terminal evidence**: `N/A`.
+
+**Acceptance criteria** (present to human before any code):
+
+1. `rediscli <host>` against a box running redis prints `Connecting to <ip>:6379...`, then
+   `Connected to Redis <hostname>.`, and leaves the terminal at `redis> `. The shell behind it has
+   not moved — cwd, tier and host are what they were, and `QUIT` hands it straight back.
+2. While the prompt is held, **every** typed line is answered by the redis sub-shell rather than the
+   command registry: `ls`, `cat /etc/passwd` and `rm -rf /` at `redis> ` answer
+   `(error) ERR unknown command '<word>'` and read nothing on the box the player is standing on.
+3. `KEYS *` lists the store's keys as `1) "<key>"` numbered from one; `KEYS <glob>` filters by the
+   glob; a pattern matching nothing answers `(empty list or set)`.
+4. `GET <key>` answers `"<value>"` for a key the store holds, `(nil)` for one it does not, and
+   `(error) ERR wrong number of arguments for 'get' command` for a bare `GET`.
+5. `DBSIZE` answers `(integer) <n>`, and `<n>` is the count `KEYS *` just listed.
+6. `QUIT` and `EXIT` in any case leave the prompt and print nothing; a bare Enter answers nothing and
+   holds it. Neither costs a round-trip, so leaving still works with the box already gone.
+7. On a **locked** store — the 6 in 10 slice 1 generates — the connection opens and greets exactly as
+   an open one does, and then `KEYS`, `GET` and `DBSIZE` each answer
+   `(error) NOAUTH Authentication required.` Not one key, value or count crosses the wire.
+8. **One** arrival line lands on the TARGET per connection —
+   `<pid>:M <DD Mon YYYY HH:MM:SS.000> * Client connected from <ip>` — appended to what
+   `/var/log/redis.log` already held rather than replacing it, under the target's own writer key,
+   root-owned and readable by `root`, `user` and `guest`.
+9. **Reads write nothing else.** A session of `KEYS`/`GET`/`DBSIZE`, an unknown command and a NOAUTH
+   refusal leave the target byte-identical to how the connection found it: no second log line, no
+   datadir patch, no row anywhere.
+10. **No `sessions` row is created**, at any tier, and `subShellPrompt()` answers `redis> ` while the
+    connection is held — the third rung, with `mysql>` and `ftp>` unchanged.
+11. A target whose daemon is stopped mid-session drops the player on their NEXT statement with
+    `Error: Server closed the connection`, closing the prompt and printing no farewell.
+12. `rediscli` with no argument answers `usage: rediscli <host>`; a host running no redis, an address
+    on no LAN, and the player's own box (which holds no store until slice 6) each answer
+    `Could not connect to Redis at <ip>:6379: Connection refused`.
+13. **Both redis type ghosts are gone** — `SessionKind`'s `'redis'` and `ModeChange`'s
+    `{ kind: 'redis' }` overlay — and with them the `state.ts` narrow that existed only to keep the
+    overlay out of the screen path. `man rediscli` and `help` list the command.
+14. A `scripts/testRedisConnect.ts` **wire-check** runs green against live `vercel dev` + supabase.
+
+**PLANNING CORRECTIONS to record with these criteria:**
+
+- **`reachMysqlHost` is generalized, not copied — and that is the slice's FIRST commit.** All four
+  vantages, the boot gate, the journal replay and the pidfile check are 347 lines in
+  `sessions/mysqlHost.ts`, of which **exactly one** names a service: line 225's
+  `open.service === SERVICE_CATALOG.mysql.service`. So the service becomes a parameter and the
+  module is renamed to what it has actually been since D6 — `reachServiceHost` in
+  `sessions/serviceHost.ts`, with `MysqlHostLookup` / `ReachedMysqlHost` / `MysqlHostReach`
+  following. It lands as a pure behavior-preserving refactor with the existing
+  `mysqlConnect.test.ts` (1220 lines) and `mysqlStatement.test.ts` (1283 lines) as the preservation
+  baseline, committed green BEFORE any redis code, so a regression in the shared reach is
+  attributable to the rename rather than to the new door. **Slice 5 is why this is not optional**:
+  the deep-layer seeded-tree trap lives in this file, §9 records it as "the resolver's to close for
+  every door at once", and two copies means fixing it twice — or fixing it once and leaving one
+  door broken.
+- **The NOAUTH guard ships HERE, though `AUTH` ships in slice 3.** The slice is named for the open
+  store, but the same handler reads the datadir of a locked one, and shipping reads that answer a
+  locked store with no credential would leave 60% of the world's stores wide open for the life of a
+  slice — the exact vacuous-authorization family decision 12 names D6 as having shipped in ITS slice
+  2. The guard belongs where the datadir is read, which is here; the way PAST it — `AUTH`, the
+  `[password]` positional, `secretOn`, `hydra`, the attempt lines — is slice 3's whole subject.
+  Between the two slices a locked store connects, greets, and refuses every statement, which is
+  precisely what the real client does against a store whose password you do not have.
+- **`rediscli` takes no positional password in this slice.** Decision 9 locks
+  `rediscli <host> [password]`, but that argument exists only to pre-send an `AUTH` that does not
+  exist yet, and a command that accepts a word and silently ignores it is worse than one that does
+  not accept it. `USAGE` and `man` say `rediscli <host>` here, and gain the second argument in
+  slice 3 alongside the verb that gives it meaning.
+- **`help` answers at `redis> `, though it is not one of the seven verbs.** `mysql>` lists its verbs
+  and wrote down why: a player told a verb is unsupported "goes hunting for a syntax they already
+  have". That applies harder here, where the surface is seven words and the real client's vocabulary
+  is hundreds. It is the SUB-SHELL's word rather than the store's — answered before the verb table
+  and never sent, exactly as `mysql>`'s is — so decision 9's seven stay seven.
+- **Leaving prints nothing, unlike `mysql>`'s `Bye`.** Legacy returns empty output for `QUIT`, and
+  the real client says nothing either. The feedback is the prompt itself changing back; inventing a
+  farewell this tool does not have would be the door imitating the wrong neighbour.
+- **The greeting does not say whether the store is locked.** Legacy banners `NOAUTH` at connect time;
+  v2 does not, because the real client does not, and because a greeting that announced the lock
+  state would hand a scanner the answer without a single statement typed. Finding out costs one
+  line — and from slice 3, `hydra` is the tool whose job is to answer it up front.
+- **The two new actions land in `api/sessions.ts`, never a new `api/` file.** Every `*.ts` under
+  `api/` is a published Vercel function, so `api/redis.ts` would publish an endpoint the game never
+  calls. The dispatcher already routes on `actionOf(req.body)`; `redisConnect` and `redisStatement`
+  are two more branches beside `mysqlConnect` and `mysqlStatement`, wired with the same
+  supabase-backed deps.
+- **The statement door writes NOTHING in this slice, and a test says so.** Criterion 9 is not
+  housekeeping: slice 4 is where `SET` and `DEL` arrive, and the rule that separates them —
+  "mutations append, reads never" (decision 10, and D6 slice 4's rule) — can only be proven to hold
+  by a test that existed before the first write landed. `handleMysqlStatement` records the same
+  thing about itself: what used to be structural is now a rule, "which is why there are tests
+  standing on it".
+- **The own box needs no path yet.** `mysql` routes its own box entirely client-side because the
+  player's machine has a real filesystem this client holds. Before slice 6 the player's box has no
+  store, so `rediscli 127.0.0.1` finds no `redis.pid` in its own tree and is refused by the
+  preflight — honest, free, and exactly what criterion 12 asserts. Slice 6 is where the own-box
+  conversation arrives, alongside the mirrored root hash.
+
+**RED** — behavior tests, before any production change:
+
+- **The refactor's baseline first**: the two existing mysql handler suites run green, are renamed
+  through, and run green again. No new test is written for the rename, and none should be —
+  asserting the shape of a parameter is not a behavior claim.
+- `rediscli.test.ts` — the connect line, the greeting, the prompt handed over, the shell that did
+  not move, and each refusal in criterion 12 (no host argument, no daemon, no route, own box).
+- `redisShell.test.ts` — the sub-shell's own answers: `QUIT` / `EXIT` in both cases, a bare Enter,
+  `help`, and the registry refusal of criterion 2 (an outer `cat` at `redis> `).
+- `core/redis/statements.test.ts` — the verb table against a store built from the real
+  `redisStoreSchema`: `KEYS` with and without a glob, the empty-match answer, `GET` hit / miss /
+  bare, `DBSIZE` agreeing with `KEYS`, and the unknown-command error naming the word as typed.
+- `sessions/redisConnect.test.ts` — the four vantages reached, the arrival line's content, owner and
+  permissions, that it APPENDS rather than replaces, and that no session row is minted.
+- `sessions/redisStatement.test.ts` — NOAUTH on a locked store for every verb; the answered shape on
+  an open one; the stopped daemon becoming `lost`; and **the write-nothing test**: a session of reads
+  hands the fake `upsertPatch` exactly zero rows.
+- `state.test.ts` — `subShellPrompt()` returns `redis> ` while held, and the typed line routes to the
+  redis shell rather than to the registry or the ftp map.
+
+**GREEN**: `sessions/serviceHost.ts` (the renamed, service-parameterized reach);
+`core/redis/statements.ts` (legacy's 59-line parser and 68-line executor ported into one module —
+reads only, NOAUTH included, `SET` / `DEL` deliberately absent until slice 4);
+`sessions/redisConnect.ts` + `sessions/redisStatement.ts`; two branches in `api/sessions.ts`;
+the client pair in `adapters/sessionsApi.ts`; `RedisApi` in `commands/types.ts` with both ghosts
+deleted; the signal, `REDIS_PROMPT` and the third `subShellPrompt()` rung in `state.ts`;
+`commands/rediscli.ts` + `commands/redisShell.ts`; the registry row.
+
+**MUTATE**: Stryker over `core/redis/statements.ts`, `sessions/redisConnect.ts`,
+`sessions/redisStatement.ts` and `commands/rediscli.ts`. Use the scoped-runner recipe in
+`conventions-and-gotchas.md` §4 rather than a whole-repo run, and expect the load-throw trap the same
+section records: a mutant that throws while a NEIGHBOURING describe block builds its population is
+scored SURVIVED though the suite is red, so the new blocks stay lazy.
+**KILL MUTANTS**: Address survivors; ask when a survivor's value is ambiguous.
+**REFACTOR**: Two candidates, both to be assessed only if they earn it. `ownDaemonListening` in
+`mysqlOwnBox.ts` hardcodes mysql's service in three lines, and `rediscli`'s preflight wants the same
+question asked about redis — a shared `daemonListening(fs, port, service)` may be worth extracting,
+or may be two lines each door keeps. And `mysqlShell.ts` and `redisShell.ts` will share the
+"leave and help ahead of the verb table" shape; D6 asked the same question of `ftpShell` and left
+them separate.
+**Wire-check** (`scripts/testRedisConnect.ts`), for what only a live stack can prove: that the two
+new actions are DISPATCHED at all; that the arrival line lands at the target's `/var/log/redis.log`
+with its owner and permissions accepted by the real `patches` table; that **no** row appears in
+`sessions`; that a store edited THROUGH `patches` reads back through the statement door, so the
+journal is really replayed; and that a locked store's NOAUTH refusal is what crosses the wire rather
+than a body carrying keys.
+**Version**: bump `0.174.0` → `0.175.0` in `v2/package.json` + `v2/package-lock.json`.
+**Done when**: criteria 1–14 met, wire-check green, mutation report presented, human approves the
+commit.
 
 ### Slice 3: A player cracks a locked store
 
-**Value**: The 6-in-10 that are shut become openable, by the tool that opens every other door.
+**Value**: The 6-in-10 that are shut become openable, by the tool that opens every other door —
+and the wall slice 2 put in front of them gains its way through.
 **Path**: `hydra <host> redis` → the sweep handler → the target's `requirepassHash` → attempt lines
 in the target's log.
 **Class**: Behavior change. **Skills**: as slice 2.
 **Acceptance criteria**: `ServiceSpec` gains optional `secretOn` and `accountsOn` becomes optional,
 with **no existing row changing shape**; the sweep line omits the login field entirely
 (`[6379][redis] host: …   password: …`); an open store answers *no password set (open access)*; a
-host with no redis answers `service_not_running`; `NOAUTH Authentication required.` refuses every
-statement before `AUTH`; attempt lines append to the target's log.
+host with no redis answers `service_not_running`; `AUTH <password>` opens a locked store's prompt
+and a wrong one answers `(error) ERR invalid password`; `AUTH` against an OPEN store answers
+`(error) ERR Client sent AUTH, but no password is set`; the `[password]` positional joins
+`rediscli` and pre-sends that same `AUTH`; attempt lines append to the target's log.
+**Already shipped by slice 2, not re-litigated here**: the `NOAUTH Authentication required.` refusal
+itself. It landed with the statement door because leaving locked stores readable for the life of a
+slice was the vacuous-authorization bug D6 shipped in its own slice 2. Slice 3 owns the way PAST it,
+not the wall.
 **RED**: Handler tests plus a `scripts/testRedisSweep.ts` wire-check.
 
 ### Slice 4: A player changes a store

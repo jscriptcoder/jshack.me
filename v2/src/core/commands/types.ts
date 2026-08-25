@@ -40,7 +40,6 @@ export type SessionKind =
   | 'ftp'
   | 'scp'
   | 'mysql'
-  | 'redis'
   | 'mission';
 
 export type Session = {
@@ -94,7 +93,7 @@ export type ModeChange =
   // The browser opens on a page that already came back: the command does the
   // fetching, so a refused connection is reported in the terminal rather than on a
   // screen that has nothing to show.
-  | { readonly kind: 'lynx'; readonly url: string; readonly content: string }
+  | { readonly kind: 'lynx'; readonly url: string; readonly content: string };
   // No `nc` variant. A backdoor is a HOP, not a screen: `nc` pushes an ordinary
   // session and the shell answers on the far box, minus what needs a terminal. The
   // overlay this once declared was never produced and the UI narrows `OverlayMode`
@@ -104,7 +103,9 @@ export type ModeChange =
   // prompt is a SUB-SHELL over the same terminal, not a screen. It holds no session
   // row and shows nothing the scrollback cannot, so `mysql` returns its greeting and
   // the terminal swaps the prompt — there was never a mode to change to.
-  | { readonly kind: 'redis'; readonly target: { readonly ip: NetworkAddress } };
+  // No `redis` variant. One was DECLARED here, three lines below the note explaining
+  // why the database door's had just been deleted — never constructed, never read. A
+  // store prompt is the same sub-shell over the same terminal, so it left the same way.
 
 // ---- Sub-API interfaces (the parts of CommandEnv) ----
 
@@ -744,6 +745,75 @@ export type MysqlStatementResult =
   | { readonly kind: 'answered'; readonly output: readonly string[]; readonly failed: boolean }
   | { readonly kind: 'lost' };
 
+/** What `rediscli` hands the connect action. No session id, like the database door's —
+ *  and no credential either, which is this door alone. A store answers to one secret or
+ *  to none, and the secret belongs to the SERVICE, so there is no account to name and
+ *  nothing to send in the handshake. */
+export type RedisConnectParams = {
+  readonly essid: string;
+  readonly targetIp: string;
+  /** The port to connect ON. Against an inner gateway a port other than its own sshd
+   *  addresses the hidden layer BEHIND it, which is the only way a deep box can be
+   *  named at all. */
+  readonly port: number;
+  /** The address the target's `/var/log/redis.log` records the arrival from. Never
+   *  null: the caller has already resolved a connected `wlan0` to get here. */
+  readonly sourceIp: string;
+};
+
+/** The outcome of opening a store: opened, or nothing there to open.
+ *
+ *  There is no `denied`. Nothing was sent that could be refused, so the only two
+ *  answers are the box's — it is there and serving, or it is not. Whether the store
+ *  holds a SECRET is deliberately not among them: that is discovered by asking it a
+ *  question, exactly as the real client discovers it. */
+export type RedisConnectResult =
+  /** The box's own name, which through a forward only the server can know. */
+  | { readonly ok: true; readonly hostname: string }
+  | { readonly ok: false; readonly reason: 'unreachable' | 'refused' };
+
+/** What one statement is sent with: the connection again, plus the line. The whole
+ *  connection travels because there is no session row to name instead — the same
+ *  mechanism the database door uses, minus the credential it has and this one does
+ *  not. */
+export type RedisStatementParams = RedisConnectParams & {
+  /** The line exactly as the player typed it. Parsed on the server, so an unknown verb
+   *  is the daemon's answer rather than the client's guess. */
+  readonly statement: string;
+};
+
+/**
+ * What came back from a statement.
+ *
+ * `answered` carries rendered lines and nothing else — never the store. A response
+ * carrying it would hand this client every value the caller never asked for, in a
+ * field the terminal never draws.
+ *
+ * `lost` is every other outcome collapsed: the box gone, the daemon stopped, the
+ * request never arriving. From the prompt's side they are one condition, and there is
+ * no session to invalidate — so the next statement is the only thing that can discover
+ * it.
+ */
+export type RedisStatementResult =
+  | { readonly kind: 'answered'; readonly output: readonly string[]; readonly failed: boolean }
+  | { readonly kind: 'lost' };
+
+/** The key-value door, client side. Shaped exactly like the database door's, which is
+ *  the point: what differs between them is what they carry, not how a sub-shell holds
+ *  one. */
+export type RedisApi = {
+  readonly connect: (params: RedisConnectParams) => Promise<RedisConnectResult>;
+  /** Hold the opened connection and put the terminal at `redis> `. What is held is
+   *  exactly what `connect` was given: with no session row to name, every statement
+   *  re-sends the whole connection, so the prompt has to keep it. */
+  readonly enter: (connection: RedisConnectParams) => void;
+  /** Drop it and hand the terminal back to the shell that never moved. Nothing to end
+   *  server-side — there was never a row. */
+  readonly leave: () => void;
+  /** Run one statement and get back what a terminal would print. */
+  readonly run: (params: RedisStatementParams) => Promise<RedisStatementResult>;
+};
+
 /** What `hydra` hands the crack action. `callerMachineId` names the box whose
  *  wordlist is consulted — the server verifies it belongs to the caller rather
  *  than trusting it, so it is a lookup key, not a privilege claim. `username`
@@ -925,6 +995,7 @@ export type CommandEnv = {
   readonly nc: NcApi;
   readonly ftp: FtpApi;
   readonly mysql: MysqlApi;
+  readonly redis: RedisApi;
   readonly scp: ScpApi;
   readonly su: SuApi;
   readonly scan: ScanApi;

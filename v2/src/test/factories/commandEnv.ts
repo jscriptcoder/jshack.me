@@ -24,6 +24,7 @@ import type {
   Session,
   FtpApi,
   MysqlApi,
+  RedisApi,
   ScpApi,
   SshApi,
   NcApi,
@@ -182,6 +183,17 @@ export const mockMysqlApi = (overrides: Partial<MysqlApi> = {}): MysqlApi => ({
   ...overrides,
 });
 
+/** The key-value door seam. Same shape and same defaults as the database door's, one
+ *  door along: `connect` and `run` are loud unless stubbed, because a store that
+ *  silently answered nothing reads exactly like an empty one. */
+export const mockRedisApi = (overrides: Partial<RedisApi> = {}): RedisApi => ({
+  connect: NOT_IMPLEMENTED('redis.connect'),
+  run: NOT_IMPLEMENTED('redis.run'),
+  enter: () => undefined,
+  leave: () => undefined,
+  ...overrides,
+});
+
 /** The transfer door seam. `authenticate` and `write` throw unless a test stubs
  *  them, for the same reason ftp's do: a transfer that silently reported success
  *  while nothing left the machine is the one failure this command must never fake.
@@ -261,6 +273,7 @@ export const mockCommandEnv = (overrides: Partial<CommandEnv> = {}): CommandEnv 
   nc: mockNcApi(),
   ftp: mockFtpApi(),
   mysql: mockMysqlApi(),
+  redis: mockRedisApi(),
   scp: mockScpApi(),
   su: mockSuApi(),
   hydra: mockHydraApi(),

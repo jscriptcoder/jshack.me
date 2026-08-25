@@ -42,6 +42,10 @@ import type {
   MysqlStatementParams,
   MysqlStatementResult,
   MysqlConnectResult,
+  RedisConnectParams,
+  RedisConnectResult,
+  RedisStatementParams,
+  RedisStatementResult,
   NcConnectParams,
   NcConnectResult,
   NcInnerGatewayParams,
@@ -113,7 +117,9 @@ import {
   authCreateServerSessionSameLan,
   authElevateServerSession,
   connectDatabase,
+  connectStore,
   runDatabaseStatement,
+  runStoreStatement,
   crackCredentials,
   crackCredentialsInnerGateway,
   crackCredentialsPublic,
@@ -142,6 +148,7 @@ import { homePathFor, seedFs, seedSession } from './seed';
 import { rehydrateSessionStack } from './sessionRehydrate';
 import { runFtpLine } from '../core/commands/ftpShell';
 import { runMysqlLine } from '../core/commands/mysqlShell';
+import { runRedisLine } from '../core/commands/redisShell';
 import { persistConnection, restoreConnection } from './connectionPersistence';
 
 // ---- Config-derived game state, assigned once by `startGame`. ----
@@ -303,6 +310,31 @@ const leaveMysqlSession = (): void => {
   setMysqlConnection(null);
 };
 
+// The key-value store connection the terminal is holding, or null. Same shape as the
+// database one above and holding even less: an address and a port, because this door
+// has no credential to hold. While it is set the typed line goes to the store parser
+// instead of the registry, and the prompt reads `redis>`.
+const [redisConnection, setRedisConnection] = createSignal<RedisConnectParams | null>(null);
+
+export const inRedisSession = (): boolean => redisConnection() !== null;
+
+/** What the terminal shows while a store connection is held. Bare, as legacy's was and
+ *  as the real client's is — safe to be bare because the target is named in the
+ *  scrollback at connect time and every statement echoes back under this prompt. */
+export const REDIS_PROMPT = 'redis> ';
+
+/** Hold an opened connection (backs `env.redis.enter`). No cwd, no journal and no
+ *  session row: the whole of what a store connection IS lives in this signal. */
+const enterRedisSession = (connection: RedisConnectParams): void => {
+  setRedisConnection(connection);
+};
+
+/** Drop it (backs `env.redis.leave`). Nothing to end server-side — there was never a
+ *  row, and no credential either. */
+const leaveRedisSession = (): void => {
+  setRedisConnection(null);
+};
+
 /** The prompt the terminal shows: an ftp session replaces it wholesale rather than
  *  decorating it, because at `ftp>` the cwd and tier on the shell prompt would name
  *  a machine the player is no longer typing at. */
@@ -321,6 +353,7 @@ export const FTP_PROMPT = 'ftp> ';
  */
 export const subShellPrompt = (): string | null => {
   if (inMysqlSession()) return MYSQL_PROMPT;
+  if (inRedisSession()) return REDIS_PROMPT;
   if (inFtpSession()) return FTP_PROMPT;
   return null;
 };
@@ -616,6 +649,22 @@ const mysqlStatement = (params: MysqlStatementParams): Promise<MysqlStatementRes
   sessionsClientDeps === undefined
     ? Promise.resolve({ kind: 'lost' })
     : runDatabaseStatement(sessionsClientDeps, params);
+
+/** Open a key-value store on a LAN host server-side (backs `env.redis.connect`).
+ *  Before the client is wired `unreachable` is the honest answer: nothing was there to
+ *  answer, and there was no credential for anything to have refused. */
+const redisConnect = (params: RedisConnectParams): Promise<RedisConnectResult> =>
+  sessionsClientDeps === undefined
+    ? Promise.resolve({ ok: false, reason: 'unreachable' })
+    : connectStore(sessionsClientDeps, params);
+
+/** Run one statement against a LAN host's store (backs `env.redis.run`). Degrades to
+ *  `lost` the same way the database door's does — the prompt closes rather than
+ *  pretending to hold a connection to nothing. */
+const redisStatement = (params: RedisStatementParams): Promise<RedisStatementResult> =>
+  sessionsClientDeps === undefined
+    ? Promise.resolve({ kind: 'lost' })
+    : runStoreStatement(sessionsClientDeps, params);
 
 /** Crack credentials behind a stranger's PUBLIC IP server-side (backs
  *  `env.hydra.crackPublic`). Degrades the same way before the client is wired. */
@@ -1515,6 +1564,10 @@ const executeLine = async (line: string): Promise<void> => {
     onMysqlStatement: mysqlStatement,
     onMysqlEnter: enterMysqlSession,
     onMysqlLeave: leaveMysqlSession,
+    onRedisConnect: redisConnect,
+    onRedisStatement: redisStatement,
+    onRedisEnter: enterRedisSession,
+    onRedisLeave: leaveRedisSession,
     onHydraCrack: hydraCrack,
     onHydraCrackPublic: hydraCrackPublic,
     onHydraCrackInnerGateway: hydraCrackInnerGateway,
@@ -1551,23 +1604,26 @@ const executeLine = async (line: string): Promise<void> => {
     // send instead. Reading it here rather than from the env is also what keeps the
     // sub-shell honest: it cannot run a statement the prompt is not holding.
     const connection = mysqlConnection();
+    const store = redisConnection();
     const result =
       connection !== null
         ? await runMysqlLine(env, line, connection)
-        : inFtpSession()
-          ? await runFtpLine(env, line)
-          : await runCommandLine(env, line, commandRegistry);
+        : store !== null
+          ? await runRedisLine(env, line, store)
+          : inFtpSession()
+            ? await runFtpLine(env, line)
+            : await runCommandLine(env, line, commandRegistry);
     if (result.kind === 'sync') {
       setScrollback((previous) => [...previous, ...result.lines]);
       return;
     }
     if (result.kind === 'mode_change') {
-      // Only the apps with a screen open one; the rest (nc/ftp/mysql are hops or
-      // sub-shells and declare none; redis stays a no-op until its door lands). The narrow is load-bearing — it is what types
-      // the mode as an `OverlayMode` — so widening it before a screen exists
-      // fails to compile rather than opening a blank overlay.
-      const { mode } = result;
-      if (mode.kind === 'nano' || mode.kind === 'lynx') setOverlayMode(mode);
+      // Only the apps with a screen open one; the rest (nc/ftp/mysql/redis are hops
+      // or sub-shells and declare none). `OverlayMode` is pinned to the two that do,
+      // so a third `ModeChange` variant fails to compile here rather than opening a
+      // blank overlay — which is the protection the runtime narrow used to claim, at
+      // the point it actually holds.
+      setOverlayMode(result.mode);
       return;
     }
     // Streamed commands (airdump, aircrack) append each line as it arrives, so

@@ -27,6 +27,7 @@ import type {
   FsView,
   FtpApi,
   MysqlApi,
+  RedisApi,
   ScpApi,
   SshApi,
   NcApi,
@@ -171,6 +172,13 @@ export type BuildCommandEnvArgs = {
    *  happens on the side that can see the whole database, so only its output
    *  crosses the wire. */
   readonly onMysqlStatement?: MysqlApi['run'];
+  /** The key-value door's four seams — backs `env.redis`. Shaped exactly like the
+   *  database door's above, minus the credential it has and this one does not: a store
+   *  answers to one secret or to none, and the secret belongs to the service. */
+  readonly onRedisConnect?: RedisApi['connect'];
+  readonly onRedisEnter?: RedisApi['enter'];
+  readonly onRedisLeave?: RedisApi['leave'];
+  readonly onRedisStatement?: RedisApi['run'];
   /** The transfer door's three seams — backs `env.scp`. The login is the same
    *  `authCreateSession` round-trip, asked for an `scp`-kind row; the write is the
    *  shipped patch client aimed at whatever machine the session landed on; the end
@@ -371,6 +379,18 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
     // Loud when unwired, like the login: a prompt that silently answered its own
     // statements would be reading a database that is not there.
     run: args.onMysqlStatement ?? notWired('mysql.run'),
+  },
+  redis: {
+    // Loud when unwired, like every other door's: a connect that answered on its own
+    // would put a player at a prompt with nothing behind it.
+    connect: args.onRedisConnect ?? notWired('redis.connect'),
+    // Terminal state, so an unwired seam no-ops rather than throwing.
+    enter: args.onRedisEnter ?? (() => undefined),
+    leave: args.onRedisLeave ?? (() => undefined),
+    // Loud when unwired: a prompt that silently answered its own statements would be
+    // reading a store that is not there — and an empty answer is what an empty store
+    // looks like, so the failure would be invisible.
+    run: args.onRedisStatement ?? notWired('redis.run'),
   },
   scp: {
     authenticate: args.onScpAuthenticate ?? notWired('scp.authenticate'),
