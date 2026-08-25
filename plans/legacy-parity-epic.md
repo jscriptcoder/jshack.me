@@ -39,10 +39,11 @@ reverting an intruder's writes — **fixed at v0.172.0 (#449)**, which also corr
 that every vantage re-materializes per statement. Of the three smaller findings from the same
 run, **two are closed at v0.173.0** (the sub-shell prompt echo and the self-scan cover name) and
 one stays a §9 backlog entry, because it is a product decision rather than a bug.
-**D7 🚧 IN PROGRESS — slices 1–2 shipped (v0.174.0 #452, v0.175.0 #453), slice 3 next** — twelve locked
-decisions and a seven-slice spine in "D7 — resolved scope & decisions"; per-slice status and
-as-built in `d7-redis.md`. It renames the epic's own row: the command is `rediscli`, and
-`redis-cli` is unusable because `node`'s sandbox makes every command name a JS parameter.
+**D7 🚧 IN PROGRESS — slices 1–3 shipped (v0.174.0 #452, v0.175.0 #453, v0.176.0 #454), slice 4
+next** — twelve locked decisions and a seven-slice spine in "D7 — resolved scope & decisions";
+per-slice status and as-built in `d7-redis.md`. It renames the epic's own row: the command is
+`rediscli`, and `redis-cli` is unusable because `node`'s sandbox makes every command name a JS
+parameter.
 **D5 🔍 GRILLED 2026-08-16, not yet planned** — fifteen locked decisions and a six-slice spine in
 "D5 — resolved scope & decisions"; it also found that §9's `ps` defect is misdiagnosed and owns
 the fix. Everything else is split-and-grilled only.
@@ -1537,14 +1538,21 @@ by a door, and D6 shipped a bug of exactly that family in slice 2.
   one of them out. **The reach became `reachServiceHost`** — one parameter, not a second copy,
   so slice 5's seeded-tree trap stays one gap to close. **`NOAUTH` shipped HERE rather than
   with `AUTH`**, because reads answering a locked store with no credential would have left 60%
-  of the world's stores open for a slice; the accepted cost is that a locked store names a verb
-  slice 3 has not landed yet.
-- **Slice 3 — a player cracks a locked store.** `secretOn` lands; `hydra <host> redis` returns a
-  password with no login field; an open store answers *no password set (open access)*; attempt
-  lines land in the target's log. **`AUTH` and the `[password]` positional land here too** — the
-  wall went up in slice 2, so this slice owns the way past it rather than the wall.
+  of the world's stores open for a slice; the accepted cost was a locked store naming a verb that
+  did not exist — discharged at v0.176.0, one slice later.
+- **Slice 3 — a player cracks a locked store.** ✔ **SHIPPED v0.176.0 (#454).** `secretOn`
+  lands; `hydra <host> redis` returns a password with no login field; an open store answers *no
+  password set (open access)*; attempt lines land in the target's log; `AUTH` and the `[password]`
+  positional open the wall slice 2 put up. **Both defects it shipped over were disagreements
+  between two SIDES of one rule** — the door accepted `AUTH` with extra words while the prompt
+  refused to hold a password off such a line, and `hydra` asked the catalog about a service with
+  nothing testing the miss. Each side was correct alone, which is why only mutation found them.
 - **Slice 4 — a player changes a store.** `SET` and `DEL` land and append; `GET`/`KEYS`/`DBSIZE`
-  never do. Open store: anyone writes. Locked store: only after `AUTH`.
+  never do. Open store: anyone writes. Locked store: only after `AUTH`. **Two things slice 3
+  changed about it**: the statement handler already writes — the attempt line — so the
+  write-nothing test now guards READS specifically rather than the handler; and the quoted-run
+  tokenizing slice 2 deleted comes back here, because `SET k "two words"` is the first verb that
+  needs it.
 - **Slice 5 — a store on a deep layer answers.** The inner-gateway vantage, for the statement path
   and for hydra — and into the seeded-tree resolver trap named above.
 - **Slice 6 — a player runs their own store.** `apt install redis` → `systemctl start redis` → the
@@ -2182,12 +2190,13 @@ defects live in the one vantage no endpoint answers.
 locked decisions and a seven-slice spine in
 ["D7 — resolved scope & decisions"](#d7--resolved-scope--decisions-grill-me-2026-08-24).**
 **PLANNED 2026-08-24 in [`d7-redis.md`](d7-redis.md)**, where the per-slice status and as-built
-live. **Slices 1–2 shipped (v0.174.0 #452, v0.175.0 #453)** — a box runs a store, and a player can
-open an unlocked one. ➡️ **Next: slice 3 — a player cracks a locked store**, where `secretOn`
-lands, `hydra <host> redis` returns a password with no login field, and **`AUTH` finally opens the
-wall slice 2 put up**: a locked store currently names a verb that does not exist yet, which is the
-one thing in the shipped door a player could mistake for a defect. Wire-check required, as every
-D7 slice from 2 on is — `tsc` cannot see DB columns.
+live. **Slices 1–3 shipped (v0.174.0 #452, v0.175.0 #453, v0.176.0 #454)** — the door is playable
+end to end: `nmap` finds a store, `rediscli` opens it, a locked one refuses with `NOAUTH`,
+`hydra <host> redis` recovers the password, and `AUTH` spends it. The verb that did not exist is
+gone. ➡️ **Next: slice 4 — a player changes a store**, where `SET` and `DEL` become the game's
+first no-credential write, and the open question on whether a mutation line records the key and
+value verbatim gets answered — verbatim writes player-typed text into a file other players `cat`.
+Wire-check required, as every D7 slice from 2 on is — `tsc` cannot see DB columns.
 
 Four things that grill settled which the row above could not have predicted:
 

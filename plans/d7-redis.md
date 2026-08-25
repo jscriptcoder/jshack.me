@@ -1,8 +1,8 @@
 # Plan: D7 — a player reads (and rewrites) a machine's key-value store (`rediscli`)
 
 **Branch**: `docs/plan-d7-redis` (this plan) → `feat/d7-*` per slice
-**Status**: Active — **slices 1–2 SHIPPED (v0.174.0 #452, v0.175.0 #453)**; **slice 3 PLANNED,
-awaiting approval of its 13 criteria** on `feat/d7-redis-crack-store`
+**Status**: Active — **slices 1–3 SHIPPED (v0.174.0 #452, v0.175.0 #453, v0.176.0 #454)**;
+**slice 4 NEXT, not yet planned** on `feat/d7-redis-write-store`
 
 > Decisions are LOCKED in [`legacy-parity-epic.md`](legacy-parity-epic.md) §"D7 — resolved scope &
 > decisions (grill-me, 2026-08-24)". This file sequences them; it does not re-open them. Where
@@ -421,7 +421,42 @@ than a body carrying keys.
 **Done when**: criteria 1–14 met, wire-check green, mutation report presented, human approves the
 commit.
 
-### Slice 3: A player cracks a locked store
+### Slice 3: A player cracks a locked store — SHIPPED v0.176.0 (#454)
+
+**As built.** All 13 criteria met; 3572 tests, typecheck and lint green, both wire-checks
+green live against the FINAL tree (18/18 and 10/10). What the slice learned, beyond what
+was planned:
+
+- **`AUTH` took any number of words, and mutation is what said so.** The door split on
+  whitespace and read the first token, so `AUTH secret typo` authenticated — while the
+  prompt's pattern was anchored at both ends and refused to hold a password off a line with
+  a tail. One extra word got a player in for exactly one statement and locked them out on
+  the next, with nothing on screen to explain it. `AUTH` now takes exactly one word, fixed
+  RED-first; the client's trailing anchor came off with it, because against a strict server
+  that anchor is not redundant but the fragile half — it would re-create the bug the day the
+  server loosened.
+- **`hydra <host> <unknown-service>` threw before it sent anything.** An `OptionalChaining`
+  survivor showed that nothing exercised the catalog lookup deciding how to describe a door,
+  and a service name is player input. The refusal has a test standing on it now.
+- **Both defects were disagreements between two SIDES of one rule** — the door's parser
+  against the prompt's pattern, the catalog against a client lookup — and neither side was
+  wrong on its own, which is why no unit test could see either. Slice 4 adds a second such
+  pair: `SET` and `DEL` need client and server to agree on what a typed line means.
+- **`secretOn` survived an attempt to collapse it — mine.** Passing the secret as a nameless
+  `SweepableAccount` would have deleted the column and read as tidier. It is the column's
+  PRESENCE that criterion 4 stands on: a static, client-readable fact that this door has no
+  accounts, which is how `hydra` stops printing *Enumerating accounts* at a store.
+- **Mutation 85.7%, up from 83.9% on the first run.** Five survivors hand-verified as
+  genuinely equivalent (a log formatter ignoring the field it is handed, twice; a junk entry
+  in the secret spread; two conditional spreads whose explicit `undefined` JSON drops
+  anyway), and one more was the load-throw family §4 already records — hand-applying it took
+  the file red with "no tests".
+- **Evidence had to be re-run, because production moved after it.** The arity fix and the
+  anchor removal both landed AFTER the first live pass, so both wire-checks were run again
+  rather than cited from before the change.
+- **REFACTOR assessed and applied nothing, as the plan predicted.** The three sweep handlers
+  now run four consecutive identical guards; collapsing them is the same repo-wide sweep
+  slice 2 named and left, not a redis slice's.
 
 **Value**: The 6-in-10 that are shut become openable, by the tool that opens every other door — and
 the wall slice 2 put in front of them gains its way through. A player who reached `redis> ` and was
