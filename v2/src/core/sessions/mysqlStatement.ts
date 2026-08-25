@@ -37,7 +37,8 @@ import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { md5 } from '../generation/md5';
-import { reachMysqlHost, type HandlerResponse, type MysqlHostLookup } from './mysqlHost';
+import { reachServiceHost, type HandlerResponse, type ServiceHostLookup } from './serviceHost';
+import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { credentialIn, databaseIn, DATADIR_OWNER, DATADIR_PATH } from '../mysql/datadir';
 import { runStatement } from '../mysql/statements';
 import { DATADIR_FILE } from '../generation/baseFs';
@@ -53,7 +54,7 @@ import { asGameTime } from '../types';
 import type { NonceStore } from '../signedRequest/nonceStore';
 import type { PatchRow } from '../patches/upsertPatch';
 
-export type MysqlStatementDeps = MysqlHostLookup & {
+export type MysqlStatementDeps = ServiceHostLookup & {
   readonly nonceStore: NonceStore;
   /** Write a patch — the datadir a statement changed, and the line the daemon records
    *  about having changed it. Kept to those two paths by the caller below rather than
@@ -104,10 +105,11 @@ export const handleMysqlStatement = async (
   }
   const { payload, publicKey } = verified;
 
-  const reach = await reachMysqlHost(deps, {
+  const reach = await reachServiceHost(deps, {
     essid: payload.essid,
     targetIp: payload.target_ip,
     port: payload.port,
+    service: SERVICE_CATALOG.mysql.service,
     actorKey: publicKey,
   });
   if (!reach.ok) return reach.refusal;

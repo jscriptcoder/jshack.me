@@ -34,7 +34,7 @@ import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { md5 } from '../generation/md5';
-import { reachMysqlHost, type HandlerResponse, type MysqlHostLookup } from './mysqlHost';
+import { reachServiceHost, type HandlerResponse, type ServiceHostLookup } from './serviceHost';
 import { credentialIn, databaseNameIn } from '../mysql/datadir';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { derivePid } from '../logging/syslog';
@@ -45,7 +45,7 @@ import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appen
 import type { PatchRow } from '../patches/upsertPatch';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
-export type MysqlConnectDeps = MysqlHostLookup & {
+export type MysqlConnectDeps = ServiceHostLookup & {
   readonly nonceStore: NonceStore;
   /** The server's wall clock, epoch-ms (UTC) — stamps the mysql.log line. */
   readonly now: () => number;
@@ -134,10 +134,11 @@ export const handleMysqlConnect = async (
   // Shared with the statement door, so a login and the queries behind it can never
   // disagree about whether the box is up or the daemon is listening. A stopped
   // daemon's log stays exactly as this request found it.
-  const reach = await reachMysqlHost(deps, {
+  const reach = await reachServiceHost(deps, {
     essid: payload.essid,
     targetIp: payload.target_ip,
     port: payload.port,
+    service: SERVICE_CATALOG.mysql.service,
     actorKey: publicKey,
   });
   if (!reach.ok) return reach.refusal;
