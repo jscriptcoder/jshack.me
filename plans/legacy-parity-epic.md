@@ -39,11 +39,11 @@ reverting an intruder's writes — **fixed at v0.172.0 (#449)**, which also corr
 that every vantage re-materializes per statement. Of the three smaller findings from the same
 run, **two are closed at v0.173.0** (the sub-shell prompt echo and the self-scan cover name) and
 one stays a §9 backlog entry, because it is a product decision rather than a bug.
-**D7 🚧 IN PROGRESS — slices 1–3 shipped (v0.174.0 #452, v0.175.0 #453, v0.176.0 #454), slice 4
-next** — twelve locked decisions and a seven-slice spine in "D7 — resolved scope & decisions";
-per-slice status and as-built in `d7-redis.md`. It renames the epic's own row: the command is
-`rediscli`, and `redis-cli` is unusable because `node`'s sandbox makes every command name a JS
-parameter.
+**D7 🚧 IN PROGRESS — slices 1–4 shipped (v0.174.0 #452, v0.175.0 #453, v0.176.0 #454,
+v0.177.0 #455), slice 5 next** — twelve locked decisions and a seven-slice spine in "D7 —
+resolved scope & decisions"; per-slice status and as-built in `d7-redis.md`. It renames the
+epic's own row: the command is `rediscli`, and `redis-cli` is unusable because `node`'s sandbox
+makes every command name a JS parameter.
 **D5 🔍 GRILLED 2026-08-16, not yet planned** — fifteen locked decisions and a six-slice spine in
 "D5 — resolved scope & decisions"; it also found that §9's `ps` defect is misdiagnosed and owns
 the fix. Everything else is split-and-grilled only.
@@ -290,7 +290,11 @@ PHASE 1 — THE DOORS  (near-term focus)
       D6 slice 6 a player runs their own database     ✔ SHIPPED v0.167.0 (#443)
       D6 slice 6b a generated box carries what it runs ✔ SHIPPED v0.168.0-v0.169.0 (#444/#445/#446)
       D6 slice 7 a player reaches another's database  ✔ SHIPPED v0.170.0-v0.171.0 (#447/#448)
-  D7  rediscli                                        🔍 GRILLED 2026-08-24 (7 slices)
+  D7  rediscli                                        🚧 IN PROGRESS (7 slices)
+      D7 slice 1 a box runs a key-value store         ✔ SHIPPED v0.174.0 (#452)
+      D7 slice 2 a player opens an unlocked store     ✔ SHIPPED v0.175.0 (#453)
+      D7 slice 3 a player cracks a locked store       ✔ SHIPPED v0.176.0 (#454)
+      D7 slice 4 a player changes a store             ✔ SHIPPED v0.177.0 (#455)
   D8  snmpwalk / snmpset
   D9  node scripting
   D10 polish (long-tail comfort commands)
@@ -1547,12 +1551,16 @@ by a door, and D6 shipped a bug of exactly that family in slice 2.
   between two SIDES of one rule** — the door accepted `AUTH` with extra words while the prompt
   refused to hold a password off such a line, and `hydra` asked the catalog about a service with
   nothing testing the miss. Each side was correct alone, which is why only mutation found them.
-- **Slice 4 — a player changes a store.** `SET` and `DEL` land and append; `GET`/`KEYS`/`DBSIZE`
-  never do. Open store: anyone writes. Locked store: only after `AUTH`. **Two things slice 3
-  changed about it**: the statement handler already writes — the attempt line — so the
-  write-nothing test now guards READS specifically rather than the handler; and the quoted-run
-  tokenizing slice 2 deleted comes back here, because `SET k "two words"` is the first verb that
-  needs it.
+- **Slice 4 — a player changes a store.** ✔ **SHIPPED v0.177.0 (#455).** `SET` and `DEL` land
+  and append; `GET`/`KEYS`/`DBSIZE` never do. An open store takes a write from whoever reached
+  the port — no account, no tier, no credential — which makes it the game's first write with
+  nothing behind it; a locked one refuses in the same words it refuses a read. **The open
+  question is answered: verbatim, normalized, capped**, following D6's `Query` line. What
+  settled it was that the KEY is player-chosen too, so the summary form removes no player text
+  either — the choice was payload size, not presence, and a defender who can tell a poisoned
+  session from a deleted one is worth the difference. **The persist is keyed on the store having
+  CHANGED, not on the verb**: a `DEL` that matched nothing files nothing, because nothing
+  happened.
 - **Slice 5 — a store on a deep layer answers.** The inner-gateway vantage, for the statement path
   and for hydra — and into the seeded-tree resolver trap named above.
 - **Slice 6 — a player runs their own store.** `apt install redis` → `systemctl start redis` → the
@@ -2190,13 +2198,18 @@ defects live in the one vantage no endpoint answers.
 locked decisions and a seven-slice spine in
 ["D7 — resolved scope & decisions"](#d7--resolved-scope--decisions-grill-me-2026-08-24).**
 **PLANNED 2026-08-24 in [`d7-redis.md`](d7-redis.md)**, where the per-slice status and as-built
-live. **Slices 1–3 shipped (v0.174.0 #452, v0.175.0 #453, v0.176.0 #454)** — the door is playable
-end to end: `nmap` finds a store, `rediscli` opens it, a locked one refuses with `NOAUTH`,
-`hydra <host> redis` recovers the password, and `AUTH` spends it. The verb that did not exist is
-gone. ➡️ **Next: slice 4 — a player changes a store**, where `SET` and `DEL` become the game's
-first no-credential write, and the open question on whether a mutation line records the key and
-value verbatim gets answered — verbatim writes player-typed text into a file other players `cat`.
-Wire-check required, as every D7 slice from 2 on is — `tsc` cannot see DB columns.
+live. **Slices 1–4 shipped (v0.174.0 #452, v0.175.0 #453, v0.176.0 #454, v0.177.0 #455)** — the
+door is complete against one box: `nmap` finds a store, `rediscli` opens it, a locked one
+refuses with `NOAUTH`, `hydra <host> redis` recovers the password, `AUTH` spends it, and
+`SET`/`DEL` rewrite what the store holds while the box's own log records that somebody did. The
+open question is answered — verbatim, normalized, capped. ➡️ **Next: slice 5 — a store on a deep
+layer answers**, the inner-gateway vantage for the statement path and for hydra, and the slice
+that walks into the seeded-tree resolver trap D6 slice 5 recorded: the chain resolver hands back
+the terminal box's SEEDED tree, survivable for a door authenticating against seeded accounts and
+fatal for one answering with DATA — doubly so now, because a WRITE against a seeded tree lands
+where nothing reads it. The slice decides whether to close that for every door at once or repeat
+`reachMysqlHost`'s local workaround. Wire-check required, as every D7 slice from 2 on is —
+`tsc` cannot see DB columns.
 
 Four things that grill settled which the row above could not have predicted:
 

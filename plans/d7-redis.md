@@ -1,8 +1,8 @@
 # Plan: D7 — a player reads (and rewrites) a machine's key-value store (`rediscli`)
 
 **Branch**: `docs/plan-d7-redis` (this plan) → `feat/d7-*` per slice
-**Status**: Active — **slices 1–3 SHIPPED (v0.174.0 #452, v0.175.0 #453, v0.176.0 #454)**;
-**slice 4 BUILT, criteria approved 2026-08-25** on `feat/d7-redis-write-store`
+**Status**: Active — **slices 1–4 SHIPPED (v0.174.0 #452, v0.175.0 #453, v0.176.0 #454,
+v0.177.0 #455)**; slice 5 next on `feat/d7-redis-deep-layer`
 
 > Decisions are LOCKED in [`legacy-parity-epic.md`](legacy-parity-epic.md) §"D7 — resolved scope &
 > decisions (grill-me, 2026-08-24)". This file sequences them; it does not re-open them. Where
@@ -629,7 +629,47 @@ recorded.
 **Done when**: criteria 1–13 met, both wire-checks green, mutation report presented, human approves
 the commit.
 
-### Slice 4: A player changes a store
+### Slice 4: A player changes a store — SHIPPED v0.177.0 (#455)
+
+**As built.** All 13 criteria met; 3604 tests (+32), typecheck and lint green, mutation 95.6%
+(351/367, up from 92.4% on the first run), and the wire-check green live against the FINAL tree
+(28/28 and 10/10). No `api/` change was needed — slice 3 had already wired every dep. What the
+slice learned, beyond what was planned:
+
+- **Ten survivors on one line were answered by DELETING code, not by adding tests.** The
+  unquoting guard — `token.length >= 2 && startsWith('"') && endsWith('"')` — was
+  unfalsifiable, because the regex that produced the token had already decided its shape and no
+  input could tell the mutants apart. Capturing the quoted run's contents inside the match
+  removes the second rule and took 14 mutants out of existence. A survivor CLUSTER on one line
+  is worth reading as a question about the code before it is read as a question about the tests.
+- **One assertion agreed with the constant whatever it said.** `owner: DATADIR_OWNER` in the
+  handler test passed for any value that declaration held, so the mutant that changed it lived.
+  `root` is the claim, so the literal is what stands there now, with the reason inline. A test
+  that imports the thing under test as its own expectation proves only that one file is
+  self-consistent.
+- **Which machine a line is filed on is part of the claim.** `patches` is keyed on
+  `(machine_id, path, writer_key)`, so a mutation line written against the WRONG box passes
+  every assertion about its content — and the defender it exists for never finds it. The
+  log-row assertion names the machine now.
+- **One RED pass was vacuous, and only a hand-check caught it.** "hands back no store and no
+  record" passed before either field existed, because an absent field is absent either way. It
+  is anchored now by a sibling asserting that a line which DID write hands both back — the
+  non-vacuity proof a test of destructured optionals cannot supply for itself.
+- **Third instance of the `perTest` mis-scoring family**, nameable at last and recorded in
+  `conventions-and-gotchas.md` §4: a survivor in a module the mutated file only IMPORTS, whose
+  killing test builds its world from generator output. It reported Survived and took a test red
+  the moment it was hand-applied.
+- **The help column moved as the plan predicted, and the alignment test mis-modelled `padEnd`
+  again.** `SET <key> <value>` (17) is longer than `AUTH <password>` (15), so `HELP_WIDTH`
+  moved — and the widest row has exactly ONE space after it, which a `split(/\s{2,}/)` reads as
+  ragged. Same family slice 2 hit; the test names the synopses and computes the column instead.
+- **A quoted run cannot contain a quote**, and that edge is pinned by two tests rather than left
+  to be discovered: `SET k "he said "hi""` is refused, while unquoted JSON works — which is what
+  a player actually types, because no generated value has a space in it.
+- **REFACTOR assessed and applied nothing, as the plan predicted.** `redisStatement.ts` and
+  `mysqlStatement.ts` now share a three-step shape — run, persist if the document changed,
+  append if a line is owed — and the two doors persist different things behind it. Third time
+  this epic has declined to collapse a repo-wide family from inside one slice.
 
 **Value**: The game's first no-credential write. Every door before this one asked who you were
 before it let you change anything; an open store asks nothing, so a player who found one in slice 2
