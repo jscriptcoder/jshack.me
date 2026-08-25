@@ -13,7 +13,10 @@ import {
   formatRedisConnectLine,
 } from '../logging/redisLog';
 import { derivePid } from '../logging/syslog';
-import { asGameTime } from '../types';
+import { asAbsPath, asGameTime } from '../types';
+import { pidfilePath } from '../services/pidfile';
+import { deepStoreFixture } from '../../test/factories/lanStore';
+import type { OwnerPatchRow } from '../network/materializeMachineFs';
 import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
 import type { PatchRow } from '../patches/upsertPatch';
 import type { NonceStore } from '../signedRequest/nonceStore';
@@ -351,5 +354,157 @@ describe('the request itself', () => {
     // The server stamps the key from the verified signature. A payload that names its
     // own is refused by the schema, not corrected.
     expect(response.status).toBe(400);
+  });
+});
+
+// ─── a store on a hidden layer, reached the only way anything reaches one ───
+//
+// A deep box has no address on the LAN, so the gateway plus a port its owner forwarded
+// is the whole of how it can be named at all. Everything below the forward is the
+// server's: the forward table lives in the gateway's own journal, and the box at the
+// end of the chain is one no client can look up.
+
+const DEEP = deepStoreFixture({ locked: false });
+
+/** Deliberately neither the store's port nor 22: the port a player opened on their
+ *  GATEWAY has nothing to do with the port the daemon holds behind it. */
+const FORWARD_PORT = 36379;
+
+const patchRow = (path: string, content: string | null): OwnerPatchRow =>
+  ({
+    path: asAbsPath(path),
+    content,
+    owner: 'root',
+    permissions: null,
+    node_type: 'file',
+    updated_at: '2026-08-09T11:00:00.000Z',
+    writer_key: 'b'.repeat(64),
+  }) as OwnerPatchRow;
+
+/** Journals per machine, because the chain walk asks for one machine at a time and a
+ *  mock answering the same rows for every id would hand the gateway's forward table to
+ *  the deep box as well. */
+const journals = (rows: Readonly<Record<string, readonly OwnerPatchRow[]>>) =>
+  vi.fn<RedisConnectDeps['findPatches']>(async ({ machine_id }) => ({
+    data: rows[machine_id] ?? [],
+    error: null,
+  }));
+
+/** The player's own root `nano /etc/iptables/rules.v4` on the gateway — the opt-in that
+ *  exposes the layer at all. `deep` is whatever else has happened to the box down
+ *  there since it was generated. */
+const throughForward = (deep: readonly OwnerPatchRow[] = []) =>
+  journals({
+    [DEEP.gatewayMachineId]: [
+      patchRow(
+        '/etc/iptables/rules.v4',
+        `forward ${FORWARD_PORT} to ${DEEP.layer.host.ip}:${DEEP.port}`,
+      ),
+    ],
+    [DEEP.machineId]: deep,
+  });
+
+const openDeepStore = async (identity: ReturnType<typeof generateIdentity>, deps: RedisConnectDeps) =>
+  handleRedisConnect(
+    await signedConnect(identity, {
+      essid: DEEP.essid,
+      target_ip: DEEP.gateway.ip,
+      port: FORWARD_PORT,
+    }),
+    deps,
+  );
+
+describe('a store on a hidden layer', () => {
+  it('opens the box behind the forward, and names the box rather than the gateway', async () => {
+    const identity = generateIdentity();
+    const { deps } = makeDeps({ findPatches: throughForward() });
+
+    const response = await openDeepStore(identity, deps);
+
+    // Only the server can know that name: the deep box's address is absent from the
+    // generated LAN, so there is nothing a client could have looked it up in.
+    expect(response).toEqual({
+      status: 200,
+      body: { ok: true, hostname: DEEP.layer.host.hostname },
+    });
+  });
+
+  it('records the arrival on the DEEP box, at the address NAT showed it', async () => {
+    const identity = generateIdentity();
+    const { deps, upsertPatch } = makeDeps({ findPatches: throughForward() });
+
+    await openDeepStore(identity, deps);
+
+    // Behind NAT the box only ever saw the fronting gateway's `.1`, whoever was behind
+    // it. Writing the caller's own address here would put the defender's evidence and
+    // the route in disagreement.
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        machine_id: DEEP.machineId,
+        path: REDIS_LOG_PATH,
+        content: expect.stringContaining(`Client connected from ${DEEP.natIp}`),
+      }),
+    );
+    expect(upsertPatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining(CLIENT_IP) }),
+    );
+  });
+
+  it('leaves the gateway with nothing written on it, because NAT does not log', async () => {
+    const identity = generateIdentity();
+    const { deps, upsertPatch } = makeDeps({ findPatches: throughForward() });
+
+    await openDeepStore(identity, deps);
+
+    // The gateway carried the packet and ran nothing. A row filed against it is a trace
+    // pointing at the wrong box, which is worse for the defender than no trace at all.
+    expect(upsertPatch).toHaveBeenCalled();
+    expect(
+      upsertPatch.mock.calls.every(([row]) => row.machine_id === DEEP.machineId),
+    ).toBe(true);
+  });
+
+  it('refuses a deep box whose daemon was stopped through its own journal', async () => {
+    const identity = generateIdentity();
+    const { deps, upsertPatch } = makeDeps({
+      findPatches: throughForward([patchRow(pidfilePath(SERVICE_CATALOG.redis), null)]),
+    });
+
+    const response = await openDeepStore(identity, deps);
+
+    // The chain resolver hands back this box's SEEDED tree, where the daemon is still
+    // up. Reading that would answer for a store the player has already stopped, so the
+    // reach materializes the journal on top before it asks what is listening.
+    expect(response).toEqual({ status: 404, body: { error: 'service_not_running' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('refuses a deep box bricked through its own journal', async () => {
+    const identity = generateIdentity();
+    const { deps, upsertPatch } = makeDeps({
+      findPatches: throughForward([patchRow('/boot/vmlinuz', null)]),
+    });
+
+    const response = await openDeepStore(identity, deps);
+
+    // A box with its kernel removed is dark to every tool, at any depth.
+    expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('refuses a port the gateway forwards to a daemon that is not the store', async () => {
+    const identity = generateIdentity();
+    const { deps } = makeDeps({
+      findPatches: journals({
+        [DEEP.gatewayMachineId]: [
+          patchRow('/etc/iptables/rules.v4', `forward ${FORWARD_PORT} to ${DEEP.layer.host.ip}:22`),
+        ],
+      }),
+    });
+
+    const response = await openDeepStore(identity, deps);
+
+    // A forward to sshd is not a door to the store behind it, however deep the box is.
+    expect(response).toEqual({ status: 404, body: { error: 'service_not_running' } });
   });
 });

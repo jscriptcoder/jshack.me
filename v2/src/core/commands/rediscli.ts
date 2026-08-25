@@ -21,16 +21,33 @@
 import { generateHomeLan } from '../generation/generateHomeLan';
 import { connectedWlan0 } from '../network/interfaces';
 import { runRedisLine } from './redisShell';
-import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
+import { forwardsIntoDeepLayer, resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { isPublicIp } from '../generation/ip';
 import { readOpenPorts } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { ownBoxSource } from './mysqlOwnBox';
 import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
 
-const USAGE = 'usage: rediscli <host> [password]';
+const USAGE = 'usage: rediscli [-p port] <host> [password]';
 
 const PORT = SERVICE_CATALOG.redis.defaultPort;
+
+/** `-p <port>` — the port to reach the store ON. Absent means the daemon's own 6379;
+ *  `null` means the player typed something that is no port, including a bare `-p` that
+ *  named nothing.
+ *
+ *  Refused rather than defaulted, the same way `mysql` refuses it and DELIBERATELY
+ *  unlike `hydra`, which falls back to the default door. There the port only selects
+ *  between doors on one box; here it IS the address of the store, because a box on a
+ *  deep layer has no address of its own and the forward is the whole of its name.
+ *  Substituting a number the player did not type would open a different store and
+ *  never say so. */
+const parsePort = (raw: string | true | undefined): number | null => {
+  if (raw === undefined) return PORT;
+  if (raw === true) return null;
+  const port = Number(raw);
+  return Number.isInteger(port) && port > 0 ? port : null;
+};
 
 const errorResult = (content: string, exitCode = 1): CommandResult => ({
   kind: 'sync',
@@ -40,8 +57,8 @@ const errorResult = (content: string, exitCode = 1): CommandResult => ({
 
 /** Every failure to reach a daemon is one sentence with a different tail, as the real
  *  client's is — and legacy's was the same sentence with the tail hardcoded. */
-const unreachable = (target: string, reason: string): CommandResult =>
-  errorResult(`Could not connect to Redis at ${target}:${PORT}: ${reason}`);
+const unreachable = (target: string, port: number, reason: string): CommandResult =>
+  errorResult(`Could not connect to Redis at ${target}:${port}: ${reason}`);
 
 /** What the box's absence is called. A box that is not there and a box with no daemon
  *  are DELIBERATELY the same words: a scan already tells anyone who asks which is
@@ -55,8 +72,12 @@ const REACH_REASON: Readonly<Record<'unreachable' | 'refused', string>> = {
  *  hostname is what ANSWERED rather than what this client looked up: through a forward
  *  there is nothing to look up, because a deep box's address is absent from the LAN.
  *  It is also what keeps the bare `redis> ` prompt honest about its target. */
-const greetingLines = (target: string, hostname: string): readonly TerminalLine[] => [
-  { kind: 'text', content: `Connecting to ${target}:${PORT}...` },
+const greetingLines = (
+  target: string,
+  port: number,
+  hostname: string,
+): readonly TerminalLine[] => [
+  { kind: 'text', content: `Connecting to ${target}:${port}...` },
   { kind: 'text', content: `Connected to Redis ${hostname}.` },
 ];
 
@@ -65,9 +86,9 @@ const greetingLines = (target: string, hostname: string): readonly TerminalLine[
 /** Whether the daemon is holding the port on a tree this client can see for itself.
  *  The pidfiles are the same source `nmap` reads, so a door the player was shown is a
  *  door that opens — and `systemctl stop redis` shuts this one too. */
-const storeListening = (fs: Parameters<typeof readOpenPorts>[0]): boolean =>
+const storeListening = (fs: Parameters<typeof readOpenPorts>[0], port: number): boolean =>
   readOpenPorts(fs).some(
-    (open) => open.port === PORT && open.service === SERVICE_CATALOG.redis.service,
+    (open) => open.port === port && open.service === SERVICE_CATALOG.redis.service,
   );
 
 /** Whether this client can settle reachability BEFORE spending a round-trip, and the
@@ -82,17 +103,30 @@ const preflightRefusal = async (
   env: CommandEnv,
   target: {
     readonly typed: string;
+    readonly port: number;
     readonly essid: string;
     readonly ownSource: string | null;
   },
 ): Promise<CommandResult | null> => {
   if (target.ownSource !== null) {
-    return storeListening(env.fs.root())
+    return storeListening(env.fs.root(), target.port)
       ? null
-      : unreachable(target.typed, REACH_REASON.refused);
+      : unreachable(target.typed, target.port, REACH_REASON.refused);
   }
 
-  if (isPublicIp(target.typed)) return null;
+  // A PUBLIC address is somebody else's access point. A port on an INNER GATEWAY other
+  // than its own sshd addresses the hidden layer behind it, and which box sits behind
+  // which forward lives in that gateway's server-side journal — the same rule
+  // `ssh -p <fwd> <inner>`, `hydra -p <fwd> <inner>` and `mysql -p <fwd> <inner>` route
+  // by, so all four tools reach the same box. Neither can be settled here: pre-flighting
+  // a deep target against this LAN would refuse every one of them, because a deep box
+  // has no LAN address to be found at.
+  if (
+    isPublicIp(target.typed) ||
+    forwardsIntoDeepLayer({ essid: target.essid, target: target.typed, port: target.port })
+  ) {
+    return null;
+  }
 
   const occupants = await env.scan.resolveOccupants(target.essid);
   if (occupants.some((occupant) => occupant.localIp === target.typed)) return null;
@@ -100,25 +134,30 @@ const preflightRefusal = async (
   const host = generateHomeLan(target.essid).hosts.find(
     (candidate) => candidate.ip === target.typed,
   );
-  if (host === undefined) return unreachable(target.typed, REACH_REASON.refused);
+  if (host === undefined) return unreachable(target.typed, target.port, REACH_REASON.refused);
 
   // BOTH halves, because either alone is a door that opens on the wrong thing: a port
   // with no daemon behind it, or an open port belonging to somebody else's — and a box
   // that serves a store commonly serves http and ssh as well.
   const { baseFs } = resolveLanHostIdentity(host, target.essid);
-  return storeListening(baseFs) ? null : unreachable(target.typed, REACH_REASON.refused);
+  return storeListening(baseFs, target.port)
+    ? null
+    : unreachable(target.typed, target.port, REACH_REASON.refused);
 };
 
-const execute: Command['execute'] = async (env, args) => {
+const execute: Command['execute'] = async (env, args, flags) => {
   const [target, password] = args;
   if (target === undefined) return errorResult(USAGE);
 
+  const port = parsePort(flags.get('-p'));
+  if (port === null) return errorResult(USAGE);
+
   const wlan0 = connectedWlan0(env.network);
-  if (wlan0 === null) return unreachable(target, 'Network is unreachable');
+  if (wlan0 === null) return unreachable(target, port, 'Network is unreachable');
   const essid = wlan0.association.essid;
 
   const ownSource = ownBoxSource({ target, ownIp: wlan0.ipv4 });
-  const refusal = await preflightRefusal(env, { typed: target, essid, ownSource });
+  const refusal = await preflightRefusal(env, { typed: target, port, essid, ownSource });
   if (refusal !== null) return refusal;
 
   // What is held is exactly what is sent. There is no session row to name, so every
@@ -129,11 +168,11 @@ const execute: Command['execute'] = async (env, args) => {
     // Their own box is held under the address it was LEASED, whichever of its three
     // names they reached it by, so every statement after this re-resolves one machine.
     targetIp: ownSource === null ? target : wlan0.ipv4,
-    port: PORT,
+    port,
     sourceIp: ownSource ?? wlan0.ipv4,
   };
   const opened = await env.redis.connect(connection);
-  if (!opened.ok) return unreachable(target, REACH_REASON[opened.reason]);
+  if (!opened.ok) return unreachable(target, port, REACH_REASON[opened.reason]);
 
   env.redis.enter(connection);
 
@@ -150,7 +189,7 @@ const execute: Command['execute'] = async (env, args) => {
     password === undefined ? null : await runRedisLine(env, `AUTH ${password}`, connection);
   return {
     kind: 'sync',
-    lines: [...greetingLines(target, opened.hostname), ...(authed?.lines ?? [])],
+    lines: [...greetingLines(target, port, opened.hostname), ...(authed?.lines ?? [])],
     exitCode: authed?.exitCode ?? 0,
   };
 };
@@ -163,8 +202,9 @@ export const rediscli: Command = {
   availability: { kind: 'localhost-only' },
   // What it opens is a prompt, so there has to be a terminal for the prompt to be in.
   withoutTty: 'rediscli: must be run from a terminal',
+  flags: { '-p': 'string' },
   manual: {
-    synopsis: 'rediscli <host> [password]',
+    synopsis: 'rediscli [-p port] <host> [password]',
     description:
       'Open the key-value store on a remote host running a Redis server. There is no ' +
       'account and no login: a store answers to a single password or to nobody at all, ' +
@@ -179,12 +219,22 @@ export const rediscli: Command = {
     arguments: [
       { name: 'host', description: 'The host IP to connect to, e.g. 192.168.1.5', required: true },
       { name: 'password', description: "The store's password, sent as an AUTH on connect" },
+      {
+        name: '-p',
+        description:
+          'The PORT to reach the store on. Defaults to 6379. A port forwarded by one ' +
+          'of your own inner gateways reaches the store on the machine behind it.',
+      },
     ],
     examples: [
       { command: 'rediscli 192.168.1.5', description: 'Open the store on 192.168.1.5' },
       {
         command: 'rediscli 192.168.1.5 sunshine',
         description: 'Open a locked store and unlock it in one go',
+      },
+      {
+        command: 'rediscli -p 36379 192.168.1.1',
+        description: 'Open the store on a machine hidden behind a gateway forward',
       },
     ],
   },

@@ -21,6 +21,8 @@ import { derivePid } from '../logging/syslog';
 import { asGameTime } from '../types';
 import { parseRedisStore, redisStoreSchema } from '../redis/types';
 import { asAbsPath } from '../types';
+import { pidfilePath } from '../services/pidfile';
+import { deepStoreFixture, type DeepStoreFixture } from '../../test/factories/lanStore';
 import type { Directory } from '../filesystem/types';
 import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
 import type { OwnerPatchRow } from '../network/materializeMachineFs';
@@ -152,12 +154,13 @@ const signedStatement = (
   request: {
     readonly target_ip: string;
     readonly statement: string;
+    readonly essid?: string;
     readonly port?: number;
     readonly password?: string;
   },
 ) =>
   signRequest(identity, 'redisStatement', {
-    essid: ESSID,
+    essid: request.essid ?? ESSID,
     target_ip: request.target_ip,
     port: request.port ?? SERVICE_CATALOG.redis.defaultPort,
     statement: request.statement,
@@ -778,5 +781,200 @@ describe('changing a store through the door', () => {
       keys: { greeting: 'hello' },
       requirepassHash: null,
     });
+  });
+});
+
+// ─── a store on a hidden layer, where the box's own journal is the whole question ───
+//
+// The chain resolver hands back the terminal box's SEEDED tree. For a door that
+// authenticates against seeded accounts that is survivable; for one that ANSWERS WITH
+// DATA it is not, because a change written down there would persist and never be read
+// back. These are the tests that say so.
+
+const DEEP_OPEN = deepStoreFixture({ locked: false });
+const DEEP_LOCKED = deepStoreFixture({ locked: true });
+
+/** Deliberately neither the store's port nor 22: the port a player opened on their
+ *  GATEWAY has nothing to do with the port the daemon holds behind it. */
+const FORWARD_PORT = 36379;
+
+/** Journals per machine, because the chain walk asks for one machine at a time and a
+ *  mock answering the same rows for every id would hand the gateway's forward table to
+ *  the deep box as well. */
+const journals = (rows: Readonly<Record<string, readonly OwnerPatchRow[]>>) =>
+  vi.fn<RedisStatementDeps['findPatches']>(async ({ machine_id }) => ({
+    data: rows[machine_id] ?? [],
+    error: null,
+  }));
+
+/** The player's own root `nano /etc/iptables/rules.v4` on the gateway — the opt-in that
+ *  exposes the layer at all. `deep` is whatever else has happened to the box down there
+ *  since the world was generated. */
+const throughForward = (fixture: DeepStoreFixture, deep: readonly OwnerPatchRow[] = []) =>
+  journals({
+    [fixture.gatewayMachineId]: [
+      patchRow(
+        '/etc/iptables/rules.v4',
+        `forward ${FORWARD_PORT} to ${fixture.layer.host.ip}:${fixture.port}`,
+      ),
+    ],
+    [fixture.machineId]: deep,
+  });
+
+const askDeep = async (
+  identity: ReturnType<typeof generateIdentity>,
+  fixture: DeepStoreFixture,
+  deps: RedisStatementDeps,
+  request: { readonly statement: string; readonly password?: string },
+) =>
+  handleRedisStatement(
+    await signedStatement(identity, {
+      essid: fixture.essid,
+      target_ip: fixture.gateway.ip,
+      port: FORWARD_PORT,
+      statement: request.statement,
+      ...(request.password === undefined ? {} : { password: request.password }),
+    }),
+    deps,
+  );
+
+describe('a store on a hidden layer', () => {
+  it('answers with what the deep box holds NOW, not what it was generated holding', async () => {
+    const identity = generateIdentity();
+    const planted = { ...DEEP_OPEN.store, keys: { ...DEEP_OPEN.store.keys, 'sess:planted': 'yes' } };
+    const { deps } = makeDeps({
+      findPatches: throughForward(DEEP_OPEN, [patchRow(DATADIR_PATH, JSON.stringify(planted))]),
+    });
+
+    const response = await askDeep(identity, DEEP_OPEN, deps, { statement: 'GET sess:planted' });
+
+    // The resolver hands this box back SEEDED, and that key exists in no seeded tree.
+    // A door answering off the resolver's copy would serve a store nobody can change.
+    expect(response).toEqual({ status: 200, body: { output: ['"yes"'], failed: false } });
+  });
+
+  it('writes a change onto the DEEP box, under its own machine id', async () => {
+    const identity = generateIdentity();
+    const { deps, upsertPatch } = makeDeps({ findPatches: throughForward(DEEP_OPEN) });
+
+    const response = await askDeep(identity, DEEP_OPEN, deps, {
+      statement: 'SET sess:new hello',
+    });
+
+    expect(response).toEqual({ status: 200, body: { output: ['OK'], failed: false } });
+    // The gateway carried the packet and ran nothing. A datadir filed against it is a
+    // change no store will ever be read from.
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({ machine_id: DEEP_OPEN.machineId, path: DATADIR_PATH }),
+    );
+    expect(
+      upsertPatch.mock.calls.every(([row]) => row.machine_id === DEEP_OPEN.machineId),
+    ).toBe(true);
+  });
+
+  it('reads back through a second request what the first one wrote', async () => {
+    const identity = generateIdentity();
+    const written: OwnerPatchRow[] = [];
+    const { deps } = makeDeps({
+      findPatches: vi.fn<RedisStatementDeps['findPatches']>(async ({ machine_id }) => ({
+        data:
+          machine_id === DEEP_OPEN.gatewayMachineId
+            ? [
+                patchRow(
+                  '/etc/iptables/rules.v4',
+                  `forward ${FORWARD_PORT} to ${DEEP_OPEN.layer.host.ip}:${DEEP_OPEN.port}`,
+                ),
+              ]
+            : machine_id === DEEP_OPEN.machineId
+              ? written
+              : [],
+        error: null,
+      })),
+      upsertPatch: vi.fn(async (row: PatchRow) => {
+        if (row.path === DATADIR_PATH) written.push(patchRow(row.path, row.content));
+        return { error: null };
+      }),
+    });
+
+    await askDeep(identity, DEEP_OPEN, deps, { statement: 'SET sess:new hello' });
+    const response = await askDeep(identity, DEEP_OPEN, deps, { statement: 'GET sess:new' });
+
+    // Two round-trips, and the second one is a fresh reach: nothing is held between
+    // them, so this is the journal really being replayed rather than a copy echoed.
+    expect(response).toEqual({ status: 200, body: { output: ['"hello"'], failed: false } });
+  });
+
+  it('records the change in the deep box own log, at the address NAT showed it', async () => {
+    const identity = generateIdentity();
+    const { deps, upsertPatch } = makeDeps({ findPatches: throughForward(DEEP_OPEN) });
+
+    await askDeep(identity, DEEP_OPEN, deps, { statement: 'SET sess:new hello' });
+
+    // Behind NAT the box only ever saw the fronting gateway's `.1`. The line a defender
+    // finds down there has to name what the route showed, not what the caller claimed.
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        machine_id: DEEP_OPEN.machineId,
+        path: REDIS_LOG_PATH,
+        content: expect.stringContaining(`Client ${DEEP_OPEN.natIp} SET sess:new "hello"`),
+      }),
+    );
+    expect(upsertPatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: REDIS_LOG_PATH,
+        content: expect.stringContaining(CLIENT_IP),
+      }),
+    );
+  });
+
+  it('leaves a deep box byte-identical when the statement was a read', async () => {
+    const identity = generateIdentity();
+    const { deps, upsertPatch } = makeDeps({ findPatches: throughForward(DEEP_OPEN) });
+
+    await askDeep(identity, DEEP_OPEN, deps, { statement: 'KEYS *' });
+
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('refuses a locked deep store until the password crosses the forward too', async () => {
+    const identity = generateIdentity();
+    const hash = DEEP_LOCKED.store.requirepassHash;
+    if (hash === null) throw new Error('the locked fixture is not locked');
+    const { deps } = makeDeps({ findPatches: throughForward(DEEP_LOCKED) });
+
+    const [refused, answered] = [
+      await askDeep(identity, DEEP_LOCKED, deps, { statement: 'DBSIZE' }),
+      await askDeep(identity, DEEP_LOCKED, deps, {
+        statement: 'DBSIZE',
+        password: plaintextOf(hash),
+      }),
+    ];
+
+    // The wall is the same one it puts up on the LAN. Depth is not a credential, in
+    // either direction: it neither opens a locked store nor locks an open one.
+    expect(refused).toEqual({
+      status: 200,
+      body: { output: ['(error) NOAUTH Authentication required.'], failed: true },
+    });
+    expect(answered.status).toBe(200);
+    expect(answered.body).toEqual({
+      output: [`(integer) ${Object.keys(DEEP_LOCKED.store.keys).length}`],
+      failed: false,
+    });
+  });
+
+  it('drops a player whose deep daemon was stopped under them', async () => {
+    const identity = generateIdentity();
+    const { deps } = makeDeps({
+      findPatches: throughForward(DEEP_OPEN, [
+        patchRow(pidfilePath(SERVICE_CATALOG.redis), null),
+      ]),
+    });
+
+    const response = await askDeep(identity, DEEP_OPEN, deps, { statement: 'DBSIZE' });
+
+    // No session row exists to be invalidated, so asking again IS the eviction — at
+    // any depth.
+    expect(response).toEqual({ status: 404, body: { error: 'service_not_running' } });
   });
 });

@@ -32,6 +32,7 @@ import type { OwnerPatchRow } from '../network/materializeMachineFs';
 import type { MachineLogReadResult } from '../patches/appendMachineLog';
 import type { ListPathPatchesResult, PathPatchRow } from '../patches/upsertPatch';
 import type { NonceStore } from '../signedRequest/nonceStore';
+import { deepStoreFixture, type DeepStoreFixture } from '../../test/factories/lanStore';
 import type { Directory } from '../filesystem/types';
 
 /**
@@ -494,5 +495,99 @@ describe('handleHydraCrackInnerGateway — down a chain of forwards', () => {
     // anyway, because the box that forwards to it cannot boot.
     expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
     expect(upsertPatch).not.toHaveBeenCalled();
+  });
+});
+
+// ─── the other kind of door on the same layer ───
+//
+// A store has no accounts at all: its secret belongs to the SERVICE, so the sweep has
+// nothing to enumerate and a password with no login to report. Nothing below is
+// redis-specific machinery — the catalog row carries `secretOn`, and this handler was
+// already generic over it — which is exactly why it needs saying out loud.
+
+describe('a store on the deep layer', () => {
+  const LOCKED = deepStoreFixture({ locked: true });
+  const OPEN = deepStoreFixture({ locked: false });
+
+  /** Neither the store's own port nor 22: what a player opened on the gateway has
+   *  nothing to do with what the daemon holds behind it. */
+  const STORE_FORWARD_PORT = 36379;
+
+  const forwardOnto = (fixture: DeepStoreFixture): OwnerPatchRow => ({
+    ...forwardPatch,
+    content: `forward ${STORE_FORWARD_PORT} to ${fixture.layer.host.ip}:${fixture.port}`,
+  });
+
+  const sweepStore = async (
+    fixture: DeepStoreFixture,
+    over: DepOverrides = {},
+  ) =>
+    handleHydraCrackInnerGateway(
+      await signRequest(ATTACKER, 'hydraCrackInnerGateway', {
+        essid: fixture.essid,
+        target: fixture.gateway.ip,
+        service: 'redis',
+        port: STORE_FORWARD_PORT,
+        caller_machine_id: ATTACKER_MACHINE,
+      }),
+      depsWith({ gatewayPatches: [forwardOnto(fixture)], ...over }),
+    );
+
+  it('reports the store password with no login field at all', async () => {
+    const password = LOCKED.password;
+    if (password === null) throw new Error('the locked fixture is not locked');
+
+    const { status, body } = await sweepStore(LOCKED, { wordlist: ['hunter2', password] });
+
+    // No `username` key, rather than an empty one: a blank column reads as an account
+    // whose name was lost, and this door never had one to lose.
+    expect(status).toBe(200);
+    expect(body).toEqual({
+      port: STORE_FORWARD_PORT,
+      cracked: [{ password }],
+      wordlistFound: true,
+    });
+  });
+
+  it('answers an OPEN deep store as open access rather than as an empty sweep', async () => {
+    const { status, body } = await sweepStore(OPEN, { wordlist: ['hunter2'] });
+
+    // Reporting nothing found would tell the player the store held, when in fact it was
+    // never shut — and four stores in ten are never shut.
+    expect(status).toBe(404);
+    expect(body).toEqual({ error: 'no_password_set' });
+  });
+
+  it('finds nothing when the store password is outside the caller wordlist', async () => {
+    const { status, body } = await sweepStore(LOCKED, { wordlist: ['hunter2', 'letmein'] });
+
+    // Membership in the file is the only thing that decides it, at depth as on the LAN.
+    expect(status).toBe(200);
+    expect(body).toEqual({ port: STORE_FORWARD_PORT, cracked: [], wordlistFound: true });
+  });
+
+  it('refuses the store port on a gateway that forwards it nowhere', async () => {
+    const { status } = await sweepStore(LOCKED, { gatewayPatches: [] });
+
+    // Without the forward the deep box has no address anyone can name, so there is
+    // nothing on that port to attack.
+    expect(status).toBe(404);
+  });
+
+  it('records the sweep on the DEEP box, at the address NAT showed it', async () => {
+    const password = LOCKED.password;
+    if (password === null) throw new Error('the locked fixture is not locked');
+    const upsertPatch = vi.fn(async () => ({ error: null }));
+
+    await sweepStore(LOCKED, { wordlist: [password], upsertPatch });
+
+    // The store's own log, not `auth.log`: the secret belongs to the service, so the
+    // daemon that refused it is the one that writes it down.
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        machine_id: LOCKED.machineId,
+        content: expect.stringContaining(`Client ${LOCKED.natIp} authenticated successfully`),
+      }),
+    );
   });
 });

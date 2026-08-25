@@ -930,6 +930,20 @@ mysql — this slice inherits it rather than introducing it, and 5b closes it fo
 13. `sessions` holds ZERO rows at any depth, and the wire-check `scripts/testRedisDeep.ts` — new,
     modelled on `testMysqlDeep.ts` — runs green live.
 
+**PLANNING CORRECTIONS found while building (2026-08-25):**
+
+- **Criterion 2's second half names the wrong string.** A `-p` the gateway forwards NOWHERE answers
+  `No route to host`, not `Connection refused` — `refused` is the live forward whose daemon is
+  stopped. That is mysql's split at the same seam (`unreachable` vs `refused`), and the server
+  decides it, not the client. Both strings are tested; the criterion's substance — the client
+  renders the server's refusal carrying the port the player typed — is unchanged.
+- **A daemon MOVED to another port on a deep box is invisible to routing, and that is slice 5b's.**
+  `resolveInnerGatewayTarget` decides which box a forwarded port reaches by reading the terminal
+  box's SEEDED tree, so `forward <p> to <deep ip>:6380` is dark even when the box really is serving
+  6380 through its own journal. A test asserting otherwise was written, failed, and was removed from
+  this slice: same root cause as the trap, one layer EARLIER than the door, and a third
+  player-reachable symptom the §9 entry does not name.
+
 **RED** — behavior tests, before any production change:
 
 - `commands/rediscli.test.ts` — `-p` parsed and spent; the three refusals; a deep address and a
@@ -1002,6 +1016,11 @@ SAME file — which turns a latent disagreement into one a player can produce.
 3. `systemctl stop redis` on a deep box makes `hydra -p <fwd> <inner> redis` answer
    `service_not_running`. The sweep and the door agree about what is listening — the rule this path
    already states out loud for `ssh`.
+3b. **A daemon a player MOVED down there is reachable at its new port.** `forward <p> to
+   <deep ip>:6380` opens the store when the box's own journal really put it there. Found while
+   building slice 5 and left to this one: routing ITSELF reads the terminal box's seeded tree, so
+   this is the trap one layer earlier than the door — a third player-reachable symptom, and the one
+   that shows the gap is not only about what a door answers with.
 4. A `requirepassHash` edited on a deep box is the one `hydra` reports AND the one `AUTH` then
    accepts. Two sides of one rule; redis is the door where both sides read the same file.
 5. `reachServiceHost`'s deep branch no longer replays the journal a second time: ONE journal read
