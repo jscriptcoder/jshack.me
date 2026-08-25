@@ -34,6 +34,10 @@ import type {
   NcInnerGatewayParams,
   NcPublicParams,
   NcPublicResult,
+  RedisConnectParams,
+  RedisConnectResult,
+  RedisStatementParams,
+  RedisStatementResult,
   NcSameLanParams,
   PublicDoorAuthParams,
   Identity,
@@ -439,6 +443,80 @@ export const runDatabaseStatement = async (
       port: params.port,
       username: params.username,
       password: params.password,
+      statement: params.statement,
+      source_ip: params.sourceIp,
+    });
+    if (!response.ok) return { kind: 'lost' };
+    const answer = statementAnswerSchema.safeParse(await response.json());
+    if (!answer.success) return { kind: 'lost' };
+    return { kind: 'answered', output: answer.data.output, failed: answer.data.failed };
+  } catch {
+    return { kind: 'lost' };
+  }
+};
+
+/**
+ * Open a key-value store on a LAN host — the signed `redisConnect` round-trip behind
+ * `env.redis.connect`.
+ *
+ * Nothing was sent that could be refused, so there is no `denied` to come back. The
+ * only two answers are the box's: it is there and serving, or it is not — and a daemon
+ * that is not listening is the one worth telling apart, because a scan already tells
+ * anyone who asks.
+ *
+ * The success carries the box's NAME, for the reason the database door's does: through
+ * a forward it is unknowable here, since a deep box's address is absent from the
+ * generated LAN.
+ *
+ * No session comes back because none is created. A connection that proved nothing must
+ * not buy a row that would authorize everything.
+ */
+const openedStore = z.object({ hostname: z.string().min(1) });
+
+export const connectStore = async (
+  deps: SessionsClientDeps,
+  params: RedisConnectParams,
+): Promise<RedisConnectResult> => {
+  try {
+    const response = await post(deps, 'redisConnect', {
+      essid: params.essid,
+      target_ip: params.targetIp,
+      port: params.port,
+      source_ip: params.sourceIp,
+    });
+    const body: unknown = await response.json().catch(() => null);
+    if (response.ok) {
+      const opened = openedStore.safeParse(body);
+      // A 200 the client cannot read is not an open door: it has no box to name.
+      return opened.success
+        ? { ok: true, hostname: opened.data.hostname }
+        : { ok: false, reason: 'unreachable' };
+    }
+    const stopped = z.object({ error: z.literal('service_not_running') }).safeParse(body);
+    return { ok: false, reason: stopped.success ? 'refused' : 'unreachable' };
+  } catch {
+    return { ok: false, reason: 'unreachable' };
+  }
+};
+
+/**
+ * Run one statement against a LAN host's store — the signed `redisStatement` round-trip
+ * behind `env.redis.run`.
+ *
+ * The whole connection goes with it because no session row exists to name instead, and
+ * everything that is not a well-formed 200 collapses to `lost`. The box gone, the
+ * daemon stopped, the request never arriving: from the prompt's side those are one
+ * condition.
+ */
+export const runStoreStatement = async (
+  deps: SessionsClientDeps,
+  params: RedisStatementParams,
+): Promise<RedisStatementResult> => {
+  try {
+    const response = await post(deps, 'redisStatement', {
+      essid: params.essid,
+      target_ip: params.targetIp,
+      port: params.port,
       statement: params.statement,
       source_ip: params.sourceIp,
     });

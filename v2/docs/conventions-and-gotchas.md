@@ -684,6 +684,14 @@ Provably-equivalent mutant classes — accept (don't chase) when they recur:
   and left eight, because the eager block next door still generates every box. Before
   believing a content generator "survived", stub it by hand: a suite that goes red is a
   kill however the runner scored it.
+  **Module-scope fixtures mis-attribute `perTest` coverage the same way.** D7 slice 2: the
+  `if (occupants.some(...)) return null` branch in `rediscli.ts` was reported Survived under
+  a scoped runner, and applying that exact mutant by hand took TWO tests in the same file
+  red. The fixtures those tests read (`generateHomeLan` results held in module-scope
+  consts) are built at import rather than inside a test body, so Stryker attributes no test
+  to the mutant and never runs the ones that would kill it. Same rule as above, and it is
+  now the cheapest check in the triage: hand-apply any survivor that looks like it should
+  already be covered before writing a test for it.
 - **No-op type-re-narrowing `.filter(typeGuard)`** added only to satisfy types after a guard
   already guarantees the kind. Prefer reduce-append; else keep the imperative early-return
   loop.

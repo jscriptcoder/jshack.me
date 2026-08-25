@@ -2346,3 +2346,202 @@ describe('a backdoor on a box across the network', () => {
     expect(await typeLine(state, 'ls')).toContain(CLOSED);
   });
 });
+
+/**
+ * The `redis> ` prompt — the third rung `subShellPrompt()` was consolidated to accept,
+ * and the first reuse of the echo fix that made a bare prompt safe to have.
+ *
+ * It arrives holding less than either of the other two. `ftp>` holds a server row and
+ * `mysql>` holds a credential; this holds an address and a port, because the door has
+ * no credential to hold. So the sub-shell IS the connection here in a stronger sense
+ * than one door along — and the refusal it owes is the same one: a line typed at
+ * `redis> ` must reach the store, never the box the player is standing on.
+ */
+describe('the redis sub-shell', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const ESSID = 'BEAN-THERE-WIFI';
+  const LAN = generateHomeLan(ESSID);
+  const STORE_HOST = LAN.hosts.find(
+    (host) =>
+      host.kind === 'machine' &&
+      readOpenPorts(buildRemoteHostFs(ESSID, host)).some(
+        (open) => open.service === SERVICE_CATALOG.redis.service,
+      ),
+  );
+  if (STORE_HOST === undefined) throw new Error(`need a store host on ${ESSID}`);
+
+  const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
+  const bootOnline = async ({ opened = true, statementsFail = false } = {}) => {
+    vi.resetModules();
+    const store = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => store.set(key, value),
+      removeItem: (key: string) => store.delete(key),
+    };
+    storage.setItem(CONNECTED_ESSID_KEY, ESSID);
+    lanLeaseCacheIn(storage).remember(ESSID, `${LAN.subnet}.77`);
+    vi.stubGlobal('localStorage', storage);
+
+    const sent: Record<string, unknown>[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: { body?: string }) => {
+        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<string, unknown>;
+        sent.push(fields);
+        if (fields.action === 'listSessions') {
+          return { ok: true, status: 200, json: async () => ({ sessions: [] }) };
+        }
+        if (fields.action === 'redisConnect') {
+          return opened
+            ? {
+                ok: true,
+                status: 200,
+                json: async () => ({ ok: true, hostname: STORE_HOST.hostname }),
+              }
+            : { ok: false, status: 404, json: async () => ({ error: 'service_not_running' }) };
+        }
+        if (fields.action === 'redisStatement') {
+          // Every non-200 is one condition to the prompt: the connection it stands for
+          // is no longer there.
+          if (statementsFail) return { ok: false, status: 404, json: async () => ({}) };
+          const line = String(fields['statement']);
+          const word = line.trim().split(/\s+/)[0] ?? '';
+          const answer = /^\s*KEYS/i.test(line)
+            ? { output: ['1) "sess:0a1b2c3d"', '2) "stats:requests"'], failed: false }
+            : { output: [`(error) ERR unknown command '${word}'`], failed: true };
+          return { ok: true, status: 200, json: async () => answer };
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            patches: [
+              {
+                path: '/usr/bin/rediscli',
+                content: BINARY_STUB,
+                owner: 'root',
+                permissions: {
+                  read: ['root', 'user', 'guest'],
+                  write: ['root'],
+                  execute: ['root', 'user', 'guest'],
+                },
+              },
+            ],
+          }),
+        };
+      }),
+    );
+
+    const state = await import('./state');
+    state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
+    await vi.waitFor(() => expect(state.promptHost()).toBe('box'));
+    await vi.waitFor(async () => {
+      state.setInput('ls /usr/bin');
+      await state.runInput();
+      expect(state.scrollback().some((entry) => entry.content.includes('rediscli'))).toBe(true);
+    });
+    return { state, sent };
+  };
+
+  /** Open the store by actually typing the command — the shipped path, not a poked
+   *  signal. There is nothing to answer along the way, which is the door. */
+  const typeConnect = async (state: typeof import('./state')): Promise<void> => {
+    state.setInput(`rediscli ${STORE_HOST.ip}`);
+    await state.runInput();
+    await settle();
+  };
+
+  const typeLine = async (state: typeof import('./state'), line: string): Promise<string> => {
+    const before = state.scrollback().length;
+    state.setInput(line);
+    await state.runInput();
+    return state
+      .scrollback()
+      .slice(before)
+      .map((entry) => entry.content)
+      .join('\n');
+  };
+
+  it('greets and lands at redis> without asking the player anything', async () => {
+    const { state, sent } = await bootOnline();
+
+    await typeConnect(state);
+
+    expect(state.subShellPrompt()).toBe('redis> ');
+    expect(
+      state
+        .scrollback()
+        .slice(-2)
+        .map((entry) => entry.content),
+    ).toEqual([
+      `Connecting to ${STORE_HOST.ip}:6379...`,
+      `Connected to Redis ${STORE_HOST.hostname}.`,
+    ]);
+    // No row was asked for, at any tier. A connection that proved nothing must not buy
+    // a row that would authorize everything.
+    expect(sent.some((payload) => payload.action === 'authCreateSession')).toBe(false);
+  });
+
+  it('leaves the player at the shell when nothing is serving', async () => {
+    const { state } = await bootOnline({ opened: false });
+
+    await typeConnect(state);
+
+    expect(state.subShellPrompt()).toBe(null);
+    expect(state.scrollback().at(-1)?.content).toContain('Connection refused');
+  });
+
+  it('sends an outer shell command to the store instead of running it', async () => {
+    const { state, sent } = await bootOnline();
+    await typeConnect(state);
+
+    const printed = await typeLine(state, 'ls /etc');
+
+    // The security boundary of the sub-shell. Falling through would run the OUTER
+    // shell's `ls` against the box the player is standing on while they believe they
+    // are addressing the store — and this connection reaches no filesystem at all.
+    expect(printed).toContain("(error) ERR unknown command 'ls'");
+    expect(printed).not.toContain('passwd');
+    expect(sent.filter((payload) => payload.action === 'redisStatement')).toHaveLength(1);
+  });
+
+  it('scrolls every statement back under the prompt it was typed at', async () => {
+    const { state } = await bootOnline();
+    await typeConnect(state);
+
+    const printed = await typeLine(state, 'KEYS *');
+
+    // The live prompt already reads `redis> `, so an echo carrying user@host:cwd would
+    // name the one machine this connection reaches no filesystem on.
+    expect(printed).toContain('redis> KEYS *');
+    expect(printed).toContain('1) "sess:0a1b2c3d"');
+  });
+
+  it('hands the shell back on quit, with the cwd and host it never left', async () => {
+    const { state, sent } = await bootOnline();
+    const before = state.cwd();
+    await typeConnect(state);
+
+    await typeLine(state, 'quit');
+
+    expect(state.subShellPrompt()).toBe(null);
+    expect(state.cwd()).toBe(before);
+    expect(state.promptHost()).toBe('box');
+    // The way out belongs to the client: a player whose box has gone dark must still
+    // be able to get back to their shell.
+    expect(sent.some((payload) => payload.statement === 'quit')).toBe(false);
+  });
+
+  it('drops the prompt on the next statement once the daemon has stopped', async () => {
+    const { state } = await bootOnline({ statementsFail: true });
+    await typeConnect(state);
+
+    const printed = await typeLine(state, 'KEYS *');
+
+    expect(printed).toContain('Error: Server closed the connection');
+    expect(state.subShellPrompt()).toBe(null);
+  });
+});

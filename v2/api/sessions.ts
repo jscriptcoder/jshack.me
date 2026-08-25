@@ -17,6 +17,8 @@ import { handleAuthCreateSessionInnerGateway } from '../src/core/sessions/authCr
 import { handleHydraCrack } from '../src/core/sessions/hydraCrack';
 import { handleMysqlConnect } from '../src/core/sessions/mysqlConnect';
 import { handleMysqlStatement } from '../src/core/sessions/mysqlStatement';
+import { handleRedisConnect } from '../src/core/sessions/redisConnect';
+import { handleRedisStatement } from '../src/core/sessions/redisStatement';
 import { handleHydraCrackPublic } from '../src/core/sessions/hydraCrackPublic';
 import { handleHydraCrackInnerGateway } from '../src/core/sessions/hydraCrackInnerGateway';
 import type { OwnerPatchRow } from '../src/core/network/materializeWorkstationFs';
@@ -541,6 +543,77 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         supabase,
         occupancyLabel: 'mysql statement source-ip occupancy',
         lookupLabel: 'mysql statement source-ip lookup',
+      }),
+    });
+    res.status(status).json(body);
+    return;
+  }
+
+  if (actionOf(req.body) === 'redisConnect') {
+    // Opening a key-value store. NO credential arrives with it and NO session row is
+    // created: a store answers to one secret or to none, the secret belongs to the
+    // service rather than to a person, and a row minted for a connection that proved
+    // nothing would hand `listPatches` and `upsertPatch` to anyone who reaches 6379.
+    //
+    // The handler READS the target's journal (what it is actually running) and WRITES
+    // one line to its own /var/log/redis.log. One line, not two: the database door
+    // sends its credential in the handshake and so records the arrival and the verdict
+    // together, while nothing was attempted here.
+    //
+    // The reach is the database door's, shared — same four vantages, same boot gate,
+    // same pidfile check, asked about a different daemon.
+    const { status, body } = await handleRedisConnect(req.body, {
+      nonceStore: noopNonceStore,
+      now: () => Date.now(),
+      findPatches: findPatchesVia({ supabase, label: 'redis target journal lookup' }),
+      readRedisLog: readAuthLogVia({ supabase, label: 'redis log read' }),
+      upsertPatch: upsertPatchVia({ supabase, label: 'redis log upsert' }),
+      findNetworkByPublicIp: findNetworkByPublicIpVia({
+        supabase,
+        label: 'redis connect public-ip lookup',
+      }),
+      listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
+        supabase,
+        label: 'redis connect occupant list',
+      }),
+      listLeasesByEssid: listLeasesByEssidVia({ supabase, label: 'redis connect lan-lease list' }),
+      findHomeNetworkByOwnerKey: findHomeNetworkByOwnerKeyVia({
+        supabase,
+        occupancyLabel: 'redis connect source-ip occupancy',
+        lookupLabel: 'redis connect source-ip lookup',
+      }),
+    });
+    res.status(status).json(body);
+    return;
+  }
+
+  if (actionOf(req.body) === 'redisStatement') {
+    // One statement against a store. The reach is re-established here rather than
+    // trusted from the connection, and that repeat IS the eviction mechanism: with no
+    // session row to invalidate, a player shut out by `systemctl stop redis` can only
+    // discover it by asking again.
+    //
+    // The handler READS the target's journal — the store somebody may have edited as
+    // root — and writes NOTHING. Reads never append, which is real Redis's behaviour
+    // and the database door's rule both; the write verbs and the lines they leave
+    // arrive with the slice that lands them.
+    const { status, body } = await handleRedisStatement(req.body, {
+      nonceStore: noopNonceStore,
+      findPatches: findPatchesVia({ supabase, label: 'redis statement journal lookup' }),
+      upsertPatch: upsertPatchVia({ supabase, label: 'redis statement upsert' }),
+      findNetworkByPublicIp: findNetworkByPublicIpVia({
+        supabase,
+        label: 'redis statement public-ip lookup',
+      }),
+      listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
+        supabase,
+        label: 'redis statement occupant list',
+      }),
+      listLeasesByEssid: listLeasesByEssidVia({ supabase, label: 'redis statement lan-lease list' }),
+      findHomeNetworkByOwnerKey: findHomeNetworkByOwnerKeyVia({
+        supabase,
+        occupancyLabel: 'redis statement source-ip occupancy',
+        lookupLabel: 'redis statement source-ip lookup',
       }),
     });
     res.status(status).json(body);
