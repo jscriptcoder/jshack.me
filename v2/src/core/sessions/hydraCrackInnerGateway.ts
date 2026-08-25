@@ -122,6 +122,15 @@ export const handleHydraCrackInnerGateway = async (
     return { status: 404, body: { error: 'service_not_running' } };
   }
 
+
+  // A door whose secret belongs to the SERVICE has one lock or none at all. None is not
+  // an empty sweep: reporting nothing found would tell the player the store held, when
+  // in fact it was never shut.
+  const secret = spec.secretOn?.(target.fs);
+  if (spec.secretOn !== undefined && secret === undefined) {
+    return { status: 404, body: { error: 'no_password_set' } };
+  }
+
   const wordlist = await deps.listPathPatches({
     machine_id: payload.caller_machine_id,
     path: WORDLIST_PATH,
@@ -146,6 +155,7 @@ export const handleHydraCrackInnerGateway = async (
   const { cracked, trace } = sweepAccounts({
     accounts: spec.accountsOn(target.fs),
     database: spec.databaseOn?.(target.fs),
+    secret,
     username: payload.username,
     wordlist: content,
     hostname: target.hostname,

@@ -443,3 +443,95 @@ describe('hydra', () => {
     expect(text).toContain('Hydra starting attack');
   });
 });
+
+/**
+ * The store door has no logins, and `hydra` has to say so.
+ *
+ * Every other service in the catalog authenticates a PERSON, so the command's whole
+ * vocabulary — enumerating accounts, targeting a login, reporting one beside a password
+ * — assumes there is a name involved. Against a store there is not: one lock, no
+ * accounts, and a status line promising otherwise sends the player looking for a
+ * username that does not exist.
+ */
+describe('hydra against a door with no accounts', () => {
+  it('reports the password with no login field at all', async () => {
+    const { env } = hydraEnv({
+      result: { ok: true, port: 6379, cracked: [{ password: 'sunshine' }], wordlistFound: true },
+    });
+
+    const { text } = await drain(
+      await hydra.execute(env, ['192.168.4.31', 'redis'], new Map()),
+    );
+
+    expect(text).toContain('[6379][redis] host: 192.168.4.31   password: sunshine');
+    expect(text).not.toContain('login:');
+    expect(text).toContain('1 valid password(s) found');
+  });
+
+  it('says it is attacking the store password rather than enumerating accounts', async () => {
+    const { env } = hydraEnv({
+      result: { ok: true, port: 6379, cracked: [], wordlistFound: true },
+    });
+
+    const { text } = await drain(
+      await hydra.execute(env, ['192.168.4.31', 'redis'], new Map()),
+    );
+
+    expect(text).toContain('This service has no logins');
+    expect(text).not.toContain('Enumerating accounts');
+  });
+
+  it('says the same when a login was named, instead of pretending to target it', async () => {
+    const { env, crack } = hydraEnv({
+      result: { ok: true, port: 6379, cracked: [{ password: 'sunshine' }], wordlistFound: true },
+    });
+
+    const { text } = await drain(
+      await hydra.execute(env, ['192.168.4.31', 'redis', 'root'], new Map()),
+    );
+
+    // The name still travels — the server answers it rather than filtering by it, so a
+    // player who guessed at the syntax still gets the store's password.
+    expect(crack).toHaveBeenCalledWith(expect.objectContaining({ username: 'root' }));
+    expect(text).toContain('This service has no logins');
+    expect(text).not.toContain('Targeting login: root');
+  });
+
+  it('goes on naming the login for every door that has them', async () => {
+    const { env } = hydraEnv({ result: { ok: true, port: 22, cracked: [], wordlistFound: true } });
+
+    const { text } = await drain(
+      await hydra.execute(env, ['192.168.4.31', 'ssh', 'root'], new Map()),
+    );
+
+    expect(text).toContain('Targeting login: root');
+    expect(text).not.toContain('This service has no logins');
+  });
+
+  it('does not fall over on a service the world has no row for', async () => {
+    const { env } = hydraEnv({ result: { ok: false, error: 'service_not_running' } });
+
+    const { text } = await drain(
+      await hydra.execute(env, ['192.168.4.31', 'nosuchd'], new Map()),
+    );
+
+    // The service name is player input, so an unknown one is an ordinary answer rather
+    // than a fault — and the catalog lookup that decides how to describe the door has to
+    // survive finding no row at all, before the request is ever sent.
+    expect(text).toContain('no such service on that host');
+  });
+
+  it('tells the player a store was open rather than reporting that it held', async () => {
+    const { env } = hydraEnv({ result: { ok: false, error: 'no_password_set' } });
+
+    const { text } = await drain(
+      await hydra.execute(env, ['192.168.4.31', 'redis'], new Map()),
+    );
+
+    // "0 valid passwords found" here would be the exact opposite of the truth: there is
+    // nothing to find because there is nothing in the way.
+    expect(text).toContain('no password set (open access)');
+    expect(text).toContain('rediscli');
+    expect(text).not.toContain('valid password');
+  });
+});

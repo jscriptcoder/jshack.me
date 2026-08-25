@@ -43,6 +43,7 @@ import type {
   MysqlStatementResult,
   MysqlConnectResult,
   RedisConnectParams,
+  RedisConnection,
   RedisConnectResult,
   RedisStatementParams,
   RedisStatementResult,
@@ -314,7 +315,7 @@ const leaveMysqlSession = (): void => {
 // database one above and holding even less: an address and a port, because this door
 // has no credential to hold. While it is set the typed line goes to the store parser
 // instead of the registry, and the prompt reads `redis>`.
-const [redisConnection, setRedisConnection] = createSignal<RedisConnectParams | null>(null);
+const [redisConnection, setRedisConnection] = createSignal<RedisConnection | null>(null);
 
 export const inRedisSession = (): boolean => redisConnection() !== null;
 
@@ -325,7 +326,7 @@ export const REDIS_PROMPT = 'redis> ';
 
 /** Hold an opened connection (backs `env.redis.enter`). No cwd, no journal and no
  *  session row: the whole of what a store connection IS lives in this signal. */
-const enterRedisSession = (connection: RedisConnectParams): void => {
+const enterRedisSession = (connection: RedisConnection): void => {
   setRedisConnection(connection);
 };
 

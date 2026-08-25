@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { redisStoreSchema, type RedisStore } from './types';
-import { runStatement } from './statements';
+import { runStatement, type StoreStatementResult } from './statements';
+import { md5 } from '../generation/md5';
 
 /**
  * What a store answers, and what it refuses.
@@ -160,5 +161,98 @@ describe('a store that holds a secret', () => {
     // The command lookup happens before the auth check in real Redis, and legacy
     // parses before it executes — so a typo is a typo whether or not you are in.
     expect(answer('cat /etc/passwd', LOCKED)).toEqual(["(error) ERR unknown command 'cat'"]);
+  });
+});
+
+describe('producing the secret', () => {
+  const SECRET = 'summer2024';
+  const SHUT = storeOf(
+    { 'sess:0a1b2c3d': '{"username":"devops"}', 'stats:requests': '9' },
+    md5(SECRET),
+  );
+
+  const reply = (line: string, store: RedisStore, password?: string): StoreStatementResult =>
+    runStatement({ store, line, ...(password === undefined ? {} : { password }) });
+
+  it('accepts the password the store holds, and reports the attempt as a success', () => {
+    expect(reply(`AUTH ${SECRET}`, SHUT)).toEqual({
+      output: ['OK'],
+      failed: false,
+      attempt: 'success',
+    });
+  });
+
+  it('refuses a password the store does not hold, and reports the attempt as a failure', () => {
+    expect(reply('AUTH winter2024', SHUT)).toEqual({
+      output: ['(error) ERR invalid password'],
+      failed: true,
+      attempt: 'failure',
+    });
+  });
+
+  it('judges the password exactly, so a near miss is a miss', () => {
+    // The hash is the whole comparison. A door that accepted a case fold or a prefix
+    // would be crackable by words the wordlist does not hold.
+    const near = ['Summer2024', 'summer', 'summer20244'];
+    expect(near.map((candidate) => reply(`AUTH ${candidate}`, SHUT).failed)).toEqual(
+      near.map(() => true),
+    );
+    expect(reply(`AUTH ${SECRET}`, SHUT).failed).toBe(false);
+  });
+
+  it('refuses a bare AUTH as a verb missing its argument, having judged nothing', () => {
+    expect(reply('AUTH', SHUT)).toEqual({
+      output: ["(error) ERR wrong number of arguments for 'auth' command"],
+      failed: true,
+    });
+  });
+
+  it('refuses an AUTH carrying more than one word, so the client and the door agree', () => {
+    // A password cannot contain a space here — the line is split on whitespace — so a
+    // second word is a typo. Accepting it and silently weighing the first would leave
+    // the prompt holding nothing while the daemon said OK: authenticated for exactly one
+    // statement, and locked out on the next with no way to tell why.
+    expect(reply('AUTH summer2024 extra', SHUT)).toEqual({
+      output: ["(error) ERR wrong number of arguments for 'auth' command"],
+      failed: true,
+    });
+  });
+
+  it('tells a caller that a store holding no secret has nothing to authenticate against', () => {
+    // Nothing was judged here either, so nothing is recorded. A store with no lock
+    // cannot produce a failed attempt, and a log line saying it had would be an
+    // invention the defender reads as somebody trying.
+    expect(reply('AUTH anything', SESSIONS)).toEqual({
+      output: ['(error) ERR Client sent AUTH, but no password is set'],
+      failed: true,
+    });
+  });
+
+  it('answers every read once the statement carries the password', () => {
+    expect(reply('KEYS *', SHUT, SECRET).output).toEqual([
+      '1) "sess:0a1b2c3d"',
+      '2) "stats:requests"',
+    ]);
+    expect(reply('GET stats:requests', SHUT, SECRET).output).toEqual(['"9"']);
+    expect(reply('DBSIZE', SHUT, SECRET).output).toEqual(['(integer) 2']);
+  });
+
+  it('goes on refusing a statement carrying the wrong password, or none at all', () => {
+    const carried = [undefined, '', 'winter2024'];
+    expect(carried.map((password) => reply('DBSIZE', SHUT, password).output)).toEqual(
+      carried.map(() => ['(error) NOAUTH Authentication required.']),
+    );
+  });
+
+  it('reports an attempt only for a password being judged', () => {
+    const lines = ['KEYS *', 'GET stats:requests', 'DBSIZE', 'cat /etc/passwd', ''];
+    expect(lines.map((line) => reply(line, SHUT, SECRET).attempt)).toEqual(
+      lines.map(() => undefined),
+    );
+    expect(reply(`AUTH ${SECRET}`, SHUT).attempt).toBe('success');
+  });
+
+  it('takes the verb in any case, as it takes every other', () => {
+    expect(reply(`auth ${SECRET}`, SHUT).output).toEqual(['OK']);
   });
 });

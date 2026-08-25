@@ -26,6 +26,7 @@ import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
 import { connectedWlan0 } from '../network/interfaces';
 import { isPublicIp } from '../generation/ip';
 import { forwardsIntoDeepLayer } from '../generation/lanHostIdentity';
+import { serviceByName } from '../services/serviceCatalog';
 
 const error = (message: string): CommandResult => ({
   kind: 'sync',
@@ -46,6 +47,7 @@ const REFUSALS: Readonly<Record<string, string>> = {
   service_not_running: 'no such service on that host — scan it first with nmap',
   no_session: 'you are not logged in on this machine any more — reconnect and retry',
   caller_not_on_lan: 'cannot attack from this machine — it is not on your network',
+  no_password_set: 'that store has no password set (open access) — connect with rediscli',
   wordlist_lookup_failed: 'could not read your wordlist — try again',
   patches_lookup_failed: 'could not reach the target — try again',
 };
@@ -72,10 +74,16 @@ async function* attack(
 ): AsyncIterable<TerminalLine> {
   yield text(`Hydra starting attack on ${service}://${target}`);
   await env.sleep(STEP_DELAY_MS);
+  // A door whose secret belongs to the SERVICE has no accounts to enumerate and no
+  // login to target. Saying either would send the player hunting for a username that
+  // does not exist — and the name they DID type still travels, because the server
+  // answers it rather than filtering by it.
   yield text(
-    username === undefined
-      ? 'Enumerating accounts from the target...'
-      : `Targeting login: ${username}`,
+    serviceByName(service)?.secretOn !== undefined
+      ? "This service has no logins — attacking the store's own password"
+      : username === undefined
+        ? 'Enumerating accounts from the target...'
+        : `Targeting login: ${username}`,
   );
   await env.sleep(STEP_DELAY_MS);
   yield text('Loading /usr/share/wordlists/passwords.txt ...');
@@ -117,8 +125,11 @@ async function* attack(
   await env.sleep(STEP_DELAY_MS);
   yield text('');
   for (const credential of result.cracked) {
+    // The login field is omitted entirely rather than left blank for a door that has
+    // none: an empty column reads as an account whose name was lost.
+    const login = credential.username === undefined ? '' : `login: ${credential.username}   `;
     yield text(
-      `[${result.port}][${service}] host: ${target}   login: ${credential.username}   password: ${credential.password}`,
+      `[${result.port}][${service}] host: ${target}   ${login}password: ${credential.password}`,
     );
   }
   yield text('');

@@ -37,7 +37,10 @@ export type SweepableAccount = {
 };
 
 export type CrackedCredential = {
-  readonly username: string;
+  /** Absent for the door whose secret belongs to the SERVICE. A store has one lock and
+   *  no accounts, so there is no name to hand back — and a name invented to fill this
+   *  would read as a working credential right up until it was spent. */
+  readonly username?: string;
   readonly password: string;
 };
 
@@ -80,9 +83,15 @@ const accountsUnderAttack = (
  *  weak the real password is) and how many passwords were TRIED before it did,
  *  which is what the defender's log records. */
 type AccountSweep = {
-  readonly account: SweepableAccount;
+  /** `undefined` for a service's own secret, which no account owns. */
+  readonly username: string | undefined;
   readonly matchedAt: number;
 };
+
+/** Where in the list a hash's plaintext sits, or -1. The one rule the whole credential
+ *  layer rests on, in one line: a password falls because the file holds it. */
+const matchIn = (words: readonly string[], hash: string): number =>
+  words.findIndex((word) => md5(word) === hash);
 
 export const sweepAccounts = (options: {
   readonly accounts: readonly SweepableAccount[];
@@ -98,30 +107,42 @@ export const sweepAccounts = (options: {
    *  box — the database name, for the one door that has one. `undefined` everywhere
    *  else, and ignored by every formatter that has nothing to do with it. */
   readonly database: string | undefined;
+  /** The service's OWN secret, for the door that authenticates one instead of a person.
+   *  Swept beside the accounts and by the same rule, and deliberately NOT subject to
+   *  the username filter: a name cannot exclude a lock that has none, and filtering it
+   *  out would report a crackable store as one that held. */
+  readonly secret: string | undefined;
 }): Sweep => {
   const words = wordsIn(options.wordlist);
-  const sweeps: readonly AccountSweep[] = accountsUnderAttack(
-    options.accounts,
-    options.username,
-  ).map((account) => ({
-    account,
-    matchedAt: words.findIndex((word) => md5(word) === account.hash),
-  }));
+  const sweeps: readonly AccountSweep[] = [
+    ...accountsUnderAttack(options.accounts, options.username).map((account) => ({
+      username: account.username,
+      matchedAt: matchIn(words, account.hash),
+    })),
+    ...(options.secret === undefined
+      ? []
+      : [{ username: undefined, matchedAt: matchIn(words, options.secret) }]),
+  ];
 
-  const cracked = sweeps.flatMap(({ account, matchedAt }) => {
+  const cracked = sweeps.flatMap(({ username, matchedAt }) => {
     const password = matchedAt === -1 ? undefined : words[matchedAt];
-    return password === undefined ? [] : [{ username: account.username, password }];
+    return password === undefined
+      ? []
+      : [{ ...(username === undefined ? {} : { username }), password }];
   });
 
   // The sweep as the TARGET saw it: the matched password recorded as a success and
   // the rest as failures, in the attacked service's own log shape. An account that
   // fell records only the words that came before its match — the rest were never sent.
-  const trace = sweeps.flatMap(({ account, matchedAt }) =>
+  const trace = sweeps.flatMap(({ username, matchedAt }) =>
     Array.from({ length: matchedAt === -1 ? words.length : matchedAt + 1 }, (_unused, attempt) =>
       options.formatAttempt({
         outcome: attempt === matchedAt ? 'success' : 'failure',
         ...(options.database === undefined ? {} : { database: options.database }),
-        user: account.username,
+        // Empty for a service's own secret, and read by nobody there: the store's own
+        // formatter names who tried and whether they got in, because there is no
+        // account for it to name.
+        user: username ?? '',
         fromIp: options.fromIp,
         hostname: options.hostname,
         time: asGameTime(options.stamp),

@@ -17,6 +17,8 @@ import { workstationGuestPassword } from '../generation/workstationFs';
 import { lanAddressFor } from '../network/lanAddress';
 import { playerDatabaseOn } from '../../test/factories/lanDatabase';
 import { DATADIR_PATH } from '../mysql/datadir';
+import { DATADIR_PATH as REDIS_DATADIR_PATH, storeIn } from '../redis/datadir';
+import { redisStoreSchema } from '../redis/types';
 import { formatPidfileContent, pidfilePath } from '../services/pidfile';
 import type { NatOccupantRow } from '../network/resolvePublicTarget';
 import {
@@ -32,6 +34,12 @@ import {
   MYSQL_LOG_PERMISSIONS,
   formatMysqlAttemptLine,
 } from '../logging/mysqlLog';
+import {
+  REDIS_LOG_OWNER,
+  REDIS_LOG_PATH,
+  REDIS_LOG_PERMISSIONS,
+  formatRedisAttemptLine,
+} from '../logging/redisLog';
 import { derivePid } from '../logging/syslog';
 import { asAbsPath, asGameTime } from '../types';
 import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
@@ -1637,11 +1645,16 @@ describe('the database difficulty curve (which database accounts a starting word
           stamp: FIXED_NOW,
           formatAttempt: formatMysqlAttemptLine,
           database: SERVICE_CATALOG.mysql.databaseOn?.(baseFs),
+          // The database door's secrets all belong to accounts; the nameless kind is
+          // the store's alone.
+          secret: undefined,
         });
         return {
           where: `${essid} ${host.ip}`,
           usernames: accounts.map((account) => account.username),
-          fell: cracked.map((credential) => credential.username),
+          fell: cracked.flatMap((credential) =>
+            credential.username === undefined ? [] : [credential.username],
+          ),
         };
       }),
   );
@@ -2045,5 +2058,209 @@ describe('sweeping a fellow occupant of the same WiFi', () => {
     );
 
     expect({ status, body }).toEqual({ status: 500, body: { error: 'leases_lookup_failed' } });
+  });
+});
+
+/**
+ * The one door in the catalog with no accounts to attack.
+ *
+ * A store answers to a single secret that belongs to the SERVICE, so a sweep of it
+ * recovers a password with nobody's name on it. Everything else about the attack is the
+ * shared rule: membership in the wordlist decides it, the attempt is traced on the
+ * target, and a box that is not running one is dark.
+ */
+describe('sweeping a key-value store', () => {
+  /** The LAN's store box. Its lock is the generator's own, so what falls here is what
+   *  falls in the world rather than what a test planted. */
+  const storeHostOn = (essid: string): LanHost => {
+    const host = generateHomeLan(essid).hosts.find(
+      (candidate) =>
+        candidate.kind === 'machine' &&
+        hostServices(essid, candidate).some(({ spec }) => spec === SERVICE_CATALOG.redis),
+    );
+    if (host === undefined) throw new Error('no store-running host on LAN');
+    return host;
+  };
+
+  /** A box running a shell but NO store — the refusal about the DOOR rather than about
+   *  the machine, told apart from a box that is simply gone. */
+  const storelessHostOn = (essid: string): LanHost => {
+    const host = generateHomeLan(essid).hosts.find((candidate) => {
+      if (candidate.kind !== 'machine') return false;
+      const services = hostServices(essid, candidate).map(({ spec }) => spec);
+      return services.includes(SERVICE_CATALOG.ssh) && !services.includes(SERVICE_CATALOG.redis);
+    });
+    if (host === undefined) throw new Error('every ssh host on LAN runs a store');
+    return host;
+  };
+
+  const secretOf = (host: LanHost): string => {
+    const hash = storeIn(resolveLanHostIdentity(host, ESSID).baseFs)?.requirepassHash ?? null;
+    const password = hash === null ? undefined : KNOWN_POOL.find((word) => md5(word) === hash);
+    if (password === undefined) throw new Error(`no known secret on ${host.hostname}`);
+    return password;
+  };
+
+  /** A row that replaces the box's datadir — the file root can edit, and the way a test
+   *  reaches a store shape this LAN's generator did not draw. */
+  const storeRow = (content: string | null): OwnerPatchRow =>
+    ({
+      path: REDIS_DATADIR_PATH,
+      content,
+      owner: 'root',
+      permissions: null,
+      node_type: 'file',
+      updated_at: '2026-08-09T11:00:00.000Z',
+      writer_key: 'b'.repeat(64),
+    }) as OwnerPatchRow;
+
+  const redisTraceLine = (outcome: 'success' | 'failure', host: LanHost): string =>
+    formatRedisAttemptLine({
+      outcome,
+      user: '',
+      fromIp: ATTACKER_IP,
+      hostname: host.hostname,
+      time: asGameTime(FIXED_NOW),
+      pid: derivePid(FIXED_NOW),
+    });
+
+  it('reports the password with no account name on it at all', async () => {
+    const identity = generateIdentity();
+    const host = storeHostOn(ESSID);
+    const secret = secretOf(host);
+    const { deps } = makeDeps({ wordlist: ['nonsense', secret] });
+
+    const response = await handleHydraCrack(
+      await signedCrack(identity, { target_ip: host.ip, service: 'redis' }),
+      deps,
+    );
+
+    // A username invented to fill the field would read as a working credential right up
+    // until a player spent an attempt on it.
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      port: SERVICE_CATALOG.redis.defaultPort,
+      cracked: [{ password: secret }],
+      wordlistFound: true,
+    });
+  });
+
+  it('finds nothing when the store secret is absent from the wordlist', async () => {
+    const identity = generateIdentity();
+    const host = storeHostOn(ESSID);
+    const { deps } = makeDeps({ wordlist: ['nonsense', 'guesswork'] });
+
+    const response = await handleHydraCrack(
+      await signedCrack(identity, { target_ip: host.ip, service: 'redis' }),
+      deps,
+    );
+
+    expect(response.body).toEqual(
+      expect.objectContaining({ cracked: [], wordlistFound: true }),
+    );
+  });
+
+  it('attacks the store even when a login was named, because the secret has no name', async () => {
+    const identity = generateIdentity();
+    const host = storeHostOn(ESSID);
+    const secret = secretOf(host);
+    const { deps } = makeDeps({ wordlist: [secret] });
+
+    const response = await handleHydraCrack(
+      await signedCrack(identity, { target_ip: host.ip, service: 'redis', username: 'root' }),
+      deps,
+    );
+
+    // Filtering by a name nobody here has would report a crackable store as one that
+    // held, which is the worst answer a sweep can give.
+    expect(response.body).toEqual(
+      expect.objectContaining({ cracked: [{ password: secret }] }),
+    );
+  });
+
+  it('says an open store has no password to find, and leaves its log alone', async () => {
+    const identity = generateIdentity();
+    const host = storeHostOn(ESSID);
+    const { machineId } = resolveLanHostIdentity(host, ESSID);
+    const open = redisStoreSchema.parse({ keys: { 'sess:1': 'a' }, requirepassHash: null });
+    const { deps, upsertPatch } = makeDeps({
+      wordlist: [secretOf(host)],
+      findPatches: async ({ machine_id }: { readonly machine_id: string }) => ({
+        data: machine_id === machineId ? [storeRow(JSON.stringify(open))] : [],
+        error: null,
+      }),
+    });
+
+    const response = await handleHydraCrack(
+      await signedCrack(identity, { target_ip: host.ip, service: 'redis' }),
+      deps,
+    );
+
+    // Nothing was attacked, so nothing is recorded — and "0 valid passwords found"
+    // would have told the player the opposite of the truth.
+    expect(response.status).toBe(404);
+    expect(response.body).toEqual({ error: 'no_password_set' });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('says the same for a daemon whose datadir has been removed', async () => {
+    const identity = generateIdentity();
+    const host = storeHostOn(ESSID);
+    const { machineId } = resolveLanHostIdentity(host, ESSID);
+    const { deps } = makeDeps({
+      wordlist: [secretOf(host)],
+      findPatches: async ({ machine_id }: { readonly machine_id: string }) => ({
+        data: machine_id === machineId ? [storeRow(null)] : [],
+        error: null,
+      }),
+    });
+
+    const response = await handleHydraCrack(
+      await signedCrack(identity, { target_ip: host.ip, service: 'redis' }),
+      deps,
+    );
+
+    // A daemon holding the port with no file behind it serves an empty store, and an
+    // empty store has no lock.
+    expect(response.body).toEqual({ error: 'no_password_set' });
+  });
+
+  it('writes the sweep to the store own log rather than to auth.log', async () => {
+    const identity = generateIdentity();
+    const host = storeHostOn(ESSID);
+    const secret = secretOf(host);
+    const { machineId } = resolveLanHostIdentity(host, ESSID);
+    const { deps, upsertPatch } = makeDeps({ wordlist: ['nonsense', secret] });
+
+    await handleHydraCrack(
+      await signedCrack(identity, { target_ip: host.ip, service: 'redis' }),
+      deps,
+    );
+
+    // Filed under the wrong daemon, a sweep tells the defender a door was knocked on
+    // that never was, while the one that opened shows nothing.
+    expect(upsertPatch).toHaveBeenCalledWith({
+      writer_key: identity.publicKeyHex,
+      machine_id: machineId,
+      path: REDIS_LOG_PATH,
+      content: `${redisTraceLine('failure', host)}\n${redisTraceLine('success', host)}\n`,
+      owner: REDIS_LOG_OWNER,
+      permissions: REDIS_LOG_PERMISSIONS,
+      node_type: 'file',
+    });
+  });
+
+  it('is dark on a box that runs no store at all', async () => {
+    const identity = generateIdentity();
+    const { deps, upsertPatch } = makeDeps({ wordlist: DEFAULT_WORDLIST });
+
+    const response = await handleHydraCrack(
+      await signedCrack(identity, { target_ip: storelessHostOn(ESSID).ip, service: 'redis' }),
+      deps,
+    );
+
+    expect(response.status).toBe(404);
+    expect(response.body).toEqual({ error: 'service_not_running' });
+    expect(upsertPatch).not.toHaveBeenCalled();
   });
 });

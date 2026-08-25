@@ -772,11 +772,21 @@ export type RedisConnectResult =
   | { readonly ok: true; readonly hostname: string }
   | { readonly ok: false; readonly reason: 'unreachable' | 'refused' };
 
+/** What the PROMPT holds. The address `connect` was given, and — once a store has let
+ *  the player past its lock — the password that did it.
+ *
+ *  Deliberately NOT what `connect` takes. That round-trip judges nothing, so handing it
+ *  a secret would put one on the wire where nothing could weigh it. The credential is
+ *  acquired at the prompt, by an `AUTH` the daemon accepted, and lives only here. */
+export type RedisConnection = RedisConnectParams & {
+  readonly password?: string;
+};
+
 /** What one statement is sent with: the connection again, plus the line. The whole
  *  connection travels because there is no session row to name instead — the same
- *  mechanism the database door uses, minus the credential it has and this one does
- *  not. */
-export type RedisStatementParams = RedisConnectParams & {
+ *  mechanism the database door uses. Its credential is a username and a password named
+ *  at connect time; this one's is a password a store handed back, or none at all. */
+export type RedisStatementParams = RedisConnection & {
   /** The line exactly as the player typed it. Parsed on the server, so an unknown verb
    *  is the daemon's answer rather than the client's guess. */
   readonly statement: string;
@@ -803,10 +813,11 @@ export type RedisStatementResult =
  *  one. */
 export type RedisApi = {
   readonly connect: (params: RedisConnectParams) => Promise<RedisConnectResult>;
-  /** Hold the opened connection and put the terminal at `redis> `. What is held is
-   *  exactly what `connect` was given: with no session row to name, every statement
-   *  re-sends the whole connection, so the prompt has to keep it. */
-  readonly enter: (connection: RedisConnectParams) => void;
+  /** Hold the opened connection and put the terminal at `redis> `. With no session row
+   *  to name, every statement re-sends the whole connection, so the prompt has to keep
+   *  it — and called again with a password an `AUTH` just proved, this is also how the
+   *  prompt starts carrying one. */
+  readonly enter: (connection: RedisConnection) => void;
   /** Drop it and hand the terminal back to the shell that never moved. Nothing to end
    *  server-side — there was never a row. */
   readonly leave: () => void;
@@ -835,7 +846,10 @@ export type HydraCrackResult =
       readonly ok: true;
       /** The port the service was actually found listening on. */
       readonly port: number;
-      readonly cracked: readonly { readonly username: string; readonly password: string }[];
+      /** `username` is absent for the door whose secret belongs to the SERVICE rather
+       *  than to a person — a store has one lock and no accounts, so there is no name
+       *  to report beside the password. */
+      readonly cracked: readonly { readonly username?: string; readonly password: string }[];
       /** False when the caller has no wordlist file — distinct from a wordlist
        *  that simply matched nothing, which is a hardened target rather than a
        *  broken setup. */

@@ -65,7 +65,9 @@ const DEFAULT_ENDPOINT = '/api/sessions';
  *  cracked list drives what the player is told they can log in with. */
 const crackResponseSchema = z.object({
   port: z.number().int(),
-  cracked: z.array(z.object({ username: z.string(), password: z.string() })),
+  // `username` optional: the store door authenticates a service rather than a person,
+  // so its cracked secret arrives with no name attached.
+  cracked: z.array(z.object({ username: z.string().optional(), password: z.string() })),
   wordlistFound: z.boolean(),
 });
 
@@ -518,6 +520,9 @@ export const runStoreStatement = async (
       target_ip: params.targetIp,
       port: params.port,
       statement: params.statement,
+      // Sent with EVERY statement, because no session row holds it: being past a
+      // store's lock is a claim each line makes rather than a state either side keeps.
+      ...(params.password === undefined ? {} : { password: params.password }),
       source_ip: params.sourceIp,
     });
     if (!response.ok) return { kind: 'lost' };
@@ -627,7 +632,13 @@ const crackOutcome = async (response: Response): Promise<HydraCrackResult> => {
   return {
     ok: true,
     port: parsed.data.port,
-    cracked: parsed.data.cracked,
+    // Re-spread rather than passed through: a door with no accounts sends a password
+    // with no name, and an explicit `username: undefined` is not the same shape as a
+    // credential that never had one.
+    cracked: parsed.data.cracked.map(({ username, password }) => ({
+      ...(username === undefined ? {} : { username }),
+      password,
+    })),
     wordlistFound: parsed.data.wordlistFound,
   };
 };

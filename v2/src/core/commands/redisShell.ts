@@ -16,16 +16,23 @@
  * politely corrected. Every line making the trip is the whole of how an eviction is
  * discovered: there is no session row for anything to invalidate.
  *
- * What is held is the connection, because each statement re-sends it. Unlike `mysql>`
- * that is not a credential — there is none — so leaving is dropping local state and
- * nothing more.
+ * What is held is the connection, because each statement re-sends it. Once a store has
+ * accepted an `AUTH` that includes the password, and holding it here is the ONLY place
+ * being past a lock is remembered — no row on either side of the wire keeps it. This
+ * client still never judges one: it notices what the daemon accepted. So leaving is
+ * dropping local state, and dropping the way back in with it.
  */
 
-import type { CommandEnv, CommandResult, RedisConnectParams, TerminalLine } from './types';
+import type { CommandEnv, CommandResult, RedisConnection, TerminalLine } from './types';
 
 const text = (content: string): TerminalLine => ({ kind: 'text', content });
 
-const result = (lines: readonly TerminalLine[], exitCode = 0): CommandResult => ({
+/** Always synchronous, and typed that way: the prompt answers one line at a time, and
+ *  `rediscli` composes an early `AUTH`'s answer onto its greeting without having to ask
+ *  which shape came back. */
+type PromptResult = Extract<CommandResult, { readonly kind: 'sync' }>;
+
+const result = (lines: readonly TerminalLine[], exitCode = 0): PromptResult => ({
   kind: 'sync',
   lines,
   exitCode,
@@ -47,6 +54,7 @@ const LOST = 'Error: Server closed the connection';
  *  yet — the opposite failure to the database prompt's, which lists its write verbs
  *  precisely because it answers them with a refusal rather than a blank look. */
 const HELP_ROWS: readonly (readonly [string, string])[] = [
+  ['AUTH <password>', 'Unlock a store that holds a secret'],
   ['KEYS [pattern]', 'List keys, optionally matching a glob'],
   ['GET <key>', 'Read one value'],
   ['DBSIZE', 'Count the keys held'],
@@ -62,13 +70,24 @@ const helpLines = (): readonly TerminalLine[] => [
   ),
 ];
 
+/** The password an `AUTH` the daemon ACCEPTED was carrying, read off the line the
+ *  player typed. Nothing is judged here — the box did that, and this only notices what
+ *  it decided, which is the difference between remembering a verdict and inventing one.
+ *
+ *  Anchored at the FRONT, so a key called `conf:auth` and a verb called `AUTHOR` are not
+ *  mistaken for it. Deliberately not anchored at the end: what it takes is the word the
+ *  door's own parser would take, whatever follows. The door refuses a two-word `AUTH`
+ *  today, so nothing reaches here with a tail — and if it ever stops refusing one, this
+ *  holds what the daemon weighed rather than dropping it. */
+const ACCEPTED_SECRET = /^auth\s+(\S+)/i;
+
 /** The held connection is passed IN rather than read from the env, as `mysql>`'s is:
  *  the prompt cannot run a statement it is not holding. */
 export const runRedisLine = async (
   env: CommandEnv,
   line: string,
-  connection: RedisConnectParams,
-): Promise<CommandResult> => {
+  connection: RedisConnection,
+): Promise<PromptResult> => {
   const typed = line.trim();
 
   // A bare Enter at a prompt is not a mistake — say nothing back.
@@ -94,6 +113,13 @@ export const runRedisLine = async (
     env.redis.leave();
     return result([{ kind: 'error', content: LOST }], 1);
   }
+
+  // A password the store just accepted is one every later statement has to carry, so
+  // the prompt starts holding it. A refused one is not held: this client would then be
+  // sending a secret the daemon has already said no to.
+  const accepted = answer.failed ? null : ACCEPTED_SECRET.exec(typed);
+  const secret = accepted?.[1];
+  if (secret !== undefined) env.redis.enter({ ...connection, password: secret });
 
   const kind = answer.failed ? 'error' : 'text';
   return result(
