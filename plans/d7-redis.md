@@ -1322,10 +1322,140 @@ green — with the epic's habit of declining to collapse a family from inside on
 
 ### Slice 7: A player reaches another player's store
 
-**Value**: The door's whole point — cross-player reach.
-**Acceptance criteria**: all four vantages (own-LAN, inner-gateway, public-IP, same-LAN) answer, and
-a wire-check proves it live. Always locked, so the vacuous-authorization case never arises between
-players. **Class**: Behavior change. Wire-check required.
+**Value**: The door's whole point. Every slice before this one gave a player something to do to a
+box the generator drew; this one points the door at a box another person is standing on, and gives
+that person something to lose.
+**Class**: Behavior change (both PRs).
+**Delivery**: TWO independent PRs against trunk, in order — 7a on `feat/d7-cross-player`, 7b
+branched from trunk after 7a lands. D6's equivalent slice shipped the same way (#447 public, #448
+same-LAN and the tool that could not see them), and for the same reason: 7b's scan change is
+generic to every service, so it does not belong inside a redis PR.
+**Required implementation skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
+`reduce-system-complexity` — `N/A`: 7a adds no mechanism at all and 7b replaces a blank with a
+resolution.
+
+**PLANNING CORRECTION found while grounding (2026-08-26):**
+
+- **Two of the four vantages already shipped, and the other two already ROUTE.** Own-LAN landed in
+  slices 2–4 and the inner gateway in 5/5b, so "all four vantages" is really two. Both of those two
+  are already generic in `reachServiceHost`: the public branch and the same-LAN occupant branch are
+  parameterized by `service`, both redis doors call them, and `api/sessions.ts` already wires the
+  public-IP lookup, the occupant list, the lease list and the server-derived source IP for
+  `redisConnect` AND `redisStatement`. The client agrees — `rediscli`'s preflight deliberately
+  passes a public address and a fellow occupant THROUGH to the server rather than refusing them
+  against a world it regenerates. This is D6's bill paid once: #447 built the public vantage and
+  #448 built the same-LAN one, both in target RESOLUTION, so redis inherited them the day slice 2
+  started sharing the resolver.
+- **So the door half is `already true, with no test saying so`** — D6 slice 7's hydra half, one
+  slice on. Every test in `redisConnect.test.ts` and `redisStatement.test.ts` stubs
+  `findNetworkByPublicIp` to `null` and `listOccupantsByEssid` to `[]`, so half this door's reach
+  has never been exercised. RED therefore comes from MUTATING PRODUCTION — pointing the public
+  branch at the generated LAN, dropping the writer-key override — not from a fabricated failing
+  test and not from a broken path. The same discipline slices 5 and 5b used by hand.
+- **The genuinely missing piece is not a door: `nmap` cannot see a neighbour's ports.**
+  `nmap.ts:311` blanks the port table for a fellow occupant, and the blank is CORRECT —
+  `buildRemoteHostFs` keys on the host IP, so falling through would fabricate the NPC ports that
+  octet would have rolled. §9 of the conventions parked the fix and named its trigger: *"Now that
+  same-LAN doors actually open, this is worth a decision."* That trigger is this slice, and it
+  binds harder here than it did for D6, because `rediscli`'s own header says why — four stores in
+  ten answer to nobody, *"which is what makes the FIND the whole play here rather than the first
+  half of one."* A neighbour's store nobody can discover is a door onto a box you have to guess is
+  there. **Decision taken: 7b closes it**, server-side, generically.
+- **Between players, `hydra ... redis` is a DEAD END by design, and that has to be proven rather
+  than assumed.** Slice 6 made the store's lock mirror the box's root password, and a player's root
+  password is player-CHOSEN (`gameConfig.rootPassword`) — so it is almost never in the wordlist. The
+  plan's "always locked, so the vacuous-authorization case never arises" is true but soft; the
+  sharp version is that the sweep must FAIL, and its failing is the feature. B's real route is
+  `ssh guest@A` → read A's root hash out of `/etc/passwd` → crack the md5 with a real external tool
+  → `AUTH`. **Decision taken: the wire-check proves BOTH** — one target whose root password is in
+  the wordlist, so hydra earns it and the whole chain proves live end to end, and the assertion that
+  the sweep correctly reports nothing against a chosen one.
+
+#### Slice 7a: A player reaches another player's store across the world
+
+**Path**: `rediscli -p <fwd> <A's public ip>` → `resolvePublicTarget` behind A's own forward →
+`openServiceOn` → A's real store, with every row B writes landing under A's key.
+**Acceptance criteria** (approved before any code):
+
+1. B opens A's store through the forward A opened on their own access point, and the greeting names
+   A's BOX rather than the gateway that fronts it — the name being the one thing B cannot look up,
+   since a box behind NAT has no address on any LAN B can regenerate.
+2. The vantage is decided from the ADDRESS, server-side. B's own generated LAN is never consulted
+   for a public target, and nothing the client says about where it is standing is honoured.
+3. A's store is ALWAYS locked, so B's first statement comes back `NOAUTH Authentication required.`
+   and `AUTH` with A's root password is what opens it — slice 6's mirror seen from the other side.
+   The vacuous-authorization case cannot arise between players.
+4. Every statement re-establishes the same reach the connection did, so a daemon A stops between two
+   of B's statements drops B on the next one. There is no session row to invalidate; asking again is
+   the entire eviction mechanism.
+5. Everything B writes on A's box lands under A's key — the datadir and every log line. One datadir
+   row and one log row on A's box however many strangers touch them, because `patches` is keyed
+   `(machine_id, path, writer_key)` and a row per attacker would fold to whichever was written last,
+   silently dropping the rest of the store.
+6. The address in A's log is B's PUBLIC address, derived server-side from B's verified key — never
+   the `source_ip` B's client sent. A defender's log is their evidence, and evidence a client can
+   write is none.
+7. `hydra -p <fwd> <A's public ip> redis` earns a password that is in the wordlist and correctly
+   reports none for one that is not. What the sweep earns, `AUTH` then accepts: only a live run
+   proves both handlers resolve the same box from the same address.
+8. A forward to a port no redis daemon holds is not a door to the store, and an A who is bricked or
+   will not boot is dark before anything is asked of them.
+9. **Non-vacuity by mutating production, not by fabricated RED.** Pointing the public branch at the
+   generated LAN and dropping the writer-key override must each take specific named tests red.
+10. Wire-check `scripts/testRedisCrossPlayer.ts` green live against `vercel dev` + supabase, on
+    `testMysqlCrossPlayer.ts`'s shape: the route's column selections, hydra and rediscli agreeing
+    across the network, the writer key, and the server-derived source IP.
+
+**RED**: `redisConnect.test.ts` + `redisStatement.test.ts` gain the public vantage with
+`findNetworkByPublicIp` and the forward table actually populated — the stubs those files have
+returned `null`/`[]` from since slice 2.
+**GREEN**: expected to be EMPTY. If it is, that is the finding and it is recorded as one; if a
+defect surfaces, it is fixed here.
+**REFACTOR**: assessed after green; nothing identified in advance.
+**MUTATE**: Stryker over the redis session doors; survivors in the two newly-exercised branches are
+the point of the run.
+**Wire-check**: REQUIRED. Unlike slice 6, every line of this is server-executed.
+**Version**: `0.180.0` → `0.181.0`.
+
+#### Slice 7b: A neighbour's store, and the tool that could not see it
+
+**Path**: B on A's ESSID → `rediscli <A's leased ip>` → the same-LAN occupant branch; and
+`nmap <A's leased ip>` → a new server-side occupant port resolution beside `resolvePublicScan`.
+**Acceptance criteria** (approved before any code):
+
+1. B standing on A's WiFi opens A's store with no router, no NAT and no forward in between.
+2. Occupancy is the LAN boundary, the LEASE is the address, self is excluded, and a real occupant
+   BEATS the generated sibling on the same octet — the rule `nmap`, `ssh` and `nc` already answer
+   by. An occupancy or lease read that FAILS refuses rather than falling through, because quietly
+   dropping to the generated world would write a player's keys onto a seeded box.
+3. Writes land under A's key and the address in A's log is B's LEASED address, server-derived.
+4. **`nmap <A's leased ip>` reports A's REAL open ports**, resolved server-side from A's own box and
+   boot-gated — the same shape `resolvePublicScan` already reads through `bootableOccupantFs` and
+   `natPortResolver`. Never derived from the octet's seed.
+5. The fix is GENERIC, not redis-shaped. It reports whatever A is actually running — `sshd`, mysql,
+   redis — so no future door needs a scan change of its own. Fixing it redis-only would leave one
+   tool answering by a different rule depending on which service was named, which is exactly what
+   #448 refused to do for hydra.
+6. When A leaves the ESSID the generated sibling underneath answers again and the scan returns to
+   the seeded ports. Nothing is fabricated in either direction.
+7. The seam DEGRADES rather than breaks: a server that cannot answer leaves the host listed with no
+   port table, exactly as today, rather than failing the scan — the rule `resolveOccupants` and
+   `record` already follow.
+8. §9 item 2 is DELETED rather than narrowed, its stated condition met.
+9. Wire-checks green live: `scripts/testRedisSameLan.ts`, and the occupant scan proved against a
+   real second identity.
+10. **D7 close-out**: this plan file deleted, durable rules graduated to conventions §7, remaining
+    test debt to §9, and the as-built recorded in `legacy-parity-epic.md`.
+
+**RED**: the same-LAN vantage on both redis doors; and a scan of an occupant asserting real ports,
+which fails against today's blank.
+**GREEN**: the occupant branch of the scan resolves server-side. `resolveHostPorts` becomes async
+for that one branch — the structural cost, named in advance.
+**REFACTOR**: assess whether the occupant resolver and `resolvePublicScan` share a vantage rather
+than a copy, on #448's own ground: one tool must not answer by two rules.
+**MUTATE**: Stryker over the new resolver, the scan branch and the redis doors' same-LAN path.
+**Wire-check**: REQUIRED, both halves.
+**Version**: `0.181.0` → `0.182.0`.
 
 **No 6b analogue** — slice 6b's rule already shipped, so `daemons: ['redis']` makes a generated redis
 box's doors closable for free.

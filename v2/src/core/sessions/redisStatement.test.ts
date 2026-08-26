@@ -21,8 +21,15 @@ import { derivePid } from '../logging/syslog';
 import { asGameTime } from '../types';
 import { parseRedisStore, redisStoreSchema } from '../redis/types';
 import { asAbsPath } from '../types';
-import { pidfilePath } from '../services/pidfile';
-import { deepStoreFixture, type DeepStoreFixture } from '../../test/factories/lanStore';
+import { formatPidfileContent, pidfilePath } from '../services/pidfile';
+import {
+  deepStoreFixture,
+  playerStoreOn,
+  type DeepStoreFixture,
+} from '../../test/factories/lanStore';
+import { computeApGatewayId } from '../identity/router';
+import { lanAddressFor, type LanLeaseRow } from '../network/lanAddress';
+import type { ApNetworkLookup, NatOccupantRow } from '../network/resolvePublicTarget';
 import type { Directory } from '../filesystem/types';
 import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
 import type { OwnerPatchRow } from '../network/materializeMachineFs';
@@ -157,6 +164,7 @@ const signedStatement = (
     readonly essid?: string;
     readonly port?: number;
     readonly password?: string;
+    readonly source_ip?: string | null;
   },
 ) =>
   signRequest(identity, 'redisStatement', {
@@ -165,8 +173,30 @@ const signedStatement = (
     port: request.port ?? SERVICE_CATALOG.redis.defaultPort,
     statement: request.statement,
     ...(request.password === undefined ? {} : { password: request.password }),
-    source_ip: CLIENT_IP,
+    source_ip: request.source_ip === undefined ? CLIENT_IP : request.source_ip,
   });
+
+describe('the request itself', () => {
+  it('refuses a payload that names its own player key, however well signed', async () => {
+    const identity = generateIdentity();
+    const host = openStoreHostOn(ESSID);
+    // Signed properly, with the claim INSIDE the signed payload, so nothing about the
+    // envelope is wrong. The schema is the only thing standing between a caller and
+    // asking questions under somebody else's key.
+    const signed = await signRequest(identity, 'redisStatement', {
+      essid: ESSID,
+      target_ip: host.ip,
+      port: SERVICE_CATALOG.redis.defaultPort,
+      statement: 'KEYS *',
+      source_ip: CLIENT_IP,
+      player_key: generateIdentity().publicKeyHex,
+    });
+
+    const response = await handleRedisStatement(signed, makeDeps().deps);
+
+    expect(response.status).toBe(400);
+  });
+});
 
 describe('asking an open store a question', () => {
   it('answers with what the box actually holds', async () => {
@@ -660,6 +690,29 @@ describe('changing a store through the door', () => {
     );
   });
 
+  it('writes a change it can name no address for as coming from nowhere nameable', async () => {
+    const identity = generateIdentity();
+    const host = openStoreHostOn(ESSID);
+    const { deps, upsertPatch } = makeDeps();
+
+    await handleRedisStatement(
+      await signedStatement(identity, {
+        target_ip: host.ip,
+        statement: 'SET greeting hello',
+        source_ip: null,
+      }),
+      deps,
+    );
+
+    // On the caller's own LAN the route knows nothing, so the address is the client's to
+    // state — and a client may state none. The line is still written, because a defender
+    // reading their own log needs to see that the key changed even when the visitor
+    // cannot be placed. The connect door already answers this way; both rungs of the
+    // same fallback belong to both doors.
+    const [logged] = rowsAt(upsertPatch, REDIS_LOG_PATH);
+    expect(logged?.content).toContain('unknown');
+  });
+
   it('accretes onto the log the box already held rather than replacing it', async () => {
     const identity = generateIdentity();
     const host = openStoreHostOn(ESSID);
@@ -1008,5 +1061,222 @@ describe('a store on a hidden layer', () => {
     // No session row exists to be invalidated, so asking again IS the eviction — at
     // any depth.
     expect(response).toEqual({ status: 404, body: { error: 'service_not_running' } });
+  });
+});
+
+// ─── statements against another player's store, from the other side of the world ───
+//
+// The reach is the connect door's, shared, so nothing here re-proves routing. What it
+// proves is what a statement DOES once it has arrived on somebody else's machine: whose
+// row the rewritten store lands in, whose log the line lands in, and which address that
+// line names.
+//
+// Every store between players is LOCKED. Slice 6 mirrors the box's own root password
+// onto it with no opt-out, so the vacuous-authorization case — a store that lets an
+// outsider straight in — cannot arise here at all. `AUTH` is always the next question,
+// and the password is one a sweep will not find.
+
+const TARGET_PUBLIC_IP = '203.0.113.9';
+const TARGET_ESSID = 'PIED-PIPER-GUEST';
+const AP_GATEWAY_ID = computeApGatewayId(TARGET_ESSID);
+const AP_NETWORK: ApNetworkLookup = { router_machine_id: AP_GATEWAY_ID, essid: TARGET_ESSID };
+const ATTACKER_PUBLIC_IP = '198.51.100.22';
+
+const DEFENDER = generateIdentity();
+const DEFENDER_OCTET = 84;
+const DEFENDER_LAN_IP = lanAddressFor(TARGET_ESSID, DEFENDER_OCTET);
+const DEFENDER_WS = 'workstation-c3d4e5f6';
+const DEFENDER_HOSTNAME = 'nebuchadnezzar';
+/** The password the defender CHOSE for root, and therefore — slice 6's mirror — the
+ *  password on their store. Not drawn from any pool, which is exactly why `hydra`
+ *  cannot find it and why holding it means having taken the box first. */
+const DEFENDER_ROOT_PW = 'correct-horse-battery-staple';
+const defenderOccupant: NatOccupantRow = {
+  owner_key: DEFENDER.publicKeyHex,
+  workstation_machine_id: DEFENDER_WS,
+  workstation_machine_name: DEFENDER_HOSTNAME,
+  workstation_username: 'neo',
+  workstation_root_hash: md5(DEFENDER_ROOT_PW),
+};
+const DEFENDER_STORE = playerStoreOn(defenderOccupant);
+const DEFENDER_KEY = Object.keys(DEFENDER_STORE.keys)[0] ?? '';
+
+const PUBLIC_PORT = 46379;
+const publicForward = patchRow(
+  '/etc/iptables/rules.v4',
+  `forward ${PUBLIC_PORT} to ${DEFENDER_LAN_IP}:${SERVICE_CATALOG.redis.defaultPort}`,
+);
+const defenderRedisd = patchRow(
+  pidfilePath(SERVICE_CATALOG.redis),
+  formatPidfileContent(SERVICE_CATALOG.redis, SERVICE_CATALOG.redis.defaultPort),
+);
+const defenderDatadir = patchRow(DATADIR_PATH, JSON.stringify(DEFENDER_STORE));
+
+const crossPlayerDeps = (defenderJournal: readonly OwnerPatchRow[] = [
+  defenderRedisd,
+  defenderDatadir,
+]) =>
+  makeDeps({
+    findPatches: journals({
+      [AP_GATEWAY_ID]: [publicForward],
+      [DEFENDER_WS]: defenderJournal,
+    }),
+    findNetworkByPublicIp: async () => ({ data: AP_NETWORK, error: null }),
+    listOccupantsByEssid: async () => ({ data: [defenderOccupant], error: null }),
+    listLeasesByEssid: async () => ({
+      data: [{ owner_key: DEFENDER.publicKeyHex, octet: DEFENDER_OCTET }] as readonly LanLeaseRow[],
+      error: null,
+    }),
+    findHomeNetworkByOwnerKey: async () => ({
+      data: { public_ip: ATTACKER_PUBLIC_IP },
+      error: null,
+    }),
+  });
+
+const askAcrossTheWorld = async (
+  identity: ReturnType<typeof generateIdentity>,
+  deps: RedisStatementDeps,
+  request: { readonly statement: string; readonly password?: string },
+) =>
+  handleRedisStatement(
+    await signedStatement(identity, {
+      essid: TARGET_ESSID,
+      target_ip: TARGET_PUBLIC_IP,
+      port: PUBLIC_PORT,
+      statement: request.statement,
+      ...(request.password === undefined ? {} : { password: request.password }),
+    }),
+    deps,
+  );
+
+const datadirRows = (upsertPatch: { mock: { calls: readonly (readonly [PatchRow])[] } }) =>
+  upsertPatch.mock.calls.map(([row]) => row).filter((row) => row.path === DATADIR_PATH);
+
+describe("another player's store, asked from the other side of the world", () => {
+  it('refuses the first question, because a store between players is always locked', async () => {
+    const identity = generateIdentity();
+    const { deps } = crossPlayerDeps();
+
+    const response = await askAcrossTheWorld(identity, deps, { statement: 'KEYS *' });
+
+    // Slice 6 mirrors the box's root password onto its store with no opt-out. Reaching
+    // a player's store and walking straight in is a state the game cannot be in.
+    expect(response).toEqual({
+      status: 200,
+      body: { output: ['(error) NOAUTH Authentication required.'], failed: true },
+    });
+  });
+
+  it("accepts the password the defender chose for their own root account", async () => {
+    const identity = generateIdentity();
+    const { deps } = crossPlayerDeps();
+
+    const response = await askAcrossTheWorld(identity, deps, {
+      statement: `GET ${DEFENDER_KEY}`,
+      password: DEFENDER_ROOT_PW,
+    });
+
+    // The mirror, seen from the attacking side: what opens the box opens the store, so
+    // taking root is what this door is really waiting for. How a value is RENDERED is
+    // the verb table's business and already asserted there; what matters here is that
+    // the defender's own value is what came back.
+    expect(response.body).toMatchObject({ failed: false });
+    expect(String(response.body.output)).toContain(DEFENDER_STORE.keys[DEFENDER_KEY] ?? '');
+  });
+
+  it("writes the rewritten store into the DEFENDER's own row, not the attacker's", async () => {
+    const identity = generateIdentity();
+    const { deps, upsertPatch } = crossPlayerDeps();
+
+    await askAcrossTheWorld(identity, deps, {
+      statement: 'SET intruder:was-here yes',
+      password: DEFENDER_ROOT_PW,
+    });
+
+    // `patches` is keyed (machine_id, path, writer_key), so a row per attacker would
+    // fold to whichever was written last — every other intruder's changes, and the
+    // owner's own, silently dropped. One row is what a file several people edit IS.
+    const [row] = datadirRows(upsertPatch);
+    expect(row?.writer_key).toBe(DEFENDER.publicKeyHex);
+    expect(row?.machine_id).toBe(DEFENDER_WS);
+    expect(parseRedisStore(row?.content ?? '')?.keys['intruder:was-here']).toBe('yes');
+  });
+
+  it('leaves the mutation line in the defender log at the SERVER-derived address', async () => {
+    const identity = generateIdentity();
+    const { deps, upsertPatch } = crossPlayerDeps();
+
+    await askAcrossTheWorld(identity, deps, {
+      statement: 'SET intruder:was-here yes',
+      password: DEFENDER_ROOT_PW,
+    });
+
+    // The one thing the defender has to go on, so it cannot be a string the attacker's
+    // own client chose. Their public address is resolved from their VERIFIED key.
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        writer_key: DEFENDER.publicKeyHex,
+        path: REDIS_LOG_PATH,
+        content: expect.stringContaining(ATTACKER_PUBLIC_IP),
+      }),
+    );
+    expect(upsertPatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({ path: REDIS_LOG_PATH, content: expect.stringContaining(CLIENT_IP) }),
+    );
+  });
+
+  it('records a guess at the lock on the defender box, and changes nothing', async () => {
+    const identity = generateIdentity();
+    const { deps, upsertPatch } = crossPlayerDeps();
+
+    await askAcrossTheWorld(identity, deps, { statement: 'AUTH hunter2' });
+
+    // A password actually weighed is the one thing besides the arrival that leaves a
+    // mark, and it lands on the DEFENDER's log at the address the server derived. A
+    // stranger guessing at the lock is what a defender most needs to be able to see.
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        writer_key: DEFENDER.publicKeyHex,
+        machine_id: DEFENDER_WS,
+        path: REDIS_LOG_PATH,
+        content: expect.stringContaining(ATTACKER_PUBLIC_IP),
+      }),
+    );
+    // A guess is not a change. Nothing about the store moved.
+    expect(datadirRows(upsertPatch)).toEqual([]);
+  });
+
+  it('reads the defender store without leaving a line behind', async () => {
+    const identity = generateIdentity();
+    const { deps, upsertPatch } = crossPlayerDeps();
+
+    await askAcrossTheWorld(identity, deps, {
+      statement: 'KEYS *',
+      password: DEFENDER_ROOT_PW,
+    });
+
+    // A successful `AUTH` leaves its own attempt line; the READ beside it leaves none.
+    // Against a store an intruder can open, that silence is the defender's problem
+    // rather than an omission — the arrival line is their whole evidence.
+    const mutationLines = upsertPatch.mock.calls
+      .map(([row]) => row)
+      .filter((row) => row.path === REDIS_LOG_PATH && !row.content?.includes('AUTH'));
+    expect(mutationLines).toEqual([]);
+    expect(datadirRows(upsertPatch)).toEqual([]);
+  });
+
+  it('drops the attacker once the defender stops the daemon under them', async () => {
+    const identity = generateIdentity();
+    const { deps } = crossPlayerDeps([defenderDatadir]);
+
+    const response = await askAcrossTheWorld(identity, deps, {
+      statement: 'KEYS *',
+      password: DEFENDER_ROOT_PW,
+    });
+
+    // `systemctl stop redis` is the defender's counter-move and it works from the
+    // outside in. There is no session row to invalidate, so asking again IS the
+    // eviction — and from beyond the NAT a dead forward reads as simple silence.
+    expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
   });
 });

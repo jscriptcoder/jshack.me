@@ -27,6 +27,9 @@ import {
 import { computeInnerGatewayId } from '../../core/identity/router';
 import { hostMachineId } from '../../core/generation/remoteHostId';
 import { storeIn } from '../../core/redis/datadir';
+import { ownStore } from '../../core/redis/ownStore';
+import { materializeWorkstationFs } from '../../core/network/materializeWorkstationFs';
+import type { NatOccupantRow } from '../../core/network/resolvePublicTarget';
 import { readOpenPorts } from '../../core/services/pidfile';
 import { SERVICE_CATALOG } from '../../core/services/serviceCatalog';
 import { ALL_GENERATED_PASSWORDS } from '../../core/generation/passwordPools';
@@ -103,3 +106,18 @@ export const deepStoreFixture = (want: { readonly locked: boolean }): DeepStoreF
   }
   throw new Error(`no network fronts a deep store that is ${want.locked ? 'locked' : 'open'}`);
 };
+
+/** The store on a PLAYER's box — drawn exactly as their own `apt install redis` draws
+ *  it, from their key and their box's own accounts.
+ *
+ *  Built through `ownStore` rather than hand-written so a test target is the same
+ *  object the game plants. The lock especially: it mirrors the root password in that
+ *  box's `/etc/passwd`, so the plaintext a test needs is one it already chose when it
+ *  built the occupant row, and a fixture that invented a `requirepassHash` would be
+ *  asserting against a store no player could ever hold. */
+export const playerStoreOn = (occupant: NatOccupantRow): RedisStore =>
+  ownStore({
+    ownerKeyHex: occupant.owner_key,
+    hostname: occupant.workstation_machine_name,
+    fs: materializeWorkstationFs(occupant, []),
+  });
