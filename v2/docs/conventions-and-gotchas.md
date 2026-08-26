@@ -635,6 +635,15 @@ minutes. Anything a mutant needs that the narrowed `include` omits reports as **
 rather than as survived, so the narrowing is visible in the report rather than silent. Keep
 both files out of the repo — the `mutate` and `include` lists are per-slice and would rot.
 
+**That throwaway vitest config must carry three things the real one supplies, or NOTHING runs.**
+Copy `include` alone and the battery dies with `ConfigError: No tests were executed`, which reads
+like a bad `--mutate` glob and is not. It needs `setupFiles: './src/test/setup.ts'`,
+`define: { __APP_VERSION__ }`, and — the one that actually bites — `solid({ hot: false })`.
+Stryker's runner does not set mode `'test'`, so solid-refresh stays enabled and its virtual module
+is unresolvable under jsdom; every test file fails to transform and the runner reports zero tests
+rather than an import error. Start from `vite.config.ts` and narrow `include`, rather than writing
+a minimal config from scratch.
+
 **Read the mutation report from `reports/mutation/mutation.json`, not from captured stdout.** The
 `clear-text` reporter prints its per-mutant list as it goes, and a captured run keeps only the tail
 — a four-file run reported `124 survived` above a list showing 8, with no way to tell whether any

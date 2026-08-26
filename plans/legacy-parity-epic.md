@@ -39,9 +39,9 @@ reverting an intruder's writes — **fixed at v0.172.0 (#449)**, which also corr
 that every vantage re-materializes per statement. Of the three smaller findings from the same
 run, **two are closed at v0.173.0** (the sub-shell prompt echo and the self-scan cover name) and
 one stays a §9 backlog entry, because it is a product decision rather than a bug.
-**D7 🚧 IN PROGRESS — slices 1–4 shipped (v0.174.0 #452, v0.175.0 #453, v0.176.0 #454,
-v0.177.0 #455), slice 5 next** — twelve locked decisions and a seven-slice spine in "D7 —
-resolved scope & decisions"; per-slice status and as-built in `d7-redis.md`. It renames the
+**D7 🚧 IN PROGRESS — slices 1–5 shipped (v0.174.0 #452, v0.175.0 #453, v0.176.0 #454,
+v0.177.0 #455, v0.178.0 #457), slice 5b next** — twelve locked decisions and a seven-slice
+spine in "D7 — resolved scope & decisions"; per-slice status and as-built in `d7-redis.md`. It renames the
 epic's own row: the command is `rediscli`, and `redis-cli` is unusable because `node`'s sandbox
 makes every command name a JS parameter.
 **D5 🔍 GRILLED 2026-08-16, not yet planned** — fifteen locked decisions and a six-slice spine in
@@ -295,6 +295,7 @@ PHASE 1 — THE DOORS  (near-term focus)
       D7 slice 2 a player opens an unlocked store     ✔ SHIPPED v0.175.0 (#453)
       D7 slice 3 a player cracks a locked store       ✔ SHIPPED v0.176.0 (#454)
       D7 slice 4 a player changes a store             ✔ SHIPPED v0.177.0 (#455)
+      D7 slice 5 a store on a deep layer answers      ✔ SHIPPED v0.178.0 (#457)
   D8  snmpwalk / snmpset
   D9  node scripting
   D10 polish (long-tail comfort commands)
@@ -1561,18 +1562,25 @@ by a door, and D6 shipped a bug of exactly that family in slice 2.
   session from a deleted one is worth the difference. **The persist is keyed on the store having
   CHANGED, not on the verb**: a `DEL` that matched nothing files nothing, because nothing
   happened.
-- **Slice 5 — a store on a deep layer answers.** The inner-gateway vantage, for the statement
-  path and for hydra. **PLANNED 2026-08-25, and the trap named above turned out to be half
-  inherited already**: slice 2's `reachServiceHost` carries D6's workaround, so the statement
-  path is expected to be already correct and wholly untested, and what is actually missing is a
-  way to NAME a deep target — `rediscli` has no `-p` where `mysql` and `hydra` both do.
+- **Slice 5 — a store on a deep layer answers.** ✔ **SHIPPED v0.178.0 (#457).**
+  `rediscli -p <fwd> <inner gateway>` opens a store on a layer no scan will ever show, and
+  `hydra` sweeps the same box down the same walk. **The trap named above was half inherited
+  already**: slice 2's `reachServiceHost` carries D6's workaround, so the whole server side
+  was already correct and wholly untested, and what was missing was a way to NAME a deep
+  target — `rediscli` had no `-p` where `mysql` and `hydra` both do. The slice therefore
+  spent its budget proving a shipped path rather than building one, with seven mutants
+  applied by hand to show the already-green tests stood on it. Its one real defect was the
+  `-p` FLAG DECLARATION, which the shell reads and no test did.
 - **Slice 5b — a deep box's own journal is finally read.** Split out of slice 5 rather than
   carried by it. The chain resolver boot-gates and replays every GATEWAY hop but hands the
   terminal box back seeded, so an account a player added there cannot log in, a box bricked
   through its own journal still answers, and a sweep reports what the door then refuses. Redis
   is the first door where the sweep and the door read the SAME file, which turns that last one
-  from latent into reachable. Closes the §9 entry for `ssh`, `hydra` and both data doors at
-  once, and takes the compensating replay back out of `reachServiceHost`.
+  from latent into reachable. **Slice 5 found a THIRD symptom the §9 entry does not name**:
+  a daemon a player moved to another port down there is invisible to ROUTING, not merely to
+  a door — the same trap one layer earlier, which is what makes per-door compensation the
+  wrong place to fix it. Closes the §9 entry for `ssh`, `hydra` and both data doors at once,
+  and takes the compensating replay back out of `reachServiceHost`.
 - **Slice 6 — a player runs their own store.** `apt install redis` → `systemctl start redis` → the
   mirrored `requirepass` hash. The own-box vantage answers on the CLIENT, so it composes against the
   machine (`env.fs.reload()`) per the v0.172.0 invariant, not against this client's copy of it.
@@ -2208,18 +2216,23 @@ defects live in the one vantage no endpoint answers.
 locked decisions and a seven-slice spine in
 ["D7 — resolved scope & decisions"](#d7--resolved-scope--decisions-grill-me-2026-08-24).**
 **PLANNED 2026-08-24 in [`d7-redis.md`](d7-redis.md)**, where the per-slice status and as-built
-live. **Slices 1–4 shipped (v0.174.0 #452, v0.175.0 #453, v0.176.0 #454, v0.177.0 #455)** — the
-door is complete against one box: `nmap` finds a store, `rediscli` opens it, a locked one
-refuses with `NOAUTH`, `hydra <host> redis` recovers the password, `AUTH` spends it, and
-`SET`/`DEL` rewrite what the store holds while the box's own log records that somebody did. The
-open question is answered — verbatim, normalized, capped. ➡️ **Next: slice 5 — a store on a deep
-layer answers**, the inner-gateway vantage for the statement path and for hydra, and the slice
-that walks into the seeded-tree resolver trap D6 slice 5 recorded: the chain resolver hands back
-the terminal box's SEEDED tree, survivable for a door authenticating against seeded accounts and
-fatal for one answering with DATA — doubly so now, because a WRITE against a seeded tree lands
-where nothing reads it. The slice decides whether to close that for every door at once or repeat
-`reachMysqlHost`'s local workaround. Wire-check required, as every D7 slice from 2 on is —
-`tsc` cannot see DB columns.
+live. **Slices 1–5 shipped (v0.174.0 #452, v0.175.0 #453, v0.176.0 #454, v0.177.0 #455,
+v0.178.0 #457)** — the door is complete against one box and one hop further in: `nmap` finds a
+store, `rediscli` opens it, a locked one refuses with `NOAUTH`, `hydra <host> redis` recovers the
+password, `AUTH` spends it, `SET`/`DEL` rewrite what the store holds while the box's own log
+records that somebody did — and `rediscli -p <fwd> <inner gateway>` reaches a store on a layer no
+scan will ever show, with `hydra` sweeping the same box down the same walk. The open question is
+answered — verbatim, normalized, capped. **The seeded-tree trap slice 5 was expected to DECIDE
+about turned out to be already worked around generically**: slice 2's `reachServiceHost` carries
+D6's compensation for every data door, so slice 5 spent its budget proving an untested path
+rather than building one — and its single real defect was a flag DECLARATION the shell reads and
+no test did. ➡️ **Next: slice 5b — a deep box's own journal is finally read**, which closes that
+trap where it belongs, in `resolveInnerGatewayTarget`, for `ssh`, `hydra` and both data doors at
+once, and takes the compensation back out. It now carries THREE player-reachable symptoms rather
+than the two §9 names: slice 5 found that a daemon a player moved to another port down there is
+invisible to ROUTING, not merely to a door — which is the argument against fixing it per-door,
+because the resolver has already picked the wrong box by then. Wire-check required, as every D7
+slice from 2 on is — `tsc` cannot see DB columns.
 
 Four things that grill settled which the row above could not have predicted:
 

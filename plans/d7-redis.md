@@ -1,8 +1,8 @@
 # Plan: D7 — a player reads (and rewrites) a machine's key-value store (`rediscli`)
 
 **Branch**: `docs/plan-d7-redis` (this plan) → `feat/d7-*` per slice
-**Status**: Active — **slices 1–4 SHIPPED (v0.174.0 #452, v0.175.0 #453, v0.176.0 #454,
-v0.177.0 #455)**; slice 5 next on `feat/d7-redis-deep-layer`
+**Status**: Active — **slices 1–5 SHIPPED (v0.174.0 #452, v0.175.0 #453, v0.176.0 #454,
+v0.177.0 #455, v0.178.0 #457)**; slice 5b next on `feat/d7-deep-box-journal`
 
 > Decisions are LOCKED in [`legacy-parity-epic.md`](legacy-parity-epic.md) §"D7 — resolved scope &
 > decisions (grill-me, 2026-08-24)". This file sequences them; it does not re-open them. Where
@@ -844,7 +844,54 @@ the arrival; that reads add nothing; and that `sessions` still holds zero rows.
 **Done when**: criteria 1–13 met, wire-check green, mutation report presented, human approves the
 commit.
 
-### Slice 5: A store on a deep layer answers
+### Slice 5: A store on a deep layer answers — SHIPPED v0.178.0 (#457)
+
+**As built.** All 13 criteria met; 3638 tests (+34), typecheck and lint green, mutation 95.2%
+(279/293, up from 92.8% on the first run), and both wire-checks green live against the FINAL tree
+(`testRedisDeep` 20/20, new; `testRedisConnect` 28/28). **The server side was already correct**, as
+the grounding predicted: the whole slice is 70 lines in `commands/rediscli.ts` and 724 lines of
+tests that stand on code slices 2-4 shipped. What the slice learned, beyond what was planned:
+
+- **The one real defect was a flag DECLARATION, and 3638 green tests could not see it.**
+  `flags: { '-p': 'string' }` is read by the shell (`bindFlags` in `runLine.ts`), never by the
+  command — and every `rediscli` test hands `execute` a flags Map it built itself. Deleted, `-p`
+  arrives as a POSITIONAL: the host becomes `-p`, the port becomes the password, and the feature
+  is unusable in the game with the suite entirely green. Mutation found it; nothing else could
+  have. **Third two-sides-of-one-rule defect this epic** after slice 3's `AUTH` arity and its
+  catalog lookup, and the first whose two sides sit in different FILES. The test that closes it
+  runs the real `bindFlags` against the command's own declaration.
+- **`-p` made a latent bug reachable in the same stroke.** `storeListening` asked only whether the
+  port was open, never which daemon held it — invisible while the port was hardcoded to 6379, and
+  `rediscli -p 22 127.0.0.1` the moment it was not. It matches the service now, which is the rule
+  the server already enforces at the other end.
+- **Six of seven deep-connect tests, all seven deep-statement tests and all five hydra tests
+  passed on their first run — so seven mutants were applied BY HAND to prove they were not
+  vacuous.** Killing the journal replay in `reachServiceHost`'s deep branch took down exactly the
+  three tests claiming live data; blanking the route address took down exactly the two claiming
+  NAT's; blanking `secretOn` took down the three sweep tests. A test written against working code
+  is the easiest kind to write vacuously, and the plan said so in advance.
+- **The fixture is SEARCHED, not named** (`test/factories/lanStore.ts`), because which layers
+  exist, which deep boxes run a store, and whether its password came from a recoverable pool are
+  all per-network rolls. **58 of 630 deep boxes serve one.** The first probe reported ZERO and was
+  nearly written up as a generation gap: it walked only the first gateway per ESSID and never
+  descended. A probe that finds nothing is a claim about the probe until proven otherwise.
+- **Survivor triage now starts by hand-applying against the WIDER suite.** Under a narrowed runner
+  `name` reported Survived and was killed instantly by `ui/state.test.ts` — a narrowing artifact —
+  while `tier` and `withoutTty` survived the full suite and were genuine gaps. The same pass caught
+  an `examples.every(...)` assertion that would pass on an empty array.
+- **The throwaway Stryker vitest config needs three things the real one supplies.** Without
+  `setupFiles`, `define: { __APP_VERSION__ }` and — critically — `solid({ hot: false })`, the run
+  dies with `No tests were executed`: solid-refresh's virtual module is unresolvable in jsdom and
+  Stryker's runner does not set mode `'test'`. Recorded in `conventions-and-gotchas.md` §4 beside
+  the scoped-runner recipe it completes.
+- **Evidence freshness was honoured rather than argued.** `rediscli.ts`'s mtime moved after the
+  wire-checks, from hand-mutation restores that left the content identical. Both scripts were
+  re-run live against the final tree rather than reasoning that identical bytes make a stale run
+  fresh — the rule slice 3 wrote down exists precisely to stop that argument.
+- **REFACTOR declined the preflight collapse, as the plan predicted.** `rediscli`'s
+  `preflightRefusal` and `mysql`'s are the same four-branch shape with different refusal strings,
+  and the strings ARE the doors. Fourth time this epic has declined to collapse a repo-wide family
+  from inside one slice.
 
 **Value**: The hidden layer's stores become reachable. A player who rooted an inner gateway and read
 its forward table can point `rediscli` at a box whose address no scan on the LAN will ever show, and
