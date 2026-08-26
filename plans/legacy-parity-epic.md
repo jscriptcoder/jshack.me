@@ -297,6 +297,7 @@ PHASE 1 — THE DOORS  (near-term focus)
       D7 slice 4 a player changes a store             ✔ SHIPPED v0.177.0 (#455)
       D7 slice 5 a store on a deep layer answers      ✔ SHIPPED v0.178.0 (#457)
       D7 slice 5b a deep box's own journal is read    ✔ SHIPPED v0.179.0 (#458)
+      D7 slice 6 a player runs their own store        ✔ SHIPPED v0.180.0 (#459)
   D8  snmpwalk / snmpset
   D9  node scripting
   D10 polish (long-tail comfort commands)
@@ -2217,8 +2218,9 @@ defects live in the one vantage no endpoint answers.
 locked decisions and a seven-slice spine in
 ["D7 — resolved scope & decisions"](#d7--resolved-scope--decisions-grill-me-2026-08-24).**
 **PLANNED 2026-08-24 in [`d7-redis.md`](d7-redis.md)**, where the per-slice status and as-built
-live. **Slices 1–5b shipped (v0.174.0 #452, v0.175.0 #453, v0.176.0 #454, v0.177.0 #455,
-v0.178.0 #457, v0.179.0 #458)** — the door is complete against one box and one hop further in:
+live. **Slices 1–6 shipped (v0.174.0 #452, v0.175.0 #453, v0.176.0 #454, v0.177.0 #455,
+v0.178.0 #457, v0.179.0 #458, v0.180.0 #459)** — the door is complete against one box, one hop
+further in, and the player's own box:
 `nmap` finds a store, `rediscli` opens it, a locked one refuses with `NOAUTH`,
 `hydra <host> redis` recovers the password, `AUTH` spends it, `SET`/`DEL` rewrite what the store
 holds while the box's own log records that somebody did — and `rediscli -p <fwd> <inner gateway>`
@@ -2238,12 +2240,23 @@ answering twice — routing names the box, each door decides liveness — which 
 backlog entry is deleted rather than narrowed, its stated condition (`testInnerGatewayReach` re-run
 live) met in the same slice.
 
-➡️ **Next: slice 6 — a player runs their own store.** `apt install redis` →
-`systemctl start redis` plants a store whose `requirepassHash` mirrors the box's root password
-hash, with no opt-out, composing against the machine via `env.fs.reload()` per the v0.172.0
-invariant rather than this client's copy — which makes the player's own box a target worth
-defending, and is what slice 7's cross-player reach then stands on. Wire-check required, as every
-D7 slice from 2 on is — `tsc` cannot see DB columns.
+**Slice 6 then made the player's own box a target worth defending.** `apt install redis` plants
+the datadir AND the conf — redis is the first catalog package to ship two data files —
+`systemctl start redis` opens the port through a daemon unit the catalog had DECLARED since slice 1
+and nothing had ever registered, and `rediscli 127.0.0.1` answers CLIENT-side against
+`env.fs.reload()` per the v0.172.0 invariant rather than this client's copy. The store's lock
+mirrors the box's own root password with no opt-out, which puts it out of a sweep's reach and
+inside the reach of whoever cracks root: the harder path reaching what the easier one cannot. The
+own-box vantage is not a convenience — `resolveSameLanOccupant` excludes self deliberately, so a
+self-addressed reach would otherwise have fallen through to whatever the generator put at the
+player's own leased octet. **Its wire-check was the first in D7 to be re-examined and recorded
+`N/A`** rather than run, on four checked facts: no server-executed path changed.
+
+➡️ **Next: slice 7 — a player reaches another player's store.** All four vantages (own-LAN,
+inner-gateway, public-IP, same-LAN) answer, always locked so the vacuous-authorization case never
+arises between players, standing on the store slice 6 gave every player to defend. Wire-check
+required — and unlike slice 6, which changed no server-executed path, this one is nothing BUT
+server-executed path.
 
 Four things that grill settled which the row above could not have predicted:
 

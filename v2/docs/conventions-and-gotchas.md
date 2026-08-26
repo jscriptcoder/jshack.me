@@ -678,6 +678,13 @@ as a logic bug in code that was never written. Hit twice in one session, on a te
 patch script. Write the body to a file by other means and `cat` it into place, or keep heredocs
 short; either way, check the line count before trusting the write.
 
+**An inline heredoc also EATS backslash escapes, at any length.** A `\n` inside the body arrives in
+the file as a real newline, so `join('\n')` in a patch script becomes `join('` + linebreak + `')`
+and a regex loses its anchors — the file is written, the write reports success, and the corruption
+surfaces later as an assertion failure in code that reads correctly on screen. Quoting the
+delimiter does not save you. The rule is narrower and firmer than the length one above: **any body
+containing a backslash escape goes through the Write tool**, whatever its size.
+
 Provably-equivalent mutant classes — accept (don't chase) when they recur:
 
 - **Type-narrowing defensive checks** — e.g. `raw === true` against a `string | true |

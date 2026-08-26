@@ -1,8 +1,9 @@
 # Plan: D7 — a player reads (and rewrites) a machine's key-value store (`rediscli`)
 
 **Branch**: `docs/plan-d7-redis` (this plan) → `feat/d7-*` per slice
-**Status**: Active — **slices 1–5b SHIPPED (v0.174.0 #452, v0.175.0 #453, v0.176.0 #454,
-v0.177.0 #455, v0.178.0 #457, v0.179.0 #458)**; slice 6 next on `feat/d7-own-store`
+**Status**: Active — **slices 1–6 SHIPPED (v0.174.0 #452, v0.175.0 #453, v0.176.0 #454,
+v0.177.0 #455, v0.178.0 #457, v0.179.0 #458, v0.180.0 #459)**; slice 7 next on
+`feat/d7-cross-player`
 
 > Decisions are LOCKED in [`legacy-parity-epic.md`](legacy-parity-epic.md) §"D7 — resolved scope &
 > decisions (grill-me, 2026-08-24)". This file sequences them; it does not re-open them. Where
@@ -1167,7 +1168,62 @@ and it is why the backlog entry named a live re-run as the condition rather than
 **Done when**: criteria 1–7 met, all five wire-checks green live, mutation report presented, human
 approves the commit.
 
-### Slice 6: A player runs their own store
+### Slice 6: A player runs their own store — SHIPPED v0.180.0 (#459)
+
+**As built.** All 12 criteria met; 3686 tests (+31), typecheck and lint green, mutation 91.70%
+(210/229) over the changed scope with `ownStore.ts` and `network/interfaces.ts` both at 100%, and
+the wire-check recorded `N/A` on a reachability argument rather than performed. What the slice
+learned, beyond what was planned:
+
+- **Grounding changed the shape of the slice twice, and only one of the two was foreseen.** The
+  planning correction above caught the own-box vantage. It did not catch that **there was no redis
+  daemon at all.** The catalog has declared `daemons: ['redis']` since slice 1, so the binary
+  landed in `/usr/sbin` and `which redis` answered — but `DAEMONS` had no entry, so
+  `systemctl start redis` did nothing whatsoever, and criterion 6 was unmeetable as written until
+  the unit was built. A declaration in one table and an entry in another had been out of step for
+  five slices with nothing to notice, because until this slice nobody had ever needed to START one.
+  The lesson generalizes past redis: a catalog row that names a daemon is a claim the daemon table
+  has to honour, and nothing checks that they agree.
+- **The mutation gate found a gap no reading of the tests would have.** `ownStore.ts` came back at
+  47%, and every survivor there was about ONE argument: `people: []` survived, because nothing
+  anywhere asserted the store's keys were about the box's own accounts. The tests proved the lock
+  mirrored root and the seed was per-owner; they never proved the store was the PLAYER's. Two tests
+  — a store naming the box's user, a userless box falling back to `guest` — killed all nine and
+  took the file to 100%. Coverage had been complete over that call the whole time.
+- **The rootless-lock test was made non-vacuous by SEARCHING rather than by naming.** Criterion 3
+  says a box with no root row keeps the drawn lock, and the generator's roll is 60/40 — so
+  asserting one seed proves nothing about the rule, only about that seed. Twelve owner keys are
+  asserted to yield a MIX of locked and open, which kills both "always drawn null" and "always
+  locked" without coupling the test to a seed string a generator change would rot.
+- **The first test written for the log's read-failure branch was unreachable.** It assumed a player
+  at an ordinary tier cannot read `/var/log/redis.log` — but `REDIS_LOG_PERMISSIONS` is
+  deliberately world-readable, so the read never fails on tier and the test sat green against the
+  mutant it was written to kill. The reachable case is root putting a DIRECTORY at that path, which
+  kills the same mutant honestly. A permission test that cannot fail is worse than no test: it
+  reads as coverage of the branch it never reaches.
+- **The REFACTOR was taken, reversing the epic's four-time habit of declining to collapse.**
+  `ownBoxSource` and one `isOwnBoxTarget` moved to `network/interfaces.ts`, which already owns
+  `LOOPBACK_NAMES`, `LOOPBACK_IPV4` and `connectedWlan0`. The ground was specific rather than
+  aesthetic: two doors now ask "is this my own box", the rule was living in a file named after one
+  of them, and D8 would have been the THIRD door to import it from `mysqlOwnBox`. 3680 tests stayed
+  green across the move, and the moved file scored 100%.
+- **The wire-check `N/A` was ESTABLISHED, not assumed.** The planning correction pre-authorised
+  re-examining it, and four checked facts carried it: `extraFiles` has exactly one consumer
+  (`apt`, client-side); nothing under `sessions/` or `api/` imports `network/interfaces`; the
+  `serviceHost.ts` diff is comment-only; and `generateRedisStore.ts` gained only an exported
+  constant, with generator and formatter byte-identical. Every other D7 slice from 2 on still needs
+  one — slice 7 most of all, since it is nothing BUT server-executed path.
+- **Two design decisions were escalated rather than assumed.** The conf ships alongside the datadir,
+  making redis the first two-file package and retiring `installExtraFiles`'s "No catalog package
+  ships two data files today"; it names the DEFAULT port, exactly as real Redis does when the port
+  arrives on the command line, leaving the pidfile as the live truth `nmap` and `ps` read. And a
+  box with no root row keeps its drawn lock — `ownDatabase`'s answer, for its reason.
+- **Of 19 remaining survivors, 16 sit in code this slice never touched** (`metasploit`/`gpg`/`node`/
+  `snmp`/`lynx` catalog rows, `binaryToPackage`, `daemonsOf`, a float boundary in
+  `generateRedisStore`). The other three are equivalent by construction: the
+  `exactOptionalPropertyTypes` conditional spread (always-spread is runtime-identical), a
+  `user: ''` field redis's formatter never reads, and the `'answered'` discriminant whose only
+  consumer tests for `'lost'`.
 
 **Value**: The player's box becomes a target worth defending. A store is bought and started rather
 than shipped from boot, so running one is a choice with a consequence — the keys another player can
