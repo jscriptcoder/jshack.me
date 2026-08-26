@@ -2,14 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { mockCommandEnv } from '../../test/factories/commandEnv';
 import { bindFlags } from '../shell/bindFlags';
 import type { CommandResult, OutputSink } from './types';
-import { reset } from './reset';
+import { newGame } from './newGame';
 
 /**
- * `reset` is a GAME command (not a real Linux tool): it wipes the player's game
+ * `new-game` is a GAME command (not a real Linux tool): it wipes the player's game
  * and starts fresh. It warns, then asks `confirm (y/N):` through `env.prompt`
  * (line-based, NOT masked). `y`/`yes` (case-insensitive, trimmed) ⇒ it fires the
  * `env.resetGame()` seam (the UI clears storage + reloads); anything else ⇒ it
- * cancels without touching the seam. `reset -y`/`--yes` skips the warning + prompt
+ * cancels without touching the seam. `new-game -y`/`--yes` skips the warning + prompt
  * and resets immediately. Ctrl-C at the prompt aborts (exit 130, no reset).
  *
  * The tests drive the answer through a mocked `env.prompt`, capture the warning
@@ -21,11 +21,11 @@ const NO_FLAGS = new Map<string, string | true>();
 type PromptCall = { readonly message: string; readonly masked: boolean };
 
 /** Build the flags map the dispatcher WOULD produce, by running the REAL parser
- *  over `reset.flags`. Driving the parser (instead of hand-building the Map)
+ *  over `newGame.flags`. Driving the parser (instead of hand-building the Map)
  *  proves the declared spec keys match what `execute` checks — a `-y`/`--yes`
  *  spec-key drift surfaces as an `unrecognized option` here, not a silent pass. */
 const flagsFor = (tokens: readonly string[]): ReadonlyMap<string, string | true> => {
-  const result = bindFlags(tokens, reset.flags ?? {});
+  const result = bindFlags(tokens, newGame.flags ?? {});
   if (!result.ok) throw new Error(result.error);
   return result.flags;
 };
@@ -78,12 +78,12 @@ const sync = (result: CommandResult) => {
   };
 };
 
-describe('reset', () => {
+describe('new-game', () => {
   describe('confirming (interactive)', () => {
     it('fires resetGame and reports "Resetting game..." when the player answers y', async () => {
       const { env, resetGameCount } = resetEnv({ typed: 'y' });
 
-      const { text, exitCode, kinds } = sync(await reset.execute(env, [], NO_FLAGS));
+      const { text, exitCode, kinds } = sync(await newGame.execute(env, [], NO_FLAGS));
 
       expect(resetGameCount()).toBe(1);
       expect(text).toBe('Resetting game...');
@@ -94,7 +94,7 @@ describe('reset', () => {
     it('accepts "yes" as well as "y"', async () => {
       const { env, resetGameCount } = resetEnv({ typed: 'yes' });
 
-      const { exitCode } = sync(await reset.execute(env, [], NO_FLAGS));
+      const { exitCode } = sync(await newGame.execute(env, [], NO_FLAGS));
 
       expect(resetGameCount()).toBe(1);
       expect(exitCode).toBe(0);
@@ -106,7 +106,7 @@ describe('reset', () => {
       async (typed) => {
         const { env, resetGameCount } = resetEnv({ typed });
 
-        await reset.execute(env, [], NO_FLAGS);
+        await newGame.execute(env, [], NO_FLAGS);
 
         expect(resetGameCount()).toBe(1);
       },
@@ -115,7 +115,7 @@ describe('reset', () => {
     it('asks through a NON-masked line prompt labelled "confirm (y/N):"', async () => {
       const { env, promptCalls } = resetEnv({ typed: 'y' });
 
-      await reset.execute(env, [], NO_FLAGS);
+      await newGame.execute(env, [], NO_FLAGS);
 
       expect(promptCalls).toHaveLength(1);
       expect(promptCalls[0].masked).toBe(false);
@@ -126,7 +126,7 @@ describe('reset', () => {
     it('prints the danger warning to scrollback BEFORE prompting', async () => {
       const { env, outputs } = resetEnv({ typed: 'y' });
 
-      await reset.execute(env, [], NO_FLAGS);
+      await newGame.execute(env, [], NO_FLAGS);
 
       expect(outputs).toHaveLength(1);
       expect(outputs[0]).toContain('progress');
@@ -138,7 +138,7 @@ describe('reset', () => {
     it('does NOT fire resetGame and reports "Reset cancelled." on "n"', async () => {
       const { env, resetGameCount } = resetEnv({ typed: 'n' });
 
-      const { text, exitCode, kinds } = sync(await reset.execute(env, [], NO_FLAGS));
+      const { text, exitCode, kinds } = sync(await newGame.execute(env, [], NO_FLAGS));
 
       expect(resetGameCount()).toBe(0);
       expect(text).toBe('Reset cancelled.');
@@ -149,7 +149,7 @@ describe('reset', () => {
     it('treats a bare Enter (empty answer) as No — default is not to reset', async () => {
       const { env, resetGameCount } = resetEnv({ typed: '' });
 
-      const { text, exitCode } = sync(await reset.execute(env, [], NO_FLAGS));
+      const { text, exitCode } = sync(await newGame.execute(env, [], NO_FLAGS));
 
       expect(resetGameCount()).toBe(0);
       expect(text).toBe('Reset cancelled.');
@@ -161,7 +161,7 @@ describe('reset', () => {
     it.each(['no', 'ye', 'yep', 'yeah', 'nope', 'maybe'])('does not reset on %j', async (typed) => {
       const { env, resetGameCount } = resetEnv({ typed });
 
-      const { text } = sync(await reset.execute(env, [], NO_FLAGS));
+      const { text } = sync(await newGame.execute(env, [], NO_FLAGS));
 
       expect(resetGameCount()).toBe(0);
       expect(text).toBe('Reset cancelled.');
@@ -172,7 +172,7 @@ describe('reset', () => {
     it('aborts with exit 130, no output line, and never resets', async () => {
       const { env, resetGameCount } = resetEnv({ cancel: true });
 
-      const { exitCode, lineCount } = sync(await reset.execute(env, [], NO_FLAGS));
+      const { exitCode, lineCount } = sync(await newGame.execute(env, [], NO_FLAGS));
 
       expect(exitCode).toBe(130);
       expect(lineCount).toBe(0);
@@ -186,7 +186,7 @@ describe('reset', () => {
       async (flag) => {
         const { env, promptCalls, outputs, resetGameCount } = resetEnv();
 
-        const { text, exitCode } = sync(await reset.execute(env, [], flagsFor([flag])));
+        const { text, exitCode } = sync(await newGame.execute(env, [], flagsFor([flag])));
 
         expect(promptCalls).toEqual([]);
         expect(outputs).toEqual([]);

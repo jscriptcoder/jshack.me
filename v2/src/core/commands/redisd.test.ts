@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { redis, DAEMONS } from './daemon';
+import { redisServer, DAEMONS } from './daemon';
 import { mockCommandEnv, mockFsViewFromTree, mockSession } from '../../test/factories/commandEnv';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 import { formatPidfileContent, pidfilePath, readOpenPorts, PIDFILE_PERMISSIONS } from '../services/pidfile';
@@ -9,10 +9,10 @@ import { asAbsPath, type UserType } from '../types';
 import type { CommandResult, TerminalLine } from './types';
 
 /**
- * `redis` — the sixth front door, and the second a player has to BUY.
+ * `redis-server` — the sixth front door, and the second a player has to BUY.
  *
  * It is the same daemon every other one is: the whole of "the store is up" is the
- * pidfile it writes, so `nmap`, `ps`, `systemctl` and `rediscli` all read one file and
+ * pidfile it writes, so `nmap`, `ps`, `systemctl` and `redis-cli` all read one file and
  * cannot disagree about whether the port is open.
  *
  * The name has no `d`. A command name becomes a formal PARAMETER of the function a
@@ -27,14 +27,14 @@ const boxWith = (opts: { readonly pidfile?: string; readonly installed?: boolean
   const base = buildDirectory({
     usr: buildDirectory({
       sbin: buildDirectory(
-        opts.installed === false ? {} : { redis: buildFile('#!/bin/sh', { owner: 'root' }) },
+        opts.installed === false ? {} : { 'redis-server': buildFile('#!/bin/sh', { owner: 'root' }) },
       ),
     }),
     var: buildDirectory({
       run: buildDirectory(
         opts.pidfile === undefined
           ? {}
-          : { 'redis.pid': buildFile(opts.pidfile, { owner: 'root' }) },
+          : { 'redis-server.pid': buildFile(opts.pidfile, { owner: 'root' }) },
       ),
     }),
   });
@@ -83,7 +83,7 @@ describe('starting the store daemon', () => {
   it('opens the store port by writing the pidfile every other tool reads', async () => {
     const { env, writes } = envFor(boxWith());
 
-    const result = await streamResult(await redis.execute(env, [], NO_FLAGS));
+    const result = await streamResult(await redisServer.execute(env, [], NO_FLAGS));
 
     const written = writes.find((write) => write.path === pidfilePath(SERVICE_CATALOG.redis));
     expect(written?.content).toBe(
@@ -96,7 +96,7 @@ describe('starting the store daemon', () => {
     // The pidfile IS the claim, so a daemon that started has to be a daemon `nmap`
     // finds — one file, read by every tool that asks the question.
     const { env, writes } = envFor(boxWith());
-    await streamResult(await redis.execute(env, ['6380'], NO_FLAGS));
+    await streamResult(await redisServer.execute(env, ['6380'], NO_FLAGS));
 
     const running = applyPatches(boxWith(), [
       {
@@ -118,7 +118,7 @@ describe('starting the store daemon', () => {
       boxWith({ pidfile: formatPidfileContent(SERVICE_CATALOG.redis, 6379) }),
     );
 
-    const result = await streamResult(await redis.execute(env, [], NO_FLAGS));
+    const result = await streamResult(await redisServer.execute(env, [], NO_FLAGS));
 
     expect(result.text).toContain('6379');
     expect(result.exitCode).not.toBe(0);
@@ -130,19 +130,19 @@ describe('starting the store daemon', () => {
     // check rather than a half-started daemon.
     const { env, writes } = envFor(boxWith(), 'user');
 
-    const result = await streamResult(await redis.execute(env, [], NO_FLAGS));
+    const result = await streamResult(await redisServer.execute(env, [], NO_FLAGS));
 
     expect(result.exitCode).not.toBe(0);
     expect(writes).toEqual([]);
   });
 
   it('is the unit systemctl brings up under the name the package installs', async () => {
-    // `systemctl start redis` and typing `redis` are one action: the registry is what
+    // `systemctl start redis-server` and typing `redis-server` are one action: the registry is what
     // keeps them from becoming two daemons that disagree about the port.
-    expect(DAEMONS['redis']?.spec).toBe(SERVICE_CATALOG.redis);
+    expect(DAEMONS['redis-server']?.spec).toBe(SERVICE_CATALOG.redis);
   });
 
   it('is not runnable until the package that provides it is installed', async () => {
-    expect(redis.availability).toEqual({ kind: 'installed-package', packageName: 'redis' });
+    expect(redisServer.availability).toEqual({ kind: 'installed-package', packageName: 'redis' });
   });
 });

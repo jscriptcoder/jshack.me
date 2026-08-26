@@ -19,7 +19,7 @@ Home networks model cracked-WiFi LANs as shared persistent infrastructure [[proj
 
 ### 5.2.1 Join flow
 
-1. Player runs `nmcli connect ESSID PASSWORD` (WiFi password from aircrack)
+1. Player runs `nmcli connect ESSID PASSWORD` (WiFi password from aircrack-ng)
 2. Browser signs and POSTs to `/api/join-home-network` with workstation identity
 3. Server handler verifies Ed25519 signature, schema, 10-minute replay window, rate-limits per pubkey (30 req/min)
 4. Idempotency check: queries `home_network_occupants` for existing (network_id, player_key) row, returns if found

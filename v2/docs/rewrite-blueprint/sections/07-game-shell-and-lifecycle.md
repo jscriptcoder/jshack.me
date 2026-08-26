@@ -285,7 +285,7 @@ The seed does NOT control:
 
 Seed is persisted in `IndexedDB` as part of `GameState`, which also holds username, workstation name, and root password. On app reload, the cached seed deterministically regenerates every home-network machine and mission (if one is active).
 
-## 7.7 WiFi System (Multi-WiFi, airmon/airdump/aircrack)
+## 7.7 WiFi System (Multi-WiFi, airmon-ng/airodump-ng/aircrack-ng)
 
 The WiFi hacking gate is the gatekeeper to network access. From localhost, the player cannot reach any remote networks until they crack a WiFi connection.
 
@@ -325,17 +325,17 @@ Current catalog includes 4 networks: one crackable (JSHACK-CORP) and 3 noise net
 
 ### WiFi Hacking Workflow
 
-1. **`airmon start wlan0`** — Enable monitor mode (localhost only)
+1. **`airmon-ng start wlan0`** — Enable monitor mode (localhost only)
    - Validates: on localhost, not already connected
    - Sets `setMonitorMode(true)` state
    - Only one mode toggle per command (no `stop` check during `start`)
 
-2. **`airdump`** — Scan for networks (localhost + monitor mode)
+2. **`airodump-ng`** — Scan for networks (localhost + monitor mode)
    - Lists all networks in tabular format: BSSID, Power, Channel, Encryption, ESSID
    - Async command with 600ms scan delay before output
    - Non-cancellable
 
-3. **`aircrack <bssid>`** — Crack WPA/WPA2 password (localhost + monitor mode)
+3. **`aircrack-ng <bssid>`** — Crack WPA/WPA2 password (localhost + monitor mode)
    - Validates BSSID exists
    - If not crackable, throws "WPA3 encryption not supported" error
    - Simulated brute-force: iterates through wordlist, outputs progress every 400ms
@@ -725,7 +725,7 @@ All axes can be controlled via seed keywords (case-insensitive substring match),
 - `src/session/gameTime.ts` — Game time model
 - `src/game/gameSeed.ts`, `types.ts` — Seed generation + GameState type
 - `src/network/wifiNetworks.ts`, `wifiTypes.ts` — WiFi definitions
-- `src/commands/airmon.ts`, `airdump.ts`, `aircrack.ts` — WiFi hacking commands
+- `src/commands/airmon.ts`, `airdump.ts`, `aircrack.ts` — WiFi hacking commands (legacy names)
 - `src/theme/themes.ts`, `applyTheme.ts` — Theme system
 - `src/utils/crossTabSync.ts` — BroadcastChannel sync
 - `src/utils/storageCache.ts`, `storage.ts` — Persistence layer

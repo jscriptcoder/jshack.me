@@ -3,7 +3,7 @@ import { abortableSleep } from './sleep';
 
 /**
  * `abortableSleep` is the real (UI-side) implementation behind `env.sleep` — the
- * abort-aware pacing seam streamed commands (airdump, later aircrack/hydra/nmap)
+ * abort-aware pacing seam streamed commands (airodump-ng, later aircrack-ng/hydra/nmap)
  * use to drama-pace output. Its whole reason to exist over a bare setTimeout is
  * that it REJECTS when the command's AbortSignal fires, so Ctrl-C can stop a
  * crack mid-flight. Tests use fake timers so they're instant and deterministic.

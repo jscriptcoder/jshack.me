@@ -9,7 +9,7 @@
  *
  * Design (grill-me decision 3): a RICHER union over a flat legacy interface, so
  * each NIC carries exactly the state its commands mutate — `wlan0` alone has
- * `monitorMode` (airmon) and `association` (nmcli). MACs are seeded from the
+ * `monitorMode` (airmon-ng) and `association` (nmcli). MACs are seeded from the
  * identity so a player's NICs are stable across reloads, like the workstation FS.
  */
 

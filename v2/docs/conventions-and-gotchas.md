@@ -330,7 +330,7 @@ decisions. The ship gate is legacy parity **minus missions**; missions are a pos
     md5 in a target's `/etc/passwd` — nothing prints it and nothing files it, and `john` reverses
     it with the same list that just failed. So cracking teaches a player only words they hold, and
     coverage cannot grow. WPA keys are not a back door: `generateWifi` draws from a separate
-    encoded `WIFI_PASSWORDS` pool, so an `aircrack` key opens **zero** ssh doors. Closing the loop
+    encoded `WIFI_PASSWORDS` pool, so an `aircrack-ng` key opens **zero** ssh doors. Closing the loop
     needs generated loot carrying an uncrackable-pool **plaintext** behind a tier gate (D2.6b, §9)
     — the same shape of finding as D2.5's "`john` cracks nothing hydra has not", and the same
     cause: every credential path is closed over one pool pair.
@@ -502,6 +502,19 @@ as-built), then the cross-player architecture doc if the work touches cross-play
 - **Shared world-state mutation is fine, not a tradeoff.** Defacement / bricking of shared
   networks is gameplay-renewable; don't gold-plate isolation/protection in shared-world
   systems.
+- **Command names carry the real binary's name, hyphens included** — `redis-cli`,
+  `redis-server`, `aircrack-ng`, `airmon-ng`, `airodump-ng`, `new-game`. Nothing in the
+  shell constrains the shape: `isFlagToken` and completion test only a LEADING `-`, and
+  the registry is keyed by the raw string. The module and its export take the camelCase
+  form of the same name (`redisCli.ts` exports `redisCli`), and a hyphenated name used as
+  an object key or a local has to be quoted or camelCased — `tsc` finds every one of those.
+  **A future `node` scripting slice must derive a JS identifier from the command name
+  rather than using the name itself.** Legacy built its sandbox as
+  `new Function(...Object.keys(context), src)`, which makes every command name a formal
+  parameter and a single hyphen a `SyntaxError` that takes down every script in the game —
+  key the context object by the camelCase identifier and the constraint disappears.
+  Older notes calling the no-hyphen rule "forced" predate this and are wrong.
+
 - **No single-letter variable names.** Name lambda/predicate/reducer params after what they
   represent (`candidate`, `port`, `vuln`, `machine`), never `c`/`p`/`v`/`m`. Classic loop
   indices `i`/`j`/`k` are fine.
@@ -701,7 +714,7 @@ Provably-equivalent mutant classes — accept (don't chase) when they recur:
   believing a content generator "survived", stub it by hand: a suite that goes red is a
   kill however the runner scored it.
   **Module-scope fixtures mis-attribute `perTest` coverage the same way.** D7 slice 2: the
-  `if (occupants.some(...)) return null` branch in `rediscli.ts` was reported Survived under
+  `if (occupants.some(...)) return null` branch in `redisCli.ts` was reported Survived under
   a scoped runner, and applying that exact mutant by hand took TWO tests in the same file
   red. The fixtures those tests read (`generateHomeLan` results held in module-scope
   consts) are built at import rather than inside a test body, so Stryker attributes no test
@@ -2198,7 +2211,7 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   once a generated box carries the daemon behind its doors (v0.168.0), a defender who shuts port
   80 on a box they rooted still sees it open from their own `nmap`. That is the tool lying about
   the player's OWN action rather than about somebody else's, and there is no local workaround —
-  a generated box carries no `nmap` (`LOCALHOST_PREINSTALLED_TOOLS` is the aircrack trio, plus
+  a generated box carries no `nmap` (`LOCALHOST_PREINSTALLED_TOOLS` is the aircrack-ng trio, plus
   `systemctl`), so the confirming scan can only come from a box that replays nothing. The port
   really is shut: `readOpenPorts` — the reader the display and the server's scan action share —
   reports it gone, which is what `generatedBoxDoors.test.ts` pins. **The fix has to be server-side** — `listPatches` is gated on an active session, so
@@ -2255,7 +2268,7 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   - **Cheap and honest:** make the completion line carry the two columns real scp ends with —
     `passwords.txt   100%  285     0.3KB/s   00:00` — timing the round-trip the command already
     awaits, so the rate is measured rather than invented. One change to `landed()` in `scp.ts`.
-  - **The real fix:** `\r` semantics in the terminal, which would also give `hydra`, `aircrack`
+  - **The real fix:** `\r` semantics in the terminal, which would also give `hydra`, `aircrack-ng`
     and `nmap` honest meters instead of their current paced line dumps. A feature in its own
     right, not a transfer-slice detail. Do NOT approximate it with stepped 25/50/75% lines —
     that appends where the real tool overwrites, and reads *less* like scp, not more.

@@ -1,7 +1,7 @@
 /**
- * airdump — scan for nearby wireless networks (monitor mode required).
+ * airodump-ng — scan for nearby wireless networks (monitor mode required).
  *
- * Ported from legacy `airdump`, adapted to v2's streaming `CommandResult` and
+ * Ported from legacy `airodump-ng`, adapted to v2's streaming `CommandResult` and
  * the abort-aware `env.sleep` pacing seam. With `wlan0` in monitor mode it
  * streams the in-range APs as an airodump-ng-style table, one row at a time, so
  * the scan feels live. It reads the seeded AP list off `env.network`.
@@ -9,11 +9,11 @@
  * Each run is a FRESH scan: it asks the server which ESSIDs are currently
  * occupied (name-only) and re-rolls the in-range list with them injected, so a
  * live network another player is on can surface for discovery ("relocating").
- * The refreshed list is what `aircrack`/`nmcli` then act on.
+ * The refreshed list is what `aircrack-ng`/`nmcli` then act on.
  *
  * Two hard rules: it runs only on the player's own workstation, and it NEVER
  * prints a password — even though crackable APs carry one in the runtime model.
- * Revealing a key is `aircrack`'s job alone.
+ * Revealing a key is `aircrack-ng`'s job alone.
  */
 
 import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
@@ -78,33 +78,33 @@ async function* scan(
 
 const execute: Command['execute'] = async (env) => {
   if (!isOwnWorkstation(env.session.machineId, env.identity.publicKeyHex)) {
-    return error('airdump: command not available on this machine');
+    return error('airodump-ng: command not available on this machine');
   }
 
   const wlan0 = env.network.interfaces().find((iface) => iface.name === 'wlan0');
   if (wlan0 === undefined || wlan0.kind !== 'wireless' || !wlan0.monitorMode) {
-    return error('airdump: monitor mode not enabled — run airmon start wlan0 first');
+    return error('airodump-ng: monitor mode not enabled — run airmon-ng start wlan0 first');
   }
 
   // Fresh roll each scan, with currently-occupied ESSIDs injected for organic
   // discovery. The fetch is additive (it degrades to no occupants), and the roll
-  // is what aircrack/nmcli will read afterwards.
+  // is what aircrack-ng/nmcli will read afterwards.
   const occupiedEssids = await env.scan.resolveOccupiedEssids();
   const networks = env.network.rescanWifi(occupiedEssids);
   return { kind: 'async', lines: scan(env, networks), exitCode: async () => 0 };
 };
 
-export const airdump: Command = {
-  name: 'airdump',
+export const airodumpNg: Command = {
+  name: 'airodump-ng',
   description: 'Scan for nearby wireless networks',
   category: 'wifi',
   tier: 'guest',
   availability: { kind: 'localhost-only' },
   manual: {
-    synopsis: 'airdump',
+    synopsis: 'airodump-ng',
     description:
-      'Capture and display nearby wireless access points with signal strength, channel, and encryption. Requires monitor mode — run "airmon start wlan0" first.',
-    examples: [{ command: 'airdump', description: 'Scan for WiFi networks' }],
+      'Capture and display nearby wireless access points with signal strength, channel, and encryption. Requires monitor mode — run "airmon-ng start wlan0" first.',
+    examples: [{ command: 'airodump-ng', description: 'Scan for WiFi networks' }],
   },
   execute,
 };

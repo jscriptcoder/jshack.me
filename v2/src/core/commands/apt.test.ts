@@ -271,12 +271,12 @@ describe('apt', () => {
     it('installs every binary a multi-binary package ships, in catalog order', async () => {
       const { env, writes } = aptEnv();
 
-      await streamResult(await apt.execute(env, ['install', 'aircrack'], NO_FLAGS));
+      await streamResult(await apt.execute(env, ['install', 'aircrack-ng'], NO_FLAGS));
 
       expect(writes.map((write) => write.path)).toEqual([
-        '/usr/bin/airmon',
-        '/usr/bin/airdump',
-        '/usr/bin/aircrack',
+        '/usr/bin/airmon-ng',
+        '/usr/bin/airodump-ng',
+        '/usr/bin/aircrack-ng',
       ]);
     });
 
@@ -1236,8 +1236,8 @@ describe('the store a player buys', () => {
     const { operations } = await buyRedis();
 
     expect(operations).toEqual([
-      { kind: 'write', path: '/usr/bin/rediscli' },
-      { kind: 'write', path: '/usr/sbin/redis' },
+      { kind: 'write', path: '/usr/bin/redis-cli' },
+      { kind: 'write', path: '/usr/sbin/redis-server' },
       { kind: 'mkdir', path: '/var/lib' },
       { kind: 'mkdir', path: STORE_DIR },
       { kind: 'write', path: STORE_PATH },

@@ -1,5 +1,5 @@
 /**
- * reset — a GAME command (not a real Linux tool): wipe the player's game and
+ * new-game — a GAME command (not a real Linux tool): wipe the player's game and
  * start fresh. It warns, then asks `confirm (y/N):` through `env.prompt` (the
  * same line-based seam `su` uses, but NOT masked). `y`/`yes` (case-insensitive,
  * trimmed) fires `env.resetGame()` — the UI seam that clears all client-persisted
@@ -7,10 +7,10 @@
  * Anything else cancels without touching the seam; the capital `N` in `(y/N)`
  * marks No as the default, so a bare Enter does not reset.
  *
- * `reset -y` / `reset --yes` skips the warning + prompt and resets immediately.
+ * `new-game -y` / `new-game --yes` skips the warning + prompt and resets immediately.
  *
  * The warning is emitted to scrollback via `env.output` (so it renders as its own
- * line ABOVE the single-line `confirm (y/N):` input label) — `reset` is the first
+ * line ABOVE the single-line `confirm (y/N):` input label) — `new-game` is the first
  * consumer of that sink. Ctrl-C at the prompt rejects (`env.prompt`), which aborts
  * with exit 130 and no reset, mirroring `su`.
  */
@@ -54,15 +54,15 @@ const execute: Command['execute'] = async (env, _args, flags) => {
   return status('Resetting game...');
 };
 
-export const reset: Command = {
-  name: 'reset',
+export const newGame: Command = {
+  name: 'new-game',
   description: 'Wipe all progress and start a new game',
   category: 'general',
   tier: 'guest',
   availability: { kind: 'any-machine' },
   flags: { '--yes': 'boolean', '-y': 'boolean' },
   manual: {
-    synopsis: 'reset [-y|--yes]',
+    synopsis: 'new-game [-y|--yes]',
     description:
       'Wipe ALL game progress — your identity, files, workstation, and WiFi — and ' +
       'start a new game from the intro screen. Prompts for confirmation unless ' +
@@ -74,8 +74,8 @@ export const reset: Command = {
       },
     ],
     examples: [
-      { command: 'reset', description: 'Show the warning and confirm before resetting' },
-      { command: 'reset -y', description: 'Reset immediately, without the confirmation prompt' },
+      { command: 'new-game', description: 'Show the warning and confirm before resetting' },
+      { command: 'new-game -y', description: 'Reset immediately, without the confirmation prompt' },
     ],
   },
   execute,

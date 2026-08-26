@@ -44,8 +44,10 @@ deleted and the as-built lives in
 [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7 (the reach parameterized
 by daemon, the occupant-beats-sibling rule now covering PORTS, the three-outcome seam, the
 NAT-vs-inside refusal asymmetry, `secretOn`) and §9. Its twelve locked decisions stay in "D7 —
-resolved scope & decisions". It renamed the epic's own row: the command is `rediscli`, and
-`redis-cli` is unusable because `node`'s sandbox makes every command name a JS parameter. Its
+resolved scope & decisions". It renamed the epic's own row to `rediscli`, believing `redis-cli`
+unusable because `node`'s sandbox makes every command name a JS parameter — **reversed
+2026-08-26**: the command is `redis-cli` again, and the sandbox keys its context by a
+camelCase identifier instead. Its
 close-out also **closed the last open finding from D6's browser smoke test** — a fellow occupant's
 open ports were invisible to `nmap` — so all four of that session's findings are now resolved.
 **D5 🔍 GRILLED 2026-08-16, not yet planned** — fifteen locked decisions and a six-slice spine in
@@ -1411,12 +1413,14 @@ fewer verbs.
 
 ### Forced rather than chosen (planning should not re-litigate)
 
-- **`rediscli` can never become `redis-cli`.** `node`'s sandbox is
-  `new Function(...contextKeys, content)` (`src/commands/node.ts:171,174,208`) — every command name
-  becomes a formal PARAMETER of one function, so a single hyphen is a `SyntaxError` that takes
-  `node` down for **every script in the game**, not merely that one command. Legacy already met
-  this constraint; nothing in v2's ~40-command registry carries a hyphen. **This binds every future
-  command name, not just redis's** — which is why the daemon is `redis` and not `redis-server`.
+- ~~**`rediscli` can never become `redis-cli`.**~~ **WRONG — reversed 2026-08-26.** What is
+  forced is that a JS *identifier* cannot hold a hyphen, not that a *command name* cannot.
+  Legacy's sandbox is `new Function(...contextKeys, content)` where
+  `contextKeys = Object.keys(context)` (`src/commands/node.ts:167,171`), so it made the two the
+  same thing by construction. v2 has no `node.ts` at all, and when it builds one the context is
+  keyed by a camelCase identifier derived from the command name (`redis-cli` -> `redisCli`).
+  The commands are now `redis-cli` and `redis-server`, alongside `aircrack-ng`, `airmon-ng`,
+  `airodump-ng` and `new-game`. See `conventions-and-gotchas.md` §2.
 - **`/var/log/redis.log` and `/var/lib/redis/` are named by the conf the box itself publishes.**
   Any other path makes the box contradict its own file.
 - **The deep-layer resolver trap is waiting.** D6 slice 5 found the chain resolver hands back the
@@ -2320,11 +2324,12 @@ Four things that grill settled which the row above could not have predicted:
   required column returning `{ username, hash }`, and a `requirepass` is neither. Faking a username
   would have reprised D6 slice 2's shipped bug — the right name against the wrong secret — so the
   contract widens with a `secretOn` sibling and the sweep line omits the login field entirely.
-- **A hyphen in a command name would take `node` down for every script in the game.** Its sandbox is
-  `new Function(...contextKeys, content)`, so command names are formal PARAMETERS. That is why the
-  daemon is `redis` and not `redis-server`, why `rediscli` can never be "fixed" to `redis-cli`, and
-  it now binds every future command name. **This is the row's own name being wrong** — the epic has
-  said `redis-cli` since it was written.
+- ~~**A hyphen in a command name would take `node` down for every script in the game.**~~
+  **WRONG — reversed 2026-08-26.** The sandbox is `new Function(...contextKeys, content)` with
+  `contextKeys = Object.keys(context)`, so legacy welded the shell name to the JS parameter name.
+  Deriving a camelCase identifier from the command name lifts it entirely, and v2 has not built
+  `node` yet. The epic's original `redis-cli` spelling was right all along; the daemon is
+  `redis-server`.
 - **The plaintext `requirepass` would have shipped D2.6b through the back door.** It lands on a
   world-readable rung whose comment says "this file names neither" — so redis is split the way
   mysql already is: a public secret-free conf, and an md5 hash in the root-only datadir.

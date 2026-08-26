@@ -392,7 +392,7 @@ describe('a box that stopped answering', () => {
       // `systemctl stop redis` removes the pidfile, and the journal is where that
       // removal lives.
       findPatches: async ({ machine_id }) => ({
-        data: machine_id === machineId ? [patchRow('/var/run/redis.pid', null)] : [],
+        data: machine_id === machineId ? [patchRow('/var/run/redis-server.pid', null)] : [],
         error: null,
       }),
     });

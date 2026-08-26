@@ -17,14 +17,14 @@ import {
 } from '../../test/factories/commandEnv';
 import type { CommandEnv, CommandResult } from './types';
 import { commandRegistry } from './registry';
-import { aircrack } from './aircrack';
+import { aircrackNg } from './aircrackNg';
 
 /**
- * `aircrack` is the payoff of the WiFi arc: target a BSSID and either recover
+ * `aircrack-ng` is the payoff of the WiFi arc: target a BSSID and either recover
  * the key (`KEY FOUND!`) for a crackable AP or learn exactly why a noise AP
  * resists — WPA3, weak signal, or a hidden ESSID. It streams a dramatic crack
  * paced by `env.sleep`, and Ctrl-C (a rejecting sleep) stops it mid-flight
- * before the key is revealed. Like airdump it requires the player's own
+ * before the key is revealed. Like airodump-ng it requires the player's own
  * workstation + monitor mode.
  */
 
@@ -131,15 +131,15 @@ const syncOf = (result: CommandResult): { readonly text: string; readonly exitCo
   return { text: result.lines.map((line) => line.content).join('\n'), exitCode: result.exitCode };
 };
 
-describe('aircrack', () => {
+describe('aircrack-ng', () => {
   it('refuses to run off the player’s own workstation', async () => {
-    const result = await aircrack.execute(
+    const result = await aircrackNg.execute(
       onMachine(asMachineId('203.0.113.42')),
       ['AA:AA:AA:AA:AA:AA'],
       NO_FLAGS,
     );
     expect(syncOf(result)).toEqual({
-      text: 'aircrack: command not available on this machine',
+      text: 'aircrack-ng: command not available on this machine',
       exitCode: 1,
     });
     if (result.kind !== 'sync') throw new Error('sync expected');
@@ -148,29 +148,29 @@ describe('aircrack', () => {
 
   it('requires monitor mode to be enabled first', async () => {
     const env = aircrackEnv(buildColdStartConnectivity(PUBKEY));
-    expect(syncOf(await aircrack.execute(env, ['AA:AA:AA:AA:AA:AA'], NO_FLAGS))).toEqual({
-      text: 'aircrack: monitor mode not enabled — run airmon start wlan0 first',
+    expect(syncOf(await aircrackNg.execute(env, ['AA:AA:AA:AA:AA:AA'], NO_FLAGS))).toEqual({
+      text: 'aircrack-ng: monitor mode not enabled — run airmon-ng start wlan0 first',
       exitCode: 1,
     });
   });
 
   it('reports a missing BSSID argument', async () => {
-    expect(syncOf(await aircrack.execute(onMachine(), [], NO_FLAGS))).toEqual({
-      text: 'aircrack: missing BSSID — usage: aircrack <bssid>',
+    expect(syncOf(await aircrackNg.execute(onMachine(), [], NO_FLAGS))).toEqual({
+      text: 'aircrack-ng: missing BSSID — usage: aircrack-ng <bssid>',
       exitCode: 1,
     });
   });
 
   it('reports an unknown BSSID', async () => {
-    expect(syncOf(await aircrack.execute(onMachine(), ['99:99:99:99:99:99'], NO_FLAGS))).toEqual({
-      text: 'aircrack: BSSID 99:99:99:99:99:99 not found — run airdump to scan for networks',
+    expect(syncOf(await aircrackNg.execute(onMachine(), ['99:99:99:99:99:99'], NO_FLAGS))).toEqual({
+      text: 'aircrack-ng: BSSID 99:99:99:99:99:99 not found — run airodump-ng to scan for networks',
       exitCode: 1,
     });
   });
 
   it('cracks a WPA2 AP and reveals its password', async () => {
     const { lines, exitCode } = await drain(
-      await aircrack.execute(onMachine(), [CRACKABLE.bssid], NO_FLAGS),
+      await aircrackNg.execute(onMachine(), [CRACKABLE.bssid], NO_FLAGS),
     );
     const joined = lines.join('\n');
     expect(exitCode).toBe(0);
@@ -180,7 +180,7 @@ describe('aircrack', () => {
   it('streams the exact crack animation for a crackable AP', async () => {
     // Golden — pins the capture preamble, every wordlist progress line (tested
     // count, elapsed clock, k/s), the blank separator, and the KEY FOUND reveal.
-    const { lines } = await drain(await aircrack.execute(onMachine(), [CRACKABLE.bssid], NO_FLAGS));
+    const { lines } = await drain(await aircrackNg.execute(onMachine(), [CRACKABLE.bssid], NO_FLAGS));
     expect(lines).toEqual([
       'Opening capture file for ACME-CORP (AA:AA:AA:AA:AA:AA)...',
       'Reading packets from capture file...',
@@ -198,18 +198,18 @@ describe('aircrack', () => {
   it('fails on a WPA3 AP — handshake capture unsupported (exact output)', async () => {
     // Golden — pins the reason line plus the blank separator and the quit line,
     // and proves the crack animation never runs.
-    const { lines } = await drain(await aircrack.execute(onMachine(), [WPA3.bssid], NO_FLAGS));
+    const { lines } = await drain(await aircrackNg.execute(onMachine(), [WPA3.bssid], NO_FLAGS));
     expect(lines).toEqual([
       `Opening capture file for ${WPA3.essid} (${WPA3.bssid})...`,
       'Reading packets from capture file...',
       `${WPA3.essid} uses WPA3 — handshake capture not supported`,
       '',
-      'Quitting aircrack...',
+      'Quitting aircrack-ng...',
     ]);
   });
 
   it('emits every crack line as plain text (renderer dispatches on kind)', async () => {
-    const result = await aircrack.execute(onMachine(), [CRACKABLE.bssid], NO_FLAGS);
+    const result = await aircrackNg.execute(onMachine(), [CRACKABLE.bssid], NO_FLAGS);
     if (result.kind !== 'async') throw new Error('async expected');
     for await (const line of result.lines) {
       expect(line.kind).toBe('text');
@@ -220,7 +220,7 @@ describe('aircrack', () => {
     // The weak gate is `power < -80`, so -80 itself must still crack.
     const boundary: WifiNetwork = { ...CRACKABLE, bssid: 'EE:EE:EE:EE:EE:EE', power: -80 };
     const { lines } = await drain(
-      await aircrack.execute(monitoringEnv([boundary]), [boundary.bssid], NO_FLAGS),
+      await aircrackNg.execute(monitoringEnv([boundary]), [boundary.bssid], NO_FLAGS),
     );
     expect(lines.join('\n')).toContain(`KEY FOUND! [ ${boundary.password} ]`);
   });
@@ -237,20 +237,20 @@ describe('aircrack', () => {
       crackable: false,
     };
     const { lines } = await drain(
-      await aircrack.execute(monitoringEnv([stubborn]), [stubborn.bssid], NO_FLAGS),
+      await aircrackNg.execute(monitoringEnv([stubborn]), [stubborn.bssid], NO_FLAGS),
     );
     expect(lines.join('\n')).not.toContain('KEY FOUND');
   });
 
   it('fails on a weak-signal AP — no handshake captured', async () => {
-    const { lines } = await drain(await aircrack.execute(onMachine(), [WEAK.bssid], NO_FLAGS));
+    const { lines } = await drain(await aircrackNg.execute(onMachine(), [WEAK.bssid], NO_FLAGS));
     const joined = lines.join('\n');
     expect(joined).toContain(`Signal too weak (${WEAK.power} dBm) — no handshake captured`);
     expect(joined).not.toContain('KEY FOUND');
   });
 
   it('fails on a hidden-ESSID AP — no probing clients seen', async () => {
-    const { lines } = await drain(await aircrack.execute(onMachine(), [HIDDEN.bssid], NO_FLAGS));
+    const { lines } = await drain(await aircrackNg.execute(onMachine(), [HIDDEN.bssid], NO_FLAGS));
     const joined = lines.join('\n');
     expect(joined).toContain(
       `ESSID hidden for ${HIDDEN.bssid} — no probing clients seen, cannot derive key`,
@@ -270,7 +270,7 @@ describe('aircrack', () => {
       },
     });
     const { lines, rejected } = await drainUntilReject(
-      await aircrack.execute(env, [CRACKABLE.bssid], NO_FLAGS),
+      await aircrackNg.execute(env, [CRACKABLE.bssid], NO_FLAGS),
     );
     expect(rejected).toBe(true);
     expect(lines.join('\n')).not.toContain('KEY FOUND');
@@ -280,7 +280,7 @@ describe('aircrack', () => {
     const tree = buildDirectory({
       usr: buildDirectory({
         bin: buildDirectory({
-          aircrack: buildFile('', { owner: 'root', perms: { execute: ['root', 'user', 'guest'] } }),
+          'aircrack-ng': buildFile('', { owner: 'root', perms: { execute: ['root', 'user', 'guest'] } }),
         }),
       }),
     });
@@ -297,7 +297,7 @@ describe('aircrack', () => {
     const { runCommandLine } = await import('../shell/runLine');
 
     const { lines } = await drain(
-      await runCommandLine(env, `aircrack ${CRACKABLE.bssid}`, commandRegistry),
+      await runCommandLine(env, `aircrack-ng ${CRACKABLE.bssid}`, commandRegistry),
     );
     expect(lines.join('\n')).toContain('KEY FOUND!');
   });

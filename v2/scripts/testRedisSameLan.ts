@@ -13,7 +13,7 @@
 //     columns the plain occupant LIST deliberately does not. Nothing about it crosses
 //     the wire; it rebuilds A's tree. Get that select wrong and the scan silently
 //     reports a neighbour running nothing.
-//   - `nmap` and `rediscli` AGREEING about one box: the port the scan advertises is
+//   - `nmap` and `redis-cli` AGREEING about one box: the port the scan advertises is
 //     posted straight to `redisConnect`, which must open there. A scan that promised a
 //     door the reach then refused is exactly what the old blank was protecting against.
 //   - the sweep reaching the occupant while the STORE stays out of reach: `hydra ssh`
@@ -344,7 +344,7 @@ check(
 // --- 5. What the scan advertised, the door OPENS. Two tools, one box. ---
 const opened = await post(await connectEnvelope());
 check(
-  '5. rediscli opens the port nmap advertised, and names the neighbour’s box',
+  '5. redis-cli opens the port nmap advertised, and names the neighbour’s box',
   opened.status === 200 &&
     (opened.body as { hostname?: string } | null)?.hostname === DEFENDER_HOSTNAME,
   textOf(opened.body),

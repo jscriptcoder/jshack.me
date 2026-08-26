@@ -210,9 +210,9 @@ describe('Terminal', () => {
     expect(screen.queryByText(/^alice:/)).not.toBeInTheDocument();
   });
 
-  it('streams the airdump scan into the scrollback once monitor mode is on', async () => {
-    // End-to-end through the real UI seam: airmon flips monitor mode, then
-    // airdump returns an ASYNC result whose lines `runInput` must stream into
+  it('streams the airodump-ng scan into the scrollback once monitor mode is on', async () => {
+    // End-to-end through the real UI seam: airmon-ng flips monitor mode, then
+    // airodump-ng returns an ASYNC result whose lines `runInput` must stream into
     // the scrollback. Without the async branch the result is dropped and
     // nothing appears — so the header + summary tail prove the wiring.
     // Connecting now needs a server: the player's address is a LEASE the join
@@ -230,10 +230,10 @@ describe('Terminal', () => {
     );
 
     renderTerminal();
-    runCommand('airmon start wlan0');
+    runCommand('airmon-ng start wlan0');
     await screen.findByText((content) => content.includes('monitor mode enabled on wlan0'));
 
-    runCommand('airdump');
+    runCommand('airodump-ng');
     expect(
       await screen.findByText((content) => content.includes('BSSID') && content.includes('ESSID')),
     ).toBeInTheDocument();
@@ -243,16 +243,16 @@ describe('Terminal', () => {
     ).toBeInTheDocument();
   });
 
-  it('Ctrl-C aborts a running aircrack before the key is revealed', async () => {
+  it('Ctrl-C aborts a running aircrack-ng before the key is revealed', async () => {
     // End-to-end abort wiring: the keyhandler calls abortRunning(), which aborts
     // the run's controller → rejects the in-flight env.sleep → the run catches
     // it, prints `^C`, and stops. The KEY FOUND reveal must never appear.
     // The shell runs ONE command at a time, so let the streaming scan finish
     // before the crack takes the foreground (it would otherwise queue behind it).
     renderTerminal();
-    runCommand('airmon start wlan0');
+    runCommand('airmon-ng start wlan0');
     await screen.findByText((content) => content.includes('monitor mode enabled on wlan0'));
-    runCommand('airdump');
+    runCommand('airodump-ng');
     await screen.findByText((content) => content.includes('Scan complete'), {}, { timeout: 8000 });
     await awaitPrompt();
     const bssidRow = screen.getAllByText((content) =>
@@ -260,12 +260,12 @@ describe('Terminal', () => {
     )[0]!;
     const bssid = bssidRow.textContent!.trim().split(/\s+/)[0]!;
 
-    runCommand(`aircrack ${bssid}`);
+    runCommand(`aircrack-ng ${bssid}`);
     // Let the crack begin (the capture preamble streams before the first pause).
     await screen.findByText((content) => content.includes('Opening capture file'));
     // The busy bar names the COMMAND, not the whole line — no bssid in it.
     const busyBar = screen.getByTestId('terminal-loading');
-    expect(busyBar).toHaveTextContent('aircrack...');
+    expect(busyBar).toHaveTextContent('aircrack-ng...');
     expect(busyBar).not.toHaveTextContent(bssid);
     // The prompt is swapped for the busy spinner while the crack runs, so the
     // interrupt arrives at the document, not at the (unmounted) input.
@@ -281,13 +281,13 @@ describe('Terminal', () => {
       // long as it is busy (the scan paces its rows over real time), and the
       // player must be able to type again the moment it isn't — without clicking.
       renderTerminal();
-      runCommand('airmon start wlan0');
+      runCommand('airmon-ng start wlan0');
       await screen.findByText((content) => content.includes('monitor mode enabled on wlan0'));
 
       // Submitted with stray leading whitespace — the bar still names the command.
-      runCommand('  airdump');
+      runCommand('  airodump-ng');
 
-      expect(await screen.findByTestId('terminal-loading')).toHaveTextContent('airdump...');
+      expect(await screen.findByTestId('terminal-loading')).toHaveTextContent('airodump-ng...');
       expect(screen.queryByLabelText(/terminal input/i)).not.toBeInTheDocument();
 
       // With no input to swallow them, stray keystrokes reach the window — only
@@ -332,10 +332,10 @@ describe('Terminal', () => {
     // connection from the persisted ESSID alone. Drives the new wiring:
     // env.homeNetwork.join, setInterface→persist, and startGame→restore.
     renderTerminal();
-    runCommand('airmon start wlan0');
+    runCommand('airmon-ng start wlan0');
     await screen.findByText((content) => content.includes('monitor mode enabled on wlan0'));
 
-    runCommand('airdump');
+    runCommand('airodump-ng');
     // A crackable AP is the only kind that is WPA2 AND strong (≥ -80) AND named
     // — noise APs each fail one of those. There may be several, so take the first.
     const crackableRow = /^([0-9A-F:]{17})\s+-\d+\s+\d+\s+WPA2\s+(.+)$/;
@@ -354,7 +354,7 @@ describe('Terminal', () => {
     const bssid = parsed[1]!.trim();
     const essid = parsed[2]!.trim();
 
-    runCommand(`aircrack ${bssid}`);
+    runCommand(`aircrack-ng ${bssid}`);
     const keyRow = await screen.findByText(
       (content) => content.includes('KEY FOUND'),
       {},
@@ -365,7 +365,7 @@ describe('Terminal', () => {
 
     // Monitor mode and an association are mutually exclusive, so leave monitor
     // mode before connecting (nmcli refuses otherwise).
-    runCommand('airmon stop wlan0');
+    runCommand('airmon-ng stop wlan0');
     await screen.findByText((content) => content.includes('monitor mode disabled on wlan0'));
 
     runCommand(`nmcli connect ${essid} ${password}`);

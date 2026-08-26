@@ -30,7 +30,7 @@ import type { CommandEnv, CommandResult, RedisConnection, TerminalLine } from '.
 const text = (content: string): TerminalLine => ({ kind: 'text', content });
 
 /** Always synchronous, and typed that way: the prompt answers one line at a time, and
- *  `rediscli` composes an early `AUTH`'s answer onto its greeting without having to ask
+ *  `redis-cli` composes an early `AUTH`'s answer onto its greeting without having to ask
  *  which shape came back. */
 type PromptResult = Extract<CommandResult, { readonly kind: 'sync' }>;
 

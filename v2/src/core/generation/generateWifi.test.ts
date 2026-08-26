@@ -7,8 +7,8 @@ import { secrets } from '../secrets/__encoded';
  * `generateWifi` is the seeded WiFi-scan generator: deterministic from the
  * player's identity pubkey, like the workstation FS. It must yield a small set
  * of access points — a few crackable (carrying a real pool password) plus noise
- * APs that each fail exactly one aircrack gate (WPA3 / weak signal / hidden) so
- * Slice 4's `aircrack` can re-derive the failure from observable state.
+ * APs that each fail exactly one aircrack-ng gate (WPA3 / weak signal / hidden) so
+ * Slice 4's `aircrack-ng` can re-derive the failure from observable state.
  *
  * Tests assert the generation INVARIANTS the rest of the arc leans on, not a
  * hand-computed sequence — determinism via repeated calls, counts, and the
@@ -26,7 +26,7 @@ const SEED_HIDDEN = '0'.repeat(64);
 const isCrackable = (network: WifiNetwork): network is Extract<WifiNetwork, { crackable: true }> =>
   network.crackable;
 
-/** The three aircrack failure gates a noise AP must hit exactly one of. */
+/** The three aircrack-ng failure gates a noise AP must hit exactly one of. */
 const failedGates = (network: WifiNetwork): readonly string[] =>
   [
     network.encryption === 'WPA3' ? 'wpa3' : null,
@@ -97,7 +97,7 @@ describe('generateWifi', () => {
     }
   });
 
-  it('makes every noise AP fail exactly one aircrack gate and carry no password', () => {
+  it('makes every noise AP fail exactly one aircrack-ng gate and carry no password', () => {
     for (const network of generateWifi({ seedPubkeyHex: SEED_A }).filter(
       (candidate) => !candidate.crackable,
     )) {

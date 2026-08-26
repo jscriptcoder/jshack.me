@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { rediscli } from './rediscli';
+import { redisCli } from './redisCli';
 import {
   mockCommandEnv,
   mockFsViewFromTree,
@@ -29,7 +29,7 @@ import { SERVICE_CATALOG as CATALOG } from '../services/serviceCatalog';
 import type { CommandEnv, CommandResult, RedisApi } from './types';
 
 /**
- * `rediscli <host>` — the fifth door, and the only one that asks the player for
+ * `redis-cli <host>` — the fifth door, and the only one that asks the player for
  * nothing at all.
  *
  * There is no account to name and no password to type: a store answers to one secret
@@ -111,13 +111,13 @@ const onLan = (over: Partial<RedisApi> = {}, envOver: Partial<CommandEnv> = {}) 
   });
 
 const run = (env: CommandEnv, args: readonly string[]) =>
-  rediscli.execute(env, args, new Map());
+  redisCli.execute(env, args, new Map());
 
 const runWith = (
   env: CommandEnv,
   args: readonly string[],
   flags: ReadonlyMap<string, string | true>,
-) => rediscli.execute(env, args, flags);
+) => redisCli.execute(env, args, flags);
 
 const sync = (result: CommandResult) => {
   if (result.kind !== 'sync') throw new Error('expected a sync result');
@@ -193,7 +193,7 @@ describe('what it says instead', () => {
 
     const result = await run(onLan({ connect }), []);
 
-    expect(linesOf(result)).toBe('usage: rediscli [-p port] <host> [password]');
+    expect(linesOf(result)).toBe('usage: redis-cli [-p port] <host> [password]');
     expect(sync(result).exitCode).toBe(1);
     expect(connect).not.toHaveBeenCalled();
   });
@@ -351,7 +351,7 @@ describe('the player own box, once it runs a store', () => {
   /** The server door, deliberately unreachable. A connection to your own box that took
    *  the cross-network path would throw here rather than quietly pass. */
   const NOT_WIRED = () => {
-    throw new Error('own-box rediscli must not reach the server');
+    throw new Error('own-box redis-cli must not reach the server');
   };
 
   /** Their box after buying a store and starting the daemon. Both files come from the
@@ -582,47 +582,47 @@ describe('the command in the world', () => {
   it('needs a terminal, because what it opens is a prompt', () => {
     // The message, not merely its presence: an empty string is "defined" and would
     // leave a player who piped this into a script reading a blank line.
-    expect(rediscli.withoutTty).toBe('rediscli: must be run from a terminal');
+    expect(redisCli.withoutTty).toBe('redis-cli: must be run from a terminal');
   });
 
   it('is a door a guest can walk up to, because the store asks nothing of the machine', () => {
     // A store has no accounts, so requiring one on the box the player is STANDING on
     // would be a credential this door invented for itself.
-    expect(rediscli.tier).toBe('guest');
+    expect(redisCli.tier).toBe('guest');
   });
 
   it('documents itself for man and help, with an example a player can copy', () => {
-    // Criterion: `man rediscli` and `help` list the command. Both read the registry
+    // Criterion: `man redis-cli` and `help` list the command. Both read the registry
     // row, so what they show is exactly this.
-    expect(rediscli.manual?.synopsis).toBe('rediscli [-p port] <host> [password]');
-    expect(rediscli.description.length).toBeGreaterThan(10);
-    expect(rediscli.manual?.arguments?.[0]?.name).toBe('host');
+    expect(redisCli.manual?.synopsis).toBe('redis-cli [-p port] <host> [password]');
+    expect(redisCli.description.length).toBeGreaterThan(10);
+    expect(redisCli.manual?.arguments?.[0]?.name).toBe('host');
     // Every example is a line a player can copy, and every argument says what it is
     // for. An example with no command, or an argument with no description, is a manual
     // page that looks complete and teaches nothing.
     // Counted as well as checked: `every` on an empty array is true, so the shape
     // assertion below would pass just as happily on a page with no examples at all.
-    expect(rediscli.manual?.examples?.length).toBeGreaterThan(2);
+    expect(redisCli.manual?.examples?.length).toBeGreaterThan(2);
     expect(
-      rediscli.manual?.examples?.every(
-        (example) => example.command.startsWith('rediscli ') && example.description.length > 10,
+      redisCli.manual?.examples?.every(
+        (example) => example.command.startsWith('redis-cli ') && example.description.length > 10,
       ),
     ).toBe(true);
     expect(
-      rediscli.manual?.arguments?.every((argument) => argument.description.length > 10),
+      redisCli.manual?.arguments?.every((argument) => argument.description.length > 10),
     ).toBe(true);
     // And it names the verb that opens a locked store, because the password argument is
     // only half the answer: a player who did not have it at connect time needs the other.
-    expect(rediscli.manual?.description).toContain('AUTH <password>');
+    expect(redisCli.manual?.description).toContain('AUTH <password>');
     // And the two verbs that change a store, because a player who reached a prompt
     // they can write to has no other place to learn that they can.
-    expect(rediscli.manual?.description).toContain('SET');
-    expect(rediscli.manual?.description).toContain('DEL');
+    expect(redisCli.manual?.description).toContain('SET');
+    expect(redisCli.manual?.description).toContain('DEL');
     // And the flag, which is the only way to say the name of a store that has no
     // address: a player who found a forward in a gateway's rules has nowhere else to
     // learn that this client can follow it.
     expect(
-      rediscli.manual?.arguments?.some(
+      redisCli.manual?.arguments?.some(
         (argument) => argument.name === '-p' && argument.description.length > 10,
       ),
     ).toBe(true);
@@ -631,7 +631,7 @@ describe('the command in the world', () => {
   it('is reachable from the box the player is standing on and nowhere else', () => {
     // A store connection is made from where you stand. `localhost-only` is what every
     // other door that opens a prompt declares.
-    expect(rediscli.availability).toEqual({ kind: 'localhost-only' });
+    expect(redisCli.availability).toEqual({ kind: 'localhost-only' });
   });
 });
 
@@ -719,9 +719,9 @@ describe('opening a store with the password in hand', () => {
   it('names the optional password where a player would look for it', async () => {
     const refused = await run(onLan(), []);
 
-    expect(linesOf(refused)).toContain('rediscli [-p port] <host> [password]');
-    expect(rediscli.manual?.synopsis).toBe('rediscli [-p port] <host> [password]');
-    expect(rediscli.manual?.arguments?.map((argument) => argument.name)).toContain('password');
+    expect(linesOf(refused)).toContain('redis-cli [-p port] <host> [password]');
+    expect(redisCli.manual?.synopsis).toBe('redis-cli [-p port] <host> [password]');
+    expect(redisCli.manual?.arguments?.map((argument) => argument.name)).toContain('password');
   });
 });
 
@@ -732,7 +732,7 @@ describe('the port the flag names', () => {
     buildDirectory({
       var: buildDirectory({
         run: buildDirectory({
-          'redis.pid': buildFile(formatPidfileContent(SERVICE_CATALOG.redis, port)),
+          'redis-server.pid': buildFile(formatPidfileContent(SERVICE_CATALOG.redis, port)),
         }),
       }),
     });
@@ -750,21 +750,21 @@ describe('the port the flag names', () => {
 
     // The port IS the address of the daemon here, so substituting a number the player
     // did not type would open a store they never asked for and never mention it.
-    expect(linesOf(result)).toBe('usage: rediscli [-p port] <host> [password]');
+    expect(linesOf(result)).toBe('usage: redis-cli [-p port] <host> [password]');
     expect(connect).not.toHaveBeenCalled();
   });
 
   it('refuses a flag that named something which is not a port', async () => {
     const { result, connect } = await refusedFlag('redis');
 
-    expect(linesOf(result)).toBe('usage: rediscli [-p port] <host> [password]');
+    expect(linesOf(result)).toBe('usage: redis-cli [-p port] <host> [password]');
     expect(connect).not.toHaveBeenCalled();
   });
 
   it('refuses port zero, which addresses no door at all', async () => {
     const { result, connect } = await refusedFlag('0');
 
-    expect(linesOf(result)).toBe('usage: rediscli [-p port] <host> [password]');
+    expect(linesOf(result)).toBe('usage: redis-cli [-p port] <host> [password]');
     expect(connect).not.toHaveBeenCalled();
   });
 
@@ -793,7 +793,7 @@ describe('the port the flag names', () => {
     // "-p", the port becomes the password, and every test that builds the map by hand
     // stays green while the command is unusable. This is the two-sides-of-one-rule pair
     // for this slice — the declaration and `parsePort`, each correct alone.
-    const bound = bindFlags(['-p', '36379', '192.168.1.1'], rediscli.flags ?? {});
+    const bound = bindFlags(['-p', '36379', '192.168.1.1'], redisCli.flags ?? {});
 
     expect(bound).toMatchObject({
       ok: true,

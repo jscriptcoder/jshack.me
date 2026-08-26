@@ -238,12 +238,13 @@ export const SERVICE_CATALOG = {
   // only a lock that is either there or is not — and four stores in ten have none.
   redis: {
     service: 'redis',
-    pidfile: 'redis.pid',
+    // The pidfile's basename IS the daemon name (`daemonName`), so it is what `ps`
+    // prints, what the pidfile line says, and what binary a generated box plants —
+    // all of which must be the command a player can actually type.
+    pidfile: 'redis-server.pid',
     defaultPort: 6379,
-    // Not root, and not named for a hyphen either: a command name becomes a formal
-    // PARAMETER of the function a script runs, so `redis-server` would be a syntax
-    // error that took every script in the game down with it. `redis` is also what the
-    // conf on every box already calls its pidfile.
+    // The account the store runs as, not the command that starts it: real Debian
+    // ships a `redis` user running a `redis-server` binary, and so does this.
     runUser: 'redis',
     // What the store says to a client that speaks no redis at it. Real Redis reads a
     // raw line as an inline command and rejects it, which is the only thing left that

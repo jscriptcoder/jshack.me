@@ -161,21 +161,21 @@ otherwise. You cannot simply type a chosen ESSID into both players.
 How the scan is built (`core/generation/generateWifi.ts`):
 
 - Seed is `wifi-<playerPubkey>-<scanIndex>`. **Deterministic per player per scan**, and
-  `airdump` increments `scanIndex`, so **re-running `airdump` re-rolls the list**. A
+  `airodump-ng` increments `scanIndex`, so **re-running `airodump-ng` re-rolls the list**. A
   page reload does not.
 - Base draw: **2–3** crackable ESSIDs from the 50-entry `crackableEssidPool`.
 - Then the **occupied-ESSID injector**: ESSIDs *other players are currently on*, a
   random subset of size `0..min(n, 3)`.
 
 So the two-player encounter works exactly as designed: **A joins first, which makes A's
-ESSID "occupied"; B then re-runs `airdump` until the injector surfaces it.** With one
-occupied network that is a coin flip per scan — expect to run `airdump` a handful of
+ESSID "occupied"; B then re-runs `airodump-ng` until the injector surfaces it.** With one
+occupied network that is a coin flip per scan — expect to run `airodump-ng` a handful of
 times. That is not a bug, it *is* the discovery mechanic, and it is worth watching work.
 
 **The crack is skippable.** `passwordForEssid(essid)` is ESSID-seeded and the password
-compare is the only gate — `nmcli connect` does not check that you ran `aircrack`. For
+compare is the only gate — `nmcli connect` does not check that you ran `aircrack-ng`. For
 journeys where the crack is not the thing under test, derive the password offline (§7)
-and skip `airmon`/`airdump`/`aircrack` entirely, saving ~14 s of simulated cracking per
+and skip `airmon-ng`/`airodump-ng`/`aircrack-ng` entirely, saving ~14 s of simulated cracking per
 player. **Do run the real crack at least once** (Act 1) so the arc itself is covered.
 
 ---
@@ -196,11 +196,11 @@ and output is read with:
 agent-browser --session <player> eval "document.body.innerText.slice(-1200)"
 ```
 
-Allow generous waits: `aircrack` ~14 s, `nmcli`/`nmap` pace their output deliberately.
+Allow generous waits: `aircrack-ng` ~14 s, `nmcli`/`nmap` pace their output deliberately.
 
 **`agent-browser press Enter` is unreliable here** — on a freshly opened session it is
 silently dropped and characters just accumulate in the input (you will see
-`airmon start wlan0airdump...` sitting there unsubmitted). Clear the field and submit
+`airmon-ng start wlan0airdump...` sitting there unsubmitted). Clear the field and submit
 with a native keydown instead. Keep this as a helper and use it for every command:
 
 ```bash
@@ -222,10 +222,10 @@ It works for masked password prompts too. **`nmap` takes a range, not CIDR** —
 
 | # | Command | Trap |
 |---|---|---|
-| 1 | `airmon start wlan0` | `airdump` fails without it |
-| 2 | `airdump` | It is `airdump`, not `airodump`. **Note a WPA2 crackable row — this ESSID is X for the rest of the run** |
-| 3 | `aircrack <BSSID of X>` | WPA2 crackable rows only. Prints `KEY FOUND! [ <pw> ]` — **record it** |
-| 4 | `airmon stop wlan0` | `nmcli` refuses while monitor mode is on |
+| 1 | `airmon-ng start wlan0` | `airodump-ng` fails without it |
+| 2 | `airodump-ng` | It is `airodump-ng`, not `airodump`. **Note a WPA2 crackable row — this ESSID is X for the rest of the run** |
+| 3 | `aircrack-ng <BSSID of X>` | WPA2 crackable rows only. Prints `KEY FOUND! [ <pw> ]` — **record it** |
+| 4 | `airmon-ng stop wlan0` | `nmcli` refuses while monitor mode is on |
 | 5 | `nmcli connect X <pw>` | Prints `Connected to X — assigned 192.168.<subnet>.<host>` — **record the subnet and A's host octet** |
 | 6 | `su root` + root password | `apt` needs root |
 | 7 | `apt install nmap` | `nmap` is not preinstalled |
@@ -240,11 +240,11 @@ It works for masked password prompts too. **`nmap` takes a range, not CIDR** —
 
 Mint B (§3). Run B's arc, but this time hunt for X:
 
-1. `airmon start wlan0`
-2. `airdump` — **repeat until X appears in B's list.** Each run re-rolls. If ~8 runs
+1. `airmon-ng start wlan0`
+2. `airodump-ng` — **repeat until X appears in B's list.** Each run re-rolls. If ~8 runs
    produce nothing, confirm A is still an occupant (`nmcli status` as A) before
    suspecting the injector.
-3. `airmon stop wlan0`
+3. `airmon-ng stop wlan0`
 4. `nmcli connect X <pw from Act 1>` — the password is the network's, not A's, so the
    value recorded in Act 1 is correct for B.
 
@@ -372,7 +372,7 @@ exit
 |---|---|---|
 | Public IP goes dark | C | `nmap <public IP>` → host **down**, no ports |
 | Permanently | C | still dark after a reload — the tombstone is journal-backed |
-| ESSID still visible | any new identity | X still appears in `airdump`, still crackable, still joinable |
+| ESSID still visible | any new identity | X still appears in `airodump-ng`, still crackable, still joinable |
 | Occupants still reach each other | A ↔ B | `nmap` of the LAN still lists both; `ssh` between them still works |
 | The gateway itself is dead | A | `ssh root@192.168.<subnet>.1` refused — a bricked box refuses ssh from inside its own LAN too |
 
@@ -422,7 +422,7 @@ no wire-check can show as a *journey*.
 
 #### Own-LAN half (one identity)
 
-`airmon start wlan0` → `airdump` → `aircrack <BSSID>` → `airmon stop wlan0` → `nmcli
+`airmon-ng start wlan0` → `airodump-ng` → `aircrack-ng <BSSID>` → `airmon-ng stop wlan0` → `nmcli
 connect` → `su root` → `apt install nginx` → `nginx` → `curl http://<own IP>` → `nano
 /var/www/html/index.html` → `curl` again → `cat /var/log/access.log`.
 
@@ -473,7 +473,7 @@ This act exists because the world has no unlinked content to find — every gene
 at `/var/www/html/index.html` — so the *player* generates the content and sweeps for it. That
 substitution is deliberate and is what stands in for a content epic as evidence.
 
-`airmon start wlan0` → `airdump` → `aircrack` → `airmon stop wlan0` → `nmcli connect` → `su
+`airmon-ng start wlan0` → `airodump-ng` → `aircrack-ng` → `airmon-ng stop wlan0` → `nmcli connect` → `su
 root` → `apt install gobuster` → `mkdir /var/www/html/private` + `mkdir /var/www/html/hidden` →
 `nano` a page into each → `apt install nginx` → `nginx` → `gobuster http://localhost` → `nano
 /usr/share/wordlists/dirlist.txt` → sweep again → `cat /var/log/access.log`.
@@ -711,7 +711,7 @@ only thing that proves the client sends what the server reads**: a wrong field n
 
 | # | Command | Trap |
 |---|---|---|
-| 1 | Act 1's arc → connected (real `aircrack`, `KEY FOUND! [ thunder24 ]`) | — |
+| 1 | Act 1's arc → connected (real `aircrack-ng`, `KEY FOUND! [ thunder24 ]`) | — |
 | 2 | `su root` → `vsftpd` | **Wait for the `su` spinner.** `vsftpd` is root-tier and opens :21 |
 | 3 | `ssh root@192.168.94.1` + `seedApGatewayAdminPw('SUITE-401')` = `dovetail_7` | — |
 | 4 | `echo forward 2121 to 192.168.94.155:21 > /etc/iptables/rules.v4` → `exit` | Not 21 on the outside: on a public address :21 is nothing and :22 is the GATEWAY |
@@ -795,7 +795,7 @@ under A's name.
 
 | # | Command | Trap |
 |---|---|---|
-| 1 | §3's arc → connected (real `aircrack`, `KEY FOUND! [ diamond99 ]`) | — |
+| 1 | §3's arc → connected (real `aircrack-ng`, `KEY FOUND! [ diamond99 ]`) | — |
 | 2 | `su root` → `sshd` | Confirm with `cat /var/run/sshd.pid` → `sshd:port=22`. A transfer reaches sshd or nothing |
 | 3 | `ssh root@192.168.97.1` + `seedApGatewayAdminPw('DEFCON-VILLAGE')` = `root123` | — |
 | 4 | `echo forward 5544 to 192.168.97.119:22 > /etc/iptables/rules.v4` → `exit` | Not 22 on the outside: on a public address :22 is the GATEWAY's own daemon, which is a different machine |
@@ -958,7 +958,7 @@ until workstation root can be.
 | 4 | B | `nc -l 31337` | `Listening on 0.0.0.0 31337` |
 | 5 | B | `ps` | `- root sshd 22` and `20904 root nc 31337` |
 | 6 | B | `exit`, then `nmap 192.168.181.1` again | `22/tcp open ssh` only — **the asymmetry below, confirmed** |
-| 7 | B | `nmcli disconnect`, `airdump`, `aircrack`, `nmcli connect SUITE-401` | `assigned 192.168.94.71` — off A's LAN entirely |
+| 7 | B | `nmcli disconnect`, `airodump-ng`, `aircrack-ng`, `nmcli connect SUITE-401` | `assigned 192.168.94.71` — off A's LAN entirely |
 | 8 | B | `nmap 162.146.1.124` | `22/tcp open ssh` **and** `31337/tcp open unknown` |
 | 9 | B | `nc 162.146.1.124 31337` | `Connected to 162.146.1.124.` then `root@ap-gw:/root#`, **no password asked** |
 | 10 | B | `ls /var/run`, `cat /etc/iptables/rules.v4` | **DEFECT — see below.** Only `nc-31337.pid`; the gateway's own `sshd.pid` and `rules.v4` are missing |
@@ -1043,7 +1043,7 @@ client noticing, which is the half slice 8 changed.
 
 | # | Command | Result |
 |---|---|---|
-| 1 | `aircrack` + `nmcli connect GROUND-ZERO-COFFEE` | `assigned 192.168.181.218` |
+| 1 | `aircrack-ng` + `nmcli connect GROUND-ZERO-COFFEE` | `assigned 192.168.181.218` |
 | 2 | `ssh root@192.168.181.1` (`undertow_11`) | `root@ap-gw:/root#` |
 | 3 | `ls /var/run`, `cat /etc/iptables/rules.v4` | **ground truth**: `sshd.pid`, and the NAT table |
 | 4 | `apt install netcat`, `nc -l 31337`, `ps` | `20904 root nc 31337` |
@@ -1073,7 +1073,7 @@ time it has been shown across two.
   A second identity (`alice` / `skylab`) scanned six networks and `GROUND-ZERO-COFFEE` was not
   among them, so she could not reach the contested gateway at all. Act 14's two-player run worked
   because those identities happened to share one. **A future act needing two players on one LAN
-  cannot assume it** — check `airdump` on both before planning around it.
+  cannot assume it** — check `airodump-ng` on both before planning around it.
 - **`31337/tcpopen` is still there** (step 6), untouched and still cosmetic: the PORT column pads
   for four digits. Recorded in `conventions-and-gotchas.md` section 9.
 
@@ -1087,7 +1087,7 @@ time it has been shown across two.
 | Browser fails, wire-check passes | UI/adapter bug, or you tested as the wrong player (§3) |
 | A shared box reads empty/stale right after `ssh` | fixed at v0.98.0 (below) — on an older build, re-read after ~10 s |
 | A shared file is missing an edit another occupant just made | Expected — a session still never learns of a foreign write; re-`ssh` to refresh. Saving over it is now safe: the editor asks first (below) |
-| `network "X" not found` | B's scan does not contain X — re-`airdump` (§4), it re-rolls |
+| `network "X" not found` | B's scan does not contain X — re-`airodump-ng` (§4), it re-rolls |
 | Empty foreign tree after a successful `ssh` | the hop resolved but the fetch did not — check `/api/network` in `agent-browser console` |
 | Everything 502s | port squatter — the skill's §1 kill, then restart |
 | Results contradict the code you just read | version banner ≠ `v2/package.json` — stale orphaned server |
@@ -1221,7 +1221,7 @@ npx tsx ./g.tmp.ts; rm -f ./g.tmp.ts
 ```
 
 The WiFi password itself is `passwordForEssid` in `core/generation/generateWifi.ts` (not
-exported — read it from the `aircrack` output, or from `wifiNetworks()` in the page via
+exported — read it from the `aircrack-ng` output, or from `wifiNetworks()` in the page via
 `agent-browser eval`).
 
 For a plain read, skip the temp file entirely and query the container directly — far

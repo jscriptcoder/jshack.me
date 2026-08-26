@@ -8,7 +8,7 @@
 //     public-IP lookup, the gateway journal read for the forward table, the occupancy
 //     and lease reads that say whose box the forward names, and that box's own journal
 //     — every one a column selection no unit test can get wrong.
-//   - hydra and rediscli AGREEING across the network, in BOTH directions. A store's
+//   - hydra and redis-cli AGREEING across the network, in BOTH directions. A store's
 //     lock mirrors the box's root password, so which answer is correct depends on where
 //     that password came from: a chosen one is out of every wordlist the game hands out
 //     and the sweep must report NOTHING, while one the generator could have drawn is one
@@ -367,7 +367,7 @@ check(
   `username=${String(cracked?.username)}`,
 );
 
-// --- 12. …and rediscli then ACCEPTS it. The two tools agreeing about one box is the
+// --- 12. …and redis-cli then ACCEPTS it. The two tools agreeing about one box is the
 //         claim the whole credential layer rests on, and only a live run proves it. ---
 const spent = await post(await statementEnvelope('DBSIZE', cracked?.password ?? DRAWN_ROOT_PW));
 check(

@@ -13,7 +13,7 @@ import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { asPlayerKeyHex } from '../types';
 
 /**
- * `ping <host> [count]` — the cheapest question a player can ask the network: is
+ * `ping <host>` — the cheapest question a player can ask the network: is
  * anything at this address at all? It answers reachability ALONE, with no regard
  * for what the host runs, which is what makes it the step before `nmap`: an address
  * that never replies is not worth scanning.
@@ -105,14 +105,17 @@ describe('ping', () => {
     expect(text).not.toContain('64 bytes from');
   });
 
-  it('sends the number of packets asked for', async () => {
+  it('always sends four packets, ignoring a surplus argument', async () => {
+    // A count would be the only place in the game where a bare number carries
+    // meaning, so ping takes a target and nothing else. A surplus word is dropped
+    // the way nmap and lynx drop theirs, rather than refused.
     const host = hostOnLan();
 
-    const { text } = await run(host.ip, '2');
+    const { text, exitCode } = await run(host.ip, '2');
 
-    expect(text).toContain('2 packets transmitted, 2 received');
-    expect(text).toContain('icmp_seq=2');
-    expect(text).not.toContain('icmp_seq=3');
+    expect(exitCode).toBe(0);
+    expect(text).toContain('4 packets transmitted, 4 received');
+    expect(text).toContain('icmp_seq=4');
   });
 
   it('reports the whole exchange in ping’s own shape', async () => {
@@ -121,20 +124,21 @@ describe('ping', () => {
     // ping rather than as some other tool's summary.
     const host = hostOnLan();
 
-    const { text } = await run(host.ip, '2');
+    const { text } = await run(host.ip);
 
     const lines = text.split('\n');
     expect(lines[0]).toBe(`PING ${host.ip} (${host.ip}) 56(84) bytes of data.`);
-    expect(lines[1]).toMatch(
-      new RegExp(`^64 bytes from ${host.ip}: icmp_seq=1 ttl=64 time=\\d+\\.\\d{3} ms$`),
-    );
-    expect(lines[2]).toMatch(
-      new RegExp(`^64 bytes from ${host.ip}: icmp_seq=2 ttl=64 time=\\d+\\.\\d{3} ms$`),
-    );
-    expect(lines[3]).toBe('');
-    expect(lines[4]).toBe(`--- ${host.ip} ping statistics ---`);
-    expect(lines[5]).toBe('2 packets transmitted, 2 received, 0% packet loss');
-    expect(lines).toHaveLength(6);
+    for (const sequence of [1, 2, 3, 4]) {
+      expect(lines[sequence]).toMatch(
+        new RegExp(
+          `^64 bytes from ${host.ip}: icmp_seq=${sequence} ttl=64 time=\\d+\\.\\d{3} ms$`,
+        ),
+      );
+    }
+    expect(lines[5]).toBe('');
+    expect(lines[6]).toBe(`--- ${host.ip} ping statistics ---`);
+    expect(lines[7]).toBe('4 packets transmitted, 4 received, 0% packet loss');
+    expect(lines).toHaveLength(8);
   });
 
   it('reports round-trip times spread across a plausible range', async () => {
@@ -142,15 +146,15 @@ describe('ping', () => {
     // varying between echoes rather than pinned to one value.
     const host = hostOnLan();
 
-    const { text } = await run(host.ip, '8');
+    const { text } = await run(host.ip);
 
     const times = [...text.matchAll(/time=([\d.]+) ms/g)].map((match) => Number(match[1]));
-    expect(times).toHaveLength(8);
+    expect(times).toHaveLength(4);
     for (const time of times) {
       expect(time).toBeGreaterThanOrEqual(0.2);
       expect(time).toBeLessThanOrEqual(2);
     }
-    // Across eight echoes the range is genuinely used — a compressed or collapsed
+    // Across the four echoes the range is genuinely used — a compressed or collapsed
     // spread would mean the seeded draw stopped varying.
     expect(Math.max(...times)).toBeGreaterThan(0.9);
     expect(new Set(times).size).toBeGreaterThan(1);
@@ -183,27 +187,6 @@ describe('ping', () => {
 
       expect(exitCode).toBe(1);
       expect(text).toContain('usage');
-    });
-
-    it('rejects a count that is not a positive whole number, naming what it refused', async () => {
-      const host = hostOnLan();
-
-      for (const bad of ['0', '-1', 'lots', '1.5', '21']) {
-        const { text, exitCode } = await run(host.ip, bad);
-
-        expect(exitCode).toBe(1);
-        // Saying which value was refused is the message's whole job — and a count
-        // that slipped through would send a nonsense number of packets and report
-        // a nonsense loss percentage.
-        expect(text).toContain(`bad number of packets to transmit: ${bad}`);
-      }
-    });
-
-    it('accepts both ends of the allowed range', async () => {
-      const host = hostOnLan();
-
-      expect((await run(host.ip, '1')).text).toContain('1 packets transmitted, 1 received');
-      expect((await run(host.ip, '20')).text).toContain('20 packets transmitted, 20 received');
     });
 
     it('refuses to send while offline even with a fully associated, addressed wlan0', async () => {

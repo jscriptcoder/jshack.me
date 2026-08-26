@@ -279,9 +279,9 @@ describe('buildWorkstationBaseFs', () => {
       expect(dirAt(baseFs(), 'usr', 'bin').entries.has('systemctl')).toBe(true);
     });
 
-    it('pre-installs the wifi-cracking tools airmon/airdump/aircrack', () => {
+    it('pre-installs the wifi-cracking tools airmon-ng/airodump-ng/aircrack-ng', () => {
       const keys = [...dirAt(baseFs(), 'usr', 'bin').entries.keys()];
-      ['airmon', 'airdump', 'aircrack'].forEach((name) => expect(keys).toContain(name));
+      ['airmon-ng', 'airodump-ng', 'aircrack-ng'].forEach((name) => expect(keys).toContain(name));
     });
 
     it('does NOT pre-install node or gpg (apt-installable, not bundled on a fresh box)', () => {
@@ -291,11 +291,11 @@ describe('buildWorkstationBaseFs', () => {
     });
 
     it('makes /usr/bin binaries root-owned, non-empty and world-executable', () => {
-      const aircrack = dirAt(baseFs(), 'usr', 'bin').entries.get('aircrack');
-      if (aircrack?.kind !== 'file') throw new Error('missing /usr/bin/aircrack');
-      expect(aircrack.owner).toBe('root');
-      expect(aircrack.content.length).toBeGreaterThan(0);
-      expect(aircrack.perms.execute).toEqual(['root', 'user', 'guest']);
+      const aircrackNg = dirAt(baseFs(), 'usr', 'bin').entries.get('aircrack-ng');
+      if (aircrackNg?.kind !== 'file') throw new Error('missing /usr/bin/aircrack-ng');
+      expect(aircrackNg.owner).toBe('root');
+      expect(aircrackNg.content.length).toBeGreaterThan(0);
+      expect(aircrackNg.perms.execute).toEqual(['root', 'user', 'guest']);
     });
 
     it('places the apt tools under /usr/bin, alongside the /usr/sbin daemons', () => {

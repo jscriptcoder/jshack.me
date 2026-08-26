@@ -12,7 +12,7 @@
  * Only the player's own subnet is scannable — a target on a different subnet is
  * out of range (foreign-subnet scanning is deferred to the multi-layer story).
  *
- * The streamed-row pacing reuses the abort-aware `env.sleep` seam (airdump
+ * The streamed-row pacing reuses the abort-aware `env.sleep` seam (airodump-ng
  * family) so the scan feels live and cancels on Ctrl-C.
  */
 

@@ -1,5 +1,5 @@
 /**
- * rediscli — open a key-value store on a generated LAN host.
+ * redis-cli — open a key-value store on a generated LAN host.
  *
  * The fifth door, and the only one that asks the player for nothing. `ssh` and `ftp`
  * ask `/etc/passwd` who you are on the machine; `mysql` asks the database who you are
@@ -12,7 +12,7 @@
  * connection refused on the strength of a secret would tell a scanner which stores hold
  * one without their ever sending a statement.
  *
- * The name is `rediscli` and can never become `redis-cli`. `node`'s sandbox is
+ * The name is `redis-cli` and can never become `redis-cli`. `node`'s sandbox is
  * `new Function(...contextKeys, content)`, so every command name in the game is a
  * formal PARAMETER of one function and a single hyphen is a `SyntaxError` that takes
  * every script down, not just the one that typed it.
@@ -28,7 +28,7 @@ import { connectOwnStore, storeListening } from './redisOwnBox';
 import { ownBoxSource } from '../network/interfaces';
 import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
 
-const USAGE = 'usage: rediscli [-p port] <host> [password]';
+const USAGE = 'usage: redis-cli [-p port] <host> [password]';
 
 const PORT = SERVICE_CATALOG.redis.defaultPort;
 
@@ -190,17 +190,17 @@ const execute: Command['execute'] = async (env, args, flags) => {
   };
 };
 
-export const rediscli: Command = {
-  name: 'rediscli',
+export const redisCli: Command = {
+  name: 'redis-cli',
   description: 'Open a key-value store on a remote machine',
   category: 'network',
   tier: 'guest',
   availability: { kind: 'localhost-only' },
   // What it opens is a prompt, so there has to be a terminal for the prompt to be in.
-  withoutTty: 'rediscli: must be run from a terminal',
+  withoutTty: 'redis-cli: must be run from a terminal',
   flags: { '-p': 'string' },
   manual: {
-    synopsis: 'rediscli [-p port] <host> [password]',
+    synopsis: 'redis-cli [-p port] <host> [password]',
     description:
       'Open the key-value store on a remote host running a Redis server. There is no ' +
       'account and no login: a store answers to a single password or to nobody at all, ' +
@@ -223,13 +223,13 @@ export const rediscli: Command = {
       },
     ],
     examples: [
-      { command: 'rediscli 192.168.1.5', description: 'Open the store on 192.168.1.5' },
+      { command: 'redis-cli 192.168.1.5', description: 'Open the store on 192.168.1.5' },
       {
-        command: 'rediscli 192.168.1.5 sunshine',
+        command: 'redis-cli 192.168.1.5 sunshine',
         description: 'Open a locked store and unlock it in one go',
       },
       {
-        command: 'rediscli -p 36379 192.168.1.1',
+        command: 'redis-cli -p 36379 192.168.1.1',
         description: 'Open the store on a machine hidden behind a gateway forward',
       },
     ],

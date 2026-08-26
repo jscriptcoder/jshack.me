@@ -77,12 +77,12 @@ export type BuildCommandEnvArgs = {
    *  `network.interfaces()`/`isOnline()` run, so the UI's connectivity signal
    *  flows through without rebuilding the env per command. */
   readonly connectivity: () => ConnectivityState;
-  /** Writer — `airmon`/`nmcli` call this (via `env.setInterface`) to replace
+  /** Writer — `airmon-ng`/`nmcli` call this (via `env.setInterface`) to replace
    *  one interface. The UI owns the connectivity signal; `core/` only knows
    *  there's a setter. */
   readonly onInterfaceChange: (name: string, iface: NetworkInterface) => void;
   /** Reader for the WiFi access points in range — the latest scan roll held in
-   *  `ui/state`, read by `aircrack`/`nmcli` after `airdump` refreshes it. */
+   *  `ui/state`, read by `aircrack-ng`/`nmcli` after `airodump-ng` refreshes it. */
   readonly wifiNetworks: () => readonly WifiNetwork[];
   /** Re-roll the scan, injecting the given occupied ESSIDs — backs
    *  `network.rescanWifi`. The UI owns the per-scan counter + the wifi signal:

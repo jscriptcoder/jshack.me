@@ -10,7 +10,7 @@
  *
  * Preconditions: own workstation (`isOwnWorkstation`), and — the mutual-
  * exclusivity tightening over legacy — `wlan0` must NOT be in monitor mode
- * (airmon enforces the reverse: you can't monitor an associated NIC). A
+ * (airmon-ng enforces the reverse: you can't monitor an associated NIC). A
  * non-crackable AP has no `password` on the discriminated union, so it can
  * never authenticate — the password compare is the single gate.
  *
@@ -85,7 +85,7 @@ const handleConnect = (
   password: string | undefined,
 ): CommandResult => {
   if (wlan0.monitorMode) {
-    return error("nmcli: wlan0 is in monitor mode — run 'airmon stop wlan0' first");
+    return error("nmcli: wlan0 is in monitor mode — run 'airmon-ng stop wlan0' first");
   }
   // Reconnecting to the network you're already on is a no-op (no re-join).
   if (essid !== undefined && wlan0.association?.essid === essid) {
@@ -171,11 +171,11 @@ export const nmcli: Command = {
   manual: {
     synopsis: 'nmcli <connect|disconnect|status> [ESSID] [password]',
     description:
-      'NetworkManager CLI. Use "connect" to join a WiFi network with its cracked password, "disconnect" to leave, and "status" to show the current connection. Requires monitor mode to be off — run "airmon stop wlan0" first.',
+      'NetworkManager CLI. Use "connect" to join a WiFi network with its cracked password, "disconnect" to leave, and "status" to show the current connection. Requires monitor mode to be off — run "airmon-ng stop wlan0" first.',
     arguments: [
       { name: 'subcommand', description: '"connect", "disconnect", or "status"', required: true },
       { name: 'ESSID', description: 'Network name (connect only)' },
-      { name: 'password', description: 'Network password from aircrack (connect only)' },
+      { name: 'password', description: 'Network password from aircrack-ng (connect only)' },
     ],
     examples: [
       {

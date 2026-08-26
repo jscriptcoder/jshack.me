@@ -16,11 +16,11 @@ import {
   mockSession,
 } from '../../test/factories/commandEnv';
 import { commandRegistry } from './registry';
-import { airmon } from './airmon';
+import { airmonNg } from './airmonNg';
 
 /**
- * `airmon` is the player's first real WiFi action: put `wlan0` into monitor
- * mode (the airdump/aircrack prerequisite). It gates on being on the player's
+ * `airmon-ng` is the player's first real WiFi action: put `wlan0` into monitor
+ * mode (the airodump-ng/aircrack-ng prerequisite). It gates on being on the player's
  * own workstation, refuses interfaces that aren't a free wireless NIC, and
  * mutates connectivity through the generic `env.setInterface` seam. Tests drive
  * a live mutable connectivity so a start is observable on the next read.
@@ -59,16 +59,16 @@ const wlan0Of = (state: ConnectivityState): WirelessInterface => {
 };
 
 const textOf = async (
-  result: Awaited<ReturnType<typeof airmon.execute>>,
+  result: Awaited<ReturnType<typeof airmonNg.execute>>,
 ): Promise<{ readonly text: string; readonly exitCode: number }> => {
   if (result.kind !== 'sync') throw new Error('sync expected');
   return { text: result.lines.map((line) => line.content).join('\n'), exitCode: result.exitCode };
 };
 
-describe('airmon', () => {
+describe('airmon-ng', () => {
   it('enables monitor mode on wlan0 and prints the exact driver banner', async () => {
     const { env, get } = airmonEnv(buildColdStartConnectivity(PUBKEY));
-    const result = await airmon.execute(env, ['start', 'wlan0'], NO_FLAGS);
+    const result = await airmonNg.execute(env, ['start', 'wlan0'], NO_FLAGS);
     if (result.kind !== 'sync') throw new Error('sync expected');
 
     expect(wlan0Of(get()).monitorMode).toBe(true);
@@ -88,7 +88,7 @@ describe('airmon', () => {
       interfaces: new Map(cold.interfaces).set('wlan0', { ...wlan0Of(cold), monitorMode: true }),
     };
     const { env, get } = airmonEnv(monitoring);
-    const { text } = await textOf(await airmon.execute(env, ['stop', 'wlan0'], NO_FLAGS));
+    const { text } = await textOf(await airmonNg.execute(env, ['stop', 'wlan0'], NO_FLAGS));
 
     expect(wlan0Of(get()).monitorMode).toBe(false);
     expect(text).toContain('(monitor mode disabled on wlan0)');
@@ -101,7 +101,7 @@ describe('airmon', () => {
     };
     const { env } = airmonEnv(monitoring);
     const { text, exitCode } = await textOf(
-      await airmon.execute(env, ['start', 'wlan0'], NO_FLAGS),
+      await airmonNg.execute(env, ['start', 'wlan0'], NO_FLAGS),
     );
 
     expect(text).toBe('wlan0 is already in monitor mode');
@@ -111,18 +111,18 @@ describe('airmon', () => {
 
   it('is idempotent: stopping when not monitoring just says so', async () => {
     const { env } = airmonEnv(buildColdStartConnectivity(PUBKEY));
-    const { text } = await textOf(await airmon.execute(env, ['stop', 'wlan0'], NO_FLAGS));
+    const { text } = await textOf(await airmonNg.execute(env, ['stop', 'wlan0'], NO_FLAGS));
     expect(text).toBe('wlan0 is not in monitor mode');
   });
 
   it('refuses to run off the player’s own workstation', async () => {
     const { env, get } = airmonEnv(buildColdStartConnectivity(PUBKEY), asMachineId('203.0.113.42'));
-    const result = await airmon.execute(env, ['start', 'wlan0'], NO_FLAGS);
+    const result = await airmonNg.execute(env, ['start', 'wlan0'], NO_FLAGS);
     if (result.kind !== 'sync') throw new Error('sync expected');
 
     // an error line (styled distinctly), not plain text
     expect(result.lines).toEqual([
-      { kind: 'error', content: 'airmon: command not available on this machine' },
+      { kind: 'error', content: 'airmon-ng: command not available on this machine' },
     ]);
     expect(result.exitCode).toBe(1);
     expect(wlan0Of(get()).monitorMode).toBe(false);
@@ -139,52 +139,52 @@ describe('airmon', () => {
     };
     const { env } = airmonEnv(connected);
     const { text, exitCode } = await textOf(
-      await airmon.execute(env, ['start', 'wlan0'], NO_FLAGS),
+      await airmonNg.execute(env, ['start', 'wlan0'], NO_FLAGS),
     );
 
-    expect(text).toContain('airmon: wlan0 is already connected to a network');
+    expect(text).toContain('airmon-ng: wlan0 is already connected to a network');
     expect(exitCode).toBe(1);
   });
 
   it('rejects a non-wireless interface', async () => {
     const { env } = airmonEnv(buildColdStartConnectivity(PUBKEY));
-    const { text, exitCode } = await textOf(await airmon.execute(env, ['start', 'eth0'], NO_FLAGS));
-    expect(text).toContain('airmon: eth0 is not a wireless interface');
+    const { text, exitCode } = await textOf(await airmonNg.execute(env, ['start', 'eth0'], NO_FLAGS));
+    expect(text).toContain('airmon-ng: eth0 is not a wireless interface');
     expect(exitCode).toBe(1);
   });
 
   it('reports an unknown interface as not found', async () => {
     const { env } = airmonEnv(buildColdStartConnectivity(PUBKEY));
     const { text, exitCode } = await textOf(
-      await airmon.execute(env, ['start', 'wlan9'], NO_FLAGS),
+      await airmonNg.execute(env, ['start', 'wlan9'], NO_FLAGS),
     );
-    expect(text).toContain("airmon: interface 'wlan9' not found");
+    expect(text).toContain("airmon-ng: interface 'wlan9' not found");
     expect(exitCode).toBe(1);
   });
 
   it('shows usage when an argument is missing', async () => {
     const { env } = airmonEnv(buildColdStartConnectivity(PUBKEY));
-    const { text, exitCode } = await textOf(await airmon.execute(env, ['start'], NO_FLAGS));
-    expect(text).toContain('airmon: usage: airmon <start|stop> <interface>');
+    const { text, exitCode } = await textOf(await airmonNg.execute(env, ['start'], NO_FLAGS));
+    expect(text).toContain('airmon-ng: usage: airmon-ng <start|stop> <interface>');
     expect(exitCode).toBe(1);
   });
 
   it('rejects an unknown action', async () => {
     const { env } = airmonEnv(buildColdStartConnectivity(PUBKEY));
     const { text, exitCode } = await textOf(
-      await airmon.execute(env, ['restart', 'wlan0'], NO_FLAGS),
+      await airmonNg.execute(env, ['restart', 'wlan0'], NO_FLAGS),
     );
-    expect(text).toContain('airmon: unknown action \'restart\' — use "start" or "stop"');
+    expect(text).toContain('airmon-ng: unknown action \'restart\' — use "start" or "stop"');
     expect(exitCode).toBe(1);
   });
 
   it('resolves by name through the shell pipeline, past the /usr/bin binary gate', async () => {
-    // Integration seam: airmon lives in /usr/bin (pre-installed), so the
+    // Integration seam: airmon-ng lives in /usr/bin (pre-installed), so the
     // registry's binary check must resolve it there before delegating.
     const tree = buildDirectory({
       usr: buildDirectory({
         bin: buildDirectory({
-          airmon: buildFile('', { owner: 'root', perms: { execute: ['root', 'user', 'guest'] } }),
+          'airmon-ng': buildFile('', { owner: 'root', perms: { execute: ['root', 'user', 'guest'] } }),
         }),
       }),
     });
@@ -200,7 +200,7 @@ describe('airmon', () => {
     });
     const { runCommandLine } = await import('../shell/runLine');
 
-    const result = await runCommandLine(env, 'airmon start wlan0', commandRegistry);
+    const result = await runCommandLine(env, 'airmon-ng start wlan0', commandRegistry);
 
     if (result.kind !== 'sync') throw new Error('sync expected');
     expect(result.lines.map((line) => line.content).join('\n')).toContain(

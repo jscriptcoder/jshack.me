@@ -227,14 +227,14 @@ export type NetworkView = {
    *  milestone predicate — `apt`/`nmap` (downstream) gate on it. */
   readonly isOnline: () => boolean;
   /** The WiFi access points in range — the latest scan roll, held in `ui/state`.
-   *  `airdump` refreshes it via `rescanWifi`; `aircrack`/`nmcli` then read it to
-   *  resolve the AP the player just saw (no password column for airdump — only
-   *  `aircrack` reveals a crackable AP's password). */
+   *  `airodump-ng` refreshes it via `rescanWifi`; `aircrack-ng`/`nmcli` then read it to
+   *  resolve the AP the player just saw (no password column for airodump-ng — only
+   *  `aircrack-ng` reveals a crackable AP's password). */
   readonly wifiNetworks: () => readonly WifiNetwork[];
   /** Re-roll the scan (a fresh draw each call, "relocating"), injecting the given
    *  currently-occupied ESSIDs as discoverable crackable APs. Updates the in-range
    *  list `wifiNetworks` returns AND returns the fresh roll for the caller to
-   *  render. Backs `airdump`. */
+   *  render. Backs `airodump-ng`. */
   readonly rescanWifi: (occupiedEssids: readonly string[]) => readonly WifiNetwork[];
 };
 
@@ -745,7 +745,7 @@ export type MysqlStatementResult =
   | { readonly kind: 'answered'; readonly output: readonly string[]; readonly failed: boolean }
   | { readonly kind: 'lost' };
 
-/** What `rediscli` hands the connect action. No session id, like the database door's —
+/** What `redis-cli` hands the connect action. No session id, like the database door's —
  *  and no credential either, which is this door alone. A store answers to one secret or
  *  to none, and the secret belongs to the SERVICE, so there is no account to name and
  *  nothing to send in the handshake. */
@@ -982,7 +982,7 @@ export type ScanApi = {
     target: string,
   ) => Promise<PublicScanResolution | null>;
   /** Fetch the ESSID NAMES anyone currently occupies (signed `resolveOccupiedEssids`
-   *  endpoint) — global and name-only, so `airdump` can inject live networks into the
+   *  endpoint) — global and name-only, so `airodump-ng` can inject live networks into the
    *  scan for organic discovery. Additive: degrades to an empty list (server down)
    *  rather than failing the scan. */
   readonly resolveOccupiedEssids: () => Promise<readonly string[]>;
@@ -1038,7 +1038,7 @@ export type CommandEnv = {
 
   /** Replace one interface in the current machine's connectivity state
    *  (read-modify-write of a single Map entry, mirrors `setCwd`). The UI owns
-   *  the signal; commands call this to mutate connectivity (airmon flips
+   *  the signal; commands call this to mutate connectivity (airmon-ng flips
    *  `monitorMode`, nmcli sets `association`/`ipv4`). Policy lives in the
    *  command — this seam is generic. `NetworkView`'s reads reflect the new
    *  value on the next command's env. */
@@ -1077,7 +1077,7 @@ export type CommandEnv = {
   /** Piped input from a previous command in the pipeline. */
   readonly stdin?: AsyncIterable<string>;
 
-  /** Abort-aware delay for pacing streamed output (airdump's scan, aircrack's
+  /** Abort-aware delay for pacing streamed output (airodump-ng's scan, aircrack-ng's
    *  crack). Rejects when `signal` fires so Ctrl-C stops a stream mid-flight.
    *  The UI injects a real setTimeout-backed sleep; tests inject an instant one
    *  so streamed commands assert without real waits. */

@@ -73,7 +73,7 @@ export const SYSTEM_UTILITY_NAMES = [
  * runtime nor GPG, so they stay apt-installable (their hint still resolves via
  * the package catalog). Don't "restore" them here.
  */
-export const LOCALHOST_PREINSTALLED_TOOLS = ['airmon', 'airdump', 'aircrack'] as const;
+export const LOCALHOST_PREINSTALLED_TOOLS = ['airmon-ng', 'airodump-ng', 'aircrack-ng'] as const;
 
 /**
  * System daemons PRE-INSTALLED in `/usr/sbin` on every machine. These are the

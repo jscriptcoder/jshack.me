@@ -101,7 +101,7 @@ export const APT_PACKAGES: readonly AptPackage[] = [
   { name: 'netcat', binaries: ['nc'] },
   { name: 'ftp' },
   { name: 'metasploit', binaries: ['msfconsole'] },
-  { name: 'aircrack', binaries: ['airmon', 'airdump', 'aircrack'] },
+  { name: 'aircrack-ng', binaries: ['airmon-ng', 'airodump-ng', 'aircrack-ng'] },
   { name: 'gpg' },
   { name: 'node' },
   {
@@ -153,15 +153,12 @@ export const APT_PACKAGES: readonly AptPackage[] = [
     ],
   },
   // One package, both halves, as mysql above: the client you point at somebody else's
-  // store and the daemon that makes yours one. The daemon is `redis` and not
-  // `redis-server` because a command name becomes a formal PARAMETER of the function a
-  // script runs — one hyphen is a syntax error that takes every script in the game down,
-  // not just this command. It matches the `nginx` and `apache2` rows exactly: the
-  // package name IS the daemon name, with no `d` suffix.
+  // store and the daemon that makes yours one. Both binaries carry the real hyphenated
+  // names; the package keeps the short one, which is what a player types to buy the pair.
   {
     name: 'redis',
-    binaries: ['rediscli', 'redis'],
-    daemons: ['redis'],
+    binaries: ['redis-cli', 'redis-server'],
+    daemons: ['redis-server'],
     // TWO files, where every other package ships at most one: the store the daemon
     // serves, and the conf the box publishes about it. The conf is not decoration —
     // every generated box running a store carries one, so a player's box without it

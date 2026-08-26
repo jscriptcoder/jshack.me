@@ -139,7 +139,7 @@ FTP Mode: ftp <host> - file transfer (pwd, lpwd, cd, lcd, ls, lls, get, put, qui
 
 MySQL Mode: mysql <host> <user> - SQL execution (SHOW TABLES, SELECT, UPDATE, DELETE, etc.)
 
-Redis Mode: rediscli <host> - key-value commands (KEYS, GET, SET, DEL, etc.)
+Redis Mode: redis-cli <host> - key-value commands (KEYS, GET, SET, DEL, etc.)
 
 Nano Editor: nano <path> - text editor overlay with Ctrl+S save, Ctrl+X exit
 

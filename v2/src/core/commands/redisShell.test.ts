@@ -526,7 +526,7 @@ describe('the store on your own box', () => {
     return { env, writes };
   };
 
-  /** The connection the prompt holds after `rediscli 127.0.0.1` — its own box under the
+  /** The connection the prompt holds after `redis-cli 127.0.0.1` — its own box under the
    *  address it was leased, reached from loopback. */
   const OWN: RedisConnection = {
     essid: ESSID,

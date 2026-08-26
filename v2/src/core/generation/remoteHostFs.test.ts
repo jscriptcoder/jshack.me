@@ -1174,7 +1174,7 @@ describe('buildRemoteHostFs', () => {
 
     const inspect = (prefix: string, octet: number): StoreBox => {
       const fs = buildRemoteHostFs(ESSID, namedHost(prefix, octet));
-      const pidfile = fileAt(fs, 'var', 'run', 'redis.pid');
+      const pidfile = fileAt(fs, 'var', 'run', 'redis-server.pid');
       const storeFile = fileAt(fs, 'var', 'lib', 'redis', 'data.json');
 
       return {
@@ -1284,10 +1284,10 @@ describe('buildRemoteHostFs', () => {
       return [...fromUrl, ...besideAPassword].filter((name) => name !== undefined);
     };
 
-    it('plants a redis.pid naming the port the store answers on', () => {
+    it('plants a redis-server.pid naming the port the store answers on', () => {
       const running = population().filter((box) => box.runsRedis)[0];
 
-      expect(running?.pidfile?.content).toBe('redis:port=6379');
+      expect(running?.pidfile?.content).toBe('redis-server:port=6379');
       expect(running?.pidfile?.owner).toBe('redis');
     });
 
@@ -1386,7 +1386,7 @@ describe('buildRemoteHostFs', () => {
       expect(content).toContain('port 6379');
       expect(content).toContain('dir /var/lib/redis');
       expect(content).toContain('logfile /var/log/redis.log');
-      expect(content).toContain('pidfile /var/run/redis.pid');
+      expect(content).toContain('pidfile /var/run/redis-server.pid');
     });
 
     it('draws every shape of key a store can hold, so none of the pool ships unreachable', () => {
@@ -1520,7 +1520,7 @@ describe('buildRemoteHostFs', () => {
             .filter((fields) => fields.length > 1)
             .map((fields) => fields.slice(0, 3).join(':')),
           pidfiles: [...(varRun(fs)?.entries.keys() ?? [])]
-            .filter((name) => name !== 'redis.pid')
+            .filter((name) => name !== 'redis-server.pid')
             .sort(),
           dbName: datadir === undefined ? null : parseMysqlDatabase(datadir.content)?.name,
         };
