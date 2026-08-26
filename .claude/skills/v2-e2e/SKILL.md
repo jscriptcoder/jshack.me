@@ -74,6 +74,22 @@ agent-browser snapshot -i                              # interactive refs (@e1, 
   declaring the same name dies with `SyntaxError: Identifier 'x' has already been declared` —
   and if you redirected output, it looks like the command silently did nothing. Wrap every
   `eval` body in an IIFE: `(() => { … })()`.
+- **Wait for the PROMPT, never for the output to "stop growing".** A running command shows a
+  braille spinner (`⠋ apt...`) whose frames are all one character wide, so `innerText.length`
+  holds perfectly still while the command is still working — a settle-detector built on length
+  stability returns immediately, and the next `keyboard type` lands in a terminal that is not
+  listening. Poll for a line ENDING in a prompt character instead, and require it to be quiet for
+  a few consecutive samples:
+  ```js
+  (async () => { let quiet = 0, prev = '';
+    for (let i = 0; i < 160; i++) { await new Promise(r => setTimeout(r, 250));
+      const t = document.body.innerText.trimEnd();
+      quiet = (t === prev && /[#$>]$/.test(t)) ? quiet + 1 : 0; prev = t;
+      if (quiet >= 3) return 'prompt'; }
+    return 'TIMEOUT'; })()
+  ```
+  `>` matters as well as `#`/`$`: inside `mysql`/`rediscli` the prompt is `redis> `, and a matcher
+  that only knows shell prompts times out on every statement you send to a data door.
 - **Each CLI call costs ~1-2 s, so anything short is over before you can look at it.** A
   transient state (a spinner, a busy bar, a streamed command under ~2 s) will be gone by the
   time a follow-up `eval`/`screenshot` lands, which reads exactly like a broken feature. Drive
@@ -113,7 +129,7 @@ Then, in the terminal:
 
 | # | Command | Trap |
 |---|---|---|
-| 1 | `airmon start wlan0` | `airdump` fails without this |
+| 1 | `airmon start wlan0` | `airdump` fails without this. **And it refuses while you are CONNECTED** (`airmon: wlan0 is already connected to a network`) — the exact mirror of step 4, so to re-scan later you must `nmcli disconnect` FIRST. Check its output: piping this step to `/dev/null` and looping `airdump` gives eight identical `monitor mode not enabled` errors that read like eight unlucky scans |
 | 2 | `airdump` | It is **`airdump`**, not `airodump` |
 | 3 | `aircrack <BSSID>` | Use a **WPA2** row from the crackable pool (`SHINRA-5G`, `ACME-CORP`, `WEYLAND-NET`, …). WPA3 rows and the noise pool are not crackable. Prints `KEY FOUND! [ <pw> ]` |
 | 4 | `airmon stop wlan0` | `nmcli` refuses while monitor mode is ON — the mirror of step 1 |
@@ -150,6 +166,12 @@ an empty foreign tree means the hop resolved but the fetch didn't:
 The gateway is nobody's own box, so it always routes through the cross-player path. Its
 hostname in scans and log traces is `seedApGatewayHostname(<ESSID>)`; note the shell prompt
 shows the machine-id name part (`ap-gw`) instead, which is a known cosmetic mismatch.
+
+**The same mismatch happens on NPC routers and switches, so do not read it as a lost session.**
+An inner gateway scanned as `switch-core` answers its shell prompt as `root@inner-gw`; the scan
+shows the generated hostname while the prompt shows the machine-id name part, which is keyed by
+DEVICE ROLE rather than by that hostname. Confirmed 2026-08-26 on `192.168.216.48`. Identify the
+box you landed on by the IP you typed, never by the prompt.
 
 ---
 
