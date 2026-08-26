@@ -1119,6 +1119,21 @@ one is usually cheaper than reworking the realistic one — and it leaves the re
   ```
   Then `npm run vercel:dev`, and confirm `/api/<fn>` returns non-502 (a 400 to an empty
   `{}` body = serving).
+- **A missing `v2/node_modules/.bin` silently runs the FROZEN ROOT app's binaries, and the game
+  stops mounting.** npm resolves a script's binary by walking UP from the package, and the repo
+  root has its own `node_modules` for the frozen React app. With `v2/node_modules/.bin` absent,
+  `npm run vercel:dev` ran the root's **vite 6.4.2** instead of v2's **8.2.1**. Hit 2026-08-26.
+  The symptom is not a version error: the server serves, `/@vite/client` connects, `errors` and
+  `console` are both empty, and `#root` simply stays empty forever. **The tell is that `fetch()`
+  of a module works from the page while `import()` fails** — crawl the import graph from
+  `/src/main.tsx` and you find `/node_modules/.vite/deps/*.js` returning **504** while every one
+  of our own `/src/**` modules is 200. A cached bundled vite config masks the real crash until
+  you `rm -rf node_modules/.vite`, at which point it fails loudly with rolldown's
+  `Cannot find native binding`. Check with `ls v2/node_modules/.bin`; fix with `npm install` from
+  `v2/` (restores the links, leaves `package-lock.json` alone). **`npx` is NOT affected** — it
+  resolves from local `node_modules` directly, which is why `npx vitest run` correctly reported
+  v4.1.7 while `npm run vercel:dev` was broken, and why the wire-checks stayed green throughout
+  (`/api/*` are Node functions that never touch vite).
 - **A same-arity signature change is INVISIBLE to `tsc`.** Re-keying
   `computeInnerGatewayId(ownerKey, octet)` to `(essid, octet)` still typechecks at every call
   site, because a key and an ESSID are both `string`. The compiler is a reliable sweep only for
@@ -1457,6 +1472,26 @@ state costs you more than one wrong attempt.
     in `/usr/sbin` and `which redis` answered — while `DAEMONS` had no entry, so
     `systemctl start redis` did nothing whatsoever. The two tables sat out of step for five slices
     with nothing to notice, because until a player had to START one, nobody ever had.
+    **It then happened AGAIN one table further along, and shipped.** `DAEMONS` was fixed; the
+    `UNITS` table in `systemctl.ts` — a THIRD declaration of the same fact — was not, so
+    `systemctl start redis` answered `Unit redis.service could not be found` on a box where the
+    store was installed and the bare `redis` command started it fine. Caught by playing the game
+    on 2026-08-26, not by a test: no test in `systemctl.test.ts` named redis, and every other
+    player-facing path worked. Fixed at v0.183.0. Three tables now state which daemons exist
+    (`SERVICE_CATALOG[...].daemons`, `DAEMONS`, `UNITS`) and NOTHING enforces that they agree —
+    when the sixth door lands, add all three in one change and assert the unit, because the gap
+    is invisible from every direction except the idiomatic one a player actually reaches for.
+  - **`hostServices` governs `machine` hosts ONLY — an offline oracle built on it will invent
+    doors the game never shows.** `resolveLanHostIdentity` has four branches (edge router at `.1`,
+    inner-gateway router, switch, machine) and only the machine branch runs the `remoteHostFs`
+    builder that turns a placement into pidfiles and a datadir. Routers and switches get
+    `buildRouterBaseFs`/`buildSwitchBaseFs` and never consult the placement table at all. A scan
+    reads the host's actual filesystem, not the table — so the two cannot disagree in the player's
+    view. Cost a false defect report on 2026-08-26: an oracle that called `hostServices` for every
+    host measured "33% of advertised redis doors have no store", all of them routers or switches;
+    the live scans showed no `6379` on any of them. Restricted to `machine` hosts — the only kind
+    that consumes it — advertised and furnished agree **29/29, zero bare**. When writing an oracle,
+    filter to `kind === 'machine'` or read the same filesystem the game reads.
   - **`nginx` and `apache2` are two names for ONE capability.** They bind the same `http` catalog
     row, so whichever starts first owns the port and the other is refused — and the refusal names
     the CONFLICT ("web server already running"), never the program, because "apache2 is already
@@ -1723,9 +1758,22 @@ state costs you more than one wrong attempt.
   the lock is on every question, not on the connection, so connecting and being told nothing is
   the honest shape. And a PLAYER's store mirrors their own root password with no opt-out, which
   makes `hydra <player> redis` a DEAD END by design between players: a chosen password is in no
-  wordlist the game hands out, so the route is `ssh guest@them` → their root hash out of
-  `/etc/passwd` → crack the md5 externally → `AUTH`. The harder path reaching what the easier one
-  cannot is the feature, not a gap.
+  wordlist the game hands out.
+  - **That dead end is currently TOTAL between players, and an earlier version of this entry
+    claimed otherwise.** It said the route was `ssh guest@them` → their root hash out of
+    `/etc/passwd` → crack the md5 externally → `AUTH`. **That route does not exist.**
+    `PASSWD_FILE` grants `read: ['root', 'user']` — a guest cannot read `/etc/passwd` on ANY box,
+    by design, because it holds the account names and inline hashes a player is meant to earn.
+    Verified live 2026-08-26: on a player's own box the owner sees `/etc/passwd`, and a second
+    player holding a guest session on that same box sees only `/etc/redis`.
+    The other half is what closes it. Against an NPC, `hydra <host> ssh` enumerates the box's real
+    accounts and can return `root` or a `user` — tiers that DO read `/etc/passwd`, which is why
+    the classic crack-the-hash route works there. Against a PLAYER's workstation the only account
+    in any wordlist is `guest`, whose password is drawn from the crackable pool; the owner's is
+    chosen. So a guest session is the ceiling, and the hash behind the store is unreachable.
+    This is consistent with the CVE arc being the planned second way in — an uncrackable
+    credential is not a design gap — but until it ships, one player's store is not reachable by
+    another at all. Do not write a route into this file that has not been walked.
 
 - **`SweepLog` is where a SERVICE says how it records being knocked on** — path, owner,
   permissions, `formatAttempt`, and an optional `formatArrival` for a daemon that records
@@ -2155,6 +2203,15 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   design call first: route single-IP scans only (matching the precedent) or batch a range, since
   a `/24` would otherwise resolve up to 253 journals. Found by writing D5's Act 14; it predates
   D5, which only made it observable. Needs its own slice + wire-check.
+- **`testFtpSession` is KNOWN RED, 12/14, and has been since it was written (#394).** A full
+  wire-check sweep on 2026-08-26 ran all 57 scripts for **583/585**; both failures are this one
+  script. It picks its target because the host serves **ftp** (`kind === 'machine' && serves(ftp)`
+  → `speaker-26` on `VSFTPD-LAB`, `ftp:2121`), then asserts a plain **ssh** `authCreateSession`
+  against that same host — which serves no sshd, so the login is refused and no session row
+  exists for the two `kind`-default checks to read. Confirmed pre-existing by running the
+  generator in a worktree at the pre-D7 commit: byte-identical host services. Fix is to give the
+  ssh half its own fixture (a host that serves ssh), not to change production. This is the
+  fixture-selection fragility §6 already warns about, sitting red in the tree.
 - **Wire-checks are not in CI** — all 43 run only by hand against a local `vercel dev` +
   supabase, and they are the ONLY thing that proves `api/` runtime correctness (`tsc` cannot
   see DB columns or constraints). A regression there ships green. Raised repeatedly and
