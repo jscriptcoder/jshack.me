@@ -808,11 +808,14 @@ describe('nmap — same-LAN occupant merge', () => {
 
   type Occupant = { workstation_machine_id: string; localIp: string; machineName: string };
 
-  const envWithOccupants = (resolveOccupants: () => Promise<readonly Occupant[]>) =>
+  const envWithOccupants = (
+    resolveOccupants: () => Promise<readonly Occupant[]>,
+    over: Parameters<typeof mockScanApi>[0] = {},
+  ) =>
     mockCommandEnv({
       identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
       network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
-      scan: mockScanApi({ resolveOccupants }),
+      scan: mockScanApi({ resolveOccupants, ...over }),
     });
 
   /** The IP of a generated NPC the world gives an sshd — its FS (and thus ports)
@@ -917,13 +920,16 @@ describe('nmap — same-LAN occupant merge', () => {
   it('reports a single occupant IP up under its real machine name', async () => {
     const { text, exitCode } = await drain(
       await nmap.execute(
-        envWithOccupants(async () => [
-          {
-            workstation_machine_id: 'skylab-aaaa',
-            localIp: '192.168.29.42',
-            machineName: 'alice-rig',
-          },
-        ]),
+        envWithOccupants(
+          async () => [
+            {
+              workstation_machine_id: 'skylab-aaaa',
+              localIp: '192.168.29.42',
+              machineName: 'alice-rig',
+            },
+          ],
+          { resolveOccupant: async () => ({ found: true, ports: [] }) },
+        ),
         ['192.168.29.42'],
         new Map(),
       ),
@@ -934,25 +940,188 @@ describe('nmap — same-LAN occupant merge', () => {
     expect(text).toContain('Host is up.');
   });
 
-  it("does not fabricate an occupant's ports from the viewer's own seed", async () => {
-    // Place the occupant on an octet where a generated NPC runs sshd. Because NPC
-    // filesystems key on the host IP alone, scanning here WOULD surface a fabricated
-    // ssh port if the merge let the occupant fall through to the generator.
+  it("reads an occupant's ports off THEIR box, never the octet the viewer would have seeded", async () => {
+    // The occupant stands on an octet where a generated NPC runs sshd. NPC filesystems
+    // key on the host IP alone, so falling through to the generator would report port 22
+    // on a box that may not be running ssh at all — somebody else's machine described by
+    // this viewer's dice. What the server says is what the neighbour is actually running.
     const ip = sshNpcIp();
+    const resolveOccupant = vi.fn(async () => ({
+      found: true,
+      ports: [{ port: 6379, service: 'redis' }] as const,
+    }));
     const { text } = await drain(
       await nmap.execute(
-        envWithOccupants(async () => [
-          { workstation_machine_id: 'skylab-aaaa', localIp: ip, machineName: 'alice-rig' },
-        ]),
+        envWithOccupants(
+          async () => [
+            { workstation_machine_id: 'skylab-aaaa', localIp: ip, machineName: 'alice-rig' },
+          ],
+          { resolveOccupant },
+        ),
         [ip],
         new Map(),
       ),
     );
 
+    expect(resolveOccupant).toHaveBeenCalledWith(ESSID, ip);
     expect(text).toContain(`Nmap scan report for alice-rig (${ip})`);
+    expect(text).toContain('6379/tcp');
+    expect(text).not.toContain('22/tcp');
+  });
+
+  it('reports whatever the neighbour actually runs, service by service', async () => {
+    // The fix is generic rather than shaped to any one door: the resolver reads the
+    // pidfile record, so a box running three daemons scans as three ports and a future
+    // service needs no scan change of its own.
+    const { text } = await drain(
+      await nmap.execute(
+        envWithOccupants(
+          async () => [
+            {
+              workstation_machine_id: 'skylab-aaaa',
+              localIp: '192.168.29.42',
+              machineName: 'alice-rig',
+            },
+          ],
+          {
+            resolveOccupant: async () => ({
+              found: true,
+              ports: [
+                { port: 22, service: 'ssh' },
+                { port: 3306, service: 'mysql' },
+                { port: 6379, service: 'redis' },
+              ],
+            }),
+          },
+        ),
+        ['192.168.29.42'],
+        new Map(),
+      ),
+    );
+
+    expect(text).toContain('22/tcp');
+    expect(text).toContain('3306/tcp');
+    expect(text).toContain('6379/tcp');
+  });
+
+  it("reports a neighbour whose box will not boot as down", async () => {
+    const { text } = await drain(
+      await nmap.execute(
+        envWithOccupants(
+          async () => [
+            {
+              workstation_machine_id: 'skylab-aaaa',
+              localIp: '192.168.29.42',
+              machineName: 'alice-rig',
+            },
+          ],
+          { resolveOccupant: async () => ({ found: false, ports: [] }) },
+        ),
+        ['192.168.29.42'],
+        new Map(),
+      ),
+    );
+
+    // A bricked box is dark on the LAN as it is everywhere else — there is no gateway
+    // in between to keep answering on its behalf.
+    expect(text).toContain('Host seems down.');
+    expect(text).not.toContain('Host is up.');
+  });
+
+  it('leaves a neighbour listed with no port table when our own request cannot complete', async () => {
+    const { text } = await drain(
+      await nmap.execute(
+        envWithOccupants(
+          async () => [
+            {
+              workstation_machine_id: 'skylab-aaaa',
+              localIp: '192.168.29.42',
+              machineName: 'alice-rig',
+            },
+          ],
+          { resolveOccupant: async () => null },
+        ),
+        ['192.168.29.42'],
+        new Map(),
+      ),
+    );
+
+    // Three outcomes, three sentences. The occupant list just said this box is on the
+    // LAN, so reporting it DOWN would blame a live neighbour for our own outage. The
+    // scan degrades to what it could always say: the host is there, its services are
+    // not something we managed to find out.
+    expect(text).toContain('Nmap scan report for alice-rig (192.168.29.42)');
     expect(text).toContain('Host is up.');
     expect(text).not.toContain('PORT');
-    expect(text).not.toContain('22/tcp');
+  });
+
+  it('returns to the seeded ports at an address whose occupant has left the WiFi', async () => {
+    const ip = sshNpcIp();
+    const resolveOccupant = vi.fn(async () => ({ found: true, ports: [] }));
+    const { text } = await drain(
+      await nmap.execute(
+        envWithOccupants(async () => [], { resolveOccupant }),
+        [ip],
+        new Map(),
+      ),
+    );
+
+    // Nothing is fabricated in either direction: with the player gone the generated
+    // sibling underneath is the box at that address again, and it is read locally.
+    expect(resolveOccupant).not.toHaveBeenCalled();
+    expect(text).toContain('22/tcp');
+  });
+
+  it('never asks the server about a generated sibling', async () => {
+    const resolveOccupant = vi.fn(async () => ({ found: true, ports: [] }));
+    const { text } = await drain(
+      await nmap.execute(
+        envWithOccupants(
+          async () => [
+            {
+              workstation_machine_id: 'skylab-aaaa',
+              localIp: '192.168.29.42',
+              machineName: 'alice-rig',
+            },
+          ],
+          { resolveOccupant },
+        ),
+        [sshNpcIp()],
+        new Map(),
+      ),
+    );
+
+    // One occupant on the LAN does not make every address a cross-player question. A
+    // seeded box is still read from the seed, in the client, with no round-trip.
+    expect(resolveOccupant).not.toHaveBeenCalled();
+    expect(text).toContain('22/tcp');
+  });
+
+  it('asks nothing of the server for a RANGE that covers an occupant', async () => {
+    const resolveOccupant = vi.fn(async () => ({ found: true, ports: [] }));
+    await drain(
+      await nmap.execute(
+        envWithOccupants(
+          async () => [
+            {
+              workstation_machine_id: 'skylab-aaaa',
+              localIp: '192.168.29.42',
+              machineName: 'alice-rig',
+            },
+          ],
+          { resolveOccupant },
+        ),
+        // Starting ON the occupant's octet, so the first host of the range IS the
+        // neighbour — which is what makes this assert the single/range split rather
+        // than merely the fact that `.42` was not first in line.
+        ['192.168.29.42-50'],
+        new Map(),
+      ),
+    );
+
+    // A range lists hosts and renders no port table for any of them, so there is
+    // nothing here a round-trip per occupant could add.
+    expect(resolveOccupant).not.toHaveBeenCalled();
   });
 
   it('does not fetch occupants for a cross-player public-IP scan (own-LAN merge only)', async () => {

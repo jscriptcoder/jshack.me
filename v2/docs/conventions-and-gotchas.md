@@ -1452,6 +1452,11 @@ state costs you more than one wrong attempt.
   `STARTUP_DELAY_MS` beat and the streamed shape are shared, because a second door that refused
   differently from the first would be a second set of rules to learn for no gain. Do not add a
   fifth daemon module; add a row to `DAEMONS`.
+  - **A catalog row that NAMES a daemon is a claim `DAEMONS` has to honour, and nothing checks
+    that they agree.** `redis` declared `daemons: ['redis']` from D7 slice 1, so the binary landed
+    in `/usr/sbin` and `which redis` answered — while `DAEMONS` had no entry, so
+    `systemctl start redis` did nothing whatsoever. The two tables sat out of step for five slices
+    with nothing to notice, because until a player had to START one, nobody ever had.
   - **`nginx` and `apache2` are two names for ONE capability.** They bind the same `http` catalog
     row, so whichever starts first owns the port and the other is refused — and the refusal names
     the CONFLICT ("web server already running"), never the program, because "apache2 is already
@@ -1645,11 +1650,15 @@ state costs you more than one wrong attempt.
   is why `readOwnPatches` reports whether the read HAPPENED and `fetchOwnPatches` (whose `[]` is
   fine for a reader) is now expressed in terms of it.
 
-- **The VANTAGE is decided from the ADDRESS, server-side, and ONE function decides it for a whole
-  door.** `reachMysqlHost` routes four of them — public IP, a fellow occupant of the caller's own
-  ESSID, a port that addresses the layer behind an inner gateway, and a generated sibling — and
-  every one of them ends in the same `openDatabaseOn`: same boot gate, same "is mysqld on the port
-  you REACHED", same refusals. Nothing a client says about where it is standing selects a branch.
+- **The VANTAGE is decided from the ADDRESS, server-side, and ONE function decides it for EVERY
+  data door.** `reachServiceHost` routes four of them — public IP, a fellow occupant of the
+  caller's own ESSID, a port that addresses the layer behind an inner gateway, and a generated
+  sibling — and every one of them ends in the same `openServiceOn`: same boot gate, same "is the
+  named daemon on the port you REACHED", same refusals. Nothing a client says about where it is
+  standing selects a branch. Which daemon is a PARAMETER rather than a second copy of the file,
+  which is what let D7's key-value door inherit all four vantages the day it started sharing the
+  resolver — and why the last door to be built paid nothing for reach, while nothing said the
+  evidence for it was missing.
   Routing in the reach rather than in a second pair of handlers is what keeps a login and every
   statement behind it agreeing about reachability by construction, which is what lets a defender
   stopping a daemon (or pulling a forward, or leaving the WiFi) drop an intruder on their next
@@ -1657,8 +1666,8 @@ state costs you more than one wrong attempt.
 
 - **A real occupant BEATS the generated sibling standing on the same octet, and every tool has to
   answer by that rule.** A lease is issued from the whole `/24` and nothing reserves the octets the
-  ESSID's seeded NPCs already fill, so the collision is ordinary rather than exotic. `nmap` merges,
-  `ssh` and `nc` check occupants first — and any tool that resolves its target from
+  ESSID's seeded NPCs already fill, so the collision is ordinary rather than exotic. `nmap` merges
+  the host list, `ssh` and `nc` check occupants first — and any tool that resolves its target from
   `generateHomeLan().hosts` ALONE cannot see a player at all, which is what `hydra` did until D6
   slice 7. The merge belongs to the target RESOLUTION, never to one service: fixing it for the
   database door only would have left one tool answering by a different rule depending on which
@@ -1667,6 +1676,37 @@ state costs you more than one wrong attempt.
   FAILS refuses rather than falling through — quietly dropping to the generated world would sweep,
   or write to, a seeded box standing where a real player is. When a player leaves, the sibling
   underneath answers again.
+  - **The merge covers a neighbour's PORTS too, and only since v0.182.0.** Merging the host list
+    made a player VISIBLE; it did not make them legible, because a generated sibling's ports come
+    off a filesystem keyed on the host IP and a real occupant's cannot. For four slices `nmap`
+    answered a neighbour with `Host is up.` and no port table — correct, since falling through
+    would have reported the NPC that octet rolled as the neighbour's own services, but it left a
+    door onto a box a player had to GUESS was there. `resolveOccupantScan` resolves it server-side
+    from the occupant's own journal, boot-gated, and it is generic to every service for the same
+    reason the merge is: one tool must not answer by two rules depending on which service was
+    named. It resolves ONE address, lazily — a single-IP scan of an occupant returns early beside
+    the inner-gateway branch, so the client's sync port resolver never sees an occupant at all,
+    and a RANGE renders no port table for anybody and asks nothing.
+
+- **A failed round-trip is not an answer about the target, and a seam that conflates the two makes
+  the tool lie.** `resolvePublic` collapses every failure — non-ok, malformed, thrown — into
+  `found: false`, and that is honest THERE: nothing local ever established that a public IP has a
+  host behind it, so "down" is the truthful shape of "we could not find one". It is wrong for a
+  fellow occupant, because the occupant list has already placed that box on the LAN — reporting it
+  down would blame a live neighbour for our own outage. So `resolveOccupant` keeps three outcomes
+  where the public seam keeps two: `found: true` carries the ports, `found: false` is a RESOLVED
+  host-down (bricked, or the occupant left), and `null` is "we could not ask" and renders as the
+  host listed with no port table. The same distinction `fetchPublicPage` already draws between
+  `host_unreachable` and `network_error`, and for the same reason.
+
+- **Across somebody else's NAT and inside your own network, a door refuses DIFFERENTLY on
+  purpose.** A forward onto a stopped daemon answers `host_unreachable` from a public address but
+  `service_not_running` down your own chain or on a shared WiFi. That is not drift: from outside a
+  stranger's NAT, a forward onto a dead port and a forward that was never opened are the same
+  silence — the only thing the gateway can actually observe — and a door that told them apart would
+  be telling an outsider which services a box behind that NAT has stopped. Inside the network the
+  caller is inside, so the specific answer is the honest one. This is a STRONGER rule than "depth
+  must not change the words a player reads", and it is the exception that rule has.
 
 - **A caller's claimed VANTAGE is checked, not believed** (`standingVantage`, beside the L1
   gate). Naming the box you operate from is what lets a trace record the network the target
@@ -1674,6 +1714,19 @@ state costs you more than one wrong attempt.
   written up as that network's owner. Naming none means the caller's own workstation — no
   row, no borrowed network, the address they own. That is why `ssh`, which names no box,
   kept its behaviour byte-for-byte when the vantage resolver replaced the home-address one.
+- **A service's secret may belong to the SERVICE rather than to an account, and the contract says
+  which.** `ServiceSpec.accountsOn` returns `{ username, hash }` and a redis `requirepass` is
+  neither — so the spec carries a `secretOn` sibling instead, and a sweep that finds one reports it
+  with NO login field. Faking a username there would have reprised D6 slice 2's shipped bug: the
+  right name against the wrong secret. Two consequences worth knowing before designing the next
+  door. A locked store discloses NOTHING through the statement door until the secret is spent —
+  the lock is on every question, not on the connection, so connecting and being told nothing is
+  the honest shape. And a PLAYER's store mirrors their own root password with no opt-out, which
+  makes `hydra <player> redis` a DEAD END by design between players: a chosen password is in no
+  wordlist the game hands out, so the route is `ssh guest@them` → their root hash out of
+  `/etc/passwd` → crack the md5 externally → `AUTH`. The harder path reaching what the easier one
+  cannot is the feature, not a gap.
+
 - **`SweepLog` is where a SERVICE says how it records being knocked on** — path, owner,
   permissions, `formatAttempt`, and an optional `formatArrival` for a daemon that records
   reaching the door separately from getting through it (vsftpd does; sshd's first line already
@@ -1879,11 +1932,13 @@ state costs you more than one wrong attempt.
 
 Forward-looking direction not yet built (preserved as pointers; design when actually built).
 
-- **One finding from the D6 browser smoke test is still open (2026-08-23).** The run that found
-  the own-box write-wipe (fixed in v0.172.0, #449 — see the §7 invariant) turned up three more,
-  none of which blocks a player and none of which belonged in that fix. **Two are now closed at
-  v0.173.0** — the sub-shell prompt echo and the self-scan cover name, both below — and the
-  remaining one is a product decision rather than a bug.
+- **The D6 browser smoke test's findings are ALL closed (last one 2026-08-26).** The run that
+  found the own-box write-wipe (fixed in v0.172.0, #449 — see the §7 invariant) turned up three
+  more, none of which blocked a player and none of which belonged in that fix. Two closed at
+  v0.173.0 — the sub-shell prompt echo and the self-scan cover name — and the third, the one
+  recorded as a product decision rather than a bug, closed at v0.182.0 (D7 slice 7b) when the
+  decision was finally taken. Kept as a record of what a smoke test is worth: one session's
+  browsing produced four findings, three of them invisible to a suite that was green.
 
   1. **The `mysql` sub-shell echoed the SHELL prompt — RESOLVED (v0.173.0).** Every statement
      scrolled back as `root@box:/root# SHOW TABLES;` while the live prompt correctly read
@@ -1892,14 +1947,18 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
      `subShellPrompt()`, so the next sub-shell gets the echo and the live prompt right by being
      added once — the second special case the entry warned against was never written.
 
-  2. **A fellow occupant's open ports are invisible to `nmap`.** A neighbour scans as
-     `Host is up.` with no port table, and the code says why: a real occupant's services live on
-     THEIR box, `buildRemoteHostFs` keys on the host IP alone, and letting them fall through
-     would FABRICATE the NPC ports that octet would have rolled. So the blank is correct and the
-     consequence is a PRODUCT gap, not a bug: nothing in the game tells a player that a
-     neighbour runs a database, and they have to guess the service and let `hydra` find it. Now
-     that same-LAN doors actually open, this is worth a decision — the honest fix is server-side
-     port resolution for an occupant, the same shape the public-IP scan already uses.
+  2. **A fellow occupant's open ports were invisible to `nmap` — RESOLVED (v0.182.0).** A
+     neighbour scanned as `Host is up.` with no port table, and the blank was CORRECT: a real
+     occupant's services live on THEIR box, `buildRemoteHostFs` keys on the host IP alone, and
+     letting them fall through would have FABRICATED the NPC ports that octet rolled. So this
+     was a product gap rather than a bug — nothing told a player their neighbour ran a database,
+     and finding it meant guessing the service and letting `hydra` look. The fix is the shape
+     this entry predicted: `resolveOccupantScan`, server-side, generic to every service, resolved
+     lazily for ONE address when it is actually scanned. Two things the entry did not predict.
+     The client needed no async port resolver — a single-IP occupant scan returns early beside
+     the inner-gateway one, before the sync resolver is built. And a two-state resolution would
+     have made the tool lie: collapsing a failed round-trip into `found: false` reports a live
+     neighbour as DOWN, so this seam keeps three outcomes where the public one keeps two.
 
   3. **You saw yourself under a cover name — RESOLVED (v0.173.0).** In her own scan a player
      showed as the generated `desktop-32` while every other path — occupants, public targets,

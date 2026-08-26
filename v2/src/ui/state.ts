@@ -136,6 +136,7 @@ import {
   leaveHomeNetwork,
   resolveCrossPlayerFs,
   resolveOccupants,
+  resolveOccupant,
   resolveOccupiedEssids,
   resolvePublic,
   resolveInnerGateway,
@@ -847,6 +848,14 @@ const resolveInnerGatewayFn = (essid: string, target: string): Promise<PublicSca
   networkClientDeps === undefined
     ? Promise.resolve({ found: false, ports: [] })
     : resolveInnerGateway(networkClientDeps, essid, target);
+
+/** Resolve one fellow occupant's real open ports (backs `env.scan.resolveOccupant`).
+ *  `null` before the network client is wired: the occupant is listed with no port table
+ *  rather than reported down, because we failed to ask rather than learned an answer. */
+const resolveOccupantFn = (essid: string, target: string): Promise<PublicScanResolution | null> =>
+  networkClientDeps === undefined
+    ? Promise.resolve(null)
+    : resolveOccupant(networkClientDeps, essid, target);
 
 /** Resolve the current ESSID's other occupants (backs `env.scan.resolveOccupants`).
  *  Additive — an empty list (here, before the network client is wired) just means an
@@ -1577,6 +1586,7 @@ const executeLine = async (line: string): Promise<void> => {
     onScanResolvePublic: resolvePublicFn,
     onScanResolveInnerGateway: resolveInnerGatewayFn,
     onScanResolveOccupants: resolveOccupantsFn,
+    onScanResolveOccupant: resolveOccupantFn,
     onScanResolveOccupiedEssids: resolveOccupiedEssidsFn,
     onHttpFetchPublic: fetchPublicPageFn,
     onHttpSweepPublic: sweepPublicPathsFn,

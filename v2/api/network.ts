@@ -29,6 +29,7 @@ import type {
 } from '../src/core/patches/authorizeMachineAccess';
 import { computeApGatewayId } from '../src/core/identity/router';
 import { handleResolveInnerGatewayScan } from '../src/core/scan/resolveInnerGatewayScan';
+import { handleResolveOccupantScan } from '../src/core/scan/resolveOccupantScan';
 import type { OwnerPatchRow as MachinePatchRow } from '../src/core/network/materializeMachineFs';
 import {
   handleResolveCrossPlayerFs,
@@ -572,6 +573,60 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       nonceStore: noopNonceStore,
       listOccupantsByEssid,
       listLeasesByEssid,
+    });
+    res.status(status).json(body);
+    return;
+  }
+
+  if (actionOf(req.body) === 'resolveOccupantScan') {
+    // One fellow occupant's real open ports, for an own-LAN `nmap` of their address.
+    // Every other host on that LAN is the client's own arithmetic — a generated
+    // sibling's filesystem keys on the host IP — but a player's box is rebuilt from
+    // THEIR identity and THEIR journal, so reading the octet locally would report the
+    // NPC this viewer's seed rolled there as if it were the neighbour's.
+    //
+    // The occupancy read carries both the LAN boundary (the caller's own row) and the
+    // target's identity fields, so it selects the auth columns the plain occupant LIST
+    // deliberately does not — nothing here crosses the wire, it only rebuilds the tree.
+    const listOccupantsByEssid = async (essid: string) => {
+      const { data, error } = await supabase
+        .from('home_network_occupants')
+        .select(
+          'owner_key, workstation_machine_id, workstation_username, workstation_root_hash',
+        )
+        .eq('essid', essid);
+      if (error) console.error('[network] occupant scan list error:', error);
+      return { data: data as readonly NatOccupantRow[] | null, error };
+    };
+    // Every lease on the ESSID in ONE read — the same addresses of record the same-LAN
+    // doors resolve through, so a scan and a connection cannot disagree about which box
+    // answers where.
+    const listLeasesByEssid = async (essid: string) => {
+      const { data, error } = await supabase
+        .from('network_lan_leases')
+        .select('owner_key, octet')
+        .eq('essid', essid);
+      if (error) console.error('[network] lan-lease list error:', error);
+      return { data: data as readonly LanLeaseRow[] | null, error };
+    };
+    // The target's FULL journal, replayed over their generated base: a daemon they
+    // started shows up, one they stopped does not, and a `/boot` tombstone takes the
+    // whole box dark rather than leaving a stale pidfile advertising it.
+    const findPatches = async ({ machine_id }: { machine_id: string }) => {
+      const { data, error } = await supabase
+        .from('patches')
+        .select('path, content, owner, permissions, node_type, updated_at, writer_key')
+        .eq('machine_id', machine_id)
+        .order('updated_at', { ascending: true })
+        .order('writer_key', { ascending: true });
+      if (error) console.error('[network] occupant scan patch error:', error);
+      return { data: data as readonly OwnerPatchRow[] | null, error };
+    };
+    const { status, body } = await handleResolveOccupantScan(req.body, {
+      nonceStore: noopNonceStore,
+      listOccupantsByEssid,
+      listLeasesByEssid,
+      findPatches,
     });
     res.status(status).json(body);
     return;

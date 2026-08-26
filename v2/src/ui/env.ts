@@ -227,6 +227,11 @@ export type BuildCommandEnvArgs = {
    *  absent it defaults to an empty list, since the read is ADDITIVE (an own-LAN scan
    *  still works, it just shows no fellow players) — like `homeNetwork.join`'s fallback. */
   readonly onScanResolveOccupants?: ScanApi['resolveOccupants'];
+  /** The fellow-occupant port-resolution seam — backs `env.scan.resolveOccupant`. The
+   *  UI wires it to the `resolveOccupant` adapter (signed round-trip). Optional here:
+   *  unwired it answers `null`, which the scan renders as a neighbour listed with no
+   *  port table rather than as a neighbour who is down. */
+  readonly onScanResolveOccupant?: ScanApi['resolveOccupant'];
   /** The organic-discovery occupied-ESSID-names seam — backs
    *  `env.scan.resolveOccupiedEssids`. The UI wires it to the `resolveOccupiedEssids`
    *  adapter (signed round-trip). Optional here: absent, it defaults to an empty list,
@@ -424,6 +429,7 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
     resolveInnerGateway: args.onScanResolveInnerGateway ?? notWired('scan.resolveInnerGateway'),
     // Additive read: absent the seam, the scan still runs with no fellow occupants.
     resolveOccupants: args.onScanResolveOccupants ?? (() => Promise.resolve([])),
+    resolveOccupant: args.onScanResolveOccupant ?? (() => Promise.resolve(null)),
     // Additive read: absent the seam, the scan discovers no occupied networks.
     resolveOccupiedEssids: args.onScanResolveOccupiedEssids ?? (() => Promise.resolve([])),
   },

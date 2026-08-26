@@ -303,6 +303,35 @@ export const resolveInnerGateway = async (
 };
 
 /**
+ * Resolve ONE fellow occupant's real open ports server-side (backs
+ * `env.scan.resolveOccupant`): their box is rebuilt from THEIR identity and THEIR
+ * journal, which the client's static world cannot do — `buildRemoteHostFs` keys on the
+ * host IP alone, so a local read would report the NPC that octet would have rolled.
+ *
+ * It deliberately does NOT mirror `resolvePublic`'s degrade. A public IP that will not
+ * resolve is honestly reported down, because nothing local ever said a host was there.
+ * Here the occupant list has just placed this box on the LAN, so collapsing our own
+ * failed round-trip into "down" would blame a live neighbour for our outage — the
+ * distinction `fetchPublicPage` already keeps. `null` says "we could not ask", and the
+ * scan renders the host up with no port table, exactly as it did before this existed.
+ */
+export const resolveOccupant = async (
+  deps: NetworkClientDeps,
+  essid: string,
+  target: string,
+): Promise<PublicScanResolution | null> => {
+  try {
+    const response = await post(deps, 'resolveOccupantScan', { essid, target });
+    if (!response.ok) return null;
+    const body: unknown = await response.json();
+    const resolved = body as Partial<PublicScanResolution>;
+    return { found: resolved.found === true, ports: resolved.ports ?? [] };
+  } catch {
+    return null;
+  }
+};
+
+/**
  * Fetch another identity's SERVER-served, tier-filtered filesystem for a
  * cross-player ssh hop (Story 2, slice 2c). Returns the materialized `Directory`
  * the server pruned to the caller's tier, or `null` on any non-ok / malformed /

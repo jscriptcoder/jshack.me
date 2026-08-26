@@ -16,7 +16,13 @@
  * family) so the scan feels live and cancels on Ctrl-C.
  */
 
-import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
+import type {
+  Command,
+  CommandEnv,
+  CommandResult,
+  PublicScanResolution,
+  TerminalLine,
+} from './types';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { buildRemoteHostFs } from '../generation/remoteHostFs';
 import { buildApGatewayBaseFs } from '../generation/routerFs';
@@ -121,54 +127,73 @@ async function* scanSingle(
   yield text('Nmap done — 1 host up');
 }
 
-/** A public-IP scan is a CROSS-PLAYER target: it resolves server-side against the
- *  public-IP lookup rather than the player's own LAN. The round-trip itself is
- *  the latency, so there is no per-row `env.sleep` pacing here. */
-async function* scanPublic(env: CommandEnv, target: string): AsyncIterable<TerminalLine> {
-  yield text(`Starting Nmap scan — ${target}`);
+/**
+ * A single host whose open ports only the SERVER can know, rendered.
+ *
+ * Three addresses arrive here and they are the same scan: a public IP, which names
+ * somebody else's access point and whatever their forwards expose; an inner gateway,
+ * whose forward into the layer behind it lives on its own journal rather than in the
+ * client's static world; and a fellow OCCUPANT, whose box is rebuilt from their
+ * identity and their journal and would otherwise be described by this viewer's seed.
+ * What differs is only how the box is NAMED and who resolves it, so they share one
+ * generator — a tool that reported the same box differently depending on which resolver
+ * found it would be answering by three rules.
+ *
+ * The round-trip itself is the latency, so there is no per-row `env.sleep` pacing.
+ *
+ * A `null` resolution means the request never completed, which only the occupant path
+ * can produce and which is deliberately NOT host-down: the occupant list has already
+ * placed that box on the LAN, so calling it down would blame a live neighbour for our
+ * own outage. It stays listed with no port table instead.
+ */
+async function* scanResolvedHost(
+  address: string,
+  reportName: string,
+  resolve: () => Promise<PublicScanResolution | null>,
+): AsyncIterable<TerminalLine> {
+  yield text(`Starting Nmap scan — ${address}`);
   yield text('');
-  const { found, ports } = await env.scan.resolvePublic(target);
-  if (!found) {
+  const resolution = await resolve();
+  if (resolution !== null && !resolution.found) {
     yield text('Host seems down.');
     yield text('');
     yield text('Nmap done — 0 hosts up');
     return;
   }
-  yield text(`Nmap scan report for ${target}`);
+  yield text(`Nmap scan report for ${reportName}`);
   yield text('Host is up.');
-  // The resolved ports are the OWNER's real running services (read server-side from
-  // their /var/run record) — rendered with the same table as an own-LAN scan.
-  yield* portTableLines(ports);
+  yield* portTableLines(resolution?.ports ?? []);
   yield text('');
   yield text('Nmap done — 1 host up');
 }
 
-/** An inner gateway is scanned from its UPSTREAM side, so its ports — its own
- *  service PLUS any live NAT forward to the deeper layer behind it — resolve
- *  SERVER-side at the `external` vantage: the forward lives on the gateway's journal,
- *  not the client's static world, so (unlike the edge `.1` or a sibling) it can't be
- *  read locally. Mirrors `scanPublic` (the round-trip IS the latency), but renders the
- *  host's known name + IP. */
-async function* scanInnerGateway(
+/** A public IP names an access point rather than a machine, and the caller has no LAN
+ *  of their own to look it up on — so the address is all there is to report it by. */
+const scanPublic = (env: CommandEnv, target: string): AsyncIterable<TerminalLine> =>
+  scanResolvedHost(target, target, () => env.scan.resolvePublic(target));
+
+/** An inner gateway is scanned from its UPSTREAM side, where a NAT forward into the
+ *  deeper layer is visible. Its name is known — it is a host on the caller's own LAN. */
+const scanInnerGateway = (
   env: CommandEnv,
   essid: string,
   host: LanHost,
-): AsyncIterable<TerminalLine> {
-  yield text(`Starting Nmap scan — ${host.ip}`);
-  yield text('');
-  const { found, ports } = await env.scan.resolveInnerGateway(essid, host.ip);
-  if (!found) {
-    yield text('Host seems down.');
-    yield text('');
-    yield text('Nmap done — 0 hosts up');
-    return;
-  }
-  yield text(`Nmap scan report for ${host.hostname} (${host.ip})`);
-  yield text('Host is up.');
-  yield* portTableLines(ports);
-  yield text('');
-  yield text('Nmap done — 1 host up');
-}
+): AsyncIterable<TerminalLine> =>
+  scanResolvedHost(host.ip, `${host.hostname} (${host.ip})`, () =>
+    env.scan.resolveInnerGateway(essid, host.ip),
+  );
+
+/** A fellow occupant's services live on THEIR box. `buildRemoteHostFs` keys on the host
+ *  IP alone, so reading this address locally would report the NPC ports this viewer's
+ *  own seed rolled at that octet as if they were the neighbour's. */
+const scanOccupant = (
+  env: CommandEnv,
+  essid: string,
+  host: LanHost,
+): AsyncIterable<TerminalLine> =>
+  scanResolvedHost(host.ip, `${host.hostname} (${host.ip})`, () =>
+    env.scan.resolveOccupant(essid, host.ip),
+  );
 
 /** Scan the deep `/24` BEHIND the gateway the active shell is standing on — the
  *  reachability pivot. Returns the scan when the target falls inside the deep subnet,
@@ -287,7 +312,21 @@ const execute: Command['execute'] = async (env, args) => {
   // vantage — its journal-held NAT forward to the deeper layer can't be read from the
   // client's static world. Only a single IP routes here; a range still just lists the
   // host (no port table), and the edge `.1`/siblings stay the client-side path below.
+  // A single-IP scan of a real OCCUPANT resolves server-side: their box is theirs, and
+  // the seed that answers for every other address would fabricate its services —
+  // `buildRemoteHostFs` keys on the host IP alone, so a local read would report the NPC
+  // ports this viewer rolled at that octet as the neighbour's own. Checked before the
+  // inner gateway for the same reason the merge drops one: a player standing on an octet
+  // outranks whatever the generator put there.
+  //
+  // This is the ONLY place an occupant's ports are decided. The port resolver below used
+  // to carry a second rule for them — report the host with no table — and that branch is
+  // gone rather than kept as a fallback, because it could no longer be reached: a range
+  // scan builds no port table for any host, so a single scan is the whole of what asks.
   const single = parsed.target.kind === 'single' ? hosts[0] : undefined;
+  if (single !== undefined && occupantIps.has(single.ip)) {
+    return { kind: 'async', lines: scanOccupant(env, essid, single), exitCode: async () => 0 };
+  }
   if (single !== undefined && isInnerGateway(single)) {
     return { kind: 'async', lines: scanInnerGateway(env, essid, single), exitCode: async () => 0 };
   }
@@ -307,13 +346,6 @@ const execute: Command['execute'] = async (env, args) => {
         routerFs: buildApGatewayBaseFs(essid),
         resolveTargetPorts: () => [],
       });
-    }
-    // A real occupant's services live on THEIR box and can't be derived from our seed —
-    // `buildRemoteHostFs` keys on the host IP alone, so letting an occupant fall through
-    // would FABRICATE the NPC ports that octet would have rolled. Report the host up with
-    // no ports; real LAN-port resolution is deferred to the same-LAN connect path.
-    if (occupantIps.has(host.ip)) {
-      return [];
     }
     const hostFs =
       host.ip === selfIp
