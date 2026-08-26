@@ -159,6 +159,33 @@ const bootTombstone: OwnerPatchRow = {
 
 type PatchesResult = { data: readonly OwnerPatchRow[] | null; error: unknown };
 
+/** The deep box's `/etc/passwd` exactly as it stands, which is what `nano` reads before
+ *  a player edits it — the journal row carries the WHOLE file, not a diff. */
+const deepPasswd = (): string => {
+  const etc = DEEP_FS.entries.get('etc');
+  if (etc === undefined || etc.kind !== 'directory') throw new Error('the deep host has no /etc');
+  const passwd = etc.entries.get('passwd');
+  if (passwd === undefined || passwd.kind !== 'file') throw new Error('no /etc/passwd');
+  return passwd.content;
+};
+
+const deepPasswdRow = (content: string): OwnerPatchRow => ({
+  path: '/etc/passwd',
+  content,
+  owner: 'root',
+  permissions: null,
+  node_type: 'file',
+  updated_at: '2026-08-26T00:00:00.000Z',
+  writer_key: PLAYER.publicKeyHex,
+});
+
+/** A root `rm /boot/vmlinuz` on the DEEP BOX's own journal — the box at the end of the
+ *  chain killing itself, as opposed to the gateway in front of it. */
+const deepBootTombstone: OwnerPatchRow = { ...bootTombstone, path: '/boot/vmlinuz' };
+
+const GHOST_PW = 'hunter2';
+const GHOST_ROW = `ghost:${md5(GHOST_PW)}:1001:1001:Ghost:/home/ghost:/bin/bash`;
+
 /** A capturing auth.log appender: `appended` collects every system-written trace row
  *  so a test can assert the deep-reach line (or its absence). The clock is fixed; the
  *  read half always reports an empty log so the first line is written verbatim. */
@@ -244,6 +271,73 @@ describe('handleAuthCreateSessionInnerGateway — forward to the deep host', () 
     });
   });
 
+
+  it('admits an account the player ADDED to the deep box after rooting it', async () => {
+    const { deps, insertSession } = makeDeps(async ({ machine_id }) => ({
+      data:
+        machine_id === GATEWAY_ID
+          ? [forwardPatch]
+          : machine_id === DEEP_ID
+            ? [deepPasswdRow(`${deepPasswd()}${GHOST_ROW}\n`)]
+            : [],
+      error: null,
+    }));
+
+    const result = await handleAuthCreateSessionInnerGateway(
+      envelope({ username: 'ghost', password: GHOST_PW }),
+      deps,
+    );
+
+    // The box at the end of the chain used to come back exactly as the world generated
+    // it, so an account a player wrote into its passwd could not be used to log in —
+    // the defect a player reaches first, and the whole reason to read its journal.
+    expect(result).toEqual({ status: 200, body: { ok: true, userType: 'user', machine_id: DEEP_ID } });
+    expect(insertSession).toHaveBeenCalledWith(
+      expect.objectContaining({ machine_id: DEEP_ID, credentials: { username: 'ghost', userType: 'user' } }),
+    );
+  });
+
+  it('refuses a seeded account the player DELETED from the deep box', async () => {
+    const withoutGuest = deepPasswd()
+      .split('\n')
+      .filter((line) => !line.startsWith('guest:'))
+      .join('\n');
+    const { deps, insertSession } = makeDeps(async ({ machine_id }) => ({
+      data:
+        machine_id === GATEWAY_ID
+          ? [forwardPatch]
+          : machine_id === DEEP_ID
+            ? [deepPasswdRow(withoutGuest)]
+            : [],
+      error: null,
+    }));
+
+    const result = await handleAuthCreateSessionInnerGateway(envelope({}), deps);
+
+    // The same rule in the other direction: a player who locks somebody out of a box
+    // they own has locked them out, rather than only appearing to.
+    expect(result).toEqual({ status: 401, body: { error: 'invalid_credentials' } });
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+
+  it('goes dark when the DEEP BOX itself is bricked through its own journal', async () => {
+    const { deps, insertSession } = makeDeps(async ({ machine_id }) => ({
+      data:
+        machine_id === GATEWAY_ID
+          ? [forwardPatch]
+          : machine_id === DEEP_ID
+            ? [deepBootTombstone]
+            : [],
+      error: null,
+    }));
+
+    const result = await handleAuthCreateSessionInnerGateway(envelope({}), deps);
+
+    // Every gateway on the chain is boot-gated. The box at the end of it was not, so a
+    // machine a player killed went on answering the door it should have stopped opening.
+    expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    expect(insertSession).not.toHaveBeenCalled();
+  });
 
   it('rejects a wrong password with 401 and inserts no session', async () => {
     const { deps, insertSession } = makeDeps();

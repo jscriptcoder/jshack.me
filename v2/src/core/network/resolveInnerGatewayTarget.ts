@@ -8,17 +8,21 @@
  * the destination port is routed through `machineServing`:
  *
  *   - a NAT-forwarded port → a box on this gateway's deep layer: the terminal NPC or the
- *     CHILD GATEWAY that fronts the next layer down. A forward to a child gateway replays
- *     ITS journal, re-checks `canBoot` (a bricked intermediate darkens everything below),
- *     and follows the forward one layer deeper — so a chain of forwards reaches an
- *     arbitrarily deep box. A forward to a stray address, or to a port the target is not
- *     serving, is dark.
+ *     CHILD GATEWAY that fronts the next layer down. EVERY hop is replayed from its own
+ *     journal and boot-gated, the box at the end included, so what a player did to a deep
+ *     box is what the next reach finds. A forward to a stray address is dark.
  *   - a gateway's own `:22` → the gateway itself.
  *   - any other port → unreachable.
  *
- * One resolver, two callers: `ssh` authenticates through it and `hydra` sweeps through
- * it, so a password hydra reports for a deep box is one ssh then accepts — by
- * construction rather than by two chain walks staying in step.
+ * This answers WHICH BOX a port names, and stops there. Whether the daemon a caller wants
+ * is up is that caller's own question, asked against `reachedPort` — every door already
+ * asks it, and answering it here as well would make a stopped daemon indistinguishable
+ * from a dark address, so depth would change the words a player reads for something they
+ * did to their own box.
+ *
+ * One resolver, three callers: `ssh` authenticates through it, `hydra` sweeps through it,
+ * and the data doors reach through it — so a password hydra reports for a deep box is one
+ * the others accept, by construction rather than by three chain walks staying in step.
  *
  * The chain is regenerated from the ESSID and the shared journal, never from the
  * caller's key: these boxes stand on the access point's LAN, so every occupant of an
@@ -28,17 +32,14 @@
  */
 
 import {
-  buildDeepHostFs,
   generateDeepLayer,
   seedNetworkDepth,
   type FrontingGateway,
 } from '../generation/generateDeepLayer';
 import { innerGatewayAt, resolveLanHostIdentity } from '../generation/lanHostIdentity';
-import { hostMachineId } from '../generation/remoteHostId';
 import { materializeMachineFs, type OwnerPatchRow } from './materializeMachineFs';
-import { resolveChildGatewayHop } from './childGatewayHop';
+import { resolveChildGatewayHop, resolveDeepHostHop } from './deepLayerHop';
 import { machineServing } from './machineServing';
-import { readOpenPorts } from '../services/pidfile';
 import { canBoot } from '../boot/bootFiles';
 import type { Directory } from '../filesystem/types';
 
@@ -100,11 +101,6 @@ type ChainContext = {
  *  landed box's log line carries (its seeded name). */
 type WalkGateway = FrontingGateway & { readonly hostname: string };
 
-/** Does this materialized tree run a daemon on `port`? A forward whose internal port
- *  no box behind the gateway serves is a dark DNAT target. */
-const servesInternalPort = (fs: Directory, port: number): boolean =>
-  readOpenPorts(fs).some((openPort) => openPort.port === port);
-
 /**
  * Resolve `<inner>:<port>` to its target by walking the forward chain from the gateway at
  * `position` (1-based; the inner gateway is position 1).
@@ -150,19 +146,31 @@ const resolveTargetAt = async (
   // The forward reaches the terminal NPC — the box the session lands on, or the accounts
   // a sweep is run against.
   if (served.internalIp === deep.host.ip) {
-    const deepFs = buildDeepHostFs(context.essid, deep.host);
-    return servesInternalPort(deepFs, served.internalPort)
-      ? {
-          ok: true,
-          target: {
-            fs: deepFs,
-            machineId: hostMachineId(deep.host, context.essid),
-            hostname: deep.host.hostname,
-            sourceIp: `${deep.subnet}.1`,
-            reachedPort: served.internalPort,
-          },
-        }
-      : UNREACHABLE;
+    // The box at the end of the chain is read exactly like every gateway above it.
+    // Handed back seeded, an account a player added down there could not log in, a box
+    // they killed through its own journal went on answering, and a daemon they moved was
+    // unroutable.
+    const hop = await resolveDeepHostHop({
+      essid: context.essid,
+      host: deep.host,
+      findPatches: context.findPatches,
+    });
+    if (hop.kind === 'lookup_failed') {
+      return LOOKUP_FAILED;
+    }
+    if (hop.kind === 'bricked') {
+      return UNREACHABLE;
+    }
+    return {
+      ok: true,
+      target: {
+        fs: hop.fs,
+        machineId: hop.machineId,
+        hostname: deep.host.hostname,
+        sourceIp: `${deep.subnet}.1`,
+        reachedPort: served.internalPort,
+      },
+    };
   }
   // The forward reaches the CHILD GATEWAY that fronts the next layer down. Resolve it
   // (replay its own journal, boot-gate it), refuse it when a brick takes the deeper chain

@@ -46,7 +46,7 @@ import {
 import { asGameTime } from '../types';
 import type { PatchRow } from '../patches/upsertPatch';
 import { DOOR_KINDS, type AuthSessionRow, type HandlerResponse } from './authCreateSession';
-import { listenerOn } from '../services/pidfile';
+import { listenerOn, readOpenPorts } from '../services/pidfile';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
 export type AuthCreateSessionInnerGatewayDeps = {
@@ -195,6 +195,15 @@ export const handleAuthCreateSessionInnerGateway = async (
         machine_id: resolution.machineId,
       },
     };
+  }
+
+  // A forward names a box and a PORT; the resolver stops at the box, because whether the
+  // daemon a caller wants is up is the caller's own question — the same one `nc` asks
+  // above and every data door asks against `reachedPort`. A forward to a port nothing
+  // serves reaches no sshd, so it is dark rather than a credential prompt, and it is
+  // refused before anything is written to the box's auth.log: nothing there heard it.
+  if (!readOpenPorts(resolution.fs).some((open) => open.port === resolution.reachedPort)) {
+    return { status: 404, body: { error: 'host_unreachable' } };
   }
 
   if (payload.username === undefined || payload.password === undefined) {

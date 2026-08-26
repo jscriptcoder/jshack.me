@@ -963,6 +963,38 @@ describe('a store on a hidden layer', () => {
     });
   });
 
+  it('takes the password a player REWROTE down there, and refuses the one it replaced', async () => {
+    const identity = generateIdentity();
+    const seededHash = DEEP_LOCKED.store.requirepassHash;
+    if (seededHash === null) throw new Error('the locked fixture is not locked');
+    const chosen = 'hunter2';
+    const rewritten = { ...DEEP_LOCKED.store, requirepassHash: md5(chosen) };
+    const { deps } = makeDeps({
+      findPatches: throughForward(DEEP_LOCKED, [patchRow(DATADIR_PATH, JSON.stringify(rewritten))]),
+    });
+
+    const [accepted, refused] = [
+      await askDeep(identity, DEEP_LOCKED, deps, { statement: 'DBSIZE', password: chosen }),
+      await askDeep(identity, DEEP_LOCKED, deps, {
+        statement: 'DBSIZE',
+        password: plaintextOf(seededHash),
+      }),
+    ];
+
+    // The other side of the rule the sweep states: the lock a player changed is the lock
+    // the door has. Both read this same file, so a door answering off the seeded tree
+    // would refuse the password the sweep had just reported.
+    expect(accepted.status).toBe(200);
+    expect(accepted.body).toEqual({
+      output: [`(integer) ${Object.keys(DEEP_LOCKED.store.keys).length}`],
+      failed: false,
+    });
+    expect(refused).toEqual({
+      status: 200,
+      body: { output: ['(error) NOAUTH Authentication required.'], failed: true },
+    });
+  });
+
   it('drops a player whose deep daemon was stopped under them', async () => {
     const identity = generateIdentity();
     const { deps } = makeDeps({

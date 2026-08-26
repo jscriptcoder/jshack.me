@@ -27,13 +27,12 @@ import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { innerGatewayAt, resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import {
-  buildDeepHostFs,
   generateDeepLayer,
   seedNetworkDepth,
   type FrontingGateway,
 } from '../generation/generateDeepLayer';
 import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs';
-import { resolveChildGatewayHop } from '../network/childGatewayHop';
+import { resolveChildGatewayHop, resolveDeepHostHop } from '../network/deepLayerHop';
 import { parseForwardRules, readRulesV4 } from '../network/iptablesRules';
 import { canBoot } from '../boot/bootFiles';
 import { readOpenPorts, type OpenPort } from '../services/pidfile';
@@ -106,9 +105,22 @@ const resolveGatewayExposedPorts = async (
     hangsChild: position < context.depth,
   });
   const forwards = parseForwardRules(readRulesV4(gatewayFs));
-  // The terminal NPC's ports come straight off its regenerated tree.
+  // The terminal NPC is read like every other box on the chain: its own journal replayed
+  // over the seeded tree, and boot-gated. Taken straight off the regenerated tree it
+  // advertised daemons a player had stopped and hid ones they had moved, so the scan
+  // promised doors the reach then refused — and stayed silent about doors that opened.
+  const deepHost = await resolveDeepHostHop({
+    essid: context.essid,
+    host: deep.host,
+    findPatches: context.findPatches,
+  });
+  if (deepHost.kind === 'lookup_failed') {
+    return { kind: 'lookup_failed' };
+  }
+  // A box that cannot boot has no doors: it advertises nothing rather than dropping the
+  // whole scan, because the gateway above it is still answering for everything else.
   const targets = new Map<string, readonly OpenPort[]>([
-    [deep.host.ip, readOpenPorts(buildDeepHostFs(context.essid, deep.host))],
+    [deep.host.ip, deepHost.kind === 'box' ? readOpenPorts(deepHost.fs) : []],
   ]);
   // Resolve the child gateway's exposed ports only when a forward actually points at it,
   // recursing one layer deeper so a chained forward is live only while the chain below is.
@@ -123,7 +135,7 @@ const resolveGatewayExposedPorts = async (
     if (hop.kind === 'lookup_failed') {
       return { kind: 'lookup_failed' };
     }
-    if (hop.kind === 'gateway') {
+    if (hop.kind === 'box') {
       const childExposed = await resolveGatewayExposedPorts(
         context,
         hop.fs,

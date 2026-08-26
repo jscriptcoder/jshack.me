@@ -43,13 +43,6 @@
  * says about where it is standing. A public address names an access point rather than a
  * machine, so the port is the whole of how a box behind it is named at all — and a box
  * whose owner opened no forward has no name an outsider can say.
- *
- * The chain resolver hands back the deep box's SEEDED tree: it replays each gateway's
- * journal to read the forward table, but the box at the end of the chain is the one hop
- * whose own journal nothing reads. That is survivable for a door that authenticates
- * against seeded accounts and fatal for one that answers with DATA — a change written
- * here would persist and never be read back — so this materializes on top of what the
- * resolver returned. The gap itself is the resolver's to close for every door at once.
  */
 
 import { generateHomeLan } from '../generation/generateHomeLan';
@@ -287,8 +280,8 @@ export const reachServiceHost = async (
       hostname: resolved.target.hostname,
       machineId: resolved.target.machineId,
       service: target.service,
-      // Already rebuilt from the owner's identity plus their journal — the one vantage
-      // that arrives materialized, because only the server can know whose box it is.
+      // Already rebuilt from the owner's identity plus their journal — one of the two
+      // vantages the server resolves whole, because only it can know whose box it is.
       hostFs: resolved.target.fs,
       reachedPort: resolved.target.reachedPort,
       sourceIp: await resolveCrossPlayerSourceIp(deps.findHomeNetworkByOwnerKey, target.actorKey),
@@ -332,11 +325,14 @@ export const reachServiceHost = async (
     if (!resolved.ok) {
       return { ok: false, refusal: { status: resolved.status, body: { error: resolved.error } } };
     }
-    return openJournaledBox(deps, {
+    return openServiceOn({
       hostname: resolved.target.hostname,
       machineId: resolved.target.machineId,
       service: target.service,
-      rebuild: (patches) => materializeMachineFs(resolved.target.fs, patches),
+      // The chain walk replayed this box's journal and boot-gated it, so the deep
+      // vantage arrives materialized exactly as the public one does. Replaying it again
+      // here would be a second read of the same rows to reach the same tree.
+      hostFs: resolved.target.fs,
       reachedPort: resolved.target.reachedPort,
       sourceIp: resolved.target.sourceIp,
       // Nobody owns a generated box, so there is no key but the caller's to write under.

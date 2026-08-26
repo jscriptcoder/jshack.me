@@ -865,7 +865,11 @@ describe('handleMysqlConnect', () => {
         deps,
       );
 
-      expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+      // The forward names a real box, so the address is not dark — nothing is listening
+      // on the port it lands on. That is the SAME answer this door gives on the caller's
+      // own LAN for the same situation: depth does not change the words a player reads
+      // for a daemon that is not there.
+      expect(response).toEqual({ status: 404, body: { error: 'service_not_running' } });
     });
 
     it('refuses a forward onto the right box on a port another daemon holds', async () => {
