@@ -1946,6 +1946,26 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   patched on a guess: it needs someone to decide whether the old shape is still supposed to work,
   and the answer is a product call about launch compatibility, not a test fix. Until it is
   answered the doc's `testFtpSession (14/14)` is wrong; treat 12/14 as the current baseline.
+
+- **A door's error BODY is asserted by one test in ten (found by D7 slice 7a's mutation gate).**
+  Nine refusal tests across `src/core/sessions/` assert `expect(response.status).toBe(400)` and
+  stop there; exactly one asserts `body: { error: … }` beside it. So
+  `body: { error: verified.reason }` mutated to `{}` SURVIVES on every door — a handler could
+  answer a bare `400 {}` and the suite would stay green. Narrow (the status is what routes the
+  client's message) and entirely uniform, which is why slice 7a left it rather than fixing the two
+  redis doors and leaving eight answering by a different standard. Whoever closes it should close
+  it across the family in one pass; the mutant to reproduce is `ObjectLiteral` on the
+  `STATUS_BY_VERIFY_REASON` return of any door.
+
+- **One unexplained full-suite failure, 2026-08-26, never reproduced.** The first `npx vitest run`
+  of D7 slice 7a reported `1 failed | 171 passed` and the failing test scrolled past unrecorded;
+  five subsequent full runs on the same tree were clean (3700/3700, then 3703/3703). The tree had
+  no production change in it at all — that slice is tests-only — so nothing it could have been
+  testing had moved. Most likely a timeout flake under the 215s environment setup, but that is a
+  guess and it is written down as one. Recorded because a one-off nobody names is a one-off nobody
+  recognizes the second time: if a lone failure appears in a full run, capture the test NAME before
+  re-running, since a clean re-run destroys the only evidence.
+
 **Story-5b / multiplayer deferred** (detail in `plans/multiplayer-crossplayer-epic.md`
 §"Remaining work"):
 
