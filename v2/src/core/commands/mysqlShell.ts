@@ -16,7 +16,8 @@
  */
 
 import { normalizeStatement } from '../mysql/statements';
-import { isOwnBoxConnection, runOwnStatement } from './mysqlOwnBox';
+import { runOwnStatement } from './mysqlOwnBox';
+import { isOwnBoxTarget } from '../network/interfaces';
 import type {
   CommandEnv,
   CommandResult,
@@ -96,7 +97,7 @@ export const runMysqlLine = async (
   // file they could open in an editor buys nothing. The answer comes back in one
   // shape either way, so the prompt below reads it without knowing which it got.
   const statementParams = { ...connection, statement: line };
-  const answer = isOwnBoxConnection(env, connection)
+  const answer = isOwnBoxTarget(env.network, connection.targetIp)
     ? await runOwnStatement(env, statementParams)
     : await env.mysql.run(statementParams);
 

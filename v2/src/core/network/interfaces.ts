@@ -97,6 +97,43 @@ export const LOOPBACK_IPV4 = '127.0.0.1';
  *  knew only one of them would read as broken rather than as picky. */
 export const LOOPBACK_NAMES: readonly string[] = ['localhost', LOOPBACK_IPV4];
 
+/**
+ * Which address, if any, means the box the player is STANDING on — and the source
+ * address a connection to it is made from.
+ *
+ * Loopback by any of its names answers as loopback, because that is what the daemon on
+ * the other side would really see. The leased address answers as itself: a player who
+ * types the address they were given is reaching the same machine, and every line their
+ * own daemon writes about the visit has to name the address it was reached by.
+ *
+ * It lives here rather than beside any one door because every door asks it. A copy per
+ * door would be free to start disagreeing about `localhost`, and the door that
+ * disagreed would route a player's own statements at whatever the world generated at
+ * their address instead.
+ */
+export const ownBoxSource = ({
+  target,
+  ownIp,
+}: {
+  readonly target: string;
+  readonly ownIp: string;
+}): string | null => {
+  if (LOOPBACK_NAMES.includes(target)) return LOOPBACK_IPV4;
+  return target === ownIp ? ownIp : null;
+};
+
+/** Whether an address a prompt is already holding is the player's own box. Re-derived
+ *  rather than remembered on the connection, because the address IS the claim: a player
+ *  who has since been leased a different one is no longer holding a connection to
+ *  anything they own, and the ordinary path answers that correctly. */
+export const isOwnBoxTarget = (
+  network: Parameters<typeof connectedWlan0>[0],
+  targetIp: string,
+): boolean => {
+  const wlan0 = connectedWlan0(network);
+  return wlan0 !== null && ownBoxSource({ target: targetIp, ownIp: wlan0.ipv4 }) !== null;
+};
+
 /** One locally-administered MAC: `02:` (the locally-administered-unicast
  *  prefix) followed by five seeded octets, lowercase hex. */
 const seededMac = (prng: Prng): MacAddress => {

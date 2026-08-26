@@ -53,7 +53,7 @@ import {
 } from '../logging/mysqlLog';
 import { derivePid } from '../logging/syslog';
 import { asGameTime } from '../types';
-import { connectedWlan0, LOOPBACK_IPV4, LOOPBACK_NAMES } from '../network/interfaces';
+
 import type { Directory } from '../filesystem/types';
 import type {
   CommandEnv,
@@ -63,38 +63,6 @@ import type {
   MysqlStatementParams,
   MysqlStatementResult,
 } from './types';
-
-/**
- * The address the daemon writes down for a connection the player made to their OWN
- * box, or null when `target` names some other machine — which is every address on
- * the LAN but one.
- *
- * Only the SOURCE comes back, because the destination is not in question: all three
- * names mean the one address the box was leased, and the caller is holding it
- * already. What the three names do disagree about is where the visitor came from — a
- * connection over loopback says so, as a real server's log does, and one addressed
- * to the leased address is written down as arriving there. The web door decides it
- * by the same rule, so one box's two logs describe one visitor the same way.
- */
-export const ownBoxSource = ({
-  target,
-  ownIp,
-}: {
-  readonly target: string;
-  readonly ownIp: string;
-}): string | null => {
-  if (LOOPBACK_NAMES.includes(target)) return LOOPBACK_IPV4;
-  return target === ownIp ? ownIp : null;
-};
-
-/** Whether a connection already open is one to the player's own box. Re-derived from
- *  the address rather than remembered on the connection, because the address IS the
- *  claim: a player who has since been leased a different one is no longer holding a
- *  connection to anything they own, and the ordinary path answers that correctly. */
-export const isOwnBoxConnection = (env: CommandEnv, connection: MysqlConnectParams): boolean => {
-  const wlan0 = connectedWlan0(env.network);
-  return wlan0 !== null && ownBoxSource({ target: connection.targetIp, ownIp: wlan0.ipv4 }) !== null;
-};
 
 /** Whether the player's own mysqld is holding `port` right now — read from the same
  *  pidfile `nmap` and `ps` print, so a door they were shown is a door that opens and

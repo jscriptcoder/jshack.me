@@ -9,9 +9,9 @@
  *
  * Which daemon is the only thing that differs, so it is a PARAMETER rather than a
  * second copy of this file. Four vantages, a boot gate, a journal replay and a pidfile
- * check are the same work in the same order whichever door asked — and the seeded-tree
- * gap named at the bottom of this comment is one gap to close rather than one per
- * door.
+ * check are the same work in the same order whichever door asked — which is what made
+ * the terminal box's missing journal replay ONE gap to close rather than one per door
+ * once it was finally closed where the walk builds that box.
  *
  * They share it rather than each doing it because the answers have to agree. A login
  * that consulted the pidfiles and a statement that did not would leave a prompt

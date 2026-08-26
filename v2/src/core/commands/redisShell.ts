@@ -23,6 +23,8 @@
  * dropping local state, and dropping the way back in with it.
  */
 
+import { runOwnStatement } from './redisOwnBox';
+import { isOwnBoxTarget } from '../network/interfaces';
 import type { CommandEnv, CommandResult, RedisConnection, TerminalLine } from './types';
 
 const text = (content: string): TerminalLine => ({ kind: 'text', content });
@@ -110,7 +112,9 @@ export const runRedisLine = async (
 
   // The line goes exactly as typed. The server parses it, so trimming or lower-casing
   // here would be this client deciding what the daemon was asked.
-  const answer = await env.redis.run({ ...connection, statement: line });
+  const answer = isOwnBoxTarget(env.network, connection.targetIp)
+    ? await runOwnStatement(env, { ...connection, statement: line })
+    : await env.redis.run({ ...connection, statement: line });
 
   // An eviction closes the prompt and prints no farewell: a quit is the player
   // leaving, this is the box leaving, and a prompt that answered every statement with

@@ -15,10 +15,14 @@ import {
 import { applyPatches } from '../filesystem/applyPatches';
 import { createFsView } from '../filesystem/fsView';
 import { buildWorkstationBaseFs } from '../generation/workstationFs';
-import { DATADIR_FILE, PASSWD_FILE } from '../generation/baseFs';
+import { DATADIR_FILE, PASSWD_FILE, SERVICE_CONFIG_FILE } from '../generation/baseFs';
 import { md5 } from '../generation/md5';
 import { DATADIR_OWNER, DATADIR_PATH } from '../mysql/datadir';
 import { parseMysqlDatabase } from '../mysql/types';
+import { DATADIR_DIR as STORE_DIR, DATADIR_PATH as STORE_PATH } from '../redis/datadir';
+import { parseRedisStore } from '../redis/types';
+import { REDIS_CONF_PATH } from '../generation/generateRedisStore';
+import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { accountIn, accountsIn } from '../sessions/passwdAccount';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 import { apt, installExtraFiles, installPackageLibraries } from './apt';
@@ -1128,5 +1132,232 @@ describe('the database a player buys', () => {
 
     const names = (database?.tables.users?.rows ?? []).map((row) => row.username);
     expect(names[0]).toBe('guest');
+  });
+});
+
+
+/**
+ * The store a player BUYS.
+ *
+ * Same shape as the database above — announced, parents created, left alone on a
+ * reinstall — with one difference that is the whole of this door: a store has no
+ * accounts, only a lock, so there is nothing to draw a ladder from. The lock is the
+ * box's own root password, which means a player opens their own prompt with something
+ * they already know, and whoever cracks the box holds the store as well.
+ *
+ * It is also the first package to ship TWO data files. The conf goes down beside the
+ * datadir because a box that runs a store has to be able to say where its data is, and
+ * every generated box already says it — a player's box that stayed silent would read
+ * as a different kind of machine to anyone doing recon on it.
+ */
+describe('the store a player buys', () => {
+  const OWNER_KEY = 'd'.repeat(64);
+  const CONFIG = { machineName: 'workstation', username: 'alice', rootPassword: 'hunter2' };
+
+  /** The box's `/etc/passwd` with root's row struck out — what a player who edited
+   *  their own passwd as root is left holding. Nothing else on the box changes. */
+  const withoutRoot = (tree: Directory): Directory => {
+    const passwd = createFsView(tree, { userType: 'root', cwd: () => asAbsPath('/') }).stat(
+      asAbsPath('/etc/passwd'),
+    );
+    const kept = (passwd !== null && passwd.kind === 'file' ? passwd.content : '')
+      .split('\n')
+      .filter((row) => !row.startsWith('root:'))
+      .join('\n');
+    return applyPatches(tree, [
+      { path: asAbsPath('/etc/passwd'), content: kept, owner: 'root', permissions: PASSWD_FILE },
+    ]);
+  };
+
+  const buyRedis = async (
+    opts: { readonly ownerKey?: string; readonly onto?: Directory } = {},
+  ) => {
+    const ownerKey = opts.ownerKey ?? OWNER_KEY;
+    const tree = opts.onto ?? buildWorkstationBaseFs(ownerKey, CONFIG);
+    const writes: WriteCall[] = [];
+    const operations: Operation[] = [];
+    const env = mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(ownerKey) }),
+      hostname: CONFIG.machineName,
+      session: mockSession({ userType: 'root' }),
+      network: mockNetworkView({ isOnline: () => true }),
+      fs: mockFsViewFromTree(tree, { userType: 'root', cwd: () => asAbsPath('/') }),
+      patches: {
+        ...mockPatchApi(),
+        write: async (path, content, options) => {
+          writes.push({ path, content, options });
+          operations.push({ kind: 'write', path });
+          return { ok: true };
+        },
+        mkdir: async (path) => {
+          operations.push({ kind: 'mkdir', path });
+          return { ok: true };
+        },
+      },
+    });
+
+    const streamed = await streamResult(await apt.execute(env, ['install', 'redis'], NO_FLAGS));
+    const datadir = writes.find((write) => write.path === STORE_PATH);
+    const conf = writes.find((write) => write.path === REDIS_CONF_PATH);
+    return {
+      writes,
+      operations,
+      streamed,
+      tree,
+      datadir,
+      conf,
+      store: parseRedisStore(datadir?.content ?? ''),
+    };
+  };
+
+  it('lays the datadir down root-only and the conf where a guest can read it', async () => {
+    // The hash lives in the datadir and the conf names no secret, which is the split
+    // that lets one of these two files sit on a rung anybody can read.
+    const { datadir, conf, streamed } = await buyRedis();
+
+    expect(datadir).toEqual({
+      path: STORE_PATH,
+      content: expect.any(String),
+      options: { isNew: true, permissions: DATADIR_FILE },
+    });
+    expect(conf).toEqual({
+      path: REDIS_CONF_PATH,
+      content: expect.any(String),
+      options: { isNew: true, permissions: SERVICE_CONFIG_FILE },
+    });
+    expect(streamed.text).toContain(`Installing ${STORE_PATH} ...`);
+    expect(streamed.text).toContain(`Installing ${REDIS_CONF_PATH} ...`);
+    expect(streamed.exitCode).toBe(0);
+  });
+
+  it('creates each directory a workstation does not have before writing into it', async () => {
+    // The first package to ship two data files, so this is also the first install where
+    // the second file's parents have to be created after the first file has landed.
+    const { operations } = await buyRedis();
+
+    expect(operations).toEqual([
+      { kind: 'write', path: '/usr/bin/rediscli' },
+      { kind: 'write', path: '/usr/sbin/redis' },
+      { kind: 'mkdir', path: '/var/lib' },
+      { kind: 'mkdir', path: STORE_DIR },
+      { kind: 'write', path: STORE_PATH },
+      { kind: 'mkdir', path: '/etc/redis' },
+      { kind: 'write', path: REDIS_CONF_PATH },
+    ]);
+  });
+
+  it('holds a store drawn for THIS player — two owners never share one', async () => {
+    const mine = await buyRedis({ ownerKey: OWNER_KEY });
+    const theirs = await buyRedis({ ownerKey: 'e'.repeat(64) });
+
+    expect(mine.store).not.toBeNull();
+    expect(theirs.store).not.toBeNull();
+    expect(theirs.datadir?.content).not.toBe(mine.datadir?.content);
+  });
+
+  it('hands one player the same store however often they buy it', async () => {
+    const first = await buyRedis();
+    const second = await buyRedis();
+
+    expect(second.datadir?.content).toBe(first.datadir?.content);
+  });
+
+  it('locks the store with the root password the player chose for the box', async () => {
+    // Read from the box's own /etc/passwd, so the two cannot say different things about
+    // one secret — and the player never has to look a store password up.
+    const { store, tree } = await buyRedis();
+
+    expect(store?.requirepassHash).toBe(md5(CONFIG.rootPassword));
+    expect(store?.requirepassHash).toBe(accountIn(tree, 'root')?.hash);
+  });
+
+  it('locks EVERY player store, however the generator would have rolled it', async () => {
+    // Four stores in ten are drawn open. A player's own is never one of them: an
+    // unlocked store on your own box is a door left open with nothing said about it.
+    const owners = Array.from({ length: 12 }, (_, index) => `${index}`.repeat(64).slice(0, 64));
+
+    for (const ownerKey of owners) {
+      const { store, tree } = await buyRedis({ ownerKey });
+      expect(store?.requirepassHash).toBe(accountIn(tree, 'root')?.hash);
+    }
+  });
+
+  it('leaves the generator roll alone on a box that declares no root account', async () => {
+    // Nothing to mirror, so the draw stands — including the four-in-ten chance of no
+    // lock at all. Inventing a password here would put one on the box its own passwd
+    // file has never heard of, and blanking the lock for everyone would be a decision
+    // this code is not the place to make.
+    const owners = Array.from({ length: 12 }, (_, index) => `${index}`.repeat(64).slice(0, 64));
+    const locks = await Promise.all(
+      owners.map(async (ownerKey) => {
+        const rootless = withoutRoot(buildWorkstationBaseFs(ownerKey, CONFIG));
+        const { store } = await buyRedis({ ownerKey, onto: rootless });
+        return store?.requirepassHash ?? null;
+      }),
+    );
+
+    expect(locks.some((lock) => lock === null)).toBe(true);
+    expect(locks.some((lock) => lock !== null)).toBe(true);
+    expect(locks).not.toContain(md5(CONFIG.rootPassword));
+  });
+
+  it('draws its keys about the people the box really carries', async () => {
+    // A store's sessions, permissions and caches name somebody. On a generated box that
+    // is the box's own accounts, and a player's box is no different — keys about names
+    // nobody on the machine has ever heard of would read as somebody else's store.
+    const { datadir } = await buyRedis();
+
+    expect(datadir?.content).toContain(CONFIG.username);
+  });
+
+  it('names guest on a box that carries no ordinary user at all', async () => {
+    // Which takes a root player editing their own `/etc/passwd`. `guest` is the one
+    // account every box keeps, so the keys still describe somebody who is really there
+    // rather than a name invented to fill them.
+    const tree = buildWorkstationBaseFs(asPlayerKeyHex(OWNER_KEY), CONFIG);
+    const view = createFsView(tree, { userType: 'root', cwd: () => asAbsPath('/') });
+    const passwd = view.stat(asAbsPath('/etc/passwd'));
+    const kept = (passwd !== null && passwd.kind === 'file' ? passwd.content : '')
+      .split('\n')
+      .filter((row) => !row.startsWith(`${CONFIG.username}:`))
+      .join('\n');
+    const userless = applyPatches(tree, [
+      { path: asAbsPath('/etc/passwd'), content: kept, owner: 'root', permissions: PASSWD_FILE },
+    ]);
+
+    const { datadir } = await buyRedis({ onto: userless });
+
+    expect(datadir?.content).toContain('guest');
+    expect(datadir?.content).not.toContain(CONFIG.username);
+    expect(datadir?.content).not.toContain('undefined');
+  });
+
+  it('publishes a conf that names the datadir and the port, and no secret', async () => {
+    const { conf, store } = await buyRedis();
+
+    expect(conf?.content).toContain(`dir ${STORE_DIR}`);
+    expect(conf?.content).toContain(`port ${SERVICE_CATALOG.redis.defaultPort}`);
+    expect(conf?.content).not.toContain('requirepass');
+    expect(conf?.content).not.toContain(store?.requirepassHash ?? 'no lock drawn');
+  });
+
+  it('keeps a store the player has already changed when they reinstall', async () => {
+    // A store somebody has been running is theirs, not the package's. Resetting it on a
+    // reinstall would throw away every key they had set with nothing on screen to say
+    // so — the same rule that protects a wordlist they have been growing.
+    const mine = await buyRedis();
+    const running = applyPatches(mine.tree, [
+      {
+        path: STORE_PATH,
+        content: JSON.stringify({ keys: { 'their:key': 'their value' }, requirepassHash: null }),
+        owner: DATADIR_OWNER,
+        permissions: DATADIR_FILE,
+      },
+    ]);
+
+    const again = await buyRedis({ onto: running });
+
+    expect(again.datadir).toBeUndefined();
+    expect(again.streamed.text).toContain(`${STORE_PATH} already exists, keeping your copy`);
   });
 });

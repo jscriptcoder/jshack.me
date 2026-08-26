@@ -12,7 +12,8 @@ import { forwardsIntoDeepLayer, resolveLanHostIdentity } from '../generation/lan
 import { isPublicIp } from '../generation/ip';
 import { readOpenPorts } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { connectOwnDatabase, ownBoxSource, ownDaemonListening } from './mysqlOwnBox';
+import { connectOwnDatabase, ownDaemonListening } from './mysqlOwnBox';
+import { ownBoxSource } from '../network/interfaces';
 import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
 
 const USAGE = 'usage: mysql [-p port] <host> [user]';

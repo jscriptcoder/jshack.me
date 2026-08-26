@@ -14,7 +14,16 @@ import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
 import { assignHomeNetwork } from '../network/homeNetwork';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
-import { formatPidfileContent } from '../services/pidfile';
+import { formatPidfileContent, pidfilePath, PIDFILE_PERMISSIONS } from '../services/pidfile';
+import { buildWorkstationBaseFs } from '../generation/workstationFs';
+import { applyPatches } from '../filesystem/applyPatches';
+import { ownStore } from '../redis/ownStore';
+import { DATADIR_OWNER, DATADIR_PATH } from '../redis/datadir';
+import { DATADIR_FILE } from '../generation/baseFs';
+import { REDIS_LOG_PATH, REDIS_LOG_PERMISSIONS } from '../logging/redisLog';
+import { asAbsPath, asPlayerKeyHex, type AbsPath } from '../types';
+import type { Directory } from '../filesystem/types';
+import type { FsView } from './types';
 import { bindFlags } from '../shell/bindFlags';
 import { SERVICE_CATALOG as CATALOG } from '../services/serviceCatalog';
 import type { CommandEnv, CommandResult, RedisApi } from './types';
@@ -90,6 +99,14 @@ const onLan = (over: Partial<RedisApi> = {}, envOver: Partial<CommandEnv> = {}) 
     redis: mockRedisApi({ connect: async () => ({ ok: true, hostname: 'unused' }), ...over }),
     network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
     scan: mockScanApi({ resolveOccupants: async () => [] }),
+    // Every box has one. A store opened on the player's OWN box writes its arrival line
+    // through this, so a door that reaches one must not die on a mock that has none —
+    // the tests that assert on those writes bring their own recording stub.
+    patches: {
+      write: async () => ({ ok: true }),
+      mkdir: async () => ({ ok: true }),
+      remove: async () => ({ ok: true }),
+    },
     ...envOver,
   });
 
@@ -314,33 +331,242 @@ describe('the vantages this client cannot settle for itself', () => {
   });
 });
 
+/**
+ * The store on your OWN box.
+ *
+ * Answered here rather than through the server, and that is not a shortcut — it is the
+ * only correct answer available. The server's same-LAN vantage excludes the caller on
+ * purpose, so a self-addressed reach that went out would fall through to the generated
+ * world and open whichever seeded box happens to stand at the address the player was
+ * leased. Your own box is the client's to answer because the client is the only side
+ * that holds it.
+ *
+ * What differs is WHERE the decision runs, never what it decides: the same daemon check
+ * against the same pidfile, the same arrival line in the same format, on a store read
+ * from the machine rather than from the copy this client walked in with.
+ */
 describe('the player own box, once it runs a store', () => {
-  /** Their box with the daemon actually up — the pidfile `nmap`, `ps` and `systemctl`
-   *  all read, sitting in the real filesystem this client is holding. */
-  const ownBoxRunningRedis = () =>
-    buildDirectory({
-      var: buildDirectory({
-        run: buildDirectory({
-          'redis.pid': buildFile(formatPidfileContent(SERVICE_CATALOG.redis, 6379)),
-        }),
-      }),
-    });
+  const CONFIG = { machineName: 'workstation', username: 'alice', rootPassword: 'hunter2' };
 
-  it('opens it, rather than refusing a daemon that is plainly listening', async () => {
-    const connect = vi.fn(async () => ({ ok: true as const, hostname: 'box' }));
-    const env = onLan({ connect }, { fs: mockFsViewFromTree(ownBoxRunningRedis()) });
+  /** The server door, deliberately unreachable. A connection to your own box that took
+   *  the cross-network path would throw here rather than quietly pass. */
+  const NOT_WIRED = () => {
+    throw new Error('own-box rediscli must not reach the server');
+  };
+
+  /** Their box after buying a store and starting the daemon. Both files come from the
+   *  production code that writes them, so a change to either format arrives in this
+   *  fixture instead of drifting past it. */
+  const ownBoxRunningRedis = (port: number = SERVICE_CATALOG.redis.defaultPort): Directory => {
+    const base = buildWorkstationBaseFs(asPlayerKeyHex(PUBKEY), CONFIG);
+    return applyPatches(base, [
+      {
+        path: DATADIR_PATH,
+        content: JSON.stringify(
+          ownStore({ ownerKeyHex: PUBKEY, hostname: CONFIG.machineName, fs: base }),
+        ),
+        owner: DATADIR_OWNER,
+        permissions: DATADIR_FILE,
+      },
+      {
+        path: pidfilePath(SERVICE_CATALOG.redis),
+        content: formatPidfileContent(SERVICE_CATALOG.redis, port),
+        owner: 'root',
+        permissions: PIDFILE_PERMISSIONS,
+      },
+    ]);
+  };
+
+  /** The same box with the daemon stopped — the pidfile gone, which is the whole of
+   *  what `systemctl stop` leaves behind. */
+  const withDaemonStopped = (tree: Directory): Directory =>
+    applyPatches(tree, [
+      {
+        path: pidfilePath(SERVICE_CATALOG.redis),
+        content: null,
+        owner: 'root',
+        permissions: PIDFILE_PERMISSIONS,
+      },
+    ]);
+
+  /** A box whose filesystem changes under a command mid-run, the way a real one does:
+   *  a `systemctl stop` in another tab is visible to the very next read. */
+  const liveBox = (initial: Directory) => {
+    let tree = initial;
+    const view = () => mockFsViewFromTree(tree, { userType: 'root', cwd: () => asAbsPath('/') });
+    return {
+      become: (next: Directory) => {
+        tree = next;
+      },
+      fs: {
+        cwd: () => asAbsPath('/'),
+        read: (path: AbsPath) => view().read(path),
+        list: (path: AbsPath) => view().list(path),
+        stat: (path: AbsPath) => view().stat(path),
+        canWrite: (path: AbsPath) => view().canWrite(path),
+        root: () => tree,
+        // Re-reading this box reaches whatever it has become, which is the whole point
+        // of the seam: the machine is the authority, not a copy taken on the way in.
+        reload: async () => view(),
+      } satisfies FsView,
+    };
+  };
+
+  const ownBoxEnv = (
+    box: ReturnType<typeof liveBox>,
+    over: Partial<RedisApi> = {},
+  ) => {
+    const writes: { path: string; content: string | null; isNew?: boolean }[] = [];
+    const env = mockCommandEnv({
+      redis: mockRedisApi({ connect: NOT_WIRED, ...over }),
+      network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+      scan: mockScanApi({ resolveOccupants: async () => [] }),
+      hostname: CONFIG.machineName,
+      fs: box.fs,
+      patches: {
+        write: async (path, content, options) => {
+          writes.push({
+            path,
+            content,
+            ...(options?.isNew === undefined ? {} : { isNew: options.isNew }),
+          });
+          return { ok: true };
+        },
+        mkdir: async () => ({ ok: true }),
+        remove: async () => ({ ok: true }),
+      },
+    });
+    return { env, writes };
+  };
+
+  it('opens the store on your own box without asking the server', async () => {
+    const enter = vi.fn();
+    const { env } = ownBoxEnv(liveBox(ownBoxRunningRedis()), { enter });
+
+    const result = await run(env, ['127.0.0.1']);
+
+    // The greeting names the box the player is standing on, because that is the box
+    // that answered — there is no forward here for a name to arrive through.
+    expect(linesOf(result)).toContain(`Connected to Redis ${CONFIG.machineName}.`);
+    expect(enter).toHaveBeenCalled();
+  });
+
+  it('records the arrival on the box own redis.log, as a stranger arrival is recorded', async () => {
+    // A daemon that recorded strangers but not its owner would be one that knows which
+    // is which, and the defender's skill is reading the file rather than being handed
+    // it pre-filtered.
+    const { env, writes } = ownBoxEnv(liveBox(ownBoxRunningRedis()));
 
     await run(env, ['127.0.0.1']);
 
-    expect(connect).toHaveBeenCalled();
+    const logged = writes.find((write) => write.path === REDIS_LOG_PATH);
+    expect(logged?.content).toContain('Client connected from 127.0.0.1');
+  });
+
+  /** A box this client's copy is STALE about: what it walked in holding still shows the
+   *  daemon up, and the machine itself says otherwise. That gap is the whole reason the
+   *  own-box path spends a round trip it could have saved — a copy is only ever the
+   *  player's own edits, and it is not the only thing that writes to this box. */
+  const staleBox = (held: Directory, machine: Directory) => {
+    const of = (tree: Directory) =>
+      mockFsViewFromTree(tree, { userType: 'root', cwd: () => asAbsPath('/') });
+    return {
+      cwd: () => asAbsPath('/'),
+      read: (path: AbsPath) => of(held).read(path),
+      list: (path: AbsPath) => of(held).list(path),
+      stat: (path: AbsPath) => of(held).stat(path),
+      canWrite: (path: AbsPath) => of(held).canWrite(path),
+      root: () => held,
+      reload: async () => of(machine),
+    } satisfies FsView;
+  };
+
+  it('adds its arrival to a log that already has history, rather than replacing it', async () => {
+    // The box's own log is the defender's evidence. A visit of their own that shortened
+    // it to one line would erase whatever an intruder left behind, by the owner's
+    // routine use of their own box.
+    const HISTORY = '1:M 20 Aug 2026 09:14:02.000 * Client connected from 192.168.1.77';
+    const withHistory = applyPatches(ownBoxRunningRedis(), [
+      {
+        path: REDIS_LOG_PATH,
+        content: `${HISTORY}\n`,
+        owner: 'root',
+        permissions: REDIS_LOG_PERMISSIONS,
+      },
+    ]);
+    const { env, writes } = ownBoxEnv(liveBox(withHistory));
+
+    await run(env, ['127.0.0.1']);
+
+    const logged = writes.find((write) => write.path === REDIS_LOG_PATH);
+    expect(logged?.content).toContain(HISTORY);
+    expect(logged?.content).toContain('Client connected from 127.0.0.1');
+    // Not a new file: a box whose daemon has already said something has one.
+    expect(logged?.isNew).toBeUndefined();
+  });
+
+  it('creates the log on a box whose daemon has never had anything to say', async () => {
+    const { env, writes } = ownBoxEnv(liveBox(ownBoxRunningRedis()));
+
+    await run(env, ['127.0.0.1']);
+
+    const logged = writes.find((write) => write.path === REDIS_LOG_PATH);
+    expect(logged?.isNew).toBe(true);
+    // The whole file, not merely a file containing the line: a first line that arrived
+    // with anything in front of it would be a history the box never had.
+    expect(logged?.content).toMatch(/^\d+:M .* \* Client connected from 127\.0\.0\.1\n$/);
+  });
+
+  it('leaves a log it could not READ alone, rather than replacing it with one line', async () => {
+    // Root can put something at that path that is not a log — a directory is the easy
+    // one. Whatever it is, replacing it with a single line is worse than dropping the
+    // line: on a box whose log really is a log, that is the box's whole history gone.
+    const blocked = applyPatches(ownBoxRunningRedis(), [
+      {
+        path: REDIS_LOG_PATH,
+        content: null,
+        owner: 'root',
+        permissions: REDIS_LOG_PERMISSIONS,
+      },
+    ]);
+    const withDirectory = applyPatches(blocked, [
+      {
+        path: asAbsPath(`${REDIS_LOG_PATH}/rotated`),
+        content: 'an old log somebody moved here',
+        owner: 'root',
+        permissions: REDIS_LOG_PERMISSIONS,
+      },
+    ]);
+    const { env, writes } = ownBoxEnv(liveBox(withDirectory));
+
+    const result = await run(env, ['127.0.0.1']);
+
+    // The store still opens. An arrival that could not be recorded is a line lost, not
+    // a door shut.
+    expect(linesOf(result)).toContain(`Connected to Redis ${CONFIG.machineName}.`);
+    expect(writes.filter((write) => write.path === REDIS_LOG_PATH)).toEqual([]);
+  });
+
+  it('re-checks the daemon against the MACHINE, not the copy it walked in with', async () => {
+    // A `systemctl stop` between the pre-flight and the open is a door that closed while
+    // the player was still typing, and it must not open anyway. Only the reload can see
+    // it: the copy in hand still has the pidfile.
+    const running = ownBoxRunningRedis();
+    const { env } = ownBoxEnv({
+      become: () => undefined,
+      fs: staleBox(running, withDaemonStopped(running)),
+    });
+
+    const result = await run(env, ['127.0.0.1']);
+
+    expect(linesOf(result)).toBe(
+      'Could not connect to Redis at 127.0.0.1:6379: Connection refused',
+    );
   });
 
   it('holds it under the address it was LEASED, whichever name reached it', async () => {
     const enter = vi.fn();
-    const env = onLan(
-      { connect: async () => ({ ok: true, hostname: 'box' }), enter },
-      { fs: mockFsViewFromTree(ownBoxRunningRedis()) },
-    );
+    const { env } = ownBoxEnv(liveBox(ownBoxRunningRedis()), { enter });
 
     await run(env, ['localhost']);
 
@@ -551,12 +777,14 @@ describe('the port the flag names', () => {
   });
 
   it('consults the player own pidfiles at the port they named', async () => {
-    const connect = vi.fn(async () => ({ ok: true as const, hostname: 'box' }));
-    const env = onLan({ connect }, { fs: mockFsViewFromTree(ownBoxServingOn(6380)) });
+    const enter = vi.fn();
+    const env = onLan({ enter }, { fs: mockFsViewFromTree(ownBoxServingOn(6380)) });
 
+    // The prompt is handed the port that opened, which on your own box is decided
+    // against your own pidfiles rather than by anything the server was told.
     await runWith(env, ['127.0.0.1'], new Map([['-p', '6380']]));
 
-    expect(connect).toHaveBeenCalledWith(expect.objectContaining({ port: 6380 }));
+    expect(enter).toHaveBeenCalledWith(expect.objectContaining({ port: 6380 }));
   });
 
   it('is handed the port by the shell, rather than reading it out of the host slot', () => {

@@ -23,9 +23,9 @@ import { connectedWlan0 } from '../network/interfaces';
 import { runRedisLine } from './redisShell';
 import { forwardsIntoDeepLayer, resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { isPublicIp } from '../generation/ip';
-import { readOpenPorts } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { ownBoxSource } from './mysqlOwnBox';
+import { connectOwnStore, storeListening } from './redisOwnBox';
+import { ownBoxSource } from '../network/interfaces';
 import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
 
 const USAGE = 'usage: rediscli [-p port] <host> [password]';
@@ -82,14 +82,6 @@ const greetingLines = (
 ];
 
 
-
-/** Whether the daemon is holding the port on a tree this client can see for itself.
- *  The pidfiles are the same source `nmap` reads, so a door the player was shown is a
- *  door that opens — and `systemctl stop redis` shuts this one too. */
-const storeListening = (fs: Parameters<typeof readOpenPorts>[0], port: number): boolean =>
-  readOpenPorts(fs).some(
-    (open) => open.port === port && open.service === SERVICE_CATALOG.redis.service,
-  );
 
 /** Whether this client can settle reachability BEFORE spending a round-trip, and the
  *  refusal when it settles it as "no".
@@ -171,7 +163,11 @@ const execute: Command['execute'] = async (env, args, flags) => {
     port,
     sourceIp: ownSource ?? wlan0.ipv4,
   };
-  const opened = await env.redis.connect(connection);
+  // Your own box is answered HERE. The server's same-LAN vantage excludes the caller,
+  // so a self-addressed reach that went out would fall through to the generated world and
+  // open whichever seeded box stands at the address this player was leased.
+  const opened =
+    ownSource === null ? await env.redis.connect(connection) : await connectOwnStore(env, connection);
   if (!opened.ok) return unreachable(target, port, REACH_REASON[opened.reason]);
 
   env.redis.enter(connection);
