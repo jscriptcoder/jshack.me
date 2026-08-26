@@ -1481,6 +1481,12 @@ state costs you more than one wrong attempt.
     (`SERVICE_CATALOG[...].daemons`, `DAEMONS`, `UNITS`) and NOTHING enforces that they agree —
     when the sixth door lands, add all three in one change and assert the unit, because the gap
     is invisible from every direction except the idiomatic one a player actually reaches for.
+    **`systemctl.test.ts` now holds that check** — three assertions comparing NAMES, so a failure
+    says which daemon is stranded and in which table: every daemon a package installs can be
+    started, every daemon that can be started can be stopped, and every catalog door names a
+    daemon a player can act on. Both historical bugs were re-injected to prove it bites. D8 should
+    add its `DAEMONS` and `UNITS` rows in the same change as the catalog row and let the guard
+    confirm it, rather than discovering the gap months later through a player's own hands.
   - **`hostServices` governs `machine` hosts ONLY — an offline oracle built on it will invent
     doors the game never shows.** `resolveLanHostIdentity` has four branches (edge router at `.1`,
     inner-gateway router, switch, machine) and only the machine branch runs the `remoteHostFs`
@@ -2203,15 +2209,18 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   design call first: route single-IP scans only (matching the precedent) or batch a range, since
   a `/24` would otherwise resolve up to 253 journals. Found by writing D5's Act 14; it predates
   D5, which only made it observable. Needs its own slice + wire-check.
-- **`testFtpSession` is KNOWN RED, 12/14, and has been since it was written (#394).** A full
-  wire-check sweep on 2026-08-26 ran all 57 scripts for **583/585**; both failures are this one
-  script. It picks its target because the host serves **ftp** (`kind === 'machine' && serves(ftp)`
-  → `speaker-26` on `VSFTPD-LAB`, `ftp:2121`), then asserts a plain **ssh** `authCreateSession`
-  against that same host — which serves no sshd, so the login is refused and no session row
-  exists for the two `kind`-default checks to read. Confirmed pre-existing by running the
-  generator in a worktree at the pre-D7 commit: byte-identical host services. Fix is to give the
-  ssh half its own fixture (a host that serves ssh), not to change production. This is the
-  fixture-selection fragility §6 already warns about, sitting red in the tree.
+- **A wire-check sweep should read 585/585 across 57 scripts; `testFtpSession` spent from #394
+  to v0.183.0 red at 12/14 for a FIXTURE reason.** It picked its target because the host serves
+  **ftp** (`kind === 'machine' && serves(ftp)` → `speaker-26` on `VSFTPD-LAB`, `ftp:2121`), then
+  asserted a plain **ssh** `authCreateSession` against that same host — which runs no sshd, so
+  the login was refused, no session row was written, and the two `kind`-default checks read an
+  absent row. Fixed 2026-08-26 by giving the ssh half its own host and credential; the guard now
+  names a TRIO so a future ESSID missing any of the three exits 2 loudly. **What it had been
+  hiding is the lesson:** once those checks actually ran they reported `kind=ssh` and
+  `end_reason=user_exit` — production had been correct the whole time, so a red fixture had
+  concealed a PASSING behaviour that nothing else covered. A wire-check that selects its own
+  fixture must select one per CLAIM, not one per script; sharing a host across two claims silently
+  couples them.
 - **Wire-checks are not in CI** — all 43 run only by hand against a local `vercel dev` +
   supabase, and they are the ONLY thing that proves `api/` runtime correctness (`tsc` cannot
   see DB columns or constraints). A regression there ships green. Raised repeatedly and
