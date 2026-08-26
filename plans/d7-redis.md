@@ -1169,11 +1169,100 @@ approves the commit.
 
 ### Slice 6: A player runs their own store
 
-**Value**: The player's box becomes a target worth defending.
-**Acceptance criteria**: `apt install redis` → `systemctl start redis` plants a store whose
-`requirepassHash` **mirrors the box's root password hash**, with no opt-out; it composes against the
-machine (`env.fs.reload()`) per the v0.172.0 invariant, not against this client's copy.
-**Class**: Behavior change. Wire-check required.
+**Value**: The player's box becomes a target worth defending. A store is bought and started rather
+than shipped from boot, so running one is a choice with a consequence — the keys another player can
+read, rewrite and be caught rewriting are the ones the owner put there.
+**Path**: `apt install redis` plants the datadir and the conf → `systemctl start redis` writes the
+pidfile that opens the port → `rediscli 127.0.0.1` answers CLIENT-side against `env.fs.reload()`,
+through the same `runStatement` and the same log formatters the server-side door uses.
+**Class**: Behavior change.
+**Delivery**: Independent PR against trunk, on `feat/d7-own-store`.
+**Required implementation skills**: `tdd`, `testing`, `mutation-testing`, `refactoring`.
+`reduce-system-complexity` — `N/A`: this slice adds a vantage rather than retiring a mechanism.
+
+**PLANNING CORRECTION found while grounding (2026-08-26):**
+
+- **The slice is the plant AND the own-box vantage, because the plant alone ships a door that
+  opens on the wrong box.** `rediscli 127.0.0.1` does not short-circuit the way `mysql` does — it
+  calls `env.redis.connect` and goes to the server, and `resolveSameLanOccupant` excludes self
+  deliberately (*"your own box is the client's own-box path"*). A self-addressed reach therefore
+  falls through to `generateHomeLan(...).hosts.find(...)`, and the generated LAN can hold a host at
+  the player's own leased octet — the file says so two lines above the exclusion. Nothing exposes
+  this today only because the client preflight refuses first: there is no store on the box to
+  reach, which `rediscli.test.ts` asserts in as many words. Planting one makes it reachable, so the
+  own-box conversation lands in the same slice. This is what the plan's `env.fs.reload()` clause
+  was pointing at, and it is why D6 slice 6 produced `mysqlOwnBox.ts`.
+- **The blanket "wire-check required" is re-examined rather than performed.** `extraFiles` is read
+  only by `apt`, and the own-box conversation never leaves the client, so on grounding this slice
+  changes no `api/` path. If that holds through implementation the evidence is the suite plus the
+  reachability argument recorded as `N/A`; the gate says which it turned out to be rather than
+  assuming now. Every OTHER D7 slice from 2 on does need one.
+
+**Acceptance criteria** (approved before any code):
+
+1. `apt install redis` plants `/var/lib/redis/data.json`, root-owned with the permissions both
+   datadirs on a box already answer to, holding a store drawn through the same `generateRedisStore`
+   every NPC's is drawn through — same key pools, same shapes — on its own seed stream namespaced to
+   the owner's pubkey, so no two players hold the same store.
+2. Its lock is the box's own root password, with no opt-out: `requirepassHash` is the hash in the
+   box's `/etc/passwd` for `root`, read BY NAME through `accountIn` — the reader every auth gate on
+   the box already uses — overriding the generator's 60/40 roll. The player opens their own prompt
+   with a password they already know, and whoever cracks their box's root hash holds the store too.
+3. A box declaring no root account keeps the DRAWN lock. Nothing to mirror, so the roll stands —
+   `ownDatabase`'s answer, for its reason: inventing a password here would put one on the box its
+   own `/etc/passwd` has never heard of.
+4. The install also plants `/etc/redis/redis.conf` — world-readable, secret-free, naming the datadir
+   and the catalog's DEFAULT port, the same file every NPC running a store publishes. Redis becomes
+   the first package to ship two data files, and `installExtraFiles`'s "No catalog package ships two
+   data files today" comment goes with it. A player who starts the daemon on another port has a conf
+   that still names the default, exactly as real Redis does when you pass `--port`: the pidfile is
+   the live truth that `nmap` and `ps` read, and the conf is a file they can edit.
+5. A reinstall keeps the player's copy. Both files are already-exists-skipped PER FILE, as the
+   wordlist is: `apt install redis` after a `SET` must not silently reset a store they have been
+   running.
+6. `systemctl start redis` opens the port and `rediscli 127.0.0.1` reaches what is behind it. The
+   pidfile the daemon writes is what `nmap`, `ps` and this door all read, so a port they were shown
+   is a port that opens — and `systemctl stop redis` closes it on the next statement.
+7. The own-box conversation runs client-side, against the MACHINE: connect, every statement, `AUTH`
+   and the log line decided from `env.fs.reload()` rather than the tree the client holds. A fellow
+   occupant reaching this box's store writes both the datadir and `/var/log/redis.log` under the
+   owner's key, and composing from the client's copy would not merely miss those writes — it would
+   REVERT them, erasing an intruder's edits and their visit by the owner's own routine use of their
+   own box.
+8. Where the decision runs differs; what it decides does not. The same `runStatement` and the same
+   log formatters as the server-side door — so `SET`/`DEL` append to `/var/log/redis.log` and
+   `GET`/`KEYS`/`DBSIZE` never do, and `NOAUTH Authentication required.` refuses a locked store here
+   exactly as it does across the wire.
+9. Both writes are the DAEMON's, not the shell's: datadir and log line stamped root-owned with the
+   catalog's permissions regardless of the tier the player's shell sits at. A rewrite inheriting the
+   shell's owner would hand the box's ordinary user the hash a sweep is supposed to work for.
+10. `rediscli 127.0.0.1` never reaches the generated box standing at the player's own address. The
+    self-addressed reach is answered locally, so the octet collision the server deliberately leaves
+    to the client cannot route a player's own statements onto a seeded NPC.
+11. Every shipped redis door is unchanged. The catalog gains data files only — no binary, no daemon,
+    no service row — so the world generator's answer for which programs a box running a store
+    carries is byte-identical.
+12. The dangling self-reference in `serviceHost.ts`'s header goes. It still says "the seeded-tree
+    gap named at the bottom of this comment"; slice 5b deleted that paragraph and left the pointer,
+    in the file criterion 10 turns on.
+
+**RED** — behavior tests, before any production change:
+
+- `redis/ownStore.test.ts` — the mirrored hash, the per-owner stream, and the rootless fallback.
+- `commands/apt.test.ts` — both files planted, root-only datadir and readable conf, and a reinstall
+  keeping a store the player has changed.
+- `commands/rediscli.test.ts` + `commands/redisShell.test.ts` — the own box opening, `AUTH` against
+  the mirrored password, `SET`/`DEL` landing on the reloaded tree with the log line beside them,
+  reads leaving none, and the generated box at the player's address never reached.
+
+**GREEN**: `ownStore`; the catalog row's two `extraFiles`; the client-side own-box conversation.
+**REFACTOR**: `rediscli` already imports `ownBoxSource` from a file called `mysqlOwnBox`, and this
+slice imports more from it. Whether the shared half earns a door-neutral home is assessed after
+green — with the epic's habit of declining to collapse a family from inside one slice.
+**MUTATE**: Stryker over `redis/ownStore.ts`, the changed catalog row, and the own-box module.
+**Wire-check**: re-examined per the planning correction above, not assumed.
+**Version**: bump `0.179.0` → `0.180.0` in `v2/package.json` + `v2/package-lock.json`.
+**Done when**: criteria 1–12 met, mutation report presented, human approves the commit.
 
 ### Slice 7: A player reaches another player's store
 

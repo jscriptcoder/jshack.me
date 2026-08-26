@@ -1,7 +1,30 @@
 import { describe, expect, it, vi } from 'vitest';
 import { runRedisLine } from './redisShell';
-import { mockCommandEnv, mockRedisApi } from '../../test/factories/commandEnv';
-import type { CommandResult, RedisApi, RedisStatementResult } from './types';
+import {
+  mockCommandEnv,
+  mockFsViewFromTree,
+  mockNetworkViewFromConnectivity,
+  mockRedisApi,
+} from '../../test/factories/commandEnv';
+import { buildWorkstationBaseFs } from '../generation/workstationFs';
+import { applyPatches } from '../filesystem/applyPatches';
+import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces';
+import { assignHomeNetwork } from '../network/homeNetwork';
+import { ownStore } from '../redis/ownStore';
+import { DATADIR_OWNER, DATADIR_PATH, storeIn } from '../redis/datadir';
+import { DATADIR_FILE } from '../generation/baseFs';
+import { REDIS_LOG_PATH } from '../logging/redisLog';
+import { formatPidfileContent, pidfilePath, PIDFILE_PERMISSIONS } from '../services/pidfile';
+import { SERVICE_CATALOG } from '../services/serviceCatalog';
+import { asAbsPath, asPlayerKeyHex, type AbsPath } from '../types';
+import type { Directory } from '../filesystem/types';
+import type {
+  CommandResult,
+  FsView,
+  RedisApi,
+  RedisConnection,
+  RedisStatementResult,
+} from './types';
 
 /**
  * The `redis> ` prompt. The same three claims the database prompt holds, pulling the
@@ -396,5 +419,279 @@ describe('holding a store secret', () => {
     const result = await runRedisLine(shellEnv(), 'help', CONNECTION);
 
     expect(linesOf(result)).toContain('AUTH <password>');
+  });
+});
+
+
+/**
+ * Statements against the store on your OWN box.
+ *
+ * The prompt is the same prompt; what is behind it is decided here rather than over the
+ * wire. Every answer comes from the same `runStatement` and the same log formatters the
+ * server-side door uses, so the two vantages cannot drift on what a verb does, what
+ * `NOAUTH` refuses, or which verbs leave a line.
+ *
+ * Everything is re-read per statement, and re-read from the MACHINE. A datadir edited in
+ * another tab and a daemon stopped mid-prompt both bite on the next line — but so does a
+ * key an occupant of this WiFi set a moment ago, and that one is the reason the reload
+ * exists. Re-reading this client's own copy would answer the first two and quietly
+ * overwrite the third.
+ */
+describe('the store on your own box', () => {
+  const PUBKEY = 'a'.repeat(64);
+  const ESSID = 'BEAN-THERE-WIFI';
+  const CONFIG = { machineName: 'workstation', username: 'alice', rootPassword: 'hunter2' };
+  const OWN_IP = assignHomeNetwork(PUBKEY, ESSID).localIp;
+
+  /** The server door, deliberately unreachable. A statement against your own box that
+   *  took the cross-network path would throw here rather than quietly pass. */
+  const NOT_WIRED = () => {
+    throw new Error('own-box redis statements must not reach the server');
+  };
+
+  /** One captured `patches.write`, with the owner the DAEMON stamped on it — which is
+   *  the half of a write that says whose file it is once it lands. */
+  type Write = {
+    readonly path: string;
+    readonly content: string | null;
+    readonly owner?: string;
+  };
+
+  const onlineConnectivity = (): ConnectivityState => {
+    const cold = buildColdStartConnectivity(PUBKEY);
+    const wlan0 = cold.interfaces.get('wlan0');
+    if (wlan0 === undefined || wlan0.kind !== 'wireless') throw new Error('no wlan0');
+    return {
+      interfaces: new Map(cold.interfaces).set('wlan0', {
+        ...wlan0,
+        association: { essid: ESSID, bssid: 'AA:BB:CC:DD:EE:FF' },
+        ipv4: OWN_IP,
+      }),
+    };
+  };
+
+  const BASE = buildWorkstationBaseFs(asPlayerKeyHex(PUBKEY), CONFIG);
+  const STORE = ownStore({ ownerKeyHex: PUBKEY, hostname: CONFIG.machineName, fs: BASE });
+
+  const boxWith = (store: unknown, port: number = SERVICE_CATALOG.redis.defaultPort): Directory =>
+    applyPatches(BASE, [
+      {
+        path: DATADIR_PATH,
+        content: store === null ? null : JSON.stringify(store),
+        owner: DATADIR_OWNER,
+        permissions: DATADIR_FILE,
+      },
+      {
+        path: pidfilePath(SERVICE_CATALOG.redis),
+        content: formatPidfileContent(SERVICE_CATALOG.redis, port),
+        owner: 'root',
+        permissions: PIDFILE_PERMISSIONS,
+      },
+    ]);
+
+  const RUNNING = boxWith(STORE);
+
+  /** A box whose machine has moved on from the copy this client walked in with — which
+   *  is the ordinary state of a box somebody else can also write to. */
+  const box = (held: Directory, machine: Directory = held) => {
+    const of = (tree: Directory) =>
+      mockFsViewFromTree(tree, { userType: 'root', cwd: () => asAbsPath('/') });
+    return {
+      cwd: () => asAbsPath('/'),
+      read: (path: AbsPath) => of(held).read(path),
+      list: (path: AbsPath) => of(held).list(path),
+      stat: (path: AbsPath) => of(held).stat(path),
+      canWrite: (path: AbsPath) => of(held).canWrite(path),
+      root: () => held,
+      reload: async () => of(machine),
+    } satisfies FsView;
+  };
+
+  const ownEnv = (fs: FsView) => {
+    const writes: Write[] = [];
+    const env = mockCommandEnv({
+      redis: mockRedisApi({ run: NOT_WIRED }),
+      network: mockNetworkViewFromConnectivity(onlineConnectivity()),
+      hostname: CONFIG.machineName,
+      fs,
+      patches: {
+        write: async (path, content, options) => {
+          writes.push({ path, content, ...(options?.owner === undefined ? {} : { owner: options.owner }) });
+          return { ok: true };
+        },
+        mkdir: async () => ({ ok: true }),
+        remove: async () => ({ ok: true }),
+      },
+    });
+    return { env, writes };
+  };
+
+  /** The connection the prompt holds after `rediscli 127.0.0.1` — its own box under the
+   *  address it was leased, reached from loopback. */
+  const OWN: RedisConnection = {
+    essid: ESSID,
+    targetIp: OWN_IP,
+    port: SERVICE_CATALOG.redis.defaultPort,
+    sourceIp: '127.0.0.1',
+  };
+
+  const datadirWrite = (writes: readonly Write[]) =>
+    writes.find((write) => write.path === DATADIR_PATH);
+
+  const logWrites = (writes: readonly Write[]) =>
+    writes.filter((write) => write.path === REDIS_LOG_PATH);
+
+  it('refuses every statement until the box own root password is given', async () => {
+    // The lock is the password they chose for the box, so there is nothing to look up —
+    // but the store still refuses first, exactly as a stranger's does.
+    const { env } = ownEnv(box(RUNNING));
+
+    const result = await runRedisLine(env, 'KEYS *', OWN);
+
+    expect(linesOf(result)).toContain('NOAUTH Authentication required.');
+    expect(sync(result).exitCode).toBe(1);
+  });
+
+  it('opens to the root password the player chose for the box', async () => {
+    const { env, writes } = ownEnv(box(RUNNING));
+
+    const result = await runRedisLine(env, `AUTH ${CONFIG.rootPassword}`, OWN);
+
+    expect(sync(result).exitCode).toBe(0);
+    // The attempt lands on the box's own log, accepted as an intruder's would be.
+    expect(logWrites(writes).at(-1)?.content).toContain('authenticated successfully');
+  });
+
+  it('answers a read from the store, and leaves no line behind for it', async () => {
+    // Reads are how a defender's own log stays a record of CHANGES. A `KEYS` that wrote
+    // a line would bury an intruder's `SET` under the owner's own browsing.
+    const { env, writes } = ownEnv(box(RUNNING));
+
+    const result = await runRedisLine(env, 'DBSIZE', { ...OWN, password: CONFIG.rootPassword });
+
+    expect(linesOf(result)).toContain(`${Object.keys(STORE.keys).length}`);
+    expect(logWrites(writes)).toEqual([]);
+    expect(datadirWrite(writes)).toBeUndefined();
+  });
+
+  it('writes a SET back as the DAEMON, whatever tier the shell is sitting at', async () => {
+    // The datadir is root's file because redis runs as root. A rewrite inheriting the
+    // shell's owner would hand the box's ordinary user the hash a sweep is meant to
+    // have to work for.
+    const { env, writes } = ownEnv(box(RUNNING));
+
+    await runRedisLine(env, 'SET site:banner hello', { ...OWN, password: CONFIG.rootPassword });
+
+    const written = datadirWrite(writes);
+    expect(written?.owner).toBe(DATADIR_OWNER);
+    expect(storeIn(applyPatches(RUNNING, [
+      {
+        path: DATADIR_PATH,
+        content: written?.content ?? '',
+        owner: DATADIR_OWNER,
+        permissions: DATADIR_FILE,
+      },
+    ]))?.keys['site:banner']).toBe('hello');
+    expect(logWrites(writes).at(-1)?.content).toContain('site:banner');
+  });
+
+  it('answers from the MACHINE, so a key an occupant set is already there', async () => {
+    // Somebody else on this WiFi reached the daemon and set a key. Nothing pushed that
+    // to this client, and the copy it is holding has never seen it.
+    const theirs = { ...STORE, keys: { ...STORE.keys, 'their:key': 'their value' } };
+    const { env } = ownEnv(box(RUNNING, boxWith(theirs)));
+
+    const result = await runRedisLine(env, 'GET their:key', {
+      ...OWN,
+      password: CONFIG.rootPassword,
+    });
+
+    expect(linesOf(result)).toContain('their value');
+  });
+
+  it('does not REVERT an occupant write by composing the owner own SET from a stale copy', async () => {
+    // The sharpest form of it: the owner's routine use of their own box must not erase
+    // an intruder's edit. Composing the new store from what this client walked in
+    // holding would write their key back out of existence with nothing on screen to say
+    // so — the defender would be looking for evidence their own prompt deleted.
+    const theirs = { ...STORE, keys: { ...STORE.keys, 'their:key': 'their value' } };
+    const { env, writes } = ownEnv(box(RUNNING, boxWith(theirs)));
+
+    await runRedisLine(env, 'SET mine:key mine', { ...OWN, password: CONFIG.rootPassword });
+
+    const written = storeIn(applyPatches(RUNNING, [
+      {
+        path: DATADIR_PATH,
+        content: datadirWrite(writes)?.content ?? '',
+        owner: DATADIR_OWNER,
+        permissions: DATADIR_FILE,
+      },
+    ]));
+    expect(written?.keys['mine:key']).toBe('mine');
+    expect(written?.keys['their:key']).toBe('their value');
+  });
+
+  it('drops the prompt when the store it changed could not be written back', async () => {
+    // A write that could not be recorded is a write that did not happen. Answering OK
+    // over one that never landed would show the player their old keys on the next line.
+    const leave = vi.fn();
+    const env = mockCommandEnv({
+      redis: mockRedisApi({ run: NOT_WIRED, leave }),
+      network: mockNetworkViewFromConnectivity(onlineConnectivity()),
+      hostname: CONFIG.machineName,
+      fs: box(RUNNING),
+      patches: {
+        write: async (path) =>
+          path === DATADIR_PATH ? { ok: false, error: 'network_error' } : { ok: true },
+        mkdir: async () => ({ ok: true }),
+        remove: async () => ({ ok: true }),
+      },
+    });
+
+    const result = await runRedisLine(env, 'SET mine:key mine', {
+      ...OWN,
+      password: CONFIG.rootPassword,
+    });
+
+    expect(leave).toHaveBeenCalled();
+    expect(sync(result).exitCode).toBe(1);
+  });
+
+  it('drops the prompt when the daemon was stopped between two statements', async () => {
+    const leave = vi.fn();
+    const stopped = applyPatches(RUNNING, [
+      {
+        path: pidfilePath(SERVICE_CATALOG.redis),
+        content: null,
+        owner: 'root',
+        permissions: PIDFILE_PERMISSIONS,
+      },
+    ]);
+    const { env } = ownEnv(box(RUNNING, stopped));
+    const evicting = mockCommandEnv({ ...env, redis: mockRedisApi({ run: NOT_WIRED, leave }) });
+
+    const result = await runRedisLine(evicting, 'DBSIZE', {
+      ...OWN,
+      password: CONFIG.rootPassword,
+    });
+
+    expect(leave).toHaveBeenCalled();
+    expect(sync(result).exitCode).toBe(1);
+  });
+
+  it('drops the prompt when root deleted the datadir between two statements', async () => {
+    // Root's own file on root's own box: between two statements they can delete it,
+    // truncate it, or paste something into it that is not a store.
+    const leave = vi.fn();
+    const { env } = ownEnv(box(RUNNING, boxWith(null)));
+    const evicting = mockCommandEnv({ ...env, redis: mockRedisApi({ run: NOT_WIRED, leave }) });
+
+    const result = await runRedisLine(evicting, 'DBSIZE', {
+      ...OWN,
+      password: CONFIG.rootPassword,
+    });
+
+    expect(leave).toHaveBeenCalled();
+    expect(sync(result).exitCode).toBe(1);
   });
 });

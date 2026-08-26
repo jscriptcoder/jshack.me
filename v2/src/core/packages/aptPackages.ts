@@ -24,9 +24,14 @@
 
 import type { AbsPath, PlayerKeyHex } from '../types';
 import type { Directory, FilePermissions } from '../filesystem/types';
-import { DATADIR_FILE } from '../generation/baseFs';
+import { DATADIR_FILE, SERVICE_CONFIG_FILE } from '../generation/baseFs';
 import { DATADIR_PATH } from '../mysql/datadir';
 import { ownDatabase } from '../mysql/ownDatabase';
+import { DATADIR_PATH as STORE_PATH } from '../redis/datadir';
+import { ownStore } from '../redis/ownStore';
+import { formatRedisConf, REDIS_CONF_PATH } from '../generation/generateRedisStore';
+import { pidfilePath } from '../services/pidfile';
+import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import {
   DEFAULT_WORDLIST,
   formatWordlist,
@@ -153,7 +158,46 @@ export const APT_PACKAGES: readonly AptPackage[] = [
   // script runs — one hyphen is a syntax error that takes every script in the game down,
   // not just this command. It matches the `nginx` and `apache2` rows exactly: the
   // package name IS the daemon name, with no `d` suffix.
-  { name: 'redis', binaries: ['rediscli', 'redis'], daemons: ['redis'] },
+  {
+    name: 'redis',
+    binaries: ['rediscli', 'redis'],
+    daemons: ['redis'],
+    // TWO files, where every other package ships at most one: the store the daemon
+    // serves, and the conf the box publishes about it. The conf is not decoration —
+    // every generated box running a store carries one, so a player's box without it
+    // would read as a different kind of machine to anyone doing recon. They sit on
+    // different rungs on purpose: the lock is a hash in the root-only datadir, and the
+    // conf names no secret, which is what lets a guest read it.
+    extraFiles: [
+      {
+        path: STORE_PATH,
+        content: (box) =>
+          JSON.stringify(
+            ownStore({
+              ownerKeyHex: box.identity.publicKeyHex,
+              hostname: box.hostname,
+              fs: box.fs.root(),
+            }),
+          ),
+        permissions: DATADIR_FILE,
+      },
+      {
+        path: REDIS_CONF_PATH,
+        // The catalog's DEFAULT port, because an install cannot know a port the player
+        // has not chosen yet. A daemon started elsewhere leaves this line naming 6379,
+        // exactly as a real conf does when the port arrives on the command line — the
+        // pidfile is what `nmap` and `ps` read for the live answer, and this is a file
+        // the player can edit.
+        content: (box) =>
+          formatRedisConf({
+            hostname: box.hostname,
+            port: SERVICE_CATALOG.redis.defaultPort,
+            pidfilePath: pidfilePath(SERVICE_CATALOG.redis),
+          }),
+        permissions: SERVICE_CONFIG_FILE,
+      },
+    ],
+  },
   { name: 'lynx' },
   { name: 'apache2', daemons: ['apache2'] },
   { name: 'nginx', daemons: ['nginx'] },

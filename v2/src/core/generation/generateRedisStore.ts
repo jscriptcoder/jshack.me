@@ -21,6 +21,7 @@
  * conf a box publishes is readable by a guest.
  */
 
+import { asAbsPath } from '../types';
 import { createPrng, type Prng } from './prng';
 import { md5 } from './md5';
 import { CRACK_CHANCE, drawPassword } from './passwordPools';
@@ -111,6 +112,11 @@ export const generateRedisStore = ({
  * `/etc/passwd` where real Linux has `/etc/shadow`. A player who cats this looking for
  * `requirepass` learns what real Redis tells them: `NOAUTH Authentication required.`
  */
+/** Where the conf sits. Declared beside the formatter rather than at each writer,
+ *  because a box that published its conf somewhere else would be describing itself in a
+ *  file nobody doing recon on it thinks to open. */
+export const REDIS_CONF_PATH = asAbsPath('/etc/redis/redis.conf');
+
 export const formatRedisConf = ({
   hostname,
   port,

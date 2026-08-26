@@ -291,11 +291,39 @@ const MYSQLD: Daemon = {
   ],
 };
 
+/** The store daemon, and the second door a player has to BUY. No `d` on the end:
+ *  a command name becomes a formal PARAMETER of the function a script runs, so
+ *  `redis-server` would be a syntax error that takes every script in the game down.
+ *  The package name IS the daemon name here, exactly as `nginx` and `apache2` are.
+ *
+ *  Its secret belongs to the SERVICE rather than to a person — one lock, no accounts —
+ *  which is the whole difference between this door and the database beside it. On a
+ *  player's own box that lock is the box's root password, so starting this is opening a
+ *  second way at a secret they already hold. */
+const REDIS: Daemon = {
+  name: 'redis',
+  spec: SERVICE_CATALOG.redis,
+  banner: 'Redis server',
+  alreadyRunning: 'already running',
+  description: 'Redis key-value store daemon',
+  availability: { kind: 'installed-package', packageName: 'redis' },
+  manualDescription:
+    'Start the Redis key-value store, opening the store port (default 6379) on this machine so ' +
+    'it accepts incoming connections. There are no accounts: the store answers to a single ' +
+    "password, which on your own box is this machine's root password. Must be run as root " +
+    '(run "su" first). Refuses to start if a store is already running.',
+  examples: [
+    { command: 'redis', description: 'Start the store on the default port 6379' },
+    { command: 'redis 6380', description: 'Start it on port 6380 instead' },
+  ],
+};
+
 export const sshd = daemonCommand(SSHD);
 export const vsftpd = daemonCommand(VSFTPD);
 export const nginx = daemonCommand(NGINX);
 export const apache2 = daemonCommand(APACHE2);
 export const mysqld = daemonCommand(MYSQLD);
+export const redis = daemonCommand(REDIS);
 
 /** Each daemon keyed by the command name that starts it. `systemctl` reads this
  *  to bring a unit up through `bringUp` once it has established the port is
@@ -307,4 +335,5 @@ export const DAEMONS: Readonly<Record<string, Daemon>> = {
   nginx: NGINX,
   apache2: APACHE2,
   mysqld: MYSQLD,
+  redis: REDIS,
 };

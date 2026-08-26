@@ -19,7 +19,7 @@ import { apt } from './apt';
 import { cat } from './cat';
 import { cd } from './cd';
 import { curl } from './curl';
-import { apache2, mysqld, nginx, sshd, vsftpd } from './daemon';
+import { apache2, mysqld, nginx, redis, sshd, vsftpd } from './daemon';
 import { echo } from './echo';
 import { exit } from './exit';
 import { grep } from './grep';
@@ -94,6 +94,7 @@ const builtins: readonly Command[] = [
   mysql,
   rediscli,
   mysqld,
+  redis,
   scp,
   ssh,
   sshd,
