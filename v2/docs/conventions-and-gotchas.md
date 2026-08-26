@@ -1872,20 +1872,6 @@ state costs you more than one wrong attempt.
 
 Forward-looking direction not yet built (preserved as pointers; design when actually built).
 
-- **A deep layer's TERMINAL box is never materialized or boot-gated.**
-  `resolveInnerGatewayTarget` replays every GATEWAY's journal down the chain — it has to, to
-  read `rules.v4` — and re-checks `canBoot` at each hop, but the box at the end of the chain
-  comes back as `buildDeepHostFs(essid, host)`: its seeded tree, no journal, no boot gate. Two
-  consequences a player can reach: an account added to a deep box's `/etc/passwd` (by a player
-  who rooted it and ran `nano`) cannot log in, and a deep box bricked through its own journal
-  still answers. ssh and hydra never noticed because seeded accounts are all they read off it.
-  The mysql door hit it immediately — it answers with DATA, so a write would persist and never
-  be read back — and worked around it by materializing on top of what the resolver returned
-  (`reachMysqlHost`), which leaves ssh and hydra untouched. Fixing it in the resolver closes it
-  for every door at once and is the better end state, but it CHANGES two shipped doors, so it
-  needs `testInnerGatewayReach.ts` re-run live in the same slice. Found while building D6
-  slice 5, 2026-08-21.
-
 - **One finding from the D6 browser smoke test is still open (2026-08-23).** The run that found
   the own-box write-wipe (fixed in v0.172.0, #449 — see the §7 invariant) turned up three more,
   none of which blocks a player and none of which belonged in that fix. **Two are now closed at

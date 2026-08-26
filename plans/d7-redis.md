@@ -1030,13 +1030,16 @@ commit.
 
 ### Slice 5b: A deep box's own journal is finally read
 
-**Value**: One resolver gap, three doors. The box at the end of a forward chain is the one hop whose
-journal nothing reads — so an account a player added to a deep box cannot log in, a deep box bricked
-through its own journal still answers, and a sweep reports what the door will then refuse. Closing
-it in `resolveInnerGatewayTarget` fixes all three at once and lets the data doors stop compensating.
+**Value**: One seeded-tree gap, three doors and the scan. The box at the end of a forward chain is
+the one hop whose journal nothing reads — so an account a player added to a deep box cannot log in,
+a deep box bricked through its own journal still answers, a sweep reports what the door will then
+refuse, and `nmap` reports what the box was GENERATED running rather than what it runs. Closing it
+where the walks build that box fixes all of them at once and lets the data doors stop compensating.
 **Path**: `resolveInnerGatewayTarget` replays the terminal box's journal and boot-gates it, exactly
 as it already does at every gateway hop → `ssh`, `hydra` and both data doors inherit it →
-`reachServiceHost`'s deep branch stops replaying a journal that has already arrived.
+`resolveInnerGatewayScan` does the same for the port map it reports, so the scan stops disagreeing
+with the doors → `reachServiceHost`'s deep branch stops replaying a journal that has already
+arrived.
 **Class**: Behavior change.
 **Delivery**: Independent PR against trunk, **started after slice 5 merges** — criteria 3 and 4 are
 stated in redis's terms and slice 5 is what makes them sayable. Not a stack member: nothing here is
@@ -1068,6 +1071,10 @@ SAME file — which turns a latent disagreement into one a player can produce.
    building slice 5 and left to this one: routing ITSELF reads the terminal box's seeded tree, so
    this is the trap one layer earlier than the door — a third player-reachable symptom, and the one
    that shows the gap is not only about what a door answers with.
+3c. **`nmap` down the chain reports what the terminal box is ACTUALLY running.** A daemon a player
+   stopped down there stops showing open, and one they moved shows at its new port. The scan walks
+   its own path and reads the terminal box seeded in exactly the way routing does, so leaving it
+   out would keep the scan, the sweep and the door giving three answers about one box.
 4. A `requirepassHash` edited on a deep box is the one `hydra` reports AND the one `AUTH` then
    accepts. Two sides of one rule; redis is the door where both sides read the same file.
 5. `reachServiceHost`'s deep branch no longer replays the journal a second time: ONE journal read
@@ -1075,31 +1082,46 @@ SAME file — which turns a latent disagreement into one a player can produce.
    Every slice-5 criterion still holds, unchanged and re-run.
 6. Every shipped deep-layer behavior is unchanged, proven live rather than by unit suite:
    `testInnerGatewayReach.ts` — the §9 entry's own stated condition for this fix — plus
-   `testDeepChainReach.ts`, `testMysqlDeep.ts` and `testRedisDeep.ts`.
+   `testDeepChainReach.ts`, `testDeepScanTrace.ts`, `testMysqlDeep.ts` and `testRedisDeep.ts`.
 7. The §9 backlog entry is DELETED rather than amended, because it is closed. The `serviceHost.ts`
    header comment that ends "the gap itself is the resolver's to close for every door at once" goes
    with it — a comment describing a gap that no longer exists is worse than no comment.
+
+**PLANNING CORRECTION found while grounding (2026-08-26):**
+
+- **The trap has a FOURTH call site, and it is the one a player meets first.**
+  `resolveInnerGatewayScan.ts:111` builds the terminal box's port map from
+  `buildDeepHostFs(essid, deep.host)` — seeded — so `nmap` down a forward chain reports what the
+  box was generated running rather than what it runs. Same disagreement as criterion 3, one
+  surface earlier, and a player scans before they connect. Folded in as criterion 3c rather than
+  deferred: criterion 7 deletes the §9 entry on the claim that the gap is closed, and a seeded
+  scan would make that claim false. The scan does NOT share `resolveInnerGatewayTarget` — it is
+  its own walk — so this is a second call site to fix, not a free consequence.
 
 **RED** — behavior tests, before any production change:
 
 - `network/resolveInnerGatewayTarget.test.ts` — the terminal box's journal replayed into what it
   hands back, and its own brick honoured, at the end of a one-hop chain and a multi-hop one.
+- `scan/resolveInnerGatewayScan.test.ts` — the terminal box's own journal in the ports the scan
+  reports: a stopped daemon gone from the map, a moved one at its new port.
 - `sessions/authCreateSessionInnerGateway.test.ts` — the added account logging in; a seeded account
   removed from a deep box's `/etc/passwd` no longer logging in.
 - `sessions/hydraCrackInnerGateway.test.ts` — the stopped deep daemon refused, and the edited secret
   reported as it now stands.
 
-**GREEN**: the replay and the boot gate in `resolveInnerGatewayTarget`; the compensation removed
-from `reachServiceHost`'s deep branch.
-**MUTATE**: Stryker over `network/resolveInnerGatewayTarget.ts` and `sessions/serviceHost.ts`.
+**GREEN**: the replay and the boot gate in `resolveInnerGatewayTarget`; the same replay behind the
+terminal box's port map in `resolveInnerGatewayScan`; the compensation removed from
+`reachServiceHost`'s deep branch.
+**MUTATE**: Stryker over `network/resolveInnerGatewayTarget.ts`, `scan/resolveInnerGatewayScan.ts`
+and `sessions/serviceHost.ts`.
 **KILL MUTANTS**: Address survivors; ask when a survivor's value is ambiguous.
 **REFACTOR**: The removal itself, assessed once the behavior tests are green — it is a refactor
 consequence, not the slice's justification.
-**Wire-check**: the four scripts in criterion 6, live. **This is the slice where a green unit suite
+**Wire-check**: the five scripts in criterion 6, live. **This is the slice where a green unit suite
 proves least**: the resolver is precisely the seam `tsc` and stubbed deps both see straight through,
 and it is why the backlog entry named a live re-run as the condition rather than a suggestion.
 **Version**: bump `0.178.0` → `0.179.0` in `v2/package.json` + `v2/package-lock.json`.
-**Done when**: criteria 1–7 met, all four wire-checks green live, mutation report presented, human
+**Done when**: criteria 1–7 met, all five wire-checks green live, mutation report presented, human
 approves the commit.
 
 ### Slice 6: A player runs their own store

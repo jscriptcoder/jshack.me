@@ -17,6 +17,9 @@ import {
 import { seedDeepGatewayAdminPw, seedInnerGatewayAdminPw } from '../generation/routerFs';
 import { accountIn } from './passwdAccount';
 import { md5 } from '../generation/md5';
+import { pidfilePath } from '../services/pidfile';
+import { DATADIR_PATH } from '../redis/datadir';
+import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { ALL_GENERATED_PASSWORDS } from '../generation/passwordPools';
 import { formatWordlist, WORDLIST_PATH } from '../wordlist/defaultWordlist';
 import {
@@ -185,15 +188,30 @@ type DepOverrides = Partial<HydraCrackInnerGatewayDeps> & {
   /** The inner gateway's journal — where the forward lives, and the boot state that
    *  decides whether the entrance is dark at all. */
   readonly gatewayPatches?: readonly OwnerPatchRow[];
+  /** The journal of the box AT THE END of the forward — whatever has happened to it
+   *  since the world was generated. Kept separate from the gateway's, because which box
+   *  a row is filed against is part of the claim. */
+  readonly deepPatches?: readonly OwnerPatchRow[];
+  /** The machine whose journal `deepPatches` belongs to; the terminal box by default. */
+  readonly deepMachineId?: string;
 };
 
 const depsWith = (over: DepOverrides = {}): HydraCrackInnerGatewayDeps => {
-  const { wordlist = [DEEP_GUEST.password], gatewayPatches = [forwardPatch], ...rest } = over;
+  const {
+    wordlist = [DEEP_GUEST.password],
+    gatewayPatches = [forwardPatch],
+    deepPatches = [],
+    deepMachineId = DEEP_ID,
+    ...rest
+  } = over;
   return {
     nonceStore: freshStore,
     now: () => FIXED_NOW,
     findActiveSession: async () => ({ data: null, error: null }),
-    findPatches: async () => ({ data: gatewayPatches, error: null }),
+    findPatches: async ({ machine_id }) => ({
+      data: machine_id === deepMachineId ? deepPatches : gatewayPatches,
+      error: null,
+    }),
     listPathPatches: async (): Promise<ListPathPatchesResult> => ({
       data: wordlist === null ? [] : [wordlistRow(wordlist)],
       error: null,
@@ -574,6 +592,40 @@ describe('a store on the deep layer', () => {
     expect(status).toBe(404);
   });
 
+  it('reports the password behind a requirepassHash the player REWROTE down there', async () => {
+    const chosen = 'hunter2';
+    const rewritten = { ...LOCKED.store, requirepassHash: md5(chosen) };
+    const seeded = LOCKED.password;
+    if (seeded === null) throw new Error('the locked fixture is not locked');
+
+    const { status, body } = await sweepStore(LOCKED, {
+      wordlist: [seeded, chosen],
+      deepPatches: [
+        {
+          path: DATADIR_PATH,
+          content: JSON.stringify(rewritten),
+          owner: 'root',
+          permissions: null,
+          node_type: 'file',
+          updated_at: '2026-08-26T00:00:02.000Z',
+          writer_key: ATTACKER.publicKeyHex,
+        },
+      ],
+      deepMachineId: LOCKED.machineId,
+    });
+
+    // The lock a player changed is the lock that is on the door. Both halves of this
+    // rule read the SAME file here — which is what turned a latent disagreement into
+    // one a player can produce — so a sweep answering off the seeded tree hands back a
+    // password the door will then refuse.
+    expect(status).toBe(200);
+    expect(body).toEqual({
+      port: STORE_FORWARD_PORT,
+      cracked: [{ password: chosen }],
+      wordlistFound: true,
+    });
+  });
+
   it('records the sweep on the DEEP box, at the address NAT showed it', async () => {
     const password = LOCKED.password;
     if (password === null) throw new Error('the locked fixture is not locked');
@@ -589,5 +641,78 @@ describe('a store on the deep layer', () => {
         content: expect.stringContaining(`Client ${LOCKED.natIp} authenticated successfully`),
       }),
     );
+  });
+});
+
+// ─── what the sweep reads off the box, now that the box is read at all ───
+//
+// The sweep and the door have to agree about one box: hydra reports a password the door
+// then accepts, and refuses to sweep what the door would refuse to open. Both halves used
+// to read the terminal box exactly as the world generated it, so anything a player did to
+// it down there was invisible to both — which only stopped being latent once a door
+// arrived whose secret lives in a file a player can edit.
+
+describe('a deep box the player has already changed', () => {
+  /** `systemctl stop sshd` on the deep box: the pidfile is gone from its own journal. */
+  const stoppedSshd: OwnerPatchRow = {
+    path: pidfilePath(SERVICE_CATALOG.ssh),
+    content: null,
+    owner: 'root',
+    permissions: null,
+    node_type: null,
+    updated_at: '2026-08-26T00:00:00.000Z',
+    writer_key: ATTACKER.publicKeyHex,
+  };
+
+  const passwdRow = (content: string): OwnerPatchRow => ({
+    path: '/etc/passwd',
+    content,
+    owner: 'root',
+    permissions: null,
+    node_type: 'file',
+    updated_at: '2026-08-26T00:00:01.000Z',
+    writer_key: ATTACKER.publicKeyHex,
+  });
+
+  const seededPasswd = (): string => {
+    const etc = DEEP_FS.entries.get('etc');
+    if (etc === undefined || etc.kind !== 'directory') throw new Error('no /etc');
+    const passwd = etc.entries.get('passwd');
+    if (passwd === undefined || passwd.kind !== 'file') throw new Error('no /etc/passwd');
+    return passwd.content;
+  };
+
+  it('answers a STOPPED deep daemon as not running rather than sweeping it anyway', async () => {
+    const result = await handleHydraCrackInnerGateway(
+      envelope(),
+      depsWith({ deepPatches: [stoppedSshd] }),
+    );
+
+    // A stopped daemon leaves nothing to attack, exactly as it leaves nothing to connect
+    // to. Reporting a password for a door that is shut would be the sweep and the door
+    // disagreeing about the same box.
+    expect(result).toEqual({ status: 404, body: { error: 'service_not_running' } });
+  });
+
+  it('sweeps the accounts the box holds NOW, not the ones it was generated holding', async () => {
+    const password = 'hunter2';
+    const added = `intruder:${md5(password)}:1002:1002:Intruder:/home/intruder:/bin/bash`;
+
+    const result = await handleHydraCrackInnerGateway(
+      envelope(),
+      depsWith({
+        wordlist: [password],
+        deepPatches: [passwdRow(`${seededPasswd()}${added}\n`)],
+      }),
+    );
+
+    // An account a player added down there is an account a player can crack. Reading the
+    // seeded tree would report nothing found and be wrong about a door that opens.
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({
+      port: 2222,
+      cracked: [{ username: 'intruder', password }],
+      wordlistFound: true,
+    });
   });
 });

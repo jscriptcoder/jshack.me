@@ -9,6 +9,9 @@ import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { crackableEssidPool } from '../generation/generateWifi';
 import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer';
 import { computeDeepGatewayId, computeInnerGatewayId } from '../identity/router';
+import { hostMachineId } from '../generation/remoteHostId';
+import { formatPidfileContent, pidfilePath } from '../services/pidfile';
+import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import type { OwnerPatchRow } from '../network/materializeWorkstationFs';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
@@ -94,6 +97,20 @@ const DEEP_LAYER = generateDeepLayer(ESSID, {
   kind: 'router',
 });
 const DEEP_IP = DEEP_LAYER.host.ip;
+const DEEP_HOST_ID = hostMachineId(DEEP_LAYER.host, ESSID);
+
+/** A row on the DEEP BOX's own journal — what a player left behind after rooting it.
+ *  Which machine it is filed against is part of the claim: the gateway carried the
+ *  packet and ran nothing. */
+const deepPatchRow = (path: string, content: string | null): OwnerPatchRow => ({
+  path,
+  content,
+  owner: 'root',
+  permissions: null,
+  node_type: content === null ? null : 'file',
+  updated_at: '2026-08-26T00:00:00.000Z',
+  writer_key: PLAYER.publicKeyHex,
+});
 /** The child gateway hanging on the inner router's deep layer (5b.4a) — a forward to
  *  its `:22` must surface from the upstream scan so a reach to it passes its gate. */
 const CHILD = DEEP_LAYER.childGateway;
@@ -191,6 +208,88 @@ describe('handleResolveInnerGatewayScan', () => {
     const result = await handleResolveInnerGatewayScan(envelope(INNER.ip), deps);
 
     // The gateway's own :22 PLUS the live forward, mapped to its public port :2222.
+    expect(result).toEqual({
+      status: 200,
+      body: {
+        ok: true,
+        found: true,
+        ports: [
+          { port: 22, service: 'ssh' },
+          { port: 2222, service: 'ssh' },
+        ],
+      },
+    });
+  });
+
+  it('drops a forwarded port whose daemon the player STOPPED on the deep box', async () => {
+    const { deps } = perIdDeps({
+      [INNER_GW_ID]: [forwardPatch],
+      [DEEP_HOST_ID]: [deepPatchRow(pidfilePath(SERVICE_CATALOG.ssh), null)],
+    });
+
+    const result = await handleResolveInnerGatewayScan(envelope(INNER.ip), deps);
+
+    // The terminal box's ports used to come straight off its regenerated tree, so a
+    // daemon a player stopped down there went on being advertised — a scan promising a
+    // door the reach then refuses.
+    expect(result).toEqual({
+      status: 200,
+      body: { ok: true, found: true, ports: [{ port: 22, service: 'ssh' }] },
+    });
+  });
+
+  it('advertises nothing for a deep box bricked through its own journal', async () => {
+    const { deps } = perIdDeps({
+      [INNER_GW_ID]: [forwardPatch],
+      [DEEP_HOST_ID]: [bootTombstone],
+    });
+
+    const result = await handleResolveInnerGatewayScan(envelope(INNER.ip), deps);
+
+    // A box that cannot boot has no doors, and the reach already refuses it. A scan
+    // still listing its port would send a player at something that is dark.
+    expect(result).toEqual({
+      status: 200,
+      body: { ok: true, found: true, ports: [{ port: 22, service: 'ssh' }] },
+    });
+  });
+
+  it('reports a deep box whose journal could not be READ as a server fault', async () => {
+    const findPatches = vi.fn<(query: { machine_id: string }) => Promise<PatchesResult>>(
+      async ({ machine_id }) =>
+        machine_id === DEEP_HOST_ID
+          ? { data: null, error: { message: 'boom' } }
+          : { data: [forwardPatch], error: null },
+    );
+    const deps: ResolveInnerGatewayScanDeps = { nonceStore: freshStore, findPatches };
+
+    const result = await handleResolveInnerGatewayScan(envelope(INNER.ip), deps);
+
+    // Not an empty port list: a scan that reports nothing found tells a player the layer
+    // is bare, and they would stop looking at a network that is fine.
+    expect(result).toEqual({ status: 500, body: { error: 'patches_lookup_failed' } });
+  });
+
+  it('follows a daemon the player MOVED on the deep box to its new port', async () => {
+    const moved = 2022;
+    const movedForward: OwnerPatchRow = {
+      ...forwardPatch,
+      content: `forward 2222 to ${DEEP_IP}:${moved}`,
+    };
+    const { deps } = perIdDeps({
+      [INNER_GW_ID]: [movedForward],
+      [DEEP_HOST_ID]: [
+        deepPatchRow(
+          pidfilePath(SERVICE_CATALOG.ssh),
+          formatPidfileContent(SERVICE_CATALOG.ssh, moved),
+        ),
+      ],
+    });
+
+    const result = await handleResolveInnerGatewayScan(envelope(INNER.ip), deps);
+
+    // The other direction: a forward pointing where the daemon actually is now was dark
+    // to the scan, because the seeded tree still had it on its old port.
     expect(result).toEqual({
       status: 200,
       body: {
