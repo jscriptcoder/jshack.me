@@ -75,10 +75,18 @@ const target = lan.hosts.find((host) => host.kind === 'machine' && serves(host, 
 const doorless = lan.hosts.find(
   (host) => host.kind === 'machine' && !serves(host, SERVICE_CATALOG.ftp),
 );
+// The ssh-hop checks need a box that actually runs sshd, and the ftp target is chosen
+// for its FTP door with no reason to have one. On this ESSID it does not: the first
+// machine serving ftp offers ftp:2121 and nothing else, so an ssh login there is
+// refused `service_not_running`, no session row is written, and the two checks that
+// read one back report a missing default rather than a broken default.
+const sshTarget = lan.hosts.find(
+  (host) => host.kind === 'machine' && serves(host, SERVICE_CATALOG.ssh),
+);
 
-if (target === undefined || doorless === undefined) {
+if (target === undefined || doorless === undefined || sshTarget === undefined) {
   console.error(
-    `ESSID ${ESSID} lacks a pair (ftp host: ${target?.ip ?? 'none'}, ftp-less host: ${doorless?.ip ?? 'none'}).`,
+    `ESSID ${ESSID} lacks a trio (ftp host: ${target?.ip ?? 'none'}, ftp-less host: ${doorless?.ip ?? 'none'}, ssh host: ${sshTarget?.ip ?? 'none'}).`,
   );
   process.exit(2);
 }
@@ -222,11 +230,14 @@ const main = async (): Promise<void> => {
   );
 
   // The default has to survive the parameterization: every shipped caller omits it.
+  // Against the ssh box, not the ftp one — an omitted `kind` means an ssh hop, and a
+  // hop only happens where there is an sshd to answer it.
+  const sshAccount = credential(sshTarget);
   await login({
     sessionId: 'ssh-hop-1',
-    host: target,
-    username: account.username,
-    password: account.password,
+    host: sshTarget,
+    username: sshAccount.username,
+    password: sshAccount.password,
   });
   const hop = await sessionRow('ssh-hop-1');
   check(

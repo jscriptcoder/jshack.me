@@ -10,8 +10,10 @@ import {
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 import { BINARY_STUB } from '../generation/binaries';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { pidfilePath, readOpenPorts } from '../services/pidfile';
-import { systemctl } from './systemctl';
+import { daemonName, pidfilePath, readOpenPorts } from '../services/pidfile';
+import { APT_PACKAGES } from '../packages/aptPackages';
+import { DAEMONS } from './daemon';
+import { isUnitName, systemctl } from './systemctl';
 
 /**
  * `systemctl` is the defender's half of every door: it closes a port that is
@@ -669,5 +671,46 @@ describe('systemctl and the key-value store a player bought', () => {
     expect(text).toBe('Unit redis.service could not be found.');
     expect(exitCode).toBe(1);
     expect(writes).toEqual([]);
+  });
+});
+
+/**
+ * Three separate tables state which daemons this world has: what a package
+ * installs (`APT_PACKAGES[].daemons`), what can be started (`DAEMONS`), and what
+ * `systemctl` will act on (`UNITS`). They are one fact written three times, and
+ * nothing but these assertions makes them agree.
+ *
+ * The gap is invisible from every direction except the one a player reaches for.
+ * It has already shipped twice on the same door: once with the package naming a
+ * daemon `DAEMONS` did not carry, and once with `DAEMONS` carrying one `UNITS`
+ * did not — each time leaving a service that could be installed and started but
+ * never stopped, because `systemctl stop` is the only way to shut one.
+ *
+ * These compare NAMES rather than counts, so a failure says which daemon is
+ * stranded and in which table.
+ */
+describe('the three tables that say which daemons exist', () => {
+  const daemonsOfPackages = APT_PACKAGES.flatMap((pkg) => pkg.daemons ?? []);
+
+  it('can start every daemon a package installs', () => {
+    const unstartable = daemonsOfPackages.filter((name) => !Object.hasOwn(DAEMONS, name));
+
+    expect(unstartable).toEqual([]);
+  });
+
+  it('can stop every daemon it can start', () => {
+    const unstoppable = Object.keys(DAEMONS).filter((name) => !isUnitName(name));
+
+    expect(unstoppable).toEqual([]);
+  });
+
+  it('gives every door in the catalog a daemon a player can act on', () => {
+    // A service whose pidfile names a daemon nobody can start is a door that
+    // opens only where the world generated it already open.
+    const stranded = Object.values(SERVICE_CATALOG)
+      .map((spec) => daemonName(spec))
+      .filter((name) => !Object.hasOwn(DAEMONS, name) || !isUnitName(name));
+
+    expect(stranded).toEqual([]);
   });
 });
