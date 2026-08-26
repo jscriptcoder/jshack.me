@@ -176,7 +176,7 @@ const signedStatement = (
     source_ip: request.source_ip === undefined ? CLIENT_IP : request.source_ip,
   });
 
-describe('the request itself', () => {
+describe('what the request may not claim', () => {
   it('refuses a payload that names its own player key, however well signed', async () => {
     const identity = generateIdentity();
     const host = openStoreHostOn(ESSID);
@@ -1278,5 +1278,141 @@ describe("another player's store, asked from the other side of the world", () =>
     // outside in. There is no session row to invalidate, so asking again IS the
     // eviction — and from beyond the NAT a dead forward reads as simple silence.
     expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+  });
+});
+
+// ─── the same WiFi: the neighbour's store, with nothing in between ───
+//
+// The other end of the reach the block above walks. Across NAT the port is the whole
+// address and a stopped daemon reads as silence; here the address IS the box, and a
+// stopped daemon says so. What does NOT change is the lock: slice 6 mirrors a box's
+// root password onto its store wherever the caller is standing, so a neighbour is no
+// more walked in on than a stranger across the world.
+
+const ATTACKER_OCTET = 61;
+const ATTACKER_LAN_IP = lanAddressFor(ESSID, ATTACKER_OCTET);
+const DEFENDER_SAME_LAN_IP = lanAddressFor(ESSID, DEFENDER_OCTET);
+
+const attackerOccupant = (attackerKey: string): NatOccupantRow => ({
+  owner_key: attackerKey,
+  workstation_machine_id: 'workstation-a1b2c3d4',
+  workstation_machine_name: 'trinity-box',
+  workstation_username: 'trinity',
+  workstation_root_hash: md5('a-different-password'),
+});
+
+const sameLanDeps = (
+  attackerKey: string,
+  defenderJournal: readonly OwnerPatchRow[] = [defenderRedisd, defenderDatadir],
+) =>
+  makeDeps({
+    findPatches: journals({ [DEFENDER_WS]: defenderJournal }),
+    listOccupantsByEssid: async () => ({
+      data: [defenderOccupant, attackerOccupant(attackerKey)],
+      error: null,
+    }),
+    listLeasesByEssid: async () => ({
+      data: [
+        { owner_key: DEFENDER.publicKeyHex, octet: DEFENDER_OCTET },
+        { owner_key: attackerKey, octet: ATTACKER_OCTET },
+      ] as readonly LanLeaseRow[],
+      error: null,
+    }),
+  });
+
+const askNextDoor = async (
+  identity: ReturnType<typeof generateIdentity>,
+  deps: RedisStatementDeps,
+  request: { readonly statement: string; readonly password?: string },
+) =>
+  handleRedisStatement(
+    await signedStatement(identity, {
+      target_ip: DEFENDER_SAME_LAN_IP,
+      statement: request.statement,
+      ...(request.password === undefined ? {} : { password: request.password }),
+    }),
+    deps,
+  );
+
+describe("a fellow occupant's store, asked from across the room", () => {
+  it('refuses the first question here too, because the lock does not care where you stand', async () => {
+    const identity = generateIdentity();
+    const { deps } = sameLanDeps(identity.publicKeyHex);
+
+    const response = await askNextDoor(identity, deps, { statement: 'KEYS *' });
+
+    // Proximity is not authorization. The mirror slice 6 put on every player's store
+    // has no vantage in it, so being on somebody's WiFi buys exactly nothing.
+    expect(response).toEqual({
+      status: 200,
+      body: { output: ['(error) NOAUTH Authentication required.'], failed: true },
+    });
+  });
+
+  it("accepts the password the neighbour chose for their own root account", async () => {
+    const identity = generateIdentity();
+    const { deps } = sameLanDeps(identity.publicKeyHex);
+
+    const response = await askNextDoor(identity, deps, {
+      statement: `GET ${DEFENDER_KEY}`,
+      password: DEFENDER_ROOT_PW,
+    });
+
+    expect(response.body).toMatchObject({ failed: false });
+    expect(String(response.body.output)).toContain(DEFENDER_STORE.keys[DEFENDER_KEY] ?? '');
+  });
+
+  it("writes the rewritten store into the NEIGHBOUR's own row, not the caller's", async () => {
+    const identity = generateIdentity();
+    const { deps, upsertPatch } = sameLanDeps(identity.publicKeyHex);
+
+    await askNextDoor(identity, deps, {
+      statement: 'SET intruder:was-here yes',
+      password: DEFENDER_ROOT_PW,
+    });
+
+    // One box, one datadir, however many neighbours have touched it. A row per caller
+    // would fold to whichever was written last and silently drop the rest.
+    const [row] = datadirRows(upsertPatch);
+    expect(row?.writer_key).toBe(DEFENDER.publicKeyHex);
+    expect(row?.machine_id).toBe(DEFENDER_WS);
+  });
+
+  it('names the caller by the address the LEASE issued, never the one they typed', async () => {
+    const identity = generateIdentity();
+    const { deps, upsertPatch } = sameLanDeps(identity.publicKeyHex);
+
+    await askNextDoor(identity, deps, {
+      statement: `AUTH ${DEFENDER_ROOT_PW}`,
+    });
+
+    // Nothing rewrote the source on the way in — the box really did see this address —
+    // but it is still read from the lease store rather than taken from the request,
+    // because evidence a client can write is none.
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: REDIS_LOG_PATH,
+        content: expect.stringContaining(ATTACKER_LAN_IP),
+      }),
+    );
+    expect(upsertPatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining(CLIENT_IP) }),
+    );
+  });
+
+  it('says the daemon has stopped rather than falling silent, because there is no NAT to hide it', async () => {
+    const identity = generateIdentity();
+    const { deps } = sameLanDeps(identity.publicKeyHex, [defenderDatadir]);
+
+    const response = await askNextDoor(identity, deps, {
+      statement: 'KEYS *',
+      password: DEFENDER_ROOT_PW,
+    });
+
+    // The deliberate asymmetry with the block above. Across somebody else's NAT a dead
+    // forward and a forward that was never opened are the same silence, and telling
+    // them apart would disclose which services a box has stopped. On the shared WiFi
+    // the caller is INSIDE the network, so the honest answer is the specific one.
+    expect(response).toEqual({ status: 404, body: { error: 'service_not_running' } });
   });
 });

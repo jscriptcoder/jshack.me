@@ -1473,40 +1473,94 @@ the point of the run.
 #### Slice 7b: A neighbour's store, and the tool that could not see it
 
 **Path**: B on A's ESSID → `rediscli <A's leased ip>` → the same-LAN occupant branch; and
-`nmap <A's leased ip>` → a new server-side occupant port resolution beside `resolvePublicScan`.
+`nmap <A's leased ip>` → a new server-side occupant scan beside `resolvePublicScan`.
+
+**PLANNING CORRECTION found while grounding (2026-08-26):**
+
+- **The door half is `already true, with no test saying so` for the SECOND slice running.** Both
+  redis doors stub `listOccupantsByEssid` to `{ data: [], error: null }` in their base `makeDeps`,
+  and `reachServiceHost`'s same-LAN branch is generic and already wired for both. `mysql` has the
+  suite — `mysqlConnect.test.ts`'s *"a fellow occupant, on the WiFi they are both connected to"*,
+  from #448 — and redis has nothing equivalent. So RED for criteria 1–3 comes from MUTATING
+  PRODUCTION again, exactly as slice 7a's did, and the door half's GREEN is expected to be empty.
+  Two slices in a row proving a reach that already worked is what a genuinely shared resolver looks
+  like from the test side: the LAST door to be built pays nothing, and nothing tells you the
+  evidence is missing.
+- **The structural cost this plan named in advance is AVOIDABLE.** It said `resolveHostPorts`
+  becomes async for the occupant branch. It does not: a single-IP scan of an inner gateway already
+  returns early with its own generator BEFORE `resolveHostPorts` is constructed, and an occupant
+  target takes the same branch shape one line below it. `resolveHostPorts` stays sync. `scanRange`
+  never rendered a port table at all, so ranges were never in scope either — a neighbour in a range
+  scan is a row in the host list and nothing more, before this slice and after it.
+- **Only half the named machinery is reused.** `bootableOccupantFs` yes — it is exactly the boot
+  gate this needs. `natPortResolver` no: that resolves a MAP of forward addresses to trees, and one
+  occupant needs `readOpenPorts(occupantFs)` directly.
+- **A two-state resolution would make the tool lie, and the codebase already says so.**
+  `resolvePublic`'s adapter collapses every failure — non-ok, malformed, thrown — into
+  `found: false`, which renders `Host seems down.` For a public IP that is honest, because nothing
+  local ever established the host exists. For an occupant it would call a LIVE neighbour dead
+  because our own request failed, seconds after `resolveOccupants` returned them. `fetchPublicPage`
+  already forbids precisely this, in its own header: *"reporting that as a refusal would blame the
+  target for our own outage."* So the occupant seam keeps THREE outcomes apart where the public one
+  keeps two.
+- **Decision taken (2026-08-26): a new lazy endpoint, not a wider occupant projection.**
+  `resolveOccupantScan(essid, target)` beside `resolvePublicScan`, mirroring
+  `resolveInnerGatewayScan` — which is the same problem one layer over. It reads ONE occupant's
+  journal, and only when that occupant is actually scanned. Putting `ports` on `OccupantProjection`
+  instead would have made `ssh`, `nc`, `mysql` and `rediscli` each pay a journal read per occupant
+  on every same-LAN operation to get an address and a name, and would have widened a projection
+  whose header promises that no identity crosses the wire.
+- **Slice 7a's two `serviceHost.ts` survivors are NOT what criterion 2 describes.** Criterion 2 is
+  about a read that FAILS — `.error` set, refuse with 500 — and that is real and worth asserting.
+  The survivors sit on `occupants.data ?? []` and `leases.data ?? []`: the null-data-WITHOUT-error
+  path, a shape the store does not produce and the type nonetheless demands be handled. They are
+  killed here because it is two lines, and the tests say what they actually assert — the shape of
+  "no rows", not a rule of the game.
+
 **Acceptance criteria** (approved before any code):
 
-1. B standing on A's WiFi opens A's store with no router, no NAT and no forward in between.
+1. B standing on A's WiFi opens A's store with no router, no NAT and no forward in between, and the
+   greeting names A's box — the workstation name every other occupant already sees, not a cover.
 2. Occupancy is the LAN boundary, the LEASE is the address, self is excluded, and a real occupant
    BEATS the generated sibling on the same octet — the rule `nmap`, `ssh` and `nc` already answer
    by. An occupancy or lease read that FAILS refuses rather than falling through, because quietly
    dropping to the generated world would write a player's keys onto a seeded box.
-3. Writes land under A's key and the address in A's log is B's LEASED address, server-derived.
-4. **`nmap <A's leased ip>` reports A's REAL open ports**, resolved server-side from A's own box and
-   boot-gated — the same shape `resolvePublicScan` already reads through `bootableOccupantFs` and
-   `natPortResolver`. Never derived from the octet's seed.
+3. Everything B writes lands under A's key, and the address in A's log is B's LEASED address,
+   derived server-side from B's verified key rather than from anything B's client sent.
+4. `nmap <A's leased ip>` reports A's REAL open ports, resolved server-side from A's own box and
+   boot-gated through `bootableOccupantFs`. Never derived from the octet's seed — the fabrication
+   the current blank exists to prevent.
 5. The fix is GENERIC, not redis-shaped. It reports whatever A is actually running — `sshd`, mysql,
    redis — so no future door needs a scan change of its own. Fixing it redis-only would leave one
    tool answering by a different rule depending on which service was named, which is exactly what
    #448 refused to do for hydra.
 6. When A leaves the ESSID the generated sibling underneath answers again and the scan returns to
    the seeded ports. Nothing is fabricated in either direction.
-7. The seam DEGRADES rather than breaks: a server that cannot answer leaves the host listed with no
-   port table, exactly as today, rather than failing the scan — the rule `resolveOccupants` and
-   `record` already follow.
-8. §9 item 2 is DELETED rather than narrowed, its stated condition met.
-9. Wire-checks green live: `scripts/testRedisSameLan.ts`, and the occupant scan proved against a
-   real second identity.
-10. **D7 close-out**: this plan file deleted, durable rules graduated to conventions §7, remaining
+7. **Three outcomes stay apart, because they are three different sentences to the player.** A
+   bricked occupant is `Host seems down.` — a dead box is dark on the LAN as it is everywhere else.
+   A server that cannot answer leaves the host `Host is up.` with no port table, exactly as today.
+   A resolved occupant shows their real ports. Collapsing the middle case into the first would
+   blame a live neighbour for our own outage.
+8. **Non-vacuity by mutating production, not by fabricated RED.** Disabling the same-LAN occupant
+   branch, and dropping its writer-key and leased-address overrides, must each take specific named
+   tests red — the door half changes no production code, so this is the only evidence that its
+   tests bite.
+9. §9 item 2 is DELETED rather than narrowed, its stated condition met.
+10. Wire-checks green live: `scripts/testRedisSameLan.ts` on `testMysqlSameLan.ts`'s shape, and the
+    occupant scan proved against a real second identity.
+11. **D7 close-out**: this plan file deleted, durable rules graduated to conventions §7, remaining
     test debt to §9, and the as-built recorded in `legacy-parity-epic.md`.
 
-**RED**: the same-LAN vantage on both redis doors; and a scan of an occupant asserting real ports,
-which fails against today's blank.
-**GREEN**: the occupant branch of the scan resolves server-side. `resolveHostPorts` becomes async
-for that one branch — the structural cost, named in advance.
-**REFACTOR**: assess whether the occupant resolver and `resolvePublicScan` share a vantage rather
-than a copy, on #448's own ground: one tool must not answer by two rules.
-**MUTATE**: Stryker over the new resolver, the scan branch and the redis doors' same-LAN path.
+**RED**: the same-LAN vantage on both redis doors, proved non-vacuous by mutation rather than by a
+fabricated failure; and a scan of an occupant asserting real ports, which fails against today's
+blank.
+**GREEN**: expected EMPTY for the door half — recorded as the finding if so. The scan half is real:
+a `resolveOccupantScan` handler, its adapter, its seam method, and one branch in `nmap` beside the
+inner-gateway one.
+**REFACTOR**: `scanPublic`, `scanInnerGateway` and the new `scanOccupant` are three near-identical
+generators differing only in the report line and which seam they await — assess collapsing them to
+one, on #448's own ground: one tool must not answer by three copies of one rule.
+**MUTATE**: Stryker over the new handler, the scan branch and the redis doors' same-LAN path.
 **Wire-check**: REQUIRED, both halves.
 **Version**: `0.181.0` → `0.182.0`.
 

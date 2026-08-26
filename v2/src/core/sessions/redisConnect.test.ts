@@ -747,3 +747,192 @@ describe("another player's store, reached by their public address", () => {
     expect(upsertPatch).not.toHaveBeenCalled();
   });
 });
+
+// ─── the same WiFi: a fellow occupant's box, with nothing in between ───
+//
+// No router, no NAT, no forward — two boxes on one LAN, so the address IS the box.
+// Which makes the whole reach the occupancy table: the caller must be ON the WiFi to
+// reach anything on it, the target must still be on it, and the address each answers to
+// is the LEASE the server issued rather than anything either client claims. It is also
+// why `nmcli disconnect` is a defence on this vantage and nothing like it is across NAT:
+// there, leaving the WiFi closes a forward; here, it removes the box.
+
+const ATTACKER_OCTET = 61;
+const ATTACKER_LAN_IP = lanAddressFor(ESSID, ATTACKER_OCTET);
+const DEFENDER_SAME_LAN_IP = lanAddressFor(ESSID, DEFENDER_OCTET);
+
+/** A generated sibling running a store of its own, and the octet it stands on. A lease
+ *  can land there too — nothing stops the server issuing an occupant the address a
+ *  seeded box already fills — which is the collision the merge settles. */
+const NPC_STORE_HOST = storeHostOn(ESSID);
+const NPC_STORE_OCTET = Number(NPC_STORE_HOST.ip.split('.')[3]);
+
+const attackerOccupant = (attackerKey: string): NatOccupantRow => ({
+  owner_key: attackerKey,
+  workstation_machine_id: 'workstation-a1b2c3d4',
+  workstation_machine_name: 'trinity-box',
+  workstation_username: 'trinity',
+  workstation_root_hash: md5('a-different-password'),
+});
+
+/** Both players on one ESSID, each holding their own lease — the defender's box the only
+ *  one with a journal, since the attacker never has to be rebuilt to be attacked from. */
+const sameLanDeps = (
+  attackerKey: string,
+  options: {
+    readonly defenderOctet?: number;
+    readonly occupants?: readonly NatOccupantRow[];
+    readonly over?: Partial<RedisConnectDeps>;
+  } = {},
+) =>
+  makeDeps({
+    findPatches: journals({ [DEFENDER_WS]: [defenderRedisd, defenderDatadir] }),
+    listOccupantsByEssid: async () => ({
+      data: options.occupants ?? [defenderOccupant, attackerOccupant(attackerKey)],
+      error: null,
+    }),
+    listLeasesByEssid: async () => ({
+      data: [
+        { owner_key: DEFENDER.publicKeyHex, octet: options.defenderOctet ?? DEFENDER_OCTET },
+        { owner_key: attackerKey, octet: ATTACKER_OCTET },
+      ] as readonly LanLeaseRow[],
+      error: null,
+    }),
+    ...options.over,
+  });
+
+const openNextDoor = async (
+  identity: ReturnType<typeof generateIdentity>,
+  deps: RedisConnectDeps,
+  targetIp: string = DEFENDER_SAME_LAN_IP,
+) => handleRedisConnect(await signedConnect(identity, { target_ip: targetIp }), deps);
+
+describe('a fellow occupant, on the WiFi they are both connected to', () => {
+  it('opens their store with nothing in between to pass through', async () => {
+    const identity = generateIdentity();
+    const { deps } = sameLanDeps(identity.publicKeyHex);
+
+    const response = await openNextDoor(identity, deps);
+
+    // The name is the workstation name every occupant of this LAN already sees — the
+    // one thing here the caller could have looked up, and still the one that proves a
+    // real box answered rather than the sibling the generator would have drawn.
+    expect(response).toEqual({ status: 200, body: { ok: true, hostname: DEFENDER_HOSTNAME } });
+  });
+
+  it("records the arrival at the address the LEASE says, under the DEFENDER's key", async () => {
+    const identity = generateIdentity();
+    const { deps, upsertPatch } = sameLanDeps(identity.publicKeyHex);
+
+    await openNextDoor(identity, deps);
+
+    // A defender's log is their evidence. On this vantage the address is a LEASE rather
+    // than a NAT address, because there is nothing in between to rewrite it — the box
+    // really did see the caller's own address on the WiFi they share.
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        writer_key: DEFENDER.publicKeyHex,
+        machine_id: DEFENDER_WS,
+        path: REDIS_LOG_PATH,
+        content: expect.stringContaining(`Client connected from ${ATTACKER_LAN_IP}`),
+      }),
+    );
+    expect(upsertPatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining(CLIENT_IP) }),
+    );
+  });
+
+  it('answers as the player who took over an address the generator also filled', async () => {
+    const identity = generateIdentity();
+    const { deps } = sameLanDeps(identity.publicKeyHex, { defenderOctet: NPC_STORE_OCTET });
+
+    const response = await openNextDoor(identity, deps, NPC_STORE_HOST.ip);
+
+    // A real occupant beats a generated sibling on one octet — the precedence `nmap`,
+    // `ssh` and `nc` already answer by. The sibling is not merely outranked, it is GONE
+    // from that address, which is what separates a merge from a fallback.
+    expect(response).toEqual({ status: 200, body: { ok: true, hostname: DEFENDER_HOSTNAME } });
+  });
+
+  it('reaches nothing on a WiFi the caller is not on', async () => {
+    const identity = generateIdentity();
+    const { deps, upsertPatch } = sameLanDeps(identity.publicKeyHex, {
+      occupants: [defenderOccupant],
+    });
+
+    const response = await openNextDoor(identity, deps);
+
+    // The LAN boundary: you reach a box on a WiFi by being on that WiFi. A caller with
+    // no occupancy row is shown the generated world, which has nobody at this address.
+    expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('loses the box when its owner leaves the WiFi, lease or no lease', async () => {
+    const identity = generateIdentity();
+    const { deps, upsertPatch } = sameLanDeps(identity.publicKeyHex, {
+      occupants: [attackerOccupant(identity.publicKeyHex)],
+    });
+
+    const response = await openNextDoor(identity, deps);
+
+    // Occupancy IS the reach here, so `nmcli disconnect` takes the box off the LAN even
+    // though its lease is still held. Nothing across NAT behaves like this.
+    expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('refuses rather than falling through when the occupancy read fails', async () => {
+    const identity = generateIdentity();
+    const { deps, upsertPatch } = sameLanDeps(identity.publicKeyHex, {
+      over: { listOccupantsByEssid: async () => ({ data: null, error: new Error('offline') }) },
+    });
+
+    const response = await openNextDoor(identity, deps);
+
+    // Quietly dropping to the generated world would route the caller onto a seeded box
+    // standing where a real player is, and write their data to it.
+    expect(response).toEqual({ status: 500, body: { error: 'occupants_lookup_failed' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('refuses rather than falling through when the lease read fails', async () => {
+    const identity = generateIdentity();
+    const { deps, upsertPatch } = sameLanDeps(identity.publicKeyHex, {
+      over: { listLeasesByEssid: async () => ({ data: null, error: new Error('offline') }) },
+    });
+
+    const response = await openNextDoor(identity, deps);
+
+    // An address that cannot be read is never derived as a fallback: a derivation cannot
+    // know what OTHER identities were issued, which is the drift the lease store exists
+    // to end.
+    expect(response).toEqual({ status: 500, body: { error: 'leases_lookup_failed' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('reads an answer that carries no rows as nobody being there', async () => {
+    const identity = generateIdentity();
+    const { deps } = sameLanDeps(identity.publicKeyHex, {
+      over: { listOccupantsByEssid: async () => ({ data: null, error: null }) },
+    });
+
+    const response = await openNextDoor(identity, deps);
+
+    // Asserting the shape of "no rows" rather than a rule of the game: the store answers
+    // an empty read with `[]`, so this is the type's other branch being handled rather
+    // than a state the game reaches. Without the fallback the read throws instead.
+    expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+  });
+
+  it('reads a lease answer that carries no rows as nobody being addressed', async () => {
+    const identity = generateIdentity();
+    const { deps } = sameLanDeps(identity.publicKeyHex, {
+      over: { listLeasesByEssid: async () => ({ data: null, error: null }) },
+    });
+
+    const response = await openNextDoor(identity, deps);
+
+    expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+  });
+});

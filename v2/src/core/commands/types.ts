@@ -965,6 +965,22 @@ export type ScanApi = {
    *  a fellow player shows up as a real host. Additive: degrades to an empty list
    *  (server down, or the viewer isn't an occupant) rather than failing the scan. */
   readonly resolveOccupants: (essid: string) => Promise<readonly OccupantProjection[]>;
+  /** Resolve ONE fellow occupant's real open ports server-side (signed
+   *  `resolveOccupantScan` endpoint). Their box is built from THEIR identity and THEIR
+   *  journal, so — unlike a generated sibling, whose filesystem keys on the host IP —
+   *  the client cannot read it from its own seed without fabricating the NPC that octet
+   *  would have rolled.
+   *
+   *  Three outcomes, because the scan turns them into three different sentences.
+   *  `found: true` carries the ports. `found: false` is a resolved host-DOWN: a bricked
+   *  box, or an address whose occupant has just left. `null` is OUR round-trip failing,
+   *  and is deliberately not either of those — the occupant list has already said this
+   *  box is on the LAN, so reporting it down would blame a live neighbour for our own
+   *  outage. */
+  readonly resolveOccupant: (
+    essid: string,
+    target: string,
+  ) => Promise<PublicScanResolution | null>;
   /** Fetch the ESSID NAMES anyone currently occupies (signed `resolveOccupiedEssids`
    *  endpoint) — global and name-only, so `airdump` can inject live networks into the
    *  scan for organic discovery. Additive: degrades to an empty list (server down)

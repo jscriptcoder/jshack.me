@@ -248,6 +248,9 @@ export const mockScanApi = (overrides: Partial<ScanApi> = {}): ScanApi => ({
   // Additive read: defaults to no fellow occupants so own-LAN nmap tests are unaffected;
   // occupant-merge tests override it to merge a real occupant.
   resolveOccupants: async () => [],
+  // Load-bearing like `resolvePublic`: an occupant's ports drive their own scan output,
+  // so it throws unless a test stubs the resolution.
+  resolveOccupant: NOT_IMPLEMENTED('scan.resolveOccupant'),
   // Additive read: defaults to no occupied ESSIDs so a plain scan injects nothing.
   resolveOccupiedEssids: async () => [],
   ...overrides,
