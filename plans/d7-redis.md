@@ -1,8 +1,8 @@
 # Plan: D7 — a player reads (and rewrites) a machine's key-value store (`rediscli`)
 
 **Branch**: `docs/plan-d7-redis` (this plan) → `feat/d7-*` per slice
-**Status**: Active — **slices 1–5 SHIPPED (v0.174.0 #452, v0.175.0 #453, v0.176.0 #454,
-v0.177.0 #455, v0.178.0 #457)**; slice 5b next on `feat/d7-deep-box-journal`
+**Status**: Active — **slices 1–5b SHIPPED (v0.174.0 #452, v0.175.0 #453, v0.176.0 #454,
+v0.177.0 #455, v0.178.0 #457, v0.179.0 #458)**; slice 6 next on `feat/d7-own-store`
 
 > Decisions are LOCKED in [`legacy-parity-epic.md`](legacy-parity-epic.md) §"D7 — resolved scope &
 > decisions (grill-me, 2026-08-24)". This file sequences them; it does not re-open them. Where
@@ -1028,7 +1028,50 @@ every row lands on the deep box's id and none on the gateway's; and that `sessio
 **Done when**: criteria 1–13 met, wire-check green, mutation report presented, human approves the
 commit.
 
-### Slice 5b: A deep box's own journal is finally read
+### Slice 5b: A deep box's own journal is finally read — SHIPPED v0.179.0 (#458)
+
+**As built.** All 7 criteria met, 3c included; 3655 tests (+17), typecheck and lint green,
+mutation 92.8% (436/470) with **zero survivors in changed lines**, and all five wire-checks
+green live against the FINAL tree — 59/59 assertions (`testInnerGatewayReach` 14/14, the §9
+entry's own stated condition, plus `testDeepChainReach` 6/6, `testDeepScanTrace` 6/6,
+`testMysqlDeep` 13/13, `testRedisDeep` 20/20). What the slice learned, beyond what was planned:
+
+- **Grounding found a FOURTH call site, and it is what let criterion 7 DELETE the entry rather
+  than amend it.** §9 named the reach; `resolveInnerGatewayScan.ts:111` built the terminal box's
+  port map from the seeded tree too, so `nmap` down a chain advertised stopped daemons and hid
+  moved ones. It is the surface a player meets FIRST — you scan before you connect — and the
+  scan does not share the reach's walk, so it was a second fix and not a free consequence.
+  Deleting a backlog entry claims the gap is closed; a seeded scan would have made that false.
+- **Criteria 3 and 3b collided, and the fix was to split a question the resolver had been
+  answering twice.** Materializing the terminal box made `servesInternalPort` start refusing
+  STOPPED daemons — contradicting criterion 3, and it would have taken `testRedisDeep` and
+  `testMysqlDeep` down live. The resolver now answers only WHICH BOX a forwarded port names;
+  whether the daemon behind it is up is the DOOR's question, asked against `reachedPort` exactly
+  as `nc` and both data doors already asked it. `ssh` gained the check its neighbours had.
+- **One shipped refusal string changed, deliberately.** A forward landing on a port no daemon
+  holds now answers `service_not_running` rather than `host_unreachable` — which is what these
+  same doors already say on the caller's own LAN. The old string was the inconsistency: depth
+  must not change the words a player reads for something they did to their own box. The blast
+  radius was grounded before the change, by grepping every shipped assertion of both strings
+  across the suite and the wire-checks.
+- **Five tests passed on their first run, so their mutants were applied BY HAND.** The three ssh
+  tests and the two hydra tests were written after the resolver fix had landed — the easiest way
+  there is to write a vacuous test. Reverting the terminal branch to `buildDeepHostFs(...)` took
+  down exactly three and exactly two. The same discipline slice 5 used for seven.
+- **The REFACTOR was decided by a comment the repo had already written.** The default was not to
+  extract; `childGatewayHop.ts`'s own header overruled it — *"Keeping that in one place is what
+  stops the reach and the scan from disagreeing about whether a deeper gateway is reachable."*
+  Reach/scan disagreement is precisely this slice's bug, one box-kind over. Renamed
+  `deepLayerHop.ts`, both kinds share `replayBox`, and the file scored 100% (14/14). **Second
+  slice running where the codebase already held the answer**, after slice 5 found
+  `reachServiceHost` had generalized D6's workaround before anyone noticed.
+- **`resolveInnerGatewayTarget` had no test file of its own until this slice.** Every claim about
+  it was made through a door. That is why one defect in it shipped four times over, and the six
+  tests written here are the ones that would have caught it at the seam instead.
+- **Fourth instance of the `perTest` mis-scoring family** (§4). The scan's child `lookup_failed`
+  mutant reported `NoCoverage`; hand-applying it took a test red. All 25 survivors sit in code
+  this slice did not change, and `resolveInnerGatewayTarget.ts:138` (`served.kind === 'none'` →
+  `''`) is a genuine equivalent — both paths end in `UNREACHABLE`.
 
 **Value**: One seeded-tree gap, three doors and the scan. The box at the end of a forward chain is
 the one hop whose journal nothing reads — so an account a player added to a deep box cannot log in,
