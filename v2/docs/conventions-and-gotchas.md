@@ -2016,14 +2016,19 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   it across the family in one pass; the mutant to reproduce is `ObjectLiteral` on the
   `STATUS_BY_VERIFY_REASON` return of any door.
 
-- **One unexplained full-suite failure, 2026-08-26, never reproduced.** The first `npx vitest run`
-  of D7 slice 7a reported `1 failed | 171 passed` and the failing test scrolled past unrecorded;
-  five subsequent full runs on the same tree were clean (3700/3700, then 3703/3703). The tree had
-  no production change in it at all — that slice is tests-only — so nothing it could have been
-  testing had moved. Most likely a timeout flake under the 215s environment setup, but that is a
-  guess and it is written down as one. Recorded because a one-off nobody names is a one-off nobody
-  recognizes the second time: if a lone failure appears in a full run, capture the test NAME before
-  re-running, since a clean re-run destroys the only evidence.
+- **An INTERMITTENT full-suite flake, seen twice in two days, still unnamed.** 2026-08-26, D7 slice
+  7a: the first `npx vitest run` reported `1 failed | 171 passed`, and five later runs on the same
+  tree were clean. Same day, D7's close-out: `2 failed | 171 passed` on a tree carrying **nothing
+  but documentation edits**, then four clean runs (3737/3737 each). Neither failure was ever named.
+  Most likely a timeout under the ~215s environment setup, but that is still a guess and is written
+  down as one — twice now the evidence has been destroyed before anyone could look at it.
+
+  **How it keeps escaping, and what to do about it.** The entry used to say "capture the test NAME
+  before re-running". That is necessary and not sufficient: the second occurrence was lost to a
+  `| grep -E 'Test Files|Tests '` on the FIRST run, which discards the failure block just as
+  completely as a clean re-run does. So: **never pipe a full-suite run through a filter that can
+  drop the failure detail.** Redirect the whole thing (`npx vitest run > suite.log 2>&1`) and grep
+  the FILE. A summary line is the one part of the output that is worthless when something fails.
 
 **Story-5b / multiplayer deferred** (detail in `plans/multiplayer-crossplayer-epic.md`
 §"Remaining work"):

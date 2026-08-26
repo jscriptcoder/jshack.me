@@ -39,11 +39,15 @@ reverting an intruder's writes — **fixed at v0.172.0 (#449)**, which also corr
 that every vantage re-materializes per statement. Of the three smaller findings from the same
 run, **two are closed at v0.173.0** (the sub-shell prompt echo and the self-scan cover name) and
 one stays a §9 backlog entry, because it is a product decision rather than a bug.
-**D7 🚧 IN PROGRESS — slices 1–7a shipped (v0.174.0 #452, v0.175.0 #453, v0.176.0 #454,
-v0.177.0 #455, v0.178.0 #457, v0.179.0 #458, v0.180.0 #459, v0.181.0 #460), slice 7b next** — twelve
-locked decisions and a seven-slice spine in "D7 — resolved scope & decisions"; per-slice status and
-as-built in `d7-redis.md`. It renames the epic's own row: the command is `rediscli`, and
-`redis-cli` is unusable because `node`'s sandbox makes every command name a JS parameter.
+**D7 ✅ COMPLETE (v0.182.0)** — eight slices, #452–#461, closed out 2026-08-26: its plan file is
+deleted and the as-built lives in
+[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7 (the reach parameterized
+by daemon, the occupant-beats-sibling rule now covering PORTS, the three-outcome seam, the
+NAT-vs-inside refusal asymmetry, `secretOn`) and §9. Its twelve locked decisions stay in "D7 —
+resolved scope & decisions". It renamed the epic's own row: the command is `rediscli`, and
+`redis-cli` is unusable because `node`'s sandbox makes every command name a JS parameter. Its
+close-out also **closed the last open finding from D6's browser smoke test** — a fellow occupant's
+open ports were invisible to `nmap` — so all four of that session's findings are now resolved.
 **D5 🔍 GRILLED 2026-08-16, not yet planned** — fifteen locked decisions and a six-slice spine in
 "D5 — resolved scope & decisions"; it also found that §9's `ps` defect is misdiagnosed and owns
 the fix. Everything else is split-and-grilled only.
@@ -290,7 +294,7 @@ PHASE 1 — THE DOORS  (near-term focus)
       D6 slice 6 a player runs their own database     ✔ SHIPPED v0.167.0 (#443)
       D6 slice 6b a generated box carries what it runs ✔ SHIPPED v0.168.0-v0.169.0 (#444/#445/#446)
       D6 slice 7 a player reaches another's database  ✔ SHIPPED v0.170.0-v0.171.0 (#447/#448)
-  D7  rediscli                                        🚧 IN PROGRESS (7 slices)
+  D7  rediscli                                        ✅ SHIPPED (8 slices, v0.174.0-v0.182.0)
       D7 slice 1 a box runs a key-value store         ✔ SHIPPED v0.174.0 (#452)
       D7 slice 2 a player opens an unlocked store     ✔ SHIPPED v0.175.0 (#453)
       D7 slice 3 a player cracks a locked store       ✔ SHIPPED v0.176.0 (#454)
@@ -299,6 +303,7 @@ PHASE 1 — THE DOORS  (near-term focus)
       D7 slice 5b a deep box's own journal is read    ✔ SHIPPED v0.179.0 (#458)
       D7 slice 6 a player runs their own store        ✔ SHIPPED v0.180.0 (#459)
       D7 slice 7a a player reaches another's store    ✔ SHIPPED v0.181.0 (#460)
+      D7 slice 7b a neighbour's store, and the scan   ✔ SHIPPED v0.182.0 (#461)
   D8  snmpwalk / snmpset
   D9  node scripting
   D10 polish (long-tail comfort commands)
@@ -329,7 +334,7 @@ POST-SHIP — MISSIONS
 | **D5** ✔ | **A player plants a backdoor and re-enters through it** — **✔ SHIPPED** as slices 0–8 (#415–#423, v0.143.0–v0.151.0); grill record in ["D5 — resolved scope & decisions"](#d5--resolved-scope--decisions-grill-me-2026-08-16), as-built in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7/§9 and [`e2e-shared-network-verification.md`](../v2/docs/e2e-shared-network-verification.md) Acts 14-15 | `nc <host> <port>` → restricted NC shell (no PATH); `nc -l <port>` listener with owner metadata in the pidfile; **backdoor chain forwarding** — append a `forward` on every gateway out to the public edge and report the reachable address | Exploit-planted backdoors (Phase 3) | B (inside a host) `nc -l 4444` → forward auto-appended → B leaves, `nc <public IP> <fwd>` → lands as the listener's owner; the defender greps `rules.v4` and finds the breadcrumb |
 | **D5b** ✔ | **NPC machines have a kind, and it shows** — **✔ SHIPPED** as slices 1–5 (#428–#432, v0.153.0–v0.157.0); grill record in ["D5b — resolved scope & decisions"](#d5b--resolved-scope--decisions-grill-me-2026-08-18), close-out in ["D5b — what shipped"](#d5b--what-shipped-and-what-it-deliberately-did-not-do-closed-2026-08-19-v01570), as-built in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7 | A real role model, widening `LanHost.kind` (today `'machine' \| 'router' \| 'switch'`, `generateHomeLan.ts:31`) toward legacy's nine — webserver, database, mailserver, fileserver, iot, dns, switch, router, workstation; role-driven hostnames (today `DEVICE_TYPES` is consumer devices — `desktop-7`, `iphone-12` — and golden-locked at `homeNetwork.ts:30`); **role-weighted service placement** (a database box almost always runs mysql; a phone almost never runs nginx); role-keyed content pools, starting with the web pages D1 ships flat | Mission-specific roles (post-ship) | `nmap` a LAN and the boxes read as a *population*: `web-04` serves nginx and a corporate portal, `db-11` runs mysql, `cam-31` is an IoT box with a camera panel. A player can tell what a box probably is before touching it |
 | **D6** | **A player reads a machine's database** | `mysqld` catalog row + placement; **generated schema + data** (legacy `generateDatabase.ts`, `pools/database.ts`); `mysql <host> <user> [pw]` → `mysql>` prompt (parser/formatter/executor); hydra `mysql` service | Writes/`UPDATE` — decide at planning | B `hydra <host> mysql` → creds → `SHOW TABLES` / `SELECT` returns generated data worth reading |
-| **D7** 🔍 | **A player reads a machine's key-value store** — **GRILLED 2026-08-24**, twelve locked decisions and a seven-slice spine in ["D7 — resolved scope & decisions"](#d7--resolved-scope--decisions-grill-me-2026-08-24) | `redis` catalog row + placement (flat 0.05, webserver 0.35, database 0.3); generated data (`generateRedisData.ts`, `pools/redis.ts`); `rediscli <host> [pw]` → `redis>` sub-shell, seven verbs; `requirepass` as an md5 in the root-only datadir; hydra `redis` service against the 60% that are locked | Redis 6 ACLs (they arrive as a VERSION difference in Phase 3, not as a door decision); `FLUSHALL`; `CONFIG GET`; `TYPE`/`SCAN`/`INFO` | B `rediscli <host>` → `KEYS *` / `GET` on the 40% that are open; `hydra <host> redis` → password (no login field) on the rest; an open store's arrival line is the defender's whole view |
+| **D7** ✅ | **A player reads a machine's key-value store** — **SHIPPED v0.174.0-v0.182.0 (#452-#461)**; twelve locked decisions in ["D7 — resolved scope & decisions"](#d7--resolved-scope--decisions-grill-me-2026-08-24) | `redis` catalog row + placement (flat 0.05, webserver 0.35, database 0.3); generated data (`generateRedisData.ts`, `pools/redis.ts`); `rediscli <host> [pw]` → `redis>` sub-shell, seven verbs; `requirepass` as an md5 in the root-only datadir; hydra `redis` service against the 60% that are locked | Redis 6 ACLs (they arrive as a VERSION difference in Phase 3, not as a door decision); `FLUSHALL`; `CONFIG GET`; `TYPE`/`SCAN`/`INFO` | B `rediscli <host>` → `KEYS *` / `GET` on the 40% that are open; `hydra <host> redis` → password (no login field) on the rest; an open store's arrival line is the defender's whole view |
 | **D8** | **A player reconfigures a device without holding a shell on it** | `snmpwalk <host> [community]` (public = basic, RW = full); `snmpset <host> <community> <oid=value>`; `snmpd.conf` firewall + ACL OID parsers → live port overrides; hydra community strings | — | B `snmpwalk` with `public` → basic info; B cracks the RW community → `snmpset firewallSSH permit` → port 22 opens **without B ever logging in** |
 | **D9** | **A player automates an attack with a script** | `node <path>`; sync + async modes; `await` unwrapping async commands; programmatic auth (`ssh(…, pw)`, `await hydra(…)`); `writeFile` helper | `script_exec` as a CVE effect (Phase 3) | A writes `/root/sweep.js` chaining `hydra` + `ssh`, runs `node /root/sweep.js`, and captures results to a file |
 | **D10** | **The terminal feels like legacy's** | `clear`, `theme`, `author`, `xterm`, `bash`, `whoami` — one polish slice | — | Each command behaves as legacy's did |
@@ -1001,9 +1006,11 @@ lives on it, and what it admits when you read its `/etc`.
 
 ### Forced rather than chosen (planning should not re-litigate)
 
-- **The catalog holds three services.** `ssh`, `http`, `ftp`. `mysql` is D6, `redis` D7, `snmp` D8.
-  A role whose signature service has not shipped is a name, a weighting and a config file until it
-  does. This is why decision 1 carries a cost rather than avoiding one.
+- **The catalog held three services when this was written.** `ssh`, `http`, `ftp` — with `mysql`
+  D6, `redis` D7 and `snmp` D8. The first two have since shipped, so the catalog holds five and
+  only `snmp` is still owed. The rule the note exists for is unchanged: a role whose signature
+  service has not shipped is a name, a weighting and a config file until it does, which is why
+  decision 1 carries a cost rather than avoiding one.
 - **`nmap`'s host list includes real players.** Fellow occupants and the player's own box are rows
   in the same table (`nmap.test.ts:797`) and carry no role, so no role can ever be total in that
   OUTPUT even though it is total for generated hosts.
@@ -2209,19 +2216,42 @@ compose against the machine, never against the client's copy of it.** Three smal
 left open on purpose in §9, and **two of them closed at v0.173.0**: the mysql sub-shell echoed the
 shell prompt (two places deciding the same thing, now one `subShellPrompt()`) and a player saw
 herself under a generated cover name every other path already contradicted (self now uses the
-workstation name). What remains open is the one that is a product decision rather than a bug — a
-neighbour's open ports are invisible to `nmap`, so nothing tells a player their neighbour runs a
-database and they have to guess the service and let `hydra` find it. **A door is not proven by its
-wire-checks alone** — the wire-checks were 20/20 green and could not see any of this, because the
-defects live in the one vantage no endpoint answers.
+workstation name). The third — a product decision rather than a bug: a neighbour's open ports were
+invisible to `nmap`, so nothing told a player their neighbour ran a database and they had to guess
+the service and let `hydra` find it — stayed open three doors longer and **closed at v0.182.0**,
+in D7 slice 7b, when the same-LAN doors it was waiting on had actually opened. All four findings
+are now resolved. **A door is not proven by its wire-checks alone** — the wire-checks were 20/20
+green and could not see any of this, because the defects live in the one vantage no endpoint
+answers. One session's browsing produced four findings, three of them invisible to a green suite.
 
-**➡️ NEXT: D7 — `rediscli`**, fifth door in the locked order. **GRILLED 2026-08-24 — twelve
-locked decisions and a seven-slice spine in
-["D7 — resolved scope & decisions"](#d7--resolved-scope--decisions-grill-me-2026-08-24).**
-**PLANNED 2026-08-24 in [`d7-redis.md`](d7-redis.md)**, where the per-slice status and as-built
-live. **Slices 1–7a shipped (v0.174.0 #452, v0.175.0 #453, v0.176.0 #454, v0.177.0 #455,
-v0.178.0 #457, v0.179.0 #458, v0.180.0 #459, v0.181.0 #460)** — the door is complete against one
-box, one hop further in, and the player's own box:
+**➡️ NEXT: D8 — `snmpwalk` / `snmpset`**, sixth door in the locked order and the first that lets a
+player reconfigure a box **without ever holding a shell on it**. NOT YET GRILLED — run `grill-me`
+against the row before planning, as D3/D3b/D4/D5/D5b/D6/D7 each did.
+
+Three things D7 leaves it, beyond a shipped door:
+
+- **A neighbour's ports are legible now.** `resolveOccupantScan` reads a fellow occupant's real open
+  ports server-side and is generic to every service, so `snmpd` is scannable the day it can be
+  started and D8 needs no scan change of its own. D6 slice 7 had to build the same-LAN reach for
+  every tool at once for the same reason; this is that bill paid for discovery.
+- **Four vantages, one resolver, free.** `reachServiceHost` takes the daemon as a PARAMETER, so a
+  door built on it inherits public, same-LAN, inner-gateway and own-LAN reach on day one. D7 paid
+  nothing for reach and spent two whole slices proving paths that already worked — which is the
+  shape to expect, and the reason to budget for EVIDENCE rather than for plumbing.
+- **A secret can belong to the SERVICE rather than to an account.** `secretOn` beside `accountsOn`,
+  with the sweep line omitting the login field entirely — which is exactly what a COMMUNITY STRING
+  wants. Reuse it rather than inventing a third shape.
+
+One warning D7 earns for it: `snmpset` writes to a box the caller holds no session on, so the
+writer-key rule binds harder here than anywhere yet — a device reconfigured by three players must
+stay ONE row, or the last write silently erases the rest.
+
+---
+
+**D7 ✅ COMPLETE — v0.174.0-v0.182.0 (#452-#461), closed out 2026-08-26.** Twelve locked decisions
+in ["D7 — resolved scope & decisions"](#d7--resolved-scope--decisions-grill-me-2026-08-24); the
+plan file is deleted and the durable rules live in `conventions-and-gotchas.md` §7 and §9. The
+door in full, against one box, one hop further in, the player's own box and another player's:
 `nmap` finds a store, `rediscli` opens it, a locked one refuses with `NOAUTH`,
 `hydra <host> redis` recovers the password, `AUTH` spends it, `SET`/`DEL` rewrite what the store
 holds while the box's own log records that somebody did — and `rediscli -p <fwd> <inner gateway>`
@@ -2265,11 +2295,24 @@ value is the witness it left behind: every row B writes lands under A's key, so 
 keeps one datadir and one log however many strangers touch it, and the address in that log is
 derived server-side from B's verified key rather than from anything B's client claimed.
 
-➡️ **Next: slice 7b — a neighbour's store, and the tool that could not see it.** The same-LAN
-vantage on both redis doors, plus the fix §9 item 2 parked and named the trigger for: `nmap` blanks
-a fellow occupant's port table, so a neighbour's store is a door onto a box you have to guess is
-there. The fix is server-side and GENERIC — whatever A is actually running, not redis-shaped —
-because one tool must not answer by two rules depending on which service was named. It closes D7.
+**Slice 7b then closed the door and the gap in front of it.** The same-LAN vantage — B on A's WiFi
+with no router, no NAT and no forward — needed no production change either, so the door half's RED
+came from mutating production for the SECOND slice running. That is what a genuinely shared
+resolver looks like from the test side: the last door built pays nothing for reach, and nothing
+tells you the evidence is missing. The real work was the tool. `nmap` had been reporting a
+neighbour as `Host is up.` with no port table, correctly — a generated sibling's ports come off a
+filesystem keyed on the host IP, and letting a real player fall through would have reported the NPC
+that octet rolled as THEIR services — but it left a store nobody could discover, on a door whose
+own header says the FIND is the whole play. `resolveOccupantScan` resolves it from the occupant's
+own journal, boot-gated, generic to every service, and lazily: one address, only when scanned.
+
+Two things that slice found which its plan had not. The structural cost it named in advance —
+making the client's port resolver async — turned out to be **avoidable**, because a single-IP
+occupant scan returns early beside the inner-gateway branch before that resolver is built. And a
+two-state resolution would have made the tool LIE: collapsing a failed round-trip into `found:
+false` reports a live neighbour as down, so this seam keeps three outcomes where the public one
+keeps two. The mutation gate then showed the old blank-port guard had become unreachable, and it is
+removed rather than left stating a second rule where it can no longer apply.
 
 Four things that grill settled which the row above could not have predicted:
 
