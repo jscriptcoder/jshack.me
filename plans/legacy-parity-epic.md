@@ -39,11 +39,11 @@ reverting an intruder's writes — **fixed at v0.172.0 (#449)**, which also corr
 that every vantage re-materializes per statement. Of the three smaller findings from the same
 run, **two are closed at v0.173.0** (the sub-shell prompt echo and the self-scan cover name) and
 one stays a §9 backlog entry, because it is a product decision rather than a bug.
-**D7 🚧 IN PROGRESS — slices 1–5b shipped (v0.174.0 #452, v0.175.0 #453, v0.176.0 #454,
-v0.177.0 #455, v0.178.0 #457, v0.179.0 #458), slice 6 next** — twelve locked decisions and a seven-slice
-spine in "D7 — resolved scope & decisions"; per-slice status and as-built in `d7-redis.md`. It renames the
-epic's own row: the command is `rediscli`, and `redis-cli` is unusable because `node`'s sandbox
-makes every command name a JS parameter.
+**D7 🚧 IN PROGRESS — slices 1–7a shipped (v0.174.0 #452, v0.175.0 #453, v0.176.0 #454,
+v0.177.0 #455, v0.178.0 #457, v0.179.0 #458, v0.180.0 #459, v0.181.0 #460), slice 7b next** — twelve
+locked decisions and a seven-slice spine in "D7 — resolved scope & decisions"; per-slice status and
+as-built in `d7-redis.md`. It renames the epic's own row: the command is `rediscli`, and
+`redis-cli` is unusable because `node`'s sandbox makes every command name a JS parameter.
 **D5 🔍 GRILLED 2026-08-16, not yet planned** — fifteen locked decisions and a six-slice spine in
 "D5 — resolved scope & decisions"; it also found that §9's `ps` defect is misdiagnosed and owns
 the fix. Everything else is split-and-grilled only.
@@ -298,6 +298,7 @@ PHASE 1 — THE DOORS  (near-term focus)
       D7 slice 5 a store on a deep layer answers      ✔ SHIPPED v0.178.0 (#457)
       D7 slice 5b a deep box's own journal is read    ✔ SHIPPED v0.179.0 (#458)
       D7 slice 6 a player runs their own store        ✔ SHIPPED v0.180.0 (#459)
+      D7 slice 7a a player reaches another's store    ✔ SHIPPED v0.181.0 (#460)
   D8  snmpwalk / snmpset
   D9  node scripting
   D10 polish (long-tail comfort commands)
@@ -2218,9 +2219,9 @@ defects live in the one vantage no endpoint answers.
 locked decisions and a seven-slice spine in
 ["D7 — resolved scope & decisions"](#d7--resolved-scope--decisions-grill-me-2026-08-24).**
 **PLANNED 2026-08-24 in [`d7-redis.md`](d7-redis.md)**, where the per-slice status and as-built
-live. **Slices 1–6 shipped (v0.174.0 #452, v0.175.0 #453, v0.176.0 #454, v0.177.0 #455,
-v0.178.0 #457, v0.179.0 #458, v0.180.0 #459)** — the door is complete against one box, one hop
-further in, and the player's own box:
+live. **Slices 1–7a shipped (v0.174.0 #452, v0.175.0 #453, v0.176.0 #454, v0.177.0 #455,
+v0.178.0 #457, v0.179.0 #458, v0.180.0 #459, v0.181.0 #460)** — the door is complete against one
+box, one hop further in, and the player's own box:
 `nmap` finds a store, `rediscli` opens it, a locked one refuses with `NOAUTH`,
 `hydra <host> redis` recovers the password, `AUTH` spends it, `SET`/`DEL` rewrite what the store
 holds while the box's own log records that somebody did — and `rediscli -p <fwd> <inner gateway>`
@@ -2252,11 +2253,23 @@ self-addressed reach would otherwise have fallen through to whatever the generat
 player's own leased octet. **Its wire-check was the first in D7 to be re-examined and recorded
 `N/A`** rather than run, on four checked facts: no server-executed path changed.
 
-➡️ **Next: slice 7 — a player reaches another player's store.** All four vantages (own-LAN,
-inner-gateway, public-IP, same-LAN) answer, always locked so the vacuous-authorization case never
-arises between players, standing on the store slice 6 gave every player to defend. Wire-check
-required — and unlike slice 6, which changed no server-executed path, this one is nothing BUT
-server-executed path.
+**Slice 7a then pointed the door at another person's box — and changed no production code doing
+it.** B opens, reads and rewrites the store on A's own machine, reached across the world through
+the forward A opened on their access point, and A's store is ALWAYS locked because slice 6 mirrors
+their root password onto it with no opt-out. So `hydra <A's public ip> redis` is a DEAD END between
+players by design — a chosen password is out of a sweep's reach — and the real route is
+`ssh guest@A` → A's root hash out of `/etc/passwd` → crack the md5 with a real external tool →
+`AUTH`. The wire-check proves both directions live. **The public vantage had been generic since
+slice 2 and untested since slice 2**, so RED came from MUTATING PRODUCTION, and the slice's whole
+value is the witness it left behind: every row B writes lands under A's key, so a defender's box
+keeps one datadir and one log however many strangers touch it, and the address in that log is
+derived server-side from B's verified key rather than from anything B's client claimed.
+
+➡️ **Next: slice 7b — a neighbour's store, and the tool that could not see it.** The same-LAN
+vantage on both redis doors, plus the fix §9 item 2 parked and named the trigger for: `nmap` blanks
+a fellow occupant's port table, so a neighbour's store is a door onto a box you have to guess is
+there. The fix is server-side and GENERIC — whatever A is actually running, not redis-shaped —
+because one tool must not answer by two rules depending on which service was named. It closes D7.
 
 Four things that grill settled which the row above could not have predicted:
 

@@ -1,9 +1,9 @@
 # Plan: D7 — a player reads (and rewrites) a machine's key-value store (`rediscli`)
 
 **Branch**: `docs/plan-d7-redis` (this plan) → `feat/d7-*` per slice
-**Status**: Active — **slices 1–6 SHIPPED (v0.174.0 #452, v0.175.0 #453, v0.176.0 #454,
-v0.177.0 #455, v0.178.0 #457, v0.179.0 #458, v0.180.0 #459)**; slice 7 next on
-`feat/d7-cross-player`
+**Status**: Active — **slices 1–7a SHIPPED (v0.174.0 #452, v0.175.0 #453, v0.176.0 #454,
+v0.177.0 #455, v0.178.0 #457, v0.179.0 #458, v0.180.0 #459, v0.181.0 #460)**; slice 7b next on
+`feat/d7-same-lan-scan`
 
 > Decisions are LOCKED in [`legacy-parity-epic.md`](legacy-parity-epic.md) §"D7 — resolved scope &
 > decisions (grill-me, 2026-08-24)". This file sequences them; it does not re-open them. Where
@@ -1371,7 +1371,60 @@ resolution.
   the wordlist, so hydra earns it and the whole chain proves live end to end, and the assertion that
   the sweep correctly reports nothing against a chosen one.
 
-#### Slice 7a: A player reaches another player's store across the world
+#### Slice 7a: A player reaches another player's store across the world — SHIPPED v0.181.0 (#460)
+
+**As built.** All 10 criteria met; 3703 tests (+17), typecheck and lint green, mutation 96.27%
+(232/241) over both redis session doors and `serviceHost.ts` with ZERO `NoCoverage` and
+`serviceHost.ts` — which carries the public branch — at 98.6%, and the wire-check
+`testRedisCrossPlayer.ts` 13/13 green live. What the slice learned, beyond what was planned:
+
+- **GREEN was empty, and the emptiness IS the finding.** The planning correction predicted it and
+  pre-authorised recording it as one rather than inventing work to justify the slice: not one line
+  of production changed. The public vantage was generic in `reachServiceHost` from the day slice 2
+  started sharing the resolver, so redis inherited what #447 built for mysql — and every test in
+  both doors had stubbed `findNetworkByPublicIp` to `null` since then, so half this door's reach
+  had never once been exercised. A path can be correct, shipped, and completely unwitnessed at the
+  same time, and nothing in a coverage number says which.
+- **RED therefore came from mutating production, and four mutant families each fell to the tests
+  that should own them.** The public branch never taken took 9 tests across both doors;
+  `writerKey ?? publicKey` → `publicKey` took exactly the three "under the DEFENDER's key" tests;
+  `sourceIp ?? payload.source_ip` → the client's claim took the two server-derived-address tests;
+  and removing slice 6's root-password mirror took exactly the two "always locked" tests, which is
+  the cheapest available proof that criterion 3 DEPENDS on the previous slice rather than
+  restating it.
+- **Two of my expectations were wrong and production was right, which is the useful direction for
+  a grounding pass to fail in.** A forward onto a stopped daemon answers `host_unreachable` from
+  outside NAT where the same box answers `service_not_running` down its own chain — and the
+  database door had already written down why: from outside somebody else's NAT a dead forward and
+  a forward that was never opened are the same silence, and the door that told them apart would be
+  telling an outsider which services a box behind the NAT has stopped. That is a STRONGER reason
+  than slice 5b's "depth must not change the words a player reads", and it is why the two vantages
+  differ on purpose. Both tests now carry the argument, so the next person to find the asymmetry
+  finds its justification beside it rather than filing a bug.
+- **The mutation gate found a reachable guard nothing had ever tested.** The shipped test named
+  *"refuses a caller who stamps their own key onto the payload"* adds `player_key` to the
+  ENVELOPE; the schema's refine checks the parsed PAYLOAD. A caller who signs a payload that
+  CONTAINS `player_key` — valid signature, untampered envelope — meets a completely different
+  guard, and that one had no test on either door. It fires. Both doors now assert it, and blanking
+  the refine kills exactly those two tests. The lesson is that two guards with nearly the same
+  name are two guards.
+- **One survivor was deliberately left alive, and the reason is uniformity.** `body: { error }`
+  mutated to `{}` survives on every door in the family: nine refusal tests assert only `status`
+  and exactly one asserts the body beside it. Killing it on the two redis doors would have left
+  eight answering by a different standard, so it went to conventions §9 to be closed across the
+  family in one pass — the same call `pools/database.ts`'s 42 survivors got. Of the 9 survivors,
+  5 are equivalent by construction and 2 belong to slice 7b's territory.
+- **An unexplained full-suite failure was recorded rather than explained away.** The first run
+  reported `1 failed | 171 passed` and the name scrolled past; five later runs on the same tree
+  were clean, on a tree with no production change in it at all. It is in §9 as a guess labelled as
+  one, because the durable half is the instruction, not the incident: capture the test NAME before
+  re-running, since a clean re-run destroys the only evidence.
+- **Slice 7b inherits two named things.** The two remaining `serviceHost.ts` survivors are the
+  `?? []` fallbacks in `resolveSameLanOccupant`, reached only when the occupancy or lease read
+  returns null data — which is exactly 7b's criterion 2, so they should die there rather than be
+  carried as accepted. And the scan gap is unchanged: `nmap.ts:311` still blanks a fellow
+  occupant's port table, with `bootableOccupantFs` and `natPortResolver` already sitting in
+  `resolvePublicScan` waiting to be reused.
 
 **Path**: `rediscli -p <fwd> <A's public ip>` → `resolvePublicTarget` behind A's own forward →
 `openServiceOn` → A's real store, with every row B writes landing under A's key.
