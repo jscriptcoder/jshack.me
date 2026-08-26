@@ -14,8 +14,13 @@ import {
 } from '../logging/redisLog';
 import { derivePid } from '../logging/syslog';
 import { asAbsPath, asGameTime } from '../types';
-import { pidfilePath } from '../services/pidfile';
-import { deepStoreFixture } from '../../test/factories/lanStore';
+import { formatPidfileContent, pidfilePath } from '../services/pidfile';
+import { deepStoreFixture, playerStoreOn } from '../../test/factories/lanStore';
+import { computeApGatewayId } from '../identity/router';
+import { lanAddressFor, type LanLeaseRow } from '../network/lanAddress';
+import { md5 } from '../generation/md5';
+import { DATADIR_PATH } from '../redis/datadir';
+import type { ApNetworkLookup, NatOccupantRow } from '../network/resolvePublicTarget';
 import type { OwnerPatchRow } from '../network/materializeMachineFs';
 import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
 import type { PatchRow } from '../patches/upsertPatch';
@@ -341,6 +346,28 @@ describe('the request itself', () => {
     expect(response.body).not.toHaveProperty('hostname');
   });
 
+  it('refuses a payload that names its own player key, however well signed', async () => {
+    const identity = generateIdentity();
+    const host = storeHostOn(ESSID);
+    // Signed properly, with the claim INSIDE the signed payload — so the signature is
+    // valid and the envelope is untampered. Only the schema stands between a caller and
+    // acting under a key that is not theirs.
+    const signed = await signRequest(identity, 'redisConnect', {
+      essid: ESSID,
+      target_ip: host.ip,
+      port: SERVICE_CATALOG.redis.defaultPort,
+      source_ip: CLIENT_IP,
+      player_key: generateIdentity().publicKeyHex,
+    });
+
+    const response = await handleRedisConnect(signed, makeDeps().deps);
+
+    // The server stamps the key from the verified signature and never reads one the
+    // payload offers. Refused outright rather than ignored: a request that tried is a
+    // request whose other fields are not worth trusting either.
+    expect(response.status).toBe(400);
+  });
+
   it('refuses a caller who stamps their own key onto the payload', async () => {
     const identity = generateIdentity();
     const host = storeHostOn(ESSID);
@@ -506,5 +533,217 @@ describe('a store on a hidden layer', () => {
 
     // A forward to sshd is not a door to the store behind it, however deep the box is.
     expect(response).toEqual({ status: 404, body: { error: 'service_not_running' } });
+  });
+});
+
+// ─── another player's store, reached the only way an outsider can reach one ───
+//
+// A public IP names an ACCESS POINT, never a machine, so the port is the whole of the
+// address: the defender had to open a forward before their store existed to anyone
+// outside. Everything below the forward is the server's — the occupancy row, the lease,
+// the journal — because a client that could name a target box directly would be a
+// client that could reach a box its owner never published.
+//
+// The store here is the one slice 6 plants: drawn from the defender's own key, locked
+// to the root password in their own `/etc/passwd`. That lock is why nothing in this
+// block is a walk-in — between players there is always a secret, so `AUTH` is always
+// the next question.
+
+const TARGET_PUBLIC_IP = '203.0.113.9';
+const TARGET_ESSID = 'PIED-PIPER-GUEST';
+const AP_GATEWAY_ID = computeApGatewayId(TARGET_ESSID);
+const AP_NETWORK: ApNetworkLookup = { router_machine_id: AP_GATEWAY_ID, essid: TARGET_ESSID };
+
+/** The attacker's own home address, as the server resolves it from their VERIFIED key.
+ *  A cross-player log line is the defender's only evidence, so the address in it is
+ *  never the one the client typed. */
+const ATTACKER_PUBLIC_IP = '198.51.100.22';
+
+const DEFENDER = generateIdentity();
+const DEFENDER_OCTET = 84;
+const DEFENDER_LAN_IP = lanAddressFor(TARGET_ESSID, DEFENDER_OCTET);
+const DEFENDER_WS = 'workstation-c3d4e5f6';
+const DEFENDER_HOSTNAME = 'nebuchadnezzar';
+/** A password the PLAYER chose, so no wordlist the game hands out contains it. It is
+ *  also this store's password, because slice 6 mirrors one onto the other — which is
+ *  what puts the store out of a sweep's reach and inside the reach of whoever takes
+ *  root. */
+const DEFENDER_ROOT_PW = 'correct-horse-battery-staple';
+const defenderOccupant: NatOccupantRow = {
+  owner_key: DEFENDER.publicKeyHex,
+  workstation_machine_id: DEFENDER_WS,
+  workstation_machine_name: DEFENDER_HOSTNAME,
+  workstation_username: 'neo',
+  workstation_root_hash: md5(DEFENDER_ROOT_PW),
+};
+const DEFENDER_LEASES: readonly LanLeaseRow[] = [
+  { owner_key: DEFENDER.publicKeyHex, octet: DEFENDER_OCTET },
+];
+const DEFENDER_STORE = playerStoreOn(defenderOccupant);
+
+/** The port the defender published. Deliberately neither 6379 nor 22: on a public
+ *  address the port is chosen by whoever wrote the forward. */
+const PUBLIC_PORT = 46379;
+const publicForward = (internalPort: number = SERVICE_CATALOG.redis.defaultPort): OwnerPatchRow =>
+  patchRow('/etc/iptables/rules.v4', `forward ${PUBLIC_PORT} to ${DEFENDER_LAN_IP}:${internalPort}`);
+
+/** The defender ran `apt install redis` and then `systemctl start redis`. A box that
+ *  did neither has an empty `/var/run` and no datadir at all. */
+const defenderRedisd = patchRow(
+  pidfilePath(SERVICE_CATALOG.redis),
+  formatPidfileContent(SERVICE_CATALOG.redis, SERVICE_CATALOG.redis.defaultPort),
+);
+const defenderDatadir = patchRow(DATADIR_PATH, JSON.stringify(DEFENDER_STORE));
+
+const crossPlayerDeps = (over: Partial<RedisConnectDeps> = {}) =>
+  makeDeps({
+    findPatches: journals({
+      [AP_GATEWAY_ID]: [publicForward()],
+      [DEFENDER_WS]: [defenderRedisd, defenderDatadir],
+    }),
+    findNetworkByPublicIp: async () => ({ data: AP_NETWORK, error: null }),
+    listOccupantsByEssid: async () => ({ data: [defenderOccupant], error: null }),
+    listLeasesByEssid: async () => ({ data: DEFENDER_LEASES, error: null }),
+    findHomeNetworkByOwnerKey: async () => ({
+      data: { public_ip: ATTACKER_PUBLIC_IP },
+      error: null,
+    }),
+    ...over,
+  });
+
+const openAcrossTheWorld = async (
+  identity: ReturnType<typeof generateIdentity>,
+  deps: RedisConnectDeps,
+  port: number = PUBLIC_PORT,
+) =>
+  handleRedisConnect(
+    await signedConnect(identity, { essid: TARGET_ESSID, target_ip: TARGET_PUBLIC_IP, port }),
+    deps,
+  );
+
+describe("another player's store, reached by their public address", () => {
+  it('opens on the box behind the forward, and names the box rather than the access point', async () => {
+    const identity = generateIdentity();
+    const { deps } = crossPlayerDeps();
+
+    const response = await openAcrossTheWorld(identity, deps);
+
+    // The address named an access point. Which machine answered is something only the
+    // forward table knows, so the name coming back is the one thing here the client
+    // could not have looked up for itself.
+    expect(response).toEqual({ status: 200, body: { ok: true, hostname: DEFENDER_HOSTNAME } });
+  });
+
+  it("records the arrival on the defender's own box, under the DEFENDER's key", async () => {
+    const identity = generateIdentity();
+    const { deps, upsertPatch } = crossPlayerDeps();
+
+    await openAcrossTheWorld(identity, deps);
+
+    // `patches` is keyed (machine_id, path, writer_key). A row per attacker would fold
+    // to whichever was written last, so the defender's log would keep only the most
+    // recent stranger and silently drop the rest.
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        writer_key: DEFENDER.publicKeyHex,
+        machine_id: DEFENDER_WS,
+        path: REDIS_LOG_PATH,
+      }),
+    );
+  });
+
+  it('writes the address the SERVER derived, never the one the client typed', async () => {
+    const identity = generateIdentity();
+    const { deps, upsertPatch } = crossPlayerDeps();
+
+    await openAcrossTheWorld(identity, deps);
+
+    // A defender's log is their evidence, and evidence a client can write is none. The
+    // attacker's own public address is resolved from their VERIFIED key.
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining(`Client connected from ${ATTACKER_PUBLIC_IP}`),
+      }),
+    );
+    expect(upsertPatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining(CLIENT_IP) }),
+    );
+  });
+
+  it('never answers from the generated world the caller can regenerate for itself', async () => {
+    const identity = generateIdentity();
+    // Nobody has registered this address. If the reach fell through to the caller's own
+    // LAN it would find the seeded store host sitting on that essid and open it —
+    // handing the player somebody else's box under a stranger's name.
+    const { deps, upsertPatch } = crossPlayerDeps({
+      findNetworkByPublicIp: async () => ({ data: null, error: null }),
+    });
+
+    const response = await openAcrossTheWorld(identity, deps);
+
+    expect(response.status).toBe(404);
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('refuses a forward that reaches a live port the store is not the one holding', async () => {
+    const identity = generateIdentity();
+    const { deps } = crossPlayerDeps({
+      findPatches: journals({
+        [AP_GATEWAY_ID]: [publicForward(22)],
+        [DEFENDER_WS]: [
+          defenderRedisd,
+          defenderDatadir,
+          patchRow(pidfilePath(SERVICE_CATALOG.ssh), formatPidfileContent(SERVICE_CATALOG.ssh, 22)),
+        ],
+      }),
+    });
+
+    const response = await openAcrossTheWorld(identity, deps);
+
+    // The port IS the address. A forward to sshd is not a door to the store, even on a
+    // box plainly running one — and the daemon really is up on the other end, so this
+    // is the service check refusing rather than the route failing to find anything.
+    expect(response).toEqual({ status: 404, body: { error: 'service_not_running' } });
+  });
+
+  it('refuses a defender who bought the store but never started it, as simple silence', async () => {
+    const identity = generateIdentity();
+    const { deps, upsertPatch } = crossPlayerDeps({
+      findPatches: journals({
+        [AP_GATEWAY_ID]: [publicForward()],
+        [DEFENDER_WS]: [defenderDatadir],
+      }),
+    });
+
+    const response = await openAcrossTheWorld(identity, deps);
+
+    // Unreachable rather than not-running, and deliberately — the database door's rule
+    // on the same address. From outside somebody else's NAT a forward onto a dead port
+    // and a forward that was never opened are the same silence, which is all the
+    // gateway can actually observe. A door that told them apart would tell an outsider
+    // which services a box behind the NAT has stopped.
+    //
+    // This is where a deep box and a stranger's box deliberately part: down a chain of
+    // one's own gateways the same case answers `service_not_running`, because there the
+    // player is inside the network and asking about their own layer.
+    expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('refuses a defender whose box will not boot, before anything is asked of it', async () => {
+    const identity = generateIdentity();
+    const { deps, upsertPatch } = crossPlayerDeps({
+      findPatches: journals({
+        [AP_GATEWAY_ID]: [publicForward()],
+        [DEFENDER_WS]: [defenderRedisd, defenderDatadir, patchRow('/boot/vmlinuz', null)],
+      }),
+    });
+
+    const response = await openAcrossTheWorld(identity, deps);
+
+    // A bricked box is dark to every door. Nothing is written on a machine that cannot
+    // come up.
+    expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
   });
 });
