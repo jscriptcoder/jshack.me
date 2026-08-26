@@ -426,7 +426,7 @@ Generated from GameState at runtime, not static. The player's username and game 
   - /home/{playerUsername}/downloads/ — cheatsheets (nmap, wireless tools)
 - /etc/passwd — auto-generated from root + player user
 - /bin — system utilities (bash, cat, ls, echo, grep, etc.)
-- /usr/bin — pre-installed tools (LOCALHOST_PREINSTALLED_TOOLS: nmap, airmon, airdump, etc.)
+- /usr/bin — pre-installed tools (LOCALHOST_PREINSTALLED_TOOLS: nmap, airmon-ng, airodump-ng, etc.)
 - /lib — shared libraries at day-zero versions
 
 **Day-zero library versions**: All machines start with the same library versions on day zero (e.g., libssl 1.1.1a, libpam 1.1.8). Version timelines allow players to upgrade libraries via pt upgrade and test exploit effects locally via msfconsole --local.

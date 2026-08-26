@@ -1,7 +1,7 @@
 /**
- * aircrack — recover a WPA2 key by wordlist attack (monitor mode required).
+ * aircrack-ng — recover a WPA2 key by wordlist attack (monitor mode required).
  *
- * Ported from legacy `aircrack`, adapted to v2's streaming `CommandResult` and
+ * Ported from legacy `aircrack-ng`, adapted to v2's streaming `CommandResult` and
  * the abort-aware `env.sleep` pacing seam. Preconditions (own workstation,
  * monitor mode, a known BSSID) fail fast as sync errors. Once a target resolves
  * it streams a dramatic crack: opening the capture, reading packets, then one
@@ -60,7 +60,7 @@ async function* crack(env: CommandEnv, network: WifiNetwork): AsyncIterable<Term
   if (reason !== null) {
     yield text(reason);
     yield text('');
-    yield text('Quitting aircrack...');
+    yield text('Quitting aircrack-ng...');
     return;
   }
 
@@ -82,41 +82,41 @@ async function* crack(env: CommandEnv, network: WifiNetwork): AsyncIterable<Term
 
 const execute: Command['execute'] = async (env, args) => {
   if (!isOwnWorkstation(env.session.machineId, env.identity.publicKeyHex)) {
-    return error('aircrack: command not available on this machine');
+    return error('aircrack-ng: command not available on this machine');
   }
 
   const wlan0 = env.network.interfaces().find((iface) => iface.name === 'wlan0');
   if (wlan0 === undefined || wlan0.kind !== 'wireless' || !wlan0.monitorMode) {
-    return error('aircrack: monitor mode not enabled — run airmon start wlan0 first');
+    return error('aircrack-ng: monitor mode not enabled — run airmon-ng start wlan0 first');
   }
 
   const [bssid] = args;
   if (bssid === undefined) {
-    return error('aircrack: missing BSSID — usage: aircrack <bssid>');
+    return error('aircrack-ng: missing BSSID — usage: aircrack-ng <bssid>');
   }
 
   const network = env.network.wifiNetworks().find((candidate) => candidate.bssid === bssid);
   if (network === undefined) {
-    return error(`aircrack: BSSID ${bssid} not found — run airdump to scan for networks`);
+    return error(`aircrack-ng: BSSID ${bssid} not found — run airodump-ng to scan for networks`);
   }
 
   return { kind: 'async', lines: crack(env, network), exitCode: async () => 0 };
 };
 
-export const aircrack: Command = {
-  name: 'aircrack',
+export const aircrackNg: Command = {
+  name: 'aircrack-ng',
   description: 'Crack WPA/WPA2 wireless network keys',
   category: 'wifi',
   tier: 'guest',
   availability: { kind: 'localhost-only' },
   manual: {
-    synopsis: 'aircrack <bssid>',
+    synopsis: 'aircrack-ng <bssid>',
     description:
-      'Attempt to recover the WPA/WPA2 key for a target network with a wordlist attack. Find the BSSID with airdump. Requires monitor mode — run "airmon start wlan0" first.',
+      'Attempt to recover the WPA/WPA2 key for a target network with a wordlist attack. Find the BSSID with airodump-ng. Requires monitor mode — run "airmon-ng start wlan0" first.',
     arguments: [
-      { name: 'bssid', description: 'Target network BSSID (from airdump)', required: true },
+      { name: 'bssid', description: 'Target network BSSID (from airodump-ng)', required: true },
     ],
-    examples: [{ command: 'aircrack AA:BB:CC:DD:EE:FF', description: 'Crack the target network' }],
+    examples: [{ command: 'aircrack-ng AA:BB:CC:DD:EE:FF', description: 'Crack the target network' }],
   },
   execute,
 };

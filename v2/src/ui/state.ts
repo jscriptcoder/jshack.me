@@ -204,13 +204,13 @@ const CROSS_PLAYER_LOADING_ROOT: Directory = {
   entries: new Map(),
 };
 // The workstation's NICs. Seeded from identity at `startGame`; offline at cold
-// start (only `lo` has an address). Later arc slices mutate this via airmon/nmcli.
+// start (only `lo` has an address). Later arc slices mutate this via airmon-ng/nmcli.
 const [connectivity, setConnectivity] = createSignal<ConnectivityState>({
   interfaces: new Map(),
 });
 // The WiFi access points in range — the latest scan roll. Seeded at `startGame`,
-// then refreshed by every `airdump` (a fresh roll, "relocating"); read afterwards
-// by aircrack/nmcli. Empty until the game starts.
+// then refreshed by every `airodump-ng` (a fresh roll, "relocating"); read afterwards
+// by aircrack-ng/nmcli. Empty until the game starts.
 const [wifiNetworks, setWifiNetworks] = createSignal<readonly WifiNetwork[]>([]);
 // The per-scan counter — the varying half of the roll seed, so consecutive scans
 // differ. Bumped on every `rescanWifi`.
@@ -218,7 +218,7 @@ const [wifiScanIndex, setWifiScanIndex] = createSignal(0);
 
 /** Re-roll the WiFi scan (backs `env.network.rescanWifi`): bump the scan index for
  *  a fresh draw, inject the currently-occupied ESSIDs for organic discovery, store
- *  the roll so aircrack/nmcli read what airdump just showed, and return it. */
+ *  the roll so aircrack-ng/nmcli read what airodump-ng just showed, and return it. */
 const rescanWifi = (occupiedEssids: readonly string[]): readonly WifiNetwork[] => {
   const scanIndex = wifiScanIndex() + 1;
   setWifiScanIndex(scanIndex);
@@ -232,7 +232,7 @@ const rescanWifi = (occupiedEssids: readonly string[]): readonly WifiNetwork[] =
 };
 
 /** Replace one interface in the connectivity signal (read-modify-write of a
- *  single Map entry). Backs `env.setInterface`, which airmon/nmcli call. A
+ *  single Map entry). Backs `env.setInterface`, which airmon-ng/nmcli call. A
  *  `wlan0` change also mirrors its association to localStorage so an nmcli
  *  connect/disconnect is durable across reloads (see `connectionPersistence`). */
 const setInterface = (name: string, iface: NetworkInterface): void => {
@@ -1637,7 +1637,7 @@ const executeLine = async (line: string): Promise<void> => {
       setOverlayMode(result.mode);
       return;
     }
-    // Streamed commands (airdump, aircrack) append each line as it arrives, so
+    // Streamed commands (airodump-ng, aircrack-ng) append each line as it arrives, so
     // the terminal fills live rather than all at once. A Ctrl-C abort rejects
     // the in-flight `env.sleep`, which surfaces here — print a `^C` marker and
     // stop, leaving the partial output. Any other error is a real fault.

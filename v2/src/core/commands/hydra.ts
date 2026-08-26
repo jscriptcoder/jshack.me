@@ -18,7 +18,7 @@
  * attacked (no service, no route, no wordlist). Reporting nothing for both would
  * make a broken setup look like a strong password.
  *
- * Pacing follows `aircrack`: the attempt is streamed through the abort-aware
+ * Pacing follows `aircrack-ng`: the attempt is streamed through the abort-aware
  * `env.sleep`, so Ctrl-C stops a run rather than letting it finish invisibly.
  */
 
@@ -47,7 +47,7 @@ const REFUSALS: Readonly<Record<string, string>> = {
   service_not_running: 'no such service on that host — scan it first with nmap',
   no_session: 'you are not logged in on this machine any more — reconnect and retry',
   caller_not_on_lan: 'cannot attack from this machine — it is not on your network',
-  no_password_set: 'that store has no password set (open access) — connect with rediscli',
+  no_password_set: 'that store has no password set (open access) — connect with redis-cli',
   wordlist_lookup_failed: 'could not read your wordlist — try again',
   patches_lookup_failed: 'could not reach the target — try again',
 };

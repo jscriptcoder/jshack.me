@@ -531,7 +531,7 @@ describe('hydra against a door with no accounts', () => {
     // "0 valid passwords found" here would be the exact opposite of the truth: there is
     // nothing to find because there is nothing in the way.
     expect(text).toContain('no password set (open access)');
-    expect(text).toContain('rediscli');
+    expect(text).toContain('redis-cli');
     expect(text).not.toContain('valid password');
   });
 });

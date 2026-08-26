@@ -19,14 +19,14 @@ import {
 } from '../../test/factories/commandEnv';
 import type { CommandEnv, CommandResult } from './types';
 import { commandRegistry } from './registry';
-import { airdump } from './airdump';
+import { airodumpNg } from './airodumpNg';
 
 /**
- * `airdump` is the player's WiFi scan: with monitor mode on, it streams the
+ * `airodump-ng` is the player's WiFi scan: with monitor mode on, it streams the
  * access points in range as an airodump-style table. Two non-negotiables — it
  * requires the player's own workstation + monitor mode, and it NEVER prints a
  * password (even though the runtime AP objects carry one for crackable APs).
- * `aircrack` is the only command that reveals a key.
+ * `aircrack-ng` is the only command that reveals a key.
  *
  * Tests inject the env's instant `sleep`, so the streamed output collects with
  * no real waiting.
@@ -35,7 +35,7 @@ import { airdump } from './airdump';
 const NO_FLAGS = new Map<string, string | true>();
 const PUBKEY = asPlayerKeyHex('a'.repeat(64));
 const OWN_MACHINE = asMachineId(computeWorkstationId('workstation', 'a'.repeat(64)));
-// A FIXED scan list — airdump's job is to RENDER whatever APs are in range, so the
+// A FIXED scan list — airodump-ng's job is to RENDER whatever APs are in range, so the
 // table golden pins the rendering (columns, padding, ordering, password redaction)
 // independent of the generator's seeding. Includes both crackable APs (carrying a
 // password that must never be printed), a hidden AP, and a WPA3 noise AP.
@@ -99,7 +99,7 @@ const airdumpEnv = (
     network: mockNetworkView({
       interfaces: () => [...state.interfaces.values()],
       isOnline: () => isOnline(state),
-      // airdump re-rolls the scan each run; the fixed list stands in for the roll.
+      // airodump-ng re-rolls the scan each run; the fixed list stands in for the roll.
       rescanWifi: () => WIFI,
     }),
     ...(options.sleep ? { sleep: options.sleep } : {}),
@@ -119,14 +119,14 @@ const syncOf = (result: CommandResult): { readonly text: string; readonly exitCo
   return { text: result.lines.map((line) => line.content).join('\n'), exitCode: result.exitCode };
 };
 
-describe('airdump', () => {
+describe('airodump-ng', () => {
   it('refuses to run off the player’s own workstation', async () => {
     const env = airdumpEnv(monitoring(buildColdStartConnectivity(PUBKEY)), {
       machineId: asMachineId('203.0.113.42'),
     });
-    const result = await airdump.execute(env, [], NO_FLAGS);
+    const result = await airodumpNg.execute(env, [], NO_FLAGS);
     expect(syncOf(result)).toEqual({
-      text: 'airdump: command not available on this machine',
+      text: 'airodump-ng: command not available on this machine',
       exitCode: 1,
     });
     if (result.kind !== 'sync') throw new Error('sync expected');
@@ -135,17 +135,17 @@ describe('airdump', () => {
 
   it('requires monitor mode to be enabled first', async () => {
     const env = airdumpEnv(buildColdStartConnectivity(PUBKEY));
-    const result = await airdump.execute(env, [], NO_FLAGS);
+    const result = await airodumpNg.execute(env, [], NO_FLAGS);
     expect(syncOf(result)).toEqual({
-      text: 'airdump: monitor mode not enabled — run airmon start wlan0 first',
+      text: 'airodump-ng: monitor mode not enabled — run airmon-ng start wlan0 first',
       exitCode: 1,
     });
   });
 
   it('fetches the currently-occupied ESSIDs and re-rolls the scan with them', async () => {
-    // The organic-discovery wiring: airdump asks the server which ESSIDs are
+    // The organic-discovery wiring: airodump-ng asks the server which ESSIDs are
     // occupied (name-only) and feeds them into a fresh roll, so a live network can
-    // surface in the scan. aircrack/nmcli then read that same refreshed list.
+    // surface in the scan. aircrack-ng/nmcli then read that same refreshed list.
     const occupied = ['STARK-WIFI', 'NAKATOMI-PLAZA'];
     const resolveOccupiedEssids = vi.fn(async () => occupied);
     const rescanWifi = vi.fn(() => WIFI);
@@ -161,7 +161,7 @@ describe('airdump', () => {
       scan: mockScanApi({ resolveOccupiedEssids }),
     });
 
-    await drain(await airdump.execute(env, [], NO_FLAGS));
+    await drain(await airodumpNg.execute(env, [], NO_FLAGS));
 
     expect(resolveOccupiedEssids).toHaveBeenCalled();
     expect(rescanWifi).toHaveBeenCalledWith(occupied);
@@ -169,7 +169,7 @@ describe('airdump', () => {
 
   it('streams every access point as a row with BSSID, power, channel, encryption and ESSID', async () => {
     const env = airdumpEnv(monitoring(buildColdStartConnectivity(PUBKEY)));
-    const { lines, exitCode } = await drain(await airdump.execute(env, [], NO_FLAGS));
+    const { lines, exitCode } = await drain(await airodumpNg.execute(env, [], NO_FLAGS));
     const joined = lines.join('\n');
 
     expect(exitCode).toBe(0);
@@ -187,9 +187,9 @@ describe('airdump', () => {
   it('streams the exact airodump-style table for a scan', async () => {
     // Golden snapshot for the fixed WIFI list — pins the scan banner, the column
     // header, the per-row padding/spacing, the blank separators, and the summary
-    // tail. Independent of the generator: airdump renders whatever is in range.
+    // tail. Independent of the generator: airodump-ng renders whatever is in range.
     const env = airdumpEnv(monitoring(buildColdStartConnectivity(PUBKEY)));
-    const { lines } = await drain(await airdump.execute(env, [], NO_FLAGS));
+    const { lines } = await drain(await airodumpNg.execute(env, [], NO_FLAGS));
     expect(lines).toEqual([
       ' CH  0 ][ Elapsed: 0 s ][ scanning...',
       '',
@@ -206,7 +206,7 @@ describe('airdump', () => {
 
   it('prints a header row labelling the columns', async () => {
     const env = airdumpEnv(monitoring(buildColdStartConnectivity(PUBKEY)));
-    const { lines } = await drain(await airdump.execute(env, [], NO_FLAGS));
+    const { lines } = await drain(await airodumpNg.execute(env, [], NO_FLAGS));
     const header = lines.find((line) => line.includes('BSSID') && line.includes('ESSID'));
     expect(header).toBeDefined();
     expect(header).toContain('PWR');
@@ -216,7 +216,7 @@ describe('airdump', () => {
 
   it('emits every scan line as plain text (renderer dispatches on kind)', async () => {
     const env = airdumpEnv(monitoring(buildColdStartConnectivity(PUBKEY)));
-    const result = await airdump.execute(env, [], NO_FLAGS);
+    const result = await airodumpNg.execute(env, [], NO_FLAGS);
     if (result.kind !== 'async') throw new Error('async expected');
     for await (const line of result.lines) {
       expect(line.kind).toBe('text');
@@ -225,7 +225,7 @@ describe('airdump', () => {
 
   it('never prints a crackable AP’s password', async () => {
     const env = airdumpEnv(monitoring(buildColdStartConnectivity(PUBKEY)));
-    const { lines } = await drain(await airdump.execute(env, [], NO_FLAGS));
+    const { lines } = await drain(await airodumpNg.execute(env, [], NO_FLAGS));
     const joined = lines.join('\n');
 
     const crackablePasswords = WIFI.filter((network) => network.crackable).map(
@@ -245,7 +245,7 @@ describe('airdump', () => {
         return Promise.resolve();
       },
     });
-    await drain(await airdump.execute(env, [], NO_FLAGS));
+    await drain(await airodumpNg.execute(env, [], NO_FLAGS));
     // One pause per access-point row.
     expect(sleeps).toBe(WIFI.length);
   });
@@ -254,7 +254,7 @@ describe('airdump', () => {
     const tree = buildDirectory({
       usr: buildDirectory({
         bin: buildDirectory({
-          airdump: buildFile('', { owner: 'root', perms: { execute: ['root', 'user', 'guest'] } }),
+          'airodump-ng': buildFile('', { owner: 'root', perms: { execute: ['root', 'user', 'guest'] } }),
         }),
       }),
     });
@@ -270,7 +270,7 @@ describe('airdump', () => {
     });
     const { runCommandLine } = await import('../shell/runLine');
 
-    const { lines } = await drain(await runCommandLine(env, 'airdump', commandRegistry));
+    const { lines } = await drain(await runCommandLine(env, 'airodump-ng', commandRegistry));
     expect(lines.join('\n')).toContain('Scan complete');
   });
 });

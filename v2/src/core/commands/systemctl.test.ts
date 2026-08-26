@@ -599,40 +599,40 @@ describe('systemctl usage', () => {
  *
  * It shipped without one. The daemon table and this unit table are two
  * declarations of the same fact, nothing checks that they agree, and the store
- * was reachable through the bare `redis` command the whole time — so every
+ * was reachable through the bare `redis-server` command the whole time — so every
  * player-facing path worked except the idiomatic one, and no test asked.
  */
 describe('systemctl and the key-value store a player bought', () => {
   it('reports a running store as active, with its port', async () => {
     const { env } = systemctlEnv({
-      running: { 'redis.pid': 'redis:port=6379' },
-      installed: ['redis'],
+      running: { 'redis-server.pid': 'redis-server:port=6379' },
+      installed: ['redis-server'],
     });
 
     const { text, exitCode } = syncResult(
-      await systemctl.execute(env, ['status', 'redis'], NO_FLAGS),
+      await systemctl.execute(env, ['status', 'redis-server'], NO_FLAGS),
     );
 
-    expect(text).toBe('● redis.service - Redis server\n     Active: active (running) on port 6379');
+    expect(text).toBe('● redis-server.service - Redis server\n     Active: active (running) on port 6379');
     expect(exitCode).toBe(0);
   });
 
   it('reports an installed-but-stopped store as inactive rather than absent', async () => {
-    const { env } = systemctlEnv({ installed: ['redis'] });
+    const { env } = systemctlEnv({ installed: ['redis-server'] });
 
-    const { text } = syncResult(await systemctl.execute(env, ['status', 'redis'], NO_FLAGS));
+    const { text } = syncResult(await systemctl.execute(env, ['status', 'redis-server'], NO_FLAGS));
 
-    expect(text).toBe('○ redis.service - Redis server\n     Active: inactive (dead)');
+    expect(text).toBe('○ redis-server.service - Redis server\n     Active: inactive (dead)');
   });
 
   it('closes the store port, removing the file every reader treats as open', async () => {
     const { env, removes } = systemctlEnv({
-      running: { 'redis.pid': 'redis:port=6379' },
-      installed: ['redis'],
+      running: { 'redis-server.pid': 'redis-server:port=6379' },
+      installed: ['redis-server'],
     });
 
     const { exitCode } = await streamResult(
-      await systemctl.execute(env, ['stop', 'redis'], NO_FLAGS),
+      await systemctl.execute(env, ['stop', 'redis-server'], NO_FLAGS),
     );
 
     expect(removes).toEqual([pidfilePath(SERVICE_CATALOG.redis)]);
@@ -640,35 +640,35 @@ describe('systemctl and the key-value store a player bought', () => {
   });
 
   it('opens it again through the daemon that owns the pidfile', async () => {
-    const { env, writes } = systemctlEnv({ installed: ['redis'] });
+    const { env, writes } = systemctlEnv({ installed: ['redis-server'] });
 
     const { exitCode } = await streamResult(
-      await systemctl.execute(env, ['start', 'redis'], NO_FLAGS),
+      await systemctl.execute(env, ['start', 'redis-server'], NO_FLAGS),
     );
 
-    expect(writes).toEqual([{ path: '/var/run/redis.pid', content: 'redis:port=6379' }]);
+    expect(writes).toEqual([{ path: '/var/run/redis-server.pid', content: 'redis-server:port=6379' }]);
     expect(exitCode).toBe(0);
   });
 
   it('brings a restarted store back on the port it was actually running on', async () => {
     const { env, writes } = systemctlEnv({
-      running: { 'redis.pid': 'redis:port=6380' },
-      installed: ['redis'],
+      running: { 'redis-server.pid': 'redis-server:port=6380' },
+      installed: ['redis-server'],
     });
 
-    await streamResult(await systemctl.execute(env, ['restart', 'redis'], NO_FLAGS));
+    await streamResult(await systemctl.execute(env, ['restart', 'redis-server'], NO_FLAGS));
 
-    expect(writes).toEqual([{ path: '/var/run/redis.pid', content: 'redis:port=6380' }]);
+    expect(writes).toEqual([{ path: '/var/run/redis-server.pid', content: 'redis-server:port=6380' }]);
   });
 
   it('cannot start a store the box never bought', async () => {
     const { env, writes } = systemctlEnv();
 
     const { text, exitCode } = syncResult(
-      await systemctl.execute(env, ['start', 'redis'], NO_FLAGS),
+      await systemctl.execute(env, ['start', 'redis-server'], NO_FLAGS),
     );
 
-    expect(text).toBe('Unit redis.service could not be found.');
+    expect(text).toBe('Unit redis-server.service could not be found.');
     expect(exitCode).toBe(1);
     expect(writes).toEqual([]);
   });

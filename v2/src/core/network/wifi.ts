@@ -1,7 +1,7 @@
 /**
  * WiFi network model (connectivity arc).
  *
- * The access points a player's `airdump` sees and `aircrack`/`nmcli` act on.
+ * The access points a player's `airodump-ng` sees and `aircrack-ng`/`nmcli` act on.
  * Ported + simplified from legacy `network/wifiNetworks.ts` + `bssidFromEssid`.
  *
  * Design (grill-me decision 2): a DISCRIMINATED union on `crackable`, so the
@@ -12,7 +12,7 @@
  * only emits WPA2/WPA3 (the crackability gates) — WEP/OPEN mechanics deferred.
  *
  * A `crackable: false` AP still carries `encryption`/`power`/`essid` so
- * `aircrack` can pick the right failure reason (WPA3 / weak signal / hidden)
+ * `aircrack-ng` can pick the right failure reason (WPA3 / weak signal / hidden)
  * without a separate tag — the failure is re-derived from observable state.
  */
 

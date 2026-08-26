@@ -29,7 +29,7 @@ const error = (message: string): CommandResult => ({
   exitCode: 1,
 });
 
-const USAGE = 'ping: usage: ping <host> [count]';
+const USAGE = 'ping: usage: ping <host>';
 
 const UNREACHABLE = 'ping: network is unreachable — connect to a network first';
 
@@ -37,9 +37,10 @@ const UNREACHABLE = 'ping: network is unreachable — connect to a network first
 const PAYLOAD_BYTES = 56;
 const REPLY_BYTES = 64;
 
-const DEFAULT_COUNT = 4;
-/** A ceiling so a mistyped count cannot stall the terminal for minutes. */
-const MAX_COUNT = 20;
+/** How many echoes every run sends. Fixed rather than a `[count]` argument: a bare
+ *  number after the host would be the only positional in the game whose meaning a
+ *  player could not read off the line, and nothing here needs a different number. */
+const ECHO_COUNT = 4;
 
 const TTL = 64;
 
@@ -51,24 +52,14 @@ const INTERVAL_MS = 300;
 const replyTimeMs = (ip: string, sequence: number): string =>
   (0.2 + createPrng(`ping-${ip}-${sequence}`).next() * 1.8).toFixed(3);
 
-/** The optional `[count]` as a positive whole number, the default when absent, or
- *  null when it is not a count at all. */
-const parseCount = (raw: string | undefined): number | null => {
-  if (raw === undefined) return DEFAULT_COUNT;
-  const count = Number(raw);
-  if (!Number.isInteger(count) || count < 1 || count > MAX_COUNT) return null;
-  return count;
-};
-
 async function* echoes(
   env: CommandEnv,
   target: string,
-  count: number,
   reachable: boolean,
 ): AsyncGenerator<TerminalLine, number> {
   yield text(`PING ${target} (${target}) ${PAYLOAD_BYTES}(${PAYLOAD_BYTES + 28}) bytes of data.`);
 
-  for (let sequence = 1; sequence <= count; sequence++) {
+  for (let sequence = 1; sequence <= ECHO_COUNT; sequence++) {
     await env.sleep(INTERVAL_MS);
     if (reachable) {
       yield text(
@@ -77,11 +68,11 @@ async function* echoes(
     }
   }
 
-  const received = reachable ? count : 0;
-  const loss = Math.round(((count - received) / count) * 100);
+  const received = reachable ? ECHO_COUNT : 0;
+  const loss = Math.round(((ECHO_COUNT - received) / ECHO_COUNT) * 100);
   yield text('');
   yield text(`--- ${target} ping statistics ---`);
-  yield text(`${count} packets transmitted, ${received} received, ${loss}% packet loss`);
+  yield text(`${ECHO_COUNT} packets transmitted, ${received} received, ${loss}% packet loss`);
   return received > 0 ? 0 : 1;
 }
 
@@ -89,11 +80,6 @@ const execute: Command['execute'] = async (env, args) => {
   const target = args[0];
   if (target === undefined) {
     return error(USAGE);
-  }
-
-  const count = parseCount(args[1]);
-  if (count === null) {
-    return error(`ping: bad number of packets to transmit: ${args[1]}`);
   }
 
   const wlan0 = connectedWlan0(env.network);
@@ -113,7 +99,7 @@ const execute: Command['execute'] = async (env, args) => {
 
   // The exit code IS the answer here (0 only when something replied), so it comes from
   // the stream's own return value rather than being assumed up front.
-  return streamedResult(echoes(env, target, count, reachable));
+  return streamedResult(echoes(env, target, reachable));
 };
 
 export const ping: Command = {
@@ -125,16 +111,14 @@ export const ping: Command = {
   // player currently stands.
   availability: { kind: 'any-machine' },
   manual: {
-    synopsis: 'ping <host> [count]',
+    synopsis: 'ping <host>',
     description:
-      'Send ICMP echo requests to a host on your network and report which came back. Answers reachability only — a host that replies may still be running nothing. Sends 4 packets by default.',
+      'Send ICMP echo requests to a host on your network and report which came back. Answers reachability only — a host that replies may still be running nothing. Always sends 4 packets.',
     arguments: [
       { name: 'host', description: 'The address to reach, e.g. 192.168.1.5', required: true },
-      { name: 'count', description: `How many packets to send (1-${MAX_COUNT}, default 4)` },
     ],
     examples: [
       { command: 'ping 192.168.1.5', description: 'Send four echo requests to a host' },
-      { command: 'ping 192.168.1.5 2', description: 'Send just two' },
     ],
   },
   execute,

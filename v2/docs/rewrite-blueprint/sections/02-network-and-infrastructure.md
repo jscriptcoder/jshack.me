@@ -212,7 +212,7 @@ Parser: `src/network/ncStateParser.ts`. Extracts port, username, userType, homeP
 
 ### 2.3.4 Infrastructure Daemons (nginx, mysqld, redis, etc.)
 
-**Pid files**: One per daemon binary (nginx.pid, mysqld.pid, redis.pid, dovecot.pid, etc.)
+**Pid files**: One per daemon binary (nginx.pid, mysqld.pid, redis-server.pid, dovecot.pid, etc.)
 **Content format — short form** (generation): `${binary}:port=${N}` (e.g., `/usr/sbin/nginx:port=80`)
 **Content format — extended form** (player-run): `${binary}:port=${N},user=U,userType=T,home=H`
 **Multi-line support**: Services sharing a pid file are grouped; one line per service
@@ -222,7 +222,7 @@ Parser: `src/network/ncStateParser.ts`. Extracts port, username, userType, homeP
 - http, https, http-alt → nginx.pid → /usr/sbin/nginx → www-data
 - mysql → mysqld.pid → /usr/sbin/mysqld → mysql
 - postgresql → postgres.pid → /usr/sbin/postgres → postgres
-- redis → redis.pid → /usr/sbin/redis-server → redis
+- redis → redis-server.pid → /usr/sbin/redis-server → redis
 - mongodb → mongod.pid → /usr/sbin/mongod → mongodb
 - smtp → postfix.pid → /usr/sbin/postfix → postfix
 - imap, imaps, pop3 → dovecot.pid → /usr/sbin/dovecot → dovecot

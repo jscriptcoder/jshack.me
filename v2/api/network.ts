@@ -634,7 +634,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (actionOf(req.body) === 'resolveOccupiedEssids') {
     // Organic-discovery read (Story 7): any verified identity asks which ESSIDs are
-    // currently occupied, so airdump can inject them for discovery. UNGATED (you learn
+    // currently occupied, so airodump-ng can inject them for discovery. UNGATED (you learn
     // a network exists before joining it) and NAME-ONLY — only the essid column is
     // selected, so no occupant identity crosses the wire. The handler de-duplicates
     // names (several players can occupy one ESSID).

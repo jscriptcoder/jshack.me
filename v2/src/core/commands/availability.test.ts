@@ -246,10 +246,10 @@ const treeWithSbinBinary = (name: string) =>
 
 describe('wrapWithBinaryCheck — /usr/bin resolution + apt-install hint (slice 2)', () => {
   it('resolves a binary from /usr/bin when it is not in /bin', async () => {
-    // aircrack is a pre-installed apt tool: it lives in /usr/bin, not /bin.
-    const wrapped = wrapWithBinaryCheck(echoArgsCommand('aircrack'));
+    // aircrack-ng is a pre-installed apt tool: it lives in /usr/bin, not /bin.
+    const wrapped = wrapWithBinaryCheck(echoArgsCommand('aircrack-ng'));
     const env = mockCommandEnv({
-      fs: mockFsViewFromTree(treeWithUsrBinary('aircrack'), { userType: 'user' }),
+      fs: mockFsViewFromTree(treeWithUsrBinary('aircrack-ng'), { userType: 'user' }),
     });
 
     const result = await wrapped.execute(env, ['-b', '00:11'], NO_FLAGS);
@@ -281,9 +281,9 @@ describe('wrapWithBinaryCheck — /usr/bin resolution + apt-install hint (slice 
     ['nc', 'netcat'],
     ['ftp', 'ftp'],
     ['msfconsole', 'metasploit'],
-    ['airmon', 'aircrack'],
-    ['airdump', 'aircrack'],
-    ['aircrack', 'aircrack'],
+    ['airmon-ng', 'aircrack-ng'],
+    ['airodump-ng', 'aircrack-ng'],
+    ['aircrack-ng', 'aircrack-ng'],
     ['gpg', 'gpg'],
     ['node', 'node'],
     ['hydra', 'hydra'],
@@ -292,7 +292,7 @@ describe('wrapWithBinaryCheck — /usr/bin resolution + apt-install hint (slice 
     ['snmpset', 'snmp'],
     ['mysql', 'mysql'],
     ['mysqld', 'mysql'],
-    ['rediscli', 'redis'],
+    ['redis-cli', 'redis'],
     ['lynx', 'lynx'],
     ['apache2', 'apache2'],
     ['nginx', 'nginx'],

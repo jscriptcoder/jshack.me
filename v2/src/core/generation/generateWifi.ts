@@ -9,9 +9,9 @@
  * Two populations:
  *   - 2-3 CRACKABLE APs: WPA2, strong signal (-65..-35 dBm), visible ESSID,
  *     carrying a real password drawn from the encoded `WIFI_PASSWORDS` pool.
- *     Gate-passable by `aircrack` (Slice 4).
- *   - 3-5 NOISE APs: each fails exactly ONE aircrack gate — WPA3 (handshake
- *     unsupported), weak signal (< -80 dBm), or hidden ESSID — so `aircrack`
+ *     Gate-passable by `aircrack-ng` (Slice 4).
+ *   - 3-5 NOISE APs: each fails exactly ONE aircrack-ng gate — WPA3 (handshake
+ *     unsupported), weak signal (< -80 dBm), or hidden ESSID — so `aircrack-ng`
  *     re-derives the failure from observable state, no separate tag needed.
  *
  * BSSIDs and crackable passwords both derive from the ESSID (`bssidFromEssid` /

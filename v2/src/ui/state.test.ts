@@ -2422,7 +2422,7 @@ describe('the redis sub-shell', () => {
           json: async () => ({
             patches: [
               {
-                path: '/usr/bin/rediscli',
+                path: '/usr/bin/redis-cli',
                 content: BINARY_STUB,
                 owner: 'root',
                 permissions: {
@@ -2443,7 +2443,7 @@ describe('the redis sub-shell', () => {
     await vi.waitFor(async () => {
       state.setInput('ls /usr/bin');
       await state.runInput();
-      expect(state.scrollback().some((entry) => entry.content.includes('rediscli'))).toBe(true);
+      expect(state.scrollback().some((entry) => entry.content.includes('redis-cli'))).toBe(true);
     });
     return { state, sent };
   };
@@ -2451,7 +2451,7 @@ describe('the redis sub-shell', () => {
   /** Open the store by actually typing the command — the shipped path, not a poked
    *  signal. There is nothing to answer along the way, which is the door. */
   const typeConnect = async (state: typeof import('./state')): Promise<void> => {
-    state.setInput(`rediscli ${STORE_HOST.ip}`);
+    state.setInput(`redis-cli ${STORE_HOST.ip}`);
     await state.runInput();
     await settle();
   };

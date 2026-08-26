@@ -2,7 +2,7 @@
  * abortableSleep — the real (UI-side) `env.sleep`.
  *
  * A setTimeout-backed delay that also REJECTS when the given AbortSignal fires,
- * so a streamed command paused mid-output (airdump's scan, aircrack's crack)
+ * so a streamed command paused mid-output (airodump-ng's scan, aircrack-ng's crack)
  * stops the instant the player hits Ctrl-C rather than running its timer out.
  * `core/` only sees the injected `(ms) => Promise<void>` seam; this real timer
  * is a UI concern, kept out of the framework-agnostic core. Tests inject an

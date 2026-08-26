@@ -37,8 +37,8 @@ const SHELL_BUILTINS: ReadonlySet<string> = new Set(['cd', 'echo', 'exit', 'pwd'
 
 /** Game-specific commands — always available, not real Linux tools. Same
  *  match-what-exists rule (legacy also had missions/accept/abort/mail/author/
- *  theme/reset/xterm — re-add each as it ships). */
-const GAME_COMMANDS: ReadonlySet<string> = new Set(['identity', 'reset']);
+ *  theme/xterm — re-add each as it ships). */
+const GAME_COMMANDS: ReadonlySet<string> = new Set(['identity', 'new-game']);
 
 /** True for commands that need no binary (builtins + game commands); the
  *  registry leaves these unwrapped. */

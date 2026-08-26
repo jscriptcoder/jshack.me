@@ -291,17 +291,18 @@ const MYSQLD: Daemon = {
   ],
 };
 
-/** The store daemon, and the second door a player has to BUY. No `d` on the end:
- *  a command name becomes a formal PARAMETER of the function a script runs, so
- *  `redis-server` would be a syntax error that takes every script in the game down.
- *  The package name IS the daemon name here, exactly as `nginx` and `apache2` are.
+/** The store daemon, and the second door a player has to BUY. Named for the real
+ *  binary, hyphen and all: a script reaches a command through a JS-safe identifier
+ *  derived from its name (`redis-server` -> `redisServer`), so the shell name is free
+ *  to be the one a player already knows. The package stays `redis` — one package
+ *  shipping both halves, as the database row above does.
  *
  *  Its secret belongs to the SERVICE rather than to a person — one lock, no accounts —
  *  which is the whole difference between this door and the database beside it. On a
  *  player's own box that lock is the box's root password, so starting this is opening a
  *  second way at a secret they already hold. */
 const REDIS: Daemon = {
-  name: 'redis',
+  name: 'redis-server',
   spec: SERVICE_CATALOG.redis,
   banner: 'Redis server',
   alreadyRunning: 'already running',
@@ -313,8 +314,8 @@ const REDIS: Daemon = {
     "password, which on your own box is this machine's root password. Must be run as root " +
     '(run "su" first). Refuses to start if a store is already running.',
   examples: [
-    { command: 'redis', description: 'Start the store on the default port 6379' },
-    { command: 'redis 6380', description: 'Start it on port 6380 instead' },
+    { command: 'redis-server', description: 'Start the store on the default port 6379' },
+    { command: 'redis-server 6380', description: 'Start it on port 6380 instead' },
   ],
 };
 
@@ -323,7 +324,7 @@ export const vsftpd = daemonCommand(VSFTPD);
 export const nginx = daemonCommand(NGINX);
 export const apache2 = daemonCommand(APACHE2);
 export const mysqld = daemonCommand(MYSQLD);
-export const redis = daemonCommand(REDIS);
+export const redisServer = daemonCommand(REDIS);
 
 /** Each daemon keyed by the command name that starts it. `systemctl` reads this
  *  to bring a unit up through `bringUp` once it has established the port is
@@ -335,5 +336,5 @@ export const DAEMONS: Readonly<Record<string, Daemon>> = {
   nginx: NGINX,
   apache2: APACHE2,
   mysqld: MYSQLD,
-  redis: REDIS,
+  'redis-server': REDIS,
 };

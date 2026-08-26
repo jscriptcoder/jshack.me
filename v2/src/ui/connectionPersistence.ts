@@ -48,7 +48,7 @@ export const persistConnection = (storage: StorageLike, iface: NetworkInterface)
  * `wlan0` associated; otherwise return the cold state untouched (offline). The
  * stored ESSID is trusted (the password was proven when the player originally
  * connected), and restore is deliberately INDEPENDENT of the current scan list:
- * scans re-roll per `airdump`, so a connected AP need not appear in the latest roll
+ * scans re-roll per `airodump-ng`, so a connected AP need not appear in the latest roll
  * — looking it up there would drop the player offline on a reload that happened to
  * re-roll past the connected network.
  *

@@ -12,14 +12,14 @@
  * state; it only declares what commands exist.
  */
 
-import { aircrack } from './aircrack';
-import { airdump } from './airdump';
-import { airmon } from './airmon';
+import { aircrackNg } from './aircrackNg';
+import { airodumpNg } from './airodumpNg';
+import { airmonNg } from './airmonNg';
 import { apt } from './apt';
 import { cat } from './cat';
 import { cd } from './cd';
 import { curl } from './curl';
-import { apache2, mysqld, nginx, redis, sshd, vsftpd } from './daemon';
+import { apache2, mysqld, nginx, redisServer, sshd, vsftpd } from './daemon';
 import { echo } from './echo';
 import { exit } from './exit';
 import { grep } from './grep';
@@ -41,12 +41,12 @@ import { ping } from './ping';
 import { ps } from './ps';
 import { pwd } from './pwd';
 import { reboot } from './reboot';
-import { reset } from './reset';
+import { newGame } from './newGame';
 import { rm } from './rm';
 import { hydra } from './hydra';
 import { ftp } from './ftp';
 import { mysql } from './mysql';
-import { rediscli } from './rediscli';
+import { redisCli } from './redisCli';
 import { scp } from './scp';
 import { ssh } from './ssh';
 import { su } from './su';
@@ -57,9 +57,9 @@ import { wrapWithLibraryCheck } from './libraryDeps';
 import type { Command } from './types';
 
 const builtins: readonly Command[] = [
-  aircrack,
-  airdump,
-  airmon,
+  aircrackNg,
+  airodumpNg,
+  airmonNg,
   apache2,
   apt,
   cat,
@@ -87,14 +87,14 @@ const builtins: readonly Command[] = [
   ps,
   pwd,
   reboot,
-  reset,
+  newGame,
   rm,
   hydra,
   ftp,
   mysql,
-  rediscli,
+  redisCli,
   mysqld,
-  redis,
+  redisServer,
   scp,
   ssh,
   sshd,

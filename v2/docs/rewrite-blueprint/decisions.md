@@ -31,7 +31,7 @@ Locked-in answers to the architectural questions raised in `core-contracts.md`. 
 
 **Stream as produced, no artificial batching or buffering.**
 
-- Commands `yield` lines at whatever pace makes sense for them (real-time progress for `aircrack`, instant burst for `nmap`).
+- Commands `yield` lines at whatever pace makes sense for them (real-time progress for `aircrack-ng`, instant burst for `nmap`).
 - The UI appends to a Solid store as lines arrive; fine-grained reactivity handles DOM updates efficiently.
 - No artificial delays. Realism comes from the command's natural pacing, not from UI throttling.
 - If a perf problem ever surfaces (e.g. a command yielding thousands of lines instantly), add micro-batching at the **adapter** layer in one place — not a day-1 concern.

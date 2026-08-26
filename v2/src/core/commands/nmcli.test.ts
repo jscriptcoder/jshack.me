@@ -260,7 +260,7 @@ describe('nmcli', () => {
         await nmcli.execute(env, ['connect', 'BEAN-THERE-WIFI', 'sunshine2024'], NO_FLAGS),
       );
 
-      expect(text).toContain("nmcli: wlan0 is in monitor mode — run 'airmon stop wlan0' first");
+      expect(text).toContain("nmcli: wlan0 is in monitor mode — run 'airmon-ng stop wlan0' first");
       expect(exitCode).toBe(1);
       expect(joinCalls).toEqual([]);
     });

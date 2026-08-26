@@ -857,7 +857,7 @@ These are non-negotiable. If a draft violates one, it's wrong.
 6. **No mutation outside adapters.** Every core function returns a new value. Mutation lives in `ui/state.ts` (signals) and `adapters/storage/` (IndexedDB writes).
 7. **Time is injected.** Commands never call `Date.now()` directly — they call `env.now()`. Same for `gameTime()`. This makes testing deterministic and lets the server stamp the value in multiplayer.
 8. **No reactive primitives in `core/`.** Signals never leak in. Effects never leak in. Commands return values; the UI subscribes to changes.
-9. **`AbortSignal` for cancellation.** Long-running commands (`nmap`, `aircrack`, `ping`) take `env.signal` and abort cleanly. The UI provides the signal from a Ctrl-C handler.
+9. **`AbortSignal` for cancellation.** Long-running commands (`nmap`, `aircrack-ng`, `ping`) take `env.signal` and abort cleanly. The UI provides the signal from a Ctrl-C handler.
 10. **One file per command.** No mega-modules. Each command in `core/commands/<name>.ts`, flat — no `impl/` nesting.
 
 ---
