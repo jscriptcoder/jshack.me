@@ -48,6 +48,7 @@ import {
   DAEMONS,
   mysqld,
   nginx,
+  redis,
   runningPort,
   sshd,
   vsftpd,
@@ -119,6 +120,13 @@ const UNITS: Readonly<Record<string, Unit>> = {
     spec: SERVICE_CATALOG.mysql,
     start: mysqld,
     daemon: DAEMONS.mysqld,
+  },
+  redis: {
+    name: 'redis',
+    title: 'Redis server',
+    spec: SERVICE_CATALOG.redis,
+    start: redis,
+    daemon: DAEMONS.redis,
   },
 };
 
