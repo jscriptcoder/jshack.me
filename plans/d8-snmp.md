@@ -280,7 +280,7 @@ plus supabase. Slice 1's `N/A` was real and checked; this one is not available.
       answers as unreachable, inheriting D7 slice 5b's split rather than inventing a third answer.
 - [x] **AC-8** `snmpwalk` is gated on the `snmp` package: a box without it answers
       `snmpwalk: command not found`, and `apt install snmp` is what fixes that.
-- [ ] **AC-9** `scripts/testSnmpWalk.ts` proves the round trip live against `vercel dev` + supabase:
+- [x] **AC-9** `scripts/testSnmpWalk.ts` proves the round trip live against `vercel dev` + supabase:
       an accepted walk, a rejected community, and both log lines read back off the target.
 
 ### RED
@@ -371,11 +371,8 @@ command now declares that gate.
 
 #### What remains
 
-1. **AC-9, the wire-check** — `scripts/testSnmpWalk.ts` against `vercel dev` + supabase:
-   an accepted walk, a refused community, and both log lines read back off the target.
-   `api/sessions.ts` changed, so this is owed and cannot be reasoned away.
-2. **The mutation gate**, run once over the changed production files, survivors addressed.
-3. **The version bump** to `v0.186.0` in `v2/package.json` and `v2/package-lock.json`
+1. **The mutation gate**, run once over the changed production files, survivors addressed.
+2. **The version bump** to `v0.186.0` in `v2/package.json` and `v2/package-lock.json`
    (`npm install --package-lock-only`).
 
 #### What building it has settled that planning had not
@@ -408,6 +405,19 @@ command now declares that gate.
   either — `sessionsApi.test.ts` covers sessions and the database door only. The wire-check
   is that layer's evidence, which is the same division `conventions-and-gotchas.md` §
   states for `api/`.
+- **The wire-check went 11/11 on its FIRST run, so it was falsified twice before it was
+  believed.** A green a script has never been seen to lose is not evidence. Two deliberate
+  breaks in `api/sessions.ts`, each reverted: stubbing `findPublicIpByEssid` to `null` took
+  exactly the live-table-read check red and left its no-row twin green, and no-opping
+  `upsertPatch` took all three trace checks red. Both bit precisely where aimed, which is
+  what makes the 11/11 mean something.
+- **The public-IP read is checked in BOTH directions, and that pairing is the point.**
+  Seeded row → `[localIp, publicIp]`; row cleared → `[localIp]`. One direction alone passes
+  against a hardcoded second address or against a handler that never reads the table at all.
+- **One check is knowingly one-sided: `NOTHING went to auth.log`.** It stays green when the
+  handler writes nowhere, as the second falsification showed. It is guarded by the positive
+  snmpd.log check beside it, not on its own — worth remembering before it is copied into a
+  slice where nothing plays that guard role.
 
 ### PR-ready when
 
