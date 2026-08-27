@@ -50,6 +50,20 @@ unusable because `node`'s sandbox makes every command name a JS parameter — **
 camelCase identifier instead. Its
 close-out also **closed the last open finding from D6's browser smoke test** — a fellow occupant's
 open ports were invisible to `nmap` — so all four of that session's findings are now resolved.
+**Three follow-ups then landed on trunk after that close-out.** **#462** (v0.183.0) — `DAEMONS`
+gained a `redis` entry when a player first ran their own store and `UNITS` never did, so
+`systemctl start` answered "Unit redis.service could not be found" on a box where the store was
+installed and running; because `systemctl stop` is the only way to shut a service, the store was a
+door that never closed. **Found by playing the game, not by a test.** **#463** — three assertions
+comparing NAMES rather than counts now hold the three daemon tables to one fact (every daemon a
+package installs can be started, every startable one can be stopped, every catalog door names a
+daemon a player can act on), verified by re-injecting both historical bugs; plus the ftp
+wire-check fixture that had been asserting an `ssh` login against an ftp box. **#464** (v0.184.0)
+— six commands took the name their real counterpart actually has: `reset` → `new-game` (the real
+`reset` reinitialises a terminal; this wipes the save), `airdump` → `airodump-ng`, `aircrack` →
+`aircrack-ng`, `airmon` → `airmon-ng`, `rediscli` → `redis-cli`, and the daemon `redis` →
+`redis-server` (the package stays `redis`). The systemctl unit and the pidfile follow the daemon
+name, so it is `redis-server.service` now. **Trunk is at v0.184.0.**
 **D5 🔍 GRILLED 2026-08-16, not yet planned** — fifteen locked decisions and a six-slice spine in
 "D5 — resolved scope & decisions"; it also found that §9's `ps` defect is misdiagnosed and owns
 the fix. Everything else is split-and-grilled only.
@@ -296,7 +310,7 @@ PHASE 1 — THE DOORS  (near-term focus)
       D6 slice 6 a player runs their own database     ✔ SHIPPED v0.167.0 (#443)
       D6 slice 6b a generated box carries what it runs ✔ SHIPPED v0.168.0-v0.169.0 (#444/#445/#446)
       D6 slice 7 a player reaches another's database  ✔ SHIPPED v0.170.0-v0.171.0 (#447/#448)
-  D7  rediscli                                        ✅ SHIPPED (8 slices, v0.174.0-v0.182.0)
+  D7  redis-cli                                       ✅ SHIPPED (8 slices, v0.174.0-v0.182.0)
       D7 slice 1 a box runs a key-value store         ✔ SHIPPED v0.174.0 (#452)
       D7 slice 2 a player opens an unlocked store     ✔ SHIPPED v0.175.0 (#453)
       D7 slice 3 a player cracks a locked store       ✔ SHIPPED v0.176.0 (#454)
@@ -306,6 +320,9 @@ PHASE 1 — THE DOORS  (near-term focus)
       D7 slice 6 a player runs their own store        ✔ SHIPPED v0.180.0 (#459)
       D7 slice 7a a player reaches another's store    ✔ SHIPPED v0.181.0 (#460)
       D7 slice 7b a neighbour's store, and the scan   ✔ SHIPPED v0.182.0 (#461)
+      D7 follow-up  the daemon systemctl could not start ✔ SHIPPED v0.183.0 (#462)
+      D7 follow-up  the three daemon tables get a guard  ✔ SHIPPED (#463, no bump)
+      D7 follow-up  the real binary names, hyphens intact ✔ SHIPPED v0.184.0 (#464)
   D8  snmpwalk / snmpset
   D9  node scripting
   D10 polish (long-tail comfort commands)
