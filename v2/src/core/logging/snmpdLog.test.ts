@@ -3,6 +3,7 @@ import {
   SNMPD_LOG_OWNER,
   SNMPD_LOG_PATH,
   SNMPD_LOG_PERMISSIONS,
+  formatSnmpdArrivalLine,
   formatSnmpdAttemptLine,
 } from './snmpdLog';
 import { asGameTime } from '../types';
@@ -66,6 +67,32 @@ describe('an snmpd.log line', () => {
 
   it('stamps the device’s own name, so one file cannot answer for two boxes', () => {
     expect(formatSnmpdAttemptLine(attempt({ hostname: 'sw-14', pid: 991 }))).toContain(
+      'sw-14 snmpd[991]:',
+    );
+  });
+});
+
+describe('an snmpd.log arrival line', () => {
+  it('records that somebody reached the agent, before any community is judged', () => {
+    // The arrival and the attempt are two events, and a defender needs both: a wall of
+    // arrivals with no attempt behind them is a scan, while an arrival followed by a
+    // refusal is somebody guessing. Collapsed into one line, those read identically.
+    expect(formatSnmpdArrivalLine(attempt())).toBe(
+      'Aug 20 09:14:02 gw-01 snmpd[4471]: Connection from UDP: [10.0.0.9]',
+    );
+  });
+
+  it('says nothing about the outcome, which is the attempt line’s to tell', () => {
+    // A reach is a reach whoever made it and whatever they then tried. An arrival that
+    // varied with the outcome would state the verdict twice and could disagree with
+    // itself the moment one of the two changed.
+    expect(formatSnmpdArrivalLine(attempt({ outcome: 'success' }))).toBe(
+      formatSnmpdArrivalLine(attempt({ outcome: 'failure' })),
+    );
+  });
+
+  it('stamps the device’s own name, so one file cannot answer for two boxes', () => {
+    expect(formatSnmpdArrivalLine(attempt({ hostname: 'sw-14', pid: 991 }))).toContain(
       'sw-14 snmpd[991]:',
     );
   });

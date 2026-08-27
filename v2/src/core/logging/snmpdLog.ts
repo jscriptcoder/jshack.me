@@ -45,6 +45,29 @@ export const SNMPD_LOG_PERMISSIONS: FilePermissions = {
   execute: [],
 };
 
+/** Render a client REACHING the agent as its `/var/log/snmpd.log` line, before any
+ *  community has been judged. Real net-snmp logs the connection and the verdict
+ *  separately, and the two carry different evidence: a run of arrivals with no attempt
+ *  behind them is somebody scanning, while an arrival followed by a refusal is somebody
+ *  guessing. One combined line could not tell those apart.
+ *
+ *  The source port real net-snmp prints after the address is omitted. It is an ephemeral
+ *  number this world does not model, so printing one would be inventing the only part of
+ *  the line a defender might try to act on. */
+export const formatSnmpdArrivalLine = ({
+  fromIp,
+  hostname,
+  time,
+  pid,
+}: Pick<CredentialAttempt, 'fromIp' | 'hostname' | 'time' | 'pid'>): string =>
+  formatSyslogLine({
+    time,
+    hostname,
+    service: 'snmpd',
+    pid,
+    message: `Connection from UDP: [${fromIp}]`,
+  });
+
 /** Render one community-string attempt as its `/var/log/snmpd.log` line. The failure
  *  text is real net-snmp's own — a player who has seen the thing this imitates reads it
  *  without being taught. */
