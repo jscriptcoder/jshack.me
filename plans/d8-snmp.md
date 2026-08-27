@@ -1,8 +1,8 @@
 # Plan: D8 — `snmpwalk` / `snmpset`
 
-**Branch**: `feat/d8-snmp-device` (slice 1)
-**Status**: Active — slice 1 BUILT (all seven criteria met, 2026-08-27); slices 2–7
-outlined only
+**Branch**: `feat/d8-snmp-walk` (slice 2)
+**Status**: Active — slice 1 MERGED (#465, v0.185.0, 2026-08-27); slice 2 next,
+not yet planned; slices 3–7 outlined only
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D8 — resolved scope & decisions
 (grill-me, 2026-08-27)", eleven locked decisions, gap-checked the same day.
 
@@ -25,7 +25,7 @@ that table, all of it a VIEW over the `rules.v4` / `acl.conf` files v2 already p
 
 | # | Slice | Observable | Status |
 |---|-------|-----------|--------|
-| 1 | a device answers SNMP | `nmap` shows `161/udp snmp` on a router/switch | **built** |
+| 1 | a device answers SNMP | `nmap` shows `161/udp snmp` on a router/switch | **merged** #465 |
 | 2 | a player walks it with `public` | identity OIDs return; the walk lands in `snmpd.log` | outlined |
 | 3 | a player cracks the RW community | `hydra <host> snmp` → the port table renders | outlined |
 | 4 | a player opens a port, no shell | `snmpset` adds a forward; `nmap` shows it | outlined |
