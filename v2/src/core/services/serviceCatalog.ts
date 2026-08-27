@@ -50,6 +50,7 @@ import {
   SNMPD_LOG_OWNER,
   SNMPD_LOG_PATH,
   SNMPD_LOG_PERMISSIONS,
+  formatSnmpdArrivalLine,
   formatSnmpdAttemptLine,
 } from '../logging/snmpdLog';
 
@@ -69,7 +70,7 @@ export type SweepLog = {
    *  Absent for daemons that record no such thing: sshd's first line is already the
    *  attempt, so an arrival line there would be an invention. */
   readonly formatArrival?: (
-    arrival: Pick<CredentialAttempt, 'fromIp' | 'time' | 'pid'>,
+    arrival: Pick<CredentialAttempt, 'fromIp' | 'hostname' | 'time' | 'pid'>,
   ) => string;
 };
 
@@ -317,6 +318,7 @@ export const SERVICE_CATALOG = {
       path: SNMPD_LOG_PATH,
       owner: SNMPD_LOG_OWNER,
       permissions: SNMPD_LOG_PERMISSIONS,
+      formatArrival: formatSnmpdArrivalLine,
       formatAttempt: formatSnmpdAttemptLine,
     },
     // Nothing, as the store has nothing: a community string is the SERVICE's secret and

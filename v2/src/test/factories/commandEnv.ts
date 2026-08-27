@@ -25,6 +25,7 @@ import type {
   FtpApi,
   MysqlApi,
   RedisApi,
+  SnmpApi,
   ScpApi,
   SshApi,
   NcApi,
@@ -194,6 +195,14 @@ export const mockRedisApi = (overrides: Partial<RedisApi> = {}): RedisApi => ({
   ...overrides,
 });
 
+/** The device door seam. `walk` throws unless a test stubs it: a walk that silently
+ *  answered would put a device's identity on screen without a server ever having been
+ *  asked, and this door's whole point is that the client cannot answer for itself. */
+export const mockSnmpApi = (overrides: Partial<SnmpApi> = {}): SnmpApi => ({
+  walk: NOT_IMPLEMENTED('snmp.walk'),
+  ...overrides,
+});
+
 /** The transfer door seam. `authenticate` and `write` throw unless a test stubs
  *  them, for the same reason ftp's do: a transfer that silently reported success
  *  while nothing left the machine is the one failure this command must never fake.
@@ -277,6 +286,7 @@ export const mockCommandEnv = (overrides: Partial<CommandEnv> = {}): CommandEnv 
   ftp: mockFtpApi(),
   mysql: mockMysqlApi(),
   redis: mockRedisApi(),
+  snmp: mockSnmpApi(),
   scp: mockScpApi(),
   su: mockSuApi(),
   hydra: mockHydraApi(),

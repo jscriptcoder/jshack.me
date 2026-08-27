@@ -37,6 +37,7 @@ import { ACCESS_LOG_PERMISSIONS } from '../logging/accessLog';
 import { AUTH_LOG_PERMISSIONS } from '../logging/authLog';
 import { KERN_LOG_PERMISSIONS } from '../logging/kernLog';
 import { SNMPD_LOG_PERMISSIONS } from '../logging/snmpdLog';
+import { SNMPD_CONF_PERMISSIONS, SNMPD_CONF_SEED } from '../snmp/conf';
 import { placementOf } from './rolePlacement';
 import { daemonName, formatPidfileContent, PIDFILE_PERMISSIONS } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
@@ -187,8 +188,18 @@ const buildGatewayBaseFs = (
   // below which every gateway carries. A log seeded where no daemon runs would say a
   // daemon was there and left nothing, and a device advertising a port whose program
   // it does not have could not be stopped by the `systemctl` on it.
-  const snmpEntries: Record<string, FileNode> = identity.hasSnmp
+  const snmpLogEntries: Record<string, FileNode> = identity.hasSnmp
     ? { 'snmpd.log': file('', SNMPD_LOG_PERMISSIONS) }
+    : {};
+  // The agent's config follows the agent for the same reason, and one more: a conf on a
+  // device with no agent invites a player to walk something that cannot answer.
+  const snmpConfigEntries: Record<string, FileNode> = identity.hasSnmp
+    ? {
+        snmp: dir(
+          { 'snmpd.conf': file(SNMPD_CONF_SEED, SNMPD_CONF_PERMISSIONS) },
+          TRAVERSABLE_DIR,
+        ),
+      }
     : {};
   const daemonBinaries = identity.hasSnmp
     ? [...SYSTEM_DAEMON_NAMES, daemonName(SERVICE_CATALOG.snmp)]
@@ -201,6 +212,7 @@ const buildGatewayBaseFs = (
       etc: dir(
         {
           passwd: file(passwd, PASSWD_FILE),
+          ...snmpConfigEntries,
           ...configEntries,
         },
         TRAVERSABLE_DIR,
@@ -222,7 +234,7 @@ const buildGatewayBaseFs = (
               'access.log': file('', ACCESS_LOG_PERMISSIONS),
               'auth.log': file('', AUTH_LOG_PERMISSIONS),
               'kern.log': file('', KERN_LOG_PERMISSIONS),
-              ...snmpEntries,
+              ...snmpLogEntries,
             },
             TRAVERSABLE_DIR,
           ),

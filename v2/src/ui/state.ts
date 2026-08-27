@@ -43,6 +43,8 @@ import type {
   MysqlStatementResult,
   MysqlConnectResult,
   RedisConnectParams,
+  SnmpWalkParams,
+  SnmpWalkResult,
   RedisConnection,
   RedisConnectResult,
   RedisStatementParams,
@@ -119,6 +121,7 @@ import {
   authElevateServerSession,
   connectDatabase,
   connectStore,
+  walkDevice,
   runDatabaseStatement,
   runStoreStatement,
   crackCredentials,
@@ -667,6 +670,13 @@ const redisStatement = (params: RedisStatementParams): Promise<RedisStatementRes
   sessionsClientDeps === undefined
     ? Promise.resolve({ kind: 'lost' })
     : runStoreStatement(sessionsClientDeps, params);
+
+/** Walk a device over SNMP server-side (backs `env.snmp.walk`). Before the client is
+ *  wired, silence is the honest answer and the only one this door has. */
+const snmpWalk = (params: SnmpWalkParams): Promise<SnmpWalkResult> =>
+  sessionsClientDeps === undefined
+    ? Promise.resolve({ ok: false })
+    : walkDevice(sessionsClientDeps, params);
 
 /** Crack credentials behind a stranger's PUBLIC IP server-side (backs
  *  `env.hydra.crackPublic`). Degrades the same way before the client is wired. */
@@ -1575,6 +1585,7 @@ const executeLine = async (line: string): Promise<void> => {
     onMysqlEnter: enterMysqlSession,
     onMysqlLeave: leaveMysqlSession,
     onRedisConnect: redisConnect,
+    onSnmpWalk: snmpWalk,
     onRedisStatement: redisStatement,
     onRedisEnter: enterRedisSession,
     onRedisLeave: leaveRedisSession,

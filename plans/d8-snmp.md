@@ -1,8 +1,9 @@
 # Plan: D8 — `snmpwalk` / `snmpset`
 
-**Branch**: `feat/d8-snmp-device` (slice 1)
-**Status**: Active — slice 1 BUILT (all seven criteria met, 2026-08-27); slices 2–7
-outlined only
+**Branch**: `feat/d8-snmp-walk` (slice 2)
+**Status**: Active — slice 1 MERGED (#465, v0.185.0, 2026-08-27); slice 2 **PR-READY** on
+`feat/d8-snmp-walk` at v0.186.0 (AC-1…AC-9 met, wire-check RUN 11/11, mutation gate closed —
+see "Progress" below); slices 3–7 outlined only
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D8 — resolved scope & decisions
 (grill-me, 2026-08-27)", eleven locked decisions, gap-checked the same day.
 
@@ -25,8 +26,8 @@ that table, all of it a VIEW over the `rules.v4` / `acl.conf` files v2 already p
 
 | # | Slice | Observable | Status |
 |---|-------|-----------|--------|
-| 1 | a device answers SNMP | `nmap` shows `161/udp snmp` on a router/switch | **built** |
-| 2 | a player walks it with `public` | identity OIDs return; the walk lands in `snmpd.log` | outlined |
+| 1 | a device answers SNMP | `nmap` shows `161/udp snmp` on a router/switch | **merged** #465 |
+| 2 | a player walks it with `public` | identity OIDs return; the walk lands in `snmpd.log` | **in progress** |
 | 3 | a player cracks the RW community | `hydra <host> snmp` → the port table renders | outlined |
 | 4 | a player opens a port, no shell | `snmpset` adds a forward; `nmap` shows it | outlined |
 | 5 | a device on a deep layer answers | the inner-gateway vantage | outlined |
@@ -212,10 +213,277 @@ gate is green, the mutation gate has run with survivors addressed, and the versi
   public IP shows `161/udp` beside `22/tcp`, with no credential spent. Slice 3 sets the crack
   rate on top of that, and it is the first number to retune if the door proves too cheap.
 
-## Slices 2–7 (outline only — plan each when its predecessor lands)
+---
 
-- **Slice 2** — `snmpwalk <host> [community]`, the RO tier, identity OIDs in the format decision 5
-  fixes, and `formatArrival` on `snmpd.log`. First slice with a command.
+## Slice 2: a player walks a device with `public` and learns what it is
+
+**Value**: The first D8 slice that puts a command in the player's hands. Today a router or switch
+shows `161/udp snmp` and there is nothing whatever to do with it — slice 1 shipped a door with no
+handle. After this, `snmpwalk 10.0.0.1` says what the device IS, and leaves two lines on a log its
+owner can read. Both halves matter: the walk is the reconnaissance every later slice is aimed
+through, and the log is the first instalment of the only tell this door ever gives, because an
+`snmpset` will arrive with no shell and no session to notice.
+
+**Path**: `apt install snmp` → `snmpwalk <host> [community]` → client preflight against the
+regenerated LAN → `env.snmp.walk` → `api/sessions` `snmpWalk` → `reachServiceHost(…, service:
+'snmp')` → parse the reached box's `/etc/snmp/snmpd.conf` → render the identity OIDs → append
+arrival + attempt to `/var/log/snmpd.log` → the table back to the terminal.
+
+**Class**: Behavior change.
+
+**Delivery**: Independent PR against trunk. No stack — slice 3 does not start before this lands.
+
+**Required implementation skills**: `tdd`, `testing`, `refactoring`. Load `mutation-testing` at PR
+readiness, not per increment.
+
+**Reduction program**: `N/A`.
+**Transition/terminal evidence**: `N/A`.
+
+### This slice OWES a wire-check — the epic's tentative `N/A` does not survive contact
+
+The epic left it open: *"slices 1, 2 and 6 may be able to record `N/A` … but only after re-examining
+rather than by assumption."* Re-examined, and the answer is no. A walk against a LAN device is
+**server-executed**, for the same two reasons `redis-cli` is:
+
+- The address may belong to a **fellow occupant** rather than to the seeded box, and only the server
+  can tell which — pre-flighting a neighbour against the generated world would answer for a real
+  player out of the box their lease displaced.
+- The two log lines are **patch rows on somebody else's machine id**. A client that could write
+  those could write anything on any box.
+
+So slice 2 builds a `snmpWalk` action, and `scripts/testSnmpWalk.ts` proves it against `vercel dev`
+plus supabase. Slice 1's `N/A` was real and checked; this one is not available.
+
+### Acceptance criteria — CONFIRMED 2026-08-27, before any code
+
+- [x] **AC-1** With `snmp` installed and a LAN gateway running the agent, `snmpwalk <gateway>`
+      returns the identity block — `sysDescr`, `sysName`, `sysContact`, `ifDescr`, `ifAddr` —
+      column-aligned in locked decision 5's form, with the `[READ-ONLY]` acceptance line and the
+      trailer naming the OID count and pointing at a read-write community.
+- [x] **AC-2** The community defaults to `public` when omitted, and `snmpwalk <host> public` returns
+      a byte-identical block.
+- [x] **AC-3** A community that is not the device's read-only string returns **`Timeout: No Response
+      from <host>`** and no identity — real net-snmp's own answer, because an agent drops a bad
+      community silently. Deliberately the SAME words a device with no agent gives, so a walk can
+      never be used to enumerate which boxes hold a community worth cracking.
+- [x] **AC-4** A router reads `Linux <hostname>` with `eth0`; a switch reads
+      `Cisco IOS L3 Switch <hostname>` with `GigabitEthernet0/1`. The kind is derived from the
+      port-authority file the device already carries — `rules.v4` is a router, `acl.conf` is a
+      switch — and is never a second copy of that fact.
+- [x] **AC-5** The player's own AP gateway renders TWO interfaces, its LAN `.1` and the network's
+      public address; an inner gateway and a switch render ONE. A device shows the addresses it
+      actually holds.
+- [x] **AC-6** Every walk that reaches the agent lands two lines on the target's
+      `/var/log/snmpd.log` — an arrival naming the source address, then an attempt recording whether
+      the community was accepted — in that order, appended to what was already there.
+- [x] **AC-7** A device whose agent is stopped (`systemctl stop snmpd`) receives NEITHER line and
+      answers as unreachable, inheriting D7 slice 5b's split rather than inventing a third answer.
+- [x] **AC-8** `snmpwalk` is gated on the `snmp` package: a box without it answers
+      `snmpwalk: command not found`, and `apt install snmp` is what fixes that.
+- [x] **AC-9** `scripts/testSnmpWalk.ts` proves the round trip live against `vercel dev` + supabase:
+      an accepted walk, a rejected community, and both log lines read back off the target.
+
+### RED
+
+Behavior tests, in this order — each fails for the right reason before any production change:
+
+1. **The renderer emits decision 5's block.** Pure and framework-free, so it is the sharpest RED
+   available and needs no server: feed it a router identity, assert the aligned lines.
+2. **A router and a switch render differently, by name.** Both kinds asserted separately, never as
+   "the switch differs" — #463 earned that rule and slice 1 re-earned it.
+3. **The handler appends both lines, in order.** Against a fake log-read/upsert pair, the shape
+   `redisConnect`'s tests already use.
+4. **A wrong community yields the timeout and still logs the attempt.** Two separate assertions,
+   because the interesting failure is a refusal that forgets to leave evidence.
+
+**Mutants to design against** (mutator rules used for test design only — the harness runs once at PR
+readiness):
+
+- The default community mutated off `public` must break AC-2, so assert that the omitted-argument
+  and explicit-`public` calls produce the SAME block, not merely that both succeed.
+- Inverting the router/switch discriminator must break AC-4 — hence two named assertions.
+- Dropping the attempt line while keeping the arrival must break AC-6, so assert BOTH lines and
+  their ORDER, never the count.
+- Inverting the two-interface condition must break AC-5, so the inner gateway's single interface is
+  its own test rather than a corollary of the gateway's two.
+
+### GREEN — the minimum, in dependency order
+
+1. **`SweepLog.formatArrival` widens to carry `hostname`.** Forced, not chosen: it is currently
+   `Pick<CredentialAttempt, 'fromIp' | 'time' | 'pid'>`, and snmpd's arrival line is syslog-shaped
+   like its attempt line, so it needs the host's name. vsftpd's and redis's formatters ignore the
+   new field; the three call sites (`authCreateSession`, `authCreateSessionPublic`, `redisConnect`)
+   all already hold `reach.reached.hostname`.
+2. **`formatSnmpdArrivalLine`** in `snmpdLog.ts` — `Connection from UDP: [<ip>]` — and its tests
+   land in the same increment. Slice 1's 0% survivor is why that is stated rather than assumed.
+3. **`/etc/snmp/snmpd.conf`**, planted in `routerFs.ts` beside the pidfile and conditional on
+   `hasSnmp` exactly as `snmpd.log` is. World-readable — the RO string being public is the actual
+   joke of real SNMP. It carries `rocommunity public` and `syscontact netops@corp.local`, and
+   nothing else.
+4. **`parseSnmpdConf`** — lenient, in the shape the `rules.v4` parser already uses, returning
+   `{ roCommunity, sysContact }`. Slice 3 extends it for the root-only file.
+5. **The renderer**, `src/core/snmp/walk.ts` — pure, taking a resolved identity and returning the
+   lines, so the alignment and the trailer are tested where they cost nothing.
+6. **`handleSnmpWalk`** in `src/core/sessions/` — signed-request schema carrying no credential
+   beyond the community, `reachServiceHost`, conf parse, render, best-effort log append.
+7. **`api/sessions.ts` wiring.** `findPublicIpByEssid` is already built and wired for the trace
+   path, so AC-5 costs a dependency that exists rather than a new query.
+8. **The `snmpwalk` command** — preflight mirroring `redis-cli`'s (own LAN settled here; public and
+   occupant addresses left to the server), `availability: { kind: 'installed-package', packageName:
+   'snmp' }`, registry entry, man page.
+9. **`scripts/testSnmpWalk.ts`.**
+
+### Three things GREEN must get right
+
+**The config file must not restate a fact the world already holds.** `sysName` is the hostname, and
+`sysDescr` and `ifDescr` follow from the device's kind, so none of them go in the file — the walk
+derives them. Written in, they become a second authority that `nano` can desync from the box's real
+name, which is exactly what locked decision 2 refuses for the port table. What the file carries is
+what nothing else knows: the community and the contact.
+
+**The kind comes from the port-authority file, not from the hostname.** Slice 1 found that
+`roleOfHostname` never returns `router` or `switch` — those roles are not drawn, they are built. The
+discriminator that IS on `hostFs` is the file the device owns: `/etc/iptables/rules.v4` makes it a
+router, `/etc/switch/acl.conf` makes it a switch. That is also the file slices 3 and 4 render and
+write, so the kind and the port table can never disagree.
+
+**A rejected community and a dead agent must be indistinguishable to the client.** Both are
+`Timeout: No Response from <host>`. The server knows which is which — it has to, or slice 3's
+`hydra` could not score a sweep — but the client is told the same thing either way. Any answer that
+separated them would hand a scanner a free map of which devices are worth a wordlist.
+
+### Progress — BUILT so far, on `feat/d8-snmp-walk` (2026-08-27)
+
+Four implementation commits on top of the plan, each RED→GREEN with the gates clean.
+Full suite **3788 passing / 178 files** (baseline at slice 1 close was 3764 / 174);
+`npm run typecheck` and `npm run lint` clean from `v2/`.
+
+| Commit | What landed |
+|--------|-------------|
+| `ad7808d0` | `src/core/snmp/walk.ts` (the OID block, `PLATFORM` table) + `formatSnmpdArrivalLine` |
+| `53162859` | `src/core/snmp/conf.ts` (`SNMPD_CONF_SEED`, `readSnmpdConf`, `parseSnmpdConf`) + generation plants `/etc/snmp/snmpd.conf` |
+| `da3b7462` | `src/core/sessions/snmpWalk.ts` + `SweepLog.formatArrival` widened + catalog row wired |
+| `9c2d04ec` | `src/core/commands/snmpwalk.ts`, `SnmpApi` seam, `walkDevice` adapter, `api/sessions` dispatch, registry |
+| `5a36eff5` | `scripts/testSnmpWalk.ts` — the wire-check, 11/11, falsified twice |
+| `b7510493` | the mutation gate: three test gaps closed, two pieces of dead code removed, v0.186.0 |
+
+**AC-1…AC-8 are met and covered.** AC-8 needed no new test: `availability.test.ts`'s
+`APT_HINT_PAIRS` has mapped `snmpwalk` → `snmp` since before anything consumed it, and the
+command now declares that gate.
+
+#### The mutation gate — run, survivors addressed
+
+Scoped battery per `conventions-and-gotchas.md` §6 (throwaway vitest config narrowing the dry run
+to the 8 covering test files; throwaway stryker config mutating the four net-new modules whole plus
+the changed line ranges elsewhere). **268 mutants / 195 killed / 66 survived / 7 no-coverage** at the
+start; **251 / 207 / 43 / 1** at the end. Both throwaway files deleted.
+
+What it found, and what was done about it:
+
+| Survivor | Action |
+|----------|--------|
+| `readSnmpdConf` had NO test at all — only the parser beside it did | three tests: the file read, a box with no `/etc`, an `/etc/snmp` holding no file |
+| `SNMPD_CONF_PATH` and `SNMPD_CONF_OWNER` exported and used **nowhere** | deleted; slice 3 can reintroduce a path constant when something writes the file |
+| No envelope tests at this door, where 13 sibling doors have them | unsigned, wrong-shape, and self-stamped `player_key` all refused — and the refusal names its reason |
+| A blanked conf, and a gateway whose ESSID has no public-IP row | one unit test each (the second was live-only evidence until now) |
+| The comment/blank `.filter()` was **dead** — both directives are `^`-anchored, so a comment can never match one | filter removed; a commented-out-directive test now pins the promise the anchor keeps alone |
+| `conf.roCommunity !== null &&` could not change the answer — the community on the wire is a non-empty string | collapsed to the equality alone |
+| A source-restricted `rocommunity public 10.0.0.0/8` was silently unspecified | **decided**: refused whole, so the device falls silent and its owner has something visible to fix. Pinned by a test, with the WHY next to the regex |
+
+**The 43 survivors that remain are classified, not ignored:**
+
+- **32 are `snmpwalk.ts`'s manual block** — `description`, `manual`, `arguments`, `examples`. Its
+  executable half has ZERO survivors. This is §"a command's mutation score is mostly its manual",
+  and the split is exactly where that entry says to look for it.
+- **3 are seed prose** in `SNMPD_CONF_SEED` (two `#` header lines and the trailing blank). Same class
+  — content a player reads, not behaviour a test can own without pinning prose.
+- **2 are `padRight`'s boundary** in `walk.ts`. `>=` → `>` is *provably* equivalent: at equality both
+  arms return the same string. `? :` → `false` diverges only for a value longer than its column, and
+  the OIDs are generated by the same module and top out at 24 against a 26-wide column.
+- **4 in `snmpWalk.ts` are equivalent at this door**: `user: ''` (neither snmpd formatter reads the
+  field — the code comment says so), and the `formatArrival?.` + `.filter(undefined)` family, which
+  is unkillable because the snmp catalog row always sets that optional column. The optionality
+  belongs to the shared `SweepLog` type, not to this door.
+- **`fromIp: … ?? 'unknown'`** is a defensive default no reachable caller triggers.
+- **1 is a REAL gap, deliberately deferred**: `writerKey ?? publicKey` needs a target that already has
+  an owner, which means an occupant fixture. That is slice 7's natural world, and the invariant it
+  guards (every visitor's lines accreting onto ONE row rather than a row each) is what slice 7 exists
+  to exercise. Do not close this slice's gate on it; do not let slice 7 close without it.
+
+#### The version
+
+**v0.186.0** in `v2/package.json` and `v2/package-lock.json`.
+
+#### What building it has settled that planning had not
+
+- **The `formatArrival` widening was load-bearing, exactly where predicted.**
+  `SERVICE_CATALOG` ends `as const satisfies Record<string, ServiceSpec>`, so wiring
+  `formatArrival: formatSnmpdArrivalLine` failed that check until the column could name a
+  host. Without the `satisfies` it would have compiled and the forcing would have been
+  invisible.
+- **No client pre-flight — a deliberate deviation from GREEN step 8.** `redis-cli`
+  pre-flights to save a round trip on a refusal it can settle from the world it
+  regenerates. Here every refusal is one sentence, so a pre-flight would duplicate the
+  generated world on the client to reach the message the server was going to send anyway.
+  The command's header comment carries the reason so it is not "restored" later.
+- **The collapsed refusal is enforced by the TYPE, not by discipline.** `SnmpWalkResult`'s
+  failure arm carries no reason at all, so the adapter has no error branch to get wrong.
+  Slices 3, 4 and 7 must not add one — a reason is a free map of which devices are worth a
+  wordlist.
+- **A device's kind is `readAclConf(hostFs) === '' ? 'router' : 'switch'`.** A switch is
+  the special case; everything else answers as the Linux box it is, which is already the
+  right answer for slice 6's workstation agent.
+- **`FileEntry`'s permissions field is `perms`, not `permissions`.** The `*_PERMISSIONS`
+  constants are `FilePermissions` values; the node field they land in is `perms`.
+- **Typecheck caught what 3788 passing tests did not — for the second slice running.**
+  Here it was `result.exitCode` on an un-narrowed `CommandResult`; in slice 1 it was a
+  hand-assembled identity missing a flag. Both are the same class: a test that runs green
+  under esbuild's type-stripping while `tsc -b` rejects it. Run `npm run typecheck` before
+  presenting any increment, not only at the PR gate.
+- **A survivor that makes no sense is worth hand-checking — mine was a test I had
+  deleted.** `sysContact ?? ''` survived while a test asserting exactly that sat in the
+  file. It survived because the test was NOT in the file: a scripted splice had used that
+  `it(` block as its anchor and replaced it. The report was right and the file was wrong.
+  When a survivor contradicts a test you can see, run the mutant by hand before theorising
+  about coverage attribution.
+- **`git checkout -- <file>` to undo a hand-mutation also undoes your uncommitted work.**
+  Restoring `conf.ts` that way silently reverted a deletion made minutes earlier, and the
+  next run reported against a file that had quietly grown its dead exports back. Copy the
+  file aside and restore from the copy; `git status` after a hand-mutation is the check.
+- **Removing dead defence can make a live one testable.** The comment/blank filter and the
+  `^` anchors defended the same thing, and each made the other's mutants unkillable —
+  ten survivors between them, none of which named a missing test. Deleting the filter
+  turned two of the anchor mutants into ordinary killable ones, and the test that kills
+  them states the promise directly: a commented-out directive is not a live one.
+- **The transport adapter gets no unit test, by house precedent.** `connectStore` has none
+  either — `sessionsApi.test.ts` covers sessions and the database door only. The wire-check
+  is that layer's evidence, which is the same division `conventions-and-gotchas.md` §
+  states for `api/`.
+- **The wire-check went 11/11 on its FIRST run, so it was falsified twice before it was
+  believed.** A green a script has never been seen to lose is not evidence. Two deliberate
+  breaks in `api/sessions.ts`, each reverted: stubbing `findPublicIpByEssid` to `null` took
+  exactly the live-table-read check red and left its no-row twin green, and no-opping
+  `upsertPatch` took all three trace checks red. Both bit precisely where aimed, which is
+  what makes the 11/11 mean something.
+- **The public-IP read is checked in BOTH directions, and that pairing is the point.**
+  Seeded row → `[localIp, publicIp]`; row cleared → `[localIp]`. One direction alone passes
+  against a hardcoded second address or against a handler that never reads the table at all.
+- **One check is knowingly one-sided: `NOTHING went to auth.log`.** It stays green when the
+  handler writes nowhere, as the second falsification showed. It is guarded by the positive
+  snmpd.log check beside it, not on its own — worth remembering before it is copied into a
+  slice where nothing plays that guard role.
+
+### PR-ready when
+
+AC-1…AC-9 pass, `npm run typecheck` and `npm run lint` are clean from `v2/`, the full non-watch test
+gate is green, the wire-check has RUN against a live stack rather than been reasoned about, the
+mutation gate has run with survivors addressed, and the version is bumped to **v0.186.0** in both
+`v2/package.json` and `v2/package-lock.json` (`npm install --package-lock-only`).
+
+**Slice complete when** its PR lands on `main`.
+
+## Slices 3–7 (outline only — plan each when its predecessor lands)
+
 - **Slice 3** — the RW community as an md5 in root-only `/var/lib/snmp/snmpd.conf`, `secretOn`,
   `CRACK_CHANCE.community` at 0.6, `hydra <host> snmp` with no login field, and the RW walk
   rendering the port table. **Owes a wire-check.**

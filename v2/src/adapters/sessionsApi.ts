@@ -36,6 +36,8 @@ import type {
   NcPublicResult,
   RedisConnectParams,
   RedisConnectResult,
+  SnmpWalkParams,
+  SnmpWalkResult,
   RedisStatementParams,
   RedisStatementResult,
   NcSameLanParams,
@@ -498,6 +500,47 @@ export const connectStore = async (
     return { ok: false, reason: stopped.success ? 'refused' : 'unreachable' };
   } catch {
     return { ok: false, reason: 'unreachable' };
+  }
+};
+
+/** What a device hands back when it accepted the community. Parsed rather than
+ *  trusted: a 200 this client cannot read is not an answer, and there is exactly one
+ *  other thing it could be. */
+const walkedDevice = z.object({
+  identity: z.object({
+    hostname: z.string(),
+    kind: z.union([z.literal('router'), z.literal('switch')]),
+    sysContact: z.string(),
+    addresses: z.array(z.string()),
+  }),
+});
+
+/**
+ * Walk a device over SNMP — the signed `snmpWalk` round-trip behind `env.snmp.walk`.
+ *
+ * EVERY failure collapses to the same answer, and that is the door's design rather
+ * than this adapter being lazy: a refused community, a stopped agent, a box that is not
+ * there and a request that never arrived are one silence to the caller. There is no
+ * error branch here to get wrong, and nothing a sweep could read to sort devices into
+ * worth-cracking and not.
+ */
+export const walkDevice = async (
+  deps: SessionsClientDeps,
+  params: SnmpWalkParams,
+): Promise<SnmpWalkResult> => {
+  try {
+    const response = await post(deps, 'snmpWalk', {
+      essid: params.essid,
+      target_ip: params.targetIp,
+      community: params.community,
+      source_ip: params.sourceIp,
+    });
+    if (!response.ok) return { ok: false };
+    const body: unknown = await response.json().catch(() => null);
+    const walked = walkedDevice.safeParse(body);
+    return walked.success ? { ok: true, identity: walked.data.identity } : { ok: false };
+  } catch {
+    return { ok: false };
   }
 };
 
