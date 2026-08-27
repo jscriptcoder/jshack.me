@@ -521,6 +521,27 @@ const passwdRows = (fs: Directory): readonly (readonly string[])[] =>
  * single NAT source of truth — seeded with NO active forward (opt-in default).
  * sshd is present iff the caller says so (the seam decision-3 owns).
  */
+describe('buildDeepSwitchBaseFs', () => {
+  const PARENT = 'gw-deadbeef';
+
+  it('owns an acl.conf like its shallow counterpart — a deep switch still filters', () => {
+    // Nothing asserted this before, and an empty file is not an inert one: `acl.conf`
+    // is default-ALLOW, so a deep switch that lost its seeded deny would silently open
+    // the port it was meant to filter rather than fail visibly. The snmp write path
+    // arrives at this exact file, which is what makes the gap worth closing now.
+    const acl = fileAt(buildDeepSwitchBaseFs(PARENT, 42), ['etc', 'switch'], 'acl.conf');
+
+    expect(acl.startsWith('#')).toBe(true);
+    expect(parseAclDenies(acl)).toEqual([8080]);
+  });
+
+  it('forwards nothing — no rules.v4 at all, so its segment is dark from upstream', () => {
+    // The whole difference between the two deep device kinds. A switch caps the chain
+    // by construction rather than by an empty forward table it could be given.
+    expect(dirAt(buildDeepSwitchBaseFs(PARENT, 42), 'etc').entries.has('iptables')).toBe(false);
+  });
+});
+
 describe('buildRouterBaseFsFromIdentity', () => {
   const routerFs = (
     overrides: Partial<{ adminPwHash: string; hasSsh: boolean; hasSnmp: boolean }> = {},

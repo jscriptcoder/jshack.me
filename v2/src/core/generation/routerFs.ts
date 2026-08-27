@@ -107,6 +107,11 @@ export const seedApGatewayHasSsh = (essid: string): boolean =>
  *
  * The access point's own gateway takes NO draw and is not routed through here — see
  * `buildApGatewayBaseFs`.
+ *
+ * `<` rather than `<=` is not killable by any test: `next()` returns a float in [0, 1), so
+ * telling the two apart needs a seed landing on exactly the rate. `seedApGatewayHasSsh`
+ * above carries the same comparison and the same permanently surviving mutant — expect it
+ * in every mutation report and do not chase it.
  */
 const seedHasSnmp = (namespace: string, kind: 'router' | 'switch'): boolean =>
   createPrng(namespace).next() < placementOf(kind, SERVICE_CATALOG.snmp);

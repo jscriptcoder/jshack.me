@@ -1,8 +1,8 @@
 # Plan: D8 — `snmpwalk` / `snmpset`
 
 **Branch**: `feat/d8-snmp-device` (slice 1)
-**Status**: Active — slice 1 planned, its criteria confirmed 2026-08-27, branch cut;
-slices 2–7 outlined only
+**Status**: Active — slice 1 BUILT (all seven criteria met, 2026-08-27); slices 2–7
+outlined only
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D8 — resolved scope & decisions
 (grill-me, 2026-08-27)", eleven locked decisions, gap-checked the same day.
 
@@ -25,7 +25,7 @@ that table, all of it a VIEW over the `rules.v4` / `acl.conf` files v2 already p
 
 | # | Slice | Observable | Status |
 |---|-------|-----------|--------|
-| 1 | a device answers SNMP | `nmap` shows `161/udp snmp` on a router/switch | **planned** |
+| 1 | a device answers SNMP | `nmap` shows `161/udp snmp` on a router/switch | **built** |
 | 2 | a player walks it with `public` | identity OIDs return; the walk lands in `snmpd.log` | outlined |
 | 3 | a player cracks the RW community | `hydra <host> snmp` → the port table renders | outlined |
 | 4 | a player opens a port, no shell | `snmpset` adds a forward; `nmap` shows it | outlined |
@@ -64,21 +64,21 @@ readiness, not per increment.
 
 ### Acceptance criteria — CONFIRMED 2026-08-27, before any code
 
-- [ ] **AC-1** With a generated LAN whose gateway rolled an SNMP agent, `nmap <subnet>` lists that
+- [x] **AC-1** With a generated LAN whose gateway rolled an SNMP agent, `nmap <subnet>` lists that
       gateway with a `161/udp   open   snmp` row.
-- [ ] **AC-2** Every existing service still renders `/tcp` — `22/tcp`, `80/tcp`, `3306/tcp`,
+- [x] **AC-2** Every existing service still renders `/tcp` — `22/tcp`, `80/tcp`, `3306/tcp`,
       `6379/tcp` are unchanged in the same table.
-- [ ] **AC-3** A generated switch rolls an SNMP agent at a materially higher rate than a router:
+- [x] **AC-3** A generated switch rolls an SNMP agent at a materially higher rate than a router:
       over a fixed seed sweep, `switch` lands ≈0.9 and `router` ≈0.6, and **no `machine`-role host
       ever rolls one** (flat `placement: 0`, no role cell).
-- [ ] **AC-4** The player's own AP gateway ALWAYS runs the agent, for every ESSID — pinned, not
+- [x] **AC-4** The player's own AP gateway ALWAYS runs the agent, for every ESSID — pinned, not
       rolled.
-- [ ] **AC-5** A gateway that rolled an agent carries `/var/run/snmpd.pid` owned by its `runUser`,
+- [x] **AC-5** A gateway that rolled an agent carries `/var/run/snmpd.pid` owned by its `runUser`,
       and one that did not carries no such file.
-- [ ] **AC-6** `systemctl start snmpd` and `systemctl stop snmpd` both resolve on a device that has
+- [x] **AC-6** `systemctl start snmpd` and `systemctl stop snmpd` both resolve on a device that has
       the agent — the daemon is in `DAEMONS` and `UNITS`, so `systemctl.test.ts`'s three guards stay
       green.
-- [ ] **AC-7** Generation stays byte-stable for an unchanged seed: adding the agent moves no octet
+- [x] **AC-7** Generation stays byte-stable for an unchanged seed: adding the agent moves no octet
       the lease allocator excludes, and no existing generated host changes.
 
 ### RED
@@ -144,14 +144,39 @@ Assess only if it earns its place. The likely candidate: `runEntries` becomes a 
 build. If a third daemon flag ever follows, that is the moment to generalize — not now, and the
 owner has pruned speculative abstraction before.
 
-### PRE-PR MUTATION or alternate evidence
+### PRE-PR MUTATION — run, survivors addressed
 
-Run `mutation-testing` once, focused on `serviceCatalog.ts`, `rolePlacement.ts`, `routerFs.ts` and
-`nmap.ts`, when the slice is otherwise PR-ready. **Not `N/A`**: this slice is pure client-side
-generation and render with no server-executed path, so mutation is both meaningful and cheap.
+Ran focused on the changed production files. Whole-file first, then scoped to the changed line
+ranges to separate this slice's survivors from what the two large files already carried.
 
-**No wire-check.** Nothing in `api/` changes — slices 3, 4 and 7 own that bill. Record the checked
-facts rather than asserting it, the way D7 slice 6 did when it recorded `N/A` on four of them.
+| File | Whole file | Changed lines |
+|------|-----------|---------------|
+| `serviceCatalog.ts` | **100%** (6/6) | — |
+| `rolePlacement.ts` | **100%** (15/15) | — |
+| `nmap.ts` | 83.3% | **100%** (9/9) |
+| `routerFs.ts` | 80.0% | 95.3% → **100%** after one kill |
+| `snmpdLog.ts` | **0%** → **100%** (19/19) | — |
+
+Two survivors, of two different kinds:
+
+- **`snmpdLog.ts` scored 0%** — the module the required `sweepLog` column forced into this slice.
+  Its existence was compelled by the type system, so the catalog row's test proved it COMPILED
+  while nothing asserted a character of its output. It was the only module in `src/core/logging/`
+  with no test file, which is the louder signal. `snmpdLog.test.ts` now pins both outcomes, the
+  absent account, and the storage identity. **Any future slice that adds a `sweepLog` formatter
+  inherits this trap: a required column gets you the module, never its content.**
+- **`buildDeepSwitchBaseFs` had NO tests at all** — its `acl.conf` could be emptied unnoticed.
+  Pre-existing rather than introduced here (the function only gained `hasSnmp`), and worth closing
+  now because `acl.conf` is default-ALLOW: a deep switch that lost its seeded deny opens the port
+  it was meant to filter rather than failing visibly. Slice 4's `snmpset` writes to this exact file.
+
+One mutant is left alive deliberately: `<` → `<=` in `seedHasSnmp`. `next()` returns a float in
+[0, 1), so killing it needs a seed landing on exactly 0.6 or 0.9. `seedApGatewayHasSsh` beside it
+carries the identical comparison and the same unkillable mutant.
+
+**No wire-check.** Nothing in `api/` changed — confirmed rather than assumed: `OpenPort` stayed
+`{ port, service }`, so the cross-player scan payload is byte-identical. Slices 3, 4 and 7 own that
+bill.
 
 ### PR-ready when
 
@@ -163,6 +188,29 @@ gate is green, the mutation gate has run with survivors addressed, and the versi
 **Slice complete when** its PR lands on `main`.
 
 ---
+
+### What building it settled that planning had not
+
+- **`OpenPort` is the cross-player scan's WIRE payload** — `resolveOccupantScan` puts
+  `readOpenPorts(occupantFs)` straight into an HTTP response body. So `protocol` is read off
+  the catalog at render time instead of carried on the row: the wire stays byte-identical,
+  and every scan path renders correctly through one formatter. This is why the slice owed no
+  wire-check, and it binds slices 3, 4 and 7 — none of them should add a field there either.
+- **"No machine-role host runs one" is STRUCTURAL, not a rate.** `roleOfHostname` returns a
+  drawn role and `machineRole` never draws `router` or `switch`, so a laptop cannot reach
+  those placement cells however it is named. Only the gateway builders can.
+- **A device carrying the agent needs the BINARY too.** `SYSTEM_DAEMON_NAMES` is `sshd` and
+  `vsftpd`, so `systemctl` could not have acted on an agent it could see running. Planting it
+  universally would open the door on every workstation before slice 6 ships the package, so
+  it goes in per device beside the pidfile.
+- **Typecheck caught what 2388 passing tests did not.** `activeRoot.test.ts` hand-assembled
+  the router identity, where a missing flag is merely falsy at runtime. Any later widening of
+  that identity should expect the same class of miss.
+- **Observed placement**: AP 2000/2000 pinned, inner router 1199 (60.0%), deep router 1207
+  (60.4%), inner switch 1820 (91.0%), deep switch 1815 (90.8%).
+- **The exposure is now live and pinned in `resolvePublicScan.test.ts`**: every player's
+  public IP shows `161/udp` beside `22/tcp`, with no credential spent. Slice 3 sets the crack
+  rate on top of that, and it is the first number to retune if the door proves too cheap.
 
 ## Slices 2–7 (outline only — plan each when its predecessor lands)
 
