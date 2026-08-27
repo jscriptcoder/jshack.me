@@ -364,6 +364,8 @@ Full suite **3788 passing / 178 files** (baseline at slice 1 close was 3764 / 17
 | `53162859` | `src/core/snmp/conf.ts` (`SNMPD_CONF_SEED`, `readSnmpdConf`, `parseSnmpdConf`) + generation plants `/etc/snmp/snmpd.conf` |
 | `da3b7462` | `src/core/sessions/snmpWalk.ts` + `SweepLog.formatArrival` widened + catalog row wired |
 | `9c2d04ec` | `src/core/commands/snmpwalk.ts`, `SnmpApi` seam, `walkDevice` adapter, `api/sessions` dispatch, registry |
+| `5a36eff5` | `scripts/testSnmpWalk.ts` — the wire-check, 11/11, falsified twice |
+| `b7510493` | the mutation gate: three test gaps closed, two pieces of dead code removed, v0.186.0 |
 
 **AC-1…AC-8 are met and covered.** AC-8 needed no new test: `availability.test.ts`'s
 `APT_HINT_PAIRS` has mapped `snmpwalk` → `snmp` since before anything consumed it, and the
