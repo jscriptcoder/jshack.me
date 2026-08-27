@@ -50,6 +50,7 @@ import {
   nginx,
   redisServer,
   runningPort,
+  snmpd,
   sshd,
   vsftpd,
   type Daemon,
@@ -127,6 +128,13 @@ const UNITS: Readonly<Record<string, Unit>> = {
     spec: SERVICE_CATALOG.redis,
     start: redisServer,
     daemon: DAEMONS['redis-server'],
+  },
+  snmpd: {
+    name: 'snmpd',
+    title: 'SNMP agent',
+    spec: SERVICE_CATALOG.snmp,
+    start: snmpd,
+    daemon: DAEMONS.snmpd,
   },
 };
 

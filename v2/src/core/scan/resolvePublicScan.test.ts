@@ -216,6 +216,14 @@ const envelope = (
 ) => signRequest(id, 'resolvePublicScan', { target, ...over });
 
 const SSH_22 = { port: 22, service: 'ssh' };
+/** The agent every access-point gateway bears. PINNED rather than rolled, so unlike a
+ *  generated router's it is part of every public port table below — and that is the
+ *  point worth seeing here: a stranger scanning any player's public IP now finds a
+ *  management port alongside the shell, with no credential spent. */
+const SNMP_161 = { port: 161, service: 'snmp' };
+/** What a fresh AP gateway advertises before any forward is added: its own two doors,
+ *  in the order `/var/run` holds them. */
+const OWN_DOORS = [SSH_22, SNMP_161];
 
 describe('handleResolvePublicScan', () => {
   it("resolves a registered public IP to the AP gateway's own sshd:22 (every occupant dark behind NAT)", async () => {
@@ -227,7 +235,7 @@ describe('handleResolvePublicScan', () => {
     // Exactly the gateway's own port — nothing from behind the NAT.
     expect(result).toEqual({
       status: 200,
-      body: { ok: true, found: true, ports: [SSH_22] },
+      body: { ok: true, found: true, ports: OWN_DOORS },
     });
     expect(findNetworkByPublicIp).toHaveBeenCalledWith(TARGET);
     // The journal is read off the GATEWAY machine, not any occupant's.
@@ -255,7 +263,7 @@ describe('handleResolvePublicScan', () => {
       const result = await handleResolvePublicScan(envelope(scanner, TARGET), deps);
 
       // The gateway's own :22 PLUS the live forward, mapped to its public port :2222.
-      expect(result.body).toMatchObject({ ports: [SSH_22, { port: 2222, service: 'ssh' }] });
+      expect(result.body).toMatchObject({ ports: [...OWN_DOORS, { port: 2222, service: 'ssh' }] });
       expect(listOccupantsByEssid).toHaveBeenCalledWith(ESSID);
       // The forward's liveness is gated on the OCCUPANT's journal, read separately.
       expect(findPatches).toHaveBeenCalledWith({ machine_id: ALICE_WS });
@@ -283,7 +291,7 @@ describe('handleResolvePublicScan', () => {
 
       const result = await handleResolvePublicScan(envelope(scanner, TARGET), deps);
 
-      expect(result.body).toMatchObject({ ports: [SSH_22, { port: 3333, service: 'ssh' }] });
+      expect(result.body).toMatchObject({ ports: [...OWN_DOORS, { port: 3333, service: 'ssh' }] });
       // Bob's box is the one that was read — the forward names his address, so he is
       // who answers, regardless of who else is on the AP or who joined when.
       expect(findPatches).toHaveBeenCalledWith({ machine_id: BOB_WS });
@@ -302,7 +310,7 @@ describe('handleResolvePublicScan', () => {
       const result = await handleResolvePublicScan(envelope(scanner, TARGET), deps);
 
       expect(result.body).toMatchObject({
-        ports: [SSH_22, { port: 2222, service: 'ssh' }, { port: 3333, service: 'ssh' }],
+        ports: [...OWN_DOORS, { port: 2222, service: 'ssh' }, { port: 3333, service: 'ssh' }],
       });
     });
 
@@ -319,7 +327,7 @@ describe('handleResolvePublicScan', () => {
 
       const result = await handleResolvePublicScan(envelope(scanner, TARGET), deps);
 
-      expect(result.body).toMatchObject({ ports: [SSH_22, { port: 2222, service: 'ssh' }] });
+      expect(result.body).toMatchObject({ ports: [...OWN_DOORS, { port: 2222, service: 'ssh' }] });
     });
 
     it("hides a forward to an occupant whose box is bricked, even though its sshd pidfile lingers, while the AP's other forwards stand", async () => {
@@ -334,7 +342,7 @@ describe('handleResolvePublicScan', () => {
 
       const result = await handleResolvePublicScan(envelope(scanner, TARGET), deps);
 
-      expect(result.body).toMatchObject({ ports: [SSH_22, { port: 2222, service: 'ssh' }] });
+      expect(result.body).toMatchObject({ ports: [...OWN_DOORS, { port: 2222, service: 'ssh' }] });
     });
 
     it('hides a forward aimed at an address nobody on the AP leases', async () => {
@@ -348,7 +356,7 @@ describe('handleResolvePublicScan', () => {
 
       const result = await handleResolvePublicScan(envelope(scanner, TARGET), deps);
 
-      expect(result.body).toMatchObject({ ports: [SSH_22] });
+      expect(result.body).toMatchObject({ ports: OWN_DOORS });
     });
 
     it('hides a forward aimed at a lease whose holder has left the WiFi — a lease outlives occupancy, reachability does not', async () => {
@@ -362,7 +370,7 @@ describe('handleResolvePublicScan', () => {
 
       const result = await handleResolvePublicScan(envelope(scanner, TARGET), deps);
 
-      expect(result.body).toMatchObject({ ports: [SSH_22] });
+      expect(result.body).toMatchObject({ ports: OWN_DOORS });
     });
 
     it('hides a forward aimed at an occupant who holds no lease at all', async () => {
@@ -377,7 +385,7 @@ describe('handleResolvePublicScan', () => {
 
       const result = await handleResolvePublicScan(envelope(scanner, TARGET), deps);
 
-      expect(result.body).toMatchObject({ ports: [SSH_22] });
+      expect(result.body).toMatchObject({ ports: OWN_DOORS });
     });
   });
 
@@ -417,7 +425,7 @@ describe('handleResolvePublicScan', () => {
       const result = await handleResolvePublicScan(envelope(scanner, TARGET), deps);
 
       expect(result.body).toMatchObject({
-        ports: [SSH_22, { port: PUBLIC_PORT, service: 'unknown' }],
+        ports: [...OWN_DOORS, { port: PUBLIC_PORT, service: 'unknown' }],
       });
     });
 
@@ -435,7 +443,7 @@ describe('handleResolvePublicScan', () => {
       const result = await handleResolvePublicScan(envelope(scanner, TARGET), deps);
 
       const ports = (result.body as { readonly ports: readonly { readonly port: number }[] }).ports;
-      expect(ports.map(({ port }) => port)).toEqual([22, PUBLIC_PORT]);
+      expect(ports.map(({ port }) => port)).toEqual([22, 161, PUBLIC_PORT]);
     });
 
     it('drops it the moment the listener is killed, though the box is still serving', async () => {
@@ -449,7 +457,7 @@ describe('handleResolvePublicScan', () => {
 
       const result = await handleResolvePublicScan(envelope(scanner, TARGET), deps);
 
-      expect(result.body).toMatchObject({ ports: [SSH_22] });
+      expect(result.body).toMatchObject({ ports: OWN_DOORS });
     });
 
     it('drops it when the box behind it is bricked, listener pidfile and all', async () => {
@@ -463,7 +471,7 @@ describe('handleResolvePublicScan', () => {
 
       const result = await handleResolvePublicScan(envelope(scanner, TARGET), deps);
 
-      expect(result.body).toMatchObject({ ports: [SSH_22] });
+      expect(result.body).toMatchObject({ ports: OWN_DOORS });
     });
 
     it('shows one left on the GATEWAY itself, which needs no forward to be reachable', async () => {
@@ -489,7 +497,7 @@ describe('handleResolvePublicScan', () => {
       const result = await handleResolvePublicScan(envelope(scanner, TARGET), deps);
 
       expect(result.body).toMatchObject({
-        ports: [SSH_22, { port: PUBLIC_PORT, service: 'unknown' }],
+        ports: [...OWN_DOORS, { port: PUBLIC_PORT, service: 'unknown' }],
       });
     });
 
@@ -507,7 +515,7 @@ describe('handleResolvePublicScan', () => {
 
       const result = await handleResolvePublicScan(envelope(scanner, TARGET), deps);
 
-      expect(result.body).toMatchObject({ ports: [SSH_22] });
+      expect(result.body).toMatchObject({ ports: OWN_DOORS });
     });
   });
 
@@ -645,14 +653,14 @@ describe('handleResolvePublicScan', () => {
       // The scan result is unchanged by the logging.
       expect(result).toEqual({
         status: 200,
-        body: { ok: true, found: true, ports: [SSH_22] },
+        body: { ok: true, found: true, ports: OWN_DOORS },
       });
       expect(upsertPatch).toHaveBeenCalledTimes(1);
       expect(upsertPatch.mock.calls[0]![0]).toEqual({
         writer_key: ALICE.publicKeyHex,
         machine_id: AP_GATEWAY_ID,
         path: '/var/log/kern.log',
-        content: `${expectedKernLine(SCANNER_PUBLIC_IP, [22])}\n`,
+        content: `${expectedKernLine(SCANNER_PUBLIC_IP, [22, 161])}\n`,
         owner: KERN_LOG_OWNER,
         permissions: KERN_LOG_PERMISSIONS,
         node_type: 'file',
@@ -688,7 +696,7 @@ describe('handleResolvePublicScan', () => {
       await handleResolvePublicScan(envelope(scanner, TARGET), deps);
 
       expect(upsertPatch.mock.calls[0]![0].content).toBe(
-        `${expectedKernLine(SCANNER_PUBLIC_IP, [22, 2222, 3333])}\n`,
+        `${expectedKernLine(SCANNER_PUBLIC_IP, [22, 161, 2222, 3333])}\n`,
       );
     });
 
@@ -714,7 +722,7 @@ describe('handleResolvePublicScan', () => {
       const result = await handleResolvePublicScan(envelope(scanner, TARGET), deps);
 
       expect(result.body.found).toBe(true);
-      expect(upsertPatch.mock.calls[0]![0].content).toBe(`${expectedKernLine('unknown', [22])}\n`);
+      expect(upsertPatch.mock.calls[0]![0].content).toBe(`${expectedKernLine('unknown', [22, 161])}\n`);
     });
 
     it('reports the scan truthfully but leaves no trace on an AP nobody has ever leased an address on', async () => {
@@ -725,7 +733,7 @@ describe('handleResolvePublicScan', () => {
 
       const result = await handleResolvePublicScan(envelope(scanner, TARGET), deps);
 
-      expect(result.body).toMatchObject({ found: true, ports: [SSH_22] });
+      expect(result.body).toMatchObject({ found: true, ports: OWN_DOORS });
       expect(upsertPatch).not.toHaveBeenCalled();
     });
 
@@ -761,7 +769,7 @@ describe('handleResolvePublicScan', () => {
 
       expect(result).toEqual({
         status: 200,
-        body: { ok: true, found: true, ports: [SSH_22] },
+        body: { ok: true, found: true, ports: OWN_DOORS },
       });
       expect(upsertPatch).not.toHaveBeenCalled();
     });
@@ -778,7 +786,7 @@ describe('handleResolvePublicScan', () => {
 
       expect(result).toEqual({
         status: 200,
-        body: { ok: true, found: true, ports: [SSH_22] },
+        body: { ok: true, found: true, ports: OWN_DOORS },
       });
     });
   });

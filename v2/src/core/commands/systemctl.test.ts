@@ -704,6 +704,38 @@ describe('the three tables that say which daemons exist', () => {
     expect(unstoppable).toEqual([]);
   });
 
+  it('starts the agent on a device that carries it, opening 161', async () => {
+    // The two tables are what the guards below check; this is the verb a player types.
+    // A generated gateway plants `/usr/sbin/snmpd` beside the agent's pidfile precisely
+    // so this resolves — a device advertising a port whose program it does not have
+    // could not be controlled by the `systemctl` sitting on it.
+    const { env, writes } = systemctlEnv({ installed: ['snmpd'] });
+
+    const { exitCode } = await streamResult(
+      await systemctl.execute(env, ['start', 'snmpd'], NO_FLAGS),
+    );
+
+    expect(writes).toEqual([{ path: '/var/run/snmpd.pid', content: 'snmpd:port=161' }]);
+    expect(exitCode).toBe(0);
+  });
+
+  it('stops the agent, closing the door that needs no shell to walk through', async () => {
+    // The only defence an owner has before the agent's own log exists: an SNMP write
+    // takes no session and leaves no login, so turning the daemon off is the whole of
+    // what `systemctl` can do about it.
+    const { env, removes } = systemctlEnv({
+      installed: ['snmpd'],
+      running: { 'snmpd.pid': 'snmpd:port=161' },
+    });
+
+    const { exitCode } = await streamResult(
+      await systemctl.execute(env, ['stop', 'snmpd'], NO_FLAGS),
+    );
+
+    expect(removes).toEqual(['/var/run/snmpd.pid']);
+    expect(exitCode).toBe(0);
+  });
+
   it('gives every door in the catalog a daemon a player can act on', () => {
     // A service whose pidfile names a daemon nobody can start is a door that
     // opens only where the world generated it already open.

@@ -46,6 +46,12 @@ import {
   formatRedisAttemptLine,
   formatRedisConnectLine,
 } from '../logging/redisLog';
+import {
+  SNMPD_LOG_OWNER,
+  SNMPD_LOG_PATH,
+  SNMPD_LOG_PERMISSIONS,
+  formatSnmpdAttemptLine,
+} from '../logging/snmpdLog';
 
 /** Where a credential sweep against this service is recorded on the target, and how
  *  each attempt is written there.
@@ -75,6 +81,11 @@ export type ServiceSpec = {
   readonly pidfile: string;
   /** The port the daemon listens on absent an explicit override. */
   readonly defaultPort: number;
+  /** The transport the port is on, as `nmap` names it — `161/udp`. Absent means
+   *  `tcp`, which is what every door was until an SNMP agent arrived; a column that
+   *  made all six rows restate the common case would be six chances to get it wrong
+   *  for the one row that differs. */
+  readonly protocol?: 'tcp' | 'udp';
   /** The account the daemon runs as — the pidfile's owner. */
   readonly runUser: string;
   /** What the daemon says to a client that opens a raw connection — the greeting
@@ -274,6 +285,44 @@ export const SERVICE_CATALOG = {
     // answering `undefined` for those is what tells a sweep the door was already open
     // rather than that it held.
     secretOn: (fs) => storeIn(fs)?.requirepassHash ?? undefined,
+  },
+  // The first door that is not a way ONTO a box. Every row above hands you the machine
+  // or something on it; this one hands you the machine's PORT TABLE and nothing else —
+  // no file, no shell, no command — which is what makes it orthogonal to root rather
+  // than a cheaper way at it.
+  //
+  // It is also the first row that distinguishes a network device from a host, so its
+  // flat rate is zero and `rolePlacement` carries the whole story. At any non-zero flat
+  // rate more SNMP boxes in the world would be laptops and TVs than routers, which is
+  // the correction the database row was already given once.
+  snmp: {
+    service: 'snmp',
+    pidfile: 'snmpd.pid',
+    defaultPort: 161,
+    // The one row that is not TCP. Real SNMP is a datagram protocol, and a scan that
+    // reported it otherwise would be the game's own scan contradicting the thing it
+    // imitates.
+    protocol: 'udp',
+    runUser: 'root',
+    // What the agent says to a client that speaks no SNMP at it. Real net-snmp answers
+    // a malformed datagram with silence, which a raw connection cannot show — so this
+    // is the closest thing to the port identifying itself in its own words.
+    banner: 'SNMP agent',
+    placement: 0,
+    // No alternate ports. Nothing on a device names this port in a file the way the
+    // database and the store do; it is fixed because the protocol is.
+    altPorts: [],
+    altPortChance: 0,
+    sweepLog: {
+      path: SNMPD_LOG_PATH,
+      owner: SNMPD_LOG_OWNER,
+      permissions: SNMPD_LOG_PERMISSIONS,
+      formatAttempt: formatSnmpdAttemptLine,
+    },
+    // Nothing, as the store has nothing: a community string is the SERVICE's secret and
+    // names no person. A username invented to fill this column would be the right name
+    // against the wrong secret.
+    accountsOn: () => [],
   },
 } as const satisfies Record<string, ServiceSpec>;
 

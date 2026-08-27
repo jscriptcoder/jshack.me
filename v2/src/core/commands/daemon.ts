@@ -319,12 +319,39 @@ const REDIS: Daemon = {
   ],
 };
 
+/** The agent, and the first daemon here that opens something OTHER than a way onto
+ *  the box. Starting it publishes this machine's port table to anyone holding the
+ *  community string — no shell, no session, no file. That is the whole of what it
+ *  grants and the whole of what it risks.
+ *
+ *  Its secret belongs to the SERVICE rather than to a person, as the store's does; what
+ *  makes it a third kind of door is that the secret buys CONTROL rather than reading. */
+const SNMPD: Daemon = {
+  name: 'snmpd',
+  spec: SERVICE_CATALOG.snmp,
+  banner: 'SNMP agent',
+  alreadyRunning: 'already running',
+  description: 'SNMP agent daemon',
+  availability: { kind: 'installed-package', packageName: 'snmp' },
+  manualDescription:
+    'Start the SNMP agent, opening the management port (default 161/udp) on this machine so it ' +
+    'answers queries about itself. There are no accounts: the agent answers to a community ' +
+    "string, and what a caller holding one can reach is this machine's port table — not its " +
+    'files and not a shell. Must be run as root (run "su" first). Refuses to start if an agent ' +
+    'is already running.',
+  examples: [
+    { command: 'snmpd', description: 'Start the agent on the default port 161' },
+    { command: 'snmpd 1610', description: 'Start it on port 1610 instead' },
+  ],
+};
+
 export const sshd = daemonCommand(SSHD);
 export const vsftpd = daemonCommand(VSFTPD);
 export const nginx = daemonCommand(NGINX);
 export const apache2 = daemonCommand(APACHE2);
 export const mysqld = daemonCommand(MYSQLD);
 export const redisServer = daemonCommand(REDIS);
+export const snmpd = daemonCommand(SNMPD);
 
 /** Each daemon keyed by the command name that starts it. `systemctl` reads this
  *  to bring a unit up through `bringUp` once it has established the port is
@@ -337,4 +364,5 @@ export const DAEMONS: Readonly<Record<string, Daemon>> = {
   apache2: APACHE2,
   mysqld: MYSQLD,
   'redis-server': REDIS,
+  snmpd: SNMPD,
 };
