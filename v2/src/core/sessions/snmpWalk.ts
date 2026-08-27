@@ -176,7 +176,7 @@ export const handleSnmpWalk = async (
   const conf = parseSnmpdConf(readSnmpdConf(hostFs));
   // A device whose config names no community answers nobody — which is exactly what an
   // owner who blanked their own file asked for, rather than a default nobody set.
-  const accepted = conf.roCommunity !== null && conf.roCommunity === payload.community;
+  const accepted = conf.roCommunity === payload.community;
 
   await recordWalk(deps, {
     // The TARGET's key once the box has an owner, so every visitor's lines accrete into

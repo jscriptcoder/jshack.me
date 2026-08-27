@@ -22,10 +22,6 @@
 
 import type { Directory } from '../filesystem/types';
 import type { FilePermissions } from '../filesystem/types';
-import { asAbsPath, type AbsPath } from '../types';
-
-export const SNMPD_CONF_PATH: AbsPath = asAbsPath('/etc/snmp/snmpd.conf');
-export const SNMPD_CONF_OWNER = 'root';
 
 /** World-READABLE, root-only WRITE. Anyone on the box may read what the agent answers
  *  to, because the read-only community is public knowledge by design; changing what it
@@ -70,6 +66,11 @@ export const readSnmpdConf = (hostFs: Directory): string => {
   return conf?.kind === 'file' ? conf.content : '';
 };
 
+/** Anchored at BOTH ends. Real net-snmp allows a source restriction after the community
+ *  — `rocommunity public 10.0.0.0/8` — which this world does not model; reading the
+ *  community and dropping the restriction would leave the device answering everyone
+ *  while its config claims otherwise. Whole line or nothing, so the device falls silent
+ *  and its owner has something visible to fix. */
 const RO_COMMUNITY_RE = /^rocommunity\s+(\S+)$/;
 const SYS_CONTACT_RE = /^syscontact\s+(.+)$/;
 
@@ -82,10 +83,10 @@ const directiveValue = (lines: readonly string[], pattern: RegExp): string | nul
 };
 
 export const parseSnmpdConf = (content: string): SnmpdConf => {
-  const lines = content
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0 && !line.startsWith('#'));
+  // Trimmed but NOT filtered: both directives are anchored to the start of a line, so a
+  // comment or a blank cannot match one. A second pass that dropped them would be a
+  // defence with nothing left to defend, and every mutant of it would be unkillable.
+  const lines = content.split('\n').map((line) => line.trim());
 
   return {
     roCommunity: directiveValue(lines, RO_COMMUNITY_RE),

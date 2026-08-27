@@ -252,6 +252,122 @@ describe('walking a device with a community it does not answer to', () => {
   });
 });
 
+describe('walking a device that answers to nobody', () => {
+  it('refuses the community every other device answers to', async () => {
+    const identity = generateIdentity();
+    const essid = CANDIDATE_ESSIDS[0]!;
+    const gateway = apGatewayOn(essid);
+    const { deps } = makeDeps({
+      findPatches: async () => ({
+        data: [patchRow('/etc/snmp/snmpd.conf', '# blanked by whoever owns this box')],
+        error: null,
+      }),
+    });
+
+    const response = await handleSnmpWalk(
+      await signedWalk(identity, { essid, target_ip: gateway.ip }),
+      deps,
+    );
+
+    // Deleting the community out of your own config is a real defence, and the door has
+    // to read it as one. Falling back to `public` because the file named none would undo
+    // it silently, and the owner would have no way to tell.
+    expect(response.status).toBe(404);
+  });
+});
+
+describe('walking a gateway whose network was never registered', () => {
+  it('shows the one address it actually holds', async () => {
+    const identity = generateIdentity();
+    const essid = CANDIDATE_ESSIDS[0]!;
+    const gateway = apGatewayOn(essid);
+    const { deps } = makeDeps({
+      findPublicIpByEssid: async () => ({ data: null, error: null }),
+    });
+
+    const response = await handleSnmpWalk(
+      await signedWalk(identity, { essid, target_ip: gateway.ip }),
+      deps,
+    );
+
+    // A second interface is a claim about the outside world, so it comes from the row
+    // that allocated the address rather than from the shape of the device. No row, no
+    // outside face — and never an address invented to fill the column.
+    expect(response.body).toMatchObject({
+      identity: { addresses: [gateway.ip] },
+    });
+  });
+});
+
+describe('the envelope a walk arrives in', () => {
+  it('refuses a request nobody signed', async () => {
+    const essid = CANDIDATE_ESSIDS[0]!;
+    const gateway = apGatewayOn(essid);
+    const { deps } = makeDeps();
+
+    const response = await handleSnmpWalk(
+      {
+        action: 'snmpWalk',
+        essid,
+        target_ip: gateway.ip,
+        community: 'public',
+        source_ip: CLIENT_IP,
+      },
+      deps,
+    );
+
+    // There is no account at this door, which makes the signature the only thing that
+    // says who left the line on the device. The refusal names its reason: a caller who
+    // cannot tell a malformed request from a rejected one has nothing to fix.
+    expect(response.status).toBe(400);
+    expect(response.body).toHaveProperty('error');
+  });
+
+  it('refuses a signed request that is not the shape this door accepts', async () => {
+    const identity = generateIdentity();
+    const essid = CANDIDATE_ESSIDS[0]!;
+    const gateway = apGatewayOn(essid);
+    const { deps } = makeDeps();
+
+    const response = await handleSnmpWalk(
+      // Signed by a real key and still refused: a signature says who sent it, never that
+      // what they sent means anything.
+      await signRequest(identity, 'snmpWalk', {
+        essid,
+        target_ip: gateway.ip,
+        source_ip: CLIENT_IP,
+      }),
+      deps,
+    );
+
+    expect(response.status).toBe(400);
+    expect(response.body).not.toHaveProperty('identity');
+  });
+
+  it('refuses a payload that names its own player key, however well signed', async () => {
+    const identity = generateIdentity();
+    const essid = CANDIDATE_ESSIDS[0]!;
+    const gateway = apGatewayOn(essid);
+    const { deps } = makeDeps();
+
+    const response = await handleSnmpWalk(
+      await signRequest(identity, 'snmpWalk', {
+        essid,
+        target_ip: gateway.ip,
+        community: 'public',
+        source_ip: CLIENT_IP,
+        player_key: generateIdentity().publicKeyHex,
+      }),
+      deps,
+    );
+
+    // The key is stamped from the verified signature and never read off the payload.
+    // Refused rather than ignored: a request that tried is one whose other fields are
+    // not worth trusting either.
+    expect(response.status).toBe(400);
+  });
+});
+
 describe('walking a device whose agent is not running', () => {
   it('is unreachable, and records nothing at all', async () => {
     const identity = generateIdentity();
