@@ -336,6 +336,11 @@ describe('the banners the world’s doors answer with', () => {
   // same lesson twice — its own greeting carries a version too, so what identifies the
   // port is the error it answers a line of nonsense with. A door may identify itself; it
   // may not date itself.
+  //
+  // The agent is the row with the least to say. It is a datagram door, so it has no
+  // greeting to quote and no handshake to refuse — a raw connection to it gets silence.
+  // What is left is the plainest reading of the rule the others were bent to fit: name
+  // the daemon, and stop there.
   it('name the protocol and the daemon, never the build', () => {
     const banners = Object.values(SERVICE_CATALOG).map((spec) => spec.banner);
 
@@ -345,6 +350,7 @@ describe('the banners the world’s doors answer with', () => {
       '220 FTP server ready.',
       'ERROR 1043 (08S01): Bad handshake',
       '-ERR unknown command',
+      'SNMP agent',
     ]);
   });
 });

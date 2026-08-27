@@ -30,6 +30,7 @@ import { isPublicIp } from '../generation/ip';
 import { parseScanTarget, hostsInScanTarget } from '../network/scanTarget';
 import { mergeLanOccupants, withSelfHost } from '../network/mergeLanOccupants';
 import { readOpenPorts, type OpenPort } from '../services/pidfile';
+import { serviceByName } from '../services/serviceCatalog';
 import { scanResult } from '../scan/scanResult';
 import { resolveDeepScanHosts } from '../scan/deepScanHosts';
 import {
@@ -75,8 +76,20 @@ const PORT_COL = 9;
 const STATE_COL = 6;
 const PORT_HEADER = [padRight('PORT', PORT_COL), padRight('STATE', STATE_COL), 'SERVICE'].join('');
 
+/** The transport a scanned port is on, read off the catalog by the SERVICE the port
+ *  advertises. Looked up here rather than carried on `OpenPort`, because that type is
+ *  the cross-player scan's wire payload — a field added to it would have to be sent by
+ *  every server path and trusted from each one, to re-state a fact the catalog already
+ *  holds. A port the catalog has no row for is `tcp`: an abandoned `nc` listener is the
+ *  only thing that reaches here unnamed, and `nc -l` is TCP. */
+const protocolOf = (service: string): string => serviceByName(service)?.protocol ?? 'tcp';
+
 const formatPortLine = (entry: OpenPort): string =>
-  [padRight(`${entry.port}/tcp`, PORT_COL), padRight('open', STATE_COL), entry.service].join('');
+  [
+    padRight(`${entry.port}/${protocolOf(entry.service)}`, PORT_COL),
+    padRight('open', STATE_COL),
+    entry.service,
+  ].join('');
 
 /** The PORT/STATE/SERVICE table for a host's open ports, preceded by a blank line —
  *  or nothing at all when the host runs no services. Shared by every host report

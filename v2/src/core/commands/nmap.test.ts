@@ -371,6 +371,22 @@ describe('nmap — self-host open ports (slice 1)', () => {
     expect(text).toContain('2222/tcp open');
   });
 
+  /** The protocol is the SERVICE's own fact, not the scan's. Every row before this one
+   *  read `/tcp` because every door in the catalog was TCP, so the scan could hardcode
+   *  it and stay right by accident. An SNMP agent breaks that, and a table that kept
+   *  printing `/tcp` would call the door something it is not.
+   *
+   *  BOTH rows in one table on purpose: a default that swung the other way would leave
+   *  snmp correct and every existing door wrong, and this is where that has to fail. */
+  it('gives each daemon the protocol its own catalog row names', async () => {
+    const env = envWithVarRun({ 'sshd.pid': 'sshd:port=22', 'snmpd.pid': 'snmpd:port=161' });
+
+    const { text } = await drain(await nmap.execute(env, [SELF_IP], new Map()));
+
+    expect(text).toContain('22/tcp   open  ssh');
+    expect(text).toContain('161/udp  open  snmp');
+  });
+
   it('shows no open ports on the own host when sshd is not running (empty /var/run)', async () => {
     const env = envWithVarRun({});
 
