@@ -1,8 +1,9 @@
 # Plan: D8 — `snmpwalk` / `snmpset`
 
 **Branch**: `feat/d8-snmp-walk` (slice 2)
-**Status**: Active — slice 1 MERGED (#465, v0.185.0, 2026-08-27); slice 2 PLANNED with
-nine criteria confirmed 2026-08-27; slices 3–7 outlined only
+**Status**: Active — slice 1 MERGED (#465, v0.185.0, 2026-08-27); slice 2 IN PROGRESS on
+`feat/d8-snmp-walk` (AC-1…AC-8 built; wire-check, mutation gate and version bump
+remain — see "Progress" below); slices 3–7 outlined only
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D8 — resolved scope & decisions
 (grill-me, 2026-08-27)", eleven locked decisions, gap-checked the same day.
 
@@ -26,7 +27,7 @@ that table, all of it a VIEW over the `rules.v4` / `acl.conf` files v2 already p
 | # | Slice | Observable | Status |
 |---|-------|-----------|--------|
 | 1 | a device answers SNMP | `nmap` shows `161/udp snmp` on a router/switch | **merged** #465 |
-| 2 | a player walks it with `public` | identity OIDs return; the walk lands in `snmpd.log` | **planned** |
+| 2 | a player walks it with `public` | identity OIDs return; the walk lands in `snmpd.log` | **in progress** |
 | 3 | a player cracks the RW community | `hydra <host> snmp` → the port table renders | outlined |
 | 4 | a player opens a port, no shell | `snmpset` adds a forward; `nmap` shows it | outlined |
 | 5 | a device on a deep layer answers | the inner-gateway vantage | outlined |
@@ -255,29 +256,29 @@ plus supabase. Slice 1's `N/A` was real and checked; this one is not available.
 
 ### Acceptance criteria — CONFIRMED 2026-08-27, before any code
 
-- [ ] **AC-1** With `snmp` installed and a LAN gateway running the agent, `snmpwalk <gateway>`
+- [x] **AC-1** With `snmp` installed and a LAN gateway running the agent, `snmpwalk <gateway>`
       returns the identity block — `sysDescr`, `sysName`, `sysContact`, `ifDescr`, `ifAddr` —
       column-aligned in locked decision 5's form, with the `[READ-ONLY]` acceptance line and the
       trailer naming the OID count and pointing at a read-write community.
-- [ ] **AC-2** The community defaults to `public` when omitted, and `snmpwalk <host> public` returns
+- [x] **AC-2** The community defaults to `public` when omitted, and `snmpwalk <host> public` returns
       a byte-identical block.
-- [ ] **AC-3** A community that is not the device's read-only string returns **`Timeout: No Response
+- [x] **AC-3** A community that is not the device's read-only string returns **`Timeout: No Response
       from <host>`** and no identity — real net-snmp's own answer, because an agent drops a bad
       community silently. Deliberately the SAME words a device with no agent gives, so a walk can
       never be used to enumerate which boxes hold a community worth cracking.
-- [ ] **AC-4** A router reads `Linux <hostname>` with `eth0`; a switch reads
+- [x] **AC-4** A router reads `Linux <hostname>` with `eth0`; a switch reads
       `Cisco IOS L3 Switch <hostname>` with `GigabitEthernet0/1`. The kind is derived from the
       port-authority file the device already carries — `rules.v4` is a router, `acl.conf` is a
       switch — and is never a second copy of that fact.
-- [ ] **AC-5** The player's own AP gateway renders TWO interfaces, its LAN `.1` and the network's
+- [x] **AC-5** The player's own AP gateway renders TWO interfaces, its LAN `.1` and the network's
       public address; an inner gateway and a switch render ONE. A device shows the addresses it
       actually holds.
-- [ ] **AC-6** Every walk that reaches the agent lands two lines on the target's
+- [x] **AC-6** Every walk that reaches the agent lands two lines on the target's
       `/var/log/snmpd.log` — an arrival naming the source address, then an attempt recording whether
       the community was accepted — in that order, appended to what was already there.
-- [ ] **AC-7** A device whose agent is stopped (`systemctl stop snmpd`) receives NEITHER line and
+- [x] **AC-7** A device whose agent is stopped (`systemctl stop snmpd`) receives NEITHER line and
       answers as unreachable, inheriting D7 slice 5b's split rather than inventing a third answer.
-- [ ] **AC-8** `snmpwalk` is gated on the `snmp` package: a box without it answers
+- [x] **AC-8** `snmpwalk` is gated on the `snmp` package: a box without it answers
       `snmpwalk: command not found`, and `apt install snmp` is what fixes that.
 - [ ] **AC-9** `scripts/testSnmpWalk.ts` proves the round trip live against `vercel dev` + supabase:
       an accepted walk, a rejected community, and both log lines read back off the target.
@@ -350,6 +351,63 @@ write, so the kind and the port table can never disagree.
 `Timeout: No Response from <host>`. The server knows which is which — it has to, or slice 3's
 `hydra` could not score a sweep — but the client is told the same thing either way. Any answer that
 separated them would hand a scanner a free map of which devices are worth a wordlist.
+
+### Progress — BUILT so far, on `feat/d8-snmp-walk` (2026-08-27)
+
+Four implementation commits on top of the plan, each RED→GREEN with the gates clean.
+Full suite **3788 passing / 178 files** (baseline at slice 1 close was 3764 / 174);
+`npm run typecheck` and `npm run lint` clean from `v2/`.
+
+| Commit | What landed |
+|--------|-------------|
+| `ad7808d0` | `src/core/snmp/walk.ts` (the OID block, `PLATFORM` table) + `formatSnmpdArrivalLine` |
+| `53162859` | `src/core/snmp/conf.ts` (`SNMPD_CONF_SEED`, `readSnmpdConf`, `parseSnmpdConf`) + generation plants `/etc/snmp/snmpd.conf` |
+| `da3b7462` | `src/core/sessions/snmpWalk.ts` + `SweepLog.formatArrival` widened + catalog row wired |
+| `9c2d04ec` | `src/core/commands/snmpwalk.ts`, `SnmpApi` seam, `walkDevice` adapter, `api/sessions` dispatch, registry |
+
+**AC-1…AC-8 are met and covered.** AC-8 needed no new test: `availability.test.ts`'s
+`APT_HINT_PAIRS` has mapped `snmpwalk` → `snmp` since before anything consumed it, and the
+command now declares that gate.
+
+#### What remains
+
+1. **AC-9, the wire-check** — `scripts/testSnmpWalk.ts` against `vercel dev` + supabase:
+   an accepted walk, a refused community, and both log lines read back off the target.
+   `api/sessions.ts` changed, so this is owed and cannot be reasoned away.
+2. **The mutation gate**, run once over the changed production files, survivors addressed.
+3. **The version bump** to `v0.186.0` in `v2/package.json` and `v2/package-lock.json`
+   (`npm install --package-lock-only`).
+
+#### What building it has settled that planning had not
+
+- **The `formatArrival` widening was load-bearing, exactly where predicted.**
+  `SERVICE_CATALOG` ends `as const satisfies Record<string, ServiceSpec>`, so wiring
+  `formatArrival: formatSnmpdArrivalLine` failed that check until the column could name a
+  host. Without the `satisfies` it would have compiled and the forcing would have been
+  invisible.
+- **No client pre-flight — a deliberate deviation from GREEN step 8.** `redis-cli`
+  pre-flights to save a round trip on a refusal it can settle from the world it
+  regenerates. Here every refusal is one sentence, so a pre-flight would duplicate the
+  generated world on the client to reach the message the server was going to send anyway.
+  The command's header comment carries the reason so it is not "restored" later.
+- **The collapsed refusal is enforced by the TYPE, not by discipline.** `SnmpWalkResult`'s
+  failure arm carries no reason at all, so the adapter has no error branch to get wrong.
+  Slices 3, 4 and 7 must not add one — a reason is a free map of which devices are worth a
+  wordlist.
+- **A device's kind is `readAclConf(hostFs) === '' ? 'router' : 'switch'`.** A switch is
+  the special case; everything else answers as the Linux box it is, which is already the
+  right answer for slice 6's workstation agent.
+- **`FileEntry`'s permissions field is `perms`, not `permissions`.** The `*_PERMISSIONS`
+  constants are `FilePermissions` values; the node field they land in is `perms`.
+- **Typecheck caught what 3788 passing tests did not — for the second slice running.**
+  Here it was `result.exitCode` on an un-narrowed `CommandResult`; in slice 1 it was a
+  hand-assembled identity missing a flag. Both are the same class: a test that runs green
+  under esbuild's type-stripping while `tsc -b` rejects it. Run `npm run typecheck` before
+  presenting any increment, not only at the PR gate.
+- **The transport adapter gets no unit test, by house precedent.** `connectStore` has none
+  either — `sessionsApi.test.ts` covers sessions and the database door only. The wire-check
+  is that layer's evidence, which is the same division `conventions-and-gotchas.md` §
+  states for `api/`.
 
 ### PR-ready when
 
