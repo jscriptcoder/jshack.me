@@ -20,6 +20,7 @@ import type { HomeNetworkAssignment } from '../network/homeNetwork';
 import type { OccupantProjection } from '../network/resolveOccupants';
 import type { WifiNetwork } from '../network/wifi';
 import type { OpenPort } from '../services/pidfile';
+import type { SnmpIdentity } from '../snmp/walk';
 import type { FlagSpec } from '../shell/bindFlags';
 
 // ---- Identity & session (read-only snapshots in CommandEnv) ----
@@ -825,6 +826,36 @@ export type RedisApi = {
   readonly run: (params: RedisStatementParams) => Promise<RedisStatementResult>;
 };
 
+/** What `snmpwalk` hands the walk action. The community is the only thing sent, and it
+ *  names no account: a community string belongs to the SERVICE, exactly as a store's
+ *  password does. */
+export type SnmpWalkParams = {
+  readonly essid: string;
+  readonly targetIp: string;
+  readonly community: string;
+  /** The address the target's `/var/log/snmpd.log` records the walk from. Never null:
+   *  the caller has already resolved a connected `wlan0` to get here. */
+  readonly sourceIp: string;
+};
+
+/** The outcome of a walk: what the device is, or nothing.
+ *
+ *  The failure carries NO REASON, and that absence is the design. A device that is not
+ *  there, one whose agent was stopped, and one that refused the community are one
+ *  answer to this client — a real agent drops a bad community in silence, and a reason
+ *  here would let a sweep sort devices into worth-cracking and not before it spent a
+ *  single word of a wordlist. The server keeps the distinction, because the log it
+ *  writes has to. */
+export type SnmpWalkResult =
+  | { readonly ok: true; readonly identity: SnmpIdentity }
+  | { readonly ok: false };
+
+/** The device door, client side. One verb, because the read-only tier can do exactly
+ *  one thing: ask. */
+export type SnmpApi = {
+  readonly walk: (params: SnmpWalkParams) => Promise<SnmpWalkResult>;
+};
+
 /** What `hydra` hands the crack action. `callerMachineId` names the box whose
  *  wordlist is consulted — the server verifies it belongs to the caller rather
  *  than trusting it, so it is a lookup key, not a privilege claim. `username`
@@ -1026,6 +1057,7 @@ export type CommandEnv = {
   readonly ftp: FtpApi;
   readonly mysql: MysqlApi;
   readonly redis: RedisApi;
+  readonly snmp: SnmpApi;
   readonly scp: ScpApi;
   readonly su: SuApi;
   readonly scan: ScanApi;

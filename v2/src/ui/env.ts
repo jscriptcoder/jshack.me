@@ -28,6 +28,7 @@ import type {
   FtpApi,
   MysqlApi,
   RedisApi,
+  SnmpApi,
   ScpApi,
   SshApi,
   NcApi,
@@ -179,6 +180,9 @@ export type BuildCommandEnvArgs = {
   readonly onRedisEnter?: RedisApi['enter'];
   readonly onRedisLeave?: RedisApi['leave'];
   readonly onRedisStatement?: RedisApi['run'];
+  /** The device door's one seam — backs `env.snmp`. One verb because the read-only
+   *  tier can do exactly one thing: ask a device what it is. */
+  readonly onSnmpWalk?: SnmpApi['walk'];
   /** The transfer door's three seams — backs `env.scp`. The login is the same
    *  `authCreateSession` round-trip, asked for an `scp`-kind row; the write is the
    *  shipped patch client aimed at whatever machine the session landed on; the end
@@ -396,6 +400,12 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
     // reading a store that is not there — and an empty answer is what an empty store
     // looks like, so the failure would be invisible.
     run: args.onRedisStatement ?? notWired('redis.run'),
+  },
+  snmp: {
+    // Loud when unwired: a walk that answered on its own would put a device's identity
+    // on screen without a server ever having been asked — and the whole reason this
+    // door is answered there is that the client must not answer for itself.
+    walk: args.onSnmpWalk ?? notWired('snmp.walk'),
   },
   scp: {
     authenticate: args.onScpAuthenticate ?? notWired('scp.authenticate'),

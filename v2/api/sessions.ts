@@ -19,6 +19,7 @@ import { handleMysqlConnect } from '../src/core/sessions/mysqlConnect';
 import { handleMysqlStatement } from '../src/core/sessions/mysqlStatement';
 import { handleRedisConnect } from '../src/core/sessions/redisConnect';
 import { handleRedisStatement } from '../src/core/sessions/redisStatement';
+import { handleSnmpWalk } from '../src/core/sessions/snmpWalk';
 import { handleHydraCrackPublic } from '../src/core/sessions/hydraCrackPublic';
 import { handleHydraCrackInnerGateway } from '../src/core/sessions/hydraCrackInnerGateway';
 import type { OwnerPatchRow } from '../src/core/network/materializeWorkstationFs';
@@ -581,6 +582,50 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         supabase,
         occupancyLabel: 'redis connect source-ip occupancy',
         lookupLabel: 'redis connect source-ip lookup',
+      }),
+    });
+    res.status(status).json(body);
+    return;
+  }
+
+  if (actionOf(req.body) === 'snmpWalk') {
+    // Reading a network device. NO account is named and NO session row is created:
+    // an agent answers to a community string, which belongs to the device rather than
+    // to a person, and a row minted here would hand `listPatches` and `upsertPatch` to
+    // anyone who can reach 161.
+    //
+    // The handler READS the target's journal (whether its agent is actually up) and
+    // its `/etc/snmp/snmpd.conf`, then WRITES two lines to its own
+    // /var/log/snmpd.log — an arrival and a verdict, in one append. Both are written
+    // whether or not the community was accepted: this log is the ONLY tell a device's
+    // owner ever gets, because a walk costs no login and leaves no session.
+    //
+    // A refused community comes back as `host_unreachable`, word for word what an
+    // absent device returns. Told apart, a sweep could sort devices into
+    // worth-cracking and not before spending one word of a wordlist.
+    const { status, body } = await handleSnmpWalk(req.body, {
+      nonceStore: noopNonceStore,
+      now: () => Date.now(),
+      findPatches: findPatchesVia({ supabase, label: 'snmp target journal lookup' }),
+      readSnmpdLog: readAuthLogVia({ supabase, label: 'snmpd log read' }),
+      upsertPatch: upsertPatchVia({ supabase, label: 'snmpd log upsert' }),
+      findPublicIpByEssid: findPublicIpByEssidVia({
+        supabase,
+        label: 'snmp walk public-ip lookup',
+      }),
+      findNetworkByPublicIp: findNetworkByPublicIpVia({
+        supabase,
+        label: 'snmp walk public-ip resolve',
+      }),
+      listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
+        supabase,
+        label: 'snmp walk occupant list',
+      }),
+      listLeasesByEssid: listLeasesByEssidVia({ supabase, label: 'snmp walk lan-lease list' }),
+      findHomeNetworkByOwnerKey: findHomeNetworkByOwnerKeyVia({
+        supabase,
+        occupancyLabel: 'snmp walk source-ip occupancy',
+        lookupLabel: 'snmp walk source-ip lookup',
       }),
     });
     res.status(status).json(body);

@@ -47,6 +47,7 @@ import { hydra } from './hydra';
 import { ftp } from './ftp';
 import { mysql } from './mysql';
 import { redisCli } from './redisCli';
+import { snmpwalk } from './snmpwalk';
 import { scp } from './scp';
 import { ssh } from './ssh';
 import { su } from './su';
@@ -93,6 +94,7 @@ const builtins: readonly Command[] = [
   ftp,
   mysql,
   redisCli,
+  snmpwalk,
   mysqld,
   redisServer,
   scp,
