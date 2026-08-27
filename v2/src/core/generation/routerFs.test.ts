@@ -26,6 +26,7 @@ import { md5 } from './md5';
 import { readOpenPorts, type OpenPort } from '../services/pidfile';
 import { parseForwardRules } from '../network/iptablesRules';
 import { parseAclDenies } from '../network/switchAcl';
+import { parseSnmpdConf, readSnmpdConf } from '../snmp/conf';
 import { DEFAULT_WORDLIST } from '../wordlist/defaultWordlist';
 
 // Two distinct valid 64-hex pubkeys — the owner-key seed source.
@@ -638,7 +639,7 @@ describe('buildRouterBaseFsFromIdentity', () => {
     });
   });
 
-  it('runs snmpd:161 when hasSnmp — with its own log and its own binary', () => {
+  it('runs snmpd:161 when hasSnmp — with its own config, log and binary', () => {
     const fs = routerFs({ hasSnmp: true });
 
     expect(fileAt(fs, ['var', 'run'], 'snmpd.pid')).toBe('snmpd:port=161');
@@ -650,16 +651,39 @@ describe('buildRouterBaseFsFromIdentity', () => {
     // by the `systemctl` sitting next to it.
     expect(dirAt(fs, 'usr', 'sbin').entries.has('snmpd')).toBe(true);
     expect(fileAt(fs, ['var', 'log'], 'snmpd.log')).toBe('');
+    // Parsed rather than compared as text: what has to be true is that the device
+    // ANSWERS to the community a walk will offer it, and a seed that stopped parsing
+    // would leave a listening agent nobody can query.
+    expect(parseSnmpdConf(readSnmpdConf(fs))).toEqual({
+      roCommunity: 'public',
+      sysContact: 'netops@corp.local',
+    });
   });
 
-  it('leaves no agent trace at all when hasSnmp is false — pidfile, log and binary', () => {
-    // All three together, because the absent case is where a mistake hides: a log or a
-    // binary seeded unconditionally would say a daemon was there that never was.
+  it('leaves its snmpd.conf readable by anyone on the box, writable only by root', () => {
+    // The read-only community is public knowledge by design, so hiding the file would
+    // model the protocol wrongly to protect nothing. Repointing the agent at a string
+    // of your own is an administrative act, so a visitor cannot do it.
+    const conf = dirAt(routerFs({ hasSnmp: true }), 'etc', 'snmp').entries.get('snmpd.conf');
+
+    expect(conf?.kind === 'file' ? conf.perms : null).toEqual({
+      read: ['root', 'user', 'guest'],
+      write: ['root'],
+      execute: [],
+    });
+  });
+
+  it('leaves no agent trace at all when hasSnmp is false — config, pidfile, log, binary', () => {
+    // All four together, because the absent case is where a mistake hides: a config, a
+    // log or a binary seeded unconditionally would say a daemon was there that never
+    // was, and a conf on a device with no agent invites a player to walk one that
+    // cannot answer.
     const fs = routerFs({ hasSnmp: false });
 
     expect(dirAt(fs, 'var', 'run').entries.has('snmpd.pid')).toBe(false);
     expect(dirAt(fs, 'var', 'log').entries.has('snmpd.log')).toBe(false);
     expect(dirAt(fs, 'usr', 'sbin').entries.has('snmpd')).toBe(false);
+    expect(readSnmpdConf(fs)).toBe('');
   });
 
   it('has NO open ports when hasSsh is false (the seam toggles the pidfile off)', () => {
