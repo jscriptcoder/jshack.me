@@ -67,9 +67,21 @@ const PLACEMENT_BY_ROLE: Readonly<Record<MachineRole, Partial<Record<ServiceName
   // Every gateway bears sshd — the reachability a forward, a pivot and the whole
   // chain behind an inner gateway all rest on. Pinned at 1 rather than guaranteed
   // in code, so a later world can make it vary without reshaping any caller.
-  router: { ssh: 1 },
-  // A switch forwards frames; it hangs no layer and hands out no shell of its own.
-  switch: {},
+  //
+  // The agent is the first cell here that is not pinned, and the first door on a
+  // gateway that is not a way IN: it hands over the port table and nothing else.
+  // Usually up, because a device nobody can manage remotely is not what a router is,
+  // but not always — a router that answers is then a find rather than a given.
+  //
+  // Only the gateway builders read these two rows. A machine's role comes back from
+  // its hostname, and `roleOfHostname` returns none of the drawn seven as `router` or
+  // `switch`, so a laptop cannot reach these cells however it is named.
+  router: { ssh: 1, snmp: 0.6 },
+  // A switch forwards frames and hands out no shell of its own — and until the agent
+  // arrived it ran nothing at all, which made it the one role a player could scan and
+  // never touch. This is its first and only door, so it sits higher than the router's:
+  // the device with least else to offer is the one that most needs the thing it has.
+  switch: { snmp: 0.9 },
 };
 
 /**

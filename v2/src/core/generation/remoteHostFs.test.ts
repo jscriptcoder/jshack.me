@@ -2229,6 +2229,18 @@ describe('buildRemoteHostFs', () => {
       expect(fileserver).toBeGreaterThan(database);
     });
 
+    it('runs the agent on no host at all, whatever the box is called', () => {
+      // The door that separates a network device from a host. Its flat rate is zero and
+      // no drawn role has a cell, so every name here falls through to zero — and a name
+      // CANNOT reach the router or switch cells that do carry it, because a role is read
+      // back off the hostname and those two are never among the seven a machine draws.
+      // A flat rate above zero would repeat the correction the database row already got
+      // once: more SNMP boxes in the world would be laptops and cameras than routers.
+      const named = ['www', 'db', 'nas', 'cam', 'desktop', 'mail', 'ns', 'host'];
+
+      expect(named.map((prefix) => runningCount(prefix, 'snmp'))).toEqual(named.map(() => 0));
+    });
+
     it('leaves a pairing the table says nothing about generating at exactly the flat rate', () => {
       // The overrides are sparse by design: a role with nothing to say about a
       // service must fall through to the catalog's own placement, unchanged to the

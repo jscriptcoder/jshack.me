@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { Directory, FileNode } from '../filesystem/types';
 import {
+  buildApGatewayBaseFs,
   buildDeepGatewayBaseFs,
+  buildDeepSwitchBaseFs,
   buildInnerGatewayBaseFs,
   buildRouterBaseFsFromIdentity,
   buildSwitchBaseFs,
@@ -21,7 +23,7 @@ import {
   SYSTEM_UTILITY_NAMES,
 } from './binaries';
 import { md5 } from './md5';
-import { readOpenPorts } from '../services/pidfile';
+import { readOpenPorts, type OpenPort } from '../services/pidfile';
 import { parseForwardRules } from '../network/iptablesRules';
 import { parseAclDenies } from '../network/switchAcl';
 import { DEFAULT_WORDLIST } from '../wordlist/defaultWordlist';
@@ -161,6 +163,13 @@ describe('seedInnerGatewayAdminPw', () => {
  * credential (never the edge's) and its sshd is always up — an inner gateway is a
  * reachable target by design.
  */
+/** A device's port table minus the SNMP agent — everything it bears BY DESIGN rather
+ *  than by roll. The agent is placed per device at its kind's rate, so pinning it into
+ *  a fixture's expected table would turn these sshd claims into statements about one
+ *  device's roll; the rate itself is measured across a population further down. */
+const portsByDesign = (fs: Directory): readonly OpenPort[] =>
+  readOpenPorts(fs).filter((openPort) => openPort.service !== 'snmp');
+
 describe('buildInnerGatewayBaseFs', () => {
   it('is a root-only FS whose admin hash is the octet-seeded inner-gateway pw', () => {
     const rows = passwdRows(buildInnerGatewayBaseFs(ESSID_A, 25));
@@ -170,7 +179,7 @@ describe('buildInnerGatewayBaseFs', () => {
   });
 
   it('runs sshd:22 — an inner gateway is a reachable target by design', () => {
-    expect(readOpenPorts(buildInnerGatewayBaseFs(ESSID_A, 25))).toEqual([
+    expect(portsByDesign(buildInnerGatewayBaseFs(ESSID_A, 25))).toEqual([
       { port: 22, service: 'ssh' },
     ]);
   });
@@ -201,7 +210,7 @@ describe('buildSwitchBaseFs', () => {
   });
 
   it('runs sshd:22 — a switch is a reachable target by design', () => {
-    expect(readOpenPorts(buildSwitchBaseFs(ESSID_A, 80))).toEqual([{ port: 22, service: 'ssh' }]);
+    expect(portsByDesign(buildSwitchBaseFs(ESSID_A, 80))).toEqual([{ port: 22, service: 'ssh' }]);
   });
 
   it('seeds /etc/switch/acl.conf with a documented default-allow policy and one active deny', () => {
@@ -340,6 +349,121 @@ describe('the gateway difficulty curve (a gateway is the best root target in the
   });
 });
 
+describe('the agent a network device runs', () => {
+  /**
+   * SNMP is the first door that distinguishes a network device from a host, so unlike
+   * every rate before it this one is not a property of boxes at large — it is what
+   * separates the two populations. A switch nearly always answers, a router usually
+   * does, and a laptop never does.
+   *
+   * A switch is the higher of the two on purpose. It is the device with the least
+   * else to offer: it forwards frames, hangs no layer, and until now ran literally
+   * nothing, so a player who found one could scan it and never touch it. The agent is
+   * what gives that role a door at all, which is worth more there than on a router
+   * that already bears sshd.
+   *
+   * 2000 devices per kind, deterministic — these counts are fixed, not sampled, and
+   * the size is the one the gateway credential curve already established: seeds
+   * differing by a few characters have correlated FNV-1a hashes, so a smaller
+   * population measures the seed strings rather than the knob.
+   */
+  const NETWORKS: readonly string[] = Array.from(
+    { length: 2000 },
+    (_unused, index) => `SNMP-NET-${index}`,
+  );
+
+  /** Spread the devices across the addressable range rather than clustering them on
+   *  one octet, so a per-octet artefact cannot masquerade as the rate. */
+  const octetFor = (index: number): number => 2 + (index % 253);
+
+  /** Read through the SAME reader `nmap` and `ps` use, rather than by looking for a
+   *  filename — so a device this suite counts as running an agent is one the rest of
+   *  the game also calls a running agent. */
+  const runsAgent = (fs: Directory): boolean =>
+    readOpenPorts(fs).some((openPort) => openPort.service === 'snmp' && openPort.port === 161);
+
+  /** Computed ONCE for the whole block: fast normally, but slow enough under mutation
+   *  instrumentation to race Stryker's timeout, which silently converts a survivor
+   *  into a "killed by timeout" and makes the score depend on machine speed. */
+  const answering = ((): Readonly<Record<string, number>> => {
+    const count = (predicate: (essid: string, index: number) => boolean): number =>
+      NETWORKS.filter(predicate).length;
+    return {
+      ap: count((essid) => runsAgent(buildApGatewayBaseFs(essid))),
+      inner: count((essid, index) => runsAgent(buildInnerGatewayBaseFs(essid, octetFor(index)))),
+      deepRouter: count((_unused, index) =>
+        runsAgent(buildDeepGatewayBaseFs(`gw-${index}`, octetFor(index))),
+      ),
+      innerSwitch: count((essid, index) => runsAgent(buildSwitchBaseFs(essid, octetFor(index)))),
+      deepSwitch: count((_unused, index) =>
+        runsAgent(buildDeepSwitchBaseFs(`gw-${index}`, octetFor(index))),
+      ),
+    };
+  })();
+
+  const DEVICES = 2000;
+
+  it('answers on every access-point gateway, so the door is there for every player', () => {
+    // The one PINNED rate in the table, and the reason it cannot be expressed as a
+    // placement cell: generated routers roll, and this one may not. Left to the roll
+    // it would be missing from 40% of players' own networks — the box the whole door
+    // aims at, absent for two players in five, decided by their ESSID.
+    expect(answering.ap).toBe(DEVICES);
+  });
+
+  it('answers on most routers, but not on all of them', () => {
+    // Observed 1199 of 2000 (60.0%) against a 0.6 knob. The band excludes every mutant
+    // that matters: the roll always taken (2000), never taken (0), the threshold
+    // inverted (~801), the flat catalog rate (0), ssh's pinned 1 (2000), and the switch
+    // cell wired here by mistake (~1820).
+    expect(answering.inner).toBeGreaterThan(Math.round(DEVICES * 0.55));
+    expect(answering.inner).toBeLessThan(Math.round(DEVICES * 0.65));
+    // Both directions asserted, because the absent case is where a mistake hides: a
+    // condition inverted or ignored still lands inside a one-sided band.
+    expect(answering.inner).toBeLessThan(DEVICES);
+  });
+
+  it('answers on nearly every switch — the role that until now ran nothing at all', () => {
+    // Observed 1820 of 2000 (91.0%) against a 0.9 knob. The band excludes the same set:
+    // always (2000), never (0), inverted (~180), flat (0), and the router cell wired
+    // here by mistake (~1199).
+    expect(answering.innerSwitch).toBeGreaterThan(Math.round(DEVICES * 0.85));
+    expect(answering.innerSwitch).toBeLessThan(Math.round(DEVICES * 0.95));
+    expect(answering.innerSwitch).toBeLessThan(DEVICES);
+  });
+
+  it('gives a device the rate of what it IS, not of how deep it sits', () => {
+    // Four separate call sites, and a knob applied to only some of them is exactly the
+    // defect one population test would miss. Descending a chain changes the route to a
+    // device, not what the device is.
+    // Observed 1207 and 1815 — within a percentage point of the shallow pair above,
+    // which is what "depth changes the route, not the device" has to mean numerically.
+    expect(answering.deepRouter).toBeGreaterThan(Math.round(DEVICES * 0.55));
+    expect(answering.deepRouter).toBeLessThan(Math.round(DEVICES * 0.65));
+    expect(answering.deepSwitch).toBeGreaterThan(Math.round(DEVICES * 0.85));
+    expect(answering.deepSwitch).toBeLessThan(Math.round(DEVICES * 0.95));
+  });
+
+  it('runs the agent more readily on a switch than on a router, at both depths', () => {
+    // Named rather than counted: the two cells swapped keeps both bands' SHAPE and
+    // every number in this block plausible, so the ordering has to be claimed of the
+    // kinds by name for the swap to fail.
+    expect(answering.innerSwitch).toBeGreaterThan(answering.inner);
+    expect(answering.deepSwitch).toBeGreaterThan(answering.deepRouter);
+  });
+
+  it('plants the pidfile only where the agent is, so its absence means something', () => {
+    // A log or a pidfile seeded unconditionally would say a daemon is there that never
+    // was — the reason `snmpd.pid` is conditional where `auth.log` beside it is not.
+    const silent = NETWORKS.map((essid, index) =>
+      buildInnerGatewayBaseFs(essid, octetFor(index)),
+    ).find((fs) => !runsAgent(fs));
+    if (silent === undefined) throw new Error('no agent-free router in the sample');
+
+    expect(readOpenPorts(silent).map((openPort) => openPort.service)).not.toContain('snmp');
+  });
+});
+
 describe('buildDeepGatewayBaseFs', () => {
   it('is a root-only FS whose admin hash is the deep-gateway pw seeded off parent + octet', () => {
     const rows = passwdRows(buildDeepGatewayBaseFs(PARENT_GW, 50));
@@ -349,7 +473,7 @@ describe('buildDeepGatewayBaseFs', () => {
   });
 
   it('runs sshd:22 — a deep gateway is a reachable target by design', () => {
-    expect(readOpenPorts(buildDeepGatewayBaseFs(PARENT_GW, 50))).toEqual([
+    expect(portsByDesign(buildDeepGatewayBaseFs(PARENT_GW, 50))).toEqual([
       { port: 22, service: 'ssh' },
     ]);
   });
@@ -398,8 +522,15 @@ const passwdRows = (fs: Directory): readonly (readonly string[])[] =>
  * sshd is present iff the caller says so (the seam decision-3 owns).
  */
 describe('buildRouterBaseFsFromIdentity', () => {
-  const routerFs = (overrides: Partial<{ adminPwHash: string; hasSsh: boolean }> = {}): Directory =>
-    buildRouterBaseFsFromIdentity({ adminPwHash: ADMIN_HASH, hasSsh: true, ...overrides });
+  const routerFs = (
+    overrides: Partial<{ adminPwHash: string; hasSsh: boolean; hasSnmp: boolean }> = {},
+  ): Directory =>
+    buildRouterBaseFsFromIdentity({
+      adminPwHash: ADMIN_HASH,
+      hasSsh: true,
+      hasSnmp: false,
+      ...overrides,
+    });
 
   it('has a root-ONLY /etc/passwd (no player, no guest) using the given admin hash', () => {
     const rows = passwdRows(routerFs());
@@ -484,6 +615,30 @@ describe('buildRouterBaseFsFromIdentity', () => {
       write: ['root'],
       execute: [],
     });
+  });
+
+  it('runs snmpd:161 when hasSnmp — with its own log and its own binary', () => {
+    const fs = routerFs({ hasSnmp: true });
+
+    expect(fileAt(fs, ['var', 'run'], 'snmpd.pid')).toBe('snmpd:port=161');
+    expect(readOpenPorts(fs)).toEqual([
+      { port: 22, service: 'ssh' },
+      { port: 161, service: 'snmp' },
+    ]);
+    // A device advertising a port whose program it does not have could not be stopped
+    // by the `systemctl` sitting next to it.
+    expect(dirAt(fs, 'usr', 'sbin').entries.has('snmpd')).toBe(true);
+    expect(fileAt(fs, ['var', 'log'], 'snmpd.log')).toBe('');
+  });
+
+  it('leaves no agent trace at all when hasSnmp is false — pidfile, log and binary', () => {
+    // All three together, because the absent case is where a mistake hides: a log or a
+    // binary seeded unconditionally would say a daemon was there that never was.
+    const fs = routerFs({ hasSnmp: false });
+
+    expect(dirAt(fs, 'var', 'run').entries.has('snmpd.pid')).toBe(false);
+    expect(dirAt(fs, 'var', 'log').entries.has('snmpd.log')).toBe(false);
+    expect(dirAt(fs, 'usr', 'sbin').entries.has('snmpd')).toBe(false);
   });
 
   it('has NO open ports when hasSsh is false (the seam toggles the pidfile off)', () => {

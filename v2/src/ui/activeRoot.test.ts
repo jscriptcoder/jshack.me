@@ -6,13 +6,10 @@ import { resolveDeepGatewayIdentity } from '../core/generation/lanHostIdentity';
 import { buildRemoteHostFs } from '../core/generation/remoteHostFs';
 import { hostMachineId } from '../core/generation/remoteHostId';
 import {
+  buildApGatewayBaseFs,
   buildInnerGatewayBaseFs,
-  buildRouterBaseFsFromIdentity,
   buildSwitchBaseFs,
-  seedApGatewayAdminPw,
-  seedApGatewayHasSsh,
 } from '../core/generation/routerFs';
-import { md5 } from '../core/generation/md5';
 import { computeWorkstationId } from '../core/identity/workstation';
 import { computeInnerGatewayId, computeApGatewayId } from '../core/identity/router';
 import { asEpochMs, asMachineId, asPlayerKeyHex } from '../core/types';
@@ -126,10 +123,10 @@ describe('resolveActiveRoot', () => {
     // which is what lets one occupant see another's edits to `rules.v4`.
     expect(isCrossPlayerHop(session(computeApGatewayId(ESSID), 'ssh'), ESSID, PUBKEY)).toBe(true);
 
-    const locallyRebuilt = buildRouterBaseFsFromIdentity({
-      adminPwHash: md5(seedApGatewayAdminPw(ESSID)),
-      hasSsh: seedApGatewayHasSsh(ESSID),
-    });
+    // The most faithful local rebuild there is — the very function every other path
+    // uses for this box — so the inequality below is about WHERE the tree comes from
+    // and not about having assembled it slightly wrong here.
+    const locallyRebuilt = buildApGatewayBaseFs(ESSID);
     expect(resolveActiveRoot(args({ session: session(computeApGatewayId(ESSID), 'ssh') }))).not.toEqual(
       locallyRebuilt,
     );

@@ -1332,6 +1332,8 @@ describe('nmap — own router (.1) sameLAN scan (5.1.4)', () => {
         '',
         'PORT     STATE SERVICE',
         '22/tcp   open  ssh',
+        // Every access-point gateway bears the agent, pinned rather than rolled.
+        '161/udp  open  snmp',
         '',
         'Nmap done — 1 host up',
       ].join('\n'),

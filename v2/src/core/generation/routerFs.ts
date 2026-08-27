@@ -36,8 +36,9 @@ import {
 import { ACCESS_LOG_PERMISSIONS } from '../logging/accessLog';
 import { AUTH_LOG_PERMISSIONS } from '../logging/authLog';
 import { KERN_LOG_PERMISSIONS } from '../logging/kernLog';
+import { SNMPD_LOG_PERMISSIONS } from '../logging/snmpdLog';
 import { placementOf } from './rolePlacement';
-import { formatPidfileContent, PIDFILE_PERMISSIONS } from '../services/pidfile';
+import { daemonName, formatPidfileContent, PIDFILE_PERMISSIONS } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 
 /** The AP gateway's root account plaintext password, seeded from the ESSID alone
@@ -95,6 +96,21 @@ export const seedInnerGatewayHostname = (essid: string, octet: number): string =
 export const seedApGatewayHasSsh = (essid: string): boolean =>
   createPrng(`ap-gw-ssh-${essid}`).next() < placementOf('router', SERVICE_CATALOG.ssh);
 
+/**
+ * Whether a generated network device runs the SNMP agent, seeded deterministically per
+ * device in its OWN namespace so no existing draw sequence moves — the same discipline
+ * `ap-gw-ssh-` follows, and the reason adding this door leaves every octet the lease
+ * allocator excludes exactly where it was.
+ *
+ * The rate is the DEVICE KIND's, read from the same table every other box's placement
+ * comes from: a router usually answers, a switch nearly always does.
+ *
+ * The access point's own gateway takes NO draw and is not routed through here — see
+ * `buildApGatewayBaseFs`.
+ */
+const seedHasSnmp = (namespace: string, kind: 'router' | 'switch'): boolean =>
+  createPrng(namespace).next() < placementOf(kind, SERVICE_CATALOG.snmp);
+
 /** `/etc/iptables/rules.v4`: root reads + edits it (`nano`), no one else. Not an
  *  executable. The router has only a root account, so root-only is the boundary.
  *  The switch's `acl.conf` shares the same root-only boundary. */
@@ -134,7 +150,11 @@ const ACL_CONF_SEED = [
  * vs a switch's `switch/acl.conf` — so the caller supplies it as `configEntries`.
  */
 const buildGatewayBaseFs = (
-  identity: { readonly adminPwHash: string; readonly hasSsh: boolean },
+  identity: {
+    readonly adminPwHash: string;
+    readonly hasSsh: boolean;
+    readonly hasSnmp: boolean;
+  },
   configEntries: Record<string, FileNode>,
 ): Directory => {
   const passwd = generatePasswd([
@@ -149,9 +169,25 @@ const buildGatewayBaseFs = (
     },
   ]);
 
-  const runEntries: Record<string, FileNode> = identity.hasSsh
-    ? { 'sshd.pid': file(formatPidfileContent(SERVICE_CATALOG.ssh, 22), PIDFILE_PERMISSIONS) }
+  const runEntries: Record<string, FileNode> = {
+    ...(identity.hasSsh
+      ? { 'sshd.pid': file(formatPidfileContent(SERVICE_CATALOG.ssh, 22), PIDFILE_PERMISSIONS) }
+      : {}),
+    ...(identity.hasSnmp
+      ? { 'snmpd.pid': file(formatPidfileContent(SERVICE_CATALOG.snmp, 161), PIDFILE_PERMISSIONS) }
+      : {}),
+  };
+
+  // The agent's log and the agent's binary follow the agent, unlike the three logs
+  // below which every gateway carries. A log seeded where no daemon runs would say a
+  // daemon was there and left nothing, and a device advertising a port whose program
+  // it does not have could not be stopped by the `systemctl` on it.
+  const snmpEntries: Record<string, FileNode> = identity.hasSnmp
+    ? { 'snmpd.log': file('', SNMPD_LOG_PERMISSIONS) }
     : {};
+  const daemonBinaries = identity.hasSnmp
+    ? [...SYSTEM_DAEMON_NAMES, daemonName(SERVICE_CATALOG.snmp)]
+    : [...SYSTEM_DAEMON_NAMES];
 
   return dir(
     {
@@ -170,7 +206,7 @@ const buildGatewayBaseFs = (
       usr: dir(
         {
           bin: dir(createBinaryEntries([...LOCALHOST_PREINSTALLED_TOOLS, ...SERVICE_CONTROL_TOOLS]), TRAVERSABLE_DIR),
-          sbin: dir(createBinaryEntries(SYSTEM_DAEMON_NAMES), TRAVERSABLE_DIR),
+          sbin: dir(createBinaryEntries(daemonBinaries), TRAVERSABLE_DIR),
         },
         TRAVERSABLE_DIR,
       ),
@@ -181,6 +217,7 @@ const buildGatewayBaseFs = (
               'access.log': file('', ACCESS_LOG_PERMISSIONS),
               'auth.log': file('', AUTH_LOG_PERMISSIONS),
               'kern.log': file('', KERN_LOG_PERMISSIONS),
+              ...snmpEntries,
             },
             TRAVERSABLE_DIR,
           ),
@@ -202,6 +239,7 @@ const buildGatewayBaseFs = (
 export const buildRouterBaseFsFromIdentity = (identity: {
   readonly adminPwHash: string;
   readonly hasSsh: boolean;
+  readonly hasSnmp: boolean;
 }): Directory =>
   buildGatewayBaseFs(identity, {
     iptables: dir(
@@ -223,6 +261,13 @@ export const buildApGatewayBaseFs = (essid: string): Directory =>
   buildRouterBaseFsFromIdentity({
     adminPwHash: md5(seedApGatewayAdminPw(essid)),
     hasSsh: seedApGatewayHasSsh(essid),
+    // PINNED, and deliberately not read from the placement table. `ssh` can be pinned
+    // there because `router: { ssh: 1 }` makes every gateway's roll succeed; the agent
+    // cannot, because generated routers must roll at the router rate WHILE this one is
+    // always on, and a single cell cannot say both. Routed through `placementOf` it
+    // would go missing from 40% of players' own networks — the box this whole door aims
+    // them at, absent for two players in five, decided by their ESSID.
+    hasSnmp: true,
   });
 
 /** The inner gateway root ("admin") password, seeded from the ESSID AND the gateway's
@@ -243,6 +288,7 @@ export const buildInnerGatewayBaseFs = (essid: string, octet: number): Directory
   buildRouterBaseFsFromIdentity({
     adminPwHash: md5(seedInnerGatewayAdminPw(essid, octet)),
     hasSsh: true,
+    hasSnmp: seedHasSnmp(`inner-gw-snmp-${essid}:${octet}`, 'router'),
   });
 
 /** A DEEP gateway's root ("admin") password, seeded from its PARENT gateway's machine_id
@@ -264,6 +310,7 @@ export const buildDeepGatewayBaseFs = (parentMachineId: string, octet: number): 
   buildRouterBaseFsFromIdentity({
     adminPwHash: md5(seedDeepGatewayAdminPw(parentMachineId, octet)),
     hasSsh: true,
+    hasSnmp: seedHasSnmp(`deep-gw-snmp-${parentMachineId}:${octet}`, 'router'),
   });
 
 /** Build a DEEP switch's base FS — a deep gateway seeded as a switch rather than a
@@ -274,7 +321,11 @@ export const buildDeepGatewayBaseFs = (parentMachineId: string, octet: number): 
  *  switch reuses `inner-gw-admin-`. */
 export const buildDeepSwitchBaseFs = (parentMachineId: string, octet: number): Directory =>
   buildGatewayBaseFs(
-    { adminPwHash: md5(seedDeepGatewayAdminPw(parentMachineId, octet)), hasSsh: true },
+    {
+      adminPwHash: md5(seedDeepGatewayAdminPw(parentMachineId, octet)),
+      hasSsh: true,
+      hasSnmp: seedHasSnmp(`deep-sw-snmp-${parentMachineId}:${octet}`, 'switch'),
+    },
     { switch: dir({ 'acl.conf': file(ACL_CONF_SEED, GATEWAY_CONFIG_PERMISSIONS) }, TRAVERSABLE_DIR) },
   );
 
@@ -285,6 +336,10 @@ export const buildDeepSwitchBaseFs = (parentMachineId: string, octet: number): D
  *  from upstream by construction (no forward table at all). */
 export const buildSwitchBaseFs = (essid: string, octet: number): Directory =>
   buildGatewayBaseFs(
-    { adminPwHash: md5(seedInnerGatewayAdminPw(essid, octet)), hasSsh: true },
+    {
+      adminPwHash: md5(seedInnerGatewayAdminPw(essid, octet)),
+      hasSsh: true,
+      hasSnmp: seedHasSnmp(`inner-sw-snmp-${essid}:${octet}`, 'switch'),
+    },
     { switch: dir({ 'acl.conf': file(ACL_CONF_SEED, GATEWAY_CONFIG_PERMISSIONS) }, TRAVERSABLE_DIR) },
   );

@@ -52,7 +52,12 @@ describe('materializeApGatewayFs', () => {
   it('materializes a fresh router whose own sshd:22 is open (seeded, no journal)', () => {
     const router = materializeApGatewayFs(NETWORK, []);
 
-    expect(readOpenPorts(router)).toEqual([{ port: 22, service: 'ssh' }]);
+    // The agent is PINNED on every access-point gateway, so a fresh one answers on
+    // both its shell and its management port with no journal at all.
+    expect(readOpenPorts(router)).toEqual([
+      { port: 22, service: 'ssh' },
+      { port: 161, service: 'snmp' },
+    ]);
   });
 
   it('recovers the router root password from the owner key alone (server-reconstructable)', () => {
@@ -83,6 +88,7 @@ describe('materializeApGatewayFs', () => {
   it('treats a null journal as empty (fresh router still answers with sshd:22)', () => {
     expect(readOpenPorts(materializeApGatewayFs(NETWORK, null))).toEqual([
       { port: 22, service: 'ssh' },
+      { port: 161, service: 'snmp' },
     ]);
   });
 

@@ -168,6 +168,13 @@ const perIdDeps = (journals: Record<string, readonly OwnerPatchRow[]>) => {
 const envelope = (target: string, over: Record<string, unknown> = {}) =>
   signRequest(PLAYER, 'resolveInnerGatewayScan', { essid: ESSID, target, ...over });
 
+/** The two doors an inner gateway or switch in these fixtures bears: the shell every
+ *  gateway runs by design, and the SNMP agent this one rolled. Both are seeded, so both
+ *  are fixed — the RATE that decides the second is measured across a population in
+ *  `routerFs.test.ts`, not here. */
+const SSH_22 = { port: 22, service: 'ssh' };
+const SNMP_161 = { port: 161, service: 'snmp' };
+
 describe('handleResolveInnerGatewayScan', () => {
   it("resolves an inner gateway with no forward to its own sshd:22 (deep layer dark)", async () => {
     const { deps, findPatches } = makeDeps();
@@ -176,7 +183,7 @@ describe('handleResolveInnerGatewayScan', () => {
 
     expect(result).toEqual({
       status: 200,
-      body: { ok: true, found: true, ports: [{ port: 22, service: 'ssh' }] },
+      body: { ok: true, found: true, ports: [SSH_22, SNMP_161] },
     });
     // The journal is read off the INNER GATEWAY's own machine id.
     expect(findPatches).toHaveBeenCalledWith({
@@ -195,7 +202,7 @@ describe('handleResolveInnerGatewayScan', () => {
 
     expect(result).toEqual({
       status: 200,
-      body: { ok: true, found: true, ports: [{ port: 22, service: 'ssh' }] },
+      body: { ok: true, found: true, ports: [SSH_22, SNMP_161] },
     });
     expect(findPatches).toHaveBeenCalledWith({
       machine_id: computeInnerGatewayId(ESSID, octetOf(innerSwitch)),
@@ -214,7 +221,8 @@ describe('handleResolveInnerGatewayScan', () => {
         ok: true,
         found: true,
         ports: [
-          { port: 22, service: 'ssh' },
+          SSH_22,
+          SNMP_161,
           { port: 2222, service: 'ssh' },
         ],
       },
@@ -234,7 +242,7 @@ describe('handleResolveInnerGatewayScan', () => {
     // door the reach then refuses.
     expect(result).toEqual({
       status: 200,
-      body: { ok: true, found: true, ports: [{ port: 22, service: 'ssh' }] },
+      body: { ok: true, found: true, ports: [SSH_22, SNMP_161] },
     });
   });
 
@@ -250,7 +258,7 @@ describe('handleResolveInnerGatewayScan', () => {
     // still listing its port would send a player at something that is dark.
     expect(result).toEqual({
       status: 200,
-      body: { ok: true, found: true, ports: [{ port: 22, service: 'ssh' }] },
+      body: { ok: true, found: true, ports: [SSH_22, SNMP_161] },
     });
   });
 
@@ -296,7 +304,8 @@ describe('handleResolveInnerGatewayScan', () => {
         ok: true,
         found: true,
         ports: [
-          { port: 22, service: 'ssh' },
+          SSH_22,
+          SNMP_161,
           { port: 2222, service: 'ssh' },
         ],
       },
@@ -316,7 +325,8 @@ describe('handleResolveInnerGatewayScan', () => {
         ok: true,
         found: true,
         ports: [
-          { port: 22, service: 'ssh' },
+          SSH_22,
+          SNMP_161,
           { port: 2223, service: 'ssh' },
         ],
       },
@@ -331,7 +341,7 @@ describe('handleResolveInnerGatewayScan', () => {
 
     expect(result).toEqual({
       status: 200,
-      body: { ok: true, found: true, ports: [{ port: 22, service: 'ssh' }] },
+      body: { ok: true, found: true, ports: [SSH_22, SNMP_161] },
     });
   });
 
@@ -343,7 +353,7 @@ describe('handleResolveInnerGatewayScan', () => {
 
     expect(result).toEqual({
       status: 200,
-      body: { ok: true, found: true, ports: [{ port: 22, service: 'ssh' }] },
+      body: { ok: true, found: true, ports: [SSH_22, SNMP_161] },
     });
   });
 
@@ -491,7 +501,8 @@ describe('handleResolveInnerGatewayScan — chained forward down a deeper chain'
         ok: true,
         found: true,
         ports: [
-          { port: 22, service: 'ssh' },
+          SSH_22,
+          SNMP_161,
           { port: CHAINED_PORT, service: 'ssh' },
         ],
       },
@@ -506,7 +517,7 @@ describe('handleResolveInnerGatewayScan — chained forward down a deeper chain'
 
     expect(result).toEqual({
       status: 200,
-      body: { ok: true, found: true, ports: [{ port: 22, service: 'ssh' }] },
+      body: { ok: true, found: true, ports: [SSH_22, SNMP_161] },
     });
   });
 
@@ -517,7 +528,7 @@ describe('handleResolveInnerGatewayScan — chained forward down a deeper chain'
 
     expect(result).toEqual({
       status: 200,
-      body: { ok: true, found: true, ports: [{ port: 22, service: 'ssh' }] },
+      body: { ok: true, found: true, ports: [SSH_22, SNMP_161] },
     });
   });
 
@@ -570,7 +581,7 @@ describe('handleResolveInnerGatewayScan — the seeded depth + forward set bound
 
     expect(result).toEqual({
       status: 200,
-      body: { ok: true, found: true, ports: [{ port: 22, service: 'ssh' }] },
+      body: { ok: true, found: true, ports: [SSH_22, SNMP_161] },
     });
   });
 
@@ -592,7 +603,8 @@ describe('handleResolveInnerGatewayScan — the seeded depth + forward set bound
         ok: true,
         found: true,
         ports: [
-          { port: 22, service: 'ssh' },
+          SSH_22,
+          SNMP_161,
           { port: 2222, service: 'ssh' },
           { port: 2223, service: 'ssh' },
         ],
@@ -620,7 +632,8 @@ describe('handleResolveInnerGatewayScan — the seeded depth + forward set bound
         ok: true,
         found: true,
         ports: [
-          { port: 22, service: 'ssh' },
+          SSH_22,
+          SNMP_161,
           { port: 2222, service: 'ssh' },
         ],
       },
@@ -670,7 +683,7 @@ describe('handleResolveInnerGatewayScan — a depth-1 network (no child gateway 
 
     expect(result).toEqual({
       status: 200,
-      body: { ok: true, found: true, ports: [{ port: 22, service: 'ssh' }] },
+      body: { ok: true, found: true, ports: [SSH_22, SNMP_161] },
     });
   });
 });
