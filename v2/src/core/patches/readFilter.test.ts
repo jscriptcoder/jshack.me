@@ -15,6 +15,8 @@ import {
   filterTreeToAllowlist,
 } from './readFilter';
 import { serializeTree } from '../filesystem/treeCodec';
+import { buildApGatewayBaseFs } from '../generation/routerFs';
+import { readRwCommunityHash } from '../snmp/rwCommunity';
 
 /**
  * The cross-player READ filter (Story 2, slice 2c — tier 2). Given a fully
@@ -227,6 +229,30 @@ describe('filterTreeToAllowlist', () => {
     // Belt-and-braces: no secret content anywhere in the returned tree.
     expect(JSON.stringify(serializeTree(filtered))).not.toContain('PRIVATE_KEY');
     expect(JSON.stringify(serializeTree(filtered))).not.toContain('hash');
+  });
+
+  it('shows a real device its public snmpd.conf and never its read-write community', () => {
+    // Against a GENERATED device rather than a hand-built tree: what has to hold is
+    // that the box this door aims players at does not hand its own secret to a reader
+    // who proved nothing, and a fixture written next to the filter can agree with the
+    // filter while the shipped tree disagrees with both.
+    //
+    // The two files share a name and differ in everything else. `/etc/snmp/snmpd.conf`
+    // is world-readable and says what the device IS — allowlisted, because a walk with
+    // `public` returns the same facts anyway. `/var/lib/snmp/snmpd.conf` holds the
+    // community that buys port control. Listed here it would be readable with no
+    // session at all, which is a rung below every tier the walk itself hands out, and
+    // the sweep this door exists for would be answering a question anyone could already
+    // read the answer to.
+    const gateway = buildApGatewayBaseFs('ALLOWLIST-NET');
+    const communityHash = readRwCommunityHash(gateway);
+
+    const filtered = filterTreeToAllowlist(gateway);
+
+    expect(get(filtered, 'etc', 'snmp', 'snmpd.conf')?.kind).toBe('file');
+    expect(get(filtered, 'var', 'lib')).toBeUndefined();
+    expect(communityHash).toBeDefined();
+    expect(JSON.stringify(serializeTree(filtered))).not.toContain(communityHash);
   });
 
   it('treats * as segment-bound — a .pid under a deeper subdir is not observable', () => {

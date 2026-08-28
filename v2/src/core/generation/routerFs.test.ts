@@ -11,6 +11,7 @@ import {
   seedDeepGatewayAdminPw,
   seedInnerGatewayAdminPw,
   seedApGatewayAdminPw,
+  seedApGatewayCommunity,
   seedApGatewayHasSsh,
   seedApGatewayHostname,
 } from './routerFs';
@@ -40,6 +41,7 @@ const ESSID_B = 'NAKATOMI-PLAZA';
 
 // A representative already-hashed router admin password (md5-shaped).
 const ADMIN_HASH = 'deadbeefdeadbeefdeadbeefdeadbeef';
+const COMMUNITY_HASH = 'feedfacefeedfacefeedfacefeedface';
 
 /**
  * Story 5.1: the router's root ("admin") password and its sshd presence are
@@ -47,6 +49,24 @@ const ADMIN_HASH = 'deadbeefdeadbeefdeadbeefdeadbeef';
  * without the owner's config (mirroring `workstationGuestPassword`). These pin
  * the seed contract through the public functions, not internals.
  */
+describe('seedApGatewayCommunity', () => {
+  it('gives one access point one community, however many times it is asked', () => {
+    expect(seedApGatewayCommunity(ESSID_A)).toBe(seedApGatewayCommunity(ESSID_A));
+  });
+
+  it('gives two access points different ones', () => {
+    expect(seedApGatewayCommunity(ESSID_A)).not.toBe(seedApGatewayCommunity(ESSID_B));
+  });
+
+  it('is nothing to do with the same gateway root password', () => {
+    // The whole point of this door. A community that fell out of the admin seed would
+    // make SNMP a second name for a credential the player already has, instead of an
+    // independent way in: crack one, hold the other, and neither tells you about its
+    // twin.
+    expect(seedApGatewayCommunity(ESSID_A)).not.toBe(seedApGatewayAdminPw(ESSID_A));
+  });
+});
+
 describe('seedApGatewayAdminPw', () => {
   it('is deterministic: same owner key yields the same admin password', () => {
     expect(seedApGatewayAdminPw(ESSID_A)).toBe(seedApGatewayAdminPw(ESSID_A));
@@ -312,7 +332,12 @@ describe('the gateway difficulty curve (a gateway is the best root target in the
    *  but slow enough under mutation instrumentation to race Stryker's timeout,
    *  which silently converts a survivor into a "killed by timeout" and makes the
    *  score depend on machine speed. Deterministic and read-only. */
-  const crackable = ((): { readonly ap: number; readonly inner: number; readonly deep: number } => {
+  const crackable = ((): {
+    readonly ap: number;
+    readonly inner: number;
+    readonly deep: number;
+    readonly community: number;
+  } => {
     const rate = (passwords: readonly string[]): number =>
       passwords.filter((password) => covered.has(password)).length;
     return {
@@ -321,6 +346,7 @@ describe('the gateway difficulty curve (a gateway is the best root target in the
       deep: rate(
         NETWORKS.map((_unused, index) => seedDeepGatewayAdminPw(`gw-${index}`, octetFor(index))),
       ),
+      community: rate(NETWORKS.map(seedApGatewayCommunity)),
     };
   })();
 
@@ -333,10 +359,28 @@ describe('the gateway difficulty curve (a gateway is the best root target in the
   // here by mistake — npcRoot (~240), npcUser (~1400), guest (2000).
   const FLOOR = Math.round(DOORS * 0.35);
   const CEILING = Math.round(DOORS * 0.45);
+  // The community's own band, against a 0.6 knob. Observed 1171 (58.6%), beside the
+  // gateway's 741 in the same run — the same wordlist-coverage discount the three bands
+  // above absorb. Wide enough to survive that drift, narrow enough to exclude every
+  // neighbouring knob: gateway (~740), npcRoot (~240), npcUser (~1400), guest (2000),
+  // and a roll stuck on either branch.
+  const COMMUNITY_FLOOR = Math.round(DOORS * 0.5);
+  const COMMUNITY_CEILING = Math.round(DOORS * 0.62);
 
   it('hands over the AP gateway at a rate somebody CHOSE, not one the wordlists collided into', () => {
     expect(crackable.ap).toBeGreaterThan(FLOOR);
     expect(crackable.ap).toBeLessThan(CEILING);
+  });
+
+  it('hands over a community more readily than a root password, because it buys less', () => {
+    // Softer than the gateway's root for two reasons that agree: a community string is
+    // the weakest secret on a real network, left at its default far more often than a
+    // root password, and this one buys PORT CONTROL and nothing else — no file, no
+    // command. At or below root's rate the door would be pointless, since root already
+    // grants `nano` on the very file a set rewrites.
+    expect(crackable.community).toBeGreaterThan(COMMUNITY_FLOOR);
+    expect(crackable.community).toBeLessThan(COMMUNITY_CEILING);
+    expect(crackable.community).toBeGreaterThan(crackable.ap);
   });
 
   it('applies the same odds to an inner gateway — depth changes the route, not the lock', () => {
@@ -545,10 +589,16 @@ describe('buildDeepSwitchBaseFs', () => {
 
 describe('buildRouterBaseFsFromIdentity', () => {
   const routerFs = (
-    overrides: Partial<{ adminPwHash: string; hasSsh: boolean; hasSnmp: boolean }> = {},
+    overrides: Partial<{
+      adminPwHash: string;
+      hasSsh: boolean;
+      hasSnmp: boolean;
+      snmpCommunityHash: string;
+    }> = {},
   ): Directory =>
     buildRouterBaseFsFromIdentity({
       adminPwHash: ADMIN_HASH,
+      snmpCommunityHash: COMMUNITY_HASH,
       hasSsh: true,
       hasSnmp: false,
       ...overrides,
@@ -673,6 +723,38 @@ describe('buildRouterBaseFsFromIdentity', () => {
     });
   });
 
+  it('keeps its read-write community as a hash in a file only root can read', () => {
+    // The read-only community is public knowledge and sits in world-readable
+    // `/etc/snmp/snmpd.conf`; this one is the secret that buys port control, so it
+    // lives where `/var/lib/mysql/data.json` lives and answers to the same rule. Left
+    // where a guest could read it, a sweep of this door would be handed its own answer
+    // key, and every tier the walk hands out is below root.
+    const state = dirAt(routerFs({ hasSnmp: true }), 'var', 'lib', 'snmp').entries.get(
+      'snmpd.conf',
+    );
+
+    expect(state?.kind === 'file' ? state.perms : null).toEqual({
+      read: ['root'],
+      write: ['root'],
+      execute: [],
+    });
+  });
+
+  it('answers a read-write walk to the community it was seeded with, never in the clear', () => {
+    // Hashed exactly as an account's password is, so a sweep of this door obeys the one
+    // wordlist rule every other door obeys. A plaintext string here would be a secret
+    // that root could read without cracking anything, on the one door whose whole
+    // premise is that the community had to be earned.
+    const state = fileAt(
+      routerFs({ hasSnmp: true, snmpCommunityHash: COMMUNITY_HASH }),
+      ['var', 'lib', 'snmp'],
+      'snmpd.conf',
+    );
+
+    expect(state).toContain(COMMUNITY_HASH);
+    expect(state).not.toContain('corpnet');
+  });
+
   it('leaves no agent trace at all when hasSnmp is false — config, pidfile, log, binary', () => {
     // All four together, because the absent case is where a mistake hides: a config, a
     // log or a binary seeded unconditionally would say a daemon was there that never
@@ -684,6 +766,7 @@ describe('buildRouterBaseFsFromIdentity', () => {
     expect(dirAt(fs, 'var', 'log').entries.has('snmpd.log')).toBe(false);
     expect(dirAt(fs, 'usr', 'sbin').entries.has('snmpd')).toBe(false);
     expect(readSnmpdConf(fs)).toBe('');
+    expect(dirAt(fs, 'var').entries.has('lib')).toBe(false);
   });
 
   it('has NO open ports when hasSsh is false (the seam toggles the pidfile off)', () => {
