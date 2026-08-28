@@ -20,7 +20,7 @@ import type { HomeNetworkAssignment } from '../network/homeNetwork';
 import type { OccupantProjection } from '../network/resolveOccupants';
 import type { WifiNetwork } from '../network/wifi';
 import type { OpenPort } from '../services/pidfile';
-import type { SnmpIdentity } from '../snmp/walk';
+import type { SnmpIdentity, SnmpPortTable } from '../snmp/walk';
 import type { FlagSpec } from '../shell/bindFlags';
 
 // ---- Identity & session (read-only snapshots in CommandEnv) ----
@@ -838,7 +838,13 @@ export type SnmpWalkParams = {
   readonly sourceIp: string;
 };
 
-/** The outcome of a walk: what the device is, or nothing.
+/** The outcome of a walk: what the device is, what it does, or nothing.
+ *
+ *  The TIER is stated rather than inferred from whether a port table came back. A
+ *  default-deny router forwards nothing, so an empty table is the ordinary read-write
+ *  answer; a client that read its absence as read-only would tell most players their
+ *  cracked community had been refused.
+ *
  *
  *  The failure carries NO REASON, and that absence is the design. A device that is not
  *  there, one whose agent was stopped, and one that refused the community are one
@@ -847,11 +853,17 @@ export type SnmpWalkParams = {
  *  single word of a wordlist. The server keeps the distinction, because the log it
  *  writes has to. */
 export type SnmpWalkResult =
-  | { readonly ok: true; readonly identity: SnmpIdentity }
+  | { readonly ok: true; readonly tier: 'read-only'; readonly identity: SnmpIdentity }
+  | {
+      readonly ok: true;
+      readonly tier: 'read-write';
+      readonly identity: SnmpIdentity;
+      readonly portTable: SnmpPortTable;
+    }
   | { readonly ok: false };
 
-/** The device door, client side. One verb, because the read-only tier can do exactly
- *  one thing: ask. */
+/** The device door, client side. One verb: both tiers ASK, and differ only in what the
+ *  device is willing to say back. Writing is `snmpset`, which is its own door. */
 export type SnmpApi = {
   readonly walk: (params: SnmpWalkParams) => Promise<SnmpWalkResult>;
 };

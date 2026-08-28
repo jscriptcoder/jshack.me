@@ -8,6 +8,8 @@ import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { pidfilePath, readOpenPorts } from '../services/pidfile';
 import { formatSnmpdArrivalLine, formatSnmpdAttemptLine, SNMPD_LOG_PATH } from '../logging/snmpdLog';
 import { derivePid } from '../logging/syslog';
+import { formatSnmpdState } from '../snmp/rwCommunity';
+import { md5 } from '../generation/md5';
 import { asAbsPath, asGameTime } from '../types';
 import type { OwnerPatchRow } from '../network/materializeMachineFs';
 import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
@@ -158,6 +160,9 @@ describe('walking a device with the community it answers to', () => {
       status: 200,
       body: {
         ok: true,
+        // Stated, not inferred. The client picks its render from this rather than from
+        // whether a port table came back, so an empty table cannot read as a refusal.
+        tier: 'read-only',
         identity: {
           hostname: gateway.hostname,
           kind: 'router',
@@ -183,6 +188,7 @@ describe('walking a device with the community it answers to', () => {
     // router would make the two indistinguishable in the only tool that inspects one.
     expect(response.body).toEqual({
       ok: true,
+      tier: 'read-only',
       identity: {
         hostname: host.hostname,
         kind: 'switch',
@@ -207,6 +213,139 @@ describe('walking a device with the community it answers to', () => {
       path: SNMPD_LOG_PATH,
       content: loggedLines('success', gateway.hostname),
     });
+  });
+});
+
+/**
+ * The read-write tier. The read-only community is public knowledge and buys the device's
+ * NAME; this one had to be cracked out of a root-only file and buys what the device
+ * DOES. The table is rendered from the very file the box routes by, so the door cannot
+ * report a forward the machine does not honour.
+ */
+describe('walking a device with its read-write community', () => {
+  /** A device whose read-write community is a string this test knows, planted the way
+   *  its owner's own edit would arrive. The generated one is drawn from a pool and is
+   *  not guaranteed to be recoverable, and a walk is not the place to prove seeding. */
+  const answering = (community: string): Partial<SnmpWalkDeps> => ({
+    findPatches: async () => ({
+      data: [patchRow('/var/lib/snmp/snmpd.conf', formatSnmpdState(md5(community)))],
+      error: null,
+    }),
+  });
+
+  it('returns the port table the device actually routes by, beside its identity', async () => {
+    const identity = generateIdentity();
+    const essid = CANDIDATE_ESSIDS[0]!;
+    const gateway = apGatewayOn(essid);
+    const { deps } = makeDeps({
+      findPatches: async () => ({
+        data: [
+          patchRow('/var/lib/snmp/snmpd.conf', formatSnmpdState(md5('corpnet'))),
+          patchRow('/etc/iptables/rules.v4', 'forward 2222 to 10.0.0.10:22\n'),
+        ],
+        error: null,
+      }),
+    });
+
+    const response = await handleSnmpWalk(
+      await signedWalk(identity, { essid, target_ip: gateway.ip, community: 'corpnet' }),
+      deps,
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      ok: true,
+      tier: 'read-write',
+      identity: {
+        hostname: gateway.hostname,
+        kind: 'router',
+        sysContact: 'netops@corp.local',
+        addresses: [gateway.ip, PUBLIC_IP],
+      },
+      portTable: {
+        kind: 'nat',
+        forwards: [{ publicPort: 2222, internalIp: '10.0.0.10', internalPort: 22 }],
+      },
+    });
+  });
+
+  it('names the tier even when the device forwards nothing at all', async () => {
+    // Default-deny makes this the ORDINARY answer for a fresh router, so it must read as
+    // a device with an empty table rather than as a community that was refused.
+    const identity = generateIdentity();
+    const essid = CANDIDATE_ESSIDS[0]!;
+    const gateway = apGatewayOn(essid);
+    const { deps } = makeDeps(answering('corpnet'));
+
+    const response = await handleSnmpWalk(
+      await signedWalk(identity, { essid, target_ip: gateway.ip, community: 'corpnet' }),
+      deps,
+    );
+
+    expect(response.body).toMatchObject({
+      tier: 'read-write',
+      portTable: { kind: 'nat', forwards: [] },
+    });
+  });
+
+  it('gives a switch its own table, read from the file that platform keeps', async () => {
+    const identity = generateIdentity();
+    const { essid, host } = deviceOfKind('switch');
+    const { deps } = makeDeps({
+      findPatches: async () => ({
+        data: [
+          patchRow('/var/lib/snmp/snmpd.conf', formatSnmpdState(md5('corpnet'))),
+          patchRow('/etc/switch/acl.conf', 'deny 8080\n'),
+        ],
+        error: null,
+      }),
+    });
+
+    const response = await handleSnmpWalk(
+      await signedWalk(identity, { essid, target_ip: host.ip, community: 'corpnet' }),
+      deps,
+    );
+
+    expect(response.body).toMatchObject({
+      tier: 'read-write',
+      portTable: { kind: 'acl', denies: [8080] },
+    });
+  });
+
+  it('still tells the read-only community nothing about the port table', async () => {
+    // The whole economy of the door. If `public` returned the table, the community
+    // nobody has to crack would buy what the cracked one is for.
+    const identity = generateIdentity();
+    const essid = CANDIDATE_ESSIDS[0]!;
+    const gateway = apGatewayOn(essid);
+    const { deps } = makeDeps(answering('corpnet'));
+
+    const response = await handleSnmpWalk(
+      await signedWalk(identity, { essid, target_ip: gateway.ip }),
+      deps,
+    );
+
+    expect(response.body).toMatchObject({ tier: 'read-only' });
+    expect(response.body).not.toHaveProperty('portTable');
+  });
+
+  it('mints no session, because the tier that can write is still nobody logging in', async () => {
+    // The hazard D6 found: `authorizeMachineAccess` never inspects session kind, so a
+    // row minted here would hand `listPatches` and `upsertPatch` to whoever reached
+    // port 161 — at the tier that rewrites the NAT table.
+    const identity = generateIdentity();
+    const essid = CANDIDATE_ESSIDS[0]!;
+    const gateway = apGatewayOn(essid);
+    const { deps, upsertPatch } = makeDeps(answering('corpnet'));
+
+    await handleSnmpWalk(
+      await signedWalk(identity, { essid, target_ip: gateway.ip, community: 'corpnet' }),
+      deps,
+    );
+
+    // The log line is the only row a walk writes, at either tier.
+    expect(upsertPatch).toHaveBeenCalledTimes(1);
+    expect(upsertPatch.mock.calls[0]![0]).toMatchObject({ path: SNMPD_LOG_PATH });
   });
 });
 

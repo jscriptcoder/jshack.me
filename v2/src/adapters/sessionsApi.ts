@@ -506,14 +506,37 @@ export const connectStore = async (
 /** What a device hands back when it accepted the community. Parsed rather than
  *  trusted: a 200 this client cannot read is not an answer, and there is exactly one
  *  other thing it could be. */
-const walkedDevice = z.object({
-  identity: z.object({
-    hostname: z.string(),
-    kind: z.union([z.literal('router'), z.literal('switch')]),
-    sysContact: z.string(),
-    addresses: z.array(z.string()),
-  }),
+const walkedIdentity = z.object({
+  hostname: z.string(),
+  kind: z.union([z.literal('router'), z.literal('switch')]),
+  sysContact: z.string(),
+  addresses: z.array(z.string()),
 });
+
+/** A UNION on the tier the server named, so a read-write answer whose port table did
+ *  not survive the wire fails to parse instead of arriving as a read-only one. Inferred
+ *  from the table's presence, a dropped field would silently downgrade the tier and
+ *  tell a player their cracked community bought nothing. */
+const walkedDevice = z.union([
+  z.object({ tier: z.literal('read-only'), identity: walkedIdentity }),
+  z.object({
+    tier: z.literal('read-write'),
+    identity: walkedIdentity,
+    portTable: z.union([
+      z.object({
+        kind: z.literal('nat'),
+        forwards: z.array(
+          z.object({
+            publicPort: z.number(),
+            internalIp: z.string(),
+            internalPort: z.number(),
+          }),
+        ),
+      }),
+      z.object({ kind: z.literal('acl'), denies: z.array(z.number()) }),
+    ]),
+  }),
+]);
 
 /**
  * Walk a device over SNMP — the signed `snmpWalk` round-trip behind `env.snmp.walk`.
@@ -538,7 +561,7 @@ export const walkDevice = async (
     if (!response.ok) return { ok: false };
     const body: unknown = await response.json().catch(() => null);
     const walked = walkedDevice.safeParse(body);
-    return walked.success ? { ok: true, identity: walked.data.identity } : { ok: false };
+    return walked.success ? { ok: true, ...walked.data } : { ok: false };
   } catch {
     return { ok: false };
   }

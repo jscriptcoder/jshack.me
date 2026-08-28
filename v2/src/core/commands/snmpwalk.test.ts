@@ -44,6 +44,7 @@ const onlineConnectivity = (essid: string): ConnectivityState => {
 
 const ANSWERED: SnmpWalkResult = {
   ok: true,
+  tier: 'read-only',
   identity: {
     hostname: 'gw-main',
     kind: 'router',
@@ -119,6 +120,46 @@ describe('walking a device that answers', () => {
 
     expect(walk.mock.calls[0]![0]).toMatchObject({ community: 'corpnet' });
     expect(linesOf(result)).toContain('[READ-ONLY] Community "corpnet" accepted.');
+  });
+});
+
+describe('walking a device with a community that reads its port table', () => {
+  const CRACKED: SnmpWalkResult = {
+    ok: true,
+    tier: 'read-write',
+    identity: {
+      hostname: 'gw-main',
+      kind: 'router',
+      sysContact: 'netops@corp.local',
+      addresses: [GATEWAY_IP, PUBLIC_IP],
+    },
+    portTable: {
+      kind: 'nat',
+      forwards: [{ publicPort: 2222, internalIp: '10.0.0.10', internalPort: 22 }],
+    },
+  };
+
+  it('prints the port table and what to write, not the retry hint', async () => {
+    const result = await run(onLan({ walk: async () => CRACKED }), [GATEWAY_IP, 'corpnet']);
+
+    expect(linesOf(result)).toContain('NAT-MIB::natForward.2222  = STRING:    10.0.0.10:22');
+    expect(linesOf(result)).toContain('Writable: snmpset');
+    // The read-only trailer tells a player to go and find a better community. Printed
+    // to somebody who just used one, it would read as a failure.
+    expect(linesOf(result)).not.toContain('Retry with a read-write community');
+  });
+
+  it('renders an empty table as an empty table, never as a refusal', async () => {
+    // Default-deny makes this the usual answer from a fresh router, and it arrives at
+    // the same exit code as a full one: the community worked.
+    const result = await run(
+      onLan({ walk: async () => ({ ...CRACKED, portTable: { kind: 'nat', forwards: [] } }) }),
+      [GATEWAY_IP, 'corpnet'],
+    );
+
+    expect(sync(result).exitCode).toBe(0);
+    expect(linesOf(result)).toContain('This device forwards no ports.');
+    expect(linesOf(result)).not.toContain('Timeout');
   });
 });
 
