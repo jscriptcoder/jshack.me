@@ -62,3 +62,59 @@ export const parseForwardRules = (content: string): readonly NatForward[] =>
       const rule = parseForwardLine(line);
       return rule === null ? [] : [rule];
     });
+
+/** Where a public port sends what arrives on it — a forward with its key left off,
+ *  because the key is what the caller is naming when it asks. */
+export type ForwardTarget = Pick<NatForward, 'internalIp' | 'internalPort'>;
+
+/** One forward as this file writes it — the exact grammar `parseForwardLine` reads
+ *  back, because it is the only shape the file has. */
+const formatForwardLine = (publicPort: number, target: ForwardTarget): string =>
+  `forward ${publicPort} to ${target.internalIp}:${target.internalPort}`;
+
+/** The file's lines to edit, without the empty string a trailing newline leaves
+ *  behind — so an append lands after the last rule rather than after the blank. */
+const editableLines = (content: string): readonly string[] => {
+  const lines = content.split('\n');
+  return lines.at(-1) === '' ? lines.slice(0, -1) : lines;
+};
+
+/**
+ * The file with `publicPort` left in the state `target` names: forwarding to that
+ * destination, or (with `null`) forwarding nowhere. Add, overwrite and remove are one
+ * operation because the value is a STATE rather than an instruction — the caller says
+ * where the port should point and never which of the three it is asking for.
+ *
+ * A TEXT edit, deliberately. Re-rendering the file from `parseForwardRules` would be
+ * shorter and would drop the header, the commented example, and whatever the owner
+ * wrote in `nano` — one fact, but no longer their file. One line changes; every other
+ * byte is the one that was already there.
+ *
+ * The line to change is found by PARSING each line, not by matching the port in the
+ * text, so a rule the owner commented out is a comment and stays one.
+ */
+export const withForward = (
+  content: string,
+  publicPort: number,
+  target: ForwardTarget | null,
+): string => {
+  const body = editableLines(content);
+  const existing = body.findIndex(
+    (line) => parseForwardLine(line.trim())?.publicPort === publicPort,
+  );
+
+  // Already in the state that was asked for. Returned untouched rather than rewritten,
+  // so a no-op cannot normalize an owner's own formatting out from under them.
+  if (target === null && existing === -1) return content;
+
+  const edited =
+    target === null
+      ? [...body.slice(0, existing), ...body.slice(existing + 1)]
+      : existing === -1
+        ? [...body, formatForwardLine(publicPort, target)]
+        : body.map((line, index) =>
+            index === existing ? formatForwardLine(publicPort, target) : line,
+          );
+
+  return `${edited.join('\n')}\n`;
+};
