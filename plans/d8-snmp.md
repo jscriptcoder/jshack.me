@@ -2,7 +2,9 @@
 
 **Branch**: `feat/d8-snmp-crack` (slice 3)
 **Status**: Active — slice 1 MERGED (#465, v0.185.0); slice 2 MERGED (#466, v0.186.0,
-2026-08-27); slice 3 PLANNED, awaiting AC confirmation; slices 4–7 outlined only
+2026-08-27); slice 3 **PR-READY** on `feat/d8-snmp-crack` at v0.187.0 (AC-1…AC-11 met, wire-check RUN
+15/15, mutation gate closed — see "Progress" below);
+slices 4–7 outlined only
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D8 — resolved scope & decisions
 (grill-me, 2026-08-27)", eleven locked decisions, gap-checked the same day.
 
@@ -27,7 +29,7 @@ that table, all of it a VIEW over the `rules.v4` / `acl.conf` files v2 already p
 |---|-------|-----------|--------|
 | 1 | a device answers SNMP | `nmap` shows `161/udp snmp` on a router/switch | **merged** #465 |
 | 2 | a player walks it with `public` | identity OIDs return; the walk lands in `snmpd.log` | **merged** #466 |
-| 3 | a player cracks the RW community | `hydra <host> snmp` → the port table renders | **planned** |
+| 3 | a player cracks the RW community | `hydra <host> snmp` → the port table renders | **built** |
 | 4 | a player opens a port, no shell | `snmpset` adds a forward; `nmap` shows it | outlined |
 | 5 | a device on a deep layer answers | the inner-gateway vantage | outlined |
 | 6 | a player runs their own agent | owner filters a port; `127.0.0.1` still works | outlined |
@@ -512,32 +514,32 @@ ones, because the read-only tier is what the read-write tier must not quietly br
 
 ### Acceptance criteria — FOR CONFIRMATION, before any code
 
-- [ ] **AC-1** A device that runs the agent carries `/var/lib/snmp/snmpd.conf` holding an md5 of its
+- [x] **AC-1** A device that runs the agent carries `/var/lib/snmp/snmpd.conf` holding an md5 of its
       read-write community. A device with no agent carries no such file, and no such directory.
-- [ ] **AC-2** That file is readable and writable by `root` alone. A `guest` or a `user` who reads it
+- [x] **AC-2** That file is readable and writable by `root` alone. A `guest` or a `user` who reads it
       is refused, the way `/etc/shadow` refuses them.
-- [ ] **AC-3** The community is drawn from the two EXISTING password pools at a new
+- [x] **AC-3** The community is drawn from the two EXISTING password pools at a new
       `CRACK_CHANCE.community` of `0.6`, in its own seed namespace — so a device's community and its
       admin password are independent, and cracking one says nothing about the other.
-- [ ] **AC-4** `/var/lib/snmp/snmpd.conf` is absent from `EXTERNALLY_OBSERVABLE_ALLOWLIST`, so a
+- [x] **AC-4** `/var/lib/snmp/snmpd.conf` is absent from `EXTERNALLY_OBSERVABLE_ALLOWLIST`, so a
       cross-player read of the device cannot see it. The world-readable `/etc/snmp/snmpd.conf` stays
       visible and stays free of the read-write string.
-- [ ] **AC-5** `hydra <device> snmp` sweeps the community and reports the string when the wordlist
+- [x] **AC-5** `hydra <device> snmp` sweeps the community and reports the string when the wordlist
       holds it. It names no login and enumerates no accounts, because the row has `secretOn`.
-- [ ] **AC-6** A sweep leaves one attempt line per guessed word in the device's own
+- [x] **AC-6** A sweep leaves one attempt line per guessed word in the device's own
       `/var/log/snmpd.log`, under the device's own writer key, with nothing in `auth.log`.
-- [ ] **AC-7** `snmpwalk <device> <read-write community>` returns the identity block AND the port
+- [x] **AC-7** `snmpwalk <device> <read-write community>` returns the identity block AND the port
       table. `snmpwalk <device> public` still returns identity alone.
-- [ ] **AC-8** A router renders each `rules.v4` forward as
+- [x] **AC-8** A router renders each `rules.v4` forward as
       `NAT-MIB::natForward.<public port> = STRING: <ip>:<port>`; a switch renders each `acl.conf`
       deny as `ACL-MIB::aclPort.<port> = STRING: deny`. Both read the file the device already
       carries — no second copy is stored anywhere.
-- [ ] **AC-9** A router with the shipped default-deny `rules.v4` renders an EMPTY port table and
+- [x] **AC-9** A router with the shipped default-deny `rules.v4` renders an EMPTY port table and
       still prints the `Writable:` trailer. This is the ordinary case for a fresh router, not an edge
       one, and it is what points a player at slice 4.
-- [ ] **AC-10** A read-write walk mints no session row, and is traced on the device exactly as a
+- [x] **AC-10** A read-write walk mints no session row, and is traced on the device exactly as a
       read-only one is.
-- [ ] **AC-11** The wire-check RUNS against `vercel dev` + supabase, covering the read-write walk,
+- [x] **AC-11** The wire-check RUNS against `vercel dev` + supabase, covering the read-write walk,
       the unchanged read-only walk, and the sweep's trace — and is falsified at least once.
 
 ### RED — the failing tests, in the order they get written
@@ -588,6 +590,85 @@ ones, because the read-only tier is what the read-write tier must not quietly br
 - **The port table renders from the file on every walk.** No cache, and nothing copied into the
   response beyond what one render needs — decision 2's whole point is one fact behind two
   interfaces.
+
+### Progress — BUILT, on `feat/d8-snmp-crack` (2026-08-28)
+
+Four commits on top of the plan, each RED→GREEN with the gates clean. Full suite
+**3831 passing / 179 files** (baseline at slice 2's close was 3799 / 178); `npm run
+typecheck` and `npm run lint` clean from `v2/`; wire-check **15/15** against a live stack,
+falsified twice; version **v0.187.0**.
+
+| Commit | What landed |
+|--------|-------------|
+| `46f9db9c` | `src/core/snmp/rwCommunity.ts`, `CRACK_CHANCE.community`, generation plants `/var/lib/snmp/snmpd.conf`, the allowlist pin |
+| `41b1c0d4` | `secretOn` on the `snmp` catalog row — the whole hydra half |
+| `866dcffa` | the port table render, the door's tier, the command and the adapter union |
+| `9bbc0688` | `scripts/testSnmpWalk.ts` extended to 15 checks, v0.187.0 |
+| `6dc804e8` | the mutation gate: `rwCommunity.test.ts`, one dead guard removed |
+
+**AC-1…AC-11 are met.** AC-4 was GREEN ON ARRIVAL — `/var/lib/snmp/snmpd.conf` was never
+in `EXTERNALLY_OBSERVABLE_ALLOWLIST` — so it is a pin rather than a discovery, and it was
+falsified by listing the path and removing it again. No production change is claimed for
+it.
+
+#### What building it settled that planning had not
+
+- **The seed namespace was a live bug, not bookkeeping.** `seedHasSnmp` opens with
+  `createPrng(namespace).next() < placement` and `drawPassword` opens with
+  `prng.next() < crackChance`. Sharing a namespace makes those THE SAME DRAW — and with
+  the router's placement at 0.6 against a community chance of 0.6, every device running an
+  agent would have held a crackable community and every device without one an uncrackable
+  one. The test that pins the community against the admin password is what catches it.
+  **Any later slice that adds a per-device seeded fact must give it its own namespace**,
+  and prove it against the neighbouring draws rather than against itself.
+- **The crack half cost one field.** `hydraCrack` has read `secretOn` since redis forced
+  it, and `hydra` has suppressed the login field for any row carrying one since the same
+  slice. AC-5 and AC-6 needed `secretOn: readRwCommunityHash` and nothing else. Planning
+  guessed this; it is worth recording that the guess held, because slices 4 and 7 are
+  budgeted on the same reasoning.
+- **The tier had to be explicit at FOUR layers, and for one reason.** Default-deny means a
+  fresh router forwards nothing, so an empty port table is the ORDINARY read-write answer.
+  Anywhere the tier were inferred from the table's emptiness, most players would be told
+  their cracked community had been refused. Hence: a separate render entry point, a stated
+  `tier` in the handler's body, a discriminated union in the adapter's schema, and a
+  tier-keyed branch in the command. `slice 4` must not collapse any of them.
+- **Typecheck caught what 3820 passing tests did not — for the third slice running.** Here
+  it was `routerFs.test.ts`'s own helper, whose `Partial<{...}>` predated the new identity
+  field. Same class as slice 1's and slice 2's: green under esbuild's type-stripping,
+  rejected by `tsc -b`. Run `npm run typecheck` before presenting any increment.
+- **`vercel dev` must be started as `npm run vercel:dev`.** Started directly it never reads
+  `.env.development.local`, every handler answers `not_configured`, and the wire-check
+  reports a plausible-looking partial failure rather than an obvious one.
+- **Three of the wire-check's checks are one-sided, and now demonstrably so.** In that
+  misconfigured run — where the server did nothing at all — `NOTHING went to auth.log` and
+  BOTH no-session checks passed. Slice 2 recorded the weakness for the auth.log check;
+  this is the demonstration, and it applies to the two session checks this slice added.
+  Each is guarded by a positive check beside it, never on its own.
+
+#### The mutation gate — run, survivors addressed
+
+Scoped to this slice's changed production code (throwaway `vite.mutation.config.ts` +
+`stryker.snmp.json`, both deleted after — the whole suite's dry run is unrunnable at this
+size). **298 mutants / 57 survived → 294 / 43**, killed 236 → 250.
+
+| Survivor | Action |
+|---|---|
+| 16 in `rwCommunity.ts` — the regex's `^`, `$` and `\s+`, all four tree-walk guards, `line.trim()` | **Real gap: the module had no test file at all.** `rwCommunity.test.ts`, 11 tests — the same envelope slice 2's gate had to build for `conf.ts` |
+| 1 in `snmpWalk.ts` — `rwCommunityHash !== undefined &&` | **Dead code, removed.** `md5` returns a string for every input, so comparing one against `undefined` is already false. A defence with nothing to defend, and every mutant of it unkillable |
+
+The 43 that remain, all classified:
+
+- **33 in `snmpwalk.ts` (L83-111)** — the command descriptor and its manual prose. The
+  executable half of that file has ZERO survivors. Slice 2 classified the same block
+  identically; the two runs agree, which is the point of recording it.
+- **3 in `rwCommunity.ts` (L49-51)** — the seed's three header comment lines. Its
+  directive line and its trailing newline are both pinned.
+- **5 in `snmpWalk.ts`** — L139/145/146 are the log-line assembly, unchanged and
+  classified at slice 2. **L220 is `writerKey ?? publicKey`, and it is the survivor slice
+  2 deferred to slice 7**: killing it needs a target that ALREADY HAS AN OWNER, which
+  this slice never produces. It is not closed by this gate either. **Slice 7 must not
+  close without it.**
+- **2 in `walk.ts` (L69)** — `padRight`'s boundary, unchanged since slice 2.
 
 ### PR-ready when
 
