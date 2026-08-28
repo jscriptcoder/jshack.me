@@ -108,6 +108,29 @@ export const parseSnmpSet = (assignment: string): ParsedSnmpSet => {
   return named[1] === 'natForward' ? parseNatSet(port, value) : parseAclSet(port, value);
 };
 
+/** What an accepted set prints: the object, its type, its new value, and nothing else.
+ *  Real snmpset's entire output, and enough — the echo IS the confirmation, and a walk
+ *  is there for anyone who wants to see the table around it. */
+export const renderSetEcho = ({ oid, value }: SnmpSetEcho): readonly string[] => [
+  `${oid} = STRING: ${value}`,
+];
+
+/** What a refusal prints: net-snmp's own three-line error frame.
+ *
+ *  Only ever reached once the community was ACCEPTED, so it says what was wrong rather
+ *  than falling silent. The caller has already proved the string; on the one door whose
+ *  whole promise is the write, a silent refusal would leave them unable to tell a bad
+ *  value from a working one without walking the device again. */
+export const renderSetRefusal = ({
+  reason,
+  detail,
+  failedObject,
+}: SnmpSetRefusal): readonly string[] => [
+  'Error in packet.',
+  `Reason: ${reason} (${detail})`,
+  `Failed object: ${failedObject}`,
+];
+
 /** The OID and the value a set echoes back — the same spelling a walk of the device
  *  prints, because it is the same fact. */
 export const describeSet = (target: SnmpSetTarget): SnmpSetEcho =>

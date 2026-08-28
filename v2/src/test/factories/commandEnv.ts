@@ -200,6 +200,7 @@ export const mockRedisApi = (overrides: Partial<RedisApi> = {}): RedisApi => ({
  *  asked, and this door's whole point is that the client cannot answer for itself. */
 export const mockSnmpApi = (overrides: Partial<SnmpApi> = {}): SnmpApi => ({
   walk: NOT_IMPLEMENTED('snmp.walk'),
+  set: NOT_IMPLEMENTED('snmp.set'),
   ...overrides,
 });
 

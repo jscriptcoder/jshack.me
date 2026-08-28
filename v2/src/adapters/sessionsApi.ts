@@ -36,6 +36,8 @@ import type {
   NcPublicResult,
   RedisConnectParams,
   RedisConnectResult,
+  SnmpSetParams,
+  SnmpSetResult,
   SnmpWalkParams,
   SnmpWalkResult,
   RedisStatementParams,
@@ -564,6 +566,57 @@ export const walkDevice = async (
     return walked.success ? { ok: true, ...walked.data } : { ok: false };
   } catch {
     return { ok: false };
+  }
+};
+
+/** What a device answers a SET with, once it answered at all. A UNION on `ok`, so a
+ *  refusal that lost its reason on the wire fails to parse rather than arriving as a
+ *  success with nothing in it. */
+const setOutcome = z.union([
+  z.object({ ok: z.literal(true), oid: z.string(), value: z.string() }),
+  z.object({
+    ok: z.literal(false),
+    refusal: z.object({
+      reason: z.union([
+        z.literal('noSuchName'),
+        z.literal('wrongValue'),
+        z.literal('notWritable'),
+      ]),
+      detail: z.string(),
+      failedObject: z.string(),
+    }),
+  }),
+]);
+
+/**
+ * Reconfigure a device over SNMP — the signed `snmpSet` round-trip behind
+ * `env.snmp.set`.
+ *
+ * TWO failures, and only one of them has anything to say. A 404, a body this client
+ * cannot read, and a request that never arrived are all `refusal: null` — the same
+ * silence a walk answers with, for the same reason: an absent device, a stopped agent
+ * and a refused community must not be told apart. A refusal that PARSED means the
+ * device accepted the community and answered with a reason, which is the caller's to
+ * see.
+ */
+export const setDeviceOid = async (
+  deps: SessionsClientDeps,
+  params: SnmpSetParams,
+): Promise<SnmpSetResult> => {
+  try {
+    const response = await post(deps, 'snmpSet', {
+      essid: params.essid,
+      target_ip: params.targetIp,
+      community: params.community,
+      assignment: params.assignment,
+      source_ip: params.sourceIp,
+    });
+    if (!response.ok) return { ok: false, refusal: null };
+    const body: unknown = await response.json().catch(() => null);
+    const outcome = setOutcome.safeParse(body);
+    return outcome.success ? outcome.data : { ok: false, refusal: null };
+  } catch {
+    return { ok: false, refusal: null };
   }
 };
 

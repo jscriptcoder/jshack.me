@@ -183,6 +183,7 @@ export type BuildCommandEnvArgs = {
   /** The device door's one seam — backs `env.snmp`. One verb because the read-only
    *  tier can do exactly one thing: ask a device what it is. */
   readonly onSnmpWalk?: SnmpApi['walk'];
+  readonly onSnmpSet?: SnmpApi['set'];
   /** The transfer door's three seams — backs `env.scp`. The login is the same
    *  `authCreateSession` round-trip, asked for an `scp`-kind row; the write is the
    *  shipped patch client aimed at whatever machine the session landed on; the end
@@ -406,6 +407,10 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
     // on screen without a server ever having been asked — and the whole reason this
     // door is answered there is that the client must not answer for itself.
     walk: args.onSnmpWalk ?? notWired('snmp.walk'),
+    // Loud when unwired for a stronger reason than the walk's: a set that answered on
+    // its own would tell a player they had opened a port on a device no server ever
+    // touched, and the file the world routes by would say otherwise.
+    set: args.onSnmpSet ?? notWired('snmp.set'),
   },
   scp: {
     authenticate: args.onScpAuthenticate ?? notWired('scp.authenticate'),
