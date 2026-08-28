@@ -199,11 +199,14 @@ export const handleSnmpWalk = async (
   // which hash to compare.
   //
   // A device whose config names no community answers nobody — which is exactly what an
-  // owner who blanked their own file asked for, rather than a default nobody set. The
-  // same holds for a read-write community that is absent: `undefined` never matches, so
-  // a deleted state file closes the tier rather than opening it to everyone.
+  // owner who blanked their own file asked for, rather than a default nobody set.
+  //
+  // An ABSENT read-write community needs no guard of its own: `md5` returns a string for
+  // every input, so comparing one against `undefined` is already false. A `!== undefined`
+  // check in front would be a defence with nothing to defend, and every mutant of it
+  // would be unkillable.
   const tier =
-    rwCommunityHash !== undefined && md5(payload.community) === rwCommunityHash
+    md5(payload.community) === rwCommunityHash
       ? ('read-write' as const)
       : conf.roCommunity === payload.community
         ? ('read-only' as const)
