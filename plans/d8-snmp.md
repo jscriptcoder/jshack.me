@@ -1,9 +1,8 @@
 # Plan: D8 — `snmpwalk` / `snmpset`
 
-**Branch**: `feat/d8-snmp-walk` (slice 2)
-**Status**: Active — slice 1 MERGED (#465, v0.185.0, 2026-08-27); slice 2 **PR-READY** on
-`feat/d8-snmp-walk` at v0.186.0 (AC-1…AC-9 met, wire-check RUN 11/11, mutation gate closed —
-see "Progress" below); slices 3–7 outlined only
+**Branch**: `feat/d8-snmp-crack` (slice 3)
+**Status**: Active — slice 1 MERGED (#465, v0.185.0); slice 2 MERGED (#466, v0.186.0,
+2026-08-27); slice 3 PLANNED, awaiting AC confirmation; slices 4–7 outlined only
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D8 — resolved scope & decisions
 (grill-me, 2026-08-27)", eleven locked decisions, gap-checked the same day.
 
@@ -27,8 +26,8 @@ that table, all of it a VIEW over the `rules.v4` / `acl.conf` files v2 already p
 | # | Slice | Observable | Status |
 |---|-------|-----------|--------|
 | 1 | a device answers SNMP | `nmap` shows `161/udp snmp` on a router/switch | **merged** #465 |
-| 2 | a player walks it with `public` | identity OIDs return; the walk lands in `snmpd.log` | **in progress** |
-| 3 | a player cracks the RW community | `hydra <host> snmp` → the port table renders | outlined |
+| 2 | a player walks it with `public` | identity OIDs return; the walk lands in `snmpd.log` | **merged** #466 |
+| 3 | a player cracks the RW community | `hydra <host> snmp` → the port table renders | **planned** |
 | 4 | a player opens a port, no shell | `snmpset` adds a forward; `nmap` shows it | outlined |
 | 5 | a device on a deep layer answers | the inner-gateway vantage | outlined |
 | 6 | a player runs their own agent | owner filters a port; `127.0.0.1` still works | outlined |
@@ -482,11 +481,125 @@ mutation gate has run with survivors addressed, and the version is bumped to **v
 
 **Slice complete when** its PR lands on `main`.
 
-## Slices 3–7 (outline only — plan each when its predecessor lands)
+## Slice 3: a player cracks a device's read-write community and sees its port table
 
-- **Slice 3** — the RW community as an md5 in root-only `/var/lib/snmp/snmpd.conf`, `secretOn`,
-  `CRACK_CHANCE.community` at 0.6, `hydra <host> snmp` with no login field, and the RW walk
-  rendering the port table. **Owes a wire-check.**
+**Actor**: a player on their own LAN, holding nothing but a scan result and the free `public` walk
+slice 2 shipped.
+**Trigger**: `hydra 192.168.1.1 snmp`, then `snmpwalk 192.168.1.1 <the string it found>`.
+**Observable outcome**: hydra reports a cracked community with no login named anywhere, the device's
+`snmpd.log` fills with the guesses, and the second walk returns everything the first did PLUS the
+device's forward table — the ports it publishes and where they land.
+**Path**: `hydra` → `hydraCrack` (unchanged, already generic over `secretOn`) → the device's
+root-only `/var/lib/snmp/snmpd.conf`; then `snmpwalk` → `handleSnmpWalk` → the same file → the
+`rules.v4` / `acl.conf` the device already carries, rendered as OIDs.
+**Smallest deployable value**: the crack and the payoff are one slice because neither half is worth
+shipping alone — a cracked string with nothing to spend it on is a scoreboard, and a port table
+nobody can reach is dead code. The spine has always stated them as one observable.
+
+**Class**: Behavior change.
+**Delivery**: Independent PR against trunk. No stack — slice 4 does not start before this lands.
+**Required implementation skills**: `tdd`, `testing`, `refactoring` if it earns itself;
+`mutation-testing` once at the PR gate.
+
+### This slice OWES a wire-check
+
+The epic names slices 3, 4 and 7 as the ones that touch `api/`, and this one changes what
+`handleSnmpWalk` returns. Slice 2's wire-check proved the walk against a live stack and was twice
+broken on purpose to show it could go red; the read-write tier is a new branch through the same
+door and inherits that obligation rather than that evidence. `scripts/testSnmpWalk.ts` is EXTENDED,
+not replaced — the accepted/refused/traced checks it already makes must keep passing beside the new
+ones, because the read-only tier is what the read-write tier must not quietly break.
+
+### Acceptance criteria — FOR CONFIRMATION, before any code
+
+- [ ] **AC-1** A device that runs the agent carries `/var/lib/snmp/snmpd.conf` holding an md5 of its
+      read-write community. A device with no agent carries no such file, and no such directory.
+- [ ] **AC-2** That file is readable and writable by `root` alone. A `guest` or a `user` who reads it
+      is refused, the way `/etc/shadow` refuses them.
+- [ ] **AC-3** The community is drawn from the two EXISTING password pools at a new
+      `CRACK_CHANCE.community` of `0.6`, in its own seed namespace — so a device's community and its
+      admin password are independent, and cracking one says nothing about the other.
+- [ ] **AC-4** `/var/lib/snmp/snmpd.conf` is absent from `EXTERNALLY_OBSERVABLE_ALLOWLIST`, so a
+      cross-player read of the device cannot see it. The world-readable `/etc/snmp/snmpd.conf` stays
+      visible and stays free of the read-write string.
+- [ ] **AC-5** `hydra <device> snmp` sweeps the community and reports the string when the wordlist
+      holds it. It names no login and enumerates no accounts, because the row has `secretOn`.
+- [ ] **AC-6** A sweep leaves one attempt line per guessed word in the device's own
+      `/var/log/snmpd.log`, under the device's own writer key, with nothing in `auth.log`.
+- [ ] **AC-7** `snmpwalk <device> <read-write community>` returns the identity block AND the port
+      table. `snmpwalk <device> public` still returns identity alone.
+- [ ] **AC-8** A router renders each `rules.v4` forward as
+      `NAT-MIB::natForward.<public port> = STRING: <ip>:<port>`; a switch renders each `acl.conf`
+      deny as `ACL-MIB::aclPort.<port> = STRING: deny`. Both read the file the device already
+      carries — no second copy is stored anywhere.
+- [ ] **AC-9** A router with the shipped default-deny `rules.v4` renders an EMPTY port table and
+      still prints the `Writable:` trailer. This is the ordinary case for a fresh router, not an edge
+      one, and it is what points a player at slice 4.
+- [ ] **AC-10** A read-write walk mints no session row, and is traced on the device exactly as a
+      read-only one is.
+- [ ] **AC-11** The wire-check RUNS against `vercel dev` + supabase, covering the read-write walk,
+      the unchanged read-only walk, and the sweep's trace — and is falsified at least once.
+
+### RED — the failing tests, in the order they get written
+
+1. **Generation plants the file** — a generated gateway that `hasSnmp` carries
+   `/var/lib/snmp/snmpd.conf`; one that does not carries no `/var/lib/snmp` at all. (AC-1)
+2. **Root alone can read it** — through the filesystem's own permission check, not by asserting the
+   constant back at itself. (AC-2)
+3. **The community is independent of the admin password** — a device agrees with itself across
+   regenerations and differs from its own admin hash. (AC-3)
+4. **The allowlist does not leak it** — prune a device's tree the way a cross-player read does, and
+   assert `/var/lib/snmp` is gone while `/etc/snmp/snmpd.conf` survives. (AC-4)
+5. **The sweep finds it** — `hydraCrack` against a device whose community is in the wordlist reports
+   it; against one whose community is not, reports nothing found, and both leave the right wall in
+   `snmpd.log`. (AC-5, AC-6)
+6. **The walk splits by tier** — the read-write string returns a port table, `public` does not.
+   (AC-7, AC-10)
+7. **Each file renders as its own OIDs** — a router with two forwards, a switch with two denies, and
+   a router with the shipped seed rendering nothing but the trailer. (AC-8, AC-9)
+
+### GREEN — the minimum, in dependency order
+
+1. `CRACK_CHANCE.community = 0.6` in `passwordPools.ts`.
+2. A module beside `conf.ts` owning the read-write community's path, permissions, seed format and
+   reader — `conf.ts` owns the world-readable half and keeps owning only that. It stores a hash and
+   never a plaintext string.
+3. `routerFs.ts` plants it under `hasSnmp`, from a seed namespace of its own, next to where it
+   already plants `/etc/snmp/snmpd.conf`.
+4. `SERVICE_CATALOG.snmp` gains `secretOn` reading that file. **The whole hydra half is done at this
+   point** — the sweep, the missing-login message and the log wall are existing generic paths.
+5. The port table as OIDs in `snmp/walk.ts`, rendered from `parseForwardRules` / `parseAclDenies`.
+6. `handleSnmpWalk` compares `md5(community)` against the stored hash and, on a match, returns the
+   table beside the identity.
+7. The `snmpwalk` command renders whichever block came back.
+
+### Four things GREEN must get right
+
+- **The read-write tier is not a second `roCommunity` check.** The two strings are separate facts in
+  separate files at separate permissions. A device answers the read-only string at the read-only
+  tier and the read-write string at the read-write tier; a walk that accepted either at either tier
+  would make the root-only file decorative.
+- **`md5` never appears on the client.** The typed string travels and the SERVER hashes it, as every
+  other door already does — `authCreateSession.ts:320`, `mysqlConnect.ts:148`. A client that hashed
+  it would be a client that could be told what to compare.
+- **An empty table is a render, not an absence.** A default-deny router returns an empty table and
+  the trailer, NOT the read-only block. Returning the read-only block would tell a player their
+  cracked string had failed.
+- **The port table renders from the file on every walk.** No cache, and nothing copied into the
+  response beyond what one render needs — decision 2's whole point is one fact behind two
+  interfaces.
+
+### PR-ready when
+
+AC-1…AC-11 pass, `npm run typecheck` and `npm run lint` are clean from `v2/`, the full non-watch test
+gate is green, the wire-check has RUN against a live stack rather than been reasoned about, the
+mutation gate has run with survivors addressed, and the version is bumped to **v0.187.0** in both
+`v2/package.json` and `v2/package-lock.json` (`npm install --package-lock-only`).
+
+**Slice complete when** its PR lands on `main`.
+
+## Slices 4–7 (outline only — plan each when its predecessor lands)
+
 - **Slice 4** — `snmpset`, parity with `nano`, LAN-bounded forwards, overwrite reporting
   `old → new`, no session row. **Owes a wire-check.**
 - **Slice 5** — the inner-gateway vantage. Budget for EVIDENCE, not plumbing: `reachServiceHost`
