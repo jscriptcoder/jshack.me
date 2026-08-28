@@ -22,6 +22,8 @@
  * addresses it holds are the caller's to resolve.
  */
 
+import type { NatForward } from '../network/iptablesRules';
+
 export type SnmpDeviceKind = 'router' | 'switch';
 
 export type SnmpIdentity = {
@@ -91,6 +93,39 @@ const identityOids = (identity: SnmpIdentity): readonly string[] => {
   ];
 };
 
+/** A device's port table as the file that holds it denotes it. Two shapes because two
+ *  platforms keep two different facts: a router forwards a public port INTO its
+ *  segment, and a switch denies one outright. Tagged after the TABLE rather than after
+ *  the device so it cannot be mistaken for a second opinion on `SnmpIdentity.kind`. */
+export type SnmpPortTable =
+  | { readonly kind: 'nat'; readonly forwards: readonly NatForward[] }
+  | { readonly kind: 'acl'; readonly denies: readonly number[] };
+
+/** What each table calls itself: the OID its rows carry, the sentence a device with an
+ *  empty one says, and the `snmpset` a player would write next. Keeping the three
+ *  together is what stops a switch being offered a router's write syntax. */
+const TABLE_VOCABULARY = {
+  nat: {
+    emptiness: 'This device forwards no ports.',
+    writable: 'Writable: snmpset <host> <community> natForward.<port>=<ip>:<port>',
+  },
+  acl: {
+    emptiness: 'This device denies no ports.',
+    writable: 'Writable: snmpset <host> <community> aclPort.<port>=deny',
+  },
+} as const;
+
+const portTableOids = (portTable: SnmpPortTable): readonly string[] =>
+  portTable.kind === 'nat'
+    ? portTable.forwards.map((forward) =>
+        oidLine(
+          `NAT-MIB::natForward.${forward.publicPort}`,
+          'STRING',
+          `${forward.internalIp}:${forward.internalPort}`,
+        ),
+      )
+    : portTable.denies.map((port) => oidLine(`ACL-MIB::aclPort.${port}`, 'STRING', 'deny'));
+
 /** The whole accepted-walk block, header to trailer.
  *
  *  The trailer names the tier it answered at and points at the one that answers more.
@@ -115,5 +150,44 @@ export const renderIdentityWalk = ({
     '',
     `${oids.length} OIDs returned. Community "${community}" is READ-ONLY.`,
     "Retry with a read-write community to see this device's port table.",
+  ];
+};
+
+/** The read-write tier: everything the read-only walk returns, plus the device's port
+ *  table and the one line that says how to change it.
+ *
+ *  A SEPARATE entry point rather than the read-only render with a table bolted on. A
+ *  device that forwards nothing is the ORDINARY state of a fresh router — default-deny
+ *  means the shipped `rules.v4` parses to an empty table — so a renderer that decided
+ *  the tier from whether there were rows would answer most cracked communities as
+ *  though they had been refused. The tier is the caller's assertion here, and an empty
+ *  table renders as the fact it is.
+ *
+ *  The `Writable:` trailer is neither legacy's nor real net-snmp's. This is the one door
+ *  whose entire promise is the write, and a player who has just spent a wordlist on a
+ *  community should not then have to go looking for the syntax it bought. */
+export const renderReadWriteWalk = ({
+  target,
+  community,
+  identity,
+  portTable,
+}: {
+  readonly target: string;
+  readonly community: string;
+  readonly identity: SnmpIdentity;
+  readonly portTable: SnmpPortTable;
+}): readonly string[] => {
+  const oids = [...identityOids(identity), ...portTableOids(portTable)];
+  const vocabulary = TABLE_VOCABULARY[portTable.kind];
+  const emptiness = portTableOids(portTable).length === 0 ? [vocabulary.emptiness] : [];
+  return [
+    `Querying ${target} with community string "${community}"...`,
+    `[READ-WRITE] Community "${community}" accepted.`,
+    '',
+    ...oids,
+    '',
+    ...emptiness,
+    `${oids.length} OIDs returned. Community "${community}" is READ-WRITE.`,
+    vocabulary.writable,
   ];
 };

@@ -85,6 +85,11 @@ export const ALL_GENERATED_PASSWORDS: readonly string[] = [
  * - `npcRoot` is deliberately near the floor — roughly one crackable root per
  *   eight-host LAN, so day-one rooting happens and still feels like a find. It
  *   is also what makes the gateway worth hunting.
+ * - `community` is the softest lock in the table, and the only one that is not a
+ *   password. A community string is the weakest secret on a real network, left at its
+ *   default far more often than any root account, and this one buys PORT CONTROL and
+ *   nothing else — no file read, no command. Set at or below `gateway` it would be
+ *   pointless, because root already grants `nano` on the very file it rewrites.
  * - `gateway` is the best root odds in the game and sits well above `npcRoot`,
  *   because the router is the door a player is MEANT to hunt before the
  *   vulnerability phase exists. Still a crack rather than a birthright: most of
@@ -95,6 +100,7 @@ export const CRACK_CHANCE = {
   npcUser: 0.7,
   npcRoot: 0.12,
   gateway: 0.4,
+  community: 0.6,
 } as const;
 
 /**

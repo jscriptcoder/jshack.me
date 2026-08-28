@@ -30,10 +30,13 @@ import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { derivePid } from '../logging/syslog';
 import { appendMachineLog } from '../patches/appendMachineLog';
 import { computeApGatewayId } from '../identity/router';
-import { readAclConf } from '../network/switchAcl';
+import { parseAclDenies, readAclConf } from '../network/switchAcl';
+import { parseForwardRules, readRulesV4 } from '../network/iptablesRules';
+import { readRwCommunityHash } from '../snmp/rwCommunity';
+import { md5 } from '../generation/md5';
 import { parseSnmpdConf, readSnmpdConf } from '../snmp/conf';
 import { asGameTime } from '../types';
-import type { SnmpDeviceKind, SnmpIdentity } from '../snmp/walk';
+import type { SnmpDeviceKind, SnmpIdentity, SnmpPortTable } from '../snmp/walk';
 import type { Directory } from '../filesystem/types';
 import type { FindPublicIpByEssid } from '../logging/crossPlayerSourceIp';
 import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
@@ -83,6 +86,18 @@ const UNREACHABLE: HandlerResponse = { status: 404, body: { error: 'host_unreach
  *  also the right answer for a workstation that installs an agent of its own. */
 const deviceKind = (hostFs: Directory): SnmpDeviceKind =>
   readAclConf(hostFs) === '' ? 'router' : 'switch';
+
+/** The device's port table, read from the file it actually routes by. A router's NAT
+ *  chain and a switch's access list are two different facts, so the kind decides which
+ *  file is consulted — the same kind the identity block reports, resolved once.
+ *
+ *  Rendered from the file on EVERY walk, never cached and never copied: the whole point
+ *  of the door is one fact behind two interfaces, and a second copy could tell a player
+ *  a port was forwarded that the box does not honour. */
+const portTableOf = (hostFs: Directory, kind: SnmpDeviceKind): SnmpPortTable =>
+  kind === 'switch'
+    ? { kind: 'acl', denies: parseAclDenies(readAclConf(hostFs)) }
+    : { kind: 'nat', forwards: parseForwardRules(readRulesV4(hostFs)) };
 
 /** Every address the device holds, in interface order: its own, then the one the access
  *  point wears outside when this IS the access point's gateway. Nothing behind that
@@ -174,9 +189,29 @@ export const handleSnmpWalk = async (
   const { hostname, hostFs, machineId, sourceIp, writerKey } = reach.reached;
 
   const conf = parseSnmpdConf(readSnmpdConf(hostFs));
+  const rwCommunityHash = readRwCommunityHash(hostFs);
+  // Two locks on one door, and the READ-WRITE one is tried first: it is the strictly
+  // greater grant, so a device whose two communities were somehow the same string must
+  // answer with the tier that string was earned at.
+  //
+  // Hashed here and never on the client, exactly as every account password on every
+  // other door is. A client that compared hashes would be a client that could be told
+  // which hash to compare.
+  //
   // A device whose config names no community answers nobody — which is exactly what an
   // owner who blanked their own file asked for, rather than a default nobody set.
-  const accepted = conf.roCommunity === payload.community;
+  //
+  // An ABSENT read-write community needs no guard of its own: `md5` returns a string for
+  // every input, so comparing one against `undefined` is already false. A `!== undefined`
+  // check in front would be a defence with nothing to defend, and every mutant of it
+  // would be unkillable.
+  const tier =
+    md5(payload.community) === rwCommunityHash
+      ? ('read-write' as const)
+      : conf.roCommunity === payload.community
+        ? ('read-only' as const)
+        : null;
+  const accepted = tier !== null;
 
   await recordWalk(deps, {
     // The TARGET's key once the box has an owner, so every visitor's lines accrete into
@@ -191,11 +226,12 @@ export const handleSnmpWalk = async (
     accepted,
   });
 
-  if (!accepted) return UNREACHABLE;
+  if (tier === null) return UNREACHABLE;
 
+  const kind = deviceKind(hostFs);
   const identity: SnmpIdentity = {
     hostname,
-    kind: deviceKind(hostFs),
+    kind,
     sysContact: conf.sysContact,
     addresses: await addressesOf(deps, {
       essid: payload.essid,
@@ -203,5 +239,11 @@ export const handleSnmpWalk = async (
       localIp: payload.target_ip,
     }),
   };
-  return { status: 200, body: { ok: true, identity } };
+  // The tier is STATED rather than left to be inferred from whether a table came back.
+  // Default-deny means a fresh router forwards nothing, so an empty table is the
+  // ordinary read-write answer; a client that read "no table" as "read-only" would tell
+  // most players their cracked community had been refused.
+  return tier === 'read-only'
+    ? { status: 200, body: { ok: true, tier, identity } }
+    : { status: 200, body: { ok: true, tier, identity, portTable: portTableOf(hostFs, kind) } };
 };

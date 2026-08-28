@@ -24,7 +24,7 @@
  */
 
 import { connectedWlan0 } from '../network/interfaces';
-import { renderIdentityWalk } from '../snmp/walk';
+import { renderIdentityWalk, renderReadWriteWalk } from '../snmp/walk';
 import { errorLine, text } from './streaming';
 import type { Command, CommandResult } from './types';
 
@@ -62,11 +62,21 @@ const execute: Command['execute'] = async (env, args) => {
   // exactly what a silent agent leaves you to work out for yourself.
   if (!walked.ok) return errorResult(`Timeout: No Response from ${target}`);
 
-  return {
-    kind: 'sync',
-    lines: renderIdentityWalk({ target, community: asked, identity: walked.identity }).map(text),
-    exitCode: 0,
-  };
+  // Two renders, picked by the tier the SERVER named — never by whether a port table
+  // arrived. An empty table is what a default-deny router honestly has, and inferring
+  // the tier from its emptiness would print a refusal to a player whose community
+  // worked.
+  const lines =
+    walked.tier === 'read-only'
+      ? renderIdentityWalk({ target, community: asked, identity: walked.identity })
+      : renderReadWriteWalk({
+          target,
+          community: asked,
+          identity: walked.identity,
+          portTable: walked.portTable,
+        });
+
+  return { kind: 'sync', lines: lines.map(text), exitCode: 0 };
 };
 
 export const snmpwalk: Command = {

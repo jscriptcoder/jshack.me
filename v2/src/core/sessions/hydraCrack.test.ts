@@ -18,6 +18,12 @@ import { lanAddressFor } from '../network/lanAddress';
 import { playerDatabaseOn } from '../../test/factories/lanDatabase';
 import { DATADIR_PATH } from '../mysql/datadir';
 import { DATADIR_PATH as REDIS_DATADIR_PATH, storeIn } from '../redis/datadir';
+import { readRwCommunityHash } from '../snmp/rwCommunity';
+import {
+  formatSnmpdAttemptLine,
+  SNMPD_LOG_OWNER,
+  SNMPD_LOG_PATH,
+} from '../logging/snmpdLog';
 import { redisStoreSchema } from '../redis/types';
 import { formatPidfileContent, pidfilePath } from '../services/pidfile';
 import type { NatOccupantRow } from '../network/resolvePublicTarget';
@@ -2069,6 +2075,99 @@ describe('sweeping a fellow occupant of the same WiFi', () => {
  * shared rule: membership in the wordlist decides it, the attempt is traced on the
  * target, and a box that is not running one is dark.
  */
+/**
+ * A network device's community string — the one door in the catalog whose secret is not
+ * a password and does not sit on the box's own `/etc/passwd`. The sweep has nothing to
+ * enumerate and no login to name, so what has to hold is that it attacks the ONE lock
+ * the device has and leaves its wall in the device's own log rather than in `auth.log`.
+ */
+describe('sweeping a network device', () => {
+  /** The access point's own `.1`, which is pinned to run the agent on every ESSID — so
+   *  this reads the world's own device rather than one a test invented. */
+  const deviceOn = (essid: string): LanHost => {
+    const host = generateHomeLan(essid).hosts.find((candidate) => candidate.ip.endsWith('.1'));
+    if (host === undefined) throw new Error('no gateway on LAN');
+    return host;
+  };
+
+  /** The device's community in the clear, recovered from the pool the generator drew it
+   *  from — what a player's wordlist would have to hold. */
+  const communityOf = (host: LanHost): string => {
+    const hash = readRwCommunityHash(resolveLanHostIdentity(host, ESSID).baseFs);
+    const community = hash === undefined ? undefined : KNOWN_POOL.find((word) => md5(word) === hash);
+    if (community === undefined) throw new Error(`no known community on ${host.hostname}`);
+    return community;
+  };
+
+  const snmpTraceLine = (outcome: 'success' | 'failure', host: LanHost): string =>
+    formatSnmpdAttemptLine({
+      outcome,
+      user: '',
+      fromIp: ATTACKER_IP,
+      hostname: host.hostname,
+      time: asGameTime(FIXED_NOW),
+      pid: derivePid(FIXED_NOW),
+    });
+
+  it('reports the community with no account name on it at all', async () => {
+    const identity = generateIdentity();
+    const host = deviceOn(ESSID);
+    const community = communityOf(host);
+    const { deps } = makeDeps({ wordlist: ['nonsense', community] });
+
+    const response = await handleHydraCrack(
+      await signedCrack(identity, { target_ip: host.ip, service: 'snmp' }),
+      deps,
+    );
+
+    // A community belongs to the SERVICE. A username invented to fill the field would
+    // send a player hunting for an account this door does not have.
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      port: SERVICE_CATALOG.snmp.defaultPort,
+      cracked: [{ password: community }],
+      wordlistFound: true,
+    });
+  });
+
+  it('finds nothing when the community is absent from the wordlist', async () => {
+    const identity = generateIdentity();
+    const host = deviceOn(ESSID);
+    const { deps } = makeDeps({ wordlist: ['nonsense', 'guesswork'] });
+
+    const response = await handleHydraCrack(
+      await signedCrack(identity, { target_ip: host.ip, service: 'snmp' }),
+      deps,
+    );
+
+    expect(response.body).toEqual(expect.objectContaining({ cracked: [], wordlistFound: true }));
+  });
+
+  it('leaves the wall of guesses on the device own snmpd.log, never in auth.log', async () => {
+    // The device's only tell. A walk costs no login and leaves no session, so a run of
+    // these lines is the whole of what an owner can ever see of somebody working on
+    // their gateway — and filed under the wrong daemon it would say nothing at all.
+    const identity = generateIdentity();
+    const host = deviceOn(ESSID);
+    const community = communityOf(host);
+    const { deps, upsertPatch } = makeDeps({ wordlist: ['nonsense', community] });
+
+    await handleHydraCrack(
+      await signedCrack(identity, { target_ip: host.ip, service: 'snmp' }),
+      deps,
+    );
+
+    expect(upsertPatch).toHaveBeenCalledTimes(1);
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: SNMPD_LOG_PATH,
+        owner: SNMPD_LOG_OWNER,
+        content: `${snmpTraceLine('failure', host)}\n${snmpTraceLine('success', host)}\n`,
+      }),
+    );
+  });
+});
+
 describe('sweeping a key-value store', () => {
   /** The LAN's store box. Its lock is the generator's own, so what falls here is what
    *  falls in the world rather than what a test planted. */

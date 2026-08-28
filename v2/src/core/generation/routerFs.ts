@@ -38,6 +38,7 @@ import { AUTH_LOG_PERMISSIONS } from '../logging/authLog';
 import { KERN_LOG_PERMISSIONS } from '../logging/kernLog';
 import { SNMPD_LOG_PERMISSIONS } from '../logging/snmpdLog';
 import { SNMPD_CONF_PERMISSIONS, SNMPD_CONF_SEED } from '../snmp/conf';
+import { formatSnmpdState, SNMPD_STATE_PERMISSIONS } from '../snmp/rwCommunity';
 import { placementOf } from './rolePlacement';
 import { daemonName, formatPidfileContent, PIDFILE_PERMISSIONS } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
@@ -51,6 +52,29 @@ import { SERVICE_CATALOG } from '../services/serviceCatalog';
  *  pool happened to also ship in the starter wordlist. */
 export const seedApGatewayAdminPw = (essid: string): string =>
   drawPassword(createPrng(`ap-gw-admin-${essid}`), CRACK_CHANCE.gateway);
+
+/** A device's read-write community, seeded in a namespace of its own.
+ *
+ *  SEPARATE from the `*-admin-` namespaces on purpose, and separate from the `*-snmp-`
+ *  namespace that decides whether the agent runs at all. Sharing either would couple
+ *  two rolls that must not agree: a community drawn from the admin seed would make SNMP
+ *  a second name for a credential the player already holds, and one drawn from the
+ *  placement seed would make every device that runs an agent hold a crackable community
+ *  and every device that does not hold an uncrackable one — the same `next()` deciding
+ *  both.
+ *
+ *  Drawn from the two EXISTING pools, so the shipped `passwords.txt` cracks these and
+ *  no second wordlist or second progression has to be tuned. A community then reads
+ *  like a password rather than like `private`, which is the accepted cost: real
+ *  communities are arbitrary strings anyway. */
+export const seedSnmpCommunity = (namespace: string): string =>
+  drawPassword(createPrng(namespace), CRACK_CHANCE.community);
+
+/** The AP gateway's read-write community, from the ESSID alone — every occupant of one
+ *  access point faces the same string, the way they face the same admin password, and
+ *  the server can recover it for a cross-player walk. */
+export const seedApGatewayCommunity = (essid: string): string =>
+  seedSnmpCommunity(`ap-gw-community-${essid}`);
 
 /** Router display names, ported verbatim from the legacy generator
  *  (`hostnamesByRole.router`). A router is just another machine with NAT config,
@@ -160,6 +184,7 @@ const buildGatewayBaseFs = (
     readonly adminPwHash: string;
     readonly hasSsh: boolean;
     readonly hasSnmp: boolean;
+    readonly snmpCommunityHash: string;
   },
   configEntries: Record<string, FileNode>,
 ): Directory => {
@@ -201,6 +226,23 @@ const buildGatewayBaseFs = (
         ),
       }
     : {};
+  // The agent's SECRET follows the agent for the same reason its config and log do, and
+  // one more: a read-write community seeded on a device with no agent is a string that
+  // opens a door which is not there, sitting in a file only root can read — so nothing
+  // in the world could ever tell you it was pointless.
+  const snmpStateEntries: Record<string, FileNode> = identity.hasSnmp
+    ? {
+        snmp: dir(
+          {
+            'snmpd.conf': file(
+              formatSnmpdState(identity.snmpCommunityHash),
+              SNMPD_STATE_PERMISSIONS,
+            ),
+          },
+          TRAVERSABLE_DIR,
+        ),
+      }
+    : {};
   const daemonBinaries = identity.hasSnmp
     ? [...SYSTEM_DAEMON_NAMES, daemonName(SERVICE_CATALOG.snmp)]
     : [...SYSTEM_DAEMON_NAMES];
@@ -238,6 +280,9 @@ const buildGatewayBaseFs = (
             },
             TRAVERSABLE_DIR,
           ),
+          ...(Object.keys(snmpStateEntries).length === 0
+            ? {}
+            : { lib: dir(snmpStateEntries, TRAVERSABLE_DIR) }),
           run: dir(runEntries, TRAVERSABLE_DIR),
         },
         TRAVERSABLE_DIR,
@@ -257,6 +302,7 @@ export const buildRouterBaseFsFromIdentity = (identity: {
   readonly adminPwHash: string;
   readonly hasSsh: boolean;
   readonly hasSnmp: boolean;
+  readonly snmpCommunityHash: string;
 }): Directory =>
   buildGatewayBaseFs(identity, {
     iptables: dir(
@@ -277,6 +323,7 @@ export const buildRouterBaseFsFromIdentity = (identity: {
 export const buildApGatewayBaseFs = (essid: string): Directory =>
   buildRouterBaseFsFromIdentity({
     adminPwHash: md5(seedApGatewayAdminPw(essid)),
+    snmpCommunityHash: md5(seedApGatewayCommunity(essid)),
     hasSsh: seedApGatewayHasSsh(essid),
     // PINNED, and deliberately not read from the placement table. `ssh` can be pinned
     // there because `router: { ssh: 1 }` makes every gateway's roll succeed; the agent
@@ -304,6 +351,7 @@ export const seedInnerGatewayAdminPw = (essid: string, octet: number): string =>
 export const buildInnerGatewayBaseFs = (essid: string, octet: number): Directory =>
   buildRouterBaseFsFromIdentity({
     adminPwHash: md5(seedInnerGatewayAdminPw(essid, octet)),
+    snmpCommunityHash: md5(seedSnmpCommunity(`inner-gw-community-${essid}:${octet}`)),
     hasSsh: true,
     hasSnmp: seedHasSnmp(`inner-gw-snmp-${essid}:${octet}`, 'router'),
   });
@@ -326,6 +374,7 @@ export const seedDeepGatewayAdminPw = (parentMachineId: string, octet: number): 
 export const buildDeepGatewayBaseFs = (parentMachineId: string, octet: number): Directory =>
   buildRouterBaseFsFromIdentity({
     adminPwHash: md5(seedDeepGatewayAdminPw(parentMachineId, octet)),
+    snmpCommunityHash: md5(seedSnmpCommunity(`deep-gw-community-${parentMachineId}:${octet}`)),
     hasSsh: true,
     hasSnmp: seedHasSnmp(`deep-gw-snmp-${parentMachineId}:${octet}`, 'router'),
   });
@@ -340,6 +389,7 @@ export const buildDeepSwitchBaseFs = (parentMachineId: string, octet: number): D
   buildGatewayBaseFs(
     {
       adminPwHash: md5(seedDeepGatewayAdminPw(parentMachineId, octet)),
+      snmpCommunityHash: md5(seedSnmpCommunity(`deep-sw-community-${parentMachineId}:${octet}`)),
       hasSsh: true,
       hasSnmp: seedHasSnmp(`deep-sw-snmp-${parentMachineId}:${octet}`, 'switch'),
     },
@@ -355,6 +405,7 @@ export const buildSwitchBaseFs = (essid: string, octet: number): Directory =>
   buildGatewayBaseFs(
     {
       adminPwHash: md5(seedInnerGatewayAdminPw(essid, octet)),
+      snmpCommunityHash: md5(seedSnmpCommunity(`inner-sw-community-${essid}:${octet}`)),
       hasSsh: true,
       hasSnmp: seedHasSnmp(`inner-sw-snmp-${essid}:${octet}`, 'switch'),
     },

@@ -18,6 +18,15 @@
 //     off the wire, rather than two `HandlerResponse` objects compared in memory.
 //   - A walk mints NO row in `sessions`. There is no account at this door, and a row
 //     minted here would hand `listPatches` and `upsertPatch` to anyone who reaches 161.
+//   - The READ-WRITE tier answers off two files the unit tests only ever hand a fake:
+//     the root-only `/var/lib/snmp/snmpd.conf` the community is compared against, and
+//     the `rules.v4` the port table is rendered from. Both arrive here through the real
+//     patch replay, so a walk that read the wrong path, or replayed a row it should not
+//     have, is only visible on a live stack.
+//   - The tier is STATED in the body. Checked in both directions — a read-only walk
+//     carries no port table, and a read-write walk carries one even when it is empty —
+//     because a dropped field would downgrade the tier silently and tell a player their
+//     cracked community bought nothing.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testSnmpWalk.ts
@@ -27,6 +36,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign';
 import { generateIdentity } from '../src/core/identity/identity';
+import { md5 } from '../src/core/generation/md5';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan';
 import { resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog';
@@ -68,6 +78,14 @@ const ESSID = 'SNMP-WALK-WIFI';
 const PUBLIC_IP = '198.51.100.77';
 const ATTACKER_IP = '192.168.1.50';
 const NOWHERE_IP = '10.255.255.254';
+/** The community this run plants, in the clear. The generated one is drawn from a pool
+ *  and is not guaranteed to be recoverable, and this script is proving the DOOR rather
+ *  than the seeding — `routerFs.test.ts` owns that. */
+const RW_COMMUNITY = 'corpnet';
+const RW_STATE_PATH = '/var/lib/snmp/snmpd.conf';
+const RULES_V4_PATH = '/etc/iptables/rules.v4';
+const FORWARDED_PORT = 2222;
+const FORWARD_TARGET = '192.168.147.10:22';
 
 const attacker = generateIdentity();
 
@@ -142,6 +160,48 @@ const sessionRowsForCaller = async (): Promise<number> => {
     .select('session_id', { count: 'exact', head: true })
     .eq('player_key', attacker.publicKeyHex);
   return count ?? 0;
+};
+
+const ROOT_ONLY = { read: ['root'], write: ['root'], execute: [] };
+
+/** Plant a file on the target the way its owner's own edit arrives — one patch row,
+ *  replayed over the generated tree by the same path the door reads through. */
+const plant = async (path: string, content: string): Promise<void> => {
+  const { error } = await sr.from('patches').insert([
+    {
+      writer_key: attacker.publicKeyHex,
+      machine_id: targetMachine,
+      path,
+      content,
+      owner: 'root',
+      permissions: ROOT_ONLY,
+      node_type: 'file',
+    },
+  ]);
+  // Loud rather than swallowed: a fixture that cannot be built must stop the run, never
+  // soften into a check that passes against an unmodified world.
+  if (error !== null) {
+    console.error(`could not plant ${path}: ${JSON.stringify(error)}`);
+    process.exit(2);
+  }
+};
+
+const stringField = (body: unknown, key: string): string => {
+  if (typeof body !== 'object' || body === null) return '';
+  return String(Object.getOwnPropertyDescriptor(body, key)?.value ?? '');
+};
+
+const hasField = (body: unknown, key: string): boolean =>
+  typeof body === 'object' &&
+  body !== null &&
+  Object.getOwnPropertyDescriptor(body, key) !== undefined;
+
+/** The port table as a CLIENT has to read it — off an untyped body, by the keys
+ *  present. */
+const portTableIn = (body: unknown): string => {
+  if (typeof body !== 'object' || body === null) return '';
+  const table = Object.getOwnPropertyDescriptor(body, 'portTable')?.value;
+  return JSON.stringify(table ?? null);
 };
 
 const walk = (targetIp: string, community: string) =>
@@ -255,6 +315,49 @@ const main = async (): Promise<void> => {
 
   check(
     'and none of it minted a session, because this door has no account to session',
+    (await sessionRowsForCaller()) === 0,
+    `${await sessionRowsForCaller()} session row(s) for the caller`,
+  );
+
+  // ─── the tier a cracked community buys ───
+  // Both files land BEFORE the walk, and the door reads each through the same replay a
+  // player's own `nano` edit would arrive by. Every unit test at this door hands that a
+  // fake, so which path is read, and whether the row replays at all, is proven only
+  // here.
+  await clear();
+  await seedPublicIps(sr, [{ essid: ESSID, publicIp: PUBLIC_IP }]);
+  await plant(RW_STATE_PATH, `rwcommunity ${md5(RW_COMMUNITY)}\n`);
+
+  const readOnly = await walk(gateway.ip, 'public');
+  check(
+    'the free community still names the tier it answered at, and carries no table',
+    stringField(readOnly.body, 'tier') === 'read-only' && !hasField(readOnly.body, 'portTable'),
+    `tier ${stringField(readOnly.body, 'tier')}, portTable ${portTableIn(readOnly.body)}`,
+  );
+
+  const bare = await walk(gateway.ip, RW_COMMUNITY);
+  check(
+    'the cracked community answers read-write on a device that forwards nothing',
+    bare.status === 200 &&
+      stringField(bare.body, 'tier') === 'read-write' &&
+      portTableIn(bare.body) === JSON.stringify({ kind: 'nat', forwards: [] }),
+    `status ${bare.status}, tier ${stringField(bare.body, 'tier')}, table ${portTableIn(bare.body)}`,
+  );
+
+  await plant(RULES_V4_PATH, `forward ${FORWARDED_PORT} to ${FORWARD_TARGET}\n`);
+  const withTable = await walk(gateway.ip, RW_COMMUNITY);
+  check(
+    'and renders the forward off the very rules.v4 the box routes by',
+    portTableIn(withTable.body) ===
+      JSON.stringify({
+        kind: 'nat',
+        forwards: [{ publicPort: FORWARDED_PORT, internalIp: '192.168.147.10', internalPort: 22 }],
+      }),
+    `table ${portTableIn(withTable.body)}`,
+  );
+
+  check(
+    'and STILL minted no session at the tier that can rewrite the table',
     (await sessionRowsForCaller()) === 0,
     `${await sessionRowsForCaller()} session row(s) for the caller`,
   );
