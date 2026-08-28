@@ -53,6 +53,7 @@ import {
   ACL_CONF_PATH,
   ACL_CONF_PERMISSIONS,
 } from '../network/switchAcl';
+import { frontedSegment } from '../network/frontedSegment';
 import { describeSet, parseSnmpSet, type SnmpSetRefusal, type SnmpSetTarget } from '../snmp/set';
 import type { SnmpDeviceKind } from '../snmp/walk';
 import type { Directory } from '../filesystem/types';
@@ -74,6 +75,9 @@ const snmpSetSchema = z
     action: z.literal('snmpSet'),
     essid: z.string().min(1),
     target_ip: z.string().min(1),
+    // The port a forwarded device is NAMED by, exactly as the walk takes it. Absent is
+    // the agent's own 161; present, the box behind that forward is what gets written.
+    port: z.number().int().min(1).max(65535).optional(),
     community: z.string().min(1),
     assignment: z.string().min(1),
     source_ip: z.string().min(1).nullable().optional(),
@@ -151,7 +155,7 @@ export const handleSnmpSet = async (
   const reach = await reachServiceHost(deps, {
     essid: payload.essid,
     targetIp: payload.target_ip,
-    port: SERVICE_CATALOG.snmp.defaultPort,
+    port: payload.port ?? SERVICE_CATALOG.snmp.defaultPort,
     service: SERVICE_CATALOG.snmp.service,
     actorKey: publicKey,
   });
@@ -196,7 +200,8 @@ export const handleSnmpSet = async (
     });
   }
 
-  if (deviceKind(hostFs) !== kindFor(parsed.target)) {
+  const kind = deviceKind(hostFs);
+  if (kind !== kindFor(parsed.target)) {
     await appendSnmpdLog(deps, target, contact);
     return answer({
       reason: 'noSuchName',
@@ -204,10 +209,16 @@ export const handleSnmpSet = async (
     });
   }
 
+  // The segment the DEVICE fronts, never the one the request named. Through a forward
+  // the typed address is the gateway the caller came in through, and even addressed
+  // directly an inner gateway forwards into the layer BEHIND it rather than the LAN it
+  // stands on — so judged by the request, the only destinations that can route are the
+  // ones refused and the ones accepted all resolve to nothing.
   if (
     parsed.target.kind === 'nat' &&
     parsed.target.forward !== null &&
-    segmentOf(parsed.target.forward.internalIp) !== segmentOf(payload.target_ip)
+    segmentOf(parsed.target.forward.internalIp) !==
+      frontedSegment({ essid: payload.essid, machineId, kind })
   ) {
     await appendSnmpdLog(deps, target, contact);
     return answer({
