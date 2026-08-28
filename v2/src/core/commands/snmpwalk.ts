@@ -25,10 +25,11 @@
 
 import { connectedWlan0 } from '../network/interfaces';
 import { renderIdentityWalk, renderReadWriteWalk } from '../snmp/walk';
+import { parseAgentAddress } from '../snmp/agentAddress';
 import { errorLine, text } from './streaming';
 import type { Command, CommandResult } from './types';
 
-const USAGE = 'usage: snmpwalk <host> [community]';
+const USAGE = 'usage: snmpwalk <host>[:<port>] [community]';
 
 /** The community every agent answers a read-only walk to, and the one a player gets
  *  without asking. Real SNMP's own default, and the actual joke of the protocol: the
@@ -50,9 +51,12 @@ const execute: Command['execute'] = async (env, args) => {
   if (wlan0 === null) return errorResult(`snmpwalk: ${target}: Network is unreachable`);
 
   const asked = community ?? DEFAULT_COMMUNITY;
+  // The typed string keeps its port for every line printed below — a tool echoes the
+  // argument it was given, and a header that quietly dropped the port would describe a
+  // different request than the one made.
   const walked = await env.snmp.walk({
     essid: wlan0.association.essid,
-    targetIp: target,
+    ...parseAgentAddress(target),
     community: asked,
     sourceIp: wlan0.ipv4,
   });

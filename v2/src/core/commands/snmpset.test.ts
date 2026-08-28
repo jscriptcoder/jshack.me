@@ -184,7 +184,7 @@ describe('setting a value on a device that never answers', () => {
 
 describe('setting nothing in particular', () => {
   it('asks for the three things it needs', async () => {
-    const usage = 'usage: snmpset <host> <community> <oid>=<value>';
+    const usage = 'usage: snmpset <host>[:<port>] <community> <oid>=<value>';
 
     expect(linesOf(await run(onLan(), []))).toBe(usage);
     expect(linesOf(await run(onLan(), [GATEWAY_IP]))).toBe(usage);
@@ -197,7 +197,7 @@ describe('setting nothing in particular', () => {
     // without knowing a thing about NAT, and a round trip to learn it would be a round
     // trip spent on a typo.
     expect(linesOf(await run(onLan(), [GATEWAY_IP, COMMUNITY, 'natForward.2222']))).toBe(
-      'usage: snmpset <host> <community> <oid>=<value>',
+      'usage: snmpset <host>[:<port>] <community> <oid>=<value>',
     );
   });
 

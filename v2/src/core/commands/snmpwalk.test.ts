@@ -185,7 +185,7 @@ describe('walking a device that does not answer', () => {
   it('needs a target to walk', async () => {
     const result = await run(onLan(), []);
 
-    expect(linesOf(result)).toBe('usage: snmpwalk <host> [community]');
+    expect(linesOf(result)).toBe('usage: snmpwalk <host>[:<port>] [community]');
     expect(sync(result).exitCode).toBe(1);
   });
 
@@ -199,5 +199,39 @@ describe('walking a device that does not answer', () => {
 
     expect(linesOf(result)).toBe(`snmpwalk: ${GATEWAY_IP}: Network is unreachable`);
     expect(walk).not.toHaveBeenCalled();
+  });
+});
+
+describe('naming a device behind a gateway', () => {
+  it('sends the port as a port and the address without it', async () => {
+    const walk = vi.fn<SnmpApi['walk']>(async () => ANSWERED);
+
+    await run(onLan({ walk }), ['10.0.0.7:2222', 'corpnet']);
+
+    expect(walk).toHaveBeenCalledWith(
+      expect.objectContaining({ targetIp: '10.0.0.7', port: 2222 }),
+    );
+  });
+
+  it('sends a bare address with no port at all, leaving the agent its own', async () => {
+    // Absent rather than 161. The default is the server's, and a client that stated it
+    // would be a client that could be told to state a different one.
+    const walk = vi.fn<SnmpApi['walk']>(async () => ANSWERED);
+
+    await run(onLan({ walk }), ['10.0.0.7', 'corpnet']);
+
+    expect(walk).toHaveBeenCalledWith(expect.objectContaining({ targetIp: '10.0.0.7' }));
+    expect(walk.mock.calls[0]?.[0].port).toBeUndefined();
+  });
+
+  it('echoes the address the player typed, port and all', async () => {
+    // A tool prints back the argument it was given. A header that dropped the port would
+    // describe a different request than the one made, and a timeout that dropped it
+    // would send the player looking at the wrong box.
+    const answered = sync(await run(onLan(), ['10.0.0.7:2222', 'corpnet']));
+    expect(answered.lines[0]?.content).toContain('10.0.0.7:2222');
+
+    const silent = sync(await run(onLan({ walk: async () => ({ ok: false }) }), ['10.0.0.7:2222']));
+    expect(silent.lines[0]?.content).toBe('Timeout: No Response from 10.0.0.7:2222');
   });
 });

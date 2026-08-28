@@ -557,6 +557,7 @@ export const walkDevice = async (
     const response = await post(deps, 'snmpWalk', {
       essid: params.essid,
       target_ip: params.targetIp,
+      port: params.port,
       community: params.community,
       source_ip: params.sourceIp,
     });
@@ -607,6 +608,7 @@ export const setDeviceOid = async (
     const response = await post(deps, 'snmpSet', {
       essid: params.essid,
       target_ip: params.targetIp,
+      port: params.port,
       community: params.community,
       assignment: params.assignment,
       source_ip: params.sourceIp,

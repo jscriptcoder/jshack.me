@@ -7,6 +7,7 @@ import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepL
 import { crackableEssidPool } from '../generation/generateWifi';
 import { computeDeepGatewayId, computeInnerGatewayId } from '../identity/router';
 import { buildDeepGatewayBaseFs, buildDeepSwitchBaseFs } from '../generation/routerFs';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { readOpenPorts } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { SNMPD_LOG_PATH } from '../logging/snmpdLog';
@@ -198,5 +199,59 @@ describe('walking a device behind an inner gateway', () => {
     const response = await handleSnmpWalk(await walk(), deps);
 
     expect(response.status).toBe(404);
+  });
+});
+
+/** An inner gateway that answers SNMP at its OWN address — the device a player meets
+ *  first, one hop before anything hidden. */
+const innerGatewayWithAnAgent = (): { readonly essid: string; readonly gateway: LanHost } => {
+  for (const essid of crackableEssidPool) {
+    const gateway = generateHomeLan(essid).hosts.find(
+      (host) => host.kind === 'router' && octetOf(host) !== 1,
+    );
+    if (gateway === undefined) continue;
+    if (runsAgent(resolveLanHostIdentity(gateway, essid).baseFs)) return { essid, gateway };
+  }
+  throw new Error('no seeded world puts an agent on an inner router');
+};
+
+describe('walking the inner gateway itself', () => {
+  const INNER = innerGatewayWithAnAgent();
+
+  it('answers as the gateway when no port names anything behind it', async () => {
+    // A bare address is the box standing at it, even though that box is a gateway with
+    // forwards of its own. The port a request arrives on is what decides which of the
+    // two it is, and 161 is the gateway's own.
+    const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async () => ({
+      error: null,
+    }));
+    const deps: SnmpWalkDeps = {
+      nonceStore: freshStore,
+      now: () => FIXED_NOW,
+      findPatches: async () => ({ data: [], error: null }),
+      readSnmpdLog: async () => ({ data: null, error: null }),
+      upsertPatch,
+      findPublicIpByEssid: async () => ({ data: { public_ip: PUBLIC_IP }, error: null }),
+      findNetworkByPublicIp: async () => ({ data: null, error: null }),
+      listOccupantsByEssid: async () => ({ data: [], error: null }),
+      listLeasesByEssid: async () => ({ data: [], error: null }),
+      findHomeNetworkByOwnerKey: async () => ({ data: null, error: null }),
+    };
+
+    const response = await handleSnmpWalk(
+      await signRequest(PLAYER, 'snmpWalk', {
+        essid: INNER.essid,
+        target_ip: INNER.gateway.ip,
+        community: 'public',
+        source_ip: CLIENT_IP,
+      }),
+      deps,
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      ok: true,
+      identity: { hostname: INNER.gateway.hostname, addresses: [INNER.gateway.ip] },
+    });
   });
 });

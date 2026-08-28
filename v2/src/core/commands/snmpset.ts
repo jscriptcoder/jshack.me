@@ -25,10 +25,11 @@
 
 import { connectedWlan0 } from '../network/interfaces';
 import { renderSetEcho, renderSetRefusal } from '../snmp/set';
+import { parseAgentAddress } from '../snmp/agentAddress';
 import { errorLine, text } from './streaming';
 import type { Command, CommandResult } from './types';
 
-const USAGE = 'usage: snmpset <host> <community> <oid>=<value>';
+const USAGE = 'usage: snmpset <host>[:<port>] <community> <oid>=<value>';
 
 const errorResult = (content: string): CommandResult => ({
   kind: 'sync',
@@ -50,7 +51,7 @@ const execute: Command['execute'] = async (env, args) => {
 
   const applied = await env.snmp.set({
     essid: wlan0.association.essid,
-    targetIp: target,
+    ...parseAgentAddress(target),
     community,
     assignment,
     sourceIp: wlan0.ipv4,
@@ -72,7 +73,7 @@ export const snmpset: Command = {
   tier: 'guest',
   availability: { kind: 'installed-package', packageName: 'snmp' },
   manual: {
-    synopsis: 'snmpset <host> <community> <oid>=<value>',
+    synopsis: 'snmpset <host>[:<port>] <community> <oid>=<value>',
     description:
       'Change one setting on a network device over SNMP. This needs a READ-WRITE ' +
       'community string — the free "public" one only reads — and one of those has to ' +
