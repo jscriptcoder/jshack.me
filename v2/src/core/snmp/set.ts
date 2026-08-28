@@ -18,9 +18,10 @@
  * cannot see, and a value carrying a newline cannot smuggle a second rule in: what
  * survives is the PARSED destination, never the player's text.
  *
- * TWO refusal reasons, split where the OID itself splits. The port is part of the NAME,
- * so a port outside 1–65535 names an instance that does not exist (`noSuchName`); a
- * destination the parser rejects is a bad VALUE for a name that does (`wrongValue`).
+ * TWO refusal reasons are produced here, split where the OID itself splits. The port is
+ * part of the NAME, so one outside 1–65535 names an instance that does not exist
+ * (`noSuchName`); a destination the parser rejects is a bad VALUE for a name that does
+ * (`wrongValue`).
  * The failed object follows the same line — canonical when the name exists, and the
  * player's own text when there is no canonical form to give back.
  */
@@ -35,9 +36,14 @@ export type SnmpSetTarget =
   | { readonly kind: 'nat'; readonly publicPort: number; readonly forward: ForwardTarget | null }
   | { readonly kind: 'acl'; readonly port: number; readonly denied: boolean };
 
-/** An error PDU's three moving parts, as real net-snmp prints them. */
+/** An error PDU's three moving parts, as real net-snmp prints them.
+ *
+ *  `notWritable` is never produced HERE. The grammar cannot know which community a
+ *  caller proved, so the read-only refusal belongs to the door; the reason lives in
+ *  this union anyway, because a client rendering an error frame renders all three the
+ *  same way and a second refusal shape would be a second thing to keep in step. */
 export type SnmpSetRefusal = {
-  readonly reason: 'noSuchName' | 'wrongValue';
+  readonly reason: 'noSuchName' | 'wrongValue' | 'notWritable';
   readonly detail: string;
   readonly failedObject: string;
 };

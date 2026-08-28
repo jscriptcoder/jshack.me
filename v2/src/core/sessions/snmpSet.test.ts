@@ -1,0 +1,580 @@
+import { describe, expect, it, vi } from 'vitest';
+import { handleSnmpSet, type SnmpSetDeps } from './snmpSet';
+import { signRequest } from '../signedRequest/sign';
+import { generateIdentity } from '../identity/identity';
+import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
+import { SERVICE_CATALOG } from '../services/serviceCatalog';
+import { pidfilePath, readOpenPorts } from '../services/pidfile';
+import { SNMPD_LOG_PATH } from '../logging/snmpdLog';
+import { RULES_V4_OWNER, RULES_V4_PATH, RULES_V4_PERMISSIONS } from '../network/iptablesRules';
+import { ACL_CONF_PATH } from '../network/switchAcl';
+import { formatSnmpdState } from '../snmp/rwCommunity';
+import { md5 } from '../generation/md5';
+import { asAbsPath } from '../types';
+import type { OwnerPatchRow } from '../network/materializeMachineFs';
+import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
+import type { PatchRow } from '../patches/upsertPatch';
+import type { NonceStore } from '../signedRequest/nonceStore';
+
+/**
+ * `handleSnmpSet` is the write half of the door, and the only place in the game where a
+ * player changes what a machine DOES without ever standing on it.
+ *
+ * No session is minted, and the community is re-read and re-judged on every set. A row
+ * here would hand `listPatches` and `upsertPatch` to whoever reached port 161 — at the
+ * tier that rewrites a NAT table — because `authorizeMachineAccess` never inspects
+ * session kind. Re-judging per call is also what makes `systemctl stop snmpd` a real
+ * defence: there is no session to invalidate, so the next set simply finds nothing.
+ *
+ * THREE ANSWERS, and the distinction between them is the whole design. A device that is
+ * not there, one whose agent was stopped, and one that refused the community are all
+ * silence — a real agent drops a bad community without a word, and telling them apart
+ * would hand a scanner a free map of which devices are worth a wordlist. But once the
+ * community is ACCEPTED the caller is talking to the agent, and a refusal from there on
+ * says what was wrong: they have already proved the string, and on the one door whose
+ * whole promise is the write, silence would leave them unable to tell a bad value from
+ * a working one without walking the device again.
+ */
+
+const freshStore: NonceStore = async () => ({ fresh: true });
+// 2026-08-09 11:04:07 UTC — the server clock every log line here is stamped with.
+const FIXED_NOW = Date.UTC(2026, 7, 9, 11, 4, 7);
+const CLIENT_IP = '192.168.1.50';
+const RW_COMMUNITY = 'corpnet';
+
+const CANDIDATE_ESSIDS = ['BEAN-THERE-WIFI', 'BREW-AND-CODE', 'NAKATOMI-PLAZA', 'PIED-PIPER'];
+
+const runsAgent = (host: LanHost, essid: string): boolean =>
+  readOpenPorts(resolveLanHostIdentity(host, essid).baseFs).some(
+    (openPort) => openPort.service === SERVICE_CATALOG.snmp.service,
+  );
+
+/** The access point's own `.1` — PINNED to run the agent for every ESSID, and the
+ *  router every player can be relied on to have. */
+const apGatewayOn = (essid: string): LanHost => {
+  const gateway = generateHomeLan(essid).hosts.find((host) => host.ip.endsWith('.1'));
+  if (gateway === undefined) throw new Error('no gateway on LAN');
+  return gateway;
+};
+
+const switchRunningAgent = (): { readonly essid: string; readonly host: LanHost } => {
+  for (const essid of CANDIDATE_ESSIDS) {
+    const host = generateHomeLan(essid).hosts.find(
+      (candidate) =>
+        candidate.kind === 'switch' && !candidate.ip.endsWith('.1') && runsAgent(candidate, essid),
+    );
+    if (host !== undefined) return { essid, host };
+  }
+  throw new Error('no switch running an agent across the candidate worlds');
+};
+
+/** An address on the device's own segment — where a forward is allowed to point. */
+const onSegment = (essid: string, octet: number): string =>
+  `${generateHomeLan(essid).subnet}.${octet}`;
+
+const patchRow = (path: string, content: string | null): OwnerPatchRow =>
+  ({
+    path: asAbsPath(path),
+    content,
+    owner: 'root',
+    permissions: null,
+    node_type: 'file',
+    updated_at: '2026-08-09T11:00:00.000Z',
+    writer_key: 'b'.repeat(64),
+  }) as OwnerPatchRow;
+
+/** A device whose read-write community is a string this test knows, planted the way its
+ *  owner's own edit would arrive, optionally over a port-table file of its own. */
+const answering = (...files: readonly OwnerPatchRow[]): Partial<SnmpSetDeps> => ({
+  findPatches: async () => ({
+    data: [patchRow('/var/lib/snmp/snmpd.conf', formatSnmpdState(md5(RW_COMMUNITY))), ...files],
+    error: null,
+  }),
+});
+
+const makeDeps = (over: Partial<SnmpSetDeps> = {}) => {
+  const findPatches = vi.fn<SnmpSetDeps['findPatches']>(async () => ({ data: [], error: null }));
+  const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async () => ({
+    error: null,
+  }));
+  const readSnmpdLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
+    async () => ({ data: null, error: null }),
+  );
+  const deps: SnmpSetDeps = {
+    nonceStore: freshStore,
+    now: () => FIXED_NOW,
+    findPatches,
+    readSnmpdLog,
+    upsertPatch,
+    findNetworkByPublicIp: async () => ({ data: null, error: null }),
+    listOccupantsByEssid: async () => ({ data: [], error: null }),
+    listLeasesByEssid: async () => ({ data: [], error: null }),
+    findHomeNetworkByOwnerKey: async () => ({ data: null, error: null }),
+    ...over,
+  };
+  return { deps, findPatches, readSnmpdLog, upsertPatch };
+};
+
+const signedSet = (
+  identity: ReturnType<typeof generateIdentity>,
+  request: {
+    readonly essid: string;
+    readonly target_ip: string;
+    readonly assignment: string;
+    readonly community?: string;
+  },
+) =>
+  signRequest(identity, 'snmpSet', {
+    essid: request.essid,
+    target_ip: request.target_ip,
+    community: request.community ?? RW_COMMUNITY,
+    assignment: request.assignment,
+    source_ip: CLIENT_IP,
+  });
+
+/** The row this set left on a given file, or `undefined` when it wrote none. */
+const writtenTo = (
+  upsertPatch: ReturnType<typeof makeDeps>['upsertPatch'],
+  path: string,
+): PatchRow | undefined => upsertPatch.mock.calls.map((call) => call[0]).find((row) => row.path === path);
+
+describe('opening a port on a router', () => {
+  it('writes the forward the player asked for and echoes it back', async () => {
+    const identity = generateIdentity();
+    const essid = CANDIDATE_ESSIDS[0]!;
+    const gateway = apGatewayOn(essid);
+    const workstation = onSegment(essid, 10);
+    const { deps, upsertPatch } = makeDeps(answering());
+
+    const response = await handleSnmpSet(
+      await signedSet(identity, {
+        essid,
+        target_ip: gateway.ip,
+        assignment: `natForward.2222=${workstation}:22`,
+      }),
+      deps,
+    );
+
+    expect(response).toEqual({
+      status: 200,
+      body: { ok: true, oid: 'NAT-MIB::natForward.2222', value: `${workstation}:22` },
+    });
+    expect(writtenTo(upsertPatch, RULES_V4_PATH)?.content).toContain(
+      `forward 2222 to ${workstation}:22`,
+    );
+  });
+
+  it("writes it as the file's own row, so the seed and the edit cannot drift apart", async () => {
+    const identity = generateIdentity();
+    const essid = CANDIDATE_ESSIDS[0]!;
+    const gateway = apGatewayOn(essid);
+    const { deps, upsertPatch } = makeDeps(answering());
+
+    await handleSnmpSet(
+      await signedSet(identity, {
+        essid,
+        target_ip: gateway.ip,
+        assignment: `natForward.2222=${onSegment(essid, 10)}:22`,
+      }),
+      deps,
+    );
+
+    // Root-only, exactly as the boot seed plants it. A row that widened the permissions
+    // would let a set do what no `nano` edit can: leave the file readable to a guest.
+    expect(writtenTo(upsertPatch, RULES_V4_PATH)).toMatchObject({
+      owner: RULES_V4_OWNER,
+      permissions: RULES_V4_PERMISSIONS,
+      node_type: 'file',
+      // A GENERATED device belongs to nobody, so the caller's own key is the only
+      // stable thing there is to file under. Once a box has an owner the reach hands
+      // back theirs instead, which is what keeps a defender's device on one rules.v4
+      // however many strangers set on it — the cross-player half proves that.
+      writer_key: identity.publicKeyHex,
+    });
+  });
+
+  it('leaves the header and every other rule exactly where they were', async () => {
+    const identity = generateIdentity();
+    const essid = CANDIDATE_ESSIDS[0]!;
+    const gateway = apGatewayOn(essid);
+    const { deps, upsertPatch } = makeDeps(
+      answering(patchRow(RULES_V4_PATH, '# my rules\nforward 8080 to 10.0.0.9:80\n')),
+    );
+
+    await handleSnmpSet(
+      await signedSet(identity, {
+        essid,
+        target_ip: gateway.ip,
+        assignment: `natForward.2222=${onSegment(essid, 10)}:22`,
+      }),
+      deps,
+    );
+
+    expect(writtenTo(upsertPatch, RULES_V4_PATH)?.content).toBe(
+      `# my rules\nforward 8080 to 10.0.0.9:80\nforward 2222 to ${onSegment(essid, 10)}:22\n`,
+    );
+  });
+
+  it('overwrites a port that already forwards somewhere', async () => {
+    const identity = generateIdentity();
+    const essid = CANDIDATE_ESSIDS[0]!;
+    const gateway = apGatewayOn(essid);
+    const { deps, upsertPatch } = makeDeps(
+      answering(patchRow(RULES_V4_PATH, `forward 2222 to ${onSegment(essid, 9)}:22\n`)),
+    );
+
+    const response = await handleSnmpSet(
+      await signedSet(identity, {
+        essid,
+        target_ip: gateway.ip,
+        assignment: `natForward.2222=${onSegment(essid, 10)}:3306`,
+      }),
+      deps,
+    );
+
+    // A forward table is keyed by public port, so one port with two destinations is not
+    // a state the file can hold. Overwriting is what the owner's own edit would do; the
+    // log line is what keeps it from being silent.
+    expect(response.body).toEqual({
+      ok: true,
+      oid: 'NAT-MIB::natForward.2222',
+      value: `${onSegment(essid, 10)}:3306`,
+    });
+    expect(writtenTo(upsertPatch, RULES_V4_PATH)?.content).toBe(
+      `forward 2222 to ${onSegment(essid, 10)}:3306\n`,
+    );
+  });
+
+  it('closes a port again when the value names no destination', async () => {
+    const identity = generateIdentity();
+    const essid = CANDIDATE_ESSIDS[0]!;
+    const gateway = apGatewayOn(essid);
+    const { deps, upsertPatch } = makeDeps(
+      answering(patchRow(RULES_V4_PATH, `forward 2222 to ${onSegment(essid, 9)}:22\n`)),
+    );
+
+    const response = await handleSnmpSet(
+      await signedSet(identity, { essid, target_ip: gateway.ip, assignment: 'natForward.2222=none' }),
+      deps,
+    );
+
+    expect(response.body).toEqual({ ok: true, oid: 'NAT-MIB::natForward.2222', value: 'none' });
+    expect(writtenTo(upsertPatch, RULES_V4_PATH)?.content).toBe('\n');
+  });
+});
+
+describe('filtering a port on a switch', () => {
+  it('shuts a port and opens it again, through the file the switch routes by', async () => {
+    const identity = generateIdentity();
+    const { essid, host } = switchRunningAgent();
+
+    const shut = makeDeps(answering());
+    const shutResponse = await handleSnmpSet(
+      await signedSet(identity, { essid, target_ip: host.ip, assignment: 'aclPort.22=deny' }),
+      shut.deps,
+    );
+
+    expect(shutResponse.body).toEqual({ ok: true, oid: 'ACL-MIB::aclPort.22', value: 'deny' });
+    expect(writtenTo(shut.upsertPatch, ACL_CONF_PATH)?.content).toContain('deny 22');
+
+    const open = makeDeps(answering());
+    const openResponse = await handleSnmpSet(
+      await signedSet(identity, { essid, target_ip: host.ip, assignment: 'aclPort.8080=permit' }),
+      open.deps,
+    );
+
+    // The seeded switch ships one active `deny 8080`, so this is the removal a player
+    // makes to re-open the segment — the same thing deleting the line by hand does.
+    expect(openResponse.body).toEqual({ ok: true, oid: 'ACL-MIB::aclPort.8080', value: 'permit' });
+    expect(writtenTo(open.upsertPatch, ACL_CONF_PATH)?.content).not.toContain('deny 8080');
+  });
+});
+
+describe('what an agent refuses once the community is accepted', () => {
+  it("refuses a forward that points off the device's own segment", async () => {
+    const identity = generateIdentity();
+    const essid = CANDIDATE_ESSIDS[0]!;
+    const gateway = apGatewayOn(essid);
+    const { deps, upsertPatch } = makeDeps(answering());
+
+    const response = await handleSnmpSet(
+      await signedSet(identity, {
+        essid,
+        target_ip: gateway.ip,
+        assignment: 'natForward.2222=10.9.9.9:22',
+      }),
+      deps,
+    );
+
+    // A router forwards INTO the segment behind it. A destination somewhere else names
+    // a host this device has no route to, and the rule would sit in the file looking
+    // like it worked.
+    expect(response).toEqual({
+      status: 200,
+      body: {
+        ok: false,
+        refusal: {
+          reason: 'wrongValue',
+          detail: "10.9.9.9 is not on this device's segment",
+          failedObject: 'NAT-MIB::natForward.2222',
+        },
+      },
+    });
+    expect(writtenTo(upsertPatch, RULES_V4_PATH)).toBeUndefined();
+  });
+
+  it('refuses an OID the device does not implement, in either direction', async () => {
+    const identity = generateIdentity();
+    const essid = CANDIDATE_ESSIDS[0]!;
+    const gateway = apGatewayOn(essid);
+    const onSwitch = switchRunningAgent();
+
+    const router = makeDeps(answering());
+    const atRouter = await handleSnmpSet(
+      await signedSet(identity, { essid, target_ip: gateway.ip, assignment: 'aclPort.22=deny' }),
+      router.deps,
+    );
+
+    const switched = makeDeps(answering());
+    const atSwitch = await handleSnmpSet(
+      await signedSet(identity, {
+        essid: onSwitch.essid,
+        target_ip: onSwitch.host.ip,
+        assignment: `natForward.2222=${onSegment(onSwitch.essid, 10)}:22`,
+      }),
+      switched.deps,
+    );
+
+    // A router keeps a NAT table and a switch keeps an access list. Offering either
+    // device the other's OID is naming something that is not on it.
+    expect(atRouter.body).toEqual({
+      ok: false,
+      refusal: {
+        reason: 'noSuchName',
+        detail: 'ACL-MIB is not implemented on this device',
+        failedObject: 'ACL-MIB::aclPort.22',
+      },
+    });
+    expect(atSwitch.body).toEqual({
+      ok: false,
+      refusal: {
+        reason: 'noSuchName',
+        detail: 'NAT-MIB is not implemented on this device',
+        failedObject: 'NAT-MIB::natForward.2222',
+      },
+    });
+    expect(writtenTo(router.upsertPatch, RULES_V4_PATH)).toBeUndefined();
+    expect(writtenTo(switched.upsertPatch, ACL_CONF_PATH)).toBeUndefined();
+  });
+
+  it('refuses the read-only community rather than pretending the device is gone', async () => {
+    const identity = generateIdentity();
+    const essid = CANDIDATE_ESSIDS[0]!;
+    const gateway = apGatewayOn(essid);
+    const { deps, upsertPatch } = makeDeps(answering());
+
+    const response = await handleSnmpSet(
+      await signedSet(identity, {
+        essid,
+        target_ip: gateway.ip,
+        assignment: `natForward.2222=${onSegment(essid, 10)}:22`,
+        community: 'public',
+      }),
+      deps,
+    );
+
+    // `public` is a community the device DOES answer — a walk with it works — so
+    // silence here would read as the device being down while the walk beside it says
+    // otherwise. Naming the tier is also the lesson: go and crack the other string.
+    expect(response).toEqual({
+      status: 200,
+      body: {
+        ok: false,
+        refusal: {
+          reason: 'notWritable',
+          detail: 'the community "public" is read-only',
+          failedObject: 'NAT-MIB::natForward.2222',
+        },
+      },
+    });
+    expect(writtenTo(upsertPatch, RULES_V4_PATH)).toBeUndefined();
+  });
+});
+
+describe('what an agent answers before the community is accepted', () => {
+  it('answers a wrong community exactly as a device that is not there answers', async () => {
+    const identity = generateIdentity();
+    const essid = CANDIDATE_ESSIDS[0]!;
+    const gateway = apGatewayOn(essid);
+    const refused = makeDeps(answering());
+    const absent = makeDeps(answering());
+
+    const [wrongString, noDevice] = await Promise.all([
+      handleSnmpSet(
+        await signedSet(identity, {
+          essid,
+          target_ip: gateway.ip,
+          assignment: 'natForward.2222=none',
+          community: 'not-the-string',
+        }),
+        refused.deps,
+      ),
+      handleSnmpSet(
+        await signedSet(identity, {
+          essid,
+          target_ip: '192.168.188.253',
+          assignment: 'natForward.2222=none',
+        }),
+        absent.deps,
+      ),
+    ]);
+
+    expect(wrongString).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    expect(wrongString).toEqual(noDevice);
+    expect(writtenTo(refused.upsertPatch, RULES_V4_PATH)).toBeUndefined();
+  });
+
+  it('is unreachable when the agent has been stopped, and records nothing', async () => {
+    const identity = generateIdentity();
+    const essid = CANDIDATE_ESSIDS[0]!;
+    const gateway = apGatewayOn(essid);
+    const { deps, upsertPatch } = makeDeps({
+      findPatches: async () => ({
+        data: [
+          patchRow('/var/lib/snmp/snmpd.conf', formatSnmpdState(md5(RW_COMMUNITY))),
+          patchRow(pidfilePath(SERVICE_CATALOG.snmp), null),
+        ],
+        error: null,
+      }),
+    });
+
+    const response = await handleSnmpSet(
+      await signedSet(identity, { essid, target_ip: gateway.ip, assignment: 'natForward.2222=none' }),
+      deps,
+    );
+
+    // `systemctl stop snmpd` is the owner's real defence. Routing and liveness are
+    // separate facts server-side, so this 404 names the stopped service where a wrong
+    // community's names an absent host — and the command collapses both into the one
+    // silence the player sees. Nothing is written: the box never heard the request.
+    expect(response.status).toBe(404);
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+});
+
+describe('what a set leaves on the device', () => {
+  it('records the OID, both values and the caller, beside the arrival it came in on', async () => {
+    const identity = generateIdentity();
+    const essid = CANDIDATE_ESSIDS[0]!;
+    const gateway = apGatewayOn(essid);
+    const workstation = onSegment(essid, 10);
+    const { deps, upsertPatch } = makeDeps(
+      answering(patchRow(RULES_V4_PATH, `forward 2222 to ${onSegment(essid, 9)}:22\n`)),
+    );
+
+    await handleSnmpSet(
+      await signedSet(identity, {
+        essid,
+        target_ip: gateway.ip,
+        assignment: `natForward.2222=${workstation}:22`,
+      }),
+      deps,
+    );
+
+    // One append, three lines: somebody arrived, the community was accepted, and this
+    // is what they changed. Separate appends would be separate read-modify-writes
+    // racing over one file.
+    const logged = writtenTo(upsertPatch, SNMPD_LOG_PATH)?.content ?? '';
+    expect(logged).toContain('Connection from UDP: [192.168.1.50]');
+    expect(logged).toContain('Authentication succeeded from UDP: [192.168.1.50]');
+    expect(logged).toContain(
+      `SET NAT-MIB::natForward.2222 = ${onSegment(essid, 9)}:22 -> ${workstation}:22 ` +
+        'from UDP: [192.168.1.50]',
+    );
+  });
+
+  it('records a set that changed nothing, because somebody still held the community', async () => {
+    const identity = generateIdentity();
+    const essid = CANDIDATE_ESSIDS[0]!;
+    const gateway = apGatewayOn(essid);
+    const { deps, upsertPatch } = makeDeps(answering());
+
+    await handleSnmpSet(
+      await signedSet(identity, { essid, target_ip: gateway.ip, assignment: 'natForward.9999=none' }),
+      deps,
+    );
+
+    expect(writtenTo(upsertPatch, SNMPD_LOG_PATH)?.content).toContain(
+      'SET NAT-MIB::natForward.9999 = none -> none from UDP: [192.168.1.50]',
+    );
+  });
+
+  it('leaves no SET line behind when the community bought nothing', async () => {
+    const identity = generateIdentity();
+    const essid = CANDIDATE_ESSIDS[0]!;
+    const gateway = apGatewayOn(essid);
+    const { deps, upsertPatch } = makeDeps(answering());
+
+    await handleSnmpSet(
+      await signedSet(identity, {
+        essid,
+        target_ip: gateway.ip,
+        assignment: 'natForward.2222=10.9.9.9:22',
+      }),
+      deps,
+    );
+
+    // The arrival and the verdict still land — somebody reached the agent and named a
+    // string that worked. Nothing changed, so nothing claims to have.
+    const logged = writtenTo(upsertPatch, SNMPD_LOG_PATH)?.content ?? '';
+    expect(logged).toContain('Authentication succeeded');
+    expect(logged).not.toContain('SET ');
+  });
+
+  it('mints no session, because a set is still nobody logging in', async () => {
+    const identity = generateIdentity();
+    const essid = CANDIDATE_ESSIDS[0]!;
+    const gateway = apGatewayOn(essid);
+    const { deps, upsertPatch } = makeDeps(answering());
+
+    await handleSnmpSet(
+      await signedSet(identity, {
+        essid,
+        target_ip: gateway.ip,
+        assignment: `natForward.2222=${onSegment(essid, 10)}:22`,
+      }),
+      deps,
+    );
+
+    // Two rows, and they are the whole footprint of a set: the file it changed, and the
+    // record that it changed it.
+    expect(upsertPatch).toHaveBeenCalledTimes(2);
+    expect(upsertPatch.mock.calls.map((call) => call[0].path).sort()).toEqual(
+      [RULES_V4_PATH, SNMPD_LOG_PATH].sort(),
+    );
+  });
+
+  it('does not claim a set that the journal refused to store', async () => {
+    const identity = generateIdentity();
+    const essid = CANDIDATE_ESSIDS[0]!;
+    const gateway = apGatewayOn(essid);
+    const { deps } = makeDeps({
+      ...answering(),
+      upsertPatch: async (row: PatchRow) => ({
+        error: row.path === RULES_V4_PATH ? new Error('journal down') : null,
+      }),
+    });
+
+    const response = await handleSnmpSet(
+      await signedSet(identity, {
+        essid,
+        target_ip: gateway.ip,
+        assignment: `natForward.2222=${onSegment(essid, 10)}:22`,
+      }),
+      deps,
+    );
+
+    expect(response).toEqual({ status: 500, body: { error: 'port_table_write_failed' } });
+  });
+});

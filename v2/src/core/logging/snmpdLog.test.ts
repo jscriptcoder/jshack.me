@@ -5,6 +5,7 @@ import {
   SNMPD_LOG_PERMISSIONS,
   formatSnmpdArrivalLine,
   formatSnmpdAttemptLine,
+  formatSnmpdSetLine,
 } from './snmpdLog';
 import { asGameTime } from '../types';
 
@@ -95,6 +96,51 @@ describe('an snmpd.log arrival line', () => {
     expect(formatSnmpdArrivalLine(attempt({ hostname: 'sw-14', pid: 991 }))).toContain(
       'sw-14 snmpd[991]:',
     );
+  });
+});
+
+describe('an snmpd.log SET line', () => {
+  const setLine = (
+    overrides: Partial<Parameters<typeof formatSnmpdSetLine>[0]> = {},
+  ): ReturnType<typeof formatSnmpdSetLine> =>
+    formatSnmpdSetLine({
+      oid: 'NAT-MIB::natForward.2222',
+      previous: 'none',
+      current: '192.168.188.10:22',
+      fromIp: '10.0.0.9',
+      hostname: 'gw-01',
+      time: asGameTime(Date.UTC(2026, 7, 20, 9, 14, 2)),
+      pid: 4471,
+      ...overrides,
+    });
+
+  it('names the OID, what the port was, what it is now, and who did it', () => {
+    // The only tell there is. A walk leaves an arrival and a verdict; the WRITE that
+    // follows leaves no session, no login and no shell, so if this line does not carry
+    // what changed, nothing anywhere does.
+    expect(setLine()).toBe(
+      'Aug 20 09:14:02 gw-01 snmpd[4471]: ' +
+        'SET NAT-MIB::natForward.2222 = none -> 192.168.188.10:22 from UDP: [10.0.0.9]',
+    );
+  });
+
+  it('records a port being closed as plainly as one being opened', () => {
+    expect(setLine({ previous: '192.168.188.10:22', current: 'none' })).toContain(
+      'SET NAT-MIB::natForward.2222 = 192.168.188.10:22 -> none',
+    );
+  });
+
+  it('records a set that changed nothing, with both values reading the same', () => {
+    // Somebody holding the community touched the device, and that is the fact the
+    // defender needs. A line withheld because the file did not change would hide the
+    // visit that proves the community is out.
+    expect(setLine({ oid: 'ACL-MIB::aclPort.8080', previous: 'deny', current: 'deny' })).toContain(
+      'SET ACL-MIB::aclPort.8080 = deny -> deny from UDP: [10.0.0.9]',
+    );
+  });
+
+  it('names no account, because the agent has none', () => {
+    expect(setLine()).not.toContain('root');
   });
 });
 
