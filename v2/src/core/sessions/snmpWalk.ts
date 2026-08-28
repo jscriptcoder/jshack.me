@@ -63,6 +63,10 @@ const snmpWalkSchema = z
     action: z.literal('snmpWalk'),
     essid: z.string().min(1),
     target_ip: z.string().min(1),
+    // The port a forwarded device is NAMED by. Absent is the agent's own 161, which is
+    // every device standing where the caller can address it directly; present, it is a
+    // port on an inner gateway and the box behind that forward is what answers.
+    port: z.number().int().min(1).max(65535).optional(),
     community: z.string().min(1),
     source_ip: z.string().min(1).nullable().optional(),
   })
@@ -88,7 +92,11 @@ const portTableOf = (hostFs: Directory, kind: SnmpDeviceKind): SnmpPortTable =>
 /** Every address the device holds, in interface order: its own, then the one the access
  *  point wears outside when this IS the access point's gateway. Nothing behind that
  *  gateway has an outside face, and a second interface there would be an address that
- *  answers nothing. */
+ *  answers nothing.
+ *
+ *  `localIp` is the REACH's, never the request's. Through a forward the address a player
+ *  typed names the gateway they came in through, so a walk that echoed it back would
+ *  describe a device two hops away while naming a box on the LAN. */
 const addressesOf = async (
   deps: SnmpWalkDeps,
   device: { readonly essid: string; readonly machineId: string; readonly localIp: string },
@@ -116,12 +124,12 @@ export const handleSnmpWalk = async (
   const reach = await reachServiceHost(deps, {
     essid: payload.essid,
     targetIp: payload.target_ip,
-    port: SERVICE_CATALOG.snmp.defaultPort,
+    port: payload.port ?? SERVICE_CATALOG.snmp.defaultPort,
     service: SERVICE_CATALOG.snmp.service,
     actorKey: publicKey,
   });
   if (!reach.ok) return reach.refusal;
-  const { hostname, hostFs, machineId, sourceIp, writerKey } = reach.reached;
+  const { hostname, hostFs, machineId, localIp, sourceIp, writerKey } = reach.reached;
 
   const tier = communityTier(hostFs, payload.community);
 
@@ -147,11 +155,7 @@ export const handleSnmpWalk = async (
     hostname,
     kind,
     sysContact: parseSnmpdConf(readSnmpdConf(hostFs)).sysContact,
-    addresses: await addressesOf(deps, {
-      essid: payload.essid,
-      machineId,
-      localIp: payload.target_ip,
-    }),
+    addresses: await addressesOf(deps, { essid: payload.essid, machineId, localIp }),
   };
   // The tier is STATED rather than left to be inferred from whether a table came back.
   // Default-deny means a fresh router forwards nothing, so an empty table is the
