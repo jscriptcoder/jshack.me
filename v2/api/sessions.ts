@@ -19,6 +19,7 @@ import { handleMysqlConnect } from '../src/core/sessions/mysqlConnect';
 import { handleMysqlStatement } from '../src/core/sessions/mysqlStatement';
 import { handleRedisConnect } from '../src/core/sessions/redisConnect';
 import { handleRedisStatement } from '../src/core/sessions/redisStatement';
+import { handleSnmpSet } from '../src/core/sessions/snmpSet';
 import { handleSnmpWalk } from '../src/core/sessions/snmpWalk';
 import { handleHydraCrackPublic } from '../src/core/sessions/hydraCrackPublic';
 import { handleHydraCrackInnerGateway } from '../src/core/sessions/hydraCrackInnerGateway';
@@ -626,6 +627,50 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         supabase,
         occupancyLabel: 'snmp walk source-ip occupancy',
         lookupLabel: 'snmp walk source-ip lookup',
+      }),
+    });
+    res.status(status).json(body);
+    return;
+  }
+
+  if (actionOf(req.body) === 'snmpSet') {
+    // WRITING to a network device. Same door as the walk and the same absence of a
+    // session: the community is re-read and re-judged here, on this request, so
+    // `systemctl stop snmpd` shuts the door with nothing to invalidate.
+    //
+    // The handler READS the target's journal — its agent's state file, and the
+    // `rules.v4` or `acl.conf` it actually routes by — and WRITES for two: the port
+    // table with one line changed in it, and the device's own /var/log/snmpd.log. That
+    // second write is the only tell the owner gets, because nothing else about this
+    // request leaves a mark anywhere.
+    //
+    // The port table is edited as TEXT and stored back under the DEVICE's writer key,
+    // so the file stays the one file the scan path and the ssh router already read, and
+    // a box keeps one table however many callers set on it.
+    //
+    // A refused community comes back as `host_unreachable`, word for word what an
+    // absent device returns. A refusal AFTER the community was accepted comes back as a
+    // 200 carrying the agent's reason: the caller proved the string, so silence there
+    // would leave them unable to tell a bad value from a working one.
+    const { status, body } = await handleSnmpSet(req.body, {
+      nonceStore: noopNonceStore,
+      now: () => Date.now(),
+      findPatches: findPatchesVia({ supabase, label: 'snmp set target journal lookup' }),
+      readSnmpdLog: readAuthLogVia({ supabase, label: 'snmpd set log read' }),
+      upsertPatch: upsertPatchVia({ supabase, label: 'snmpd set upsert' }),
+      findNetworkByPublicIp: findNetworkByPublicIpVia({
+        supabase,
+        label: 'snmp set public-ip resolve',
+      }),
+      listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
+        supabase,
+        label: 'snmp set occupant list',
+      }),
+      listLeasesByEssid: listLeasesByEssidVia({ supabase, label: 'snmp set lan-lease list' }),
+      findHomeNetworkByOwnerKey: findHomeNetworkByOwnerKeyVia({
+        supabase,
+        occupancyLabel: 'snmp set source-ip occupancy',
+        lookupLabel: 'snmp set source-ip lookup',
       }),
     });
     res.status(status).json(body);

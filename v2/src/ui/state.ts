@@ -43,6 +43,8 @@ import type {
   MysqlStatementResult,
   MysqlConnectResult,
   RedisConnectParams,
+  SnmpSetParams,
+  SnmpSetResult,
   SnmpWalkParams,
   SnmpWalkResult,
   RedisConnection,
@@ -122,6 +124,7 @@ import {
   connectDatabase,
   connectStore,
   walkDevice,
+  setDeviceOid,
   runDatabaseStatement,
   runStoreStatement,
   crackCredentials,
@@ -677,6 +680,14 @@ const snmpWalk = (params: SnmpWalkParams): Promise<SnmpWalkResult> =>
   sessionsClientDeps === undefined
     ? Promise.resolve({ ok: false })
     : walkDevice(sessionsClientDeps, params);
+
+/** Reconfigure a device over SNMP server-side (backs `env.snmp.set`). Before the client
+ *  is wired the device says nothing, which is the one answer this door can give without
+ *  a server: claiming a write nobody made would be worse than saying nothing. */
+const snmpSet = (params: SnmpSetParams): Promise<SnmpSetResult> =>
+  sessionsClientDeps === undefined
+    ? Promise.resolve({ ok: false, refusal: null })
+    : setDeviceOid(sessionsClientDeps, params);
 
 /** Crack credentials behind a stranger's PUBLIC IP server-side (backs
  *  `env.hydra.crackPublic`). Degrades the same way before the client is wired. */
@@ -1586,6 +1597,7 @@ const executeLine = async (line: string): Promise<void> => {
     onMysqlLeave: leaveMysqlSession,
     onRedisConnect: redisConnect,
     onSnmpWalk: snmpWalk,
+    onSnmpSet: snmpSet,
     onRedisStatement: redisStatement,
     onRedisEnter: enterRedisSession,
     onRedisLeave: leaveRedisSession,

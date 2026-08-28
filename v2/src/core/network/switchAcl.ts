@@ -11,7 +11,19 @@
  * rather than failing the whole file — and rejects out-of-range ports.
  */
 
-import type { Directory } from '../filesystem/types';
+import { asAbsPath, type AbsPath } from '../types';
+import type { Directory, FilePermissions } from '../filesystem/types';
+
+/** The canonical `/etc/switch/acl.conf` storage identity, at the same root-only
+ *  boundary its router counterpart keeps and for the same reason: a gateway device has
+ *  one account, and the file it routes by is that account's to edit. */
+export const ACL_CONF_PATH: AbsPath = asAbsPath('/etc/switch/acl.conf');
+export const ACL_CONF_OWNER = 'root';
+export const ACL_CONF_PERMISSIONS: FilePermissions = {
+  read: ['root'],
+  write: ['root'],
+  execute: [],
+};
 
 /** The switch's `/etc/switch/acl.conf` content, or '' when absent (missing `/etc`,
  *  the `switch` dir, or the file). Walks the tree the way the port readers do — this
@@ -49,3 +61,37 @@ export const parseAclDenies = (content: string): readonly number[] =>
       const port = parseDenyLine(line);
       return port === null ? [] : [port];
     });
+
+/** The file's lines to edit, without the empty string a trailing newline leaves
+ *  behind. This file SHIPS without one where `rules.v4` ships with one, so an append
+ *  that trusted either shape would glue two rules into `deny 8080deny 22`. */
+const editableLines = (content: string): readonly string[] => {
+  const lines = content.split('\n');
+  return lines.at(-1) === '' ? lines.slice(0, -1) : lines;
+};
+
+/**
+ * The file with `port` left in the state `denied` names: blocked behind the switch, or
+ * open to the segment. The mirror of the router's `withForward`, and simpler for one
+ * reason — a deny carries no destination, so there is nothing to overwrite and a port
+ * already in the state asked for is returned untouched.
+ *
+ * A TEXT edit, like its router counterpart: the header, the usage note and whatever the
+ * owner added stay exactly where they were, and re-opening a port removes precisely the
+ * line deleting it by hand would have.
+ *
+ * The line is found by PARSING, never by matching the port in the text, so a deny the
+ * owner commented out is a comment and stays one.
+ */
+export const withDeny = (content: string, port: number, denied: boolean): string => {
+  const body = editableLines(content);
+  const existing = body.findIndex((line) => parseDenyLine(line.trim()) === port);
+
+  if (denied === (existing !== -1)) return content;
+
+  const edited = denied
+    ? [...body, `deny ${port}`]
+    : [...body.slice(0, existing), ...body.slice(existing + 1)];
+
+  return `${edited.join('\n')}\n`;
+};

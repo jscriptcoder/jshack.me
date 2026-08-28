@@ -1,10 +1,11 @@
 # Plan: D8 — `snmpwalk` / `snmpset`
 
-**Branch**: `feat/d8-snmp-crack` (slice 3)
+**Branch**: `feat/d8-snmp-set` (slice 4)
 **Status**: Active — slice 1 MERGED (#465, v0.185.0); slice 2 MERGED (#466, v0.186.0,
-2026-08-27); slice 3 **PR-READY** on `feat/d8-snmp-crack` at v0.187.0 (AC-1…AC-11 met, wire-check RUN
-15/15, mutation gate closed — see "Progress" below);
-slices 4–7 outlined only
+2026-08-27); slice 3 MERGED (#467, v0.187.0, 2026-08-28 — AC-1…AC-11 met, wire-check RUN
+15/15, mutation gate closed); slice 4 **PR-READY** on `feat/d8-snmp-set` at v0.188.0
+(AC-1…AC-14 met, wire-check RUN 16/16, mutation gate closed — see "Progress" below);
+slices 5–7 outlined only
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D8 — resolved scope & decisions
 (grill-me, 2026-08-27)", eleven locked decisions, gap-checked the same day.
 
@@ -29,8 +30,8 @@ that table, all of it a VIEW over the `rules.v4` / `acl.conf` files v2 already p
 |---|-------|-----------|--------|
 | 1 | a device answers SNMP | `nmap` shows `161/udp snmp` on a router/switch | **merged** #465 |
 | 2 | a player walks it with `public` | identity OIDs return; the walk lands in `snmpd.log` | **merged** #466 |
-| 3 | a player cracks the RW community | `hydra <host> snmp` → the port table renders | **built** |
-| 4 | a player opens a port, no shell | `snmpset` adds a forward; `nmap` shows it | outlined |
+| 3 | a player cracks the RW community | `hydra <host> snmp` → the port table renders | **merged** #467 |
+| 4 | a player opens a port, no shell | `snmpset` adds a forward; `nmap` shows it | **built** |
 | 5 | a device on a deep layer answers | the inner-gateway vantage | outlined |
 | 6 | a player runs their own agent | owner filters a port; `127.0.0.1` still works | outlined |
 | 7 | a player reconfigures another's | B opens a forward into A's LAN | outlined |
@@ -679,10 +680,258 @@ mutation gate has run with survivors addressed, and the version is bumped to **v
 
 **Slice complete when** its PR lands on `main`.
 
-## Slices 4–7 (outline only — plan each when its predecessor lands)
+## Slice 4: a player opens a port on a device they never logged into
 
-- **Slice 4** — `snmpset`, parity with `nano`, LAN-bounded forwards, overwrite reporting
-  `old → new`, no session row. **Owes a wire-check.**
+**Actor**: a player on their own LAN, holding a community string slice 3 let them crack and no
+account on the device at all.
+**Trigger**: `snmpset 192.168.188.1 corpnet natForward.2222=192.168.188.10:22`.
+**Observable outcome**: the device echoes the OID and its new value; a walk with the same community
+now lists that forward in the port table; a scan of the network's public address shows `2222` open
+and reaching the workstation behind it; and the device's own `snmpd.log` carries a SET line naming
+the OID, `old → new`, and where the request came from. No session, no shell, nothing to `exit`.
+**Path**: `snmpset` → `env.snmp.set` → the signed `snmpSet` action → `handleSnmpSet` → the SAME
+`reachServiceHost(snmp)` the walk uses → the community re-read and re-validated against
+`/var/lib/snmp/snmpd.conf` → the device's own `rules.v4` / `acl.conf` edited AS TEXT → `upsertPatch`
+under the device's own writer key → the SET line appended to `/var/log/snmpd.log`.
+**Smallest deployable value**: the write half of the door, on the caller's own LAN only. The
+inner-gateway vantage is slice 5 and a stranger's device is slice 7 — both are REACH, and this slice
+is the verb. It is also what makes slice 3's `Writable:` trailer true rather than a promise.
+
+**Class**: Behavior change.
+**Delivery**: Independent PR against trunk. No stack — slice 5 does not start before this lands.
+**Required implementation skills**: `tdd`, `testing`, `refactoring` if it earns itself;
+`mutation-testing` once at the PR gate.
+
+### This slice OWES a wire-check
+
+The epic names slices 3, 4 and 7 outright, and this is the first door in the game that WRITES a file
+the rest of the world routes by. `parseForwardRules` feeds the scan path and `machineServing`, so a
+write that lands at the wrong path, under the wrong writer key, or in a shape the parser rejects
+would pass every unit test in the suite and still produce a forward nothing honours. Only a live
+stack shows that. `scripts/testSnmpSet.ts` is NEW rather than an extension of `testSnmpWalk.ts`: the
+walk's script proves a READ door and its checks stay meaningful on their own, while this one has to
+write, re-materialize, and read back through a different path.
+
+### Two decisions this slice needed that the epic's eleven did not cover
+
+Both confirmed 2026-08-28, before any code.
+
+1. **Removal is STATE-VALUED, never imperative.** `natForward.<port>=none` clears a forward and
+   `aclPort.<port>=permit` clears a deny. Every OID's value names the state the port should be in,
+   so `=deny` and `=permit` are the same kind of thing — where `=delete` would be an instruction
+   sitting where a value goes. The switch half is also legacy's own flip (`deny` → `permit`) rather
+   than an invention. An EMPTY right-hand side was rejected: it is invisible in scrollback and one
+   keystroke away from a typo that reads as success.
+2. **An accepted community with a bad value refuses LOUDLY, in net-snmp's own frame.** `Error in
+   packet.` / `Reason: <reason> (<what was wrong>)` / `Failed object: <oid>` — the real tool's
+   three-line shape, with the reason naming the constraint that was broken. The player has already
+   proved the community; a silent refusal on the one door whose whole point is the WRITE would leave
+   them unable to tell a bad value from a working one without walking again. Silence stays the
+   answer for a refused COMMUNITY, which is a different question and keeps the walk's rule exactly.
+
+### Acceptance criteria — CONFIRMED 2026-08-28, before any code
+
+- [x] **AC-1** `snmpset <host> <community> natForward.<public port>=<ip>:<port>` on a router adds
+      that forward to `/etc/iptables/rules.v4` and echoes
+      `NAT-MIB::natForward.<port> = STRING: <ip>:<port>`.
+- [x] **AC-2** `snmpset <host> <community> aclPort.<port>=deny` on a switch adds that deny to
+      `/etc/switch/acl.conf` and echoes `ACL-MIB::aclPort.<port> = STRING: deny`.
+- [x] **AC-3** `natForward.<port>=none` removes that forward and `aclPort.<port>=permit` removes that
+      deny. A set naming a port the file does not carry is ACCEPTED and changes nothing — the port
+      ends in the state the value named, which is what a state-valued grammar means.
+- [x] **AC-4** A set naming a port that already carries a forward OVERWRITES it. No refusal and no
+      second round-trip: a forward table is keyed by public port, so one port holding two
+      destinations is not a state the file can represent.
+- [x] **AC-5** The edit PRESERVES every line the set does not own — the seeded header, the commented
+      example, and any comment the owner added by hand. A device's `rules.v4` after a set is the file
+      it was, plus, minus or through one line.
+- [x] **AC-6** Every line this door writes PARSES back through `parseForwardRules` /
+      `parseAclDenies`. The file's own parser is the single validity gate, so nothing can be written
+      that the scan and routing paths cannot read.
+- [x] **AC-7** A forward must land on the device's own segment. `natForward.2222=10.9.9.9:22` against
+      a `192.168.188.x` device is refused at `wrongValue`, and the file is unchanged.
+- [x] **AC-8** An OID the device does not implement is refused at `noSuchName` — `natForward`
+      against a switch, `aclPort` against a router — and the file is unchanged.
+- [x] **AC-9** A REFUSED community is silence, exactly as a walk's is: `Timeout: No Response from
+      <host>`. A device that is not there and one whose agent was stopped read identically.
+- [x] **AC-10** An accepted set appends ONE SET line to the device's `/var/log/snmpd.log`, naming the
+      OID, `old → new`, and the source IP the SERVER derived — including when the set changed
+      nothing, because somebody holding the community touched the device either way. A refused
+      community leaves the arrival + failure pair and no SET line.
+- [x] **AC-11** The set mints NO row in `sessions`, and the community is re-read and re-validated on
+      every call.
+- [x] **AC-12** Every row this door writes lands under the DEVICE's writer key, so a device keeps ONE
+      `rules.v4` and ONE `snmpd.log` however many callers set on it.
+- [x] **AC-13** A forward written by `snmpset` is the same fact the rest of the world reads: after
+      the set, a scan of the network's public address shows the new port and it reaches the internal
+      host the line names. One authority, two interfaces.
+- [x] **AC-14** The wire-check RUNS against `vercel dev` + supabase — the set, the file read back off
+      the real journal, the SET line, the absent session row, and a refusal — and is falsified at
+      least once.
+
+### RED — the failing tests, in the order they get written
+
+1. **The writer, as a text edit** — add, overwrite, remove, and remove-what-is-not-there, with the
+   seeded header and a hand-written comment surviving all four. (AC-1…AC-5)
+2. **The writer's output re-parses** — feed each result straight back through the file's own parser
+   and assert the table it yields. (AC-6)
+3. **The OID grammar** — `natForward.2222=192.168.188.10:22`, `natForward.2222=none`,
+   `aclPort.8080=deny` and `aclPort.8080=permit` parse; a malformed value, a port out of range and
+   an unknown OID prefix do not. (AC-1…AC-3, AC-8)
+4. **The segment bound** — an address off the device's own `/24` is refused and the file is
+   untouched. (AC-7)
+5. **The handler** — an accepted community writes the patch at the right path under the device's own
+   key; a refused one writes nothing and answers the walk's own silence; neither mints a session.
+   (AC-9, AC-11, AC-12)
+6. **The SET line** — its shape, both values, and the no-op case that still logs. (AC-10)
+7. **The command** — the echo, the three-line error frame, and the usage line. (AC-1…AC-3, AC-7,
+   AC-8)
+8. **Scan agreement** — a `rules.v4` the writer produced, read by the EXISTING forward path, yields
+   the forward the set asked for. (AC-13)
+
+### GREEN — the minimum, in dependency order
+
+1. **A writer beside each parser**, in the file that already owns that grammar: `iptablesRules.ts`
+   gains `withForward(content, publicPort, target | null)` and `switchAcl.ts` gains
+   `withDeny(content, port, denied)`. One state-valued function per file, mirroring the grammar the
+   player types — and beside the parser, so a second grammar can never come to exist.
+2. **`snmp/set.ts`** — the OID request grammar: `natForward.<port>=<value>` and
+   `aclPort.<port>=<value>` into a typed request, plus the refusal reasons the frame names.
+3. **The error frame renderer** — beside the walk's renders, or its own module if that keeps
+   `walk.ts` about walking.
+4. **`sessions/snmpSet.ts`** — reach, re-validate the community, dispatch on device kind, bound the
+   segment, write, log. It reuses `deviceKind` and the community comparison `handleSnmpWalk` already
+   owns; both move somewhere both doors can see them rather than being copied.
+5. **`formatSnmpdSetLine` in `logging/snmpdLog.ts`.** No new catalog column: a SET is not a sweep,
+   and `SERVICE_CATALOG.snmp.sweepLog` already carries the path, owner and permissions this append
+   needs.
+6. **The adapter** — the `snmpSet` action and a zod result the client cannot mis-read, refusal
+   reasons included.
+7. **`env.snmp.set`, the `snmpset` command, and its registry entry.** The binary is already listed in
+   `aptPackages.ts` and already mapped to the `snmp` package in `availability.test.ts`.
+8. **`api/sessions.ts` dispatch**, with the same dep set the walk's block builds.
+
+### Five things GREEN must get right
+
+- **The file is edited as TEXT, never re-rendered from the parsed table.** Round-tripping through
+  `parseForwardRules` would silently eat the seeded header, the commented example, and any comment
+  the owner wrote — they would open `nano` afterwards and find a machine had rewritten their file.
+  One line changes; everything else stays byte-identical.
+- **`ACL_CONF_SEED` ends WITHOUT a trailing newline and `RULES_V4_SEED` ends with one.** An append
+  that assumes either shape produces `deny 8080deny 22` on one of the two files. The writer
+  normalizes what it is handed rather than trusting the seed it happens to meet, because the owner's
+  own `nano` edit can leave the file either way.
+- **The parser is the gate, and it runs on the OUTPUT.** Validity is not re-derived here: the line
+  the writer produced is fed back through the file's own parser, and a line that does not survive
+  that round trip is never written. That is locked decision 9's "single validity gate" made literal,
+  and it is what stops this door becoming a second authority on what a rule is.
+- **The segment bound is resolved SERVER-side from the essid**, off `generateHomeLan`'s own subnet,
+  never from anything the client said about where it is standing. A client-supplied bound is a
+  client-chosen one.
+- **A refused community is silence; a bad value is not.** Both live in the same handler and they are
+  one `if` away from collapsing into each other. The community decides whether the caller is talking
+  to the agent at all; everything after that is a conversation they have earned.
+
+### Progress — BUILT, on `feat/d8-snmp-set` (2026-08-28)
+
+Seven commits, each RED→GREEN with the gates clean. Full suite **3904 passing / 182 files**
+(baseline at slice 3's close was 3831 / 179); `npm run typecheck` and `npm run lint` clean from
+`v2/`; wire-check **16/16** against a live stack, falsified twice; version **v0.188.0**.
+
+| Commit | What landed |
+|--------|-------------|
+| `b6e2cab3` | the plan — slice 3 marked merged, slice 4 planned in full |
+| `35a59a6c` | the writers — `withForward`, `withDeny`, each beside its parser |
+| `fefd24ac` | the grammar — `snmp/set.ts`, gated by the file's own parser |
+| `24304e91` | `snmpAgent.ts` — what both doors share; the two files' storage identities |
+| (this one) | the SET line and `handleSnmpSet` |
+| (this one) | the command, the adapter, `env`/`state`, the `api/` dispatch |
+| `b6e82138` | `scripts/testSnmpSet.ts` — 16 checks, falsified twice; v0.188.0 |
+
+**AC-1…AC-14 are met.**
+
+#### What building it settled that planning had not
+
+- **The writers had to be found by PARSING, not by matching the port in the text.** A
+  commented-out rule on the same port is the obvious way an owner parks one, and a text
+  matcher rewrites the note while leaving the live rule standing — backwards, and invisible
+  until the forward fails to route. Both writers now search through the file's own parser,
+  which is the same function that decides validity on the way out.
+- **The two seeds disagree about trailing newlines, and it is load-bearing.** `ACL_CONF_SEED`
+  ends without one and `RULES_V4_SEED` ends with one, so a writer trusting whichever it met
+  first produces `deny 8080deny 22` on a live switch. Both writers normalize what they are
+  handed rather than the shape they expect.
+- **The parser as the single gate closed a value-injection route for free.** A destination is
+  accepted only if `forward <port> to <value>` reads back as exactly ONE rule, so a newline in
+  the value yields two and is refused — and only the PARSED destination ever reaches the file,
+  never the player's text.
+- **Typecheck caught what 16 passing tests did not, for the FOURTH slice running.** `'notWritable'`
+  was missing from the refusal union and the test's `makeDeps` carried a dep the door does not
+  take. Same class as slices 1–3: green under esbuild's type-stripping, rejected by `tsc -b`.
+- **Two of my own test EXPECTATIONS were wrong, not the code.** A generated device has no owner,
+  so a row lands under the caller's key (the owner's takes over cross-player, slice 7); and a
+  stopped agent answers `service_not_running` where a wrong community answers `host_unreachable`
+  — distinct at the wire, one silence to the player. The walk's own test pins only the status
+  for exactly this reason.
+- **Backslash escapes do not survive a heredoc'd Python splice in this environment.** `'\n'`
+  inside the written string arrives as a real newline and breaks the parse. Third occurrence of
+  scripted-splice damage across this epic. Use the Edit tool for any content carrying escapes.
+
+#### The mutation gate — run, survivors addressed
+
+Scoped to this slice's changed production code (throwaway `vite.mutation.config.ts` +
+`stryker.snmp.json`, both deleted after). Three runs: **80.88% → 86.71% → 88.65%**, survivors
+**106 → 79 → 69**, killed 499 → 547, no-coverage 12 → 1.
+
+| Survivor group | Action |
+|---|---|
+| `readRulesV4` had NO direct tests, while its switch twin `readAclConf` had five | **Real gap.** Five tree-walk tests added, mirroring the twin's |
+| `SET_OID_RE`'s `^` and `$` anchors | **Real gap.** Junk before and after the OID now refused at `noSuchName` |
+| `inPortRange` boundaries in the grammar | **Real gap.** 1 and 65535 accepted, 65536 refused |
+| the multi-rule guard in `forwardTarget` | **Real gap.** The newline-injection case the module's own comment claimed but no test proved |
+| `currentState`'s port match and its kind branch | **Real gap.** A device with TWO forwards, and the switch's own `deny -> permit` line |
+| `segmentOf` applied to whole octets | **Real gap.** The neighbouring `/24` — same leading characters, different network |
+| `?? 'unknown'`, the `player_key` refine, the failed-write branch | **Real gaps.** All three now asserted |
+| the two files' `PATH`/`OWNER`/`PERMISSIONS` | **Real gap.** Asserted against literals, not against themselves — the shape `snmpdLog.test.ts` already used |
+| both writers' `line.trim()` | **Real gap.** An indented rule the writer must still find |
+
+The 69 that remain, all classified:
+
+- **48 in `snmpset.ts` (L41, L69-113)** — the command descriptor and its manual prose, plus the
+  positional-argument guard: if `target` is missing then so is everything after it, so only the
+  last of the three conditions is independently reachable and the other mutants are equivalent.
+  The executable half has ZERO survivors otherwise. Slices 2 and 3 classified `snmpwalk.ts`
+  identically.
+- **6 in `iptablesRules.ts` (L71/74)** — `parseForwardRules`'s comment/blank filter, which the
+  anchored regex already makes dead. Slice 3 found the identical pattern in `conf.ts` and removed
+  it there. **Deliberately NOT removed here**: it is pre-existing scan-path code, and changing it
+  would invalidate a wire-check already run against a stack now torn down, for no behavioural
+  gain. **Slice 6 reworks this grammar** (the `deny <port>` rule kind) and should take it then.
+- **6 in `snmpSet.ts`** — the `sourceIp ??` half needs a vantage where the ROUTE resolves an
+  address, which this slice never produces (slice 5/7 owns it); `segmentOf`'s `join('')` and
+  `currentState`'s `kind: 'acl'` tag are equivalent, each applied to both sides of the comparison
+  they feed; `.looseObject` is required by the envelope.
+- **4 in `snmpAgent.ts`** — `user: ''` is meaningless at this door by design, and the
+  `formatArrival?.` guards defend a catalog row that omits an arrival formatter. The snmp row has
+  one, so they are killable only from `sshd`'s door, whose row does not.
+- **5 + 1 no-cov in `set.ts`** — `separator === -1` mutants. Equivalent: an assignment with no
+  `=` refuses identically whether the value reads as `''` or as the whole string.
+
+**One unidentified full-suite failure** was observed in a single run mid-slice (1 of 3885) and did
+not reproduce in five subsequent full runs. Its name was never captured. Recorded rather than
+called fixed — watch for it.
+
+### PR-ready when
+
+AC-1…AC-14 pass, `npm run typecheck` and `npm run lint` are clean from `v2/`, the full non-watch test
+gate is green, the wire-check has RUN against a live stack rather than been reasoned about, the
+mutation gate has run with survivors addressed, and the version is bumped to **v0.188.0** in both
+`v2/package.json` and `v2/package-lock.json` (`npm install --package-lock-only`).
+
+**Slice complete when** its PR lands on `main`.
+
+## Slices 5–7 (outline only — plan each when its predecessor lands)
+
 - **Slice 5** — the inner-gateway vantage. Budget for EVIDENCE, not plumbing: `reachServiceHost`
   takes the daemon as a parameter, and D7 spent two slices proving paths that already worked.
   Expect RED to come from mutating production. **Open**: how `snmpwalk` addresses a forwarded inner

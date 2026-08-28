@@ -71,6 +71,43 @@ export const formatSnmpdArrivalLine = ({
 /** Render one community-string attempt as its `/var/log/snmpd.log` line. The failure
  *  text is real net-snmp's own — a player who has seen the thing this imitates reads it
  *  without being taught. */
+/** Render one accepted WRITE as its `/var/log/snmpd.log` line — the OID, what the port
+ *  was, what it is now, and where the request came from.
+ *
+ *  Real net-snmp logs no such thing and neither did legacy, so this line is an
+ *  invention. It is the one this door cannot do without: a walk at least leaves an
+ *  arrival and a verdict, while the write that follows costs an attacker no account, no
+ *  session and no shell. Without this line a stranger could rewrite a device's port
+ *  table and leave nothing behind anywhere.
+ *
+ *  BOTH values, always — including when they are the same. What the defender needs to
+ *  know is that somebody holding the community touched the device, and a line withheld
+ *  because the file happened not to change would hide exactly the visit that proves the
+ *  community is out.
+ *
+ *  ASCII `->` rather than an arrow glyph: this is a daemon's log file, and a player who
+ *  greps it should not have to type a character their keyboard does not have. */
+export const formatSnmpdSetLine = ({
+  oid,
+  previous,
+  current,
+  fromIp,
+  hostname,
+  time,
+  pid,
+}: Pick<CredentialAttempt, 'fromIp' | 'hostname' | 'time' | 'pid'> & {
+  readonly oid: string;
+  readonly previous: string;
+  readonly current: string;
+}): string =>
+  formatSyslogLine({
+    time,
+    hostname,
+    service: 'snmpd',
+    pid,
+    message: `SET ${oid} = ${previous} -> ${current} from UDP: [${fromIp}]`,
+  });
+
 export const formatSnmpdAttemptLine = ({
   outcome,
   fromIp,

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Directory, FilePermissions } from '../filesystem/types';
 import { dir, file, TRAVERSABLE_DIR } from '../generation/baseFs';
 import { machineServing } from './machineServing';
+import { withForward } from './iptablesRules';
 
 const FILE_PERMS: FilePermissions = {
   read: ['root', 'user', 'guest'],
@@ -86,5 +87,30 @@ describe('machineServing', () => {
     // router, never the internal host, on its own service port.
     const routerFs = makeRouterFs('forward 22 to 10.0.0.5:80');
     expect(machineServing({ routerFs, port: 22 })).toEqual({ kind: 'router' });
+  });
+
+  it('serves a forward that `snmpset` wrote, exactly as it serves one typed into nano', () => {
+    // The point of the whole door: a forward opened over SNMP with no shell is the
+    // SAME fact as one an owner typed in — one file, one parser, one routing decision.
+    // If these two paths could disagree, a player would see their forward in a walk and
+    // find nothing behind it, which is the failure the view-over-the-file design exists
+    // to make impossible.
+    const opened = withForward('# NAT rules', 2222, {
+      internalIp: '10.0.0.10',
+      internalPort: 22,
+    });
+
+    expect(machineServing({ routerFs: makeRouterFs(opened), port: 2222 })).toEqual({
+      kind: 'forward',
+      internalIp: '10.0.0.10',
+      internalPort: 22,
+    });
+
+    // And closing it again puts the port back to serving nobody, rather than leaving a
+    // line the router still honours.
+    const closed = withForward(opened, 2222, null);
+    expect(machineServing({ routerFs: makeRouterFs(closed), port: 2222 })).toEqual({
+      kind: 'none',
+    });
   });
 });

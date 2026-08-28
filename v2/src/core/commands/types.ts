@@ -21,6 +21,7 @@ import type { OccupantProjection } from '../network/resolveOccupants';
 import type { WifiNetwork } from '../network/wifi';
 import type { OpenPort } from '../services/pidfile';
 import type { SnmpIdentity, SnmpPortTable } from '../snmp/walk';
+import type { SnmpSetRefusal } from '../snmp/set';
 import type { FlagSpec } from '../shell/bindFlags';
 
 // ---- Identity & session (read-only snapshots in CommandEnv) ----
@@ -862,10 +863,35 @@ export type SnmpWalkResult =
     }
   | { readonly ok: false };
 
-/** The device door, client side. One verb: both tiers ASK, and differ only in what the
- *  device is willing to say back. Writing is `snmpset`, which is its own door. */
+/** What `snmpset` hands the write action. The ASSIGNMENT travels as the player typed
+ *  it: the grammar and every refusal belong to the agent, because a client that parsed
+ *  them would be a second authority on what a rule is — standing beside the file's own
+ *  parser — and a client that could be told what to send. */
+export type SnmpSetParams = {
+  readonly essid: string;
+  readonly targetIp: string;
+  readonly community: string;
+  readonly assignment: string;
+  /** The address the target's `/var/log/snmpd.log` records the write from. */
+  readonly sourceIp: string;
+};
+
+/** The outcome of a set: the state the port is now in, the agent's refusal, or silence.
+ *
+ *  A `null` refusal is the silence a walk answers with, and carries no reason for the
+ *  same reason: an absent device, a stopped agent and a refused community are one
+ *  answer to this client. A refusal that is PRESENT means the community was accepted —
+ *  the caller is talking to the agent, and has earned an answer that says what was
+ *  wrong. */
+export type SnmpSetResult =
+  | { readonly ok: true; readonly oid: string; readonly value: string }
+  | { readonly ok: false; readonly refusal: SnmpSetRefusal | null };
+
+/** The device door, client side. ASK what a device is, or SET what it does — the two
+ *  tiers of one protocol, and the only door in the game whose write needs no session. */
 export type SnmpApi = {
   readonly walk: (params: SnmpWalkParams) => Promise<SnmpWalkResult>;
+  readonly set: (params: SnmpSetParams) => Promise<SnmpSetResult>;
 };
 
 /** What `hydra` hands the crack action. `callerMachineId` names the box whose
