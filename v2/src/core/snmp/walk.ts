@@ -115,16 +115,23 @@ const TABLE_VOCABULARY = {
   },
 } as const;
 
+/** What a forwarded public port is CALLED, and what a denied one is. Exported because
+ *  `snmpset` echoes the same names back: one device, two commands, one spelling. A set
+ *  that answered with an OID the walk does not print would read as a different fact
+ *  than the one it just changed. */
+export const natForwardOid = (publicPort: number): string => `NAT-MIB::natForward.${publicPort}`;
+export const aclPortOid = (port: number): string => `ACL-MIB::aclPort.${port}`;
+
 const portTableOids = (portTable: SnmpPortTable): readonly string[] =>
   portTable.kind === 'nat'
     ? portTable.forwards.map((forward) =>
         oidLine(
-          `NAT-MIB::natForward.${forward.publicPort}`,
+          natForwardOid(forward.publicPort),
           'STRING',
           `${forward.internalIp}:${forward.internalPort}`,
         ),
       )
-    : portTable.denies.map((port) => oidLine(`ACL-MIB::aclPort.${port}`, 'STRING', 'deny'));
+    : portTable.denies.map((port) => oidLine(aclPortOid(port), 'STRING', 'deny'));
 
 /** The whole accepted-walk block, header to trailer.
  *
