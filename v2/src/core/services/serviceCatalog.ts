@@ -53,6 +53,7 @@ import {
   formatSnmpdArrivalLine,
   formatSnmpdAttemptLine,
 } from '../logging/snmpdLog';
+import { readRwCommunityHash } from '../snmp/rwCommunity';
 
 /** Where a credential sweep against this service is recorded on the target, and how
  *  each attempt is written there.
@@ -325,6 +326,11 @@ export const SERVICE_CATALOG = {
     // names no person. A username invented to fill this column would be the right name
     // against the wrong secret.
     accountsOn: () => [],
+    // The READ-WRITE community, and never the read-only one. `public` is public
+    // knowledge by design and sits in a world-readable file — swept, it would be a lock
+    // with its own key printed on it, and every device in the world would fall to
+    // whatever wordlist a player happened to be holding.
+    secretOn: readRwCommunityHash,
   },
 } as const satisfies Record<string, ServiceSpec>;
 
