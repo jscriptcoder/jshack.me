@@ -10,7 +10,7 @@
  * workstation's `workstation-` stream so the two boxes' secrets never correlate.
  */
 
-import type { Directory, FileNode, FilePermissions } from '../filesystem/types';
+import type { Directory, FileNode } from '../filesystem/types';
 import { createPrng } from './prng';
 import { md5 } from './md5';
 import { CRACK_CHANCE, drawPassword } from './passwordPools';
@@ -37,6 +37,8 @@ import { ACCESS_LOG_PERMISSIONS } from '../logging/accessLog';
 import { AUTH_LOG_PERMISSIONS } from '../logging/authLog';
 import { KERN_LOG_PERMISSIONS } from '../logging/kernLog';
 import { SNMPD_LOG_PERMISSIONS } from '../logging/snmpdLog';
+import { RULES_V4_PERMISSIONS } from '../network/iptablesRules';
+import { ACL_CONF_PERMISSIONS } from '../network/switchAcl';
 import { SNMPD_CONF_PERMISSIONS, SNMPD_CONF_SEED } from '../snmp/conf';
 import { formatSnmpdState, SNMPD_STATE_PERMISSIONS } from '../snmp/rwCommunity';
 import { placementOf } from './rolePlacement';
@@ -141,10 +143,6 @@ export const seedApGatewayHasSsh = (essid: string): boolean =>
 const seedHasSnmp = (namespace: string, kind: 'router' | 'switch'): boolean =>
   createPrng(namespace).next() < placementOf(kind, SERVICE_CATALOG.snmp);
 
-/** `/etc/iptables/rules.v4`: root reads + edits it (`nano`), no one else. Not an
- *  executable. The router has only a root account, so root-only is the boundary.
- *  The switch's `acl.conf` shares the same root-only boundary. */
-const GATEWAY_CONFIG_PERMISSIONS: FilePermissions = { read: ['root'], write: ['root'], execute: [] };
 
 /** The seeded `/etc/iptables/rules.v4` — a documented header plus a commented
  *  example. Opt-in default: NO active forward (it parses to an empty table), so
@@ -306,7 +304,7 @@ export const buildRouterBaseFsFromIdentity = (identity: {
 }): Directory =>
   buildGatewayBaseFs(identity, {
     iptables: dir(
-      { 'rules.v4': file(RULES_V4_SEED, GATEWAY_CONFIG_PERMISSIONS) },
+      { 'rules.v4': file(RULES_V4_SEED, RULES_V4_PERMISSIONS) },
       TRAVERSABLE_DIR,
     ),
   });
@@ -393,7 +391,7 @@ export const buildDeepSwitchBaseFs = (parentMachineId: string, octet: number): D
       hasSsh: true,
       hasSnmp: seedHasSnmp(`deep-sw-snmp-${parentMachineId}:${octet}`, 'switch'),
     },
-    { switch: dir({ 'acl.conf': file(ACL_CONF_SEED, GATEWAY_CONFIG_PERMISSIONS) }, TRAVERSABLE_DIR) },
+    { switch: dir({ 'acl.conf': file(ACL_CONF_SEED, ACL_CONF_PERMISSIONS) }, TRAVERSABLE_DIR) },
   );
 
 /** Build a switch's base FS — the same root-only gateway toolkit as an inner
@@ -409,5 +407,5 @@ export const buildSwitchBaseFs = (essid: string, octet: number): Directory =>
       hasSsh: true,
       hasSnmp: seedHasSnmp(`inner-sw-snmp-${essid}:${octet}`, 'switch'),
     },
-    { switch: dir({ 'acl.conf': file(ACL_CONF_SEED, GATEWAY_CONFIG_PERMISSIONS) }, TRAVERSABLE_DIR) },
+    { switch: dir({ 'acl.conf': file(ACL_CONF_SEED, ACL_CONF_PERMISSIONS) }, TRAVERSABLE_DIR) },
   );

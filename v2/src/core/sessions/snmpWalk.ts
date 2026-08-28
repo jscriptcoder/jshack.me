@@ -26,35 +26,31 @@ import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { reachServiceHost, type HandlerResponse, type ServiceHostLookup } from './serviceHost';
+import {
+  agentStamp,
+  appendSnmpdLog,
+  communityTier,
+  contactLines,
+  deviceKind,
+  type SnmpTraceDeps,
+} from './snmpAgent';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { derivePid } from '../logging/syslog';
-import { appendMachineLog } from '../patches/appendMachineLog';
 import { computeApGatewayId } from '../identity/router';
 import { parseAclDenies, readAclConf } from '../network/switchAcl';
 import { parseForwardRules, readRulesV4 } from '../network/iptablesRules';
-import { readRwCommunityHash } from '../snmp/rwCommunity';
-import { md5 } from '../generation/md5';
 import { parseSnmpdConf, readSnmpdConf } from '../snmp/conf';
-import { asGameTime } from '../types';
 import type { SnmpDeviceKind, SnmpIdentity, SnmpPortTable } from '../snmp/walk';
 import type { Directory } from '../filesystem/types';
 import type { FindPublicIpByEssid } from '../logging/crossPlayerSourceIp';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
-import type { PatchRow } from '../patches/upsertPatch';
 import type { NonceStore } from '../signedRequest/nonceStore';
 
-export type SnmpWalkDeps = ServiceHostLookup & {
-  readonly nonceStore: NonceStore;
-  /** The server's wall clock, epoch-ms (UTC) — stamps the snmpd.log lines. */
-  readonly now: () => number;
-  /** The TARGET's current `/var/log/snmpd.log`, so a walk appends to the device's
-   *  history instead of replacing it. */
-  readonly readSnmpdLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
-  readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
-  /** The address the access point wears on the outside. Only a device that FRONTS the
-   *  world has one to show. */
-  readonly findPublicIpByEssid: FindPublicIpByEssid;
-};
+export type SnmpWalkDeps = ServiceHostLookup &
+  SnmpTraceDeps & {
+    readonly nonceStore: NonceStore;
+    /** The address the access point wears on the outside. Only a device that FRONTS the
+     *  world has one to show. */
+    readonly findPublicIpByEssid: FindPublicIpByEssid;
+  };
 
 export type { HandlerResponse };
 
@@ -76,16 +72,6 @@ const snmpWalkSchema = z
  *  from a box that is not there. Built here rather than imported because the point is
  *  that this door emits the reach's own refusal, not a second one that resembles it. */
 const UNREACHABLE: HandlerResponse = { status: 404, body: { error: 'host_unreachable' } };
-
-/** Which platform the device speaks as. Read off the port-authority file it already
- *  carries — a switch keeps `/etc/switch/acl.conf` where a router keeps its NAT table —
- *  rather than off its hostname, which names no such thing, or off a second copy in the
- *  agent's own config, which the owner's `nano` could put out of step with the box.
- *
- *  A switch is the special case; anything else answers as the Linux box it is, which is
- *  also the right answer for a workstation that installs an agent of its own. */
-const deviceKind = (hostFs: Directory): SnmpDeviceKind =>
-  readAclConf(hostFs) === '' ? 'router' : 'switch';
 
 /** The device's port table, read from the file it actually routes by. A router's NAT
  *  chain and a switch's access list are two different facts, so the kind decides which
@@ -110,57 +96,6 @@ const addressesOf = async (
   if (device.machineId !== computeApGatewayId(device.essid)) return [device.localIp];
   const { data } = await deps.findPublicIpByEssid(device.essid);
   return data === null ? [device.localIp] : [device.localIp, data.public_ip];
-};
-
-/** Land the arrival and the verdict on the target's own snmpd.log. Best-effort, like
- *  every other door's trace: an answer that really happened must not be undone by a
- *  write that did not.
- *
- *  BOTH lines in one append. They are one event to the box, and two appends would be
- *  two read-modify-writes racing over the same file. Two lines rather than one because
- *  they carry different evidence: a run of arrivals with no verdict behind them is
- *  somebody scanning, and an arrival followed by a refusal is somebody guessing. */
-const recordWalk = async (
-  deps: SnmpWalkDeps,
-  walk: {
-    readonly writerKey: string;
-    readonly machineId: string;
-    readonly hostname: string;
-    readonly fromIp: string;
-    readonly accepted: boolean;
-  },
-): Promise<void> => {
-  const stamp = deps.now();
-  const { sweepLog } = SERVICE_CATALOG.snmp;
-  const record = {
-    outcome: walk.accepted ? ('success' as const) : ('failure' as const),
-    // A community belongs to the service, so no line here names an account. The field
-    // is carried by the shared attempt shape and is meaningless at this door.
-    user: '',
-    fromIp: walk.fromIp,
-    hostname: walk.hostname,
-    time: asGameTime(stamp),
-    pid: derivePid(stamp),
-  };
-  const line = [sweepLog.formatArrival?.(record), sweepLog.formatAttempt(record)]
-    .filter((entry) => entry !== undefined)
-    .join('\n');
-
-  try {
-    await appendMachineLog(
-      { readLog: deps.readSnmpdLog, upsertPatch: deps.upsertPatch },
-      {
-        writerKey: walk.writerKey,
-        machineId: walk.machineId,
-        path: sweepLog.path,
-        owner: sweepLog.owner,
-        permissions: sweepLog.permissions,
-      },
-      line,
-    );
-  } catch {
-    // best-effort: the walk's outcome stands regardless of a logging failure.
-  }
 };
 
 export const handleSnmpWalk = async (
@@ -188,43 +123,22 @@ export const handleSnmpWalk = async (
   if (!reach.ok) return reach.refusal;
   const { hostname, hostFs, machineId, sourceIp, writerKey } = reach.reached;
 
-  const conf = parseSnmpdConf(readSnmpdConf(hostFs));
-  const rwCommunityHash = readRwCommunityHash(hostFs);
-  // Two locks on one door, and the READ-WRITE one is tried first: it is the strictly
-  // greater grant, so a device whose two communities were somehow the same string must
-  // answer with the tier that string was earned at.
-  //
-  // Hashed here and never on the client, exactly as every account password on every
-  // other door is. A client that compared hashes would be a client that could be told
-  // which hash to compare.
-  //
-  // A device whose config names no community answers nobody — which is exactly what an
-  // owner who blanked their own file asked for, rather than a default nobody set.
-  //
-  // An ABSENT read-write community needs no guard of its own: `md5` returns a string for
-  // every input, so comparing one against `undefined` is already false. A `!== undefined`
-  // check in front would be a defence with nothing to defend, and every mutant of it
-  // would be unkillable.
-  const tier =
-    md5(payload.community) === rwCommunityHash
-      ? ('read-write' as const)
-      : conf.roCommunity === payload.community
-        ? ('read-only' as const)
-        : null;
-  const accepted = tier !== null;
+  const tier = communityTier(hostFs, payload.community);
 
-  await recordWalk(deps, {
+  await appendSnmpdLog(
+    deps,
     // The TARGET's key once the box has an owner, so every visitor's lines accrete into
     // one row on the defender's box rather than a row each, where the newest would erase
     // the rest on replay.
-    writerKey: writerKey ?? publicKey,
-    machineId,
-    hostname,
-    // The ROUTE decides the address whenever it can; on the caller's own LAN it knows
-    // nothing and the claim stands.
-    fromIp: sourceIp ?? payload.source_ip ?? 'unknown',
-    accepted,
-  });
+    { writerKey: writerKey ?? publicKey, machineId },
+    contactLines({
+      accepted: tier !== null,
+      // The ROUTE decides the address whenever it can; on the caller's own LAN it knows
+      // nothing and the claim stands.
+      fromIp: sourceIp ?? payload.source_ip ?? 'unknown',
+      ...agentStamp(deps, hostname),
+    }),
+  );
 
   if (tier === null) return UNREACHABLE;
 
@@ -232,7 +146,7 @@ export const handleSnmpWalk = async (
   const identity: SnmpIdentity = {
     hostname,
     kind,
-    sysContact: conf.sysContact,
+    sysContact: parseSnmpdConf(readSnmpdConf(hostFs)).sysContact,
     addresses: await addressesOf(deps, {
       essid: payload.essid,
       machineId,

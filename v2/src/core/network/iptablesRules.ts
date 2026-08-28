@@ -11,7 +11,21 @@
  * skipped rather than failing the whole file — and rejects out-of-range ports.
  */
 
-import type { Directory } from '../filesystem/types';
+import { asAbsPath, type AbsPath } from '../types';
+import type { Directory, FilePermissions } from '../filesystem/types';
+
+/** The canonical `/etc/iptables/rules.v4` storage identity — one source of truth shared
+ *  by the boot seed and by every server-side write, so the seeded file and each patch
+ *  that edits it agree on path, owner and permissions. Root reads it and root edits it
+ *  (`nano`), nobody else does either; a router has only a root account, so root-only is
+ *  the whole boundary. Never executable: it is a table, not a program. */
+export const RULES_V4_PATH: AbsPath = asAbsPath('/etc/iptables/rules.v4');
+export const RULES_V4_OWNER = 'root';
+export const RULES_V4_PERMISSIONS: FilePermissions = {
+  read: ['root'],
+  write: ['root'],
+  execute: [],
+};
 
 /** One parsed NAT forward: a public port DNAT'd to `internalIp:internalPort`.
  *  Distinct from the old `{ publicPort, targetMachineId }` shape — this

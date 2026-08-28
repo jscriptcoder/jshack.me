@@ -11,7 +11,19 @@
  * rather than failing the whole file — and rejects out-of-range ports.
  */
 
-import type { Directory } from '../filesystem/types';
+import { asAbsPath, type AbsPath } from '../types';
+import type { Directory, FilePermissions } from '../filesystem/types';
+
+/** The canonical `/etc/switch/acl.conf` storage identity, at the same root-only
+ *  boundary its router counterpart keeps and for the same reason: a gateway device has
+ *  one account, and the file it routes by is that account's to edit. */
+export const ACL_CONF_PATH: AbsPath = asAbsPath('/etc/switch/acl.conf');
+export const ACL_CONF_OWNER = 'root';
+export const ACL_CONF_PERMISSIONS: FilePermissions = {
+  read: ['root'],
+  write: ['root'],
+  execute: [],
+};
 
 /** The switch's `/etc/switch/acl.conf` content, or '' when absent (missing `/etc`,
  *  the `switch` dir, or the file). Walks the tree the way the port readers do — this
