@@ -51,6 +51,15 @@ describe('naming an agent', () => {
     }
   });
 
+  it('leaves an address with no colon whole, even one that is all digits', () => {
+    // Without the no-colon case answered FIRST, the whole string reads as the suffix,
+    // an all-digit typo passes the port test, and `12345` becomes host `1234` on port
+    // 12345 — a box the player never named, reached by dropping a character off one
+    // they did.
+    expect(parseAgentAddress('12345')).toEqual({ targetIp: '12345' });
+    expect(parseAgentAddress('gw')).toEqual({ targetIp: 'gw' });
+  });
+
   it('splits on the LAST colon, so only the final field can be a port', () => {
     // Nothing in this world hands out addresses with colons in them, but the rule has to
     // be stated somewhere or the answer depends on which colon the parser happened to

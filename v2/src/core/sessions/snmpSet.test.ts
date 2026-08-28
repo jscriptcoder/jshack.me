@@ -133,6 +133,19 @@ const signedSet = (
     source_ip: CLIENT_IP,
   });
 
+/** A set whose caller states no address at all — the log line then has nothing but the
+ *  route to go on, and on the caller's own LAN the route knows nothing either. */
+const signedSetWithoutSource = (
+  identity: ReturnType<typeof generateIdentity>,
+  request: { readonly essid: string; readonly target_ip: string; readonly assignment: string },
+) =>
+  signRequest(identity, 'snmpSet', {
+    essid: request.essid,
+    target_ip: request.target_ip,
+    community: RW_COMMUNITY,
+    assignment: request.assignment,
+  });
+
 /** The row this set left on a given file, or `undefined` when it wrote none. */
 const writtenTo = (
   upsertPatch: ReturnType<typeof makeDeps>['upsertPatch'],
@@ -595,7 +608,10 @@ describe('what a set leaves on the device', () => {
     // string that worked. Nothing changed, so nothing claims to have.
     const logged = writtenTo(upsertPatch, SNMPD_LOG_PATH)?.content ?? '';
     expect(logged).toContain('Authentication succeeded');
-    expect(logged).not.toContain('SET ');
+    // EXACTLY the arrival and the verdict. Asserting only the absence of a SET line
+    // would let any other line through, and a device's log is read as a record of what
+    // happened rather than as a list of things that did not.
+    expect(logged.split('\n').filter(Boolean)).toHaveLength(2);
   });
 
   it('names the value THAT port held, not whichever forward came first', async () => {
@@ -746,5 +762,31 @@ forward 2222 to ${onSegment(essid, 9)}:22
     const logged = writtenTo(upsertPatch, SNMPD_LOG_PATH)?.content ?? '';
     expect(logged).toContain('Authentication succeeded');
     expect(logged).not.toContain('SET ');
+  });
+  it('records an unnamed source as unknown in BOTH the contact and the SET line', async () => {
+    // On the caller's own LAN the route knows nothing about the address, so the client's
+    // claim stands — and a client that claims nothing leaves the device a line with a
+    // hole in it. `unknown` says a visit happened from somewhere unstated; an empty
+    // bracket reads like a line the device failed to finish writing. Both lines say it,
+    // because they are written by two different calls and only agree on purpose.
+    const identity = generateIdentity();
+    const essid = CANDIDATE_ESSIDS[0]!;
+    const gateway = apGatewayOn(essid);
+    const { deps, upsertPatch } = makeDeps(answering());
+
+    const response = await handleSnmpSet(
+      await signedSetWithoutSource(identity, {
+        essid,
+        target_ip: gateway.ip,
+        assignment: `natForward.2222=${onSegment(essid, 10)}:22`,
+      }),
+      deps,
+    );
+
+    expect(response.status).toBe(200);
+    const logged = writtenTo(upsertPatch, SNMPD_LOG_PATH)?.content ?? '';
+    expect(logged).toContain('Connection from UDP: [unknown]');
+    expect(logged).toContain('from UDP: [unknown]');
+    expect(logged).not.toContain('[]');
   });
 });

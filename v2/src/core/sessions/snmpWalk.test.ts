@@ -214,6 +214,28 @@ describe('walking a device with the community it answers to', () => {
       content: loggedLines('success', gateway.hostname),
     });
   });
+
+  it('records an unnamed source as unknown rather than as a blank', async () => {
+    // On the caller's own LAN the route knows nothing about the address, so the client's
+    // claim stands — and a client that claims nothing leaves the device a line with a
+    // hole in it. `unknown` says a visit happened from somewhere unstated; an empty
+    // bracket reads like a line the device failed to finish writing.
+    const identity = generateIdentity();
+    const essid = CANDIDATE_ESSIDS[0]!;
+    const gateway = apGatewayOn(essid);
+    const { deps, upsertPatch } = makeDeps();
+
+    await handleSnmpWalk(
+      await signRequest(identity, 'snmpWalk', {
+        essid,
+        target_ip: gateway.ip,
+        community: 'public',
+      }),
+      deps,
+    );
+
+    expect(upsertPatch.mock.calls[0]![0].content).toContain('[unknown]');
+  });
 });
 
 /**

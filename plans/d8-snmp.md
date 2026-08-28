@@ -4,8 +4,9 @@
 **Status**: Active — slice 1 MERGED (#465, v0.185.0); slice 2 MERGED (#466, v0.186.0,
 2026-08-27); slice 3 MERGED (#467, v0.187.0, 2026-08-28); slice 4 MERGED (#468, v0.188.0,
 2026-08-28 — AC-1…AC-14 met, wire-check RUN 16/16 and falsified twice, mutation gate closed
-at 88.65%); slice 5 PLANNED in full on `feat/d8-snmp-inner`, AC-1…AC-13 awaiting confirmation
-before any code; slices 6–7 outlined only
+at 88.65%); slice 5 **PR-READY** on `feat/d8-snmp-inner` at v0.189.0 (AC-1…AC-13 met,
+wire-check RUN 12/12 and falsified twice, mutation gate closed at 85.32% — see "Progress"
+below); slices 6–7 outlined only
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D8 — resolved scope & decisions
 (grill-me, 2026-08-27)", eleven locked decisions, gap-checked the same day.
 
@@ -32,7 +33,7 @@ that table, all of it a VIEW over the `rules.v4` / `acl.conf` files v2 already p
 | 2 | a player walks it with `public` | identity OIDs return; the walk lands in `snmpd.log` | **merged** #466 |
 | 3 | a player cracks the RW community | `hydra <host> snmp` → the port table renders | **merged** #467 |
 | 4 | a player opens a port, no shell | `snmpset` adds a forward; `nmap` shows it | **merged** #468 |
-| 5 | a device on a deep layer answers | the inner-gateway vantage | **planned** |
+| 5 | a device on a deep layer answers | the inner-gateway vantage | **built** |
 | 6 | a player runs their own agent | owner filters a port; `127.0.0.1` still works | outlined |
 | 7 | a player reconfigures another's | B opens a forward into A's LAN | outlined |
 
@@ -1010,39 +1011,44 @@ Both confirmed 2026-08-28, before any code.
 
 ### Acceptance criteria — CONFIRMED 2026-08-28, before any code
 
-- [ ] **AC-1** `snmpwalk <inner gateway>` with no port walks THE GATEWAY, when it rolled an agent:
+- [x] **AC-1** `snmpwalk <inner gateway>` with no port walks THE GATEWAY, when it rolled an agent:
       the identity OIDs return and `IF-MIB::ifAddr.1` is its own LAN address. Expected GREEN ON
       ARRIVAL — the test is falsified by mutating production, not by watching it fail.
-- [ ] **AC-2** `snmpwalk <inner gateway>:<port>`, where the gateway forwards that port to a deep
+- [x] **AC-2** `snmpwalk <inner gateway>:<port>`, where the gateway forwards that port to a deep
       device's 161, walks THE DEEP DEVICE: `SNMPv2-MIB::sysName.0` is the deep box's hostname, not
       the gateway's.
-- [ ] **AC-3** That deep device reports ITS OWN address — `IF-MIB::ifAddr.1` is its address on the
+- [x] **AC-3** That deep device reports ITS OWN address — `IF-MIB::ifAddr.1` is its address on the
       deep subnet, never the address the player typed.
-- [ ] **AC-4** A forwarded port whose far side is not 161 is silence: `Timeout: No Response from
+- [x] **AC-4** A forwarded port whose far side is not 161 is silence: `Timeout: No Response from
       <host>`. A forward to sshd is not a door to the agent.
-- [ ] **AC-5** A port the gateway neither listens on nor forwards is the same silence, and a
+- [x] **AC-5** A port the gateway neither listens on nor forwards is the same silence, and a
       bricked gateway takes the whole deep entrance dark the same way.
-- [ ] **AC-6** `snmpset <inner gateway>:<port> <community> aclPort.8080=deny` against a deep SWITCH
+- [x] **AC-6** `snmpset <inner gateway>:<port> <community> aclPort.8080=deny` against a deep SWITCH
       writes its `/etc/switch/acl.conf` and echoes `ACL-MIB::aclPort.8080 = STRING: deny`.
-- [ ] **AC-7** The lines a deep device logs record the FRONTING GATEWAY's `.1` as the source
+- [x] **AC-7** The lines a deep device logs record the FRONTING GATEWAY's `.1` as the source
       address, not the player's own LAN address — the route decides it and the client's claim is
       ignored. (This kills the `sourceIp ??` survivors slice 4 classified as unreachable.)
-- [ ] **AC-8** On an inner gateway the bound follows the deep layer:
+- [x] **AC-8** On an inner gateway the bound follows the deep layer:
       `natForward.2222=<deep subnet>.9:22` is accepted and written, while
       `natForward.2222=<a LAN address>:22` is refused at `wrongValue` and the file is unchanged.
-- [ ] **AC-9** On the edge AP gateway the bound is UNCHANGED — slice 4's AC-7 still holds, a
+- [x] **AC-9** On the edge AP gateway the bound is UNCHANGED — slice 4's AC-7 still holds, a
       `10.9.9.9` destination on a `192.168.x` edge gateway refused at `wrongValue`.
-- [ ] **AC-10** THE LOOP, end to end and shell-free: `snmpset <inner gw> <community>
+- [x] **AC-10** THE LOOP, end to end and shell-free: `snmpset <inner gw> <community>
       natForward.<port>=<deep device>:161` opens the forward, and `snmpwalk <inner gw>:<port>
       <community>` then walks the device behind it. Two commands, no session, nothing to `exit`.
-- [ ] **AC-11** A bare `<host>` with no colon behaves EXACTLY as it did in slices 2–4 — every walk
+- [x] **AC-11** A bare `<host>` with no colon behaves EXACTLY as it did in slices 2–4 — every walk
       and set test written before this slice still passes untouched.
-- [ ] **AC-12** A suffix that is not a port is not one: `<host>:abc`, `<host>:`, `<host>:0` and
+- [x] **AC-12** A suffix that is not a port is not one: `<host>:abc`, `<host>:`, `<host>:0` and
       `<host>:99999` are sent as the whole typed string, find no such host, and answer with the
       door's single silence. The split happens only on a `1`–`65535` suffix, so there is one code
       path and no second failure sentence to keep in step with the first.
-- [ ] **AC-13** Proven live: the wire-check runs the loop against `vercel dev` + supabase and is
+- [x] **AC-13** Proven live: the wire-check runs the loop against `vercel dev` + supabase and is
       falsified at least once by breaking production.
+      *Built as a SIBLING script (`scripts/testSnmpDepth.ts`) rather than as checks bolted onto
+      the two existing ones: the fixture needs its own ESSID with a two-deep chain and agents on
+      BOTH gateways, and threading a second topology through a script that sets one up carefully
+      would have made both harder to read. It searches 200 seeded candidates and exits 2 when
+      none qualifies.*
 
 ### RED — the failing tests, in the order they get written
 
@@ -1092,6 +1098,84 @@ was rejected: the SAME threading serves both doors, so 5b would inherit nearly f
 almost entirely tests, and 5a alone would ship a walk that reports a deep device's identity
 correctly while `snmpset` on the gateway above it still refuses every useful write. Half the
 correction is worse than either whole.
+
+### Progress — BUILT, on `feat/d8-snmp-inner` (2026-08-28)
+
+Seven commits, each RED→GREEN with the gates clean. Full suite **3928 passing / 186 files**
+(baseline at slice 4's close was 3904 / 182); `npm run typecheck` and `npm run lint` clean from
+`v2/`; wire-check **12/12** against a live stack, falsified twice; version **v0.189.0**.
+
+| Commit | What landed |
+|--------|-------------|
+| `9cb4e559` | the plan — slice 4 marked merged, slice 5 planned in full |
+| `ccabfaea` | `frontedSegment` — the `/24` a device's forwards may point into |
+| `f577ff8c` | the reach carries the box's own address; the walk answers as the device |
+| `b8c142e1` | the set door takes the port, and the bound asks the device what it fronts |
+| `6fbaebed` | `parseAgentAddress`, both commands, the params and the transport |
+| `8ce3a74e` | `scripts/testSnmpDepth.ts` — 12 checks, falsified twice; v0.189.0 |
+| (this one) | the mutation gate's gap-closing tests and this record |
+
+**AC-1…AC-13 are met.**
+
+#### What building it settled that planning had not
+
+- **The reach needed ONE field, and the rule that fills it was not obvious.** `localIp` is the
+  address a box answers to FROM WHERE THE CALLER STANDS — the typed address on the caller's own
+  LAN and across the world, the box's own deep address through a forward. Every vantage knows it,
+  so there is no `null` meaning "ask the caller" as `sourceIp` has. The public vantage keeps the
+  PUBLIC address rather than the internal one it resolved: handing that back would tell a
+  stranger the shape of a LAN they have not reached.
+- **The bound needed no new plumbing at all.** `generateDeepLayer` seeds its subnet from
+  `deep-layer-<essid>-<machineId>` alone, and the handler already held `machineId` and computed
+  `deviceKind`. Planning budgeted for wiring that turned out to be a two-line call.
+- **`frontedSegment` calls `generateDeepLayer` rather than re-deriving the seed.** Extracting the
+  subnet into a shared helper looked cleaner and was rejected: `generateDeepLayer` draws the
+  subnet and the host octets from ONE prng stream, so any extraction that did not consume the
+  same two draws would move every deep layer in the world. The `kind` parameter changes nothing
+  today — it decides only whether a child hangs, which this caller discards — but inventing one
+  here would be the function holding an opinion about a device it was told about.
+- **Typecheck caught what 920 passing tests did not, for the FIFTH slice running.** An unused
+  import and a dep the set door does not take (`findPublicIpByEssid` belongs to the walk, for the
+  AP gateway's outside address). Same class as slices 1–4.
+- **The scripted-splice escape trap bit a FOURTH time.** `'\n'` written through a heredoc'd Python
+  splice arrives as a real newline and breaks the parse. Use the Edit tool for any content
+  carrying escapes — this is now four for four across D8.
+
+#### The mutation gate — run, survivors addressed
+
+Scoped to this slice's changed production code (throwaway `vite.mutation.config.ts` +
+`stryker.slice5.json`, both deleted after). Three runs: **84.50% → 84.99% → 85.32%**, survivors
+**94 → 92 → 90**, killed 518 → 523, no-coverage 1 → 0. `frontedSegment.ts` and `agentAddress.ts`
+both finished at **100%**.
+
+| Survivor group | Action |
+|---|---|
+| `agentAddress`'s `separator === -1` early return | **Real gap, and a real bug.** Without it the whole string reads as the suffix, so the all-digit typo `12345` parses as host `1234` on port 12345 — a box the player never named. Now pinned |
+| `'unknown'` → `""` on both doors' log lines | **Real gap.** A client that states no address left a line reading `[]`, which looks like a line the device failed to finish writing. Both doors now assert `[unknown]` |
+| the failed-write log asserted only as "no SET line" | **Real gap.** Any OTHER junk line passed. Now asserted as EXACTLY the arrival and the verdict |
+
+The 90 that remain, all classified:
+
+- **81 in the two commands (`snmpset.ts` L42, L70-114; `snmpwalk.ts` L87-95)** — the command
+  descriptor and its manual prose, plus the positional-argument guard. Slices 2, 3 and 4
+  classified these identically, and the line numbers confirm none of them is in the new
+  address-splitting path: its executable half has ZERO survivors.
+- **3 in `resolveInnerGatewayTarget.ts` (L144)** — the `served.kind === 'none'` early return.
+  Equivalent: falling through reaches the same `UNREACHABLE` at the bottom, because a `none` has
+  no `internalIp` to match either branch. The mutant is not expressible in typed source at all —
+  TypeScript narrows `served` on exactly that check.
+- **2 in `serviceHost.ts` (L196, L203)** — the same-LAN `?? []` fallbacks, mutated to a junk
+  array. Equivalent: a junk row matches no `owner_key` and no lease, which is what an empty array
+  already does.
+- **3 in `snmpSet.ts`** — `.looseObject` is required by the envelope; `currentState`'s `kind:
+  'acl'` tag is applied to both sides of the comparison it feeds; the failed-write ternary's `[]`
+  is now killed. All inherited classifications from slice 4, re-checked rather than assumed.
+- **1 in `snmpWalk.ts` (L141)** — `writerKey ?? publicKey`. Still slice 7's: a generated device
+  has no owner, so only a cross-player write can tell the two apart.
+
+**Slice 4's deferred survivor is DISCHARGED.** Its report parked the `sourceIp ??` half as needing
+"a vantage where the ROUTE resolves an address, which this slice never produces (slice 5/7 owns
+it)". The deep vantage produces exactly that, and those mutants no longer survive.
 
 ### PR-ready when
 
