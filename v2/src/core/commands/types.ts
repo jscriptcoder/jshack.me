@@ -833,6 +833,9 @@ export type RedisApi = {
 export type SnmpWalkParams = {
   readonly essid: string;
   readonly targetIp: string;
+  /** The forwarded port a device BEHIND a gateway is named by. Absent is the agent's
+   *  own 161 — the device standing at the address itself. */
+  readonly port?: number;
   readonly community: string;
   /** The address the target's `/var/log/snmpd.log` records the walk from. Never null:
    *  the caller has already resolved a connected `wlan0` to get here. */
@@ -870,6 +873,9 @@ export type SnmpWalkResult =
 export type SnmpSetParams = {
   readonly essid: string;
   readonly targetIp: string;
+  /** The forwarded port a device BEHIND a gateway is named by. Absent is the agent's
+   *  own 161 — the device standing at the address itself. */
+  readonly port?: number;
   readonly community: string;
   readonly assignment: string;
   /** The address the target's `/var/log/snmpd.log` records the write from. */

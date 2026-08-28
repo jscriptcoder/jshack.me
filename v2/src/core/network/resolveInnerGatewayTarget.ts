@@ -59,6 +59,10 @@ export type InnerGatewayTarget = {
   readonly fs: Directory;
   readonly machineId: string;
   readonly hostname: string;
+  /** The address the box HOLDS on the layer it stands on — never the gateway address
+   *  the caller typed to get here. A door that reported the typed address would describe
+   *  a box on the LAN while answering for one two hops behind it. */
+  readonly localIp: string;
   /** The address the target saw: the `.1` of the deep subnet the connection arrived
    *  through (the fronting gateway), since NAT is all a deep box is ever shown. `null`
    *  when the reach landed on the inner gateway's OWN `:22` — a Layer-1 box reached
@@ -98,8 +102,9 @@ type ChainContext = {
 };
 
 /** The gateway the walk currently sits on: a `FrontingGateway` plus the hostname the
- *  landed box's log line carries (its seeded name). */
-type WalkGateway = FrontingGateway & { readonly hostname: string };
+ *  landed box's log line carries (its seeded name) and the address it holds on the layer
+ *  it stands on — the LAN for the inner gateway, the parent's deep subnet for a child. */
+type WalkGateway = FrontingGateway & { readonly hostname: string; readonly ip: string };
 
 /**
  * Resolve `<inner>:<port>` to its target by walking the forward chain from the gateway at
@@ -130,6 +135,7 @@ const resolveTargetAt = async (
         fs: gatewayFs,
         machineId: frontingGateway.machineId,
         hostname: frontingGateway.hostname,
+        localIp: frontingGateway.ip,
         sourceIp: arrivalSubnet === null ? null : `${arrivalSubnet}.1`,
         reachedPort: port,
       },
@@ -167,6 +173,7 @@ const resolveTargetAt = async (
         fs: hop.fs,
         machineId: hop.machineId,
         hostname: deep.host.hostname,
+        localIp: deep.host.ip,
         sourceIp: `${deep.subnet}.1`,
         reachedPort: served.internalPort,
       },
@@ -196,6 +203,7 @@ const resolveTargetAt = async (
         machineId: hop.machineId,
         kind: deep.childGateway.kind,
         hostname: deep.childGateway.hostname,
+        ip: deep.childGateway.ip,
       },
       served.internalPort,
       position + 1,
@@ -240,7 +248,7 @@ export const resolveInnerGatewayTarget = async (
       findPatches: deps.findPatches,
     },
     gatewayFs,
-    { machineId: gatewayMachineId, kind: gateway.kind, hostname: gateway.hostname },
+    { machineId: gatewayMachineId, kind: gateway.kind, hostname: gateway.hostname, ip: gateway.ip },
     request.port,
     1,
     null,

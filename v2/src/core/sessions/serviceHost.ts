@@ -90,6 +90,12 @@ export type ReachedServiceHost = {
   /** The box's current filesystem — what the datadir and the pidfiles were read from,
    *  and what an accepted connection will be logged against. */
   readonly hostFs: Directory;
+  /** The address this box answers to FROM WHERE THE CALLER STANDS: the address typed on
+   *  the caller's own LAN and across the world, and the box's own address on its deep
+   *  subnet when a forward carried the request down to it. A door that wants to report
+   *  which box it is talking to must read this rather than the request, which through a
+   *  forward names the gateway and not the box behind it. */
+  readonly localIp: string;
   /** The address the box SAW this request arrive from, when the route decides it: the
    *  fronting gateway's `.1`, because NAT is all a deep box is ever shown, or the
    *  attacker's own public address across the world. `null` on the caller's own LAN,
@@ -126,6 +132,7 @@ const openJournaledBox = async (
     /** The rows made into a filesystem: over a seeded base for a generated box, over
      *  the owner's own identity for a player's. */
     readonly rebuild: (patches: readonly OwnerPatchRow[] | null) => Directory;
+    readonly localIp: string;
     readonly reachedPort: number;
     readonly sourceIp: string | null;
     readonly writerKey: string | null;
@@ -140,6 +147,7 @@ const openJournaledBox = async (
     machineId: box.machineId,
     service: box.service,
     hostFs: box.rebuild(patches.data),
+    localIp: box.localIp,
     reachedPort: box.reachedPort,
     sourceIp: box.sourceIp,
     writerKey: box.writerKey,
@@ -216,6 +224,7 @@ const openServiceOn = (box: {
    *  whether the caller is a database login or a key-value statement. */
   readonly service: string;
   readonly hostFs: Directory;
+  readonly localIp: string;
   readonly reachedPort: number;
   readonly sourceIp: string | null;
   readonly writerKey: string | null;
@@ -240,6 +249,7 @@ const openServiceOn = (box: {
       hostname: box.hostname,
       machineId: box.machineId,
       hostFs: box.hostFs,
+      localIp: box.localIp,
       sourceIp: box.sourceIp,
       writerKey: box.writerKey,
     },
@@ -283,6 +293,9 @@ export const reachServiceHost = async (
       // Already rebuilt from the owner's identity plus their journal — one of the two
       // vantages the server resolves whole, because only it can know whose box it is.
       hostFs: resolved.target.fs,
+      // The public address IS what this box answers to from outside. Handing back its
+      // internal one would tell a stranger the shape of a LAN they have not reached.
+      localIp: target.targetIp,
       reachedPort: resolved.target.reachedPort,
       sourceIp: await resolveCrossPlayerSourceIp(deps.findHomeNetworkByOwnerKey, target.actorKey),
       writerKey: resolved.target.logWriterKey,
@@ -306,6 +319,7 @@ export const reachServiceHost = async (
       machineId: occupant.workstation_machine_id,
       service: target.service,
       rebuild: (patches) => materializeWorkstationFs(occupant, patches),
+      localIp: target.targetIp,
       reachedPort: target.port,
       // Nothing rewrote the source on the way in: the box really did see the caller's
       // own address on the WiFi they share.
@@ -333,6 +347,7 @@ export const reachServiceHost = async (
       // vantage arrives materialized exactly as the public one does. Replaying it again
       // here would be a second read of the same rows to reach the same tree.
       hostFs: resolved.target.fs,
+      localIp: resolved.target.localIp,
       reachedPort: resolved.target.reachedPort,
       sourceIp: resolved.target.sourceIp,
       // Nobody owns a generated box, so there is no key but the caller's to write under.
@@ -354,6 +369,7 @@ export const reachServiceHost = async (
     machineId,
     service: target.service,
     rebuild: (patches) => materializeMachineFs(baseFs, patches),
+    localIp: target.targetIp,
     reachedPort: target.port,
     // Never invented here. On the caller's own LAN the address the box saw is the
     // caller's, which only the caller can state.
