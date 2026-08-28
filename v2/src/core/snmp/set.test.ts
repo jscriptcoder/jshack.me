@@ -117,6 +117,53 @@ describe('refusing what cannot be set', () => {
     });
   });
 
+  it('refuses an OID with anything before or after the name it recognises', () => {
+    // Anchored at BOTH ends, in the shape every parser at this door uses. Unanchored at
+    // the front, `xnatForward.2222` would set a forward the player never named; at the
+    // back, `natForward.2222junk` would set port 2222 while its owner reads the line as
+    // something else entirely.
+    expect(parseSnmpSet('xnatForward.2222=192.168.188.10:22')).toEqual({
+      ok: false,
+      refusal: {
+        reason: 'noSuchName',
+        detail: 'The name does not exist in the MIB',
+        failedObject: 'xnatForward.2222',
+      },
+    });
+    expect(parseSnmpSet('natForward.2222junk=192.168.188.10:22')).toEqual({
+      ok: false,
+      refusal: {
+        reason: 'noSuchName',
+        detail: 'The name does not exist in the MIB',
+        failedObject: 'natForward.2222junk',
+      },
+    });
+  });
+
+  it('accepts the port boundaries and refuses what sits just outside them', () => {
+    expect(parseSnmpSet('natForward.1=192.168.188.10:22')).toMatchObject({ ok: true });
+    expect(parseSnmpSet('aclPort.65535=deny')).toMatchObject({ ok: true });
+    expect(parseSnmpSet('aclPort.65536=deny')).toMatchObject({
+      ok: false,
+      refusal: { reason: 'noSuchName' },
+    });
+  });
+
+  it('refuses a value carrying a second rule, rather than smuggling it into the file', () => {
+    // The gate is `parseForwardRules` over the line this would write, and a newline in
+    // the value makes that two rules rather than one. Accepted, it would open a port
+    // nobody named and nothing echoed — invisible to the player who typed it and to the
+    // owner reading their own file.
+    expect(parseSnmpSet('natForward.2222=192.168.188.10:22\nforward 23 to 10.9.9.9:23')).toEqual({
+      ok: false,
+      refusal: {
+        reason: 'wrongValue',
+        detail: 'not an address and port, or "none"',
+        failedObject: 'NAT-MIB::natForward.2222',
+      },
+    });
+  });
+
   it('refuses a switch value that is neither state', () => {
     expect(parseSnmpSet('aclPort.8080=maybe')).toEqual({
       ok: false,

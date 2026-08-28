@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { parseAclDenies, readAclConf, withDeny } from './switchAcl';
+import {
+  parseAclDenies,
+  readAclConf,
+  withDeny,
+  ACL_CONF_OWNER,
+  ACL_CONF_PATH,
+  ACL_CONF_PERMISSIONS,
+} from './switchAcl';
 import { buildApGatewayBaseFs, buildSwitchBaseFs } from '../generation/routerFs';
 import { buildDirectory } from '../../test/factories/filesystem';
 
@@ -55,6 +62,17 @@ describe('parseAclDenies', () => {
 
   it('rejects out-of-range ports (0 and > 65535) but keeps the boundary ports 1 and 65535', () => {
     expect(parseAclDenies('deny 0\ndeny 70000\ndeny 1\ndeny 22\ndeny 65535')).toEqual([1, 22, 65535]);
+  });
+});
+
+describe('where an acl.conf lives', () => {
+  it('is the path a switch filters by, owned and writable by root alone', () => {
+    // Asserted against the literals rather than against the constants themselves: the
+    // boot seed and every server-side write share these, so a test comparing each to
+    // itself would agree with any value at all.
+    expect(ACL_CONF_PATH).toBe('/etc/switch/acl.conf');
+    expect(ACL_CONF_OWNER).toBe('root');
+    expect(ACL_CONF_PERMISSIONS).toEqual({ read: ['root'], write: ['root'], execute: [] });
   });
 });
 
@@ -147,5 +165,19 @@ describe('withDeny', () => {
 
   it('ends what it writes with a newline, the way every file an owner may append to does', () => {
     expect(withDeny('# my list', 22, true)).toBe('# my list\ndeny 22\n');
+  });
+
+  it('appends after the last rule on a file that already ends in a newline', () => {
+    // The shipped file has no trailing newline and `rules.v4` has one, and an owner's
+    // `nano` edit can leave either file either way. Appending after the empty string a
+    // trailing newline leaves behind would put a blank line between the rules.
+    expect(withDeny('# my list\ndeny 443\n', 22, true)).toBe('# my list\ndeny 443\ndeny 22\n');
+  });
+
+  it('finds a deny the owner indented, rather than leaving it in place', () => {
+    // The parser trims before matching and so must the writer's search. Left untrimmed,
+    // an indented deny is invisible to it: the port stays shut while the device reports
+    // it open.
+    expect(parseAclDenies(withDeny('# my list\n   deny 22', 22, false))).toEqual([]);
   });
 });

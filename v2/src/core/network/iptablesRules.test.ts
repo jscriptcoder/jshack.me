@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { parseForwardRules, readRulesV4, withForward } from './iptablesRules';
+import {
+  parseForwardRules,
+  readRulesV4,
+  withForward,
+  RULES_V4_OWNER,
+  RULES_V4_PATH,
+  RULES_V4_PERMISSIONS,
+} from './iptablesRules';
 import { buildApGatewayBaseFs } from '../generation/routerFs';
+import { buildDirectory } from '../../test/factories/filesystem';
 
 /**
  * Story 5.1: `/etc/iptables/rules.v4` is the SINGLE parsed source of truth for
@@ -81,6 +89,56 @@ describe('parseForwardRules', () => {
   it('returns no rules for empty or comment-only content', () => {
     expect(parseForwardRules('')).toEqual([]);
     expect(parseForwardRules('# just a header\n# and a note')).toEqual([]);
+  });
+});
+
+/**
+ * Finding the file on a device. Every box is asked this, not only the ones that route:
+ * the SNMP door reads a device's port table before it knows which kind of device it is
+ * talking to, so a tree without the directory has to answer emptily rather than throw
+ * at the first step.
+ */
+describe('where a rules.v4 lives', () => {
+  it('is the path a router routes by, owned and writable by root alone', () => {
+    // Asserted against the literals rather than against the constants themselves: the
+    // boot seed and every server-side write share these, so a test comparing each to
+    // itself would agree with any value at all.
+    expect(RULES_V4_PATH).toBe('/etc/iptables/rules.v4');
+    expect(RULES_V4_OWNER).toBe('root');
+    expect(RULES_V4_PERMISSIONS).toEqual({ read: ['root'], write: ['root'], execute: [] });
+  });
+});
+
+describe('readRulesV4', () => {
+  it('reads the seeded rules.v4 off a gateway filesystem', () => {
+    const content = readRulesV4(buildApGatewayBaseFs('BREW-AND-CODE'));
+
+    expect(content.startsWith('#')).toBe(true);
+    // Default-deny: the seed is a header and a commented example, and parses to nothing.
+    expect(parseForwardRules(content)).toEqual([]);
+  });
+
+  it('returns empty for a filesystem with no /etc at all', () => {
+    expect(readRulesV4(buildDirectory({}))).toBe('');
+  });
+
+  it('returns empty for a box whose /etc holds no iptables directory', () => {
+    // What a switch looks like: it keeps an access list where a router keeps a NAT
+    // table, so the absence says which device this is rather than that anything broke.
+    expect(readRulesV4(buildDirectory({ etc: buildDirectory({}) }))).toBe('');
+  });
+
+  it('returns empty when /etc/iptables exists but holds no rules.v4', () => {
+    expect(readRulesV4(buildDirectory({ etc: buildDirectory({ iptables: buildDirectory({}) }) }))).toBe(
+      '',
+    );
+  });
+
+  it('returns empty when rules.v4 is present but is not a regular file', () => {
+    const fs = buildDirectory({
+      etc: buildDirectory({ iptables: buildDirectory({ 'rules.v4': buildDirectory({}) }) }),
+    });
+    expect(readRulesV4(fs)).toBe('');
   });
 });
 
@@ -198,6 +256,21 @@ describe('withForward', () => {
       '# NAT rules',
       'forward 8080 to 192.168.188.11:80',
       'forward 2222 to 192.168.188.10:22',
+    ]);
+  });
+
+  it('finds a rule the owner indented, rather than appending a duplicate beside it', () => {
+    // The parser trims before matching and so must the writer's search. Left untrimmed,
+    // an indented rule is invisible to it and the port ends up named twice — with the
+    // file's own parser then honouring whichever came first.
+    const content = ['# NAT rules', '   forward 2222 to 192.168.188.9:22'].join('\n');
+    const written = withForward(content, 2222, {
+      internalIp: '192.168.188.10',
+      internalPort: 22,
+    });
+
+    expect(parseForwardRules(written)).toEqual([
+      { publicPort: 2222, internalIp: '192.168.188.10', internalPort: 22 },
     ]);
   });
 
