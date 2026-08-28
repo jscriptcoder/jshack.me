@@ -1,11 +1,11 @@
 # Plan: D8 — `snmpwalk` / `snmpset`
 
-**Branch**: `feat/d8-snmp-set` (slice 4)
+**Branch**: `feat/d8-snmp-inner` (slice 5)
 **Status**: Active — slice 1 MERGED (#465, v0.185.0); slice 2 MERGED (#466, v0.186.0,
-2026-08-27); slice 3 MERGED (#467, v0.187.0, 2026-08-28 — AC-1…AC-11 met, wire-check RUN
-15/15, mutation gate closed); slice 4 **PR-READY** on `feat/d8-snmp-set` at v0.188.0
-(AC-1…AC-14 met, wire-check RUN 16/16, mutation gate closed — see "Progress" below);
-slices 5–7 outlined only
+2026-08-27); slice 3 MERGED (#467, v0.187.0, 2026-08-28); slice 4 MERGED (#468, v0.188.0,
+2026-08-28 — AC-1…AC-14 met, wire-check RUN 16/16 and falsified twice, mutation gate closed
+at 88.65%); slice 5 PLANNED in full on `feat/d8-snmp-inner`, AC-1…AC-13 awaiting confirmation
+before any code; slices 6–7 outlined only
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D8 — resolved scope & decisions
 (grill-me, 2026-08-27)", eleven locked decisions, gap-checked the same day.
 
@@ -31,8 +31,8 @@ that table, all of it a VIEW over the `rules.v4` / `acl.conf` files v2 already p
 | 1 | a device answers SNMP | `nmap` shows `161/udp snmp` on a router/switch | **merged** #465 |
 | 2 | a player walks it with `public` | identity OIDs return; the walk lands in `snmpd.log` | **merged** #466 |
 | 3 | a player cracks the RW community | `hydra <host> snmp` → the port table renders | **merged** #467 |
-| 4 | a player opens a port, no shell | `snmpset` adds a forward; `nmap` shows it | **built** |
-| 5 | a device on a deep layer answers | the inner-gateway vantage | outlined |
+| 4 | a player opens a port, no shell | `snmpset` adds a forward; `nmap` shows it | **merged** #468 |
+| 5 | a device on a deep layer answers | the inner-gateway vantage | **planned** |
 | 6 | a player runs their own agent | owner filters a port; `127.0.0.1` still works | outlined |
 | 7 | a player reconfigures another's | B opens a forward into A's LAN | outlined |
 
@@ -834,7 +834,7 @@ Both confirmed 2026-08-28, before any code.
 
 ### Progress — BUILT, on `feat/d8-snmp-set` (2026-08-28)
 
-Seven commits, each RED→GREEN with the gates clean. Full suite **3904 passing / 182 files**
+Eight commits, each RED→GREEN with the gates clean. Full suite **3904 passing / 182 files**
 (baseline at slice 3's close was 3831 / 179); `npm run typecheck` and `npm run lint` clean from
 `v2/`; wire-check **16/16** against a live stack, falsified twice; version **v0.188.0**.
 
@@ -844,9 +844,10 @@ Seven commits, each RED→GREEN with the gates clean. Full suite **3904 passing 
 | `35a59a6c` | the writers — `withForward`, `withDeny`, each beside its parser |
 | `fefd24ac` | the grammar — `snmp/set.ts`, gated by the file's own parser |
 | `24304e91` | `snmpAgent.ts` — what both doors share; the two files' storage identities |
-| (this one) | the SET line and `handleSnmpSet` |
-| (this one) | the command, the adapter, `env`/`state`, the `api/` dispatch |
+| `7e912c5a` | the SET line and `handleSnmpSet` |
+| `f89622e5` | the command, the adapter, `env`/`state`, the `api/` dispatch |
 | `b6e82138` | `scripts/testSnmpSet.ts` — 16 checks, falsified twice; v0.188.0 |
+| `3039037f` | the mutation gate: nine gap-closing tests, `switchAcl` to 100% |
 
 **AC-1…AC-14 are met.**
 
@@ -930,13 +931,179 @@ mutation gate has run with survivors addressed, and the version is bumped to **v
 
 **Slice complete when** its PR lands on `main`.
 
-## Slices 5–7 (outline only — plan each when its predecessor lands)
+## Slice 5: a player walks and rewrites a device on the hidden layer behind an inner gateway
 
-- **Slice 5** — the inner-gateway vantage. Budget for EVIDENCE, not plumbing: `reachServiceHost`
-  takes the daemon as a parameter, and D7 spent two slices proving paths that already worked.
-  Expect RED to come from mutating production. **Open**: how `snmpwalk` addresses a forwarded inner
-  gateway — D7 used `redis-cli -p <fwd> <gw>`, real `snmpwalk` takes `host:port`, and the choice
-  binds `snmpset` too.
+**Value**: The deep layer stops being somewhere you can only get a SHELL. A player who has rooted an
+inner gateway can now read and reconfigure the devices behind it without logging into any of them —
+and, for the first time, `snmpset` on the inner gateway itself does something useful, because the
+forward it writes is the one that makes the deep device addressable at all.
+
+**Path**: `snmpwalk <inner gw>:<port>` → the command splits the transport address → `snmpWalk`/
+`snmpSet` pass that port to `reachServiceHost` instead of a hard-coded 161 →
+`forwardsIntoDeepLayer` → `resolveInnerGatewayTarget` walks the forward chain → the deep box's own
+filesystem, its own address, and the fronting gateway's `.1` as the source → the OID block, or the
+port-table write and its `snmpd.log` line on the DEEP box.
+
+**Class**: Behavior change.
+
+**Delivery**: Independent PR against trunk. No stack.
+
+**Required implementation skills**: `tdd`, `testing`, `refactoring`. Load `mutation-testing` at PR
+readiness, not per increment.
+
+**Reduction program**: `N/A`.
+**Transition/terminal evidence**: `N/A`.
+
+### What exploration settled before planning
+
+Four facts, each verified in the source rather than assumed. They shrink the plumbing and grow the
+correction:
+
+1. **The inner-gateway walk ALREADY WORKS.** `resolveTargetAt` returns the gateway itself whenever
+   `machineServing` says it holds the port (`resolveInnerGatewayTarget.ts:121`), and a gateway that
+   rolled an agent listens on 161. Its comment says "landing on this gateway's own `:22`" only
+   because `ssh` was the sole caller. **RED for this half comes from mutating production**, exactly
+   as the outline predicted.
+2. **The deep layer already carries devices worth walking.** `generateDeepLayer` hangs child
+   gateways of kind `router | switch` — the two roles that roll SNMP agents (0.6 / 0.9).
+3. **Neither command can NAME a deep device.** Both hard-code `port: SERVICE_CATALOG.snmp
+   .defaultPort` (`snmpWalk.ts:119`, `snmpSet.ts:153`), and through a forward the port is the whole
+   of how a hidden box is named.
+4. **Two places treat the typed address AS the device, and both are now wrong.**
+   `addressesOf` passes `localIp: payload.target_ip`, so a deep device would report the GATEWAY's
+   address as its own; and the segment bound compares against `payload.target_ip`, so on an inner
+   gateway it measures the LAN rather than the layer the device fronts.
+
+### The defect slice 4 shipped, invisible until this vantage existed
+
+An inner gateway's forwards resolve against its DEEP layer. A forward pointing at a LAN address
+matches neither `deep.host.ip` nor `deep.childGateway.ip`, so it lands on
+`resolveInnerGatewayTarget`'s "stray internal IP, a dark DNAT target" and is `UNREACHABLE`. But the
+bound refuses every deep destination before it can be written. **So `snmpset` against an inner
+gateway can today write only forwards that are guaranteed dark: every legal write is useless and
+every useful write is illegal.**
+
+Slice 4 could not see it — no deep device was addressable, so there was no destination worth
+bounding differently. The correction is not a special case: the edge AP gateway fronts the LAN and
+its forwards point into the LAN, which is exactly what slice 4's AC-7 pinned and what still holds.
+One sentence covers both — **a forward must land on the segment the device FRONTS** — and switches
+are untouched, having no forwards at all.
+
+### Two decisions this slice needed
+
+Both confirmed 2026-08-28, before any code.
+
+1. **A deep device is addressed `<host>:<port>`, net-snmp's own transport syntax.** Real net-snmp
+   accepts `host:port` as the agent address, so this is the authentic spelling and costs no new
+   flag; `snmpset` keeps its three positional arguments. It is also the spelling the door already
+   WRITES as a value — `natForward.2222=192.168.42.10:22` — so one form means "an address and a
+   port" throughout. Rejected: `-p <fwd> <host>`, which four doors already teach
+   (`redisCli.ts:112` states the convention outright) but which real net-snmp does not have, on a
+   door that has chosen fidelity twice already. Also rejected: accepting BOTH, which is two parse
+   paths for one fact.
+2. **The segment bound asks the DEVICE what it fronts**, resolved server-side from `(essid,
+   machineId, kind)`. `generateDeepLayer` seeds its subnet from `deep-layer-<essid>-<machineId>`
+   alone, so this needs no new plumbing and no client input. Rejected: leaving the bound and
+   deferring the defect, which would ship a device the player can walk but cannot usefully
+   reconfigure; and dropping the bound entirely, which discards a rule slice 4 confirmed and
+   mutation-tested.
+
+### Acceptance criteria — CONFIRMED 2026-08-28, before any code
+
+- [ ] **AC-1** `snmpwalk <inner gateway>` with no port walks THE GATEWAY, when it rolled an agent:
+      the identity OIDs return and `IF-MIB::ifAddr.1` is its own LAN address. Expected GREEN ON
+      ARRIVAL — the test is falsified by mutating production, not by watching it fail.
+- [ ] **AC-2** `snmpwalk <inner gateway>:<port>`, where the gateway forwards that port to a deep
+      device's 161, walks THE DEEP DEVICE: `SNMPv2-MIB::sysName.0` is the deep box's hostname, not
+      the gateway's.
+- [ ] **AC-3** That deep device reports ITS OWN address — `IF-MIB::ifAddr.1` is its address on the
+      deep subnet, never the address the player typed.
+- [ ] **AC-4** A forwarded port whose far side is not 161 is silence: `Timeout: No Response from
+      <host>`. A forward to sshd is not a door to the agent.
+- [ ] **AC-5** A port the gateway neither listens on nor forwards is the same silence, and a
+      bricked gateway takes the whole deep entrance dark the same way.
+- [ ] **AC-6** `snmpset <inner gateway>:<port> <community> aclPort.8080=deny` against a deep SWITCH
+      writes its `/etc/switch/acl.conf` and echoes `ACL-MIB::aclPort.8080 = STRING: deny`.
+- [ ] **AC-7** The lines a deep device logs record the FRONTING GATEWAY's `.1` as the source
+      address, not the player's own LAN address — the route decides it and the client's claim is
+      ignored. (This kills the `sourceIp ??` survivors slice 4 classified as unreachable.)
+- [ ] **AC-8** On an inner gateway the bound follows the deep layer:
+      `natForward.2222=<deep subnet>.9:22` is accepted and written, while
+      `natForward.2222=<a LAN address>:22` is refused at `wrongValue` and the file is unchanged.
+- [ ] **AC-9** On the edge AP gateway the bound is UNCHANGED — slice 4's AC-7 still holds, a
+      `10.9.9.9` destination on a `192.168.x` edge gateway refused at `wrongValue`.
+- [ ] **AC-10** THE LOOP, end to end and shell-free: `snmpset <inner gw> <community>
+      natForward.<port>=<deep device>:161` opens the forward, and `snmpwalk <inner gw>:<port>
+      <community>` then walks the device behind it. Two commands, no session, nothing to `exit`.
+- [ ] **AC-11** A bare `<host>` with no colon behaves EXACTLY as it did in slices 2–4 — every walk
+      and set test written before this slice still passes untouched.
+- [ ] **AC-12** A suffix that is not a port is not one: `<host>:abc`, `<host>:`, `<host>:0` and
+      `<host>:99999` are sent as the whole typed string, find no such host, and answer with the
+      door's single silence. The split happens only on a `1`–`65535` suffix, so there is one code
+      path and no second failure sentence to keep in step with the first.
+- [ ] **AC-13** Proven live: the wire-check runs the loop against `vercel dev` + supabase and is
+      falsified at least once by breaking production.
+
+### RED — the failing tests, in the order they get written
+
+1. `frontedSegment` — the `/24` a device's forwards may point into, from `(essid, machineId,
+   kind)`. Pure and seeded, so it is tested first and alone: the edge gateway yields the LAN, an
+   inner gateway yields its deep subnet, and a switch is never asked.
+2. `handleSnmpWalk` against a deep device — hostname, own address, the fronting `.1` in the log.
+   AC-2, AC-3, AC-7.
+3. `handleSnmpWalk` against the inner gateway itself, bare. AC-1 — written expecting GREEN, and
+   falsified by mutation.
+4. `handleSnmpSet` against a deep switch, then the bound on an inner gateway and on the edge.
+   AC-6, AC-8, AC-9.
+5. The two commands' transport-address split, including everything that is not a port. AC-12.
+6. The regression sweep: every slice 2–4 test unchanged. AC-11.
+
+### GREEN — the minimum, in dependency order
+
+1. `frontedSegment` in `src/core/network/` — beside the topology it reads, not inside the SNMP
+   door, because it is a fact about the world rather than about this protocol.
+2. The reach carries the box's OWN address. `InnerGatewayTarget` knows it at every hop;
+   `ReachedServiceHost` gains it additively, and the three other vantages already hold it.
+3. Both handlers take the port from the payload, defaulting to 161, and pass it to the reach.
+4. `addressesOf` reads the reached address instead of `payload.target_ip`.
+5. The bound calls `frontedSegment` instead of `segmentOf(payload.target_ip)`.
+6. The commands split `<host>:<port>`; the adapters carry the port; `env`/`state` follow.
+7. `scripts/testSnmpSet.ts` and `scripts/testSnmpWalk.ts` gain the deep checks.
+
+### Five things GREEN must get right
+
+- **The port travels, but the DISPLAY is what the player typed.** `Querying 192.168.188.7:2222 with
+  community "..."` and `Timeout: No Response from 192.168.188.7:2222` — a tool echoes its own
+  argument, and a header that silently dropped the port would describe a different request than the
+  one made.
+- **A bare host still sends 161, and must still resolve to the gateway itself.** That path is the
+  one thing here that already works; the whole slice is worthless if threading a port breaks it.
+- **The client splits the string and decides nothing else.** Reachability stays the server's, as the
+  SET grammar did in slice 4. Splitting an argument is not parsing a rule.
+- **A deep box is owned by nobody**, so its rows land under the caller's key (`writerKey: null` →
+  the caller's), exactly as slice 4's generated devices do. The owner's key takes over in slice 7.
+- **The bound is not consulted for a switch at all.** A switch has no forwards, so reaching for a
+  fronted segment there would be asking a device a question its file cannot answer.
+
+### Considered and rejected: splitting this into read and write
+
+The epic's grain is read-then-write (slice 2 walked, slice 4 set), which suggests a 5a/5b split. It
+was rejected: the SAME threading serves both doors, so 5b would inherit nearly finished work and be
+almost entirely tests, and 5a alone would ship a walk that reports a deep device's identity
+correctly while `snmpset` on the gateway above it still refuses every useful write. Half the
+correction is worse than either whole.
+
+### PR-ready when
+
+AC-1…AC-13 pass, `npm run typecheck` and `npm run lint` are clean from `v2/`, the full non-watch
+test gate is green, the wire-check has RUN against a live stack and been falsified, the mutation
+gate has run with survivors addressed, and the version is bumped to **v0.189.0** in both
+`v2/package.json` and `v2/package-lock.json` (`npm install --package-lock-only`).
+
+**Slice complete when** its PR lands on `main`.
+
+## Slices 6–7 (outline only — plan each when its predecessor lands)
+
 - **Slice 6** — `apt install snmp` ships `snmpd`; `iptables/rules.v4` gains the `deny <port>` rule
   kind; the local filter blocks remote traffic but never localhost. **Open**: whether an installed
   agent is scannable from off-box, since placement covers generation only.
