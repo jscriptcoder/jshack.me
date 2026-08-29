@@ -1264,8 +1264,10 @@ next reader knows it was seen and priced, not missed.
    both server-executed, and the observable itself is a two-player same-LAN fact.
    `testMysqlSameLan.ts` and `seedCrossPlayerTarget.ts` already carry the harness shape.
 4. **The deny grammar is COPIED into `iptablesRules.ts`, not extracted.** `switchAcl.ts` keeps its
-   own `parseAclDenies` and `withDeny`; `iptablesRules.ts` grows its own beside `withForward`, which
-   is how decision 10 words it. Two copies of a three-line regex, on the bet that a switch's access
+   `parseAclDenies` and `withDeny`; `iptablesRules.ts` grows `parseInputDenies` and `withInputDeny`
+   beside `withForward`, which is how decision 10 words it. They are named for the INPUT chain
+   rather than mirroring the switch's spelling because `snmpSet.ts` imports BOTH writers, and two
+   exported `withDeny`s would collide at the one call site that needs each. Two copies of a three-line regex, on the bet that a switch's access
    list and a host's INPUT chain will want to diverge — `deny <port> from <ip>` is a natural next
    move for one of them and not the other. A shared module would make every future change to either
    ask permission from the other.
@@ -1282,10 +1284,10 @@ next reader knows it was seen and priced, not missed.
       D7 slice 5b fixed for every depth.
 - [ ] **AC-4** A generated device that rolled an agent now also carries `/usr/sbin/snmpd`, and its
       seeded `rules.v4` or `acl.conf` is byte-for-byte what it was before this slice.
-- [ ] **AC-5** `parseDenyRules` reads `deny <port>` from `rules.v4` content, skipping blanks,
+- [ ] **AC-5** `parseInputDenies` reads `deny <port>` from `rules.v4` content, skipping blanks,
       comments and malformed lines and rejecting ports outside 1–65535. `parseForwardRules` over the
       SAME content still returns the forwards and only the forwards.
-- [ ] **AC-6** `withDeny` on `rules.v4` adds or removes exactly one line. The header, the commented
+- [ ] **AC-6** `withInputDeny` on `rules.v4` adds or removes exactly one line. The header, the commented
       example, every forward, and anything the owner typed in `nano` survive byte-for-byte, and a
       deny the owner commented out stays a comment.
 - [ ] **AC-7** A walk of a workstation agent renders `Linux <hostname>` and `eth0` identity, plus
@@ -1314,7 +1316,7 @@ next reader knows it was seen and priced, not missed.
 
 ### RED — the failing tests, in the order they get written
 
-1. `iptablesRules.test.ts` — `parseDenyRules` over a file holding forwards, denies, comments and
+1. `iptablesRules.test.ts` — `parseInputDenies` over a file holding forwards, denies, comments and
    junk; `withDeny` add and remove preserving every other byte. (AC-5, AC-6)
 2. `walk.test.ts` — the workstation block, the both-kinds block, the empty-file sentence, and the
    switch left alone. (AC-7, AC-8, AC-9)
@@ -1329,7 +1331,7 @@ next reader knows it was seen and priced, not missed.
 
 ### GREEN — the minimum, in dependency order
 
-1. `iptablesRules.ts` — `parseDenyRules`, `withDeny`, and the seed the install plants.
+1. `iptablesRules.ts` — `parseInputDenies`, `withInputDeny`, and the seed the install plants.
 2. `walk.ts` — `SnmpPortTable` becomes a LIST of tables rather than one member of a tagged union;
    `inputPortOid`; the `FILTER-MIB` vocabulary and the combined emptiness sentence.
 3. `set.ts` — `inputPort` in `SET_OID_RE`, and its `deny`/`permit` values beside `aclPort`'s.
