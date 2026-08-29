@@ -9,6 +9,7 @@ import { pidfilePath, formatPidfileContent } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { RULES_V4_PATH } from '../network/iptablesRules';
 import { formatSnmpdState } from '../snmp/rwCommunity';
+import { SNMPD_LOG_PATH } from '../logging/snmpdLog';
 import { md5 } from '../generation/md5';
 import { asAbsPath } from '../types';
 import type { ApNetworkLookup, NatOccupantRow } from '../network/resolvePublicTarget';
@@ -17,6 +18,7 @@ import type { OwnerPatchRow } from '../network/materializeMachineFs';
 import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
 import type { PatchRow } from '../patches/upsertPatch';
 import type { NonceStore } from '../signedRequest/nonceStore';
+import type { Identity } from '../commands/types';
 
 /**
  * Writing to a device that belongs to somebody else, reached by their public address —
@@ -65,6 +67,10 @@ const ATTACKER_ESSID = 'BEAN-THERE-WIFI';
 /** The attacker's own public address, as the server resolves it from their VERIFIED
  *  key — the address the defender's log will carry. */
 const ATTACKER_PUBLIC_IP = '198.51.100.22';
+
+/** A SECOND stranger, from a third network. One device visited by two people who have
+ *  never met is the case the gateway's single log row exists for. */
+const SECOND_ATTACKER_PUBLIC_IP = '198.51.100.77';
 
 const TARGET_SUBNET = generateHomeLan(TARGET_ESSID).subnet;
 const ATTACKER_SUBNET = generateHomeLan(ATTACKER_ESSID).subnet;
@@ -118,15 +124,29 @@ const occupantAgent: readonly OwnerPatchRow[] = [
   patchRow('/var/lib/snmp/snmpd.conf', formatSnmpdState(md5(OCCUPANT_COMMUNITY))),
 ];
 
+/** How the journal really keys a row: `(machine_id, path, writer_key)`. A log patch
+ *  carries the WHOLE file, so two writers under two keys are two rows and replay hands
+ *  back the newest outright — the later visit erasing the earlier one rather than adding
+ *  to it. The store is modelled rather than stubbed because the guarantee under test is
+ *  about the KEY, and a stub that always read back the last content written would hide
+ *  exactly the split it exists to prevent. */
+const rowKey = (row: {
+  readonly machine_id: string;
+  readonly path: string;
+  readonly writer_key: string;
+}) => `${row.machine_id}|${row.path}|${row.writer_key}`;
+
 const makeDeps = (
   patchesByMachine: Readonly<Record<string, readonly OwnerPatchRow[]>> = {},
   over: Partial<SnmpSetDeps> = {},
 ) => {
-  const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async () => ({
-    error: null,
-  }));
+  const stored = new Map<string, string | null>();
+  const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async (row) => {
+    stored.set(rowKey(row), row.content);
+    return { error: null };
+  });
   const readSnmpdLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
-    async () => ({ data: null, error: null }),
+    async (query) => ({ data: { content: stored.get(rowKey(query)) ?? null }, error: null }),
   );
   const deps: SnmpSetDeps = {
     nonceStore: freshStore,
@@ -150,22 +170,27 @@ const makeDeps = (
 };
 
 /** A set sent from across the world: the attacker's OWN ESSID travels with it, because
- *  that is the only network their client can name. */
+ *  that is the only network their client can name. The attacker's identity is a
+ *  parameter so a test can name who visited — whose key the device must NOT file the
+ *  visit under, and which of two strangers left which line. */
 const setAcrossTheWorld = async (
   deps: SnmpSetDeps,
   request: {
     readonly assignment: string;
+    readonly attacker?: Identity;
     readonly port?: number;
     readonly community?: string;
+    readonly sourceIp?: string;
   },
 ) =>
   handleSnmpSet(
-    await signRequest(generateIdentity(), 'snmpSet', {
+    await signRequest(request.attacker ?? generateIdentity(), 'snmpSet', {
       essid: ATTACKER_ESSID,
       target_ip: TARGET_PUBLIC_IP,
       port: request.port,
       community: request.community ?? COMMUNITY,
       assignment: request.assignment,
+      source_ip: request.sourceIp,
     }),
     deps,
   );
@@ -250,5 +275,110 @@ describe("opening a port into another player's LAN, from the other side of the w
       },
     });
     expect(writtenTo(upsertPatch, RULES_V4_PATH)).toBeUndefined();
+  });
+});
+
+/**
+ * The only thing the defender is ever given back.
+ *
+ * B holds no account on A's gateway, opens no session, and leaves no shell history. The
+ * device's own `/var/log/snmpd.log` is the whole of A's evidence, and it has to survive
+ * being written by strangers: the access point belongs to nobody, so its log has no
+ * owner key of its own to accrete under. A row per visitor is a row the next visitor
+ * silently deletes — patches rows key on `(machine_id, path, writer_key)` and a log
+ * patch carries the whole file, so replay hands back the newest and drops the rest.
+ * `A's snmpd.log names B` is worth nothing if the next stranger's arrival erases it.
+ */
+describe("the record a stranger's visit leaves on the gateway they rewrote", () => {
+  it("files the visit under the access point's own row, never the visitor's", async () => {
+    const attacker = generateIdentity();
+    const { deps, upsertPatch } = makeDeps();
+
+    await setAcrossTheWorld(deps, {
+      attacker,
+      assignment: `natForward.${PUBLISHED_PORT}=${DEFENDER_LAN_IP}:22`,
+    });
+
+    const log = writtenTo(upsertPatch, SNMPD_LOG_PATH);
+    expect(log?.machine_id).toBe(AP_GATEWAY_ID);
+    // The lowest lease on the ESSID: stable, because leases outlive occupancy and do not
+    // move when players join or leave. The visitor's own key would be neither.
+    expect(log?.writer_key).toBe(DEFENDER.publicKeyHex);
+    expect(log?.writer_key).not.toBe(attacker.publicKeyHex);
+
+    // One append, three lines: somebody arrived, the community they named worked, and
+    // this is what they changed — each carrying the address the server resolved for
+    // them. Asserted as the WHOLE file, because a log is read as a record of what
+    // happened and an extra line is as wrong as a missing one.
+    expect((log?.content ?? '').split('\n').filter(Boolean)).toEqual([
+      expect.stringContaining(`Connection from UDP: [${ATTACKER_PUBLIC_IP}]`),
+      expect.stringContaining(`Authentication succeeded from UDP: [${ATTACKER_PUBLIC_IP}]`),
+      expect.stringContaining(
+        `SET NAT-MIB::natForward.${PUBLISHED_PORT} = none -> ${DEFENDER_LAN_IP}:22 ` +
+          `from UDP: [${ATTACKER_PUBLIC_IP}]`,
+      ),
+    ]);
+  });
+
+  it('records the address the server resolved for the attacker, not the one they claimed', async () => {
+    const { deps, upsertPatch } = makeDeps();
+
+    await setAcrossTheWorld(deps, {
+      assignment: `natForward.${PUBLISHED_PORT}=${DEFENDER_LAN_IP}:22`,
+      // A client naming its own origin could write any network into a defender's
+      // evidence, including one belonging to somebody they wanted blamed.
+      sourceIp: '10.0.0.1',
+    });
+
+    const logged = writtenTo(upsertPatch, SNMPD_LOG_PATH)?.content ?? '';
+    expect(logged).toContain(`from UDP: [${ATTACKER_PUBLIC_IP}]`);
+    expect(logged).not.toContain('10.0.0.1');
+  });
+
+  it('accretes a second stranger onto the same row instead of erasing the first', async () => {
+    const first = generateIdentity();
+    const second = generateIdentity();
+    const { deps, upsertPatch } = makeDeps(
+      {},
+      {
+        findHomeNetworkByOwnerKey: async (ownerKey) => ({
+          data: {
+            public_ip:
+              ownerKey === second.publicKeyHex ? SECOND_ATTACKER_PUBLIC_IP : ATTACKER_PUBLIC_IP,
+          },
+          error: null,
+        }),
+      },
+    );
+
+    await setAcrossTheWorld(deps, {
+      attacker: first,
+      assignment: `natForward.${PUBLISHED_PORT}=${DEFENDER_LAN_IP}:22`,
+    });
+    await setAcrossTheWorld(deps, {
+      attacker: second,
+      assignment: `natForward.3333=${DEFENDER_LAN_IP}:22`,
+    });
+
+    const logRows = upsertPatch.mock.calls
+      .map(([row]) => row)
+      .filter((row) => row.path === SNMPD_LOG_PATH);
+    // ONE row. Two would each hold half the story, and only one of them would survive.
+    expect(new Set(logRows.map((row) => row.writer_key))).toEqual(
+      new Set([DEFENDER.publicKeyHex]),
+    );
+
+    const final = logRows.at(-1)?.content ?? '';
+    expect(final).toContain(
+      `SET NAT-MIB::natForward.${PUBLISHED_PORT} = none -> ${DEFENDER_LAN_IP}:22 ` +
+        `from UDP: [${ATTACKER_PUBLIC_IP}]`,
+    );
+    expect(final).toContain(
+      `SET NAT-MIB::natForward.3333 = none -> ${DEFENDER_LAN_IP}:22 ` +
+        `from UDP: [${SECOND_ATTACKER_PUBLIC_IP}]`,
+    );
+    // Three lines each, both visits whole: the second did not overwrite, truncate, or
+    // re-read somebody else's row.
+    expect(final.split('\n').filter(Boolean)).toHaveLength(6);
   });
 });
