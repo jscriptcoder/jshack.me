@@ -5,8 +5,9 @@
 2026-08-27); slice 3 MERGED (#467, v0.187.0, 2026-08-28); slice 4 MERGED (#468, v0.188.0,
 2026-08-28 — AC-1…AC-14 met, wire-check RUN 16/16 and falsified twice, mutation gate closed
 at 88.65%); slice 5 MERGED (#469, v0.189.0, 2026-08-28 — AC-1…AC-13 met, wire-check RUN
-12/12 and falsified twice, mutation gate closed at 85.32%); slice 6 **PLANNED, not started**
-on `feat/d8-snmp-own`, AC-1…AC-15 awaiting confirmation; slice 7 outlined only
+12/12 and falsified twice, mutation gate closed at 85.32%); slice 6 **BUILT, PRE-GATE**
+on `feat/d8-snmp-own` at v0.190.0 (AC-1…AC-15 met, wire-check RUN 13/13 and falsified twice —
+mutation gate still to run; see "Progress" below); slice 7 outlined only
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D8 — resolved scope & decisions
 (grill-me, 2026-08-27)", eleven locked decisions, gap-checked the same day.
 
@@ -34,7 +35,7 @@ that table, all of it a VIEW over the `rules.v4` / `acl.conf` files v2 already p
 | 3 | a player cracks the RW community | `hydra <host> snmp` → the port table renders | **merged** #467 |
 | 4 | a player opens a port, no shell | `snmpset` adds a forward; `nmap` shows it | **merged** #468 |
 | 5 | a device on a deep layer answers | the inner-gateway vantage | **merged** #469 |
-| 6 | a player runs their own agent | owner filters a port; `127.0.0.1` still works | **planned** |
+| 6 | a player runs their own agent | owner filters a port; `127.0.0.1` still works | **built** |
 | 7 | a player reconfigures another's | B opens a forward into A's LAN | outlined |
 
 Only slice 1 is planned in full. Plan each later slice when its predecessor lands — D7 proved that
@@ -1377,6 +1378,80 @@ The install, the grammar, the walk and the set could ship without the gate, leav
 parses and renders and blocks nothing. That is a slice whose observable is "a player writes a rule
 with no effect" — the exact shape decision 9 refused for `snmpset` on a fresh router, for the same
 reason. A filter that does not filter is worse than no filter: it tells the owner they are defended.
+
+### Progress — BUILT, on `feat/d8-snmp-own` (2026-08-29)
+
+Eight commits, each RED→GREEN with the gates clean. Full suite **3986 passing / 187 files**
+(baseline at slice 5's close was 3928 / 186); `npm run typecheck` and `npm run lint` clean from
+`v2/`; wire-check **13/13** against a live stack, falsified twice; version **v0.190.0**.
+
+| Commit | What landed |
+|--------|-------------|
+| `3d8bbc96` | the plan — slice 5 marked merged, the epic's five stale D8 rows, slice 6 planned in full |
+| `fcc97156` | `rules.v4` grows an INPUT chain beside its NAT table |
+| `e97f4b1d` | a device answers with every table its files hold |
+| `8a34da1b` | a port closes on the box that answers |
+| `0924ba24` | what a box answers to the network is not what runs on it |
+| `74a14846` | a filtered port is not a door, at every way in |
+| `543ca8c6` | the package that lets a player run their own agent |
+| `b5b6e720` | `scripts/testSnmpFilter.ts` — 13 checks, falsified twice; v0.190.0 |
+
+**AC-1…AC-15 are met.** Names deviated from the plan in two places and the plan was reconciled at
+the time: `parseInputDenies`/`withInputDeny` rather than `parseDenyRules`/`withDeny` (`snmpSet`
+imports BOTH writers, and two exported `withDeny`s collide), and `INPUT-MIB` rather than
+`FILTER-MIB` (`INPUT-MIB::inputPort.65535` is exactly the OID column's width; `FILTER-MIB` runs one
+over and shunts the `=` on five-digit ports).
+
+### What building it found that planning had not
+
+- **`snmpd` has been UNSTARTABLE since slice 1.** `systemctl` gates `start` on the binary existing,
+  and no package shipped `/usr/sbin/snmpd` — so the unit sat in `DAEMONS` and `UNITS` for five
+  slices with nothing on any shelf to buy it with. #463's guard checks a unit EXISTS, not that a
+  player can OBTAIN it. A sibling guard now closes the class, exempting `sshd`/`vsftpd` through the
+  existing `SYSTEM_DAEMON_NAMES`.
+- **`hydraCrackPublic` was green on arrival and nothing caught it.** The whole 602-test session
+  suite passed with the world-facing sweep ignoring filters. A published port is the one address a
+  stranger can always reach, and it would have been the single place a filter did not apply.
+- **The `nc` branch of `reachDoor` needed it too.** It finds its door through `listenerOn`, not
+  `readOpenPorts`, so reading the port readers alone would have missed it. A defender can now close
+  a backdoor they never found.
+- **Five sites, not six.** `reachDoor` is one gate for ssh at all three vantages, and `openServiceOn`
+  already covered the three data doors. `nmapScan`'s two trace sites are deliberately excluded —
+  they write the DEFENDER's own `kern.log`, and a box's own log is not the place to hide that box's
+  own filter.
+- **One test claimed more than the design promises** and was narrowed rather than made to pass: a
+  filtered port is indistinguishable from a STOPPED daemon (`service_not_running`), not from an
+  ABSENT address (`host_unreachable`). Those are two answers the client renders identically.
+- **Four of the wire-check's checks failed on their first live run, all harness bugs** — a same-LAN
+  ssh needs a `session_id`, the walk answers with tables rather than rendered lines, an `snmpset`
+  refusal is HTTP 200 with an error PDU, and "every port filtered" had denied two of three.
+
+### The residual, now evidenced live
+
+Wire-check 13 pins it: a forward aimed at a workstation is refused with `192.168.115.23 is not on
+this device's segment` — the right answer arriving through the phantom deep segment
+`frontedSegment` computes for a box that fronts nothing. Correct outcome, accidental mechanism.
+**Slice 7 owns the fix**, and now has a live check that will change its wording when it lands.
+
+### WHERE TO PICK UP
+
+The only thing left before the PR is the **end-of-phase mutation gate** (`mutation-testing`), then
+the PR itself. Everything else is done and committed.
+
+**The live stack was left RUNNING** for the gate, in case a survivor forces a production change and
+the wire-checks have to be re-run:
+
+- supabase up (`npx -y supabase start`), `vercel dev` on 3100 as a background task.
+- **Tear both down before the PR**: `npx -y supabase stop --project-id jshack-me-v2`, then kill
+  whatever still listens on 3100 — an orphan answers 502 rather than refusing and silently serves
+  stale code to the next session.
+
+Sweeps already re-run green against this stack: `testSnmpFilter` 13/13, `testRedisSameLan` 16/16,
+`testSnmpDepth` 12/12, `testDaemonGates` 6/6, `testHydraOwnLan` 23/23.
+
+Debts this slice did NOT discharge, still owed downstream: `parseForwardRules`'s dead comment
+filter (deferred by slices 4 and 5, and untouched here), and `writerKey ?? publicKey`, unkillable
+until a cross-player write exists.
 
 ### This slice OWES a wire-check
 
