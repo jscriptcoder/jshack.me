@@ -330,12 +330,12 @@ PHASE 1 — THE DOORS  (near-term focus)
       D7 follow-up  the daemon systemctl could not start ✔ SHIPPED v0.183.0 (#462)
       D7 follow-up  the three daemon tables get a guard  ✔ SHIPPED (#463, no bump)
       D7 follow-up  the real binary names, hyphens intact ✔ SHIPPED v0.184.0 (#464)
-  D8  snmpwalk / snmpset                            🔍 GRILLED + GAP-CHECKED 2026-08-27 (11 decisions, 7 slices)
-      D8 slice 1 a device answers SNMP
-      D8 slice 2 a player walks it with `public`
-      D8 slice 3 a player cracks the RW community
-      D8 slice 4 a player opens a port, no shell
-      D8 slice 5 a device on a deep layer answers
+  D8  snmpwalk / snmpset                              🚧 IN PROGRESS (11 decisions, 7 slices)
+      D8 slice 1 a device answers SNMP                ✔ SHIPPED v0.185.0 (#465)
+      D8 slice 2 a player walks it with `public`      ✔ SHIPPED v0.186.0 (#466)
+      D8 slice 3 a player cracks the RW community     ✔ SHIPPED v0.187.0 (#467)
+      D8 slice 4 a player opens a port, no shell      ✔ SHIPPED v0.188.0 (#468)
+      D8 slice 5 a device on a deep layer answers     ✔ SHIPPED v0.189.0 (#469)
       D8 slice 6 a player runs their own agent
       D8 slice 7 a player reconfigures another's
   D9  node scripting
