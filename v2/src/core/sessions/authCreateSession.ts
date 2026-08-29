@@ -28,7 +28,8 @@ import { materializeMachineFs, type OwnerPatchRow } from '../network/materialize
 import { canBoot } from '../boot/bootFiles';
 import { md5 } from '../generation/md5';
 import { SERVICE_CATALOG, type ServiceSpec, type SweepLog } from '../services/serviceCatalog';
-import { listenerOn, readOpenPorts, type Listener } from '../services/pidfile';
+import { listenerOn, type Listener } from '../services/pidfile';
+import { portsOpenToNetwork } from '../network/portsOpenToNetwork';
 import type { Directory } from '../filesystem/types';
 import { derivePid } from '../logging/syslog';
 import {
@@ -209,12 +210,19 @@ export const reachDoor = (
   fs: Directory,
   reachedPort: number | undefined,
 ): ReachedDoor | null => {
+  // What the box answers to the NETWORK. A port its owner filtered is not a door,
+  // whichever kind of door it would have been — a filter honoured for the daemon but
+  // not for a planted listener would let whatever an attacker left running there step
+  // straight over the owner's own rule.
+  const openToNetwork = portsOpenToNetwork(fs);
+
   if (kind === 'nc') {
-    const admits = listenerOn(fs, reachedPort);
+    const reachable = openToNetwork.some((open) => open.port === reachedPort);
+    const admits = reachable ? listenerOn(fs, reachedPort) : null;
     return admits === null ? null : { kind: 'listener', admits };
   }
   const spec = SERVICE_CATALOG[SERVICE_BY_DOOR[kind]];
-  const serving = readOpenPorts(fs).some(
+  const serving = openToNetwork.some(
     (open) => open.service === spec.service && (reachedPort === undefined || open.port === reachedPort),
   );
   return serving ? { kind: 'passwd', spec } : null;

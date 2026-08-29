@@ -62,7 +62,7 @@ import { forwardsIntoDeepLayer, resolveLanHostIdentity } from '../generation/lan
 import { resolveInnerGatewayTarget } from '../network/resolveInnerGatewayTarget';
 import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs';
 import { canBoot } from '../boot/bootFiles';
-import { readOpenPorts } from '../services/pidfile';
+import { portsOpenToNetwork } from '../network/portsOpenToNetwork';
 import type { Directory } from '../filesystem/types';
 
 export type HandlerResponse = {
@@ -234,9 +234,19 @@ const openServiceOn = (box: {
   if (!canBoot(box.hostFs).ok) return { ok: false, refusal: UNREACHABLE };
 
   // The pidfiles are the truth about what is listening — the same source `nmap`
-  // reads. It must be THE NAMED DAEMON ON THE PORT REACHED: a forward to sshd is not a
-  // door to the data behind it, and neither is a LAN box's own ssh port.
-  const listening = readOpenPorts(box.hostFs).some(
+  // reads — less whatever the box's own filter refuses the network. It must be THE
+  // NAMED DAEMON ON THE PORT REACHED: a forward to sshd is not a door to the data
+  // behind it, and neither is a LAN box's own ssh port.
+  //
+  // EVERY vantage this function serves is a remote one, which is what makes a filtered
+  // port unreachable from the world, from a neighbour and from down a forward with one
+  // check rather than four. The owner's own box never arrives here at all: it is
+  // answered on the client, so a filter can never lock them out of their own service.
+  //
+  // Filtered reads as `service_not_running`, word for word what an unserved port gives.
+  // A refusal of its own would be an oracle telling a scanner which ports are worth
+  // attacking.
+  const listening = portsOpenToNetwork(box.hostFs).some(
     (open) => open.port === box.reachedPort && open.service === box.service,
   );
   if (!listening) {

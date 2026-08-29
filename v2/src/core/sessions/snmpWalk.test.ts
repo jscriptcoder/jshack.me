@@ -284,10 +284,10 @@ describe('walking a device with its read-write community', () => {
         sysContact: 'netops@corp.local',
         addresses: [gateway.ip, PUBLIC_IP],
       },
-      portTable: {
-        kind: 'nat',
-        forwards: [{ publicPort: 2222, internalIp: '10.0.0.10', internalPort: 22 }],
-      },
+      portTables: [
+        { kind: 'nat', forwards: [{ publicPort: 2222, internalIp: '10.0.0.10', internalPort: 22 }] },
+        { kind: 'filter', denies: [] },
+      ],
     });
   });
 
@@ -306,7 +306,10 @@ describe('walking a device with its read-write community', () => {
 
     expect(response.body).toMatchObject({
       tier: 'read-write',
-      portTable: { kind: 'nat', forwards: [] },
+      portTables: [
+        { kind: 'nat', forwards: [] },
+        { kind: 'filter', denies: [] },
+      ],
     });
   });
 
@@ -330,7 +333,7 @@ describe('walking a device with its read-write community', () => {
 
     expect(response.body).toMatchObject({
       tier: 'read-write',
-      portTable: { kind: 'acl', denies: [8080] },
+      portTables: [{ kind: 'acl', denies: [8080] }],
     });
   });
 
@@ -550,5 +553,96 @@ describe('walking a device whose agent is not running', () => {
     // stranger's guesses stop accreting on a log its owner has to read.
     expect(response.status).toBe(404);
     expect(upsertPatch).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A device that filters its own agent port stops answering the network, and says
+ * nothing else about itself while doing it.
+ *
+ * The filter has to be indistinguishable from absence. Any refusal of its own would be
+ * an oracle: a scanner who could tell "filtered" from "nothing here" would know exactly
+ * which boxes are worth a wordlist.
+ */
+describe('a device that filters the port its agent answers on', () => {
+  const answeringWith = (community: string, rules: string): Partial<SnmpWalkDeps> => ({
+    findPatches: async () => ({
+      data: [
+        patchRow('/var/lib/snmp/snmpd.conf', formatSnmpdState(md5(community))),
+        patchRow('/etc/iptables/rules.v4', rules),
+      ],
+      error: null,
+    }),
+  });
+
+  it('answers a walk the way a device whose agent was stopped answers', async () => {
+    // Not merely "some refusal": the SAME one, so the filter adds no oracle. A player
+    // who could tell a filtered port from a stopped daemon would know which boxes are
+    // defended and therefore worth a wordlist.
+    const identity = generateIdentity();
+    const essid = CANDIDATE_ESSIDS[0]!;
+    const gateway = apGatewayOn(essid);
+
+    const filtered = makeDeps(
+      answeringWith('corpnet', `deny ${SERVICE_CATALOG.snmp.defaultPort}\n`),
+    );
+    const walked = await handleSnmpWalk(
+      await signedWalk(identity, { essid, target_ip: gateway.ip, community: 'corpnet' }),
+      filtered.deps,
+    );
+
+    const stopped = makeDeps({
+      findPatches: async () => ({
+        data: [
+          patchRow('/var/lib/snmp/snmpd.conf', formatSnmpdState(md5('corpnet'))),
+          patchRow(pidfilePath(SERVICE_CATALOG.snmp), null),
+        ],
+        error: null,
+      }),
+    });
+    const silent = await handleSnmpWalk(
+      await signedWalk(identity, { essid, target_ip: gateway.ip, community: 'corpnet' }),
+      stopped.deps,
+    );
+
+    expect(walked).toEqual(silent);
+    // Both read as unreachable to the player: routing and liveness were deliberately
+    // made one answer at the surface, and this door inherits that rather than
+    // inventing a third.
+    expect(walked.status).toBe(404);
+  });
+
+  it('leaves no line on a device that never answered', async () => {
+    // The agent did not hear this. A log line would tell its owner somebody had reached
+    // a port they had closed — and tell an attacker their community was accepted.
+    const identity = generateIdentity();
+    const essid = CANDIDATE_ESSIDS[0]!;
+    const gateway = apGatewayOn(essid);
+    const { deps, upsertPatch } = makeDeps(
+      answeringWith('corpnet', `deny ${SERVICE_CATALOG.snmp.defaultPort}\n`),
+    );
+
+    await handleSnmpWalk(
+      await signedWalk(identity, { essid, target_ip: gateway.ip, community: 'corpnet' }),
+      deps,
+    );
+
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('still answers on every port it did not close', async () => {
+    // The point of a filter over `systemctl stop`: the daemon is up, and everything the
+    // owner left open still works.
+    const identity = generateIdentity();
+    const essid = CANDIDATE_ESSIDS[0]!;
+    const gateway = apGatewayOn(essid);
+    const { deps } = makeDeps(answeringWith('corpnet', 'deny 8080\n'));
+
+    const response = await handleSnmpWalk(
+      await signedWalk(identity, { essid, target_ip: gateway.ip, community: 'corpnet' }),
+      deps,
+    );
+
+    expect(response.status).toBe(200);
   });
 });

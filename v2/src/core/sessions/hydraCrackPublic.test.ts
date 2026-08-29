@@ -579,6 +579,20 @@ describe('handleHydraCrackPublic', () => {
     expect(upsertPatch).not.toHaveBeenCalled();
   });
 
+  it('answers a service the WORLD has no row for exactly as it answers a stopped one', async () => {
+    // The payload takes any non-empty string, so this is a caller's typo — or a probe
+    // for which names the world knows. Both get the answer a stopped daemon gets, which
+    // is what stops the door from being a catalogue of what exists.
+    const upsertPatch = vi.fn(async () => ({ error: null }));
+    const { status, body } = await handleHydraCrackPublic(
+      envelope({ service: 'gopher' }),
+      depsWith({ upsertPatch }),
+    );
+
+    expect({ status, body }).toEqual({ status: 404, body: { error: 'service_not_running' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
   it('reports a wordlist the store could not read as a failure, not as an empty list', async () => {
     // Distinct from "no wordlist": one is a real state of the box, the other means
     // the player should retry. Collapsing them would teach a player to go curate a
@@ -952,5 +966,52 @@ describe('handleHydraCrackPublic', () => {
         wordlistFound: true,
       });
     });
+  });
+});
+
+
+/**
+ * The defender's own filter survives translation through their gateway's NAT.
+ *
+ * A forward and a local deny are two gates, and traffic needs both. Neither file knows
+ * about the other: the gateway publishes a port, the box behind it refuses one, and the
+ * sweep meets whichever says no first. Without this, the one place a stranger can
+ * always reach — a published port — would be the one place a filter did not apply.
+ */
+describe('a resident who filters the port their gateway publishes', () => {
+  /** The RESIDENT's own `rules.v4`, not the gateway's: the same filename, one hop
+   *  further in, refusing the internal port the forward lands on. */
+  const residentFilter: OwnerPatchRow = {
+    ...RESIDENT_FORWARD,
+    content: `deny ${SERVICE_CATALOG.ssh.defaultPort}`,
+  };
+
+  it('answers a sweep of the published port as though nothing were listening', async () => {
+    const { status, body } = await handleHydraCrackPublic(
+      envelope({ port: FORWARD_PORT }),
+      depsWith({
+        gatewayPatches: [RESIDENT_FORWARD],
+        occupantPatches: [sshdUp, residentFilter],
+        occupants: [residentOccupant],
+        wordlist: [RESIDENT_GUEST_PW],
+      }),
+    );
+
+    expect(status).toBe(404);
+    expect(body).toEqual({ error: 'service_not_running' });
+  });
+
+  it('goes on answering a published port the resident left open', async () => {
+    const { status } = await handleHydraCrackPublic(
+      envelope({ port: FORWARD_PORT }),
+      depsWith({
+        gatewayPatches: [RESIDENT_FORWARD],
+        occupantPatches: [sshdUp, { ...residentFilter, content: 'deny 8080' }],
+        occupants: [residentOccupant],
+        wordlist: [RESIDENT_GUEST_PW],
+      }),
+    );
+
+    expect(status).toBe(200);
   });
 });

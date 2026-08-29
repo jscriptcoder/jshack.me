@@ -1,12 +1,13 @@
 # Plan: D8 — `snmpwalk` / `snmpset`
 
-**Branch**: `feat/d8-snmp-inner` (slice 5)
+**Branch**: `feat/d8-snmp-own` (slice 6)
 **Status**: Active — slice 1 MERGED (#465, v0.185.0); slice 2 MERGED (#466, v0.186.0,
 2026-08-27); slice 3 MERGED (#467, v0.187.0, 2026-08-28); slice 4 MERGED (#468, v0.188.0,
 2026-08-28 — AC-1…AC-14 met, wire-check RUN 16/16 and falsified twice, mutation gate closed
-at 88.65%); slice 5 **PR-READY** on `feat/d8-snmp-inner` at v0.189.0 (AC-1…AC-13 met,
-wire-check RUN 12/12 and falsified twice, mutation gate closed at 85.32% — see "Progress"
-below); slices 6–7 outlined only
+at 88.65%); slice 5 MERGED (#469, v0.189.0, 2026-08-28 — AC-1…AC-13 met, wire-check RUN
+12/12 and falsified twice, mutation gate closed at 85.32%); slice 6 **PR-READY** on
+`feat/d8-snmp-own` at v0.190.0 (AC-1…AC-15 met, wire-check RUN 13/13 and falsified twice, mutation
+gate closed at 97.43% — tear the live stack down, then open the PR); slice 7 outlined only
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D8 — resolved scope & decisions
 (grill-me, 2026-08-27)", eleven locked decisions, gap-checked the same day.
 
@@ -33,8 +34,8 @@ that table, all of it a VIEW over the `rules.v4` / `acl.conf` files v2 already p
 | 2 | a player walks it with `public` | identity OIDs return; the walk lands in `snmpd.log` | **merged** #466 |
 | 3 | a player cracks the RW community | `hydra <host> snmp` → the port table renders | **merged** #467 |
 | 4 | a player opens a port, no shell | `snmpset` adds a forward; `nmap` shows it | **merged** #468 |
-| 5 | a device on a deep layer answers | the inner-gateway vantage | **built** |
-| 6 | a player runs their own agent | owner filters a port; `127.0.0.1` still works | outlined |
+| 5 | a device on a deep layer answers | the inner-gateway vantage | **merged** #469 |
+| 6 | a player runs their own agent | owner filters a port; `127.0.0.1` still works | **built** |
 | 7 | a player reconfigures another's | B opens a forward into A's LAN | outlined |
 
 Only slice 1 is planned in full. Plan each later slice when its predecessor lands — D7 proved that
@@ -1186,13 +1187,355 @@ gate has run with survivors addressed, and the version is bumped to **v0.189.0**
 
 **Slice complete when** its PR lands on `main`.
 
-## Slices 6–7 (outline only — plan each when its predecessor lands)
+## Slice 6: a player runs their own agent and closes a port to the network, not to themselves
 
-- **Slice 6** — `apt install snmp` ships `snmpd`; `iptables/rules.v4` gains the `deny <port>` rule
-  kind; the local filter blocks remote traffic but never localhost. **Open**: whether an installed
-  agent is scannable from off-box, since placement covers generation only.
+**Value**: The first defensive verb in the game that is not `systemctl stop`. Today a player who
+does not want the world touching their store has exactly one move — kill the daemon, and lose it
+themselves too. A filter keeps the service running FOR THEM while closing it to everyone else. The
+attacker's prize is symmetric and is what makes the defence worth attacking: crack the community,
+re-open a port the owner filtered, without ever holding a shell on the box.
+
+**Path**: `apt install snmp` → `/usr/sbin/snmpd` plus a seeded `/etc/iptables/rules.v4` →
+`systemctl start snmpd` → the box answers walks → `snmpset <host> <rw> inputPort.6379=deny` (or the
+owner's own `nano`) → the deny lands in `rules.v4` → a neighbour's `nmap` no longer lists 6379,
+their `redis-cli` is refused, and the owner's `redis-cli 127.0.0.1` still connects.
+
+**Class**: Behavior change.
+
+**Delivery**: Independent PR against trunk, on `feat/d8-snmp-own`. No stack.
+
+**Required implementation skills**: `tdd`, `testing`, `refactoring`. Load `mutation-testing` at PR
+readiness, not per increment.
+
+**Reduction program**: `N/A`.
+**Transition/terminal evidence**: `N/A`.
+
+### What exploration settled before planning
+
+- **`snmpd` is already in `DAEMONS` and `UNITS`** (`systemctl.ts`), landed by slice 1 under the
+  guard #463 left behind. Nothing to add there, and the epic's "forced rather than chosen" bullet on
+  this point is already discharged.
+- **The `snmp` package ships only the two client binaries.** Adding `snmpd` to `binaries` and
+  `daemons` also hands every GENERATED device already running the agent its daemon binary, because
+  `binariesForService` matches on the package NAME. `extraFiles` are deliberately absent from that
+  path, so no generated router's seeded NAT table is overwritten by the install's own file.
+- **The own-box path never reaches the server.** `ownBoxSource` maps `localhost`, `127.0.0.1` and
+  the box's own leased address to a client-side answer, and the server's same-LAN vantage excludes
+  the caller by construction. "Never localhost" is therefore not something this slice builds — it is
+  something this slice must not break, which makes it a regression criterion rather than a feature.
+- **`openServiceOn` is the single gate every remote vantage passes** — own-LAN, same-LAN occupant,
+  public and deep. One filter check there covers mysql, redis and snmp across all four. `ssh` and
+  `hydra` resolve ports on their own paths and each needs its own.
+- **Only gateways carry a port-authority file today.** A generated workstation has neither
+  `rules.v4` nor `acl.conf`, so the filter is a fact about PLAYER boxes exclusively and no generated
+  box's behaviour changes.
+- **The open question the outline carried is answered: an installed agent IS scannable from
+  off-box.** `readOpenPorts` reads pidfiles and nothing else; `rolePlacement` only decides which
+  GENERATED devices roll an agent. A player who starts `snmpd` is advertising it — and the filter is
+  exactly what makes that a choice rather than a leak.
+
+### The residual this slice accepts rather than guards
+
+A NAT write aimed at a workstation is already refused by slice 5's segment bound, but not for a
+reason the code states: `frontedSegment` computes a DEEP subnet for a machine id that fronts no
+layer, and every destination an attacker can name falls outside that phantom `/24`. The refusal is
+correct; the mechanism is an accident.
+
+Guarding it properly means moving segment-fronting out of the set door and into the reach, which is
+the only layer that knows which vantage resolved the box. **That belongs to slice 7**, which needs
+the cross-player gateway vantage anyway. Until then the residual is: an attacker who guesses a
+random `/24` out of the generator's space writes one dead rule into a file. Recorded here so the
+next reader knows it was seen and priced, not missed.
+
+### Four decisions this slice needed, none of them covered by the epic's eleven
+
+1. **Both tables, no discriminant.** A workstation and a router both carry `/etc/iptables/rules.v4`
+   and neither carries `acl.conf`, so no device-kind test can tell them apart. The walk therefore
+   renders what the FILE says: the forwards it finds and the denies it finds. A workstation has no
+   forwards and shows only denies; a router has no denies and shows only forwards; a box carrying
+   both shows both. Nothing has to decide what kind of machine it is, which is the only version of
+   this that cannot go wrong later — a real `rules.v4` holds both chains too.
+2. **A filtered port disappears from a neighbour's scan, and the walk still names it.** A DROP is
+   invisible: the scan lists one fewer port. The attacker learns the filter exists by WALKING the
+   agent, which prints the deny table. That turns scan → walk → set into one chain rather than three
+   unrelated verbs, and it is what a real DROP does — a port that stayed listed and then refused
+   would be an open port that lies.
+3. **This slice owes a wire-check.** The epic's tentative `N/A` does not survive contact, the same
+   way slices 2 and 3 found. The gate lands in `openServiceOn` and in the occupant-scan resolver,
+   both server-executed, and the observable itself is a two-player same-LAN fact.
+   `testMysqlSameLan.ts` and `seedCrossPlayerTarget.ts` already carry the harness shape.
+4. **The deny grammar is COPIED into `iptablesRules.ts`, not extracted.** `switchAcl.ts` keeps its
+   `parseAclDenies` and `withDeny`; `iptablesRules.ts` grows `parseInputDenies` and `withInputDeny`
+   beside `withForward`, which is how decision 10 words it. They are named for the INPUT chain
+   rather than mirroring the switch's spelling because `snmpSet.ts` imports BOTH writers, and two
+   exported `withDeny`s would collide at the one call site that needs each. Two copies of a three-line regex, on the bet that a switch's access
+   list and a host's INPUT chain will want to diverge — `deny <port> from <ip>` is a natural next
+   move for one of them and not the other. A shared module would make every future change to either
+   ask permission from the other.
+
+### Acceptance criteria — FOR CONFIRMATION, before any code
+
+- [ ] **AC-1** `apt install snmp` on a workstation lays down `/usr/bin/snmpwalk`,
+      `/usr/bin/snmpset` and `/usr/sbin/snmpd`, and plants `/etc/iptables/rules.v4` owned by `root`,
+      root-read and root-write, never executable.
+- [ ] **AC-2** The planted file denies nothing: a walk of the freshly installed box reports an empty
+      table, and every port the box serves is still reachable from a neighbour.
+- [ ] **AC-3** `systemctl start snmpd` brings the agent up on that box and `systemctl stop snmpd`
+      takes it down. A stopped agent reads as `host_unreachable`, never as a refusal — the answer
+      D7 slice 5b fixed for every depth.
+- [ ] **AC-4** A generated device that rolled an agent now also carries `/usr/sbin/snmpd`, and its
+      seeded `rules.v4` or `acl.conf` is byte-for-byte what it was before this slice.
+- [ ] **AC-5** `parseInputDenies` reads `deny <port>` from `rules.v4` content, skipping blanks,
+      comments and malformed lines and rejecting ports outside 1–65535. `parseForwardRules` over the
+      SAME content still returns the forwards and only the forwards.
+- [ ] **AC-6** `withInputDeny` on `rules.v4` adds or removes exactly one line. The header, the commented
+      example, every forward, and anything the owner typed in `nano` survive byte-for-byte, and a
+      deny the owner commented out stays a comment.
+- [ ] **AC-7** A walk of a workstation agent renders `Linux <hostname>` and `eth0` identity, plus
+      one `INPUT-MIB::inputPort.<port> = STRING: deny` row per deny. Named for the CHAIN, not the
+      filter: `INPUT-MIB::inputPort.65535` is exactly as wide as the OID column, and `FILTER-MIB`
+      would run one character over and shunt the `=` on every five-digit port.
+- [ ] **AC-8** A walk of a device whose `rules.v4` carries BOTH kinds renders both — NAT rows and
+      filter rows, from the one file. A device whose `rules.v4` holds neither says so in ONE
+      sentence and offers BOTH write syntaxes.
+- [ ] **AC-9** A switch is untouched: `acl.conf` still renders as `ACL-MIB::aclPort.<port>`, and a
+      switch's walk mentions no filter table.
+- [ ] **AC-10** `snmpset <host> <rw> inputPort.<port>=deny` writes the deny into `rules.v4` and
+      echoes `old -> new`; `=permit` removes it; a read-only community gets `notWritable`; a port
+      outside 1–65535 gets `noSuchName`; any other value gets `wrongValue`.
+- [ ] **AC-11** A neighbour's `nmap` of a box carrying `deny 6379` lists every other port and not
+      that one. The OWNER's own scan of their own address still lists it.
+- [ ] **AC-12** A neighbour's `redis-cli` against a filtered port is refused with the word-for-word
+      sentence an unserved port already gives — a DROP, not a distinguishable refusal. `mysql` and
+      `snmpwalk` behave identically, because all three pass `openServiceOn`.
+- [ ] **AC-13** `ssh` and `hydra` honour the filter on their own paths: a filtered `22` refuses the
+      login and yields no crack.
+- [ ] **AC-14** The owner's `redis-cli 127.0.0.1`, `redis-cli localhost` and
+      `redis-cli <own leased address>` all still connect to a filtered port. The regression that
+      matters most in this slice.
+- [ ] **AC-15** The filter covers the agent itself: `deny 161` stops the device answering walks from
+      the network, while the owner's `nano` on the box still edits the file. Locking yourself out of
+      your own agent is allowed, exactly as decision 11 already allows severing your own route.
+
+### RED — the failing tests, in the order they get written
+
+1. `iptablesRules.test.ts` — `parseInputDenies` over a file holding forwards, denies, comments and
+   junk; `withDeny` add and remove preserving every other byte. (AC-5, AC-6)
+2. `walk.test.ts` — the workstation block, the both-kinds block, the empty-file sentence, and the
+   switch left alone. (AC-7, AC-8, AC-9)
+3. `set.test.ts` — the `inputPort` OID and its four answers. (AC-10)
+4. `snmpSet` door tests — the deny reaching `rules.v4`, with `old -> new` in `snmpd.log`. (AC-10)
+5. The gate: a filtered port refused through `openServiceOn` for all three data doors, absent from
+   the occupant scan, refused by `ssh` and `hydra`, and STILL open to the owner's own box.
+   (AC-11…AC-14)
+6. `aptPackages.test.ts` — the three binaries, the planted file's permissions, and a generated
+   device's seeded file untouched. (AC-1, AC-2, AC-4)
+7. `systemctl` against an installed agent. (AC-3, AC-15)
+
+### GREEN — the minimum, in dependency order
+
+1. `iptablesRules.ts` — `parseInputDenies`, `withInputDeny`, and the seed the install plants.
+2. `walk.ts` — `SnmpPortTable` becomes a LIST of tables rather than one member of a tagged union;
+   `inputPortOid`; the `FILTER-MIB` vocabulary and the combined emptiness sentence.
+3. `set.ts` — `inputPort` in `SET_OID_RE`, and its `deny`/`permit` values beside `aclPort`'s.
+4. `snmpWalk.ts` and `snmpSet.ts` — `portTablesOf` reading every table the box's files support, and
+   `storedFile` writing the filter back into `rules.v4`.
+5. **One function, `portsOpenToNetwork(hostFs)`** — `readOpenPorts` minus the box's own denies.
+   Every REMOTE site calls it; every own-box and client-side site keeps `readOpenPorts`.
+6. Thread it through the FIVE remote sites: `openServiceOn` (all three data doors, all four
+   vantages), `resolveOccupantScan` (the neighbour's scan answer), `reachDoor` (ssh AND a planted
+   `nc` listener, all three ssh vantages), `hydraCrack` and `hydraCrackPublic`.
+
+   Deliberately NOT threaded, each for a stated reason: `nmapScan`'s two trace sites write the
+   DEFENDER's own `kern.log`, and a box's own log is not the place to hide that box's own filter —
+   nothing there reaches the attacker, and the probe really did arrive. The deep and
+   inner-gateway readers resolve GENERATED boxes, which carry no filter file at all. `nmap.ts`,
+   `scanResult.ts` and `runLine.ts` are the owner's own view of their own box.
+7. `aptPackages.ts` — `snmpd` in `binaries` and `daemons`, and the `rules.v4` extra file.
+
+### Five things GREEN must get right
+
+1. **`readOpenPorts` stays the truth.** The filter is a VIEW for remote callers, not a rewrite of
+   what is listening. `ps`, the owner's own scan, and the pidfiles themselves are unchanged — a
+   filtered daemon is running, which is the whole point of preferring a filter to `systemctl stop`.
+2. **The two deny lists never merge.** A switch's `acl.conf` denies render as `aclPort`; a host's
+   `rules.v4` denies render as `inputPort`. They cannot co-occur on one box today, but they are
+   different facts in different files and one list would make them one.
+3. **The refusal is the EXISTING one.** A filtered port must be indistinguishable from a port
+   nothing serves. A new refusal sentence would be a scanner's oracle for which ports are worth
+   attacking.
+4. **`binariesForService` must not gain `extraFiles`.** Its own comment already says why: the
+   package's file is drawn from the installing PLAYER, and laying it over a generated box would
+   overwrite that box's own table.
+5. **Every new remote call site is a place the filter could be forgotten.** Five sites is the count
+   TODAY; the mutation gate is what proves each one load-bearing rather than decoration. The
+   `nc`-listener branch of `reachDoor` is the one that would have been missed by reading the port
+   readers alone — it finds its door through `listenerOn`, not through `readOpenPorts`.
+
+### Considered and rejected: splitting the gate out as its own slice
+
+The install, the grammar, the walk and the set could ship without the gate, leaving a file that
+parses and renders and blocks nothing. That is a slice whose observable is "a player writes a rule
+with no effect" — the exact shape decision 9 refused for `snmpset` on a fresh router, for the same
+reason. A filter that does not filter is worse than no filter: it tells the owner they are defended.
+
+### Progress — PR-READY, on `feat/d8-snmp-own` (2026-08-29)
+
+Nine commits, each RED→GREEN with the gates clean. Full suite **3994 passing / 187 files**
+(baseline at slice 5's close was 3928 / 186); `npm run typecheck` and `npm run lint` clean from
+`v2/`; wire-check **13/13** against a live stack, falsified twice; mutation gate closed at
+**97.43%**; version **v0.190.0**.
+
+| Commit | What landed |
+|--------|-------------|
+| `3d8bbc96` | the plan — slice 5 marked merged, the epic's five stale D8 rows, slice 6 planned in full |
+| `fcc97156` | `rules.v4` grows an INPUT chain beside its NAT table |
+| `e97f4b1d` | a device answers with every table its files hold |
+| `8a34da1b` | a port closes on the box that answers |
+| `0924ba24` | what a box answers to the network is not what runs on it |
+| `74a14846` | a filtered port is not a door, at every way in |
+| `543ca8c6` | the package that lets a player run their own agent |
+| `b5b6e720` | `scripts/testSnmpFilter.ts` — 13 checks, falsified twice; v0.190.0 |
+| (this one) | the mutation gate: eight gap-closing tests, the thrice-deferred dead filter removed |
+
+**AC-1…AC-15 are met.** Names deviated from the plan in two places and the plan was reconciled at
+the time: `parseInputDenies`/`withInputDeny` rather than `parseDenyRules`/`withDeny` (`snmpSet`
+imports BOTH writers, and two exported `withDeny`s collide), and `INPUT-MIB` rather than
+`FILTER-MIB` (`INPUT-MIB::inputPort.65535` is exactly the OID column's width; `FILTER-MIB` runs one
+over and shunts the `=` on five-digit ports).
+
+### What building it found that planning had not
+
+- **`snmpd` has been UNSTARTABLE since slice 1.** `systemctl` gates `start` on the binary existing,
+  and no package shipped `/usr/sbin/snmpd` — so the unit sat in `DAEMONS` and `UNITS` for five
+  slices with nothing on any shelf to buy it with. #463's guard checks a unit EXISTS, not that a
+  player can OBTAIN it. A sibling guard now closes the class, exempting `sshd`/`vsftpd` through the
+  existing `SYSTEM_DAEMON_NAMES`.
+- **`hydraCrackPublic` was green on arrival and nothing caught it.** The whole 602-test session
+  suite passed with the world-facing sweep ignoring filters. A published port is the one address a
+  stranger can always reach, and it would have been the single place a filter did not apply.
+- **The `nc` branch of `reachDoor` needed it too.** It finds its door through `listenerOn`, not
+  `readOpenPorts`, so reading the port readers alone would have missed it. A defender can now close
+  a backdoor they never found.
+- **Five sites, not six.** `reachDoor` is one gate for ssh at all three vantages, and `openServiceOn`
+  already covered the three data doors. `nmapScan`'s two trace sites are deliberately excluded —
+  they write the DEFENDER's own `kern.log`, and a box's own log is not the place to hide that box's
+  own filter.
+- **One test claimed more than the design promises** and was narrowed rather than made to pass: a
+  filtered port is indistinguishable from a STOPPED daemon (`service_not_running`), not from an
+  ABSENT address (`host_unreachable`). Those are two answers the client renders identically.
+- **Four of the wire-check's checks failed on their first live run, all harness bugs** — a same-LAN
+  ssh needs a `session_id`, the walk answers with tables rather than rendered lines, an `snmpset`
+  refusal is HTTP 200 with an error PDU, and "every port filtered" had denied two of three.
+
+### The residual, now evidenced live
+
+Wire-check 13 pins it: a forward aimed at a workstation is refused with `192.168.115.23 is not on
+this device's segment` — the right answer arriving through the phantom deep segment
+`frontedSegment` computes for a box that fronts nothing. Correct outcome, accidental mechanism.
+**Slice 7 owns the fix**, and now has a live check that will change its wording when it lands.
+
+#### The mutation gate — run, survivors addressed
+
+Scoped to this slice's changed production code (throwaway `vite.mutation.config.ts` +
+`stryker.slice6.json`, both deleted after). Two runs: **94.89% → 97.43%**, survivors **63 → 37**,
+killed 1375 → 1401, no-coverage **11 → 0**, zero timeouts in both. `portsOpenToNetwork.ts`,
+`hydraCrackPublic.ts` and `snmpwalk.ts` finished at **100%**.
+
+Two files were left out of the mutate scope on purpose: `adapters/sessionsApi.ts` sits outside the
+repo's `src/core/**` scope and its change is a transport-schema mirror the wire-check owns, and
+`commands/snmpset.ts` changed only in manual prose — the long-classified `Command`-metadata class.
+`commands/snmpwalk.ts` was mutated at its executable half (`46-84`) and scored 100%.
+
+| Survivor group | Action |
+|---|---|
+| `authCreateSession`'s `nc` port gate | **Real gap, and the slice's own claim was unproven.** `74a14846` says "a defender can now close a backdoor they never found"; the code does gate it and nothing pinned it. Now: two listeners, one port denied — the denied knock 404s, the one beside it still opens. One listener would let the mutant read as "is anything open on this box?" |
+| `apt`'s planted seed | **Real gap.** `parseInputDenies('')` is `[]`, so "plants a file that denies nothing" was true of an EMPTY file. The planted bytes are now asserted to be the seed |
+| `binariesForService`'s `\|\|` union | **Real gap.** `snmp` matches BOTH arms, so nothing discriminated them. ftp now matches by NAME (nothing here ships `vsftpd`) and http by DAEMON (the package is `nginx`) — the two rules the module's own header claims |
+| five catalogue entries mutating to `{}` unnoticed | **Real gap**, the "entry no test ever draws" class. One population assertion: every package names itself, every binary resolves back to the package that ships it |
+| the seed's commented example | **Real gap.** The file says "uncomment & edit" and nothing checked that what it shows is valid grammar. A test uncomments it and reads back `6379` |
+| `parseSnmpSet`'s no-separator branch | **Real gap.** An assignment with no `=` is echoed back WHOLE; the mutant returns it one character short, which reads as a typo the device invented |
+| an unknown service name at the public sweep | **Real gap.** The payload takes any non-empty string, and the 404 that keeps the door from being a catalogue of what exists had no test. Also cleared 4 of the 11 no-coverage |
+| `parseForwardRules`'s dead comment filter | **REMOVED** (see below) |
+
+**Seven mutants hand-falsified**: each new test was run against its own mutant and seen red before
+the mutant was reverted. A test that only passes is not evidence that it kills anything.
+
+**The thrice-deferred debt is DISCHARGED.** `parseForwardRules`'s
+`.filter(line => line.length > 0 && !line.startsWith('#'))` is gone. `FORWARD_RULE_RE` is anchored
+`^forward…$`, so a blank or a `#` line can never match it — the filter could not change an answer,
+which is why six of its mutants survived three gates running. The full suite (3994 / 187) stays
+green across the deletion, and the two parsers now have the shape the module's own rewritten header
+claims: "each kind has its own parser and neither sees the other's lines."
+
+**The 37 that remain are classified, not ignored:**
+
+- **6 in `LOCAL_FILTER_SEED`'s header prose** — the five comment lines and the trailing blank.
+  Documentation, and the same accepted class as a `Command`'s manual. The two load-bearing
+  properties are both pinned now: it denies nothing, and its example is real grammar.
+- **3 in `aptPackages` L229 are FALSE SURVIVORS.** `pkg.binaries && [pkg.name]` crashes the module
+  at import, vitest reports "2 failed, no tests", and Stryker scores zero failing tests as a
+  survivor. Hand-checked, and now recorded in `conventions-and-gotchas.md` §mutation.
+- **8 in `authCreateSession` L228, L323, L339, L343** — pre-existing lines this slice never touched:
+  a `'passwd'` tag no consumer compares (every caller branches on `kind === 'listener'` and treats
+  the rest as the else), the missing-credential guard, the `'failure'` outcome string, and
+  `account === null ||`, which is subsumed by `!passwordOk` at runtime but REQUIRED for TypeScript
+  to narrow `account` before `account.userType` below it.
+- **11 `?? []` fallbacks mutated to a junk array** (`hydraCrack` ×2, `serviceHost` ×2,
+  `resolveOccupantScan` ×2, `snmpSet`, `aptPackages`) — a junk row matches no `owner_key`, no lease
+  and no daemon, which is what an empty array already does. Inherited from slice 5 and re-checked.
+- **2 kind tags in `snmpSet`'s `currentState`** (`'acl'`, `'filter'`) — its ONE caller takes
+  `describeSet(...).value`, computed from `denied`, and throws the `oid` the kind decides away.
+  Slice 5 classified the `'acl'` half by inheritance; this is the actual reason.
+- **3 in `parseSnmpSet` L115/L119** — the no-separator VALUE (an `=`-less assignment is refused on
+  its name before the value is read either way) and `named === null`, which TypeScript needs to
+  narrow before `named[1]`.
+- **2 in `padRight`** — `>=` → `>` differs only at exactly-equal length, where `' '.repeat(0)` is
+  the same string. `INPUT-MIB::inputPort.65535` is exactly the column width and nothing in the game
+  is wider, so the else branch is unreachable rather than merely untested.
+- **1 in `snmpWalk` L151** — `writerKey ?? publicKey`. **Still slice 7's**: a generated device has
+  no owner, so only a cross-player write can tell the two apart.
+- **1 in `aptPackages` L108** — `['msfconsole']` → `[]` leaves the package findable by its own name
+  through the default. Unobservable through the module's public accessors.
+
+### WHERE TO PICK UP
+
+The gate is DONE. What is left is the teardown and the PR itself.
+
+**The live stack is still up** and must come down before the PR: `npx -y supabase stop --project-id
+jshack-me-v2`, then kill whatever listens on 3100 — an orphan answers 502 rather than refusing and
+silently serves stale code to the next session. (`vercel dev` was already stopped for the gate: a
+concurrent vite server makes Stryker report false survivors.)
+
+No production behaviour changed at the gate — the only source edit was deleting dead code — so the
+wire-checks stand as run: `testSnmpFilter` 13/13, `testRedisSameLan` 16/16, `testSnmpDepth` 12/12,
+`testDaemonGates` 6/6, `testHydraOwnLan` 23/23.
+
+Debts this slice did NOT discharge: `writerKey ?? publicKey`, unkillable until a cross-player write
+exists, and the `frontedSegment` residual above. Both are slice 7's.
+
+### This slice OWES a wire-check
+
+`scripts/testSnmpFilter.ts`, modelled on `testMysqlSameLan.ts` plus `seedCrossPlayerTarget.ts`. Two
+players on one ESSID: the owner installs, starts the agent and denies a port; the neighbour scans
+and is refused; the owner's own box still answers. It must be RUN against `vercel dev` and supabase
+and FALSIFIED — a check never seen red is not evidence.
+
+### PR-ready when
+
+AC-1…AC-15 pass, `npm run typecheck` and `npm run lint` are clean from `v2/`, the full non-watch
+test gate is green, the wire-check has RUN against a live stack and been falsified, the mutation
+gate has run with survivors addressed, and the version is bumped to **v0.190.0** in both
+`v2/package.json` and `v2/package-lock.json` (`npm install --package-lock-only`).
+
+**Slice complete when** its PR lands on `main`.
+
+## Slice 7 (outline only — plan it when slice 6 lands)
+
 - **Slice 7** — the cross-player set against another player's AP gateway. `targetWriterKey` already
-  gives the one-row guarantee. **Owes a wire-check.**
+  gives the one-row guarantee. **Owes a wire-check**, and INHERITS slice 6's residual: segment
+  fronting moves out of the set door and into the reach, the only layer that knows which vantage
+  resolved the box.
 
 ## Pre-PR Quality Gate
 

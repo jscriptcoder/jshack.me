@@ -790,3 +790,106 @@ forward 2222 to ${onSegment(essid, 9)}:22
     expect(logged).not.toContain('[]');
   });
 });
+
+/**
+ * The third write: a port on the filter the answering box keeps about ITSELF.
+ *
+ * It lands in `rules.v4`, the same file a gateway forwards from, because a real one
+ * carries both chains. So the two writes have to leave each other alone — a deny that
+ * ate a forward would close a port its owner opened, and neither the walk nor the file
+ * would say who did it.
+ */
+describe('closing a port on the box that answers', () => {
+  it('writes the deny into the file the device already routes by, and echoes it back', async () => {
+    const identity = generateIdentity();
+    const essid = CANDIDATE_ESSIDS[0]!;
+    const gateway = apGatewayOn(essid);
+    const { deps, upsertPatch } = makeDeps(answering());
+
+    const response = await handleSnmpSet(
+      await signedSet(identity, {
+        essid,
+        target_ip: gateway.ip,
+        assignment: 'inputPort.6379=deny',
+      }),
+      deps,
+    );
+
+    expect(response).toEqual({
+      status: 200,
+      body: { ok: true, oid: 'INPUT-MIB::inputPort.6379', value: 'deny' },
+    });
+    expect(writtenTo(upsertPatch, RULES_V4_PATH)?.content).toContain('deny 6379');
+  });
+
+  it('leaves every forward in the file exactly where it was', async () => {
+    const identity = generateIdentity();
+    const essid = CANDIDATE_ESSIDS[0]!;
+    const gateway = apGatewayOn(essid);
+    const seeded = `# my rules\nforward 8080 to ${onSegment(essid, 9)}:80\n`;
+    const { deps, upsertPatch } = makeDeps(answering(patchRow(RULES_V4_PATH, seeded)));
+
+    await handleSnmpSet(
+      await signedSet(identity, {
+        essid,
+        target_ip: gateway.ip,
+        assignment: 'inputPort.6379=deny',
+      }),
+      deps,
+    );
+
+    const written = writtenTo(upsertPatch, RULES_V4_PATH)?.content;
+    expect(written).toContain(`forward 8080 to ${onSegment(essid, 9)}:80`);
+    expect(written).toContain('# my rules');
+    expect(written).toContain('deny 6379');
+  });
+
+  it('opens the port again, and says what it was before', async () => {
+    const identity = generateIdentity();
+    const essid = CANDIDATE_ESSIDS[0]!;
+    const gateway = apGatewayOn(essid);
+    const { deps, upsertPatch } = makeDeps(
+      answering(patchRow(RULES_V4_PATH, '# my rules\ndeny 6379\n')),
+    );
+
+    const response = await handleSnmpSet(
+      await signedSet(identity, {
+        essid,
+        target_ip: gateway.ip,
+        assignment: 'inputPort.6379=permit',
+      }),
+      deps,
+    );
+
+    expect(response.body).toEqual({ ok: true, oid: 'INPUT-MIB::inputPort.6379', value: 'permit' });
+    expect(writtenTo(upsertPatch, RULES_V4_PATH)?.content).not.toContain('deny 6379');
+    // Read from the wrong chain of the same file, the old value would come back
+    // `permit` — a line saying a port was opened that had never been shut.
+    expect(writtenTo(upsertPatch, SNMPD_LOG_PATH)?.content).toContain(
+      'SET INPUT-MIB::inputPort.6379 = deny -> permit',
+    );
+  });
+
+  it('refuses the filter OID on a switch, which keeps no such file', async () => {
+    const identity = generateIdentity();
+    const { essid, host } = switchRunningAgent();
+    const { deps, upsertPatch } = makeDeps(answering());
+
+    const response = await handleSnmpSet(
+      await signedSet(identity, { essid, target_ip: host.ip, assignment: 'inputPort.22=deny' }),
+      deps,
+    );
+
+    // A switch routes by its access list and has no `rules.v4` at all. Accepted here,
+    // the write would create the file a switch is defined by not having.
+    expect(response.body).toEqual({
+      ok: false,
+      refusal: {
+        reason: 'noSuchName',
+        detail: 'INPUT-MIB is not implemented on this device',
+        failedObject: 'INPUT-MIB::inputPort.22',
+      },
+    });
+    expect(writtenTo(upsertPatch, RULES_V4_PATH)).toBeUndefined();
+  });
+});

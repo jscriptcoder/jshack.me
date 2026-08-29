@@ -30,6 +30,11 @@ import { ownDatabase } from '../mysql/ownDatabase';
 import { DATADIR_PATH as STORE_PATH } from '../redis/datadir';
 import { ownStore } from '../redis/ownStore';
 import { formatRedisConf, REDIS_CONF_PATH } from '../generation/generateRedisStore';
+import {
+  LOCAL_FILTER_SEED,
+  RULES_V4_PATH,
+  RULES_V4_PERMISSIONS,
+} from '../network/iptablesRules';
 import { pidfilePath } from '../services/pidfile';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import {
@@ -124,7 +129,25 @@ export const APT_PACKAGES: readonly AptPackage[] = [
       },
     ],
   },
-  { name: 'snmp', binaries: ['snmpwalk', 'snmpset'] },
+  // One package, all three parts: the two tools you point at somebody else's device,
+  // and the daemon that makes yours one. It ships a file too, and that file is the
+  // point — an agent a player runs is a door they opened, and the filter is what lets
+  // them close a port to the network while keeping the service for themselves. The
+  // only defence in the game that is not `systemctl stop`.
+  {
+    name: 'snmp',
+    binaries: ['snmpwalk', 'snmpset', 'snmpd'],
+    daemons: ['snmpd'],
+    extraFiles: [
+      {
+        path: RULES_V4_PATH,
+        // The same for every box, unlike a datadir: a filter is a list of the owner's
+        // own decisions, and a fresh one has none in it yet.
+        content: () => LOCAL_FILTER_SEED,
+        permissions: RULES_V4_PERMISSIONS,
+      },
+    ],
+  },
   // One package, both halves: the client you point at somebody else's database
   // and the daemon that makes yours one. A player who installed `mysql` and then
   // had to find out what the SERVER package was called would be reading a

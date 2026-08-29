@@ -90,6 +90,21 @@ describe('refusing what cannot be set', () => {
     });
   });
 
+  it('echoes an assignment carrying no "=" at all back WHOLE', () => {
+    // There is no name and no value here, only what the player typed — and the failed
+    // object is the only place the device tells them which part it could not read. A
+    // parser that treated the missing separator as a position would hand back the same
+    // text a character short, which reads as a typo the device invented.
+    expect(parseSnmpSet('inputPort6379deny')).toEqual({
+      ok: false,
+      refusal: {
+        reason: 'noSuchName',
+        detail: 'The name does not exist in the MIB',
+        failedObject: 'inputPort6379deny',
+      },
+    });
+  });
+
   it("refuses a destination the file's own parser will not read back", () => {
     // The gate is `parseForwardRules` itself, run over the line this would write. A
     // destination only this door understood would be a forward the scan path and the
@@ -211,5 +226,74 @@ describe('what the device echoes back', () => {
       forward: { internalIp: '192.168.188.10', internalPort: 22 },
     });
     expect(oid).toBe(natForwardOid(2222));
+  });
+});
+
+/**
+ * The third thing a player may write: a port on the box's OWN filter.
+ *
+ * Same two states as a switch's access list and a deliberately different OID, because
+ * they are different facts in different files — a switch shuts a port BEHIND it, a host
+ * shuts one ON itself. One spelling for both would let a player aim a switch's syntax at
+ * a workstation and be told it worked.
+ */
+describe('setting a port on the box that answers', () => {
+  it('reads a host port shut and open again', () => {
+    expect(parseSnmpSet('inputPort.6379=deny')).toEqual({
+      ok: true,
+      target: { kind: 'filter', port: 6379, denied: true },
+    });
+
+    expect(parseSnmpSet('inputPort.6379=permit')).toEqual({
+      ok: true,
+      target: { kind: 'filter', port: 6379, denied: false },
+    });
+  });
+
+  it('refuses a filter value that is neither state, naming the OID it does know', () => {
+    expect(parseSnmpSet('inputPort.6379=drop')).toEqual({
+      ok: false,
+      refusal: {
+        reason: 'wrongValue',
+        detail: 'not "deny" or "permit"',
+        failedObject: 'INPUT-MIB::inputPort.6379',
+      },
+    });
+  });
+
+  it('refuses a filter port outside the range as a name that does not exist', () => {
+    expect(parseSnmpSet('inputPort.0=deny')).toMatchObject({
+      ok: false,
+      refusal: { reason: 'noSuchName', failedObject: 'inputPort.0' },
+    });
+    expect(parseSnmpSet('inputPort.65536=deny')).toMatchObject({
+      ok: false,
+      refusal: { reason: 'noSuchName', failedObject: 'inputPort.65536' },
+    });
+    expect(parseSnmpSet('inputPort.65535=deny')).toMatchObject({ ok: true });
+  });
+
+  it('echoes the port in the state it is now in, under the chain its own walk prints', () => {
+    // The echo IS the confirmation, so it has to be the spelling the walk uses. A set
+    // answering with an OID the walk never prints would read as a different fact than
+    // the one it just changed.
+    expect(describeSet({ kind: 'filter', port: 6379, denied: true })).toEqual({
+      oid: 'INPUT-MIB::inputPort.6379',
+      value: 'deny',
+    });
+    expect(describeSet({ kind: 'filter', port: 6379, denied: false })).toEqual({
+      oid: 'INPUT-MIB::inputPort.6379',
+      value: 'permit',
+    });
+  });
+
+  it("keeps a switch's own syntax pointing at a switch's own file", () => {
+    // Two tables that both deny ports, one grammar apart. If `aclPort` and `inputPort`
+    // parsed to the same target, a write aimed at either file would land in whichever
+    // one the door happened to consult.
+    expect(parseSnmpSet('aclPort.6379=deny')).toEqual({
+      ok: true,
+      target: { kind: 'acl', port: 6379, denied: true },
+    });
   });
 });

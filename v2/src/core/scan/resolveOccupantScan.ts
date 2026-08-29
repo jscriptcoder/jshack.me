@@ -34,7 +34,7 @@ import { verifySignedRequest } from '../signedRequest/verify';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus';
 import { lanAddressesByOwner, type LanLeaseRow } from '../network/lanAddress';
 import { bootableOccupantFs } from '../network/natHosts';
-import { readOpenPorts } from '../services/pidfile';
+import { portsOpenToNetwork } from '../network/portsOpenToNetwork';
 import type { OwnerPatchRow } from '../network/materializeWorkstationFs';
 import type { NatOccupantRow } from './resolvePublicScan';
 import type { NonceStore } from '../signedRequest/nonceStore';
@@ -127,5 +127,11 @@ export const handleResolveOccupantScan = async (
   const occupantFs = bootableOccupantFs(occupant, patches.data);
   return occupantFs === null
     ? HOST_DOWN
-    : { status: 200, body: { ok: true, found: true, ports: readOpenPorts(occupantFs) } };
+    : {
+        status: 200,
+        // What the box answers to the NETWORK, which is what a scan of it can see. A
+        // port its owner filtered is simply absent: a DROP is invisible, and a port
+        // listed here but refused at every door would be an open port that lies.
+        body: { ok: true, found: true, ports: portsOpenToNetwork(occupantFs) },
+      };
 };

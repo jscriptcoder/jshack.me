@@ -18,6 +18,15 @@ import { buildWorkstationBaseFs } from '../generation/workstationFs';
 import { DATADIR_FILE, PASSWD_FILE, SERVICE_CONFIG_FILE } from '../generation/baseFs';
 import { md5 } from '../generation/md5';
 import { DATADIR_OWNER, DATADIR_PATH } from '../mysql/datadir';
+import {
+  LOCAL_FILTER_SEED,
+  parseForwardRules,
+  parseInputDenies,
+  RULES_V4_PATH,
+  RULES_V4_PERMISSIONS,
+} from '../network/iptablesRules';
+import { binariesForService, packageForBinary } from '../packages/aptPackages';
+import { daemonName } from '../services/pidfile';
 import { parseMysqlDatabase } from '../mysql/types';
 import { DATADIR_DIR as STORE_DIR, DATADIR_PATH as STORE_PATH } from '../redis/datadir';
 import { parseRedisStore } from '../redis/types';
@@ -96,6 +105,9 @@ type AptEnvOpts = {
   /** Binaries already in `/usr/bin`, so a reinstall of an installed package is
    *  exercisable. */
   readonly installedBinaries?: readonly string[];
+  /** Content already sitting at `/etc/iptables/rules.v4` — the state of a box whose
+   *  owner has already written filter rules of their own. */
+  readonly existingFilter?: string;
 };
 
 /** One filesystem operation apt performed, in the order it performed them.
@@ -130,6 +142,13 @@ const installedBoxTree = (opts: AptEnvOpts = {}): Directory =>
           }),
     }),
     lib: buildDirectory({}),
+    ...(opts.existingFilter === undefined
+      ? {}
+      : {
+          etc: buildDirectory({
+            iptables: buildDirectory({ 'rules.v4': buildFile(opts.existingFilter) }),
+          }),
+        }),
   });
 
 const aptEnv = (opts: AptEnvOpts = {}) => {
@@ -1359,5 +1378,134 @@ describe('the store a player buys', () => {
 
     expect(again.datadir).toBeUndefined();
     expect(again.streamed.text).toContain(`${STORE_PATH} already exists, keeping your copy`);
+  });
+});
+
+
+/**
+ * `apt install snmp` — the package that lets a player run an agent of their own, and
+ * gives them the file that makes running one a defence rather than an exposure.
+ *
+ * Both halves in one package, as mysql and redis already do: the tools you point at
+ * somebody else's device, and the daemon that makes yours one. A player who installed
+ * "snmp" and then had to discover what the SERVER package was called would be reading a
+ * catalogue to learn a name the world never says aloud.
+ */
+describe('buying the SNMP package', () => {
+  it('ships both clients and the daemon, each on the shelf its tier belongs to', async () => {
+    // The two tools any tier runs against somebody else's device, and the daemon that
+    // is root's to start. The same split mysql and redis already keep.
+    const { env, writes } = aptEnv();
+
+    await streamResult(await apt.execute(env, ['install', 'snmp'], NO_FLAGS));
+
+    expect(writes.map((write) => write.path)).toContain('/usr/bin/snmpwalk');
+    expect(writes.map((write) => write.path)).toContain('/usr/bin/snmpset');
+    expect(writes.map((write) => write.path)).toContain('/usr/sbin/snmpd');
+  });
+
+  it('lays down a filter file the box did not have, root-only and never executable', async () => {
+    // A filter its own users could lift would defend nothing, so it arrives at exactly
+    // the boundary a gateway's own copy of this file keeps.
+    const { env, writes } = aptEnv();
+
+    await streamResult(await apt.execute(env, ['install', 'snmp'], NO_FLAGS));
+
+    expect(writes.find((write) => write.path === RULES_V4_PATH)?.options).toEqual({
+      isNew: true,
+      permissions: RULES_V4_PERMISSIONS,
+    });
+  });
+
+  it('plants a file that denies nothing at all', async () => {
+    // Opt-in, the way the gateway's own seed is: installing an agent must not close a
+    // single port its owner had open. The header is documentation and no parser reads
+    // it — every rule in the shipped file is a commented example.
+    const { env, writes } = aptEnv();
+
+    await streamResult(await apt.execute(env, ['install', 'snmp'], NO_FLAGS));
+    const planted = writes.find((write) => write.path === RULES_V4_PATH)?.content ?? '';
+
+    expect(parseInputDenies(planted)).toEqual([]);
+    expect(parseForwardRules(planted)).toEqual([]);
+  });
+
+  it('gives every device already running an agent the daemon binary too', async () => {
+    // The generated routers and switches from earlier slices answer walks without ever
+    // having carried `/usr/sbin/snmpd`. Read off the same catalog `apt` installs from,
+    // so a package that grows a binary grows it on every box already running that
+    // service — and a player who roots one can `systemctl start snmpd` on it.
+    const carried = binariesForService({ service: 'snmp', daemon: 'snmpd' });
+
+    expect(carried).toContainEqual({ binary: 'snmpd', isDaemon: true });
+    expect(carried).toContainEqual({ binary: 'snmpwalk', isDaemon: false });
+  });
+
+  it('plants the documented seed itself, not merely something that denies nothing', async () => {
+    // An empty file denies nothing either, and the assertions above cannot tell the two
+    // apart. What arrives has to be the seed: its header is the only place the game says
+    // what this file is for, and its commented rule is the syntax a player copies.
+    const { env, writes } = aptEnv();
+
+    await streamResult(await apt.execute(env, ['install', 'snmp'], NO_FLAGS));
+
+    expect(writes.find((write) => write.path === RULES_V4_PATH)?.content).toBe(LOCAL_FILTER_SEED);
+  });
+
+  it('leaves rules the owner has already written exactly where they are', async () => {
+    // The reinstall rule, and it bites hardest here: a second `apt install snmp` that
+    // re-planted the seed would silently lift every port its owner had closed, and the
+    // only sign would be one line on screen.
+    const { env, writes } = aptEnv({ existingFilter: 'deny 6379\ndeny 3306\n' });
+
+    const result = await streamResult(await apt.execute(env, ['install', 'snmp'], NO_FLAGS));
+
+    expect(writes.map((write) => write.path)).not.toContain(RULES_V4_PATH);
+    expect(result.text).toContain(`${RULES_V4_PATH} already exists, keeping your copy`);
+  });
+});
+
+/**
+ * The catalogue answers two questions with one table: which package a player types to
+ * get a binary, and which binaries a generated box running a service already carries.
+ * The second is a UNION of two rules — the package named after the service, and any
+ * package shipping its daemon — and each rule carries boxes the other one does not.
+ */
+describe('the package catalogue every box is built from', () => {
+  it('carries the client of a service its package is NAMED after, and no daemon that package never ships', () => {
+    // Nothing here claims `vsftpd`: it arrives with the base image. So ftp matches on
+    // its name alone, and a rule demanding both halves match would leave every ftp host
+    // in the world without the client its own owner types.
+    const carried = binariesForService({
+      service: SERVICE_CATALOG.ftp.service,
+      daemon: daemonName(SERVICE_CATALOG.ftp),
+    });
+
+    expect(carried).toEqual([{ binary: 'ftp', isDaemon: false }]);
+  });
+
+  it('carries a daemon shipped by a package named after something else entirely', () => {
+    // The other half of the union: http matches on its DAEMON, because the package is
+    // called `nginx` and no player ever types `apt install http`.
+    const carried = binariesForService({
+      service: SERVICE_CATALOG.http.service,
+      daemon: daemonName(SERVICE_CATALOG.http),
+    });
+
+    expect(carried).toEqual([{ binary: 'nginx', isDaemon: true }]);
+  });
+
+  it('names every package it sells, and points every binary back at the one that ships it', () => {
+    // The install hint is only as good as this map — a binary resolving to nothing tells
+    // a player `command not found` with nothing to do about it. Asserted over the whole
+    // catalogue rather than over a sample, because the entries no test happens to draw
+    // are exactly the ones that rot.
+    for (const pkg of APT_PACKAGES) {
+      expect(pkg.name).toBeTruthy();
+      for (const binary of pkg.binaries ?? [pkg.name]) {
+        expect(binary).toBeTruthy();
+        expect(packageForBinary(binary)).toBe(pkg.name);
+      }
+    }
   });
 });

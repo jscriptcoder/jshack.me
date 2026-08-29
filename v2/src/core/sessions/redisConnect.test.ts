@@ -936,3 +936,57 @@ describe('a fellow occupant, on the WiFi they are both connected to', () => {
     expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
   });
 });
+
+/**
+ * A box that filters its own store port stops serving it to the LAN, and goes on
+ * serving it to itself.
+ *
+ * Nothing in this door knows about the filter. The reach every data door shares reads
+ * it once, which is why the store, the database and the agent all answer a filtered
+ * port the same way and cannot drift apart later.
+ */
+describe('a box that filters the port its store answers on', () => {
+  const filtering = (rules: string): Partial<RedisConnectDeps> => ({
+    findPatches: async () => ({ data: [patchRow('/etc/iptables/rules.v4', rules)], error: null }),
+  });
+
+  it('refuses a neighbour exactly as a stopped daemon refuses them', async () => {
+    const identity = generateIdentity();
+    const host = storeHostOn(ESSID);
+
+    const filtered = makeDeps(filtering(`deny ${SERVICE_CATALOG.redis.defaultPort}\n`));
+    const refused = await handleRedisConnect(
+      await signedConnect(identity, { target_ip: host.ip }),
+      filtered.deps,
+    );
+
+    const stopped = makeDeps({
+      findPatches: async () => ({
+        data: [patchRow(pidfilePath(SERVICE_CATALOG.redis), null)],
+        error: null,
+      }),
+    });
+    const silent = await handleRedisConnect(
+      await signedConnect(identity, { target_ip: host.ip }),
+      stopped.deps,
+    );
+
+    // Word for word, so the filter is no oracle: a caller who could tell these apart
+    // would learn which boxes are defended and therefore worth attacking.
+    expect(refused).toEqual(silent);
+    expect(refused).toEqual({ status: 404, body: { error: 'service_not_running' } });
+  });
+
+  it('goes on answering the ports its owner left open', async () => {
+    const identity = generateIdentity();
+    const host = storeHostOn(ESSID);
+    const { deps } = makeDeps(filtering('deny 8080\n'));
+
+    const response = await handleRedisConnect(
+      await signedConnect(identity, { target_ip: host.ip }),
+      deps,
+    );
+
+    expect(response.status).toBe(200);
+  });
+});

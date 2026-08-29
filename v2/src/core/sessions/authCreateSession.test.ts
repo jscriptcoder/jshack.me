@@ -13,7 +13,8 @@ import { seedInnerGatewayAdminPw, seedApGatewayAdminPw } from '../generation/rou
 import { hostMachineId } from '../generation/remoteHostId';
 import { computeInnerGatewayId, computeApGatewayId } from '../identity/router';
 import { md5 } from '../generation/md5';
-import { asGameTime } from '../types';
+import { asAbsPath, asGameTime } from '../types';
+import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { AUTH_LOG_PATH, formatSshdAuthLine } from '../logging/authLog';
 import {
   VSFTPD_LOG_PATH,
@@ -1054,6 +1055,44 @@ describe('a door with no credential behind it', () => {
     );
   });
 
+  it('shuts a listener on a port the owner closed, and leaves the ones beside it open', async () => {
+    // This door is found through the pidfile rather than through the port readers, so a
+    // filter honoured for ssh alone would leave an owner's own rule stepped over by
+    // whatever an attacker left running behind it.
+    //
+    // TWO listeners, one port denied: a gate asking "is anything open on this box?"
+    // rather than "is THIS port open?" answers the same for both, and the box still has
+    // a door the correct implementation must never reach through the closed one.
+    const openPort = BACKDOOR_PORT + 1;
+    const id = generateIdentity();
+    const host = targetHostFor();
+    const { deps, insertSession } = makeDeps({
+      findPatches: async () => ({
+        data: [
+          planted(id.publicKeyHex, listener()),
+          planted(id.publicKeyHex, listener({ port: openPort }), openPort),
+          {
+            path: asAbsPath('/etc/iptables/rules.v4'),
+            content: `deny ${BACKDOOR_PORT}\n`,
+            owner: 'root',
+            permissions: null,
+            node_type: 'file' as const,
+            updated_at: '2026-08-17T00:00:00.000Z',
+            writer_key: id.publicKeyHex,
+          },
+        ],
+        error: null,
+      }),
+    });
+
+    const closed = await handleAuthCreateSession(knock(id, host), deps);
+    const open = await handleAuthCreateSession(knock(id, host, { port: openPort }), deps);
+
+    expect(closed.status).toBe(404);
+    expect(open.status).toBe(200);
+    expect(insertSession).toHaveBeenCalledTimes(1);
+  });
+
   it('reads the tier off the pidfile rather than defaulting it', async () => {
     const id = generateIdentity();
     const host = targetHostFor();
@@ -1170,5 +1209,58 @@ describe('a door with no credential behind it', () => {
 
     expect(result).toEqual({ status: 404, body: { error: 'service_not_running' } });
     expect(insertSession).not.toHaveBeenCalled();
+  });
+});
+
+
+/**
+ * A filtered port is not a door, whichever kind of door it would have been.
+ *
+ * `reachDoor` is the one gate ssh and a planted backdoor both pass, at every vantage —
+ * the caller's own LAN, a fellow occupant, and the world through a forward. A filter
+ * honoured for the daemon but not the listener would leave the owner's `iptables` rule
+ * quietly stepped over by whatever an attacker left running there.
+ */
+describe('a host that filters the port its ssh answers on', () => {
+  const filtering = (rules: string): Partial<AuthCreateSessionDeps> => ({
+    findPatches: async () => ({
+      data: [
+        {
+          path: asAbsPath('/etc/iptables/rules.v4'),
+          content: rules,
+          owner: 'root',
+          permissions: null,
+          node_type: 'file',
+          updated_at: '2026-06-07T14:00:00.000Z',
+          writer_key: 'b'.repeat(64),
+        },
+      ],
+      error: null,
+    }),
+  });
+
+  it('refuses a login on a port it closed to the network', async () => {
+    const identity = generateIdentity();
+    const host = targetHostFor();
+    const { deps, insertSession } = makeDeps(
+      filtering(`deny ${SERVICE_CATALOG.ssh.defaultPort}\n`),
+    );
+
+    const result = await handleAuthCreateSession(validEnvelope(identity, host, 'root'), deps);
+
+    // The same answer a box that never ran sshd gives. Credentials are never reached,
+    // so a filtered box cannot be told from a serviceless one by trying a password.
+    expect(result.status).toBe(404);
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+
+  it('still admits a login on every port it left open', async () => {
+    const identity = generateIdentity();
+    const host = targetHostFor();
+    const { deps } = makeDeps(filtering('deny 8080\n'));
+
+    const result = await handleAuthCreateSession(validEnvelope(identity, host, 'root'), deps);
+
+    expect(result.status).toBe(200);
   });
 });

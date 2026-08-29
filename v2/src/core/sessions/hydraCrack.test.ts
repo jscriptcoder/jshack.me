@@ -2363,3 +2363,77 @@ describe('sweeping a key-value store', () => {
     expect(upsertPatch).not.toHaveBeenCalled();
   });
 });
+
+
+/**
+ * A sweep finds nothing on a port the box closed to the network.
+ *
+ * The same rule the doors keep, at the tool that exists to open them: a filtered port
+ * has nothing to attack, exactly as a stopped daemon has nothing to attack. Left out
+ * here, a filter would still be walked around by the one command whose whole purpose is
+ * to get in — and a player who cracked a password on a port they can never connect
+ * through would be holding a key to a door that is not there.
+ */
+describe('sweeping a host that filters the port', () => {
+  const filtering = (rules: string) => ({
+    findPatches: async () => ({
+      data: [
+        {
+          path: asAbsPath('/etc/iptables/rules.v4'),
+          content: rules,
+          owner: 'root',
+          permissions: null,
+          node_type: 'file',
+          updated_at: '2026-08-09T11:00:00.000Z',
+          writer_key: 'b'.repeat(64),
+        } as OwnerPatchRow,
+      ],
+      error: null,
+    }),
+  });
+
+  it('answers as though nothing were listening there', async () => {
+    const identity = generateIdentity();
+    const host = sshHostOn(ESSID);
+    const { deps } = makeDeps({
+      wordlist: KNOWN_POOL,
+      ...filtering(`deny ${SERVICE_CATALOG.ssh.defaultPort}\n`),
+    });
+
+    const response = await handleHydraCrack(
+      await signedCrack(identity, { target_ip: host.ip }),
+      deps,
+    );
+
+    expect(response).toEqual({ status: 404, body: { error: 'service_not_running' } });
+  });
+
+  it('leaves no line on a box that never heard the sweep', async () => {
+    // A filtered port drops the packets. An auth.log full of attempts would tell the
+    // owner their filter is not working, and tell an attacker who later reads it that
+    // somebody got further than they did.
+    const identity = generateIdentity();
+    const host = sshHostOn(ESSID);
+    const { deps, upsertPatch } = makeDeps({
+      wordlist: KNOWN_POOL,
+      ...filtering(`deny ${SERVICE_CATALOG.ssh.defaultPort}\n`),
+    });
+
+    await handleHydraCrack(await signedCrack(identity, { target_ip: host.ip }), deps);
+
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('still sweeps every port the owner left open', async () => {
+    const identity = generateIdentity();
+    const host = sshHostOn(ESSID);
+    const { deps } = makeDeps({ wordlist: KNOWN_POOL, ...filtering('deny 8080\n') });
+
+    const response = await handleHydraCrack(
+      await signedCrack(identity, { target_ip: host.ip }),
+      deps,
+    );
+
+    expect(response.status).toBe(200);
+  });
+});

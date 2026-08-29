@@ -40,7 +40,7 @@ import {
   type FindHomeNetworkByOwnerKey,
   type FindPublicIpByEssid,
 } from '../logging/crossPlayerSourceIp';
-import { readOpenPorts } from '../services/pidfile';
+import { portsOpenToNetwork } from '../network/portsOpenToNetwork';
 import { serviceByName } from '../services/serviceCatalog';
 import { sweepAccounts, wordlistOn } from '../wordlist/passwordSweep';
 import { WORDLIST_PATH } from '../wordlist/defaultWordlist';
@@ -134,11 +134,12 @@ export const handleHydraCrackPublic = async (
     return { status: 404, body: { error: 'service_not_running' } };
   }
 
-  // The pidfiles are the truth about what is listening: a stopped daemon leaves
-  // nothing to attack, exactly as it leaves nothing to connect to. It must be the
-  // daemon on the port this request REACHED — a forward to nginx is not a door to
-  // sshd, and `ssh` on that port would meet the web server too.
-  const open = readOpenPorts(target.fs).find(
+  // The pidfiles are the truth about what is listening, less whatever the box refuses
+  // the network: a stopped daemon leaves nothing to attack, and neither does a port its
+  // owner filtered. It must be the daemon on the port this request REACHED — a forward
+  // to nginx is not a door to sshd, and `ssh` on that port would meet the web server
+  // too.
+  const open = portsOpenToNetwork(target.fs).find(
     (port) => port.port === target.reachedPort && port.service === spec.service,
   );
   if (open === undefined) {

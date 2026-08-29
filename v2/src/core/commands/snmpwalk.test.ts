@@ -133,10 +133,10 @@ describe('walking a device with a community that reads its port table', () => {
       sysContact: 'netops@corp.local',
       addresses: [GATEWAY_IP, PUBLIC_IP],
     },
-    portTable: {
-      kind: 'nat',
-      forwards: [{ publicPort: 2222, internalIp: '10.0.0.10', internalPort: 22 }],
-    },
+    portTables: [
+      { kind: 'nat', forwards: [{ publicPort: 2222, internalIp: '10.0.0.10', internalPort: 22 }] },
+      { kind: 'filter', denies: [] },
+    ],
   };
 
   it('prints the port table and what to write, not the retry hint', async () => {
@@ -153,7 +153,7 @@ describe('walking a device with a community that reads its port table', () => {
     // Default-deny makes this the usual answer from a fresh router, and it arrives at
     // the same exit code as a full one: the community worked.
     const result = await run(
-      onLan({ walk: async () => ({ ...CRACKED, portTable: { kind: 'nat', forwards: [] } }) }),
+      onLan({ walk: async () => ({ ...CRACKED, portTables: [{ kind: 'nat', forwards: [] }] }) }),
       [GATEWAY_IP, 'corpnet'],
     );
 

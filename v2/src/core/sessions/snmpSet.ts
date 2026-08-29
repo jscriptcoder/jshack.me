@@ -39,8 +39,10 @@ import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { formatSnmpdSetLine } from '../logging/snmpdLog';
 import {
   parseForwardRules,
+  parseInputDenies,
   readRulesV4,
   withForward,
+  withInputDeny,
   RULES_V4_OWNER,
   RULES_V4_PATH,
   RULES_V4_PERMISSIONS,
@@ -95,13 +97,20 @@ const refused = (refusal: SnmpSetRefusal): HandlerResponse => ({
 
 /** Which MIB a target belongs to, for the refusal that says the device has no such
  *  thing. */
-const mibOf = (target: SnmpSetTarget): string => (target.kind === 'nat' ? 'NAT-MIB' : 'ACL-MIB');
+const MIB_OF: Readonly<Record<SnmpSetTarget['kind'], string>> = {
+  nat: 'NAT-MIB',
+  acl: 'ACL-MIB',
+  filter: 'INPUT-MIB',
+};
 
-/** The kind of device a target's MIB belongs on. A router keeps a NAT table and a
- *  switch keeps an access list, so offering either the other's OID is naming something
- *  that is not on it. */
+const mibOf = (target: SnmpSetTarget): string => MIB_OF[target.kind];
+
+/** The kind of device a target's MIB belongs on. A switch keeps an access list and
+ *  keeps no `rules.v4` at all; every other box keeps that file and both of its chains.
+ *  So the access list is the special case here exactly as it is for the walk, and
+ *  offering a device the other's OID is naming something that is not on it. */
 const kindFor = (target: SnmpSetTarget): SnmpDeviceKind =>
-  target.kind === 'nat' ? 'router' : 'switch';
+  target.kind === 'acl' ? 'switch' : 'router';
 
 /** The /24 an address sits on. A router forwards INTO the segment behind it, so a
  *  destination anywhere else names a host this device has no route to — and the rule
@@ -112,33 +121,56 @@ const segmentOf = (ip: string): string => ip.split('.').slice(0, 3).join('.');
 /** The state a port is in NOW, rendered the way the echo renders the state it will be
  *  in. One function for both ends of `old -> new`, so the two can never disagree about
  *  how a forward is spelled. */
-const currentState = (hostFs: Directory, target: SnmpSetTarget): SnmpSetTarget =>
-  target.kind === 'nat'
-    ? {
-        kind: 'nat',
-        publicPort: target.publicPort,
-        forward:
-          parseForwardRules(readRulesV4(hostFs)).find(
-            (forward) => forward.publicPort === target.publicPort,
-          ) ?? null,
-      }
-    : { kind: 'acl', port: target.port, denied: parseAclDenies(readAclConf(hostFs)).includes(target.port) };
+const currentState = (hostFs: Directory, target: SnmpSetTarget): SnmpSetTarget => {
+  if (target.kind === 'nat') {
+    return {
+      kind: 'nat',
+      publicPort: target.publicPort,
+      forward:
+        parseForwardRules(readRulesV4(hostFs)).find(
+          (forward) => forward.publicPort === target.publicPort,
+        ) ?? null,
+    };
+  }
+
+  // Each read from the chain that HOLDS this fact. A filter read out of the access
+  // list — or out of the forwards sharing its own file — would report every port open
+  // and log every close as though it had changed nothing.
+  return target.kind === 'acl'
+    ? { kind: 'acl', port: target.port, denied: parseAclDenies(readAclConf(hostFs)).includes(target.port) }
+    : {
+        kind: 'filter',
+        port: target.port,
+        denied: parseInputDenies(readRulesV4(hostFs)).includes(target.port),
+      };
+};
 
 /** The file this target lives in, with the target's state written into it. */
-const storedFile = (hostFs: Directory, target: SnmpSetTarget) =>
-  target.kind === 'nat'
+const storedFile = (hostFs: Directory, target: SnmpSetTarget) => {
+  const rulesV4 = {
+    path: RULES_V4_PATH,
+    owner: RULES_V4_OWNER,
+    permissions: RULES_V4_PERMISSIONS,
+  };
+
+  if (target.kind === 'nat') {
+    return {
+      ...rulesV4,
+      content: withForward(readRulesV4(hostFs), target.publicPort, target.forward),
+    };
+  }
+
+  // Two writers over one file, each blind to the other's lines, so a deny cannot eat a
+  // forward its owner opened and a forward cannot lift a deny they set.
+  return target.kind === 'acl'
     ? {
-        path: RULES_V4_PATH,
-        owner: RULES_V4_OWNER,
-        permissions: RULES_V4_PERMISSIONS,
-        content: withForward(readRulesV4(hostFs), target.publicPort, target.forward),
-      }
-    : {
         path: ACL_CONF_PATH,
         owner: ACL_CONF_OWNER,
         permissions: ACL_CONF_PERMISSIONS,
         content: withDeny(readAclConf(hostFs), target.port, target.denied),
-      };
+      }
+    : { ...rulesV4, content: withInputDeny(readRulesV4(hostFs), target.port, target.denied) };
+};
 
 export const handleSnmpSet = async (
   body: unknown,

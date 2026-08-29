@@ -77,7 +77,7 @@ const execute: Command['execute'] = async (env, args) => {
           target,
           community: asked,
           identity: walked.identity,
-          portTable: walked.portTable,
+          portTables: walked.portTables,
         });
 
   return { kind: 'sync', lines: lines.map(text), exitCode: 0 };
