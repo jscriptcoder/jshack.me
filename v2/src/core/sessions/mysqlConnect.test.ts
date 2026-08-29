@@ -1222,3 +1222,41 @@ describe('handleMysqlConnect', () => {
     });
   });
 });
+
+/**
+ * The same filter, at the third door that shares the reach. Nothing here knows about
+ * `rules.v4` either — which is the point: one gate, three doors, no chance of a box
+ * that refuses a store on a filtered port and serves a database on it.
+ */
+describe('a box that filters the port its database answers on', () => {
+  it('refuses a neighbour exactly as a stopped daemon refuses them', async () => {
+    const identity = generateIdentity();
+    const host = mysqlHostOn(ESSID);
+    const credentials = { username: 'root', password: 'whatever' };
+
+    const filtered = makeDeps({
+      findPatches: async () => ({
+        data: [patchRow('/etc/iptables/rules.v4', `deny ${SERVICE_CATALOG.mysql.defaultPort}\n`)],
+        error: null,
+      }),
+    });
+    const refused = await handleMysqlConnect(
+      await signedConnect(identity, { target_ip: host.ip, ...credentials }),
+      filtered.deps,
+    );
+
+    const stopped = makeDeps({
+      findPatches: async () => ({
+        data: [patchRow(pidfilePath(SERVICE_CATALOG.mysql), null)],
+        error: null,
+      }),
+    });
+    const silent = await handleMysqlConnect(
+      await signedConnect(identity, { target_ip: host.ip, ...credentials }),
+      stopped.deps,
+    );
+
+    expect(refused).toEqual(silent);
+    expect(refused).toEqual({ status: 404, body: { error: 'service_not_running' } });
+  });
+});
