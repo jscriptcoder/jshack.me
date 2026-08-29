@@ -1,13 +1,13 @@
 # Plan: D8 — `snmpwalk` / `snmpset`
 
-**Branch**: `feat/d8-snmp-own` (slice 6)
+**Branch**: `feat/d8-snmp-cross` (slice 7)
 **Status**: Active — slice 1 MERGED (#465, v0.185.0); slice 2 MERGED (#466, v0.186.0,
 2026-08-27); slice 3 MERGED (#467, v0.187.0, 2026-08-28); slice 4 MERGED (#468, v0.188.0,
 2026-08-28 — AC-1…AC-14 met, wire-check RUN 16/16 and falsified twice, mutation gate closed
 at 88.65%); slice 5 MERGED (#469, v0.189.0, 2026-08-28 — AC-1…AC-13 met, wire-check RUN
-12/12 and falsified twice, mutation gate closed at 85.32%); slice 6 **PR-READY** on
-`feat/d8-snmp-own` at v0.190.0 (AC-1…AC-15 met, wire-check RUN 13/13 and falsified twice, mutation
-gate closed at 97.43% — tear the live stack down, then open the PR); slice 7 outlined only
+12/12 and falsified twice, mutation gate closed at 85.32%); slice 6 MERGED (#470, v0.190.0,
+2026-08-29 — AC-1…AC-15 met, wire-check RUN 13/13 and falsified twice, mutation gate closed at
+97.43%); slice 7 **NEXT** on `feat/d8-snmp-cross`, outlined only — plan it in full before any code
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D8 — resolved scope & decisions
 (grill-me, 2026-08-27)", eleven locked decisions, gap-checked the same day.
 
@@ -35,8 +35,8 @@ that table, all of it a VIEW over the `rules.v4` / `acl.conf` files v2 already p
 | 3 | a player cracks the RW community | `hydra <host> snmp` → the port table renders | **merged** #467 |
 | 4 | a player opens a port, no shell | `snmpset` adds a forward; `nmap` shows it | **merged** #468 |
 | 5 | a device on a deep layer answers | the inner-gateway vantage | **merged** #469 |
-| 6 | a player runs their own agent | owner filters a port; `127.0.0.1` still works | **built** |
-| 7 | a player reconfigures another's | B opens a forward into A's LAN | outlined |
+| 6 | a player runs their own agent | owner filters a port; `127.0.0.1` still works | **merged** #470 |
+| 7 | a player reconfigures another's | B opens a forward into A's LAN | **next** |
 
 Only slice 1 is planned in full. Plan each later slice when its predecessor lands — D7 proved that
 slices 5 and 7 cost far less than their plans assumed, because `reachServiceHost` already
@@ -1114,7 +1114,7 @@ Seven commits, each RED→GREEN with the gates clean. Full suite **3928 passing 
 | `b8c142e1` | the set door takes the port, and the bound asks the device what it fronts |
 | `6fbaebed` | `parseAgentAddress`, both commands, the params and the transport |
 | `8ce3a74e` | `scripts/testSnmpDepth.ts` — 12 checks, falsified twice; v0.189.0 |
-| (this one) | the mutation gate's gap-closing tests and this record |
+| `1c138b5c` | the mutation gate: the typo that would have reached the wrong box |
 
 **AC-1…AC-13 are met.**
 
@@ -1275,45 +1275,45 @@ next reader knows it was seen and priced, not missed.
 
 ### Acceptance criteria — FOR CONFIRMATION, before any code
 
-- [ ] **AC-1** `apt install snmp` on a workstation lays down `/usr/bin/snmpwalk`,
+- [x] **AC-1** `apt install snmp` on a workstation lays down `/usr/bin/snmpwalk`,
       `/usr/bin/snmpset` and `/usr/sbin/snmpd`, and plants `/etc/iptables/rules.v4` owned by `root`,
       root-read and root-write, never executable.
-- [ ] **AC-2** The planted file denies nothing: a walk of the freshly installed box reports an empty
+- [x] **AC-2** The planted file denies nothing: a walk of the freshly installed box reports an empty
       table, and every port the box serves is still reachable from a neighbour.
-- [ ] **AC-3** `systemctl start snmpd` brings the agent up on that box and `systemctl stop snmpd`
+- [x] **AC-3** `systemctl start snmpd` brings the agent up on that box and `systemctl stop snmpd`
       takes it down. A stopped agent reads as `host_unreachable`, never as a refusal — the answer
       D7 slice 5b fixed for every depth.
-- [ ] **AC-4** A generated device that rolled an agent now also carries `/usr/sbin/snmpd`, and its
+- [x] **AC-4** A generated device that rolled an agent now also carries `/usr/sbin/snmpd`, and its
       seeded `rules.v4` or `acl.conf` is byte-for-byte what it was before this slice.
-- [ ] **AC-5** `parseInputDenies` reads `deny <port>` from `rules.v4` content, skipping blanks,
+- [x] **AC-5** `parseInputDenies` reads `deny <port>` from `rules.v4` content, skipping blanks,
       comments and malformed lines and rejecting ports outside 1–65535. `parseForwardRules` over the
       SAME content still returns the forwards and only the forwards.
-- [ ] **AC-6** `withInputDeny` on `rules.v4` adds or removes exactly one line. The header, the commented
+- [x] **AC-6** `withInputDeny` on `rules.v4` adds or removes exactly one line. The header, the commented
       example, every forward, and anything the owner typed in `nano` survive byte-for-byte, and a
       deny the owner commented out stays a comment.
-- [ ] **AC-7** A walk of a workstation agent renders `Linux <hostname>` and `eth0` identity, plus
+- [x] **AC-7** A walk of a workstation agent renders `Linux <hostname>` and `eth0` identity, plus
       one `INPUT-MIB::inputPort.<port> = STRING: deny` row per deny. Named for the CHAIN, not the
       filter: `INPUT-MIB::inputPort.65535` is exactly as wide as the OID column, and `FILTER-MIB`
       would run one character over and shunt the `=` on every five-digit port.
-- [ ] **AC-8** A walk of a device whose `rules.v4` carries BOTH kinds renders both — NAT rows and
+- [x] **AC-8** A walk of a device whose `rules.v4` carries BOTH kinds renders both — NAT rows and
       filter rows, from the one file. A device whose `rules.v4` holds neither says so in ONE
       sentence and offers BOTH write syntaxes.
-- [ ] **AC-9** A switch is untouched: `acl.conf` still renders as `ACL-MIB::aclPort.<port>`, and a
+- [x] **AC-9** A switch is untouched: `acl.conf` still renders as `ACL-MIB::aclPort.<port>`, and a
       switch's walk mentions no filter table.
-- [ ] **AC-10** `snmpset <host> <rw> inputPort.<port>=deny` writes the deny into `rules.v4` and
+- [x] **AC-10** `snmpset <host> <rw> inputPort.<port>=deny` writes the deny into `rules.v4` and
       echoes `old -> new`; `=permit` removes it; a read-only community gets `notWritable`; a port
       outside 1–65535 gets `noSuchName`; any other value gets `wrongValue`.
-- [ ] **AC-11** A neighbour's `nmap` of a box carrying `deny 6379` lists every other port and not
+- [x] **AC-11** A neighbour's `nmap` of a box carrying `deny 6379` lists every other port and not
       that one. The OWNER's own scan of their own address still lists it.
-- [ ] **AC-12** A neighbour's `redis-cli` against a filtered port is refused with the word-for-word
+- [x] **AC-12** A neighbour's `redis-cli` against a filtered port is refused with the word-for-word
       sentence an unserved port already gives — a DROP, not a distinguishable refusal. `mysql` and
       `snmpwalk` behave identically, because all three pass `openServiceOn`.
-- [ ] **AC-13** `ssh` and `hydra` honour the filter on their own paths: a filtered `22` refuses the
+- [x] **AC-13** `ssh` and `hydra` honour the filter on their own paths: a filtered `22` refuses the
       login and yields no crack.
-- [ ] **AC-14** The owner's `redis-cli 127.0.0.1`, `redis-cli localhost` and
+- [x] **AC-14** The owner's `redis-cli 127.0.0.1`, `redis-cli localhost` and
       `redis-cli <own leased address>` all still connect to a filtered port. The regression that
       matters most in this slice.
-- [ ] **AC-15** The filter covers the agent itself: `deny 161` stops the device answering walks from
+- [x] **AC-15** The filter covers the agent itself: `deny 161` stops the device answering walks from
       the network, while the owner's `nano` on the box still edits the file. Locking yourself out of
       your own agent is allowed, exactly as decision 11 already allows severing your own route.
 
@@ -1379,7 +1379,7 @@ parses and renders and blocks nothing. That is a slice whose observable is "a pl
 with no effect" — the exact shape decision 9 refused for `snmpset` on a fresh router, for the same
 reason. A filter that does not filter is worse than no filter: it tells the owner they are defended.
 
-### Progress — PR-READY, on `feat/d8-snmp-own` (2026-08-29)
+### Progress — MERGED #470, on `feat/d8-snmp-own` (2026-08-29)
 
 Nine commits, each RED→GREEN with the gates clean. Full suite **3994 passing / 187 files**
 (baseline at slice 5's close was 3928 / 186); `npm run typecheck` and `npm run lint` clean from
@@ -1396,7 +1396,7 @@ Nine commits, each RED→GREEN with the gates clean. Full suite **3994 passing /
 | `74a14846` | a filtered port is not a door, at every way in |
 | `543ca8c6` | the package that lets a player run their own agent |
 | `b5b6e720` | `scripts/testSnmpFilter.ts` — 13 checks, falsified twice; v0.190.0 |
-| (this one) | the mutation gate: eight gap-closing tests, the thrice-deferred dead filter removed |
+| `09412de2` | the mutation gate: eight gap-closing tests, the thrice-deferred dead filter removed |
 
 **AC-1…AC-15 are met.** Names deviated from the plan in two places and the plan was reconciled at
 the time: `parseInputDenies`/`withInputDeny` rather than `parseDenyRules`/`withDeny` (`snmpSet`
@@ -1498,21 +1498,19 @@ claims: "each kind has its own parser and neither sees the other's lines."
 - **1 in `aptPackages` L108** — `['msfconsole']` → `[]` leaves the package findable by its own name
   through the default. Unobservable through the module's public accessors.
 
-### WHERE TO PICK UP
+### WHERE IT LANDED
 
-The gate is DONE. What is left is the teardown and the PR itself.
-
-**The live stack is still up** and must come down before the PR: `npx -y supabase stop --project-id
-jshack-me-v2`, then kill whatever listens on 3100 — an orphan answers 502 rather than refusing and
-silently serves stale code to the next session. (`vercel dev` was already stopped for the gate: a
-concurrent vite server makes Stryker report false survivors.)
+Merged as `0f40e9e8` (#470, squashed) on 2026-08-29 — 37 files, +2469 / −166. The live stack came
+down first: supabase stopped with its docker volume kept, nothing left listening on 3100.
 
 No production behaviour changed at the gate — the only source edit was deleting dead code — so the
 wire-checks stand as run: `testSnmpFilter` 13/13, `testRedisSameLan` 16/16, `testSnmpDepth` 12/12,
 `testDaemonGates` 6/6, `testHydraOwnLan` 23/23.
 
-Debts this slice did NOT discharge: `writerKey ?? publicKey`, unkillable until a cross-player write
-exists, and the `frontedSegment` residual above. Both are slice 7's.
+Debts this slice did NOT discharge, both slice 7's: `writerKey ?? publicKey`, unkillable until a
+cross-player write exists, and the `frontedSegment` residual above. Wire-check 13 pins the CURRENT
+wording of the refusal that residual produces — when slice 7 moves segment fronting into the reach,
+that check's expected message moves with it.
 
 ### This slice OWES a wire-check
 
@@ -1530,7 +1528,7 @@ gate has run with survivors addressed, and the version is bumped to **v0.190.0**
 
 **Slice complete when** its PR lands on `main`.
 
-## Slice 7 (outline only — plan it when slice 6 lands)
+## Slice 7 (outline only — PLAN IT IN FULL on `feat/d8-snmp-cross` before any code)
 
 - **Slice 7** — the cross-player set against another player's AP gateway. `targetWriterKey` already
   gives the one-row guarantee. **Owes a wire-check**, and INHERITS slice 6's residual: segment

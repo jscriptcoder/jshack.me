@@ -336,7 +336,7 @@ PHASE 1 — THE DOORS  (near-term focus)
       D8 slice 3 a player cracks the RW community     ✔ SHIPPED v0.187.0 (#467)
       D8 slice 4 a player opens a port, no shell      ✔ SHIPPED v0.188.0 (#468)
       D8 slice 5 a device on a deep layer answers     ✔ SHIPPED v0.189.0 (#469)
-      D8 slice 6 a player runs their own agent
+      D8 slice 6 a player runs their own agent        ✔ SHIPPED v0.190.0 (#470)
       D8 slice 7 a player reconfigures another's
   D9  node scripting
   D10 polish (long-tail comfort commands)
