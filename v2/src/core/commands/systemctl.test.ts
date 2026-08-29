@@ -10,6 +10,8 @@ import {
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 import { BINARY_STUB } from '../generation/binaries';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
+import { SYSTEM_DAEMON_NAMES } from '../generation/binaries';
+import { packageForBinary } from '../packages/aptPackages';
 import { daemonName, pidfilePath, readOpenPorts } from '../services/pidfile';
 import { APT_PACKAGES } from '../packages/aptPackages';
 import { DAEMONS } from './daemon';
@@ -744,5 +746,24 @@ describe('the three tables that say which daemons exist', () => {
       .filter((name) => !Object.hasOwn(DAEMONS, name) || !isUnitName(name));
 
     expect(stranded).toEqual([]);
+  });
+
+  it('lets a player OBTAIN every daemon the catalog names', () => {
+    // The guard above proves a unit exists. `systemctl` also refuses to start a daemon
+    // whose binary is not on the box, so a unit no package ships is still a door nobody
+    // can open — which is exactly what `snmpd` was: in DAEMONS and UNITS from the day
+    // the catalog row landed, with nothing on any shelf to buy it with.
+    //
+    // `sshd` and `vsftpd` are the exemptions, and the only ones: they arrive with the
+    // base image, which is why no package claims them.
+    const unobtainable = Object.values(SERVICE_CATALOG)
+      .map((spec) => daemonName(spec))
+      .filter(
+        (name) =>
+          !SYSTEM_DAEMON_NAMES.some((preinstalled) => preinstalled === name) &&
+          packageForBinary(name) === undefined,
+      );
+
+    expect(unobtainable).toEqual([]);
   });
 });

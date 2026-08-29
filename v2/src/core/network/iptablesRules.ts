@@ -142,6 +142,25 @@ export const withForward = (
   return `${edited.join('\n')}\n`;
 };
 
+/** The `/etc/iptables/rules.v4` an `apt install` plants on a box that had none — a
+ *  documented header and a commented example, denying NOTHING. Opt-in for the same
+ *  reason the gateway's own seed is: installing an agent must never close a port its
+ *  owner had open.
+ *
+ *  The header names the INPUT chain where a gateway's names NAT. Nothing PARSES it —
+ *  both chains are read out of whichever file they are in, and a box is never told
+ *  apart by a comment its owner can edit. It is there because a player who opens this
+ *  file should be able to see what it is for. */
+export const LOCAL_FILTER_SEED = [
+  '# /etc/iptables/rules.v4 — local INPUT filter',
+  '# One rule per line:  deny <port>',
+  '# A denied port stops answering the NETWORK. The service keeps running, and',
+  '# localhost is never filtered — 127.0.0.1 still reaches it.',
+  '# Uncomment & edit to close a port (nothing is denied by default):',
+  '# deny 6379',
+  '',
+].join('\n');
+
 const DENY_RULE_RE = /^deny\s+(\d+)$/;
 
 const parseDenyLine = (line: string): number | null => {
