@@ -1,0 +1,254 @@
+import { describe, expect, it, vi } from 'vitest';
+import { handleSnmpSet, type SnmpSetDeps } from './snmpSet';
+import { signRequest } from '../signedRequest/sign';
+import { generateIdentity } from '../identity/identity';
+import { generateHomeLan } from '../generation/generateHomeLan';
+import { seedApGatewayCommunity } from '../generation/routerFs';
+import { computeApGatewayId } from '../identity/router';
+import { pidfilePath, formatPidfileContent } from '../services/pidfile';
+import { SERVICE_CATALOG } from '../services/serviceCatalog';
+import { RULES_V4_PATH } from '../network/iptablesRules';
+import { formatSnmpdState } from '../snmp/rwCommunity';
+import { md5 } from '../generation/md5';
+import { asAbsPath } from '../types';
+import type { ApNetworkLookup, NatOccupantRow } from '../network/resolvePublicTarget';
+import type { LanLeaseRow } from '../network/lanAddress';
+import type { OwnerPatchRow } from '../network/materializeMachineFs';
+import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
+import type { PatchRow } from '../patches/upsertPatch';
+import type { NonceStore } from '../signedRequest/nonceStore';
+
+/**
+ * Writing to a device that belongs to somebody else, reached by their public address —
+ * and the bound on what a forward written from out there may point AT.
+ *
+ * The attacker never joins the defender's network and never learns its name. They type a
+ * public address, and the ESSID travelling with their request is the one their OWN card
+ * is associated with, because that is the only network a client knows it is on. So a
+ * bound derived from the request describes the attacker's world and judges the
+ * defender's device by it — every address inside the LAN under attack falls outside a
+ * subnet drawn for a different network, and the refusal that follows names the right
+ * address for the wrong reason.
+ *
+ * The device's own network is the only correct authority, and only the layer that
+ * resolved the device knows it: a public address is answered by the access point that
+ * bears it, and the server read that access point's ESSID out of its own records on the
+ * way in. What a caller claims about their surroundings can never decide where somebody
+ * else's router is allowed to send traffic.
+ *
+ * The third case is the one with no segment at all. A box reached THROUGH a forward is
+ * an occupant's workstation: it stands on a LAN and fronts nothing behind it, so a NAT
+ * rule on it could not route anywhere. That is a reason to refuse, not an absence of
+ * information, and the answer says so rather than failing a comparison against a network
+ * nobody is on.
+ */
+
+const freshStore: NonceStore = async () => ({ fresh: true });
+// 2026-08-09 11:04:07 UTC — the server clock every log line here is stamped with.
+const FIXED_NOW = Date.UTC(2026, 7, 9, 11, 4, 7);
+
+const TARGET_PUBLIC_IP = '203.0.113.9';
+const TARGET_ESSID = 'PIED-PIPER-GUEST';
+const AP_GATEWAY_ID = computeApGatewayId(TARGET_ESSID);
+const AP_NETWORK: ApNetworkLookup = { router_machine_id: AP_GATEWAY_ID, essid: TARGET_ESSID };
+
+/** The community a `hydra <public ip> snmp` sweep earns. Seeded from the defender's
+ *  ESSID and never from anything the attacker holds, which is what makes it worth
+ *  cracking. */
+const COMMUNITY = seedApGatewayCommunity(TARGET_ESSID);
+
+/** The network the ATTACKER's own card is associated with, and the ESSID their client
+ *  therefore sends. Deliberately not the defender's: it is the whole point that a
+ *  request carries the wrong network's name and the door must not believe it. */
+const ATTACKER_ESSID = 'BEAN-THERE-WIFI';
+
+/** The attacker's own public address, as the server resolves it from their VERIFIED
+ *  key — the address the defender's log will carry. */
+const ATTACKER_PUBLIC_IP = '198.51.100.22';
+
+const TARGET_SUBNET = generateHomeLan(TARGET_ESSID).subnet;
+const ATTACKER_SUBNET = generateHomeLan(ATTACKER_ESSID).subnet;
+if (TARGET_SUBNET === ATTACKER_SUBNET) {
+  throw new Error('the two worlds must sit on different subnets for this bound to mean anything');
+}
+
+const DEFENDER = generateIdentity();
+const DEFENDER_OCTET = 84;
+const DEFENDER_LAN_IP = `${TARGET_SUBNET}.${DEFENDER_OCTET}`;
+const DEFENDER_WS = 'workstation-c3d4e5f6';
+
+/** An address on the ATTACKER's own LAN. A bound taken from the request would place
+ *  this inside the world the request described; a bound taken from the device places it
+ *  nowhere near the network that device fronts. */
+const ATTACKER_LAN_IP = `${ATTACKER_SUBNET}.44`;
+
+const PUBLISHED_PORT = 2222;
+
+const defenderOccupant: NatOccupantRow = {
+  owner_key: DEFENDER.publicKeyHex,
+  workstation_machine_id: DEFENDER_WS,
+  workstation_machine_name: 'nebuchadnezzar',
+  workstation_username: 'neo',
+  workstation_root_hash: md5('correct-horse-battery-staple'),
+};
+
+const DEFENDER_LEASES: readonly LanLeaseRow[] = [
+  { owner_key: DEFENDER.publicKeyHex, octet: DEFENDER_OCTET },
+];
+
+const patchRow = (path: string, content: string): OwnerPatchRow =>
+  ({
+    path: asAbsPath(path),
+    content,
+    owner: 'root',
+    permissions: null,
+    node_type: 'file',
+    updated_at: '2026-08-09T11:00:00.000Z',
+    writer_key: DEFENDER.publicKeyHex,
+  }) as OwnerPatchRow;
+
+/** The occupant's own agent: the daemon running, and a community of their own. Planted
+ *  the way their own install and their own edit would arrive. */
+const OCCUPANT_COMMUNITY = 'homelab';
+const occupantAgent: readonly OwnerPatchRow[] = [
+  patchRow(
+    pidfilePath(SERVICE_CATALOG.snmp),
+    formatPidfileContent(SERVICE_CATALOG.snmp, SERVICE_CATALOG.snmp.defaultPort),
+  ),
+  patchRow('/var/lib/snmp/snmpd.conf', formatSnmpdState(md5(OCCUPANT_COMMUNITY))),
+];
+
+const makeDeps = (
+  patchesByMachine: Readonly<Record<string, readonly OwnerPatchRow[]>> = {},
+  over: Partial<SnmpSetDeps> = {},
+) => {
+  const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async () => ({
+    error: null,
+  }));
+  const readSnmpdLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
+    async () => ({ data: null, error: null }),
+  );
+  const deps: SnmpSetDeps = {
+    nonceStore: freshStore,
+    now: () => FIXED_NOW,
+    findPatches: async ({ machine_id }) => ({
+      data: [...(patchesByMachine[machine_id] ?? [])],
+      error: null,
+    }),
+    readSnmpdLog,
+    upsertPatch,
+    findNetworkByPublicIp: async () => ({ data: AP_NETWORK, error: null }),
+    listOccupantsByEssid: async () => ({ data: [defenderOccupant], error: null }),
+    listLeasesByEssid: async () => ({ data: DEFENDER_LEASES, error: null }),
+    findHomeNetworkByOwnerKey: async () => ({
+      data: { public_ip: ATTACKER_PUBLIC_IP },
+      error: null,
+    }),
+    ...over,
+  };
+  return { deps, upsertPatch };
+};
+
+/** A set sent from across the world: the attacker's OWN ESSID travels with it, because
+ *  that is the only network their client can name. */
+const setAcrossTheWorld = async (
+  deps: SnmpSetDeps,
+  request: {
+    readonly assignment: string;
+    readonly port?: number;
+    readonly community?: string;
+  },
+) =>
+  handleSnmpSet(
+    await signRequest(generateIdentity(), 'snmpSet', {
+      essid: ATTACKER_ESSID,
+      target_ip: TARGET_PUBLIC_IP,
+      port: request.port,
+      community: request.community ?? COMMUNITY,
+      assignment: request.assignment,
+    }),
+    deps,
+  );
+
+const writtenTo = (upsertPatch: ReturnType<typeof makeDeps>['upsertPatch'], path: string) =>
+  upsertPatch.mock.calls.map(([row]) => row).find((row) => row.path === path);
+
+describe("opening a port into another player's LAN, from the other side of the world", () => {
+  it('writes a forward into the network the reached device fronts, not the one the caller named', async () => {
+    const { deps, upsertPatch } = makeDeps();
+
+    const response = await setAcrossTheWorld(deps, {
+      assignment: `natForward.${PUBLISHED_PORT}=${DEFENDER_LAN_IP}:22`,
+    });
+
+    expect(response).toEqual({
+      status: 200,
+      body: {
+        ok: true,
+        oid: `NAT-MIB::natForward.${PUBLISHED_PORT}`,
+        value: `${DEFENDER_LAN_IP}:22`,
+      },
+    });
+    expect(writtenTo(upsertPatch, RULES_V4_PATH)?.content).toContain(
+      `forward ${PUBLISHED_PORT} to ${DEFENDER_LAN_IP}:22`,
+    );
+    expect(writtenTo(upsertPatch, RULES_V4_PATH)?.machine_id).toBe(AP_GATEWAY_ID);
+  });
+
+  it("refuses an address on the CALLER's own LAN, which the device it reached cannot route to", async () => {
+    const { deps, upsertPatch } = makeDeps();
+
+    const response = await setAcrossTheWorld(deps, {
+      assignment: `natForward.${PUBLISHED_PORT}=${ATTACKER_LAN_IP}:22`,
+    });
+
+    expect(response).toEqual({
+      status: 200,
+      body: {
+        ok: false,
+        refusal: {
+          reason: 'wrongValue',
+          detail: `${ATTACKER_LAN_IP} is not on this device's segment`,
+          failedObject: `NAT-MIB::natForward.${PUBLISHED_PORT}`,
+        },
+      },
+    });
+    expect(writtenTo(upsertPatch, RULES_V4_PATH)).toBeUndefined();
+  });
+
+  it('refuses a NAT rule on a box that fronts no network at all, and says that is why', async () => {
+    // Reached THROUGH a forward, so the box is an occupant's workstation: it stands on
+    // the defender's LAN and has nothing behind it. A forward here could not route
+    // anywhere, whatever address it named — so the refusal is about the DEVICE, and
+    // naming a destination that is "not on its segment" would describe a segment the
+    // box does not have.
+    const { deps, upsertPatch } = makeDeps({
+      [AP_GATEWAY_ID]: [
+        patchRow(
+          RULES_V4_PATH,
+          `forward ${PUBLISHED_PORT} to ${DEFENDER_LAN_IP}:${SERVICE_CATALOG.snmp.defaultPort}`,
+        ),
+      ],
+      [DEFENDER_WS]: occupantAgent,
+    });
+
+    const response = await setAcrossTheWorld(deps, {
+      port: PUBLISHED_PORT,
+      community: OCCUPANT_COMMUNITY,
+      assignment: `natForward.9999=${DEFENDER_LAN_IP}:22`,
+    });
+
+    expect(response).toEqual({
+      status: 200,
+      body: {
+        ok: false,
+        refusal: {
+          reason: 'wrongValue',
+          detail: 'this device fronts no network',
+          failedObject: 'NAT-MIB::natForward.9999',
+        },
+      },
+    });
+    expect(writtenTo(upsertPatch, RULES_V4_PATH)).toBeUndefined();
+  });
+});

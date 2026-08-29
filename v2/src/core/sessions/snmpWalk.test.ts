@@ -646,3 +646,75 @@ describe('a device that filters the port its agent answers on', () => {
     expect(response.status).toBe(200);
   });
 });
+
+/**
+ * Whose journal row a walk's lines land in, on the one box two vantages can reach.
+ *
+ * `patches` rows are keyed by writer, and a log patch carries the WHOLE file, so on
+ * replay the newest row for a path wins outright. A device that logged one visitor under
+ * one key and the next under another would not be keeping a log at all — it would be
+ * keeping whichever visit happened last.
+ *
+ * The access point's gateway is the box where that bites. It has no owner of its own, so
+ * a walk from across the world accretes under the AP's stable key — the lowest octet ever
+ * leased on the ESSID, which does not move when players join or leave. An occupant
+ * walking the same gateway from inside stands on a different vantage and must still land
+ * in that same row: otherwise a defender reading their own gateway's log would erase the
+ * attacker's lines by looking at them.
+ *
+ * Every other box on the LAN is generated and ownerless in a different way — nobody's
+ * lease has anything to do with it — so the caller's own key remains the only stable
+ * thing there is to write under.
+ */
+describe("whose row a gateway's own log accretes under", () => {
+  it('writes an occupant’s walk of their own gateway under the access point’s stable key', async () => {
+    const identity = generateIdentity();
+    const essid = CANDIDATE_ESSIDS[0]!;
+    const gateway = apGatewayOn(essid);
+    // A shared access point where the caller is NOT the lowest octet. On a network they
+    // hold alone the two keys coincide and the claim cannot be told apart from its own
+    // absence.
+    const neighbour = generateIdentity();
+    const { deps, upsertPatch } = makeDeps({
+      listLeasesByEssid: async () => ({
+        data: [
+          { owner_key: identity.publicKeyHex, octet: 77 },
+          { owner_key: neighbour.publicKeyHex, octet: 12 },
+        ],
+        error: null,
+      }),
+    });
+
+    await handleSnmpWalk(await signedWalk(identity, { essid, target_ip: gateway.ip }), deps);
+
+    expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
+      path: SNMPD_LOG_PATH,
+      writer_key: neighbour.publicKeyHex,
+    });
+  });
+
+  it('writes a walk of any other box on that LAN under the caller’s own key', async () => {
+    // A generated sibling belongs to nobody and no lease names it, so there is no
+    // stabler key than the caller's. Pinned beside the gateway so the branch above is a
+    // branch rather than a blanket rule.
+    const identity = generateIdentity();
+    const { essid, host } = deviceOfKind('switch');
+    const neighbour = generateIdentity();
+    const { deps, upsertPatch } = makeDeps({
+      listLeasesByEssid: async () => ({
+        data: [
+          { owner_key: identity.publicKeyHex, octet: 77 },
+          { owner_key: neighbour.publicKeyHex, octet: 12 },
+        ],
+        error: null,
+      }),
+    });
+
+    await handleSnmpWalk(await signedWalk(identity, { essid, target_ip: host.ip }), deps);
+
+    expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
+      path: SNMPD_LOG_PATH,
+      writer_key: identity.publicKeyHex,
+    });
+  });
+});

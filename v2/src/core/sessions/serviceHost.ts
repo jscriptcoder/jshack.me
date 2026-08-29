@@ -63,6 +63,9 @@ import { resolveInnerGatewayTarget } from '../network/resolveInnerGatewayTarget'
 import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs';
 import { canBoot } from '../boot/bootFiles';
 import { portsOpenToNetwork } from '../network/portsOpenToNetwork';
+import { frontedSegment } from '../network/frontedSegment';
+import { computeApGatewayId } from '../identity/router';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
 import type { Directory } from '../filesystem/types';
 
 export type HandlerResponse = {
@@ -108,6 +111,15 @@ export type ReachedServiceHost = {
    *  `null` on a box nobody owns, where the caller's own key is the only stable thing
    *  there is to write under. */
   readonly writerKey: string | null;
+  /** The `/24` this box's forwards may point INTO, or `null` for a box that fronts no
+   *  network at all — which is a REASON to refuse a NAT rule, never missing information.
+   *
+   *  Answered here because the vantage is the only thing that knows. The ESSID arriving
+   *  with a request is the one the CALLER's card is associated with, so a door deriving
+   *  the bound from it judges somebody else's router by the attacker's own network: every
+   *  address inside the LAN under attack falls outside a subnet drawn for somewhere else,
+   *  and the refusal names the right address for a reason that is not true. */
+  readonly frontedSegment: string | null;
 };
 
 export type ServiceHostReach =
@@ -136,6 +148,7 @@ const openJournaledBox = async (
     readonly reachedPort: number;
     readonly sourceIp: string | null;
     readonly writerKey: string | null;
+    readonly frontedSegment: string | null;
   },
 ): Promise<ServiceHostReach> => {
   const patches = await deps.findPatches({ machine_id: box.machineId });
@@ -151,6 +164,7 @@ const openJournaledBox = async (
     reachedPort: box.reachedPort,
     sourceIp: box.sourceIp,
     writerKey: box.writerKey,
+    frontedSegment: box.frontedSegment,
   });
 };
 
@@ -228,6 +242,7 @@ const openServiceOn = (box: {
   readonly reachedPort: number;
   readonly sourceIp: string | null;
   readonly writerKey: string | null;
+  readonly frontedSegment: string | null;
 }): ServiceHostReach => {
   // A bricked box is dark before anything is asked of it, so a dead machine cannot
   // be probed for what it used to hold.
@@ -262,8 +277,26 @@ const openServiceOn = (box: {
       localIp: box.localIp,
       sourceIp: box.sourceIp,
       writerKey: box.writerKey,
+      frontedSegment: box.frontedSegment,
     },
   };
+};
+
+/** Whose row a box on the caller's OWN LAN writes under: the access point's stable
+ *  log-writer key when the box reached is the gateway itself, and `null` — meaning the
+ *  caller's own — for every generated box beside it, which no lease names.
+ *
+ *  The leases are read only where the answer can differ, so an ordinary LAN reach costs
+ *  no extra lookup. A read that fails leaves the caller's key rather than turning a
+ *  reach into a 500: a log line is best-effort everywhere else too, and losing the
+ *  stable key is milder than losing the visit. */
+const apGatewayWriterKey = async (
+  deps: ServiceHostLookup,
+  box: { readonly essid: string; readonly machineId: string },
+): Promise<string | null> => {
+  if (box.machineId !== computeApGatewayId(box.essid)) return null;
+  const leases = await deps.listLeasesByEssid(box.essid);
+  return leases.error ? null : apGatewayLogWriterKey(leases.data ?? []);
 };
 
 export const reachServiceHost = async (
@@ -309,6 +342,9 @@ export const reachServiceHost = async (
       reachedPort: resolved.target.reachedPort,
       sourceIp: await resolveCrossPlayerSourceIp(deps.findHomeNetworkByOwnerKey, target.actorKey),
       writerKey: resolved.target.logWriterKey,
+      // The access point's own, resolved from ITS essid on the way in. The one the
+      // request carried names the caller's network and decides nothing here.
+      frontedSegment: resolved.target.frontedSegment,
     });
   }
 
@@ -337,6 +373,8 @@ export const reachServiceHost = async (
       // The target's own key. Their box keeps ONE datadir and ONE log however many
       // neighbours touch it, rather than a row each where the newest erases the rest.
       writerKey: occupant.owner_key,
+      // A fellow occupant's workstation stands on the WiFi and fronts nothing behind it.
+      frontedSegment: null,
     });
   }
 
@@ -362,6 +400,8 @@ export const reachServiceHost = async (
       sourceIp: resolved.target.sourceIp,
       // Nobody owns a generated box, so there is no key but the caller's to write under.
       writerKey: null,
+      // The layer behind the box the chain walk stopped on, which only the walk knows.
+      frontedSegment: resolved.target.frontedSegment,
     });
   }
 
@@ -384,6 +424,15 @@ export const reachServiceHost = async (
     // Never invented here. On the caller's own LAN the address the box saw is the
     // caller's, which only the caller can state.
     sourceIp: null,
-    writerKey: null,
+    // The access point's gateway is reachable from INSIDE as well as from the world, and
+    // one box may not keep two logs: a row per writer means the newest wins outright on
+    // replay, so an occupant walking their own gateway would erase the lines a stranger's
+    // visit left there. The AP's own stable key covers both vantages. Every other box on
+    // this LAN is generated and nobody's lease names it, so the caller's key remains the
+    // only stable thing to write under.
+    writerKey: await apGatewayWriterKey(deps, { essid: target.essid, machineId }),
+    // The caller's own ESSID genuinely IS this box's network here, so the derivation the
+    // set door used to make is correct at this vantage — and only at this one.
+    frontedSegment: frontedSegment({ essid: target.essid, machineId, kind: host.kind }),
   });
 };

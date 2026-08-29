@@ -32,6 +32,7 @@ import { lanAddressesByOwner, type LanLeaseRow } from './lanAddress';
 import { readOpenPorts } from '../services/pidfile';
 import { canBoot } from '../boot/bootFiles';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
+import { frontedSegment } from './frontedSegment';
 import type { Directory } from '../filesystem/types';
 
 /** One occupant a NAT forward can land on: its machine id (the journal scope AND
@@ -94,6 +95,15 @@ export type PublicTarget = {
   readonly hostname: string;
   readonly logWriterKey: string | null;
   readonly essid: string;
+  /** The `/24` this box's forwards may point INTO, or `null` for a box that fronts no
+   *  network at all. Answered HERE because only this resolver knows which of the two it
+   *  handed back: the access point's gateway fronts the LAN behind it, while an
+   *  occupant's workstation reached through a forward stands on that LAN and fronts
+   *  nothing. A caller cannot work it out — the ESSID travelling with a public request
+   *  is the one the CALLER is associated with, and judging somebody else's router by the
+   *  attacker's own network is how every destination inside the LAN under attack came to
+   *  be refused. */
+  readonly frontedSegment: string | null;
   /** The port ON THE TARGET that the requested destination port actually reaches: the
    *  gateway's own listening port, or the far side of a NAT forward. A caller naming a
    *  service must check it against THIS rather than against any port the box happens to
@@ -124,6 +134,14 @@ const gatewayTarget = (
   hostname: seedApGatewayHostname(network.essid),
   logWriterKey: apGatewayLogWriterKey(leases),
   essid: network.essid,
+  // An access point's gateway IS a router — `generateHomeLan` builds the `.1` as one —
+  // so this states the device rather than assuming one, and the LAN it fronts is the
+  // network its own address sits on.
+  frontedSegment: frontedSegment({
+    essid: network.essid,
+    machineId: network.router_machine_id,
+    kind: 'router',
+  }),
   reachedPort: port,
 });
 
@@ -178,6 +196,9 @@ const resolveForwardTarget = async (
       hostname: occupant.workstation_machine_name,
       logWriterKey: occupant.owner_key,
       essid: network.essid,
+      // A box behind the NAT stands on the LAN and has nothing behind IT, so a forward
+      // written here could not route anywhere whatever address it named.
+      frontedSegment: null,
       reachedPort: forwarded.internalPort,
     },
   };
