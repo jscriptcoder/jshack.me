@@ -104,16 +104,28 @@ const portTablesOf = (hostFs: Directory, kind: SnmpDeviceKind): readonly SnmpPor
  *  gateway has an outside face, and a second interface there would be an address that
  *  answers nothing.
  *
- *  `localIp` is the REACH's, never the request's. Through a forward the address a player
- *  typed names the gateway they came in through, so a walk that echoed it back would
- *  describe a device two hops away while naming a box on the LAN. */
+ *  `localIp` is the REACH's, never the request's — and that is what decides how many
+ *  faces there are to show. Through a forward the address a player typed names the
+ *  gateway they came in through, so a walk that echoed it back would describe a device
+ *  two hops away while naming a box on the LAN; and from the WORLD the address they
+ *  reached the gateway by IS its outside face, so appending it again prints one
+ *  interface twice. A device wears two faces and shows you the one you are not already
+ *  looking at.
+ *
+ *  The ESSID on the request is safe HERE, alone among this door's uses of it, because
+ *  the comparison validates it: a machine id matches `computeApGatewayId` only for the
+ *  network that generated it, so the lookup either runs against the reached box's own
+ *  ESSID or does not run at all. It can never answer for a gateway with somebody else's
+ *  network — the failure that made the fronting bound a client's to decide. */
 const addressesOf = async (
   deps: SnmpWalkDeps,
   device: { readonly essid: string; readonly machineId: string; readonly localIp: string },
 ): Promise<readonly string[]> => {
   if (device.machineId !== computeApGatewayId(device.essid)) return [device.localIp];
   const { data } = await deps.findPublicIpByEssid(device.essid);
-  return data === null ? [device.localIp] : [device.localIp, data.public_ip];
+  return data === null || data.public_ip === device.localIp
+    ? [device.localIp]
+    : [device.localIp, data.public_ip];
 };
 
 export const handleSnmpWalk = async (

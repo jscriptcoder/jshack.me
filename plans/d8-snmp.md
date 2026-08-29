@@ -1667,6 +1667,41 @@ prerequisite rather than a cleanup.
       inner-gateway set on a deep layer accept and refuse exactly the destinations they did before,
       now judged by the reach rather than by the door. `testSnmpSet` 16/16 and `testSnmpDepth` 12/12
       pass unchanged.
+- [ ] **AC-13** A device reports each address it holds ONCE. From the world the gateway's public
+      address is the face the caller already reached it by, so a walk shows that alone; from inside
+      its own LAN the same gateway still shows its LAN address and its public one, in that order.
+      **Added mid-slice**, on the evidence below: walking your own public address listed it twice.
+
+#### AC-13 — added during RED step 4, and why
+
+`addressesOf` decided whether a box was an access point's gateway by comparing its machine id
+against `computeApGatewayId(<the ESSID on the request>)` — the caller's own network, deciding a
+server answer, in the slice whose whole purpose is removing that. A stranger got the right answer
+only because their ESSID differs from the defender's; the OWNER walking their own public address
+matched, looked the public IP up, and appended the address they had just typed:
+`addresses: ['203.0.113.9', '203.0.113.9']`.
+
+The fix is the vantage, not the field. `localIp` is already the address the box answers to FROM
+WHERE THE CALLER STANDS, so the second face is shown only when it is not the one already in hand.
+The ESSID comparison then stands as it was, and is safe alone among this door's uses of it: a
+machine id matches `computeApGatewayId` only for the network that generated it, so the lookup
+either runs against the reached box's own ESSID or does not run at all.
+
+#### AC-11 needed a production change, and slice 6's record needs reading with it
+
+Slice 6 narrowed a test rather than make it pass, recording that a filtered port is
+indistinguishable from a STOPPED daemon and not from an ABSENT address. That holds on the own-LAN
+vantage, which is the only one it could exercise. From the WORLD it was true of neither: routing
+runs on `machineServing`, which reads the raw pidfiles, so a stopped agent failed to route and
+answered `host_unreachable` while a filtered one routed fine and was refused a layer later as
+`service_not_running`. Filtered was the ONE state a stranger could pick out of the four — the exact
+oracle the design argues against, inverted.
+
+The gateway's own INPUT chain now drops a packet addressed to it before anything is routed, in
+`resolvePublicTarget`. From the world an address bearing no network, a bricked gateway, a stopped
+daemon, a filtered port and a refused community are one answer. A FORWARD is untouched: an INPUT
+rule governs traffic the box terminates, never traffic it passes through — and that exemption is
+pinned by 49 tests, which is what dropping the `served.kind === 'router'` guard costs.
 
 ### RED — the failing tests, in the order they get written
 
@@ -1751,6 +1786,13 @@ bumped to **v0.191.0** in both `v2/package.json` and `v2/package-lock.json`
   community a fresh install gets, seeded or rolled, and how the owner changes it. **Owes a
   wire-check**; the observable is B re-opening a port A filtered, on a box A installed the agent on
   themselves.
+- **The public scan does not honour the filter.** `nmap <A's public IP>` lists a port A denied:
+  `scanResult` reads `readOpenPorts` — the raw pidfiles — for both its vantages, and the public scan
+  was never one of slice 6's five `portsOpenToNetwork` enforcement sites. So a defender who closes
+  `161` still advertises it to the world, and only the door behind it refuses. Found while writing
+  slice 7's AC-11 and deliberately left there: it is the SCAN's observable, on a door with its own
+  criteria, and folding it in would widen slice 7 past the write it exists to deliver. It belongs
+  beside the agent-community work because both are about a defence a player can actually raise.
 
 ## Pre-PR Quality Gate
 

@@ -30,6 +30,7 @@ import { machineServing, type ServedMachine } from './machineServing';
 import { bootableOccupantFs } from './natHosts';
 import { lanAddressesByOwner, type LanLeaseRow } from './lanAddress';
 import { readOpenPorts } from '../services/pidfile';
+import { portsOpenToNetwork } from './portsOpenToNetwork';
 import { canBoot } from '../boot/bootFiles';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
 import { frontedSegment } from './frontedSegment';
@@ -235,6 +236,24 @@ export const resolvePublicTarget = async (
   const destinationPort = request.port ?? DEFAULT_SSH_PORT;
   const served: ServedMachine = machineServing({ routerFs: gatewayFs, port: destinationPort });
   if (served.kind === 'none') {
+    return { ok: false, status: 404, error: 'host_unreachable' };
+  }
+
+  // The gateway's own INPUT chain drops a packet addressed TO IT before anything is
+  // routed. Routing reads the pidfiles and cannot see a filter, so a port its owner had
+  // denied used to route fine and be refused a layer later under a name of its own —
+  // leaving "filtered" as the ONE state a stranger could pick out from the world, when
+  // an address bearing no network, a bricked gateway, a stopped daemon and a refused
+  // community all answer alike. A defence that announces itself tells a scanner which
+  // boxes are worth a wordlist.
+  //
+  // A FORWARD is deliberately untouched: an INPUT rule governs traffic the box
+  // terminates, never traffic it passes through, so closing the agent's own port cannot
+  // also close a door somebody opened onto their workstation.
+  const openToWorld = portsOpenToNetwork(gatewayFs).some(
+    (open) => open.port === destinationPort,
+  );
+  if (served.kind === 'router' && !openToWorld) {
     return { ok: false, status: 404, error: 'host_unreachable' };
   }
 
