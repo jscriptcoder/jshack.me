@@ -524,19 +524,22 @@ const walkedDevice = z.union([
   z.object({
     tier: z.literal('read-write'),
     identity: walkedIdentity,
-    portTable: z.union([
-      z.object({
-        kind: z.literal('nat'),
-        forwards: z.array(
-          z.object({
-            publicPort: z.number(),
-            internalIp: z.string(),
-            internalPort: z.number(),
-          }),
-        ),
-      }),
-      z.object({ kind: z.literal('acl'), denies: z.array(z.number()) }),
-    ]),
+    portTables: z.array(
+      z.union([
+        z.object({
+          kind: z.literal('nat'),
+          forwards: z.array(
+            z.object({
+              publicPort: z.number(),
+              internalIp: z.string(),
+              internalPort: z.number(),
+            }),
+          ),
+        }),
+        z.object({ kind: z.literal('acl'), denies: z.array(z.number()) }),
+        z.object({ kind: z.literal('filter'), denies: z.array(z.number()) }),
+      ]),
+    ),
   }),
 ]);
 

@@ -862,7 +862,7 @@ export type SnmpWalkResult =
       readonly ok: true;
       readonly tier: 'read-write';
       readonly identity: SnmpIdentity;
-      readonly portTable: SnmpPortTable;
+      readonly portTables: readonly SnmpPortTable[];
     }
   | { readonly ok: false };
 

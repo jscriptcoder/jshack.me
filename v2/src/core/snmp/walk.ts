@@ -99,21 +99,26 @@ const identityOids = (identity: SnmpIdentity): readonly string[] => {
  *  the device so it cannot be mistaken for a second opinion on `SnmpIdentity.kind`. */
 export type SnmpPortTable =
   | { readonly kind: 'nat'; readonly forwards: readonly NatForward[] }
-  | { readonly kind: 'acl'; readonly denies: readonly number[] };
+  | { readonly kind: 'acl'; readonly denies: readonly number[] }
+  | { readonly kind: 'filter'; readonly denies: readonly number[] };
 
-/** What each table calls itself: the OID its rows carry, the sentence a device with an
- *  empty one says, and the `snmpset` a player would write next. Keeping the three
- *  together is what stops a switch being offered a router's write syntax. */
-const TABLE_VOCABULARY = {
+/** What each table calls itself: the verb an empty one has done nothing of, and the
+ *  `snmpset` a player would write next. Keeping the two together is what stops a switch
+ *  being offered a router's write syntax.
+ *
+ *  A VERB rather than a whole sentence, because a device holding two tables says the
+ *  empty thing ONCE — "forwards and denies no ports" is one device with an untouched
+ *  file, where two sentences would read as two devices. */
+const TABLE_VOCABULARY: Readonly<
+  Record<SnmpPortTable['kind'], { readonly verb: string; readonly writable: string }>
+> = {
   nat: {
-    emptiness: 'This device forwards no ports.',
-    writable: 'Writable: snmpset <host> <community> natForward.<port>=<ip>:<port>',
+    verb: 'forwards',
+    writable: 'snmpset <host> <community> natForward.<port>=<ip>:<port>',
   },
-  acl: {
-    emptiness: 'This device denies no ports.',
-    writable: 'Writable: snmpset <host> <community> aclPort.<port>=deny',
-  },
-} as const;
+  acl: { verb: 'denies', writable: 'snmpset <host> <community> aclPort.<port>=deny' },
+  filter: { verb: 'denies', writable: 'snmpset <host> <community> inputPort.<port>=deny' },
+};
 
 /** What a forwarded public port is CALLED, and what a denied one is. Exported because
  *  `snmpset` echoes the same names back: one device, two commands, one spelling. A set
@@ -121,6 +126,17 @@ const TABLE_VOCABULARY = {
  *  than the one it just changed. */
 export const natForwardOid = (publicPort: number): string => `NAT-MIB::natForward.${publicPort}`;
 export const aclPortOid = (port: number): string => `ACL-MIB::aclPort.${port}`;
+/** Named for the CHAIN rather than for the filter: `INPUT-MIB::inputPort.65535` is
+ *  exactly as wide as the OID column, and `FILTER-MIB` would run one character over and
+ *  shunt the `=` on every five-digit port. */
+export const inputPortOid = (port: number): string => `INPUT-MIB::inputPort.${port}`;
+
+/** Which OID a denied port carries. Two tables deny ports and they are not the same
+ *  fact: a switch shuts one behind itself, a host shuts one on itself. */
+const denyOid: Readonly<Record<'acl' | 'filter', (port: number) => string>> = {
+  acl: aclPortOid,
+  filter: inputPortOid,
+};
 
 const portTableOids = (portTable: SnmpPortTable): readonly string[] =>
   portTable.kind === 'nat'
@@ -131,7 +147,27 @@ const portTableOids = (portTable: SnmpPortTable): readonly string[] =>
           `${forward.internalIp}:${forward.internalPort}`,
         ),
       )
-    : portTable.denies.map((port) => oidLine(aclPortOid(port), 'STRING', 'deny'));
+    : portTable.denies.map((port) =>
+        oidLine(denyOid[portTable.kind](port), 'STRING', 'deny'),
+      );
+
+const WRITABLE_LABEL = 'Writable: ';
+
+/** One syntax per table the device holds, under a label written once. Two `Writable:`
+ *  lines would read as two devices; the rest align under the first. */
+const writableLines = (portTables: readonly SnmpPortTable[]): readonly string[] =>
+  portTables.map(
+    (portTable, index) =>
+      (index === 0 ? WRITABLE_LABEL : ' '.repeat(WRITABLE_LABEL.length)) +
+      TABLE_VOCABULARY[portTable.kind].writable,
+  );
+
+/** What a device with nothing in any of its tables says — one sentence naming every
+ *  fact it holds none of. Two tables that deny the same way collapse to one verb. */
+const emptinessLine = (portTables: readonly SnmpPortTable[]): string => {
+  const verbs = [...new Set(portTables.map((portTable) => TABLE_VOCABULARY[portTable.kind].verb))];
+  return `This device ${verbs.join(' and ')} no ports.`;
+};
 
 /** The whole accepted-walk block, header to trailer.
  *
@@ -177,24 +213,27 @@ export const renderReadWriteWalk = ({
   target,
   community,
   identity,
-  portTable,
+  portTables,
 }: {
   readonly target: string;
   readonly community: string;
   readonly identity: SnmpIdentity;
-  readonly portTable: SnmpPortTable;
+  /** EVERY table the device's files hold, in the order they are rendered. A list rather
+   *  than one table because a workstation and a gateway keep their two chains in the
+   *  same `rules.v4` and nothing a walk can read tells the two boxes apart — so the
+   *  device answers with what its file SAYS instead of with what its kind implies. */
+  readonly portTables: readonly SnmpPortTable[];
 }): readonly string[] => {
-  const oids = [...identityOids(identity), ...portTableOids(portTable)];
-  const vocabulary = TABLE_VOCABULARY[portTable.kind];
-  const emptiness = portTableOids(portTable).length === 0 ? [vocabulary.emptiness] : [];
+  const rows = portTables.flatMap(portTableOids);
+  const oids = [...identityOids(identity), ...rows];
   return [
     `Querying ${target} with community string "${community}"...`,
     `[READ-WRITE] Community "${community}" accepted.`,
     '',
     ...oids,
     '',
-    ...emptiness,
+    ...(rows.length === 0 ? [emptinessLine(portTables)] : []),
     `${oids.length} OIDs returned. Community "${community}" is READ-WRITE.`,
-    vocabulary.writable,
+    ...writableLines(portTables),
   ];
 };

@@ -284,10 +284,10 @@ describe('walking a device with its read-write community', () => {
         sysContact: 'netops@corp.local',
         addresses: [gateway.ip, PUBLIC_IP],
       },
-      portTable: {
-        kind: 'nat',
-        forwards: [{ publicPort: 2222, internalIp: '10.0.0.10', internalPort: 22 }],
-      },
+      portTables: [
+        { kind: 'nat', forwards: [{ publicPort: 2222, internalIp: '10.0.0.10', internalPort: 22 }] },
+        { kind: 'filter', denies: [] },
+      ],
     });
   });
 
@@ -306,7 +306,10 @@ describe('walking a device with its read-write community', () => {
 
     expect(response.body).toMatchObject({
       tier: 'read-write',
-      portTable: { kind: 'nat', forwards: [] },
+      portTables: [
+        { kind: 'nat', forwards: [] },
+        { kind: 'filter', denies: [] },
+      ],
     });
   });
 
@@ -330,7 +333,7 @@ describe('walking a device with its read-write community', () => {
 
     expect(response.body).toMatchObject({
       tier: 'read-write',
-      portTable: { kind: 'acl', denies: [8080] },
+      portTables: [{ kind: 'acl', denies: [8080] }],
     });
   });
 

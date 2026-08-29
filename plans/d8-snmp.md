@@ -1291,7 +1291,9 @@ next reader knows it was seen and priced, not missed.
       example, every forward, and anything the owner typed in `nano` survive byte-for-byte, and a
       deny the owner commented out stays a comment.
 - [ ] **AC-7** A walk of a workstation agent renders `Linux <hostname>` and `eth0` identity, plus
-      one `FILTER-MIB::inputPort.<port> = STRING: deny` row per deny.
+      one `INPUT-MIB::inputPort.<port> = STRING: deny` row per deny. Named for the CHAIN, not the
+      filter: `INPUT-MIB::inputPort.65535` is exactly as wide as the OID column, and `FILTER-MIB`
+      would run one character over and shunt the `=` on every five-digit port.
 - [ ] **AC-8** A walk of a device whose `rules.v4` carries BOTH kinds renders both — NAT rows and
       filter rows, from the one file. A device whose `rules.v4` holds neither says so in ONE
       sentence and offers BOTH write syntaxes.

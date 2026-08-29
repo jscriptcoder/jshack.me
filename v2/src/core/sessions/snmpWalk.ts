@@ -37,7 +37,7 @@ import {
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { computeApGatewayId } from '../identity/router';
 import { parseAclDenies, readAclConf } from '../network/switchAcl';
-import { parseForwardRules, readRulesV4 } from '../network/iptablesRules';
+import { parseForwardRules, parseInputDenies, readRulesV4 } from '../network/iptablesRules';
 import { parseSnmpdConf, readSnmpdConf } from '../snmp/conf';
 import type { SnmpDeviceKind, SnmpIdentity, SnmpPortTable } from '../snmp/walk';
 import type { Directory } from '../filesystem/types';
@@ -77,17 +77,27 @@ const snmpWalkSchema = z
  *  that this door emits the reach's own refusal, not a second one that resembles it. */
 const UNREACHABLE: HandlerResponse = { status: 404, body: { error: 'host_unreachable' } };
 
-/** The device's port table, read from the file it actually routes by. A router's NAT
- *  chain and a switch's access list are two different facts, so the kind decides which
- *  file is consulted — the same kind the identity block reports, resolved once.
+/** Every table the device's files hold, read from the files it actually routes by. A
+ *  switch keeps ONE — its access list. Anything else keeps `rules.v4`, which carries two
+ *  chains: what it forwards INTO a segment behind it, and what it refuses ON itself.
  *
- *  Rendered from the file on EVERY walk, never cached and never copied: the whole point
+ *  Both of those are reported whichever box this is, because nothing a walk can read
+ *  tells a filtering workstation from a forwarding gateway — they carry the same file
+ *  and neither carries the switch's. A device with no segment behind it simply has no
+ *  forwards to show, and one that has never filtered anything shows no denies.
+ *
+ *  Rendered from the files on EVERY walk, never cached and never copied: the whole point
  *  of the door is one fact behind two interfaces, and a second copy could tell a player
  *  a port was forwarded that the box does not honour. */
-const portTableOf = (hostFs: Directory, kind: SnmpDeviceKind): SnmpPortTable =>
-  kind === 'switch'
-    ? { kind: 'acl', denies: parseAclDenies(readAclConf(hostFs)) }
-    : { kind: 'nat', forwards: parseForwardRules(readRulesV4(hostFs)) };
+const portTablesOf = (hostFs: Directory, kind: SnmpDeviceKind): readonly SnmpPortTable[] => {
+  if (kind === 'switch') return [{ kind: 'acl', denies: parseAclDenies(readAclConf(hostFs)) }];
+
+  const rules = readRulesV4(hostFs);
+  return [
+    { kind: 'nat', forwards: parseForwardRules(rules) },
+    { kind: 'filter', denies: parseInputDenies(rules) },
+  ];
+};
 
 /** Every address the device holds, in interface order: its own, then the one the access
  *  point wears outside when this IS the access point's gateway. Nothing behind that
@@ -163,5 +173,5 @@ export const handleSnmpWalk = async (
   // most players their cracked community had been refused.
   return tier === 'read-only'
     ? { status: 200, body: { ok: true, tier, identity } }
-    : { status: 200, body: { ok: true, tier, identity, portTable: portTableOf(hostFs, kind) } };
+    : { status: 200, body: { ok: true, tier, identity, portTables: portTablesOf(hostFs, kind) } };
 };
