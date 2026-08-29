@@ -1341,8 +1341,15 @@ next reader knows it was seen and priced, not missed.
    `storedFile` writing the filter back into `rules.v4`.
 5. **One function, `portsOpenToNetwork(hostFs)`** — `readOpenPorts` minus the box's own denies.
    Every REMOTE site calls it; every own-box and client-side site keeps `readOpenPorts`.
-6. Thread it through `openServiceOn`, `resolveOccupantScan`, `nmapScan`, `authCreateSession`,
-   `hydraCrack` and `hydraCrackPublic`.
+6. Thread it through the FIVE remote sites: `openServiceOn` (all three data doors, all four
+   vantages), `resolveOccupantScan` (the neighbour's scan answer), `reachDoor` (ssh AND a planted
+   `nc` listener, all three ssh vantages), `hydraCrack` and `hydraCrackPublic`.
+
+   Deliberately NOT threaded, each for a stated reason: `nmapScan`'s two trace sites write the
+   DEFENDER's own `kern.log`, and a box's own log is not the place to hide that box's own filter —
+   nothing there reaches the attacker, and the probe really did arrive. The deep and
+   inner-gateway readers resolve GENERATED boxes, which carry no filter file at all. `nmap.ts`,
+   `scanResult.ts` and `runLine.ts` are the owner's own view of their own box.
 7. `aptPackages.ts` — `snmpd` in `binaries` and `daemons`, and the `rules.v4` extra file.
 
 ### Five things GREEN must get right
@@ -1359,8 +1366,10 @@ next reader knows it was seen and priced, not missed.
 4. **`binariesForService` must not gain `extraFiles`.** Its own comment already says why: the
    package's file is drawn from the installing PLAYER, and laying it over a generated box would
    overwrite that box's own table.
-5. **Every new remote call site is a place the filter could be forgotten.** Six sites is the count
-   TODAY; the mutation gate is what proves each one load-bearing rather than decoration.
+5. **Every new remote call site is a place the filter could be forgotten.** Five sites is the count
+   TODAY; the mutation gate is what proves each one load-bearing rather than decoration. The
+   `nc`-listener branch of `reachDoor` is the one that would have been missed by reading the port
+   readers alone — it finds its door through `listenerOn`, not through `readOpenPorts`.
 
 ### Considered and rejected: splitting the gate out as its own slice
 

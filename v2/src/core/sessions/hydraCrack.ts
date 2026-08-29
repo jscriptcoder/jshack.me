@@ -60,7 +60,7 @@ import {
   authorizeMachineAccess,
   type FindActiveSession,
 } from '../patches/authorizeMachineAccess';
-import { readOpenPorts } from '../services/pidfile';
+import { portsOpenToNetwork } from '../network/portsOpenToNetwork';
 import { WORDLIST_PATH } from '../wordlist/defaultWordlist';
 import { serviceByName, type SweepLog } from '../services/serviceCatalog';
 import { sweepAccounts, wordlistOn } from '../wordlist/passwordSweep';
@@ -334,9 +334,11 @@ export const handleHydraCrack = async (
     return { status: 404, body: { error: 'service_not_running' } };
   }
 
-  // The pidfiles are the truth about what is listening: a stopped daemon leaves
-  // nothing to attack, exactly as it leaves nothing to connect to.
-  const open = readOpenPorts(hostFs).find((port) => port.service === spec.service);
+  // The pidfiles are the truth about what is listening, less whatever the box refuses
+  // the network: a stopped daemon leaves nothing to attack, and neither does a port its
+  // owner filtered. Skipped here, a filter would be walked around by the one command
+  // whose whole purpose is getting in.
+  const open = portsOpenToNetwork(hostFs).find((port) => port.service === spec.service);
   if (open === undefined) {
     return { status: 404, body: { error: 'service_not_running' } };
   }

@@ -13,7 +13,8 @@ import { seedInnerGatewayAdminPw, seedApGatewayAdminPw } from '../generation/rou
 import { hostMachineId } from '../generation/remoteHostId';
 import { computeInnerGatewayId, computeApGatewayId } from '../identity/router';
 import { md5 } from '../generation/md5';
-import { asGameTime } from '../types';
+import { asAbsPath, asGameTime } from '../types';
+import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { AUTH_LOG_PATH, formatSshdAuthLine } from '../logging/authLog';
 import {
   VSFTPD_LOG_PATH,
@@ -1170,5 +1171,58 @@ describe('a door with no credential behind it', () => {
 
     expect(result).toEqual({ status: 404, body: { error: 'service_not_running' } });
     expect(insertSession).not.toHaveBeenCalled();
+  });
+});
+
+
+/**
+ * A filtered port is not a door, whichever kind of door it would have been.
+ *
+ * `reachDoor` is the one gate ssh and a planted backdoor both pass, at every vantage —
+ * the caller's own LAN, a fellow occupant, and the world through a forward. A filter
+ * honoured for the daemon but not the listener would leave the owner's `iptables` rule
+ * quietly stepped over by whatever an attacker left running there.
+ */
+describe('a host that filters the port its ssh answers on', () => {
+  const filtering = (rules: string): Partial<AuthCreateSessionDeps> => ({
+    findPatches: async () => ({
+      data: [
+        {
+          path: asAbsPath('/etc/iptables/rules.v4'),
+          content: rules,
+          owner: 'root',
+          permissions: null,
+          node_type: 'file',
+          updated_at: '2026-06-07T14:00:00.000Z',
+          writer_key: 'b'.repeat(64),
+        },
+      ],
+      error: null,
+    }),
+  });
+
+  it('refuses a login on a port it closed to the network', async () => {
+    const identity = generateIdentity();
+    const host = targetHostFor();
+    const { deps, insertSession } = makeDeps(
+      filtering(`deny ${SERVICE_CATALOG.ssh.defaultPort}\n`),
+    );
+
+    const result = await handleAuthCreateSession(validEnvelope(identity, host, 'root'), deps);
+
+    // The same answer a box that never ran sshd gives. Credentials are never reached,
+    // so a filtered box cannot be told from a serviceless one by trying a password.
+    expect(result.status).toBe(404);
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+
+  it('still admits a login on every port it left open', async () => {
+    const identity = generateIdentity();
+    const host = targetHostFor();
+    const { deps } = makeDeps(filtering('deny 8080\n'));
+
+    const result = await handleAuthCreateSession(validEnvelope(identity, host, 'root'), deps);
+
+    expect(result.status).toBe(200);
   });
 });

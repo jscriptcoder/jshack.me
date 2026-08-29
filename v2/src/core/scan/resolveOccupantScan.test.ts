@@ -306,3 +306,60 @@ describe('scanning a fellow occupant', () => {
     expect(response).toEqual({ status: 200, body: { ok: true, found: false, ports: [] } });
   });
 });
+
+/**
+ * A port its owner filtered is not on the answer this scan gives.
+ *
+ * A DROP is invisible: the neighbour's `nmap` lists one fewer port and says nothing
+ * about why. Listed-but-refused would be an open port that lies, and would hand a
+ * scanner the one thing the filter exists to withhold — which boxes are defended.
+ *
+ * The walk is the way back in. An attacker who cracks the agent's read-write community
+ * sees the deny table and can re-open what the owner closed, so the port is hidden
+ * rather than secret.
+ */
+describe("a neighbour's own filter, seen from the LAN", () => {
+  const filtering = (rules: string) => ({
+    findPatches: async () => ({
+      data: [
+        running(SERVICE_CATALOG.redis),
+        running(SERVICE_CATALOG.ssh),
+        patchRow('/etc/iptables/rules.v4', rules),
+      ],
+      error: null,
+    }),
+  });
+
+  it('leaves a filtered port out of the answer and every other one in', async () => {
+    const caller = generateIdentity();
+    const { deps } = asOccupant(
+      caller.publicKeyHex,
+      filtering(`deny ${SERVICE_CATALOG.redis.defaultPort}\n`),
+    );
+
+    const response = await scan(caller, deps);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ found: true });
+    const ports = (response.body.ports as readonly { readonly port: number }[]).map(
+      (open) => open.port,
+    );
+    expect(ports).toContain(SERVICE_CATALOG.ssh.defaultPort);
+    expect(ports).not.toContain(SERVICE_CATALOG.redis.defaultPort);
+  });
+
+  it('still reports the box as up, filtered ports and all', async () => {
+    // A filter is not a dark box. Reported as down, it would tell a neighbour their
+    // WiFi companion had left rather than closed a port — and hide every service the
+    // owner deliberately left open.
+    const caller = generateIdentity();
+    const { deps } = asOccupant(
+      caller.publicKeyHex,
+      filtering(`deny ${SERVICE_CATALOG.redis.defaultPort}\ndeny ${SERVICE_CATALOG.ssh.defaultPort}\n`),
+    );
+
+    const response = await scan(caller, deps);
+
+    expect(response.body).toMatchObject({ found: true, ports: [] });
+  });
+});
