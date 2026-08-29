@@ -1,6 +1,7 @@
 /**
  * What a player may WRITE through this door, and what the device says when they may
- * not: `natForward.<port>=<ip>:<port>` on a router, `aclPort.<port>=deny` on a switch.
+ * not: `natForward.<port>=<ip>:<port>` on a gateway, `aclPort.<port>=deny` on a switch,
+ * and `inputPort.<port>=deny` on the filter any box can keep about itself.
  *
  * The value names the STATE the port should be left in, never an operation. `none` and
  * `permit` are values in the same sense `deny` is, which is why one grammar covers
@@ -27,14 +28,21 @@
  */
 
 import { parseForwardRules, type ForwardTarget } from '../network/iptablesRules';
-import { aclPortOid, natForwardOid } from './walk';
+import { aclPortOid, inputPortOid, natForwardOid } from './walk';
 
-/** The state one port should be left in — a router's destination (or none), or a
- *  switch's shut/open. Tagged by the FILE that holds it, matching `SnmpPortTable`, so
- *  the write and the read of one device agree about which fact is being named. */
+/** The state one port should be left in — a gateway's destination (or none), a switch's
+ *  shut/open, or the box's own. Tagged by the TABLE that holds it, matching
+ *  `SnmpPortTable`, so the write and the read of one device agree about which fact is
+ *  being named.
+ *
+ *  A switch's `acl` and a host's `filter` carry the same two states and are still two
+ *  targets: one shuts a port BEHIND the device, the other shuts one ON it. Collapsed
+ *  into a single target, a write aimed at either file would land in whichever the door
+ *  happened to consult. */
 export type SnmpSetTarget =
   | { readonly kind: 'nat'; readonly publicPort: number; readonly forward: ForwardTarget | null }
-  | { readonly kind: 'acl'; readonly port: number; readonly denied: boolean };
+  | { readonly kind: 'acl'; readonly port: number; readonly denied: boolean }
+  | { readonly kind: 'filter'; readonly port: number; readonly denied: boolean };
 
 /** An error PDU's three moving parts, as real net-snmp prints them.
  *
@@ -55,7 +63,7 @@ export type ParsedSnmpSet =
 /** What the device echoes after an accepted set: the OID, and the state it now holds. */
 export type SnmpSetEcho = { readonly oid: string; readonly value: string };
 
-const SET_OID_RE = /^(natForward|aclPort)\.(\d+)$/;
+const SET_OID_RE = /^(natForward|aclPort|inputPort)\.(\d+)$/;
 
 const NO_SUCH_NAME = 'The name does not exist in the MIB';
 
@@ -86,10 +94,17 @@ const parseNatSet = (publicPort: number, value: string): ParsedSnmpSet => {
     : { ok: true, target: { kind: 'nat', publicPort, forward } };
 };
 
+const NOT_A_STATE = 'not "deny" or "permit"';
+
 const parseAclSet = (port: number, value: string): ParsedSnmpSet =>
   value === 'deny' || value === 'permit'
     ? { ok: true, target: { kind: 'acl', port, denied: value === 'deny' } }
-    : refuse('wrongValue', 'not "deny" or "permit"', aclPortOid(port));
+    : refuse('wrongValue', NOT_A_STATE, aclPortOid(port));
+
+const parseFilterSet = (port: number, value: string): ParsedSnmpSet =>
+  value === 'deny' || value === 'permit'
+    ? { ok: true, target: { kind: 'filter', port, denied: value === 'deny' } }
+    : refuse('wrongValue', NOT_A_STATE, inputPortOid(port));
 
 /** One `<oid>=<value>` assignment as the state it asks for, or the refusal the device
  *  answers with. Everything after the first `=` is the value, so a destination is never
@@ -105,7 +120,8 @@ export const parseSnmpSet = (assignment: string): ParsedSnmpSet => {
     return refuse('noSuchName', NO_SUCH_NAME, oidText);
   }
 
-  return named[1] === 'natForward' ? parseNatSet(port, value) : parseAclSet(port, value);
+  if (named[1] === 'natForward') return parseNatSet(port, value);
+  return named[1] === 'aclPort' ? parseAclSet(port, value) : parseFilterSet(port, value);
 };
 
 /** What an accepted set prints: the object, its type, its new value, and nothing else.
@@ -133,13 +149,17 @@ export const renderSetRefusal = ({
 
 /** The OID and the value a set echoes back — the same spelling a walk of the device
  *  prints, because it is the same fact. */
-export const describeSet = (target: SnmpSetTarget): SnmpSetEcho =>
-  target.kind === 'nat'
-    ? {
-        oid: natForwardOid(target.publicPort),
-        value:
-          target.forward === null
-            ? 'none'
-            : `${target.forward.internalIp}:${target.forward.internalPort}`,
-      }
-    : { oid: aclPortOid(target.port), value: target.denied ? 'deny' : 'permit' };
+export const describeSet = (target: SnmpSetTarget): SnmpSetEcho => {
+  if (target.kind === 'nat') {
+    return {
+      oid: natForwardOid(target.publicPort),
+      value:
+        target.forward === null
+          ? 'none'
+          : `${target.forward.internalIp}:${target.forward.internalPort}`,
+    };
+  }
+
+  const namePort = target.kind === 'acl' ? aclPortOid : inputPortOid;
+  return { oid: namePort(target.port), value: target.denied ? 'deny' : 'permit' };
+};

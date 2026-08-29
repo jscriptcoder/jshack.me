@@ -83,7 +83,10 @@ export const snmpset: Command = {
       'router, "natForward.<port>=<ip>:<port>" publishes an internal host on that ' +
       'public port and "natForward.<port>=none" stops publishing it; the destination ' +
       "must be on the device's own segment. On a switch, \"aclPort.<port>=deny\" blocks " +
-      'a port behind it and "aclPort.<port>=permit" re-opens it. Setting a port that ' +
+      'a port behind it and "aclPort.<port>=permit" re-opens it. On any box keeping a ' +
+      'filter of its own, "inputPort.<port>=deny" closes that port to the network while ' +
+      'the service keeps running for whoever owns the box, and ' +
+      '"inputPort.<port>=permit" opens it again. Setting a port that ' +
       'already carries a forward replaces it. Every set you make is recorded in the ' +
       "device's own /var/log/snmpd.log, naming the OID, both values and where you " +
       'came from.',
@@ -112,6 +115,10 @@ export const snmpset: Command = {
       {
         command: 'snmpset 10.0.0.9 corpnet aclPort.8080=permit',
         description: 'Re-open a port a switch was blocking',
+      },
+      {
+        command: 'snmpset 192.168.1.7 corpnet inputPort.6379=deny',
+        description: 'Close a port to the network, not to the box that serves it',
       },
     ],
   },
