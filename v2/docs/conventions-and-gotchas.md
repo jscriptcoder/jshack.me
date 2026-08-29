@@ -956,6 +956,18 @@ the machine is online while `wlan0` is not).
 run reported survivors that a full run had killed. After a scoped run, confirm any survivor by
 hand-mutating the line and running the test file.
 
+**A mutant that breaks MODULE LOAD is scored as a SURVIVOR here.** `aptPackages`'s
+`pkg.binaries ?? [pkg.name]` mutated to `&&` makes the module throw while the map is being built,
+so vitest reports `2 failed (2)` / `Tests no tests` — and with no failing TEST to see, Stryker
+banks it as survived. Three of one gate's 63 survivors were this. It is the same "zero tests is not
+evidence" trap the TDD rules name, firing inside the mutation harness rather than inside a watcher.
+The tell is a survivor whose mutant obviously cannot work — a `??` guarding a `.map`, a callback
+replaced by `() => undefined` at module scope. Hand-mutate it and read the RUNNER's output rather
+than the test count: an import-time crash and a genuine survivor look identical in the report and
+nothing alike on the console. Static mutants that merely produce junk (`{ name: 'gpg' }` → `{}`)
+are scored honestly, so this is not "static mutants are unreliable" — it is specifically the ones
+that throw.
+
 **`reports/mutation/mutation.json` is NOT written by this repo's configured reporters.**
 `stryker.config.json` sets `["html", "clear-text", "progress"]`, so that file silently persists
 from whichever older run last had a json reporter enabled — it can be a different SCOPE

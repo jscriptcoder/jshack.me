@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  LOCAL_FILTER_SEED,
   parseForwardRules,
   parseInputDenies,
   readRulesV4,
@@ -13,8 +14,8 @@ import { buildApGatewayBaseFs } from '../generation/routerFs';
 import { buildDirectory } from '../../test/factories/filesystem';
 
 /**
- * Story 5.1: `/etc/iptables/rules.v4` is the SINGLE parsed source of truth for
- * the router's NAT forwards. Grammar (ported from legacy `iptablesParser.ts`,
+ * `/etc/iptables/rules.v4` is the SINGLE parsed source of truth for the router's NAT
+ * forwards. Grammar (ported from legacy `iptablesParser.ts`,
  * deliberately simplified — NOT real iptables-save):
  *   `forward <public_port> to <internal_ip>:<internal_port>`
  * Lenient: comments (`#`), blank lines, and malformed lines are skipped; ports
@@ -471,5 +472,19 @@ describe('withInputDeny', () => {
 
     expect(parseInputDenies(written)).toEqual([6379]);
     expect(parseForwardRules(written)).toEqual(parseForwardRules(content));
+  });
+});
+
+describe('the filter file an install plants on a box that had none', () => {
+  it('closes nothing, and shows an example that becomes a real rule once uncommented', () => {
+    // Both halves matter. Denying nothing is what makes installing an agent safe; the
+    // example being VALID GRAMMAR is what makes the header worth reading, since the file
+    // says "uncomment & edit" and a player who does has no other syntax to copy.
+    const uncommented = LOCAL_FILTER_SEED.split('\n')
+      .map((line) => line.replace(/^#\s?/, ''))
+      .join('\n');
+
+    expect(parseInputDenies(LOCAL_FILTER_SEED)).toEqual([]);
+    expect(parseInputDenies(uncommented)).toEqual([6379]);
   });
 });

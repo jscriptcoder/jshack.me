@@ -90,6 +90,21 @@ describe('refusing what cannot be set', () => {
     });
   });
 
+  it('echoes an assignment carrying no "=" at all back WHOLE', () => {
+    // There is no name and no value here, only what the player typed — and the failed
+    // object is the only place the device tells them which part it could not read. A
+    // parser that treated the missing separator as a position would hand back the same
+    // text a character short, which reads as a typo the device invented.
+    expect(parseSnmpSet('inputPort6379deny')).toEqual({
+      ok: false,
+      refusal: {
+        reason: 'noSuchName',
+        detail: 'The name does not exist in the MIB',
+        failedObject: 'inputPort6379deny',
+      },
+    });
+  });
+
   it("refuses a destination the file's own parser will not read back", () => {
     // The gate is `parseForwardRules` itself, run over the line this would write. A
     // destination only this door understood would be a forward the scan path and the

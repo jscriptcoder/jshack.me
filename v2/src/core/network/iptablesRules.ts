@@ -80,7 +80,6 @@ export const parseForwardRules = (content: string): readonly NatForward[] =>
   content
     .split('\n')
     .map((line) => line.trim())
-    .filter((line) => line.length > 0 && !line.startsWith('#'))
     .flatMap((line) => {
       const rule = parseForwardLine(line);
       return rule === null ? [] : [rule];

@@ -1055,6 +1055,44 @@ describe('a door with no credential behind it', () => {
     );
   });
 
+  it('shuts a listener on a port the owner closed, and leaves the ones beside it open', async () => {
+    // This door is found through the pidfile rather than through the port readers, so a
+    // filter honoured for ssh alone would leave an owner's own rule stepped over by
+    // whatever an attacker left running behind it.
+    //
+    // TWO listeners, one port denied: a gate asking "is anything open on this box?"
+    // rather than "is THIS port open?" answers the same for both, and the box still has
+    // a door the correct implementation must never reach through the closed one.
+    const openPort = BACKDOOR_PORT + 1;
+    const id = generateIdentity();
+    const host = targetHostFor();
+    const { deps, insertSession } = makeDeps({
+      findPatches: async () => ({
+        data: [
+          planted(id.publicKeyHex, listener()),
+          planted(id.publicKeyHex, listener({ port: openPort }), openPort),
+          {
+            path: asAbsPath('/etc/iptables/rules.v4'),
+            content: `deny ${BACKDOOR_PORT}\n`,
+            owner: 'root',
+            permissions: null,
+            node_type: 'file' as const,
+            updated_at: '2026-08-17T00:00:00.000Z',
+            writer_key: id.publicKeyHex,
+          },
+        ],
+        error: null,
+      }),
+    });
+
+    const closed = await handleAuthCreateSession(knock(id, host), deps);
+    const open = await handleAuthCreateSession(knock(id, host, { port: openPort }), deps);
+
+    expect(closed.status).toBe(404);
+    expect(open.status).toBe(200);
+    expect(insertSession).toHaveBeenCalledTimes(1);
+  });
+
   it('reads the tier off the pidfile rather than defaulting it', async () => {
     const id = generateIdentity();
     const host = targetHostFor();

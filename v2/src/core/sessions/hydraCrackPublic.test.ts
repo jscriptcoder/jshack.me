@@ -579,6 +579,20 @@ describe('handleHydraCrackPublic', () => {
     expect(upsertPatch).not.toHaveBeenCalled();
   });
 
+  it('answers a service the WORLD has no row for exactly as it answers a stopped one', async () => {
+    // The payload takes any non-empty string, so this is a caller's typo — or a probe
+    // for which names the world knows. Both get the answer a stopped daemon gets, which
+    // is what stops the door from being a catalogue of what exists.
+    const upsertPatch = vi.fn(async () => ({ error: null }));
+    const { status, body } = await handleHydraCrackPublic(
+      envelope({ service: 'gopher' }),
+      depsWith({ upsertPatch }),
+    );
+
+    expect({ status, body }).toEqual({ status: 404, body: { error: 'service_not_running' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
   it('reports a wordlist the store could not read as a failure, not as an empty list', async () => {
     // Distinct from "no wordlist": one is a real state of the box, the other means
     // the player should retry. Collapsing them would teach a player to go curate a

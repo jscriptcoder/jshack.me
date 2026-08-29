@@ -5,9 +5,9 @@
 2026-08-27); slice 3 MERGED (#467, v0.187.0, 2026-08-28); slice 4 MERGED (#468, v0.188.0,
 2026-08-28 — AC-1…AC-14 met, wire-check RUN 16/16 and falsified twice, mutation gate closed
 at 88.65%); slice 5 MERGED (#469, v0.189.0, 2026-08-28 — AC-1…AC-13 met, wire-check RUN
-12/12 and falsified twice, mutation gate closed at 85.32%); slice 6 **BUILT, PRE-GATE**
-on `feat/d8-snmp-own` at v0.190.0 (AC-1…AC-15 met, wire-check RUN 13/13 and falsified twice —
-mutation gate still to run; see "Progress" below); slice 7 outlined only
+12/12 and falsified twice, mutation gate closed at 85.32%); slice 6 **PR-READY** on
+`feat/d8-snmp-own` at v0.190.0 (AC-1…AC-15 met, wire-check RUN 13/13 and falsified twice, mutation
+gate closed at 97.43% — tear the live stack down, then open the PR); slice 7 outlined only
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D8 — resolved scope & decisions
 (grill-me, 2026-08-27)", eleven locked decisions, gap-checked the same day.
 
@@ -1379,11 +1379,12 @@ parses and renders and blocks nothing. That is a slice whose observable is "a pl
 with no effect" — the exact shape decision 9 refused for `snmpset` on a fresh router, for the same
 reason. A filter that does not filter is worse than no filter: it tells the owner they are defended.
 
-### Progress — BUILT, on `feat/d8-snmp-own` (2026-08-29)
+### Progress — PR-READY, on `feat/d8-snmp-own` (2026-08-29)
 
-Eight commits, each RED→GREEN with the gates clean. Full suite **3986 passing / 187 files**
+Nine commits, each RED→GREEN with the gates clean. Full suite **3994 passing / 187 files**
 (baseline at slice 5's close was 3928 / 186); `npm run typecheck` and `npm run lint` clean from
-`v2/`; wire-check **13/13** against a live stack, falsified twice; version **v0.190.0**.
+`v2/`; wire-check **13/13** against a live stack, falsified twice; mutation gate closed at
+**97.43%**; version **v0.190.0**.
 
 | Commit | What landed |
 |--------|-------------|
@@ -1395,6 +1396,7 @@ Eight commits, each RED→GREEN with the gates clean. Full suite **3986 passing 
 | `74a14846` | a filtered port is not a door, at every way in |
 | `543ca8c6` | the package that lets a player run their own agent |
 | `b5b6e720` | `scripts/testSnmpFilter.ts` — 13 checks, falsified twice; v0.190.0 |
+| (this one) | the mutation gate: eight gap-closing tests, the thrice-deferred dead filter removed |
 
 **AC-1…AC-15 are met.** Names deviated from the plan in two places and the plan was reconciled at
 the time: `parseInputDenies`/`withInputDeny` rather than `parseDenyRules`/`withDeny` (`snmpSet`
@@ -1433,25 +1435,84 @@ this device's segment` — the right answer arriving through the phantom deep se
 `frontedSegment` computes for a box that fronts nothing. Correct outcome, accidental mechanism.
 **Slice 7 owns the fix**, and now has a live check that will change its wording when it lands.
 
+#### The mutation gate — run, survivors addressed
+
+Scoped to this slice's changed production code (throwaway `vite.mutation.config.ts` +
+`stryker.slice6.json`, both deleted after). Two runs: **94.89% → 97.43%**, survivors **63 → 37**,
+killed 1375 → 1401, no-coverage **11 → 0**, zero timeouts in both. `portsOpenToNetwork.ts`,
+`hydraCrackPublic.ts` and `snmpwalk.ts` finished at **100%**.
+
+Two files were left out of the mutate scope on purpose: `adapters/sessionsApi.ts` sits outside the
+repo's `src/core/**` scope and its change is a transport-schema mirror the wire-check owns, and
+`commands/snmpset.ts` changed only in manual prose — the long-classified `Command`-metadata class.
+`commands/snmpwalk.ts` was mutated at its executable half (`46-84`) and scored 100%.
+
+| Survivor group | Action |
+|---|---|
+| `authCreateSession`'s `nc` port gate | **Real gap, and the slice's own claim was unproven.** `74a14846` says "a defender can now close a backdoor they never found"; the code does gate it and nothing pinned it. Now: two listeners, one port denied — the denied knock 404s, the one beside it still opens. One listener would let the mutant read as "is anything open on this box?" |
+| `apt`'s planted seed | **Real gap.** `parseInputDenies('')` is `[]`, so "plants a file that denies nothing" was true of an EMPTY file. The planted bytes are now asserted to be the seed |
+| `binariesForService`'s `\|\|` union | **Real gap.** `snmp` matches BOTH arms, so nothing discriminated them. ftp now matches by NAME (nothing here ships `vsftpd`) and http by DAEMON (the package is `nginx`) — the two rules the module's own header claims |
+| five catalogue entries mutating to `{}` unnoticed | **Real gap**, the "entry no test ever draws" class. One population assertion: every package names itself, every binary resolves back to the package that ships it |
+| the seed's commented example | **Real gap.** The file says "uncomment & edit" and nothing checked that what it shows is valid grammar. A test uncomments it and reads back `6379` |
+| `parseSnmpSet`'s no-separator branch | **Real gap.** An assignment with no `=` is echoed back WHOLE; the mutant returns it one character short, which reads as a typo the device invented |
+| an unknown service name at the public sweep | **Real gap.** The payload takes any non-empty string, and the 404 that keeps the door from being a catalogue of what exists had no test. Also cleared 4 of the 11 no-coverage |
+| `parseForwardRules`'s dead comment filter | **REMOVED** (see below) |
+
+**Seven mutants hand-falsified**: each new test was run against its own mutant and seen red before
+the mutant was reverted. A test that only passes is not evidence that it kills anything.
+
+**The thrice-deferred debt is DISCHARGED.** `parseForwardRules`'s
+`.filter(line => line.length > 0 && !line.startsWith('#'))` is gone. `FORWARD_RULE_RE` is anchored
+`^forward…$`, so a blank or a `#` line can never match it — the filter could not change an answer,
+which is why six of its mutants survived three gates running. The full suite (3994 / 187) stays
+green across the deletion, and the two parsers now have the shape the module's own rewritten header
+claims: "each kind has its own parser and neither sees the other's lines."
+
+**The 37 that remain are classified, not ignored:**
+
+- **6 in `LOCAL_FILTER_SEED`'s header prose** — the five comment lines and the trailing blank.
+  Documentation, and the same accepted class as a `Command`'s manual. The two load-bearing
+  properties are both pinned now: it denies nothing, and its example is real grammar.
+- **3 in `aptPackages` L229 are FALSE SURVIVORS.** `pkg.binaries && [pkg.name]` crashes the module
+  at import, vitest reports "2 failed, no tests", and Stryker scores zero failing tests as a
+  survivor. Hand-checked, and now recorded in `conventions-and-gotchas.md` §mutation.
+- **8 in `authCreateSession` L228, L323, L339, L343** — pre-existing lines this slice never touched:
+  a `'passwd'` tag no consumer compares (every caller branches on `kind === 'listener'` and treats
+  the rest as the else), the missing-credential guard, the `'failure'` outcome string, and
+  `account === null ||`, which is subsumed by `!passwordOk` at runtime but REQUIRED for TypeScript
+  to narrow `account` before `account.userType` below it.
+- **11 `?? []` fallbacks mutated to a junk array** (`hydraCrack` ×2, `serviceHost` ×2,
+  `resolveOccupantScan` ×2, `snmpSet`, `aptPackages`) — a junk row matches no `owner_key`, no lease
+  and no daemon, which is what an empty array already does. Inherited from slice 5 and re-checked.
+- **2 kind tags in `snmpSet`'s `currentState`** (`'acl'`, `'filter'`) — its ONE caller takes
+  `describeSet(...).value`, computed from `denied`, and throws the `oid` the kind decides away.
+  Slice 5 classified the `'acl'` half by inheritance; this is the actual reason.
+- **3 in `parseSnmpSet` L115/L119** — the no-separator VALUE (an `=`-less assignment is refused on
+  its name before the value is read either way) and `named === null`, which TypeScript needs to
+  narrow before `named[1]`.
+- **2 in `padRight`** — `>=` → `>` differs only at exactly-equal length, where `' '.repeat(0)` is
+  the same string. `INPUT-MIB::inputPort.65535` is exactly the column width and nothing in the game
+  is wider, so the else branch is unreachable rather than merely untested.
+- **1 in `snmpWalk` L151** — `writerKey ?? publicKey`. **Still slice 7's**: a generated device has
+  no owner, so only a cross-player write can tell the two apart.
+- **1 in `aptPackages` L108** — `['msfconsole']` → `[]` leaves the package findable by its own name
+  through the default. Unobservable through the module's public accessors.
+
 ### WHERE TO PICK UP
 
-The only thing left before the PR is the **end-of-phase mutation gate** (`mutation-testing`), then
-the PR itself. Everything else is done and committed.
+The gate is DONE. What is left is the teardown and the PR itself.
 
-**The live stack was left RUNNING** for the gate, in case a survivor forces a production change and
-the wire-checks have to be re-run:
+**The live stack is still up** and must come down before the PR: `npx -y supabase stop --project-id
+jshack-me-v2`, then kill whatever listens on 3100 — an orphan answers 502 rather than refusing and
+silently serves stale code to the next session. (`vercel dev` was already stopped for the gate: a
+concurrent vite server makes Stryker report false survivors.)
 
-- supabase up (`npx -y supabase start`), `vercel dev` on 3100 as a background task.
-- **Tear both down before the PR**: `npx -y supabase stop --project-id jshack-me-v2`, then kill
-  whatever still listens on 3100 — an orphan answers 502 rather than refusing and silently serves
-  stale code to the next session.
+No production behaviour changed at the gate — the only source edit was deleting dead code — so the
+wire-checks stand as run: `testSnmpFilter` 13/13, `testRedisSameLan` 16/16, `testSnmpDepth` 12/12,
+`testDaemonGates` 6/6, `testHydraOwnLan` 23/23.
 
-Sweeps already re-run green against this stack: `testSnmpFilter` 13/13, `testRedisSameLan` 16/16,
-`testSnmpDepth` 12/12, `testDaemonGates` 6/6, `testHydraOwnLan` 23/23.
-
-Debts this slice did NOT discharge, still owed downstream: `parseForwardRules`'s dead comment
-filter (deferred by slices 4 and 5, and untouched here), and `writerKey ?? publicKey`, unkillable
-until a cross-player write exists.
+Debts this slice did NOT discharge: `writerKey ?? publicKey`, unkillable until a cross-player write
+exists, and the `frontedSegment` residual above. Both are slice 7's.
 
 ### This slice OWES a wire-check
 
