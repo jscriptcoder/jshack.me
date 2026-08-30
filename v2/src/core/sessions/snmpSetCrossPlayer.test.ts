@@ -12,7 +12,12 @@ import { formatSnmpdState } from '../snmp/rwCommunity';
 import { SNMPD_LOG_PATH } from '../logging/snmpdLog';
 import { md5 } from '../generation/md5';
 import { asAbsPath } from '../types';
-import type { ApNetworkLookup, NatOccupantRow } from '../network/resolvePublicTarget';
+import { resolvePublicTarget } from '../network/resolvePublicTarget';
+import type {
+  ApNetworkLookup,
+  NatOccupantRow,
+  ResolvePublicTargetDeps,
+} from '../network/resolvePublicTarget';
 import type { LanLeaseRow } from '../network/lanAddress';
 import type { OwnerPatchRow } from '../network/materializeMachineFs';
 import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog';
@@ -380,5 +385,108 @@ describe("the record a stranger's visit leaves on the gateway they rewrote", () 
     // Three lines each, both visits whole: the second did not overwrite, truncate, or
     // re-read somebody else's row.
     expect(final.split('\n').filter(Boolean)).toHaveLength(6);
+  });
+});
+
+/**
+ * The door B opened is a door the world actually walks through.
+ *
+ * Everything above proves a rule was WRITTEN. This proves it routes — and the two are
+ * only the same thing because there is exactly one table. The set door reads the
+ * gateway's own `rules.v4`, changes one line in it, and stores it back; the resolver
+ * every public door shares reads that same file to decide whose box an address and port
+ * reach. A second copy of the forwards anywhere — a cache, a projection, a client's
+ * regenerated world — is precisely how a player comes to hold a port that answers
+ * nothing, and there deliberately is not one.
+ *
+ * So the rules file here is never hand-written to match: it is taken from the patch the
+ * write door actually produced and handed straight to the resolver. A fixture spelled to
+ * agree with the parser would pass while the two sides disagreed.
+ */
+describe('the forward a stranger opened, resolved by the world that has to honour it', () => {
+  /** The occupant brought their own daemons up. A fresh box has an empty `/var/run`, so
+   *  a forward onto one is dark until its owner starts something behind it. */
+  const occupantDaemons: readonly OwnerPatchRow[] = [
+    patchRow(
+      pidfilePath(SERVICE_CATALOG.ssh),
+      formatPidfileContent(SERVICE_CATALOG.ssh, SERVICE_CATALOG.ssh.defaultPort),
+    ),
+    ...occupantAgent,
+  ];
+
+  /** A door the DEFENDER opened for themselves, before any of this. It shares the file
+   *  the attacker is about to write into. */
+  const OWNER_PORT = 3333;
+  const ownerForward = `forward ${OWNER_PORT} to ${DEFENDER_LAN_IP}:${SERVICE_CATALOG.snmp.defaultPort}`;
+
+  /** The world as it stands once the gateway's rules file says what it says — every
+   *  public door's shared view of who is behind which port. */
+  const worldWith = (rules: string): ResolvePublicTargetDeps => ({
+    findNetworkByPublicIp: async () => ({ data: AP_NETWORK, error: null }),
+    findPatches: async ({ machine_id }) => ({
+      data: machine_id === AP_GATEWAY_ID ? [patchRow(RULES_V4_PATH, rules)] : [...occupantDaemons],
+      error: null,
+    }),
+    listOccupantsByEssid: async () => ({ data: [defenderOccupant], error: null }),
+    listLeasesByEssid: async () => ({ data: DEFENDER_LEASES, error: null }),
+  });
+
+  /** B's write, and the gateway's rules file exactly as the door left it. */
+  const openedBy = async (assignment: string, seeded: string | null = null) => {
+    const { deps, upsertPatch } = makeDeps(
+      seeded === null ? {} : { [AP_GATEWAY_ID]: [patchRow(RULES_V4_PATH, seeded)] },
+    );
+    const response = await setAcrossTheWorld(deps, { assignment });
+    const rules = writtenTo(upsertPatch, RULES_V4_PATH)?.content;
+    // No row at all, or a tombstone: either way the write this test rests on did not
+    // happen, and resolving against an empty world would pass for the wrong reason.
+    if (typeof rules !== 'string') {
+      throw new Error(`the set left no rules file: ${JSON.stringify(response)}`);
+    }
+    return rules;
+  };
+
+  it("routes the published port to the occupant leasing the address the stranger named", async () => {
+    const rules = await openedBy(`natForward.${PUBLISHED_PORT}=${DEFENDER_LAN_IP}:22`);
+
+    const resolved = await resolvePublicTarget(worldWith(rules), {
+      publicIp: TARGET_PUBLIC_IP,
+      port: PUBLISHED_PORT,
+    });
+
+    expect(resolved).toMatchObject({
+      ok: true,
+      target: {
+        // The box the LEASE names, not the gateway the port was typed at.
+        machineId: DEFENDER_WS,
+        hostname: 'nebuchadnezzar',
+        // The far side of the forward: an attacker publishing a port does not get to
+        // decide which daemon behind it answers.
+        reachedPort: SERVICE_CATALOG.ssh.defaultPort,
+        // The occupant's own row. A door somebody else opened onto your box does not
+        // move where your box keeps its logs.
+        logWriterKey: DEFENDER.publicKeyHex,
+        essid: TARGET_ESSID,
+        // Standing on the LAN with nothing behind it, whoever opened the door.
+        frontedSegment: null,
+      },
+    });
+  });
+
+  it("leaves the door the owner had already opened exactly where it was", async () => {
+    const rules = await openedBy(`natForward.${PUBLISHED_PORT}=${DEFENDER_LAN_IP}:22`, ownerForward);
+
+    const stillOpen = await resolvePublicTarget(worldWith(rules), {
+      publicIp: TARGET_PUBLIC_IP,
+      port: OWNER_PORT,
+    });
+
+    // One table with two authors. The attacker's line is added to the owner's file
+    // rather than replacing it, and each port still reaches the daemon its own line
+    // names — the write is a line in a file, not a new table for the last writer.
+    expect(stillOpen).toMatchObject({
+      ok: true,
+      target: { machineId: DEFENDER_WS, reachedPort: SERVICE_CATALOG.snmp.defaultPort },
+    });
   });
 });
