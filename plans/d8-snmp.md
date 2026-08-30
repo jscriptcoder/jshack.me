@@ -1756,9 +1756,11 @@ Recorded across slices 2, 3 and 6, all of them waiting for exactly this world:
 - **The accretion invariant** — every visitor's lines onto ONE row. AC-8 is its test.
 - **The `frontedSegment` residual** — AC-7, and no longer optional.
 
-**Wire-check 13 of `testSnmpFilter` pins the CURRENT wording of the refusal that residual produces.**
-When the fronting bound moves, that expectation moves with it, or the right change turns a green
-check red.
+**Wire-check 13 of `testSnmpFilter` needs no edit after all.** Planning recorded it as pinning the
+CURRENT wording of the refusal that residual produces, and warned the right change would turn a
+green check red. Reading the script settles it: the check asserts `refusal.reason === 'wrongValue'`
+and nothing more, and the detail appears only in the diagnostic string it prints on failure. The
+reason is unchanged, so the check stays green as written and the wording moves under it.
 
 ### Considered and rejected: giving an installed agent a community in this slice
 
