@@ -7,8 +7,9 @@
 at 88.65%); slice 5 MERGED (#469, v0.189.0, 2026-08-28 — AC-1…AC-13 met, wire-check RUN
 12/12 and falsified twice, mutation gate closed at 85.32%); slice 6 MERGED (#470, v0.190.0,
 2026-08-29 — AC-1…AC-15 met, wire-check RUN 13/13 and falsified twice, mutation gate closed at
-97.43%); slice 7 **PLANNED IN FULL** on `feat/d8-snmp-cross` — AC-1…AC-12 awaiting confirmation,
-no code written; slice 8 outlined only
+97.43%); slice 7 **PR-READY** on `feat/d8-snmp-cross` (v0.191.0 — AC-1…AC-13 met, cross-player
+wire-check RUN 15/15 and falsified, AC-12's three neighbours re-run 16/16 + 12/12 + 13/13, mutation
+gate closed at 97.99%); slice 8 outlined only
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D8 — resolved scope & decisions
 (grill-me, 2026-08-27)", eleven locked decisions, gap-checked the same day.
 
@@ -1627,47 +1628,47 @@ prerequisite rather than a cleanup.
 
 ### Acceptance criteria — FOR CONFIRMATION, before any code
 
-- [ ] **AC-1** B `snmpwalk <A's public IP>` with `public` renders A's gateway's identity: its
+- [x] **AC-1** B `snmpwalk <A's public IP>` with `public` renders A's gateway's identity: its
       ESSID-seeded hostname, `Linux <hostname>`, and the PUBLIC address as the only address it
       reports. A's internal LAN address appears nowhere in the answer.
-- [ ] **AC-2** `hydra <A's public IP> snmp` cracks the gateway's read-write community from B's own
+- [x] **AC-2** `hydra <A's public IP> snmp` cracks the gateway's read-write community from B's own
       wordlist, exactly as it does against a device on the caller's own LAN.
-- [ ] **AC-3** B `snmpwalk <A's public IP> <rw>` renders the NAT forward table read from A's
+- [x] **AC-3** B `snmpwalk <A's public IP> <rw>` renders the NAT forward table read from A's
       gateway's own `rules.v4` — the same file A edits with `nano`, not a second copy.
-- [ ] **AC-4** B `snmpset <A's public IP> <rw> natForward.2222=<address on A's LAN>:22` writes the
+- [x] **AC-4** B `snmpset <A's public IP> <rw> natForward.2222=<address on A's LAN>:22` writes the
       forward into that file and echoes `old -> new`. **The observable this slice exists for.**
-- [ ] **AC-5** The forward B wrote is LIVE: `resolvePublicTarget` routes `<A's public IP>:2222` to
+- [x] **AC-5** The forward B wrote is LIVE: `resolvePublicTarget` routes `<A's public IP>:2222` to
       the occupant leasing that address, so `ssh` and every other public door reach the box B
       exposed. One table, written by an attacker, read by the same resolver as always.
-- [ ] **AC-6** A destination outside the `/24` A's gateway fronts is refused `wrongValue` with
+- [x] **AC-6** A destination outside the `/24` A's gateway fronts is refused `wrongValue` with
       `<ip> is not on this device's segment`, judged against the segment resolved from A's ESSID
       server-side — never from the ESSID B's client sent.
-- [ ] **AC-7** A NAT write aimed at a box that fronts NOTHING — an occupant's workstation reached
+- [x] **AC-7** A NAT write aimed at a box that fronts NOTHING — an occupant's workstation reached
       through a forward, or a neighbour's box on a shared LAN — is refused for fronting no segment,
       stating that reason rather than failing a comparison against a phantom subnet. The residual
       slice 6 recorded is discharged here.
-- [ ] **AC-8** Every walk and every set B makes appends to A's gateway's `/var/log/snmpd.log`,
+- [x] **AC-8** Every walk and every set B makes appends to A's gateway's `/var/log/snmpd.log`,
       carrying B's own public address. TWO different attackers accrete into ONE row: the second
       visit never erases the first's lines.
-- [ ] **AC-9** A's own walk of their own gateway from their own LAN lands in the SAME row as B's
+- [x] **AC-9** A's own walk of their own gateway from their own LAN lands in the SAME row as B's
       public walk, under the AP's stable log-writer key on both vantages — so a defender reading
       their own gateway's log sees the attacker's lines beside their own, whoever holds the lowest
       lease.
-- [ ] **AC-10** A community B has not cracked is SILENCE: `host_unreachable`, word-for-word what an
+- [x] **AC-10** A community B has not cracked is SILENCE: `host_unreachable`, word-for-word what an
       address bearing no network answers, so a stranger cannot tell a refused community from a box
       that is not there. The visit is still logged.
-- [ ] **AC-11** A gateway whose `rules.v4` carries `deny 161` does not answer B at all, and B cannot
+- [x] **AC-11** A gateway whose `rules.v4` carries `deny 161` does not answer B at all, and B cannot
       tell it from a device that was never there. Slice 6's filter, proven at the vantage it was
       never exercised from. A SERVER-LEVEL guarantee, deliberately: the gateway's file is root-only
       and an owner reaches it with `nano` only where `seedApGatewayHasSsh` rolled true for their
       ESSID, so what this pins is the door honouring a filter wherever one exists — not a defence
       every player can raise. Whether an owner can always filter their own gateway is a later
       slice's question, and this criterion does not answer it.
-- [ ] **AC-12** Slices 4 and 5 are unmoved. The own-LAN set on the player's own AP gateway and the
+- [x] **AC-12** Slices 4 and 5 are unmoved. The own-LAN set on the player's own AP gateway and the
       inner-gateway set on a deep layer accept and refuse exactly the destinations they did before,
       now judged by the reach rather than by the door. `testSnmpSet` 16/16 and `testSnmpDepth` 12/12
       pass unchanged.
-- [ ] **AC-13** A device reports each address it holds ONCE. From the world the gateway's public
+- [x] **AC-13** A device reports each address it holds ONCE. From the world the gateway's public
       address is the face the caller already reached it by, so a walk shows that alone; from inside
       its own LAN the same gateway still shows its LAN address and its public one, in that order.
       **Added mid-slice**, on the evidence below: walking your own public address listed it twice.
@@ -1808,6 +1809,60 @@ the edge `.1` is an inner gateway, so that walk resolves down the forward chain 
 writer key comes from the DEEP vantage. The test is real and worth keeping; its name and comment
 now say which vantage it proves. Trusting the name would have shipped the guard behind coverage
 that was not coverage.
+
+### The live run
+
+All four SNMP wire-checks were run against `vercel dev` on 3100 with supabase up (this project
+binds the API on **54421** and the database on **54422**, not the CLI defaults — a probe of 54321
+finds nothing and means nothing).
+
+| script | result |
+|---|---|
+| `testSnmpCrossPlayer` | **15/15**, first execution |
+| `testSnmpSet` | **16/16** — after the repair below |
+| `testSnmpDepth` | **12/12** unchanged |
+| `testSnmpFilter` | **13/13** unchanged |
+
+**The cross-player check was falsified before it was believed.** Deleting the filter-before-routing
+guard from `resolvePublicTarget` drops it to 13/15, and the diagnostic prints the exact leak the
+criterion exists to close: a filtered gateway answering `service_not_running` where an empty
+address answers `host_unreachable` — the one state a stranger could pick a defended box out of the
+world by. Removing the own-address dedup from `addressesOf`, by contrast, does **not** move this
+script, and should not: the dedup governs a player walking their OWN public address, a vantage no
+cross-player run visits. That mutant dies in `snmpWalkCrossPlayer.test.ts` instead, which is the
+honest layer for it — the wire-check's job is that the doors dispatch for a public address at all.
+
+### `testSnmpSet` was stale on trunk, and had been since slice 6
+
+The first run scored 13/16. The three failures all read `table null`, which looks like a walk that
+stopped rendering port tables. It is not. Checking out `main` and running the same script scores
+**13/16 there too**, so the branch is not the cause; widening the diagnostic to print the whole
+response shows the walk working perfectly, forward and all:
+
+```
+"portTables":[{"kind":"nat","forwards":[{"publicPort":2222,…}]},{"kind":"filter","denies":[]}]
+```
+
+The script reads `portTable`. Slice 6 gave a device more than one table to render — a router now
+answers with its NAT forwards AND its INPUT filter — and renamed the field to the plural without
+updating slice 4's wire-check. Three checks had been silently asserting against a field that no
+longer exists, and `?? null` turned every one of them into a plausible-looking failure rather than
+a crash.
+
+The repair is in the harness, not the product: `portTableIn` now names the kind it wants and finds
+that table in the array, so an assertion about forwards cannot read whichever table happens to sit
+first. All three expectations were already exactly right for the table they meant. Falsified by
+making the walk render `forwards: []` unconditionally — check 1 goes red, and check 2, which
+expects an empty table, correctly stays green.
+
+**What this cost and what it buys.** Slice 6 merged with a wire-check it had quietly broken, and
+nothing caught it for two slices, because the only thing that reads these scripts is a human
+running them. `portTable` → `portTables` is exactly the rename that a `?? null` fallback absorbs
+into a soft failure. The lesson is narrow and worth keeping: a wire-check that pulls a field off a
+response by name has no compiler behind it, so a field rename is invisible until someone runs it —
+and AC-12-style "re-run the neighbours unchanged" is what turns that from a discovery into a
+routine.
+
 
 ### PR-ready when
 
