@@ -6,7 +6,11 @@ import { computeWorkstationId } from '../identity/workstation';
 import { computeApGatewayId } from '../identity/router';
 import { generateHomeLan } from '../generation/generateHomeLan';
 import { machineIdForLanHost } from '../generation/lanHostIdentity';
-import { seedApGatewayAdminPw, seedApGatewayHostname } from '../generation/routerFs';
+import {
+  seedApGatewayAdminPw,
+  seedApGatewayCommunity,
+  seedApGatewayHostname,
+} from '../generation/routerFs';
 import { workstationGuestPassword } from '../generation/workstationFs';
 import { md5 } from '../generation/md5';
 import { DATADIR_PATH } from '../mysql/datadir';
@@ -24,6 +28,12 @@ import {
   AUTH_LOG_PERMISSIONS,
   formatSshdAuthLine,
 } from '../logging/authLog';
+import {
+  formatSnmpdAttemptLine,
+  SNMPD_LOG_OWNER,
+  SNMPD_LOG_PATH,
+  SNMPD_LOG_PERMISSIONS,
+} from '../logging/snmpdLog';
 import { derivePid } from '../logging/syslog';
 import { asAbsPath, asGameTime } from '../types';
 import type { ApNetworkLookup, NatOccupantRow } from '../network/resolvePublicTarget';
@@ -1013,5 +1023,110 @@ describe('a resident who filters the port their gateway publishes', () => {
     );
 
     expect(status).toBe(200);
+  });
+});
+
+/**
+ * The community a stranger has to earn before the write door will listen to them.
+ *
+ * Every other lock on this address belongs to a PERSON — the gateway's root, a
+ * resident's shell, an account in their database. This one belongs to the service, and
+ * it is the only credential in the game that buys the power to change what a machine
+ * DOES rather than permission to stand on it. A sweep is the only way to it: the string
+ * is seeded from the defender's own ESSID, so nothing the attacker holds derives it and
+ * no amount of standing on their own network brings it closer.
+ *
+ * It is the same door, the same resolver and the same wordlist as every sweep above.
+ * That is the claim worth pinning — a community reported here is one the walk and the
+ * set then accept, because all three read the string off the same materialized gateway
+ * rather than agreeing to about the same thing three times.
+ */
+describe('sweeping the agent on a stranger access point gateway', () => {
+  /** Seeded from the DEFENDER's ESSID, and the same expression both SNMP doors judge a
+   *  community by. What falls here is what those doors then answer to. */
+  const COMMUNITY = seedApGatewayCommunity(TARGET_ESSID);
+
+  /** The gateway's owner closing the agent's own port in their own rules file — the
+   *  same file the forwards live in, one hop OUT from the resident's. */
+  const gatewayFilter: OwnerPatchRow = {
+    ...RESIDENT_FORWARD,
+    content: `deny ${SERVICE_CATALOG.snmp.defaultPort}`,
+  };
+
+  const snmpTraceLine = (outcome: 'success' | 'failure') =>
+    formatSnmpdAttemptLine({
+      outcome,
+      // No account name, because a community names none.
+      user: '',
+      fromIp: ATTACKER_PUBLIC_IP,
+      hostname: GATEWAY_HOSTNAME,
+      time: asGameTime(FIXED_NOW),
+      pid: derivePid(FIXED_NOW),
+    });
+
+  const sweepSnmp = (over: DepOverrides = {}) =>
+    handleHydraCrackPublic(
+      envelope({ service: 'snmp', port: SERVICE_CATALOG.snmp.defaultPort }),
+      depsWith({ wordlist: ['nonsense', COMMUNITY], ...over }),
+    );
+
+  it('reports the community with no account name on it at all', async () => {
+    const { status, body } = await sweepSnmp();
+
+    expect(status).toBe(200);
+    // A username invented to fill the column would send a player hunting for an account
+    // this door does not have.
+    expect(body).toEqual({
+      port: SERVICE_CATALOG.snmp.defaultPort,
+      cracked: [{ password: COMMUNITY }],
+      wordlistFound: true,
+    });
+  });
+
+  it('finds nothing when the community is absent from the wordlist', async () => {
+    const { body } = await sweepSnmp({ wordlist: ['nonsense', 'guesswork'] });
+
+    expect(body).toEqual({
+      port: SERVICE_CATALOG.snmp.defaultPort,
+      cracked: [],
+      wordlistFound: true,
+    });
+  });
+
+  it("leaves the wall of guesses on the gateway's own snmpd.log, in the row a stranger cannot move", async () => {
+    const upsertPatch = vi.fn(async () => ({ error: null }));
+
+    await sweepSnmp({ upsertPatch });
+
+    // The device's own daemon file rather than auth.log: nobody logged in, and filed
+    // under the wrong daemon these lines would say nothing to the owner reading for
+    // exactly this. The row is the access point's, so the next stranger's sweep adds to
+    // this one instead of replacing it.
+    expect(upsertPatch).toHaveBeenCalledWith({
+      writer_key: RESIDENT.publicKeyHex,
+      machine_id: AP_GATEWAY_ID,
+      path: SNMPD_LOG_PATH,
+      content: `${snmpTraceLine('failure')}\n${snmpTraceLine('success')}\n`,
+      owner: SNMPD_LOG_OWNER,
+      permissions: SNMPD_LOG_PERMISSIONS,
+      node_type: 'file',
+    });
+  });
+
+  it('answers a gateway whose owner closed the agent port as an address bearing no network does', async () => {
+    const { status, body } = await sweepSnmp({ gatewayPatches: [gatewayFilter] });
+
+    // The same silence the walk gets. A sweep that could tell a closed port from an
+    // empty address would sort the world into defended and undefended for free.
+    expect(status).toBe(404);
+    expect(body).toEqual({ error: 'host_unreachable' });
+  });
+
+  it('leaves nothing behind on a gateway that never heard the sweep', async () => {
+    const upsertPatch = vi.fn(async () => ({ error: null }));
+
+    await sweepSnmp({ gatewayPatches: [gatewayFilter], upsertPatch });
+
+    expect(upsertPatch).not.toHaveBeenCalled();
   });
 });

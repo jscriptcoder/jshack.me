@@ -160,9 +160,19 @@ const refusalIn = (body: unknown): Record<string, unknown> => {
     : {};
 };
 
-const portTableIn = (body: unknown): string => {
+// A device renders one table per question it can be asked — a router answers with its
+// NAT forwards AND its INPUT filter — so naming the kind is what keeps an assertion
+// about forwards from silently reading whichever table happens to come first.
+const portTableIn = (body: unknown, kind: string): string => {
   if (typeof body !== 'object' || body === null) return '';
-  const table = Object.getOwnPropertyDescriptor(body, 'portTable')?.value;
+  const tables = Object.getOwnPropertyDescriptor(body, 'portTables')?.value;
+  if (!Array.isArray(tables)) return JSON.stringify(null);
+  const table = tables.find(
+    (candidate) =>
+      typeof candidate === 'object' &&
+      candidate !== null &&
+      Object.getOwnPropertyDescriptor(candidate, 'kind')?.value === kind,
+  );
   return JSON.stringify(table ?? null);
 };
 
@@ -267,12 +277,12 @@ const main = async (): Promise<void> => {
   const afterOpen = await walk(gateway.ip);
   check(
     'and snmpWalk reads it back as the device port table — one fact, two doors',
-    portTableIn(afterOpen.body) ===
+    portTableIn(afterOpen.body, 'nat') ===
       JSON.stringify({
         kind: 'nat',
         forwards: [{ publicPort: FORWARDED_PORT, internalIp: onSegment(10), internalPort: 22 }],
       }),
-    `table ${portTableIn(afterOpen.body)}`,
+    `table ${portTableIn(afterOpen.body, 'nat')}`,
   );
 
   // ─── what the device kept ───
@@ -308,8 +318,8 @@ const main = async (): Promise<void> => {
   const afterClose = await walk(gateway.ip);
   check(
     'closing the port empties the table the walk renders',
-    portTableIn(afterClose.body) === JSON.stringify({ kind: 'nat', forwards: [] }),
-    `table ${portTableIn(afterClose.body)}`,
+    portTableIn(afterClose.body, 'nat') === JSON.stringify({ kind: 'nat', forwards: [] }),
+    `table ${portTableIn(afterClose.body, 'nat')}`,
   );
 
   // ─── refusals, once the community has been accepted ───
@@ -382,8 +392,8 @@ const main = async (): Promise<void> => {
   const switchWalk = await walk(switchHost.ip);
   check(
     'and re-opening the seeded deny leaves the walk showing only what is still shut',
-    portTableIn(switchWalk.body) === JSON.stringify({ kind: 'acl', denies: [22] }),
-    `table ${portTableIn(switchWalk.body)}`,
+    portTableIn(switchWalk.body, 'acl') === JSON.stringify({ kind: 'acl', denies: [22] }),
+    `table ${portTableIn(switchWalk.body, 'acl')}`,
   );
 
   check(

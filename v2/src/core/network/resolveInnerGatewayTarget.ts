@@ -37,6 +37,7 @@ import {
   type FrontingGateway,
 } from '../generation/generateDeepLayer';
 import { innerGatewayAt, resolveLanHostIdentity } from '../generation/lanHostIdentity';
+import { frontedSegment } from './frontedSegment';
 import { materializeMachineFs, type OwnerPatchRow } from './materializeMachineFs';
 import { resolveChildGatewayHop, resolveDeepHostHop } from './deepLayerHop';
 import { machineServing } from './machineServing';
@@ -73,6 +74,12 @@ export type InnerGatewayTarget = {
    *  against THIS rather than any port the box happens to have open, or a forward to one
    *  daemon becomes a door to every daemon. */
   readonly reachedPort: number;
+  /** The `/24` this box's forwards may point INTO, or `null` for a box that fronts no
+   *  network. A gateway on the chain fronts the layer BEHIND it — never the one it
+   *  stands on — while the terminal host at the end of a forward fronts nothing. Both
+   *  facts belong to the walk, which is the only thing that knows how deep it went and
+   *  what kind of device it stopped on. */
+  readonly frontedSegment: string | null;
 };
 
 export type InnerGatewayTargetResult =
@@ -138,6 +145,13 @@ const resolveTargetAt = async (
         localIp: frontingGateway.ip,
         sourceIp: arrivalSubnet === null ? null : `${arrivalSubnet}.1`,
         reachedPort: port,
+        // Its own device kind, carried down the walk rather than guessed — this is the
+        // gateway the caller landed ON, and the layer it fronts is the one behind it.
+        frontedSegment: frontedSegment({
+          essid: context.essid,
+          machineId: frontingGateway.machineId,
+          kind: frontingGateway.kind,
+        }),
       },
     };
   }
@@ -176,6 +190,8 @@ const resolveTargetAt = async (
         localIp: deep.host.ip,
         sourceIp: `${deep.subnet}.1`,
         reachedPort: served.internalPort,
+        // The end of the chain: a `machine` on the layer, with nothing behind it.
+        frontedSegment: null,
       },
     };
   }

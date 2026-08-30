@@ -714,6 +714,32 @@ forward 2222 to ${onSegment(essid, 9)}:22
     expect(upsertPatch).not.toHaveBeenCalled();
   });
 
+  it('refuses a signed request that is not the shape this door accepts', async () => {
+    const identity = generateIdentity();
+    const essid = CANDIDATE_ESSIDS[0]!;
+    const gateway = apGatewayOn(essid);
+    const { deps, upsertPatch } = makeDeps(answering());
+
+    const response = await handleSnmpSet(
+      // Signed by a real key and still refused. A signature says who sent it, never that
+      // what they sent means anything — and this door's every field is load-bearing: the
+      // assignment IS the change, so a request without one is not a set that does
+      // nothing, it is not a set.
+      await signRequest(identity, 'snmpSet', {
+        essid,
+        target_ip: gateway.ip,
+        community: RW_COMMUNITY,
+        source_ip: CLIENT_IP,
+      }),
+      deps,
+    );
+
+    expect(response.body).toEqual({ error: 'payload_invalid' });
+    // Nothing written, and nothing LOGGED: the agent never heard a request this door
+    // could not read, so the device has no visit to record.
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
   it('mints no session, because a set is still nobody logging in', async () => {
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
@@ -759,9 +785,12 @@ forward 2222 to ${onSegment(essid, 9)}:22
     // And it claims nothing on the device's own log. The SET line is the defender's
     // only evidence, so one naming a change the journal refused to store would be worse
     // than no line at all — the arrival and the verdict still stand.
+    // EXACTLY the arrival and the verdict. Asserting only the absence of a SET line
+    // would let any other line through, and a device's log is read as a record of what
+    // happened rather than as a list of things that did not.
     const logged = writtenTo(upsertPatch, SNMPD_LOG_PATH)?.content ?? '';
     expect(logged).toContain('Authentication succeeded');
-    expect(logged).not.toContain('SET ');
+    expect(logged.split('\n').filter(Boolean)).toHaveLength(2);
   });
   it('records an unnamed source as unknown in BOTH the contact and the SET line', async () => {
     // On the caller's own LAN the route knows nothing about the address, so the client's

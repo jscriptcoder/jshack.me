@@ -55,7 +55,6 @@ import {
   ACL_CONF_PATH,
   ACL_CONF_PERMISSIONS,
 } from '../network/switchAcl';
-import { frontedSegment } from '../network/frontedSegment';
 import { describeSet, parseSnmpSet, type SnmpSetRefusal, type SnmpSetTarget } from '../snmp/set';
 import type { SnmpDeviceKind } from '../snmp/walk';
 import type { Directory } from '../filesystem/types';
@@ -117,6 +116,21 @@ const kindFor = (target: SnmpSetTarget): SnmpDeviceKind =>
  *  would sit in the file looking like it worked. Taken from the DEVICE's own address so
  *  it stays true for a gateway on a layer nobody has walked yet. */
 const segmentOf = (ip: string): string => ip.split('.').slice(0, 3).join('.');
+
+/** Why a forward may not point where it was aimed, or `null` when it may.
+ *
+ *  TWO refusals, because they are two different facts about the device. A box that
+ *  fronts no network — a workstation, or an occupant's box behind somebody's NAT —
+ *  cannot hold a routable forward at all, whatever address it names; a box that DOES
+ *  front one was simply handed an address outside it. Telling the first that a
+ *  destination "is not on this device's segment" describes a segment the device does not
+ *  have, and reads as a near miss when nothing about the write could have worked. */
+const forwardRefusal = (destination: string, fronted: string | null): string | null => {
+  if (fronted === null) return 'this device fronts no network';
+  return segmentOf(destination) === fronted
+    ? null
+    : `${destination} is not on this device's segment`;
+};
 
 /** The state a port is in NOW, rendered the way the echo renders the state it will be
  *  in. One function for both ends of `old -> new`, so the two can never disagree about
@@ -192,7 +206,7 @@ export const handleSnmpSet = async (
     actorKey: publicKey,
   });
   if (!reach.ok) return reach.refusal;
-  const { hostname, hostFs, machineId, sourceIp, writerKey } = reach.reached;
+  const { hostname, hostFs, machineId, sourceIp, writerKey, frontedSegment } = reach.reached;
 
   const tier = communityTier(hostFs, payload.community);
   // The TARGET's key once the box has an owner, so a device keeps one file and one log
@@ -241,22 +255,18 @@ export const handleSnmpSet = async (
     });
   }
 
-  // The segment the DEVICE fronts, never the one the request named. Through a forward
-  // the typed address is the gateway the caller came in through, and even addressed
-  // directly an inner gateway forwards into the layer BEHIND it rather than the LAN it
-  // stands on — so judged by the request, the only destinations that can route are the
-  // ones refused and the ones accepted all resolve to nothing.
-  if (
-    parsed.target.kind === 'nat' &&
-    parsed.target.forward !== null &&
-    segmentOf(parsed.target.forward.internalIp) !==
-      frontedSegment({ essid: payload.essid, machineId, kind })
-  ) {
-    await appendSnmpdLog(deps, target, contact);
-    return answer({
-      reason: 'wrongValue',
-      detail: `${parsed.target.forward.internalIp} is not on this device's segment`,
-    });
+  // The segment the DEVICE fronts, resolved by the vantage that found it and never
+  // derived here. Through a forward the typed address is the gateway the caller came in
+  // through; addressed directly, an inner gateway forwards into the layer BEHIND it
+  // rather than the LAN it stands on; and across the world the ESSID on the request
+  // names the ATTACKER's own network, so a bound taken from it refuses every address
+  // inside the LAN under attack and accepts only ones that resolve to nothing.
+  if (parsed.target.kind === 'nat' && parsed.target.forward !== null) {
+    const detail = forwardRefusal(parsed.target.forward.internalIp, frontedSegment);
+    if (detail !== null) {
+      await appendSnmpdLog(deps, target, contact);
+      return answer({ reason: 'wrongValue', detail });
+    }
   }
 
   const previous = describeSet(currentState(hostFs, parsed.target)).value;

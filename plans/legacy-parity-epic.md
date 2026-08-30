@@ -330,14 +330,15 @@ PHASE 1 — THE DOORS  (near-term focus)
       D7 follow-up  the daemon systemctl could not start ✔ SHIPPED v0.183.0 (#462)
       D7 follow-up  the three daemon tables get a guard  ✔ SHIPPED (#463, no bump)
       D7 follow-up  the real binary names, hyphens intact ✔ SHIPPED v0.184.0 (#464)
-  D8  snmpwalk / snmpset                              🚧 IN PROGRESS (11 decisions, 7 slices)
+  D8  snmpwalk / snmpset                              🚧 IN PROGRESS (11 decisions, 8 slices)
       D8 slice 1 a device answers SNMP                ✔ SHIPPED v0.185.0 (#465)
       D8 slice 2 a player walks it with `public`      ✔ SHIPPED v0.186.0 (#466)
       D8 slice 3 a player cracks the RW community     ✔ SHIPPED v0.187.0 (#467)
       D8 slice 4 a player opens a port, no shell      ✔ SHIPPED v0.188.0 (#468)
       D8 slice 5 a device on a deep layer answers     ✔ SHIPPED v0.189.0 (#469)
-      D8 slice 6 a player runs their own agent
+      D8 slice 6 a player runs their own agent        ✔ SHIPPED v0.190.0 (#470)
       D8 slice 7 a player reconfigures another's
+      D8 slice 8 a player's own agent answers somebody
   D9  node scripting
   D10 polish (long-tail comfort commands)
 PHASE 2 — DISCOVERY
@@ -1904,6 +1905,8 @@ D8 slice 4  a player opens a port, no shell  snmpset adds a forward; nmap shows 
 D8 slice 5  a device on a deep layer answers the inner-gateway vantage, via reachServiceHost
 D8 slice 6  a player runs their own agent    owner filters a port; a neighbour fails, 127.0.0.1 works
 D8 slice 7  a player reconfigures another's  B opens a forward into A's LAN; A's snmpd.log names B
+D8 slice 8  a player's own agent answers     an installed agent gets a community; B re-opens a
+                                             port A filtered  (found while planning slice 7)
 ```
 
 ### Gaps closed (find-gaps, 2026-08-27)
