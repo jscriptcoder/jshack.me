@@ -693,10 +693,13 @@ describe("whose row a gateway's own log accretes under", () => {
     });
   });
 
-  it('writes a walk of any other box on that LAN under the caller’s own key', async () => {
-    // A generated sibling belongs to nobody and no lease names it, so there is no
-    // stabler key than the caller's. Pinned beside the gateway so the branch above is a
-    // branch rather than a blanket rule.
+  it('writes a walk of a device down the forward chain under the caller’s own key', async () => {
+    // Every agent-running device on a LAN that is NOT the edge `.1` is an inner gateway,
+    // so this walk resolves down that gateway's own chain rather than on the regenerated
+    // LAN — a different vantage from the one above, and the reason the leases below
+    // change nothing. Nobody owns a box on a hidden layer and no lease names it, so the
+    // caller's key is the only stable thing there is to write under. Pinned beside the
+    // gateway so the AP's stable key reads as a branch rather than a blanket rule.
     const identity = generateIdentity();
     const { essid, host } = deviceOfKind('switch');
     const neighbour = generateIdentity();

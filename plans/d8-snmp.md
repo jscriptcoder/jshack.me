@@ -1770,13 +1770,52 @@ and how an owner changes one — none of which this slice's gateway path touches
 community has been seeded from the ESSID since slice 1. Folding it in would put two observables and
 two decision sets in one PR. It is **slice 8**.
 
+#### The mutation gate — run, survivors addressed
+
+Diff-scoped to the five production files this branch changed, on a clean tree.
+
+| run | score | killed | survived | no cov |
+| --- | --- | --- | --- | --- |
+| first | 97.48% | 581 | 11 | 4 |
+| after two kills | 97.82% | 583 | 9 | 4 |
+| final | **97.99%** | 584 | 8 | 4 |
+
+**Three real gaps, all killed**, each proved by re-applying the exact mutant:
+
+- **`snmpSet` line 290** — the failed-write path asserted only that no `SET ` line appeared, so any
+  other line passed. A trace is the defender's only evidence; it now pins exactly the arrival and
+  the verdict, matching the rigour its sibling test already had.
+- **`snmpSet` line 75** — the whole request schema could be replaced with `.looseObject({})` and
+  nothing noticed. The write door had NO shape-refusal test, while the read door has three. A
+  signed request carrying no assignment is now `payload_invalid`, writes nothing, and logs nothing:
+  the agent never heard a request this door could not read.
+- **`serviceHost` line 297** — the AP-gateway guard, pinned through the mysql own-LAN door where
+  the leases can change the answer. The SNMP doors cannot reach that branch at all (see below).
+
+**Twelve survivors are equivalent mutants**, each checked against the code rather than assumed:
+three `kind` strings swapped into fields that are either computed from the machine id
+(`frontedSegment` never reads `kind` on the AP-gateway branch) or discarded (`describeSet(...).value`
+is the same for `acl` and `filter`); five `?? []` fallbacks where a junk row has no `owner_key` or
+`octet`, so every consumer lands on the empty-array answer; and the `served.kind === 'none'` guard,
+whose removal falls through two failed address comparisons to the same `UNREACHABLE`.
+
+#### A test that was not testing what it said
+
+Chasing the `serviceHost` survivor turned up worse than the mutant. The test named *"writes a walk
+of any other box on that LAN under the caller's own key"* never reached `apGatewayWriterKey` —
+proved by making the guard `throw`, which the test survived. Every agent-running device that is not
+the edge `.1` is an inner gateway, so that walk resolves down the forward chain and its `null`
+writer key comes from the DEEP vantage. The test is real and worth keeping; its name and comment
+now say which vantage it proves. Trusting the name would have shipped the guard behind coverage
+that was not coverage.
+
 ### PR-ready when
 
-AC-1…AC-12 pass, `npm run typecheck` and `npm run lint` are clean from `v2/`, the full non-watch
-test gate is green, the wire-check has RUN against a live stack and been falsified, the mutation
-gate has run with survivors addressed and the three debts above discharged, and the version is
-bumped to **v0.191.0** in both `v2/package.json` and `v2/package-lock.json`
-(`npm install --package-lock-only`).
+AC-1…AC-11 and AC-13 pass, `npm run typecheck` and `npm run lint` are clean from `v2/`, the full
+non-watch test gate is green, the wire-check has RUN against a live stack and been falsified,
+AC-12's two wire-checks are re-run unchanged, the mutation gate has run with survivors addressed
+(above) and the three debts discharged, and the version is bumped to **v0.191.0** in both
+`v2/package.json` and `v2/package-lock.json` (`npm install --package-lock-only`).
 
 **Slice complete when** its PR lands on `main`.
 

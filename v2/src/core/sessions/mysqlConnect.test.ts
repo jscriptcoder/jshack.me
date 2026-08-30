@@ -498,6 +498,43 @@ describe('handleMysqlConnect', () => {
     });
   });
 
+  it('records it under the CALLER, even where the WiFi has leases of its own', async () => {
+    // The access point's own gateway keeps its log under the lowest lease on the ESSID,
+    // because it belongs to nobody and needs a key that does not move between visitors.
+    // A generated box beside it is a different case: no lease names it either, but there
+    // is nothing shared to preserve, and filing a stranger's connection under whichever
+    // neighbour happens to hold the lowest octet would put one player's row on another
+    // player's business. The gateway's rule is a branch, and this is the other side of
+    // it — asserted where the leases would CHANGE the answer if the branch went away.
+    const identity = generateIdentity();
+    const neighbour = generateIdentity();
+    const host = mysqlHostOn(ESSID);
+    const { machineId } = resolveLanHostIdentity(host, ESSID);
+    const { username, password } = knownDatabaseCredential(host);
+    const { deps, upsertPatch } = makeDeps({
+      listLeasesByEssid: async () => ({
+        data: [
+          { owner_key: identity.publicKeyHex, octet: 77 },
+          { owner_key: neighbour.publicKeyHex, octet: 12 },
+        ],
+        error: null,
+      }),
+    });
+
+    await handleMysqlConnect(
+      await signedConnect(identity, { target_ip: host.ip, username, password }),
+      deps,
+    );
+
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        machine_id: machineId,
+        path: MYSQL_LOG_PATH,
+        writer_key: identity.publicKeyHex,
+      }),
+    );
+  });
+
   it('records a refused connection, which has no database to name', async () => {
     const identity = generateIdentity();
     const host = mysqlHostOn(ESSID);
