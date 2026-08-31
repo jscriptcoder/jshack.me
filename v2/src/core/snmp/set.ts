@@ -1,6 +1,6 @@
 /**
  * What a player may WRITE through this door, and what the device says when they may
- * not: `natForward.<port>=<ip>:<port>` on a gateway, `aclPort.<port>=deny` on a switch,
+ * not: `forward.<port>=<ip>:<port>` on a gateway, `aclPort.<port>=deny` on a switch,
  * and `inputPort.<port>=deny` on the filter any box can keep about itself.
  *
  * The value names the STATE the port should be left in, never an operation. `none` and
@@ -28,7 +28,7 @@
  */
 
 import { parseForwardRules, type ForwardTarget } from '../network/iptablesRules';
-import { aclPortOid, inputPortOid, natForwardOid } from './walk';
+import { aclPortOid, forwardOid, inputPortOid } from './walk';
 
 /** The state one port should be left in — a gateway's destination (or none), a switch's
  *  shut/open, or the box's own. Tagged by the TABLE that holds it, matching
@@ -63,7 +63,7 @@ export type ParsedSnmpSet =
 /** What the device echoes after an accepted set: the OID, and the state it now holds. */
 export type SnmpSetEcho = { readonly oid: string; readonly value: string };
 
-const SET_OID_RE = /^(natForward|aclPort|inputPort)\.(\d+)$/;
+const SET_OID_RE = /^(forward|aclPort|inputPort)\.(\d+)$/;
 
 const NO_SUCH_NAME = 'The name does not exist in the MIB';
 
@@ -90,7 +90,7 @@ const parseNatSet = (publicPort: number, value: string): ParsedSnmpSet => {
   }
   const forward = forwardTarget(publicPort, value);
   return forward === null
-    ? refuse('wrongValue', 'not an address and port, or "none"', natForwardOid(publicPort))
+    ? refuse('wrongValue', 'not an address and port, or "none"', forwardOid(publicPort))
     : { ok: true, target: { kind: 'nat', publicPort, forward } };
 };
 
@@ -120,15 +120,15 @@ export const parseSnmpSet = (assignment: string): ParsedSnmpSet => {
     return refuse('noSuchName', NO_SUCH_NAME, oidText);
   }
 
-  if (named[1] === 'natForward') return parseNatSet(port, value);
+  if (named[1] === 'forward') return parseNatSet(port, value);
   return named[1] === 'aclPort' ? parseAclSet(port, value) : parseFilterSet(port, value);
 };
 
-/** What an accepted set prints: the object, its type, its new value, and nothing else.
- *  Real snmpset's entire output, and enough — the echo IS the confirmation, and a walk
- *  is there for anyone who wants to see the table around it. */
+/** What an accepted set prints: the object, its new value, and nothing else — the same
+ *  line the device's own walk prints for that port. Enough on its own: the echo IS the
+ *  confirmation, and a walk is there for anyone who wants the table around it. */
 export const renderSetEcho = ({ oid, value }: SnmpSetEcho): readonly string[] => [
-  `${oid} = STRING: ${value}`,
+  `${oid} = ${value}`,
 ];
 
 /** What a refusal prints: net-snmp's own three-line error frame.
@@ -152,7 +152,7 @@ export const renderSetRefusal = ({
 export const describeSet = (target: SnmpSetTarget): SnmpSetEcho => {
   if (target.kind === 'nat') {
     return {
-      oid: natForwardOid(target.publicPort),
+      oid: forwardOid(target.publicPort),
       value:
         target.forward === null
           ? 'none'

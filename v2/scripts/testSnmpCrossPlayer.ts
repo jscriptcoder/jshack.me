@@ -372,7 +372,7 @@ check(
 );
 
 // === 4. THE observable. A stranger opens a port into somebody else's home. ===
-const opened = await set(ATTACKER_ESSID, `natForward.${PUBLISHED_PORT}=${DEFENDER_LAN_IP}:22`, {
+const opened = await set(ATTACKER_ESSID, `forward.${PUBLISHED_PORT}=${DEFENDER_LAN_IP}:22`, {
   community: community ?? 'nothing-cracked',
 });
 check(
@@ -426,7 +426,7 @@ check(
   log !== null &&
     log.rows === 1 &&
     log.content.includes(ATTACKER_PUBLIC_IP) &&
-    log.content.includes(`SET NAT-MIB::natForward.${PUBLISHED_PORT}`) &&
+    log.content.includes(`SET forward.${PUBLISHED_PORT}`) &&
     log.writerKey === defender.publicKeyHex &&
     log.writerKey !== attacker.publicKeyHex,
   log === null
@@ -475,7 +475,7 @@ check(
 );
 
 // === 12. The bound, judged by A's network and never by the one on B's request. ===
-const offSegment = await set(ATTACKER_ESSID, `natForward.9001=${ATTACKER_SUBNET}.44:22`, {
+const offSegment = await set(ATTACKER_ESSID, `forward.9001=${ATTACKER_SUBNET}.44:22`, {
   community: community ?? 'nothing-cracked',
 });
 check(
@@ -487,7 +487,7 @@ check(
 );
 
 // === 13. A box behind the NAT fronts nothing, and the refusal says so. ===
-const onWorkstation = await set(ATTACKER_ESSID, `natForward.9002=${DEFENDER_LAN_IP}:22`, {
+const onWorkstation = await set(ATTACKER_ESSID, `forward.9002=${DEFENDER_LAN_IP}:22`, {
   community: DEFENDER_WS_COMMUNITY,
   port: OWNER_PORT,
 });

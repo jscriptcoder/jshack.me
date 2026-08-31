@@ -80,18 +80,15 @@ describe('walking a device that answers', () => {
 
     expect(linesOf(result)).toBe(
       [
-        `Querying ${GATEWAY_IP} with community string "public"...`,
-        '[READ-ONLY] Community "public" accepted.',
+        `[READ-ONLY] Community "public" accepted on ${GATEWAY_IP}.`,
         '',
-        'SNMPv2-MIB::sysDescr.0    = STRING:    Linux gw-main',
-        'SNMPv2-MIB::sysName.0     = STRING:    gw-main',
-        'SNMPv2-MIB::sysContact.0  = STRING:    netops@corp.local',
-        'IF-MIB::ifDescr.1         = STRING:    eth0',
-        'IF-MIB::ifDescr.2         = STRING:    eth1',
-        `IF-MIB::ifAddr.1          = IpAddress: ${GATEWAY_IP}`,
-        `IF-MIB::ifAddr.2          = IpAddress: ${PUBLIC_IP}`,
+        'sysDescr    = Linux gw-main',
+        'sysName     = gw-main',
+        'sysContact  = netops@corp.local',
+        `interface.1 = eth0 (${GATEWAY_IP})`,
+        `interface.2 = eth1 (${PUBLIC_IP})`,
         '',
-        '7 OIDs returned. Community "public" is READ-ONLY.',
+        '5 OIDs returned. Community "public" is READ-ONLY.',
         "Retry with a read-write community to see this device's port table.",
       ].join('\n'),
     );
@@ -119,7 +116,7 @@ describe('walking a device that answers', () => {
     const result = await run(onLan({ walk }), [GATEWAY_IP, 'corpnet']);
 
     expect(walk.mock.calls[0]![0]).toMatchObject({ community: 'corpnet' });
-    expect(linesOf(result)).toContain('[READ-ONLY] Community "corpnet" accepted.');
+    expect(linesOf(result)).toContain(`[READ-ONLY] Community "corpnet" accepted on ${GATEWAY_IP}.`);
   });
 });
 
@@ -142,7 +139,7 @@ describe('walking a device with a community that reads its port table', () => {
   it('prints the port table and what to write, not the retry hint', async () => {
     const result = await run(onLan({ walk: async () => CRACKED }), [GATEWAY_IP, 'corpnet']);
 
-    expect(linesOf(result)).toContain('NAT-MIB::natForward.2222  = STRING:    10.0.0.10:22');
+    expect(linesOf(result)).toContain('forward.2222 = 10.0.0.10:22');
     expect(linesOf(result)).toContain('Writable: snmpset');
     // The read-only trailer tells a player to go and find a better community. Printed
     // to somebody who just used one, it would read as a failure.

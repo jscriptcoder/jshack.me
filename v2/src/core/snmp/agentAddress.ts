@@ -5,7 +5,7 @@
  * A bare address is the device standing at it. An address with a port names a device
  * BEHIND the one at that address: the gateway forwards the port onward, and through a
  * forward the port is the whole of how a hidden box is named at all. It is also the same
- * spelling the door writes as a VALUE (`natForward.2222=10.42.7.9:22`), so an address
+ * spelling the door writes as a VALUE (`forward.2222=10.42.7.9:22`), so an address
  * and a port look the same everywhere in this protocol.
  *
  * A suffix that is not a port is NOT AN ERROR here. The whole string stays the address,

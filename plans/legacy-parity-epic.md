@@ -1796,6 +1796,31 @@ they bury the one actionable line in noise. The `Writable:` trailer is neither l
 net-snmp's — it turns a cracked community into an immediately actionable next step instead of a
 manual lookup, on the one door whose whole promise is the write.
 
+> **SUPERSEDED at v0.195.0 — the rendered form only; every other part of decision 5 stands.** The
+> module prefixes and the type column are gone, an interface is one line, and the trailer carries
+> the address and community the caller actually used. What forced it: the walk printed
+> `NAT-MIB::natForward.2222` while `snmpset` accepted `natForward.2222` alone, so a player pasting
+> back the device's own line was told the name did not exist — the door's own output refused by the
+> door. Realism was being spent on a surface the player has to AUTHOR from, and the invariant that
+> replaces it is **what a walk prints is what a set takes, on every line**. `natForward` also became
+> `forward`, the verb the device's own `rules.v4` already uses. The read-only/read-write split, the
+> `Writable:` trailer, the kind-not-version rule and the rejected full net-snmp walk are all
+> unchanged. As-built in `conventions-and-gotchas.md` §7.
+>
+> ```
+> [READ-WRITE] Community "corpnet" accepted on 10.0.0.1.
+>
+> sysDescr     = Linux gw-main
+> sysName      = gw-main
+> sysContact   = netops@corp.local
+> interface.1  = eth0 (10.0.0.1)
+> interface.2  = eth1 (82.14.203.77)
+> forward.2222 = 10.0.0.10:22
+>
+> 7 OIDs returned.
+> Writable: snmpset 10.0.0.1 corpnet forward.<port>=<ip>:<port>
+> ```
+
 **A device names its KIND, and no version.** A router reads `Linux <hostname>` with `eth0`/`eth1`;
 a switch reads `Cisco IOS L3 Switch <hostname>` with `GigabitEthernet0/1`. That split is what makes
 a switch feel different from a router in the only tool that ever inspects one closely. Legacy's

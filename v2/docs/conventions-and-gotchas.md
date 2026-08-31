@@ -1446,6 +1446,28 @@ state costs you more than one wrong attempt.
 
 ## 7. Architecture invariants
 
+- **Spend realism where the player READS; spend legibility where the player AUTHORS.** The rule
+  that settled the long-running "is `rules.v4` too simple, or is SNMP too complex" question at
+  v0.195.0 — the two are not on one axis, and neither had to move toward the other. A player
+  never types an OID line, so `snmpwalk`'s block can afford texture a real tool would have; a
+  player DOES hand-author `/etc/iptables/rules.v4` in `nano` against a LENIENT parser that skips
+  malformed lines in silence, so real `iptables-save` grammar there would turn one wrong character
+  into no error and no effect. That file's seed header is a tutorial (`# One rule per line:
+  forward <public_port> to <internal_ip>:<internal_port>`) and it only works because the grammar
+  is one line. Neither is a placeholder awaiting realism; ask which side of the read/write line a
+  surface sits on before adding fidelity to it.
+
+- **What a walk PRINTS is what a set TAKES, on every line.** `snmpwalk` used to render
+  `NAT-MIB::natForward.2222` while `SET_OID_RE` accepted `natForward.2222` alone, so a player
+  pasting the device's own output back was refused with `noSuchName (The name does not exist in
+  the MIB)` — for a name the device had just printed, naming a MIB module it never showed them.
+  The module prefixes and the type column are gone for that reason rather than for taste, and
+  `snmp/walk.ts` is the single owner of every object name (`forwardOid`, `aclPortOid`,
+  `inputPortOid`) precisely so the read and the write cannot drift apart again. `set.ts` and the
+  server's own `OBJECT_OF` refusal both spell a name by importing it from there — never inline.
+  The port table's name is `forward`, matching the verb `rules.v4` already uses under `nano`: one
+  fact reached two ways does not need two words.
+
 - **What a generated box IS gets DERIVED, and read back off its NAME — nothing about a role
   travels.** `generation/machineRole.ts` draws the role from the box's coordinates; everything
   downstream — `hostServices`, the `/etc` config, the page it serves, the account it carries —

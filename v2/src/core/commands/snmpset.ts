@@ -80,8 +80,8 @@ export const snmpset: Command = {
       'be recovered with "hydra <host> snmp". Walk the device first: a read-write walk ' +
       'prints its port table, and every line of that table is an OID you can set here. ' +
       'The value names the STATE the port should be left in, never an action. On a ' +
-      'router, "natForward.<port>=<ip>:<port>" publishes an internal host on that ' +
-      'public port and "natForward.<port>=none" stops publishing it; the destination ' +
+      'router, "forward.<port>=<ip>:<port>" publishes an internal host on that ' +
+      'public port and "forward.<port>=none" stops publishing it; the destination ' +
       "must be on the device's own segment. On a switch, \"aclPort.<port>=deny\" blocks " +
       'a port behind it and "aclPort.<port>=permit" re-opens it. On any box keeping a ' +
       'filter of its own, "inputPort.<port>=deny" closes that port to the network while ' +
@@ -99,17 +99,17 @@ export const snmpset: Command = {
       },
       {
         name: 'oid=value',
-        description: 'The setting to change, e.g. natForward.2222=10.0.0.10:22',
+        description: 'The setting to change, e.g. forward.2222=10.0.0.10:22',
         required: true,
       },
     ],
     examples: [
       {
-        command: 'snmpset 10.0.0.1 corpnet natForward.2222=10.0.0.10:22',
+        command: 'snmpset 10.0.0.1 corpnet forward.2222=10.0.0.10:22',
         description: 'Publish an internal box on port 2222',
       },
       {
-        command: 'snmpset 10.0.0.1 corpnet natForward.2222=none',
+        command: 'snmpset 10.0.0.1 corpnet forward.2222=none',
         description: 'Stop publishing that port',
       },
       {

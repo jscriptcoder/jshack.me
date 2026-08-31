@@ -170,14 +170,14 @@ describe('opening a port on a router', () => {
       await signedSet(identity, {
         essid,
         target_ip: gateway.ip,
-        assignment: `natForward.2222=${workstation}:22`,
+        assignment: `forward.2222=${workstation}:22`,
       }),
       deps,
     );
 
     expect(response).toEqual({
       status: 200,
-      body: { ok: true, oid: 'NAT-MIB::natForward.2222', value: `${workstation}:22` },
+      body: { ok: true, oid: 'forward.2222', value: `${workstation}:22` },
     });
     expect(writtenTo(upsertPatch, RULES_V4_PATH)?.content).toContain(
       `forward 2222 to ${workstation}:22`,
@@ -194,7 +194,7 @@ describe('opening a port on a router', () => {
       await signedSet(identity, {
         essid,
         target_ip: gateway.ip,
-        assignment: `natForward.2222=${onSegment(essid, 10)}:22`,
+        assignment: `forward.2222=${onSegment(essid, 10)}:22`,
       }),
       deps,
     );
@@ -225,7 +225,7 @@ describe('opening a port on a router', () => {
       await signedSet(identity, {
         essid,
         target_ip: gateway.ip,
-        assignment: `natForward.2222=${onSegment(essid, 10)}:22`,
+        assignment: `forward.2222=${onSegment(essid, 10)}:22`,
       }),
       deps,
     );
@@ -247,7 +247,7 @@ describe('opening a port on a router', () => {
       await signedSet(identity, {
         essid,
         target_ip: gateway.ip,
-        assignment: `natForward.2222=${onSegment(essid, 10)}:3306`,
+        assignment: `forward.2222=${onSegment(essid, 10)}:3306`,
       }),
       deps,
     );
@@ -257,7 +257,7 @@ describe('opening a port on a router', () => {
     // log line is what keeps it from being silent.
     expect(response.body).toEqual({
       ok: true,
-      oid: 'NAT-MIB::natForward.2222',
+      oid: 'forward.2222',
       value: `${onSegment(essid, 10)}:3306`,
     });
     expect(writtenTo(upsertPatch, RULES_V4_PATH)?.content).toBe(
@@ -274,11 +274,11 @@ describe('opening a port on a router', () => {
     );
 
     const response = await handleSnmpSet(
-      await signedSet(identity, { essid, target_ip: gateway.ip, assignment: 'natForward.2222=none' }),
+      await signedSet(identity, { essid, target_ip: gateway.ip, assignment: 'forward.2222=none' }),
       deps,
     );
 
-    expect(response.body).toEqual({ ok: true, oid: 'NAT-MIB::natForward.2222', value: 'none' });
+    expect(response.body).toEqual({ ok: true, oid: 'forward.2222', value: 'none' });
     expect(writtenTo(upsertPatch, RULES_V4_PATH)?.content).toBe('\n');
   });
 });
@@ -294,7 +294,7 @@ describe('filtering a port on a switch', () => {
       shut.deps,
     );
 
-    expect(shutResponse.body).toEqual({ ok: true, oid: 'ACL-MIB::aclPort.22', value: 'deny' });
+    expect(shutResponse.body).toEqual({ ok: true, oid: 'aclPort.22', value: 'deny' });
     expect(writtenTo(shut.upsertPatch, ACL_CONF_PATH)?.content).toContain('deny 22');
 
     const open = makeDeps(answering());
@@ -305,7 +305,7 @@ describe('filtering a port on a switch', () => {
 
     // The seeded switch ships one active `deny 8080`, so this is the removal a player
     // makes to re-open the segment — the same thing deleting the line by hand does.
-    expect(openResponse.body).toEqual({ ok: true, oid: 'ACL-MIB::aclPort.8080', value: 'permit' });
+    expect(openResponse.body).toEqual({ ok: true, oid: 'aclPort.8080', value: 'permit' });
     expect(writtenTo(open.upsertPatch, ACL_CONF_PATH)?.content).not.toContain('deny 8080');
   });
 });
@@ -321,7 +321,7 @@ describe('what an agent refuses once the community is accepted', () => {
       await signedSet(identity, {
         essid,
         target_ip: gateway.ip,
-        assignment: 'natForward.2222=10.9.9.9:22',
+        assignment: 'forward.2222=10.9.9.9:22',
       }),
       deps,
     );
@@ -336,7 +336,7 @@ describe('what an agent refuses once the community is accepted', () => {
         refusal: {
           reason: 'wrongValue',
           detail: "10.9.9.9 is not on this device's segment",
-          failedObject: 'NAT-MIB::natForward.2222',
+          failedObject: 'forward.2222',
         },
       },
     });
@@ -360,7 +360,7 @@ describe('what an agent refuses once the community is accepted', () => {
       await signedSet(identity, {
         essid: onSwitch.essid,
         target_ip: onSwitch.host.ip,
-        assignment: `natForward.2222=${onSegment(onSwitch.essid, 10)}:22`,
+        assignment: `forward.2222=${onSegment(onSwitch.essid, 10)}:22`,
       }),
       switched.deps,
     );
@@ -371,16 +371,16 @@ describe('what an agent refuses once the community is accepted', () => {
       ok: false,
       refusal: {
         reason: 'noSuchName',
-        detail: 'ACL-MIB is not implemented on this device',
-        failedObject: 'ACL-MIB::aclPort.22',
+        detail: 'aclPort is not implemented on this device',
+        failedObject: 'aclPort.22',
       },
     });
     expect(atSwitch.body).toEqual({
       ok: false,
       refusal: {
         reason: 'noSuchName',
-        detail: 'NAT-MIB is not implemented on this device',
-        failedObject: 'NAT-MIB::natForward.2222',
+        detail: 'forward is not implemented on this device',
+        failedObject: 'forward.2222',
       },
     });
     expect(writtenTo(router.upsertPatch, RULES_V4_PATH)).toBeUndefined();
@@ -428,7 +428,7 @@ describe('what an agent refuses once the community is accepted', () => {
       await signedSet(identity, {
         essid,
         target_ip: gateway.ip,
-        assignment: `natForward.2222=${neighbour.replace(/\.\d+$/, '.10')}:22`,
+        assignment: `forward.2222=${neighbour.replace(/\.\d+$/, '.10')}:22`,
       }),
       deps,
     );
@@ -441,7 +441,7 @@ describe('what an agent refuses once the community is accepted', () => {
       refusal: {
         reason: 'wrongValue',
         detail: `${neighbour.replace(/\.\d+$/, '.10')} is not on this device's segment`,
-        failedObject: 'NAT-MIB::natForward.2222',
+        failedObject: 'forward.2222',
       },
     });
     expect(writtenTo(upsertPatch, RULES_V4_PATH)).toBeUndefined();
@@ -457,7 +457,7 @@ describe('what an agent refuses once the community is accepted', () => {
       await signedSet(identity, {
         essid,
         target_ip: gateway.ip,
-        assignment: `natForward.2222=${onSegment(essid, 10)}:22`,
+        assignment: `forward.2222=${onSegment(essid, 10)}:22`,
         community: 'public',
       }),
       deps,
@@ -473,7 +473,7 @@ describe('what an agent refuses once the community is accepted', () => {
         refusal: {
           reason: 'notWritable',
           detail: 'the community "public" is read-only',
-          failedObject: 'NAT-MIB::natForward.2222',
+          failedObject: 'forward.2222',
         },
       },
     });
@@ -494,7 +494,7 @@ describe('what an agent answers before the community is accepted', () => {
         await signedSet(identity, {
           essid,
           target_ip: gateway.ip,
-          assignment: 'natForward.2222=none',
+          assignment: 'forward.2222=none',
           community: 'not-the-string',
         }),
         refused.deps,
@@ -503,7 +503,7 @@ describe('what an agent answers before the community is accepted', () => {
         await signedSet(identity, {
           essid,
           target_ip: '192.168.188.253',
-          assignment: 'natForward.2222=none',
+          assignment: 'forward.2222=none',
         }),
         absent.deps,
       ),
@@ -535,7 +535,7 @@ describe('what an agent answers before the community is accepted', () => {
     });
 
     const response = await handleSnmpSet(
-      await signedSet(identity, { essid, target_ip: gateway.ip, assignment: 'natForward.2222=none' }),
+      await signedSet(identity, { essid, target_ip: gateway.ip, assignment: 'forward.2222=none' }),
       deps,
     );
 
@@ -562,7 +562,7 @@ describe('what a set leaves on the device', () => {
       await signedSet(identity, {
         essid,
         target_ip: gateway.ip,
-        assignment: `natForward.2222=${workstation}:22`,
+        assignment: `forward.2222=${workstation}:22`,
       }),
       deps,
     );
@@ -574,7 +574,7 @@ describe('what a set leaves on the device', () => {
     expect(logged).toContain('Connection from UDP: [192.168.1.50]');
     expect(logged).toContain('Authentication succeeded from UDP: [192.168.1.50]');
     expect(logged).toContain(
-      `SET NAT-MIB::natForward.2222 = ${onSegment(essid, 9)}:22 -> ${workstation}:22 ` +
+      `SET forward.2222 = ${onSegment(essid, 9)}:22 -> ${workstation}:22 ` +
         'from UDP: [192.168.1.50]',
     );
   });
@@ -586,12 +586,12 @@ describe('what a set leaves on the device', () => {
     const { deps, upsertPatch } = makeDeps(answering());
 
     await handleSnmpSet(
-      await signedSet(identity, { essid, target_ip: gateway.ip, assignment: 'natForward.9999=none' }),
+      await signedSet(identity, { essid, target_ip: gateway.ip, assignment: 'forward.9999=none' }),
       deps,
     );
 
     expect(writtenTo(upsertPatch, SNMPD_LOG_PATH)?.content).toContain(
-      'SET NAT-MIB::natForward.9999 = none -> none from UDP: [192.168.1.50]',
+      'SET forward.9999 = none -> none from UDP: [192.168.1.50]',
     );
   });
 
@@ -605,7 +605,7 @@ describe('what a set leaves on the device', () => {
       await signedSet(identity, {
         essid,
         target_ip: gateway.ip,
-        assignment: 'natForward.2222=10.9.9.9:22',
+        assignment: 'forward.2222=10.9.9.9:22',
       }),
       deps,
     );
@@ -639,7 +639,7 @@ forward 2222 to ${onSegment(essid, 9)}:22
       await signedSet(identity, {
         essid,
         target_ip: gateway.ip,
-        assignment: `natForward.2222=${onSegment(essid, 10)}:22`,
+        assignment: `forward.2222=${onSegment(essid, 10)}:22`,
       }),
       deps,
     );
@@ -648,7 +648,7 @@ forward 2222 to ${onSegment(essid, 9)}:22
     // from the port being set. Reading whichever rule sat first would tell a defender a
     // port changed that nobody touched.
     expect(writtenTo(upsertPatch, SNMPD_LOG_PATH)?.content).toContain(
-      `SET NAT-MIB::natForward.2222 = ${onSegment(essid, 9)}:22 -> ${onSegment(essid, 10)}:22`,
+      `SET forward.2222 = ${onSegment(essid, 9)}:22 -> ${onSegment(essid, 10)}:22`,
     );
   });
 
@@ -666,7 +666,7 @@ forward 2222 to ${onSegment(essid, 9)}:22
     // instead, the old value would come back `none` — a line saying a port was opened
     // that had never been shut.
     expect(writtenTo(upsertPatch, SNMPD_LOG_PATH)?.content).toContain(
-      'SET ACL-MIB::aclPort.8080 = deny -> permit',
+      'SET aclPort.8080 = deny -> permit',
     );
   });
 
@@ -681,7 +681,7 @@ forward 2222 to ${onSegment(essid, 9)}:22
         essid,
         target_ip: gateway.ip,
         community: RW_COMMUNITY,
-        assignment: `natForward.2222=${onSegment(essid, 10)}:22`,
+        assignment: `forward.2222=${onSegment(essid, 10)}:22`,
         source_ip: null,
       }),
       deps,
@@ -704,7 +704,7 @@ forward 2222 to ${onSegment(essid, 9)}:22
         essid,
         target_ip: gateway.ip,
         community: RW_COMMUNITY,
-        assignment: `natForward.2222=${onSegment(essid, 10)}:22`,
+        assignment: `forward.2222=${onSegment(essid, 10)}:22`,
         source_ip: CLIENT_IP,
         // The server stamps the actor from the verified signature. A payload carrying
         // one is a caller asking to be somebody else, and the write it wants lands on a
@@ -756,7 +756,7 @@ forward 2222 to ${onSegment(essid, 9)}:22
       await signedSet(identity, {
         essid,
         target_ip: gateway.ip,
-        assignment: `natForward.2222=${onSegment(essid, 10)}:22`,
+        assignment: `forward.2222=${onSegment(essid, 10)}:22`,
       }),
       deps,
     );
@@ -782,7 +782,7 @@ forward 2222 to ${onSegment(essid, 9)}:22
       await signedSet(identity, {
         essid,
         target_ip: gateway.ip,
-        assignment: `natForward.2222=${onSegment(essid, 10)}:22`,
+        assignment: `forward.2222=${onSegment(essid, 10)}:22`,
       }),
       deps,
     );
@@ -813,7 +813,7 @@ forward 2222 to ${onSegment(essid, 9)}:22
       await signedSetWithoutSource(identity, {
         essid,
         target_ip: gateway.ip,
-        assignment: `natForward.2222=${onSegment(essid, 10)}:22`,
+        assignment: `forward.2222=${onSegment(essid, 10)}:22`,
       }),
       deps,
     );
@@ -852,7 +852,7 @@ describe('closing a port on the box that answers', () => {
 
     expect(response).toEqual({
       status: 200,
-      body: { ok: true, oid: 'INPUT-MIB::inputPort.6379', value: 'deny' },
+      body: { ok: true, oid: 'inputPort.6379', value: 'deny' },
     });
     expect(writtenTo(upsertPatch, RULES_V4_PATH)?.content).toContain('deny 6379');
   });
@@ -896,12 +896,12 @@ describe('closing a port on the box that answers', () => {
       deps,
     );
 
-    expect(response.body).toEqual({ ok: true, oid: 'INPUT-MIB::inputPort.6379', value: 'permit' });
+    expect(response.body).toEqual({ ok: true, oid: 'inputPort.6379', value: 'permit' });
     expect(writtenTo(upsertPatch, RULES_V4_PATH)?.content).not.toContain('deny 6379');
     // Read from the wrong chain of the same file, the old value would come back
     // `permit` — a line saying a port was opened that had never been shut.
     expect(writtenTo(upsertPatch, SNMPD_LOG_PATH)?.content).toContain(
-      'SET INPUT-MIB::inputPort.6379 = deny -> permit',
+      'SET inputPort.6379 = deny -> permit',
     );
   });
 
@@ -921,8 +921,8 @@ describe('closing a port on the box that answers', () => {
       ok: false,
       refusal: {
         reason: 'noSuchName',
-        detail: 'INPUT-MIB is not implemented on this device',
-        failedObject: 'INPUT-MIB::inputPort.22',
+        detail: 'inputPort is not implemented on this device',
+        failedObject: 'inputPort.22',
       },
     });
     expect(writtenTo(upsertPatch, RULES_V4_PATH)).toBeUndefined();
@@ -1050,7 +1050,7 @@ describe("re-opening a port on a neighbour's own box", () => {
 
     expect(response).toEqual({
       status: 200,
-      body: { ok: true, oid: 'INPUT-MIB::inputPort.6379', value: 'permit' },
+      body: { ok: true, oid: 'inputPort.6379', value: 'permit' },
     });
 
     // The observable, read through the rule every door judges the network by rather than

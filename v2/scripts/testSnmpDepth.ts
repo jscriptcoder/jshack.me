@@ -223,7 +223,7 @@ const main = async (): Promise<void> => {
   // ─── the write that opens the way in ───
   const opened = await set(
     topology.gateway.ip,
-    `natForward.${FORWARDED_PORT}=${topology.device.ip}:161`,
+    `forward.${FORWARDED_PORT}=${topology.device.ip}:161`,
   );
   check(
     'a forward onto the layer the gateway fronts is accepted',
@@ -268,7 +268,7 @@ const main = async (): Promise<void> => {
   // ─── the bound, the way round it has to be ───
   const offSegment = await set(
     topology.gateway.ip,
-    `natForward.3333=${topology.lanSubnet}.9:22`,
+    `forward.3333=${topology.lanSubnet}.9:22`,
   );
   check(
     'a destination on the LAN the gateway merely stands on is refused',

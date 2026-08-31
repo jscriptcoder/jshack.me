@@ -208,14 +208,14 @@ describe("opening a port into another player's LAN, from the other side of the w
     const { deps, upsertPatch } = makeDeps();
 
     const response = await setAcrossTheWorld(deps, {
-      assignment: `natForward.${PUBLISHED_PORT}=${DEFENDER_LAN_IP}:22`,
+      assignment: `forward.${PUBLISHED_PORT}=${DEFENDER_LAN_IP}:22`,
     });
 
     expect(response).toEqual({
       status: 200,
       body: {
         ok: true,
-        oid: `NAT-MIB::natForward.${PUBLISHED_PORT}`,
+        oid: `forward.${PUBLISHED_PORT}`,
         value: `${DEFENDER_LAN_IP}:22`,
       },
     });
@@ -229,7 +229,7 @@ describe("opening a port into another player's LAN, from the other side of the w
     const { deps, upsertPatch } = makeDeps();
 
     const response = await setAcrossTheWorld(deps, {
-      assignment: `natForward.${PUBLISHED_PORT}=${ATTACKER_LAN_IP}:22`,
+      assignment: `forward.${PUBLISHED_PORT}=${ATTACKER_LAN_IP}:22`,
     });
 
     expect(response).toEqual({
@@ -239,7 +239,7 @@ describe("opening a port into another player's LAN, from the other side of the w
         refusal: {
           reason: 'wrongValue',
           detail: `${ATTACKER_LAN_IP} is not on this device's segment`,
-          failedObject: `NAT-MIB::natForward.${PUBLISHED_PORT}`,
+          failedObject: `forward.${PUBLISHED_PORT}`,
         },
       },
     });
@@ -265,7 +265,7 @@ describe("opening a port into another player's LAN, from the other side of the w
     const response = await setAcrossTheWorld(deps, {
       port: PUBLISHED_PORT,
       community: OCCUPANT_COMMUNITY,
-      assignment: `natForward.9999=${DEFENDER_LAN_IP}:22`,
+      assignment: `forward.9999=${DEFENDER_LAN_IP}:22`,
     });
 
     expect(response).toEqual({
@@ -275,7 +275,7 @@ describe("opening a port into another player's LAN, from the other side of the w
         refusal: {
           reason: 'wrongValue',
           detail: 'this device fronts no network',
-          failedObject: 'NAT-MIB::natForward.9999',
+          failedObject: 'forward.9999',
         },
       },
     });
@@ -301,7 +301,7 @@ describe("the record a stranger's visit leaves on the gateway they rewrote", () 
 
     await setAcrossTheWorld(deps, {
       attacker,
-      assignment: `natForward.${PUBLISHED_PORT}=${DEFENDER_LAN_IP}:22`,
+      assignment: `forward.${PUBLISHED_PORT}=${DEFENDER_LAN_IP}:22`,
     });
 
     const log = writtenTo(upsertPatch, SNMPD_LOG_PATH);
@@ -319,7 +319,7 @@ describe("the record a stranger's visit leaves on the gateway they rewrote", () 
       expect.stringContaining(`Connection from UDP: [${ATTACKER_PUBLIC_IP}]`),
       expect.stringContaining(`Authentication succeeded from UDP: [${ATTACKER_PUBLIC_IP}]`),
       expect.stringContaining(
-        `SET NAT-MIB::natForward.${PUBLISHED_PORT} = none -> ${DEFENDER_LAN_IP}:22 ` +
+        `SET forward.${PUBLISHED_PORT} = none -> ${DEFENDER_LAN_IP}:22 ` +
           `from UDP: [${ATTACKER_PUBLIC_IP}]`,
       ),
     ]);
@@ -329,7 +329,7 @@ describe("the record a stranger's visit leaves on the gateway they rewrote", () 
     const { deps, upsertPatch } = makeDeps();
 
     await setAcrossTheWorld(deps, {
-      assignment: `natForward.${PUBLISHED_PORT}=${DEFENDER_LAN_IP}:22`,
+      assignment: `forward.${PUBLISHED_PORT}=${DEFENDER_LAN_IP}:22`,
       // A client naming its own origin could write any network into a defender's
       // evidence, including one belonging to somebody they wanted blamed.
       sourceIp: '10.0.0.1',
@@ -358,11 +358,11 @@ describe("the record a stranger's visit leaves on the gateway they rewrote", () 
 
     await setAcrossTheWorld(deps, {
       attacker: first,
-      assignment: `natForward.${PUBLISHED_PORT}=${DEFENDER_LAN_IP}:22`,
+      assignment: `forward.${PUBLISHED_PORT}=${DEFENDER_LAN_IP}:22`,
     });
     await setAcrossTheWorld(deps, {
       attacker: second,
-      assignment: `natForward.3333=${DEFENDER_LAN_IP}:22`,
+      assignment: `forward.3333=${DEFENDER_LAN_IP}:22`,
     });
 
     const logRows = upsertPatch.mock.calls
@@ -375,11 +375,11 @@ describe("the record a stranger's visit leaves on the gateway they rewrote", () 
 
     const final = logRows.at(-1)?.content ?? '';
     expect(final).toContain(
-      `SET NAT-MIB::natForward.${PUBLISHED_PORT} = none -> ${DEFENDER_LAN_IP}:22 ` +
+      `SET forward.${PUBLISHED_PORT} = none -> ${DEFENDER_LAN_IP}:22 ` +
         `from UDP: [${ATTACKER_PUBLIC_IP}]`,
     );
     expect(final).toContain(
-      `SET NAT-MIB::natForward.3333 = none -> ${DEFENDER_LAN_IP}:22 ` +
+      `SET forward.3333 = none -> ${DEFENDER_LAN_IP}:22 ` +
         `from UDP: [${SECOND_ATTACKER_PUBLIC_IP}]`,
     );
     // Three lines each, both visits whole: the second did not overwrite, truncate, or
@@ -447,7 +447,7 @@ describe('the forward a stranger opened, resolved by the world that has to honou
   };
 
   it("routes the published port to the occupant leasing the address the stranger named", async () => {
-    const rules = await openedBy(`natForward.${PUBLISHED_PORT}=${DEFENDER_LAN_IP}:22`);
+    const rules = await openedBy(`forward.${PUBLISHED_PORT}=${DEFENDER_LAN_IP}:22`);
 
     const resolved = await resolvePublicTarget(worldWith(rules), {
       publicIp: TARGET_PUBLIC_IP,
@@ -474,7 +474,7 @@ describe('the forward a stranger opened, resolved by the world that has to honou
   });
 
   it("leaves the door the owner had already opened exactly where it was", async () => {
-    const rules = await openedBy(`natForward.${PUBLISHED_PORT}=${DEFENDER_LAN_IP}:22`, ownerForward);
+    const rules = await openedBy(`forward.${PUBLISHED_PORT}=${DEFENDER_LAN_IP}:22`, ownerForward);
 
     const stillOpen = await resolvePublicTarget(worldWith(rules), {
       publicIp: TARGET_PUBLIC_IP,

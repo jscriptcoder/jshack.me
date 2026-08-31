@@ -94,17 +94,19 @@ const refused = (refusal: SnmpSetRefusal): HandlerResponse => ({
   body: { ok: false, refusal },
 });
 
-/** Which MIB a target belongs to, for the refusal that says the device has no such
- *  thing. */
-const MIB_OF: Readonly<Record<SnmpSetTarget['kind'], string>> = {
-  nat: 'NAT-MIB',
-  acl: 'ACL-MIB',
-  filter: 'INPUT-MIB',
+/** What a target is CALLED, for the refusal that says the device has no such thing.
+ *  The object's own name rather than the MIB module it used to sit under: a walk prints
+ *  no module and a set takes none, so naming one here would point a player at a word
+ *  they can find nowhere else. */
+const OBJECT_OF: Readonly<Record<SnmpSetTarget['kind'], string>> = {
+  nat: 'forward',
+  acl: 'aclPort',
+  filter: 'inputPort',
 };
 
-const mibOf = (target: SnmpSetTarget): string => MIB_OF[target.kind];
+const objectOf = (target: SnmpSetTarget): string => OBJECT_OF[target.kind];
 
-/** The kind of device a target's MIB belongs on. A switch keeps an access list and
+/** The kind of device a target's object belongs on. A switch keeps an access list and
  *  keeps no `rules.v4` at all; every other box keeps that file and both of its chains.
  *  So the access list is the special case here exactly as it is for the walk, and
  *  offering a device the other's OID is naming something that is not on it. */
@@ -251,7 +253,7 @@ export const handleSnmpSet = async (
     await appendSnmpdLog(deps, target, contact);
     return answer({
       reason: 'noSuchName',
-      detail: `${mibOf(parsed.target)} is not implemented on this device`,
+      detail: `${objectOf(parsed.target)} is not implemented on this device`,
     });
   }
 

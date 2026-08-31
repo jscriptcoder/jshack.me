@@ -9,16 +9,16 @@ import { renderIdentityWalk, renderReadWriteWalk } from './walk';
  * ended here has told an attacker there is something worth cracking without telling them
  * one port it forwards.
  *
- * Real MIB prefixes and real types, over only the OIDs the game actually models. The
- * full net-snmp walk was rejected deliberately: `sysObjectID`, `Timeticks` and
- * `ifPhysAddress` are facts the world cannot hold and a player cannot act on, and they
- * bury the lines that matter in noise. Every line here maps 1:1 onto something true.
- *
- * `IpAddress:` rather than `STRING:` for an address is the one place real SNMP typing
- * carries information, so it is kept.
+ * Bare object names over only the facts the game models. The MIB module prefixes are
+ * gone on purpose: they named five modules a player never needs, and the walk printed
+ * `NAT-MIB::natForward.2222` while `snmpset` accepted only `natForward.2222` — so a
+ * player pasting back the device's own line was told the name did not exist. What a walk
+ * prints is now exactly what a set takes.
  */
 
-const routerIdentity = (overrides: Partial<Parameters<typeof renderIdentityWalk>[0]['identity']> = {}) => ({
+const routerIdentity = (
+  overrides: Partial<Parameters<typeof renderIdentityWalk>[0]['identity']> = {},
+) => ({
   hostname: 'gw-main',
   kind: 'router' as const,
   sysContact: 'netops@corp.local',
@@ -35,18 +35,15 @@ describe('a read-only walk', () => {
         identity: routerIdentity(),
       }),
     ).toEqual([
-      'Querying 10.0.0.1 with community string "public"...',
-      '[READ-ONLY] Community "public" accepted.',
+      '[READ-ONLY] Community "public" accepted on 10.0.0.1.',
       '',
-      'SNMPv2-MIB::sysDescr.0    = STRING:    Linux gw-main',
-      'SNMPv2-MIB::sysName.0     = STRING:    gw-main',
-      'SNMPv2-MIB::sysContact.0  = STRING:    netops@corp.local',
-      'IF-MIB::ifDescr.1         = STRING:    eth0',
-      'IF-MIB::ifDescr.2         = STRING:    eth1',
-      'IF-MIB::ifAddr.1          = IpAddress: 10.0.0.1',
-      'IF-MIB::ifAddr.2          = IpAddress: 82.14.203.77',
+      'sysDescr    = Linux gw-main',
+      'sysName     = gw-main',
+      'sysContact  = netops@corp.local',
+      'interface.1 = eth0 (10.0.0.1)',
+      'interface.2 = eth1 (82.14.203.77)',
       '',
-      '7 OIDs returned. Community "public" is READ-ONLY.',
+      '5 OIDs returned. Community "public" is READ-ONLY.',
       "Retry with a read-write community to see this device's port table.",
     ]);
   });
@@ -66,17 +63,31 @@ describe('a read-only walk', () => {
         }),
       }),
     ).toEqual([
-      'Querying 10.0.0.5 with community string "public"...',
-      '[READ-ONLY] Community "public" accepted.',
+      '[READ-ONLY] Community "public" accepted on 10.0.0.5.',
       '',
-      'SNMPv2-MIB::sysDescr.0    = STRING:    Cisco IOS L3 Switch sw-01',
-      'SNMPv2-MIB::sysName.0     = STRING:    sw-01',
-      'SNMPv2-MIB::sysContact.0  = STRING:    netops@corp.local',
-      'IF-MIB::ifDescr.1         = STRING:    GigabitEthernet0/1',
-      'IF-MIB::ifAddr.1          = IpAddress: 10.0.0.5',
+      'sysDescr    = Cisco IOS L3 Switch sw-01',
+      'sysName     = sw-01',
+      'sysContact  = netops@corp.local',
+      'interface.1 = GigabitEthernet0/1 (10.0.0.5)',
       '',
-      '5 OIDs returned. Community "public" is READ-ONLY.',
+      '4 OIDs returned. Community "public" is READ-ONLY.',
       "Retry with a read-write community to see this device's port table.",
+    ]);
+  });
+
+  it('gives one line per interface, carrying its name and its address together', () => {
+    // A player reading this is answering "where does this device sit", and a name split
+    // from its address across two blocks makes them join the two by index to find out.
+    // One line per interface is the same two facts with the join already done.
+    const lines = renderIdentityWalk({
+      target: '10.0.0.1',
+      community: 'public',
+      identity: routerIdentity(),
+    });
+
+    expect(lines.filter((line) => line.startsWith('interface.'))).toEqual([
+      'interface.1 = eth0 (10.0.0.1)',
+      'interface.2 = eth1 (82.14.203.77)',
     ]);
   });
 });
@@ -94,7 +105,7 @@ describe('a read-only walk', () => {
  * players their cracked community had been refused.
  */
 describe('a read-write walk', () => {
-  it("appends the router's forwards, and says which community tier answered", () => {
+  it("appends the router's forwards, under the same verb its own file uses", () => {
     expect(
       renderReadWriteWalk({
         target: '10.0.0.1',
@@ -111,25 +122,22 @@ describe('a read-write walk', () => {
         ],
       }),
     ).toEqual([
-      'Querying 10.0.0.1 with community string "corpnet"...',
-      '[READ-WRITE] Community "corpnet" accepted.',
+      '[READ-WRITE] Community "corpnet" accepted on 10.0.0.1.',
       '',
-      'SNMPv2-MIB::sysDescr.0    = STRING:    Linux gw-main',
-      'SNMPv2-MIB::sysName.0     = STRING:    gw-main',
-      'SNMPv2-MIB::sysContact.0  = STRING:    netops@corp.local',
-      'IF-MIB::ifDescr.1         = STRING:    eth0',
-      'IF-MIB::ifDescr.2         = STRING:    eth1',
-      'IF-MIB::ifAddr.1          = IpAddress: 10.0.0.1',
-      'IF-MIB::ifAddr.2          = IpAddress: 82.14.203.77',
-      'NAT-MIB::natForward.2222  = STRING:    10.0.0.10:22',
-      'NAT-MIB::natForward.8080  = STRING:    10.0.0.20:80',
+      'sysDescr     = Linux gw-main',
+      'sysName      = gw-main',
+      'sysContact   = netops@corp.local',
+      'interface.1  = eth0 (10.0.0.1)',
+      'interface.2  = eth1 (82.14.203.77)',
+      'forward.2222 = 10.0.0.10:22',
+      'forward.8080 = 10.0.0.20:80',
       '',
-      '9 OIDs returned. Community "corpnet" is READ-WRITE.',
-      'Writable: snmpset <host> <community> natForward.<port>=<ip>:<port>',
+      '7 OIDs returned.',
+      'Writable: snmpset 10.0.0.1 corpnet forward.<port>=<ip>:<port>',
     ]);
   });
 
-  it("appends the switch's denied ports, in that platform's own OID", () => {
+  it("appends the switch's denied ports, in that platform's own object", () => {
     expect(
       renderReadWriteWalk({
         target: '10.0.0.5',
@@ -138,19 +146,17 @@ describe('a read-write walk', () => {
         portTables: [{ kind: 'acl', denies: [22, 8080] }],
       }),
     ).toEqual([
-      'Querying 10.0.0.5 with community string "corpnet"...',
-      '[READ-WRITE] Community "corpnet" accepted.',
+      '[READ-WRITE] Community "corpnet" accepted on 10.0.0.5.',
       '',
-      'SNMPv2-MIB::sysDescr.0    = STRING:    Cisco IOS L3 Switch sw-01',
-      'SNMPv2-MIB::sysName.0     = STRING:    sw-01',
-      'SNMPv2-MIB::sysContact.0  = STRING:    netops@corp.local',
-      'IF-MIB::ifDescr.1         = STRING:    GigabitEthernet0/1',
-      'IF-MIB::ifAddr.1          = IpAddress: 10.0.0.5',
-      'ACL-MIB::aclPort.22       = STRING:    deny',
-      'ACL-MIB::aclPort.8080     = STRING:    deny',
+      'sysDescr     = Cisco IOS L3 Switch sw-01',
+      'sysName      = sw-01',
+      'sysContact   = netops@corp.local',
+      'interface.1  = GigabitEthernet0/1 (10.0.0.5)',
+      'aclPort.22   = deny',
+      'aclPort.8080 = deny',
       '',
-      '7 OIDs returned. Community "corpnet" is READ-WRITE.',
-      'Writable: snmpset <host> <community> aclPort.<port>=deny',
+      '6 OIDs returned.',
+      'Writable: snmpset 10.0.0.5 corpnet aclPort.<port>=deny',
     ]);
   });
 
@@ -167,20 +173,17 @@ describe('a read-write walk', () => {
         portTables: [{ kind: 'nat', forwards: [] }],
       }),
     ).toEqual([
-      'Querying 10.0.0.1 with community string "corpnet"...',
-      '[READ-WRITE] Community "corpnet" accepted.',
+      '[READ-WRITE] Community "corpnet" accepted on 10.0.0.1.',
       '',
-      'SNMPv2-MIB::sysDescr.0    = STRING:    Linux gw-main',
-      'SNMPv2-MIB::sysName.0     = STRING:    gw-main',
-      'SNMPv2-MIB::sysContact.0  = STRING:    netops@corp.local',
-      'IF-MIB::ifDescr.1         = STRING:    eth0',
-      'IF-MIB::ifDescr.2         = STRING:    eth1',
-      'IF-MIB::ifAddr.1          = IpAddress: 10.0.0.1',
-      'IF-MIB::ifAddr.2          = IpAddress: 82.14.203.77',
+      'sysDescr    = Linux gw-main',
+      'sysName     = gw-main',
+      'sysContact  = netops@corp.local',
+      'interface.1 = eth0 (10.0.0.1)',
+      'interface.2 = eth1 (82.14.203.77)',
       '',
       'This device forwards no ports.',
-      '7 OIDs returned. Community "corpnet" is READ-WRITE.',
-      'Writable: snmpset <host> <community> natForward.<port>=<ip>:<port>',
+      '5 OIDs returned.',
+      'Writable: snmpset 10.0.0.1 corpnet forward.<port>=<ip>:<port>',
     ]);
   });
 
@@ -193,6 +196,20 @@ describe('a read-write walk', () => {
         portTables: [{ kind: 'acl', denies: [] }],
       }),
     ).toContain('This device denies no ports.');
+  });
+
+  it('writes the trailer with the address and community the caller actually used', () => {
+    // The player has just typed both, and a placeholder would make them retype what
+    // they already know to reach the one part they do not. This line is meant to be
+    // pasted back with a port filled in.
+    expect(
+      renderReadWriteWalk({
+        target: '203.0.113.9:1161',
+        community: 'hunter2',
+        identity: routerIdentity({ hostname: 'edge-01', addresses: ['203.0.113.9'] }),
+        portTables: [{ kind: 'nat', forwards: [] }],
+      }),
+    ).toContain('Writable: snmpset 203.0.113.9:1161 hunter2 forward.<port>=<ip>:<port>');
   });
 });
 
@@ -209,7 +226,7 @@ describe('a read-write walk', () => {
  * too.
  */
 describe('a device with more than one table', () => {
-  it("renders a workstation's filter in the INPUT chain's own OID", () => {
+  it("renders a workstation's filter in the INPUT chain's own object", () => {
     expect(
       renderReadWriteWalk({
         target: '192.168.1.7',
@@ -221,20 +238,18 @@ describe('a device with more than one table', () => {
         ],
       }),
     ).toEqual([
-      'Querying 192.168.1.7 with community string "corpnet"...',
-      '[READ-WRITE] Community "corpnet" accepted.',
+      '[READ-WRITE] Community "corpnet" accepted on 192.168.1.7.',
       '',
-      'SNMPv2-MIB::sysDescr.0    = STRING:    Linux lab-01',
-      'SNMPv2-MIB::sysName.0     = STRING:    lab-01',
-      'SNMPv2-MIB::sysContact.0  = STRING:    netops@corp.local',
-      'IF-MIB::ifDescr.1         = STRING:    eth0',
-      'IF-MIB::ifAddr.1          = IpAddress: 192.168.1.7',
-      'INPUT-MIB::inputPort.6379 = STRING:    deny',
-      'INPUT-MIB::inputPort.3306 = STRING:    deny',
+      'sysDescr       = Linux lab-01',
+      'sysName        = lab-01',
+      'sysContact     = netops@corp.local',
+      'interface.1    = eth0 (192.168.1.7)',
+      'inputPort.6379 = deny',
+      'inputPort.3306 = deny',
       '',
-      '7 OIDs returned. Community "corpnet" is READ-WRITE.',
-      'Writable: snmpset <host> <community> natForward.<port>=<ip>:<port>',
-      '          snmpset <host> <community> inputPort.<port>=deny',
+      '6 OIDs returned.',
+      'Writable: snmpset 192.168.1.7 corpnet forward.<port>=<ip>:<port>',
+      '          snmpset 192.168.1.7 corpnet inputPort.<port>=deny',
     ]);
   });
 
@@ -245,27 +260,27 @@ describe('a device with more than one table', () => {
         community: 'corpnet',
         identity: routerIdentity(),
         portTables: [
-          { kind: 'nat', forwards: [{ publicPort: 2222, internalIp: '10.0.0.10', internalPort: 22 }] },
+          {
+            kind: 'nat',
+            forwards: [{ publicPort: 2222, internalIp: '10.0.0.10', internalPort: 22 }],
+          },
           { kind: 'filter', denies: [161] },
         ],
       }),
     ).toEqual([
-      'Querying 10.0.0.1 with community string "corpnet"...',
-      '[READ-WRITE] Community "corpnet" accepted.',
+      '[READ-WRITE] Community "corpnet" accepted on 10.0.0.1.',
       '',
-      'SNMPv2-MIB::sysDescr.0    = STRING:    Linux gw-main',
-      'SNMPv2-MIB::sysName.0     = STRING:    gw-main',
-      'SNMPv2-MIB::sysContact.0  = STRING:    netops@corp.local',
-      'IF-MIB::ifDescr.1         = STRING:    eth0',
-      'IF-MIB::ifDescr.2         = STRING:    eth1',
-      'IF-MIB::ifAddr.1          = IpAddress: 10.0.0.1',
-      'IF-MIB::ifAddr.2          = IpAddress: 82.14.203.77',
-      'NAT-MIB::natForward.2222  = STRING:    10.0.0.10:22',
-      'INPUT-MIB::inputPort.161  = STRING:    deny',
+      'sysDescr      = Linux gw-main',
+      'sysName       = gw-main',
+      'sysContact    = netops@corp.local',
+      'interface.1   = eth0 (10.0.0.1)',
+      'interface.2   = eth1 (82.14.203.77)',
+      'forward.2222  = 10.0.0.10:22',
+      'inputPort.161 = deny',
       '',
-      '9 OIDs returned. Community "corpnet" is READ-WRITE.',
-      'Writable: snmpset <host> <community> natForward.<port>=<ip>:<port>',
-      '          snmpset <host> <community> inputPort.<port>=deny',
+      '7 OIDs returned.',
+      'Writable: snmpset 10.0.0.1 corpnet forward.<port>=<ip>:<port>',
+      '          snmpset 10.0.0.1 corpnet inputPort.<port>=deny',
     ]);
   });
 
@@ -285,34 +300,42 @@ describe('a device with more than one table', () => {
         ],
       }),
     ).toEqual([
-      'Querying 192.168.1.7 with community string "corpnet"...',
-      '[READ-WRITE] Community "corpnet" accepted.',
+      '[READ-WRITE] Community "corpnet" accepted on 192.168.1.7.',
       '',
-      'SNMPv2-MIB::sysDescr.0    = STRING:    Linux lab-01',
-      'SNMPv2-MIB::sysName.0     = STRING:    lab-01',
-      'SNMPv2-MIB::sysContact.0  = STRING:    netops@corp.local',
-      'IF-MIB::ifDescr.1         = STRING:    eth0',
-      'IF-MIB::ifAddr.1          = IpAddress: 192.168.1.7',
+      'sysDescr    = Linux lab-01',
+      'sysName     = lab-01',
+      'sysContact  = netops@corp.local',
+      'interface.1 = eth0 (192.168.1.7)',
       '',
       'This device forwards and denies no ports.',
-      '5 OIDs returned. Community "corpnet" is READ-WRITE.',
-      'Writable: snmpset <host> <community> natForward.<port>=<ip>:<port>',
-      '          snmpset <host> <community> inputPort.<port>=deny',
+      '4 OIDs returned.',
+      'Writable: snmpset 192.168.1.7 corpnet forward.<port>=<ip>:<port>',
+      '          snmpset 192.168.1.7 corpnet inputPort.<port>=deny',
     ]);
   });
 
-  it('keeps the = column where it has always been, at the longest OID this door prints', () => {
-    // `INPUT-MIB::inputPort.65535` is exactly as wide as the column, which is why the
-    // MIB is named for the chain rather than for the filter: `FILTER-MIB` would run one
-    // character over and shunt the `=` on every five-digit port, on that line alone.
-    const [row] = renderReadWriteWalk({
+  it('fits the = column to the widest object in the block it is printing', () => {
+    // The column follows the CONTENT rather than sitting at a width no device may
+    // exceed. A fixed column had to be as wide as the longest name the door can print,
+    // so every walk that printed none of them carried the slack — and the longest name
+    // touched the column exactly, leaving one line with no space before its `=`.
+    const wide = renderReadWriteWalk({
       target: '192.168.1.7',
       community: 'corpnet',
       identity: routerIdentity({ hostname: 'lab-01', addresses: ['192.168.1.7'] }),
       portTables: [{ kind: 'filter', denies: [65535] }],
-    }).filter((line) => line.startsWith('INPUT-MIB'));
+    });
+    const narrow = renderReadWriteWalk({
+      target: '192.168.1.7',
+      community: 'corpnet',
+      identity: routerIdentity({ hostname: 'lab-01', addresses: ['192.168.1.7'] }),
+      portTables: [{ kind: 'filter', denies: [22] }],
+    });
 
-    expect(row).toBe('INPUT-MIB::inputPort.65535= STRING:    deny');
+    expect(wide).toContain('inputPort.65535 = deny');
+    expect(wide).toContain('sysDescr        = Linux lab-01');
+    expect(narrow).toContain('inputPort.22 = deny');
+    expect(narrow).toContain('sysDescr     = Linux lab-01');
   });
 
   it('still answers a switch with its own single table and nothing about a filter', () => {
@@ -323,8 +346,28 @@ describe('a device with more than one table', () => {
       portTables: [{ kind: 'acl', denies: [22] }],
     });
 
-    expect(lines).toContain('ACL-MIB::aclPort.22       = STRING:    deny');
-    expect(lines).toContain('Writable: snmpset <host> <community> aclPort.<port>=deny');
+    expect(lines).toContain('aclPort.22  = deny');
+    expect(lines).toContain('Writable: snmpset 10.0.0.5 corpnet aclPort.<port>=deny');
     expect(lines.some((line) => line.includes('inputPort'))).toBe(false);
+  });
+
+  it('prints no MIB module prefix anywhere, so every name is one a set accepts', () => {
+    // The papercut this format exists to remove: the walk used to print
+    // `NAT-MIB::natForward.2222` while `snmpset` took `natForward.2222` only, so the
+    // device's own output pasted back was refused as a name that does not exist.
+    const lines = renderReadWriteWalk({
+      target: '10.0.0.1',
+      community: 'corpnet',
+      identity: routerIdentity(),
+      portTables: [
+        {
+          kind: 'nat',
+          forwards: [{ publicPort: 2222, internalIp: '10.0.0.10', internalPort: 22 }],
+        },
+        { kind: 'filter', denies: [161] },
+      ],
+    });
+
+    expect(lines.some((line) => line.includes('::'))).toBe(false);
   });
 });

@@ -246,12 +246,12 @@ const main = async (): Promise<void> => {
   await plant(router.machineId, RW_STATE_PATH, `rwcommunity ${md5(RW_COMMUNITY)}\n`);
 
   // ─── the set that is applied ───
-  const opened = await set(gateway.ip, `natForward.${FORWARDED_PORT}=${FORWARD_TARGET}`);
+  const opened = await set(gateway.ip, `forward.${FORWARDED_PORT}=${FORWARD_TARGET}`);
   check(
     'snmpSet is dispatched at all, and echoes the state the port is now in',
     opened.status === 200 &&
       stringField(opened.body, 'ok') === 'true' &&
-      stringField(opened.body, 'oid') === `NAT-MIB::natForward.${FORWARDED_PORT}` &&
+      stringField(opened.body, 'oid') === `forward.${FORWARDED_PORT}` &&
       stringField(opened.body, 'value') === FORWARD_TARGET,
     `status ${opened.status} ${JSON.stringify(opened.body)}`,
   );
@@ -296,25 +296,25 @@ const main = async (): Promise<void> => {
       setLines[0]?.includes(`Connection from UDP: [${ATTACKER_IP}]`) === true &&
       setLines[1]?.includes(`Authentication succeeded from UDP: [${ATTACKER_IP}]`) === true &&
       setLines[2]?.includes(
-        `SET NAT-MIB::natForward.${FORWARDED_PORT} = none -> ${FORWARD_TARGET} ` +
+        `SET forward.${FORWARDED_PORT} = none -> ${FORWARD_TARGET} ` +
           `from UDP: [${ATTACKER_IP}]`,
       ) === true,
     JSON.stringify(setLines),
   );
 
   // ─── the set that overwrites ───
-  const moved = await set(gateway.ip, `natForward.${FORWARDED_PORT}=${onSegment(11)}:3306`);
+  const moved = await set(gateway.ip, `forward.${FORWARDED_PORT}=${onSegment(11)}:3306`);
   check(
     'a second set on the same port overwrites it and names both values',
     stringField(moved.body, 'value') === `${onSegment(11)}:3306` &&
       (await contentAt(router.machineId, SNMPD_LOG_PATH)).includes(
-        `SET NAT-MIB::natForward.${FORWARDED_PORT} = ${FORWARD_TARGET} -> ${onSegment(11)}:3306`,
+        `SET forward.${FORWARDED_PORT} = ${FORWARD_TARGET} -> ${onSegment(11)}:3306`,
       ),
     `value ${stringField(moved.body, 'value')}`,
   );
 
   // ─── the set that closes ───
-  await set(gateway.ip, `natForward.${FORWARDED_PORT}=none`);
+  await set(gateway.ip, `forward.${FORWARDED_PORT}=none`);
   const afterClose = await walk(gateway.ip);
   check(
     'closing the port empties the table the walk renders',
@@ -325,7 +325,7 @@ const main = async (): Promise<void> => {
   // ─── refusals, once the community has been accepted ───
   const beforeRefusals = await contentAt(router.machineId, RULES_V4_PATH);
 
-  const offSegment = await set(gateway.ip, `natForward.${FORWARDED_PORT}=10.9.9.9:22`);
+  const offSegment = await set(gateway.ip, `forward.${FORWARDED_PORT}=10.9.9.9:22`);
   check(
     'a forward off the device segment is refused with a reason, not with silence',
     offSegment.status === 200 &&
@@ -334,19 +334,19 @@ const main = async (): Promise<void> => {
     `status ${offSegment.status} ${JSON.stringify(offSegment.body)}`,
   );
 
-  const readOnly = await set(gateway.ip, `natForward.${FORWARDED_PORT}=${FORWARD_TARGET}`, 'public');
+  const readOnly = await set(gateway.ip, `forward.${FORWARDED_PORT}=${FORWARD_TARGET}`, 'public');
   check(
     'and so is the free community, which the device answers but cannot write with',
     readOnly.status === 200 && refusalIn(readOnly.body)['reason'] === 'notWritable',
     `status ${readOnly.status} ${JSON.stringify(readOnly.body)}`,
   );
 
-  const wrongMib = await set(gateway.ip, 'aclPort.22=deny');
+  const wrongObject = await set(gateway.ip, 'aclPort.22=deny');
   check(
-    'and an OID the router does not implement, named as the MIB it belongs to',
-    refusalIn(wrongMib.body)['reason'] === 'noSuchName' &&
-      String(refusalIn(wrongMib.body)['detail']).includes('ACL-MIB'),
-    JSON.stringify(wrongMib.body),
+    'and an OID the router does not implement, named as the object it is',
+    refusalIn(wrongObject.body)['reason'] === 'noSuchName' &&
+      String(refusalIn(wrongObject.body)['detail']).includes('aclPort'),
+    JSON.stringify(wrongObject.body),
   );
 
   check(
@@ -357,8 +357,8 @@ const main = async (): Promise<void> => {
 
   // ─── silence, before the community is accepted ───
   const beforeSilence = await contentAt(router.machineId, RULES_V4_PATH);
-  const wrongString = await set(gateway.ip, `natForward.${FORWARDED_PORT}=none`, 'not-the-string');
-  const absent = await set(NOWHERE_IP, `natForward.${FORWARDED_PORT}=none`);
+  const wrongString = await set(gateway.ip, `forward.${FORWARDED_PORT}=none`, 'not-the-string');
+  const absent = await set(NOWHERE_IP, `forward.${FORWARDED_PORT}=none`);
   check(
     'a refused community is word-for-word an address nothing occupies',
     wrongString.status === 404 &&
@@ -382,7 +382,7 @@ const main = async (): Promise<void> => {
   check(
     'a switch takes a deny into its own acl.conf, never the router NAT file',
     shut.status === 200 &&
-      stringField(shut.body, 'oid') === 'ACL-MIB::aclPort.22' &&
+      stringField(shut.body, 'oid') === 'aclPort.22' &&
       (await contentAt(switchDevice.machineId, ACL_CONF_PATH)).includes('deny 22') &&
       (await rowAt(switchDevice.machineId, RULES_V4_PATH)) === null,
     `status ${shut.status} ${JSON.stringify(shut.body)}`,

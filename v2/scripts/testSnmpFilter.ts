@@ -432,7 +432,7 @@ check(
 
 await seedDefenderBox(LOCAL_FILTER_SEED);
 const natOnWorkstation = await post(
-  await setEnvelope(`natForward.2222=${DEFENDER_LAN_IP}:${SSH_PORT}`),
+  await setEnvelope(`forward.2222=${DEFENDER_LAN_IP}:${SSH_PORT}`),
 );
 check(
   '13. a forward aimed at a box that fronts no segment is refused',

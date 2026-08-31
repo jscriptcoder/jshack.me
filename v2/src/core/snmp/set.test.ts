@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { describeSet, parseSnmpSet } from './set';
-import { natForwardOid } from './walk';
+import { forwardOid } from './walk';
 
 /**
- * `natForward.<port>=<ip>:<port>` and `aclPort.<port>=deny` — the whole of what a
+ * `forward.<port>=<ip>:<port>` and `aclPort.<port>=deny` — the whole of what a
  * player may write through this door.
  *
  * The value names the STATE the port should be in, never an operation, so `none` and
@@ -24,7 +24,7 @@ import { natForwardOid } from './walk';
 
 describe('parsing what a player asked to set', () => {
   it('reads a forward onto a destination', () => {
-    expect(parseSnmpSet('natForward.2222=192.168.188.10:22')).toEqual({
+    expect(parseSnmpSet('forward.2222=192.168.188.10:22')).toEqual({
       ok: true,
       target: {
         kind: 'nat',
@@ -38,7 +38,7 @@ describe('parsing what a player asked to set', () => {
     // Removal is state-valued: the port ends up forwarding nowhere, which is what a
     // default-deny router's every other port already does. An imperative (`=delete`)
     // would be an instruction sitting where a value goes.
-    expect(parseSnmpSet('natForward.2222=none')).toEqual({
+    expect(parseSnmpSet('forward.2222=none')).toEqual({
       ok: true,
       target: { kind: 'nat', publicPort: 2222, forward: null },
     });
@@ -72,12 +72,12 @@ describe('refusing what cannot be set', () => {
   });
 
   it('refuses a port outside the range as a name that does not exist', () => {
-    expect(parseSnmpSet('natForward.99999=192.168.188.10:22')).toEqual({
+    expect(parseSnmpSet('forward.99999=192.168.188.10:22')).toEqual({
       ok: false,
       refusal: {
         reason: 'noSuchName',
         detail: 'The name does not exist in the MIB',
-        failedObject: 'natForward.99999',
+        failedObject: 'forward.99999',
       },
     });
     expect(parseSnmpSet('aclPort.0=deny')).toEqual({
@@ -112,51 +112,51 @@ describe('refusing what cannot be set', () => {
     const refusal = {
       reason: 'wrongValue',
       detail: 'not an address and port, or "none"',
-      failedObject: 'NAT-MIB::natForward.2222',
+      failedObject: 'forward.2222',
     };
-    expect(parseSnmpSet('natForward.2222=nonsense')).toEqual({ ok: false, refusal });
-    expect(parseSnmpSet('natForward.2222=192.168.188.10')).toEqual({ ok: false, refusal });
-    expect(parseSnmpSet('natForward.2222=192.168.188.10:0')).toEqual({ ok: false, refusal });
+    expect(parseSnmpSet('forward.2222=nonsense')).toEqual({ ok: false, refusal });
+    expect(parseSnmpSet('forward.2222=192.168.188.10')).toEqual({ ok: false, refusal });
+    expect(parseSnmpSet('forward.2222=192.168.188.10:0')).toEqual({ ok: false, refusal });
   });
 
   it('refuses an empty value rather than reading it as a removal', () => {
     // `=none` is the removal. An empty right-hand side is invisible in scrollback and
     // one keystroke from a typo, so it must not quietly clear a forward.
-    expect(parseSnmpSet('natForward.2222=')).toEqual({
+    expect(parseSnmpSet('forward.2222=')).toEqual({
       ok: false,
       refusal: {
         reason: 'wrongValue',
         detail: 'not an address and port, or "none"',
-        failedObject: 'NAT-MIB::natForward.2222',
+        failedObject: 'forward.2222',
       },
     });
   });
 
   it('refuses an OID with anything before or after the name it recognises', () => {
     // Anchored at BOTH ends, in the shape every parser at this door uses. Unanchored at
-    // the front, `xnatForward.2222` would set a forward the player never named; at the
-    // back, `natForward.2222junk` would set port 2222 while its owner reads the line as
+    // the front, `xforward.2222` would set a forward the player never named; at the
+    // back, `forward.2222junk` would set port 2222 while its owner reads the line as
     // something else entirely.
-    expect(parseSnmpSet('xnatForward.2222=192.168.188.10:22')).toEqual({
+    expect(parseSnmpSet('xforward.2222=192.168.188.10:22')).toEqual({
       ok: false,
       refusal: {
         reason: 'noSuchName',
         detail: 'The name does not exist in the MIB',
-        failedObject: 'xnatForward.2222',
+        failedObject: 'xforward.2222',
       },
     });
-    expect(parseSnmpSet('natForward.2222junk=192.168.188.10:22')).toEqual({
+    expect(parseSnmpSet('forward.2222junk=192.168.188.10:22')).toEqual({
       ok: false,
       refusal: {
         reason: 'noSuchName',
         detail: 'The name does not exist in the MIB',
-        failedObject: 'natForward.2222junk',
+        failedObject: 'forward.2222junk',
       },
     });
   });
 
   it('accepts the port boundaries and refuses what sits just outside them', () => {
-    expect(parseSnmpSet('natForward.1=192.168.188.10:22')).toMatchObject({ ok: true });
+    expect(parseSnmpSet('forward.1=192.168.188.10:22')).toMatchObject({ ok: true });
     expect(parseSnmpSet('aclPort.65535=deny')).toMatchObject({ ok: true });
     expect(parseSnmpSet('aclPort.65536=deny')).toMatchObject({
       ok: false,
@@ -169,12 +169,12 @@ describe('refusing what cannot be set', () => {
     // the value makes that two rules rather than one. Accepted, it would open a port
     // nobody named and nothing echoed — invisible to the player who typed it and to the
     // owner reading their own file.
-    expect(parseSnmpSet('natForward.2222=192.168.188.10:22\nforward 23 to 10.9.9.9:23')).toEqual({
+    expect(parseSnmpSet('forward.2222=192.168.188.10:22\nforward 23 to 10.9.9.9:23')).toEqual({
       ok: false,
       refusal: {
         reason: 'wrongValue',
         detail: 'not an address and port, or "none"',
-        failedObject: 'NAT-MIB::natForward.2222',
+        failedObject: 'forward.2222',
       },
     });
   });
@@ -185,7 +185,7 @@ describe('refusing what cannot be set', () => {
       refusal: {
         reason: 'wrongValue',
         detail: 'not "deny" or "permit"',
-        failedObject: 'ACL-MIB::aclPort.8080',
+        failedObject: 'aclPort.8080',
       },
     });
   });
@@ -199,20 +199,20 @@ describe('what the device echoes back', () => {
         publicPort: 2222,
         forward: { internalIp: '192.168.188.10', internalPort: 22 },
       }),
-    ).toEqual({ oid: 'NAT-MIB::natForward.2222', value: '192.168.188.10:22' });
+    ).toEqual({ oid: 'forward.2222', value: '192.168.188.10:22' });
 
     expect(describeSet({ kind: 'nat', publicPort: 2222, forward: null })).toEqual({
-      oid: 'NAT-MIB::natForward.2222',
+      oid: 'forward.2222',
       value: 'none',
     });
 
     expect(describeSet({ kind: 'acl', port: 8080, denied: true })).toEqual({
-      oid: 'ACL-MIB::aclPort.8080',
+      oid: 'aclPort.8080',
       value: 'deny',
     });
 
     expect(describeSet({ kind: 'acl', port: 8080, denied: false })).toEqual({
-      oid: 'ACL-MIB::aclPort.8080',
+      oid: 'aclPort.8080',
       value: 'permit',
     });
   });
@@ -225,7 +225,7 @@ describe('what the device echoes back', () => {
       publicPort: 2222,
       forward: { internalIp: '192.168.188.10', internalPort: 22 },
     });
-    expect(oid).toBe(natForwardOid(2222));
+    expect(oid).toBe(forwardOid(2222));
   });
 });
 
@@ -256,7 +256,7 @@ describe('setting a port on the box that answers', () => {
       refusal: {
         reason: 'wrongValue',
         detail: 'not "deny" or "permit"',
-        failedObject: 'INPUT-MIB::inputPort.6379',
+        failedObject: 'inputPort.6379',
       },
     });
   });
@@ -278,11 +278,11 @@ describe('setting a port on the box that answers', () => {
     // answering with an OID the walk never prints would read as a different fact than
     // the one it just changed.
     expect(describeSet({ kind: 'filter', port: 6379, denied: true })).toEqual({
-      oid: 'INPUT-MIB::inputPort.6379',
+      oid: 'inputPort.6379',
       value: 'deny',
     });
     expect(describeSet({ kind: 'filter', port: 6379, denied: false })).toEqual({
-      oid: 'INPUT-MIB::inputPort.6379',
+      oid: 'inputPort.6379',
       value: 'permit',
     });
   });

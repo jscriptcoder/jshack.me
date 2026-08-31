@@ -104,7 +104,7 @@ describe('an snmpd.log SET line', () => {
     overrides: Partial<Parameters<typeof formatSnmpdSetLine>[0]> = {},
   ): ReturnType<typeof formatSnmpdSetLine> =>
     formatSnmpdSetLine({
-      oid: 'NAT-MIB::natForward.2222',
+      oid: 'forward.2222',
       previous: 'none',
       current: '192.168.188.10:22',
       fromIp: '10.0.0.9',
@@ -120,13 +120,13 @@ describe('an snmpd.log SET line', () => {
     // what changed, nothing anywhere does.
     expect(setLine()).toBe(
       'Aug 20 09:14:02 gw-01 snmpd[4471]: ' +
-        'SET NAT-MIB::natForward.2222 = none -> 192.168.188.10:22 from UDP: [10.0.0.9]',
+        'SET forward.2222 = none -> 192.168.188.10:22 from UDP: [10.0.0.9]',
     );
   });
 
   it('records a port being closed as plainly as one being opened', () => {
     expect(setLine({ previous: '192.168.188.10:22', current: 'none' })).toContain(
-      'SET NAT-MIB::natForward.2222 = 192.168.188.10:22 -> none',
+      'SET forward.2222 = 192.168.188.10:22 -> none',
     );
   });
 
@@ -134,8 +134,8 @@ describe('an snmpd.log SET line', () => {
     // Somebody holding the community touched the device, and that is the fact the
     // defender needs. A line withheld because the file did not change would hide the
     // visit that proves the community is out.
-    expect(setLine({ oid: 'ACL-MIB::aclPort.8080', previous: 'deny', current: 'deny' })).toContain(
-      'SET ACL-MIB::aclPort.8080 = deny -> deny from UDP: [10.0.0.9]',
+    expect(setLine({ oid: 'aclPort.8080', previous: 'deny', current: 'deny' })).toContain(
+      'SET aclPort.8080 = deny -> deny from UDP: [10.0.0.9]',
     );
   });
 

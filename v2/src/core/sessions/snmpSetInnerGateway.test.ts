@@ -185,7 +185,7 @@ describe('setting on a device behind an inner gateway', () => {
 
     expect(response).toEqual({
       status: 200,
-      body: { ok: true, oid: 'ACL-MIB::aclPort.8080', value: 'deny' },
+      body: { ok: true, oid: 'aclPort.8080', value: 'deny' },
     });
     // On the DEVICE's own machine, never the gateway the request was addressed to.
     const [written] = writesTo(upsertPatch, ACL_CONF_PATH);
@@ -231,7 +231,7 @@ describe('what a forward on an inner gateway may point at', () => {
         essid: INNER.essid,
         target_ip: INNER.gateway.ip,
         community: INNER.community,
-        assignment: `natForward.${FORWARDED_PORT}=${INNER.deepSubnet}.9:22`,
+        assignment: `forward.${FORWARDED_PORT}=${INNER.deepSubnet}.9:22`,
       }),
       deps,
     );
@@ -240,7 +240,7 @@ describe('what a forward on an inner gateway may point at', () => {
       status: 200,
       body: {
         ok: true,
-        oid: `NAT-MIB::natForward.${FORWARDED_PORT}`,
+        oid: `forward.${FORWARDED_PORT}`,
         value: `${INNER.deepSubnet}.9:22`,
       },
     });
@@ -258,7 +258,7 @@ describe('what a forward on an inner gateway may point at', () => {
         essid: INNER.essid,
         target_ip: INNER.gateway.ip,
         community: INNER.community,
-        assignment: `natForward.${FORWARDED_PORT}=${lanAddress}:22`,
+        assignment: `forward.${FORWARDED_PORT}=${lanAddress}:22`,
       }),
       deps,
     );
@@ -266,7 +266,7 @@ describe('what a forward on an inner gateway may point at', () => {
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({
       ok: false,
-      refusal: { reason: 'wrongValue', failedObject: `NAT-MIB::natForward.${FORWARDED_PORT}` },
+      refusal: { reason: 'wrongValue', failedObject: `forward.${FORWARDED_PORT}` },
     });
     expect(writesTo(upsertPatch, RULES_V4_PATH)).toHaveLength(0);
   });

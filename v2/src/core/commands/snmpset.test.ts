@@ -31,7 +31,7 @@ const PUBKEY = asPlayerKeyHex('a'.repeat(64));
 const ESSID = 'BEAN-THERE-WIFI';
 const GATEWAY_IP = '10.0.0.1';
 const COMMUNITY = 'corpnet';
-const ASSIGNMENT = 'natForward.2222=10.0.0.10:22';
+const ASSIGNMENT = 'forward.2222=10.0.0.10:22';
 
 const onlineConnectivity = (essid: string): ConnectivityState => {
   const cold = buildColdStartConnectivity(PUBKEY);
@@ -48,7 +48,7 @@ const onlineConnectivity = (essid: string): ConnectivityState => {
 
 const APPLIED: SnmpSetResult = {
   ok: true,
-  oid: 'NAT-MIB::natForward.2222',
+  oid: 'forward.2222',
   value: '10.0.0.10:22',
 };
 
@@ -75,18 +75,18 @@ describe('setting a value a device accepts', () => {
   it('echoes the OID and the state the port is now in', async () => {
     const result = await run(onLan(), [GATEWAY_IP, COMMUNITY, ASSIGNMENT]);
 
-    // Real snmpset's whole output for an accepted set: the object, its type, its new
-    // value. No summary and no congratulation — the confirmation IS the echo, and a
-    // walk is there for anyone who wants to see the table around it.
-    expect(linesOf(result)).toBe('NAT-MIB::natForward.2222 = STRING: 10.0.0.10:22');
+    // The whole output for an accepted set: the object, and its new value. No summary
+    // and no congratulation — the confirmation IS the echo, and a walk is there for
+    // anyone who wants to see the table around it.
+    expect(linesOf(result)).toBe('forward.2222 = 10.0.0.10:22');
     expect(sync(result).exitCode).toBe(0);
   });
 
   it('reports a port closed again in the same shape it reports one opened', async () => {
-    const closed: SnmpSetResult = { ok: true, oid: 'NAT-MIB::natForward.2222', value: 'none' };
+    const closed: SnmpSetResult = { ok: true, oid: 'forward.2222', value: 'none' };
 
-    expect(linesOf(await run(onLan({ set: async () => closed }), [GATEWAY_IP, COMMUNITY, 'natForward.2222=none']))).toBe(
-      'NAT-MIB::natForward.2222 = STRING: none',
+    expect(linesOf(await run(onLan({ set: async () => closed }), [GATEWAY_IP, COMMUNITY, 'forward.2222=none']))).toBe(
+      'forward.2222 = none',
     );
   });
 
@@ -115,21 +115,21 @@ describe('setting a value a device refuses', () => {
       refusal: {
         reason: 'wrongValue',
         detail: "10.9.9.9 is not on this device's segment",
-        failedObject: 'NAT-MIB::natForward.2222',
+        failedObject: 'forward.2222',
       },
     };
 
     const result = await run(onLan({ set: async () => refused }), [
       GATEWAY_IP,
       COMMUNITY,
-      'natForward.2222=10.9.9.9:22',
+      'forward.2222=10.9.9.9:22',
     ]);
 
     expect(linesOf(result)).toBe(
       [
         'Error in packet.',
         "Reason: wrongValue (10.9.9.9 is not on this device's segment)",
-        'Failed object: NAT-MIB::natForward.2222',
+        'Failed object: forward.2222',
       ].join('\n'),
     );
     expect(sync(result).exitCode).toBe(1);
@@ -141,7 +141,7 @@ describe('setting a value a device refuses', () => {
       refusal: {
         reason: 'notWritable',
         detail: 'the community "public" is read-only',
-        failedObject: 'NAT-MIB::natForward.2222',
+        failedObject: 'forward.2222',
       },
     };
 
@@ -196,7 +196,7 @@ describe('setting nothing in particular', () => {
     // Whether the player typed an assignment AT ALL is a shape this command can see
     // without knowing a thing about NAT, and a round trip to learn it would be a round
     // trip spent on a typo.
-    expect(linesOf(await run(onLan(), [GATEWAY_IP, COMMUNITY, 'natForward.2222']))).toBe(
+    expect(linesOf(await run(onLan(), [GATEWAY_IP, COMMUNITY, 'forward.2222']))).toBe(
       'usage: snmpset <host>[:<port>] <community> <oid>=<value>',
     );
   });
@@ -204,7 +204,7 @@ describe('setting nothing in particular', () => {
   it('does not reach the network for a request it will not send', async () => {
     const set = vi.fn<SnmpApi['set']>(async () => APPLIED);
 
-    await run(onLan({ set }), [GATEWAY_IP, COMMUNITY, 'natForward.2222']);
+    await run(onLan({ set }), [GATEWAY_IP, COMMUNITY, 'forward.2222']);
 
     expect(set).not.toHaveBeenCalled();
   });
