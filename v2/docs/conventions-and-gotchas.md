@@ -1784,6 +1784,25 @@ state costs you more than one wrong attempt.
   caller is inside, so the specific answer is the honest one. This is a STRONGER rule than "depth
   must not change the words a player reads", and it is the exception that rule has.
 
+- **The indistinguishability rule binds the SCAN, not only the door.** A port a box filters must go
+  DARK from the network — absent from the scan, one silence with an address bearing no network, a
+  bricked box, a stopped daemon and a service the box fronts elsewhere — never labelled "filtered".
+  A scan that still listed it would hand a stranger the one signal every other dark state hides: a
+  pointer to the port worth a wordlist. `portsOpenToNetwork(hostFs)` = `readOpenPorts` −
+  `parseInputDenies` is the single view EVERY remote reader judges by — both the public and the
+  same-LAN vantage read the filter — while the OWNER's own view keeps reading the pidfiles
+  directly. That split is exactly what makes a filter beat `systemctl stop`: the daemon still runs
+  and `127.0.0.1` still reaches it, but the world sees nothing.
+- **An INPUT rule governs traffic a box TERMINATES, never traffic it passes through.** A gateway's
+  own filter closes the gateway's OWN ports; a forward it merely passes through is closed only by
+  the TARGET box's filter — so a stranger denying a public port on a gateway does NOT close a
+  forward an occupant opened onto their workstation, and the forward's target denying its own port
+  DOES. Precedence between an own service and a forward on the same public port is decided by what
+  the box RUNS (`readOpenPorts`), not by what its filter lets it answer: otherwise a denied port
+  the router serves would re-open through somebody else's forward while the reach, routing on the
+  pidfiles, went on refusing it — a scan advertising a door nobody can walk through, the same lie
+  as hiding one that works.
+
 - **A caller's claimed VANTAGE is checked, not believed** (`standingVantage`, beside the L1
   gate). Naming the box you operate from is what lets a trace record the network the target
   actually saw, so a caller naming a box they hold no session on is refused rather than
@@ -2243,7 +2262,19 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   finishing that, as a `resolveSameLanScan` action mirroring `resolveInnerGatewayScan`. Open
   design call first: route single-IP scans only (matching the precedent) or batch a range, since
   a `/24` would otherwise resolve up to 253 journals. Found by writing D5's Act 14; it predates
-  D5, which only made it observable. Needs its own slice + wire-check.
+  D5, which only made it observable. Needs its own slice + wire-check. **Third way it bites, found
+  during D8's e2e 2026-08-31:** an `snmpset` deny or forward on the AP gateway is a journal row too,
+  so a stranger who filters or re-opens a port over SNMP changes what the PUBLIC scan of that
+  gateway shows while a same-LAN `nmap` of `.1` — reading `buildApGatewayBaseFs`, journal-blind —
+  still shows the seeded ports. D8 boundary 2 could therefore only close the filter-honours-scan
+  claim at the CONTRACT level (`scanResult` reads the filter both vantages); the same-LAN gap is
+  wider than the filter and belongs to `resolveSameLanScan` above, not to D8.
+- **`snmpwalk` of your OWN address has no client-side own-box path.** `snmpwalk.ts` calls the server
+  unconditionally, and the server answers a walk for the box a player is NOT standing on — so
+  walking your own agent times out (`No Response`) even while it runs and a STRANGER's walk of the
+  same box answers. Every other own-box door (`ps`, `cat`, `rediscli 127.0.0.1`) reads locally; the
+  walk is the one that does not, so a player cannot read their own device over SNMP. Surfaced at D8
+  boundary 1, re-confirmed live 2026-08-31; a fix is an own-box branch in `snmpwalk`, deferred.
 - **A wire-check sweep should read 585/585 across 57 scripts; `testFtpSession` spent from #394
   to v0.183.0 red at 12/14 for a FIXTURE reason.** It picked its target because the host serves
   **ftp** (`kind === 'machine' && serves(ftp)` → `speaker-26` on `VSFTPD-LAB`, `ftp:2121`), then
@@ -2528,6 +2559,13 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
   where path='/var/log/access.log' and machine_id='<box>'"`, and resolve `<box>` from
   `home_network_occupants` rather than by hostname — a previous session's `skylab-…` answers with
   months-old lines and no error. Journey detail: `e2e-shared-network-verification.md` Act 10.
+  **Re-confirmed 2026-08-31 at v0.193.0 (D8 close-out), and `snmpd.log` is the fifth writer**: in a
+  two-browser-session run, A walked B's workstation agent, B's live `cat /var/log/snmpd.log` printed
+  `No such file or directory`, and the row was already correct in the journal (right `machine_id`,
+  B's own `writer_key`, `/var/log` present) — a browser reload alone brought the trace in. It is the
+  same shape as the four writers above and NOT a defender-audit gap or a D8 bug: the trace is
+  recorded and owner-readable, only not pushed to an already-open session. This nearly cost a wrong
+  "workstation walks aren't logged" fix; the row check is what caught it.
 - **`echo x > rules.v4` is still an unguarded wipe vector.** A redirect carries no base
   fingerprint by design — it truncates by definition, and the player was never shown the
   content — so it overwrites a co-occupant's rules with no question asked. Deliberate by nature
