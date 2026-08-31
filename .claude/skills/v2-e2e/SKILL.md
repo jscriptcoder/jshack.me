@@ -129,10 +129,10 @@ Then, in the terminal:
 
 | # | Command | Trap |
 |---|---|---|
-| 1 | `airmon start wlan0` | `airdump` fails without this. **And it refuses while you are CONNECTED** (`airmon: wlan0 is already connected to a network`) — the exact mirror of step 4, so to re-scan later you must `nmcli disconnect` FIRST. Check its output: piping this step to `/dev/null` and looping `airdump` gives eight identical `monitor mode not enabled` errors that read like eight unlucky scans |
-| 2 | `airdump` | It is **`airdump`**, not `airodump` |
-| 3 | `aircrack <BSSID>` | Use a **WPA2** row from the crackable pool (`SHINRA-5G`, `ACME-CORP`, `WEYLAND-NET`, …). WPA3 rows and the noise pool are not crackable. Prints `KEY FOUND! [ <pw> ]` |
-| 4 | `airmon stop wlan0` | `nmcli` refuses while monitor mode is ON — the mirror of step 1 |
+| 1 | `airmon-ng start wlan0` | `airodump-ng` fails without this (`airodump-ng: monitor mode not enabled — run airmon-ng start wlan0 first`). **And it refuses while you are CONNECTED** (`airmon-ng: wlan0 is already connected to a network`) — the exact mirror of step 4, so to re-scan later you must `nmcli disconnect` FIRST. Check its output: piping this step to `/dev/null` and looping `airodump-ng` gives eight identical `monitor mode not enabled` errors that read like eight unlucky scans |
+| 2 | `airodump-ng` | **The whole aircrack-ng suite carries the `-ng` suffix** — the real binary names. `airmon`, `airodump`, `aircrack` bare all die `bash: <name>: command not found`, which reads exactly like an uninstalled tool (they are preinstalled). It is `airodump-ng`, never `airodump` or `airdump` |
+| 3 | `aircrack-ng <BSSID>` | Use a **WPA2** row from the crackable pool (`SHINRA-5G`, `ACME-CORP`, `WEYLAND-NET`, `TYRELL-CORP`, …). WPA3 rows and the noise pool are not crackable. Prints `KEY FOUND! [ <pw> ]` |
+| 4 | `airmon-ng stop wlan0` | `nmcli` refuses while monitor mode is ON (`nmcli: wlan0 is in monitor mode — run 'airmon-ng stop wlan0' first`) — the mirror of step 1 |
 | 5 | `nmcli connect <ESSID> <password>` | Prints `assigned 192.168.<subnet>.<host>` — note the subnet, the gateway is `.1` |
 | 6 | `su root` then the root password | `apt` needs root (dpkg lock error otherwise) |
 | 7 | `apt install nmap` | `nmap` is NOT preinstalled |
@@ -140,10 +140,10 @@ Then, in the terminal:
 
 Typing into the terminal:
 ```bash
-agent-browser keyboard type "airmon start wlan0"; agent-browser press Enter
+agent-browser keyboard type "airmon-ng start wlan0"; agent-browser press Enter
 ```
 
-Allow generous sleeps — `aircrack` runs ~14 s of simulated key testing, `nmcli` and `nmap` pace
+Allow generous sleeps — `aircrack-ng` runs ~14 s of simulated key testing, `nmcli` and `nmap` pace
 their output deliberately.
 
 ---
