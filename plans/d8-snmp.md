@@ -12,8 +12,10 @@ wire-check RUN 15/15 and falsified, AC-12's three neighbours re-run 16/16 + 12/1
 gate closed at 97.99%); slice 8 boundary 1 MERGED (#472, v0.192.0, 2026-08-31 — AC-1…AC-9,
 AC-14 and AC-15 met, `testSnmpInstall` RUN 15/15 and falsified from both sides, the four
 neighbours re-run unchanged, `testSnmpWalk` repaired 13/15 → 15/15, mutation gate closed with 0
-survivors on any changed line); slice 8 boundary 2 **READY FOR RED** — AC-10…AC-13, no code
-written
+survivors on any changed line); slice 8 boundary 2 **COMPLETE, AWAITING MERGE** (v0.193.0,
+2026-08-31 — AC-10…AC-13 met, mutation gate 95.22% with both rewritten files at 100% and no
+non-equivalent survivor on a changed line, `testSnmpScan` NEW and RUN 12/12 falsified four ways,
+the six neighbours re-run unchanged). **D8 closes when it lands.**
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D8 — resolved scope & decisions
 (grill-me, 2026-08-27)", eleven locked decisions, gap-checked the same day.
 
