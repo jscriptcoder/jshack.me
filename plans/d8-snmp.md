@@ -2018,9 +2018,17 @@ denies `161`, the door is decoration and slice 9 needs to know that.
       anything, which fails that test alone. The write lands on an INPUT chain of a box that
       TERMINATES the traffic, reached by the occupant vantage — both new here: every filter set
       before this targeted a generated gateway, and every cross-player set targeted a NAT table.
-- [ ] **AC-9** Every walk and set B makes appends to A's own `/var/log/snmpd.log` under the writer
+- [x] **AC-9** Every walk and set B makes appends to A's own `/var/log/snmpd.log` under the writer
       key that box's vantage dictates, carrying B's address — A's only evidence, as everywhere else
       in this arc.
+      On this vantage the key is the TARGET OWNER's, so A's box keeps ONE log however many
+      neighbours touch it — under the caller's key instead, every visitor would get a row of their
+      own and the newest would be all a defender could see. The address logged is the LEASE the
+      server issued, never the `source_ip` the caller signed, because a defender's only evidence
+      may not be anything the attacker controls. A refused community lands in the same log: a door
+      that recorded only what succeeded would leave somebody sweeping the box invisible until the
+      moment they got in. Falsified on the reach itself — dropping the owner key kills the two
+      writer-key tests, and logging any other address kills the lease test alone.
 
 **Boundary 2 — the scan stops lying**
 

@@ -1026,7 +1026,9 @@ describe("re-opening a port on a neighbour's own box", () => {
       upsertPatch,
       neighbour,
       essid,
+      ownerKey: owner.publicKeyHex,
       ownerIp: lanAddressFor(essid, ownerOctet),
+      neighbourIp: lanAddressFor(essid, ownerOctet + 1),
       community: ownAgentCommunity(owner.publicKeyHex),
     };
   };
@@ -1081,4 +1083,75 @@ describe("re-opening a port on a neighbour's own box", () => {
     expect(response.status).not.toBe(200);
     expect(writtenTo(upsertPatch, RULES_V4_PATH)).toBeUndefined();
   });
+
+  it("lands in the owner's own log, under the owner's key rather than the visitor's", async () => {
+    // A's box keeps ONE log however many neighbours touch it. Written under the caller's
+    // key instead, every visitor would get a row of their own and the newest would be all
+    // a defender could see — a log that erased the previous attacker each time somebody
+    // new arrived would not be a log at all.
+    const { deps, upsertPatch, neighbour, essid, ownerIp, ownerKey, community } = attack({
+      rules: '# mine' + String.fromCharCode(10) + 'deny 6379' + String.fromCharCode(10),
+    });
+
+    await handleSnmpSet(
+      await signedSet(neighbour, {
+        essid,
+        target_ip: ownerIp,
+        community,
+        assignment: 'inputPort.6379=permit',
+      }),
+      deps,
+    );
+
+    expect(writtenTo(upsertPatch, SNMPD_LOG_PATH)).toMatchObject({
+      path: SNMPD_LOG_PATH,
+      writer_key: ownerKey,
+    });
+    expect(writtenTo(upsertPatch, SNMPD_LOG_PATH)?.writer_key).not.toBe(neighbour.publicKeyHex);
+  });
+
+  it('records the address the visitor actually arrived from, not the one they claimed', async () => {
+    // The defender's only evidence, so it may not be anything the caller controls. B signs
+    // a source address of their own choosing; the box logs the LEASE the server issued
+    // them, because that is the address A's machine would really have seen on the WiFi.
+    const { deps, upsertPatch, neighbour, essid, ownerIp, neighbourIp, community } = attack({
+      rules: '# mine' + String.fromCharCode(10) + 'deny 6379' + String.fromCharCode(10),
+    });
+
+    await handleSnmpSet(
+      await signedSet(neighbour, {
+        essid,
+        target_ip: ownerIp,
+        community,
+        assignment: 'inputPort.6379=permit',
+      }),
+      deps,
+    );
+
+    const logged = writtenTo(upsertPatch, SNMPD_LOG_PATH)?.content ?? '';
+    expect(logged).toContain(neighbourIp);
+    expect(logged).not.toContain(CLIENT_IP);
+  });
+
+  it("writes a refused community into that same log, so a failed attempt is evidence too", async () => {
+    // The attempt a defender most wants to see. A door that logged only what succeeded
+    // would leave somebody sweeping their box invisible right up until the moment they
+    // got in.
+    const { deps, upsertPatch, neighbour, essid, ownerIp, ownerKey } = attack({
+      rules: '# mine' + String.fromCharCode(10) + 'deny 6379' + String.fromCharCode(10),
+    });
+
+    await handleSnmpSet(
+      await signedSet(neighbour, {
+        essid,
+        target_ip: ownerIp,
+        community: 'not-the-one',
+        assignment: 'inputPort.6379=permit',
+      }),
+      deps,
+    );
+
+    expect(writtenTo(upsertPatch, SNMPD_LOG_PATH)).toMatchObject({ writer_key: ownerKey });
+  });
 });
+
