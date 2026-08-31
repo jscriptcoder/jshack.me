@@ -1950,12 +1950,19 @@ denies `161`, the door is decoration and slice 9 needs to know that.
 
 **Boundary 1 — the agent a player installs**
 
-- [ ] **AC-1** `apt install snmp` plants BOTH configs beside the filter it already writes: the
+- [x] **AC-1** `apt install snmp` plants BOTH configs beside the filter it already writes: the
       world-readable `/etc/snmp/snmpd.conf` at `SNMPD_CONF_SEED`, and the root-only
-      `/var/lib/snmp/snmpd.conf` holding the hash of this box's own read-write community. Immediately
-      after install, a walk with `public` renders the box's identity — an installed agent answers.
-- [ ] **AC-2** The install NAMES the read-write community once in its own output, in the clear. It
-      is never readable again from the box: the file holds only the hash.
+      `/var/lib/snmp/snmpd.conf` holding the hash of this box's own read-write community. Once the
+      owner starts the daemon, a NEIGHBOUR's walk with `public` renders the box's identity — an
+      installed agent answers. **Narrowed 2026-08-31**: the criterion never said whose walk, and the
+      neighbour's is the one that carries the mechanic — an agent is worth installing because it
+      answers the network, and worth defending for the same reason. The OWNER's walk of their own box
+      is a different path that does not exist yet; see "Two findings" below.
+- [x] **AC-2** The install NAMES the read-write community once in its own output, in the clear. It
+      is never readable again from the box: the file holds only the hash. The announcement is tied to
+      the WRITE, not to the install, so a reinstall over an existing state file re-announces nothing
+      — a visitor holding root should not be handed the owner's community by typing
+      `apt install snmp`. An owner who loses it deletes the file and reinstalls, or rotates.
 - [ ] **AC-3** The community is seeded from the owner's pubkey, not rolled, and `hydra <A's box>
       snmp` recovers it from the standard wordlist exactly as it does against a generated device.
       The server reconstructs it for B's crack WITHOUT reading A's filesystem — the property the
@@ -2002,6 +2009,28 @@ denies `161`, the door is decoration and slice 9 needs to know that.
 - [ ] **AC-15** Slices 1–7 are unmoved: `testSnmpCrossPlayer` 15/15, `testSnmpSet` 16/16,
       `testSnmpDepth` 12/12 and `testSnmpFilter` 13/13 all re-run unchanged. The scan change touches
       shared machinery four paths read, so this is the criterion carrying the most risk in the slice.
+
+### Two findings from closing AC-1 — neither belongs to this slice
+
+**`snmpwalk` is the only door with no client-side own-box path.** `serviceHost.ts:258` states the
+rule: "EVERY vantage this function serves is a remote one… The owner's own box never arrives here at
+all: it is answered on the client, so a filter can never lock them out of their own service."
+`nc.ts:290` has that branch (`localhost | 127.0.0.1 | wlan0.ipv4`) and so does `webHost.ts:130`.
+`snmpwalk.ts:55` calls `env.snmp.walk` unconditionally, so a player walking their own address goes
+to a server that is designed never to answer for them. Building it means a local tier check, an
+identity render, a port table, a pidfile check, `readOpenPorts` RAW rather than filtered (the owner
+sees through their own filter), and a decision about whether an owner's own walk writes to their own
+`snmpd.log`. That is a slice, not a criterion.
+
+**A caller's own address can resolve to a generated sibling.** `resolveSameLanOccupant` excludes self
+at `serviceHost.ts:220` (`row.owner_key !== target.actorKey`), and the reach then falls through to
+`generateHomeLan(essid).hosts.find(ip === targetIp)`. Where an occupant's leased octet collides with
+a generated host's, the walk answers with the GENERATED box's identity under the player's own
+address. The occupant-beats-generated precedence the reach documents — "a real occupant wins an octet
+the generator also filled" — never runs, because the self-exclusion sits upstream of it. Lease
+uniqueness is a `(essid, octet)` database constraint among OCCUPANTS only, so nothing stops the
+collision. Affects every door sharing the reach, not just this one. Unproven whether it is reachable
+in practice; worth an octet-collision test before it is treated as either real or theoretical.
 
 ### Naming — SETTLED 2026-08-31, before code
 
