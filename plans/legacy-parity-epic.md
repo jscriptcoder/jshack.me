@@ -64,13 +64,18 @@ wire-check fixture that had been asserting an `ssh` login against an ftp box. **
 `aircrack-ng`, `airmon` → `airmon-ng`, `rediscli` → `redis-cli`, and the daemon `redis` →
 `redis-server` (the package stays `redis`). The systemctl unit and the pidfile follow the daemon
 name, so it is `redis-server.service` now. **Trunk is at v0.184.0.**
-**D8 🔍 GRILLED + GAP-CHECKED 2026-08-27, not yet planned** — eleven locked decisions and a
-seven-slice spine in "D8
-— resolved scope & decisions". It found the epic's own D8 row STALE: the `snmpd.conf` firewall/ACL
-OID parsers it named would duplicate the `rules.v4` and `acl.conf` v2 has since shipped, so the
-OIDs become a VIEW over those files instead — one fact, two interfaces. It also owns the first
-`protocol` column on `ServiceSpec` (snmp reads `161/udp`) and a `deny <port>` local firewall for a
-workstation that installs the agent.
+**D8 ✅ COMPLETE (v0.193.0)** — eight slices, #465–#473, closed out 2026-08-31: its plan file is
+deleted and the as-built lives in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md)
+§7 (the indistinguishability rule now binding the SCAN, `portsOpenToNetwork`, the terminate-vs-
+pass-through rule) and §9 (the same-LAN journal-blind scan as D8's third bite, the `snmpwalk`
+own-box gap, and `snmpd.log` as the fifth stale-log writer). Its eleven locked decisions stay in
+"D8 — resolved scope & decisions". The grill's headline held: the `snmpd.conf` firewall/ACL OID
+parsers legacy named would have duplicated the `rules.v4`/`acl.conf` v2 already ships, so the OIDs
+shipped as a VIEW over those files — one fact, two interfaces, nano-over-ssh and snmp-without-a-
+shell. It added the first `protocol` column on `ServiceSpec` (snmp reads `161/udp`) and a
+`deny <port>` local firewall any box that installs the agent can keep about itself. **Its whole arc
+was run live in the UI 2026-08-31** (install → rotate → walk → hydra → snmpset deny → the scan goes
+dark → the forward stands, its target closes it), with the cross-player wire-check green 15/15.
 **D5 🔍 GRILLED 2026-08-16, not yet planned** — fifteen locked decisions and a six-slice spine in
 "D5 — resolved scope & decisions"; it also found that §9's `ps` defect is misdiagnosed and owns
 the fix. Everything else is split-and-grilled only.
@@ -330,15 +335,15 @@ PHASE 1 — THE DOORS  (near-term focus)
       D7 follow-up  the daemon systemctl could not start ✔ SHIPPED v0.183.0 (#462)
       D7 follow-up  the three daemon tables get a guard  ✔ SHIPPED (#463, no bump)
       D7 follow-up  the real binary names, hyphens intact ✔ SHIPPED v0.184.0 (#464)
-  D8  snmpwalk / snmpset                              🚧 IN PROGRESS (11 decisions, 8 slices)
+  D8  snmpwalk / snmpset                              ✔ COMPLETE v0.193.0 (11 decisions, 8 slices)
       D8 slice 1 a device answers SNMP                ✔ SHIPPED v0.185.0 (#465)
       D8 slice 2 a player walks it with `public`      ✔ SHIPPED v0.186.0 (#466)
       D8 slice 3 a player cracks the RW community     ✔ SHIPPED v0.187.0 (#467)
       D8 slice 4 a player opens a port, no shell      ✔ SHIPPED v0.188.0 (#468)
       D8 slice 5 a device on a deep layer answers     ✔ SHIPPED v0.189.0 (#469)
       D8 slice 6 a player runs their own agent        ✔ SHIPPED v0.190.0 (#470)
-      D8 slice 7 a player reconfigures another's
-      D8 slice 8 a player's own agent answers somebody
+      D8 slice 7 a player reconfigures another's      ✔ SHIPPED v0.191.0 (#471)
+      D8 slice 8 a player's own agent answers somebody ✔ SHIPPED v0.192.0-v0.193.0 (#472-#473)
   D9  node scripting
   D10 polish (long-tail comfort commands)
 PHASE 2 — DISCOVERY
@@ -369,7 +374,7 @@ POST-SHIP — MISSIONS
 | **D5b** ✔ | **NPC machines have a kind, and it shows** — **✔ SHIPPED** as slices 1–5 (#428–#432, v0.153.0–v0.157.0); grill record in ["D5b — resolved scope & decisions"](#d5b--resolved-scope--decisions-grill-me-2026-08-18), close-out in ["D5b — what shipped"](#d5b--what-shipped-and-what-it-deliberately-did-not-do-closed-2026-08-19-v01570), as-built in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7 | A real role model, widening `LanHost.kind` (today `'machine' \| 'router' \| 'switch'`, `generateHomeLan.ts:31`) toward legacy's nine — webserver, database, mailserver, fileserver, iot, dns, switch, router, workstation; role-driven hostnames (today `DEVICE_TYPES` is consumer devices — `desktop-7`, `iphone-12` — and golden-locked at `homeNetwork.ts:30`); **role-weighted service placement** (a database box almost always runs mysql; a phone almost never runs nginx); role-keyed content pools, starting with the web pages D1 ships flat | Mission-specific roles (post-ship) | `nmap` a LAN and the boxes read as a *population*: `web-04` serves nginx and a corporate portal, `db-11` runs mysql, `cam-31` is an IoT box with a camera panel. A player can tell what a box probably is before touching it |
 | **D6** | **A player reads a machine's database** | `mysqld` catalog row + placement; **generated schema + data** (legacy `generateDatabase.ts`, `pools/database.ts`); `mysql <host> <user> [pw]` → `mysql>` prompt (parser/formatter/executor); hydra `mysql` service | Writes/`UPDATE` — decide at planning | B `hydra <host> mysql` → creds → `SHOW TABLES` / `SELECT` returns generated data worth reading |
 | **D7** ✅ | **A player reads a machine's key-value store** — **SHIPPED v0.174.0-v0.182.0 (#452-#461)**; twelve locked decisions in ["D7 — resolved scope & decisions"](#d7--resolved-scope--decisions-grill-me-2026-08-24) | `redis` catalog row + placement (flat 0.05, webserver 0.35, database 0.3); generated data (`generateRedisData.ts`, `pools/redis.ts`); `rediscli <host> [pw]` → `redis>` sub-shell, seven verbs; `requirepass` as an md5 in the root-only datadir; hydra `redis` service against the 60% that are locked | Redis 6 ACLs (they arrive as a VERSION difference in Phase 3, not as a door decision); `FLUSHALL`; `CONFIG GET`; `TYPE`/`SCAN`/`INFO` | B `rediscli <host>` → `KEYS *` / `GET` on the 40% that are open; `hydra <host> redis` → password (no login field) on the rest; an open store's arrival line is the defender's whole view |
-| **D8** 🔍 | **A player reconfigures a device without holding a shell on it** — **GRILLED 2026-08-27**; ten locked decisions and a seven-slice spine in ["D8 — resolved scope & decisions"](#d8--resolved-scope--decisions-grill-me-2026-08-27), which SUPERSEDES this row wherever they disagree | `snmp` catalog row at `161/udp` (a new `protocol` column) placed on routers + switches only; `snmpwalk <host> [community]` (public = identity, RW = + the port table); `snmpset <host> <community> <oid=value>` with parity to `nano`; **the OIDs are a VIEW over the `rules.v4` / `acl.conf` v2 already parses**, never a second copy; the RW community as an md5 in a root-only file, swept by `hydra snmp` via `secretOn`; its own `/var/log/snmpd.log`; `snmpd` installable, planting a `deny <port>` local firewall on a workstation | legacy's `snmpFirewallParser` / `snmpAclParser` and the `firewall*`/`acl*` OIDs inside `snmpd.conf` — REFUSED, not deferred: they are a third and fourth authority over a fact v2 already owns; `nmap -sU`; NAT on a workstation | B `snmpwalk` with `public` → identity only; B cracks the RW community → the forward table renders as OIDs → `snmpset` opens a port **without B ever logging in**, and A's `snmpd.log` names B |
+| **D8** ✅ | **A player reconfigures a device without holding a shell on it** — **SHIPPED v0.185.0-v0.193.0 (#465-#473)**; eleven locked decisions in ["D8 — resolved scope & decisions"](#d8--resolved-scope--decisions-grill-me-2026-08-27), as-built in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7/§9 | `snmp` catalog row at `161/udp` (a new `protocol` column) placed on routers + switches only; `snmpwalk <host> [community]` (public = identity, RW = + the port table); `snmpset <host> <community> <oid=value>` with parity to `nano`; **the OIDs are a VIEW over the `rules.v4` / `acl.conf` v2 already parses**, never a second copy; the RW community as an md5 in a root-only file, swept by `hydra snmp` via `secretOn`; its own `/var/log/snmpd.log`; `snmpd` installable, planting a `deny <port>` local firewall on a workstation | legacy's `snmpFirewallParser` / `snmpAclParser` and the `firewall*`/`acl*` OIDs inside `snmpd.conf` — REFUSED, not deferred: they are a third and fourth authority over a fact v2 already owns; `nmap -sU`; NAT on a workstation | B `snmpwalk` with `public` → identity only; B cracks the RW community → the forward table renders as OIDs → `snmpset` opens a port **without B ever logging in**, and A's `snmpd.log` names B |
 | **D9** | **A player automates an attack with a script** | `node <path>`; sync + async modes; `await` unwrapping async commands; programmatic auth (`ssh(…, pw)`, `await hydra(…)`); `writeFile` helper | `script_exec` as a CVE effect (Phase 3) | A writes `/root/sweep.js` chaining `hydra` + `ssh`, runs `node /root/sweep.js`, and captures results to a file |
 | **D10** | **The terminal feels like legacy's** | `clear`, `theme`, `author`, `xterm`, `bash`, `whoami` — one polish slice | — | Each command behaves as legacy's did |
 
@@ -2551,38 +2556,70 @@ are now resolved. **A door is not proven by its wire-checks alone** — the wire
 green and could not see any of this, because the defects live in the one vantage no endpoint
 answers. One session's browsing produced four findings, three of them invisible to a green suite.
 
-**➡️ NEXT: D8 — `snmpwalk` / `snmpset`**, sixth door in the locked order and the first that lets a
-player reconfigure a box **without ever holding a shell on it**. **🔍 GRILLED + GAP-CHECKED 2026-08-27** — eleven
-locked decisions, six grounding findings, seven forced-rather-than-chosen entries, eight closed gaps
-and a seven-slice spine in
-["D8 — resolved scope & decisions"](#d8--resolved-scope--decisions-grill-me-2026-08-27). **Not yet planned**:
-run `planning` against slice 1 before any code.
+**➡️ NEXT: D9 — node scripting**, the seventh and last door in the locked order
+(ftp → daemons → nc → mysql → redis → snmp → node) and a force multiplier over everything built.
+**Not yet grilled or planned** — run `grill-me` against its row before planning, as every door
+before it did.
 
-The grill's headline finding is that **the epic's own D8 row had gone stale**. It named legacy's
-`snmpd.conf` firewall and ACL OID parsers as the mechanism, and v2 has since shipped both files
-those OIDs would duplicate — a router's `rules.v4` and a switch's `acl.conf`, each parsed, each
-already in the cross-player read allowlist. Porting them would have stood up a third and fourth
-authority over one fact, one week after #462 fixed exactly that bug and #463 wrote the guards. So the
-OIDs became a VIEW over the files v2 already owns, and the door got sharper for it: one fact, two
-interfaces — nano-over-ssh, and snmp-without-a-shell.
+---
 
-Three things D7 leaves it, beyond a shipped door:
+**D8 ✅ COMPLETE — v0.185.0–v0.193.0 (#465–#473), closed out 2026-08-31.** Eleven locked decisions
+in ["D8 — resolved scope & decisions"](#d8--resolved-scope--decisions-grill-me-2026-08-27); the
+plan file is deleted and the durable rules live in `conventions-and-gotchas.md` §7 and §9. The door
+in full: `snmpwalk <host> public` reads a device's identity and points at the community worth
+cracking, `hydra <host> snmp` recovers the read-write community from the caller's own wordlist,
+`snmpwalk <host> <rw>` renders the port table read from the device's own `rules.v4`/`acl.conf`, and
+`snmpset` rewrites that table — a forward opened, a port filtered — all a VIEW over the files v2
+already parses, with no third authority over one fact. Cross-player throughout: B reconfigures an
+access point they have never stood on, reached only by the address the internet routes it by, and
+the gateway's own `snmpd.log` accretes every visit — walk, set and refused guess — under the
+owner's row with the attacker's server-derived source IP. The grill's headline held: the
+`snmpd.conf` firewall/ACL OID parsers legacy named would have duplicated the `rules.v4`/`acl.conf`
+v2 already ships, so the OIDs became a VIEW over those files — one fact, two interfaces,
+nano-over-ssh and snmp-without-a-shell.
 
-- **A neighbour's ports are legible now.** `resolveOccupantScan` reads a fellow occupant's real open
-  ports server-side and is generic to every service, so `snmpd` is scannable the day it can be
-  started and D8 needs no scan change of its own. D6 slice 7 had to build the same-LAN reach for
-  every tool at once for the same reason; this is that bill paid for discovery.
-- **Four vantages, one resolver, free.** `reachServiceHost` takes the daemon as a PARAMETER, so a
-  door built on it inherits public, same-LAN, inner-gateway and own-LAN reach on day one. D7 paid
-  nothing for reach and spent two whole slices proving paths that already worked — which is the
-  shape to expect, and the reason to budget for EVIDENCE rather than for plumbing.
-- **A secret can belong to the SERVICE rather than to an account.** `secretOn` beside `accountsOn`,
-  with the sweep line omitting the login field entirely — which is exactly what a COMMUNITY STRING
-  wants. Reuse it rather than inventing a third shape.
+**D7's three gifts paid off exactly as predicted.** `resolveOccupantScan` made `snmpd` scannable
+the day it could start, so D8 needed no scan change for discovery; `reachServiceHost`'s four
+vantages carried public / same-LAN / inner-gateway / own-LAN reach for free, so the middle slices
+spent their budget proving paths rather than plumbing them; and `secretOn` was the right shape for a
+community string with no account. **D7's one warning bound exactly as hard as it said**: `snmpset`
+writes to a box the caller holds no session on, so a gateway reconfigured by strangers stays ONE
+`snmpd.log` row keyed on the TARGET, and the writer-key rule is what keeps the last write from
+erasing the rest.
 
-One warning D7 earns for it: `snmpset` writes to a box the caller holds no session on, so the
-writer-key rule binds harder here than anywhere yet — a device reconfigured by three players must
-stay ONE row, or the last write silently erases the rest.
+**Boundary 2 (the final slice) was the payoff and the sharpest law.** The scan stops advertising
+what the filter hides: a filtered port goes DARK from the world — one silence with an address
+bearing no network, a bricked box, a stopped daemon and a service the box fronts elsewhere — so a
+wordlist cannot tell a defended port from an absent one. The terminate-vs-pass-through line fell out
+of it: a gateway's INPUT filter closes its OWN ports and leaves a forward it merely passes through
+alone, while the forward's TARGET filter closes it — and precedence is decided by what the box RUNS,
+never by what its filter answers, so a denied port a router serves cannot re-open through somebody
+else's forward. **The real AC-12 leak was found here, not at the scan**: `resolvePublicTarget`
+routed on the raw pidfiles, so a stopped daemon failed as `host_unreachable` while a filtered one
+routed fine and was refused as `service_not_running` — two names for one silence, an oracle. Gating
+the reach on `portsOpenToNetwork` closed it.
+
+Two things it settled that outlive it:
+
+1. **The filter honours the scan only at the CONTRACT layer, and the same-LAN gap is wider than the
+   filter.** `scanResult` reads the filter from both vantages, but the client's same-LAN scan of
+   `.1` resolves a seeded `buildApGatewayBaseFs` and is journal-blind — so an `snmpset`-written deny
+   or forward is visible from the PUBLIC scan and invisible from inside the LAN, exactly as a
+   `systemctl stop` on the gateway already was. That belongs to the deferred `resolveSameLanScan`,
+   not to D8; recorded in §9.
+2. **`snmpwalk` is the one own-box door with no local path**, so a player cannot read their own agent
+   over SNMP though a stranger can. Surfaced at boundary 1, recorded in §9, deferred.
+
+**Its whole arc was run live in the UI on close-out day**, two browser sessions for the cross-player
+half: install names the community once and hashes it, a walk and a hydra sweep and a read-write
+walk, then `snmpset inputPort=deny` and the re-scan drops the port while the host stays up, a forward
+standing when the gateway denies its public port and dying when its target denies the internal one,
+and `ps` proving the daemon never stopped. The cross-player wire-check ran 15/15 live, and its checks
+8/9/11 are the defender's-view proof the UI's crack-gated gateway-log read could not show by hand:
+the gateway log carrying two strangers' writes and refused guesses under the owner's row. **One false
+alarm the run nearly turned into a fix**: a workstation walk looked unlogged because the live session
+read stale client state — the row was correct in the journal and a reload surfaced it. It is the
+shipped shape of every cross-player writer (§9), not a bug.
 
 ---
 
