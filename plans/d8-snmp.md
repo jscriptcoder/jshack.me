@@ -1911,10 +1911,15 @@ the stack is the agreed shape, and boundary 1 opens the moment its first commit 
 **The read-write community is SEEDED per box, and crackable.** Derived server-side from the
 OWNER'S PUBKEY ALONE — not from a machine id, which nothing at install time carries: a package
 file's `content` is handed `identity.publicKeyHex`, `hostname` and `fs.root()` and nothing else.
-The pubkey is also the only key that WORKS here, and the own-box family already says so in three
-places: `workstationGuestPassword`, `ownDatabase` and `ownStore` are each keyed that way expressly
-so the server can reconstruct the secret for a cross-player crack without reading the owner's
-filesystem. AC-3 and AC-8 need exactly that. Hashed into the root-only
+The pubkey rather than the hostname, for three reasons: two players never share a community, it
+survives a rename, and it is deterministic — so deleting the state file and reinstalling recovers
+the string the owner already had instead of rolling a new one behind their back. `workstationGuestPassword`,
+`ownDatabase` and `ownStore` are the same key for the same kind of reason.
+**Corrected 2026-08-31**: an earlier draft here claimed the pubkey was needed so the SERVER could
+reconstruct the plaintext for a cross-player crack. It is not — nothing server-side ever
+reconstructs it. `secretOn: readRwCommunityHash` reads the HASH off the target's own materialized
+filesystem and `sweepAccounts` tries the attacker's wordlist against it, and a read-write walk
+compares hashes too. The decision is unchanged; only the reason was wrong. Hashed into the root-only
 `/var/lib/snmp/snmpd.conf`, and named once in the install's own output so the owner knows what they
 are holding. It lands in the standard wordlist, which is the entire point: an agent
 nobody can crack gives B no path, and slice 6's prize stays a promise. A player's own box now sits
@@ -1963,10 +1968,25 @@ denies `161`, the door is decoration and slice 9 needs to know that.
       the WRITE, not to the install, so a reinstall over an existing state file re-announces nothing
       — a visitor holding root should not be handed the owner's community by typing
       `apt install snmp`. An owner who loses it deletes the file and reinstalls, or rotates.
-- [ ] **AC-3** The community is seeded from the owner's pubkey, not rolled, and `hydra <A's box>
+- [x] **AC-3** The community is seeded from the owner's pubkey, not rolled, and `hydra <A's box>
       snmp` recovers it from the standard wordlist exactly as it does against a generated device.
-      The server reconstructs it for B's crack WITHOUT reading A's filesystem — the property the
-      pubkey key exists for.
+      The pubkey key is for per-player uniqueness, survival across a rename, and determinism
+      so a reinstall recovers the same string rather than rolling a new one. NOT for
+      server-side reconstruction: a crack reads the hash off the target's own filesystem and
+      sweeps the attacker's wordlist against it.
+      Closed as TWO deterministic claims rather than one flaky check. The PATH: hydra reaches a
+      neighbour's own installed agent through the occupant vantage and recovers the community the
+      install planted — falsified by unplanting the state file, which turns the answer into
+      `no_password_set`. The DRAW: `ownAgentCommunity` lands in the shipped wordlist inside the same
+      band as a generated device's, measured over 2000 pubkey-shaped seeds beside the existing
+      gateway and community rates — falsified by retuning the knob to the gateway rate, which fails
+      the new band and the existing community band together. One test asserting "the shipped
+      wordlist cracks this defender" would have passed about 60% of runs: the fixture identity is
+      generated fresh each run and the community knob is 0.6.
+      **Consequence worth stating**: roughly 40% of players draw an UNCRACKABLE community, so their
+      agent is a door no wordlist opens. That is the rate every generated device already faces and is
+      not a gap — it is what the CVE route exists to answer — but it means AC-8's observable is
+      available to about three owners in five.
 - [ ] **AC-4** A `nano`s `rwcommunity <new>` into `/etc/snmp/snmpd.conf` and runs
       `systemctl restart snmpd`. The OLD community is refused afterwards and the new one is accepted
       at the read-write tier.
@@ -2041,8 +2061,8 @@ agent a player installed, derived from the owner's pubkey alone.
 Two families could have claimed it, and they disagree. `seedApGatewayCommunity` is the nearest by
 SUBJECT — also an SNMP community, also drawn from a namespace — but it belongs to the generated
 world, keyed by ESSID or machine id. `workstationGuestPassword`, `ownDatabase` and `ownStore` are
-the nearest by ROLE: a crackable credential on a PLAYER'S OWN box, keyed by the owner's pubkey so
-the server can recover it cross-player. Role won. That family also deliberately drops the `seed`
+the nearest by ROLE: a crackable credential on a PLAYER'S OWN box, keyed by the owner's pubkey so it
+is unique per player, deterministic across reinstalls, and unmoved by a rename. Role won. That family also deliberately drops the `seed`
 prefix, so the name does too — `workstationGuestPassword`, not `seedWorkstationPassword`.
 
 The namespace still goes through `seedSnmpCommunity`, which is what keeps the string drawn from the
