@@ -2007,9 +2007,17 @@ denies `161`, the door is decoration and slice 9 needs to know that.
       then failed to bind would have taken the old one out of service with nothing answering to
       the new one. Duplicates resolve first-wins like every other directive here, and ALL of them
       are stripped, because a line left behind is the plaintext left behind.
-- [ ] **AC-8** **The observable this slice exists for.** A denies `6379` on their own box; B cracks
+- [x] **AC-8** **The observable this slice exists for.** A denies `6379` on their own box; B cracks
       A's community and `snmpset <A's box> <rw> INPUT-MIB::inputPort.6379=permit` re-opens it, and
       A's redis answers a neighbour again with nothing restarted.
+      Needed no new production code — the pieces composed, so the evidence is falsification
+      rather than a RED. The observable is asserted through `portsOpenToNetwork`, the same rule
+      every door judges the network by, rather than by reading the file: pointing it at the rules
+      BEFORE the set fails, so the check genuinely discriminates a re-opened port from a shut one.
+      A stale community is refused and writes nothing, proven by making `communityTier` accept
+      anything, which fails that test alone. The write lands on an INPUT chain of a box that
+      TERMINATES the traffic, reached by the occupant vantage — both new here: every filter set
+      before this targeted a generated gateway, and every cross-player set targeted a NAT table.
 - [ ] **AC-9** Every walk and set B makes appends to A's own `/var/log/snmpd.log` under the writer
       key that box's vantage dictates, carrying B's address — A's only evidence, as everywhere else
       in this arc.
