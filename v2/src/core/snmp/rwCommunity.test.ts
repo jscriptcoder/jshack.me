@@ -5,7 +5,12 @@ import {
   readRwCommunityHash,
   readSnmpdState,
 } from './rwCommunity';
-import { readSnmpdConf, SNMPD_CONF_PERMISSIONS, SNMPD_CONF_SEED } from './conf';
+import {
+  parseSnmpdConf,
+  readSnmpdConf,
+  SNMPD_CONF_PERMISSIONS,
+  SNMPD_CONF_SEED,
+} from './conf';
 import { communityTier } from '../sessions/snmpAgent';
 import { md5 } from '../generation/md5';
 import { applyPatches } from '../filesystem/applyPatches';
@@ -127,6 +132,7 @@ describe('finding the state file on a device', () => {
  */
 describe('spending a community the owner typed into the readable config', () => {
   const STANDING = 'the-one-already-in-force';
+  const NEWLINE = String.fromCharCode(10);
 
   /** A box as its owner left it: an agent already answering to a community, and whatever
    *  they typed into the readable file waiting to be picked up. */
@@ -190,6 +196,27 @@ describe('spending a community the owner typed into the readable config', () => 
 
     expect(consumeRwCommunity(boxRotating('rwcommunity\n'))).toEqual([]);
     expect(communityTier(rotated, STANDING)).toBe('read-write');
+  });
+
+  it('still answers the read-only community once the rewrite has landed', () => {
+    // The rewritten file has to stay a FILE, line by line. Rebuilt as one long line the
+    // anchored parsers match nothing, and a box would come back from a rotation
+    // answering nobody at all — its owner having done everything right.
+    const rotated = afterRestart(boxRotating('rwcommunity hunter2' + NEWLINE));
+
+    expect(communityTier(rotated, 'public')).toBe('read-only');
+    expect(parseSnmpdConf(readSnmpdConf(rotated)).sysContact).toBe('netops@corp.local');
+  });
+
+  it('spends a line its owner indented, and leaves none of it behind', () => {
+    // `nano` does not stop anybody typing a space first, and the directive readers all
+    // trim before matching. If the rewrite did not, the community would be taken into
+    // force and the plaintext left sitting in a world-readable file — the one outcome
+    // this whole rewrite exists to prevent, reached by pressing space.
+    const rotated = afterRestart(boxRotating('   rwcommunity hunter2' + NEWLINE));
+
+    expect(communityTier(rotated, 'hunter2')).toBe('read-write');
+    expect(readSnmpdConf(rotated)).not.toContain('hunter2');
   });
 
   it('takes the first of two and still leaves neither behind', () => {

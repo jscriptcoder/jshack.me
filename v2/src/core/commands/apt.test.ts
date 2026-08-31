@@ -566,6 +566,20 @@ describe('apt', () => {
         ]);
       });
 
+      it('says nothing extra for a data file that comes with nothing to say', async () => {
+        // Only the file that HAS something to tell its owner tells them anything. A line
+        // appearing after every other package's data file would train players to skim
+        // exactly the place the one real secret in the game is printed.
+        const { env } = aptEnv();
+
+        const result = await streamResult(await apt.execute(env, ['install', 'hydra'], NO_FLAGS));
+        const lines = result.text.split('\n').filter(Boolean);
+
+        expect(lines[lines.length - 1]).toBe(
+          'Installing /usr/share/wordlists/passwords.txt ...',
+        );
+      });
+
       it('writes no extra files for a package that ships none', async () => {
         const { env, writes } = aptEnv();
 
@@ -1556,6 +1570,9 @@ describe('buying the SNMP package', () => {
     const result = await streamResult(await apt.execute(env, ['install', 'snmp'], NO_FLAGS));
 
     expect(result.text.split(community)).toHaveLength(2);
+    // The half that makes the line actionable. Told the string without being told it is
+    // the only time they will see it, an owner has no reason to write it down.
+    expect(result.text).toContain('will not be shown again');
     expect(stateIn(writes)).not.toContain(community);
     expect(stateIn(writes)).toContain(md5(community));
   });

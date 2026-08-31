@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { asAbsPath, type UserType } from '../types';
+import type { PatchApi } from './types';
 import type { CommandResult, PatchResult, TerminalLine } from './types';
 import {
   mockCommandEnv,
@@ -12,8 +13,12 @@ import { BINARY_STUB } from '../generation/binaries';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import { SYSTEM_DAEMON_NAMES } from '../generation/binaries';
 import { packageForBinary } from '../packages/aptPackages';
-import { formatSnmpdState, SNMPD_STATE_PATH } from '../snmp/rwCommunity';
-import { SNMPD_CONF_PATH, SNMPD_CONF_SEED } from '../snmp/conf';
+import {
+  formatSnmpdState,
+  SNMPD_STATE_PATH,
+  SNMPD_STATE_PERMISSIONS,
+} from '../snmp/rwCommunity';
+import { SNMPD_CONF_PATH, SNMPD_CONF_PERMISSIONS, SNMPD_CONF_SEED } from '../snmp/conf';
 import { md5 } from '../generation/md5';
 import { daemonName, pidfilePath, readOpenPorts } from '../services/pidfile';
 import { APT_PACKAGES } from '../packages/aptPackages';
@@ -41,6 +46,8 @@ const NO_FLAGS = new Map<string, string | true>();
 
 type WriteCall = { readonly path: string; readonly content: string };
 
+type WriteOptions = Parameters<PatchApi['write']>[2];
+
 type SystemctlEnvOpts = {
   readonly userType?: UserType;
   /** `/var/run` pidfiles, basename → content (omit ⇒ nothing running). */
@@ -52,6 +59,9 @@ type SystemctlEnvOpts = {
   readonly snmpdConf?: string;
   /** The root-only file holding the hash of the community it answers to. */
   readonly snmpdState?: string;
+  /** Fails ONLY the write whose path matches, leaving the rest to succeed — so a
+   *  failure partway through a bring-up is exercisable. */
+  readonly failWritesTo?: string;
   readonly removeResult?: PatchResult;
 };
 
@@ -68,6 +78,7 @@ const systemctlEnv = (opts: SystemctlEnvOpts = {}) => {
   const userType = opts.userType ?? 'root';
   const removes: string[] = [];
   const writes: WriteCall[] = [];
+  const landings: { readonly path: string; readonly options: WriteOptions }[] = [];
   const pidfiles = Object.entries(opts.running ?? {}).map(([name, content]) => [
     name,
     buildFile(content, { owner: 'root' }),
@@ -102,13 +113,17 @@ const systemctlEnv = (opts: SystemctlEnvOpts = {}) => {
         removes.push(path);
         return opts.removeResult ?? { ok: true };
       },
-      write: async (path, content) => {
+      write: async (path, content, options) => {
         writes.push({ path, content });
+        // Kept apart from `writes` so the exact-shape assertions above stay readable:
+        // most tests care what was written, and only a few care how it landed.
+        landings.push({ path, options });
+        if (opts.failWritesTo === path) return { ok: false, error: 'permission_denied' };
         return { ok: true };
       },
     },
   });
-  return { env, removes, writes };
+  return { env, removes, writes, landings };
 };
 
 const syncResult = (result: CommandResult): { readonly text: string; readonly exitCode: number } => {
@@ -792,6 +807,8 @@ describe('the three tables that say which daemons exist', () => {
 describe('rotating the community an agent answers to', () => {
   /** The box as its owner left it: the agent running, a community already in force, and
    *  a new one typed into the world-readable config waiting to be picked up. */
+  const NEWLINE = String.fromCharCode(10);
+
   const rotating = (line: string) =>
     systemctlEnv({
       installed: ['snmpd'],
@@ -799,6 +816,46 @@ describe('rotating the community an agent answers to', () => {
       snmpdConf: SNMPD_CONF_SEED + line,
       snmpdState: formatSnmpdState(md5('the-old-one')),
     });
+
+
+  it("lands the rewrite as root's own file, at the permissions each one belongs at", async () => {
+    // These are the DAEMON's files, not the shell's. Written with the caller's ownership
+    // or default permissions, a rotation would quietly widen the box's own state to
+    // whoever happened to type the command — and the root-only half is the one holding
+    // the secret.
+    const { env, landings } = rotating('rwcommunity hunter2' + NEWLINE);
+
+    await streamResult(await systemctl.execute(env, ['restart', 'snmpd'], NO_FLAGS));
+
+    expect(landings.find((landing) => landing.path === SNMPD_STATE_PATH)?.options).toEqual({
+      permissions: SNMPD_STATE_PERMISSIONS,
+      owner: 'root',
+    });
+    expect(landings.find((landing) => landing.path === SNMPD_CONF_PATH)?.options).toEqual({
+      permissions: SNMPD_CONF_PERMISSIONS,
+      owner: 'root',
+    });
+  });
+
+  it('says so when the rewrite cannot land, rather than reporting a clean start', async () => {
+    // The port is open by this point, so the agent really is up — but the community the
+    // owner asked for is not in force. Reporting success would leave them believing they
+    // had rotated it, still holding a string anybody's wordlist may already have.
+    const { env } = systemctlEnv({
+      installed: ['snmpd'],
+      running: { 'snmpd.pid': 'snmpd:port=161' },
+      snmpdConf: SNMPD_CONF_SEED + 'rwcommunity hunter2' + NEWLINE,
+      snmpdState: formatSnmpdState(md5('the-old-one')),
+      failWritesTo: SNMPD_STATE_PATH,
+    });
+
+    const { text, exitCode } = await streamResult(
+      await systemctl.execute(env, ['restart', 'snmpd'], NO_FLAGS),
+    );
+
+    expect(exitCode).not.toBe(0);
+    expect(text).toContain('snmpd');
+  });
 
   it('takes the community out of the readable file and keeps only its hash', async () => {
     // Rotation is an administrative act on the box and never a move over the wire. The
