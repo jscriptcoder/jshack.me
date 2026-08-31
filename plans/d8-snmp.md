@@ -1,6 +1,6 @@
 # Plan: D8 — `snmpwalk` / `snmpset`
 
-**Branch**: `feat/d8-snmp-install` (slice 8 — intra-slice stack of two boundaries; boundary 1 not started)
+**Branch**: `feat/d8-snmp-scan` (slice 8 boundary 2 — the scan honouring the filter; boundary 1 MERGED)
 **Status**: Active — slice 1 MERGED (#465, v0.185.0); slice 2 MERGED (#466, v0.186.0,
 2026-08-27); slice 3 MERGED (#467, v0.187.0, 2026-08-28); slice 4 MERGED (#468, v0.188.0,
 2026-08-28 — AC-1…AC-14 met, wire-check RUN 16/16 and falsified twice, mutation gate closed
@@ -9,9 +9,11 @@ at 88.65%); slice 5 MERGED (#469, v0.189.0, 2026-08-28 — AC-1…AC-13 met, wir
 2026-08-29 — AC-1…AC-15 met, wire-check RUN 13/13 and falsified twice, mutation gate closed at
 97.43%); slice 7 MERGED (#471, v0.191.0, 2026-08-30 — AC-1…AC-13 met, cross-player
 wire-check RUN 15/15 and falsified, AC-12's three neighbours re-run 16/16 + 12/12 + 13/13, mutation
-gate closed at 97.99%); slice 8 **PLANNED, CONFIRMED, READY FOR RED** — AC-1…AC-15 agreed, the
-two-boundary stack confirmed 2026-08-31, `ownAgentCommunity` settled through the language protocol,
-no code written
+gate closed at 97.99%); slice 8 boundary 1 MERGED (#472, v0.192.0, 2026-08-31 — AC-1…AC-9,
+AC-14 and AC-15 met, `testSnmpInstall` RUN 15/15 and falsified from both sides, the four
+neighbours re-run unchanged, `testSnmpWalk` repaired 13/15 → 15/15, mutation gate closed with 0
+survivors on any changed line); slice 8 boundary 2 **READY FOR RED** — AC-10…AC-13, no code
+written
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D8 — resolved scope & decisions
 (grill-me, 2026-08-27)", eleven locked decisions, gap-checked the same day.
 
@@ -1905,6 +1907,10 @@ means holding both in one head, and the second is a change to shared machinery t
 own diff. Boundary 1 is the agent a player installs (AC-1…AC-9); boundary 2 is the scan honouring
 the filter (AC-10…AC-13). The slice completes when boundary 2 lands. **CONFIRMED 2026-08-31** —
 the stack is the agreed shape, and boundary 1 opens the moment its first commit lands.
+**Boundary 1 MERGED 2026-08-31 (#472).** Boundary 2 therefore branches from updated trunk on
+`feat/d8-snmp-scan` rather than stacking — the lower half is on `main`, and there is nothing left
+to stack on. The intra-slice shape still governs the REVIEW boundary: boundary 2's mutation gate
+scopes to its own diff against trunk, not against the two boundaries together.
 
 ### The three decisions this slice rests on
 
