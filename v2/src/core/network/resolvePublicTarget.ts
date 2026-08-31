@@ -29,7 +29,6 @@ import type { OwnerPatchRow } from './materializeWorkstationFs';
 import { machineServing, type ServedMachine } from './machineServing';
 import { bootableOccupantFs } from './natHosts';
 import { lanAddressesByOwner, type LanLeaseRow } from './lanAddress';
-import { readOpenPorts } from '../services/pidfile';
 import { portsOpenToNetwork } from './portsOpenToNetwork';
 import { canBoot } from '../boot/bootFiles';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter';
@@ -181,9 +180,17 @@ const resolveForwardTarget = async (
   if (occupantFs === null) {
     return { ok: false, status: 404, error: 'host_unreachable' };
   }
-  // The internal service isn't listening (that daemon was never started): a dark DNAT
-  // target. The forward's SPECIFIC internal port, not merely "any service is up".
-  const listening = readOpenPorts(occupantFs).some(
+  // The internal service isn't answering the network — never started, or running behind
+  // the target's own filter. The forward's SPECIFIC internal port, not merely "any
+  // service is up".
+  //
+  // Filtered here rather than a layer later, and that is the whole point: routing on the
+  // raw pidfiles let a stopped daemon fail HERE as host_unreachable while a filtered one
+  // routed fine and was refused above as service_not_running. Two names for one silence
+  // is an oracle — a stranger could tell a box that is defending a port from one that
+  // never had it. This box TERMINATES the forwarded traffic, so its filter governs;
+  // the gateway that merely passes the traffic through keeps its own filter out of it.
+  const listening = portsOpenToNetwork(occupantFs).some(
     (openPort) => openPort.port === forwarded.internalPort,
   );
   if (!listening) {

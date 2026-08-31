@@ -813,6 +813,29 @@ describe('handleResolvePublicScan', () => {
       });
     });
 
+    it('drops a forward whose TARGET has denied the internal port', async () => {
+      const scanner = generateIdentity();
+      const { deps } = makeDeps({
+        patches: patchesByMachine({
+          [AP_GATEWAY_ID]: [aliceForward],
+          [ALICE_WS]: [sshdUp, denies(22)],
+        }),
+      });
+
+      const result = await handleResolvePublicScan(envelope(scanner, TARGET), deps);
+
+      // Alice's sshd is up and the gateway still forwards 2222 at it. Her own filter is
+      // what closes it, and the line is drawn at whoever TERMINATES the traffic: the
+      // gateway merely passes this through, so its filter is not consulted, while hers
+      // governs the box the packet actually lands on. The reach refuses the same
+      // connection with the same host_unreachable a dead box gives, so a scan still
+      // advertising 2222 would be pointing at a door nobody can walk through.
+      expect(result).toEqual({
+        status: 200,
+        body: { ok: true, found: true, ports: OWN_DOORS },
+      });
+    });
+
     it("records what the scanner SAW in the defender's own kern.log, not what the box runs", async () => {
       const scanner = generateIdentity();
       const { deps, upsertPatch } = makeDeps({

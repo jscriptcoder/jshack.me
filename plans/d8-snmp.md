@@ -2056,6 +2056,16 @@ slice 6 chose for `nmapScan`'s trace sites. That precedent is real, and the cost
 is that the two logs now answer slightly different questions; the gain is a defender who can read the
 result of their own decision instead of a line identical to an undefended box's.
 
+### One shipped behavior this boundary changed on purpose
+
+`hydra` against a published port whose resident filtered it answered `service_not_running`, and a
+slice-6 test pinned that. The behavior it was written for — the filter applies through somebody
+else's NAT — is unchanged; only the NAME of the refusal moved, to the one a stopped daemon and a
+never-opened forward already give. The test now reads `host_unreachable`, because the alternative is
+shipping the oracle AC-12 exists to close. Worth stating rather than burying: it is an edit to a
+merged slice's asserted observable, made because that slice predates the indistinguishability rule
+slice 7 wrote down.
+
 ### The finding AC-11 was narrowed around
 
 **The client's same-LAN scan of `.1` reads a SEEDED base, not the journal.** `nmap.ts` answers a
@@ -2079,12 +2089,25 @@ criterion — and fixing only the filter half would leave the other two stale wh
       its callers, two of which resolve somebody else's gateway cross-player. The contract is now
       right at both vantages and pinned by unit tests. The client DOOR is a separate matter: it
       reads a seeded base and cannot observe a deny at all — see the finding below.
-- [ ] **AC-12** A forward whose TARGET has denied the internal port does not appear in the public
+- [x] **AC-12** A forward whose TARGET has denied the internal port does not appear in the public
       scan, AND the reach refuses a connection to it — scan and door agree. Distinct from slice 7's
       exemption and not in conflict with it: slice 7 exempted the GATEWAY's filter over traffic it
       merely passes through, while the target is the box that TERMINATES the forwarded traffic, so
       its own INPUT filter governs it. A scan that hid a port the door still opened would be the
       exact inconsistency slice 7 closed, running the other way.
+      **The door was NOT already right, and the way it was wrong is the find of this boundary.**
+      `resolvePublicTarget` gated the forward on the raw pidfiles, so a STOPPED daemon failed there
+      as `host_unreachable` while a FILTERED one routed fine and was refused a layer later as
+      `service_not_running`. Two names for one silence is an oracle: it told a stranger which port
+      somebody is DEFENDING, which is the single state a filter must never have — and it is
+      word-for-word the fault slice 7 fixed for the gateway's own port and left standing one hop in.
+      Both now answer `host_unreachable`. The scan half is `natPortResolver`, and the same pair
+      exists one layer deeper on the chain, where the reach was already indistinguishable (it has no
+      per-port routing gate) but `resolveInnerGatewayScan` still read raw pidfiles.
+      Three call sites, each falsified alone: reverting `natPortResolver` fails the public-scan test,
+      reverting the routing gate fails the mysql door AND the hydra sweep, reverting the deep reader
+      fails the chain test. `service_not_running` stays correct where it means something else — a
+      forward landing on a port that serves a DIFFERENT service is still named as such.
 - [x] **AC-13** The owner's own view is unmoved. `ps`, the owner's local scan, and `127.0.0.1`
       still reach a filtered service — the whole reason a filter beats `systemctl stop`.
       The self path in `nmap` was already right — it reads the pidfiles — but nothing guarded it, so

@@ -35,7 +35,8 @@ import { materializeMachineFs, type OwnerPatchRow } from '../network/materialize
 import { resolveChildGatewayHop, resolveDeepHostHop } from '../network/deepLayerHop';
 import { parseForwardRules, readRulesV4 } from '../network/iptablesRules';
 import { canBoot } from '../boot/bootFiles';
-import { readOpenPorts, type OpenPort } from '../services/pidfile';
+import type { OpenPort } from '../services/pidfile';
+import { portsOpenToNetwork } from '../network/portsOpenToNetwork';
 import { scanResult } from './scanResult';
 import type { Directory } from '../filesystem/types';
 import type { NonceStore } from '../signedRequest/nonceStore';
@@ -119,8 +120,14 @@ const resolveGatewayExposedPorts = async (
   }
   // A box that cannot boot has no doors: it advertises nothing rather than dropping the
   // whole scan, because the gateway above it is still answering for everything else.
+  //
+  // A box that CAN boot answers with what it gives the NETWORK, not what it runs. It
+  // terminates the forwarded traffic, so its own filter governs the port while the
+  // gateway passing that traffic through does not. The reach down this chain already
+  // refuses a filtered port as though nothing served it, and a scan reading the raw
+  // pidfiles would advertise a door the chain would then refuse.
   const targets = new Map<string, readonly OpenPort[]>([
-    [deep.host.ip, deepHost.kind === 'box' ? readOpenPorts(deepHost.fs) : []],
+    [deep.host.ip, deepHost.kind === 'box' ? portsOpenToNetwork(deepHost.fs) : []],
   ]);
   // Resolve the child gateway's exposed ports only when a forward actually points at it,
   // recursing one layer deeper so a chained forward is live only while the chain below is.

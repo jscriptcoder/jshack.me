@@ -1007,8 +1007,13 @@ describe('a resident who filters the port their gateway publishes', () => {
       }),
     );
 
+    // The same silence a forward onto a stopped daemon gives, and the same one an
+    // address nobody published gives. It used to be `service_not_running` — the filter
+    // applied, but under a name of its own, so a sweep could tell a port somebody is
+    // DEFENDING from one that was never there. That is the single state a defence must
+    // not have, because it is the one worth a wordlist.
     expect(status).toBe(404);
-    expect(body).toEqual({ error: 'service_not_running' });
+    expect(body).toEqual({ error: 'host_unreachable' });
   });
 
   it('goes on answering a published port the resident left open', async () => {

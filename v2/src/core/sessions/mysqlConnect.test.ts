@@ -806,6 +806,43 @@ describe('handleMysqlConnect', () => {
       expect(upsertPatch).not.toHaveBeenCalled();
     });
 
+    it('refuses once the defender has DENIED the port in their own filter, writing nothing', async () => {
+      const identity = generateIdentity();
+      const { deps, upsertPatch } = crossPlayerDeps({
+        findPatches: journals({
+          [AP_GATEWAY_ID]: [publicForward()],
+          [DEFENDER_WS]: [
+            defenderMysqld,
+            defenderDatadir,
+            patchRow('/etc/iptables/rules.v4', `deny ${SERVICE_CATALOG.mysql.defaultPort}`),
+          ],
+        }),
+      });
+
+      const response = await handleMysqlConnect(
+        await signedConnect(identity, {
+          essid: TARGET_ESSID,
+          target_ip: TARGET_PUBLIC_IP,
+          port: PUBLIC_PORT,
+          username: DEFENDER_DB_ACCOUNT.username,
+          password: DEFENDER_DB_ACCOUNT.password,
+        }),
+        deps,
+      );
+
+      // The forward is still published and the daemon is still running — the defender
+      // filtered the port instead of stopping the service, so they keep their own
+      // database while it goes dark to the address. The filter honoured here is the
+      // TARGET's: this box terminates the forwarded traffic, unlike the gateway, whose
+      // own filter governs only what it answers for itself.
+      //
+      // The same silence a never-forwarded port and a stopped daemon give. A refusal of
+      // its own would tell an outsider that something IS there and is being defended,
+      // which is the one thing a filter must not announce.
+      expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+      expect(upsertPatch).not.toHaveBeenCalled();
+    });
+
     it('refuses a forward that reaches the box on a port no database holds', async () => {
       const identity = generateIdentity();
       const { deps } = crossPlayerDeps({

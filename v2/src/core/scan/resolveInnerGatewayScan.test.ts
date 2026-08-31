@@ -246,6 +246,26 @@ describe('handleResolveInnerGatewayScan', () => {
     });
   });
 
+  it('drops a forwarded port the deep box has DENIED in its own filter', async () => {
+    const { deps } = perIdDeps({
+      [INNER_GW_ID]: [forwardPatch],
+      [DEEP_HOST_ID]: [
+        deepPatchRow('/etc/iptables/rules.v4', `deny ${SERVICE_CATALOG.ssh.defaultPort}`),
+      ],
+    });
+
+    const result = await handleResolveInnerGatewayScan(envelope(INNER.ip), deps);
+
+    // The daemon is still running down there — the box refuses the network instead of
+    // stopping the service, and the box that TERMINATES the forwarded traffic is the one
+    // whose filter governs it. The reach already answers this port as though nothing were
+    // serving, so a scan still listing it would promise a door the chain refuses.
+    expect(result).toEqual({
+      status: 200,
+      body: { ok: true, found: true, ports: [SSH_22, SNMP_161] },
+    });
+  });
+
   it('advertises nothing for a deep box bricked through its own journal', async () => {
     const { deps } = perIdDeps({
       [INNER_GW_ID]: [forwardPatch],
