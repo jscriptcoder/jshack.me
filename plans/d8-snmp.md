@@ -2048,12 +2048,48 @@ denies `161`, the door is decoration and slice 9 needs to know that.
 
 **Both boundaries**
 
-- [ ] **AC-14** A wire-check, `testSnmpInstall`, drives the real endpoints for the install, the
+- [x] **AC-14** A wire-check, `testSnmpInstall`, drives the real endpoints for the install, the
       rotation, the crack and the re-open. RUN against a live stack and FALSIFIED, per the standing
       rule that a check never seen red is not evidence.
-- [ ] **AC-15** Slices 1–7 are unmoved: `testSnmpCrossPlayer` 15/15, `testSnmpSet` 16/16,
+- [x] **AC-15** Slices 1–7 are unmoved: `testSnmpCrossPlayer` 15/15, `testSnmpSet` 16/16,
       `testSnmpDepth` 12/12 and `testSnmpFilter` 13/13 all re-run unchanged. The scan change touches
       shared machinery four paths read, so this is the criterion carrying the most risk in the slice.
+
+### Boundary 1 — the live run (2026-08-31)
+
+| script | result |
+|---|---|
+| `testSnmpInstall` | **15/15** — new, falsified twice |
+| `testSnmpCrossPlayer` | 15/15 unchanged |
+| `testSnmpSet` | 16/16 unchanged |
+| `testSnmpDepth` | 12/12 unchanged |
+| `testSnmpFilter` | 13/13 unchanged |
+| `testSnmpWalk` | 13/15 → **15/15 after repair** |
+
+Falsified from BOTH sides rather than observed green. Client-side, the `join('')` mutant the
+mutation gate found fails check 9 alone — the rewrite collapsing the config onto one line would
+brick the agent after a rotation, and the wire catches it too. Server-side, a `communityTier` that
+never returns read-write cascades through checks 3, 8, 11, 12 and 13.
+
+That second one also proved the server was serving THIS branch. The process on 3100 was an orphan
+started the previous evening, predating every change here, and its own log showed it watching the
+Stryker sandbox; it was killed and replaced before any script ran. A wire-check against a stale
+`vercel dev` is worse than no wire-check, because it reports confidence.
+
+### `testSnmpWalk` was stale on trunk, the same way `testSnmpSet` was
+
+It read `portTable` where the API returns `portTables` — the slice 6 pluralisation, repaired in
+`testSnmpSet` during slice 7 and missed here. Two checks had been reading a field that stopped
+existing two slices ago, and a `?? null` fallback dressed each as a plausible failure rather than a
+crash. Proven PRE-EXISTING by running it on `main` first (identical 13/15) before anything was
+touched, then given the same kind-aware helper `testSnmpSet` received. The repaired check was
+falsified against a wrong expected forward, so it now reads the real table rather than matching
+`null` against `null`.
+
+Two scripts found broken by one rename in two consecutive slices. A wire-check pulls fields off an
+untyped response by name with no compiler behind it, and nothing re-runs one but a human — which is
+the whole argument for re-running the neighbours on every slice, and for widening that habit beyond
+the four a plan happens to name.
 
 ### Two findings from closing AC-1 — neither belongs to this slice
 
