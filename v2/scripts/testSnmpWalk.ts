@@ -197,10 +197,19 @@ const hasField = (body: unknown, key: string): boolean =>
   Object.getOwnPropertyDescriptor(body, key) !== undefined;
 
 /** The port table as a CLIENT has to read it — off an untyped body, by the keys
- *  present. */
-const portTableIn = (body: unknown): string => {
+ *  present. A device renders one table per question it can be asked, so naming the kind
+ *  is what keeps an assertion about forwards from silently reading whichever table
+ *  happens to come first. */
+const portTableIn = (body: unknown, kind: string): string => {
   if (typeof body !== 'object' || body === null) return '';
-  const table = Object.getOwnPropertyDescriptor(body, 'portTable')?.value;
+  const tables = Object.getOwnPropertyDescriptor(body, 'portTables')?.value;
+  if (!Array.isArray(tables)) return JSON.stringify(null);
+  const table = tables.find(
+    (candidate) =>
+      typeof candidate === 'object' &&
+      candidate !== null &&
+      Object.getOwnPropertyDescriptor(candidate, 'kind')?.value === kind,
+  );
   return JSON.stringify(table ?? null);
 };
 
@@ -331,8 +340,8 @@ const main = async (): Promise<void> => {
   const readOnly = await walk(gateway.ip, 'public');
   check(
     'the free community still names the tier it answered at, and carries no table',
-    stringField(readOnly.body, 'tier') === 'read-only' && !hasField(readOnly.body, 'portTable'),
-    `tier ${stringField(readOnly.body, 'tier')}, portTable ${portTableIn(readOnly.body)}`,
+    stringField(readOnly.body, 'tier') === 'read-only' && !hasField(readOnly.body, 'portTables'),
+    `tier ${stringField(readOnly.body, 'tier')}, portTables ${portTableIn(readOnly.body, 'nat')}`,
   );
 
   const bare = await walk(gateway.ip, RW_COMMUNITY);
@@ -340,20 +349,20 @@ const main = async (): Promise<void> => {
     'the cracked community answers read-write on a device that forwards nothing',
     bare.status === 200 &&
       stringField(bare.body, 'tier') === 'read-write' &&
-      portTableIn(bare.body) === JSON.stringify({ kind: 'nat', forwards: [] }),
-    `status ${bare.status}, tier ${stringField(bare.body, 'tier')}, table ${portTableIn(bare.body)}`,
+      portTableIn(bare.body, 'nat') === JSON.stringify({ kind: 'nat', forwards: [] }),
+    `status ${bare.status}, tier ${stringField(bare.body, 'tier')}, table ${portTableIn(bare.body, 'nat')}`,
   );
 
   await plant(RULES_V4_PATH, `forward ${FORWARDED_PORT} to ${FORWARD_TARGET}\n`);
   const withTable = await walk(gateway.ip, RW_COMMUNITY);
   check(
     'and renders the forward off the very rules.v4 the box routes by',
-    portTableIn(withTable.body) ===
+    portTableIn(withTable.body, 'nat') ===
       JSON.stringify({
         kind: 'nat',
         forwards: [{ publicPort: FORWARDED_PORT, internalIp: '192.168.147.10', internalPort: 22 }],
       }),
-    `table ${portTableIn(withTable.body)}`,
+    `table ${portTableIn(withTable.body, 'nat')}`,
   );
 
   check(

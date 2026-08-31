@@ -5,7 +5,7 @@ import { generateIdentity } from '../identity/identity';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { pidfilePath, readOpenPorts } from '../services/pidfile';
+import { formatPidfileContent, pidfilePath, readOpenPorts } from '../services/pidfile';
 import { SNMPD_LOG_PATH } from '../logging/snmpdLog';
 import { RULES_V4_OWNER, RULES_V4_PATH, RULES_V4_PERMISSIONS } from '../network/iptablesRules';
 import { ACL_CONF_PATH } from '../network/switchAcl';
@@ -43,6 +43,12 @@ const FIXED_NOW = Date.UTC(2026, 7, 9, 11, 4, 7);
 const CLIENT_IP = '192.168.1.50';
 const RW_COMMUNITY = 'corpnet';
 
+import { ownAgentCommunity } from '../snmp/ownAgent';
+import { SNMPD_CONF_PATH, SNMPD_CONF_SEED } from '../snmp/conf';
+import { SNMPD_STATE_PATH } from '../snmp/rwCommunity';
+import { lanAddressFor } from '../network/lanAddress';
+import { portsOpenToNetwork } from '../network/portsOpenToNetwork';
+import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 const CANDIDATE_ESSIDS = ['BEAN-THERE-WIFI', 'BREW-AND-CODE', 'NAKATOMI-PLAZA', 'PIED-PIPER'];
 
 const runsAgent = (host: LanHost, essid: string): boolean =>
@@ -922,3 +928,230 @@ describe('closing a port on the box that answers', () => {
     expect(writtenTo(upsertPatch, RULES_V4_PATH)).toBeUndefined();
   });
 });
+
+
+/**
+ * The whole point of the arc, on a box nothing generated.
+ *
+ * A player closed a port on their own machine with the only defence in the game that is
+ * not `systemctl stop`: the service keeps running and keeps answering them, and the
+ * network stops seeing it. Then somebody else cracks the community their own install
+ * planted and opens it again — no shell, no session, no login, and nothing restarted.
+ *
+ * Different from every set before it in the file the write lands on and the vantage it
+ * arrives by. A gateway's NAT table routes traffic ELSEWHERE; this is the INPUT chain of
+ * the box that terminates it, and the target is a fellow occupant rather than a device
+ * the world drew.
+ */
+describe("re-opening a port on a neighbour's own box", () => {
+  /** An octet the generator did not fill, so the box answering is unambiguously the
+   *  occupant's own and not a seeded sibling standing at the same address. */
+  const freeOctet = (essid: string): number => {
+    const taken = new Set(
+      generateHomeLan(essid).hosts.map((host) => Number(host.ip.split('.')[3])),
+    );
+    for (let candidate = 2; candidate < 255; candidate += 1) {
+      if (!taken.has(candidate)) return candidate;
+    }
+    throw new Error('every octet on this LAN is taken');
+  };
+
+  const occupantRow = (ownerKey: string, machineName: string) => ({
+    owner_key: ownerKey,
+    workstation_machine_id: `ws-${machineName}`,
+    workstation_machine_name: machineName,
+    workstation_username: 'neo',
+    workstation_root_hash: md5('whatever'),
+  });
+
+  /** A's box as A left it: the agent up, redis up, and 6379 denied to the network by
+   *  A's own hand. */
+  const defendedBox = (ownerKey: string, rules: string): readonly OwnerPatchRow[] => [
+    patchRow(SNMPD_CONF_PATH, SNMPD_CONF_SEED),
+    patchRow(SNMPD_STATE_PATH, formatSnmpdState(md5(ownAgentCommunity(ownerKey)))),
+    patchRow(
+      pidfilePath(SERVICE_CATALOG.snmp),
+      formatPidfileContent(SERVICE_CATALOG.snmp, SERVICE_CATALOG.snmp.defaultPort),
+    ),
+    patchRow(
+      pidfilePath(SERVICE_CATALOG.redis),
+      formatPidfileContent(SERVICE_CATALOG.redis, SERVICE_CATALOG.redis.defaultPort),
+    ),
+    patchRow(RULES_V4_PATH, rules),
+  ];
+
+  /** The box as it stands once the set has landed — the filter the world is judged by,
+   *  read through the same function every door consults. */
+  const boxWithRules = (rules: string) =>
+    buildDirectory({
+      etc: buildDirectory({
+        iptables: buildDirectory({ 'rules.v4': buildFile(rules) }),
+      }),
+      var: buildDirectory({
+        run: buildDirectory({
+          'redis-server.pid': buildFile(
+            formatPidfileContent(SERVICE_CATALOG.redis, SERVICE_CATALOG.redis.defaultPort),
+          ),
+        }),
+      }),
+    });
+
+  const attack = (over: { readonly rules: string }) => {
+    const owner = generateIdentity();
+    const neighbour = generateIdentity();
+    const essid = CANDIDATE_ESSIDS[0]!;
+    const ownerOctet = freeOctet(essid);
+    const { deps, upsertPatch } = makeDeps({
+      listOccupantsByEssid: async () => ({
+        data: [
+          occupantRow(owner.publicKeyHex, 'nebuchadnezzar'),
+          occupantRow(neighbour.publicKeyHex, 'logos'),
+        ],
+        error: null,
+      }),
+      listLeasesByEssid: async () => ({
+        data: [
+          { owner_key: owner.publicKeyHex, octet: ownerOctet },
+          { owner_key: neighbour.publicKeyHex, octet: ownerOctet + 1 },
+        ],
+        error: null,
+      }),
+      findPatches: async () => ({
+        data: [...defendedBox(owner.publicKeyHex, over.rules)],
+        error: null,
+      }),
+    });
+    return {
+      deps,
+      upsertPatch,
+      neighbour,
+      essid,
+      ownerKey: owner.publicKeyHex,
+      ownerIp: lanAddressFor(essid, ownerOctet),
+      neighbourIp: lanAddressFor(essid, ownerOctet + 1),
+      community: ownAgentCommunity(owner.publicKeyHex),
+    };
+  };
+
+  it("opens a port its owner shut, with the community the owner's own install planted", async () => {
+    const { deps, upsertPatch, neighbour, essid, ownerIp, community } = attack({
+      rules: '# mine\ndeny 6379\n',
+    });
+
+    const response = await handleSnmpSet(
+      await signedSet(neighbour, {
+        essid,
+        target_ip: ownerIp,
+        community,
+        assignment: 'inputPort.6379=permit',
+      }),
+      deps,
+    );
+
+    expect(response).toEqual({
+      status: 200,
+      body: { ok: true, oid: 'INPUT-MIB::inputPort.6379', value: 'permit' },
+    });
+
+    // The observable, read through the rule every door judges the network by rather than
+    // through the file: A's redis is reachable from the LAN again, and A restarted
+    // nothing and was told nothing.
+    const rewritten = writtenTo(upsertPatch, RULES_V4_PATH)?.content ?? '';
+    expect(portsOpenToNetwork(boxWithRules(rewritten))).toContainEqual({
+      port: SERVICE_CATALOG.redis.defaultPort,
+      service: SERVICE_CATALOG.redis.service,
+    });
+  });
+
+  it("refuses the community the owner replaced, and leaves the port shut", async () => {
+    // The rotation earning its keep on the door it exists for. A stale community that
+    // still opened ports would make rotation a gesture.
+    const { deps, upsertPatch, neighbour, essid, ownerIp } = attack({
+      rules: '# mine\ndeny 6379\n',
+    });
+
+    const response = await handleSnmpSet(
+      await signedSet(neighbour, {
+        essid,
+        target_ip: ownerIp,
+        community: 'the-one-they-rotated-away',
+        assignment: 'inputPort.6379=permit',
+      }),
+      deps,
+    );
+
+    expect(response.status).not.toBe(200);
+    expect(writtenTo(upsertPatch, RULES_V4_PATH)).toBeUndefined();
+  });
+
+  it("lands in the owner's own log, under the owner's key rather than the visitor's", async () => {
+    // A's box keeps ONE log however many neighbours touch it. Written under the caller's
+    // key instead, every visitor would get a row of their own and the newest would be all
+    // a defender could see — a log that erased the previous attacker each time somebody
+    // new arrived would not be a log at all.
+    const { deps, upsertPatch, neighbour, essid, ownerIp, ownerKey, community } = attack({
+      rules: '# mine' + String.fromCharCode(10) + 'deny 6379' + String.fromCharCode(10),
+    });
+
+    await handleSnmpSet(
+      await signedSet(neighbour, {
+        essid,
+        target_ip: ownerIp,
+        community,
+        assignment: 'inputPort.6379=permit',
+      }),
+      deps,
+    );
+
+    expect(writtenTo(upsertPatch, SNMPD_LOG_PATH)).toMatchObject({
+      path: SNMPD_LOG_PATH,
+      writer_key: ownerKey,
+    });
+    expect(writtenTo(upsertPatch, SNMPD_LOG_PATH)?.writer_key).not.toBe(neighbour.publicKeyHex);
+  });
+
+  it('records the address the visitor actually arrived from, not the one they claimed', async () => {
+    // The defender's only evidence, so it may not be anything the caller controls. B signs
+    // a source address of their own choosing; the box logs the LEASE the server issued
+    // them, because that is the address A's machine would really have seen on the WiFi.
+    const { deps, upsertPatch, neighbour, essid, ownerIp, neighbourIp, community } = attack({
+      rules: '# mine' + String.fromCharCode(10) + 'deny 6379' + String.fromCharCode(10),
+    });
+
+    await handleSnmpSet(
+      await signedSet(neighbour, {
+        essid,
+        target_ip: ownerIp,
+        community,
+        assignment: 'inputPort.6379=permit',
+      }),
+      deps,
+    );
+
+    const logged = writtenTo(upsertPatch, SNMPD_LOG_PATH)?.content ?? '';
+    expect(logged).toContain(neighbourIp);
+    expect(logged).not.toContain(CLIENT_IP);
+  });
+
+  it("writes a refused community into that same log, so a failed attempt is evidence too", async () => {
+    // The attempt a defender most wants to see. A door that logged only what succeeded
+    // would leave somebody sweeping their box invisible right up until the moment they
+    // got in.
+    const { deps, upsertPatch, neighbour, essid, ownerIp, ownerKey } = attack({
+      rules: '# mine' + String.fromCharCode(10) + 'deny 6379' + String.fromCharCode(10),
+    });
+
+    await handleSnmpSet(
+      await signedSet(neighbour, {
+        essid,
+        target_ip: ownerIp,
+        community: 'not-the-one',
+        assignment: 'inputPort.6379=permit',
+      }),
+      deps,
+    );
+
+    expect(writtenTo(upsertPatch, SNMPD_LOG_PATH)).toMatchObject({ writer_key: ownerKey });
+  });
+});
+

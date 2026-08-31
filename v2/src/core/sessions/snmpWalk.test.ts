@@ -5,10 +5,13 @@ import { generateIdentity } from '../identity/identity';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
-import { pidfilePath, readOpenPorts } from '../services/pidfile';
+import { formatPidfileContent, pidfilePath, readOpenPorts } from '../services/pidfile';
 import { formatSnmpdArrivalLine, formatSnmpdAttemptLine, SNMPD_LOG_PATH } from '../logging/snmpdLog';
 import { derivePid } from '../logging/syslog';
-import { formatSnmpdState } from '../snmp/rwCommunity';
+import { formatSnmpdState, SNMPD_STATE_PATH } from '../snmp/rwCommunity';
+import { SNMPD_CONF_PATH, SNMPD_CONF_SEED } from '../snmp/conf';
+import { ownAgentCommunity } from '../snmp/ownAgent';
+import { lanAddressFor } from '../network/lanAddress';
 import { md5 } from '../generation/md5';
 import { asAbsPath, asGameTime } from '../types';
 import type { OwnerPatchRow } from '../network/materializeMachineFs';
@@ -718,6 +721,112 @@ describe("whose row a gateway's own log accretes under", () => {
     expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
       path: SNMPD_LOG_PATH,
       writer_key: identity.publicKeyHex,
+    });
+  });
+});
+
+/**
+ * The agent a PLAYER installed, walked by somebody standing on the same WiFi.
+ *
+ * Every device this door has answered so far was drawn by the world generator, and its
+ * agent was there because a dice roll put it there. This one exists because its owner
+ * typed `apt install snmp` and started the daemon — a door they opened, on a box nothing
+ * generated, and the first SNMP target in the game that somebody chose to become.
+ *
+ * Walked by a NEIGHBOUR rather than by its owner, because that is the direction the
+ * mechanic runs: an agent is worth installing when it answers the network, and worth
+ * defending for the same reason. The owner's own walk of their own box is a different
+ * path entirely — answered on the client, never here — and this door has never had one.
+ */
+describe('the agent a player installed, walked by a neighbour', () => {
+  /** An octet the generator did not fill, so the box answering is unambiguously the
+   *  occupant's own and not a seeded sibling standing at the same address. */
+  const freeOctet = (essid: string): number => {
+    const taken = new Set(
+      generateHomeLan(essid).hosts.map((host) => Number(host.ip.split('.')[3])),
+    );
+    for (let candidate = 2; candidate < 255; candidate += 1) {
+      if (!taken.has(candidate)) return candidate;
+    }
+    throw new Error('every octet on this LAN is taken');
+  };
+
+  const occupantRow = (
+    ownerKey: string,
+    machineName: string,
+  ): {
+    readonly owner_key: string;
+    readonly workstation_machine_id: string;
+    readonly workstation_machine_name: string;
+    readonly workstation_username: string;
+    readonly workstation_root_hash: string;
+  } => ({
+    owner_key: ownerKey,
+    workstation_machine_id: `ws-${machineName}`,
+    workstation_machine_name: machineName,
+    workstation_username: 'neo',
+    workstation_root_hash: md5('whatever'),
+  });
+
+  it('answers for the box its owner installed it on, to a neighbour asking with public', async () => {
+    const owner = generateIdentity();
+    const neighbour = generateIdentity();
+    const essid = CANDIDATE_ESSIDS[0]!;
+    const ownerOctet = freeOctet(essid);
+    const ownerIp = lanAddressFor(essid, ownerOctet);
+    const ownerRow = occupantRow(owner.publicKeyHex, 'nebuchadnezzar');
+
+    const { deps } = makeDeps({
+      listOccupantsByEssid: async () => ({
+        data: [ownerRow, occupantRow(neighbour.publicKeyHex, 'logos')],
+        error: null,
+      }),
+      listLeasesByEssid: async () => ({
+        data: [
+          { owner_key: owner.publicKeyHex, octet: ownerOctet },
+          { owner_key: neighbour.publicKeyHex, octet: freeOctet(essid) + 1 },
+        ],
+        error: null,
+      }),
+      // The box as `apt install snmp` and `systemctl start snmpd` leave it: both
+      // configs planted, and the daemon actually holding 161. Without the pidfile the
+      // agent is installed and not running, which answers nobody by design.
+      findPatches: async () => ({
+        data: [
+          patchRow(SNMPD_CONF_PATH, SNMPD_CONF_SEED),
+          patchRow(
+            SNMPD_STATE_PATH,
+            formatSnmpdState(md5(ownAgentCommunity(owner.publicKeyHex))),
+          ),
+          patchRow(
+            pidfilePath(SERVICE_CATALOG.snmp),
+            formatPidfileContent(SERVICE_CATALOG.snmp, SERVICE_CATALOG.snmp.defaultPort),
+          ),
+        ],
+        error: null,
+      }),
+    });
+
+    const response = await handleSnmpWalk(
+      await signedWalk(neighbour, { essid, target_ip: ownerIp }),
+      deps,
+    );
+
+    expect(response).toEqual({
+      status: 200,
+      body: {
+        ok: true,
+        tier: 'read-only',
+        identity: {
+          hostname: ownerRow.workstation_machine_name,
+          // The Linux platform tag, NOT a claim the box routes anything: the enum has
+          // two members and this one renders as `Linux` with `eth0` interfaces. A switch
+          // is the special case; every other box answers as the Linux machine it is.
+          kind: 'router',
+          sysContact: 'netops@corp.local',
+          addresses: [ownerIp],
+        },
+      },
     });
   });
 });

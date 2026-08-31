@@ -36,6 +36,14 @@ import {
   RULES_V4_PERMISSIONS,
 } from '../network/iptablesRules';
 import { pidfilePath } from '../services/pidfile';
+import { md5 } from '../generation/md5';
+import { SNMPD_CONF_PATH, SNMPD_CONF_PERMISSIONS, SNMPD_CONF_SEED } from '../snmp/conf';
+import { ownAgentCommunity } from '../snmp/ownAgent';
+import {
+  formatSnmpdState,
+  SNMPD_STATE_PATH,
+  SNMPD_STATE_PERMISSIONS,
+} from '../snmp/rwCommunity';
 import { SERVICE_CATALOG } from '../services/serviceCatalog';
 import {
   DEFAULT_WORDLIST,
@@ -63,6 +71,10 @@ export type AptExtraFile = {
    *  a database is its owner's, drawn from their identity and answering to their
    *  own root password. */
   readonly content: (box: PackageFileContext) => string;
+  /** Lines to print once this file has actually landed. Tied to the WRITE rather than
+   *  to the install, so a package that kept the player's existing copy says nothing —
+   *  which is what stops a secret from being re-announced to whoever reinstalls. */
+  readonly noteOnInstall?: (box: PackageFileContext) => readonly string[];
   readonly permissions: FilePermissions;
 };
 
@@ -145,6 +157,31 @@ export const APT_PACKAGES: readonly AptPackage[] = [
         // own decisions, and a fresh one has none in it yet.
         content: () => LOCAL_FILTER_SEED,
         permissions: RULES_V4_PERMISSIONS,
+      },
+      {
+        path: SNMPD_CONF_PATH,
+        // The same for every box too, and for a reason the filter's does not share:
+        // the read-only community is `public` on every device in the world because
+        // that string is not a secret in real SNMP either. Nothing here is drawn.
+        content: () => SNMPD_CONF_SEED,
+        permissions: SNMPD_CONF_PERMISSIONS,
+      },
+      {
+        path: SNMPD_STATE_PATH,
+        // The one file here that IS drawn per box, and the only secret this door has.
+        // Hashed on the way in, exactly as an account's password is: root can read this
+        // file, and a community sitting in it in the clear would make the door a reward
+        // for a crack somebody had already finished.
+        content: (box) => formatSnmpdState(md5(ownAgentCommunity(box.identity.publicKeyHex))),
+        permissions: SNMPD_STATE_PERMISSIONS,
+        // The only time this string is legible anywhere. The file beside it holds the
+        // hash, and no command reads it back, so the line on screen is the whole of
+        // what the owner gets — losing it costs them remote control of their own port
+        // table until they rotate it.
+        noteOnInstall: (box) => [
+          `Read-write community for snmpd on this box: ${ownAgentCommunity(box.identity.publicKeyHex)}`,
+          'Store it somewhere. It is kept hashed and will not be shown again.',
+        ],
       },
     ],
   },

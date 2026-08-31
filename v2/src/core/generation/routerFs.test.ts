@@ -1,3 +1,4 @@
+import { ownAgentCommunity } from '../snmp/ownAgent';
 import { describe, expect, it } from 'vitest';
 import type { Directory, FileNode } from '../filesystem/types';
 import {
@@ -320,6 +321,13 @@ describe('the gateway difficulty curve (a gateway is the best root target in the
     (_unused, index) => `NET-${index}`,
   );
 
+  /** Pubkey-SHAPED seeds rather than `NET-n` strings: a player's own agent is keyed
+   *  by the owner's 64-hex public key, and measuring the knob against seeds of a
+   *  different shape would be measuring the wrong population. */
+  const OWNER_KEYS: readonly string[] = Array.from({ length: 2000 }, (_unused, index) =>
+    index.toString(16).padStart(64, '0'),
+  );
+
   /** Spread the doors across the addressable range rather than clustering them
    *  on one octet, so a per-octet artefact cannot masquerade as the rate. */
   const octetFor = (index: number): number => 2 + (index % 253);
@@ -337,6 +345,7 @@ describe('the gateway difficulty curve (a gateway is the best root target in the
     readonly inner: number;
     readonly deep: number;
     readonly community: number;
+    readonly ownAgent: number;
   } => {
     const rate = (passwords: readonly string[]): number =>
       passwords.filter((password) => covered.has(password)).length;
@@ -347,6 +356,7 @@ describe('the gateway difficulty curve (a gateway is the best root target in the
         NETWORKS.map((_unused, index) => seedDeepGatewayAdminPw(`gw-${index}`, octetFor(index))),
       ),
       community: rate(NETWORKS.map(seedApGatewayCommunity)),
+      ownAgent: rate(OWNER_KEYS.map(ownAgentCommunity)),
     };
   })();
 
@@ -381,6 +391,16 @@ describe('the gateway difficulty curve (a gateway is the best root target in the
     expect(crackable.community).toBeGreaterThan(COMMUNITY_FLOOR);
     expect(crackable.community).toBeLessThan(COMMUNITY_CEILING);
     expect(crackable.community).toBeGreaterThan(crackable.ap);
+  });
+
+  it("opens a player's own agent on the same odds as a device the world drew", () => {
+    // The whole argument for drawing this community through the same primitive. An
+    // agent a player installed is a door like any other: harder to open than a
+    // generated one and the filter it guards would defend against nothing anybody
+    // could get past, easier and a player who ran one would be handing their port
+    // table to the first neighbour with the shipped wordlist.
+    expect(crackable.ownAgent).toBeGreaterThan(COMMUNITY_FLOOR);
+    expect(crackable.ownAgent).toBeLessThan(COMMUNITY_CEILING);
   });
 
   it('applies the same odds to an inner gateway — depth changes the route, not the lock', () => {

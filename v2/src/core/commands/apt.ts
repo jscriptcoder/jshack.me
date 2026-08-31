@@ -195,6 +195,11 @@ export async function* installExtraFiles(
       permissions: extraFile.permissions,
     });
     if (!result.ok) return result;
+    // After the write, and only after it: a note about a file that failed to land, or
+    // about the copy a player already had, would describe a box that does not exist.
+    for (const note of extraFile.noteOnInstall?.(env) ?? []) {
+      yield text(note);
+    }
   }
   return { ok: true };
 }

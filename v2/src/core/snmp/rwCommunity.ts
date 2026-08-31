@@ -24,6 +24,14 @@
  */
 
 import type { Directory, FilePermissions } from '../filesystem/types';
+import { asAbsPath, type AbsPath } from '../types';
+import { md5 } from '../generation/md5';
+import { readSnmpdConf, SNMPD_CONF_PATH, SNMPD_CONF_PERMISSIONS } from './conf';
+
+/** One name for the path, so the reader below and every writer of this file agree on
+ *  where it is. Shares a FILENAME with the world-readable config and nothing else —
+ *  the directory is the whole difference, which is why naming both is worth doing. */
+export const SNMPD_STATE_PATH: AbsPath = asAbsPath('/var/lib/snmp/snmpd.conf');
 
 /** Root reads it, root writes it, nobody else does either. Not an executable: it is
  *  state. */
@@ -80,4 +88,52 @@ export const readRwCommunityHash = (hostFs: Directory): string | undefined => {
     .map((line) => RW_COMMUNITY_RE.exec(line.trim())?.[1])
     .find((value) => value !== undefined);
   return matched;
+};
+
+/** One file a daemon rewrites as it comes up, with the permissions it must land at. */
+export type ConsumedConfig = {
+  readonly path: AbsPath;
+  readonly content: string;
+  readonly permissions: FilePermissions;
+};
+
+/**
+ * Take a community the owner typed into the world-readable config, and leave the hash.
+ *
+ * Rotation is an ADMINISTRATIVE act on the box, never a move over the wire, and this is
+ * the whole of it: the owner writes `rwcommunity <string>` where they can read it, the
+ * daemon spends that line as it starts, and what remains is a hash like any other. There
+ * is deliberately no OID for this — a set that could rotate the community would let
+ * whoever cracked it lock the real owner out of their own box, and the community would
+ * stop being a second way in and become a slower name for owning it already.
+ *
+ * The plaintext IS readable between the edit and the restart, and that window is a
+ * mechanic rather than an oversight: a visitor holding any shell can read the file while
+ * it waits, which is what makes a secret typed into a readable file worth watching for.
+ *
+ * DEGRADES rather than errors, the way this file's neighbours do. A blank or malformed
+ * line matches nothing and is spent on nothing, so the community already in force stays
+ * in force — a restart that consumed nothing must not leave a box answering to no one.
+ * Duplicates resolve like every other directive here: the FIRST wins. Every one of them
+ * is removed even so, because a line left behind is the plaintext left behind.
+ */
+export const consumeRwCommunity = (hostFs: Directory): readonly ConsumedConfig[] => {
+  const lines = readSnmpdConf(hostFs).split('\n');
+  const rotated = lines
+    .map((line) => RW_COMMUNITY_RE.exec(line.trim())?.[1])
+    .find((value) => value !== undefined);
+  if (rotated === undefined) return [];
+
+  return [
+    {
+      path: SNMPD_STATE_PATH,
+      content: formatSnmpdState(md5(rotated)),
+      permissions: SNMPD_STATE_PERMISSIONS,
+    },
+    {
+      path: SNMPD_CONF_PATH,
+      content: lines.filter((line) => RW_COMMUNITY_RE.exec(line.trim()) === null).join('\n'),
+      permissions: SNMPD_CONF_PERMISSIONS,
+    },
+  ];
 };

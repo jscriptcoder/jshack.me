@@ -1,15 +1,17 @@
 # Plan: D8 — `snmpwalk` / `snmpset`
 
-**Branch**: `feat/d8-snmp-cross` (slice 7)
+**Branch**: `feat/d8-snmp-install` (slice 8 — intra-slice stack of two boundaries; boundary 1 not started)
 **Status**: Active — slice 1 MERGED (#465, v0.185.0); slice 2 MERGED (#466, v0.186.0,
 2026-08-27); slice 3 MERGED (#467, v0.187.0, 2026-08-28); slice 4 MERGED (#468, v0.188.0,
 2026-08-28 — AC-1…AC-14 met, wire-check RUN 16/16 and falsified twice, mutation gate closed
 at 88.65%); slice 5 MERGED (#469, v0.189.0, 2026-08-28 — AC-1…AC-13 met, wire-check RUN
 12/12 and falsified twice, mutation gate closed at 85.32%); slice 6 MERGED (#470, v0.190.0,
 2026-08-29 — AC-1…AC-15 met, wire-check RUN 13/13 and falsified twice, mutation gate closed at
-97.43%); slice 7 **PR-READY** on `feat/d8-snmp-cross` (v0.191.0 — AC-1…AC-13 met, cross-player
+97.43%); slice 7 MERGED (#471, v0.191.0, 2026-08-30 — AC-1…AC-13 met, cross-player
 wire-check RUN 15/15 and falsified, AC-12's three neighbours re-run 16/16 + 12/12 + 13/13, mutation
-gate closed at 97.99%); slice 8 outlined only
+gate closed at 97.99%); slice 8 **PLANNED, CONFIRMED, READY FOR RED** — AC-1…AC-15 agreed, the
+two-boundary stack confirmed 2026-08-31, `ownAgentCommunity` settled through the language protocol,
+no code written
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D8 — resolved scope & decisions
 (grill-me, 2026-08-27)", eleven locked decisions, gap-checked the same day.
 
@@ -38,8 +40,8 @@ that table, all of it a VIEW over the `rules.v4` / `acl.conf` files v2 already p
 | 4 | a player opens a port, no shell | `snmpset` adds a forward; `nmap` shows it | **merged** #468 |
 | 5 | a device on a deep layer answers | the inner-gateway vantage | **merged** #469 |
 | 6 | a player runs their own agent | owner filters a port; `127.0.0.1` still works | **merged** #470 |
-| 7 | a player reconfigures another's | B opens a forward into A's LAN | **planned** |
-| 8 | a player's own agent answers somebody | B re-opens a port A filtered | outlined |
+| 7 | a player reconfigures another's | B opens a forward into A's LAN | **merged** #471 |
+| 8 | a player's own agent answers somebody | B re-opens a port A filtered | **planned** |
 
 Only slice 1 is planned in full. Plan each later slice when its predecessor lands — D7 proved that
 slices 5 and 7 cost far less than their plans assumed, because `reachServiceHost` already
@@ -1874,21 +1876,293 @@ AC-12's two wire-checks are re-run unchanged, the mutation gate has run with sur
 
 **Slice complete when** its PR lands on `main`.
 
-## Slice 8 (outline only — plan it when slice 7 lands)
+## Slice 8: a player's own agent answers somebody, and the filter stops lying to the world
 
-- **Slice 8** — a player's OWN agent answers somebody. `apt install snmp` plants `rules.v4` and no
-  config at all, so an installed agent answers nobody and slice 6's attacker prize — crack the
-  community, re-open a port the owner filtered — has no in-game path. Needs a decision on what
-  community a fresh install gets, seeded or rolled, and how the owner changes it. **Owes a
-  wire-check**; the observable is B re-opening a port A filtered, on a box A installed the agent on
-  themselves.
-- **The public scan does not honour the filter.** `nmap <A's public IP>` lists a port A denied:
-  `scanResult` reads `readOpenPorts` — the raw pidfiles — for both its vantages, and the public scan
-  was never one of slice 6's five `portsOpenToNetwork` enforcement sites. So a defender who closes
-  `161` still advertises it to the world, and only the door behind it refuses. Found while writing
-  slice 7's AC-11 and deliberately left there: it is the SCAN's observable, on a door with its own
-  criteria, and folding it in would widen slice 7 past the write it exists to deliver. It belongs
-  beside the agent-community work because both are about a defence a player can actually raise.
+**Value**: The arc closes on the player's own box. Every SNMP door so far has been pointed at a
+device the world generated; this one makes a player's own machine answerable, which is what turns
+slice 6's filter from a private convenience into something worth defending. `apt install snmp`
+already plants `rules.v4` and nothing else, so an agent a player installs today answers nobody at
+all — the attacker prize slice 6 named has never had a path to it. Here it gets one: B cracks the
+community on A's own box and re-opens a port A closed.
+
+And the same slice stops the filter advertising what it closes. `nmap <A's public IP>` still lists a
+port A denied, because `scanResult` reads raw pidfiles at both vantages. A defence whose own scan
+announces itself is worse than none: it tells an attacker exactly which port is worth a community.
+
+**Path**: `apt install snmp` on A's box → the install names A's read-write community once → A
+`nano`s `/etc/snmp/snmpd.conf` and `systemctl restart snmpd` to change it → A denies `6379` in
+`rules.v4`, and their redis goes dark to the network → B `nmap <A's public IP>` no longer sees 6379
+at all → B `hydra <A's box> snmp` cracks the community from their own wordlist → B
+`snmpset <A's box> <rw> INPUT-MIB::inputPort.6379=permit` → A's redis answers the world again, and
+A's `/var/log/snmpd.log` is the only trace.
+
+**Class**: Behavior change.
+
+**Delivery**: **RECOMMENDED — an intra-slice stack of two PR boundaries** on
+`feat/d8-snmp-install`, rather than one PR. The two halves share a theme but not a mechanism: one
+plants and rotates a config, the other changes what four scan paths read. Reviewing them together
+means holding both in one head, and the second is a change to shared machinery that deserves its
+own diff. Boundary 1 is the agent a player installs (AC-1…AC-9); boundary 2 is the scan honouring
+the filter (AC-10…AC-13). The slice completes when boundary 2 lands. **CONFIRMED 2026-08-31** —
+the stack is the agreed shape, and boundary 1 opens the moment its first commit lands.
+
+### The three decisions this slice rests on
+
+**The read-write community is SEEDED per box, and crackable.** Derived server-side from the
+OWNER'S PUBKEY ALONE — not from a machine id, which nothing at install time carries: a package
+file's `content` is handed `identity.publicKeyHex`, `hostname` and `fs.root()` and nothing else.
+The pubkey rather than the hostname, for three reasons: two players never share a community, it
+survives a rename, and it is deterministic — so deleting the state file and reinstalling recovers
+the string the owner already had instead of rolling a new one behind their back. `workstationGuestPassword`,
+`ownDatabase` and `ownStore` are the same key for the same kind of reason.
+**Corrected 2026-08-31**: an earlier draft here claimed the pubkey was needed so the SERVER could
+reconstruct the plaintext for a cross-player crack. It is not — nothing server-side ever
+reconstructs it. `secretOn: readRwCommunityHash` reads the HASH off the target's own materialized
+filesystem and `sweepAccounts` tries the attacker's wordlist against it, and a read-write walk
+compares hashes too. The decision is unchanged; only the reason was wrong. Hashed into the root-only
+`/var/lib/snmp/snmpd.conf`, and named once in the install's own output so the owner knows what they
+are holding. It lands in the standard wordlist, which is the entire point: an agent
+nobody can crack gives B no path, and slice 6's prize stays a promise. A player's own box now sits
+in the same economy as every generated device — a second, independent way in that costs a wordlist
+rather than a shell.
+
+**Rotation is an administrative act on the box, never a move over the wire.** The owner writes
+`rwcommunity <string>` into the world-readable `/etc/snmp/snmpd.conf`; `systemctl restart snmpd`
+consumes that line, hashes it into the root-only file, and blanks the plaintext. Deliberately NOT
+an OID: `snmpset` rotation would let anyone who cracked the community lock the real owner out of
+their own box, which is precisely what `rwCommunity.ts` says the community must never become — "a
+slower name for owning it already". A remote attacker gets port control and nothing else.
+
+The window between the edit and the restart is a REAL leak and stays one. A visitor holding any
+shell on the box can read the plaintext before the daemon consumes it, because that file is
+world-readable by design. That is a mechanic, not a bug: it teaches that a secret typed into a
+readable file is a secret until the moment you look, and it gives a player with a foothold
+something to watch for.
+
+**The scan fix rides here rather than in a slice of its own.** Both halves are about a defence a
+player can actually raise, and shipping the agent without the scan fix would hand players a filter
+whose own `nmap` still points at what it hides.
+
+### The tension this slice creates, on purpose
+
+To defend redis with the filter, A must leave the agent that can undo the filter answering. Close
+`161` too and the box is dark to everyone — including the attacker — but A has also given up
+remote administration of their own filter. There is no configuration that is both closed and
+convenient, and the game should not offer one. Worth watching in play: if every player simply
+denies `161`, the door is decoration and slice 9 needs to know that.
+
+### Acceptance criteria — FOR CONFIRMATION, before any code
+
+**Boundary 1 — the agent a player installs**
+
+- [x] **AC-1** `apt install snmp` plants BOTH configs beside the filter it already writes: the
+      world-readable `/etc/snmp/snmpd.conf` at `SNMPD_CONF_SEED`, and the root-only
+      `/var/lib/snmp/snmpd.conf` holding the hash of this box's own read-write community. Once the
+      owner starts the daemon, a NEIGHBOUR's walk with `public` renders the box's identity — an
+      installed agent answers. **Narrowed 2026-08-31**: the criterion never said whose walk, and the
+      neighbour's is the one that carries the mechanic — an agent is worth installing because it
+      answers the network, and worth defending for the same reason. The OWNER's walk of their own box
+      is a different path that does not exist yet; see "Two findings" below.
+- [x] **AC-2** The install NAMES the read-write community once in its own output, in the clear. It
+      is never readable again from the box: the file holds only the hash. The announcement is tied to
+      the WRITE, not to the install, so a reinstall over an existing state file re-announces nothing
+      — a visitor holding root should not be handed the owner's community by typing
+      `apt install snmp`. An owner who loses it deletes the file and reinstalls, or rotates.
+- [x] **AC-3** The community is seeded from the owner's pubkey, not rolled, and `hydra <A's box>
+      snmp` recovers it from the standard wordlist exactly as it does against a generated device.
+      The pubkey key is for per-player uniqueness, survival across a rename, and determinism
+      so a reinstall recovers the same string rather than rolling a new one. NOT for
+      server-side reconstruction: a crack reads the hash off the target's own filesystem and
+      sweeps the attacker's wordlist against it.
+      Closed as TWO deterministic claims rather than one flaky check. The PATH: hydra reaches a
+      neighbour's own installed agent through the occupant vantage and recovers the community the
+      install planted — falsified by unplanting the state file, which turns the answer into
+      `no_password_set`. The DRAW: `ownAgentCommunity` lands in the shipped wordlist inside the same
+      band as a generated device's, measured over 2000 pubkey-shaped seeds beside the existing
+      gateway and community rates — falsified by retuning the knob to the gateway rate, which fails
+      the new band and the existing community band together. One test asserting "the shipped
+      wordlist cracks this defender" would have passed about 60% of runs: the fixture identity is
+      generated fresh each run and the community knob is 0.6.
+      **Consequence worth stating**: roughly 40% of players draw an UNCRACKABLE community, so their
+      agent is a door no wordlist opens. That is the rate every generated device already faces and is
+      not a gap — it is what the CVE route exists to answer — but it means AC-8's observable is
+      available to about three owners in five.
+- [x] **AC-4** A `nano`s `rwcommunity <new>` into `/etc/snmp/snmpd.conf` and runs
+      `systemctl restart snmpd`. The OLD community is refused afterwards and the new one is accepted
+      at the read-write tier.
+- [x] **AC-5** That restart CONSUMES the line: the plaintext is gone from the world-readable file
+      afterwards, and the hash in the root-only file is the new community's.
+- [x] **AC-6** Before the restart, the plaintext IS readable by a non-root visitor on the box — the
+      leak window is real and is pinned as behavior, so a later change cannot quietly close it
+      without someone deciding to.
+- [x] **AC-7** A `rwcommunity` line that is blank, malformed, or duplicated degrades the way
+      `rules.v4` and the read-only parser already do: the device answers LESS rather than erroring.
+      A restart that consumed nothing leaves the previous community standing.
+      **Seam decided 2026-08-31**: a `consumeConfig` hook on the `Daemon`, applied inside
+      `bringUp`. Not on `ServiceSpec` — that row is world data the generator reads and every hook
+      on it is a pure read, while this one produces writes. Not inside `restartSteps` — a real
+      agent reads its config when it STARTS, so `snmpd`, `systemctl start` and `systemctl restart`
+      all spend the same line and an owner cannot rotate by one route and silently fail by
+      another. The writes land AFTER the port is open: a daemon that spent the new community and
+      then failed to bind would have taken the old one out of service with nothing answering to
+      the new one. Duplicates resolve first-wins like every other directive here, and ALL of them
+      are stripped, because a line left behind is the plaintext left behind.
+- [x] **AC-8** **The observable this slice exists for.** A denies `6379` on their own box; B cracks
+      A's community and `snmpset <A's box> <rw> INPUT-MIB::inputPort.6379=permit` re-opens it, and
+      A's redis answers a neighbour again with nothing restarted.
+      Needed no new production code — the pieces composed, so the evidence is falsification
+      rather than a RED. The observable is asserted through `portsOpenToNetwork`, the same rule
+      every door judges the network by, rather than by reading the file: pointing it at the rules
+      BEFORE the set fails, so the check genuinely discriminates a re-opened port from a shut one.
+      A stale community is refused and writes nothing, proven by making `communityTier` accept
+      anything, which fails that test alone. The write lands on an INPUT chain of a box that
+      TERMINATES the traffic, reached by the occupant vantage — both new here: every filter set
+      before this targeted a generated gateway, and every cross-player set targeted a NAT table.
+- [x] **AC-9** Every walk and set B makes appends to A's own `/var/log/snmpd.log` under the writer
+      key that box's vantage dictates, carrying B's address — A's only evidence, as everywhere else
+      in this arc.
+      On this vantage the key is the TARGET OWNER's, so A's box keeps ONE log however many
+      neighbours touch it — under the caller's key instead, every visitor would get a row of their
+      own and the newest would be all a defender could see. The address logged is the LEASE the
+      server issued, never the `source_ip` the caller signed, because a defender's only evidence
+      may not be anything the attacker controls. A refused community lands in the same log: a door
+      that recorded only what succeeded would leave somebody sweeping the box invisible until the
+      moment they got in. Falsified on the reach itself — dropping the owner key kills the two
+      writer-key tests, and logging any other address kills the lease test alone.
+
+**Boundary 2 — the scan stops lying**
+
+- [ ] **AC-10** `nmap <A's public IP>` omits a port A denied in `rules.v4`. The box stays UP with
+      its other ports listed; a filtered port is absent, never shown as closed.
+- [ ] **AC-11** The same-LAN scan of a router's `.1` honours it identically. `scanResult` reads
+      `portsOpenToNetwork` at BOTH vantages — both are somebody else's box seen from the network,
+      which is the rule `portsOpenToNetwork`'s own doc already states.
+- [ ] **AC-12** A forward whose TARGET has denied the internal port does not appear in the public
+      scan, AND the reach refuses a connection to it — scan and door agree. Distinct from slice 7's
+      exemption and not in conflict with it: slice 7 exempted the GATEWAY's filter over traffic it
+      merely passes through, while the target is the box that TERMINATES the forwarded traffic, so
+      its own INPUT filter governs it. A scan that hid a port the door still opened would be the
+      exact inconsistency slice 7 closed, running the other way.
+- [ ] **AC-13** The owner's own view is unmoved. `ps`, the owner's local scan, and `127.0.0.1`
+      still reach a filtered service — the whole reason a filter beats `systemctl stop`.
+
+**Both boundaries**
+
+- [x] **AC-14** A wire-check, `testSnmpInstall`, drives the real endpoints for the install, the
+      rotation, the crack and the re-open. RUN against a live stack and FALSIFIED, per the standing
+      rule that a check never seen red is not evidence.
+- [x] **AC-15** Slices 1–7 are unmoved: `testSnmpCrossPlayer` 15/15, `testSnmpSet` 16/16,
+      `testSnmpDepth` 12/12 and `testSnmpFilter` 13/13 all re-run unchanged. The scan change touches
+      shared machinery four paths read, so this is the criterion carrying the most risk in the slice.
+
+### Boundary 1 — the live run (2026-08-31)
+
+| script | result |
+|---|---|
+| `testSnmpInstall` | **15/15** — new, falsified twice |
+| `testSnmpCrossPlayer` | 15/15 unchanged |
+| `testSnmpSet` | 16/16 unchanged |
+| `testSnmpDepth` | 12/12 unchanged |
+| `testSnmpFilter` | 13/13 unchanged |
+| `testSnmpWalk` | 13/15 → **15/15 after repair** |
+
+Falsified from BOTH sides rather than observed green. Client-side, the `join('')` mutant the
+mutation gate found fails check 9 alone — the rewrite collapsing the config onto one line would
+brick the agent after a rotation, and the wire catches it too. Server-side, a `communityTier` that
+never returns read-write cascades through checks 3, 8, 11, 12 and 13.
+
+That second one also proved the server was serving THIS branch. The process on 3100 was an orphan
+started the previous evening, predating every change here, and its own log showed it watching the
+Stryker sandbox; it was killed and replaced before any script ran. A wire-check against a stale
+`vercel dev` is worse than no wire-check, because it reports confidence.
+
+### `testSnmpWalk` was stale on trunk, the same way `testSnmpSet` was
+
+It read `portTable` where the API returns `portTables` — the slice 6 pluralisation, repaired in
+`testSnmpSet` during slice 7 and missed here. Two checks had been reading a field that stopped
+existing two slices ago, and a `?? null` fallback dressed each as a plausible failure rather than a
+crash. Proven PRE-EXISTING by running it on `main` first (identical 13/15) before anything was
+touched, then given the same kind-aware helper `testSnmpSet` received. The repaired check was
+falsified against a wrong expected forward, so it now reads the real table rather than matching
+`null` against `null`.
+
+Two scripts found broken by one rename in two consecutive slices. A wire-check pulls fields off an
+untyped response by name with no compiler behind it, and nothing re-runs one but a human — which is
+the whole argument for re-running the neighbours on every slice, and for widening that habit beyond
+the four a plan happens to name.
+
+### Two findings from closing AC-1 — neither belongs to this slice
+
+**`snmpwalk` is the only door with no client-side own-box path.** `serviceHost.ts:258` states the
+rule: "EVERY vantage this function serves is a remote one… The owner's own box never arrives here at
+all: it is answered on the client, so a filter can never lock them out of their own service."
+`nc.ts:290` has that branch (`localhost | 127.0.0.1 | wlan0.ipv4`) and so does `webHost.ts:130`.
+`snmpwalk.ts:55` calls `env.snmp.walk` unconditionally, so a player walking their own address goes
+to a server that is designed never to answer for them. Building it means a local tier check, an
+identity render, a port table, a pidfile check, `readOpenPorts` RAW rather than filtered (the owner
+sees through their own filter), and a decision about whether an owner's own walk writes to their own
+`snmpd.log`. That is a slice, not a criterion.
+
+**A caller's own address can resolve to a generated sibling.** `resolveSameLanOccupant` excludes self
+at `serviceHost.ts:220` (`row.owner_key !== target.actorKey`), and the reach then falls through to
+`generateHomeLan(essid).hosts.find(ip === targetIp)`. Where an occupant's leased octet collides with
+a generated host's, the walk answers with the GENERATED box's identity under the player's own
+address. The occupant-beats-generated precedence the reach documents — "a real occupant wins an octet
+the generator also filled" — never runs, because the self-exclusion sits upstream of it. Lease
+uniqueness is a `(essid, octet)` database constraint among OCCUPANTS only, so nothing stops the
+collision. Affects every door sharing the reach, not just this one. Unproven whether it is reachable
+in practice; worth an octet-collision test before it is treated as either real or theoretical.
+
+### Naming — SETTLED 2026-08-31, before code
+
+**`ownAgentCommunity(ownerKeyHex)`**, drawing through the existing `seedSnmpCommunity` primitive in
+a namespace of its own: `own-agent-community-${ownerKeyHex}`. It is the read-write community of the
+agent a player installed, derived from the owner's pubkey alone.
+
+Two families could have claimed it, and they disagree. `seedApGatewayCommunity` is the nearest by
+SUBJECT — also an SNMP community, also drawn from a namespace — but it belongs to the generated
+world, keyed by ESSID or machine id. `workstationGuestPassword`, `ownDatabase` and `ownStore` are
+the nearest by ROLE: a crackable credential on a PLAYER'S OWN box, keyed by the owner's pubkey so it
+is unique per player, deterministic across reinstalls, and unmoved by a rename. Role won. That family also deliberately drops the `seed`
+prefix, so the name does too — `workstationGuestPassword`, not `seedWorkstationPassword`.
+
+The namespace still goes through `seedSnmpCommunity`, which is what keeps the string drawn from the
+community pool at `CRACK_CHANCE.community`. That is not cosmetic: it is the whole of AC-3, since a
+community drawn from any other pool would not be in the shipped `passwords.txt` and B's `hydra`
+would never land.
+
+Rejected here so nobody re-proposes them: `seedOwnAgentCommunity` (would be the first own-box seed
+to carry the prefix its own family drops) and `workstationCommunity` (names the BOX, but a
+workstation holds this community only once `apt install snmp` has run, and it would drag an SNMP
+concept into `workstationFs.ts`).
+
+**What the install calls it to the player needed no coinage.** The game already says **"read-write
+community"** in `snmpwalk`'s own hint and `snmpset`'s flag description, so the install reuses that
+wording rather than minting a second phrase for one concept.
+
+**Enforcement status: convention only.** This repository declares no glossary and runs no
+vocabulary lint, so nothing mechanical will catch a drifted synonym later — this section is the
+record.
+
+### RED steps
+
+1. The install plants both configs and the agent answers `public` (AC-1, AC-2).
+2. The community is seeded and crackable — hydra against a player's own box (AC-3).
+3. Rotation through `nano` + restart, including the consumed line and the leak window
+   (AC-4, AC-5, AC-6, AC-7).
+4. The observable: B re-opens a port A filtered, and A's log holds it (AC-8, AC-9).
+5. `scanResult` honours the filter at both vantages (AC-10, AC-11, AC-13).
+6. The forward target's own filter, scan and reach agreeing (AC-12).
+
+### PR-ready when
+
+Each boundary's criteria pass, `npm run typecheck` and `npm run lint` are clean from `v2/`, the full
+non-watch test gate is green, `testSnmpInstall` has RUN live and been falsified, AC-15's four
+wire-checks are re-run unchanged, the mutation gate has run once per boundary with survivors
+addressed or classified, and the version is bumped in both `v2/package.json` and
+`v2/package-lock.json` (`npm install --package-lock-only`).
+
+**Slice complete when** boundary 2's PR lands on `main`.
 
 ## Pre-PR Quality Gate
 

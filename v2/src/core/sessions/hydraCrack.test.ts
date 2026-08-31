@@ -18,7 +18,8 @@ import { lanAddressFor } from '../network/lanAddress';
 import { playerDatabaseOn } from '../../test/factories/lanDatabase';
 import { DATADIR_PATH } from '../mysql/datadir';
 import { DATADIR_PATH as REDIS_DATADIR_PATH, storeIn } from '../redis/datadir';
-import { readRwCommunityHash } from '../snmp/rwCommunity';
+import { formatSnmpdState, readRwCommunityHash, SNMPD_STATE_PATH } from '../snmp/rwCommunity';
+import { ownAgentCommunity } from '../snmp/ownAgent';
 import {
   formatSnmpdAttemptLine,
   SNMPD_LOG_OWNER,
@@ -1817,6 +1818,17 @@ const defenderRow = (path: string, content: string): OwnerPatchRow => ({
 });
 
 const defenderSshd = defenderRow('/var/run/sshd.pid', 'sshd:port=22');
+
+/** The defender installed the agent and started it: the daemon holds 161, and the
+ *  root-only state file carries the hash of that box's own read-write community. */
+const defenderSnmpd = defenderRow(
+  pidfilePath(SERVICE_CATALOG.snmp),
+  formatPidfileContent(SERVICE_CATALOG.snmp, SERVICE_CATALOG.snmp.defaultPort),
+);
+const defenderSnmpState = defenderRow(
+  SNMPD_STATE_PATH,
+  formatSnmpdState(md5(ownAgentCommunity(DEFENDER.publicKeyHex))),
+);
 const { database: DEFENDER_DATABASE, credential: DEFENDER_DB_ACCOUNT } =
   playerDatabaseOn(defenderOccupant);
 const defenderMysqld = defenderRow(
@@ -1861,6 +1873,54 @@ const sameLanDeps = (
 };
 
 describe('sweeping a fellow occupant of the same WiFi', () => {
+  it("cracks the community on a neighbour's OWN agent, not a device the world drew", async () => {
+    // The prize slice 6 named and nothing could collect. Every community cracked before
+    // this one belonged to a box the generator placed; this one is on a machine that
+    // exists because a player installed an agent on it, and the string is the one their
+    // own install planted.
+    const identity = generateIdentity();
+    const community = ownAgentCommunity(DEFENDER.publicKeyHex);
+    const { deps } = sameLanDeps(identity, {
+      wordlist: [community],
+      // The state file and the running daemon, and deliberately NOT the world-readable
+      // config: a crack reads the hash the install planted, and the read-only community
+      // beside it buys nothing here.
+      defenderRows: [defenderSnmpd, defenderSnmpState],
+    });
+
+    const { status, body } = await handleHydraCrack(
+      await signedCrack(identity, { target_ip: DEFENDER_LAN_IP, service: 'snmp' }),
+      deps,
+    );
+
+    expect({ status, body }).toEqual({
+      status: 200,
+      body: {
+        port: SERVICE_CATALOG.snmp.defaultPort,
+        cracked: [{ password: community }],
+        wordlistFound: true,
+      },
+    });
+  });
+
+  it('finds no lock at all on a box whose owner never installed the agent', async () => {
+    // Distinct from a community that held: the daemon is listening, and there is simply
+    // no secret behind it. Reporting an empty sweep would tell the attacker the string
+    // survived a wordlist it was never tried against.
+    const identity = generateIdentity();
+    const { deps } = sameLanDeps(identity, {
+      wordlist: [ownAgentCommunity(DEFENDER.publicKeyHex)],
+      defenderRows: [defenderSnmpd],
+    });
+
+    const { status, body } = await handleHydraCrack(
+      await signedCrack(identity, { target_ip: DEFENDER_LAN_IP, service: 'snmp' }),
+      deps,
+    );
+
+    expect({ status, body }).toEqual({ status: 404, body: { error: 'no_password_set' } });
+  });
+
   it("earns a shell account on a real player's box, which the generated LAN never held", async () => {
     const identity = generateIdentity();
     const { deps } = sameLanDeps(identity);
