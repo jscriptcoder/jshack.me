@@ -2056,6 +2056,36 @@ slice 6 chose for `nmapScan`'s trace sites. That precedent is real, and the cost
 is that the two logs now answer slightly different questions; the gain is a defender who can read the
 result of their own decision instead of a line identical to an undefended box's.
 
+### Boundary 2 — the mutation gate (2026-08-31)
+
+Diff-scoped to the four production files this boundary changed: **95.22%**, 259 killed, 9 survived,
+4 uncovered. `scanResult.ts` and `natHosts.ts` — the two substantively rewritten — closed at
+**100.00%**, and NO survivor sits on a line this boundary changed except one that is equivalent.
+
+Two PRE-EXISTING survivors were killed anyway, both in `resolveInnerGatewayScan.ts` and both the same
+fault: a guard no fixture could distinguish, because every failure test there fails EVERY journal
+read, so a guard nearer the top returns the identical 500 and hides whether the one under test does
+anything. Narrowing the failure to a single machine id tells them apart.
+
+- **The gateway's own journal.** Without the guard the gateway materializes from its SEED and the
+  scan answers 200 with ports the live box may not have — an unreadable address derived as a
+  fallback, which every other lookup in this file refuses to do.
+- **A journal a layer BELOW the child.** Without the guard the failed layer lands in the map as an
+  absent entry, the chained port drops, and a database blip renders as a defender's box having gone
+  quiet — a player reading their own infrastructure failing as somebody else's door closing.
+
+That file closed **91.67% → 96.30%**, 8 survivors and 1 uncovered line down to 4 survivors and none
+uncovered. The first attempt at the second one aimed at the WRONG guard and its test passed against
+the mutant, which is the note worth keeping: the hop guard and the recursion guard sit six lines
+apart, look identical, and catch failures from different depths. The hop guard was already covered;
+only a three-layer chain with the failure at L3 reaches the other.
+
+The four remaining survivors are equivalent, provably from their consumers rather than by assertion:
+`: []` for a bricked deep host and the `?? []` beside it are both read only through
+`openPort.port === internalPort`, which a garbage entry can never satisfy; `kind: 'ports'` is checked
+only as `=== 'lookup_failed'`; and `vantage: 'external'` reaches a `scanResult` that branches on
+`=== 'sameLAN'`, so every other string is already the external path.
+
 ### One shipped behavior this boundary changed on purpose
 
 `hydra` against a published port whose resident filtered it answered `service_not_running`, and a
