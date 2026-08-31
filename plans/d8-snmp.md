@@ -9,8 +9,9 @@ at 88.65%); slice 5 MERGED (#469, v0.189.0, 2026-08-28 — AC-1…AC-13 met, wir
 2026-08-29 — AC-1…AC-15 met, wire-check RUN 13/13 and falsified twice, mutation gate closed at
 97.43%); slice 7 MERGED (#471, v0.191.0, 2026-08-30 — AC-1…AC-13 met, cross-player
 wire-check RUN 15/15 and falsified, AC-12's three neighbours re-run 16/16 + 12/12 + 13/13, mutation
-gate closed at 97.99%); slice 8 **PLANNED IN FULL** — AC-1…AC-15 and the two-boundary
-delivery shape awaiting confirmation, no code written
+gate closed at 97.99%); slice 8 **PLANNED, CONFIRMED, READY FOR RED** — AC-1…AC-15 agreed, the
+two-boundary stack confirmed 2026-08-31, `ownAgentCommunity` settled through the language protocol,
+no code written
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D8 — resolved scope & decisions
 (grill-me, 2026-08-27)", eleven locked decisions, gap-checked the same day.
 
@@ -1902,15 +1903,20 @@ A's `/var/log/snmpd.log` is the only trace.
 plants and rotates a config, the other changes what four scan paths read. Reviewing them together
 means holding both in one head, and the second is a change to shared machinery that deserves its
 own diff. Boundary 1 is the agent a player installs (AC-1…AC-9); boundary 2 is the scan honouring
-the filter (AC-10…AC-13). The slice completes when boundary 2 lands. **Confirm or reject this shape
-before any code** — a single PR is defensible if you would rather not carry a stack.
+the filter (AC-10…AC-13). The slice completes when boundary 2 lands. **CONFIRMED 2026-08-31** —
+the stack is the agreed shape, and boundary 1 opens the moment its first commit lands.
 
 ### The three decisions this slice rests on
 
-**The read-write community is SEEDED per box, and crackable.** Derived server-side from the machine
-the way `seedApGatewayCommunity(essid)` already derives a generated device's, hashed into the
-root-only `/var/lib/snmp/snmpd.conf`, and named once in the install's own output so the owner knows
-what they are holding. It lands in the standard wordlist, which is the entire point: an agent
+**The read-write community is SEEDED per box, and crackable.** Derived server-side from the
+OWNER'S PUBKEY ALONE — not from a machine id, which nothing at install time carries: a package
+file's `content` is handed `identity.publicKeyHex`, `hostname` and `fs.root()` and nothing else.
+The pubkey is also the only key that WORKS here, and the own-box family already says so in three
+places: `workstationGuestPassword`, `ownDatabase` and `ownStore` are each keyed that way expressly
+so the server can reconstruct the secret for a cross-player crack without reading the owner's
+filesystem. AC-3 and AC-8 need exactly that. Hashed into the root-only
+`/var/lib/snmp/snmpd.conf`, and named once in the install's own output so the owner knows what they
+are holding. It lands in the standard wordlist, which is the entire point: an agent
 nobody can crack gives B no path, and slice 6's prize stays a promise. A player's own box now sits
 in the same economy as every generated device — a second, independent way in that costs a wordlist
 rather than a shell.
@@ -1950,8 +1956,10 @@ denies `161`, the door is decoration and slice 9 needs to know that.
       after install, a walk with `public` renders the box's identity — an installed agent answers.
 - [ ] **AC-2** The install NAMES the read-write community once in its own output, in the clear. It
       is never readable again from the box: the file holds only the hash.
-- [ ] **AC-3** The community is seeded from the machine, not rolled, and `hydra <A's box> snmp`
-      recovers it from the standard wordlist exactly as it does against a generated device.
+- [ ] **AC-3** The community is seeded from the owner's pubkey, not rolled, and `hydra <A's box>
+      snmp` recovers it from the standard wordlist exactly as it does against a generated device.
+      The server reconstructs it for B's crack WITHOUT reading A's filesystem — the property the
+      pubkey key exists for.
 - [ ] **AC-4** A `nano`s `rwcommunity <new>` into `/etc/snmp/snmpd.conf` and runs
       `systemctl restart snmpd`. The OLD community is refused afterwards and the new one is accepted
       at the read-write tier.
@@ -1995,12 +2003,36 @@ denies `161`, the door is decoration and slice 9 needs to know that.
       `testSnmpDepth` 12/12 and `testSnmpFilter` 13/13 all re-run unchanged. The scan change touches
       shared machinery four paths read, so this is the criterion carrying the most risk in the slice.
 
-### Naming — needs the language protocol before code
+### Naming — SETTLED 2026-08-31, before code
 
-The seeded community's function has no name yet. `seedApGatewayCommunity(essid)` is the existing
-sibling and the new one is keyed by machine rather than ESSID. Do NOT coin it silently in the
-implementation; settle it against the glossary first, along with what the install's output calls
-the string when it names it to the player.
+**`ownAgentCommunity(ownerKeyHex)`**, drawing through the existing `seedSnmpCommunity` primitive in
+a namespace of its own: `own-agent-community-${ownerKeyHex}`. It is the read-write community of the
+agent a player installed, derived from the owner's pubkey alone.
+
+Two families could have claimed it, and they disagree. `seedApGatewayCommunity` is the nearest by
+SUBJECT — also an SNMP community, also drawn from a namespace — but it belongs to the generated
+world, keyed by ESSID or machine id. `workstationGuestPassword`, `ownDatabase` and `ownStore` are
+the nearest by ROLE: a crackable credential on a PLAYER'S OWN box, keyed by the owner's pubkey so
+the server can recover it cross-player. Role won. That family also deliberately drops the `seed`
+prefix, so the name does too — `workstationGuestPassword`, not `seedWorkstationPassword`.
+
+The namespace still goes through `seedSnmpCommunity`, which is what keeps the string drawn from the
+community pool at `CRACK_CHANCE.community`. That is not cosmetic: it is the whole of AC-3, since a
+community drawn from any other pool would not be in the shipped `passwords.txt` and B's `hydra`
+would never land.
+
+Rejected here so nobody re-proposes them: `seedOwnAgentCommunity` (would be the first own-box seed
+to carry the prefix its own family drops) and `workstationCommunity` (names the BOX, but a
+workstation holds this community only once `apt install snmp` has run, and it would drag an SNMP
+concept into `workstationFs.ts`).
+
+**What the install calls it to the player needed no coinage.** The game already says **"read-write
+community"** in `snmpwalk`'s own hint and `snmpset`'s flag description, so the install reuses that
+wording rather than minting a second phrase for one concept.
+
+**Enforcement status: convention only.** This repository declares no glossary and runs no
+vocabulary lint, so nothing mechanical will catch a drifted synonym later — this section is the
+record.
 
 ### RED steps
 
