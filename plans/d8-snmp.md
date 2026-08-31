@@ -2056,6 +2056,38 @@ slice 6 chose for `nmapScan`'s trace sites. That precedent is real, and the cost
 is that the two logs now answer slightly different questions; the gain is a defender who can read the
 result of their own decision instead of a line identical to an undefended box's.
 
+### Boundary 2 — the live run and a seventh wire-check (2026-08-31)
+
+| script | result |
+|---|---|
+| `testSnmpScan` | **12/12** — new, falsified four ways |
+| `testSnmpFilter` | 13/13 unchanged |
+| `testSnmpCrossPlayer` | 15/15 unchanged |
+| `testSnmpInstall` | 15/15 unchanged |
+| `testSnmpSet` | 16/16 unchanged |
+| `testSnmpDepth` | 12/12 unchanged |
+| `testSnmpWalk` | 15/15 unchanged |
+
+`testSnmpScan` exists because the other six do not touch this boundary — proven, not assumed, by
+reverting both server-side changes and watching all of them stay green. Every one of the four
+changes is now caught by a distinct check: the gateway's own ports read raw fails 2 and 12, dropping
+the shadow check fails 12, `natPortResolver` read raw fails 6, and the routing gate read raw fails 8
+— the equality between a filtered refusal and a stopped daemon's, which is the leak this boundary
+closed and the one claim no unit test can make, because it is a sameness between two live HTTP
+answers.
+
+Server liveness was proven separately before any of it was trusted: reverting `portsOpenToNetwork`
+in the OCCUPANT scan fails `testSnmpFilter` checks 3 and 6, so the greens describe current source.
+
+**Operational gotcha, learned the expensive way** and written into
+[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §5, where it will outlive this
+plan. Start the stack with `npm run vercel:dev`, never the binary directly: the script wraps
+`dotenv -e .env.development.local` and the binary alone does not read it, so every endpoint answers
+`not_configured` while the server otherwise looks healthy. It surfaced as `testSnmpFilter` at 1/13,
+and the single PASS is the lesson — check 5 asserts a filtered port answers word for word as a
+stopped one, and two identical env errors satisfy that perfectly. A check whose claim is a SAMENESS
+passes hardest when the server has stopped answering at all.
+
 ### Boundary 2 — the mutation gate (2026-08-31)
 
 Diff-scoped to the four production files this boundary changed: **95.22%**, 259 killed, 9 survived,
@@ -2153,6 +2185,12 @@ criterion — and fixing only the filter half would leave the other two stale wh
 - [x] **AC-15** Slices 1–7 are unmoved: `testSnmpCrossPlayer` 15/15, `testSnmpSet` 16/16,
       `testSnmpDepth` 12/12 and `testSnmpFilter` 13/13 all re-run unchanged. The scan change touches
       shared machinery four paths read, so this is the criterion carrying the most risk in the slice.
+      Re-run for boundary 2 alongside `testSnmpInstall` 15/15 and `testSnmpWalk` 15/15 — six green.
+      **And they proved nothing about boundary 2, which is why a seventh script exists.** Reverting
+      BOTH of this boundary's server-side changes left `testSnmpFilter`, `testSnmpCrossPlayer` and
+      `testSnmpDepth` at 13/13, 15/15 and 12/12: no script reached `resolvePublicScan` or
+      `resolveInnerGatewayScan` at all. Six green scripts discharge AC-15's claim and are not
+      evidence FOR the boundary; the two are different questions and were nearly conflated.
 
 ### Boundary 1 — the live run (2026-08-31)
 
