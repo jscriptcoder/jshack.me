@@ -2038,19 +2038,59 @@ denies `161`, the door is decoration and slice 9 needs to know that.
 
 **Boundary 2 — the scan stops lying**
 
-- [ ] **AC-10** `nmap <A's public IP>` omits a port A denied in `rules.v4`. The box stays UP with
+### Two decisions boundary 2 needed that the plan had not
+
+**A denied port the router also FORWARDS stays dark.** A gateway that runs `sshd:22`, denies 22, and
+forwards public 22 to an occupant had no agreed answer. Filtering the box's own ports and leaving the
+forwards alone would have re-opened 22 through somebody else's rule — while the reach, which routes
+on the pidfiles, went on refusing it. So the scan mirrors the door: precedence is decided by what the
+box RUNS, never by what its filter lets it answer, and a port the router serves is the router's
+whether or not it replies. `machineServing`'s existing rule — you cannot shadow the router's own
+service from inside — now holds under a filter too, rather than flipping with the filter's state.
+
+**The defender's own kern.log records what the scanner SAW.** The line counts hits, so it reports the
+attacker's view mirrored back rather than the box's inventory. An owner who knows their agent is
+running and reads a sweep that did not find it is being shown their filter holding — the one place
+this arc tells a defender their defence worked. Considered and rejected: logging the raw probe, which
+slice 6 chose for `nmapScan`'s trace sites. That precedent is real, and the cost of departing from it
+is that the two logs now answer slightly different questions; the gain is a defender who can read the
+result of their own decision instead of a line identical to an undefended box's.
+
+### The finding AC-11 was narrowed around
+
+**The client's same-LAN scan of `.1` reads a SEEDED base, not the journal.** `nmap.ts` answers a
+single scan of the AP gateway from `buildApGatewayBaseFs(essid)` with no patches applied, so a deny
+— which only ever arrives as a patch — is invisible there whatever `scanResult` does. The blindness
+is wider than the filter and predates it: an `snmpset`-written forward and a daemon somebody stopped
+on the gateway are equally unseen from that door today. Closing it means routing that scan through
+the server the way the occupant and inner-gateway scans already are, which is a slice rather than a
+criterion — and fixing only the filter half would leave the other two stale while looking closed.
+
+- [x] **AC-10** `nmap <A's public IP>` omits a port A denied in `rules.v4`. The box stays UP with
       its other ports listed; a filtered port is absent, never shown as closed.
-- [ ] **AC-11** The same-LAN scan of a router's `.1` honours it identically. `scanResult` reads
+      Closed at `scanResult` and proven at the door it names: a `deny 161` on the gateway's journal
+      leaves `handleResolvePublicScan` answering with `sshd:22` alone. Falsified by putting
+      `readOpenPorts` back, which fails both filter tests and the collision test together.
+- [x] **AC-11** The same-LAN scan of a router's `.1` honours it identically. `scanResult` reads
       `portsOpenToNetwork` at BOTH vantages — both are somebody else's box seen from the network,
       which is the rule `portsOpenToNetwork`'s own doc already states.
+      **Narrowed 2026-08-31 to the contract, deliberately.** Slice 6 recorded `scanResult` as "the
+      owner's own view of their own box" and left it alone; that reason was wrong for all three of
+      its callers, two of which resolve somebody else's gateway cross-player. The contract is now
+      right at both vantages and pinned by unit tests. The client DOOR is a separate matter: it
+      reads a seeded base and cannot observe a deny at all — see the finding below.
 - [ ] **AC-12** A forward whose TARGET has denied the internal port does not appear in the public
       scan, AND the reach refuses a connection to it — scan and door agree. Distinct from slice 7's
       exemption and not in conflict with it: slice 7 exempted the GATEWAY's filter over traffic it
       merely passes through, while the target is the box that TERMINATES the forwarded traffic, so
       its own INPUT filter governs it. A scan that hid a port the door still opened would be the
       exact inconsistency slice 7 closed, running the other way.
-- [ ] **AC-13** The owner's own view is unmoved. `ps`, the owner's local scan, and `127.0.0.1`
+- [x] **AC-13** The owner's own view is unmoved. `ps`, the owner's local scan, and `127.0.0.1`
       still reach a filtered service — the whole reason a filter beats `systemctl stop`.
+      The self path in `nmap` was already right — it reads the pidfiles — but nothing guarded it, so
+      a later change could have started filtering the owner's own box in silence. Now pinned: a box
+      running redis behind its own `deny 6379` still lists the port to its owner, and pointing that
+      one path at `portsOpenToNetwork` fails that test alone.
 
 **Both boundaries**
 
