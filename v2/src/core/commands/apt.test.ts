@@ -26,6 +26,13 @@ import {
   RULES_V4_PERMISSIONS,
 } from '../network/iptablesRules';
 import { binariesForService, packageForBinary } from '../packages/aptPackages';
+import { SNMPD_CONF_PATH, SNMPD_CONF_PERMISSIONS, SNMPD_CONF_SEED } from '../snmp/conf';
+import { ownAgentCommunity } from '../snmp/ownAgent';
+import {
+  readRwCommunityHash,
+  SNMPD_STATE_PATH,
+  SNMPD_STATE_PERMISSIONS,
+} from '../snmp/rwCommunity';
 import { daemonName } from '../services/pidfile';
 import { parseMysqlDatabase } from '../mysql/types';
 import { DATADIR_DIR as STORE_DIR, DATADIR_PATH as STORE_PATH } from '../redis/datadir';
@@ -108,6 +115,9 @@ type AptEnvOpts = {
   /** Content already sitting at `/etc/iptables/rules.v4` — the state of a box whose
    *  owner has already written filter rules of their own. */
   readonly existingFilter?: string;
+  /** Whose box this is. Only matters for the files an install DRAWS rather than ships
+   *  the same copy of to everyone. */
+  readonly ownerKey?: string;
 };
 
 /** One filesystem operation apt performed, in the order it performed them.
@@ -156,6 +166,9 @@ const aptEnv = (opts: AptEnvOpts = {}) => {
   const operations: Operation[] = [];
   const env = mockCommandEnv({
     session: mockSession({ userType: opts.userType ?? 'root' }),
+    ...(opts.ownerKey === undefined
+      ? {}
+      : { identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(opts.ownerKey) }) }),
     fs: mockFsViewFromTree(installedBoxTree(opts)),
     network: mockNetworkView({ isOnline: () => opts.online ?? true }),
     patches: {
@@ -1392,6 +1405,18 @@ describe('the store a player buys', () => {
  * catalogue to learn a name the world never says aloud.
  */
 describe('buying the SNMP package', () => {
+  const stateIn = (writes: readonly WriteCall[]): string | undefined =>
+    writes.find((write) => write.path === SNMPD_STATE_PATH)?.content;
+
+  /** The box as it stands once the install's state write has landed on it — what a walk
+   *  later reads, rather than the write call on its own. */
+  const boxHolding = (state: string): Directory =>
+    buildDirectory({
+      var: buildDirectory({
+        lib: buildDirectory({ snmp: buildDirectory({ 'snmpd.conf': buildFile(state) }) }),
+      }),
+    });
+
   it('ships both clients and the daemon, each on the shelf its tier belongs to', async () => {
     // The two tools any tier runs against somebody else's device, and the daemon that
     // is root's to start. The same split mysql and redis already keep.
@@ -1462,6 +1487,77 @@ describe('buying the SNMP package', () => {
 
     expect(writes.map((write) => write.path)).not.toContain(RULES_V4_PATH);
     expect(result.text).toContain(`${RULES_V4_PATH} already exists, keeping your copy`);
+  });
+
+  it('plants the config that makes a freshly installed agent answer anybody at all', async () => {
+    // The daemon reads its read-only community out of this file, so a box that carries
+    // no copy of it answers `public` with nothing. Without this write, a player can
+    // install the package, start the daemon, watch it come up — and still be running a
+    // door that no walk in the world can open, with nothing on screen saying why.
+    const { env, writes } = aptEnv();
+
+    await streamResult(await apt.execute(env, ['install', 'snmp'], NO_FLAGS));
+
+    expect(writes.find((write) => write.path === SNMPD_CONF_PATH)).toEqual({
+      path: SNMPD_CONF_PATH,
+      content: SNMPD_CONF_SEED,
+      options: { isNew: true, permissions: SNMPD_CONF_PERMISSIONS },
+    });
+  });
+
+  it("plants this box's own read-write community as a hash only root can read", async () => {
+    // Read back through the production reader rather than off the write, because a file
+    // this parser cannot read is a device that answers no read-write walk at all — and
+    // the write would look perfectly correct while it happened.
+    const { env, writes } = aptEnv();
+
+    await streamResult(await apt.execute(env, ['install', 'snmp'], NO_FLAGS));
+    const planted = writes.find((write) => write.path === SNMPD_STATE_PATH);
+
+    expect(planted?.options).toEqual({ isNew: true, permissions: SNMPD_STATE_PERMISSIONS });
+    expect(readRwCommunityHash(boxHolding(planted?.content ?? ''))).toMatch(/^[0-9a-f]{32}$/);
+  });
+
+  it('draws that community for THIS player — two owners never answer to one string', async () => {
+    // A community every box shared would make one crack open every player's agent in
+    // the game at once, and the first player to run `hydra` would own all of them.
+    const mine = aptEnv({ ownerKey: 'a'.repeat(64) });
+    const theirs = aptEnv({ ownerKey: 'c'.repeat(64) });
+
+    await streamResult(await apt.execute(mine.env, ['install', 'snmp'], NO_FLAGS));
+    await streamResult(await apt.execute(theirs.env, ['install', 'snmp'], NO_FLAGS));
+
+    expect(stateIn(mine.writes)).not.toBe(stateIn(theirs.writes));
+  });
+
+  it('hands one player the same community however often they install it', async () => {
+    // The server recovers this string for a stranger's crack by re-deriving it from the
+    // owner's key. A community that were rolled per install would leave the box
+    // answering one string while every cross-player walk in the world checked another,
+    // and deleting the file to get it back is the documented repair.
+    const first = aptEnv({ ownerKey: 'd'.repeat(64) });
+    const second = aptEnv({ ownerKey: 'd'.repeat(64) });
+
+    await streamResult(await apt.execute(first.env, ['install', 'snmp'], NO_FLAGS));
+    await streamResult(await apt.execute(second.env, ['install', 'snmp'], NO_FLAGS));
+
+    expect(stateIn(first.writes)).toBe(stateIn(second.writes));
+  });
+
+  it('names the community to its owner once, and writes down only the hash', async () => {
+    // The one moment this string is ever legible. It is not in the file afterwards and
+    // no command hands it back, so an owner who does not read this line has lost remote
+    // control of their own port table until they rotate it — and an owner who screenshots
+    // their terminal has published it. Both are the point.
+    const ownerKey = 'e'.repeat(64);
+    const { env, writes } = aptEnv({ ownerKey });
+    const community = ownAgentCommunity(ownerKey);
+
+    const result = await streamResult(await apt.execute(env, ['install', 'snmp'], NO_FLAGS));
+
+    expect(result.text.split(community)).toHaveLength(2);
+    expect(stateIn(writes)).not.toContain(community);
+    expect(stateIn(writes)).toContain(md5(community));
   });
 });
 

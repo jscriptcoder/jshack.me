@@ -22,6 +22,11 @@
 
 import type { Directory } from '../filesystem/types';
 import type { FilePermissions } from '../filesystem/types';
+import { asAbsPath, type AbsPath } from '../types';
+
+/** One name for the path, so the reader below and every writer of this file agree on
+ *  where it is. net-snmp's own location, not one invented here. */
+export const SNMPD_CONF_PATH: AbsPath = asAbsPath('/etc/snmp/snmpd.conf');
 
 /** World-READABLE, root-only WRITE. Anyone on the box may read what the agent answers
  *  to, because the read-only community is public knowledge by design; changing what it

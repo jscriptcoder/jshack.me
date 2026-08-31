@@ -24,6 +24,12 @@
  */
 
 import type { Directory, FilePermissions } from '../filesystem/types';
+import { asAbsPath, type AbsPath } from '../types';
+
+/** One name for the path, so the reader below and every writer of this file agree on
+ *  where it is. Shares a FILENAME with the world-readable config and nothing else —
+ *  the directory is the whole difference, which is why naming both is worth doing. */
+export const SNMPD_STATE_PATH: AbsPath = asAbsPath('/var/lib/snmp/snmpd.conf');
 
 /** Root reads it, root writes it, nobody else does either. Not an executable: it is
  *  state. */
