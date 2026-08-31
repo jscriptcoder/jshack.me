@@ -138,6 +138,79 @@ describe('scanResult', () => {
     );
   });
 
+  it('sameLAN omits a port the router own filter denies, and leaves the rest listed', () => {
+    // A scan that still advertised a filtered port would hand a stranger the one signal
+    // every other dark state hides: an address bearing no network, a bricked box, a
+    // stopped daemon and a filtered port all have to read alike, or the filter becomes a
+    // pointer to the port worth attacking.
+    const fs = makeRouterFs('deny 22', {
+      'sshd.pid': 'sshd:port=22',
+      'snmpd.pid': 'snmpd:port=161',
+    });
+    expect(
+      scanResult({ vantage: 'sameLAN', routerFs: fs, resolveTargetPorts: noOpenPorts }),
+    ).toEqual([{ port: 161, service: 'snmp' }]);
+  });
+
+  it('external omits a port the router own filter denies', () => {
+    // Both vantages are somebody else's box seen from the network, so one filter answers
+    // both. The box stays UP with its other ports listed — a filtered port goes absent,
+    // never taking the host down with it.
+    const fs = makeRouterFs('deny 22', {
+      'sshd.pid': 'sshd:port=22',
+      'snmpd.pid': 'snmpd:port=161',
+    });
+    expect(
+      scanResult({ vantage: 'external', routerFs: fs, resolveTargetPorts: noOpenPorts }),
+    ).toEqual([{ port: 161, service: 'snmp' }]);
+  });
+
+  it('external leaves a FORWARD standing when the gateway denies that public port', () => {
+    // An INPUT rule governs traffic the box TERMINATES, never traffic it passes through:
+    // closing the gateway's own door cannot close one an occupant opened onto their
+    // workstation. The cross-player reach already draws the line there, and a scan that
+    // drew it anywhere else would make one of the two a liar.
+    const fs = makeRouterFs(['deny 2222', 'forward 2222 to 10.0.0.5:22'].join('\n'), {
+      'snmpd.pid': 'snmpd:port=161',
+    });
+    expect(scanResult({ vantage: 'external', routerFs: fs, resolveTargetPorts: wsHasSsh })).toEqual([
+      { port: 161, service: 'snmp' },
+      { port: 2222, service: 'ssh' },
+    ]);
+  });
+
+  it('external lists a public port ONCE when two forward lines both claim it', () => {
+    // Nothing stops a hand-edited table naming one public port twice — the snmp door
+    // overwrites, but `nano` appends. First rule wins and the port is listed once,
+    // rather than the same port appearing at two different services.
+    const fs = makeRouterFs(
+      ['forward 2222 to 10.0.0.5:22', 'forward 2222 to 10.0.0.6:80'].join('\n'),
+    );
+    const bothServing = (internalIp: string): readonly OpenPort[] =>
+      internalIp === '10.0.0.5' ? [{ port: 22, service: 'ssh' }] : [{ port: 80, service: 'http' }];
+    expect(
+      scanResult({ vantage: 'external', routerFs: fs, resolveTargetPorts: bothServing }),
+    ).toEqual([
+      { port: 22, service: 'ssh' },
+      { port: 2222, service: 'ssh' },
+    ]);
+  });
+
+  it('external keeps a public port DARK when the router own denied service holds it, forward or not', () => {
+    // The router's own service owns a public port whether or not the filter lets it
+    // answer. Precedence that flipped with the filter state would let a denied port
+    // re-open itself through somebody else's forward — and the reach, which routes on
+    // the pidfiles, would go on refusing it. The scan would then be advertising a door
+    // nobody can walk through, which is the same lie as hiding one that works.
+    const fs = makeRouterFs(['deny 22', 'forward 22 to 10.0.0.5:22'].join('\n'), {
+      'sshd.pid': 'sshd:port=22',
+      'snmpd.pid': 'snmpd:port=161',
+    });
+    expect(scanResult({ vantage: 'external', routerFs: fs, resolveTargetPorts: wsHasSsh })).toEqual([
+      { port: 161, service: 'snmp' },
+    ]);
+  });
+
   it('sameLAN never consults the forward table even when a target port is up', () => {
     // The dual-homed invariant: a forward live on the public side is invisible
     // from inside the LAN. Same forward, same live target, two vantages.

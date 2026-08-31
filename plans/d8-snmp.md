@@ -1,6 +1,6 @@
 # Plan: D8 — `snmpwalk` / `snmpset`
 
-**Branch**: `feat/d8-snmp-install` (slice 8 — intra-slice stack of two boundaries; boundary 1 not started)
+**Branch**: `feat/d8-snmp-scan` (slice 8 boundary 2 — the scan honouring the filter; boundary 1 MERGED)
 **Status**: Active — slice 1 MERGED (#465, v0.185.0); slice 2 MERGED (#466, v0.186.0,
 2026-08-27); slice 3 MERGED (#467, v0.187.0, 2026-08-28); slice 4 MERGED (#468, v0.188.0,
 2026-08-28 — AC-1…AC-14 met, wire-check RUN 16/16 and falsified twice, mutation gate closed
@@ -9,9 +9,13 @@ at 88.65%); slice 5 MERGED (#469, v0.189.0, 2026-08-28 — AC-1…AC-13 met, wir
 2026-08-29 — AC-1…AC-15 met, wire-check RUN 13/13 and falsified twice, mutation gate closed at
 97.43%); slice 7 MERGED (#471, v0.191.0, 2026-08-30 — AC-1…AC-13 met, cross-player
 wire-check RUN 15/15 and falsified, AC-12's three neighbours re-run 16/16 + 12/12 + 13/13, mutation
-gate closed at 97.99%); slice 8 **PLANNED, CONFIRMED, READY FOR RED** — AC-1…AC-15 agreed, the
-two-boundary stack confirmed 2026-08-31, `ownAgentCommunity` settled through the language protocol,
-no code written
+gate closed at 97.99%); slice 8 boundary 1 MERGED (#472, v0.192.0, 2026-08-31 — AC-1…AC-9,
+AC-14 and AC-15 met, `testSnmpInstall` RUN 15/15 and falsified from both sides, the four
+neighbours re-run unchanged, `testSnmpWalk` repaired 13/15 → 15/15, mutation gate closed with 0
+survivors on any changed line); slice 8 boundary 2 **COMPLETE, AWAITING MERGE** (v0.193.0,
+2026-08-31 — AC-10…AC-13 met, mutation gate 95.22% with both rewritten files at 100% and no
+non-equivalent survivor on a changed line, `testSnmpScan` NEW and RUN 12/12 falsified four ways,
+the six neighbours re-run unchanged). **D8 closes when it lands.**
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D8 — resolved scope & decisions
 (grill-me, 2026-08-27)", eleven locked decisions, gap-checked the same day.
 
@@ -1905,6 +1909,10 @@ means holding both in one head, and the second is a change to shared machinery t
 own diff. Boundary 1 is the agent a player installs (AC-1…AC-9); boundary 2 is the scan honouring
 the filter (AC-10…AC-13). The slice completes when boundary 2 lands. **CONFIRMED 2026-08-31** —
 the stack is the agreed shape, and boundary 1 opens the moment its first commit lands.
+**Boundary 1 MERGED 2026-08-31 (#472).** Boundary 2 therefore branches from updated trunk on
+`feat/d8-snmp-scan` rather than stacking — the lower half is on `main`, and there is nothing left
+to stack on. The intra-slice shape still governs the REVIEW boundary: boundary 2's mutation gate
+scopes to its own diff against trunk, not against the two boundaries together.
 
 ### The three decisions this slice rests on
 
@@ -2032,19 +2040,144 @@ denies `161`, the door is decoration and slice 9 needs to know that.
 
 **Boundary 2 — the scan stops lying**
 
-- [ ] **AC-10** `nmap <A's public IP>` omits a port A denied in `rules.v4`. The box stays UP with
+### Two decisions boundary 2 needed that the plan had not
+
+**A denied port the router also FORWARDS stays dark.** A gateway that runs `sshd:22`, denies 22, and
+forwards public 22 to an occupant had no agreed answer. Filtering the box's own ports and leaving the
+forwards alone would have re-opened 22 through somebody else's rule — while the reach, which routes
+on the pidfiles, went on refusing it. So the scan mirrors the door: precedence is decided by what the
+box RUNS, never by what its filter lets it answer, and a port the router serves is the router's
+whether or not it replies. `machineServing`'s existing rule — you cannot shadow the router's own
+service from inside — now holds under a filter too, rather than flipping with the filter's state.
+
+**The defender's own kern.log records what the scanner SAW.** The line counts hits, so it reports the
+attacker's view mirrored back rather than the box's inventory. An owner who knows their agent is
+running and reads a sweep that did not find it is being shown their filter holding — the one place
+this arc tells a defender their defence worked. Considered and rejected: logging the raw probe, which
+slice 6 chose for `nmapScan`'s trace sites. That precedent is real, and the cost of departing from it
+is that the two logs now answer slightly different questions; the gain is a defender who can read the
+result of their own decision instead of a line identical to an undefended box's.
+
+### Boundary 2 — the live run and a seventh wire-check (2026-08-31)
+
+| script | result |
+|---|---|
+| `testSnmpScan` | **12/12** — new, falsified four ways |
+| `testSnmpFilter` | 13/13 unchanged |
+| `testSnmpCrossPlayer` | 15/15 unchanged |
+| `testSnmpInstall` | 15/15 unchanged |
+| `testSnmpSet` | 16/16 unchanged |
+| `testSnmpDepth` | 12/12 unchanged |
+| `testSnmpWalk` | 15/15 unchanged |
+
+`testSnmpScan` exists because the other six do not touch this boundary — proven, not assumed, by
+reverting both server-side changes and watching all of them stay green. Every one of the four
+changes is now caught by a distinct check: the gateway's own ports read raw fails 2 and 12, dropping
+the shadow check fails 12, `natPortResolver` read raw fails 6, and the routing gate read raw fails 8
+— the equality between a filtered refusal and a stopped daemon's, which is the leak this boundary
+closed and the one claim no unit test can make, because it is a sameness between two live HTTP
+answers.
+
+Server liveness was proven separately before any of it was trusted: reverting `portsOpenToNetwork`
+in the OCCUPANT scan fails `testSnmpFilter` checks 3 and 6, so the greens describe current source.
+
+**Operational gotcha, learned the expensive way** and written into
+[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §5, where it will outlive this
+plan. Start the stack with `npm run vercel:dev`, never the binary directly: the script wraps
+`dotenv -e .env.development.local` and the binary alone does not read it, so every endpoint answers
+`not_configured` while the server otherwise looks healthy. It surfaced as `testSnmpFilter` at 1/13,
+and the single PASS is the lesson — check 5 asserts a filtered port answers word for word as a
+stopped one, and two identical env errors satisfy that perfectly. A check whose claim is a SAMENESS
+passes hardest when the server has stopped answering at all.
+
+### Boundary 2 — the mutation gate (2026-08-31)
+
+Diff-scoped to the four production files this boundary changed: **95.22%**, 259 killed, 9 survived,
+4 uncovered. `scanResult.ts` and `natHosts.ts` — the two substantively rewritten — closed at
+**100.00%**, and NO survivor sits on a line this boundary changed except one that is equivalent.
+
+Two PRE-EXISTING survivors were killed anyway, both in `resolveInnerGatewayScan.ts` and both the same
+fault: a guard no fixture could distinguish, because every failure test there fails EVERY journal
+read, so a guard nearer the top returns the identical 500 and hides whether the one under test does
+anything. Narrowing the failure to a single machine id tells them apart.
+
+- **The gateway's own journal.** Without the guard the gateway materializes from its SEED and the
+  scan answers 200 with ports the live box may not have — an unreadable address derived as a
+  fallback, which every other lookup in this file refuses to do.
+- **A journal a layer BELOW the child.** Without the guard the failed layer lands in the map as an
+  absent entry, the chained port drops, and a database blip renders as a defender's box having gone
+  quiet — a player reading their own infrastructure failing as somebody else's door closing.
+
+That file closed **91.67% → 96.30%**, 8 survivors and 1 uncovered line down to 4 survivors and none
+uncovered. The first attempt at the second one aimed at the WRONG guard and its test passed against
+the mutant, which is the note worth keeping: the hop guard and the recursion guard sit six lines
+apart, look identical, and catch failures from different depths. The hop guard was already covered;
+only a three-layer chain with the failure at L3 reaches the other.
+
+The four remaining survivors are equivalent, provably from their consumers rather than by assertion:
+`: []` for a bricked deep host and the `?? []` beside it are both read only through
+`openPort.port === internalPort`, which a garbage entry can never satisfy; `kind: 'ports'` is checked
+only as `=== 'lookup_failed'`; and `vantage: 'external'` reaches a `scanResult` that branches on
+`=== 'sameLAN'`, so every other string is already the external path.
+
+### One shipped behavior this boundary changed on purpose
+
+`hydra` against a published port whose resident filtered it answered `service_not_running`, and a
+slice-6 test pinned that. The behavior it was written for — the filter applies through somebody
+else's NAT — is unchanged; only the NAME of the refusal moved, to the one a stopped daemon and a
+never-opened forward already give. The test now reads `host_unreachable`, because the alternative is
+shipping the oracle AC-12 exists to close. Worth stating rather than burying: it is an edit to a
+merged slice's asserted observable, made because that slice predates the indistinguishability rule
+slice 7 wrote down.
+
+### The finding AC-11 was narrowed around
+
+**The client's same-LAN scan of `.1` reads a SEEDED base, not the journal.** `nmap.ts` answers a
+single scan of the AP gateway from `buildApGatewayBaseFs(essid)` with no patches applied, so a deny
+— which only ever arrives as a patch — is invisible there whatever `scanResult` does. The blindness
+is wider than the filter and predates it: an `snmpset`-written forward and a daemon somebody stopped
+on the gateway are equally unseen from that door today. Closing it means routing that scan through
+the server the way the occupant and inner-gateway scans already are, which is a slice rather than a
+criterion — and fixing only the filter half would leave the other two stale while looking closed.
+
+- [x] **AC-10** `nmap <A's public IP>` omits a port A denied in `rules.v4`. The box stays UP with
       its other ports listed; a filtered port is absent, never shown as closed.
-- [ ] **AC-11** The same-LAN scan of a router's `.1` honours it identically. `scanResult` reads
+      Closed at `scanResult` and proven at the door it names: a `deny 161` on the gateway's journal
+      leaves `handleResolvePublicScan` answering with `sshd:22` alone. Falsified by putting
+      `readOpenPorts` back, which fails both filter tests and the collision test together.
+- [x] **AC-11** The same-LAN scan of a router's `.1` honours it identically. `scanResult` reads
       `portsOpenToNetwork` at BOTH vantages — both are somebody else's box seen from the network,
       which is the rule `portsOpenToNetwork`'s own doc already states.
-- [ ] **AC-12** A forward whose TARGET has denied the internal port does not appear in the public
+      **Narrowed 2026-08-31 to the contract, deliberately.** Slice 6 recorded `scanResult` as "the
+      owner's own view of their own box" and left it alone; that reason was wrong for all three of
+      its callers, two of which resolve somebody else's gateway cross-player. The contract is now
+      right at both vantages and pinned by unit tests. The client DOOR is a separate matter: it
+      reads a seeded base and cannot observe a deny at all — see the finding below.
+- [x] **AC-12** A forward whose TARGET has denied the internal port does not appear in the public
       scan, AND the reach refuses a connection to it — scan and door agree. Distinct from slice 7's
       exemption and not in conflict with it: slice 7 exempted the GATEWAY's filter over traffic it
       merely passes through, while the target is the box that TERMINATES the forwarded traffic, so
       its own INPUT filter governs it. A scan that hid a port the door still opened would be the
       exact inconsistency slice 7 closed, running the other way.
-- [ ] **AC-13** The owner's own view is unmoved. `ps`, the owner's local scan, and `127.0.0.1`
+      **The door was NOT already right, and the way it was wrong is the find of this boundary.**
+      `resolvePublicTarget` gated the forward on the raw pidfiles, so a STOPPED daemon failed there
+      as `host_unreachable` while a FILTERED one routed fine and was refused a layer later as
+      `service_not_running`. Two names for one silence is an oracle: it told a stranger which port
+      somebody is DEFENDING, which is the single state a filter must never have — and it is
+      word-for-word the fault slice 7 fixed for the gateway's own port and left standing one hop in.
+      Both now answer `host_unreachable`. The scan half is `natPortResolver`, and the same pair
+      exists one layer deeper on the chain, where the reach was already indistinguishable (it has no
+      per-port routing gate) but `resolveInnerGatewayScan` still read raw pidfiles.
+      Three call sites, each falsified alone: reverting `natPortResolver` fails the public-scan test,
+      reverting the routing gate fails the mysql door AND the hydra sweep, reverting the deep reader
+      fails the chain test. `service_not_running` stays correct where it means something else — a
+      forward landing on a port that serves a DIFFERENT service is still named as such.
+- [x] **AC-13** The owner's own view is unmoved. `ps`, the owner's local scan, and `127.0.0.1`
       still reach a filtered service — the whole reason a filter beats `systemctl stop`.
+      The self path in `nmap` was already right — it reads the pidfiles — but nothing guarded it, so
+      a later change could have started filtering the owner's own box in silence. Now pinned: a box
+      running redis behind its own `deny 6379` still lists the port to its owner, and pointing that
+      one path at `portsOpenToNetwork` fails that test alone.
 
 **Both boundaries**
 
@@ -2054,6 +2187,12 @@ denies `161`, the door is decoration and slice 9 needs to know that.
 - [x] **AC-15** Slices 1–7 are unmoved: `testSnmpCrossPlayer` 15/15, `testSnmpSet` 16/16,
       `testSnmpDepth` 12/12 and `testSnmpFilter` 13/13 all re-run unchanged. The scan change touches
       shared machinery four paths read, so this is the criterion carrying the most risk in the slice.
+      Re-run for boundary 2 alongside `testSnmpInstall` 15/15 and `testSnmpWalk` 15/15 — six green.
+      **And they proved nothing about boundary 2, which is why a seventh script exists.** Reverting
+      BOTH of this boundary's server-side changes left `testSnmpFilter`, `testSnmpCrossPlayer` and
+      `testSnmpDepth` at 13/13, 15/15 and 12/12: no script reached `resolvePublicScan` or
+      `resolveInnerGatewayScan` at all. Six green scripts discharge AC-15's claim and are not
+      evidence FOR the boundary; the two are different questions and were nearly conflated.
 
 ### Boundary 1 — the live run (2026-08-31)
 

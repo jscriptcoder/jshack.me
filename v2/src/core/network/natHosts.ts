@@ -14,7 +14,8 @@
 
 import { canBoot } from '../boot/bootFiles';
 import { materializeWorkstationFs, type OwnerPatchRow } from './materializeWorkstationFs';
-import { readOpenPorts, type OpenPort } from '../services/pidfile';
+import { portsOpenToNetwork } from './portsOpenToNetwork';
+import type { OpenPort } from '../services/pidfile';
 import type { OccupantWorkstation } from '../patches/remoteWritePermission';
 import type { Directory } from '../filesystem/types';
 
@@ -33,10 +34,16 @@ export const bootableOccupantFs = (
 /** The `resolveTargetPorts` that `scanResult` injects: what is serving at the internal
  *  address a forward names. An address with no live box behind it — nobody leases it,
  *  its holder has left the WiFi, or the box is bricked — is simply absent from the map
- *  and answers nothing, which is what drops a dead forward from the public IP. */
+ *  and answers nothing, which is what drops a dead forward from the public IP.
+ *
+ *  What the target answers to the NETWORK, not what it runs. A filter is honoured for
+ *  the box that TERMINATES the forwarded traffic, and not for the gateway that merely
+ *  passes it through — so an occupant closing a port closes the forward onto it, while
+ *  the gateway's own filter leaves that forward alone. Without this the scan would go
+ *  on advertising a port every door already refuses. */
 export const natPortResolver =
   (treesByAddress: ReadonlyMap<string, Directory>) =>
   (internalIp: string): readonly OpenPort[] => {
     const occupantFs = treesByAddress.get(internalIp);
-    return occupantFs === undefined ? [] : readOpenPorts(occupantFs);
+    return occupantFs === undefined ? [] : portsOpenToNetwork(occupantFs);
   };

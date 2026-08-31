@@ -1144,6 +1144,16 @@ one is usually cheaper than reworking the realistic one — and it leaves the re
   ```
   Then `npm run vercel:dev`, and confirm `/api/<fn>` returns non-502 (a 400 to an empty
   `{}` body = serving).
+- **A `vercel dev` started any way but `npm run vercel:dev` manufactures a PASSING check.** That
+  script wraps the binary in `dotenv -e .env.development.local`; the binary alone does not read the
+  file, and every endpoint then answers `500 {"error":"not_configured"}`. The server is otherwise
+  healthy — it starts, prints `Ready!`, serves the app — so nothing announces the fault. It surfaced
+  as `testSnmpFilter` reporting **1/13**, and the one PASS is the tell: check 5 asserts that a
+  FILTERED port answers word for word as a STOPPED one, and two identical env errors satisfy that
+  equality perfectly. Any check whose claim is "these two answers are the same" passes hardest when
+  the server has stopped answering at all. Hit 2026-08-31. Read a failing wire-check's DETAIL column
+  before believing the score, and treat a uniform `not_configured` as an env fault, never a product
+  one.
 - **A missing `v2/node_modules/.bin` silently runs the FROZEN ROOT app's binaries, and the game
   stops mounting.** npm resolves a script's binary by walking UP from the package, and the repo
   root has its own `node_modules` for the frozen React app. With `v2/node_modules/.bin` absent,

@@ -387,6 +387,32 @@ describe('nmap — self-host open ports (slice 1)', () => {
     expect(text).toContain('161/udp  open  snmp');
   });
 
+  it('still lists a port the owner OWN filter denies — the filter closes the network, not the box', async () => {
+    // The whole reason a filter is worth having over `systemctl stop`: the daemon keeps
+    // running and its owner keeps reaching it. The owner's own scan reads the pidfiles
+    // and never the filter, so the port a stranger has stopped seeing is still here.
+    const run = buildDirectory({
+      'sshd.pid': buildFile('sshd:port=22', { owner: 'root' }),
+      'redis-server.pid': buildFile('redis-server:port=6379', { owner: 'root' }),
+    });
+    const tree = buildDirectory({
+      etc: buildDirectory({
+        iptables: buildDirectory({ 'rules.v4': buildFile('deny 6379', { owner: 'root' }) }),
+      }),
+      var: buildDirectory({ run }),
+    });
+    const env = mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkViewFromConnectivity(onlineConnectivity('BEAN-THERE-WIFI')),
+      fs: mockFsViewFromTree(tree, { userType: 'user' }),
+    });
+
+    const { text } = await drain(await nmap.execute(env, [SELF_IP], new Map()));
+
+    expect(text).toContain('22/tcp   open  ssh');
+    expect(text).toContain('6379/tcp open  redis');
+  });
+
   it('shows no open ports on the own host when sshd is not running (empty /var/run)', async () => {
     const env = envWithVarRun({});
 

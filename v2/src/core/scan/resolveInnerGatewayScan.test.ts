@@ -246,6 +246,26 @@ describe('handleResolveInnerGatewayScan', () => {
     });
   });
 
+  it('drops a forwarded port the deep box has DENIED in its own filter', async () => {
+    const { deps } = perIdDeps({
+      [INNER_GW_ID]: [forwardPatch],
+      [DEEP_HOST_ID]: [
+        deepPatchRow('/etc/iptables/rules.v4', `deny ${SERVICE_CATALOG.ssh.defaultPort}`),
+      ],
+    });
+
+    const result = await handleResolveInnerGatewayScan(envelope(INNER.ip), deps);
+
+    // The daemon is still running down there — the box refuses the network instead of
+    // stopping the service, and the box that TERMINATES the forwarded traffic is the one
+    // whose filter governs it. The reach already answers this port as though nothing were
+    // serving, so a scan still listing it would promise a door the chain refuses.
+    expect(result).toEqual({
+      status: 200,
+      body: { ok: true, found: true, ports: [SSH_22, SNMP_161] },
+    });
+  });
+
   it('advertises nothing for a deep box bricked through its own journal', async () => {
     const { deps } = perIdDeps({
       [INNER_GW_ID]: [forwardPatch],
@@ -373,6 +393,26 @@ describe('handleResolveInnerGatewayScan', () => {
     expect(result).toEqual({ status: 500, body: { error: 'patches_lookup_failed' } });
   });
 
+  it('reports a server error when only the GATEWAY OWN journal fails, reading nothing from it', async () => {
+    const { deps } = makeDeps(async ({ machine_id }) =>
+      machine_id === INNER_GW_ID
+        ? { data: null, error: new Error('db down') }
+        : { data: [], error: null },
+    );
+
+    const result = await handleResolveInnerGatewayScan(envelope(INNER.ip), deps);
+
+    // A journal that cannot be read is never treated as an empty one. Without this the
+    // gateway would materialize from its SEED and the scan would answer 200 with the
+    // ports it was born with, describing a box whose real state nobody could see — the
+    // same reason every other lookup here fails loudly rather than falling back.
+    //
+    // The sibling test fails EVERY read, so a guard further down the chain produces the
+    // identical 500 and cannot tell the two apart. Only the gateway's own read fails
+    // here, which is what makes the guard at the top load-bearing.
+    expect(result).toEqual({ status: 500, body: { error: 'patches_lookup_failed' } });
+  });
+
   it('reports the edge .1 router as not found (it is not an inner gateway), no journal read', async () => {
     const { deps, findPatches } = makeDeps();
 
@@ -463,6 +503,8 @@ describe('handleResolveInnerGatewayScan — chained forward down a deeper chain'
   ).childGateway;
   if (L3CHILD === null) throw new Error('the depth-3 L2 child fronts no L3 child gateway');
 
+  const L3CHILD_ID = computeDeepGatewayId(L2CHILD_ID, octetOf(L3CHILD));
+
   const CHAINED_PORT = 2222;
   const innerForward: OwnerPatchRow = {
     path: '/etc/iptables/rules.v4',
@@ -489,6 +531,27 @@ describe('handleResolveInnerGatewayScan — chained forward down a deeper chain'
       signRequest(PLAYER, 'resolveInnerGatewayScan', { essid: ESSID3, target: INNER3.ip }),
       deps,
     );
+
+  it('reports a server error when a journal fails BELOW the child, never a dark chained port', async () => {
+    const { deps } = makeDeps(async ({ machine_id }) => {
+      if (machine_id === L3CHILD_ID) return { data: null, error: new Error('db down') };
+      if (machine_id === INNER3_ID) return { data: [innerForward], error: null };
+      if (machine_id === L2CHILD_ID) return { data: [l2ToL3], error: null };
+      return { data: [], error: null };
+    });
+
+    const result = await scanInner3(deps);
+
+    // The failure happens a layer below the child, so it comes back OUT of the recursion
+    // rather than off the hop itself. Left to fall through, the failed layer would land
+    // in the map as an absent entry, the chained port would drop, and a database blip
+    // would render as a defender's box having gone quiet — a player reading their own
+    // infrastructure failing as somebody else's door closing.
+    //
+    // Every neighbouring failure test fails EVERY read, so a guard nearer the top returns
+    // the identical 500 and none of them can tell this one apart.
+    expect(result).toEqual({ status: 500, body: { error: 'patches_lookup_failed' } });
+  });
 
   it('surfaces the chained port through two live forwards', async () => {
     const { deps } = perIdDeps({ [INNER3_ID]: [innerForward], [L2CHILD_ID]: [l2ToL3] });
