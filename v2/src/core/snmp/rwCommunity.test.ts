@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { formatSnmpdState, readRwCommunityHash, readSnmpdState } from './rwCommunity';
+import {
+  consumeRwCommunity,
+  formatSnmpdState,
+  readRwCommunityHash,
+  readSnmpdState,
+} from './rwCommunity';
+import { readSnmpdConf, SNMPD_CONF_PERMISSIONS, SNMPD_CONF_SEED } from './conf';
+import { communityTier } from '../sessions/snmpAgent';
+import { md5 } from '../generation/md5';
+import { applyPatches } from '../filesystem/applyPatches';
+import { asAbsPath } from '../types';
+import type { Directory } from '../filesystem/types';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 
 /**
@@ -103,5 +114,93 @@ describe('finding the state file on a device', () => {
         buildDirectory({ var: buildDirectory({ lib: buildDirectory({ snmp: buildDirectory({}) }) }) }),
       ),
     ).toBe('');
+  });
+});
+
+/**
+ * Rotating the community, which is the only way it ever changes.
+ *
+ * The owner writes the new string into the world-readable config and starts the agent;
+ * the daemon spends the line and leaves a hash. Nothing over the wire can do this, and
+ * that is the point — an OID for it would let whoever cracked the community lock the
+ * real owner out of their own box.
+ */
+describe('spending a community the owner typed into the readable config', () => {
+  const STANDING = 'the-one-already-in-force';
+
+  /** A box as its owner left it: an agent already answering to a community, and whatever
+   *  they typed into the readable file waiting to be picked up. */
+  const boxRotating = (confTail: string): Directory =>
+    buildDirectory({
+      var: buildDirectory({
+        lib: buildDirectory({
+          snmp: buildDirectory({ 'snmpd.conf': buildFile(formatSnmpdState(md5(STANDING))) }),
+        }),
+      }),
+      etc: buildDirectory({
+        snmp: buildDirectory({
+          'snmpd.conf': buildFile(SNMPD_CONF_SEED + confTail, {
+            perms: SNMPD_CONF_PERMISSIONS,
+          }),
+        }),
+      }),
+    });
+
+  /** The same box once the daemon has come up and spent what it found. */
+  const afterRestart = (box: Directory): Directory =>
+    applyPatches(
+      box,
+      consumeRwCommunity(box).map((consumed) => ({
+        path: asAbsPath(consumed.path),
+        content: consumed.content,
+        owner: 'root',
+        permissions: consumed.permissions,
+      })),
+    );
+
+  it('answers to the new community and refuses the one it replaced', () => {
+    // The whole observable. Both halves matter: a rotation that accepted the new string
+    // while still honouring the old would leave a cracked community live forever, and
+    // the owner would have no way to take it out of service at all.
+    const rotated = afterRestart(boxRotating('rwcommunity hunter2\n'));
+
+    expect(communityTier(rotated, 'hunter2')).toBe('read-write');
+    expect(communityTier(rotated, STANDING)).toBeNull();
+  });
+
+  it('leaves the plaintext readable by anyone on the box until the daemon spends it', () => {
+    // A REAL leak window, pinned as behaviour so nobody closes it by accident. The file
+    // is world-readable by design, so a visitor holding any shell can read a community
+    // its owner typed and has not yet restarted into force. That is a thing to watch for
+    // rather than a bug — but if it is ever closed, it should be because somebody decided
+    // to, not because a refactor moved the file.
+    const waiting = boxRotating('rwcommunity hunter2\n');
+
+    expect(SNMPD_CONF_PERMISSIONS.read).toContain('guest');
+    expect(readSnmpdConf(waiting)).toContain('rwcommunity hunter2');
+    expect(readSnmpdState(waiting)).not.toContain('hunter2');
+    expect(communityTier(waiting, 'hunter2')).toBeNull();
+  });
+
+  it('spends nothing at all when the line names no community', () => {
+    // Degrades the way this file's neighbours do. A restart that consumed a blank line
+    // and hashed it would leave the box answering to the empty string — a door its owner
+    // closed by typo and anyone else opens by guessing nothing.
+    const rotated = afterRestart(boxRotating('rwcommunity\n'));
+
+    expect(consumeRwCommunity(boxRotating('rwcommunity\n'))).toEqual([]);
+    expect(communityTier(rotated, STANDING)).toBe('read-write');
+  });
+
+  it('takes the first of two and still leaves neither behind', () => {
+    // One community wins, the way every other directive here resolves. Both lines go
+    // even so: a duplicate left in place would be the plaintext left in place, which is
+    // the one thing this rewrite exists to prevent.
+    const rotated = afterRestart(boxRotating('rwcommunity first\nrwcommunity second\n'));
+
+    expect(communityTier(rotated, 'first')).toBe('read-write');
+    expect(communityTier(rotated, 'second')).toBeNull();
+    expect(readSnmpdConf(rotated)).not.toContain('second');
+    expect(readSnmpdConf(rotated)).not.toContain('first');
   });
 });

@@ -1987,17 +1987,26 @@ denies `161`, the door is decoration and slice 9 needs to know that.
       agent is a door no wordlist opens. That is the rate every generated device already faces and is
       not a gap — it is what the CVE route exists to answer — but it means AC-8's observable is
       available to about three owners in five.
-- [ ] **AC-4** A `nano`s `rwcommunity <new>` into `/etc/snmp/snmpd.conf` and runs
+- [x] **AC-4** A `nano`s `rwcommunity <new>` into `/etc/snmp/snmpd.conf` and runs
       `systemctl restart snmpd`. The OLD community is refused afterwards and the new one is accepted
       at the read-write tier.
-- [ ] **AC-5** That restart CONSUMES the line: the plaintext is gone from the world-readable file
+- [x] **AC-5** That restart CONSUMES the line: the plaintext is gone from the world-readable file
       afterwards, and the hash in the root-only file is the new community's.
-- [ ] **AC-6** Before the restart, the plaintext IS readable by a non-root visitor on the box — the
+- [x] **AC-6** Before the restart, the plaintext IS readable by a non-root visitor on the box — the
       leak window is real and is pinned as behavior, so a later change cannot quietly close it
       without someone deciding to.
-- [ ] **AC-7** A `rwcommunity` line that is blank, malformed, or duplicated degrades the way
+- [x] **AC-7** A `rwcommunity` line that is blank, malformed, or duplicated degrades the way
       `rules.v4` and the read-only parser already do: the device answers LESS rather than erroring.
       A restart that consumed nothing leaves the previous community standing.
+      **Seam decided 2026-08-31**: a `consumeConfig` hook on the `Daemon`, applied inside
+      `bringUp`. Not on `ServiceSpec` — that row is world data the generator reads and every hook
+      on it is a pure read, while this one produces writes. Not inside `restartSteps` — a real
+      agent reads its config when it STARTS, so `snmpd`, `systemctl start` and `systemctl restart`
+      all spend the same line and an owner cannot rotate by one route and silently fail by
+      another. The writes land AFTER the port is open: a daemon that spent the new community and
+      then failed to bind would have taken the old one out of service with nothing answering to
+      the new one. Duplicates resolve first-wins like every other directive here, and ALL of them
+      are stripped, because a line left behind is the plaintext left behind.
 - [ ] **AC-8** **The observable this slice exists for.** A denies `6379` on their own box; B cracks
       A's community and `snmpset <A's box> <rw> INPUT-MIB::inputPort.6379=permit` re-opens it, and
       A's redis answers a neighbour again with nothing restarted.

@@ -57,6 +57,8 @@ import {
   PIDFILE_PERMISSIONS,
 } from '../services/pidfile';
 import { errorLine, streamedResult, text } from './streaming';
+import { consumeRwCommunity, type ConsumedConfig } from '../snmp/rwCommunity';
+import type { Directory } from '../filesystem/types';
 
 const PORT_MIN = 1;
 const PORT_MAX = 65535;
@@ -89,6 +91,15 @@ export type Daemon = {
    *  own catalog port. */
   readonly manualDescription: string;
   readonly examples: readonly CommandExample[];
+  /** Config this daemon SPENDS as it comes up, returning the files it rewrites.
+   *
+   *  On the daemon rather than on the catalog row, because the catalog is world data the
+   *  generator reads to build boxes and every hook on it is a pure read; this one
+   *  produces writes. On the daemon rather than in one verb, because a real agent reads
+   *  its config when it STARTS — so `snmpd`, `systemctl start` and `systemctl restart`
+   *  all spend the same line, and an owner cannot rotate a secret by one route and
+   *  silently fail to by another. */
+  readonly consumeConfig?: (hostFs: Directory) => readonly ConsumedConfig[];
 };
 
 const errorResult = (content: string): CommandResult => ({
@@ -155,6 +166,24 @@ export async function* bringUp(
   if (!result.ok) {
     yield errorLine(`${daemon.name}: ${PATCH_ERROR_REASON[result.error]}`);
     return 1;
+  }
+
+  // After the port is open, and never before it: a daemon that spent its owner's new
+  // community and then failed to bind would have taken the old one out of service with
+  // nothing listening to answer to the new one.
+  //
+  // OWNED BY ROOT explicitly. These are the daemon's own files, not the shell's, and a
+  // rewrite that inherited the caller's username would hand the box's own state to
+  // whoever happened to type the command.
+  for (const consumed of daemon.consumeConfig?.(env.fs.root()) ?? []) {
+    const written = await env.patches.write(consumed.path, consumed.content, {
+      permissions: consumed.permissions,
+      owner: 'root',
+    });
+    if (!written.ok) {
+      yield errorLine(`${daemon.name}: ${PATCH_ERROR_REASON[written.error]}`);
+      return 1;
+    }
   }
 
   yield text(`Server listening on 0.0.0.0 port ${port}.`);
@@ -343,6 +372,11 @@ const SNMPD: Daemon = {
     { command: 'snmpd', description: 'Start the agent on the default port 161' },
     { command: 'snmpd 1610', description: 'Start it on port 1610 instead' },
   ],
+  // The one daemon here with a config worth spending. Its owner rotates the read-write
+  // community by writing it into the readable file and starting the agent; nothing over
+  // the wire can do this, which is what keeps a cracked community from locking its owner
+  // out of their own box.
+  consumeConfig: consumeRwCommunity,
 };
 
 export const sshd = daemonCommand(SSHD);
