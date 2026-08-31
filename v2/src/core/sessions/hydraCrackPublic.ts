@@ -88,7 +88,9 @@ const hydraCrackPublicSchema = z
     target: z.string().min(1),
     service: z.string().min(1),
     // The destination port behind the public IP — the ADDRESS, since a public IP names
-    // an access point rather than a machine. Absent means the gateway's own sshd.
+    // an access point rather than a machine. Absent means the gateway's own agent for
+    // the named service on its default port (sshd:22, snmpd:161), so the service name
+    // alone reaches the gateway the way the walk and the set already do.
     port: z.number().int().positive().optional(),
     username: z.string().min(1).optional(),
     caller_machine_id: z.string().min(1),
@@ -118,21 +120,25 @@ export const handleHydraCrackPublic = async (
     return { status: access.status, body: { error: access.error } };
   }
 
+  // A service the world has no row for is answered exactly like one that is not
+  // running, and resolving the row is what gives the trace below a log to land in.
+  // Resolved BEFORE the target because it also names the port a bare `hydra <ip> snmp`
+  // reaches: absent a `-p`, the destination is the gateway's own agent on the NAMED
+  // service's port, exactly as the walk and the set read 161 from the same command —
+  // not sshd's 22, which is only the default for the service the CLI itself defaults to.
+  const spec = serviceByName(payload.service);
+  if (spec === undefined) {
+    return { status: 404, body: { error: 'service_not_running' } };
+  }
+
   const resolved = await resolvePublicTarget(deps, {
     publicIp: payload.target,
-    port: payload.port,
+    port: payload.port ?? spec.defaultPort,
   });
   if (!resolved.ok) {
     return { status: resolved.status, body: { error: resolved.error } };
   }
   const target = resolved.target;
-
-  // A service the world has no row for is answered exactly like one that is not
-  // running, and resolving the row is what gives the trace below a log to land in.
-  const spec = serviceByName(payload.service);
-  if (spec === undefined) {
-    return { status: 404, body: { error: 'service_not_running' } };
-  }
 
   // The pidfiles are the truth about what is listening, less whatever the box refuses
   // the network: a stopped daemon leaves nothing to attack, and neither does a port its

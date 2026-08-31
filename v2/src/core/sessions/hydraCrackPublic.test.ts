@@ -578,14 +578,20 @@ describe('handleHydraCrackPublic', () => {
     expect(findNetworkByPublicIp).toHaveBeenCalledWith(TARGET_IP);
   });
 
-  it('refuses when the target is not running the service asked for, and writes no trace', async () => {
+  it('refuses a known service the gateway does not run as an absent host does, and writes no trace', async () => {
     const upsertPatch = vi.fn(async () => ({ error: null }));
     const { status, body } = await handleHydraCrackPublic(
+      // `ftp` names a real service, so its default port is where the sweep looks — and
+      // the gateway runs nothing there. A gateway service that is not listening reads
+      // exactly like an address bearing no network, the same silence the SNMP doors
+      // give a filtered agent: a sweep that could tell "no ftp here" from "nobody home"
+      // would sort the world into worth-a-wordlist and not for free. An UNKNOWN service
+      // name is the separable case — a caller's typo — and still says "scan it first".
       envelope({ service: 'ftp' }),
       depsWith({ upsertPatch }),
     );
 
-    expect({ status, body }).toEqual({ status: 404, body: { error: 'service_not_running' } });
+    expect({ status, body }).toEqual({ status: 404, body: { error: 'host_unreachable' } });
     expect(upsertPatch).not.toHaveBeenCalled();
   });
 
@@ -1081,6 +1087,24 @@ describe('sweeping the agent on a stranger access point gateway', () => {
     expect(status).toBe(200);
     // A username invented to fill the column would send a player hunting for an account
     // this door does not have.
+    expect(body).toEqual({
+      port: SERVICE_CATALOG.snmp.defaultPort,
+      cracked: [{ password: COMMUNITY }],
+      wordlistFound: true,
+    });
+  });
+
+  it('resolves the agent port from the service when the caller names none, as the walk does', async () => {
+    // `hydra <public-ip> snmp` with no `-p` is what the CLI sends: a named service and
+    // an absent port. The walk and the set already read the agent on 161 from the same
+    // bare command, so the sweep that recovers their community must reach the same door
+    // without the player first learning a port number the tool is meant to know.
+    const { status, body } = await handleHydraCrackPublic(
+      envelope({ service: 'snmp' }),
+      depsWith({ wordlist: ['nonsense', COMMUNITY] }),
+    );
+
+    expect(status).toBe(200);
     expect(body).toEqual({
       port: SERVICE_CATALOG.snmp.defaultPort,
       cracked: [{ password: COMMUNITY }],

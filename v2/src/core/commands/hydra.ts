@@ -53,7 +53,8 @@ const REFUSALS: Readonly<Record<string, string>> = {
 };
 
 /** `-p <port>`, or undefined when absent, valueless or not a port. Undefined means
- *  the default door, which behind a public IP is the gateway's own sshd. A bare `-p`
+ *  the default door, which behind a public IP is the gateway's own agent for the named
+ *  service — sshd for a bare `hydra <ip>`, snmpd for `hydra <ip> snmp`. A bare `-p`
  *  yields `true` and an absent one `undefined` — both non-strings, so one guard
  *  covers them. */
 const parsePort = (raw: string | true | undefined): number | undefined => {
