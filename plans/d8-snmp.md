@@ -1,6 +1,6 @@
 # Plan: D8 — `snmpwalk` / `snmpset`
 
-**Branch**: `feat/d8-snmp-cross` (slice 7)
+**Branch**: `feat/d8-snmp-install` (slice 8 — intra-slice stack of two boundaries; boundary 1 not started)
 **Status**: Active — slice 1 MERGED (#465, v0.185.0); slice 2 MERGED (#466, v0.186.0,
 2026-08-27); slice 3 MERGED (#467, v0.187.0, 2026-08-28); slice 4 MERGED (#468, v0.188.0,
 2026-08-28 — AC-1…AC-14 met, wire-check RUN 16/16 and falsified twice, mutation gate closed
