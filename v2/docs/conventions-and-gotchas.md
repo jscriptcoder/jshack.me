@@ -1133,6 +1133,30 @@ one is usually cheaper than reworking the realistic one — and it leaves the re
   Library's default matcher collapses whitespace, so `findByText('mysql>')` passes against
   `'mysql>  '`. Assert `.textContent` exactly when the constant's spacing is the claim.
 
+**⚠️ Stryker's config file is a POSITIONAL argument — `-c` is `--concurrency`.** Cost 75 minutes
+on 2026-09-01 and it is silent in both directions, so check this before letting any battery run:
+
+```bash
+npx stryker run stryker.mutation.json --concurrency 4     # right
+npx stryker run -c stryker.mutation.json                  # WRONG — see below
+```
+
+`-c <file>` sets concurrency to the FILENAME. That fails validation with
+`Config option "concurrency" must match pattern "^(100|[1-9]?[0-9])%$"` — an error naming the
+wrong option, which sends you off adjusting concurrency instead of looking at the flag. Supply
+`--concurrency 4` to satisfy the validator and it proceeds happily: **the throwaway config was
+never loaded at all**, so Stryker falls back to the committed `stryker.config.json` and mutates
+every file it lists. On this repo that is **219 files and 15,975 mutants instead of 183**, four
+cores pegged, no output (the `progress` reporter writes nothing to a redirected stream), and it
+reads exactly like a slow machine. **The tell is the instrumenter's own first line** —
+`Instrumented 2 source file(s) with 183 mutant(s)` is right, `Instrumented 219` is not. A properly
+scoped battery here finishes in under a minute; if one runs past a few minutes, check that line
+before waiting.
+
+**Baseline the narrowed suite before trusting a battery's runtime.** `npx vitest run --config
+vite.mutation.config.ts` takes ~2s for a scoped include. Multiply by mutants ÷ concurrency and you
+have the expected wall time; anything wildly above it is a scope or hang problem, not patience.
+
 ## 5. Operational gotchas
 
 - **3100 `vercel dev` squatter (recurs).** Killing the `npm run vercel:dev` background task

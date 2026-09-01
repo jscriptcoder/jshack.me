@@ -102,6 +102,15 @@ agent-browser snapshot -i                              # interactive refs (@e1, 
   agent-browser eval "document.body.innerText.slice(-800)"
   ```
   Take the last N chars — the scrollback is long and the tail is what you need.
+- **`innerText` COLLAPSES blank lines, so never verify a line COUNT against it.** A command that
+  emits blank spacer lines renders them as nothing, and the page shows fewer lines than the
+  command produced. 2026-09-01: a script reported its captured `nmap` output as 10 lines against a
+  prompt-typed control that *looked* like 7 — which reads as an off-by-three defect and is not.
+  `nmap` emits three blank spacers, and the DOM ate them for the typed command too. **Count what a
+  command EMITS, not what the page renders**: get the value itself out of the game
+  (`console.log(JSON.stringify(out))` from a script, or assert on the array in a unit test) rather
+  than counting `\n` in `innerText`. Had I trusted the rendered count I would have recorded a false
+  "verified" — or chased a bug that was not there.
 
 ---
 
@@ -275,6 +284,21 @@ against the live `ifconfig`. Delete the temp file when done.
   positive signal, then reconfirm it:
   ```bash
   agent-browser eval "(() => document.querySelector('input') !== null && document.querySelector('textarea') === null)()"
+  ```
+  **The reconfirm is the part that works — a lone `true` is noise.** 2026-09-01: that exact probe
+  returned `true` on its FIRST check and then `false` **twenty-four times running**; the editor had
+  never closed. Sleep a beat after a `true`, ask again, and only believe two in a row. In the same
+  run `^X` needed **two attempts on three of four files** even with a real `click` immediately
+  before the chord, so wrap it in a retry loop rather than treating one press as done:
+  ```bash
+  for attempt in 1 2 3 4; do
+    agent-browser click "textarea"; agent-browser press Control+x; sleep 3
+    back=$(agent-browser eval "(() => document.querySelector('input') !== null && document.querySelector('textarea') === null)()" | tail -1)
+    if [ "$back" = "true" ]; then sleep 2
+      again=$(agent-browser eval "(() => document.querySelector('input') !== null && document.querySelector('textarea') === null)()" | tail -1)
+      [ "$again" = "true" ] && break
+    fi
+  done
   ```
   Read the buffer back after any command that was supposed to run in the SHELL — if it is in
   there, the editor never closed. Recovering a corrupted buffer without retyping it:

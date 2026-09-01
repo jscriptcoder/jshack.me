@@ -1,10 +1,10 @@
 # Plan: D9 — `node` scripting
 
-**Branch**: `feat/d9-a-script-runs-the-tools` (slice 2a) — **cut 2026-09-01 off `main` @ cea7b5a3**
-**Status**: Active — **slice 1 MERGED** as `cea7b5a3` (PR #475) at v0.196.0. **Slice 2a is COMPLETE
-and PR-READY at v0.197.0**: AC-1…AC-14 met, typecheck and lint clean, full suite green (4104
-tests), mutation gate closed (177/183 killed, 96.7%), browser close-out passed. Nothing is left but
-opening the PR. Slices 2b, 3 and 4 remain unplanned.
+**Branch**: none open — cut the next one off `main`.
+**Status**: Active — **slice 1 MERGED** as `cea7b5a3` (PR #475) at v0.196.0, **slice 2a MERGED** as
+`eee52ddf` (PR #476) at v0.197.0. Both are fully evidenced below. **Slice 2b is the next work**:
+groundwork is gathered at the bottom of this file but it is NOT planned and its decisions are NOT
+locked. Slices 3 and 4 are untouched.
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D9 — resolved scope & decisions
 (grill-me, 2026-09-01)", eleven locked decisions.
 
@@ -14,8 +14,9 @@ opening the PR. Slices 2b, 3 and 4 remain unplanned.
    **Decision 5 carries an amendment dated 2026-09-01**; read the amendment, not just the table.
 2. Read "Slice 1 — as built" below for what already exists and why it is shaped that way. Its
    acceptance criteria are closed; do not reopen them.
-3. Slice 2a is built, committed and fully evidenced — every gate below is closed. The only thing
-   left is opening its PR; after it lands, plan slice 2b.
+3. Slices 1 and 2a are merged; read them for what exists and why, not as work to do. **Start at
+   "Slice 2b — groundwork" at the BOTTOM of this file** — it lists what is already established and
+   the open questions to grill before planning.
 4. All commands run from `v2/`. Gates: `npm run typecheck`, `npm run lint`, the full non-watch test
    suite. Wait for commit approval before every commit.
 
@@ -43,8 +44,8 @@ leaving the session it started in.
 | # | Slice | Observable | Status |
 |---|-------|-----------|--------|
 | 1 | a script runs and speaks | `node hello.js` prints; a broken one says so and exits 1 | **MERGED `cea7b5a3`, v0.196.0** |
-| 2a | a script runs the tools | `await nmap(gw)` returns what the prompt shows; `ssh(…)` refuses | **built, pre-PR, v0.197.0** |
-| 2b | a script speaks while it works | a sweep's `console.log` paints live; the spinner names `hydra`, not `node` | not planned |
+| 2a | a script runs the tools | `await nmap(gw)` returns what the prompt shows; `ssh(…)` refuses | **MERGED `eee52ddf`, v0.197.0** |
+| 2b | a script speaks while it works | a sweep's `console.log` paints live; the spinner names `hydra`, not `node` | **NEXT — groundwork below, not planned** |
 | 3 | a script keeps what it found | `/root/sweep.js` chains `hydra` and captures to a file | not planned |
 | 4 | a script is reusable and can be stopped | `process.argv`; Ctrl-C at every await; `sleep(ms)` | not planned |
 
@@ -133,7 +134,9 @@ only signal distinguishing "the command ran" from "the command was typed into a 
 
 ---
 
-## Slice 2a: a script calls the machine's commands and gets back what the prompt would show
+## Slice 2a — as built (MERGED `eee52ddf`, v0.197.0)
+
+*A script calls the machine's commands and gets back what the prompt would show.*
 
 **Value**: the capability the whole feature exists for. Today a script can only talk to itself —
 it cannot reach a single tool on the box it is running on. After this, `await nmap(gateway)` hands
@@ -198,48 +201,48 @@ Two smaller calls recorded so they are not re-litigated:
   inherits stdin to a child. It is single-use, so a second reader gets nothing — which is what an
   inherited fd does.
 
-### Acceptance criteria — CONFIRM BEFORE ANY CODE
+### Acceptance criteria — confirmed before any code, ALL MET
 
-- [ ] **AC-1** A script running `await echo('hi')` gets back `['hi']` — the same stdout the prompt
+- [x] **AC-1** A script running `await echo('hi')` gets back `['hi']` — the same stdout the prompt
       shows for `echo hi`. The value is an ordinary array: `.join`, `.filter`, `.map` all work.
-- [ ] **AC-2** The returned array carries `.exitCode`: 0 for a command that succeeded, the
+- [x] **AC-2** The returned array carries `.exitCode`: 0 for a command that succeeded, the
       command's own code when it failed (`cat` on a missing file → 1).
-- [ ] **AC-3** **A nonzero exit does not throw.** The script keeps running and can branch on
+- [x] **AC-3** **A nonzero exit does not throw.** The script keeps running and can branch on
       `.exitCode`. Only genuine JS errors, refusals and flag failures stop it.
-- [ ] **AC-4** An inner command's `error` and `dim` lines reach the **terminal** and are **not** in
+- [x] **AC-4** An inner command's `error` and `dim` lines reach the **terminal** and are **not** in
       the returned array, interleaved in the order they happened with the script's own
       `console.log`. This is decision 4's capture rule and the pipeline's stderr rule, agreeing.
-- [ ] **AC-5** Hyphenated commands are reachable by their camelCase identifier — `redisCli`,
+- [x] **AC-5** Hyphenated commands are reachable by their camelCase identifier — `redisCli`,
       `aircrackNg`, `airodumpNg`, `newGame` — and the raw hyphenated name is not a binding.
-- [ ] **AC-6** Positional coercion: a number becomes its string (`nc(4444, {'-l': true})` listens
+- [x] **AC-6** Positional coercion: a number becomes its string (`nc(4444, {'-l': true})` listens
       on 4444); `undefined` and `null` throw `TypeError: <name>() argument <n> is undefined`.
-- [ ] **AC-7** A trailing plain object is the flags map, with dashed keys, validated against the
+- [x] **AC-7** A trailing plain object is the flags map, with dashed keys, validated against the
       command's own `FlagSpec`: `apt('list', {'--installed': true})` works; `{'-p': 2222}` coerces
       to `'2222'`; an undeclared flag throws `<name>: unrecognized option: --nope`; `true` passed to
       a `'string'` flag and a string passed to a `'boolean'` flag each throw. The script bypasses
       `bindFlags`, so without this it would have a silent failure mode the prompt does not have.
-- [ ] **AC-8** The ten `withoutScript` commands refuse — `ssh`, `su`, `nc` (connect form), `exit`,
+- [x] **AC-8** The ten `withoutScript` commands refuse — `ssh`, `su`, `nc` (connect form), `exit`,
       `reboot`, `nano`, `lynx`, `mysql`, `redis-cli`, `ftp` — throwing
       `<name>: cannot be run from a script`, printed bare, `node` exits 1, and everything the script
       printed first is kept. **The refusal happens before `execute`**: a refused `su` pushes no
       session and a refused `ssh` writes no `auth.log` line.
-- [ ] **AC-9** `nc`'s exemption works both ways: `nc('10.0.0.5', 4444)` refuses, and
+- [x] **AC-9** `nc`'s exemption works both ways: `nc('10.0.0.5', 4444)` refuses, and
       `nc(4444, {'-l': true})` runs and returns `['Listening on 0.0.0.0 4444']`. This is the
       function form of `withoutScript`, decided against Phase 3's `script_exec` beat.
-- [ ] **AC-10** `withoutTty` still applies from a script: in a session with no terminal behind it,
+- [x] **AC-10** `withoutTty` still applies from a script: in a session with no terminal behind it,
       `scp(…)` refuses with its own `withoutTty` string. `scp` is deliberately not in the
       `withoutScript` set, so this is the only thing standing between a pty-less session and a
       masked password prompt nobody can answer.
-- [ ] **AC-11** A command whose binary is not installed answers `bash: nmap: command not found.
+- [x] **AC-11** A command whose binary is not installed answers `bash: nmap: command not found.
       Install with: apt install nmap` as an error line with `.exitCode === 127`, and the script
       continues — the same thing the prompt does, which is decision 8's invariant.
-- [ ] **AC-12** A script may declare `const nmap = …` at its top level and it shadows the injected
+- [x] **AC-12** A script may declare `const nmap = …` at its top level and it shadows the injected
       binding. Slice 1's block wrap, now carrying ~46 names.
-- [ ] **AC-13** **Registry invariant**: every registered command name derives a JS identifier that
+- [x] **AC-13** **Registry invariant**: every registered command name derives a JS identifier that
       is valid, unique across the registry, and not a reserved word. The day someone adds a command
       named `class`, every script in the game dies with a `SyntaxError` the player cannot read, so
       this is pinned in `registry.test.ts` beside the existing name/category invariants.
-- [ ] **AC-14** `man node` documents the call surface this slice ships — that every command is
+- [x] **AC-14** `man node` documents the call surface this slice ships — that every command is
       callable, awaited, returns `string[]` with `.exitCode`, takes a trailing flags object with
       dashed keys, that spreading the array drops `.exitCode`, and that the pivot commands refuse —
       and names what is still missing (`fs`, `process.argv`, `sleep`).
@@ -424,7 +427,60 @@ AC-1…AC-14 met; `npm run typecheck` and `npm run lint` clean; the full non-wat
 the mutation gate closed or its survivors argued; the version bumped in both files; and the human
 approves the commit.
 
-**Slice complete when** its PR lands.
+**Slice complete when** its PR lands. **LANDED** as `eee52ddf` (PR #476), 2026-09-01.
+
+---
+
+## Slice 2b — groundwork, gathered but NOT yet planned
+
+Facts established while building 2a, recorded so 2b's planning starts from them rather than
+rediscovering them. **This is not a plan** — no acceptance criteria are confirmed and no decisions
+are locked. Grill the open questions first.
+
+**What 2b is for.** After 2a a script is SILENT for as long as it runs: `node` returns
+`kind: 'sync'`, so nothing paints until the whole script finishes, and the busy bar says `node`
+throughout. A sweep over eight hosts shows a spinner and nothing else. Epic decision 4 answers this
+with two things — the script's own `console.log` painting as it happens, and the busy indicator
+tracking the INNER command rather than reading `node` for the whole run.
+
+**Be precise about what does and does not become live.** Decision 4 is *capture, not print*: an
+inner `nmap`'s stdout is returned to the script and never paints on its own. So 2b makes three
+things live and no more:
+
+1. the script's own `console.log` / `error` / `debug`;
+2. an inner command's stderr and dim passthrough (2a already routes these correctly and in ORDER —
+   only their TIMING is deferred to the end);
+3. the busy label.
+
+A reader who expects `await nmap(…)` to paint the scan live has misread decision 4, and the plan
+should say so out loud.
+
+**The streaming bridge is the real work.** `core/commands/streaming.ts` exports `streamedResult`,
+which wraps an `AsyncGenerator<TerminalLine, number>` and preserves the exit code through `yield*`.
+`node` cannot simply be that generator: `console.log` is called from arbitrary depth inside the
+player's script and **cannot `yield`**. It needs a producer/consumer bridge — a queue the emitter
+pushes to, a generator that drains it and awaits the next push, and a settle condition tied to the
+script's own promise. Estimated ~25-30 lines at slice-1 planning; nothing since has changed that.
+`collectStageOutput` already drains `kind: 'async'` fully, so pipes and redirects keep working with
+no further change.
+
+**The busy label needs a new `CommandEnv` seam — it cannot fall out of anything that exists.**
+`runningCommand` is a UI signal (`ui/state.ts:397`), set from `commandNameOf(line)` — the FIRST WORD
+of the submitted line — at `state.ts:1555`, and cleared in the `finally` at `state.ts:1680`. Nothing
+in `core/` can reach it today. Decision 4 calls the fix "one callback"; the shape (an optional
+`onRunningCommand?: (name: string | null) => void`, or something narrower) is an open question, as
+is whether the label restores to `node` between inner calls or only at the end.
+
+**Open questions for the grill**, none of them answered:
+
+- The seam's shape and name, and whether `core/` is allowed to push a UI label at all or whether it
+  should emit something the UI interprets.
+- Whether the label restores to `node` between calls, or holds the last inner command.
+- Whether an inner command's passthrough should paint as it arrives (natural with a stream) or stay
+  batched — 2a's ORDER guarantee must survive whichever is chosen.
+- Whether `node` keeps a sync path for a script that never calls a command, or is always streamed.
+
+**Version**: next feature bump is `0.198.0`. **Wire-check**: still `N/A`, no `api/` change.
 
 ---
 *Delete this file at D9 close-out and fold the durable rules into
