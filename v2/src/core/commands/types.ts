@@ -1238,6 +1238,32 @@ export type Command = {
    *  pty-less shell, which is why installing tools on a box you have opened is
    *  the real reflex. */
   readonly withoutTty?: string;
+  /** What this command says when a SCRIPT calls it instead of a player typing
+   *  it. Present means it cannot be scripted; absent means it can.
+   *
+   *  The value is the refusal for the same reason `withoutTty`'s is: declaring
+   *  the rule and saying what it sounds like are the same act, and a boolean
+   *  would need a second field for the wording.
+   *
+   *  This is a DIFFERENT fact from `withoutTty`, and reusing that one would be
+   *  wrong at both ends — it misses `nc`, `exit`, `reboot` and `new-game`, and
+   *  it catches `scp`, which pushes no session, returns no `mode_change` and
+   *  enters no sub-shell. Membership here follows three structural facts: the
+   *  command pushes or pops a session the script cannot see (`env` is a
+   *  per-line snapshot, so a script that hopped would go on answering about the
+   *  box it left), it returns a `mode_change` — a screen nobody is watching —
+   *  or it calls `env.*.enter()` and puts the terminal at a sub-shell prompt.
+   *
+   *  The FUNCTION form exists for `nc`, whose listen/connect split is already
+   *  the first line of its `execute`: `nc -l` plants a listener and returns,
+   *  which is one of the best things a script can do, while the connect form
+   *  hops. It answers `undefined` for the form it permits. */
+  readonly withoutScript?:
+    | string
+    | ((
+        args: readonly string[],
+        flags: ReadonlyMap<string, string | true>,
+      ) => string | undefined);
   readonly execute: (
     env: CommandEnv,
     args: readonly string[],

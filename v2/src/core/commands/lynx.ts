@@ -92,6 +92,7 @@ export const lynx: Command = {
   availability: { kind: 'any-machine' },
   // A full-screen browser with no screen to open.
   withoutTty: 'lynx: must be run from a terminal',
+  withoutScript: 'lynx: cannot be run from a script',
   manual: {
     synopsis: 'lynx <url>',
     description:

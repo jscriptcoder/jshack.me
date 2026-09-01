@@ -296,6 +296,147 @@ describe('node', () => {
     );
   });
 
+  it('lets a script call a command and hands back what the prompt would show', async () => {
+    const env = envWithScript(
+      'run.js',
+      ["const out = await echo('one', 'two')", "console.log(out.length + ':' + out[0])", ''].join(
+        '\n',
+      ),
+    );
+
+    const result = await node.execute(env, ['run.js'], NO_FLAGS);
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    expect(result.exitCode).toBe(0);
+    // One line, holding both positionals joined the way `echo one two` joins
+    // them at the prompt — so the call carried the arguments AND the answer
+    // came back as the array a script can index.
+    expect(textLines(result)).toEqual(['1:one two']);
+  });
+
+  it('reaches a hyphenated command by its camelCase name', async () => {
+    // A binding is a formal PARAMETER of the sandbox function, and `redis-cli`
+    // there is a SyntaxError that would kill every script in the game — so the
+    // identifier is derived from the name rather than being the name.
+    const env = envWithScript(
+      'names.js',
+      "console.log([typeof redisCli, typeof aircrackNg, typeof newGame, typeof nmap].join(','))\n",
+    );
+
+    const result = await node.execute(env, ['names.js'], NO_FLAGS);
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    expect(result.exitCode).toBe(0);
+    expect(textLines(result)).toEqual(['function,function,function,function']);
+  });
+
+  it("sends an inner command's stderr to the terminal and lets the script carry on", async () => {
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(
+        buildDirectory({
+          bin: buildDirectory({
+            cat: buildFile('', { owner: 'root', perms: { execute: ['root', 'user', 'guest'] } }),
+          }),
+          // `cat` links libpcre — the script reaches it through the REAL
+          // registry, so both gates a typed `cat` passes have to be satisfied.
+          lib: buildDirectory({ 'libpcre.so': buildFile('') }),
+          home: buildDirectory({
+            alice: buildDirectory(
+              {
+                'run.js': buildFile(
+                  [
+                    "console.log('before')",
+                    "const out = await cat('missing.txt')",
+                    "console.log('after:' + out.exitCode + ':' + out.length)",
+                    '',
+                  ].join('\n'),
+                  { owner: 'alice' },
+                ),
+              },
+              { owner: 'alice' },
+            ),
+          }),
+        }),
+        { userType: 'user', cwd: asAbsPath('/home/alice') },
+      ),
+      session: mockSession({ username: 'alice', userType: 'user' }),
+    });
+
+    const result = await node.execute(env, ['run.js'], NO_FLAGS);
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    // The error line is the TERMINAL's, in the order it happened, and is absent
+    // from what the call handed back — the same split the pipeline makes, where
+    // only `text` is stdout. A nonzero exit is data, not an exception, so the
+    // script runs on and `node` itself succeeds.
+    expect(result.lines).toEqual([
+      { kind: 'text', content: 'before' },
+      { kind: 'error', content: 'cat: missing.txt: No such file or directory' },
+      { kind: 'text', content: 'after:1:0' },
+    ]);
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('prints a refusal in the words the prompt would use, and stops there', async () => {
+    const env = envWithScript(
+      'hop.js',
+      ["console.log('before')", "await ssh('root@10.0.0.5', 'pw')", "console.log('never')", ''].join(
+        '\n',
+      ),
+    );
+
+    const result = await node.execute(env, ['hop.js'], NO_FLAGS);
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    // Bare — no `Error:` in front of it. The shell is speaking, and it says at
+    // a script what it would have said at the prompt.
+    expect(result.lines).toEqual([
+      { kind: 'text', content: 'before' },
+      { kind: 'error', content: 'ssh: cannot be run from a script' },
+    ]);
+    expect(result.exitCode).toBe(1);
+  });
+
+  it('answers a command the box has not installed exactly as the prompt would', async () => {
+    const env = envWithScript(
+      'scan.js',
+      ["const out = await nmap('10.0.0.5')", "console.log('exit:' + out.exitCode)", ''].join('\n'),
+    );
+
+    const result = await node.execute(env, ['scan.js'], NO_FLAGS);
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    // A script gets the same answer, and the same apt hint, as a player who
+    // typed it — a script grants no capability, it removes typing.
+    expect(result.lines).toEqual([
+      {
+        kind: 'error',
+        content: 'bash: nmap: command not found. Install with: apt install nmap',
+      },
+      { kind: 'text', content: 'exit:127' },
+    ]);
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('lets a script shadow a command name with its own binding', async () => {
+    // The block wrap, now carrying every command in the registry: without it a
+    // top-level `const nmap = …` would be a redeclaration SyntaxError killing
+    // the script before its first line, for a reason the player cannot see.
+    const env = envWithScript('shadow.js', ["const nmap = 'mine'", 'console.log(nmap)', ''].join('\n'));
+
+    const result = await node.execute(env, ['shadow.js'], NO_FLAGS);
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    expect(result.exitCode).toBe(0);
+    expect(textLines(result)).toEqual(['mine']);
+  });
+
   it('carries a manual and sits with the filesystem commands in help', async () => {
     expect(commandRegistry.get('node')?.category).toBe('filesystem');
 
@@ -319,5 +460,15 @@ describe('node', () => {
     expect(contents).toContain('    node /root/sweep.js | grep OPEN');
     expect(contents).toContain("        Filter a script's output like any other command");
     expect(contents.join('\n')).toContain('console.log writes normal output');
+
+    // The manual is the whole API surface until the tutorials land, so it has
+    // to carry what a script can now DO — and say plainly what it still cannot.
+    const description = contents.join('\n');
+    expect(description).toContain('await');
+    expect(description).toContain('.exitCode');
+    expect(description).toContain('redisCli');
+    expect(description).toContain("{'-p': 2222}");
+    expect(description).toContain('cannot yet read and write files');
+    expect(contents).toContain("    const out = await nmap('10.0.0.5')");
   });
 });

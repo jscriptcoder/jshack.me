@@ -110,6 +110,8 @@ export const reboot: Command = {
   category: 'filesystem',
   tier: 'root',
   availability: { kind: 'any-machine' },
+  // Takes the box out from under the script that is running on it.
+  withoutScript: 'reboot: cannot be run from a script',
   manual: {
     synopsis: 'reboot',
     description:

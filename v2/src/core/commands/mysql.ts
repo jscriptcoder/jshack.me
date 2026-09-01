@@ -276,6 +276,7 @@ export const mysql: Command = {
   availability: { kind: 'localhost-only' },
   // Prompts for an account and a masked password before its sub-shell ever opens.
   withoutTty: 'mysql: must be run from a terminal',
+  withoutScript: 'mysql: cannot be run from a script',
   flags: { '-p': 'string' },
   manual: {
     synopsis: 'mysql [-p port] <host> [user]',

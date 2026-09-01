@@ -71,7 +71,7 @@ type PrepareResult =
  *  difference every writeup opens by fixing (`python3 -c 'import pty;…'`), and
  *  here it is what separates the three doors: ftp moves files, a backdoor lets
  *  you look and break, and only a real login can be pivoted onward from. */
-const hasTty = (session: Session): boolean => session.kind !== 'nc';
+export const hasTty = (session: Session): boolean => session.kind !== 'nc';
 
 /** What netcat prints when the far side is gone. */
 const CONNECTION_CLOSED = 'nc: connection closed by foreign host';
@@ -126,7 +126,7 @@ const run = (env: CommandEnv, prepared: PreparedStage): Promise<CommandResult> =
 
 const isStdout = (line: TerminalLine): boolean => line.kind === 'text';
 
-type StageOutput = {
+export type StageOutput = {
   readonly stdout: readonly string[];
   readonly passthrough: readonly TerminalLine[];
   readonly exitCode: number;
@@ -140,11 +140,14 @@ const categorize = (lines: readonly TerminalLine[], exitCode: number): StageOutp
   exitCode,
 });
 
-/** Reduce a stage's result to its piped stdout + passthrough + exit code.
+/** Reduce a command's result to its piped stdout + passthrough + exit code.
+ *  Exported because a SCRIPT calling a command needs exactly this split: the
+ *  stdout is what the call hands back, the passthrough is the terminal's. One
+ *  copy, so a pipe and a script can never disagree about what stdout is.
  *  Async results are drained to completion (the v2-native pipe-draining
  *  decision); a mode_change (nano/lynx/nc/…) can't feed a pipe, so it
  *  contributes nothing. */
-const collectStageOutput = async (result: CommandResult): Promise<StageOutput> => {
+export const collectStageOutput = async (result: CommandResult): Promise<StageOutput> => {
   if (result.kind === 'sync') {
     return categorize(result.lines, result.exitCode);
   }

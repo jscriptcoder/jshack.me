@@ -26,6 +26,9 @@ export const exit: Command = {
   category: 'general',
   tier: 'guest',
   availability: { kind: 'any-machine' },
+  // Popping a hop the script cannot see: `env` is a per-line snapshot, so
+  // everything after this would go on answering about the box it left.
+  withoutScript: 'exit: cannot be run from a script',
   manual: {
     synopsis: 'exit',
     description:

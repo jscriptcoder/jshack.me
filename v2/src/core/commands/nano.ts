@@ -63,6 +63,7 @@ export const nano: Command = {
   availability: { kind: 'any-machine' },
   // curses has no screen to draw on; the wording is the real one's.
   withoutTty: 'Error opening terminal: unknown',
+  withoutScript: 'nano: cannot be run from a script',
   manual: {
     synopsis: 'nano [file]',
     description:
