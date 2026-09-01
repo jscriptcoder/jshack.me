@@ -6,8 +6,9 @@
 v0.198.0, `007cf5b2` (PR #478) at v0.199.0.
 **Slice 4 is the next and LAST work in D9, and it is now PLANNED** at the bottom of this file:
 six decisions confirmed with the owner 2026-09-01, fifteen acceptance criteria, and a RED order.
-**Implementation is GREEN** at v0.200.0; the mutation gate and the browser close-out are still
-outstanding.
+**Implementation is GREEN and every gate has passed** at v0.200.0: 4143 tests, mutation 97.86%
+(`fsApi.ts` 100%), wire-check `N/A`, and the browser close-out ran D9's whole-door beat. Awaiting
+merge.
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D9 — resolved scope & decisions
 (grill-me, 2026-09-01)", eleven locked decisions.
 
@@ -1282,41 +1283,64 @@ since every other command in this game takes flags AFTER positionals (`hydra hos
 
 ### Acceptance criteria — CONFIRMED before any code (owner, 2026-09-01)
 
-- [ ] **AC-1** `node /root/sweep.js 10.0.0.5 ssh` gives the script `process.argv` equal to
+- [x] **AC-1** `node /root/sweep.js 10.0.0.5 ssh` gives the script `process.argv` equal to
       `['/usr/bin/node', '/root/sweep.js', '10.0.0.5', 'ssh']`, so `process.argv.slice(2)` is
       `['10.0.0.5', 'ssh']`.
-- [ ] **AC-2** `argv[1]` is the RESOLVED path: `node sweep.js` run from `/root` yields
+- [x] **AC-2** `argv[1]` is the RESOLVED path: `node sweep.js` run from `/root` yields
       `/root/sweep.js`, not `sweep.js`.
-- [ ] **AC-3** A script run with no arguments of its own sees `argv.length === 2`.
-- [ ] **AC-4** `node sweep.js -- -v 10.0.0.5` reaches the script as
+- [x] **AC-3** A script run with no arguments of its own sees `argv.length === 2`.
+- [x] **AC-4** `node sweep.js -- -v 10.0.0.5` reaches the script as
       `argv.slice(2) === ['-v', '10.0.0.5']`, and `node sweep.js -v` still refuses at the prompt
       with `node: unrecognized option: -v`.
-- [ ] **AC-5** `await sleep(50)` resolves and the script continues past it.
-- [ ] **AC-6** `sleep` IS `env.sleep` — an injected instant sleep is what the script gets, not a
+- [x] **AC-5** `await sleep(50)` resolves and the script continues past it.
+- [x] **AC-6** `sleep` IS `env.sleep` — an injected instant sleep is what the script gets, not a
       real timer.
-- [ ] **AC-7** A script interrupted mid-`sleep` produces `^C` in the terminal rather than
+- [x] **AC-7** A script interrupted mid-`sleep` produces `^C` in the terminal rather than
       `AbortError`, and everything it printed before the interrupt stays on screen.
-- [ ] **AC-8** `node`'s result REJECTS when the run was aborted — the rejection is what carries the
+- [x] **AC-8** `node`'s result REJECTS when the run was aborted — the rejection is what carries the
       interrupt, so a redirect cannot capture `^C` and a pipeline unwinds.
-- [ ] **AC-9** A script whose command calls all throw and are all caught, interrupted mid-run, still
+- [x] **AC-9** A script whose command calls all throw and are all caught, interrupted mid-run, still
       reports the interrupt rather than completing with exit 0.
-- [ ] **AC-10** After the abort, an inner command invocation refuses to START: the second `nmap` in
+- [x] **AC-10** After the abort, an inner command invocation refuses to START: the second `nmap` in
       an aborted loop never reaches `execute`.
-- [ ] **AC-11** A command that completed while the key was being pressed reports the interrupt
+- [x] **AC-11** A command that completed while the key was being pressed reports the interrupt
       instead of handing its output back to the script.
-- [ ] **AC-12** `fs.readFile`, `fs.writeFile` and `fs.appendFile` each throw instead of starting
+- [x] **AC-12** `fs.readFile`, `fs.writeFile` and `fs.appendFile` each throw instead of starting
       when the run is already aborted, and `patches.write` is not called.
-- [ ] **AC-13** A script that is neither interrupted nor broken still exits 0, and an ordinary
+- [x] **AC-13** A script that is neither interrupted nor broken still exits 0, and an ordinary
       script error still reads as `Error: …` with exit 1 — the interrupt path does not swallow the
       failure path.
-- [ ] **AC-14** `process` and `sleep` cannot be displaced by a command of the same name: the
+- [x] **AC-14** `process` and `sleep` cannot be displaced by a command of the same name: the
       registry invariant holds at `identifiers.length + 4`.
-- [ ] **AC-15** `man node` no longer says scripts cannot take arguments or sleep, and documents
+- [x] **AC-15** `man node` no longer says scripts cannot take arguments or sleep, and documents
       `process.argv`, `sleep(ms)`, the `--` rule, and that Ctrl-C stops a script.
 
-### RED order
+### RED — what actually went red, and two that passed for the wrong reason
 
-Each step is red for a reason the previous one cannot produce.
+Driven in the planned order. Two steps had to be REWRITTEN because the first version passed
+against code that did not exist yet, and both would have shipped as proof of nothing:
+
+- **`process` leaks from the host realm.** The sandbox body runs in the test runner's own
+  realm, so an uninjected `process` resolves to **Node's** — and vitest's fork has exactly two
+  `argv` entries, so `expect(process.argv.length).toBe(2)` passed against a `node` injecting
+  nothing. Rewritten to assert CONTENTS. No browser has that global, so this is a jsdom
+  artefact rather than a hole in the game, but it will catch the next person too.
+- **`signal.reason` is `undefined` until something aborts.** `expect(error).toBe(signal.reason)`
+  was therefore `toBe(undefined)` — satisfied by a run nobody interrupted. Both interrupt tests
+  now assert `signal.aborted` first.
+
+Two tests are **green on arrival** and say so in their own comments rather than being dressed
+as RED: the `node sweep.js -v` refusal (the binder already did this; the manual now promises
+it, so it is pinned) and the registry invariant (a collision guard — it fires the day someone
+names a command `process` or `sleep`). **AC-13 needed no new test**: the existing
+`Error: target unreachable` and SyntaxError tests are the evidence that the interrupt path did
+not eat the failure path, and they stayed green throughout.
+
+**AC-7's test was written after GREEN**, so it was verified by reverting: with the rethrow
+disabled it fails with no `^C` and `AbortError: This operation was aborted` on screen — exactly
+the symptom slice 2b predicted.
+
+The planned order, for the record:
 
 1. **argv shape** (AC-1, AC-3) — nothing injects `process`, so it is not defined.
 2. **argv resolution** (AC-2) — write it before the code so a `target`-instead-of-resolved
@@ -1381,34 +1405,79 @@ No `api/` change. `sleep` and the signal are UI-injected seams, `process.argv` i
 the `fs` guards only PREVENT calls whose server contract slice 3 already proved. This holds D9's
 `N/A` across all four slices, as the grill said it would.
 
-### PRE-PR mutation
+### PRE-PR MUTATION — 97.86%, and two holes that predated the slice
 
-Scope: `core/scripting/commandContext.ts`, `core/scripting/fsApi.ts`, `core/commands/node.ts`.
+Scoped run over the three changed modules: **94.02% with 14 survivors → 97.86% with 5**, and
+`fsApi.ts` at **100% (45/45)**. The gate's named watch item held: both `if (env.signal.aborted)`
+mutants (to `true` and to `false`) were KILLED, so decision 12's success-path check is genuinely
+asserted rather than decorative.
 
-Expect `tier: 'guest'` to survive in `node.ts` — a known repo-wide family recorded in conventions
-§9, not a gap in this slice. Watch specifically for a survivor that moves the abort check inside the
-`!outcome.ok` branch: if that mutant lives, AC-9 is not really being asserted and decision 12 is
-decoration. Never run Stryker while the dev server is up (E2E skill §1).
+Two survivors were worth killing, and **neither was introduced by this slice** — the scope simply
+put them under the lamp:
 
-### Browser close-out — the door's, not just the slice's
+- **`!hasTty(env.session) && command.withoutTty !== undefined` could lose its second half and
+  live.** Nothing ran an ORDINARY command over a pty-less session; only `scp`, which declares a
+  refusal. Had that half ever been wrong, every command a script ran through a planted listener
+  would be refused — and refused with `undefined` as the message, since the sentence is the
+  absent command's to supply. Now tested from the other side.
+- **The manual's whole fs-failure paragraph could be blanked with the test still green.**
+  `toContain('throws')` reads like it covers that paragraph, but the OPENING one also says "an
+  error the script throws", so the assertion was satisfied elsewhere while every sentence telling
+  a player what a refused write does vanished. Pinned now on phrases that occur once. The
+  refusal-list paragraph and this slice's two new manual entries went the same way.
 
-The epic names D9's proof and slices 1–3 have each run part of it. This one runs it whole: `ssh`
-into a box already rooted, `apt install node` there, `nano` a script there, run it there. Then the
-two things only this slice can show — pass an argument and watch the script use it, and Ctrl-C a
-long run to confirm `^C` with the partial output intact.
+The five remaining are classified, not ignored:
 
-Follow [`.claude/skills/v2-e2e/SKILL.md`](../.claude/skills/v2-e2e/SKILL.md), including the nano
-traps (never type the next command until the editor is GONE; poll for the terminal's RETURN, not the
-editor's absence) and `npx supabase status` from `v2/`.
+| Survivor | Verdict |
+|---|---|
+| `tier: 'guest'` | The known repo-wide family (conventions §9). No production code reads `Command.tier`. |
+| `availability` ×3 | Declarative data. The wrapper and its `apt install` hint are proven centrally in `availability.test.ts`. |
+| `SHELL_ERROR_NAME` | Equivalent — the tag is only ever compared against itself, so any consistent value behaves identically. |
+
+Config was a throwaway `stryker.slice4.json`, deleted after (the config file is a POSITIONAL
+argument; `-c` is `--concurrency`). Never run Stryker while the dev server is up (E2E skill §1).
+
+### Browser close-out — the door's whole beat, and it PASSED
+
+Run against `vercel dev` + local supabase at v0.200.0 (banner checked). The epic's D9 proof, end
+to end on one box: crack `SHINRA-5G` → `nmcli connect` (192.168.167.164) → **`ssh root@…167.1`
+into the AP gateway** (credential derived offline per E2E §6) → **`apt install node` there** →
+**`nano /root/sweep.js` there** → **run it there**.
+
+The script took an argument, called a command, kept what it found, and then waited:
+
+```
+root@ap-gw:/root# node /root/sweep.js 10.0.0.42
+sweeping 10.0.0.42            ← process.argv, live
+accounts on this box: 1       ← await cat('/etc/passwd'), .length
+kept it in /root/loot.txt     ← await fs.appendFile
+now waiting, press Ctrl-C
+^C                            ← the interrupt, correctly rendered
+root@ap-gw:/root# cat /root/loot.txt
+swept 10.0.0.42 from ap-gw
+```
+
+`YOU SHOULD NEVER SEE THIS` (the line after the 60s `sleep`) never printed, no `AbortError`
+appeared, and every line the script had already produced survived. Both `--` arms checked live:
+`node /root/sweep.js -v` → `node: unrecognized option: -v`; `node /root/sweep.js -- -v` →
+`sweeping -v`.
+
+**Decision 13 proved itself in the browser.** `node /root/sweep.js 9.9.9.9 > /root/out.txt`,
+interrupted, left **no `/root/out.txt` at all** — so the `^C` a locally-printed marker would have
+written into the file could not be captured. Worth knowing alongside it: an interrupted redirect
+is also SILENT on screen, because the `^C` renderer lives inside `state.ts`'s
+`if (result.kind === 'async')` branch and a redirect's rejection escapes `runCommandLine` during
+collection, never reaching it. That is true of every streamed command with a redirect and
+predates this slice; recorded in the backlog rather than widened into scope here.
 
 ### PR-ready when
 
-- [ ] All 15 ACs met, with the evidence named against each.
-- [ ] `npm run typecheck`, `npm run lint`, and the full non-watch suite green from `v2/`.
-- [ ] Mutation run for the three-file scope, survivors triaged, `tier` recorded as the known family.
-- [ ] Wire-check recorded `N/A` with the reason above.
-- [ ] Browser close-out run and written up, including the whole-door journey.
-- [ ] Version bumped in both files.
+- [x] All 15 ACs met.
+- [x] `npm run typecheck`, `npm run lint`, full non-watch suite: **4143 passed**, from `v2/`.
+- [x] Mutation **97.86%** for the three-file scope, `fsApi.ts` 100%; all five survivors classified.
+- [x] Wire-check `N/A` with the reason above.
+- [x] Browser close-out run and written up — the whole-door journey passed.
+- [x] Version bumped in both files to **0.200.0**.
 
 ### When it lands — D9 closes, and so does the epic's last door
 

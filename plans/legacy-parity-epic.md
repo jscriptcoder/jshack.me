@@ -358,7 +358,7 @@ PHASE 1 — THE DOORS  (near-term focus)
       D9 slice 2a a script runs the tools             ✔ SHIPPED v0.197.0 (#476)
       D9 slice 2b a script speaks while it works      ✔ SHIPPED v0.198.0 (#477)
       D9 slice 3 a script keeps what it found         ✔ SHIPPED v0.199.0 (#478)
-      D9 slice 4 a script is reusable and can be stopped  ▸ IN PROGRESS — green, gates outstanding
+      D9 slice 4 a script is reusable and can be stopped  ▸ IN REVIEW — all gates passed, v0.200.0
   D10 polish (long-tail comfort commands)
 PHASE 2 — DISCOVERY
   X1  DNS + nslookup / dig
