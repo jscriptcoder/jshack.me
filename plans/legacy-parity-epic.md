@@ -78,7 +78,12 @@ was run live in the UI 2026-08-31** (install → rotate → walk → hydra → s
 dark → the forward stands, its target closes it), with the cross-player wire-check green 15/15.
 **D5 🔍 GRILLED 2026-08-16, not yet planned** — fifteen locked decisions and a six-slice spine in
 "D5 — resolved scope & decisions"; it also found that §9's `ps` defect is misdiagnosed and owns
-the fix. Everything else is split-and-grilled only.
+the fix.
+**D9 🔍 GRILLED 2026-09-01, not yet planned** — eleven locked decisions and a four-slice spine in
+"D9 — resolved scope & decisions". It is the one Phase 1 row that is **not a door** (no daemon, no port,
+no placement, no cross-player half, no `api/` change), and its headline is a refusal: the row's
+**programmatic auth cannot port**, because `CommandEnv` is a per-line snapshot and a script that hopped
+would go on answering about the box it left. Everything else is split-and-grilled only.
 
 **Ship gate**: **all doors + hydra + discovery + the CVE system, minus missions.** Missions are
 a **post-ship epic** — the infrastructure this epic builds is what makes them cheap.
@@ -344,7 +349,11 @@ PHASE 1 — THE DOORS  (near-term focus)
       D8 slice 6 a player runs their own agent        ✔ SHIPPED v0.190.0 (#470)
       D8 slice 7 a player reconfigures another's      ✔ SHIPPED v0.191.0 (#471)
       D8 slice 8 a player's own agent answers somebody ✔ SHIPPED v0.192.0-v0.193.0 (#472-#473)
-  D9  node scripting
+  D9  node scripting                                 ◆ GRILLED + slice 1 PLANNED 2026-09-01
+      D9 slice 1 a script runs and speaks             ▸ ACs CONFIRMED, no code yet
+      D9 slice 2 a script runs the tools
+      D9 slice 3 a script keeps what it found
+      D9 slice 4 a script is reusable and can be stopped
   D10 polish (long-tail comfort commands)
 PHASE 2 — DISCOVERY
   X1  DNS + nslookup / dig
@@ -375,7 +384,7 @@ POST-SHIP — MISSIONS
 | **D6** | **A player reads a machine's database** | `mysqld` catalog row + placement; **generated schema + data** (legacy `generateDatabase.ts`, `pools/database.ts`); `mysql <host> <user> [pw]` → `mysql>` prompt (parser/formatter/executor); hydra `mysql` service | Writes/`UPDATE` — decide at planning | B `hydra <host> mysql` → creds → `SHOW TABLES` / `SELECT` returns generated data worth reading |
 | **D7** ✅ | **A player reads a machine's key-value store** — **SHIPPED v0.174.0-v0.182.0 (#452-#461)**; twelve locked decisions in ["D7 — resolved scope & decisions"](#d7--resolved-scope--decisions-grill-me-2026-08-24) | `redis` catalog row + placement (flat 0.05, webserver 0.35, database 0.3); generated data (`generateRedisData.ts`, `pools/redis.ts`); `rediscli <host> [pw]` → `redis>` sub-shell, seven verbs; `requirepass` as an md5 in the root-only datadir; hydra `redis` service against the 60% that are locked | Redis 6 ACLs (they arrive as a VERSION difference in Phase 3, not as a door decision); `FLUSHALL`; `CONFIG GET`; `TYPE`/`SCAN`/`INFO` | B `rediscli <host>` → `KEYS *` / `GET` on the 40% that are open; `hydra <host> redis` → password (no login field) on the rest; an open store's arrival line is the defender's whole view |
 | **D8** ✅ | **A player reconfigures a device without holding a shell on it** — **SHIPPED v0.185.0-v0.193.0 (#465-#473)**; eleven locked decisions in ["D8 — resolved scope & decisions"](#d8--resolved-scope--decisions-grill-me-2026-08-27), as-built in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7/§9 | `snmp` catalog row at `161/udp` (a new `protocol` column) placed on routers + switches only; `snmpwalk <host> [community]` (public = identity, RW = + the port table); `snmpset <host> <community> <oid=value>` with parity to `nano`; **the OIDs are a VIEW over the `rules.v4` / `acl.conf` v2 already parses**, never a second copy; the RW community as an md5 in a root-only file, swept by `hydra snmp` via `secretOn`; its own `/var/log/snmpd.log`; `snmpd` installable, planting a `deny <port>` local firewall on a workstation | legacy's `snmpFirewallParser` / `snmpAclParser` and the `firewall*`/`acl*` OIDs inside `snmpd.conf` — REFUSED, not deferred: they are a third and fourth authority over a fact v2 already owns; `nmap -sU`; NAT on a workstation | B `snmpwalk` with `public` → identity only; B cracks the RW community → the forward table renders as OIDs → `snmpset` opens a port **without B ever logging in**, and A's `snmpd.log` names B |
-| **D9** | **A player automates an attack with a script** | `node <path>`; sync + async modes; `await` unwrapping async commands; programmatic auth (`ssh(…, pw)`, `await hydra(…)`); `writeFile` helper | `script_exec` as a CVE effect (Phase 3) | A writes `/root/sweep.js` chaining `hydra` + `ssh`, runs `node /root/sweep.js`, and captures results to a file |
+| **D9** 🔍 | **A player automates an attack with a script** — **GRILLED 2026-09-01**, eleven locked decisions in ["D9 — resolved scope & decisions"](#d9--resolved-scope--decisions-grill-me-2026-09-01), which **supersedes this row wherever they disagree** | `apt install node` → `node <path> [args]`; ONE always-async mode (`execute` returns a promise, so legacy's sync mode cannot port); every command as a camelCase global returning `string[]` with `.exitCode`; a trailing flags object with dashed keys; ambient `fs` (`readFile`/`writeFile`/`appendFile`); `console.log`; real `process.argv`; `sleep(ms)`; Ctrl-C at every await | **programmatic auth — REFUSED, not deferred** (`env` is a per-line snapshot, so a script that hopped would answer about the box it left); `chmod`; world content and an example script; an `sh()` escape hatch; a Web Worker sandbox; `script_exec` as a CVE effect (Phase 3) | A writes `/root/sweep.js` chaining `hydra` across many hosts, runs `node /root/sweep.js`, and captures the results to a file; `ssh(…)` from a script refuses in the same words the prompt would |
 | **D10** | **The terminal feels like legacy's** | `clear`, `theme`, `author`, `xterm`, `bash`, `whoami` — one polish slice | — | Each command behaves as legacy's did |
 
 ## Phase 2 — discovery
@@ -1980,6 +1989,368 @@ turns out to feel hostile.
   generation only; a player who installs and starts one has opened a port the placement table never
   rolled.
 
+## D9 — resolved scope & decisions (grill-me, 2026-09-01)
+
+Eleven locked decisions. The row above was written in July against legacy's shape and is
+**superseded by this section wherever the two disagree** — most of all on programmatic auth, which
+is the one thing this grill refused: v2's `CommandEnv` is a per-line snapshot, so a script that
+hopped would go on answering about the box it left.
+
+### Grounding that reshaped the scope before any decision
+
+- **Legacy's whole mechanism is gone.** Legacy commands were `fn(...args) => unknown`, so
+  `useCommands.ts:445` could snapshot every `cmd.fn` into a namespace and hand it straight to
+  `new Function`. v2's contract is
+  `execute(env, args: readonly string[], flags: ReadonlyMap) => Promise<CommandResult>`
+  (`commands/types.ts:1207`). A script-facing function is now an ADAPTER — JS arguments in, a
+  collected `CommandResult` out — and every call is necessarily awaited.
+- **`env` is a point-in-time snapshot, built once per submitted line** (`ui/state.ts:1557`).
+  `env.session` is a value, not a getter. Legacy's documented *"`su` is synchronous so subsequent
+  lines run as the new user"* (`commands/README.md`) cannot port: a pushed session is invisible to
+  the rest of the script.
+- **The result kind cannot tell you what a command did.** `ssh`/`su` push a session and return
+  `{kind:'sync', lines: [], exitCode: 0}` — byte-identical to a no-op. `mysql`/`redis-cli`/`ftp`
+  call `env.*.enter()` and return a greeting. Only `nano`/`lynx`'s `mode_change` is visible in the
+  type, so a refusal rule cannot be derived from the return shape.
+- **`withoutTty` is a DIFFERENT fact from "cannot be scripted", and reusing it would be wrong at
+  both ends.** It marks eight commands; it misses `nc`, `exit`, `reboot` and `new-game`, and it
+  catches `scp` — which pushes no session, returns no `mode_change` and enters no sub-shell. `scp`
+  is a transient transfer that only prompts because v2 dropped legacy's password positional
+  (`scp.ts:375` prompts unconditionally).
+- **A `const`/`let` collision with an injected name is a SyntaxError that kills the whole script.**
+  Verified: `new AsyncFunction('fs', 'const fs = 1')` throws
+  `Identifier 'fs' has already been declared`, because context keys are formal PARAMETERS. Since
+  every command name is injected, `const cat = …` would take a script down for a reason the player
+  cannot see. Block-wrapping the body fixes it outright —
+  `new AsyncFunction('fs', '{ const fs = 1; … }')` shadows legally and passthrough still resolves.
+  Same family as the hyphen trap conventions §2 already warns about.
+- **The execute bit is a hard block with no in-game way out.** `defaultFilePermissions` stamps
+  `execute: ['root']` on every new file and v2 has **no `chmod` command** — `/bin/chmod` is one of
+  six binary stubs (`find`, `strings`, `nslookup`, `dig`, `ldd`) that answer `command not found`.
+  The codebase already documents the trap from the other side: `PatchApi.write` carries a
+  `permissions` override because *"the default file perms are root-only-executable, which the
+  user-tier player could never run"* (`commands/types.ts:200`). Port legacy's read-AND-execute gate
+  (legacy `node.ts:88-94`) and no non-root player can run a script they just wrote.
+- **Writes are asynchronous; reads are not.** `env.fs.read` is sync, `env.patches.write` returns
+  `Promise<PatchResult>` (a server round-trip). A `writeFileSync` would be a lie.
+- **All four of legacy's script pools are mission machinery.** `scriptAuto`, `scriptFix`, `malware`
+  and `forensics` are driven by `attackChain.ts` and `objectiveType`. Missions are post-ship by
+  owner decision, so legacy generated no scripts outside them.
+- **Already solved, already free.** `{ name: 'node' }` is in `APT_PACKAGES` and deliberately NOT in
+  `LOCALHOST_PREINSTALLED_TOOLS` (`binaries.ts:76`, *"Don't 'restore' them here"*); the hyphen trap
+  is settled (conventions §2 — derive a camelCase identifier); cancellation is `env.signal` +
+  `env.sleep`, so legacy's `ScriptCancelledError` / `innerCancel` / `sleepReject` machinery is dead
+  weight; `writeFile` is `env.patches.write`, the same call `>` uses.
+
+### Locked decisions
+
+#### 1. A script runs entirely inside the session that launched it — the pivot is OUT OF SCOPE
+
+The row's *"programmatic auth (`ssh(…, pw)`)"* is **refused, not deferred by omission**. `env` is a
+per-line snapshot, so `ssh('root@10.0.0.5','pw')` followed by `cat('/root/flag')` would push a
+session the script cannot see and then read the box the player was standing on — not a limitation
+but a lie, the same class as the whole-file-write-against-a-stale-tree defect fixed at v0.172.0.
+Legacy documented the pivot and never wrote a test for it.
+
+The alternative was a `rebuildEnv: () => CommandEnv` seam so each call re-derives — feasible, since
+every adapter in `state.ts` already closes over signals, but it inverts the core↔UI boundary by
+having `core/` ask the UI to re-derive itself mid-command. The valuable half of the row needs none
+of it: `hydra`, `nmap`, `curl`, `gobuster`, `snmpwalk`, `john`, `cat`, `grep` and the file helpers
+are a recon-and-capture loop, not a pivot loop. **The row's acceptance example changes
+accordingly**: chaining `hydra` across many hosts and capturing the results to a file, not chaining
+`hydra` + `ssh`.
+
+#### 2. `withoutScript` declares the refusal, per command; `nc -l` is the one exception
+
+A new `Command` field mirroring `withoutTty`, whose own doc comment argues the case: *"a field
+nobody had to fill in is a field that can be declared without being enforced… declaring the rule
+and saying what it sounds like are the same act."* Checked once, centrally, in the script adapter,
+BEFORE `execute` — so nothing side-effects first.
+
+Membership is derived from three structural facts, not taste:
+
+| Why | Commands |
+|---|---|
+| pushes or pops a session the script cannot see | `ssh`, `su`, `nc` (connect form), `exit`, `reboot` |
+| returns `mode_change` — a screen | `nano`, `lynx` |
+| calls `env.*.enter()` — a sub-shell prompt | `mysql`, `redis-cli`, `ftp` |
+
+Ten in all. `scp` is **not** among them, and neither is `new-game`: it prompts for confirmation,
+`env.prompt` resolves fine from a script, and refusing it would break decision 8's invariant for no
+gain.
+
+**`nc -l <port>` is exempt**, by owner decision, and the reason is Phase 3: `script_exec` as a CVE
+effect makes *opening a backdoor on a box you never logged into* one of the best beats in the game,
+and legacy's own remote-script surface (`runScriptOnTarget`) already carries `nc` for exactly that.
+The encoding falls out of `nc.ts:279`, where the listen/connect split is already the first line of
+`execute`, keyed on a declared boolean flag: `withoutScript` is
+`string | ((args, flags) => string | undefined)` — nine commands state a refusal, `nc` states a
+function of the form, making the same test one layer up, still before any side effect. One narrow
+at one call site.
+
+The rejected alternative was **structural enforcement** — no field, a `pushSession`/`enter` that
+throws, a rejected `mode_change` return. It splits `nc` for free and is impossible to forget, but
+the refusal lands AFTER the side effect: `ssh` authenticates against the server, writing a real
+line into the target's `auth.log`, and only then does the script error. That is precisely the
+hazard `prepareStage` avoids by validating every stage before running any.
+
+#### 3. A call returns `string[]` carrying `.exitCode`; stderr goes to the terminal
+
+Exit codes are real and load-bearing in v2 — `cat.ts:91` returns 1 when any line errored, a refused
+door returns 1 — and a sweep that had to string-match output to learn which host fell would rot.
+An array with an extra property is canonical JS, not a trick: `String.prototype.match` returns
+exactly this shape (`.index`, `.input`, `.groups` on an array). So `.join`/`.filter`/`.map` and
+`fs.writeFile(path, out)` all work unchanged, and the exit code is there when wanted:
+
+```js
+const out = await hydra(host, 'ssh');
+if (out.exitCode === 0) await fs.writeFile('/root/loot/' + host + '.txt', out);
+```
+
+The cost, which the manual page owns: spreading the array (`[...out]`) silently drops the property.
+
+`error` and `dim` lines go straight to the terminal as the command emits them, matching the
+pipeline's stderr rule (`runLine.ts` pipes only `text` lines) — so a script's failures are visible
+even when the script ignores the return value.
+
+#### 4. Output is CAPTURED, not printed; the busy label tracks the inner command
+
+Exactly `child_process.execSync`: stdout returns to the caller, stderr is inherited. Legacy did
+both — `wrapCommandForAsync` forwards every line to the terminal *and* returns it — which makes the
+natural script double-report, splatting twelve lines of `hydra` per host underneath its own
+one-line summary. Capturing is also what makes the row's *"captures results to a file"* mean what
+it says.
+
+The cost is that a script sweeping eight hosts is **silent for as long as it takes**. Two things
+answer it: a script can `console.log` its own progress, which is what real scripting looks like,
+and **the busy indicator tracks the inner command** rather than reading `node` for the whole run
+(`runningCommand` is set from the first word of the line, `state.ts:1573`). One callback, and it is
+the difference between "working" and "hung".
+
+#### 5. `console.log`, not `print` — its three sinks are the three `TerminalLine` kinds
+
+Not taste: #464 renamed six commands to their real binaries and conventions §2 locked *"command
+names carry the real binary's name."* A runtime called `node` whose print function is `print`
+contradicts the rule the project just spent a PR enforcing; `print` is Python's.
+
+It costs nothing, because `console`'s three methods are already the three line kinds the
+terminal renders:
+
+| script | `TerminalLine` kind | renders as |
+|---|---|---|
+| `console.log` | `text` | normal — and this is the script's **stdout** |
+| `console.error` | `error` | error styling — a script's stderr |
+| `console.debug` | `dim` | dim |
+
+**AMENDED 2026-09-01 at slice-1 planning, by owner approval.** This decision first routed the
+three methods through `env.output`. That is the wrong pipe: `env.output` appends straight to
+scrollback and **bypasses the pipeline entirely**, because `collectStageOutput` reads
+`result.lines` — so `node sweep.js | grep OPEN` and `node sweep.js > /root/out.txt` would both
+have seen nothing, while real `node` pipes stdout like anything else. **A script's output is
+therefore the `node` command's own `CommandResult` lines**, which makes it pipeable and
+redirectable for free and keeps `console.log` meaning stdout. The user-visible mapping above is
+unchanged. Consequence for the spine: **slice 1 returns `kind: 'sync'`** (nothing in it is slow,
+so streaming buys nothing and would cost a producer/consumer bridge, since `console.log` is
+called from arbitrary depth and cannot `yield`), and **slice 2 moves to the existing
+`streamedResult` convention** (`commands/streaming.ts`) when commands make liveness real — which
+is also where decision 4's live busy label lands.
+
+Multiple arguments join with a space; objects stringify as JSON rather than `[object Object]`,
+and a `string[]` renders one element per line — one formatter, shared with `fs`, so that
+`console.log(await hydra(…))` prints captured output as lines rather than as a JSON array.
+
+#### 6. `fs` is ambient — no import, no `require` — and the sandbox body is block-wrapped
+
+Three methods, all awaited, so **one rule governs the whole language: everything in a script is
+awaited.**
+
+```js
+await fs.readFile(path)          // → string
+await fs.writeFile(path, data)   // data: string | string[] | object
+await fs.appendFile(path, data)  // the shell has no >>, so a script gets append FIRST
+```
+
+No `exists`: it is the only one that could legitimately be synchronous, so it would be the single
+exception to the rule, and `await fs.readFile` in a try/catch already answers the question. No
+`readdir`/`unlink`/`mkdir`/`stat` — `await ls(…)`, `await rm(…)`, `await mkdir(…)` are already
+there as commands. No `*Sync` names at all: writes are a server round-trip
+(`PatchApi.write` → `Promise<PatchResult>`), so a synchronous name would be a lie about when the
+write landed.
+
+**The body is wrapped in a block, `{ …source… }`**, which is what makes shadowing work: a script's
+own `const fs = …` legally shadows the injected parameter instead of throwing
+`Identifier 'fs' has already been declared` and killing the script. The rule is then simply true of
+every injected name, commands included.
+
+#### 7. Flags are a trailing object with dashed keys, validated against the command's own `FlagSpec`
+
+`hydra('10.0.0.5', 'ssh', { '-p': '2222' })`, `apt('list', { '--installed': true })`. The object
+IS the flags map — `new Map(Object.entries(flags))`, zero mechanism — and dashed keys survive every
+shape v2 actually has: `-p` is `'boolean'` on `mkdir` but `'string'` on six other commands, `rm`
+distinguishes `-r` from `-R` by case, long flags exist (`--installed`, `--yes`), and `nmap -sV`
+arrives with V1. Any bare-key rule ("one char → `-x`, more → `--xx`") breaks on `-sV`. For this
+game it also reads BETTER: it is the shell line the player already knows.
+
+Three details bind with it: the trailing object is always flags and every other argument coerces to
+a string, so `nc(4444, {'-l': true})` works; numbers coerce (`{'-p': 2222}` → `'2222'`); and **the
+script gets the shell's errors as thrown exceptions**. A script bypasses `bindFlags` entirely, so
+nothing would otherwise catch `{'-P': 2222}` against a command declaring `-p` — the prompt says
+`unrecognized option`, and a script that silently ignored it would have a failure mode the prompt
+does not. Undeclared flag, `true` passed to a `'string'` flag, and a string passed to a
+`'boolean'` one all throw.
+
+#### 8. Read permission only — no execute gate, no `chmod`
+
+Real `node script.js` opens the file for reading; the execute bit governs `./script.js`, which is
+the kernel-plus-shebang path, not node's. So the realistic answer is also the unblocking one:
+`chmod` stays in the long tail where locked decision 9 put it, and D9 does not grow a second
+command whose only content is a friction step.
+
+It carries the invariant that IS this feature's security posture:
+
+> **A script can do exactly what the player could type at that prompt, and nothing more.** Every
+> call goes through the same `Command.execute`, with the same `env`, at the same session tier,
+> through the same walker. `node` grants no capability — it removes typing.
+
+A guest scripting `hydra` is therefore fine: they need it installed, and `apt` is root-only,
+exactly as at the prompt.
+
+#### 9. Ctrl-C at every await; a synchronous infinite loop is an accepted tab-hang; `sleep(ms)`
+
+`new AsyncFunction` runs on the browser's main thread and an `AbortSignal` cannot interrupt
+synchronous JavaScript, so `while (true) {}` in a player's script locks the tab dead. This matters
+more here than in most software, because the player writes these scripts in `nano` on a box.
+
+The adapter checks `env.signal` before and after every command invocation and throws the abort, so
+the realistic accident — `while (true) await nmap(…)`, or a sweep over the wrong array — **is**
+interruptible, and streamed commands already unwind on it (`state.ts` catches the abort and prints
+`^C`). A purely synchronous infinite loop is **accepted, documented and parked**: the real fix is a
+Web Worker with `worker.terminate()`, but then every command call becomes a postMessage RPC across
+a boundary `CommandEnv` does not serialize (live functions, `AsyncIterable` results, server calls)
+— a large mechanism for a self-inflicted wound whose blast radius is one tab, since progress lives
+in the patch model server-side and a reload costs scrollback and history, nothing else.
+Conventions §2: *"scope creep kills indie multiplayer faster than security holes."*
+
+**`sleep(ms)` maps to `env.sleep`** rather than being left to
+`await new Promise(...setTimeout...)` — precisely because the hand-rolled form is not abort-aware,
+and a sleeping script would otherwise be the one thing Ctrl-C could not reach. Wiring it to the
+env's abort-aware sleep keeps the interruption rule absolute at every await.
+
+#### 10. Errors go to stderr and exit 1; no stack traces; real `process.argv`
+
+Legacy printed `Error: <message>` as a normal line and completed successfully, so a script that
+blew up on line 1 looked like a script that ran — and could hide inside a pipeline. Instead: the
+error goes to `output.error`, formatted as real node's final line
+(`TypeError: cat is not a function`), `node` exits **1**, and everything the script already printed
+stays, because it was streamed as it happened. A refused command throws its declared refusal, so
+`ssh: cannot be run from a script` reads identically to a refusal at the prompt. A nonzero
+`exitCode` from an inner command does **not** throw (decision 3) — only genuine JS errors and
+refusals do.
+
+**No stack trace, as a deliberate refusal rather than an omission.** V8 wraps a `Function` body in
+two synthetic lines of its own before ours, so every line number in a stack is offset by a constant
+the player cannot see, pointing at `<anonymous>`. A stack that lies about where the error is, is
+worse than none. Real node's caret-and-source-line block is a follow-up if ever wanted.
+
+**`process.argv` gets real Node semantics** — `argv[0]` is `/usr/bin/node`, `argv[1]` the resolved
+script path, user arguments from index 2, so `process.argv.slice(2)` is what a script writes.
+Legacy put the first user argument at `argv[0]`, which is wrong against the real thing, and #464
+just spent a PR establishing that this project uses the real names.
+
+#### 11. No content generation, and no example script
+
+D3 is the precedent for a row that legitimately generates nothing — *"no content generator, since
+the target's filesystem is the content"* — and D9 is that, more so: the script the player writes IS
+the content.
+
+Scattering `.js` files across generated boxes is **refused on D8's own reasoning**: a script worth
+finding is one that carries a credential, and that is **D2.6b, postponed by owner decision**, which
+D8 declined to ship through the back door precisely because reversing a standing postponement as a
+side effect of a different door is the wrong way for it to arrive. When D2.6b lands, a planted
+script is a good vehicle for it; it should not be the reason it lands.
+
+An example script shipped by `apt install node` via `extraFiles` was proposed and **declined by
+owner decision (2026-09-01)**, and rerouted rather than refused: believable per-machine content and
+a set of tutorials dropped into the player's home folder are both planned as their own later work
+(see "Parking lot"). D9's discoverability is `man node` until then.
+
+### Forced rather than chosen (planning should not re-litigate)
+
+- **Every command call in a script is awaited.** `execute` returns `Promise<CommandResult>` and a
+  promise cannot be unwrapped synchronously, so legacy's dual mode — expression-first sync, the
+  `HAS_AWAIT` regex, `AsyncFunction` only when a script says `await` — **cannot port**. One mode.
+  Legacy's two context builders, echo buffering and expression-vs-statement fallback are deleted
+  rather than ported.
+- **The context is keyed by a camelCase identifier derived from the command name**, so `redis-cli`
+  is reachable as `redisCli`. Already locked in conventions §2; the "no hyphens" note it corrects
+  is already marked wrong in D7's grill record.
+- **The script host is a pure function over `(source, env, commands)`** — not a design choice, just
+  what it is once you notice `execute` receives `env` as a parameter. Phase 3's `script_exec` then
+  supplies a different env and reuses the host, instead of duplicating the sandbox the way legacy's
+  `utils/remoteScriptRunner.ts` + `buildTargetCommandContext` did (~200 lines re-adapting eight
+  commands by hand). **No speculative machinery for it now.**
+- **No `api/` change in any slice — wire-check `N/A` throughout, with reasons.** The host is pure
+  client: `env` is fully built by the time `node.execute` runs, and `fs.writeFile` routes through
+  `env.patches.write`, the same call `>`, `nano` and `touch` use and that is already proven
+  cross-player. Nothing new reaches a server. D7 slice 6 set the precedent for recording `N/A`
+  rather than running one.
+- **`_system` does not port.** It is mission machinery (`script_fix` / `script_auto` objectives),
+  and missions are post-ship by owner decision.
+
+### Folded in as routine (recorded so they are not re-decided)
+
+- The host lives in `core/scripting/`, mirroring legacy's `src/scripting/`; `node` itself is a
+  thin `Command` in `core/commands/node.ts` joining the registry.
+- `{ name: 'node' }` already exists in `APT_PACKAGES` and **stays out of
+  `LOCALHOST_PREINSTALLED_TOOLS`** — `apt install node` is the route, exactly as `binaries.ts:76`
+  says.
+- `node` ships a `manual` page like every other command; it is the whole discoverability story
+  until the tutorial work lands, so it carries the API surface — the flags object, `.exitCode`,
+  `fs`, `console.log`, `process.argv`, `sleep`.
+- One shared stringify helper serves `console.log` and `fs` (strings as-is, `string[]` joined with
+  a newline, everything else JSON).
+- An empty or whitespace-only script is a no-op at exit 0, as legacy had it.
+- Version bump per feature slice in both `v2/package.json` and `v2/package-lock.json`.
+
+### Slice spine (each vertical + observable)
+
+D9 is the one Phase 1 row that is not a door: no daemon, no port, no placement, no target, no
+cross-player half. The seven-slice door shape (box runs it → crack it → read → write → deep layer →
+own box → someone else's) has nothing to bite on, so the spine is the **capability surface**.
+
+| # | Slice | Observable |
+|---|---|---|
+| **1** | **A script runs and speaks** | `apt install node`; the sandbox (block-wrapped `AsyncFunction`), `console.log`/`error`/`debug`, the read-permission gate, errors to stderr + exit 1. The player nanos `console.log('hi')`, runs it, sees it; a broken script says so and exits nonzero |
+| **2** | **A script runs the tools** | The adapter: every command as a camelCase global, positional coercion, `string[]` + `.exitCode`, the trailing flags object with `FlagSpec` validation, stderr straight through, the live busy label, and the ten `withoutScript` refusals including `nc -l`'s exemption. `await nmap(…)` returns what the prompt shows; `ssh(…)` refuses in the same words |
+| **3** | **A script keeps what it found** | `fs.readFile` / `writeFile` / `appendFile` + the shared stringify. **The row's own acceptance**: `/root/sweep.js` chains `hydra` across hosts and captures the results to a file |
+| **4** | **A script is reusable and can be stopped** | `process.argv`; Ctrl-C at every await; `sleep(ms)`. `node /root/sweep.js 10.0.0.5 ssh`; a long sweep takes `^C` and leaves its partial output |
+
+**The close-out is a browser run, and it has a beat worth targeting**: `ssh` into a box already
+rooted, `apt install node` THERE, `nano` a script THERE, run it THERE — the script sweeps from that
+box and its `fs.writeFile` lands under that machine. That completes D3b's "carry a wordlist onto a
+rooted box" story, and it is exactly the vantage conventions §7 warns wire-checks cannot see.
+
+### Deliberately NOT built (recorded so nobody re-opens them)
+
+The session pivot (decision 1); an `sh('cmd | grep x > f')` escape hatch — a second way to do
+everything, needing the whole refusal gate re-applied, when `.filter()` plus `fs.writeFile` already
+covers it; `chmod`; world content and the example script (decision 11); a Web Worker sandbox
+(decision 9); faked stack traces (decision 10).
+
+### Open for planning (named, deliberately not decided)
+
+- **`scp` is scriptable but always prompts.** v2 dropped legacy's password positional
+  (`scp src dst [port] [pw]`), so `scp.ts:375` prompts unconditionally and an UNATTENDED script
+  cannot use it. Giving `scp` a password argument is a D3b follow-up if wanted, not D9's job — but
+  it is the one surviving piece of the row's "programmatic auth", so decide explicitly rather than
+  by drift.
+- **What the busy label reads during an inner command** — `hydra` alone, or `node → hydra`. One
+  callback either way; slice 2 picks.
+- **The exact wording of the ten refusals.** They are player-facing strings and the mutation gate
+  will treat them as such (conventions §4: *"a command's mutation score is mostly its manual"*).
+- **Whether `withoutScript`'s predicate form earns a second user** beyond `nc`. If nothing else
+  ever needs it, collapsing back to a plain string is a cheap later reduction.
+
 ## Open branches (named, not yet decided)
 
 1. ~~**`nc -l` semantics (D5)**~~ — **RESOLVED 2026-08-16 at D5's grill.** A session with no
@@ -2024,6 +2395,15 @@ turns out to feel hostile.
   and parked: a listener reads `unknown` either way, and probing stays how you learn the truth.
 - **Missions** (`missions`/`accept`/`abort`/`mail` + mission network generation) — post-ship
   epic, by owner decision.
+- **Believable per-machine content** — populating generated machines with random, plausible
+  files so a box reads as somebody's rather than as a fixture. Owner intent, stated 2026-09-01;
+  its own later work, not any door's. **It inherits D2.6b's rule**: content that carries a
+  usable credential is loot, and loot arrives through the postponed harvest route, not as
+  scenery.
+- **Tutorials dropped into the player's home folder** — readable in-game files explaining the
+  mechanics, landing before release. Owner intent, stated 2026-09-01; shape still to be
+  decided. **D9 routed its example-script idea here** rather than shipping one via
+  `apt install node`, so scripting is one of the things this must cover.
 
 ## Warnings
 
@@ -2583,8 +2963,20 @@ answers. One session's browsing produced four findings, three of them invisible 
 
 **➡️ NEXT: D9 — node scripting**, the seventh and last door in the locked order
 (ftp → daemons → nc → mysql → redis → snmp → node) and a force multiplier over everything built.
-**Not yet grilled or planned** — run `grill-me` against its row before planning, as every door
-before it did.
+**🔍 GRILLED 2026-09-01, not yet planned** — eleven locked decisions and a four-slice spine in
+["D9 — resolved scope & decisions"](#d9--resolved-scope--decisions-grill-me-2026-09-01). It is the one
+Phase 1 row that is **not a door** — no daemon, no port, no placement, no cross-player half, and **no
+`api/` change in any slice**, so the wire-check is `N/A` throughout and the close-out proof is a browser
+run. The grill's headline: the row's **programmatic auth is refused**, because `env` is a per-line
+snapshot and a script that hopped would go on answering about the box it left — the same class as the
+stale-tree write fixed at v0.172.0.
+
+**Slice 1 is PLANNED** in [`d9-node-scripting.md`](d9-node-scripting.md) — acceptance criteria
+AC-1…AC-12 **confirmed by the owner 2026-09-01, with no code written yet**. That plan also carries
+the one amendment slice-1 planning made to the grill: **decision 5's `env.output` routing is
+wrong and is replaced by the `node` command's own `CommandResult` lines**, because `env.output`
+bypasses the pipeline and would have made `node sweep.js | grep OPEN` see nothing. Next action is
+that plan's RED step 1.
 
 ---
 
