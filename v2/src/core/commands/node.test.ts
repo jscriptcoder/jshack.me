@@ -132,6 +132,13 @@ const homeTree = (source: string, notes: string) =>
           // unwritable to a `user` session — the permission arm, without a
           // hand-written perms literal that could drift from the walker.
           'root-only.txt': buildFile('a hash alice has to work for'),
+          // Writable but NOT readable — the one shape an append must refuse
+          // rather than treat as empty, because treating it as empty would
+          // REPLACE a file whose contents it was never allowed to see.
+          'write-only.txt': buildFile('evidence alice may not read', {
+            owner: 'alice',
+            perms: { read: ['root'], write: ['root', 'user'] },
+          }),
           loot: buildDirectory({}, { owner: 'alice' }),
         },
         { owner: 'alice' },
@@ -651,6 +658,9 @@ describe('node', () => {
     expect(contents).toContain("    const out = await nmap('10.0.0.5')");
     expect(contents).toContain("        Inside a script: scan a host and keep the scan's lines");
     expect(contents).toContain("    await fs.appendFile('/root/loot.txt', out)");
+    expect(contents).toContain(
+      '        Inside a script: add what this host gave up to the report so far',
+    );
   });
 });
 
@@ -967,5 +977,22 @@ describe("a script's filesystem", () => {
 
     expect(textLines(result)).toEqual(['mine']);
     expect(result.exitCode).toBe(0);
+  });
+
+  it('refuses to append to a file it may write but may not read', async () => {
+    // The write gate and the read gate are separate lists, so "I can write here"
+    // does not imply "I can see what is here". An append that shrugged and
+    // treated an unreadable file as empty would not add a line to it — it would
+    // TRUNCATE it to that line, destroying content the player was never even
+    // allowed to look at. Silent data loss, from a call that reported success.
+    const { env, writeFn } = scriptEnv(
+      "await fs.appendFile('write-only.txt', 'mine')",
+    );
+
+    const result = await drain(await node.execute(env, ['sweep.js'], NO_FLAGS));
+
+    expect(errorLines(result)).toEqual(['node: write-only.txt: Permission denied']);
+    expect(result.exitCode).toBe(1);
+    expect(writeFn).not.toHaveBeenCalled();
   });
 });

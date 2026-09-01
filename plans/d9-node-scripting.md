@@ -909,39 +909,39 @@ its posture** — see decision 2 below and the reason it differs.
 
 ### Acceptance criteria — CONFIRMED before any code (owner, 2026-09-01)
 
-- [ ] **AC-1** A script reads a file it is allowed to read: `await fs.readFile('/etc/passwd')` hands
+- [x] **AC-1** A script reads a file it is allowed to read: `await fs.readFile('/etc/passwd')` hands
       back the same content `cat` shows, as a string, with a relative path resolved against the
       script's own cwd.
-- [ ] **AC-2** A script creates a file that did not exist: after `await fs.writeFile('/root/l.txt',
+- [x] **AC-2** A script creates a file that did not exist: after `await fs.writeFile('/root/l.txt',
       'x')` the file is there with that content, and the write is stamped new.
-- [ ] **AC-3** A script saves captured command output and gets what `>` would have given it:
+- [x] **AC-3** A script saves captured command output and gets what `>` would have given it:
       `await fs.writeFile(p, out)` for a call's `string[]` writes the lines joined with `\n` and no
       trailing newline — not JSON, not a trailing blank line.
-- [ ] **AC-4** A non-string, non-`string[]` value goes through the SAME formatter `console.log`
+- [x] **AC-4** A non-string, non-`string[]` value goes through the SAME formatter `console.log`
       uses, so an object saves as its JSON and a value never renders one way printed and another
       way saved.
-- [ ] **AC-5** An overwrite replaces the content and does **not** disturb the stored `is_new` flag,
+- [x] **AC-5** An overwrite replaces the content and does **not** disturb the stored `is_new` flag,
       exactly as the redirect's write does.
-- [ ] **AC-6** `await fs.appendFile(p, data)` adds to the end of an existing file, and creates the
+- [x] **AC-6** `await fs.appendFile(p, data)` adds to the end of an existing file, and creates the
       file when it is absent — an absent file is the ordinary first-line case, not a failure.
-- [ ] **AC-7** An append composes against the machine as it stands NOW, not against the tree this
+- [x] **AC-7** An append composes against the machine as it stands NOW, not against the tree this
       client is holding: a write that landed on the box after this shell pulled its copy is still
       there afterwards.
-- [ ] **AC-8** …and when a write lands in the window between the append's reload and its own write,
+- [x] **AC-8** …and when a write lands in the window between the append's reload and its own write,
       the append is **refused** rather than reverting it: `node: <path>: File changed on disk`,
       exit 1, the other write intact.
-- [ ] **AC-9** Every `fs` failure throws, and says what `node` already says when it cannot read a
+- [x] **AC-9** Every `fs` failure throws, and says what `node` already says when it cannot read a
       script: the read family (missing / a directory / permission) and the write family (target is a
       directory / parent missing / tier cannot write) both print bare, with no `Error:` prefix.
-- [ ] **AC-10** A failed `fs` call stops the script and exits 1 with everything printed before it
+- [x] **AC-10** A failed `fs` call stops the script and exits 1 with everything printed before it
       kept — and a script that wraps it in `try`/`catch` carries on instead, which is what decision
       6 means by "no `exists`".
-- [ ] **AC-11** A script writes at the session's own tier and no higher: a guest script cannot write
+- [x] **AC-11** A script writes at the session's own tier and no higher: a guest script cannot write
       where a guest could not write at the prompt. This is decision 8's invariant, re-proved through
       the new surface.
-- [ ] **AC-12** `fs` cannot be displaced by a command named `fs`, and a script's own `const fs = …`
+- [x] **AC-12** `fs` cannot be displaced by a command named `fs`, and a script's own `const fs = …`
       still legally shadows it rather than killing the script.
-- [ ] **AC-13** `man node` no longer says scripts cannot read and write files, and documents the
+- [x] **AC-13** `man node` no longer says scripts cannot read and write files, and documents the
       three methods, that all three are awaited, and that a failure throws.
 
 ### RED — the order to drive it in
@@ -1005,6 +1005,88 @@ file in the journal, not only on screen:
 
 Follow `.claude/skills/v2-e2e/SKILL.md` §1 preflight and §7's nano traps — especially never issuing
 the next command until the TERMINAL is back, and never polling for the editor's absence.
+
+### Found while building — four things worth not rediscovering
+
+**The extraction paid off in a way the plan did not predict.** `resolveWriteTarget`'s three
+refusals turn out to be exactly the three `FsReadResult` already names, so **one** formatter words a
+failed read and a failed write alike — which is why AC-9's write half needed no production code at
+all. The collapsed alternative (the seam does its own `stat`/`canWrite`) would have missed this
+entirely and left two error tables to drift apart.
+
+**`FsView.canWrite` already does the write-target asymmetry by itself.** `fsView.ts:105-111`: for a
+node that is absent it gates on the CONTAINER's write bit rather than falling through to a
+permissive null-target answer. So `resolveWriteTarget`'s `node !== null ? canWrite(target) :
+canWrite(parent)` is redundant in every state the game can currently produce — the mutation gate
+reports the ternary as a survivor, and it is a genuine equivalent rather than a missing test. It was
+**left alone deliberately**: the two disagree for a parent that is writable but not traversable, and
+a permission gate is the wrong place to take a simplification on mutation evidence alone. Recorded
+as a reduction candidate, not taken.
+
+**`Command.tier` is declared by every command and read by no production code.** The only `.tier` in
+non-test source is `snmpwalk.ts:74`'s unrelated `walked.tier`. That is why `tier: 'guest'` shows as
+a survivor here, and it will show as one under every command this project ever mutates — the same
+family as `availability`, confirmed independently in 2b. An epic-wide reduction candidate; out of
+scope for a slice about files.
+
+**A pre-existing hole in `withCarried`, found by the gate and deliberately not fixed here.**
+`runLine.ts:227` — mutating `result.kind === 'sync'` to `true` survives, which means no test has BOTH
+a non-empty carried list AND a non-sync final stage. In that state the real code would spread an
+`AsyncIterable` with `...` and throw. It is reachable in principle (an intermediate stage writing to
+stderr ahead of a streamed final stage) and it predates this slice by many PRs. **Left for its own
+change** rather than widened into a slice about a script's filesystem; it belongs with the pipeline,
+not here.
+
+### RED — what actually went red, and what did not
+
+Seven criteria drove genuine RED increments, each confirmed to fail for the right reason:
+
+| # | Criterion | The failure that proved it |
+|---|---|---|
+| 1 | AC-1 | `ReferenceError: fs is not defined` |
+| 2 | AC-9 read half + AC-10 | the sentence arrived as `Error: node: …` — the prefix WAS the whole diff |
+| 3 | AC-2 | `fs.writeFile is not a function` |
+| 4 | AC-6 | `fs.appendFile is not a function` |
+| 5 | **AC-7** | **the v0.172.0 revert reproduced exactly** — the occupant's line vanished from both the content and the base |
+| 6 | AC-8 | the refusal was swallowed; the script reported success over a write that never landed |
+| 7 | AC-13 | the manual still said scripts cannot read and write files |
+
+**Six criteria never went red, and are not claimed as increments.** AC-3, AC-4, AC-5 and AC-9's
+write half all passed the moment they were written, because `writeFile`'s GREEN pulled in
+`formatScriptValue` and `resolveWriteTarget` together rather than minimally — both were existing or
+extracted code, so the genuinely new logic was about ten lines and AC-2 drove all of it. AC-11 and
+AC-12 came free from using `env.fs` and slice 1's block wrap. All six are in as **guard tests**: they
+are what a later "simplification" would break, not steps that shaped the design.
+
+*(The implementation commit's message says five rather than seven; this table is the accurate
+record.)*
+
+### PRE-PR MUTATION — 96.55%, and it found a data-loss path
+
+Scoped to the four production files the slice touches, `perTest`, full suite as killers.
+
+| File | Score | Killed | Survived |
+|---|---|---|---|
+| `scripting/fsApi.ts` | **100.00%** | 45 | 0 |
+| `filesystem/writeTarget.ts` | 97.30% | 36 | 1 |
+| `shell/runLine.ts` | 97.22% | 175 | 4 |
+| `commands/node.ts` | 91.23% | 52 | 5 |
+| **All** | **96.55%** | **308** | **10** (+1 no-coverage) |
+
+**The gate earned its cost.** `fsApi.ts:105` came back NO COVERAGE — the branch where an append's
+read fails for a reason other than "not there". That is a file the tier may WRITE but may not READ,
+and an append that shrugged and treated it as empty would not add a line to it, it would
+**truncate** it to that line: silent data loss, from a call reporting success. The plan had named
+this branch under "two things GREEN must get right" and the implementation had it right — but
+nothing was holding it there. It now has a test, and `fsApi.ts` went from 95.56% to 100%.
+
+The second kill was cosmetic: the new manual example's `description` was unasserted.
+
+Every remaining survivor is triaged above — `tier`/`availability` metadata nothing reads, manual
+prose the page test pins by key phrase rather than by sentence, the equivalent `canWrite` ternary,
+and the pre-existing `runLine.ts` family (three equivalent: object identity in `withCarried`, a loop
+bound guarded by the documented-unreachable throw at line 318, and a `stdin` spread that produces an
+equal env; plus the one genuine pre-existing gap recorded above).
 
 ### PR-ready when
 
