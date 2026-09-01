@@ -1,10 +1,11 @@
 # Plan: D9 — `node` scripting
 
-**Branch**: none open — cut the next one off `main`.
+**Branch**: `feat/d9-a-script-keeps-what-it-found` — slice 3, open.
 **Status**: Active — **slices 1, 2a and 2b are all MERGED and fully evidenced below**: `cea7b5a3`
 (PR #475) at v0.196.0, `eee52ddf` (PR #476) at v0.197.0, `75d3af09` (PR #477) at v0.198.0.
-**Slice 3 is the next work**: groundwork is gathered at the bottom of this file but it is NOT
-planned and its decisions are NOT locked. Slice 4 is untouched.
+**Slice 3 is PLANNED and CONFIRMED at the bottom of this file** — two owner decisions and
+thirteen acceptance criteria, all confirmed 2026-09-01, and RED is under way. Slice 4 is
+untouched.
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D9 — resolved scope & decisions
 (grill-me, 2026-09-01)", eleven locked decisions.
 
@@ -15,8 +16,8 @@ planned and its decisions are NOT locked. Slice 4 is untouched.
 2. Read "Slice 1 — as built" below for what already exists and why it is shaped that way. Its
    acceptance criteria are closed; do not reopen them.
 3. Slices 1, 2a and 2b are merged; read them for what exists and why, not as work to do. **Start at
-   "Slice 3 — groundwork" at the BOTTOM of this file** — it lists what the codebase already settles
-   and the open questions to resolve before planning.
+   "Slice 3 — a script keeps what it found" at the BOTTOM of this file.** Its decisions and
+   acceptance criteria are confirmed; the RED order is written and in progress.
 4. All commands run from `v2/`. Gates: `npm run typecheck`, `npm run lint`, the full non-watch test
    suite. Wait for commit approval before every commit.
 
@@ -46,7 +47,7 @@ leaving the session it started in.
 | 1 | a script runs and speaks | `node hello.js` prints; a broken one says so and exits 1 | **MERGED `cea7b5a3`, v0.196.0** |
 | 2a | a script runs the tools | `await nmap(gw)` returns what the prompt shows; `ssh(…)` refuses | **MERGED `eee52ddf`, v0.197.0** |
 | 2b | a script speaks while it works | a sweep's `console.log` paints live; the spinner names `hydra`, not `node` | **MERGED `75d3af09`, v0.198.0** |
-| 3 | a script keeps what it found | `/root/sweep.js` chains `hydra` and captures to a file | **NEXT — groundwork below, not planned** |
+| 3 | a script keeps what it found | `/root/sweep.js` chains `hydra` and captures to a file | **IN PROGRESS — planned and confirmed below** |
 | 4 | a script is reusable and can be stopped | `process.argv`; Ctrl-C at every await; `sleep(ms)` | not planned |
 
 The epic's slice 2 is **split into 2a and 2b** (owner decision, 2026-09-01). The call surface and
@@ -61,7 +62,8 @@ Plan each later slice when its predecessor lands — D7 and D8 both found that l
 less than their plans assumed, because the seams they needed already generalized.
 
 **No `api/` change in any slice, so the wire-check is `N/A` throughout** (epic §"Forced rather than
-chosen"). The D9 close-out proof is a browser run targeting the beat the epic names: `ssh` into a
+chosen") — including slice 3, whose only server-side dependency is already proven live by
+`scripts/testModifiedSinceOpen.ts`. The D9 close-out proof is a browser run targeting the beat the epic names: `ssh` into a
 box already rooted, `apt install node` there, `nano` a script there, run it there.
 
 ---
@@ -760,90 +762,403 @@ mutation **193/199 detected (97.0%)**; wire-check `N/A`; browser close-out passe
 
 ---
 
-## Slice 3 — groundwork, gathered but NOT yet planned
+## Slice 3 — a script keeps what it found
 
-Facts established while building 2b, recorded so slice 3's planning starts from them rather than
-rediscovering them. **This is not a plan** — no acceptance criteria are confirmed and no decisions
-are locked. Resolve the open questions first.
+*A sweep writes its findings to a file — and appending to one a fellow occupant can also write
+never silently eats their edit.*
 
-**What slice 3 is for.** The epic's row: *`fs.readFile` / `writeFile` / `appendFile` + the shared
-stringify*, with its own acceptance being that `/root/sweep.js` chains `hydra` across hosts and
-**captures the results to a file**. Today a script can find things and say them, and that is all —
-close the terminal and the sweep is gone. `man node` currently ends with "Scripts cannot yet read
-and write files, take arguments of their own, or sleep"; slice 3 deletes the first clause.
+**Value**: after 2b a script can find things and narrate them, and that is all. Close the terminal
+and the sweep is gone. The epic's own acceptance for D9 is a script that chains `hydra` across hosts
+and **captures the results to a file**; today the only way to keep anything is
+`node sweep.js > out.txt`, which saves the NARRATION rather than the findings — the script cannot
+choose what goes in the file, cannot read back what it wrote last time, and cannot add to it,
+because the shell has no `>>` at all. After slice 3 a script keeps exactly what it decided to keep,
+and **a script gets append before the prompt does**.
 
-**Reading is already solved and needs no new mechanism.** `node.ts` reads its own script with
-`env.fs.read(resolveAbsPath(env.fs.cwd(), target))` → `FsReadResult`, and the three error cases
-(`not_found`, `is_directory`, `permission_denied`) already have house-style wording there. A
-script's `fs.readFile` is the same call with the same three errors.
+**Path**: `node <path>` → the script context of slices 1–2b, plus one more injected name.
 
-**Writing has a precedent rather than a new mechanism — copy the redirect, do not invent.**
-`runLine.ts:180` `validateRedirectTarget` then `runLine.ts:212`
-`env.patches.write(target, content, { isNew })` is exactly "write this string to that path as this
-player". Read both before designing anything. What the validator already gets right:
+- `await fs.readFile(p)` → `resolveAbsPath(cwd, p)` → `env.fs.read` → the content, or a throw.
+- `await fs.writeFile(p, data)` → resolve → validate (existing directory / missing parent / tier) →
+  `formatScriptValue(data)` → `env.patches.write(target, text, { isNew })` → the journal.
+- `await fs.appendFile(p, data)` → **`await env.fs.reload()`** → read the file as the MACHINE holds
+  it now → concatenate → `env.patches.write(target, text, { isNew, baseContent })` → the server
+  compares `base_hash` and refuses a write composed against content the box no longer holds.
 
-- it rejects an existing **directory**, a **missing parent** directory, and a location the tier
-  cannot write, each with `bash:`-style wording;
-- the writable check is asymmetric on purpose — an **overwrite** checks the file itself, a **new
-  file** checks the parent directory;
-- it reports `isNew`, which the write needs so a freshly-created file is stamped `is_new` while an
-  overwrite leaves the stored flag intact;
-- it runs **before** the command does, because bash opens redirects before exec. A script's write
-  has no such ordering constraint, but the validation itself is the part to reuse.
+**Class**: Behavior change.
 
-`env.fs.canWrite(path)` is the gate the write commands (`mkdir`, redirect, `rm`) already share.
+**Delivery**: Independent PR against trunk. No stack. One slice, not 3a/3b: `readFile` is one call
+into an existing seam, `writeFile` is the redirect's validator with a different prefix, and only
+`appendFile` carries real design — splitting would ship a `man node` page that says a script can
+write but not append, which is a worse mid-state than the extra fifty lines of review.
 
-⚠️ **`appendFile` carries a hazard the redirect does not, and it is the one genuinely new thing in
-this slice.** `FsView.reload()` exists precisely because a whole-file write composed from the
-CACHED tree does not merely miss a concurrent write — **it reverts it**. Its doc comment is explicit
-that the cached view stops being right the moment a file on this box is one somebody else can write,
-because nothing pushes their writes here. An append is a read-modify-write, so on any box a fellow
-occupant can reach (the AP gateway, a shared LAN box, anything cross-player) it has to compose
-against `reload()` rather than against the tree the client already has. A sweep appending one line
-per host is the exact shape that would silently eat another player's edit.
+**Required implementation skills**: `tdd`, `testing`, `refactoring`. Load `mutation-testing` at PR
+readiness, not per increment.
 
-**The return shape from 2a was designed for this and needs no change.** A command call hands back
-`readonly string[] & { readonly exitCode: number }` specifically so `await fs.writeFile(path, out)`
-works unchanged — 2a's plan says so in as many words. Whatever `writeFile` accepts, an ordinary
-`string[]` has to be one of the things it accepts.
+**Reduction program**: `N/A`. **Transition/terminal evidence**: `N/A`.
 
-**The stringify is already written.** `core/scripting/format.ts` is slice 1's one value formatter,
-the thing that makes `console.log` render an object as JSON and a `string[]` one per line. A
-`writeFile` given a non-string should go through the same function, or the same value will render
-two different ways depending on whether the player printed it or saved it.
+### Three of the groundwork's five "open questions" were never open
 
-**`fs` becomes the second reserved identifier.** `registry.test.ts` pins that every command name
-derives a valid, unique, non-reserved JS identifier, and it counts `console` as already taken.
-Adding an `fs` namespace to the script context means adding `fs` to that set — otherwise the day
-someone registers a command named `fs`, it silently shadows the filesystem for every script.
-`node.ts` also injects `console` LAST so no command name can displace it; whatever slice 3 injects
-needs the same treatment.
+The groundwork listed five. Locked decision 6 and the codebase answer three of them outright, and
+re-deciding them here would be re-litigating a locked decision:
 
-**Open questions, none of them answered:**
+- **Namespace or bare functions** — decision 6 says `fs` is ambient, three methods, all awaited, and
+  fixes the exact spelling: `fs.readFile`, `fs.writeFile`, `fs.appendFile`. Not a question.
+- **What `writeFile` accepts, and the `string[]` join** — decision 6 says
+  `data: string | string[] | object`, and decision 5 says *"one formatter, shared with `fs`"*.
+  `formatScriptValue` already exists and its own doc comment already says it is *"shared by
+  everything a script can print **or write to a file**"*. Not a question: a `string[]` joins with
+  `\n` and **no trailing newline**, which is byte-for-byte what `>` produces
+  (`applyRedirect` does `stdout.join('\n')`), so `node s.js > out.txt` and
+  `fs.writeFile('out.txt', out)` cannot disagree.
+- **Whether `writeFile` creates missing parents** — no, from three directions at once: real node's
+  `writeFile` fails, `validateRedirectTarget` rejects a missing parent, and conventions records that
+  `scp` does not create parents *because real `scp` does not*. A script that wants one calls
+  `await mkdir(p)`, which decision 6 is explicit is why there is no `fs.mkdir`.
 
-- **Namespace or bare functions?** `fs.readFile(…)` versus `readFile(…)`. A namespace costs one
-  reserved identifier instead of three and reads like real node; bare functions match how every
-  command is already injected.
-- **What does a failed read or write DO?** 2a set the posture that shell-originated errors throw a
-  bare `ShellError` and that a nonzero exit is data rather than an exception. A missing file is
-  arguably the second kind (a script wants to branch on it), a permission denial arguably the
-  first. `cat` returns exit 1 for both, but `fs.readFile` is not a command.
-- **Does `writeFile` create missing parent directories,** or fail the way the redirect does? The
-  house already has a precedent and it points one way: conventions §D3b records that **`scp` does
-  not create parents, as real scp does not**, and the redirect refuses a missing parent too. A
-  `writeFile` that quietly made directories would be the odd one out.
-- **Is `appendFile` a core read-modify-write, or does it need a `PatchApi` verb of its own?** The
-  answer decides whether the reload hazard above is handled once inside the seam or is left to
-  every caller — and leaving it to callers means leaving it to *players*, which is not a real
-  option.
-- **Is `writeFile` given a `string[]` joined with `\n`,** matching what the redirect does with
-  stdout, and does it add a trailing newline?
+A fourth was answered by finding the precedent — see the hazard section. Only the two below were
+genuinely the owner's, and both are now confirmed.
 
-**Version**: next feature bump is `0.199.0`. **Wire-check**: `patches.write` reaches the journal, so
-unlike every earlier D9 slice this one **may genuinely need a `scripts/test*.ts` wire-check** — that
-is the first thing to settle when planning, not an afterthought.
+### Five things the codebase already settles — do not redesign them
 
+- **The injection point exists and takes one more key.** `node.ts:69-74` already spreads
+  `buildCommandContext(…)` and then adds `console` *last, so no command name can displace it*. `fs`
+  goes in the same object literal for the same reason. `runScript` already block-wraps the body
+  (`runScript.ts:41`), so a script's own `const fs = …` legally shadows the parameter instead of
+  throwing `Identifier 'fs' has already been declared` — that trap was closed in slice 1.
+- **The read is one call and its three errors are already worded.** `node.ts:52` does
+  `env.fs.read(resolveAbsPath(env.fs.cwd(), target))`, and `formatReadError` beside it already says
+  the three sentences in `node`'s voice. `fs.readFile` is the same call with the same three errors,
+  which is the whole reason the wording decision below costs nothing.
+- **The write has a precedent, not a mechanism to invent.** `validateRedirectTarget`
+  (`runLine.ts:180`) already rejects an existing directory, a missing parent, and a location the
+  tier cannot write; its writable check is **asymmetric on purpose** — an overwrite checks the file,
+  a new file checks the parent — and it reports `isNew` so a freshly created file is stamped while
+  an overwrite leaves the stored flag intact. `applyRedirect` (`runLine.ts:212`) is then one
+  `env.patches.write`.
+- **`PatchApi.write` already carries everything append needs.** `baseContent` exists, documented for
+  *"a caller that was SHOWN the file first"*, and `patchApi.ts:122` sends it as
+  `base_hash: contentHash(...)`. No new `PatchApi` verb. `PATCH_ERROR_REASON` already words the
+  refusal as `File changed on disk`.
+- **`fs` becomes the second reserved identifier.** `registry.test.ts:92` pins that no command name
+  collides with an injected binding and counts `console` as taken. Without adding `fs`, the day
+  someone registers a command named `fs` it silently shadows the filesystem for every script.
 
----
-*Delete this file at D9 close-out and fold the durable rules into
-[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md), as D3–D8 each did.*
+### The one genuinely new thing: an append is a read-modify-write
+
+`FsView.reload()` exists because a whole-file write composed from the CACHED tree does not merely
+miss a concurrent write — **it reverts it**. That is the v0.172.0 defect, and its doc comment says
+outright that the cached view stops being right the moment a file on this box is one somebody else
+can write. An append is a read-modify-write, so on the AP gateway, a shared LAN box, or anything
+cross-player, a sweep appending one line per host is the exact shape that would erase another
+player's edit by accident.
+
+**The precedent is `appendOwnLog` (`mysqlOwnBox.ts:88`)** and it is worth reading before writing a
+line of this: reload → read → concat → `patches.write`, with a failed read writing NOTHING and an
+absent file being the ordinary first-line case rather than a failure. Copy its shape. **Do not copy
+its posture** — see decision 2 below and the reason it differs.
+
+### Decisions this slice made — CONFIRMED by owner 2026-09-01
+
+1. **A failed `fs` call throws, and it throws in `node`'s own voice.** The three sentences are the
+   ones `node` already says when it cannot read the SCRIPT — `node: /root/x: No such file or
+   directory`, `… Is a directory`, `… Permission denied` — tagged `ShellError` so `node` prints them
+   bare, with no `Error:` prefix, exactly as it prints a refusal. **Export `formatReadError` from
+   `node.ts` rather than writing a second copy**: its inline comment argued the family was not
+   uniform across commands, and that was true when `cat` was the only other caller; a second caller
+   in the same voice is precisely the case it was waiting for.
+
+   That throwing is the posture at all is not a new decision — decision 6 already assumed it:
+   *"No `exists`: … `await fs.readFile` in a try/catch already answers the question"* only parses if
+   a missing file throws.
+
+   **Real node's `ENOENT: no such file or directory, open '<path>'` was considered and declined.**
+   `grep` finds no `ENOENT`, `EACCES` or `EISDIR` anywhere in v2 — it would be a second error
+   vocabulary the game teaches at exactly one door, and one that cannot be walked back once players
+   learn it. A `.code` property can be added later without changing a word on screen; the wording
+   cannot. The cost, accepted: a script branches on `try`/`catch`, not on `err.code`.
+
+2. **An append REFUSES rather than racing: it passes `baseContent`.** If the file changed between
+   the reload and the write, the server answers `modified_since_open` and the append throws
+   `node: <path>: File changed on disk`, exit 1, the other write intact — and the script can catch
+   it and retry itself.
+
+   **This deliberately differs from `appendOwnLog`, which passes no `baseContent`.** That is not an
+   inconsistency to iron out: a daemon's log line is a DEFENDER's evidence, where a dropped line is
+   worse than a raced one, and its own comment says so. A player's loot file is the opposite — the
+   thing that must not happen is silently eating a fellow occupant's edit, which is the entire
+   reason `reload()` exists. On a script's own box there is no other writer and the check never
+   fires, so it costs nothing in the normal case.
+
+   **An automatic retry was considered and declined**: it is a retry loop the codebase has nowhere
+   else, and a two-writer collision still fails — just later, and after a second round trip.
+
+3. **`writeFile` passes NO `baseContent`, and that is not an oversight.** `PatchApi`'s own doc
+   settles it: *"Callers with nothing to overwrite — a `>` redirect truncates by definition, `touch`
+   and `apt` create — omit it and write unconditionally."* `fs.writeFile` is that act. Only append
+   composes against prior content, so only append can be stale.
+
+4. **The validator's DECISION is shared; its WORDING is not.** Extract the stat/parent/`canWrite`
+   rules out of `validateRedirectTarget` into one function returning the same three error kinds
+   `FsReadResult` already uses, and let `runLine.ts` keep saying `bash:` while the `fs` seam says
+   `node:`. The rules are tier permissions and they must not drift; the prefix is each caller's, as
+   `PATCH_ERROR_REASON`'s comment already establishes. Owner confirmed the extraction 2026-09-01. **The collapsed
+   alternative** — the seam does its own eight lines of `stat`/`canWrite` and `runLine.ts` is left
+   alone — stays available as a GREEN-time escape hatch, and should be taken if the extraction
+   turns out to need a parameter to paper over a difference between the two callers. If it does,
+   that difference is the finding: record it rather than parameterising past it.
+
+5. **All three methods ask the MACHINE, not the tree this shell pulled — added mid-slice, after the
+   browser close-out (owner-confirmed 2026-09-01).** `readFile` originally read `env.fs`, matching
+   `cat`. That is right for a shell, whose snapshot is rebuilt per submitted line with the player as
+   the only editor, and wrong for a script, which is neither: it WRITES during the line, so its own
+   writes were invisible to its own reads. See the close-out below for what that looked like. The
+   cost is one round trip per read, accepted because decision 6 made reads awaited precisely so they
+   could be one — a cached read is the same lie a `readFileSync` would have been, one layer down.
+
+### Acceptance criteria — CONFIRMED before any code (owner, 2026-09-01)
+
+- [x] **AC-1** A script reads a file it is allowed to read: `await fs.readFile('/etc/passwd')` hands
+      back the same content `cat` shows, as a string, with a relative path resolved against the
+      script's own cwd.
+- [x] **AC-2** A script creates a file that did not exist: after `await fs.writeFile('/root/l.txt',
+      'x')` the file is there with that content, and the write is stamped new.
+- [x] **AC-3** A script saves captured command output and gets what `>` would have given it:
+      `await fs.writeFile(p, out)` for a call's `string[]` writes the lines joined with `\n` and no
+      trailing newline — not JSON, not a trailing blank line.
+- [x] **AC-4** A non-string, non-`string[]` value goes through the SAME formatter `console.log`
+      uses, so an object saves as its JSON and a value never renders one way printed and another
+      way saved.
+- [x] **AC-5** An overwrite replaces the content and does **not** disturb the stored `is_new` flag,
+      exactly as the redirect's write does.
+- [x] **AC-6** `await fs.appendFile(p, data)` adds to the end of an existing file, and creates the
+      file when it is absent — an absent file is the ordinary first-line case, not a failure.
+- [x] **AC-7** An append composes against the machine as it stands NOW, not against the tree this
+      client is holding: a write that landed on the box after this shell pulled its copy is still
+      there afterwards.
+- [x] **AC-8** …and when a write lands in the window between the append's reload and its own write,
+      the append is **refused** rather than reverting it: `node: <path>: File changed on disk`,
+      exit 1, the other write intact.
+- [x] **AC-9** Every `fs` failure throws, and says what `node` already says when it cannot read a
+      script: the read family (missing / a directory / permission) and the write family (target is a
+      directory / parent missing / tier cannot write) both print bare, with no `Error:` prefix.
+- [x] **AC-10** A failed `fs` call stops the script and exits 1 with everything printed before it
+      kept — and a script that wraps it in `try`/`catch` carries on instead, which is what decision
+      6 means by "no `exists`".
+- [x] **AC-11** A script writes at the session's own tier and no higher: a guest script cannot write
+      where a guest could not write at the prompt. This is decision 8's invariant, re-proved through
+      the new surface.
+- [x] **AC-12** `fs` cannot be displaced by a command named `fs`, and a script's own `const fs = …`
+      still legally shadows it rather than killing the script.
+- [x] **AC-13** `man node` no longer says scripts cannot read and write files, and documents the
+      three methods, that all three are awaited, and that a failure throws.
+
+### RED — the order to drive it in
+
+1. **AC-1** — smallest thing that forces `fs` to exist and be injected. One file, one read.
+2. **AC-9 read half + AC-10** — a missing file throws, prints bare, exits 1; the same script with a
+   `try`/`catch` exits 0. Fixes the voice before there is a second caller to make consistent.
+3. **AC-2** — a new file appears. Forces the validator and the `isNew` report.
+4. **AC-3 + AC-4** — captured output round-trips; an object saves as JSON. Assert AC-3 against what
+   `>` produces for the same value, not against a hand-written string, so the two cannot drift.
+5. **AC-9 write half** — the three refusals, in `node`'s voice.
+6. **AC-5** — overwrite leaves the stored flag alone.
+7. **AC-11** — a guest tier is refused. Cheap here because the walker does the work.
+8. **AC-6** — append adds; append creates.
+9. **AC-7** — the reload. `createFsView` takes an `onReload` option, so the fixture is
+   `createFsView(staleTree, { onReload: async () => freshTree })` and the assertion is that the
+   fresh content survives.
+10. **AC-8** — the refusal. `mockPatchApi({ write: async () => ({ ok: false, error:
+    'modified_since_open' }) })` and assert the sentence and the exit code.
+11. **AC-12** — extend `registry.test.ts:92` to `[...identifiers, 'console', 'fs']` and `+ 2`, plus
+    a script whose first line is `const fs = 1`.
+12. **AC-13** — the manual. Prose, no RED.
+
+### GREEN — the minimum, in dependency order
+
+1. `core/scripting/fsApi.ts` — `buildFsApi(env): FsApi`, the three methods, nothing else.
+2. Export `formatReadError` from `node.ts` (decision 1) and the shared validator (decision 4).
+3. Inject `fs` in `node.ts`'s context literal, beside `console`.
+4. `registry.test.ts` reserved set.
+5. `man node`'s text.
+6. Version → **`0.199.0`** in `v2/package.json` and `package-lock.json`
+   (`npm install --package-lock-only`).
+
+### Two things GREEN must get right
+
+- **The append's read must come off the RELOADED view, not `env.fs`.** Taking it from `env.fs` would
+  compile, pass every test that does not override `onReload`, and reintroduce v0.172.0 exactly. AC-7
+  is the test that stops it; do not weaken it into "reload is called".
+- **A failed read inside `appendFile` writes nothing** — copy `appendOwnLog`'s
+  `if (!existing.ok && existing.error !== 'not_found') return;`. Treating a permission error as an
+  empty file would replace a box's history with one line.
+
+### Wire-check — `N/A`, and this time with a citation
+
+No `api/` change: `patches.write` is the same wire call `>`, `nano`, `touch`, `apt` and the daemons
+already make. The groundwork worried that append's `base_hash` path might need live proof — it does
+not, because it already has it: **`scripts/testModifiedSinceOpen.ts`** proves against real supabase
+that a matching base is 200, a stale base is 409 `modified_since_open`, an absent `base_hash` is
+unconditional, and a tombstoned path expecting absence is 200 while one expecting content is 409.
+That is the entire server contract decision 2 leans on, already green. **Do not write a second
+wire-check for it.**
+
+### Browser close-out
+
+The beat the epic names, now completed end to end: `ssh` into an already-rooted box, `apt install
+node`, `nano` a script that sweeps and **appends one line per host**, run it, `cat` the file back.
+Then the cross-player half, which is what decision 2 is FOR: two sessions on one shared box, B
+appends while A holds a stale tree, and A's next append refuses instead of erasing B. Confirm the
+file in the journal, not only on screen:
+`docker exec supabase_db_jshack-me-v2 psql -U postgres -tAc "select content from patches where path = '…'"`.
+
+Follow `.claude/skills/v2-e2e/SKILL.md` §1 preflight and §7's nano traps — especially never issuing
+the next command until the TERMINAL is back, and never polling for the editor's absence.
+
+### Found while building — four things worth not rediscovering
+
+**The extraction paid off in a way the plan did not predict.** `resolveWriteTarget`'s three
+refusals turn out to be exactly the three `FsReadResult` already names, so **one** formatter words a
+failed read and a failed write alike — which is why AC-9's write half needed no production code at
+all. The collapsed alternative (the seam does its own `stat`/`canWrite`) would have missed this
+entirely and left two error tables to drift apart.
+
+**`FsView.canWrite` already does the write-target asymmetry by itself.** `fsView.ts:105-111`: for a
+node that is absent it gates on the CONTAINER's write bit rather than falling through to a
+permissive null-target answer. So `resolveWriteTarget`'s `node !== null ? canWrite(target) :
+canWrite(parent)` is redundant in every state the game can currently produce — the mutation gate
+reports the ternary as a survivor, and it is a genuine equivalent rather than a missing test. It was
+**left alone deliberately**: the two disagree for a parent that is writable but not traversable, and
+a permission gate is the wrong place to take a simplification on mutation evidence alone. Recorded
+as a reduction candidate, not taken.
+
+**`Command.tier` is declared by every command and read by no production code.** The only `.tier` in
+non-test source is `snmpwalk.ts:74`'s unrelated `walked.tier`. That is why `tier: 'guest'` shows as
+a survivor here, and it will show as one under every command this project ever mutates — the same
+family as `availability`, confirmed independently in 2b. An epic-wide reduction candidate; out of
+scope for a slice about files.
+
+**A pre-existing hole in `withCarried`, found by the gate and deliberately not fixed here.**
+`runLine.ts:227` — mutating `result.kind === 'sync'` to `true` survives, which means no test has BOTH
+a non-empty carried list AND a non-sync final stage. In that state the real code would spread an
+`AsyncIterable` with `...` and throw. It is reachable in principle (an intermediate stage writing to
+stderr ahead of a streamed final stage) and it predates this slice by many PRs. **Left for its own
+change** rather than widened into a slice about a script's filesystem; it belongs with the pipeline,
+not here.
+
+### RED — what actually went red, and what did not
+
+Seven criteria drove genuine RED increments, each confirmed to fail for the right reason:
+
+| # | Criterion | The failure that proved it |
+|---|---|---|
+| 1 | AC-1 | `ReferenceError: fs is not defined` |
+| 2 | AC-9 read half + AC-10 | the sentence arrived as `Error: node: …` — the prefix WAS the whole diff |
+| 3 | AC-2 | `fs.writeFile is not a function` |
+| 4 | AC-6 | `fs.appendFile is not a function` |
+| 5 | **AC-7** | **the v0.172.0 revert reproduced exactly** — the occupant's line vanished from both the content and the base |
+| 6 | AC-8 | the refusal was swallowed; the script reported success over a write that never landed |
+| 7 | AC-13 | the manual still said scripts cannot read and write files |
+
+**Six criteria never went red, and are not claimed as increments.** AC-3, AC-4, AC-5 and AC-9's
+write half all passed the moment they were written, because `writeFile`'s GREEN pulled in
+`formatScriptValue` and `resolveWriteTarget` together rather than minimally — both were existing or
+extracted code, so the genuinely new logic was about ten lines and AC-2 drove all of it. AC-11 and
+AC-12 came free from using `env.fs` and slice 1's block wrap. All six are in as **guard tests**: they
+are what a later "simplification" would break, not steps that shaped the design.
+
+*(The implementation commit's message says five rather than seven; this table is the accurate
+record.)*
+
+### PRE-PR MUTATION — 96.55%, and it found a data-loss path
+
+Scoped to the four production files the slice touches, `perTest`, full suite as killers.
+
+| File | Score | Killed | Survived |
+|---|---|---|---|
+| `scripting/fsApi.ts` | **100.00%** | 45 | 0 |
+| `filesystem/writeTarget.ts` | 97.30% | 36 | 1 |
+| `shell/runLine.ts` | 97.22% | 175 | 4 |
+| `commands/node.ts` | 91.23% | 52 | 5 |
+| **All** | **96.55%** | **308** | **10** (+1 no-coverage) |
+
+**The gate earned its cost.** `fsApi.ts:105` came back NO COVERAGE — the branch where an append's
+read fails for a reason other than "not there". That is a file the tier may WRITE but may not READ,
+and an append that shrugged and treated it as empty would not add a line to it, it would
+**truncate** it to that line: silent data loss, from a call reporting success. The plan had named
+this branch under "two things GREEN must get right" and the implementation had it right — but
+nothing was holding it there. It now has a test, and `fsApi.ts` went from 95.56% to 100%.
+
+The second kill was cosmetic: the new manual example's `description` was unasserted.
+
+Every remaining survivor is triaged above — `tier`/`availability` metadata nothing reads, manual
+prose the page test pins by key phrase rather than by sentence, the equivalent `canWrite` ternary,
+and the pre-existing `runLine.ts` family (three equivalent: object identity in `withCarried`, a loop
+bound guarded by the documented-unreachable throw at line 318, and a `stdin` spread that produces an
+equal env; plus the one genuine pre-existing gap recorded above).
+
+### Browser close-out — and the defect it found
+
+Run at v0.199.0 against `vercel dev` + local supabase. New game → `airmon-ng start wlan0` →
+`airodump-ng` → `aircrack-ng` on `VANDELAY-INDUSTRIES` → `airmon-ng stop wlan0` → `nmcli connect`
+(assigned `192.168.211.112`) → `su root` → `apt install node`, `apt install nmap` → `nano
+/root/sweep.js` → run. The script scans the gateway and itself, **appends one line per host** to
+`/root/loot.txt`, then reads the report back and counts its lines.
+
+**Right the first time**, each verified against the journal with
+`psql -tAc "select content from patches where path = '/root/loot.txt'"`:
+
+- an append created the file, then accumulated across runs — 2 lines, then 4, then 6;
+- two appends inside ONE run: the second saw the first, so `reload()` is doing real work over the
+  wire and not merely compiling;
+- an uncaught `fs.readFile` printed **bare** — `node: /root/loot.txt: No such file or directory`,
+  no `Error:` prefix — and exited 1. Decision 1, live;
+- all four caught refusals in `node`'s voice: `/root/nope.txt: No such file or directory`,
+  `/root: Is a directory` for both a read and a write, `/nowhere/hosts.txt: No such file or
+  directory`;
+- `man node` renders the new paragraphs.
+
+**AC-7 proven the way it actually matters.** A line was injected straight into the journal — a write
+this client had never seen — and the next run appended over it. The journal came back with **nine**
+lines: the six originals, `somebody else was here` still intact, and the two new ones. The script
+itself reported nine. Composed against the cached tree it would have reported seven and silently
+deleted the occupant's line.
+
+⚠️ **And the defect it found, which no jsdom test could have.** `mockFsViewFromTree` has nothing
+behind it, so a reload returns the tree it already has — a cached read and a live one are
+indistinguishable in vitest, and AC-1 passed either way. Live they are not. On the very first run
+the script appended twice and then read its own report:
+
+```
+192.168.211.1 -> 2 open
+192.168.211.112 -> 0 open
+node: /root/loot.txt: No such file or directory      ← the file it had just written
+```
+
+and on the next run, worse than an error:
+
+```
+report now holds 2 lines      ← the journal held 4
+```
+
+`env` is built once per submitted line, so a script's own writes were invisible to its own reads:
+not a failure a player could notice, just a wrong answer, in the exact capture-then-read loop this
+slice exists for. The same staleness on a shared box would hand a script a file with a fellow
+occupant's edit missing from it.
+
+Fixed in-slice by decision 5 above, driven RED first (the test pins that a read sees a machine whose
+content differs from the client's copy), and re-verified live: the same script then reported
+**6 lines**, then **9**, matching the journal exactly both times. `fsApi.ts` re-mutated after the
+change and still scores **100% (45/45)**.
+
+**AC-8's live proof is compositional, and deliberately so.** The window between an append's reload
+and its write is sub-millisecond, so a hand-driven browser run cannot land a competing write inside
+it without changing the code to widen it. Both halves are proven separately and neither is a
+stand-in for the other: the server's 409 on a stale `base_hash` by `scripts/testModifiedSinceOpen.ts`
+against real supabase, and the client's rendering of `modified_since_open` as
+`node: <path>: File changed on disk` with exit 1 by unit test. Recorded rather than faked.
+
+### PR-ready when
+
+AC-1…AC-13 met; full non-watch suite green; `npm run typecheck` and `npm run lint` clean; the
+mutation gate run once over the accumulated scope with survivors triaged; wire-check `N/A` per the
+citation above; browser close-out recorded; version at 0.199.0 in both files.

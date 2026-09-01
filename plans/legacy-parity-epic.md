@@ -356,7 +356,7 @@ PHASE 1 — THE DOORS  (near-term focus)
       D9 slice 1 a script runs and speaks             ✔ SHIPPED v0.196.0 (#475)
       D9 slice 2a a script runs the tools             ✔ SHIPPED v0.197.0 (#476)
       D9 slice 2b a script speaks while it works      ✔ SHIPPED v0.198.0 (#477)
-      D9 slice 3 a script keeps what it found         ▸ NEXT — groundwork gathered, not planned
+      D9 slice 3 a script keeps what it found         ▸ IN PROGRESS — planned + confirmed
       D9 slice 4 a script is reusable and can be stopped
   D10 polish (long-tail comfort commands)
 PHASE 2 — DISCOVERY

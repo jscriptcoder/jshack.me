@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { node } from './node';
 import { man } from './man';
 import { commandRegistry } from './registry';
@@ -6,7 +6,14 @@ import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 import { mockCommandEnv, mockFsViewFromTree, mockSession } from '../../test/factories/commandEnv';
 import { collectStageOutput } from '../shell/runLine';
 import { asAbsPath } from '../types';
-import type { CommandEnv, CommandResult, TerminalLine } from './types';
+import type { UserType } from '../types';
+import type {
+  CommandEnv,
+  CommandResult,
+  PatchApi,
+  PatchResult,
+  TerminalLine,
+} from './types';
 
 const NO_FLAGS = new Map<string, string | true>();
 
@@ -98,6 +105,73 @@ const envWithCatAndScript = (source: string): CommandEnv =>
     ),
     session: mockSession({ username: 'alice', userType: 'user' }),
   });
+
+const READABLE = 'port 22 is open\n';
+
+/** The home a script sits in: one file it may read, one it may not, a directory
+ *  to write into — and a recorded `patches.write`, because a script that keeps
+ *  what it found is a script whose write IS the observable.
+ *
+ *  NOTHING is installed here, deliberately. A tree with `cat` on it could not
+ *  tell a working `fs.readFile` from a script that shelled out to a command. */
+const homeTree = (source: string, notes: string) =>
+  buildDirectory({
+    home: buildDirectory({
+      alice: buildDirectory(
+        {
+          'notes.txt': buildFile(notes, { owner: 'alice' }),
+          // World-readable so one tree serves a guest session too. `node`
+          // gates on READ and slice 1 owns that gate; nothing here is
+          // testing it, and a script a guest cannot open would test it by
+          // accident instead of testing the tier a WRITE runs at.
+          'sweep.js': buildFile(source, {
+            owner: 'alice',
+            perms: { read: ['root', 'user', 'guest'] },
+          }),
+          // Root-owned, so the factory's default perms make it unreadable and
+          // unwritable to a `user` session — the permission arm, without a
+          // hand-written perms literal that could drift from the walker.
+          'root-only.txt': buildFile('a hash alice has to work for'),
+          // Writable but NOT readable — the one shape an append must refuse
+          // rather than treat as empty, because treating it as empty would
+          // REPLACE a file whose contents it was never allowed to see.
+          'write-only.txt': buildFile('evidence alice may not read', {
+            owner: 'alice',
+            perms: { read: ['root'], write: ['root', 'user'] },
+          }),
+          loot: buildDirectory({}, { owner: 'alice' }),
+        },
+        { owner: 'alice' },
+      ),
+    }),
+  });
+
+const scriptEnv = (
+  source: string,
+  options: {
+    readonly writeResult?: PatchResult;
+    readonly userType?: UserType;
+    /** What `notes.txt` says on the MACHINE, as opposed to in the tree this
+     *  shell is holding — i.e. what a fellow occupant wrote after this client
+     *  pulled its copy. Absent, a reload finds what the client already has. */
+    readonly notesOnReload?: string;
+  } = {},
+): { readonly env: CommandEnv; readonly writeFn: ReturnType<typeof vi.fn> } => {
+  const writeFn = vi.fn<PatchApi['write']>(async () => options.writeResult ?? { ok: true });
+  const notesOnReload = options.notesOnReload;
+  const env = mockCommandEnv({
+    fs: mockFsViewFromTree(homeTree(source, READABLE), {
+      userType: options.userType ?? 'user',
+      cwd: asAbsPath('/home/alice'),
+      ...(notesOnReload === undefined
+        ? {}
+        : { onReload: async () => homeTree(source, notesOnReload) }),
+    }),
+    session: mockSession({ username: 'alice', userType: options.userType ?? 'user' }),
+    patches: { write: writeFn, remove: async () => ({ ok: true }), mkdir: async () => ({ ok: true }) },
+  });
+  return { env, writeFn };
+};
 
 describe('node', () => {
   it('puts a line on the terminal before the script has finished', async () => {
@@ -575,8 +649,376 @@ describe('node', () => {
     expect(description).toContain('.exitCode');
     expect(description).toContain('redisCli');
     expect(description).toContain("{'-p': 2222}");
-    expect(description).toContain('cannot yet read and write files');
+    expect(description).toContain('await fs.readFile');
+    expect(description).toContain('await fs.appendFile');
+    // What a failure DOES is the half a player cannot discover by trying it once
+    // and getting away with it, so the page has to say it.
+    expect(description).toContain('throws');
+    expect(description).toContain('cannot yet take arguments of their own or sleep');
     expect(contents).toContain("    const out = await nmap('10.0.0.5')");
     expect(contents).toContain("        Inside a script: scan a host and keep the scan's lines");
+    expect(contents).toContain("    await fs.appendFile('/root/loot.txt', out)");
+    expect(contents).toContain(
+      '        Inside a script: add what this host gave up to the report so far',
+    );
+  });
+});
+
+describe("a script's filesystem", () => {
+  it("hands a script a file it may read, resolved against the script's own cwd", async () => {
+    // The path is relative, so this pins the resolution too: a script says
+    // `notes.txt` and means the directory it is sitting in, exactly as `cat` does
+    // at that prompt.
+    //
+    // The script stringifies what it got rather than printing it, because the
+    // claim is about the STRING and printing would blur it: a terminal line
+    // cannot hold a newline, so `console.log` of a file ending in one paints an
+    // extra empty line. That is console's business. This asserts what `readFile`
+    // handed over — the file whole, trailing newline included, nothing trimmed.
+    const { env } = scriptEnv(
+      "console.log(JSON.stringify(await fs.readFile('notes.txt')))",
+    );
+
+    const result = await drain(await node.execute(env, ['sweep.js'], NO_FLAGS));
+
+    expect(textLines(result)).toEqual([JSON.stringify(READABLE)]);
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('says what node already says when a script cannot read a file, in all three ways', async () => {
+    // Not a new vocabulary: these are the same three sentences `node` prints when
+    // it cannot open the SCRIPT, from the same helper, because a player who
+    // mistypes a path at the prompt and one who mistypes it inside their script
+    // have made one mistake and should hear one answer.
+    //
+    // The path echoed back is the raw one the script passed, not the resolved
+    // absolute — again matching what `node` does with its own argument.
+    const { env } = scriptEnv(
+      [
+        "for (const path of ['missing.txt', 'loot', 'root-only.txt']) {",
+        '  try {',
+        '    await fs.readFile(path)',
+        '  } catch (failure) {',
+        '    console.log(failure.message)',
+        '  }',
+        '}',
+        '',
+      ].join('\n'),
+    );
+
+    const result = await drain(await node.execute(env, ['sweep.js'], NO_FLAGS));
+
+    expect(textLines(result)).toEqual([
+      'node: missing.txt: No such file or directory',
+      'node: loot: Is a directory',
+      'node: root-only.txt: Permission denied',
+    ]);
+    // Caught is handled: a script that answers its own failure is a script that
+    // succeeded, which is what decision 6 means by not shipping an `fs.exists`.
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('stops a script on an uncaught read, prints the reason bare, and keeps what came first', async () => {
+    // Bare is the claim. A refusal at the prompt reads
+    // `node: x: No such file or directory`, and the same sentence dressed as
+    // `Error: node: x: …` would tell the player their SCRIPT went wrong when what
+    // went wrong is the file — so the throw is tagged the way a shell refusal is.
+    const { env } = scriptEnv(
+      ["console.log('before')", "await fs.readFile('missing.txt')", "console.log('unreachable')", ''].join(
+        '\n',
+      ),
+    );
+
+    const result = await drain(await node.execute(env, ['sweep.js'], NO_FLAGS));
+
+    expect(textLines(result)).toEqual(['before']);
+    expect(errorLines(result)).toEqual(['node: missing.txt: No such file or directory']);
+    expect(result.exitCode).toBe(1);
+  });
+
+  it('creates a file the script asks for, and stamps it new', async () => {
+    // `isNew` is not decoration: the server stamps the row `is_new: true` so a
+    // later `rm` deletes it outright instead of leaving a tombstone. A script
+    // creating a loot file has to report it exactly as the `>` redirect does.
+    const { env, writeFn } = scriptEnv("await fs.writeFile('loot/hosts.txt', 'one line')");
+
+    const result = await drain(await node.execute(env, ['sweep.js'], NO_FLAGS));
+
+    expect(result.exitCode).toBe(0);
+    expect(writeFn).toHaveBeenCalledWith(asAbsPath('/home/alice/loot/hosts.txt'), 'one line', {
+      isNew: true,
+    });
+  });
+
+  it("saves a command's captured lines as lines, the way `>` writes them", async () => {
+    // Two things at once, and both would look fine in a passing suite that
+    // asserted neither. The array a call hands back carries `.exitCode`, so a
+    // formatter reaching for JSON would save `{"0":"…","exitCode":0}` instead of
+    // the scan — and the join gains no trailing newline, because `>` writes
+    // `stdout.join('\n')` and a file the player redirected into and one their
+    // script saved must not differ by a byte.
+    const { env, writeFn } = scriptEnv(
+      [
+        "const found = Object.assign(['192.168.0.1 up', '192.168.0.2 up'], { exitCode: 0 })",
+        "await fs.writeFile('loot/hosts.txt', found)",
+        '',
+      ].join('\n'),
+    );
+
+    const result = await drain(await node.execute(env, ['sweep.js'], NO_FLAGS));
+
+    expect(result.exitCode).toBe(0);
+    expect(writeFn).toHaveBeenCalledWith(
+      asAbsPath('/home/alice/loot/hosts.txt'),
+      '192.168.0.1 up\n192.168.0.2 up',
+      { isNew: true },
+    );
+  });
+
+  it('saves any other value exactly as the script would have printed it', async () => {
+    // One formatter for printing and saving. Two would mean a sweep whose
+    // console said one thing and whose loot file said another.
+    const { env, writeFn } = scriptEnv(
+      "await fs.writeFile('loot/found.json', { host: '10.0.0.5', port: 22 })",
+    );
+
+    const result = await drain(await node.execute(env, ['sweep.js'], NO_FLAGS));
+
+    expect(result.exitCode).toBe(0);
+    expect(writeFn).toHaveBeenCalledWith(
+      asAbsPath('/home/alice/loot/found.json'),
+      '{"host":"10.0.0.5","port":22}',
+      { isNew: true },
+    );
+  });
+
+  it('overwrites a file that already existed without restamping it as new', async () => {
+    // `is_new` decides whether a later `rm` deletes the row or leaves a
+    // tombstone, so an overwrite must not claim to have created anything.
+    const { env, writeFn } = scriptEnv("await fs.writeFile('notes.txt', 'replaced')");
+
+    const result = await drain(await node.execute(env, ['sweep.js'], NO_FLAGS));
+
+    expect(result.exitCode).toBe(0);
+    expect(writeFn).toHaveBeenCalledWith(asAbsPath('/home/alice/notes.txt'), 'replaced', {
+      isNew: false,
+    });
+  });
+
+  it('refuses a write the same three ways the redirect refuses one, and writes nothing', async () => {
+    // The rule is shared with `>` on purpose — a path one door refuses and the
+    // other accepts is a hole, and this is tier permissions. Only the prefix
+    // differs, because the player is talking to `node`, not to bash.
+    const { env, writeFn } = scriptEnv(
+      [
+        "for (const path of ['loot', 'nowhere/hosts.txt', 'root-only.txt']) {",
+        '  try {',
+        "    await fs.writeFile(path, 'x')",
+        '  } catch (failure) {',
+        '    console.log(failure.message)',
+        '  }',
+        '}',
+        '',
+      ].join('\n'),
+    );
+
+    const result = await drain(await node.execute(env, ['sweep.js'], NO_FLAGS));
+
+    expect(textLines(result)).toEqual([
+      'node: loot: Is a directory',
+      'node: nowhere/hosts.txt: No such file or directory',
+      'node: root-only.txt: Permission denied',
+    ]);
+    // A refused write must never reach the journal. Reporting the refusal and
+    // writing anyway would be the worst of both.
+    expect(writeFn).not.toHaveBeenCalled();
+  });
+
+  it('adds to the end of a file, and creates one that was never there', async () => {
+    // The shell has no `>>` at all, so this is the first append in the game and
+    // the only way a sweep can survive its own second run.
+    //
+    // Nothing inserts a separator: the existing file's own trailing newline is
+    // what puts the new line on its own row, exactly as real `appendFile`
+    // behaves. A file with no trailing newline runs on, and that is the
+    // script's business — the manual says so rather than the seam guessing.
+    const { env, writeFn } = scriptEnv(
+      [
+        "await fs.appendFile('notes.txt', 'port 443 is open')",
+        "await fs.appendFile('loot/fresh.txt', 'first line')",
+        '',
+      ].join('\n'),
+    );
+
+    const result = await drain(await node.execute(env, ['sweep.js'], NO_FLAGS));
+
+    expect(result.exitCode).toBe(0);
+    expect(writeFn).toHaveBeenNthCalledWith(
+      1,
+      asAbsPath('/home/alice/notes.txt'),
+      'port 22 is open\nport 443 is open',
+      { isNew: false, baseContent: READABLE },
+    );
+    // An absent file is the ORDINARY first-line case, not a failure — and it
+    // names the empty string as its base, which is how the server tells "expected
+    // nothing and found nothing" from "expected nothing and someone got there".
+    expect(writeFn).toHaveBeenNthCalledWith(
+      2,
+      asAbsPath('/home/alice/loot/fresh.txt'),
+      'first line',
+      { isNew: true, baseContent: '' },
+    );
+  });
+
+  it('composes an append against the machine as it stands, not the tree this shell holds', async () => {
+    // This is the defect `FsView.reload()` exists for, and an append is the
+    // shape that walks straight into it. A whole-file write composed from the
+    // cached tree does not merely MISS a write that landed after this client
+    // pulled its copy — it REVERTS it. On any box a fellow occupant can reach,
+    // a sweep adding one line per host would quietly erase their edit.
+    //
+    // So the line an occupant added has to survive, and the base the write
+    // names has to be what the MACHINE holds, not what this shell remembers.
+    const OCCUPIED = 'port 22 is open\nsomebody else was here\n';
+    const { env, writeFn } = scriptEnv("await fs.appendFile('notes.txt', 'mine')", {
+      notesOnReload: OCCUPIED,
+    });
+
+    const result = await drain(await node.execute(env, ['sweep.js'], NO_FLAGS));
+
+    expect(result.exitCode).toBe(0);
+    expect(writeFn).toHaveBeenCalledWith(
+      asAbsPath('/home/alice/notes.txt'),
+      `${OCCUPIED}mine`,
+      { isNew: false, baseContent: OCCUPIED },
+    );
+  });
+
+  it('refuses an append rather than reverting a write that landed underneath it', async () => {
+    // The append names the base it composed against, so a write that lands in
+    // the window between the reload and this write is caught by the server
+    // instead of being flattened. On the script's own box nothing else is
+    // writing and this never fires; on a shared one it is the difference
+    // between a sweep and an accident.
+    //
+    // Loud, deliberately. A last-writer-wins append would be quieter and would
+    // eat the other edit — and the script can catch this and retry, which it
+    // could not do with an edit that was already gone.
+    const { env } = scriptEnv(
+      [
+        "console.log('sweeping')",
+        "await fs.appendFile('notes.txt', 'mine')",
+        "console.log('unreachable')",
+        '',
+      ].join('\n'),
+      { writeResult: { ok: false, error: 'modified_since_open' } },
+    );
+
+    const result = await drain(await node.execute(env, ['sweep.js'], NO_FLAGS));
+
+    expect(textLines(result)).toEqual(['sweeping']);
+    expect(errorLines(result)).toEqual(['node: notes.txt: File changed on disk']);
+    expect(result.exitCode).toBe(1);
+  });
+
+  it('does not let a script believe a write the journal refused', async () => {
+    // A round trip that never completed is not a saved file. Returning quietly
+    // would leave the script writing more of a report nobody will ever read.
+    const { env } = scriptEnv("await fs.writeFile('loot/hosts.txt', 'x')", {
+      writeResult: { ok: false, error: 'network_error' },
+    });
+
+    const result = await drain(await node.execute(env, ['sweep.js'], NO_FLAGS));
+
+    expect(errorLines(result)).toEqual(['node: loot/hosts.txt: I/O error']);
+    expect(result.exitCode).toBe(1);
+  });
+
+  it("writes at the session's own tier and no higher", async () => {
+    // The invariant that IS this feature's security posture: a script can do
+    // exactly what the player could type at that prompt, and nothing more.
+    // `node` grants no capability — it removes typing. A guest is refused the
+    // same directory a guest is refused at the prompt, and no write is
+    // attempted before the refusal.
+    const { env, writeFn } = scriptEnv(
+      [
+        "for (const attempt of [() => fs.writeFile('loot/hosts.txt', 'x'),",
+        "                       () => fs.appendFile('notes.txt', 'x')]) {",
+        '  try {',
+        '    await attempt()',
+        '  } catch (failure) {',
+        '    console.log(failure.message)',
+        '  }',
+        '}',
+        '',
+      ].join('\n'),
+      { userType: 'guest' },
+    );
+
+    const result = await drain(await node.execute(env, ['sweep.js'], NO_FLAGS));
+
+    expect(textLines(result)).toEqual([
+      'node: loot/hosts.txt: Permission denied',
+      'node: notes.txt: Permission denied',
+    ]);
+    expect(writeFn).not.toHaveBeenCalled();
+  });
+
+  it("lets a script declare its own `fs` without taking the script down", async () => {
+    // An injected name is a formal PARAMETER of the sandbox function, so a
+    // top-level `const fs` in the body itself would be a redeclaration
+    // SyntaxError that kills the script before its first line — for a reason
+    // the player cannot see. The block wrap makes it an ordinary legal shadow.
+    const { env } = scriptEnv(
+      ["const fs = 'mine'", 'console.log(fs)', ''].join('\n'),
+    );
+
+    const result = await drain(await node.execute(env, ['sweep.js'], NO_FLAGS));
+
+    expect(textLines(result)).toEqual(['mine']);
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('refuses to append to a file it may write but may not read', async () => {
+    // The write gate and the read gate are separate lists, so "I can write here"
+    // does not imply "I can see what is here". An append that shrugged and
+    // treated an unreadable file as empty would not add a line to it — it would
+    // TRUNCATE it to that line, destroying content the player was never even
+    // allowed to look at. Silent data loss, from a call that reported success.
+    const { env, writeFn } = scriptEnv(
+      "await fs.appendFile('write-only.txt', 'mine')",
+    );
+
+    const result = await drain(await node.execute(env, ['sweep.js'], NO_FLAGS));
+
+    expect(errorLines(result)).toEqual(['node: write-only.txt: Permission denied']);
+    expect(result.exitCode).toBe(1);
+    expect(writeFn).not.toHaveBeenCalled();
+  });
+
+  it('reads the file the machine holds, not the copy this shell pulled', async () => {
+    // Found by the browser close-out, which no jsdom test could have caught: a
+    // view with nothing behind it reloads to the tree it already has, so a
+    // cached read and a live one look identical here.
+    //
+    // Live they are not. `env` is built once per submitted line, so a script
+    // that appended twice and then read its own report was handed the content
+    // from BEFORE the run — four lines in the journal, two in the string. Not an
+    // error a player could notice: silently wrong data, out of the loop this
+    // whole slice exists for. The same staleness on a shared box hands a script
+    // a file without the occupant's edit in it.
+    //
+    // So all three methods ask the machine. A read is already awaited, which is
+    // exactly what makes that affordable.
+    const OCCUPIED = 'port 22 is open\nsomebody else was here\n';
+    const { env } = scriptEnv(
+      "console.log(JSON.stringify(await fs.readFile('notes.txt')))",
+      { notesOnReload: OCCUPIED },
+    );
+
+    const result = await drain(await node.execute(env, ['sweep.js'], NO_FLAGS));
+
+    expect(textLines(result)).toEqual([JSON.stringify(OCCUPIED)]);
+    expect(result.exitCode).toBe(0);
   });
 });

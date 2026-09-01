@@ -87,9 +87,10 @@ describe('commandRegistry', () => {
       expect(identifier).toMatch(/^[A-Za-z_$][A-Za-z0-9_$]*$/);
       expect(reserved).not.toContain(identifier);
     }
-    // `console` is injected alongside them and would be displaced by a
-    // collision, so it counts as taken.
-    expect(new Set([...identifiers, 'console']).size).toBe(identifiers.length + 1);
+    // `console` and `fs` are injected alongside them and would be displaced by
+    // a collision, so they count as taken. A command named `fs` would silently
+    // shadow the filesystem for every script on the box.
+    expect(new Set([...identifiers, 'console', 'fs']).size).toBe(identifiers.length + 2);
   });
 
   it('categorises echo under general and the filesystem commands under filesystem', () => {

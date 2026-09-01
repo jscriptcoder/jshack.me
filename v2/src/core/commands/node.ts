@@ -7,30 +7,14 @@
  * stdout.
  */
 
-import type { Command, CommandEnv, CommandResult, FsReadResult, TerminalLine } from './types';
+import type { Command, CommandEnv, CommandResult, TerminalLine } from './types';
 import { resolveAbsPath } from '../filesystem/path';
 import { createScriptConsole } from '../scripting/console';
 import { buildCommandContext, isShellError } from '../scripting/commandContext';
 import { describeScriptError, runScript } from '../scripting/runScript';
+import { buildFsApi, formatNodeFsError } from '../scripting/fsApi';
 import { createLineStream } from '../scripting/lineStream';
 import { streamedResult } from './streaming';
-
-type FsReadError = Extract<FsReadResult, { readonly ok: false }>['error'];
-
-/** The house style `cat` sets, under this command's name. Kept inline for the
- *  same reason cat keeps its own: the read-error family is not uniform across
- *  commands (`grep` quotes its target), so a shared helper would serve fewer
- *  callers than it looks like it would. */
-const formatReadError = (target: string, error: FsReadError): string => {
-  switch (error) {
-    case 'not_found':
-      return `node: ${target}: No such file or directory`;
-    case 'is_directory':
-      return `node: ${target}: Is a directory`;
-    case 'permission_denied':
-      return `node: ${target}: Permission denied`;
-  }
-};
 
 const refusal = (content: string): CommandResult => ({
   kind: 'sync',
@@ -51,7 +35,7 @@ const execute = async (env: CommandEnv, args: readonly string[]): Promise<Comman
   // script they just wrote. Real node opens a script for reading too.
   const source = env.fs.read(resolveAbsPath(env.fs.cwd(), target));
   if (!source.ok) {
-    return refusal(formatReadError(target, source.error));
+    return refusal(formatNodeFsError(target, source.error));
   }
 
   // The registry arrives at RUN time, not through a static import: `registry.ts`
@@ -68,9 +52,10 @@ const execute = async (env: CommandEnv, args: readonly string[]): Promise<Comman
   const script = async (): Promise<number> => {
     const outcome = await runScript(source.content, {
       ...buildCommandContext(env, commandRegistry, stream.emit),
-      // Last, so no command name can displace it: the script's own voice is not
-      // something the registry gets to take over.
+      // Both last, so no command name can displace them: the script's own voice
+      // and its filesystem are not things the registry gets to take over.
       console: createScriptConsole(stream.emit),
+      fs: buildFsApi(env),
     });
 
     if (outcome.ok) {
@@ -115,7 +100,9 @@ export const node: Command = {
       "Run a JavaScript file on this machine. The script gets a console: console.log writes normal output, console.error an error line, console.debug a dim one. That output is node's own stdout, so it pipes and redirects like any other command. Non-string values print as JSON, and an array of strings prints one element per line. An error the script throws is reported before node exits 1. " +
       "Every command on this machine is a function the script can call, and every call is awaited: const out = await nmap('10.0.0.5'). A call hands back the command's stdout as an array of lines carrying .exitCode, so a sweep can branch on whether a host fell; spreading that array ([...out]) drops the exit code. A nonzero exit is not an error — only a refusal, a bad flag or the script's own mistake stops it. Anything the command writes to stderr goes to the terminal as it happens. " +
       "A hyphenated command answers to its camelCase name: redis-cli is redisCli, aircrack-ng is aircrackNg. Flags are a trailing object with the dashed keys you already type: hydra(host, 'ssh', {'-p': 2222}). A flag the command does not declare is an error, as it is at the prompt, and a false value simply leaves the flag off. " +
-      "Commands that would move the shell somewhere the script cannot follow refuse: ssh, su, exit, reboot, nano, lynx, mysql, redis-cli, ftp, and nc except with -l. Scripts cannot yet read and write files, take arguments of their own, or sleep.",
+      "Commands that would move the shell somewhere the script cannot follow refuse: ssh, su, exit, reboot, nano, lynx, mysql, redis-cli, ftp, and nc except with -l. " +
+      "The filesystem is fs, awaited like everything else: await fs.readFile(path) hands back the file as a string, await fs.writeFile(path, data) replaces it, and await fs.appendFile(path, data) adds to the end — the shell has no >>, so a script gets append before the prompt does. Data is saved the way console.log prints it, so an array of lines is written one per line with no trailing newline — saving a command's captured output writes exactly what a > redirect would. Nothing is inserted between an append and what was already there. " +
+      "A failure throws, in the same words node uses when it cannot open a script: No such file or directory, Is a directory, Permission denied. A write happens at your own tier, so a script can reach no file you could not write at this prompt, and an append against a file somebody else changed in the meantime is refused rather than overwriting them. There is no fs.exists — a readFile in a try/catch answers that — and no readdir, unlink or mkdir, because ls, rm and mkdir are already commands. Scripts cannot yet take arguments of their own or sleep.",
     arguments: [{ name: 'script', description: 'Path to the JavaScript file to run' }],
     examples: [
       { command: 'node hello.js', description: 'Run a script in the current directory' },
@@ -126,6 +113,10 @@ export const node: Command = {
       {
         command: 'node /root/sweep.js | grep OPEN',
         description: "Filter a script's output like any other command",
+      },
+      {
+        command: "await fs.appendFile('/root/loot.txt', out)",
+        description: 'Inside a script: add what this host gave up to the report so far',
       },
     ],
   },
