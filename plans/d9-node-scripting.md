@@ -1,10 +1,10 @@
 # Plan: D9 — `node` scripting
 
-**Branch**: none open — cut the next one off `main`.
+**Branch**: `feat/d9-a-script-speaks-while-it-works`, off `main`.
 **Status**: Active — **slice 1 MERGED** as `cea7b5a3` (PR #475) at v0.196.0, **slice 2a MERGED** as
-`eee52ddf` (PR #476) at v0.197.0. Both are fully evidenced below. **Slice 2b is the next work**:
-groundwork is gathered at the bottom of this file but it is NOT planned and its decisions are NOT
-locked. Slices 3 and 4 are untouched.
+`eee52ddf` (PR #476) at v0.197.0. Both are fully evidenced below. **Slice 2b is PLANNED and is the
+next work** — its four decisions are locked and its eleven acceptance criteria are confirmed. Start
+at its RED list. Slices 3 and 4 are untouched.
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D9 — resolved scope & decisions
 (grill-me, 2026-09-01)", eleven locked decisions.
 
@@ -14,9 +14,9 @@ locked. Slices 3 and 4 are untouched.
    **Decision 5 carries an amendment dated 2026-09-01**; read the amendment, not just the table.
 2. Read "Slice 1 — as built" below for what already exists and why it is shaped that way. Its
    acceptance criteria are closed; do not reopen them.
-3. Slices 1 and 2a are merged; read them for what exists and why, not as work to do. **Start at
-   "Slice 2b — groundwork" at the BOTTOM of this file** — it lists what is already established and
-   the open questions to grill before planning.
+3. Slices 1 and 2a are merged; read them for what exists and why, not as work to do. **The work is
+   "Slice 2b — a script speaks while it works" at the BOTTOM of this file.** Its decisions are
+   locked and its acceptance criteria are confirmed; start at its RED list.
 4. All commands run from `v2/`. Gates: `npm run typecheck`, `npm run lint`, the full non-watch test
    suite. Wait for commit approval before every commit.
 
@@ -45,7 +45,7 @@ leaving the session it started in.
 |---|-------|-----------|--------|
 | 1 | a script runs and speaks | `node hello.js` prints; a broken one says so and exits 1 | **MERGED `cea7b5a3`, v0.196.0** |
 | 2a | a script runs the tools | `await nmap(gw)` returns what the prompt shows; `ssh(…)` refuses | **MERGED `eee52ddf`, v0.197.0** |
-| 2b | a script speaks while it works | a sweep's `console.log` paints live; the spinner names `hydra`, not `node` | **NEXT — groundwork below, not planned** |
+| 2b | a script speaks while it works | a sweep's `console.log` paints live; the spinner names `hydra`, not `node` | **PLANNED — next up, v0.198.0** |
 | 3 | a script keeps what it found | `/root/sweep.js` chains `hydra` and captures to a file | not planned |
 | 4 | a script is reusable and can be stopped | `process.argv`; Ctrl-C at every await; `sleep(ms)` | not planned |
 
@@ -431,56 +431,242 @@ approves the commit.
 
 ---
 
-## Slice 2b — groundwork, gathered but NOT yet planned
+## Slice 2b — a script speaks while it works
 
-Facts established while building 2a, recorded so 2b's planning starts from them rather than
-rediscovering them. **This is not a plan** — no acceptance criteria are confirmed and no decisions
-are locked. Grill the open questions first.
+*A sweep's output paints as it happens, and the busy bar names the tool that is actually running.*
 
-**What 2b is for.** After 2a a script is SILENT for as long as it runs: `node` returns
-`kind: 'sync'`, so nothing paints until the whole script finishes, and the busy bar says `node`
-throughout. A sweep over eight hosts shows a spinner and nothing else. Epic decision 4 answers this
-with two things — the script's own `console.log` painting as it happens, and the busy indicator
-tracking the INNER command rather than reading `node` for the whole run.
+**Value**: after 2a a script is SILENT for its whole run. `node` returns `kind: 'sync'`, so nothing
+reaches the screen until the last line of the script has executed, and the busy bar reads `node`
+from start to finish. A sweep over eight hosts shows a spinner and nothing else — the player cannot
+tell a working script from a hung one. After 2b the script's own `console.log` paints as it is
+called, an inner command's stderr paints as it arrives, and the bar names `hydra` while hydra is
+cracking.
 
-**Be precise about what does and does not become live.** Decision 4 is *capture, not print*: an
-inner `nmap`'s stdout is returned to the script and never paints on its own. So 2b makes three
-things live and no more:
+**Path**: `node <path>` → registry gate → `env.fs.read` → **open a line stream** → build the script
+context, with `console` and every command adapter pushing into that stream instead of an array →
+`streamedResult` over a generator that drains the stream → the script runs; each push is pulled and
+`state.ts`'s async arm appends it to scrollback immediately → each `await <cmd>(…)` calls
+`env.setChildCommand(name)` before `execute` and `null` in a `finally` → the script settles → the
+stream closes and the generator returns the exit code.
+
+**Class**: Behavior change.
+
+**Delivery**: Independent PR against trunk. No stack.
+
+**Required implementation skills**: `tdd`, `testing`, `refactoring`. Load `mutation-testing` at PR
+readiness, not per increment.
+
+**Reduction program**: `N/A`. **Transition/terminal evidence**: `N/A`.
+
+### Be precise about what becomes live — decision 4 is CAPTURE, not print
+
+Three things become live and no more:
 
 1. the script's own `console.log` / `error` / `debug`;
-2. an inner command's stderr and dim passthrough (2a already routes these correctly and in ORDER —
-   only their TIMING is deferred to the end);
+2. an inner command's `error` and `dim` passthrough (2a already routes these correctly and in the
+   right ORDER — only their TIMING is deferred to the end);
 3. the busy label.
 
-A reader who expects `await nmap(…)` to paint the scan live has misread decision 4, and the plan
-should say so out loud.
+**An inner command's STDOUT still never paints.** `await nmap(gw)` hands the scan back to the script
+and shows nothing, because that is what capture means — the script decides whether to print it. A
+reader who expects the scan to appear has misread decision 4, and AC-3 exists to stop a future
+change "fixing" it.
 
-**The streaming bridge is the real work.** `core/commands/streaming.ts` exports `streamedResult`,
-which wraps an `AsyncGenerator<TerminalLine, number>` and preserves the exit code through `yield*`.
-`node` cannot simply be that generator: `console.log` is called from arbitrary depth inside the
-player's script and **cannot `yield`**. It needs a producer/consumer bridge — a queue the emitter
-pushes to, a generator that drains it and awaits the next push, and a settle condition tied to the
-script's own promise. Estimated ~25-30 lines at slice-1 planning; nothing since has changed that.
-`collectStageOutput` already drains `kind: 'async'` fully, so pipes and redirects keep working with
-no further change.
+### Five things the codebase already settles — do not redesign them
 
-**The busy label needs a new `CommandEnv` seam — it cannot fall out of anything that exists.**
-`runningCommand` is a UI signal (`ui/state.ts:397`), set from `commandNameOf(line)` — the FIRST WORD
-of the submitted line — at `state.ts:1555`, and cleared in the `finally` at `state.ts:1680`. Nothing
-in `core/` can reach it today. Decision 4 calls the fix "one callback"; the shape (an optional
-`onRunningCommand?: (name: string | null) => void`, or something narrower) is an open question, as
-is whether the label restores to `node` between inner calls or only at the end.
+- **The UI already paints a streamed command line by line.** `state.ts:1668` is
+  `for await (const streamed of result.lines) setScrollback(…)`. Switching `node` to `kind: 'async'`
+  buys liveness for the script's console AND the inner passthrough in one move — there is no UI
+  rendering work in this slice.
+- **A UI-owned seam on `CommandEnv` is an established family, not a new question.** `setCwd`,
+  `setInterface`, `pushSession`, `popSession` and `resetGame` are all documented "the UI owns the
+  signal; commands call this"; `resetGame`'s comment says outright that "`core/` only knows there's
+  a trigger". The busy label is the sixth member. **This is not an architecture decision to reopen.**
+- **`buildCommandEnv` has two default conventions and the label wants the softer one.**
+  `notWired(name)` throws for a seam whose absence is a bug (`resetGame`, `su.elevate`);
+  `?? (() => undefined)` is for a benign one (`scp.end`, "fire-and-forget"). A cosmetic label must
+  not make an unwired test env throw, so it takes the benign default.
+- **Ctrl-C already reaches a streamed command and already has a rendering.** `state.ts:1671` catches
+  the abort, prints `^C`, and keeps the partial output. `node` inherits that path by becoming async.
+- **`collectStageOutput` drains `kind: 'async'` fully** (`runLine.ts:158`), so pipes and redirects
+  keep working with no change — and correctly do NOT paint live, because a piped command's stdout
+  belongs to the next stage, not the screen.
 
-**Open questions for the grill**, none of them answered:
+### One thing 2a shipped that this slice makes true
 
-- The seam's shape and name, and whether `core/` is allowed to push a UI label at all or whether it
-  should emit something the UI interprets.
-- Whether the label restores to `node` between calls, or holds the last inner command.
-- Whether an inner command's passthrough should paint as it arrives (natural with a stream) or stay
-  batched — 2a's ORDER guarantee must survive whichever is chosen.
-- Whether `node` keeps a sync path for a script that never calls a command, or is always streamed.
+`man node` already tells the player *"Anything the command writes to stderr goes to the terminal as
+it happens."* Today that is true in ORDER and false in TIMING — it arrives at the end with
+everything else. 2b makes the sentence honest. **No manual rewrite is expected in this slice**; if
+the browser close-out finds the page claiming anything else that is still deferred, fix it there.
 
-**Version**: next feature bump is `0.198.0`. **Wire-check**: still `N/A`, no `api/` change.
+### Decisions this plan makes — CONFIRMED 2026-09-01
+
+1. **The seam is `setChildCommand: (name: string | null) => void`, and `null` means "no child".**
+   The UI resolves the label as `childCommand() ?? runningCommand()`, so `core/` never has to know
+   or hardcode the string `'node'` — "what this line is called" stays in `commandNameOf`, where it
+   already lives. The alternative (core pushes the literal `'node'` back) matches `setCwd`'s dumber
+   shape but puts a command's own name inside the adapter that calls OTHER commands, and it breaks
+   silently the day a second command hosts children.
+2. **The label restores between calls** (owner-confirmed). While the script filters results, the bar
+   says `node`, because no scan is in flight. The cost is accepted: a tight sweep flickers
+   `node`→`nmap`→`node` per host, and that flicker is a truthful picture of what the script is doing.
+3. **`node` is ALWAYS streamed — no sync path is kept.** A script that calls nothing still returns
+   `kind: 'async'`. One path has no second branch to disagree with the first, and the async arm is
+   already correct for a zero-line script.
+4. **Passthrough paints as it arrives, and ORDER survives by construction.** Everything — the
+   script's console and every inner command's passthrough — is pushed into ONE queue, so paint order
+   IS push order. 2a's ordering guarantee is not re-derived; it is the same guarantee, unbuffered.
+
+### Acceptance criteria — CONFIRMED before any code (owner, 2026-09-01)
+
+- [ ] **AC-1** A script's `console.log` reaches the terminal BEFORE the script finishes: given
+      `log('first')`, then an inner call that has not resolved, `'first'` is already available from
+      `node`'s result stream. Today nothing is available until the last statement runs.
+- [ ] **AC-2** An inner command's `error`/`dim` passthrough paints as it arrives, still interleaved
+      with the script's own console output in the exact order the calls happened.
+- [ ] **AC-3** An inner command's STDOUT is still **not** painted — `await nmap(gw)` with the result
+      discarded shows nothing on screen, and the same lines are still what the call returned.
+- [ ] **AC-4** While an inner command runs, the busy label is that command's name: during
+      `await hydra(…)` the label is `hydra`, and it is set **before** `execute` is called, not after
+      it returns.
+- [ ] **AC-5** When the inner command returns, the label goes back to `node` for as long as the
+      script does its own work, and to the next inner name on the next call.
+- [ ] **AC-6** A script that throws **inside** an inner call does not leave the bar stuck on that
+      command — the label is released on the failing path too.
+- [ ] **AC-7** Pipes and redirects are unchanged: `node s.js | grep OPEN` and `node s.js > out.txt`
+      capture exactly the stdout 2a captured, with the same exit code, and nothing paints live
+      because a piped stage's output is not the screen's.
+- [ ] **AC-8** The exit code survives the stream — 0 for a clean run, 1 for a throw or a refusal —
+      with everything printed before the failure kept and the error line last. This is slice 1's
+      AC-7 and 2a's AC-8 re-proved through the new mechanism.
+- [ ] **AC-9** A script that calls no command at all still runs, prints and exits 0 through the same
+      streamed path.
+- [ ] **AC-10** A refusal still prints bare and still stops the script (2a AC-8, through the stream).
+- [ ] **AC-11** Ctrl-C mid-script behaves as it does for any streamed command: the abort unwinds
+      through an inner abort-aware command, `^C` is printed, and the partial output is kept. A script
+      spinning in pure JS is still the accepted tab-hang slice 1 recorded — `sleep(ms)` in slice 4 is
+      what gives such a script a yield point, and 2b does not claim to fix it.
+
+### RED
+
+Each must fail for the right reason before any production change.
+
+1. **A line is available before the script finishes.** Script logs, then awaits a test-double
+   command whose `execute` returns a promise the test controls. Pull ONE line from the result's
+   iterator with the gate still closed; assert it is the logged line. Fails today because the result
+   is `kind: 'sync'` and there is no iterator to pull. **This is the assertion the whole slice
+   turns on** — a bridge that collects everything and yields at the end passes every other test here.
+2. **Interleaving, live and in order** — log, then a command emitting an error line, then log again;
+   assert `a, err, b` and that `a` arrived before the script completed.
+3. **Inner stdout does not paint** — the guard on decision 4.
+4. **The label names the inner command, set before `execute`** — a recording seam plus an ordering
+   assertion, not just a value assertion.
+5. **The label restores to `null` after the call returns**, and does so AFTER `execute` resolved.
+6. **The label is released when the inner call throws.**
+7. **Pipe/redirect regression** through `collectStageOutput`: same stdout, same exit code as 2a.
+8. **Throw mid-script**: prior output kept, error line last, exit 1.
+9. **A script that calls nothing** streams and exits 0.
+10. **A refusal still prints bare and stops the script.**
+
+**Mutants to design against** (test design only — the harness runs once at PR readiness):
+
+- **The bridge collecting everything and yielding at the end.** Behaviourally identical to 2a and
+  invisible to every test except RED 1. This is the slice's signature mutant.
+- **`setChildCommand(null)` moved before `execute` instead of after** → RED 5's ordering assertion.
+- **The restore not in a `finally`** → RED 6.
+- **The restore dropped entirely** → RED 5.
+- **Inner stdout pushed into the queue** → RED 3.
+- **The exit code hard-coded to 0** — `streamedResult` exists precisely because a `for await` throws
+  a generator's return value away (see `streaming.ts`'s own comment), so this is the documented trap
+  → RED 8.
+- **A settle condition that closes the stream before the queue drains** → the last `console.log`
+  before a throw disappears; RED 8 asserts prior output is kept.
+- **A settle condition that never closes** → a hang rather than a wrong answer; keep RED 9 cheap so
+  a hang is obvious.
+
+### GREEN — the minimum, in dependency order
+
+1. **`core/scripting/lineStream.ts`** — the producer/consumer bridge. `emit(line)` pushes,
+   `close()` ends it, `lines` is an `AsyncGenerator<TerminalLine, void>` that drains the queue and
+   awaits the next push. ~25-30 lines. Lives in `core/scripting/` and NOT in
+   `core/commands/streaming.ts`: `streamedResult` is the convention for a command narrating its own
+   steps, this is a bridge for output arriving from arbitrary depth, and there is one caller.
+2. **`core/commands/types.ts`** — `setChildCommand`, with a doc comment in the family's house style:
+   the UI owns the signal, `null` means no child is running and the UI falls back to the submitted
+   line's own name.
+3. **`core/scripting/commandContext.ts`** — `env.setChildCommand(command.name)` before `execute`,
+   `null` in a `finally`. Note the refusal gates run BEFORE this: a refused `ssh` must not flash a
+   label for a command that never ran.
+4. **`core/commands/node.ts`** — replace the `lines` array with the stream, return `streamedResult`
+   over a generator that yields the drained lines and returns the exit code. The two exits (clean and
+   thrown) both go through it.
+5. **`ui/env.ts`** — `onChildCommand?: (name: string | null) => void` on the args type, wired as
+   `setChildCommand: args.onChildCommand ?? (() => undefined)`.
+6. **`ui/state.ts`** — a `childCommand` signal, wired into `buildCommandEnv`, cleared in the same
+   `finally` that clears `runningCommand`; `Terminal.tsx`'s `busyLabel` resolves
+   `childCommand() ?? runningCommand()`.
+7. **Version bump** to `0.198.0` in `v2/package.json` + `v2/package-lock.json`
+   (`npm install --package-lock-only`).
+
+### Three things GREEN must get right
+
+**One queue, and push order is paint order.** That single fact is the whole of AC-2. Two queues, or
+a fast path that bypasses the queue for console output, and the ordering guarantee 2a established
+quietly breaks.
+
+**The settle condition is "the script has settled AND the queue is empty".** Closing on the script's
+promise alone loses whatever was logged in the same tick as a throw — which is exactly the output a
+player needs most when their script died.
+
+**The label restore is a `finally`, and the seam is called after the refusal gates.** A throw from
+`execute` must still release the bar, and a refused command must never have claimed it.
+
+### REFACTOR
+
+Assess only if it earns its place. The standing candidate from 2a is unchanged: `prepareStage` and
+the script adapter still perform the same three steps in a different shape, and unifying them is
+still speculative. **The new candidate to resist**: moving `lineStream` next to `streamedResult`
+because they both say "async". They serve different callers and one of them has exactly one. Revisit
+if slice 3 or 4 produces a second.
+
+### PRE-PR MUTATION
+
+Run focused on `core/scripting/lineStream.ts`, `core/scripting/commandContext.ts` and
+`core/commands/node.ts`. `ui/` is not in the mutate set. Expect a small battery — no manual rewrite
+is planned, and the manual block dominated slice 1's survivor count.
+
+⚠️ **Re-read the `-c` warning in slice 2a's mutation section before invoking Stryker.** The config
+file is a POSITIONAL argument: `npx stryker run stryker.mutation.json --concurrency 4`. Check the
+instrumenter's own line says `Instrumented 3 source file(s)` and not `Instrumented 219` before
+letting it run.
+
+⚠️ **Apply any survivor in `commandContext.ts` by hand before believing it.** Slice 2a had two false
+survivors in that file from `perTest` mis-attribution (conventions §4) — one took ten tests red when
+applied manually. A suite that goes red is a kill however the runner scored it.
+
+**Wire-check: `N/A`.** No `api/` path changes.
+
+### Browser close-out
+
+The claim is about timing, and timing is the one thing a jsdom test proves least convincingly.
+On the player's own workstation with `nmap` installed: a script that logs a banner, sweeps three
+hosts in a loop with a `console.log` per host, and logs a summary.
+
+- **Lines appear one at a time** as each host is scanned, not all at once at the end.
+- **The busy bar reads `nmap` during each scan and `node` between them.**
+
+Both are transient, and skill §2 is explicit that a single `eval` costs 1-2s and will miss them.
+**Drive and observe inside one async IIFE that polls** — dispatch the command, then sample
+`document.body.innerText` and the busy label every 100ms into an array, and return the samples. A
+sample series showing the label changing `node`→`nmap`→`node` is the evidence; a screenshot is not.
+
+### PR-ready when
+
+AC-1…AC-11 met; `npm run typecheck` and `npm run lint` clean; the full non-watch test suite green;
+the mutation gate closed or its survivors argued; the version bumped in both files; and the human
+approves the commit.
+
+**Slice complete when** its PR lands.
 
 ---
 *Delete this file at D9 close-out and fold the durable rules into

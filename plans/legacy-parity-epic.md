@@ -355,7 +355,7 @@ PHASE 1 — THE DOORS  (near-term focus)
   D9  node scripting                                 ◆ GRILLED 2026-09-01, slices 1+2a SHIPPED
       D9 slice 1 a script runs and speaks             ✔ SHIPPED v0.196.0 (#475)
       D9 slice 2a a script runs the tools             ✔ SHIPPED v0.197.0 (#476)
-      D9 slice 2b a script speaks while it works      ▸ NEXT — groundwork gathered, not planned
+      D9 slice 2b a script speaks while it works      ▸ NEXT — PLANNED, v0.198.0
       D9 slice 3 a script keeps what it found
       D9 slice 4 a script is reusable and can be stopped
   D10 polish (long-tail comfort commands)
@@ -2971,8 +2971,9 @@ locked order (ftp → daemons → nc → mysql → redis → snmp → node) and 
 built. **Slices 1 and 2a have SHIPPED** (v0.196.0 #475, v0.197.0 #476): a player writes JavaScript on a
 box and it drives the machine's whole toolset — `await nmap(gw)` returns the scan's stdout carrying
 `.exitCode`, and the ten commands that would lie about where the script is standing refuse. What is
-left is the liveness (2b), files (3), and arguments plus Ctrl-C (4). Per-slice status, as-built records
-and 2b's groundwork are in [`d9-node-scripting.md`](d9-node-scripting.md).
+left is the liveness (2b), files (3), and arguments plus Ctrl-C (4). **2b is planned** — four locked
+decisions, eleven acceptance criteria awaiting confirmation, targeting v0.198.0. Per-slice status,
+as-built records and that plan are in [`d9-node-scripting.md`](d9-node-scripting.md).
 **🔍 GRILLED 2026-09-01** — eleven locked decisions and a four-slice spine in
 ["D9 — resolved scope & decisions"](#d9--resolved-scope--decisions-grill-me-2026-09-01). It is the one
 Phase 1 row that is **not a door** — no daemon, no port, no placement, no cross-player half, and **no
