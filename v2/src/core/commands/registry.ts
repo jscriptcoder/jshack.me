@@ -37,6 +37,7 @@ import { nano } from './nano';
 import { nc } from './nc';
 import { nmap } from './nmap';
 import { nmcli } from './nmcli';
+import { node } from './node';
 import { ping } from './ping';
 import { ps } from './ps';
 import { pwd } from './pwd';
@@ -85,6 +86,7 @@ const builtins: readonly Command[] = [
   nginx,
   nmap,
   nmcli,
+  node,
   ping,
   ps,
   pwd,
