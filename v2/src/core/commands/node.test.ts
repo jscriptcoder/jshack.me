@@ -4,8 +4,9 @@ import { man } from './man';
 import { commandRegistry } from './registry';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 import { mockCommandEnv, mockFsViewFromTree, mockSession } from '../../test/factories/commandEnv';
+import { collectStageOutput } from '../shell/runLine';
 import { asAbsPath } from '../types';
-import type { CommandEnv, TerminalLine } from './types';
+import type { CommandEnv, CommandResult, TerminalLine } from './types';
 
 const NO_FLAGS = new Map<string, string | true>();
 
@@ -14,6 +15,42 @@ const textLines = (result: { readonly lines: readonly TerminalLine[] }): string[
 
 const errorLines = (result: { readonly lines: readonly TerminalLine[] }): string[] =>
   result.lines.filter((line) => line.kind === 'error').map((line) => line.content);
+
+/** What a race reports when the thing it was waiting for never arrived. A distinct
+ *  value rather than a rejection, so a test that times out fails on the assertion
+ *  it meant to make instead of on an error nobody wrote. */
+const TIMED_OUT = Symbol('timed out');
+
+/** Await something that is only allowed a short while to happen. Used where the
+ *  claim is that output arrives BEFORE the script finishes: the script deliberately
+ *  never finishes, so without a bound the test would hang instead of failing. */
+const within = <Value>(pending: Promise<Value>, timeoutMs = 200): Promise<Value | symbol> => {
+  let cancel: () => void = () => undefined;
+  const expiry = new Promise<symbol>((resolve) => {
+    const handle = setTimeout(() => resolve(TIMED_OUT), timeoutMs);
+    cancel = () => clearTimeout(handle);
+  });
+  return Promise.race([pending, expiry]).finally(cancel);
+};
+
+/** Everything a result produced, in order, plus the code it ended on. `node`
+ *  streams, so a test reads it the way the terminal does — by draining it —
+ *  rather than by reaching for an array only a sync result has. */
+const drain = async (
+  result: CommandResult,
+): Promise<{ readonly lines: readonly TerminalLine[]; readonly exitCode: number }> => {
+  if (result.kind === 'mode_change') {
+    return { lines: [], exitCode: 0 };
+  }
+  if (result.kind === 'sync') {
+    return { lines: result.lines, exitCode: result.exitCode };
+  }
+  const collected: TerminalLine[] = [];
+  for await (const line of result.lines) {
+    collected.push(line);
+  }
+  return { lines: collected, exitCode: await result.exitCode() };
+};
 
 /** A home tree holding one script owned by alice. The factory's default file
  *  perms are exactly what `nano` stamps — read for root and the owner tier,
@@ -35,14 +72,130 @@ const envWithScript = (fileName: string, source: string): CommandEnv =>
     session: mockSession({ username: 'alice', userType: 'user' }),
   });
 
+/** A tree with `cat` genuinely installed — the binary AND the libpcre it links,
+ *  because a script reaches it through the REAL registry and so has to satisfy
+ *  both gates a typed `cat` satisfies — plus one readable file and one script.
+ *  For the cases that need an inner command with something real to say. */
+const envWithCatAndScript = (source: string): CommandEnv =>
+  mockCommandEnv({
+    fs: mockFsViewFromTree(
+      buildDirectory({
+        bin: buildDirectory({
+          cat: buildFile('', { owner: 'root', perms: { execute: ['root', 'user', 'guest'] } }),
+        }),
+        lib: buildDirectory({ 'libpcre.so': buildFile('') }),
+        home: buildDirectory({
+          alice: buildDirectory(
+            {
+              'notes.txt': buildFile('port 22 is open\n', { owner: 'alice' }),
+              'run.js': buildFile(source, { owner: 'alice' }),
+            },
+            { owner: 'alice' },
+          ),
+        }),
+      }),
+      { userType: 'user', cwd: asAbsPath('/home/alice') },
+    ),
+    session: mockSession({ username: 'alice', userType: 'user' }),
+  });
+
 describe('node', () => {
+  it('puts a line on the terminal before the script has finished', async () => {
+    // The script never settles. So the only way its first line can be observed at
+    // all is if output leaves `node` as it is produced — a run that collects
+    // everything and reports at the end can never satisfy this, however correct
+    // the lines it eventually reports. That is the whole of this slice, and it is
+    // the one claim a collect-then-report implementation cannot fake.
+    const env = envWithScript(
+      'slow.js',
+      ["console.log('first')", 'await new Promise(() => {})', "console.log('unreachable')", ''].join(
+        '\n',
+      ),
+    );
+
+    const result = await within(node.execute(env, ['slow.js'], NO_FLAGS));
+
+    expect(result).not.toBe(TIMED_OUT);
+    if (typeof result === 'symbol') return;
+    expect(result.kind).toBe('async');
+    if (result.kind !== 'async') return;
+    const lines = result.lines[Symbol.asyncIterator]();
+    const first = await within(lines.next());
+
+    expect(first).toEqual({ done: false, value: { kind: 'text', content: 'first' } });
+    await lines.return?.(undefined);
+  });
+
+  it("puts an inner command's stderr on the terminal before the script has finished", async () => {
+    // The script's own voice and a command's passthrough travel the same queue,
+    // so a fast path added for one of them later would break the other's order.
+    // This pins that they share a channel, not merely that they end up sorted.
+    const env = envWithCatAndScript(
+      [
+        "console.log('before')",
+        "await cat('missing.txt')",
+        'await new Promise(() => {})',
+        '',
+      ].join('\n'),
+    );
+
+    const result = await within(node.execute(env, ['run.js'], NO_FLAGS));
+
+    expect(result).not.toBe(TIMED_OUT);
+    if (typeof result === 'symbol') return;
+    if (result.kind !== 'async') return;
+    const lines = result.lines[Symbol.asyncIterator]();
+    const first = await within(lines.next());
+    const second = await within(lines.next());
+
+    expect(first).toEqual({ done: false, value: { kind: 'text', content: 'before' } });
+    expect(second).toEqual({
+      done: false,
+      value: { kind: 'error', content: 'cat: missing.txt: No such file or directory' },
+    });
+    await lines.return?.(undefined);
+  });
+
+  it('gives a pipe the same stdout it always gave, now that it arrives in pieces', async () => {
+    // `collectStageOutput` is what a pipe stage puts a command through, and the
+    // branch `node` takes through it has changed: it is drained now rather than
+    // read off an array. A redirect uses the same split, so `> out.txt` rides on
+    // this too. Nothing paints here, which is correct — a piped stage's stdout
+    // belongs to the next command, not to the screen.
+    const env = envWithScript(
+      'pipe.js',
+      ["console.log('22/tcp open')", "console.error('warning')", "console.log('80/tcp open')", ''].join(
+        '\n',
+      ),
+    );
+
+    const staged = await collectStageOutput(await node.execute(env, ['pipe.js'], NO_FLAGS));
+
+    expect(staged.stdout).toEqual(['22/tcp open', '80/tcp open']);
+    expect(staged.passthrough).toEqual([{ kind: 'error', content: 'warning' }]);
+    expect(staged.exitCode).toBe(0);
+  });
+
+  it("keeps an inner command's stdout off the terminal — a call captures, it does not print", async () => {
+    // The reason a script can be written at all: `await nmap(gw)` hands the scan
+    // BACK, and the script decides whether any of it is worth showing. A change
+    // that painted it would read like a fix and would silently make every
+    // capturing script print twice.
+    const env = envWithCatAndScript(
+      ["const out = await cat('notes.txt')", "console.log('got:' + out.length)", ''].join('\n'),
+    );
+
+    const result = await drain(await node.execute(env, ['run.js'], NO_FLAGS));
+
+    expect(result.lines).toEqual([{ kind: 'text', content: 'got:1' }]);
+    expect(result.exitCode).toBe(0);
+  });
+
   it('prints what a script logs and exits 0', async () => {
     const env = envWithScript('hello.js', "console.log('hello')\n");
 
-    const result = await node.execute(env, ['hello.js'], NO_FLAGS);
+    const result = await drain(await node.execute(env, ['hello.js'], NO_FLAGS));
 
-    expect(result.kind).toBe('sync');
-    if (result.kind !== 'sync') return;
     expect(result.exitCode).toBe(0);
     expect(textLines(result)).toEqual(['hello']);
   });
@@ -53,10 +206,8 @@ describe('node', () => {
       ["console.log('out')", "console.error('bad')", "console.debug('aside')", ''].join('\n'),
     );
 
-    const result = await node.execute(env, ['sinks.js'], NO_FLAGS);
+    const result = await drain(await node.execute(env, ['sinks.js'], NO_FLAGS));
 
-    expect(result.kind).toBe('sync');
-    if (result.kind !== 'sync') return;
     expect(result.exitCode).toBe(0);
     expect(result.lines).toEqual([
       { kind: 'text', content: 'out' },
@@ -68,20 +219,16 @@ describe('node', () => {
   it('joins multiple arguments with a single space', async () => {
     const env = envWithScript('args.js', "console.log('host:', '10.0.0.5')\n");
 
-    const result = await node.execute(env, ['args.js'], NO_FLAGS);
+    const result = await drain(await node.execute(env, ['args.js'], NO_FLAGS));
 
-    expect(result.kind).toBe('sync');
-    if (result.kind !== 'sync') return;
     expect(textLines(result)).toEqual(['host: 10.0.0.5']);
   });
 
   it('renders an object argument as JSON rather than [object Object]', async () => {
     const env = envWithScript('object.js', 'console.log({ port: 22, open: true })\n');
 
-    const result = await node.execute(env, ['object.js'], NO_FLAGS);
+    const result = await drain(await node.execute(env, ['object.js'], NO_FLAGS));
 
-    expect(result.kind).toBe('sync');
-    if (result.kind !== 'sync') return;
     expect(textLines(result)).toEqual(['{"port":22,"open":true}']);
   });
 
@@ -90,10 +237,8 @@ describe('node', () => {
     // than as a JSON array once commands become callable.
     const env = envWithScript('list.js', "console.log(['22/tcp open', '80/tcp open'])\n");
 
-    const result = await node.execute(env, ['list.js'], NO_FLAGS);
+    const result = await drain(await node.execute(env, ['list.js'], NO_FLAGS));
 
-    expect(result.kind).toBe('sync');
-    if (result.kind !== 'sync') return;
     expect(textLines(result)).toEqual(['22/tcp open', '80/tcp open']);
   });
 
@@ -103,10 +248,8 @@ describe('node', () => {
     // lose the distinction between an element and a line break.
     const env = envWithScript('mixed.js', "console.log(['open', 22])\n");
 
-    const result = await node.execute(env, ['mixed.js'], NO_FLAGS);
+    const result = await drain(await node.execute(env, ['mixed.js'], NO_FLAGS));
 
-    expect(result.kind).toBe('sync');
-    if (result.kind !== 'sync') return;
     expect(textLines(result)).toEqual(['["open",22]']);
   });
 
@@ -116,10 +259,8 @@ describe('node', () => {
     // not look like a script that printed a blank line.
     const env = envWithScript('unset.js', 'console.log(undefined)\n');
 
-    const result = await node.execute(env, ['unset.js'], NO_FLAGS);
+    const result = await drain(await node.execute(env, ['unset.js'], NO_FLAGS));
 
-    expect(result.kind).toBe('sync');
-    if (result.kind !== 'sync') return;
     expect(textLines(result)).toEqual(['undefined']);
   });
 
@@ -129,10 +270,8 @@ describe('node', () => {
       ["console.log('before')", "throw new Error('target unreachable')", ''].join('\n'),
     );
 
-    const result = await node.execute(env, ['boom.js'], NO_FLAGS);
+    const result = await drain(await node.execute(env, ['boom.js'], NO_FLAGS));
 
-    expect(result.kind).toBe('sync');
-    if (result.kind !== 'sync') return;
     expect(result.exitCode).toBe(1);
     expect(result.lines).toEqual([
       { kind: 'text', content: 'before' },
@@ -143,10 +282,8 @@ describe('node', () => {
   it('reports a syntax error the same way rather than taking the terminal down', async () => {
     const env = envWithScript('broken.js', "console.log('unclosed'\n");
 
-    const result = await node.execute(env, ['broken.js'], NO_FLAGS);
+    const result = await drain(await node.execute(env, ['broken.js'], NO_FLAGS));
 
-    expect(result.kind).toBe('sync');
-    if (result.kind !== 'sync') return;
     expect(result.exitCode).toBe(1);
     expect(errorLines(result)).toHaveLength(1);
     expect(errorLines(result)[0]).toMatch(/^SyntaxError: /);
@@ -163,10 +300,8 @@ describe('node', () => {
       ['const console = { log: () => undefined }', "console.log('swallowed')", ''].join('\n'),
     );
 
-    const result = await node.execute(env, ['shadow.js'], NO_FLAGS);
+    const result = await drain(await node.execute(env, ['shadow.js'], NO_FLAGS));
 
-    expect(result.kind).toBe('sync');
-    if (result.kind !== 'sync') return;
     expect(result.exitCode).toBe(0);
     expect(result.lines).toEqual([]);
   });
@@ -195,10 +330,8 @@ describe('node', () => {
       session: mockSession({ username: 'alice', userType: 'user' }),
     });
 
-    const result = await node.execute(env, ['own.js'], NO_FLAGS);
+    const result = await drain(await node.execute(env, ['own.js'], NO_FLAGS));
 
-    expect(result.kind).toBe('sync');
-    if (result.kind !== 'sync') return;
     expect(result.exitCode).toBe(0);
     expect(textLines(result)).toEqual(['mine']);
   });
@@ -213,19 +346,15 @@ describe('node', () => {
 
     const env = mockCommandEnv({ fs: mockFsViewFromTree(tree, { userType: 'user' }) });
 
-    const result = await node.execute(env, ['/root/secret.js'], NO_FLAGS);
+    const result = await drain(await node.execute(env, ['/root/secret.js'], NO_FLAGS));
 
-    expect(result.kind).toBe('sync');
-    if (result.kind !== 'sync') return;
     expect(result.exitCode).toBe(1);
     expect(errorLines(result)).toEqual(['node: /root/secret.js: Permission denied']);
   });
 
   it('reports a missing file operand', async () => {
-    const result = await node.execute(mockCommandEnv(), [], NO_FLAGS);
+    const result = await drain(await node.execute(mockCommandEnv(), [], NO_FLAGS));
 
-    expect(result.kind).toBe('sync');
-    if (result.kind !== 'sync') return;
     expect(result.exitCode).toBe(1);
     expect(errorLines(result)).toEqual(['node: missing file operand']);
   });
@@ -233,10 +362,8 @@ describe('node', () => {
   it('reports a script that is not there', async () => {
     const env = mockCommandEnv({ fs: mockFsViewFromTree(buildDirectory({}), { userType: 'user' }) });
 
-    const result = await node.execute(env, ['/root/gone.js'], NO_FLAGS);
+    const result = await drain(await node.execute(env, ['/root/gone.js'], NO_FLAGS));
 
-    expect(result.kind).toBe('sync');
-    if (result.kind !== 'sync') return;
     expect(result.exitCode).toBe(1);
     expect(errorLines(result)).toEqual(['node: /root/gone.js: No such file or directory']);
   });
@@ -245,10 +372,8 @@ describe('node', () => {
     const tree = buildDirectory({ etc: buildDirectory({}, { owner: 'root' }) });
     const env = mockCommandEnv({ fs: mockFsViewFromTree(tree, { userType: 'user' }) });
 
-    const result = await node.execute(env, ['/etc'], NO_FLAGS);
+    const result = await drain(await node.execute(env, ['/etc'], NO_FLAGS));
 
-    expect(result.kind).toBe('sync');
-    if (result.kind !== 'sync') return;
     expect(result.exitCode).toBe(1);
     expect(errorLines(result)).toEqual(['node: /etc: Is a directory']);
   });
@@ -256,10 +381,8 @@ describe('node', () => {
   it('treats an empty script as a no-op that exits 0', async () => {
     const env = envWithScript('empty.js', '   \n\n');
 
-    const result = await node.execute(env, ['empty.js'], NO_FLAGS);
+    const result = await drain(await node.execute(env, ['empty.js'], NO_FLAGS));
 
-    expect(result.kind).toBe('sync');
-    if (result.kind !== 'sync') return;
     expect(result.exitCode).toBe(0);
     expect(result.lines).toEqual([]);
   });
@@ -272,10 +395,8 @@ describe('node', () => {
       ["const answer = await Promise.resolve('resolved')", 'console.log(answer)', ''].join('\n'),
     );
 
-    const result = await node.execute(env, ['await.js'], NO_FLAGS);
+    const result = await drain(await node.execute(env, ['await.js'], NO_FLAGS));
 
-    expect(result.kind).toBe('sync');
-    if (result.kind !== 'sync') return;
     expect(result.exitCode).toBe(0);
     expect(textLines(result)).toEqual(['resolved']);
   });
@@ -304,10 +425,8 @@ describe('node', () => {
       ),
     );
 
-    const result = await node.execute(env, ['run.js'], NO_FLAGS);
+    const result = await drain(await node.execute(env, ['run.js'], NO_FLAGS));
 
-    expect(result.kind).toBe('sync');
-    if (result.kind !== 'sync') return;
     expect(result.exitCode).toBe(0);
     // One line, holding both positionals joined the way `echo one two` joins
     // them at the prompt — so the call carried the arguments AND the answer
@@ -324,10 +443,8 @@ describe('node', () => {
       "console.log([typeof redisCli, typeof aircrackNg, typeof newGame, typeof nmap].join(','))\n",
     );
 
-    const result = await node.execute(env, ['names.js'], NO_FLAGS);
+    const result = await drain(await node.execute(env, ['names.js'], NO_FLAGS));
 
-    expect(result.kind).toBe('sync');
-    if (result.kind !== 'sync') return;
     expect(result.exitCode).toBe(0);
     expect(textLines(result)).toEqual(['function,function,function,function']);
   });
@@ -364,10 +481,8 @@ describe('node', () => {
       session: mockSession({ username: 'alice', userType: 'user' }),
     });
 
-    const result = await node.execute(env, ['run.js'], NO_FLAGS);
+    const result = await drain(await node.execute(env, ['run.js'], NO_FLAGS));
 
-    expect(result.kind).toBe('sync');
-    if (result.kind !== 'sync') return;
     // The error line is the TERMINAL's, in the order it happened, and is absent
     // from what the call handed back — the same split the pipeline makes, where
     // only `text` is stdout. A nonzero exit is data, not an exception, so the
@@ -388,10 +503,8 @@ describe('node', () => {
       ),
     );
 
-    const result = await node.execute(env, ['hop.js'], NO_FLAGS);
+    const result = await drain(await node.execute(env, ['hop.js'], NO_FLAGS));
 
-    expect(result.kind).toBe('sync');
-    if (result.kind !== 'sync') return;
     // Bare — no `Error:` in front of it. The shell is speaking, and it says at
     // a script what it would have said at the prompt.
     expect(result.lines).toEqual([
@@ -407,10 +520,8 @@ describe('node', () => {
       ["const out = await nmap('10.0.0.5')", "console.log('exit:' + out.exitCode)", ''].join('\n'),
     );
 
-    const result = await node.execute(env, ['scan.js'], NO_FLAGS);
+    const result = await drain(await node.execute(env, ['scan.js'], NO_FLAGS));
 
-    expect(result.kind).toBe('sync');
-    if (result.kind !== 'sync') return;
     // A script gets the same answer, and the same apt hint, as a player who
     // typed it — a script grants no capability, it removes typing.
     expect(result.lines).toEqual([
@@ -429,10 +540,8 @@ describe('node', () => {
     // the script before its first line, for a reason the player cannot see.
     const env = envWithScript('shadow.js', ["const nmap = 'mine'", 'console.log(nmap)', ''].join('\n'));
 
-    const result = await node.execute(env, ['shadow.js'], NO_FLAGS);
+    const result = await drain(await node.execute(env, ['shadow.js'], NO_FLAGS));
 
-    expect(result.kind).toBe('sync');
-    if (result.kind !== 'sync') return;
     expect(result.exitCode).toBe(0);
     expect(textLines(result)).toEqual(['mine']);
   });
@@ -440,10 +549,8 @@ describe('node', () => {
   it('carries a manual and sits with the filesystem commands in help', async () => {
     expect(commandRegistry.get('node')?.category).toBe('filesystem');
 
-    const result = await man.execute(mockCommandEnv(), ['node'], NO_FLAGS);
+    const result = await drain(await man.execute(mockCommandEnv(), ['node'], NO_FLAGS));
 
-    expect(result.kind).toBe('sync');
-    if (result.kind !== 'sync') return;
     expect(result.exitCode).toBe(0);
 
     // Whole rendered lines, not words of them: the manual is the entire

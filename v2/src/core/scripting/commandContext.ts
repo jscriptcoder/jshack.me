@@ -186,10 +186,20 @@ export const buildCommandContext = (
           throw shellError(command.withoutTty);
         }
 
-        const result = await command.execute(env, positional, flags);
-        const { stdout, passthrough, exitCode } = await collectStageOutput(result);
-        passthrough.forEach(emit);
-        return withExitCode(stdout, exitCode);
+        // Claimed only once every refusal has passed, so a command that never
+        // ran never flashes on the bar — and released in a `finally`, so one
+        // that dies partway does not leave its name sitting there with nothing
+        // behind it. Held across the drain too: a streamed command is still
+        // running while its lines are arriving.
+        env.setChildCommand(command.name);
+        try {
+          const result = await command.execute(env, positional, flags);
+          const { stdout, passthrough, exitCode } = await collectStageOutput(result);
+          passthrough.forEach(emit);
+          return withExitCode(stdout, exitCode);
+        } finally {
+          env.setChildCommand(null);
+        }
       },
     ]),
   );

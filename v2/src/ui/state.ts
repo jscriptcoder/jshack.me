@@ -396,7 +396,22 @@ const leaveFtpSession = (): void => {
 // command counts as busy, not just a streamed one.
 const [runningCommand, setRunningCommand] = createSignal<string | null>(null);
 
-export { cwd, input, overlayMode, runningCommand, scrollback, setInput, setOverlayMode };
+/** The command running INSIDE the one that was submitted — a script's `nmap`,
+ *  say — or null when none is. Kept apart from `runningCommand` rather than
+ *  overwriting it, so releasing a child restores the host's own name without
+ *  core/ having to know what that name was. */
+const [childCommand, setChildCommand] = createSignal<string | null>(null);
+
+export {
+  childCommand,
+  cwd,
+  input,
+  overlayMode,
+  runningCommand,
+  scrollback,
+  setInput,
+  setOverlayMode,
+};
 
 /** The active session (top of stack), or undefined before `startGame`. */
 const activeSession = (): Session | undefined => sessionStack().at(-1);
@@ -1567,6 +1582,7 @@ const executeLine = async (line: string): Promise<void> => {
     log,
     connectivity,
     onInterfaceChange: setInterface,
+    onChildCommand: setChildCommand,
     wifiNetworks,
     rescanWifi,
     signal: controller.signal,
@@ -1678,6 +1694,7 @@ const executeLine = async (line: string): Promise<void> => {
   } finally {
     activeRun = undefined;
     setRunningCommand(null);
+    setChildCommand(null);
   }
 };
 
