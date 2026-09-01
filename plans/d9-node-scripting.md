@@ -717,6 +717,41 @@ Both are transient, and skill §2 is explicit that a single `eval` costs 1-2s an
 `document.body.innerText` and the busy label every 100ms into an array, and return the samples. A
 sample series showing the label changing `node`→`nmap`→`node` is the evidence; a screenshot is not.
 
+**RUN 2026-09-01 at v0.198.0 — PASSED.** Fresh player → `aircrack-ng` on `TYRELL-CORP` →
+`nmcli connect` (192.168.102.31, gateway `.1`) → `su root` → `apt install nmap` + `apt install node`
+→ `nano sweep.js` → `node sweep.js`, sampling the busy label and the printed-line count together.
+
+- **Output paints as it is produced.** The line count climbed `@2 → @3 → @4` across the run rather
+  than jumping to its total at the end, which is the before/after of this whole slice.
+- **The bar named the scan, not the script.** It read `nmap...` while the submitted line was
+  `node sweep.js`. Before 2b it would have read `node...` for the entire sweep.
+- **An inner command's stdout still never painted**, on a real box with a real registry: the
+  transcript holds only the script's own five lines (`sweep starting`, three host lines, the
+  summary) and not one line of nmap's three scan reports, which the script had captured and counted
+  (`-> 2 open`, `-> 1 open`, `-> 0 open`). Decision 4's capture rule, proved outside jsdom.
+- **The pipe still pipes.** `node sweep.js | grep open` dropped `sweep starting` and passed the four
+  matching lines, so a streamed `node` feeds a next stage exactly as the collected one did.
+
+⚠️ **A back-to-back sweep NEVER shows `node` between calls, and that is CORRECT — do not read it as
+a broken restore.** The first run's sample series was `nmap... → nmap... → nmap... → PROMPT` with no
+`node` anywhere, which looks exactly like a missing release. It is not: the gap between one `nmap`
+returning and the next starting is sub-millisecond, both signal writes land in the same tick, and
+Solid renders once — so there is no interval to paint. **An interval of zero length cannot be
+sampled at any rate**, and chasing it with a faster poller is wasted time.
+
+To see the restore you need a script that genuinely does something of its own between calls. A
+second script — `nmap`, then `await new Promise((resolve) => setTimeout(resolve, 1200))`, then
+`nmap` — sampled at 50ms gives the series the AC asks for:
+
+    nmap... @2  ->  node... @3  ->  nmap... @4  ->  PROMPT @5
+
+`setTimeout` is reachable from a script because only `console` is shadowed (slice 1's recorded
+position), which is what makes this probe possible before slice 4 ships `sleep(ms)`.
+
+**Harness note, not a product defect:** §7's `^X` trap fired once more — the second file needed two
+attempts even with a real `click` immediately before the chord. The reconfirm-after-a-pause rule
+caught it both times and nothing was typed into a buffer.
+
 ### PR-ready when
 
 AC-1…AC-11 met; `npm run typecheck` and `npm run lint` clean; the full non-watch test suite green;

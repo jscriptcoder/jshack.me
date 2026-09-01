@@ -97,6 +97,16 @@ agent-browser snapshot -i                              # interactive refs (@e1, 
   `for (…) { await new Promise(r => setTimeout(r, 100)); samples.push(…) }` and return the
   samples. To photograph a transient state, widen it first — queue the same command several
   times in one synchronous block (they serialize on `commandChain`) and then screenshot.
+- **But an interval of ZERO length cannot be sampled at any rate — stop polling and change the
+  scenario.** A busy label that flips `nmap`->`node`->`nmap` between two back-to-back inner commands
+  never renders the middle state: both signal writes land in the same tick and Solid renders once,
+  so the series reads `nmap... -> nmap... -> PROMPT` and looks exactly like a broken release. A 50ms
+  poller finds no more than a 100ms one, because the state has no duration. The fix is to give the
+  scenario a real gap: a script awaiting
+  `new Promise((resolve) => setTimeout(resolve, 1200))` between the two calls turned the same probe
+  into `nmap... -> node... -> nmap... -> PROMPT`. Before chasing a transient with a faster loop, ask
+  whether it has any duration at all — and note a script CAN reach `setTimeout`, because only
+  `console` is shadowed in the sandbox.
 - **There is no `agent-browser text` command.** Read the terminal with:
   ```bash
   agent-browser eval "document.body.innerText.slice(-800)"
