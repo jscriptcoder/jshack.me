@@ -266,6 +266,7 @@ export type BuildCommandEnvArgs = {
    *  client-persisted state and reload to the intro screen. Optional: only `reset`
    *  fires it, so other setups leave it unwired (a stray call hits the loud stub). */
   readonly onResetGame?: () => void;
+  readonly onChildCommand?: (name: string | null) => void;
 };
 
 const notWired = (method: string) => (): never => {
@@ -454,6 +455,10 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   pushSession: args.onPushSession,
   popSession: args.onPopSession,
   resetGame: args.onResetGame ?? notWired('resetGame'),
+  // A no-op default rather than `notWired`: the label is cosmetic, so an env
+  // built without it should simply show no child, not throw part-way through
+  // somebody's script.
+  setChildCommand: args.onChildCommand ?? (() => undefined),
   // The UI owns the run's signal; both the abort flag commands read and the
   // pacing sleep observe it, so Ctrl-C stops a streamed command mid-flight.
   sleep: (ms) => abortableSleep(args.signal, ms),

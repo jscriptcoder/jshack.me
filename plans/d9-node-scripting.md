@@ -2,9 +2,10 @@
 
 **Branch**: `feat/d9-a-script-speaks-while-it-works`, off `main`.
 **Status**: Active — **slice 1 MERGED** as `cea7b5a3` (PR #475) at v0.196.0, **slice 2a MERGED** as
-`eee52ddf` (PR #476) at v0.197.0. Both are fully evidenced below. **Slice 2b is PLANNED and is the
-next work** — its four decisions are locked and its eleven acceptance criteria are confirmed. Start
-at its RED list. Slices 3 and 4 are untouched.
+`eee52ddf` (PR #476) at v0.197.0. Both are fully evidenced below. **Slice 2b is IMPLEMENTED** on
+`feat/d9-a-script-speaks-while-it-works` at v0.198.0 — all eleven acceptance criteria met, typecheck
+and lint clean, 4113 tests green. **Outstanding: the mutation gate and the browser close-out.**
+Slices 3 and 4 are untouched.
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D9 — resolved scope & decisions
 (grill-me, 2026-09-01)", eleven locked decisions.
 
@@ -15,8 +16,8 @@ at its RED list. Slices 3 and 4 are untouched.
 2. Read "Slice 1 — as built" below for what already exists and why it is shaped that way. Its
    acceptance criteria are closed; do not reopen them.
 3. Slices 1 and 2a are merged; read them for what exists and why, not as work to do. **The work is
-   "Slice 2b — a script speaks while it works" at the BOTTOM of this file.** Its decisions are
-   locked and its acceptance criteria are confirmed; start at its RED list.
+   "Slice 2b — a script speaks while it works" at the BOTTOM of this file**, and it is built —
+   read "Found while building" first, then pick up at PRE-PR MUTATION.
 4. All commands run from `v2/`. Gates: `npm run typecheck`, `npm run lint`, the full non-watch test
    suite. Wait for commit approval before every commit.
 
@@ -45,7 +46,7 @@ leaving the session it started in.
 |---|-------|-----------|--------|
 | 1 | a script runs and speaks | `node hello.js` prints; a broken one says so and exits 1 | **MERGED `cea7b5a3`, v0.196.0** |
 | 2a | a script runs the tools | `await nmap(gw)` returns what the prompt shows; `ssh(…)` refuses | **MERGED `eee52ddf`, v0.197.0** |
-| 2b | a script speaks while it works | a sweep's `console.log` paints live; the spinner names `hydra`, not `node` | **PLANNED — next up, v0.198.0** |
+| 2b | a script speaks while it works | a sweep's `console.log` paints live; the spinner names `hydra`, not `node` | **BUILT — v0.198.0, gates green, PR pending** |
 | 3 | a script keeps what it found | `/root/sweep.js` chains `hydra` and captures to a file | not planned |
 | 4 | a script is reusable and can be stopped | `process.argv`; Ctrl-C at every await; `sleep(ms)` | not planned |
 
@@ -519,33 +520,59 @@ the browser close-out finds the page claiming anything else that is still deferr
 
 ### Acceptance criteria — CONFIRMED before any code (owner, 2026-09-01)
 
-- [ ] **AC-1** A script's `console.log` reaches the terminal BEFORE the script finishes: given
+- [x] **AC-1** A script's `console.log` reaches the terminal BEFORE the script finishes: given
       `log('first')`, then an inner call that has not resolved, `'first'` is already available from
       `node`'s result stream. Today nothing is available until the last statement runs.
-- [ ] **AC-2** An inner command's `error`/`dim` passthrough paints as it arrives, still interleaved
+- [x] **AC-2** An inner command's `error`/`dim` passthrough paints as it arrives, still interleaved
       with the script's own console output in the exact order the calls happened.
-- [ ] **AC-3** An inner command's STDOUT is still **not** painted — `await nmap(gw)` with the result
+- [x] **AC-3** An inner command's STDOUT is still **not** painted — `await nmap(gw)` with the result
       discarded shows nothing on screen, and the same lines are still what the call returned.
-- [ ] **AC-4** While an inner command runs, the busy label is that command's name: during
+- [x] **AC-4** While an inner command runs, the busy label is that command's name: during
       `await hydra(…)` the label is `hydra`, and it is set **before** `execute` is called, not after
       it returns.
-- [ ] **AC-5** When the inner command returns, the label goes back to `node` for as long as the
+- [x] **AC-5** When the inner command returns, the label goes back to `node` for as long as the
       script does its own work, and to the next inner name on the next call.
-- [ ] **AC-6** A script that throws **inside** an inner call does not leave the bar stuck on that
+- [x] **AC-6** A script that throws **inside** an inner call does not leave the bar stuck on that
       command — the label is released on the failing path too.
-- [ ] **AC-7** Pipes and redirects are unchanged: `node s.js | grep OPEN` and `node s.js > out.txt`
+- [x] **AC-7** Pipes and redirects are unchanged: `node s.js | grep OPEN` and `node s.js > out.txt`
       capture exactly the stdout 2a captured, with the same exit code, and nothing paints live
       because a piped stage's output is not the screen's.
-- [ ] **AC-8** The exit code survives the stream — 0 for a clean run, 1 for a throw or a refusal —
+- [x] **AC-8** The exit code survives the stream — 0 for a clean run, 1 for a throw or a refusal —
       with everything printed before the failure kept and the error line last. This is slice 1's
       AC-7 and 2a's AC-8 re-proved through the new mechanism.
-- [ ] **AC-9** A script that calls no command at all still runs, prints and exits 0 through the same
+- [x] **AC-9** A script that calls no command at all still runs, prints and exits 0 through the same
       streamed path.
-- [ ] **AC-10** A refusal still prints bare and still stops the script (2a AC-8, through the stream).
-- [ ] **AC-11** Ctrl-C mid-script behaves as it does for any streamed command: the abort unwinds
-      through an inner abort-aware command, `^C` is printed, and the partial output is kept. A script
-      spinning in pure JS is still the accepted tab-hang slice 1 recorded — `sleep(ms)` in slice 4 is
-      what gives such a script a yield point, and 2b does not claim to fix it.
+- [x] **AC-10** A refusal still prints bare and still stops the script (2a AC-8, through the stream).
+- [x] **AC-11** **CORRECTED while building — there is no `^C`, and this slice does not add one.**
+      The original wording claimed Ctrl-C would read like it does for `airodump-ng`. It does not, and
+      never did: `node`'s stream cannot reject, because `runScript` is total and so the script's
+      promise always resolves — which means the UI's abort `catch` never fires for a script. What
+      actually happens is that an aborted inner `env.sleep` rejects with `signal.reason` (an
+      `AbortError` DOMException), the script sees an ordinary throw, and `node` reports
+      `AbortError: …` and exits 1, keeping everything printed before it. That is **unchanged from
+      2a** — 2b neither improves nor regresses it. **Slice 4 owns making an interrupt read like an
+      interrupt** (it already owns "Ctrl-C at every await"), and a script spinning in pure JS remains
+      the accepted tab-hang slice 1 recorded, which `sleep(ms)` is what finally gives a yield point.
+
+### Found while building — three things that changed the shape of the work
+
+**AC-2 and AC-3 never went RED.** One queue delivered the passthrough's timing along with AC-1, and
+capture-not-print was already true from 2a. Both are in as guard tests rather than as increments,
+because a fast path added later for the script's own voice is exactly what would break them. The
+plan predicted this ("ORDER survives by construction"); it is recorded so nobody reads those two
+tests as evidence of work that was done.
+
+**The live passthrough split was NOT built, on evidence.** `collectStageOutput` batches an inner
+command's stderr until that command finishes, which looked like a gap against AC-2. It is not: every
+streamed command that emits a passthrough line — `apt:244`, `daemon:167/184`, `systemctl:197`,
+`scp:394` — does `yield errorLine(...); return N;`. The line is always the last thing before the
+generator returns, so batching is INDISTINGUISHABLE from live and no test could tell the two apart.
+Building it would have been structure nobody can observe. **What reopens this**: a streamed command
+that emits passthrough and then keeps going.
+
+**A read error stays `kind: 'sync'`.** `node missing.js` never opens a stream, because no script
+ran — it is a pre-flight failure like `command not found`, not a script that produced nothing.
+Decision 3's "always streamed" is about scripts.
 
 ### RED
 
@@ -644,6 +671,36 @@ letting it run.
 survivors in that file from `perTest` mis-attribution (conventions §4) — one took ten tests red when
 applied manually. A suite that goes red is a kill however the runner scored it.
 
+**RESULT 2026-09-01: 199 mutants, 190 killed + 3 timeout = 193 detected (97.0%), 6 survivors, all
+accounted for and ZERO real test gaps.** The battery ran in about two minutes at concurrency 4, with
+the instrumenter reporting the expected `Instrumented 3 source file(s)`.
+
+**The one thing the gate actually changed was `lineStream.ts`, and it found a bug in the fix.** The
+first pass left two survivors there, both tracing to the same cause: the drain read
+`queue.shift()` and then guarded `if (next === undefined) break`, a branch that exists only to avoid
+a non-null assertion and that `while (queue.length > 0)` makes unreachable. Unreachable code cannot
+be mutated detectably, so the pair was a smell rather than an equivalence to accept. Rewriting the
+drain to `queue.splice(0)` removes the guard — and **broke five tests**, which is the valuable part:
+a line pushed WHILE a batch is being yielded arrives after the snapshot, so draining once and then
+checking `closed` drops it. The per-iteration re-check was load-bearing and nothing had said so. The
+shipped form keeps both — `while (queue.length > 0) { for (const next of queue.splice(0)) … }` — and
+carries the reason in a comment. Both survivors are gone and the re-check is now killed.
+
+**Six survivors remain, none of them a gap:**
+
+- **`tier: 'guest'` and the three parts of `availability` (4 mutants, `node.ts:110-111`)** — the same
+  family slices 1 and 2a accepted, and re-confirmed independently this time rather than cited.
+  Applying `availability: {}` by hand leaves the FULL 4113-test suite green, and the reason is
+  visible in `availability.ts`: `wrapWithBinaryCheck` gates on `resolveBinary(env, command.name)` —
+  by NAME — so the declared availability is never consulted. `grep -rn "\.availability" src/` finds
+  exactly one non-test reference, `daemon.ts:198`, which copies it rather than reading it.
+- **`SHELL_ERROR_NAME = 'ShellError'` → `''` (`commandContext.ts:53`)** — equivalent for the reason
+  2a recorded: the tag is written by `shellError` and read by `isShellError` through the same
+  constant, so both sides move together.
+- **`commandContext.ts:185` `ConditionalExpression → true` (the tty gate)** — reported Survived,
+  **hand-applied it takes 16 tests red**. The `perTest` mis-attribution family again, in the same
+  file and on the same line as in 2a. The rule above earns its place a second time.
+
 **Wire-check: `N/A`.** No `api/` path changes.
 
 ### Browser close-out
@@ -659,6 +716,41 @@ Both are transient, and skill §2 is explicit that a single `eval` costs 1-2s an
 **Drive and observe inside one async IIFE that polls** — dispatch the command, then sample
 `document.body.innerText` and the busy label every 100ms into an array, and return the samples. A
 sample series showing the label changing `node`→`nmap`→`node` is the evidence; a screenshot is not.
+
+**RUN 2026-09-01 at v0.198.0 — PASSED.** Fresh player → `aircrack-ng` on `TYRELL-CORP` →
+`nmcli connect` (192.168.102.31, gateway `.1`) → `su root` → `apt install nmap` + `apt install node`
+→ `nano sweep.js` → `node sweep.js`, sampling the busy label and the printed-line count together.
+
+- **Output paints as it is produced.** The line count climbed `@2 → @3 → @4` across the run rather
+  than jumping to its total at the end, which is the before/after of this whole slice.
+- **The bar named the scan, not the script.** It read `nmap...` while the submitted line was
+  `node sweep.js`. Before 2b it would have read `node...` for the entire sweep.
+- **An inner command's stdout still never painted**, on a real box with a real registry: the
+  transcript holds only the script's own five lines (`sweep starting`, three host lines, the
+  summary) and not one line of nmap's three scan reports, which the script had captured and counted
+  (`-> 2 open`, `-> 1 open`, `-> 0 open`). Decision 4's capture rule, proved outside jsdom.
+- **The pipe still pipes.** `node sweep.js | grep open` dropped `sweep starting` and passed the four
+  matching lines, so a streamed `node` feeds a next stage exactly as the collected one did.
+
+⚠️ **A back-to-back sweep NEVER shows `node` between calls, and that is CORRECT — do not read it as
+a broken restore.** The first run's sample series was `nmap... → nmap... → nmap... → PROMPT` with no
+`node` anywhere, which looks exactly like a missing release. It is not: the gap between one `nmap`
+returning and the next starting is sub-millisecond, both signal writes land in the same tick, and
+Solid renders once — so there is no interval to paint. **An interval of zero length cannot be
+sampled at any rate**, and chasing it with a faster poller is wasted time.
+
+To see the restore you need a script that genuinely does something of its own between calls. A
+second script — `nmap`, then `await new Promise((resolve) => setTimeout(resolve, 1200))`, then
+`nmap` — sampled at 50ms gives the series the AC asks for:
+
+    nmap... @2  ->  node... @3  ->  nmap... @4  ->  PROMPT @5
+
+`setTimeout` is reachable from a script because only `console` is shadowed (slice 1's recorded
+position), which is what makes this probe possible before slice 4 ships `sleep(ms)`.
+
+**Harness note, not a product defect:** §7's `^X` trap fired once more — the second file needed two
+attempts even with a real `click` immediately before the chord. The reconfirm-after-a-pause rule
+caught it both times and nothing was typed into a buffer.
 
 ### PR-ready when
 

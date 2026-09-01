@@ -17,6 +17,7 @@ import {
   promptUsername,
   runInput,
   overlayMode,
+  childCommand,
   runningCommand,
   saveEditor,
   scrollback,
@@ -70,7 +71,11 @@ export const Terminal = () => {
   // The label for the busy bar, or null when the prompt should be live. A
   // command blocked on an interactive prompt (su's password) is still running,
   // but it is waiting on the PLAYER — so the prompt wins and stays typeable.
-  const busyLabel = (): string | null => (pendingPrompt() ? null : runningCommand());
+  // A child wins when there is one: a script's `nmap` is what is actually taking
+  // the time, and `node` for the whole run tells the player nothing. Falling
+  // back rather than being overwritten is what restores `node` between calls.
+  const busyLabel = (): string | null =>
+    pendingPrompt() ? null : (childCommand() ?? runningCommand());
 
   // Keep the newest output in view as the scrollback grows.
   createEffect(() => {

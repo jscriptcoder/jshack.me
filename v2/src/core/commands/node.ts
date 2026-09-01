@@ -12,6 +12,8 @@ import { resolveAbsPath } from '../filesystem/path';
 import { createScriptConsole } from '../scripting/console';
 import { buildCommandContext, isShellError } from '../scripting/commandContext';
 import { describeScriptError, runScript } from '../scripting/runScript';
+import { createLineStream } from '../scripting/lineStream';
+import { streamedResult } from './streaming';
 
 type FsReadError = Extract<FsReadResult, { readonly ok: false }>['error'];
 
@@ -57,34 +59,48 @@ const execute = async (env: CommandEnv, args: readonly string[]): Promise<Comman
   // would be a load-order cycle. `help` and `man` reach it the same way.
   const { commandRegistry } = await import('./registry');
 
-  const lines: TerminalLine[] = [];
-  const emit = (line: TerminalLine): void => {
-    lines.push(line);
-  };
+  // Output leaves as it is produced rather than being reported at the end. A
+  // script is the one command whose run has no fixed length — a sweep can take a
+  // minute — so collecting first would show the player a spinner and nothing
+  // else for the whole of it, with no way to tell work from a hang.
+  const stream = createLineStream();
 
-  const outcome = await runScript(source.content, {
-    ...buildCommandContext(env, commandRegistry, emit),
-    // Last, so no command name can displace it: the script's own voice is not
-    // something the registry gets to take over.
-    console: createScriptConsole(emit),
-  });
+  const script = async (): Promise<number> => {
+    const outcome = await runScript(source.content, {
+      ...buildCommandContext(env, commandRegistry, stream.emit),
+      // Last, so no command name can displace it: the script's own voice is not
+      // something the registry gets to take over.
+      console: createScriptConsole(stream.emit),
+    });
 
-  if (!outcome.ok) {
+    if (outcome.ok) {
+      return 0;
+    }
+
     // A refusal or a flag mistake is the SHELL speaking, and it says at a
     // script exactly what it would have said at the prompt — no `Error:` in
     // front of it. Everything else is the script's own throw, and reads like
     // one.
-    const reported = isShellError(outcome.error)
-      ? outcome.error.message
-      : describeScriptError(outcome.error);
-    return {
-      kind: 'sync',
-      lines: [...lines, { kind: 'error', content: reported }],
-      exitCode: 1,
-    };
+    stream.emit({
+      kind: 'error',
+      content: isShellError(outcome.error)
+        ? outcome.error.message
+        : describeScriptError(outcome.error),
+    });
+    return 1;
+  };
+
+  async function* run(): AsyncGenerator<TerminalLine, number> {
+    // Started before the drain, so the script is already running — and has
+    // already queued whatever it printed before its first await — by the time
+    // anyone pulls. The exit code is awaited after the drain has ended, which
+    // is the only point at which it is known.
+    const finished = script().finally(stream.close);
+    yield* stream.lines;
+    return await finished;
   }
 
-  return { kind: 'sync', lines, exitCode: 0 };
+  return streamedResult(run());
 };
 
 export const node: Command = {

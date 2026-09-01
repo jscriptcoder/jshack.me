@@ -298,6 +298,7 @@ export const mockCommandEnv = (overrides: Partial<CommandEnv> = {}): CommandEnv 
   pushSession: () => undefined,
   popSession: () => undefined,
   resetGame: () => undefined,
+  setChildCommand: () => undefined,
   sleep: () => Promise.resolve(),
   signal: new AbortController().signal,
   ...overrides,

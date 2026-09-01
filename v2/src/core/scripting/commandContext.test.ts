@@ -257,6 +257,78 @@ describe('a script calling the machine commands', () => {
     );
   });
 
+  it('names the running command to the UI, and hands the name back when it returns', async () => {
+    // One array records both the label changes and the command's own run, so the
+    // assertion is about ORDER as much as value: the label is claimed BEFORE the
+    // command runs (a player watching a slow scan must see `nmap` for its whole
+    // duration, not at the end) and released after, so the bar says `node` again
+    // while the script does its own work.
+    const events: (string | null)[] = [];
+    const watcher: Command = {
+      ...probe,
+      name: 'watcher',
+      execute: async () => {
+        events.push('ran');
+        return { kind: 'sync', lines: [], exitCode: 0 };
+      },
+    };
+    const env = mockCommandEnv({
+      setChildCommand: (name) => {
+        events.push(name);
+      },
+    });
+
+    await contextOf([watcher], env).context.watcher();
+
+    expect(events).toEqual(['watcher', 'ran', null]);
+  });
+
+  it('hands the name back even when the command throws', async () => {
+    // Otherwise a script that dies inside `hydra` leaves the bar reading `hydra`
+    // with nothing running behind it.
+    const events: (string | null)[] = [];
+    const exploder: Command = {
+      ...probe,
+      name: 'exploder',
+      execute: async () => {
+        throw new Error('the command blew up');
+      },
+    };
+    const env = mockCommandEnv({
+      setChildCommand: (name) => {
+        events.push(name);
+      },
+    });
+
+    await expect(contextOf([exploder], env).context.exploder()).rejects.toThrow(
+      'the command blew up',
+    );
+
+    expect(events).toEqual(['exploder', null]);
+  });
+
+  it('never claims the label for a command that was refused', async () => {
+    // The refusal gates run first, so nothing ran and nothing should have been
+    // announced — a `ssh` that never happened must not flash on the bar.
+    const events: (string | null)[] = [];
+    const env = mockCommandEnv({
+      setChildCommand: (name) => {
+        events.push(name);
+      },
+    });
+    const blocked: Command = {
+      ...probe,
+      name: 'blocked',
+      withoutScript: 'blocked: cannot be run from a script',
+    };
+
+    await expect(contextOf([blocked], env).context.blocked()).rejects.toThrow(
+      'blocked: cannot be run from a script',
+    );
+
+    expect(events).toEqual([]);
+  });
+
   it("carries a failed command's own exit code, so a sweep can branch on it", async () => {
     const { context } = contextOf([cat], envWithFile('present.txt', 'here\n'));
 

@@ -1150,6 +1150,19 @@ export type CommandEnv = {
    *  command's `Resetting game...` line renders before the page tears down. */
   readonly resetGame: () => void;
 
+  /** Name the command running INSIDE another one, or `null` when none is —
+   *  sibling to `setCwd`/`setInterface`, and the UI owns the signal as it does
+   *  for those. Only `node` has a child today: a script calling `nmap` should
+   *  show `nmap` on the busy bar for the length of that scan, not `node` for the
+   *  length of the script, which tells the player nothing about what is taking
+   *  the time.
+   *
+   *  `null` means "no child", NOT "nothing is running" — the UI falls back to
+   *  whatever the submitted line was called. That is why the name of the hosting
+   *  command never appears here: `core/` would have to know it, and the UI
+   *  already does. */
+  readonly setChildCommand: (name: string | null) => void;
+
   /** Piped input from a previous command in the pipeline. */
   readonly stdin?: AsyncIterable<string>;
 

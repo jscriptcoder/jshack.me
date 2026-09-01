@@ -25,9 +25,11 @@ const seedWifi = () => generateWifi({ seedPubkeyHex: 'a'.repeat(64) });
 const seedEnv = (
   userType: 'guest' | 'user' | 'root' = 'user',
   names: { readonly hostname?: string; readonly workstationName?: string } = {},
+  seams: { readonly onChildCommand?: (name: string | null) => void } = {},
 ) =>
   buildCommandEnv({
     ...names,
+    ...seams,
     identity: generateIdentity(),
     session: { ...seedSession(generateIdentity(), SEED_CONFIG), userType },
     root: seedFs(SEED_CONFIG, generateIdentity()),
@@ -45,6 +47,24 @@ const seedEnv = (
     onPopSession: () => undefined,
     signal: new AbortController().signal,
   });
+
+describe('the busy label a script drives', () => {
+  it('passes the running child through to whoever is showing it', () => {
+    const seen: (string | null)[] = [];
+
+    const env = seedEnv('user', {}, { onChildCommand: (name) => seen.push(name) });
+    env.setChildCommand('nmap');
+    env.setChildCommand(null);
+
+    expect(seen).toEqual(['nmap', null]);
+  });
+
+  it('does nothing at all when nobody is showing it', () => {
+    // The label is cosmetic, so an env built without the seam must stay usable —
+    // unlike `resetGame`, whose absence really is a wiring bug worth throwing on.
+    expect(() => seedEnv().setChildCommand('nmap')).not.toThrow();
+  });
+});
 
 describe('buildCommandEnv', () => {
   it('reads /etc/passwd at the session user tier', () => {
