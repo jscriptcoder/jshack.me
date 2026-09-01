@@ -257,6 +257,21 @@ describe('a script calling the machine commands', () => {
     );
   });
 
+  it('leaves a command that needs no terminal alone on a pty-less session', async () => {
+    // The other side of that condition, and the reason it is a condition at all.
+    // A shell reached through a planted listener has nobody to ask for a
+    // password — but almost nothing asks. If the tty check stopped at "is there
+    // a terminal", every ordinary command a script ran over a backdoor would be
+    // refused, and refused with `undefined` as the message, because the sentence
+    // is the absent command's to supply.
+    const throughABackdoor = mockCommandEnv({ session: mockSession({ kind: 'nc' }) });
+    const { context } = contextOf([probe], throughABackdoor);
+
+    const out = await context.probe('ran');
+
+    expect([...out]).toEqual(['arg:ran']);
+  });
+
   it('names the running command to the UI, and hands the name back when it returns', async () => {
     // One array records both the label changes and the command's own run, so the
     // assertion is about ORDER as much as value: the label is claimed BEFORE the

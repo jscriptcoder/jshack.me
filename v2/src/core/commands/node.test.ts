@@ -637,6 +637,8 @@ describe('node', () => {
     expect(contents).toContain('    node [script] [arguments]');
     expect(contents).toContain('    script (optional)');
     expect(contents).toContain('        Path to the JavaScript file to run');
+    expect(contents).toContain('    arguments (optional)');
+    expect(contents).toContain('        Passed to the script as process.argv from index 2');
     expect(contents).toContain('    node hello.js');
     expect(contents).toContain('        Run a script in the current directory');
     expect(contents).toContain('    node /root/sweep.js | grep OPEN');
@@ -665,11 +667,22 @@ describe('node', () => {
     // shell answers `unrecognized option` and the script never runs, which reads
     // like the argument was rejected rather than like it needed fencing off.
     expect(description).toContain('node sweep.js -- -v 10.0.0.5');
+    // Pinned by a phrase that appears ONCE. `throws` reads like it covers the
+    // failure paragraph, but the opening one says "an error the script throws"
+    // as well, so the sentences telling a player what a refused write does
+    // could all vanish with the test still green.
+    expect(description).toContain('at your own tier');
+    expect(description).toContain('refused rather than overwriting');
+    expect(description).toContain('ssh, su, exit, reboot');
     expect(contents).toContain("    const out = await nmap('10.0.0.5')");
     expect(contents).toContain("        Inside a script: scan a host and keep the scan's lines");
     expect(contents).toContain("    await fs.appendFile('/root/loot.txt', out)");
     expect(contents).toContain(
       '        Inside a script: add what this host gave up to the report so far',
+    );
+    expect(contents).toContain('    const [target] = process.argv.slice(2)');
+    expect(contents).toContain(
+      '        Inside a script: read the host the player named on the command line',
     );
   });
 });
