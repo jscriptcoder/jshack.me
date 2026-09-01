@@ -1,9 +1,9 @@
 # Plan: D9 — `node` scripting
 
-**Branch**: `feat/d9-a-script-runs-and-speaks` (slice 1) — **not cut yet**
-**Status**: Active — **slice 1 PLANNED and its acceptance criteria CONFIRMED by the owner
-2026-09-01. NO CODE WRITTEN YET; nothing is in flight and the tree is clean.** The next action is
-RED step 1 (below). Trunk is at **v0.195.0**; slice 1 bumps to **v0.196.0**.
+**Branch**: `feat/d9-a-script-runs-and-speaks` (slice 1) — **cut 2026-09-01 off `main` @ c3be1758**
+**Status**: Active — **slice 1 is BUILT at v0.196.0: AC-1…AC-12 all met, typecheck and lint
+clean, full suite green (4080 tests).** Still open before the PR: the pre-PR mutation gate and
+the browser run. Slices 2-4 remain unplanned.
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D9 — resolved scope & decisions
 (grill-me, 2026-09-01)", eleven locked decisions.
 
@@ -13,8 +13,8 @@ RED step 1 (below). Trunk is at **v0.195.0**; slice 1 bumps to **v0.196.0**.
    **Decision 5 carries an amendment dated 2026-09-01**; read the amendment, not just the table.
 2. Read slice 1 below, top to bottom. Its acceptance criteria are **already confirmed** — do not
    re-present them for approval.
-3. Cut `feat/d9-a-script-runs-and-speaks` off an up-to-date `main` (check `git status -sb` for
-   ahead/behind, per conventions §8) and start at **RED step 1**.
+3. The branch is cut and slice 1 is built and committed. What remains before its PR is the pre-PR
+   mutation gate and the browser run — see "PRE-PR MUTATION" and "PR-ready when" below.
 4. All commands run from `v2/`. Gates: `npm run typecheck`, `npm run lint`, the full non-watch test
    suite. Wait for commit approval before every commit.
 
@@ -40,7 +40,7 @@ leaving the session it started in.
 
 | # | Slice | Observable | Status |
 |---|-------|-----------|--------|
-| 1 | a script runs and speaks | `node hello.js` prints; a broken one says so and exits 1 | **planned** |
+| 1 | a script runs and speaks | `node hello.js` prints; a broken one says so and exits 1 | **built, pre-PR** |
 | 2 | a script runs the tools | `await nmap(…)` returns what the prompt shows; `ssh(…)` refuses | not planned |
 | 3 | a script keeps what it found | `/root/sweep.js` chains `hydra` and captures to a file | not planned |
 | 4 | a script is reusable and can be stopped | `process.argv`; Ctrl-C at every await; `sleep(ms)` | not planned |
@@ -98,36 +98,36 @@ cannot `yield`. **Slice 2 switches to `streamedResult` (`core/commands/streaming
 commands make liveness real; that is also where decision 4's live busy label lands. The epic's
 decision 5 carries this amendment.
 
-### Acceptance criteria — CONFIRMED 2026-09-01, before any code
+### Acceptance criteria — CONFIRMED 2026-09-01 before any code, ALL MET
 
-- [ ] **AC-1** On a box where `node` is installed, a file containing `console.log('hello')` run as
+- [x] **AC-1** On a box where `node` is installed, a file containing `console.log('hello')` run as
       `node /root/hello.js` puts `hello` in the terminal and exits **0**.
-- [ ] **AC-2** `console.log('host:', '10.0.0.5')` joins its arguments with a single space. An object
+- [x] **AC-2** `console.log('host:', '10.0.0.5')` joins its arguments with a single space. An object
       argument renders as JSON, never `[object Object]`. An array of strings renders one element
       per line.
-- [ ] **AC-3** The three sinks are distinguishable: `console.log` is a `text` line, `console.error`
+- [x] **AC-3** The three sinks are distinguishable: `console.log` is a `text` line, `console.error`
       an `error` line, `console.debug` a `dim` line.
-- [ ] **AC-4** A script may declare `const console = …` (or any injected name) at its top level and
+- [x] **AC-4** A script may declare `const console = …` (or any injected name) at its top level and
       it **shadows** rather than throwing `Identifier 'console' has already been declared`. This is
       the block wrap, pinned here before slice 2 injects forty command names behind it.
-- [ ] **AC-5** **The execute bit is not consulted.** A file carrying the default permissions a
+- [x] **AC-5** **The execute bit is not consulted.** A file carrying the default permissions a
       `user` gets from `nano` — `read: ['root','user']`, `execute: ['root']` — runs for that user.
       A file the tier cannot **read** is refused: `node: /root/secret.js: Permission denied`,
       exit 1.
-- [ ] **AC-6** The three file errors match the house style `cat` sets, each exit 1:
+- [x] **AC-6** The three file errors match the house style `cat` sets, each exit 1:
       `node: missing file operand`; `node: <path>: No such file or directory`;
       `node: <path>: Is a directory`.
-- [ ] **AC-7** A script that throws reports `<ErrorName>: <message>` as an **error** line and exits
+- [x] **AC-7** A script that throws reports `<ErrorName>: <message>` as an **error** line and exits
       **1**, and everything it printed before throwing is still there.
-- [ ] **AC-8** A script with a syntax error is reported the same way (`SyntaxError: …`, exit 1)
+- [x] **AC-8** A script with a syntax error is reported the same way (`SyntaxError: …`, exit 1)
       rather than taking the terminal down.
-- [ ] **AC-9** An empty or whitespace-only script is a no-op: no output, exit **0**.
-- [ ] **AC-10** A script may `await` — `await Promise.resolve('x')` works — because there is one
+- [x] **AC-9** An empty or whitespace-only script is a no-op: no output, exit **0**.
+- [x] **AC-10** A script may `await` — `await Promise.resolve('x')` works — because there is one
       always-async mode, not a sync path that gets upgraded.
-- [ ] **AC-11** Before installation, `node hello.js` answers
+- [x] **AC-11** Before installation, `node hello.js` answers
       `bash: node: command not found. Install with: apt install node` — the hint the registry entry
       unlocks, which the bare not-found message could not give.
-- [ ] **AC-12** `man node` renders the manual and `help` lists `node` under `filesystem`. The manual
+- [x] **AC-12** `man node` renders the manual and `help` lists `node` under `filesystem`. The manual
       is the whole discoverability story until the tutorial work lands (epic decision 11), so it
       carries the API surface this slice ships and names what later slices add.
 
