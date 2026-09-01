@@ -1,11 +1,10 @@
 # Plan: D9 — `node` scripting
 
-**Branch**: `feat/d9-a-script-speaks-while-it-works`, off `main`.
-**Status**: Active — **slice 1 MERGED** as `cea7b5a3` (PR #475) at v0.196.0, **slice 2a MERGED** as
-`eee52ddf` (PR #476) at v0.197.0. Both are fully evidenced below. **Slice 2b is IMPLEMENTED** on
-`feat/d9-a-script-speaks-while-it-works` at v0.198.0 — all eleven acceptance criteria met, typecheck
-and lint clean, 4113 tests green. **Outstanding: the mutation gate and the browser close-out.**
-Slices 3 and 4 are untouched.
+**Branch**: none open — cut the next one off `main`.
+**Status**: Active — **slices 1, 2a and 2b are all MERGED and fully evidenced below**: `cea7b5a3`
+(PR #475) at v0.196.0, `eee52ddf` (PR #476) at v0.197.0, `75d3af09` (PR #477) at v0.198.0.
+**Slice 3 is the next work**: groundwork is gathered at the bottom of this file but it is NOT
+planned and its decisions are NOT locked. Slice 4 is untouched.
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D9 — resolved scope & decisions
 (grill-me, 2026-09-01)", eleven locked decisions.
 
@@ -15,9 +14,9 @@ Slices 3 and 4 are untouched.
    **Decision 5 carries an amendment dated 2026-09-01**; read the amendment, not just the table.
 2. Read "Slice 1 — as built" below for what already exists and why it is shaped that way. Its
    acceptance criteria are closed; do not reopen them.
-3. Slices 1 and 2a are merged; read them for what exists and why, not as work to do. **The work is
-   "Slice 2b — a script speaks while it works" at the BOTTOM of this file**, and it is built —
-   read "Found while building" first, then pick up at PRE-PR MUTATION.
+3. Slices 1, 2a and 2b are merged; read them for what exists and why, not as work to do. **Start at
+   "Slice 3 — groundwork" at the BOTTOM of this file** — it lists what the codebase already settles
+   and the open questions to resolve before planning.
 4. All commands run from `v2/`. Gates: `npm run typecheck`, `npm run lint`, the full non-watch test
    suite. Wait for commit approval before every commit.
 
@@ -46,8 +45,8 @@ leaving the session it started in.
 |---|-------|-----------|--------|
 | 1 | a script runs and speaks | `node hello.js` prints; a broken one says so and exits 1 | **MERGED `cea7b5a3`, v0.196.0** |
 | 2a | a script runs the tools | `await nmap(gw)` returns what the prompt shows; `ssh(…)` refuses | **MERGED `eee52ddf`, v0.197.0** |
-| 2b | a script speaks while it works | a sweep's `console.log` paints live; the spinner names `hydra`, not `node` | **BUILT — v0.198.0, gates green, PR pending** |
-| 3 | a script keeps what it found | `/root/sweep.js` chains `hydra` and captures to a file | not planned |
+| 2b | a script speaks while it works | a sweep's `console.log` paints live; the spinner names `hydra`, not `node` | **MERGED `75d3af09`, v0.198.0** |
+| 3 | a script keeps what it found | `/root/sweep.js` chains `hydra` and captures to a file | **NEXT — groundwork below, not planned** |
 | 4 | a script is reusable and can be stopped | `process.argv`; Ctrl-C at every await; `sleep(ms)` | not planned |
 
 The epic's slice 2 is **split into 2a and 2b** (owner decision, 2026-09-01). The call surface and
@@ -432,7 +431,7 @@ approves the commit.
 
 ---
 
-## Slice 2b — a script speaks while it works
+## Slice 2b — as built (MERGED `75d3af09`, v0.198.0)
 
 *A sweep's output paints as it happens, and the busy bar names the tool that is actually running.*
 
@@ -500,7 +499,7 @@ it happens."* Today that is true in ORDER and false in TIMING — it arrives at 
 everything else. 2b makes the sentence honest. **No manual rewrite is expected in this slice**; if
 the browser close-out finds the page claiming anything else that is still deferred, fix it there.
 
-### Decisions this plan makes — CONFIRMED 2026-09-01
+### Decisions this slice made — CONFIRMED 2026-09-01
 
 1. **The seam is `setChildCommand: (name: string | null) => void`, and `null` means "no child".**
    The UI resolves the label as `childCommand() ?? runningCommand()`, so `core/` never has to know
@@ -574,9 +573,10 @@ that emits passthrough and then keeps going.
 ran — it is a pre-flight failure like `command not found`, not a script that produced nothing.
 Decision 3's "always streamed" is about scripts.
 
-### RED
+### RED — the order it was driven in
 
-Each must fail for the right reason before any production change.
+Each failed for the right reason before any production change. **Only 1 and 4-6 actually went
+red**; see "Found while building" for why 2 and 3 were green on arrival.
 
 1. **A line is available before the script finishes.** Script logs, then awaits a test-double
    command whose `execute` returns a promise the test controls. Pull ONE line from the result's
@@ -611,7 +611,7 @@ Each must fail for the right reason before any production change.
 - **A settle condition that never closes** → a hang rather than a wrong answer; keep RED 9 cheap so
   a hang is obvious.
 
-### GREEN — the minimum, in dependency order
+### GREEN — what shipped, in dependency order
 
 1. **`core/scripting/lineStream.ts`** — the producer/consumer bridge. `emit(line)` pushes,
    `close()` ends it, `lines` is an `AsyncGenerator<TerminalLine, void>` that drains the queue and
@@ -635,7 +635,7 @@ Each must fail for the right reason before any production change.
 7. **Version bump** to `0.198.0` in `v2/package.json` + `v2/package-lock.json`
    (`npm install --package-lock-only`).
 
-### Three things GREEN must get right
+### Three things GREEN had to get right
 
 **One queue, and push order is paint order.** That single fact is the whole of AC-2. Two queues, or
 a fast path that bypasses the queue for console output, and the ordering guarantee 2a established
@@ -752,13 +752,97 @@ position), which is what makes this probe possible before slice 4 ships `sleep(m
 attempts even with a real `click` immediately before the chord. The reconfirm-after-a-pause rule
 caught it both times and nothing was typed into a buffer.
 
-### PR-ready when
+### Shipped
 
-AC-1…AC-11 met; `npm run typecheck` and `npm run lint` clean; the full non-watch test suite green;
-the mutation gate closed or its survivors argued; the version bumped in both files; and the human
-approves the commit.
+AC-1…AC-10 met and AC-11 corrected; typecheck and lint clean; **4113 tests green across 191 files**;
+mutation **193/199 detected (97.0%)**; wire-check `N/A`; browser close-out passed at v0.198.0.
+**LANDED** as `75d3af09` (PR #477), 2026-09-01, squash-merged with the branch deleted.
 
-**Slice complete when** its PR lands.
+---
+
+## Slice 3 — groundwork, gathered but NOT yet planned
+
+Facts established while building 2b, recorded so slice 3's planning starts from them rather than
+rediscovering them. **This is not a plan** — no acceptance criteria are confirmed and no decisions
+are locked. Resolve the open questions first.
+
+**What slice 3 is for.** The epic's row: *`fs.readFile` / `writeFile` / `appendFile` + the shared
+stringify*, with its own acceptance being that `/root/sweep.js` chains `hydra` across hosts and
+**captures the results to a file**. Today a script can find things and say them, and that is all —
+close the terminal and the sweep is gone. `man node` currently ends with "Scripts cannot yet read
+and write files, take arguments of their own, or sleep"; slice 3 deletes the first clause.
+
+**Reading is already solved and needs no new mechanism.** `node.ts` reads its own script with
+`env.fs.read(resolveAbsPath(env.fs.cwd(), target))` → `FsReadResult`, and the three error cases
+(`not_found`, `is_directory`, `permission_denied`) already have house-style wording there. A
+script's `fs.readFile` is the same call with the same three errors.
+
+**Writing has a precedent rather than a new mechanism — copy the redirect, do not invent.**
+`runLine.ts:180` `validateRedirectTarget` then `runLine.ts:212`
+`env.patches.write(target, content, { isNew })` is exactly "write this string to that path as this
+player". Read both before designing anything. What the validator already gets right:
+
+- it rejects an existing **directory**, a **missing parent** directory, and a location the tier
+  cannot write, each with `bash:`-style wording;
+- the writable check is asymmetric on purpose — an **overwrite** checks the file itself, a **new
+  file** checks the parent directory;
+- it reports `isNew`, which the write needs so a freshly-created file is stamped `is_new` while an
+  overwrite leaves the stored flag intact;
+- it runs **before** the command does, because bash opens redirects before exec. A script's write
+  has no such ordering constraint, but the validation itself is the part to reuse.
+
+`env.fs.canWrite(path)` is the gate the write commands (`mkdir`, redirect, `rm`) already share.
+
+⚠️ **`appendFile` carries a hazard the redirect does not, and it is the one genuinely new thing in
+this slice.** `FsView.reload()` exists precisely because a whole-file write composed from the
+CACHED tree does not merely miss a concurrent write — **it reverts it**. Its doc comment is explicit
+that the cached view stops being right the moment a file on this box is one somebody else can write,
+because nothing pushes their writes here. An append is a read-modify-write, so on any box a fellow
+occupant can reach (the AP gateway, a shared LAN box, anything cross-player) it has to compose
+against `reload()` rather than against the tree the client already has. A sweep appending one line
+per host is the exact shape that would silently eat another player's edit.
+
+**The return shape from 2a was designed for this and needs no change.** A command call hands back
+`readonly string[] & { readonly exitCode: number }` specifically so `await fs.writeFile(path, out)`
+works unchanged — 2a's plan says so in as many words. Whatever `writeFile` accepts, an ordinary
+`string[]` has to be one of the things it accepts.
+
+**The stringify is already written.** `core/scripting/format.ts` is slice 1's one value formatter,
+the thing that makes `console.log` render an object as JSON and a `string[]` one per line. A
+`writeFile` given a non-string should go through the same function, or the same value will render
+two different ways depending on whether the player printed it or saved it.
+
+**`fs` becomes the second reserved identifier.** `registry.test.ts` pins that every command name
+derives a valid, unique, non-reserved JS identifier, and it counts `console` as already taken.
+Adding an `fs` namespace to the script context means adding `fs` to that set — otherwise the day
+someone registers a command named `fs`, it silently shadows the filesystem for every script.
+`node.ts` also injects `console` LAST so no command name can displace it; whatever slice 3 injects
+needs the same treatment.
+
+**Open questions, none of them answered:**
+
+- **Namespace or bare functions?** `fs.readFile(…)` versus `readFile(…)`. A namespace costs one
+  reserved identifier instead of three and reads like real node; bare functions match how every
+  command is already injected.
+- **What does a failed read or write DO?** 2a set the posture that shell-originated errors throw a
+  bare `ShellError` and that a nonzero exit is data rather than an exception. A missing file is
+  arguably the second kind (a script wants to branch on it), a permission denial arguably the
+  first. `cat` returns exit 1 for both, but `fs.readFile` is not a command.
+- **Does `writeFile` create missing parent directories,** or fail the way the redirect does? The
+  house already has a precedent and it points one way: conventions §D3b records that **`scp` does
+  not create parents, as real scp does not**, and the redirect refuses a missing parent too. A
+  `writeFile` that quietly made directories would be the odd one out.
+- **Is `appendFile` a core read-modify-write, or does it need a `PatchApi` verb of its own?** The
+  answer decides whether the reload hazard above is handled once inside the seam or is left to
+  every caller — and leaving it to callers means leaving it to *players*, which is not a real
+  option.
+- **Is `writeFile` given a `string[]` joined with `\n`,** matching what the redirect does with
+  stdout, and does it add a trailing newline?
+
+**Version**: next feature bump is `0.199.0`. **Wire-check**: `patches.write` reaches the journal, so
+unlike every earlier D9 slice this one **may genuinely need a `scripts/test*.ts` wire-check** — that
+is the first thing to settle when planning, not an afterthought.
+
 
 ---
 *Delete this file at D9 close-out and fold the durable rules into

@@ -79,8 +79,8 @@ dark → the forward stands, its target closes it), with the cross-player wire-c
 **D5 🔍 GRILLED 2026-08-16, not yet planned** — fifteen locked decisions and a six-slice spine in
 "D5 — resolved scope & decisions"; it also found that §9's `ps` defect is misdiagnosed and owns
 the fix.
-**D9 🚧 IN PROGRESS — slices 1 and 2a SHIPPED** (v0.196.0 #475, v0.197.0 #476); **2b is next**, then
-3 and 4. Live status and as-built in [`d9-node-scripting.md`](d9-node-scripting.md). Eleven locked
+**D9 🚧 IN PROGRESS — slices 1, 2a and 2b SHIPPED** (v0.196.0 #475, v0.197.0 #476, v0.198.0 #477);
+**3 is next**, then 4. Live status and as-built in [`d9-node-scripting.md`](d9-node-scripting.md). Eleven locked
 decisions in "D9 — resolved scope & decisions"; **decision 5 carries an amendment** (a script's output
 is `node`'s own `CommandResult` lines, not `env.output` — which is what makes it pipe), and the epic's
 **slice 2 was split into 2a (the call surface) and 2b (the liveness)**. It is the one Phase 1 row that
@@ -352,11 +352,11 @@ PHASE 1 — THE DOORS  (near-term focus)
       D8 slice 6 a player runs their own agent        ✔ SHIPPED v0.190.0 (#470)
       D8 slice 7 a player reconfigures another's      ✔ SHIPPED v0.191.0 (#471)
       D8 slice 8 a player's own agent answers somebody ✔ SHIPPED v0.192.0-v0.193.0 (#472-#473)
-  D9  node scripting                                 ◆ GRILLED 2026-09-01, slices 1+2a SHIPPED
+  D9  node scripting                                 ◆ GRILLED 2026-09-01, slices 1+2a+2b SHIPPED
       D9 slice 1 a script runs and speaks             ✔ SHIPPED v0.196.0 (#475)
       D9 slice 2a a script runs the tools             ✔ SHIPPED v0.197.0 (#476)
-      D9 slice 2b a script speaks while it works      ▸ NEXT — PLANNED, v0.198.0
-      D9 slice 3 a script keeps what it found
+      D9 slice 2b a script speaks while it works      ✔ SHIPPED v0.198.0 (#477)
+      D9 slice 3 a script keeps what it found         ▸ NEXT — groundwork gathered, not planned
       D9 slice 4 a script is reusable and can be stopped
   D10 polish (long-tail comfort commands)
 PHASE 2 — DISCOVERY
@@ -2326,7 +2326,7 @@ own box → someone else's) has nothing to bite on, so the spine is the **capabi
 |---|---|---|
 | **1** | **A script runs and speaks** | `apt install node`; the sandbox (block-wrapped `AsyncFunction`), `console.log`/`error`/`debug`, the read-permission gate, errors to stderr + exit 1. The player nanos `console.log('hi')`, runs it, sees it; a broken script says so and exits nonzero |
 | **2a** | **A script runs the tools** | The adapter: every command as a camelCase global, positional coercion, `string[]` + `.exitCode`, the trailing flags object with `FlagSpec` validation, stderr straight through, and the ten `withoutScript` refusals including `nc -l`'s exemption. `await nmap(…)` returns what the prompt shows; `ssh(…)` refuses in the same words |
-| **2b** | **A script speaks while it works** | **SPLIT OUT of slice 2 at 2a's planning (owner decision, 2026-09-01)** — the liveness half is separately observable and fails differently. `node` moves to `streamedResult` so the script's own `console.log` paints as it happens, and decision 4's live busy label lands here, which needs a new `CommandEnv` seam because `runningCommand` is set from the submitted line's first word |
+| **2b** | **A script speaks while it works — SHIPPED v0.198.0 (#477)** | **SPLIT OUT of slice 2 at 2a's planning (owner decision, 2026-09-01)** — the liveness half is separately observable and fails differently. `node` moves to `streamedResult` so the script's own `console.log` paints as it happens, and decision 4's live busy label lands here, which needs a new `CommandEnv` seam because `runningCommand` is set from the submitted line's first word |
 | **3** | **A script keeps what it found** | `fs.readFile` / `writeFile` / `appendFile` + the shared stringify. **The row's own acceptance**: `/root/sweep.js` chains `hydra` across hosts and captures the results to a file |
 | **4** | **A script is reusable and can be stopped** | `process.argv`; Ctrl-C at every await; `sleep(ms)`. `node /root/sweep.js 10.0.0.5 ssh`; a long sweep takes `^C` and leaves its partial output |
 
@@ -2966,14 +2966,16 @@ are now resolved. **A door is not proven by its wire-checks alone** — the wire
 green and could not see any of this, because the defects live in the one vantage no endpoint
 answers. One session's browsing produced four findings, three of them invisible to a green suite.
 
-**➡️ NEXT: D9 slice 2b — a script speaks while it works.** D9 is the seventh and last door in the
+**➡️ NEXT: D9 slice 3 — a script keeps what it found.** D9 is the seventh and last door in the
 locked order (ftp → daemons → nc → mysql → redis → snmp → node) and a force multiplier over everything
-built. **Slices 1 and 2a have SHIPPED** (v0.196.0 #475, v0.197.0 #476): a player writes JavaScript on a
-box and it drives the machine's whole toolset — `await nmap(gw)` returns the scan's stdout carrying
-`.exitCode`, and the ten commands that would lie about where the script is standing refuse. What is
-left is the liveness (2b), files (3), and arguments plus Ctrl-C (4). **2b is planned** — four locked
-decisions, eleven acceptance criteria awaiting confirmation, targeting v0.198.0. Per-slice status,
-as-built records and that plan are in [`d9-node-scripting.md`](d9-node-scripting.md).
+built. **Slices 1, 2a and 2b have SHIPPED** (v0.196.0 #475, v0.197.0 #476, v0.198.0 #477): a player writes
+JavaScript on a box and it drives the machine's whole toolset — `await nmap(gw)` returns the scan's
+stdout carrying `.exitCode`, the ten commands that would lie about where the script is standing
+refuse, output paints as it is produced, and the busy bar names the tool actually running rather
+than `node`. What is left is **files (3)**, then arguments plus Ctrl-C (4). Slice 3's groundwork is
+gathered but NOT planned, and unlike every earlier D9 slice it may genuinely need a wire-check,
+because `patches.write` reaches the journal. Per-slice status, as-built records and that groundwork
+are in [`d9-node-scripting.md`](d9-node-scripting.md).
 **🔍 GRILLED 2026-09-01** — eleven locked decisions and a four-slice spine in
 ["D9 — resolved scope & decisions"](#d9--resolved-scope--decisions-grill-me-2026-09-01). It is the one
 Phase 1 row that is **not a door** — no daemon, no port, no placement, no cross-player half, and **no
