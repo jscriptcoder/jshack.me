@@ -79,7 +79,8 @@ dark → the forward stands, its target closes it), with the cross-player wire-c
 **D5 🔍 GRILLED 2026-08-16, not yet planned** — fifteen locked decisions and a six-slice spine in
 "D5 — resolved scope & decisions"; it also found that §9's `ps` defect is misdiagnosed and owns
 the fix.
-**D9 🚧 IN PROGRESS — slices 1, 2a and 2b SHIPPED** (v0.196.0 #475, v0.197.0 #476, v0.198.0 #477);
+**D9 🚧 IN PROGRESS — slices 1, 2a, 2b and 3 SHIPPED** (v0.196.0 #475, v0.197.0 #476,
+v0.198.0 #477, v0.199.0 #478); **only slice 4 remains**;
 **3 is next**, then 4. Live status and as-built in [`d9-node-scripting.md`](d9-node-scripting.md). Eleven locked
 decisions in "D9 — resolved scope & decisions"; **decision 5 carries an amendment** (a script's output
 is `node`'s own `CommandResult` lines, not `env.output` — which is what makes it pipe), and the epic's
@@ -352,12 +353,12 @@ PHASE 1 — THE DOORS  (near-term focus)
       D8 slice 6 a player runs their own agent        ✔ SHIPPED v0.190.0 (#470)
       D8 slice 7 a player reconfigures another's      ✔ SHIPPED v0.191.0 (#471)
       D8 slice 8 a player's own agent answers somebody ✔ SHIPPED v0.192.0-v0.193.0 (#472-#473)
-  D9  node scripting                                 ◆ GRILLED 2026-09-01, slices 1+2a+2b SHIPPED
+  D9  node scripting                                 ◆ GRILLED 2026-09-01, slices 1+2a+2b+3 SHIPPED
       D9 slice 1 a script runs and speaks             ✔ SHIPPED v0.196.0 (#475)
       D9 slice 2a a script runs the tools             ✔ SHIPPED v0.197.0 (#476)
       D9 slice 2b a script speaks while it works      ✔ SHIPPED v0.198.0 (#477)
-      D9 slice 3 a script keeps what it found         ▸ IN PROGRESS — planned + confirmed
-      D9 slice 4 a script is reusable and can be stopped
+      D9 slice 3 a script keeps what it found         ✔ SHIPPED v0.199.0 (#478)
+      D9 slice 4 a script is reusable and can be stopped  ▸ NEXT — groundwork, not planned
   D10 polish (long-tail comfort commands)
 PHASE 2 — DISCOVERY
   X1  DNS + nslookup / dig
@@ -2966,16 +2967,29 @@ are now resolved. **A door is not proven by its wire-checks alone** — the wire
 green and could not see any of this, because the defects live in the one vantage no endpoint
 answers. One session's browsing produced four findings, three of them invisible to a green suite.
 
-**➡️ NEXT: D9 slice 3 — a script keeps what it found.** D9 is the seventh and last door in the
-locked order (ftp → daemons → nc → mysql → redis → snmp → node) and a force multiplier over everything
-built. **Slices 1, 2a and 2b have SHIPPED** (v0.196.0 #475, v0.197.0 #476, v0.198.0 #477): a player writes
-JavaScript on a box and it drives the machine's whole toolset — `await nmap(gw)` returns the scan's
-stdout carrying `.exitCode`, the ten commands that would lie about where the script is standing
-refuse, output paints as it is produced, and the busy bar names the tool actually running rather
-than `node`. What is left is **files (3)**, then arguments plus Ctrl-C (4). Slice 3's groundwork is
-gathered but NOT planned, and unlike every earlier D9 slice it may genuinely need a wire-check,
-because `patches.write` reaches the journal. Per-slice status, as-built records and that groundwork
-are in [`d9-node-scripting.md`](d9-node-scripting.md).
+**➡️ NEXT: D9 slice 4 — a script is reusable and can be stopped. It is the LAST slice in the last
+door.** D9 is the seventh and final door in the locked order
+(ftp → daemons → nc → mysql → redis → snmp → node) and a force multiplier over everything built.
+**Slices 1, 2a, 2b and 3 have SHIPPED** (v0.196.0 #475, v0.197.0 #476, v0.198.0 #477, v0.199.0
+#478): a player writes JavaScript on a box and it drives the machine's whole toolset — `await
+nmap(gw)` returns the scan's stdout carrying `.exitCode`, the ten commands that would lie about
+where the script is standing refuse, output paints as it is produced, the busy bar names the tool
+actually running rather than `node`, and a sweep now **keeps what it found**: `fs.readFile` /
+`writeFile` / `appendFile`, all composed against the machine rather than this client's copy of it,
+so an append on a shared box cannot silently eat a fellow occupant's edit.
+
+The slice-3 groundwork's worry that it *"may genuinely need a wire-check"* **resolved to `N/A`**:
+no `api/` change, and the one server contract an append leans on — a 409 on a stale `base_hash` —
+was already proven live by `scripts/testModifiedSinceOpen.ts`. The wire-check stays `N/A` across
+all of D9, as the grill said it would.
+
+What is left is **arguments, `sleep(ms)` and Ctrl-C (4)**, whose groundwork is gathered but NOT
+planned. Two things there are bigger than they look: slice 2b **corrected rather than delivered**
+its Ctrl-C criterion (a script cannot produce `^C` today, because `runScript` is total so `node`'s
+stream never rejects and the UI's abort catch never fires), and locked decision 9's *"the adapter
+checks `env.signal` before and after every command invocation"* was **never built** — there is no
+`signal` reference in `commandContext.ts` at all. Per-slice status, as-built records and that
+groundwork are in [`d9-node-scripting.md`](d9-node-scripting.md).
 **🔍 GRILLED 2026-09-01** — eleven locked decisions and a four-slice spine in
 ["D9 — resolved scope & decisions"](#d9--resolved-scope--decisions-grill-me-2026-09-01). It is the one
 Phase 1 row that is **not a door** — no daemon, no port, no placement, no cross-player half, and **no

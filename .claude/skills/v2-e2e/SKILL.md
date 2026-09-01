@@ -37,7 +37,10 @@ is faster and more precise.
 4. **Confirm it is YOUR code.** The ASCII banner prints the version from `package.json`. Check it
    matches the version you just bumped — this is the cheapest guard against testing a stale
    orphaned server.
-5. **Local supabase must be up** (`npx supabase status`). If you need a clean world,
+5. **Local supabase must be up** — `npx supabase status`, **run from `v2/`**. From the repo
+   root it looks for a container named `supabase_db_jshack.me` and dies with
+   `failed to inspect container health: No such container`, which reads like supabase is down
+   when it is running fine one directory along. If you need a clean world,
    `npx supabase db reset` — local only, safe: there is no linked project ref and
    `SUPABASE_URL` is `127.0.0.1`.
 

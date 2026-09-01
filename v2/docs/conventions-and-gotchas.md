@@ -157,7 +157,7 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
   the editor open); a refused one leaves it alone. Wire-check `scripts/testModifiedSinceOpen.ts`;
   three-player browser verification in `e2e-shared-network-verification.md` §6.
 
-**Current version: 0.152.0.**
+**Current version: 0.199.0.**
 
 **Current epic — legacy parity, IN PROGRESS:** `plans/legacy-parity-epic.md` — every remaining
 way into a machine (doors → discovery → CVE vulnerabilities), grilled to nine locked
@@ -1122,6 +1122,15 @@ one is usually cheaper than reworking the realistic one — and it leaves the re
 
 ### Testing gotchas found at the rendered layer
 
+- **⚠️ A test `FsView` reloads to the tree it already has, so `reload()` is INVISIBLE in
+  vitest.** `createFsView` (aliased as `mockFsViewFromTree`) only re-reads through its
+  optional `onReload`; without one, a cached read and a live one are indistinguishable and a
+  test asserting "composes against the machine" passes against code that never reloads. This
+  is how D9 slice 3 shipped a `readFile` that could not see its own writes with a green
+  suite. **Any claim about reading or writing the machine as it STANDS must build the view
+  with `createFsView(staleTree, { onReload: async () => freshTree })`** and assert the fresh
+  content — never that reload was called.
+
 - **A masked prompt has no `textbox` role.** `Terminal.tsx` renders `type={masked ? 'password' :
   'text'}`, and `<input type="password">` has NO implicit ARIA role — so
   `getByRole('textbox', { name: /terminal input/i })`, which every other test in that file uses,
@@ -1772,6 +1781,19 @@ state costs you more than one wrong attempt.
   is why `readOwnPatches` reports whether the read HAPPENED and `fetchOwnPatches` (whose `[]` is
   fine for a reader) is now expressed in terms of it.
 
+- **The same rule caught a SECOND caller at D9 slice 3, and there it had to cover READS too.**
+  A script's `fs.writeFile`/`appendFile` are the second thing in the game to compose a
+  whole-file write, so an append reloads and names its `baseContent` — a write landing between
+  the two is refused rather than flattened. `fs.readFile` needed the rule for a reason the
+  mysql door never had: **a script WRITES during the line.** `env` is built once per submitted
+  line, so a script that appended twice and then read its own report was handed the content
+  from before the run — the journal held four lines and the script said two. Not an error a
+  player could notice, just a wrong answer, and invisible to vitest because a test `FsView`
+  has nothing behind it and reloads to the tree it already has. So the rule generalizes:
+  **a shell may read its own copy because it is rebuilt per line and the player is the only
+  editor; anything that is neither — a daemon-reachable file, or a caller that writes DURING
+  the line — must ask the machine.** Found by the browser close-out, not by the suite.
+
 - **The VANTAGE is decided from the ADDRESS, server-side, and ONE function decides it for EVERY
   data door.** `reachServiceHost` routes four of them — public IP, a fellow occupant of the
   caller's own ESSID, a port that addresses the layer behind an inner gateway, and a generated
@@ -2085,6 +2107,22 @@ state costs you more than one wrong attempt.
 ## 9. Deferred backlog & future content ideas
 
 Forward-looking direction not yet built (preserved as pointers; design when actually built).
+
+- **`Command.tier` is declared by every command and read by NO production code.** The only
+  `.tier` outside tests is `snmpwalk.ts`'s unrelated `walked.tier`. Surfaced at D9 slice 3's
+  mutation gate, where `tier: 'guest'` survives — and it will survive under every command
+  this project ever mutates, alongside `availability`, so recognise the family rather than
+  re-triaging it each time. A repo-wide reduction candidate: either delete the field or give
+  it the reader its presence implies. Not a bug; nothing is gated wrongly, because nothing is
+  gated by it at all.
+
+- **`runLine.ts` `withCarried` has an untested arm that would throw.** Mutating
+  `result.kind === 'sync'` to `true` survives the full suite, which means no test has BOTH a
+  non-empty carried list AND a non-sync final stage — and in that state the code spreads an
+  `AsyncIterable` with `...` and throws. Reachable in principle: an intermediate stage writing
+  to stderr ahead of a streamed final stage. Predates D9 by many PRs; found by slice 3's
+  mutation gate and deliberately left for a change that owns the pipeline, rather than
+  widened into a slice about a script's filesystem.
 
 - **The D6 browser smoke test's findings are ALL closed (last one 2026-08-26).** The run that
   found the own-box write-wipe (fixed in v0.172.0, #449 — see the §7 invariant) turned up three

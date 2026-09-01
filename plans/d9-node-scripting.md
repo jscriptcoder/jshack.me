@@ -1,11 +1,11 @@
 # Plan: D9 — `node` scripting
 
-**Branch**: `feat/d9-a-script-keeps-what-it-found` — slice 3, open.
-**Status**: Active — **slices 1, 2a and 2b are all MERGED and fully evidenced below**: `cea7b5a3`
-(PR #475) at v0.196.0, `eee52ddf` (PR #476) at v0.197.0, `75d3af09` (PR #477) at v0.198.0.
-**Slice 3 is PLANNED and CONFIRMED at the bottom of this file** — two owner decisions and
-thirteen acceptance criteria, all confirmed 2026-09-01, and RED is under way. Slice 4 is
-untouched.
+**Branch**: none open — cut the next one off `main`.
+**Status**: Active — **slices 1, 2a, 2b and 3 are all MERGED and fully evidenced below**:
+`cea7b5a3` (PR #475) at v0.196.0, `eee52ddf` (PR #476) at v0.197.0, `75d3af09` (PR #477) at
+v0.198.0, `007cf5b2` (PR #478) at v0.199.0.
+**Slice 4 is the next and LAST work in D9**: groundwork is gathered at the bottom of this file
+but it is NOT planned and its decisions are NOT locked.
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D9 — resolved scope & decisions
 (grill-me, 2026-09-01)", eleven locked decisions.
 
@@ -15,9 +15,9 @@ untouched.
    **Decision 5 carries an amendment dated 2026-09-01**; read the amendment, not just the table.
 2. Read "Slice 1 — as built" below for what already exists and why it is shaped that way. Its
    acceptance criteria are closed; do not reopen them.
-3. Slices 1, 2a and 2b are merged; read them for what exists and why, not as work to do. **Start at
-   "Slice 3 — a script keeps what it found" at the BOTTOM of this file.** Its decisions and
-   acceptance criteria are confirmed; the RED order is written and in progress.
+3. Slices 1, 2a, 2b and 3 are merged; read them for what exists and why, not as work to do.
+   **Start at "Slice 4 — groundwork" at the BOTTOM of this file** — it lists what the codebase
+   already settles and the open questions to resolve before planning.
 4. All commands run from `v2/`. Gates: `npm run typecheck`, `npm run lint`, the full non-watch test
    suite. Wait for commit approval before every commit.
 
@@ -47,8 +47,8 @@ leaving the session it started in.
 | 1 | a script runs and speaks | `node hello.js` prints; a broken one says so and exits 1 | **MERGED `cea7b5a3`, v0.196.0** |
 | 2a | a script runs the tools | `await nmap(gw)` returns what the prompt shows; `ssh(…)` refuses | **MERGED `eee52ddf`, v0.197.0** |
 | 2b | a script speaks while it works | a sweep's `console.log` paints live; the spinner names `hydra`, not `node` | **MERGED `75d3af09`, v0.198.0** |
-| 3 | a script keeps what it found | `/root/sweep.js` chains `hydra` and captures to a file | **IN PROGRESS — planned and confirmed below** |
-| 4 | a script is reusable and can be stopped | `process.argv`; Ctrl-C at every await; `sleep(ms)` | not planned |
+| 3 | a script keeps what it found | `/root/sweep.js` chains `hydra` and captures to a file | **MERGED `007cf5b2`, v0.199.0** |
+| 4 | a script is reusable and can be stopped | `process.argv`; Ctrl-C at every await; `sleep(ms)` | **NEXT — groundwork below, not planned** |
 
 The epic's slice 2 is **split into 2a and 2b** (owner decision, 2026-09-01). The call surface and
 the liveness fix are separable and separately observable, and they fail differently: 2a is an
@@ -762,7 +762,7 @@ mutation **193/199 detected (97.0%)**; wire-check `N/A`; browser close-out passe
 
 ---
 
-## Slice 3 — a script keeps what it found
+## Slice 3 — as built (MERGED `007cf5b2`, v0.199.0)
 
 *A sweep writes its findings to a file — and appending to one a fellow occupant can also write
 never silently eats their edit.*
@@ -818,7 +818,7 @@ re-deciding them here would be re-litigating a locked decision:
 A fourth was answered by finding the precedent — see the hazard section. Only the two below were
 genuinely the owner's, and both are now confirmed.
 
-### Five things the codebase already settles — do not redesign them
+### Five things the codebase already settled — they were not redesigned
 
 - **The injection point exists and takes one more key.** `node.ts:69-74` already spreads
   `buildCommandContext(…)` and then adds `console` *last, so no command name can displace it*. `fs`
@@ -952,28 +952,7 @@ its posture** — see decision 2 below and the reason it differs.
 - [x] **AC-13** `man node` no longer says scripts cannot read and write files, and documents the
       three methods, that all three are awaited, and that a failure throws.
 
-### RED — the order to drive it in
-
-1. **AC-1** — smallest thing that forces `fs` to exist and be injected. One file, one read.
-2. **AC-9 read half + AC-10** — a missing file throws, prints bare, exits 1; the same script with a
-   `try`/`catch` exits 0. Fixes the voice before there is a second caller to make consistent.
-3. **AC-2** — a new file appears. Forces the validator and the `isNew` report.
-4. **AC-3 + AC-4** — captured output round-trips; an object saves as JSON. Assert AC-3 against what
-   `>` produces for the same value, not against a hand-written string, so the two cannot drift.
-5. **AC-9 write half** — the three refusals, in `node`'s voice.
-6. **AC-5** — overwrite leaves the stored flag alone.
-7. **AC-11** — a guest tier is refused. Cheap here because the walker does the work.
-8. **AC-6** — append adds; append creates.
-9. **AC-7** — the reload. `createFsView` takes an `onReload` option, so the fixture is
-   `createFsView(staleTree, { onReload: async () => freshTree })` and the assertion is that the
-   fresh content survives.
-10. **AC-8** — the refusal. `mockPatchApi({ write: async () => ({ ok: false, error:
-    'modified_since_open' }) })` and assert the sentence and the exit code.
-11. **AC-12** — extend `registry.test.ts:92` to `[...identifiers, 'console', 'fs']` and `+ 2`, plus
-    a script whose first line is `const fs = 1`.
-12. **AC-13** — the manual. Prose, no RED.
-
-### GREEN — the minimum, in dependency order
+### GREEN — what shipped, in dependency order
 
 1. `core/scripting/fsApi.ts` — `buildFsApi(env): FsApi`, the three methods, nothing else.
 2. Export `formatReadError` from `node.ts` (decision 1) and the shared validator (decision 4).
@@ -983,7 +962,7 @@ its posture** — see decision 2 below and the reason it differs.
 6. Version → **`0.199.0`** in `v2/package.json` and `package-lock.json`
    (`npm install --package-lock-only`).
 
-### Two things GREEN must get right
+### Two things GREEN had to get right — the gate proved the second one mattered
 
 - **The append's read must come off the RELOADED view, not `env.fs`.** Taking it from `env.fs` would
   compile, pass every test that does not override `onReload`, and reintroduce v0.172.0 exactly. AC-7
@@ -1001,18 +980,6 @@ that a matching base is 200, a stale base is 409 `modified_since_open`, an absen
 unconditional, and a tombstoned path expecting absence is 200 while one expecting content is 409.
 That is the entire server contract decision 2 leans on, already green. **Do not write a second
 wire-check for it.**
-
-### Browser close-out
-
-The beat the epic names, now completed end to end: `ssh` into an already-rooted box, `apt install
-node`, `nano` a script that sweeps and **appends one line per host**, run it, `cat` the file back.
-Then the cross-player half, which is what decision 2 is FOR: two sessions on one shared box, B
-appends while A holds a stale tree, and A's next append refuses instead of erasing B. Confirm the
-file in the journal, not only on screen:
-`docker exec supabase_db_jshack-me-v2 psql -U postgres -tAc "select content from patches where path = '…'"`.
-
-Follow `.claude/skills/v2-e2e/SKILL.md` §1 preflight and §7's nano traps — especially never issuing
-the next command until the TERMINAL is back, and never polling for the editor's absence.
 
 ### Found while building — four things worth not rediscovering
 
@@ -1157,8 +1124,116 @@ stand-in for the other: the server's 409 on a stale `base_hash` by `scripts/test
 against real supabase, and the client's rendering of `modified_since_open` as
 `node: <path>: File changed on disk` with exit 1 by unit test. Recorded rather than faked.
 
-### PR-ready when
+### Shipped
 
-AC-1…AC-13 met; full non-watch suite green; `npm run typecheck` and `npm run lint` clean; the
-mutation gate run once over the accumulated scope with survivors triaged; wire-check `N/A` per the
-citation above; browser close-out recorded; version at 0.199.0 in both files.
+AC-1…AC-13 all met; typecheck and lint clean; **4129 tests green across 191 files**; mutation
+**96.55%** over the four touched files with **`fsApi.ts` at 100% (45/45)**; wire-check `N/A` by
+citation; browser close-out passed at v0.199.0 and found one defect, fixed in-slice.
+**LANDED** as `007cf5b2` (PR #478), 2026-09-01, squash-merged with the branch deleted.
+
+Three commits, and the shape of them is the point: `e32fd82a` the feature, `a427f646` the mutation
+gate finding an append that would truncate a file it could not read, `ff116302` the close-out
+finding a script that could not read the box it was writing to. **Both post-GREEN defects were
+invisible to jsdom for the same reason** — a test `FsView` has nothing behind it, so a cached read
+and a live one are indistinguishable, and the default fixtures never separate the read list from
+the write list. The gates earned their cost here rather than confirming what was already green.
+
+---
+
+## Slice 4 — groundwork, gathered but NOT yet planned
+
+The **last** slice in D9. Facts established while building slices 1–3, recorded so slice 4's
+planning starts from them rather than rediscovering them. **This is not a plan** — no acceptance
+criteria are confirmed and no decisions are locked. Resolve the open questions first.
+
+**What slice 4 is for.** Three things the manual currently confesses in one sentence —
+*"Scripts cannot yet take arguments of their own or sleep"* — plus the interrupt that slice 2b
+corrected rather than delivered. A script today is a fixed program that runs to completion: it
+cannot be pointed at a different subnet without editing it, it cannot pace itself, and Ctrl-C
+during one does not read like an interrupt.
+
+### The three pieces, and how much each already exists
+
+**1. `process.argv` — the least work, and locked hardest.** Decision 10 fixes the semantics
+completely: `argv[0]` is `/usr/bin/node`, `argv[1]` the RESOLVED script path, user arguments from
+index 2, so `process.argv.slice(2)` is what a script writes. Legacy put the first user argument at
+`argv[0]`, which is wrong against the real thing, and #464 spent a PR establishing that this project
+uses real names.
+
+`node.ts:26` is `const [target] = args;` — every extra argument is currently **ignored in silence**.
+The wiring is one more injected key beside `console` and `fs`, and `resolveAbsPath(env.fs.cwd(),
+target)` is already computed one line down, so `argv[1]` costs nothing.
+
+**2. `sleep(ms)` — the seam exists and is already abort-aware.** `CommandEnv.sleep`
+(`commands/types.ts:1173`) is `(ms: number) => Promise<void>` whose doc says outright it *"rejects
+when `signal` fires so Ctrl-C stops a stream mid-flight"*, with the UI injecting a real
+setTimeout-backed sleep and tests an instant one. Decision 9 already says why a script gets this
+rather than `new Promise(setTimeout)`: the hand-rolled form is not abort-aware, and a sleeping
+script would otherwise be the one thing Ctrl-C could not reach.
+
+**3. Ctrl-C is the real work, and slice 2b's AC-11 says exactly why.** ⚠️ Read that criterion
+before designing anything. What happens today:
+
+- `state.ts:1691` prints `^C` from **one place** — a `catch` around the stream drain, entered only
+  when the result's iteration or `exitCode()` REJECTS and `controller.signal.aborted` is true.
+- `node`'s stream cannot reject. `runScript` is total (it returns `{ok:false, error}` rather than
+  throwing), so `script()` always resolves and `node` reports the failure as an ordinary error line
+  with exit 1. The UI's abort `catch` therefore never fires for a script.
+- So an aborted inner `env.sleep` rejects with `signal.reason`, the script sees an ordinary throw,
+  and the player gets `AbortError: signal is aborted without reason` and exit 1 — not `^C`.
+
+The fix is for `node` to recognise that the script's failure IS the abort and let it propagate
+instead of dressing it as a script error. **That is a behaviour change in `node`, not in the UI**,
+and it is the one piece of this slice with a design question in it.
+
+⚠️ **And decision 9's other half was never built.** It says *"the adapter checks `env.signal` before
+and after every command invocation and throws the abort"*. `grep -c signal
+core/scripting/commandContext.ts` → **0**. Slice 2a built the refusal gate, the tty gate and the
+child-command label, and the signal check is simply absent. So a script looping over
+`await nmap(...)` is interruptible only to the extent that the *inner streamed command* unwinds on
+abort — the loop itself does not check, and a loop over commands that finish fast would keep going.
+This is the substance of "Ctrl-C at every await", and it is slice 4's, not a bug in 2a: 2a's
+acceptance never claimed it.
+
+### What the codebase already settles — do not redesign these
+
+- **`process` becomes the THIRD reserved identifier.** `registry.test.ts:93` currently reads
+  `new Set([...identifiers, 'console', 'fs']).size === identifiers.length + 2`; it becomes
+  `+ 3`. Same reasoning as `fs`: a command named `process` would silently shadow it for every
+  script. Inject it LAST alongside the other two, in `node.ts`'s context literal.
+- **Shadowing already works.** `runScript` block-wraps the body, so a script's own
+  `const process = …` is a legal shadow rather than a SyntaxError. Slice 1 closed that trap for
+  every injected name at once; nothing to do.
+- **A synchronous infinite loop stays an accepted tab-hang.** Decision 9 parks it explicitly: an
+  `AbortSignal` cannot interrupt synchronous JavaScript on the main thread, the real fix is a Web
+  Worker with `terminate()`, and that turns every command call into a postMessage RPC across a
+  boundary `CommandEnv` does not serialize. `sleep(ms)` is what finally gives a computational script
+  a yield point, which is most of the practical benefit for none of the mechanism.
+- **`man node` owns the confession.** Its last sentence is the one to delete, and the page is D9's
+  only discoverability surface until the tutorials land (decision 11).
+
+### Open questions, none of them answered
+
+- **How does `node` tell the abort from an ordinary throw?** `env.signal.aborted` at the point of
+  failure is the cheap test; `outcome.error instanceof DOMException && name === 'AbortError'` is the
+  precise one but a script can construct that itself. Whichever is chosen decides whether a script
+  that catches its own `AbortError` and carries on is possible — and whether it should be.
+- **Does `node` reject its stream, or render `^C` itself?** Rejecting reuses the UI's existing
+  path and keeps one renderer for every command; rendering locally avoids teaching `node`'s result
+  to fail in a way no other streamed command does. The first is more consistent, the second is
+  smaller.
+- **Where does the signal check go in the adapter — before, after, or both?** Decision 9 says
+  both. Before-only misses a command that completed while the player was pressing the key;
+  after-only runs one more command than the player asked for.
+- **Do the `fs` methods check the signal too?** They are `await`s now, and slice 3 made every one of
+  them a server round trip. A sweep appending per host is exactly the loop a player would want to
+  stop. Not covered by decision 9, which predates them.
+- **What does `process.argv` do about flags?** `node sweep.js -v 10.0.0.0/24` — `bindFlags` will
+  try to bind `-v` against `node`'s own (empty) `FlagSpec` and fail at the prompt before the script
+  ever runs. Real node passes unrecognised arguments through to the script. Whether that matters
+  enough to declare a passthrough rule is a decision, not a fact.
+
+**Version**: next feature bump is `0.200.0`. **Wire-check**: `N/A` — nothing here reaches `api/`;
+`sleep` and the signal are UI-injected seams and `process.argv` is a string array.
+**Close-out**: D9's last slice, so this is also the door's close-out. Delete this plan file when it
+lands and graduate the as-built into `v2/docs/conventions-and-gotchas.md`, as D1 did.
