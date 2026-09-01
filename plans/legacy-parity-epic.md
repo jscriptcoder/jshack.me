@@ -79,15 +79,15 @@ dark → the forward stands, its target closes it), with the cross-player wire-c
 **D5 🔍 GRILLED 2026-08-16, not yet planned** — fifteen locked decisions and a six-slice spine in
 "D5 — resolved scope & decisions"; it also found that §9's `ps` defect is misdiagnosed and owns
 the fix.
-**D9 🚧 IN PROGRESS — slices 1, 2a, 2b and 3 SHIPPED** (v0.196.0 #475, v0.197.0 #476,
-v0.198.0 #477, v0.199.0 #478); **only slice 4 remains**;
-**3 is next**, then 4. Live status and as-built in [`d9-node-scripting.md`](d9-node-scripting.md). Eleven locked
-decisions in "D9 — resolved scope & decisions"; **decision 5 carries an amendment** (a script's output
-is `node`'s own `CommandResult` lines, not `env.output` — which is what makes it pipe), and the epic's
-**slice 2 was split into 2a (the call surface) and 2b (the liveness)**. It is the one Phase 1 row that
-is **not a door** (no daemon, no port, no placement, no cross-player half, no `api/` change), and its
-headline is a refusal: the row's **programmatic auth cannot port**, because `CommandEnv` is a per-line
-snapshot and a script that hopped would go on answering about the box it left.
+**D9 ✅ COMPLETE — v0.196.0-v0.200.0** (#475-#478, #480), all five slices; the plan file is deleted
+and the as-built lives in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md)
+§2/§4/§7/§9. Seventeen locked decisions — eleven in "D9 — resolved scope & decisions", six more at
+slice 4; **decision 5 carries an amendment** (a script's output is `node`'s own `CommandResult`
+lines, not `env.output` — which is what makes it pipe), and the epic's **slice 2 was split into 2a
+(the call surface) and 2b (the liveness)**. It is the one Phase 1 row that is **not a door** (no
+daemon, no port, no placement, no cross-player half, no `api/` change), and its headline is a
+refusal: the row's **programmatic auth cannot port**, because `CommandEnv` is a per-line snapshot
+and a script that hopped would go on answering about the box it left.
 
 **Ship gate**: **all doors + hydra + discovery + the CVE system, minus missions.** Missions are
 a **post-ship epic** — the infrastructure this epic builds is what makes them cheap.
@@ -353,12 +353,12 @@ PHASE 1 — THE DOORS  (near-term focus)
       D8 slice 6 a player runs their own agent        ✔ SHIPPED v0.190.0 (#470)
       D8 slice 7 a player reconfigures another's      ✔ SHIPPED v0.191.0 (#471)
       D8 slice 8 a player's own agent answers somebody ✔ SHIPPED v0.192.0-v0.193.0 (#472-#473)
-  D9  node scripting                                 ◆ GRILLED 2026-09-01, slices 1+2a+2b+3 SHIPPED
+  D9  node scripting                                 ✔ SHIPPED v0.196.0-v0.200.0 (#475-#480)
       D9 slice 1 a script runs and speaks             ✔ SHIPPED v0.196.0 (#475)
       D9 slice 2a a script runs the tools             ✔ SHIPPED v0.197.0 (#476)
       D9 slice 2b a script speaks while it works      ✔ SHIPPED v0.198.0 (#477)
       D9 slice 3 a script keeps what it found         ✔ SHIPPED v0.199.0 (#478)
-      D9 slice 4 a script is reusable and can be stopped  ▸ IN REVIEW — all gates passed, v0.200.0
+      D9 slice 4 a script is reusable and can be stopped  ✔ SHIPPED v0.200.0 (#480)
   D10 polish (long-tail comfort commands)
 PHASE 2 — DISCOVERY
   X1  DNS + nslookup / dig
@@ -389,7 +389,7 @@ POST-SHIP — MISSIONS
 | **D6** | **A player reads a machine's database** | `mysqld` catalog row + placement; **generated schema + data** (legacy `generateDatabase.ts`, `pools/database.ts`); `mysql <host> <user> [pw]` → `mysql>` prompt (parser/formatter/executor); hydra `mysql` service | Writes/`UPDATE` — decide at planning | B `hydra <host> mysql` → creds → `SHOW TABLES` / `SELECT` returns generated data worth reading |
 | **D7** ✅ | **A player reads a machine's key-value store** — **SHIPPED v0.174.0-v0.182.0 (#452-#461)**; twelve locked decisions in ["D7 — resolved scope & decisions"](#d7--resolved-scope--decisions-grill-me-2026-08-24) | `redis` catalog row + placement (flat 0.05, webserver 0.35, database 0.3); generated data (`generateRedisData.ts`, `pools/redis.ts`); `rediscli <host> [pw]` → `redis>` sub-shell, seven verbs; `requirepass` as an md5 in the root-only datadir; hydra `redis` service against the 60% that are locked | Redis 6 ACLs (they arrive as a VERSION difference in Phase 3, not as a door decision); `FLUSHALL`; `CONFIG GET`; `TYPE`/`SCAN`/`INFO` | B `rediscli <host>` → `KEYS *` / `GET` on the 40% that are open; `hydra <host> redis` → password (no login field) on the rest; an open store's arrival line is the defender's whole view |
 | **D8** ✅ | **A player reconfigures a device without holding a shell on it** — **SHIPPED v0.185.0-v0.193.0 (#465-#473)**; eleven locked decisions in ["D8 — resolved scope & decisions"](#d8--resolved-scope--decisions-grill-me-2026-08-27), as-built in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7/§9 | `snmp` catalog row at `161/udp` (a new `protocol` column) placed on routers + switches only; `snmpwalk <host> [community]` (public = identity, RW = + the port table); `snmpset <host> <community> <oid=value>` with parity to `nano`; **the OIDs are a VIEW over the `rules.v4` / `acl.conf` v2 already parses**, never a second copy; the RW community as an md5 in a root-only file, swept by `hydra snmp` via `secretOn`; its own `/var/log/snmpd.log`; `snmpd` installable, planting a `deny <port>` local firewall on a workstation | legacy's `snmpFirewallParser` / `snmpAclParser` and the `firewall*`/`acl*` OIDs inside `snmpd.conf` — REFUSED, not deferred: they are a third and fourth authority over a fact v2 already owns; `nmap -sU`; NAT on a workstation | B `snmpwalk` with `public` → identity only; B cracks the RW community → the forward table renders as OIDs → `snmpset` opens a port **without B ever logging in**, and A's `snmpd.log` names B |
-| **D9** 🔍 | **A player automates an attack with a script** — **GRILLED 2026-09-01**, eleven locked decisions in ["D9 — resolved scope & decisions"](#d9--resolved-scope--decisions-grill-me-2026-09-01), which **supersedes this row wherever they disagree** | `apt install node` → `node <path> [args]`; ONE always-async mode (`execute` returns a promise, so legacy's sync mode cannot port); every command as a camelCase global returning `string[]` with `.exitCode`; a trailing flags object with dashed keys; ambient `fs` (`readFile`/`writeFile`/`appendFile`); `console.log`; real `process.argv`; `sleep(ms)`; Ctrl-C at every await | **programmatic auth — REFUSED, not deferred** (`env` is a per-line snapshot, so a script that hopped would answer about the box it left); `chmod`; world content and an example script; an `sh()` escape hatch; a Web Worker sandbox; `script_exec` as a CVE effect (Phase 3) | A writes `/root/sweep.js` chaining `hydra` across many hosts, runs `node /root/sweep.js`, and captures the results to a file; `ssh(…)` from a script refuses in the same words the prompt would |
+| **D9** ✅ | **A player automates an attack with a script** — **SHIPPED v0.196.0-v0.200.0 (#475-#480)** as slices 1, 2a, 2b, 3 and 4; eleven locked decisions in ["D9 — resolved scope & decisions"](#d9--resolved-scope--decisions-grill-me-2026-09-01) plus six more made at slice 4, as-built in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §2/§4/§7/§9 | `apt install node` → `node <path> [args]`; ONE always-async mode (`execute` returns a promise, so legacy's sync mode cannot port); every command as a camelCase global returning `string[]` with `.exitCode`; a trailing flags object with dashed keys; ambient `fs` (`readFile`/`writeFile`/`appendFile`); `console.log`; real `process.argv`; `sleep(ms)`; Ctrl-C at every await | **programmatic auth — REFUSED, not deferred** (`env` is a per-line snapshot, so a script that hopped would answer about the box it left); `chmod`; world content and an example script; an `sh()` escape hatch; a Web Worker sandbox; `script_exec` as a CVE effect (Phase 3) | A writes `/root/sweep.js` chaining `hydra` across many hosts, runs `node /root/sweep.js`, and captures the results to a file; `ssh(…)` from a script refuses in the same words the prompt would |
 | **D10** | **The terminal feels like legacy's** | `clear`, `theme`, `author`, `xterm`, `bash`, `whoami` — one polish slice | — | Each command behaves as legacy's did |
 
 ## Phase 2 — discovery
@@ -2967,49 +2967,57 @@ are now resolved. **A door is not proven by its wire-checks alone** — the wire
 green and could not see any of this, because the defects live in the one vantage no endpoint
 answers. One session's browsing produced four findings, three of them invisible to a green suite.
 
-**➡️ NEXT: D9 slice 4 — a script is reusable and can be stopped. It is the LAST slice in the last
-door.** D9 is the seventh and final door in the locked order
-(ftp → daemons → nc → mysql → redis → snmp → node) and a force multiplier over everything built.
-**Slices 1, 2a, 2b and 3 have SHIPPED** (v0.196.0 #475, v0.197.0 #476, v0.198.0 #477, v0.199.0
-#478): a player writes JavaScript on a box and it drives the machine's whole toolset — `await
-nmap(gw)` returns the scan's stdout carrying `.exitCode`, the ten commands that would lie about
-where the script is standing refuse, output paints as it is produced, the busy bar names the tool
-actually running rather than `node`, and a sweep now **keeps what it found**: `fs.readFile` /
-`writeFile` / `appendFile`, all composed against the machine rather than this client's copy of it,
-so an append on a shared box cannot silently eat a fellow occupant's edit.
+**➡️ NEXT: D10 — the terminal feels like legacy's.** One polish slice (`clear`, `theme`, `author`,
+`xterm`, `bash`, `whoami`) and **Phase 1 is complete**: every other door — web, hydra, ftp, scp,
+daemons, nc, machine kinds, mysql, redis, snmp and node — has shipped. After it, Phase 2
+(discovery: DNS/`nslookup`/`dig`, then `findit.io` and networks a player was never told about).
 
-The slice-3 groundwork's worry that it *"may genuinely need a wire-check"* **resolved to `N/A`**:
-no `api/` change, and the one server contract an append leans on — a 409 on a stale `base_hash` —
-was already proven live by `scripts/testModifiedSinceOpen.ts`. The wire-check stays `N/A` across
-all of D9, as the grill said it would.
+**D9 SHIPPED COMPLETE at v0.200.0 (#480)** — the seventh and last door in the locked order
+(ftp → daemons → nc → mysql → redis → snmp → node), across five slices
+(#475-#478, #480). A player writes JavaScript on a box and it drives the machine's whole
+toolset: `await nmap(gw)` returns the scan's stdout carrying `.exitCode`, the ten commands that
+would lie about where the script is standing refuse, output paints as it is produced, the busy
+bar names the tool actually running, a sweep keeps what it found through `fs.readFile` /
+`writeFile` / `appendFile` composed against the machine rather than this client's copy, and a
+script now takes `process.argv`, paces itself with `sleep(ms)`, and answers Ctrl-C with `^C`
+while keeping everything it had already printed.
 
-What is left is **arguments, `sleep(ms)` and Ctrl-C (4)**, now **PLANNED** (2026-09-01) with six
-further locked decisions (12–17) and fifteen acceptance criteria. Two things in it are bigger than
-they look: slice 2b **corrected rather than delivered** its Ctrl-C criterion (a script cannot
-produce `^C` today, because `runScript` is total so `node`'s stream never rejects and the UI's
-abort catch never fires), and locked decision 9's *"the adapter checks `env.signal` before and
-after every command invocation"* was **never built** — there is no `signal` reference in
-`commandContext.ts` at all. The plan resolves both: `node` rethrows `env.signal.reason` whenever
-the RUN was aborted (whether the script failed or finished, so a script that swallows the throw
-cannot hide the interrupt) and lets the existing renderer at `state.ts:1691` say `^C`. Two of the
-three pieces cost almost nothing — `AbortSignal.throwIfAborted()` is already in this project's TS
-lib, and `bindFlags`' `--` sentinel already passes dashed arguments through to a script, so the
-shell does not change. Per-slice status, as-built records and the full plan are in
-[`d9-node-scripting.md`](d9-node-scripting.md).
-**🔍 GRILLED 2026-09-01** — eleven locked decisions and a four-slice spine in
-["D9 — resolved scope & decisions"](#d9--resolved-scope--decisions-grill-me-2026-09-01). It is the one
-Phase 1 row that is **not a door** — no daemon, no port, no placement, no cross-player half, and **no
-`api/` change in any slice**, so the wire-check is `N/A` throughout and the close-out proof is a browser
-run. The grill's headline: the row's **programmatic auth is refused**, because `env` is a per-line
-snapshot and a script that hopped would go on answering about the box it left — the same class as the
-stale-tree write fixed at v0.172.0.
+**The wire-check was `N/A` across all five slices**, as the grill predicted — no `api/` change
+anywhere in the door. Seventeen locked decisions in total (eleven at the grill, six more at
+slice 4). The plan file is deleted; the as-built lives in
+[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §2 (the camelCase
+identifier rule, now shipped fact), §4 (two sandbox/stub testing traps), §7 (the scripting
+host's invariants — injection order, the interrupt rule, the guards) and §9 (the silent
+interrupted redirect).
+**D9 ✅ COMPLETE — v0.196.0–v0.200.0 (#475–#478, #480), closed out 2026-09-01.** Eleven locked
+decisions at the grill in ["D9 — resolved scope & decisions"](#d9--resolved-scope--decisions-grill-me-2026-09-01)
+plus six more at slice 4; the plan file is deleted and the durable rules live in
+[`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §2, §4, §7 and §9. The door in
+full: `apt install node`, then a script the player writes in `nano` on the box drives that box's
+whole toolset — every command a camelCase async function returning the stdout it would have printed,
+carrying `.exitCode`; flags as a trailing object with the dashed keys already typed; refusals in the
+prompt's own words for the ten commands that would move the shell somewhere the script cannot
+follow; output painting as it is produced, with the busy bar naming the tool actually running;
+`fs.readFile`/`writeFile`/`appendFile` composed against the MACHINE, so an append on a shared box
+cannot eat a fellow occupant's edit; `process.argv` with real node numbering; `sleep(ms)` on the
+abort-aware seam; and Ctrl-C that ends a run at its next await, keeps everything already printed,
+and sends nothing more.
 
-**Slice 1 is PLANNED** in [`d9-node-scripting.md`](d9-node-scripting.md) — acceptance criteria
-AC-1…AC-12 **confirmed by the owner 2026-09-01, with no code written yet**. That plan also carries
-the one amendment slice-1 planning made to the grill: **decision 5's `env.output` routing is
-wrong and is replaced by the `node` command's own `CommandResult` lines**, because `env.output`
-bypasses the pipeline and would have made `node sweep.js | grep OPEN` see nothing. Next action is
-that plan's RED step 1.
+**The row's one refusal held all the way through**: programmatic auth stays refused rather than
+deferred, because `env` is a per-line snapshot and a script that hopped would go on answering about
+the box it left — the same class as the stale-tree write fixed at v0.172.0. That same reasoning came
+back as slice 3's `readFile` defect, found in the browser after a green suite, which is what turned
+the v0.172.0 reload rule into a general one: **a shell may read its own copy because it is rebuilt
+per line and the player is the only editor; anything that is neither — a daemon-reachable file, or a
+caller that WRITES during the line — must ask the machine.**
+
+**It is the one Phase 1 row that was not a door** — no daemon, no port, no placement, no
+cross-player half, and no `api/` change in any slice — so the wire-check was `N/A` throughout and
+every close-out proof was a browser run. Two things it taught that outlive it: an injected sandbox
+name colliding with a real Node global silently resolves to the HOST's under vitest (`process` was
+the first, and a length assertion passed against a `node` injecting nothing), and a test that stubs
+a global without restoring it makes its neighbours pass — the first test to clean up properly is the
+one that appears to break them.
 
 ---
 

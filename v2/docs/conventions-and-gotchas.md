@@ -157,7 +157,7 @@ Shipped so far (each milestone is in git history + its as-built doc/plan):
   the editor open); a refused one leaves it alone. Wire-check `scripts/testModifiedSinceOpen.ts`;
   three-player browser verification in `e2e-shared-network-verification.md` §6.
 
-**Current version: 0.199.0.**
+**Current version: 0.200.0.**
 
 **Current epic — legacy parity, IN PROGRESS:** `plans/legacy-parity-epic.md` — every remaining
 way into a machine (doors → discovery → CVE vulnerabilities), grilled to nine locked
@@ -508,11 +508,11 @@ as-built), then the cross-player architecture doc if the work touches cross-play
   the registry is keyed by the raw string. The module and its export take the camelCase
   form of the same name (`redisCli.ts` exports `redisCli`), and a hyphenated name used as
   an object key or a local has to be quoted or camelCased — `tsc` finds every one of those.
-  **A future `node` scripting slice must derive a JS identifier from the command name
-  rather than using the name itself.** Legacy built its sandbox as
-  `new Function(...Object.keys(context), src)`, which makes every command name a formal
-  parameter and a single hyphen a `SyntaxError` that takes down every script in the game —
-  key the context object by the camelCase identifier and the constraint disappears.
+  **`node` scripting SHIPPED this and it works as predicted** (D9, `scriptIdentifier` in
+  `core/scripting/commandContext.ts`): the sandbox keys its context by the camelCase
+  identifier, so `redis-cli` answers to `redisCli` inside a script. Legacy built its sandbox
+  as `new Function(...Object.keys(context), src)`, which makes every command name a formal
+  parameter and a single hyphen a `SyntaxError` that takes down every script in the game.
   Older notes calling the no-hyphen rule "forced" predate this and are wrong.
 
 - **No single-letter variable names.** Name lambda/predicate/reducer params after what they
@@ -1121,6 +1121,25 @@ visible, and make sure one exists. Adding a second, deliberately awkward fixture
 one is usually cheaper than reworking the realistic one — and it leaves the realistic goldens stable.
 
 ### Testing gotchas found at the rendered layer
+
+- **⚠️ The script sandbox runs in the HOST realm, so an uninjected global silently resolves
+  to the test runner's own.** `runScript` builds an `AsyncFunction`, which closes over
+  whatever the environment already has. `process` is the first injected name that collides
+  with a real Node global, and under vitest an uninjected `process.argv` is NODE'S — two
+  entries long, so `expect(process.argv.length).toBe(2)` passed against a `node` that
+  injected nothing at all. **Assert the CONTENTS of anything the sandbox is supposed to
+  provide, never its shape or length.** No browser has `process`, so the game is fine; only
+  the test lies. Any future injected name sharing a Node global (`Buffer`, `global`,
+  `setImmediate`, `require`) inherits this exactly.
+
+- **⚠️ A test that stubs a global and never restores it makes its NEIGHBOURS pass.**
+  `vitest` is configured without `unstubGlobals`, so a `vi.stubGlobal('fetch', …)` survives
+  to the end of the file. `Terminal.test.tsx`'s nmcli test had no stub of its own and was
+  green only on the airodump-ng test's leaked one; the first test in that file to clean up
+  after itself took the lease away and failed it with `the network is unreachable` — a
+  failure in a test the change never touched. **Pair every `vi.stubGlobal` with
+  `onTestFinished(() => { vi.unstubAllGlobals(); })`**, and when a neighbour then fails,
+  give IT a stub rather than restoring the leak.
 
 - **⚠️ A test `FsView` reloads to the tree it already has, so `reload()` is INVISIBLE in
   vitest.** `createFsView` (aliased as `mockFsViewFromTree`) only re-reads through its
@@ -2060,6 +2079,48 @@ state costs you more than one wrong attempt.
     `mysql/ownDatabase`. There is NO module cycle — those edges reach generation's primitives,
     never back to a composer like `remoteHostFs` — so it is a diamond, not a loop. The shape is
     pre-existing: `generation/` holds primitives and composers in one directory.
+- **The scripting host (D9) grants no capability — it removes typing.** `runScript` is pure over
+  `(source, context)`: it knows nothing about commands, the terminal or `CommandEnv`, so a caller
+  that is not `node` reuses it rather than building a second sandbox. There is ONE mode and it is
+  async. The body is wrapped in a BLOCK, not used as the function body, so a script's own
+  `const console = …` is a legal shadow instead of a redeclaration `SyntaxError`.
+  - **Every command reaches a script through `buildCommandContext`, in the SHELL's own order** —
+    peel the trailing flags object, coerce positionals, bind and validate flags against the
+    command's real `FlagSpec`, ask `withoutScript`, check the tty — and only then `execute`. The
+    order is `prepareStage`'s and matters for its reason: a refusal arriving after `execute` would
+    arrive after `ssh` had already written a line into somebody's auth.log. So a script runs at the
+    same tier, through the same walker, with the same refusals as typing would.
+  - **Four names are injected LAST, after the registry spread: `console`, `fs`, `process`,
+    `sleep`.** Ordering is the whole protection — a command named `fs` would otherwise silently
+    shadow the filesystem for every script on the box. `registry.test.ts` pins
+    `identifiers.length + 4`; grow that number with any fifth name.
+  - **"Aborted" is a property of the RUN, not of the error.** `node` asks `env.signal.aborted` after
+    `runScript` returns — whether the script failed OR finished — and throws `env.signal.reason`.
+    Checked on success too because the defensive loop a player actually writes
+    (`for (const host of hosts) { try { await nmap(host) } catch {} }`) swallows the abort along
+    with the failures it was written for and comes back `ok`; a check scoped to the failure branch
+    would let Ctrl-C exit 0 in silence. Matching an `AbortError` by name instead would let a script
+    forge an interrupt by throwing its own.
+  - **`node` THROWS the interrupt; `state.ts` owns the only `^C`.** The marker is a `text` line —
+    stdout — so a command printing it itself would write `^C` into `node sweep.js > out.txt` and
+    pipe it into `grep`, and an interrupted pipeline would complete as though the sweep had
+    finished. The throw lands AFTER the drain, so everything the script printed survives.
+  - **Guards run before AND after every command invocation, and before each `fs` method** — all via
+    the standard `env.signal.throwIfAborted()`. They do different jobs: *after* withholds the result
+    of a command that finished as the key went down; *before* stops NEW work reaching the server,
+    which is the half a script's own `try/catch` cannot defeat — it may swallow every throw, but
+    nothing further executes. The `fs` guards are also the only interruption point a loop that
+    touches files and never calls a command has. Never post-check a write: once the journal holds
+    it, throwing would deny something that actually happened.
+  - **A synchronous infinite loop is an accepted tab-hang.** An `AbortSignal` cannot interrupt
+    synchronous JavaScript on the main thread; the real fix is a Web Worker with `terminate()`,
+    which turns every command call into a postMessage RPC across a boundary `CommandEnv` does not
+    serialize. `sleep(ms)` is what gives a computational script a yield point instead.
+  - **`node` declares no flags, so `--` is how a script gets a dashed argument**
+    (`node sweep.js -- -v 10.0.0.5`). The shell binds flags before `node` sees anything, so it
+    cannot do real node's stop-at-the-operand parsing; `bindFlags` already implements the sentinel,
+    so this costs no shell mechanism.
+
 - **Known deferred gap (L3 smart-server):** a client with a valid keypair can mint an
   `effect_one_shot`/root session via `createSession` and call `exploitRead` directly,
   skipping the in-game CVE flow. Accepted per the security model; real fix = server-side
@@ -2107,6 +2168,15 @@ state costs you more than one wrong attempt.
 ## 9. Deferred backlog & future content ideas
 
 Forward-looking direction not yet built (preserved as pointers; design when actually built).
+
+- **An interrupted REDIRECT is silent — no `^C`, no error.** `state.ts` prints the marker
+  inside its `if (result.kind === 'async')` branch, but a redirect collects the stream
+  first, so the abort's rejection escapes `runCommandLine` during collection and never
+  reaches that branch. `airodump-ng > scan.txt` and `node sweep.js > out.txt` both just
+  return to the prompt having written nothing. The half that matters is already right —
+  no partial file, and the marker cannot be captured INTO the file, which is why `node`
+  throws rather than printing (D9 decision 13, verified in the browser). Found at D9
+  slice 4's close-out; belongs to a change that owns the redirect path.
 
 - **`Command.tier` is declared by every command and read by NO production code.** The only
   `.tier` outside tests is `snmpwalk.ts`'s unrelated `walked.tier`. Surfaced at D9 slice 3's
