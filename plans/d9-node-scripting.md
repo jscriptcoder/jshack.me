@@ -228,6 +228,33 @@ is a declaration list already covered by its invariant test. Address valuable su
 within the same gate. Expect the manual page to dominate the survivor count — conventions §4:
 *"a command's mutation score is mostly its manual."*
 
+**RESULT 2026-09-01: 105 mutants, 101 killed (96.2%), 4 survivors accepted.** First pass killed 86
+of 105. The prediction held exactly — 16 of the 19 survivors were the manual block, and none sat in
+the executable half. Two rounds of killing:
+
+- **The manual (16).** Killed by asserting whole rendered `man node` LINES rather than words of
+  them, the way `man.test.ts` pins `ls` — the NAME line, the argument and its description, and
+  both examples with their descriptions. Not a ceremony: the manual is the whole discoverability
+  story for scripting until the tutorials land, so what the player reads is worth pinning.
+- **`format.ts` (3).** These were real gaps, and each became a test of behavior a player will hit:
+  `every` → `some` and `typeof element === 'string'` → `true` both survived because no test used a
+  MIXED array (`['open', 22]` must be JSON, not two lines), and the `JSON.stringify` fallback
+  survived because nothing printed a value JSON has no answer for (`console.log(undefined)` must
+  print `undefined`, not a blank line).
+
+**The 4 accepted survivors are `tier: 'guest'` and the three parts of
+`availability: { kind: 'installed-package', packageName: 'node' }`** — declared-but-unenforced
+metadata. Neither field has a runtime consumer anywhere in `src/` (`.tier` matches only unrelated
+code; `.availability` only `daemon.ts` forwarding it), because the real gate is
+`wrapWithBinaryCheck` reading the live filesystem, which AC-11 covers. `types.ts` already records
+this about `AvailabilityRule`: *"a field nobody had to fill in is a field that can be declared
+without being enforced."* Every command in the registry carries the same unkillable pair; a test
+asserting the literal back would pin a field nothing reads.
+
+Run with a throwaway `vite.mutation.config.ts` + `stryker.mutation.json` (both deleted after, per
+conventions §4 — their `include`/`mutate` lists are per-slice and would rot): the narrowed
+`include` made the dry run 17 tests in 3s instead of 4080, and each battery finished in ~32s.
+
 **Wire-check: `N/A`.** No `api/` path changes. The host is pure client, `env.fs.read` is a local
 walker read, and nothing in this slice reaches a server. Alternate evidence is the jsdom behavior
 suite plus AC-11 proving the availability gate through the real registry wrapper.

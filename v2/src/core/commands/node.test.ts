@@ -97,6 +97,32 @@ describe('node', () => {
     expect(textLines(result)).toEqual(['22/tcp open', '80/tcp open']);
   });
 
+  it('renders a mixed array as JSON, since only an all-string array is output', async () => {
+    // The one-per-line rule exists so captured command output reads as lines;
+    // an array holding anything else is data, and printing it as lines would
+    // lose the distinction between an element and a line break.
+    const env = envWithScript('mixed.js', "console.log(['open', 22])\n");
+
+    const result = await node.execute(env, ['mixed.js'], NO_FLAGS);
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    expect(textLines(result)).toEqual(['["open",22]']);
+  });
+
+  it('prints undefined rather than nothing', async () => {
+    // JSON has no undefined, so a value that does not survive stringifying
+    // falls back to its own text — a script printing an unset variable must
+    // not look like a script that printed a blank line.
+    const env = envWithScript('unset.js', 'console.log(undefined)\n');
+
+    const result = await node.execute(env, ['unset.js'], NO_FLAGS);
+
+    expect(result.kind).toBe('sync');
+    if (result.kind !== 'sync') return;
+    expect(textLines(result)).toEqual(['undefined']);
+  });
+
   it('reports a thrown error, exits 1, and keeps what the script already printed', async () => {
     const env = envWithScript(
       'boom.js',
@@ -279,9 +305,19 @@ describe('node', () => {
     if (result.kind !== 'sync') return;
     expect(result.exitCode).toBe(0);
 
-    const contents = result.lines.map((line) => line.content).join('\n');
+    // Whole rendered lines, not words of them: the manual is the entire
+    // discoverability story for scripting until the tutorials land, so what a
+    // player reads is worth pinning.
+    const contents = result.lines.map((line) => line.content);
     expect(contents).toContain('NODE(1)');
-    expect(contents).toContain('node [script]');
-    expect(contents).toContain('console.log');
+    expect(contents).toContain('    node - Run a JavaScript file');
+    expect(contents).toContain('    node [script]');
+    expect(contents).toContain('    script (optional)');
+    expect(contents).toContain('        Path to the JavaScript file to run');
+    expect(contents).toContain('    node hello.js');
+    expect(contents).toContain('        Run a script in the current directory');
+    expect(contents).toContain('    node /root/sweep.js | grep OPEN');
+    expect(contents).toContain("        Filter a script's output like any other command");
+    expect(contents.join('\n')).toContain('console.log writes normal output');
   });
 });
