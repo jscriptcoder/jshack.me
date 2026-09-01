@@ -44,10 +44,16 @@ export const createLineStream = (): LineStream => {
 
   async function* drain(): AsyncGenerator<TerminalLine, void> {
     for (;;) {
+      // Taken in batches rather than one at a time: `splice` hands back
+      // everything queued and empties the buffer, so there is no "length said
+      // one, shift gave undefined" case to guard against with a branch nothing
+      // can reach. The re-check is load-bearing though — a line pushed WHILE
+      // this batch is being yielded arrives after the snapshot, and closing
+      // without looking again would drop it.
       while (queue.length > 0) {
-        const next = queue.shift();
-        if (next === undefined) break;
-        yield next;
+        for (const next of queue.splice(0)) {
+          yield next;
+        }
       }
       // Checked AFTER the queue is empty, not before: closing must still deliver
       // whatever was already pushed. A script that logs and then throws in the

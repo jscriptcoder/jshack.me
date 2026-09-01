@@ -671,6 +671,36 @@ letting it run.
 survivors in that file from `perTest` mis-attribution (conventions §4) — one took ten tests red when
 applied manually. A suite that goes red is a kill however the runner scored it.
 
+**RESULT 2026-09-01: 199 mutants, 190 killed + 3 timeout = 193 detected (97.0%), 6 survivors, all
+accounted for and ZERO real test gaps.** The battery ran in about two minutes at concurrency 4, with
+the instrumenter reporting the expected `Instrumented 3 source file(s)`.
+
+**The one thing the gate actually changed was `lineStream.ts`, and it found a bug in the fix.** The
+first pass left two survivors there, both tracing to the same cause: the drain read
+`queue.shift()` and then guarded `if (next === undefined) break`, a branch that exists only to avoid
+a non-null assertion and that `while (queue.length > 0)` makes unreachable. Unreachable code cannot
+be mutated detectably, so the pair was a smell rather than an equivalence to accept. Rewriting the
+drain to `queue.splice(0)` removes the guard — and **broke five tests**, which is the valuable part:
+a line pushed WHILE a batch is being yielded arrives after the snapshot, so draining once and then
+checking `closed` drops it. The per-iteration re-check was load-bearing and nothing had said so. The
+shipped form keeps both — `while (queue.length > 0) { for (const next of queue.splice(0)) … }` — and
+carries the reason in a comment. Both survivors are gone and the re-check is now killed.
+
+**Six survivors remain, none of them a gap:**
+
+- **`tier: 'guest'` and the three parts of `availability` (4 mutants, `node.ts:110-111`)** — the same
+  family slices 1 and 2a accepted, and re-confirmed independently this time rather than cited.
+  Applying `availability: {}` by hand leaves the FULL 4113-test suite green, and the reason is
+  visible in `availability.ts`: `wrapWithBinaryCheck` gates on `resolveBinary(env, command.name)` —
+  by NAME — so the declared availability is never consulted. `grep -rn "\.availability" src/` finds
+  exactly one non-test reference, `daemon.ts:198`, which copies it rather than reading it.
+- **`SHELL_ERROR_NAME = 'ShellError'` → `''` (`commandContext.ts:53`)** — equivalent for the reason
+  2a recorded: the tag is written by `shellError` and read by `isShellError` through the same
+  constant, so both sides move together.
+- **`commandContext.ts:185` `ConditionalExpression → true` (the tty gate)** — reported Survived,
+  **hand-applied it takes 16 tests red**. The `perTest` mis-attribution family again, in the same
+  file and on the same line as in 2a. The rule above earns its place a second time.
+
 **Wire-check: `N/A`.** No `api/` path changes.
 
 ### Browser close-out
