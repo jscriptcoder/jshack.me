@@ -1,9 +1,10 @@
 # Plan: D9 — `node` scripting
 
 **Branch**: `feat/d9-a-script-runs-and-speaks` (slice 1) — **cut 2026-09-01 off `main` @ c3be1758**
-**Status**: Active — **slice 1 is BUILT at v0.196.0: AC-1…AC-12 all met, typecheck and lint
-clean, full suite green (4080 tests).** Still open before the PR: the pre-PR mutation gate and
-the browser run. Slices 2-4 remain unplanned.
+**Status**: Active — **slice 1 is COMPLETE and PR-READY at v0.196.0**: AC-1…AC-12 all met,
+typecheck and lint clean, full suite green (4082 tests), mutation gate closed (101/105 killed, 4
+accepted), browser close-out passed. Nothing is left but opening the PR. Slices 2-4 remain
+unplanned.
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D9 — resolved scope & decisions
 (grill-me, 2026-09-01)", eleven locked decisions.
 
@@ -13,8 +14,8 @@ the browser run. Slices 2-4 remain unplanned.
    **Decision 5 carries an amendment dated 2026-09-01**; read the amendment, not just the table.
 2. Read slice 1 below, top to bottom. Its acceptance criteria are **already confirmed** — do not
    re-present them for approval.
-3. The branch is cut and slice 1 is built and committed. What remains before its PR is the pre-PR
-   mutation gate and the browser run — see "PRE-PR MUTATION" and "PR-ready when" below.
+3. Slice 1 is built, committed and fully evidenced — every gate below is closed. The only thing
+   left is opening its PR; after it lands, plan slice 2.
 4. All commands run from `v2/`. Gates: `npm run typecheck`, `npm run lint`, the full non-watch test
    suite. Wait for commit approval before every commit.
 
@@ -258,6 +259,43 @@ conventions §4 — their `include`/`mutate` lists are per-slice and would rot):
 **Wire-check: `N/A`.** No `api/` path changes. The host is pure client, `env.fs.read` is a local
 walker read, and nothing in this slice reaches a server. Alternate evidence is the jsdom behavior
 suite plus AC-11 proving the availability gate through the real registry wrapper.
+
+### Browser close-out — RUN 2026-09-01, PASSED
+
+The beat the epic named, driven end to end at v0.196.0: fresh player → `aircrack-ng` on
+`MIDNIGHT-DINER` → `nmcli connect` → `ssh root@192.168.202.1` into the AP gateway → `apt install
+node` **there** → `nano hello.js` **there** → `node hello.js` **there**. Everything the jsdom suite
+asserts held on a machine that is not the player's own, whose tree comes from the server.
+
+What the run proved that no unit test could:
+
+- **The install beat is real.** Before installing, `node hello.js` answered `bash: node: command
+  not found. Install with: apt install node`; after, the same line ran the script. The registry
+  wrapper, the apt package and the command are wired to each other, not just to their own tests.
+- **The three sinks are visually distinct** — `console.log` amber, `console.debug` dim,
+  `console.error` red — which is a claim about the renderer that a `TerminalLine` assertion cannot
+  make.
+- **The pipeline decision pays off exactly as argued.** `node hello.js | grep OPEN` filtered the
+  script's stdout, and `node hello.js > scan.txt` captured it — while the `debug` and `error` lines
+  stayed on screen in both cases, because only `text` pipes. That is real shell behaviour
+  (`>` captures stdout, stderr still prints) and nobody wrote a line of code for it; it fell out of
+  putting the output in the command's own `CommandResult`. Had decision 5's original `env.output`
+  routing survived, both would have produced nothing.
+- **The execute-bit refusal is load-bearing, not theoretical.** Back on the workstation as `alice`,
+  a script written with `nano` reports `-rwxrw---- alice 48 mine.js` — root may execute, the `user`
+  tier may not — and `node mine.js` ran it anyway. An execute check would have hard-blocked the
+  player from the file they had just written, with no `chmod` to escape it.
+- Error paths in the real terminal: `SyntaxError: Unexpected number` (no stack, terminal survives),
+  `node: nope.js: No such file or directory`, `node: /etc: Is a directory`.
+- `man node` renders in full, and `help` lists `node [script]  Run a JavaScript file` under
+  **Filesystem** between `nano` and `pwd`.
+
+One E2E-harness note, not a product defect: the §7 nano trap fired again — after `^X`, the
+"terminal is back" probe (`input` present, `textarea` null) reported true **twice** while the
+editor was still open, so the next two shell commands were typed into the buffer. Caught by
+reading the buffer back; recovered with the native-value-setter snippet. The lesson already in
+conventions §7 stands and is worth restating: **do not discard the typed-value echo** — it is the
+only signal that distinguishes "the command ran" from "the command was typed into a file".
 
 ### PR-ready when
 
