@@ -333,6 +333,13 @@ export const nc: Command = {
   // Installed, never shipped: netcat is the tool an intruder brings with them, so a
   // box only has it because someone put it there.
   availability: { kind: 'installed-package', packageName: 'netcat' },
+  // The listen form is EXEMPT, and deliberately so: planting a backdoor on a
+  // box is one of the best things a script can do, and `nc -l` returns a plain
+  // line rather than hopping anywhere. The connect form pushes a session the
+  // script cannot see, so it refuses like the rest. The split is already the
+  // first line of `execute`, keyed on the same declared flag.
+  withoutScript: (_args, flags) =>
+    flags.get(LISTEN_FLAG) === true ? undefined : 'nc: cannot be run from a script',
   flags: { [LISTEN_FLAG]: 'boolean' },
   manual: {
     synopsis: 'nc <host> <port> | nc -l <port>',

@@ -209,6 +209,7 @@ export const ftp: Command = {
   availability: { kind: 'localhost-only' },
   // Prompts for a name and a password before its sub-shell ever opens.
   withoutTty: 'ftp: must be run from a terminal',
+  withoutScript: 'ftp: cannot be run from a script',
   flags: { '-p': 'string' },
   manual: {
     synopsis: 'ftp [-p port] <host> [user]',

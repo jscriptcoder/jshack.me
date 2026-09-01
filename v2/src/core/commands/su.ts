@@ -214,6 +214,7 @@ export const su: Command = {
   // escalated out of — the one thing that keeps a found listener worth less than
   // a cracked login.
   withoutTty: 'su: must be run from a terminal',
+  withoutScript: 'su: cannot be run from a script',
   manual: {
     synopsis: 'su [username]',
     description:

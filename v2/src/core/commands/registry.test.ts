@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { commandRegistry } from './registry';
 import { COMMAND_CATEGORIES } from './types';
+import { scriptIdentifier } from '../scripting/commandContext';
 
 describe('commandRegistry', () => {
   it('keys each registered command by its own `name`', () => {
@@ -22,6 +23,73 @@ describe('commandRegistry', () => {
     for (const command of commandRegistry.values()) {
       expect(COMMAND_CATEGORIES).toContain(command.category);
     }
+  });
+
+  it('gives every command a JS identifier a script can be given', () => {
+    // Each name becomes a formal PARAMETER of the script sandbox's function.
+    // A name that derives a reserved word, an invalid identifier, or a
+    // duplicate is a SyntaxError at the point the function is built — which
+    // takes down EVERY script in the game at once, for a reason the player
+    // cannot see and the author of the new command would never connect to it.
+    // Hence the guard here rather than in the scripting tests: this fires the
+    // day the command is added, not the day someone writes a script.
+    const reserved = new Set([
+      'await',
+      'break',
+      'case',
+      'catch',
+      'class',
+      'const',
+      'continue',
+      'debugger',
+      'default',
+      'delete',
+      'do',
+      'else',
+      'enum',
+      'export',
+      'extends',
+      'false',
+      'finally',
+      'for',
+      'function',
+      'if',
+      'implements',
+      'import',
+      'in',
+      'instanceof',
+      'interface',
+      'let',
+      'new',
+      'null',
+      'package',
+      'private',
+      'protected',
+      'public',
+      'return',
+      'static',
+      'super',
+      'switch',
+      'this',
+      'throw',
+      'true',
+      'try',
+      'typeof',
+      'var',
+      'void',
+      'while',
+      'with',
+      'yield',
+    ]);
+    const identifiers = [...commandRegistry.keys()].map(scriptIdentifier);
+
+    for (const identifier of identifiers) {
+      expect(identifier).toMatch(/^[A-Za-z_$][A-Za-z0-9_$]*$/);
+      expect(reserved).not.toContain(identifier);
+    }
+    // `console` is injected alongside them and would be displaced by a
+    // collision, so it counts as taken.
+    expect(new Set([...identifiers, 'console']).size).toBe(identifiers.length + 1);
   });
 
   it('categorises echo under general and the filesystem commands under filesystem', () => {

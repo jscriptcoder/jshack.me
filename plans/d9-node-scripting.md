@@ -1,10 +1,10 @@
 # Plan: D9 — `node` scripting
 
-**Branch**: `feat/d9-a-script-runs-and-speaks` (slice 1) — **cut 2026-09-01 off `main` @ c3be1758**
-**Status**: Active — **slice 1 is COMPLETE and PR-READY at v0.196.0**: AC-1…AC-12 all met,
-typecheck and lint clean, full suite green (4082 tests), mutation gate closed (101/105 killed, 4
-accepted), browser close-out passed. Nothing is left but opening the PR. Slices 2-4 remain
-unplanned.
+**Branch**: `feat/d9-a-script-runs-the-tools` (slice 2a) — **cut 2026-09-01 off `main` @ cea7b5a3**
+**Status**: Active — **slice 1 MERGED** as `cea7b5a3` (PR #475) at v0.196.0. **Slice 2a is COMPLETE
+and PR-READY at v0.197.0**: AC-1…AC-14 met, typecheck and lint clean, full suite green (4104
+tests), mutation gate closed (177/183 killed, 96.7%), browser close-out passed. Nothing is left but
+opening the PR. Slices 2b, 3 and 4 remain unplanned.
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D9 — resolved scope & decisions
 (grill-me, 2026-09-01)", eleven locked decisions.
 
@@ -12,10 +12,10 @@ unplanned.
 
 1. Read the epic's D9 section — the eleven decisions and its "Deliberately NOT built" list.
    **Decision 5 carries an amendment dated 2026-09-01**; read the amendment, not just the table.
-2. Read slice 1 below, top to bottom. Its acceptance criteria are **already confirmed** — do not
-   re-present them for approval.
-3. Slice 1 is built, committed and fully evidenced — every gate below is closed. The only thing
-   left is opening its PR; after it lands, plan slice 2.
+2. Read "Slice 1 — as built" below for what already exists and why it is shaped that way. Its
+   acceptance criteria are closed; do not reopen them.
+3. Slice 2a is built, committed and fully evidenced — every gate below is closed. The only thing
+   left is opening its PR; after it lands, plan slice 2b.
 4. All commands run from `v2/`. Gates: `npm run typecheck`, `npm run lint`, the full non-watch test
    suite. Wait for commit approval before every commit.
 
@@ -31,275 +31,396 @@ leaving the session it started in.
   entries, and the "Deliberately NOT built" list. **Do not re-litigate them here.**
 - [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §2 (the camelCase-identifier
   rule for a scripting host, the no-single-letter rule) and §3 (the gates).
-- `core/commands/types.ts` — `Command`, `CommandResult`, `CommandEnv`, `FsReadResult`. The whole
-  slice lives against these.
+- `core/commands/types.ts` — `Command`, `CommandResult`, `CommandEnv`, `FlagSpec`.
+- `core/shell/runLine.ts` — `prepareStage`, `collectStageOutput`, `hasTty`. Slice 2a is the script's
+  version of the same three steps, and reuses two of them.
 - Legacy `src/commands/node.ts` + `src/scripting/` are **reference only**. Their mechanism does not
-  port (epic §"Forced rather than chosen"); read them for the error wording and the shape of the
+  port (epic §"Forced rather than chosen"); read them for error wording and the shape of the
   problem, not for the design.
 
 ## Slice spine
 
 | # | Slice | Observable | Status |
 |---|-------|-----------|--------|
-| 1 | a script runs and speaks | `node hello.js` prints; a broken one says so and exits 1 | **built, pre-PR** |
-| 2 | a script runs the tools | `await nmap(…)` returns what the prompt shows; `ssh(…)` refuses | not planned |
+| 1 | a script runs and speaks | `node hello.js` prints; a broken one says so and exits 1 | **MERGED `cea7b5a3`, v0.196.0** |
+| 2a | a script runs the tools | `await nmap(gw)` returns what the prompt shows; `ssh(…)` refuses | **built, pre-PR, v0.197.0** |
+| 2b | a script speaks while it works | a sweep's `console.log` paints live; the spinner names `hydra`, not `node` | not planned |
 | 3 | a script keeps what it found | `/root/sweep.js` chains `hydra` and captures to a file | not planned |
 | 4 | a script is reusable and can be stopped | `process.argv`; Ctrl-C at every await; `sleep(ms)` | not planned |
 
-Only slice 1 is planned in full. Plan each later slice when its predecessor lands — D7 and D8 both
-found that later slices cost far less than their plans assumed, because the seams they needed
-already generalized.
+The epic's slice 2 is **split into 2a and 2b** (owner decision, 2026-09-01). The call surface and
+the liveness fix are separable and separately observable, and they fail differently: 2a is an
+adapter plus a declared field across ten command modules, 2b is a producer/consumer streaming
+bridge plus a new `CommandEnv` seam that reaches the UI. Flags stay **in** 2a — they are three lines
+of the same `invoke()` loop and share every fixture, so splitting them would rewrite the function
+2a just wrote. `withoutScript` also stays in 2a and cannot move: without it, 2a ships a script that
+can call `ssh(…)` and produce exactly the lie decision 1 refuses.
+
+Plan each later slice when its predecessor lands — D7 and D8 both found that later slices cost far
+less than their plans assumed, because the seams they needed already generalized.
 
 **No `api/` change in any slice, so the wire-check is `N/A` throughout** (epic §"Forced rather than
-chosen"). The close-out proof is a browser run, targeting the beat the epic names: `ssh` into a
+chosen"). The D9 close-out proof is a browser run targeting the beat the epic names: `ssh` into a
 box already rooted, `apt install node` there, `nano` a script there, run it there.
 
 ---
 
-## Slice 1: a player writes a JavaScript file, runs it with `node`, and sees what it printed
+## Slice 1 — as built (MERGED `cea7b5a3`, v0.196.0)
 
-**Value**: The walking skeleton for every later slice, and it closes a promise the game already
-makes and does not keep. `{ name: 'node' }` has been in `APT_PACKAGES` since the connectivity arc,
-so `apt install node` today lays down a world-executable `/usr/bin/node`, lists it under
-`apt list --installed` — and typing `node` answers `bash: node: command not found`, because no
-command has ever been behind it.
+**What shipped**: `core/scripting/runScript.ts` (the pure host — block-wrapped `AsyncFunction` over
+`(source, context)`), `core/scripting/format.ts` (the one value formatter), `core/scripting/console.ts`
+(the injected `console`), `core/commands/node.ts`, and one registry entry. 19 behavior tests.
 
-**Path**: `node <path>` → registry lookup → `wrapWithBinaryCheck` (binary present + tier may
-execute it) → `env.fs.read(path)` through the shared walker → the script host (block-wrapped
-`AsyncFunction`, context `{ console }`) → each `console.*` call becomes a `TerminalLine` →
-`CommandResult` → scrollback.
+### The mechanism change it made — the epic's decision 5 carries the amendment
+
+Decision 5 originally routed `console.log`/`error`/`debug` through `env.output`. **It does not.**
+`env.output` appends straight to scrollback and bypasses the pipeline — `collectStageOutput` reads
+`result.lines` — so `node sweep.js | grep OPEN` and `node sweep.js > out.txt` would both have seen
+nothing, while real `node` pipes stdout like anything else. **A script's output is the `node`
+command's own `CommandResult` lines.** The mapping is unchanged (`log`→`text`, `error`→`error`,
+`debug`→`dim`); it is pipeable and redirectable for free. Verified in the browser: `>` captured
+stdout while `debug`/`error` still printed, because only `text` pipes — real shell behaviour that
+nobody wrote a line of code for.
+
+Slice 1 returns `kind: 'sync'`. **Slice 2b** moves to `streamedResult`.
+
+### Acceptance criteria — all met
+
+AC-1 print + exit 0 · AC-2 space join, object→JSON, `string[]` one per line · AC-3 the three sinks
+are distinct line kinds · AC-4 a top-level `const console = …` shadows rather than throwing
+(the block wrap) · AC-5 **the execute bit is not consulted**, read permission is the whole gate ·
+AC-6 the three file errors in `cat`'s house style, each exit 1 · AC-7 a throw keeps prior output,
+reports `<ErrorName>: <message>`, exits 1 · AC-8 a syntax error the same way · AC-9 an empty script
+is a no-op at exit 0 · AC-10 `await` works · AC-11 before install, the registry hint fires ·
+AC-12 `man node` renders and `help` lists it under Filesystem.
+
+### The three decisions worth not rediscovering
+
+- **`console` is INJECTED, and that is the feature.** It is a real browser global, so a body that
+  did not shadow it would send every `console.log` to devtools and leave the player watching an
+  empty terminal.
+- **The body runs inside a BLOCK.** Injected names are the sandbox function's own parameters, so a
+  top-level `const console = …` would be a redeclaration `SyntaxError` that kills the script before
+  its first line. Pinned with one name injected; **slice 2a is where it starts earning its keep**,
+  with ~46 command names behind it.
+- **No execute check, deliberately.** `nano` stamps `execute: ['root']` on everything a user writes
+  and the game has no `chmod`, so an execute check would stop every non-root player running the
+  script they just wrote. Proved live: `-rwxrw---- alice 48 mine.js` ran for a `user`-tier session.
+  A reviewer will otherwise read the missing check as an oversight and "fix" it.
+
+### Still true, and still forward-looking
+
+**Browser globals other than `console` are not shadowed** (`fetch`, `localStorage`, `window`): a
+player who reaches for them is doing it as deliberately as the accepted tab-hang, and a blocklist is
+always incomplete. **This stops being true if Phase 3's `script_exec` ever runs a script one player
+wrote inside another player's client** — that is the condition that reopens it.
+
+### Evidence
+
+Mutation: 105 mutants, **101 killed (96.2%)**. 16 of the 19 first-pass survivors were the manual
+block — killed by asserting whole rendered `man node` lines, the way `man.test.ts` pins `ls`. Three
+real `format.ts` gaps became tests of behaviour a player hits: a MIXED array (`['open', 22]` must be
+JSON, not two lines) kills both `every`→`some` and `typeof`→`true`, and `console.log(undefined)`
+must print `undefined` rather than a blank line. **The 4 accepted survivors are `tier` and the three
+parts of `availability`** — declared-but-unenforced metadata with no runtime consumer anywhere in
+`src/`; every command in the registry carries the same unkillable pair. Wire-check `N/A`. Browser
+close-out passed on the AP gateway.
+
+One E2E-harness note, not a product defect: the conventions §7 nano trap fired again — after `^X`
+the "terminal is back" probe reported true **twice** while the editor was still open, so two shell
+commands were typed into the buffer. **Do not discard `send.sh`'s typed-value echo** — it is the
+only signal distinguishing "the command ran" from "the command was typed into a file".
+
+---
+
+## Slice 2a: a script calls the machine's commands and gets back what the prompt would show
+
+**Value**: the capability the whole feature exists for. Today a script can only talk to itself —
+it cannot reach a single tool on the box it is running on. After this, `await nmap(gateway)` hands
+back the scan's stdout as a `string[]` carrying `.exitCode`, `hydra` and `curl` and `grep` are
+callable the same way, and the commands that would lie about where the script is standing refuse
+instead — in the same words the prompt would use.
+
+**Path**: `node <path>` → registry gate → `env.fs.read` → **build the script context**: `console`
+(slice 1) plus one adapter per registry command, keyed by the camelCase identifier derived from its
+name → block-wrapped `AsyncFunction` → each `await <cmd>(…)`: split the trailing flags object,
+coerce positionals, validate flags against the command's own `FlagSpec`, check `withoutScript` then
+`withoutTty` **before** `execute` → `command.execute(env, args, flags)` → `collectStageOutput` →
+stdout returns to the script as `string[]` + `.exitCode`, passthrough lines go onto `node`'s own
+line collector → `CommandResult` → scrollback.
 
 **Class**: Behavior change.
 
-**Delivery**: Independent PR against trunk. No stack — nothing later starts before this lands, and
-conventions §8 warns against stacking on a branch that will be squash-merged with
-`--delete-branch`.
+**Delivery**: Independent PR against trunk. No stack — 2b starts after this lands, and conventions
+§8 warns against stacking on a branch that will be squash-merged with `--delete-branch`.
 
 **Required implementation skills**: `tdd`, `testing`, `refactoring`. Load `mutation-testing` at PR
 readiness, not per increment.
 
-**Reduction program**: `N/A`.
-**Transition/terminal evidence**: `N/A`.
+**Reduction program**: `N/A`. **Transition/terminal evidence**: `N/A`.
 
-### The one mechanism change this plan made — APPROVED 2026-09-01
+### Four things the codebase already settles — do not redesign them
 
-Epic decision 5 originally routed `console.log`/`error`/`debug` through `env.output`. **It does
-not.** `env.output` appends straight to scrollback and bypasses the pipeline — `collectStageOutput`
-reads `result.lines` — so `node sweep.js | grep OPEN` and `node sweep.js > /root/out.txt` would
-both see nothing, while real `node` pipes stdout like anything else.
+- **The registry back-edge is solved.** `help.ts:78` and `man.ts:93` reach the registry through a
+  runtime `await import('./registry')` inside `execute`, precisely because `registry.ts` statically
+  imports them. `node.ts` does the same. **No new `CommandEnv` field for the command set.**
+- **`runScript.ts` does not change.** It is already pure over `(source, context)`. Slice 2a only
+  builds a bigger context. The epic's `(source, env, commands)` phrasing describes the *caller*.
+- **`collectStageOutput` (`runLine.ts:147`) already is the result adapter** — it drains an async
+  result, splits `text` (stdout) from everything else, and returns the exit code. `hasTty`
+  (`runLine.ts:74`) is the tty predicate. Both are private today; **export them rather than writing
+  a second copy**, and do not invent a shared module to hold them until a third caller exists.
+- **`prepareStage` (`runLine.ts:98`) is the ordering model**: found → flags bound → refusal, all
+  before `execute`. Decision 2 requires exactly that order for the same reason `prepareStage` has
+  it — `ssh` authenticates against the server and writes a real line into the target's `auth.log`
+  before it returns, so a refusal that lands after `execute` has already happened.
 
-**A script's output is the `node` command's own `CommandResult` lines.** The user-visible mapping is
-unchanged (`log`→`text`, `error`→`error`, `debug`→`dim`); it is now pipeable and redirectable for
-free. `env.output` is not used by this feature at all.
+### Decisions this plan made — CONFIRMED 2026-09-01
 
-**Slice 1 therefore returns `kind: 'sync'`** — collect the lines, return them. Nothing in slice 1 is
-slow (no commands, no `sleep`), so streaming buys nothing and would cost a ~25-line
-producer/consumer bridge, because `console.log` is called from arbitrary depth inside the script and
-cannot `yield`. **Slice 2 switches to `streamedResult` (`core/commands/streaming.ts`)** when
-commands make liveness real; that is also where decision 4's live busy label lands. The epic's
-decision 5 carries this amendment.
+1. **The epic's slice 2 splits into 2a and 2b** (see the spine note above).
+2. **`undefined` and `null` positionals throw; everything else coerces.** `nc(4444, {'-l': true})`
+   sends `'4444'`; `cat(hosts[5])` on a short array throws `TypeError: cat() argument 1 is
+   undefined` instead of asking the filesystem for a file called `undefined`. An out-of-range index
+   is the commonest scripting bug, and the permissive form reports it as a *filesystem* error,
+   pointing the player at the wrong thing. Real node's `execSync` throws `ERR_INVALID_ARG_TYPE` on
+   the same input, and decision 7 already establishes the throwing posture for shell-level mistakes.
 
-### Acceptance criteria — CONFIRMED 2026-09-01 before any code, ALL MET
+Two smaller calls recorded so they are not re-litigated:
 
-- [x] **AC-1** On a box where `node` is installed, a file containing `console.log('hello')` run as
-      `node /root/hello.js` puts `hello` in the terminal and exits **0**.
-- [x] **AC-2** `console.log('host:', '10.0.0.5')` joins its arguments with a single space. An object
-      argument renders as JSON, never `[object Object]`. An array of strings renders one element
-      per line.
-- [x] **AC-3** The three sinks are distinguishable: `console.log` is a `text` line, `console.error`
-      an `error` line, `console.debug` a `dim` line.
-- [x] **AC-4** A script may declare `const console = …` (or any injected name) at its top level and
-      it **shadows** rather than throwing `Identifier 'console' has already been declared`. This is
-      the block wrap, pinned here before slice 2 injects forty command names behind it.
-- [x] **AC-5** **The execute bit is not consulted.** A file carrying the default permissions a
-      `user` gets from `nano` — `read: ['root','user']`, `execute: ['root']` — runs for that user.
-      A file the tier cannot **read** is refused: `node: /root/secret.js: Permission denied`,
-      exit 1.
-- [x] **AC-6** The three file errors match the house style `cat` sets, each exit 1:
-      `node: missing file operand`; `node: <path>: No such file or directory`;
-      `node: <path>: Is a directory`.
-- [x] **AC-7** A script that throws reports `<ErrorName>: <message>` as an **error** line and exits
-      **1**, and everything it printed before throwing is still there.
-- [x] **AC-8** A script with a syntax error is reported the same way (`SyntaxError: …`, exit 1)
-      rather than taking the terminal down.
-- [x] **AC-9** An empty or whitespace-only script is a no-op: no output, exit **0**.
-- [x] **AC-10** A script may `await` — `await Promise.resolve('x')` works — because there is one
-      always-async mode, not a sync path that gets upgraded.
-- [x] **AC-11** Before installation, `node hello.js` answers
-      `bash: node: command not found. Install with: apt install node` — the hint the registry entry
-      unlocks, which the bare not-found message could not give.
-- [x] **AC-12** `man node` renders the manual and `help` lists `node` under `filesystem`. The manual
-      is the whole discoverability story until the tutorial work lands (epic decision 11), so it
-      carries the API surface this slice ships and names what later slices add.
+- **Shell-originated errors print BARE, without node's `Error: ` prefix.** Decision 10 says a
+  refusal "reads identically to a refusal at the prompt", and `apt --nope` at the prompt says
+  `apt: unrecognized option: --nope`, not `Error: apt: …`. So refusals and flag-validation failures
+  throw a `ShellError` that `node.ts` renders as its bare message; every other throw keeps slice 1's
+  `describeScriptError` shape. `node` still exits **1** either way — the script died, and that is
+  node's exit code, not the inner command's.
+- **`env` passes through to inner commands untouched, `stdin` included.** `echo hi | node s.js`
+  therefore lets the script's first stdin-reading command consume the pipe, exactly as real node
+  inherits stdin to a child. It is single-use, so a second reader gets nothing — which is what an
+  inherited fd does.
+
+### Acceptance criteria — CONFIRM BEFORE ANY CODE
+
+- [ ] **AC-1** A script running `await echo('hi')` gets back `['hi']` — the same stdout the prompt
+      shows for `echo hi`. The value is an ordinary array: `.join`, `.filter`, `.map` all work.
+- [ ] **AC-2** The returned array carries `.exitCode`: 0 for a command that succeeded, the
+      command's own code when it failed (`cat` on a missing file → 1).
+- [ ] **AC-3** **A nonzero exit does not throw.** The script keeps running and can branch on
+      `.exitCode`. Only genuine JS errors, refusals and flag failures stop it.
+- [ ] **AC-4** An inner command's `error` and `dim` lines reach the **terminal** and are **not** in
+      the returned array, interleaved in the order they happened with the script's own
+      `console.log`. This is decision 4's capture rule and the pipeline's stderr rule, agreeing.
+- [ ] **AC-5** Hyphenated commands are reachable by their camelCase identifier — `redisCli`,
+      `aircrackNg`, `airodumpNg`, `newGame` — and the raw hyphenated name is not a binding.
+- [ ] **AC-6** Positional coercion: a number becomes its string (`nc(4444, {'-l': true})` listens
+      on 4444); `undefined` and `null` throw `TypeError: <name>() argument <n> is undefined`.
+- [ ] **AC-7** A trailing plain object is the flags map, with dashed keys, validated against the
+      command's own `FlagSpec`: `apt('list', {'--installed': true})` works; `{'-p': 2222}` coerces
+      to `'2222'`; an undeclared flag throws `<name>: unrecognized option: --nope`; `true` passed to
+      a `'string'` flag and a string passed to a `'boolean'` flag each throw. The script bypasses
+      `bindFlags`, so without this it would have a silent failure mode the prompt does not have.
+- [ ] **AC-8** The ten `withoutScript` commands refuse — `ssh`, `su`, `nc` (connect form), `exit`,
+      `reboot`, `nano`, `lynx`, `mysql`, `redis-cli`, `ftp` — throwing
+      `<name>: cannot be run from a script`, printed bare, `node` exits 1, and everything the script
+      printed first is kept. **The refusal happens before `execute`**: a refused `su` pushes no
+      session and a refused `ssh` writes no `auth.log` line.
+- [ ] **AC-9** `nc`'s exemption works both ways: `nc('10.0.0.5', 4444)` refuses, and
+      `nc(4444, {'-l': true})` runs and returns `['Listening on 0.0.0.0 4444']`. This is the
+      function form of `withoutScript`, decided against Phase 3's `script_exec` beat.
+- [ ] **AC-10** `withoutTty` still applies from a script: in a session with no terminal behind it,
+      `scp(…)` refuses with its own `withoutTty` string. `scp` is deliberately not in the
+      `withoutScript` set, so this is the only thing standing between a pty-less session and a
+      masked password prompt nobody can answer.
+- [ ] **AC-11** A command whose binary is not installed answers `bash: nmap: command not found.
+      Install with: apt install nmap` as an error line with `.exitCode === 127`, and the script
+      continues — the same thing the prompt does, which is decision 8's invariant.
+- [ ] **AC-12** A script may declare `const nmap = …` at its top level and it shadows the injected
+      binding. Slice 1's block wrap, now carrying ~46 names.
+- [ ] **AC-13** **Registry invariant**: every registered command name derives a JS identifier that
+      is valid, unique across the registry, and not a reserved word. The day someone adds a command
+      named `class`, every script in the game dies with a `SyntaxError` the player cannot read, so
+      this is pinned in `registry.test.ts` beside the existing name/category invariants.
+- [ ] **AC-14** `man node` documents the call surface this slice ships — that every command is
+      callable, awaited, returns `string[]` with `.exitCode`, takes a trailing flags object with
+      dashed keys, that spreading the array drops `.exitCode`, and that the pivot commands refuse —
+      and names what is still missing (`fs`, `process.argv`, `sleep`).
 
 ### RED
 
-Behavior tests, in this order — each must fail for the right reason before any production change:
+Behavior tests in this order; each must fail for the right reason before any production change.
 
-1. **`console.log('hello')` reaches the terminal.** The sharpest RED: no `node` command exists, so
-   the line is `command not found`. Assertions read the **returned `CommandResult.lines`**, not an
-   `env.output` spy — that is the approved mechanism above, and it is what makes the pipe work.
-2. **The three sinks** — assert the line KIND, not just the content.
-3. **Formatting** — two arguments with a space; an object as JSON; a `string[]` one per line.
-4. **The block wrap** — a script whose first statement is `const console = …`. Must use `const`;
-   `var` would pass without the wrap and prove nothing.
-5. **Permissions, both directions** — the default-perms file RUNS for a `user`; an unreadable one
-   is refused.
-6. **The three file errors + exit codes.**
-7. **A throw**: prior output retained, error line, exit 1.
-8. **A syntax error**: same shape.
-9. **Empty script**: no output, exit 0.
-10. **`await` works.**
+1. **`await echo('hi')` returns `['hi']`.** The sharpest RED: `echo is not defined`, a
+   `ReferenceError` from the sandbox. `echo` is a shell builtin with no binary gate, so nothing but
+   the missing binding can be the reason it fails.
+2. **`.exitCode`** — success, then a failing `cat` for the nonzero case.
+3. **Nonzero does not throw, and stderr is split** — assert the error line reached the result's
+   lines and is *absent* from the array.
+4. **camelCase bindings** — `redisCli` resolves; assert the raw name is not a binding.
+5. **Coercion** — a number positional; `undefined` throws.
+6. **Flags** — accepted and mapped, then the three throw cases.
+7. **`withoutScript`** — the refusal wording and exit 1, **plus a no-side-effect assertion**
+   (`su` pushed no session). A test that only checked the message would pass with the check moved
+   after `execute`.
+8. **`nc` both ways.**
+9. **`withoutTty` from a script** in an `nc`-kind session.
+10. **`command not found` inside a script**, exit 127, script continues.
+11. **`const nmap = …` shadows.**
+12. **The registry identifier invariant.**
+13. **`man node`** — whole rendered lines, as slice 1's mutation gate established.
 
-**Mutants to design against** (from `mutation-testing`'s mutator rules — test design only; the
-harness runs once at PR readiness):
+**Mutants to design against** (mutator rules, test design only — the harness runs once at PR
+readiness):
 
-- **Re-introducing the execute check** must fail AC-5. That is why AC-5 asserts the POSITIVE case
-  against a file whose `execute` is explicitly `['root']` while the session is `user` — a test that
-  only checked the read refusal would pass with the bug restored.
-- **Swapping `error` for `text`** on the failure path must fail AC-3/AC-7 — so assert the sink.
-- **Flipping any error's `exitCode` 1 → 0** must fail — so every error AC asserts its exit code.
-- **Dropping the block wrap** must fail AC-4 — hence `const`, not `var`.
-- **Joining `console.log` arguments with `''`** must fail AC-2 — hence a two-argument assertion.
-- **The formatter falling back to `String(value)`** must fail AC-2's object case.
-- **Returning exit 0 after a throw** must fail AC-7.
+- **Dropping the `withoutScript` check**, or **moving it after `execute`** → RED 7's side-effect
+  assertion is the only thing that catches the second.
+- **Returning every line instead of only `text`** → AC-4.
+- **`.exitCode` hard-coded to 0** → AC-2's failing case.
+- **Coercing `undefined` to `'undefined'`** → AC-6.
+- **Skipping flag validation entirely** → AC-7's three cases.
+- **`nc`'s function form always refusing, or never refusing** → AC-9 needs both directions.
+- **The camelCase derivation returning the raw name** → this one is loud rather than subtle:
+  `aircrack-ng` as a formal parameter is a `SyntaxError` that takes every script test down at once.
+- **Throwing on a nonzero exit** → AC-3.
 
 ### GREEN — the minimum, in dependency order
 
-1. **`core/scripting/format.ts`** — one formatter, shared with `fs` in slice 3: a `string` passes
-   through, a `string[]` joins with a newline, anything else is JSON. The array rule is deliberate
-   and is what makes `console.log(await hydra(…))` print captured output as lines in slice 2,
-   rather than as a JSON array.
-2. **`core/scripting/runScript.ts`** — the host. A pure function over `(source, context)`:
-   block-wrap the source, build an `AsyncFunction` keyed by the context's own keys, await it,
-   and return `{ ok: true } | { ok: false, error: unknown }`. It knows nothing about commands, the
-   terminal, or `CommandEnv` — which is what lets Phase 3's `script_exec` reuse it instead of
-   duplicating the sandbox the way legacy's `utils/remoteScriptRunner.ts` did.
-3. **`core/scripting/console.ts`** — builds a `console` whose three methods format their arguments
-   and push `TerminalLine`s onto a collector the caller owns. Slice 2 swaps that collector for the
-   streamed emitter without touching this module's contract.
-4. **`core/commands/node.ts`** — the `Command`: `tier: 'guest'`, `category: 'filesystem'`,
-   `availability: { kind: 'installed-package', packageName: 'node' }`, the manual, and an `execute`
-   that validates the operand, reads the file, runs the host, and maps the outcome to a
-   `CommandResult`.
-5. **`registry.ts`** — one import, one entry in `builtins`.
-6. **Version bump** to `0.196.0` in `v2/package.json` + `v2/package-lock.json`
+1. **`core/commands/types.ts`** — `withoutScript?: string | ((args, flags) => string | undefined)`,
+   with a doc comment carrying decision 2's argument (the value IS the refusal; the `nc` function
+   form exists because the listen/connect split is already the first line of `nc`'s `execute`).
+2. **Ten command modules** — one `withoutScript` line each; `nc`'s is the function.
+3. **`core/shell/runLine.ts`** — export `collectStageOutput` and `hasTty`. No behaviour change.
+4. **`core/scripting/commandContext.ts`** — the adapter. Derives the identifier, splits the trailing
+   flags object, coerces positionals, validates flags, applies the two refusal gates, invokes, and
+   shapes the result. Exports `ShellError`.
+5. **`core/commands/node.ts`** — build the context (`console` + the commands), and render a
+   `ShellError` as its bare message.
+6. **`registry.test.ts`** — the identifier invariant.
+7. **Version bump** to `0.197.0` in `v2/package.json` + `v2/package-lock.json`
    (`npm install --package-lock-only`).
 
-### Three things GREEN must get right
+### Two things GREEN must get right
 
-**`console` must be INJECTED, and that is the feature — not a convenience.** `console` is a real
-browser global, so an `AsyncFunction` body that does not shadow it sends every `console.log`
-to devtools and the player sees an empty terminal. The injection is what makes the script's output
-the game's output.
+**The returned value is an array with an extra property, not a wrapper object.**
+`String.prototype.match` returns exactly this shape, so it is canonical JS rather than a trick, and
+it is what makes `fs.writeFile(path, out)` work unchanged in slice 3. The cost — spreading the array
+drops `.exitCode` — belongs in the manual (AC-14), not in a defensive mechanism.
 
-**The block wrap is load-bearing from day one, though only one name is injected today.** Slice 2
-injects a name per command, and that is when a player's `const cat = …` would start killing scripts
-with a `SyntaxError` they cannot see. Pinning it here with AC-4 means slice 2 inherits it proven
-rather than discovering it.
-
-**Do not add the execute check, and say why in the code.** Its absence is epic decision 8 — real
-`node` opens a script for reading, and v2 has no `chmod` to escape a default `execute: ['root']`.
-A reviewer will otherwise read the missing check as an oversight and "fix" it, hard-blocking every
-non-root player from running a script they just wrote.
-
-### Deliberately not in slice 1
-
-Command injection, the `withoutScript` refusals, the flags object, `fs`, `process.argv`, `sleep`,
-Ctrl-C handling, and the live busy label — each belongs to the slice that first makes it
-observable. **Browser globals other than `console` are not shadowed** (`fetch`, `localStorage`,
-`window`): a player who reaches for them in their own script is doing it as deliberately as the
-accepted tab-hang, and a blocklist is always incomplete. **This stops being true if Phase 3's
-`script_exec` ever runs a script one player wrote inside another player's client** — record that
-condition with the feature rather than discovering it there.
+**The refusal is checked before `execute`, and a test must be able to tell.** Assert a side effect
+that did *not* happen, not just the message.
 
 ### REFACTOR
 
-Assess only if it earns its place. The one live candidate: `cat.ts:30-34` maps the same three
-`FsReadResult` errors to the same three messages, and `nano.ts:25-27` maps two of them. A shared
-`fsReadError(command, target, error)` would serve three call sites — but `grep` quotes its target
-(`grep: '<target>'`), so the family is not uniform and consolidating it may cost more clarity than
-it buys. Decide with the code in front of you; the owner has pruned speculative abstraction before.
+Assess only if it earns its place. The live candidate: after exporting `collectStageOutput` and
+`hasTty`, `runLine.ts`'s `prepareStage` and the script adapter perform the same three steps in the
+same order against different inputs. **Do not unify them speculatively** — the shapes genuinely
+differ (tokens vs. JS values, a returned error vs. a thrown one) and the owner has pruned
+speculative abstraction before. Revisit only if slice 2b or 3 produces a third caller.
 
 ### PRE-PR MUTATION
 
-Run focused on the changed production files: `core/scripting/format.ts`,
-`core/scripting/runScript.ts`, `core/scripting/console.ts`, `core/commands/node.ts`. `registry.ts`
-is a declaration list already covered by its invariant test. Address valuable survivors and re-run
-within the same gate. Expect the manual page to dominate the survivor count — conventions §4:
-*"a command's mutation score is mostly its manual."*
+Run focused on `core/scripting/commandContext.ts` and `core/commands/node.ts`; `runLine.ts` changes
+only its export keywords and `registry.ts` is a declaration list already covered by its invariant
+test. Address valuable survivors and re-run within the same gate. Expect the manual page to dominate
+the survivor count (conventions §4) and kill it the way slice 1 did — whole rendered `man node`
+lines. Use a throwaway `vite.mutation.config.ts` + `stryker.mutation.json` and delete both after.
 
-**RESULT 2026-09-01: 105 mutants, 101 killed (96.2%), 4 survivors accepted.** First pass killed 86
-of 105. The prediction held exactly — 16 of the 19 survivors were the manual block, and none sat in
-the executable half. Two rounds of killing:
+**RESULT 2026-09-01: 183 mutants, 177 killed (96.7%), 6 survivors, all accounted for.** First pass
+killed 173. The prediction about the manual was wrong this time — only ONE manual mutant survived
+(the new example's description), because slice 1's whole-rendered-line habit was already in the
+test. Three real gaps became tests of behaviour a player hits:
 
-- **The manual (16).** Killed by asserting whole rendered `man node` LINES rather than words of
-  them, the way `man.test.ts` pins `ls` — the NAME line, the argument and its description, and
-  both examples with their descriptions. Not a ceremony: the manual is the whole discoverability
-  story for scripting until the tutorials land, so what the player reads is worth pinning.
-- **`format.ts` (3).** These were real gaps, and each became a test of behavior a player will hit:
-  `every` → `some` and `typeof element === 'string'` → `true` both survived because no test used a
-  MIXED array (`['open', 22]` must be JSON, not two lines), and the `JSON.stringify` fallback
-  survived because nothing printed a value JSON has no answer for (`console.log(undefined)` must
-  print `undefined`, not a blank line).
+- **A string value for a string flag.** `typeof value !== 'string'` → `typeof value !== ''` survived
+  because every test passed `-p` a NUMBER (`{'-p': 2222}`), and the mutant only diverges on a
+  string. `{'-p': 'ssh'}` is the commoner call of the two.
+- **The tty rule's positive direction.** `!hasTty(…) && withoutTty !== undefined` → `||` survived
+  because no test drove a `withoutTty` command from a script that HAD a terminal — which is exactly
+  `scp`, deliberately not in the refusal set. The two conditions collapsed into `or` would refuse
+  the one command the split exists to permit.
+- The manual example's description line.
 
-**The 4 accepted survivors are `tier: 'guest'` and the three parts of
-`availability: { kind: 'installed-package', packageName: 'node' }`** — declared-but-unenforced
-metadata. Neither field has a runtime consumer anywhere in `src/` (`.tier` matches only unrelated
-code; `.availability` only `daemon.ts` forwarding it), because the real gate is
-`wrapWithBinaryCheck` reading the live filesystem, which AC-11 covers. `types.ts` already records
-this about `AvailabilityRule`: *"a field nobody had to fill in is a field that can be declared
-without being enforced."* Every command in the registry carries the same unkillable pair; a test
-asserting the literal back would pin a field nothing reads.
+**Two survivors are accepted as equivalent, both hand-verified rather than argued:**
 
-Run with a throwaway `vite.mutation.config.ts` + `stryker.mutation.json` (both deleted after, per
-conventions §4 — their `include`/`mutate` lists are per-slice and would rot): the narrowed
-`include` made the dry run 17 tests in 3s instead of 4080, and each battery finished in ~32s.
+- **`tier: 'guest'` and the three parts of `availability` (4 mutants)** — declared-but-unenforced
+  metadata with no runtime consumer anywhere in `src/`, the same unkillable pair slice 1 accepted
+  and every command in the registry carries.
+- **`SHELL_ERROR_NAME = 'ShellError'` → `''`** — the tag is written by `shellError` and read by
+  `isShellError` through the same constant, so both sides move together. Hand-applied: suite stays
+  green. A test asserting the tag would pin an implementation detail, not the behaviour, which is
+  already covered by "a refusal prints bare and a JS throw prints prefixed".
 
-**Wire-check: `N/A`.** No `api/` path changes. The host is pure client, `env.fs.read` is a local
-walker read, and nothing in this slice reaches a server. Alternate evidence is the jsdom behavior
-suite plus AC-11 proving the availability gate through the real registry wrapper.
+**One reported survivor is a FALSE survivor and was hand-verified as a kill.** Line 185's
+`ConditionalExpression → true` (the tty gate) is still reported Survived; applying it by hand takes
+**10 tests red**. Same for line 106 → `true` on the first pass, which took 1 test red. This is the
+`perTest` mis-attribution family §4 already records — the tests build their commands from
+module-scope consts, so Stryker attributes the wrong tests to those lines. **Before believing a
+survivor in this file, apply it by hand: a suite that goes red is a kill however the runner scored
+it.**
 
-### Browser close-out — RUN 2026-09-01, PASSED
+⚠️ **`-c` IS `--concurrency`, NOT the config file.** The config file is a POSITIONAL argument:
+`npx stryker run stryker.mutation.json --concurrency 4`. Getting this wrong is silent and expensive:
+`-c stryker.mutation.json` sets concurrency to the filename, which fails validation with
+`Config option "concurrency" must match pattern "^(100|[1-9]?[0-9])%$"` — an error that names the
+wrong option and sends you off adjusting concurrency. Passing `--concurrency 4` then satisfies the
+validator, the throwaway config is **never loaded**, and Stryker silently falls back to the
+committed `stryker.config.json` and mutates all of `src/core` — **219 files, 15,975 mutants**
+instead of 183. It ran 75 minutes at four pegged cores before being killed, and reads exactly like a
+slow machine. The tell is the instrumenter's own line: `Instrumented 2 source file(s) with 183
+mutant(s)` is right, `Instrumented 219` is not. **Check that line before letting a battery run.**
+Correctly invoked, this battery takes **under a minute**.
 
-The beat the epic named, driven end to end at v0.196.0: fresh player → `aircrack-ng` on
-`MIDNIGHT-DINER` → `nmcli connect` → `ssh root@192.168.202.1` into the AP gateway → `apt install
-node` **there** → `nano hello.js` **there** → `node hello.js` **there**. Everything the jsdom suite
-asserts held on a machine that is not the player's own, whose tree comes from the server.
+**Wire-check: `N/A`.** No `api/` path changes. Every inner command is invoked through the same
+`Command.execute` with the same `env` the prompt would have handed it, so anything that reaches a
+server does so through a path already proven. Alternate evidence is the jsdom behaviour suite plus
+AC-11 proving the availability gate through the real registry wrapper.
 
-What the run proved that no unit test could:
+### Browser close-out
 
-- **The install beat is real.** Before installing, `node hello.js` answered `bash: node: command
-  not found. Install with: apt install node`; after, the same line ran the script. The registry
-  wrapper, the apt package and the command are wired to each other, not just to their own tests.
-- **The three sinks are visually distinct** — `console.log` amber, `console.debug` dim,
-  `console.error` red — which is a claim about the renderer that a `TerminalLine` assertion cannot
-  make.
-- **The pipeline decision pays off exactly as argued.** `node hello.js | grep OPEN` filtered the
-  script's stdout, and `node hello.js > scan.txt` captured it — while the `debug` and `error` lines
-  stayed on screen in both cases, because only `text` pipes. That is real shell behaviour
-  (`>` captures stdout, stderr still prints) and nobody wrote a line of code for it; it fell out of
-  putting the output in the command's own `CommandResult`. Had decision 5's original `env.output`
-  routing survived, both would have produced nothing.
-- **The execute-bit refusal is load-bearing, not theoretical.** Back on the workstation as `alice`,
-  a script written with `nano` reports `-rwxrw---- alice 48 mine.js` — root may execute, the `user`
-  tier may not — and `node mine.js` ran it anyway. An execute check would have hard-blocked the
-  player from the file they had just written, with no `chmod` to escape it.
-- Error paths in the real terminal: `SyntaxError: Unexpected number` (no stack, terminal survives),
-  `node: nope.js: No such file or directory`, `node: /etc: Is a directory`.
-- `man node` renders in full, and `help` lists `node [script]  Run a JavaScript file` under
-  **Filesystem** between `nano` and `pwd`.
+Smaller than slice 1's, because the beat the epic names belongs to slice 3. On the player's own
+workstation, with `nmap` installed: a script that runs `await nmap(gateway)` and `console.log`s
+what it found, proving the returned lines are the scan the prompt shows; then a script whose first
+line is `await ssh('root@' + gateway, 'pw')`, proving the refusal reads like the prompt's and the
+script stops there. Both are claims about ~46 real commands wired to a real registry, which is
+exactly where a jsdom fixture could be lying.
 
-One E2E-harness note, not a product defect: the §7 nano trap fired again — after `^X`, the
-"terminal is back" probe (`input` present, `textarea` null) reported true **twice** while the
-editor was still open, so the next two shell commands were typed into the buffer. Caught by
-reading the buffer back; recovered with the native-value-setter snippet. The lesson already in
-conventions §7 stands and is worth restating: **do not discard the typed-value echo** — it is the
-only signal that distinguishes "the command ran" from "the command was typed into a file".
+**RUN 2026-09-01 at v0.197.0 — PASSED.** Fresh player → `aircrack-ng` on `WEYLAND-NET` →
+`nmcli connect` (192.168.139.27, gateway `.1`) → `su root` → `apt install nmap` + `apt install node`
+→ `nano sweep.js` → `node sweep.js`. Four things held that no unit test can claim:
+
+- **A script's `nmap` output is byte-identical to the prompt's.** Ran `nmap 192.168.139.1` at the
+  prompt first as a control, then `const out = await nmap('192.168.139.1')` from a script.
+  **Watch the count**: the script reported `lines:10` against a control that *looks* like 7 lines,
+  which reads like a defect and is not. `JSON.stringify(out)` settles it — the array is
+  `["Starting Nmap scan — …","","Nmap scan report for router01 (…)","Host is up.","","PORT     STATE
+  SERVICE","22/tcp   open  ssh","161/udp  open  snmp","","Nmap done — 1 host up"]`: seven content
+  lines plus **nmap's own three blank spacer lines**, which the DOM collapses in `innerText` for the
+  typed command too. Count what a command EMITS, not what the page renders.
+- **`out.filter(…)` works** — `console.debug('open: ' + out.filter(…).length)` printed `open: 2`,
+  so the array-with-a-property really is an ordinary array to a player.
+- **The refusal reads like the prompt's.** `node hop.js` printed `before the hop`, then
+  `ssh: cannot be run from a script` **bare — no `Error:` prefix** — and the line after the `ssh`
+  call never ran.
+- **The availability gate reaches inside a script.** `await hydra(…)` on a box without hydra
+  answered `bash: hydra: command not found. Install with: apt install hydra` and the script carried
+  on to print `exit=127`. That is decision 8's invariant proved on a real box: a script does what
+  the player could type, and nothing more.
+
+Three sinks render distinctly, confirmed by computed style rather than by eye — `console.log` and
+the captured command output share the plain text colour `rgb(245,158,11)`, `console.debug` carries
+`text-[var(--theme-text-dim)]`, the refusal carries `text-[var(--theme-error)]`.
+
+Two harness notes, neither a product defect:
+
+- **`echo $?` is not a thing here** — the shell has no variable expansion, so it echoes `exit=$?`
+  literally. A script's exit code is not observable in-game; the jsdom suite is what pins it.
+- **The §7 nano trap fired again, and the reconfirm is what caught it.** After `^X` the
+  "terminal is back" probe returned `true` on its FIRST check and then `false` twenty-four times
+  running — the editor had never closed. Polling once would have typed the next shell command into
+  the buffer. `^X` also needed two attempts on three of four files even with a real `click`
+  immediately before the chord. **Poll for the terminal's return, then reconfirm after a pause, and
+  treat a lone `true` as noise.**
 
 ### PR-ready when
 
-AC-1…AC-12 met; `npm run typecheck` and `npm run lint` clean; the full non-watch test suite green;
+AC-1…AC-14 met; `npm run typecheck` and `npm run lint` clean; the full non-watch test suite green;
 the mutation gate closed or its survivors argued; the version bumped in both files; and the human
 approves the commit.
 

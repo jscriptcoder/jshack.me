@@ -198,6 +198,7 @@ export const redisCli: Command = {
   availability: { kind: 'localhost-only' },
   // What it opens is a prompt, so there has to be a terminal for the prompt to be in.
   withoutTty: 'redis-cli: must be run from a terminal',
+  withoutScript: 'redis-cli: cannot be run from a script',
   flags: { '-p': 'string' },
   manual: {
     synopsis: 'redis-cli [-p port] <host> [password]',
