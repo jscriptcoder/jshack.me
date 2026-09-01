@@ -358,7 +358,7 @@ PHASE 1 — THE DOORS  (near-term focus)
       D9 slice 2a a script runs the tools             ✔ SHIPPED v0.197.0 (#476)
       D9 slice 2b a script speaks while it works      ✔ SHIPPED v0.198.0 (#477)
       D9 slice 3 a script keeps what it found         ✔ SHIPPED v0.199.0 (#478)
-      D9 slice 4 a script is reusable and can be stopped  ▸ NEXT — groundwork, not planned
+      D9 slice 4 a script is reusable and can be stopped  ▸ IN PROGRESS — green, gates outstanding
   D10 polish (long-tail comfort commands)
 PHASE 2 — DISCOVERY
   X1  DNS + nslookup / dig
@@ -2983,13 +2983,19 @@ no `api/` change, and the one server contract an append leans on — a 409 on a 
 was already proven live by `scripts/testModifiedSinceOpen.ts`. The wire-check stays `N/A` across
 all of D9, as the grill said it would.
 
-What is left is **arguments, `sleep(ms)` and Ctrl-C (4)**, whose groundwork is gathered but NOT
-planned. Two things there are bigger than they look: slice 2b **corrected rather than delivered**
-its Ctrl-C criterion (a script cannot produce `^C` today, because `runScript` is total so `node`'s
-stream never rejects and the UI's abort catch never fires), and locked decision 9's *"the adapter
-checks `env.signal` before and after every command invocation"* was **never built** — there is no
-`signal` reference in `commandContext.ts` at all. Per-slice status, as-built records and that
-groundwork are in [`d9-node-scripting.md`](d9-node-scripting.md).
+What is left is **arguments, `sleep(ms)` and Ctrl-C (4)**, now **PLANNED** (2026-09-01) with six
+further locked decisions (12–17) and fifteen acceptance criteria. Two things in it are bigger than
+they look: slice 2b **corrected rather than delivered** its Ctrl-C criterion (a script cannot
+produce `^C` today, because `runScript` is total so `node`'s stream never rejects and the UI's
+abort catch never fires), and locked decision 9's *"the adapter checks `env.signal` before and
+after every command invocation"* was **never built** — there is no `signal` reference in
+`commandContext.ts` at all. The plan resolves both: `node` rethrows `env.signal.reason` whenever
+the RUN was aborted (whether the script failed or finished, so a script that swallows the throw
+cannot hide the interrupt) and lets the existing renderer at `state.ts:1691` say `^C`. Two of the
+three pieces cost almost nothing — `AbortSignal.throwIfAborted()` is already in this project's TS
+lib, and `bindFlags`' `--` sentinel already passes dashed arguments through to a script, so the
+shell does not change. Per-slice status, as-built records and the full plan are in
+[`d9-node-scripting.md`](d9-node-scripting.md).
 **🔍 GRILLED 2026-09-01** — eleven locked decisions and a four-slice spine in
 ["D9 — resolved scope & decisions"](#d9--resolved-scope--decisions-grill-me-2026-09-01). It is the one
 Phase 1 row that is **not a door** — no daemon, no port, no placement, no cross-player half, and **no

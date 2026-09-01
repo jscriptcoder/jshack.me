@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { buildCommandContext, scriptIdentifier } from './commandContext';
 import { cat } from '../commands/cat';
 import { echo } from '../commands/echo';
@@ -335,5 +335,59 @@ describe('a script calling the machine commands', () => {
     const out = await context.cat('missing.txt');
 
     expect(out.exitCode).toBe(1);
+  });
+});
+
+describe('a run the player interrupted', () => {
+  /** A command that records every time it actually ran, so a test can say what
+   *  the guard PREVENTED rather than only what it reported. */
+  const recorder = (
+    duringRun: () => void = () => undefined,
+  ): { readonly command: Command; readonly runs: ReturnType<typeof vi.fn> } => {
+    const runs = vi.fn<Command['execute']>(async () => {
+      duringRun();
+      return { kind: 'sync', lines: [{ kind: 'text', content: 'scanned' }], exitCode: 0 };
+    });
+    return {
+      command: {
+        name: 'probe',
+        description: 'Pretend to scan a host',
+        category: 'general',
+        tier: 'guest',
+        availability: { kind: 'any-machine' },
+        execute: runs,
+      },
+      runs,
+    };
+  };
+
+  it('will not START a command once the run has been aborted', async () => {
+    // The half that matters most, and the half a script cannot defeat. A loop
+    // that catches its own failures — `try { await nmap(h) } catch {}` — swallows
+    // whatever the guard throws and comes straight back for the next host. If
+    // the only check ran after `execute`, every one of those iterations would
+    // send a real command to the server first: Ctrl-C would stop the script
+    // without stopping the work.
+    const controller = new AbortController();
+    const { command, runs } = recorder();
+    const { context } = contextOf([command], mockCommandEnv({ signal: controller.signal }));
+
+    await context.probe('10.0.0.1');
+    controller.abort();
+
+    await expect(context.probe('10.0.0.2')).rejects.toBe(controller.signal.reason);
+    expect(runs).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports the interrupt for a command that finished as the key went down', async () => {
+    // The other half: the command ran to completion, so a before-only guard has
+    // nothing left to catch. Handing its output back would have the script act
+    // on the host it was told to stop scanning — and record it.
+    const controller = new AbortController();
+    const { command, runs } = recorder(() => controller.abort());
+    const { context } = contextOf([command], mockCommandEnv({ signal: controller.signal }));
+
+    await expect(context.probe('10.0.0.1')).rejects.toBe(controller.signal.reason);
+    expect(runs).toHaveBeenCalledTimes(1);
   });
 });

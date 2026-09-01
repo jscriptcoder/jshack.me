@@ -158,6 +158,13 @@ export const buildCommandContext = (
     [...commands.values()].map((command) => [
       scriptIdentifier(command.name),
       async (...args: readonly unknown[]): Promise<CommandOutput> => {
+        // Asked BEFORE anything is bound, and it is the half a script cannot
+        // defeat. A loop that catches its own failures — `try { await nmap(h) }
+        // catch {}` — swallows whatever this throws and comes back for the next
+        // host; without the check the next host would be scanned for real
+        // first, so Ctrl-C would stop the script without stopping the work.
+        env.signal.throwIfAborted();
+
         const trailing = args.at(-1);
         const given = isFlagsObject(trailing) ? trailing : undefined;
         const rest = given === undefined ? args : args.slice(0, -1);
@@ -195,7 +202,13 @@ export const buildCommandContext = (
         try {
           const result = await command.execute(env, positional, flags);
           const { stdout, passthrough, exitCode } = await collectStageOutput(result);
+          // Emitted BEFORE the second check, deliberately: the command really
+          // did write those lines, and the interrupt is not a reason to keep
+          // them from the player. Only the RESULT is withheld — a command that
+          // finished as the key went down must not hand its output back to the
+          // script, or the sweep records the host it was told to stop scanning.
           passthrough.forEach(emit);
+          env.signal.throwIfAborted();
           return withExitCode(stdout, exitCode);
         } finally {
           env.setChildCommand(null);

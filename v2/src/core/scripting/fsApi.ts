@@ -65,8 +65,20 @@ export type ScriptFs = {
   readonly appendFile: (path: string, data: unknown) => Promise<void>;
 };
 
+/** Every method opens by asking the signal, because nothing new should go to
+ *  the server once the player has said stop. It is the same rule the command
+ *  adapter's leading check applies, on the other surface that reaches the
+ *  journal — and it is the ONLY interruption point a loop that touches files
+ *  and never calls a command has at all.
+ *
+ *  Before the work and never after: an append is a read-modify-write, so an
+ *  interrupt landing inside its reload → read → compose → write window would
+ *  otherwise still put a composed whole file into the journal. Once that has
+ *  happened, throwing would deny something that actually did. */
 export const buildFsApi = (env: CommandEnv): ScriptFs => ({
   readFile: async (path) => {
+    env.signal.throwIfAborted();
+
     // Off the machine, not off `env.fs`. A script that appends and then reads
     // its own report is the loop this whole surface exists for, and against the
     // cached tree it would be handed the content from before the run — not an
@@ -81,6 +93,8 @@ export const buildFsApi = (env: CommandEnv): ScriptFs => ({
   },
 
   writeFile: async (path, data) => {
+    env.signal.throwIfAborted();
+
     const resolved = resolveWriteTarget(env.fs, path);
     if (!resolved.ok) {
       throw shellError(formatNodeFsError(path, resolved.error));
@@ -98,6 +112,8 @@ export const buildFsApi = (env: CommandEnv): ScriptFs => ({
   },
 
   appendFile: async (path, data) => {
+    env.signal.throwIfAborted();
+
     // An append is a read-modify-write, so it is asked of the MACHINE, never of
     // the tree this client is holding. That distinction is the whole of
     // `FsView.reload()`: a whole-file write composed from the cached copy does

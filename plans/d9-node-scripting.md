@@ -4,8 +4,10 @@
 **Status**: Active — **slices 1, 2a, 2b and 3 are all MERGED and fully evidenced below**:
 `cea7b5a3` (PR #475) at v0.196.0, `eee52ddf` (PR #476) at v0.197.0, `75d3af09` (PR #477) at
 v0.198.0, `007cf5b2` (PR #478) at v0.199.0.
-**Slice 4 is the next and LAST work in D9**: groundwork is gathered at the bottom of this file
-but it is NOT planned and its decisions are NOT locked.
+**Slice 4 is the next and LAST work in D9, and it is now PLANNED** at the bottom of this file:
+six decisions confirmed with the owner 2026-09-01, fifteen acceptance criteria, and a RED order.
+**Implementation is GREEN** at v0.200.0; the mutation gate and the browser close-out are still
+outstanding.
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D9 — resolved scope & decisions
 (grill-me, 2026-09-01)", eleven locked decisions.
 
@@ -16,8 +18,8 @@ but it is NOT planned and its decisions are NOT locked.
 2. Read "Slice 1 — as built" below for what already exists and why it is shaped that way. Its
    acceptance criteria are closed; do not reopen them.
 3. Slices 1, 2a, 2b and 3 are merged; read them for what exists and why, not as work to do.
-   **Start at "Slice 4 — groundwork" at the BOTTOM of this file** — it lists what the codebase
-   already settles and the open questions to resolve before planning.
+   **Start at "Slice 4 — a script is reusable and can be stopped" at the BOTTOM of this file.**
+   Its decisions 12–17 are LOCKED; do not re-litigate them. Begin at its RED order.
 4. All commands run from `v2/`. Gates: `npm run typecheck`, `npm run lint`, the full non-watch test
    suite. Wait for commit approval before every commit.
 
@@ -48,7 +50,7 @@ leaving the session it started in.
 | 2a | a script runs the tools | `await nmap(gw)` returns what the prompt shows; `ssh(…)` refuses | **MERGED `eee52ddf`, v0.197.0** |
 | 2b | a script speaks while it works | a sweep's `console.log` paints live; the spinner names `hydra`, not `node` | **MERGED `75d3af09`, v0.198.0** |
 | 3 | a script keeps what it found | `/root/sweep.js` chains `hydra` and captures to a file | **MERGED `007cf5b2`, v0.199.0** |
-| 4 | a script is reusable and can be stopped | `process.argv`; Ctrl-C at every await; `sleep(ms)` | **NEXT — groundwork below, not planned** |
+| 4 | a script is reusable and can be stopped | `node sweep.js 10.0.0.5 ssh` uses its argument; a long sweep takes `^C` and keeps what it printed | **NEXT — PLANNED below, not started** |
 
 The epic's slice 2 is **split into 2a and 2b** (owner decision, 2026-09-01). The call surface and
 the liveness fix are separable and separately observable, and they fail differently: 2a is an
@@ -1140,17 +1142,31 @@ the write list. The gates earned their cost here rather than confirming what was
 
 ---
 
-## Slice 4 — groundwork, gathered but NOT yet planned
+## Slice 4 — a script is reusable and can be stopped
 
-The **last** slice in D9. Facts established while building slices 1–3, recorded so slice 4's
-planning starts from them rather than rediscovering them. **This is not a plan** — no acceptance
-criteria are confirmed and no decisions are locked. Resolve the open questions first.
+**The LAST slice in D9, and the door's close-out.** Planned 2026-09-01; six decisions confirmed
+with the owner before any code.
 
-**What slice 4 is for.** Three things the manual currently confesses in one sentence —
-*"Scripts cannot yet take arguments of their own or sleep"* — plus the interrupt that slice 2b
-corrected rather than delivered. A script today is a fixed program that runs to completion: it
-cannot be pointed at a different subnet without editing it, it cannot pace itself, and Ctrl-C
-during one does not read like an interrupt.
+**Value**: a player writes one sweep and points it at a different target every time they run it,
+and a sweep that is going wrong stops when they say so — keeping what it already found.
+**Path**: prompt → `node /root/sweep.js 10.0.0.5 ssh` → `runScript` with `process` and `sleep` in
+context → `env.signal` guards in the command adapter and in `fs` → Ctrl-C aborts the run's
+controller → `node` rejects its stream → `state.ts:1691` prints `^C`.
+**Class**: behavior change.
+**Delivery**: ONE PR against `main`, v0.200.0.
+
+### Why the three pieces ship together
+
+`man node` currently confesses all of it in one sentence — *"Scripts cannot yet take arguments of
+their own or sleep."* — plus the interrupt that slice 2b **corrected rather than delivered**. A
+script today is a fixed program that runs to completion: it cannot be pointed at a different subnet
+without editing it, it cannot pace itself, and Ctrl-C during one does not read like an interrupt.
+
+They are coupled, not merely adjacent. The reserved-identifier invariant goes from `+ 2` to `+ 4`
+in one edit and only with both new names; one manual sentence dies for all three; and **decision 9
+ties `sleep` to Ctrl-C explicitly** — *"a sleeping script would otherwise be the one thing Ctrl-C
+could not reach"* — so shipping `sleep` ahead of the interrupt fix would make today's misreporting
+*more* reachable, not less.
 
 ### The three pieces, and how much each already exists
 
@@ -1160,19 +1176,18 @@ index 2, so `process.argv.slice(2)` is what a script writes. Legacy put the firs
 `argv[0]`, which is wrong against the real thing, and #464 spent a PR establishing that this project
 uses real names.
 
-`node.ts:26` is `const [target] = args;` — every extra argument is currently **ignored in silence**.
-The wiring is one more injected key beside `console` and `fs`, and `resolveAbsPath(env.fs.cwd(),
-target)` is already computed one line down, so `argv[1]` costs nothing.
+`node.ts:26` is `const [target] = args;` — every extra argument is **ignored in silence** today —
+and `resolveAbsPath(env.fs.cwd(), target)` is already computed at line 36. So the value is
+`['/usr/bin/node', <that resolved path>, ...args.slice(1)]` and costs nothing beyond the injection.
 
 **2. `sleep(ms)` — the seam exists and is already abort-aware.** `CommandEnv.sleep`
 (`commands/types.ts:1173`) is `(ms: number) => Promise<void>` whose doc says outright it *"rejects
-when `signal` fires so Ctrl-C stops a stream mid-flight"*, with the UI injecting a real
-setTimeout-backed sleep and tests an instant one. Decision 9 already says why a script gets this
-rather than `new Promise(setTimeout)`: the hand-rolled form is not abort-aware, and a sleeping
-script would otherwise be the one thing Ctrl-C could not reach.
+when `signal` fires so Ctrl-C stops a stream mid-flight"*. The UI injects `abortableSleep`
+(`ui/sleep.ts`), which rejects with `signal.reason`; tests inject an instant one. Inject `env.sleep`
+directly — no wrapper and no validation, because `setTimeout` already does the sane thing with an
+absurd or missing delay and a guard here would be the game inventing a rule real node does not have.
 
-**3. Ctrl-C is the real work, and slice 2b's AC-11 says exactly why.** ⚠️ Read that criterion
-before designing anything. What happens today:
+**3. Ctrl-C is the real work.** What happens TODAY:
 
 - `state.ts:1691` prints `^C` from **one place** — a `catch` around the stream drain, entered only
   when the result's iteration or `exitCode()` REJECTS and `controller.signal.aborted` is true.
@@ -1181,59 +1196,224 @@ before designing anything. What happens today:
   with exit 1. The UI's abort `catch` therefore never fires for a script.
 - So an aborted inner `env.sleep` rejects with `signal.reason`, the script sees an ordinary throw,
   and the player gets `AbortError: signal is aborted without reason` and exit 1 — not `^C`.
-
-The fix is for `node` to recognise that the script's failure IS the abort and let it propagate
-instead of dressing it as a script error. **That is a behaviour change in `node`, not in the UI**,
-and it is the one piece of this slice with a design question in it.
-
-⚠️ **And decision 9's other half was never built.** It says *"the adapter checks `env.signal` before
-and after every command invocation and throws the abort"*. `grep -c signal
-core/scripting/commandContext.ts` → **0**. Slice 2a built the refusal gate, the tty gate and the
-child-command label, and the signal check is simply absent. So a script looping over
-`await nmap(...)` is interruptible only to the extent that the *inner streamed command* unwinds on
-abort — the loop itself does not check, and a loop over commands that finish fast would keep going.
-This is the substance of "Ctrl-C at every await", and it is slice 4's, not a bug in 2a: 2a's
-acceptance never claimed it.
+- **And decision 9's other half was never built.** It says *"the adapter checks `env.signal` before
+  and after every command invocation and throws the abort"*; `grep -c signal
+  core/scripting/commandContext.ts` → **0**. Slice 2a built the refusal gate, the tty gate and the
+  child-command label, and the signal check is simply absent, so a loop over commands that finish
+  fast keeps going. That is slice 4's, not a bug in 2a: 2a's acceptance never claimed it.
 
 ### What the codebase already settles — do not redesign these
 
-- **`process` becomes the THIRD reserved identifier.** `registry.test.ts:93` currently reads
-  `new Set([...identifiers, 'console', 'fs']).size === identifiers.length + 2`; it becomes
-  `+ 3`. Same reasoning as `fs`: a command named `process` would silently shadow it for every
-  script. Inject it LAST alongside the other two, in `node.ts`'s context literal.
+- **`AbortSignal.prototype.throwIfAborted()` is standard and already in this project's lib**
+  (`tsconfig.app.json`: `["ES2023", "DOM", "DOM.Iterable"]`). The guard is a one-liner; do not
+  write a helper for it.
+- **`bindFlags` already implements the `--` sentinel** and `node` declares no flags, so
+  `node sweep.js -- -v 10.0.0.5` reaches `execute` as positional `['sweep.js','-v','10.0.0.5']`
+  today, with no shell change.
+- **`process` and `sleep` become the third and fourth reserved identifiers.** `registry.test.ts:93`
+  reads `new Set([...identifiers, 'console', 'fs']).size === identifiers.length + 2`; it becomes
+  `+ 4`. Neither name is a registry command today (checked). Inject them LAST alongside the other
+  two, in `node.ts`'s context literal, for the reason already written there.
 - **Shadowing already works.** `runScript` block-wraps the body, so a script's own
   `const process = …` is a legal shadow rather than a SyntaxError. Slice 1 closed that trap for
   every injected name at once; nothing to do.
+- **The UI needs no change at all.** `state.ts:1691` asks only `controller.signal.aborted`, so any
+  rejection from an aborted run prints `^C`, and `abortRunning()` (`state.ts:1487`) already aborts
+  whatever is in flight.
 - **A synchronous infinite loop stays an accepted tab-hang.** Decision 9 parks it explicitly: an
   `AbortSignal` cannot interrupt synchronous JavaScript on the main thread, the real fix is a Web
   Worker with `terminate()`, and that turns every command call into a postMessage RPC across a
   boundary `CommandEnv` does not serialize. `sleep(ms)` is what finally gives a computational script
   a yield point, which is most of the practical benefit for none of the mechanism.
+- **There is no `$?` in this shell** — `grep -n "lastExitCode\|exitCode" src/ui/state.ts` finds one
+  hit, the drain's own `await result.exitCode()`. An aborted run's exit code is unobservable, so do
+  not invent an exit 130 for it.
 - **`man node` owns the confession.** Its last sentence is the one to delete, and the page is D9's
   only discoverability surface until the tutorials land (decision 11).
 
-### Open questions, none of them answered
+### Decisions this slice makes — CONFIRMED by owner 2026-09-01
 
-- **How does `node` tell the abort from an ordinary throw?** `env.signal.aborted` at the point of
-  failure is the cheap test; `outcome.error instanceof DOMException && name === 'AbortError'` is the
-  precise one but a script can construct that itself. Whichever is chosen decides whether a script
-  that catches its own `AbortError` and carries on is possible — and whether it should be.
-- **Does `node` reject its stream, or render `^C` itself?** Rejecting reuses the UI's existing
-  path and keeps one renderer for every command; rendering locally avoids teaching `node`'s result
-  to fail in a way no other streamed command does. The first is more consistent, the second is
-  smaller.
-- **Where does the signal check go in the adapter — before, after, or both?** Decision 9 says
-  both. Before-only misses a command that completed while the player was pressing the key;
-  after-only runs one more command than the player asked for.
-- **Do the `fs` methods check the signal too?** They are `await`s now, and slice 3 made every one of
-  them a server round trip. A sweep appending per host is exactly the loop a player would want to
-  stop. Not covered by decision 9, which predates them.
-- **What does `process.argv` do about flags?** `node sweep.js -v 10.0.0.0/24` — `bindFlags` will
-  try to bind `-v` against `node`'s own (empty) `FlagSpec` and fail at the prompt before the script
-  ever runs. Real node passes unrecognised arguments through to the script. Whether that matters
-  enough to declare a passthrough rule is a decision, not a fact.
+**12. "Aborted" is a property of the RUN, not of the error.** `node` asks `env.signal.aborted`
+after `runScript` returns — whether the script failed or finished — and throws `env.signal.reason`.
+One rule, and it mirrors `state.ts:1691`'s own test exactly rather than inventing a second notion of
+what an interrupt is. It is checked on SUCCESS too because the realistic defensive loop —
+`for (const host of hosts) { try { await nmap(host) } catch { console.error('skipped') } }` —
+swallows every throw the guards raise; with the adapter's guards it terminates fast, but it
+terminates *successfully*, and without this check `node` would exit 0 on a run the player stopped.
+Rejected: matching `AbortError` by name or instance — a script can construct that object itself and
+forge an interrupt, and it couples `node` to whatever `signal.reason` happens to be, which the spec
+only promises is *a* reason.
 
-**Version**: next feature bump is `0.200.0`. **Wire-check**: `N/A` — nothing here reaches `api/`;
-`sleep` and the signal are UI-injected seams and `process.argv` is a string array.
-**Close-out**: D9's last slice, so this is also the door's close-out. Delete this plan file when it
-lands and graduate the as-built into `v2/docs/conventions-and-gotchas.md`, as D1 did.
+**13. `node` rejects its stream; the UI keeps the only `^C`.** Two arguments, either sufficient.
+`^C` is a `{kind:'text'}` line — i.e. STDOUT — so printing it locally would write `^C` into
+`node sweep.js > out.txt` and pipe it into `grep`. And an interrupted `node sweep.js | grep OPEN`
+must unwind the whole pipeline rather than hand `grep` a partial stdout and complete as though
+nothing happened. It also keeps `node` behaving exactly like `airodump-ng`, which is the established
+convention for an aborted streamed command.
+
+**14. The adapter guards BEFORE and AFTER every command invocation** — as decision 9 says, but for
+a reason decision 9 does not give. The two do different jobs. *After* reports the interrupt when the
+key landed during this command's own work. *Before* stops a NEW command being sent to the server
+when the key landed since the last call returned — during a `sleep`, an `fs` round trip, or any
+other non-command await. Only the second is proof against a script's own `try/catch`: it may swallow
+every throw, but nothing further executes. After-only lets each iteration run a full command before
+throwing, so Ctrl-C would stop the script without stopping the work.
+
+**15. All three `fs` methods pre-check the signal; none of them post-check.** The same "no new work
+after the player said stop" rule, applied to the other surface that reaches the server. It matters
+most for `appendFile`, a read-modify-write whose reload → read → compose → write window would
+otherwise still land a write after the interrupt. It also closes the one runaway the adapter cannot
+reach: a loop that only touches files never invokes a command, so nothing in it would ever check. No
+post-check — once the journal has the write, throwing would deny something that actually happened.
+
+**16. `process` is `{ argv }` and nothing else.** No `exit()`: stopping an async function from
+inside needs a sentinel throw that `node` must then tell apart from the abort rethrow — a second
+control-flow mechanism competing with the one this slice is adding — and the code it would set is
+unobservable anyway. No `env`, `platform` or `cwd()`: the game has no environment variables,
+`platform` would be a value with nothing behind it, and `cwd()` is `await pwd()`, which keeps ONE
+answer to "where am I" instead of two that can disagree.
+
+**17. `--` is the answer to flags; the shell does not change.** Real node stops parsing its own
+options at the script path, which this shell cannot do because it binds flags before `node` sees
+anything. So `node sweep.js -v` dies as `node: unrecognized option: -v` (exit 2, `runLine.ts:110`)
+and `node sweep.js -- -v 10.0.0.5` works today; the manual says so. Rejected: a `stopAtOperand`
+opt-in in `bindFlags` — a new branch in the shell's parser earning its keep for exactly one command,
+since every other command in this game takes flags AFTER positionals (`hydra host ssh -p 2222`).
+
+### Acceptance criteria — CONFIRMED before any code (owner, 2026-09-01)
+
+- [ ] **AC-1** `node /root/sweep.js 10.0.0.5 ssh` gives the script `process.argv` equal to
+      `['/usr/bin/node', '/root/sweep.js', '10.0.0.5', 'ssh']`, so `process.argv.slice(2)` is
+      `['10.0.0.5', 'ssh']`.
+- [ ] **AC-2** `argv[1]` is the RESOLVED path: `node sweep.js` run from `/root` yields
+      `/root/sweep.js`, not `sweep.js`.
+- [ ] **AC-3** A script run with no arguments of its own sees `argv.length === 2`.
+- [ ] **AC-4** `node sweep.js -- -v 10.0.0.5` reaches the script as
+      `argv.slice(2) === ['-v', '10.0.0.5']`, and `node sweep.js -v` still refuses at the prompt
+      with `node: unrecognized option: -v`.
+- [ ] **AC-5** `await sleep(50)` resolves and the script continues past it.
+- [ ] **AC-6** `sleep` IS `env.sleep` — an injected instant sleep is what the script gets, not a
+      real timer.
+- [ ] **AC-7** A script interrupted mid-`sleep` produces `^C` in the terminal rather than
+      `AbortError`, and everything it printed before the interrupt stays on screen.
+- [ ] **AC-8** `node`'s result REJECTS when the run was aborted — the rejection is what carries the
+      interrupt, so a redirect cannot capture `^C` and a pipeline unwinds.
+- [ ] **AC-9** A script whose command calls all throw and are all caught, interrupted mid-run, still
+      reports the interrupt rather than completing with exit 0.
+- [ ] **AC-10** After the abort, an inner command invocation refuses to START: the second `nmap` in
+      an aborted loop never reaches `execute`.
+- [ ] **AC-11** A command that completed while the key was being pressed reports the interrupt
+      instead of handing its output back to the script.
+- [ ] **AC-12** `fs.readFile`, `fs.writeFile` and `fs.appendFile` each throw instead of starting
+      when the run is already aborted, and `patches.write` is not called.
+- [ ] **AC-13** A script that is neither interrupted nor broken still exits 0, and an ordinary
+      script error still reads as `Error: …` with exit 1 — the interrupt path does not swallow the
+      failure path.
+- [ ] **AC-14** `process` and `sleep` cannot be displaced by a command of the same name: the
+      registry invariant holds at `identifiers.length + 4`.
+- [ ] **AC-15** `man node` no longer says scripts cannot take arguments or sleep, and documents
+      `process.argv`, `sleep(ms)`, the `--` rule, and that Ctrl-C stops a script.
+
+### RED order
+
+Each step is red for a reason the previous one cannot produce.
+
+1. **argv shape** (AC-1, AC-3) — nothing injects `process`, so it is not defined.
+2. **argv resolution** (AC-2) — write it before the code so a `target`-instead-of-resolved
+   regression is caught rather than passing by luck.
+3. **`--` passthrough** (AC-4) — at the `runLine` layer, because the claim is about the shell's
+   binder, not about `node`.
+4. **sleep** (AC-5, AC-6) — a script that awaits `sleep` and logs after it, with `env.sleep` a spy.
+5. **`node` rejects when aborted** (AC-8) — abort the env's signal, run, assert the drain or
+   `exitCode()` rejects. First RED that needs the rethrow.
+6. **a swallowed abort still reports** (AC-9) — the try/catch loop. Red against a
+   `!outcome.ok`-scoped guard, which is what makes decision 12 testable rather than merely stated.
+7. **adapter before-guard** (AC-10) — two calls, abort between them, assert the second command's
+   `execute` spy is never called.
+8. **adapter after-guard** (AC-11) — abort during `execute`, assert the call throws rather than
+   returning output.
+9. **fs guards** (AC-12) — three tests, `patches.write` spy not called.
+10. **the failure path still works** (AC-13) — the guard against the rethrow eating ordinary errors.
+11. **registry invariant** (AC-14) — `+ 4`.
+12. **`^C` in the terminal** (AC-7) — last, because it is the one test that needs the whole chain.
+
+### GREEN — in dependency order
+
+1. `scripting/commandContext.ts` — `env.signal.throwIfAborted()` at the top of the invoker and again
+   after `collectStageOutput`.
+2. `scripting/fsApi.ts` — the same call at the top of all three methods.
+3. `commands/node.ts` — `process: { argv }` and `sleep: env.sleep` in the context literal, last
+   alongside `console` and `fs`; then `if (env.signal.aborted) throw env.signal.reason;` after
+   `runScript` returns and before the `outcome.ok` branch.
+4. `commands/registry.test.ts` — the invariant to `+ 4`.
+5. `commands/node.ts` manual — delete the deferral sentence, add the arguments / sleep / interrupt
+   paragraph and an example that uses `process.argv.slice(2)`.
+6. Version bump 0.199.0 → **0.200.0** in `v2/package.json` and `v2/package-lock.json`
+   (`npm install --package-lock-only`).
+
+### Three things GREEN has to get right
+
+- **The rethrow goes AFTER `runScript`, not inside the `!outcome.ok` branch.** Decision 12 is the
+  whole point: a script that swallowed the abort resolves `ok`, and a guard scoped to the failure
+  branch would never see it.
+- **`throw env.signal.reason`, never `outcome.error`.** On the swallowed path there is no error to
+  rethrow, so `signal.reason` is the only value that works on both paths — and it is what
+  `abortableSleep` already rejects with, so the terminal sees one abort value whatever the source.
+- **The rethrow must not run before the drain.** `script().finally(stream.close)` closes the stream,
+  `yield* stream.lines` delivers what the script printed, and only then does `return await finished`
+  throw. That ordering is what makes AC-7's "partial output stays" true; reversing it loses the
+  script's last lines.
+
+### The Terminal test — plant the world, do not build it
+
+AC-7 mirrors `Terminal.test.tsx:246` (*"Ctrl-C aborts a running aircrack-ng before the key is
+revealed"*) and belongs next to it: `fireEvent.keyDown(document, { key: 'c', ctrlKey: true })`, then
+assert `^C` is present and the line the script would have printed after the sleep is not.
+
+Do NOT drive `apt install node` → `su root` → `nano` to get a script onto the box. The `mysql` test
+at `Terminal.test.tsx:654` establishes the cheap pattern: stub `fetch` so the boot journal serves
+the patches the test needs. Plant two — `/usr/bin/node` carrying `BINARY_STUB`, and `/root/slow.js`
+whose body prints a line, awaits a long `sleep`, then prints a second line.
+
+### Wire-check — `N/A`
+
+No `api/` change. `sleep` and the signal are UI-injected seams, `process.argv` is a string array, and
+the `fs` guards only PREVENT calls whose server contract slice 3 already proved. This holds D9's
+`N/A` across all four slices, as the grill said it would.
+
+### PRE-PR mutation
+
+Scope: `core/scripting/commandContext.ts`, `core/scripting/fsApi.ts`, `core/commands/node.ts`.
+
+Expect `tier: 'guest'` to survive in `node.ts` — a known repo-wide family recorded in conventions
+§9, not a gap in this slice. Watch specifically for a survivor that moves the abort check inside the
+`!outcome.ok` branch: if that mutant lives, AC-9 is not really being asserted and decision 12 is
+decoration. Never run Stryker while the dev server is up (E2E skill §1).
+
+### Browser close-out — the door's, not just the slice's
+
+The epic names D9's proof and slices 1–3 have each run part of it. This one runs it whole: `ssh`
+into a box already rooted, `apt install node` there, `nano` a script there, run it there. Then the
+two things only this slice can show — pass an argument and watch the script use it, and Ctrl-C a
+long run to confirm `^C` with the partial output intact.
+
+Follow [`.claude/skills/v2-e2e/SKILL.md`](../.claude/skills/v2-e2e/SKILL.md), including the nano
+traps (never type the next command until the editor is GONE; poll for the terminal's RETURN, not the
+editor's absence) and `npx supabase status` from `v2/`.
+
+### PR-ready when
+
+- [ ] All 15 ACs met, with the evidence named against each.
+- [ ] `npm run typecheck`, `npm run lint`, and the full non-watch suite green from `v2/`.
+- [ ] Mutation run for the three-file scope, survivors triaged, `tier` recorded as the known family.
+- [ ] Wire-check recorded `N/A` with the reason above.
+- [ ] Browser close-out run and written up, including the whole-door journey.
+- [ ] Version bumped in both files.
+
+### When it lands — D9 closes, and so does the epic's last door
+
+Slice 4 is the last slice in the last door of the legacy-parity epic. On merge: delete this plan
+file, mark D9 done in [`legacy-parity-epic.md`](legacy-parity-epic.md), and graduate the as-built
+into [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) as D1 did — the scripting
+host's shape, the four reserved identifiers, and the interrupt rule are the parts that outlive the
+plan.
