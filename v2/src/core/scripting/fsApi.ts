@@ -5,6 +5,13 @@
  * `readFileSync` beside a `writeFile` that could not be synchronous would teach
  * two rules where the language has one: everything in a script is awaited.
  *
+ * All three ask the MACHINE rather than the tree this client is holding, and
+ * being awaited is what makes that affordable. A shell can trust its own copy
+ * because it is rebuilt per submitted line and the player is the only one
+ * editing — a script is neither. It writes DURING the line, so its own writes
+ * are invisible to that copy, and it can run on a box a fellow occupant is
+ * writing to as well.
+ *
  * There is no `exists`, no `readdir`, no `mkdir` and no `stat`. The first is the
  * only one that could honestly be synchronous, so it would be the single
  * exception to that rule — and a `readFile` in a try/catch already answers the
@@ -60,7 +67,13 @@ export type ScriptFs = {
 
 export const buildFsApi = (env: CommandEnv): ScriptFs => ({
   readFile: async (path) => {
-    const result = env.fs.read(resolveAbsPath(env.fs.cwd(), path));
+    // Off the machine, not off `env.fs`. A script that appends and then reads
+    // its own report is the loop this whole surface exists for, and against the
+    // cached tree it would be handed the content from before the run — not an
+    // error, just a wrong answer. The same staleness on a shared box hands it a
+    // file with a fellow occupant's edit missing.
+    const machine = await env.fs.reload();
+    const result = machine.read(resolveAbsPath(machine.cwd(), path));
     if (!result.ok) {
       throw shellError(formatNodeFsError(path, result.error));
     }

@@ -995,4 +995,30 @@ describe("a script's filesystem", () => {
     expect(result.exitCode).toBe(1);
     expect(writeFn).not.toHaveBeenCalled();
   });
+
+  it('reads the file the machine holds, not the copy this shell pulled', async () => {
+    // Found by the browser close-out, which no jsdom test could have caught: a
+    // view with nothing behind it reloads to the tree it already has, so a
+    // cached read and a live one look identical here.
+    //
+    // Live they are not. `env` is built once per submitted line, so a script
+    // that appended twice and then read its own report was handed the content
+    // from BEFORE the run — four lines in the journal, two in the string. Not an
+    // error a player could notice: silently wrong data, out of the loop this
+    // whole slice exists for. The same staleness on a shared box hands a script
+    // a file without the occupant's edit in it.
+    //
+    // So all three methods ask the machine. A read is already awaited, which is
+    // exactly what makes that affordable.
+    const OCCUPIED = 'port 22 is open\nsomebody else was here\n';
+    const { env } = scriptEnv(
+      "console.log(JSON.stringify(await fs.readFile('notes.txt')))",
+      { notesOnReload: OCCUPIED },
+    );
+
+    const result = await drain(await node.execute(env, ['sweep.js'], NO_FLAGS));
+
+    expect(textLines(result)).toEqual([JSON.stringify(OCCUPIED)]);
+    expect(result.exitCode).toBe(0);
+  });
 });

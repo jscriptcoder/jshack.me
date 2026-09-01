@@ -907,6 +907,14 @@ its posture** — see decision 2 below and the reason it differs.
    turns out to need a parameter to paper over a difference between the two callers. If it does,
    that difference is the finding: record it rather than parameterising past it.
 
+5. **All three methods ask the MACHINE, not the tree this shell pulled — added mid-slice, after the
+   browser close-out (owner-confirmed 2026-09-01).** `readFile` originally read `env.fs`, matching
+   `cat`. That is right for a shell, whose snapshot is rebuilt per submitted line with the player as
+   the only editor, and wrong for a script, which is neither: it WRITES during the line, so its own
+   writes were invisible to its own reads. See the close-out below for what that looked like. The
+   cost is one round trip per read, accepted because decision 6 made reads awaited precisely so they
+   could be one — a cached read is the same lie a `readFileSync` would have been, one layer down.
+
 ### Acceptance criteria — CONFIRMED before any code (owner, 2026-09-01)
 
 - [x] **AC-1** A script reads a file it is allowed to read: `await fs.readFile('/etc/passwd')` hands
@@ -1087,6 +1095,67 @@ prose the page test pins by key phrase rather than by sentence, the equivalent `
 and the pre-existing `runLine.ts` family (three equivalent: object identity in `withCarried`, a loop
 bound guarded by the documented-unreachable throw at line 318, and a `stdin` spread that produces an
 equal env; plus the one genuine pre-existing gap recorded above).
+
+### Browser close-out — and the defect it found
+
+Run at v0.199.0 against `vercel dev` + local supabase. New game → `airmon-ng start wlan0` →
+`airodump-ng` → `aircrack-ng` on `VANDELAY-INDUSTRIES` → `airmon-ng stop wlan0` → `nmcli connect`
+(assigned `192.168.211.112`) → `su root` → `apt install node`, `apt install nmap` → `nano
+/root/sweep.js` → run. The script scans the gateway and itself, **appends one line per host** to
+`/root/loot.txt`, then reads the report back and counts its lines.
+
+**Right the first time**, each verified against the journal with
+`psql -tAc "select content from patches where path = '/root/loot.txt'"`:
+
+- an append created the file, then accumulated across runs — 2 lines, then 4, then 6;
+- two appends inside ONE run: the second saw the first, so `reload()` is doing real work over the
+  wire and not merely compiling;
+- an uncaught `fs.readFile` printed **bare** — `node: /root/loot.txt: No such file or directory`,
+  no `Error:` prefix — and exited 1. Decision 1, live;
+- all four caught refusals in `node`'s voice: `/root/nope.txt: No such file or directory`,
+  `/root: Is a directory` for both a read and a write, `/nowhere/hosts.txt: No such file or
+  directory`;
+- `man node` renders the new paragraphs.
+
+**AC-7 proven the way it actually matters.** A line was injected straight into the journal — a write
+this client had never seen — and the next run appended over it. The journal came back with **nine**
+lines: the six originals, `somebody else was here` still intact, and the two new ones. The script
+itself reported nine. Composed against the cached tree it would have reported seven and silently
+deleted the occupant's line.
+
+⚠️ **And the defect it found, which no jsdom test could have.** `mockFsViewFromTree` has nothing
+behind it, so a reload returns the tree it already has — a cached read and a live one are
+indistinguishable in vitest, and AC-1 passed either way. Live they are not. On the very first run
+the script appended twice and then read its own report:
+
+```
+192.168.211.1 -> 2 open
+192.168.211.112 -> 0 open
+node: /root/loot.txt: No such file or directory      ← the file it had just written
+```
+
+and on the next run, worse than an error:
+
+```
+report now holds 2 lines      ← the journal held 4
+```
+
+`env` is built once per submitted line, so a script's own writes were invisible to its own reads:
+not a failure a player could notice, just a wrong answer, in the exact capture-then-read loop this
+slice exists for. The same staleness on a shared box would hand a script a file with a fellow
+occupant's edit missing from it.
+
+Fixed in-slice by decision 5 above, driven RED first (the test pins that a read sees a machine whose
+content differs from the client's copy), and re-verified live: the same script then reported
+**6 lines**, then **9**, matching the journal exactly both times. `fsApi.ts` re-mutated after the
+change and still scores **100% (45/45)**.
+
+**AC-8's live proof is compositional, and deliberately so.** The window between an append's reload
+and its write is sub-millisecond, so a hand-driven browser run cannot land a competing write inside
+it without changing the code to widen it. Both halves are proven separately and neither is a
+stand-in for the other: the server's 409 on a stale `base_hash` by `scripts/testModifiedSinceOpen.ts`
+against real supabase, and the client's rendering of `modified_since_open` as
+`node: <path>: File changed on disk` with exit 1 by unit test. Recorded rather than faked.
 
 ### PR-ready when
 
