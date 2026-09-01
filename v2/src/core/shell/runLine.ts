@@ -47,7 +47,7 @@ import type { AbsPath } from '../types';
 import { tokenize } from './tokenize';
 import { parsePipeline, type Stage } from './pipeline';
 import { bindFlags } from './bindFlags';
-import { dirname, resolveAbsPath } from '../filesystem/path';
+import { resolveWriteTarget, type WriteTarget } from '../filesystem/writeTarget';
 
 const syncError = (content: string, exitCode: number): CommandResult => ({
   kind: 'sync',
@@ -172,28 +172,24 @@ type RedirectTarget =
   | { readonly ok: true; readonly target: AbsPath; readonly isNew: boolean }
   | { readonly ok: false; readonly message: string };
 
+/** What a refused redirect sounds like. The rule is shared with a script's
+ *  `fs.writeFile` (`resolveWriteTarget`); only this sentence is bash's. */
+const REDIRECT_REFUSAL: Record<
+  Extract<WriteTarget, { ok: false }>['error'],
+  string
+> = {
+  is_directory: 'Is a directory',
+  not_found: 'No such file or directory',
+  permission_denied: 'Permission denied',
+};
+
 /** Resolve + validate a redirect target against the live FS view, BEFORE the
- *  command runs (bash opens redirects before exec). Rejects an existing
- *  directory, a missing parent directory, and a location the tier can't write.
- *  Reports `isNew` (the target doesn't exist yet) so the write stamps `is_new`
- *  for a freshly-created file but leaves an overwrite's stored flag intact. */
+ *  command runs (bash opens redirects before exec). */
 const validateRedirectTarget = (env: CommandEnv, rawTarget: string): RedirectTarget => {
-  const target = resolveAbsPath(env.fs.cwd(), rawTarget);
-  const node = env.fs.stat(target);
-  if (node?.kind === 'directory') {
-    return { ok: false, message: `bash: ${rawTarget}: Is a directory` };
-  }
-  const parent = dirname(target);
-  const parentNode = env.fs.stat(parent);
-  if (parentNode === null || parentNode.kind !== 'directory') {
-    return { ok: false, message: `bash: ${rawTarget}: No such file or directory` };
-  }
-  // Overwrite checks the file itself; a new file checks the parent directory.
-  const writable = node !== null ? env.fs.canWrite(target) : env.fs.canWrite(parent);
-  if (!writable.allowed) {
-    return { ok: false, message: `bash: ${rawTarget}: Permission denied` };
-  }
-  return { ok: true, target, isNew: node === null };
+  const resolved = resolveWriteTarget(env.fs, rawTarget);
+  return resolved.ok
+    ? resolved
+    : { ok: false, message: `bash: ${rawTarget}: ${REDIRECT_REFUSAL[resolved.error]}` };
 };
 
 /** Write the final stage's stdout to the redirect target instead of the
