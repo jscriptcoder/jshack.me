@@ -87,10 +87,14 @@ describe('commandRegistry', () => {
       expect(identifier).toMatch(/^[A-Za-z_$][A-Za-z0-9_$]*$/);
       expect(reserved).not.toContain(identifier);
     }
-    // `console` and `fs` are injected alongside them and would be displaced by
-    // a collision, so they count as taken. A command named `fs` would silently
-    // shadow the filesystem for every script on the box.
-    expect(new Set([...identifiers, 'console', 'fs']).size).toBe(identifiers.length + 2);
+    // `console`, `fs`, `process` and `sleep` are injected alongside them and
+    // would be displaced by a collision, so they count as taken. A command named
+    // `fs` would silently shadow the filesystem for every script on the box, and
+    // one named `sleep` would take away the only await Ctrl-C is guaranteed to
+    // reach.
+    expect(new Set([...identifiers, 'console', 'fs', 'process', 'sleep']).size).toBe(
+      identifiers.length + 4,
+    );
   });
 
   it('categorises echo under general and the filesystem commands under filesystem', () => {

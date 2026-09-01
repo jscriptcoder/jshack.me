@@ -4,10 +4,11 @@ import { man } from './man';
 import { commandRegistry } from './registry';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem';
 import { mockCommandEnv, mockFsViewFromTree, mockSession } from '../../test/factories/commandEnv';
-import { collectStageOutput } from '../shell/runLine';
+import { collectStageOutput, runCommandLine } from '../shell/runLine';
 import { asAbsPath } from '../types';
 import type { UserType } from '../types';
 import type {
+  Command,
   CommandEnv,
   CommandResult,
   PatchApi,
@@ -633,9 +634,11 @@ describe('node', () => {
     const contents = result.lines.map((line) => line.content);
     expect(contents).toContain('NODE(1)');
     expect(contents).toContain('    node - Run a JavaScript file');
-    expect(contents).toContain('    node [script]');
+    expect(contents).toContain('    node [script] [arguments]');
     expect(contents).toContain('    script (optional)');
     expect(contents).toContain('        Path to the JavaScript file to run');
+    expect(contents).toContain('    arguments (optional)');
+    expect(contents).toContain('        Passed to the script as process.argv from index 2');
     expect(contents).toContain('    node hello.js');
     expect(contents).toContain('        Run a script in the current directory');
     expect(contents).toContain('    node /root/sweep.js | grep OPEN');
@@ -654,12 +657,32 @@ describe('node', () => {
     // What a failure DOES is the half a player cannot discover by trying it once
     // and getting away with it, so the page has to say it.
     expect(description).toContain('throws');
-    expect(description).toContain('cannot yet take arguments of their own or sleep');
+    // The page carried a deferral for three slices; nothing is deferred now, so
+    // the sentence has to be gone rather than merely contradicted further down.
+    expect(description).not.toContain('cannot yet');
+    expect(description).toContain('process.argv.slice(2)');
+    expect(description).toContain('await sleep(');
+    expect(description).toContain('Ctrl-C');
+    // `--` is the one thing a player cannot discover by trying: without it the
+    // shell answers `unrecognized option` and the script never runs, which reads
+    // like the argument was rejected rather than like it needed fencing off.
+    expect(description).toContain('node sweep.js -- -v 10.0.0.5');
+    // Pinned by a phrase that appears ONCE. `throws` reads like it covers the
+    // failure paragraph, but the opening one says "an error the script throws"
+    // as well, so the sentences telling a player what a refused write does
+    // could all vanish with the test still green.
+    expect(description).toContain('at your own tier');
+    expect(description).toContain('refused rather than overwriting');
+    expect(description).toContain('ssh, su, exit, reboot');
     expect(contents).toContain("    const out = await nmap('10.0.0.5')");
     expect(contents).toContain("        Inside a script: scan a host and keep the scan's lines");
     expect(contents).toContain("    await fs.appendFile('/root/loot.txt', out)");
     expect(contents).toContain(
       '        Inside a script: add what this host gave up to the report so far',
+    );
+    expect(contents).toContain('    const [target] = process.argv.slice(2)');
+    expect(contents).toContain(
+      '        Inside a script: read the host the player named on the command line',
     );
   });
 });
@@ -1020,5 +1043,251 @@ describe("a script's filesystem", () => {
 
     expect(textLines(result)).toEqual([JSON.stringify(OCCUPIED)]);
     expect(result.exitCode).toBe(0);
+  });
+});
+
+describe("a script's own arguments", () => {
+  it('numbers what was typed after the path the way node numbers it', async () => {
+    // `argv[0]` is the interpreter and `argv[1]` the script, so the player's own
+    // first argument sits at index 2 and `slice(2)` is what a script writes.
+    // Legacy put that first argument at index 0, which reads fine until somebody
+    // pastes in a snippet written against the real thing.
+    //
+    // `argv[1]` is the RESOLVED path, which is why this runs `sweep.js` from
+    // `/home/alice` rather than naming it absolutely: a script asking where it
+    // lives must get an answer it can hand straight back to `fs`, not the token
+    // that happened to be typed.
+    const { env } = scriptEnv('console.log(JSON.stringify(process.argv))');
+
+    const result = await drain(await node.execute(env, ['sweep.js', '10.0.0.5', 'ssh'], NO_FLAGS));
+
+    expect(textLines(result)).toEqual([
+      JSON.stringify(['/usr/bin/node', '/home/alice/sweep.js', '10.0.0.5', 'ssh']),
+    ]);
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('gives a script run bare only the two entries node always has', async () => {
+    // So `slice(2)` is empty rather than undefined, and the ordinary "no
+    // arguments" branch a script writes (`const [target] = process.argv.slice(2)`)
+    // reads as absent instead of throwing.
+    //
+    // Asserted by CONTENTS rather than by length, and that is not fussiness:
+    // the sandbox body runs in the host realm, so an uninjected `process` finds
+    // the one the TEST RUNNER is running under — whose argv is also two entries
+    // long. A length check here passes against a `node` that injects nothing.
+    // (No browser has that global, so the leak is a jsdom artefact, not a hole
+    // in the game.)
+    const { env } = scriptEnv('console.log(JSON.stringify(process.argv))');
+
+    const result = await drain(await node.execute(env, ['sweep.js'], NO_FLAGS));
+
+    expect(textLines(result)).toEqual([JSON.stringify(['/usr/bin/node', '/home/alice/sweep.js'])]);
+  });
+});
+
+describe('a script and the shell that launches it', () => {
+  /** Just `node`, so the line goes through the real binder without the registry's
+   *  availability wrapper deciding the box has no interpreter on it. */
+  const shellCommands: ReadonlyMap<string, Command> = new Map([['node', node]]);
+
+  it('hands a dashed argument to the script once the line has ended its options', async () => {
+    // Real node stops reading options at the script path, so `node x.js -v`
+    // gives the script `-v`. This shell cannot: it binds flags against the
+    // command's own spec BEFORE `node` sees anything, and `node` declares none.
+    // `--` is the answer, and it is POSIX rather than an invention — the binder
+    // already implements the sentinel, so this costs the player one token and
+    // the game no mechanism.
+    const { env } = scriptEnv('console.log(JSON.stringify(process.argv.slice(2)))');
+
+    const result = await drain(
+      await runCommandLine(env, 'node sweep.js -- -v 10.0.0.5', shellCommands),
+    );
+
+    expect(textLines(result)).toEqual([JSON.stringify(['-v', '10.0.0.5'])]);
+  });
+
+  it('refuses a dashed argument that was never fenced off, before the script runs', async () => {
+    // Green on arrival — this pins behaviour the binder already has, because the
+    // manual is about to promise it. The refusal has to come from the SHELL and
+    // has to name the option, or `--` is folklore the player has no way to
+    // discover. The script must not run: a sweep that started and then found it
+    // had no target is worse than one that never started.
+    const { env } = scriptEnv("console.log('ran')");
+
+    const result = await drain(await runCommandLine(env, 'node sweep.js -v', shellCommands));
+
+    expect(errorLines(result)).toEqual(['node: unrecognized option: -v']);
+    expect(textLines(result)).toEqual([]);
+    expect(result.exitCode).toBe(2);
+  });
+});
+
+describe("a script's own pacing", () => {
+  it("pauses where the script says to, through the shell's abortable sleep", async () => {
+    // Both halves of the claim in one test, because the second is what makes the
+    // first worth having. That it RESUMES is the feature; that it went through
+    // `env.sleep` is why Ctrl-C can reach a sleeping script at all. A
+    // hand-rolled `new Promise(r => setTimeout(r, ms))` would satisfy the first
+    // assertion, take a real quarter-second doing it, and leave the one await a
+    // player is most likely to be sitting on uninterruptible.
+    const sleepFn = vi.fn<CommandEnv['sleep']>(async () => undefined);
+    const env: CommandEnv = {
+      ...envWithScript(
+        'pace.js',
+        ["console.log('probing')", 'await sleep(250)', "console.log('done')", ''].join('\n'),
+      ),
+      sleep: sleepFn,
+    };
+
+    const result = await drain(await node.execute(env, ['pace.js'], NO_FLAGS));
+
+    expect(textLines(result)).toEqual(['probing', 'done']);
+    expect(sleepFn).toHaveBeenCalledWith(250);
+    expect(result.exitCode).toBe(0);
+  });
+});
+
+/** Everything a streamed result produced BEFORE it failed, plus what it failed
+ *  with. `drain` cannot express this: an interrupted run both prints and
+ *  rejects, and the whole claim is that the printing survives the rejecting. */
+const drainToRejection = async (
+  result: CommandResult,
+): Promise<{ readonly lines: readonly TerminalLine[]; readonly error: unknown }> => {
+  const collected: TerminalLine[] = [];
+  if (result.kind !== 'async') {
+    return { lines: result.kind === 'sync' ? result.lines : [], error: undefined };
+  }
+  try {
+    for await (const line of result.lines) {
+      collected.push(line);
+    }
+    await result.exitCode();
+    return { lines: collected, error: undefined };
+  } catch (error) {
+    return { lines: collected, error };
+  }
+};
+
+/** A script whose `sleep` is the moment the player hits Ctrl-C — the same shape
+ *  `abortableSleep` has, which aborts the run's controller and rejects with the
+ *  signal's own reason. Everything before the sleep has already printed. */
+const interruptedAtSleep = (source: string): { readonly env: CommandEnv; readonly signal: AbortSignal } => {
+  const controller = new AbortController();
+  const env: CommandEnv = {
+    ...envWithScript('sweep.js', source),
+    signal: controller.signal,
+    sleep: async () => {
+      controller.abort();
+      throw controller.signal.reason;
+    },
+  };
+  return { env, signal: controller.signal };
+};
+
+describe('a script the player interrupts', () => {
+  it('reports the interrupt by REJECTING, and keeps what it already printed', async () => {
+    // Rejecting is not an implementation detail dressed as a criterion. `^C` is
+    // a TEXT line — stdout — so a `node sweep.js > out.txt` whose command
+    // printed the marker itself would write `^C` into the file, and a
+    // `node sweep.js | grep OPEN` would hand grep a partial stdout and complete
+    // as though the sweep had finished. The rejection is what unwinds both, and
+    // it is what `state.ts` already turns into `^C` for every other streamed
+    // command.
+    const { env, signal } = interruptedAtSleep(
+      [
+        "console.log('scanning 10.0.0.1')",
+        'await sleep(9000)',
+        "console.log('scanning 10.0.0.2')",
+        '',
+      ].join('\n'),
+    );
+
+    const { lines, error } = await drainToRejection(await node.execute(env, ['sweep.js'], NO_FLAGS));
+
+    expect(lines).toEqual([{ kind: 'text', content: 'scanning 10.0.0.1' }]);
+    // `signal.reason` is `undefined` on a controller nobody aborted, so without
+    // this the assertion below is satisfied by a run that was never interrupted.
+    expect(signal.aborted).toBe(true);
+    expect(error).toBe(signal.reason);
+  });
+
+  it('still reports the interrupt when the script caught every throw itself', async () => {
+    // The defensive loop a player actually writes — keep going if one host is
+    // down — swallows the abort along with the failures it was meant for. With
+    // the guards in place it stops calling commands, so it finishes almost at
+    // once, but it FINISHES: `runScript` hands back ok and the script's last
+    // line prints. Asking the error what happened cannot see this; only asking
+    // the RUN can. Without this, Ctrl-C on such a script exits 0 in silence.
+    const { env, signal } = interruptedAtSleep(
+      [
+        "for (const host of ['10.0.0.1', '10.0.0.2']) {",
+        '  try { await sleep(9000) } catch { console.error(`skipped ${host}`) }',
+        '}',
+        "console.log('report written')",
+        '',
+      ].join('\n'),
+    );
+
+    const { lines, error } = await drainToRejection(await node.execute(env, ['sweep.js'], NO_FLAGS));
+
+    expect(lines.map((line) => line.content)).toEqual([
+      'skipped 10.0.0.1',
+      'skipped 10.0.0.2',
+      'report written',
+    ]);
+    // `signal.reason` is `undefined` on a controller nobody aborted, so without
+    // this the assertion below is satisfied by a run that was never interrupted.
+    expect(signal.aborted).toBe(true);
+    expect(error).toBe(signal.reason);
+  });
+});
+
+describe("a script's filesystem, once the player has interrupted", () => {
+  /** The run is already aborted when the script reaches the filesystem — the
+   *  player pressed the key while the previous command was still working. */
+  const alreadyInterrupted = (source: string) => {
+    const controller = new AbortController();
+    const { env, writeFn } = scriptEnv(source);
+    controller.abort();
+    return { env: { ...env, signal: controller.signal }, writeFn, signal: controller.signal };
+  };
+
+  it('does not go to the machine for a read', async () => {
+    // Observable without a spy: if the guard fires there is nothing to print.
+    // A read costs the server a round trip like the others do since the reload
+    // rule, and the script is about to die anyway.
+    const { env, signal } = alreadyInterrupted(
+      "console.log(await fs.readFile('notes.txt'))",
+    );
+
+    const { lines, error } = await drainToRejection(await node.execute(env, ['sweep.js'], NO_FLAGS));
+
+    expect(lines).toEqual([]);
+    expect(error).toBe(signal.reason);
+  });
+
+  it('does not send a write that had not started', async () => {
+    // `patches.write` is the observable, because it is the thing that reaches
+    // the journal. The run rejecting proves nothing here — an already-aborted
+    // run rejects at the end whatever `fs` did — so the untouched spy is the
+    // whole assertion.
+    const { env, writeFn } = alreadyInterrupted("await fs.writeFile('loot/out.txt', 'found it')");
+
+    await drainToRejection(await node.execute(env, ['sweep.js'], NO_FLAGS));
+
+    expect(writeFn).not.toHaveBeenCalled();
+  });
+
+  it('does not send an append that had not started', async () => {
+    // The one that matters most. An append is a read-modify-write, so an
+    // interrupt landing inside its reload → read → compose → write window would
+    // otherwise still put a composed whole file into the journal, built from a
+    // machine state the player had already told it to stop looking at.
+    const { env, writeFn } = alreadyInterrupted("await fs.appendFile('notes.txt', 'one more')");
+
+    await drainToRejection(await node.execute(env, ['sweep.js'], NO_FLAGS));
+
+    expect(writeFn).not.toHaveBeenCalled();
   });
 });

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import { fireEvent, render, screen } from '@solidjs/testing-library';
 import { Terminal } from './Terminal';
 import {
@@ -275,6 +275,83 @@ describe('Terminal', () => {
     expect(screen.queryByText(/KEY FOUND/)).not.toBeInTheDocument();
   });
 
+  it('Ctrl-C stops a running script and leaves what it already printed', async () => {
+    // The whole chain, from the keystroke to the marker: the key aborts the
+    // run's controller → the script's in-flight `sleep` rejects → `node` sees
+    // that the RUN was aborted and rejects its own stream rather than dressing
+    // the abort as a script error → the same catch that prints `^C` for
+    // aircrack-ng prints it here. Before this, a script was the one running
+    // command Ctrl-C could not produce a `^C` for: `runScript` is total, so
+    // `node`'s stream never rejected and the player got `AbortError` and exit 1.
+    //
+    // The world is PLANTED through the boot journal rather than built by
+    // `apt install node` + `su` + `nano`, which is three commands of setup for a
+    // test about a keystroke — the mysql test below establishes the pattern.
+    const script = [
+      "console.log('scanning 10.0.0.1')",
+      'await sleep(9000)',
+      "console.log('scanning 10.0.0.2')",
+      '',
+    ].join('\n');
+    onTestFinished(() => {
+      vi.unstubAllGlobals();
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              sessions: [],
+              patches: [
+                {
+                  path: '/usr/bin/node',
+                  content: BINARY_STUB,
+                  owner: 'root',
+                  permissions: {
+                    read: ['root', 'user', 'guest'],
+                    write: ['root'],
+                    execute: ['root', 'user', 'guest'],
+                  },
+                },
+                {
+                  path: '/home/alice/slow.js',
+                  content: script,
+                  owner: 'alice',
+                  permissions: {
+                    read: ['root', 'user', 'guest'],
+                    write: ['root', 'user'],
+                    execute: ['root'],
+                  },
+                },
+              ],
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+    renderTerminal();
+    // The boot journal is in flight; the interpreter only exists once it lands.
+    await vi.waitFor(async () => {
+      setInput('ls /usr/bin');
+      await runInput();
+      expect(scrollback().some((entry) => entry.content.includes('node'))).toBe(true);
+    });
+
+    runCommand('node /home/alice/slow.js');
+    // Waited for, not slept through: the assertion below is that this line
+    // SURVIVES the interrupt, which says nothing unless it arrived first.
+    await screen.findByText((content) => content.includes('scanning 10.0.0.1'));
+    // The prompt is the busy bar while the script runs, so the key arrives at
+    // the document rather than at the (unmounted) input.
+    fireEvent.keyDown(document, { key: 'c', ctrlKey: true });
+
+    expect(await screen.findByText('^C')).toBeInTheDocument();
+    expect(screen.getByText((content) => content.includes('scanning 10.0.0.1'))).toBeInTheDocument();
+    expect(screen.queryByText((content) => content.includes('scanning 10.0.0.2'))).toBeNull();
+    expect(screen.queryByText((content) => content.includes('AbortError'))).toBeNull();
+  });
+
   describe('busy indicator', () => {
     it('swaps the prompt for a spinner naming the running command, then hands it back focused', async () => {
       // One streamed command, whole lifecycle: the shell must LOOK busy for as
@@ -331,6 +408,26 @@ describe('Terminal', () => {
     // wlan0's IP) → online. Then a fresh startGame (a reload) must rehydrate the
     // connection from the persisted ESSID alone. Drives the new wiring:
     // env.homeNetwork.join, setInterface→persist, and startGame→restore.
+    //
+    // The join is a SERVER call — the player's address is a lease the client may
+    // not invent — so this test needs its own stub. It used to run on one leaked
+    // from the airodump-ng test above, which held only because nothing in between
+    // cleaned up after itself; the first test to unstub properly took the lease
+    // away and this failed with `the network is unreachable`.
+    onTestFinished(() => {
+      vi.unstubAllGlobals();
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ ok: true, local_ip: '192.168.42.7' }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+      ),
+    );
+
     renderTerminal();
     runCommand('airmon-ng start wlan0');
     await screen.findByText((content) => content.includes('monitor mode enabled on wlan0'));
