@@ -320,6 +320,50 @@ test. Address valuable survivors and re-run within the same gate. Expect the man
 the survivor count (conventions §4) and kill it the way slice 1 did — whole rendered `man node`
 lines. Use a throwaway `vite.mutation.config.ts` + `stryker.mutation.json` and delete both after.
 
+**RESULT 2026-09-01: 183 mutants, 177 killed (96.7%), 6 survivors, all accounted for.** First pass
+killed 173. The prediction about the manual was wrong this time — only ONE manual mutant survived
+(the new example's description), because slice 1's whole-rendered-line habit was already in the
+test. Three real gaps became tests of behaviour a player hits:
+
+- **A string value for a string flag.** `typeof value !== 'string'` → `typeof value !== ''` survived
+  because every test passed `-p` a NUMBER (`{'-p': 2222}`), and the mutant only diverges on a
+  string. `{'-p': 'ssh'}` is the commoner call of the two.
+- **The tty rule's positive direction.** `!hasTty(…) && withoutTty !== undefined` → `||` survived
+  because no test drove a `withoutTty` command from a script that HAD a terminal — which is exactly
+  `scp`, deliberately not in the refusal set. The two conditions collapsed into `or` would refuse
+  the one command the split exists to permit.
+- The manual example's description line.
+
+**Two survivors are accepted as equivalent, both hand-verified rather than argued:**
+
+- **`tier: 'guest'` and the three parts of `availability` (4 mutants)** — declared-but-unenforced
+  metadata with no runtime consumer anywhere in `src/`, the same unkillable pair slice 1 accepted
+  and every command in the registry carries.
+- **`SHELL_ERROR_NAME = 'ShellError'` → `''`** — the tag is written by `shellError` and read by
+  `isShellError` through the same constant, so both sides move together. Hand-applied: suite stays
+  green. A test asserting the tag would pin an implementation detail, not the behaviour, which is
+  already covered by "a refusal prints bare and a JS throw prints prefixed".
+
+**One reported survivor is a FALSE survivor and was hand-verified as a kill.** Line 185's
+`ConditionalExpression → true` (the tty gate) is still reported Survived; applying it by hand takes
+**10 tests red**. Same for line 106 → `true` on the first pass, which took 1 test red. This is the
+`perTest` mis-attribution family §4 already records — the tests build their commands from
+module-scope consts, so Stryker attributes the wrong tests to those lines. **Before believing a
+survivor in this file, apply it by hand: a suite that goes red is a kill however the runner scored
+it.**
+
+⚠️ **`-c` IS `--concurrency`, NOT the config file.** The config file is a POSITIONAL argument:
+`npx stryker run stryker.mutation.json --concurrency 4`. Getting this wrong is silent and expensive:
+`-c stryker.mutation.json` sets concurrency to the filename, which fails validation with
+`Config option "concurrency" must match pattern "^(100|[1-9]?[0-9])%$"` — an error that names the
+wrong option and sends you off adjusting concurrency. Passing `--concurrency 4` then satisfies the
+validator, the throwaway config is **never loaded**, and Stryker silently falls back to the
+committed `stryker.config.json` and mutates all of `src/core` — **219 files, 15,975 mutants**
+instead of 183. It ran 75 minutes at four pegged cores before being killed, and reads exactly like a
+slow machine. The tell is the instrumenter's own line: `Instrumented 2 source file(s) with 183
+mutant(s)` is right, `Instrumented 219` is not. **Check that line before letting a battery run.**
+Correctly invoked, this battery takes **under a minute**.
+
 **Wire-check: `N/A`.** No `api/` path changes. Every inner command is invoked through the same
 `Command.execute` with the same `env` the prompt would have handed it, so anything that reaches a
 server does so through a path already proven. Alternate evidence is the jsdom behaviour suite plus

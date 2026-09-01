@@ -142,6 +142,14 @@ describe('a script calling the machine commands', () => {
     );
   });
 
+  it('passes a string value through to a flag that takes one', async () => {
+    const { context } = contextOf([probe]);
+
+    const out = await context.probe({ '-p': 'ssh' });
+
+    expect([...out]).toEqual(['flag:-p=ssh']);
+  });
+
   it('refuses a flag given the wrong kind of value', async () => {
     const { context } = contextOf([probe]);
 
@@ -216,6 +224,23 @@ describe('a script calling the machine commands', () => {
     await expect(contextOf([nc], asRoot).context.nc('10.0.0.5', 4444)).rejects.toThrow(
       'nc: cannot be run from a script',
     );
+  });
+
+  it('lets a command that needs a terminal run from a script when there IS one', async () => {
+    // The tty rule and the script rule are separate facts, and this is the
+    // direction that says so: scp is not in the refusal set, so from an
+    // ordinary logged-in session a script may drive it. Collapsing the two
+    // conditions into "or" would refuse it here.
+    const needsTerminal: Command = {
+      ...probe,
+      name: 'needsTerminal',
+      withoutTty: 'needsTerminal: must be run from a terminal',
+    };
+    const { context } = contextOf([needsTerminal]);
+
+    const out = await context.needsTerminal('ran');
+
+    expect([...out]).toEqual(['arg:ran']);
   });
 
   it('still needs a terminal for a command that needs one', async () => {

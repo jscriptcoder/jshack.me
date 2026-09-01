@@ -470,5 +470,6 @@ describe('node', () => {
     expect(description).toContain("{'-p': 2222}");
     expect(description).toContain('cannot yet read and write files');
     expect(contents).toContain("    const out = await nmap('10.0.0.5')");
+    expect(contents).toContain("        Inside a script: scan a host and keep the scan's lines");
   });
 });
