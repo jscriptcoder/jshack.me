@@ -1,8 +1,10 @@
 # Plan: D9 — `node` scripting
 
 **Branch**: `feat/d9-a-script-runs-the-tools` (slice 2a) — **cut 2026-09-01 off `main` @ cea7b5a3**
-**Status**: Active — **slice 1 MERGED** as `cea7b5a3` (PR #475) at v0.196.0. **Slice 2a is planned
-below and has no code yet.** Slices 2b, 3 and 4 remain unplanned.
+**Status**: Active — **slice 1 MERGED** as `cea7b5a3` (PR #475) at v0.196.0. **Slice 2a is COMPLETE
+and PR-READY at v0.197.0**: AC-1…AC-14 met, typecheck and lint clean, full suite green (4104
+tests), mutation gate closed (177/183 killed, 96.7%), browser close-out passed. Nothing is left but
+opening the PR. Slices 2b, 3 and 4 remain unplanned.
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D9 — resolved scope & decisions
 (grill-me, 2026-09-01)", eleven locked decisions.
 
@@ -12,7 +14,8 @@ below and has no code yet.** Slices 2b, 3 and 4 remain unplanned.
    **Decision 5 carries an amendment dated 2026-09-01**; read the amendment, not just the table.
 2. Read "Slice 1 — as built" below for what already exists and why it is shaped that way. Its
    acceptance criteria are closed; do not reopen them.
-3. Read slice 2a top to bottom. **Its acceptance criteria are confirmed** — start at RED.
+3. Slice 2a is built, committed and fully evidenced — every gate below is closed. The only thing
+   left is opening its PR; after it lands, plan slice 2b.
 4. All commands run from `v2/`. Gates: `npm run typecheck`, `npm run lint`, the full non-watch test
    suite. Wait for commit approval before every commit.
 
@@ -40,7 +43,7 @@ leaving the session it started in.
 | # | Slice | Observable | Status |
 |---|-------|-----------|--------|
 | 1 | a script runs and speaks | `node hello.js` prints; a broken one says so and exits 1 | **MERGED `cea7b5a3`, v0.196.0** |
-| 2a | a script runs the tools | `await nmap(gw)` returns what the prompt shows; `ssh(…)` refuses | **planned below, no code** |
+| 2a | a script runs the tools | `await nmap(gw)` returns what the prompt shows; `ssh(…)` refuses | **built, pre-PR, v0.197.0** |
 | 2b | a script speaks while it works | a sweep's `console.log` paints live; the spinner names `hydra`, not `node` | not planned |
 | 3 | a script keeps what it found | `/root/sweep.js` chains `hydra` and captures to a file | not planned |
 | 4 | a script is reusable and can be stopped | `process.argv`; Ctrl-C at every await; `sleep(ms)` | not planned |
@@ -377,6 +380,43 @@ what it found, proving the returned lines are the scan the prompt shows; then a 
 line is `await ssh('root@' + gateway, 'pw')`, proving the refusal reads like the prompt's and the
 script stops there. Both are claims about ~46 real commands wired to a real registry, which is
 exactly where a jsdom fixture could be lying.
+
+**RUN 2026-09-01 at v0.197.0 — PASSED.** Fresh player → `aircrack-ng` on `WEYLAND-NET` →
+`nmcli connect` (192.168.139.27, gateway `.1`) → `su root` → `apt install nmap` + `apt install node`
+→ `nano sweep.js` → `node sweep.js`. Four things held that no unit test can claim:
+
+- **A script's `nmap` output is byte-identical to the prompt's.** Ran `nmap 192.168.139.1` at the
+  prompt first as a control, then `const out = await nmap('192.168.139.1')` from a script.
+  **Watch the count**: the script reported `lines:10` against a control that *looks* like 7 lines,
+  which reads like a defect and is not. `JSON.stringify(out)` settles it — the array is
+  `["Starting Nmap scan — …","","Nmap scan report for router01 (…)","Host is up.","","PORT     STATE
+  SERVICE","22/tcp   open  ssh","161/udp  open  snmp","","Nmap done — 1 host up"]`: seven content
+  lines plus **nmap's own three blank spacer lines**, which the DOM collapses in `innerText` for the
+  typed command too. Count what a command EMITS, not what the page renders.
+- **`out.filter(…)` works** — `console.debug('open: ' + out.filter(…).length)` printed `open: 2`,
+  so the array-with-a-property really is an ordinary array to a player.
+- **The refusal reads like the prompt's.** `node hop.js` printed `before the hop`, then
+  `ssh: cannot be run from a script` **bare — no `Error:` prefix** — and the line after the `ssh`
+  call never ran.
+- **The availability gate reaches inside a script.** `await hydra(…)` on a box without hydra
+  answered `bash: hydra: command not found. Install with: apt install hydra` and the script carried
+  on to print `exit=127`. That is decision 8's invariant proved on a real box: a script does what
+  the player could type, and nothing more.
+
+Three sinks render distinctly, confirmed by computed style rather than by eye — `console.log` and
+the captured command output share the plain text colour `rgb(245,158,11)`, `console.debug` carries
+`text-[var(--theme-text-dim)]`, the refusal carries `text-[var(--theme-error)]`.
+
+Two harness notes, neither a product defect:
+
+- **`echo $?` is not a thing here** — the shell has no variable expansion, so it echoes `exit=$?`
+  literally. A script's exit code is not observable in-game; the jsdom suite is what pins it.
+- **The §7 nano trap fired again, and the reconfirm is what caught it.** After `^X` the
+  "terminal is back" probe returned `true` on its FIRST check and then `false` twenty-four times
+  running — the editor had never closed. Polling once would have typed the next shell command into
+  the buffer. `^X` also needed two attempts on three of four files even with a real `click`
+  immediately before the chord. **Poll for the terminal's return, then reconfirm after a pause, and
+  treat a lone `true` as noise.**
 
 ### PR-ready when
 
