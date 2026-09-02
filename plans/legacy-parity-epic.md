@@ -89,7 +89,9 @@ daemon, no port, no placement, no cross-player half, no `api/` change), and its 
 refusal: the row's **programmatic auth cannot port**, because `CommandEnv` is a per-line snapshot
 and a script that hopped would go on answering about the box it left.
 
-**D10 🔍 GRILLED 2026-09-02, not yet planned** — fifteen locked decisions and a five-slice spine in
+**D10 🚧 IN PROGRESS — slice 1 of 5 SHIPPED** (`dd1cc5cf`, PR #481, v0.201.0): a player clears the
+terminal, colours it in one of four palettes that survives a reload, and asks it who they are.
+Fifteen locked decisions and a five-slice spine in
 "D10 — resolved scope & decisions". It **grew and shrank at once**: locked decision 9's whole long
 tail folds in (nothing ever "first needed" `find`, `strings`, `chmod` or `gpg`, so without D10 they
 never ship), while **`bash` is refused rather than ported** — it existed to run binaries by path in
@@ -374,8 +376,8 @@ PHASE 1 — THE DOORS  (near-term focus)
       D9 slice 2b a script speaks while it works      ✔ SHIPPED v0.198.0 (#477)
       D9 slice 3 a script keeps what it found         ✔ SHIPPED v0.199.0 (#478)
       D9 slice 4 a script is reusable and can be stopped  ✔ SHIPPED v0.200.0 (#480)
-  D10 polish (comfort commands + the whole long tail)  🔍 GRILLED 2026-09-02 (15 decisions)
-      D10 slice 1 the terminal is yours               — clear + Ctrl-L, theme, whoami (+ binaries)
+  D10 polish (comfort commands + the whole long tail)  🚧 IN PROGRESS — 1 of 5 slices shipped
+      D10 slice 1 the terminal is yours               ✅ SHIPPED v0.201.0 (#481)
       D10 slice 2 the card and the second window      — author overlay, fresh-tab xterm
       D10 slice 3 the box answers questions           — find, strings
       D10 slice 4 permissions change hands            — chmod
@@ -410,7 +412,7 @@ POST-SHIP — MISSIONS
 | **D7** ✅ | **A player reads a machine's key-value store** — **SHIPPED v0.174.0-v0.182.0 (#452-#461)**; twelve locked decisions in ["D7 — resolved scope & decisions"](#d7--resolved-scope--decisions-grill-me-2026-08-24) | `redis` catalog row + placement (flat 0.05, webserver 0.35, database 0.3); generated data (`generateRedisData.ts`, `pools/redis.ts`); `rediscli <host> [pw]` → `redis>` sub-shell, seven verbs; `requirepass` as an md5 in the root-only datadir; hydra `redis` service against the 60% that are locked | Redis 6 ACLs (they arrive as a VERSION difference in Phase 3, not as a door decision); `FLUSHALL`; `CONFIG GET`; `TYPE`/`SCAN`/`INFO` | B `rediscli <host>` → `KEYS *` / `GET` on the 40% that are open; `hydra <host> redis` → password (no login field) on the rest; an open store's arrival line is the defender's whole view |
 | **D8** ✅ | **A player reconfigures a device without holding a shell on it** — **SHIPPED v0.185.0-v0.193.0 (#465-#473)**; eleven locked decisions in ["D8 — resolved scope & decisions"](#d8--resolved-scope--decisions-grill-me-2026-08-27), as-built in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7/§9 | `snmp` catalog row at `161/udp` (a new `protocol` column) placed on routers + switches only; `snmpwalk <host> [community]` (public = identity, RW = + the port table); `snmpset <host> <community> <oid=value>` with parity to `nano`; **the OIDs are a VIEW over the `rules.v4` / `acl.conf` v2 already parses**, never a second copy; the RW community as an md5 in a root-only file, swept by `hydra snmp` via `secretOn`; its own `/var/log/snmpd.log`; `snmpd` installable, planting a `deny <port>` local firewall on a workstation | legacy's `snmpFirewallParser` / `snmpAclParser` and the `firewall*`/`acl*` OIDs inside `snmpd.conf` — REFUSED, not deferred: they are a third and fourth authority over a fact v2 already owns; `nmap -sU`; NAT on a workstation | B `snmpwalk` with `public` → identity only; B cracks the RW community → the forward table renders as OIDs → `snmpset` opens a port **without B ever logging in**, and A's `snmpd.log` names B |
 | **D9** ✅ | **A player automates an attack with a script** — **SHIPPED v0.196.0-v0.200.0 (#475-#480)** as slices 1, 2a, 2b, 3 and 4; eleven locked decisions in ["D9 — resolved scope & decisions"](#d9--resolved-scope--decisions-grill-me-2026-09-01) plus six more made at slice 4, as-built in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §2/§4/§7/§9 | `apt install node` → `node <path> [args]`; ONE always-async mode (`execute` returns a promise, so legacy's sync mode cannot port); every command as a camelCase global returning `string[]` with `.exitCode`; a trailing flags object with dashed keys; ambient `fs` (`readFile`/`writeFile`/`appendFile`); `console.log`; real `process.argv`; `sleep(ms)`; Ctrl-C at every await | **programmatic auth — REFUSED, not deferred** (`env` is a per-line snapshot, so a script that hopped would answer about the box it left); `chmod`; world content and an example script; an `sh()` escape hatch; a Web Worker sandbox; `script_exec` as a CVE effect (Phase 3) | A writes `/root/sweep.js` chaining `hydra` across many hosts, runs `node /root/sweep.js`, and captures the results to a file; `ssh(…)` from a script refuses in the same words the prompt would |
-| **D10** 🔍 | **The terminal feels like legacy's** — **GRILLED 2026-09-02**, fifteen locked decisions in ["D10 — resolved scope & decisions"](#d10--resolved-scope--decisions-grill-me-2026-09-02); five slices, not one | `clear` (banner + scrollback, Ctrl-L) via a new `env.clearScreen()`; `theme` — legacy's four palettes over the eight tokens v2 paints, `localStorage`-persisted and applied pre-render; `author` as a third `ModeChange` overlay; `xterm` opening a genuinely FRESH tab (skips hop rehydration); `whoami`; **plus locked decision 9's whole long tail** — `find` (legacy's positional shape), `strings`, `chmod` (read-modify-write, write-tier authz, no `-R`) and `gpg -c`/`-d` (legacy's codec keyed by md5, masked prompt, `.gpg`). `clear`/`whoami` join `SYSTEM_UTILITY_NAMES` | **`bash` — REFUSED, not deferred** (it ran binaries by path for a PATH-less NC shell v2 does not have, and `availability.ts` already resolves the search path and the execute bit); world content for `strings`/`gpg` (the loot rule owns it); a perms-only patch state; `chmod -R`; legacy's five unpainted theme tokens; a renderable `TerminalLine` kind | A player clears the screen, switches to green phosphor and it survives a reload; `author` opens the card and ESC returns; `xterm` from inside an ssh hop lands on the player's OWN box; `chmod` opens a root-only file to their tier and the change survives a reload; `gpg -c` leaves an intruder holding root with nothing readable |
+| **D10** 🚧 | **The terminal feels like legacy's** — **slice 1 of 5 SHIPPED v0.201.0 (#481)**; fifteen locked decisions in ["D10 — resolved scope & decisions"](#d10--resolved-scope--decisions-grill-me-2026-09-02); five slices, not one | `clear` (banner + scrollback, Ctrl-L) via a new `env.clearScreen()`; `theme` — legacy's four palettes over the eight tokens v2 paints, `localStorage`-persisted and applied pre-render; `author` as a third `ModeChange` overlay; `xterm` opening a genuinely FRESH tab (skips hop rehydration); `whoami`; **plus locked decision 9's whole long tail** — `find` (legacy's positional shape), `strings`, `chmod` (read-modify-write, write-tier authz, no `-R`) and `gpg -c`/`-d` (legacy's codec keyed by md5, masked prompt, `.gpg`). `clear`/`whoami` join `SYSTEM_UTILITY_NAMES` | **`bash` — REFUSED, not deferred** (it ran binaries by path for a PATH-less NC shell v2 does not have, and `availability.ts` already resolves the search path and the execute bit); world content for `strings`/`gpg` (the loot rule owns it); a perms-only patch state; `chmod -R`; legacy's five unpainted theme tokens; a renderable `TerminalLine` kind | A player clears the screen, switches to green phosphor and it survives a reload; `author` opens the card and ESC returns; `xterm` from inside an ssh hop lands on the player's OWN box; `chmod` opens a root-only file to their tier and the change survives a reload; `gpg -c` leaves an intruder holding root with nothing readable |
 
 ## Phase 2 — discovery
 
@@ -3296,17 +3298,31 @@ are now resolved. **A door is not proven by its wire-checks alone** — the wire
 green and could not see any of this, because the defects live in the one vantage no endpoint
 answers. One session's browsing produced four findings, three of them invisible to a green suite.
 
-**➡️ NEXT: D10 — the terminal feels like legacy's. GRILLED 2026-09-02, ready to plan.** Fifteen
-locked decisions and **five slices**, not the one the row promised: the terminal comforts (`clear`
-+ Ctrl-L, `theme`, `whoami`), the card and the second window (`author`, `xterm`), the box's own
-tools (`find`, `strings`), `chmod`, and `gpg`. It absorbs locked decision 9's entire long tail —
-which nothing else was ever going to claim — and **refuses `bash`**. After it **Phase 1 is
-complete**: every door — web, hydra, ftp, scp, daemons, nc, machine kinds, mysql, redis, snmp and
-node — has shipped. Then Phase 2 (discovery: DNS/`nslookup`/`dig`, then `findit.io` and networks a
-player was never told about).
+**➡️ NEXT: D10 slice 2 — the card and the second window (`author`, `xterm`). Not yet planned.**
 
-**Plan D10 slice 1 next** (`/plan`), then implement RED-first. No `api/` change anywhere in the
-door, so the wire-check is `N/A` across all five slices and every close-out proof is a browser run.
+**D10 slice 1 SHIPPED at v0.201.0 (`dd1cc5cf`, PR #481)** — the terminal is the player's: `clear`
+empties the screen and takes the banner with it while leaving the history alone, Ctrl-L does the
+same without submitting a half-typed line, `theme` switches between four palettes and remembers
+the choice, and `whoami` names the session you are standing in — proven live through an `su`
+elevation and an `ssh` hop onto an AP gateway. `clear` and `whoami` ship as real `/bin` binaries
+rather than legacy's builtins, so `rm /bin/whoami` takes the tool away and putting it back
+restores it. The stored palette is applied in an explicit boot step before `render`, and the
+browser's own first-paint timing proves there is no frame of amber on the way to it. Close-out,
+mutation triage and the one recorded gap are in
+[`d10-polish.md`](d10-polish.md) → "Slice 1 close-out".
+
+Four slices remain: the card and the second window (`author`, `xterm`), the box's own tools
+(`find`, `strings`), `chmod`, and `gpg`. Plan each when its predecessor lands. After D10 **Phase 1
+is complete**: every door — web, hydra, ftp, scp, daemons, nc, machine kinds, mysql, redis, snmp
+and node — has shipped. Then Phase 2 (discovery: DNS/`nslookup`/`dig`, then `findit.io` and
+networks a player was never told about).
+
+**Plan D10 slice 2 next** (`/plan`). It starts from the `CommandEnv` → UI capability seam slice 1
+laid (`clearScreen`, `currentTheme`, `setTheme` beside `resetGame`), which was the argument for
+landing slice 1 first — `author`'s overlay and `xterm`'s tab slot into that shape rather than each
+inventing one. Two of legacy's five unpainted theme tokens arrive WITH the author card. No `api/`
+change anywhere in the door, so the wire-check is `N/A` across all five slices and every close-out
+proof is a browser run.
 
 **D9 SHIPPED COMPLETE at v0.200.0 (#480)** — the seventh and last door in the locked order
 (ftp → daemons → nc → mysql → redis → snmp → node), across five slices

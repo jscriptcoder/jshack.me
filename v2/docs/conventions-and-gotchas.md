@@ -1185,6 +1185,28 @@ before waiting.
 vite.mutation.config.ts` takes ~2s for a scoped include. Multiply by mutants ÷ concurrency and you
 have the expected wall time; anything wildly above it is a scope or hang problem, not patience.
 
+**Read survivors from `reports/mutation/mutation.json`, never from the captured console output.**
+A backgrounded Stryker run's log was truncated to its last 72 lines and listed 8 of 77 survivors —
+all from one file, which read like a clean run with one weak spot and was not. The summary table
+is always right; the `[Survived]` blocks above it are the part that gets cut. Run with
+`--reporters json,progress` and parse the JSON, which also carries each mutant's `replacement` —
+the only way to tell which of the three mutants Stryker generates for an `a && b` condition
+actually lived.
+
+**A golden that compares a generated tree against the list it was generated from agrees with any
+list.** `workstationFs.test.ts` and `routerFs.test.ts` assert `/bin`'s keys equal
+`SYSTEM_UTILITY_NAMES`, and both generators build `/bin` from that same constant — so dropping a
+name from it changed nothing either test could see. Two binaries were added at D10 slice 1 and
+pinned BY NAME on all three filesystems as well; the goldens still earn their place (they catch a
+stray extra entry), but a by-name assertion is what catches a removal. The same shape applies
+anywhere a fixture and the code under test read one constant.
+
+**A test that has never been seen to fail is a decoration.** Three of D10 slice 1's planned RED
+steps passed the moment they were written, because the minimum implementation for an earlier step
+had already satisfied them — which is the honest outcome, not a reason to skip them. Each was
+proven by applying the mutant it exists to catch, watching it fail, and reverting. Write that down
+in the close-out rather than reporting a green test as if it had driven anything.
+
 ## 5. Operational gotchas
 
 - **3100 `vercel dev` squatter (recurs).** Killing the `npm run vercel:dev` background task
