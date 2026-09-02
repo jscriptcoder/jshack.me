@@ -2453,8 +2453,17 @@ The parking lot's **believable per-machine content** item is what fills them, an
 D2.6b's rule: content carrying a usable credential is **loot**, and loot arrives through the
 postponed harvest route. A polish slice planting a credential in a binary, or an `.enc` file with
 its key on a neighbouring box, would be building that route ahead of its owner. `strings /bin/ls`
-therefore prints one stub line on every machine until the content work lands, and that is the
-correct amount of nothing.
+therefore prints only what the shared stub carries, on every machine alike, until the content work
+lands — and that is the correct amount of nothing.
+
+**Amended 2026-09-02, planning slice 3.** The sentence above originally said "prints one stub
+line", which the constant could not deliver: `BINARY_STUB` is `\x7fELF\x02\x01\x01\x03\x3e\x01`,
+whose longest printable run is `ELF` — three characters against `strings`' fixed four-character
+minimum — so every binary and every `.so` on every machine printed **zero** lines, and the tool
+would have shipped indistinguishable from broken. Slice 3 therefore extends the stub with the
+readable tail a real ELF carries (an interpreter path and a glibc version). That is **not** the
+world content this decision forbids: this rule owns **loot** — content carrying a usable credential
+— and a constant byte-identical on every machine carries no secret and rewards no search.
 
 #### 3. `gpg` is the real CLI, and it ships BOTH halves
 
@@ -3298,7 +3307,8 @@ are now resolved. **A door is not proven by its wire-checks alone** — the wire
 green and could not see any of this, because the defects live in the one vantage no endpoint
 answers. One session's browsing produced four findings, three of them invisible to a green suite.
 
-**➡️ NEXT: D10 slice 3 — the box answers questions (`find`, `strings`). Not yet planned.**
+**➡️ NEXT: D10 slice 3 — the box answers questions (`find`, `strings`). Planned, thirteen ACs
+confirmed, branch cut — not yet built.**
 
 **D10 slice 1 SHIPPED at v0.201.0 (`dd1cc5cf`, PR #481)** — the terminal is the player's: `clear`
 empties the screen and takes the banner with it while leaving the history alone, Ctrl-L does the
@@ -3330,10 +3340,15 @@ slice also paid off the two-tabs-one-session-stack hazard named in the grounding
 is the command that makes anyone hit it. Close-out, mutation triage and the settled `env.ui.*`
 verdict are in [`d10-polish.md`](d10-polish.md) → "Slice 2 close-out".
 
-**Plan D10 slice 3 next** (`/plan`). `find` and `strings` — and both binaries are already stamped
-into `SYSTEM_UTILITY_NAMES`, so unlike the first two slices it has no generation half at all: pure
-command work against `env.fs` seams that exist. No `api/` change anywhere in the door, so the
-wire-check is `N/A` across all five slices and every close-out proof is a browser run.
+**D10 slice 3 is PLANNED** — thirteen ACs confirmed 2026-09-02, branch
+`feat/d10-the-box-answers-questions` cut from v0.202.0; see
+[`d10-polish.md`](d10-polish.md) → "Slice 3". `find` and `strings`, whose binaries are already
+stamped into `SYSTEM_UTILITY_NAMES`, so the game has been advertising two tools it does not have.
+Planning it turned up one finding that changed the scope: **`strings /bin/ls` prints nothing
+today** — `BINARY_STUB`'s longest printable run is `ELF`, three characters against a four-character
+minimum — so the slice carries a three-line stub extension (decision 2, amended above). No `api/`
+change anywhere in the door, so the wire-check is `N/A` across all five slices and every close-out
+proof is a browser run.
 
 **D9 SHIPPED COMPLETE at v0.200.0 (#480)** — the seventh and last door in the locked order
 (ftp → daemons → nc → mysql → redis → snmp → node), across five slices

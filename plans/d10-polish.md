@@ -3,8 +3,9 @@
 **Status**: Active — **two of five slices SHIPPED**. Slice 1: `dd1cc5cf` (PR #481) at
 **v0.201.0**, thirteen acceptance criteria. Slice 2: `dc1e294c` (PR #482) at **v0.202.0**, twelve
 acceptance criteria and ten hand-applied mutants, all killed. Both close-outs are written up below
-their sections. Trunk is at v0.202.0 and level with origin. **The next action is to plan slice 3**
-(`find` + `strings`) — pure command work, both binaries already stamped.
+their sections. Trunk is at v0.202.0 and level with origin. **Slice 3 is planned, its thirteen
+acceptance criteria are confirmed, and its branch is cut** — `find` + `strings`, plus the fix for
+one finding the planning pass turned up: `strings /bin/ls` prints nothing today, on every machine.
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D10 — resolved scope & decisions
 (grill-me, 2026-09-02)", fifteen locked decisions.
 
@@ -15,9 +16,10 @@ their sections. Trunk is at v0.202.0 and level with origin. **The next action is
 2. **Slices 1 and 2 are shipped and merged.** Read slice 2's close-out before planning slice 3 —
    it settles the `env.ui.*` question for good, records what the mutation gate found, and names the
    one thing slice 3's RED order should start from.
-3. **The next action is to plan slice 3** (`find` + `strings`) with `/plan`. Both binaries are
-   already stamped, so it has no generation half — it is pure command work against seams that
-   exist. Its decisions are locked in the epic; do not re-grill the door.
+3. **The next action is slice 3's RED 1** on `feat/d10-the-box-answers-questions`. Its plan and
+   thirteen confirmed ACs are below, including the decision that `BINARY_STUB` grows a readable
+   tail so `strings` has something to print. Its scope is locked in the epic; do not re-grill
+   the door.
 4. Cut a fresh `feat/…` branch per slice off an up-to-date `main` — check `git status -sb` for
    ahead/behind, per conventions §8, which distinguishes ahead from level where
    `git pull --ff-only` does not.
@@ -51,7 +53,7 @@ want found — nine commands that legacy had and v2 has been missing since the r
 |---|-------|-----------|--------|
 | 1 | the terminal is yours | `clear` + Ctrl-L, four themes that survive a reload, `whoami` | ✅ **shipped** — `dd1cc5cf` (PR #481), v0.201.0 |
 | 2 | the card and the second window | `author` opens the card; `xterm` opens a FRESH tab | ✅ **shipped** — `dc1e294c` (PR #482), v0.202.0 |
-| 3 | the box answers questions | `find / passwd` finds it; `strings /bin/ls` reads the stub | not planned |
+| 3 | the box answers questions | `find / passwd` finds it; `strings /bin/ls` reads the stub | 📋 **planned** — 13 ACs confirmed, branch cut |
 | 4 | permissions change hands | `chmod o+r` opens a file to a tier that could not read it | not planned |
 | 5 | a file nobody else can read | `gpg -c` then `-d` round-trips; a wrong passphrase fails clean | not planned |
 
@@ -796,6 +798,247 @@ Two things carry forward. The `env.ui.*` question is **settled above** — do no
 re-deriving it. And `find`'s rule that it walks only what the session can traverse and read (epic
 decision 14) means its RED order should start from the disagreement it exists to prevent: what
 `find` reports and what `cat` will then open must not differ.
+
+---
+
+## Slice 3: the box answers questions
+
+**Value**: Two tools for interrogating a machine you have just landed on. Every door the game has
+shipped ends the same way — a player is standing in a filesystem they did not build, wanting to
+know what is in it. Today they have `ls` one directory at a time and `grep` over content they must
+already suspect. `find` is the question *"where is the thing called X"*, and `strings` is the
+question *"this file is not text — what does it say anyway"*. Both answer `command not found`
+today, on every machine, while `/bin/find` and `/bin/strings` sit right there in the listing.
+
+That last part is the sharpest reason this slice is worth its own PR: the binaries have been
+stamped since the generation work, so the game has been advertising two tools it does not have.
+`ls /bin` promises them; running them denies them.
+
+**Path**: `find` → registry (binary-gated, already stamped) → glob compiled from the positional
+pattern → recursive walk over `env.fs.list` / `env.fs.stat` from the resolved start path → matching
+absolute paths, directories suffixed `/`, alphabetical → stdout. `strings` → registry (same gate) →
+`env.fs.read` → printable-run extraction at a fixed 4-character minimum → one terminal line per
+line of each run.
+
+**Class**: Behavior change.
+
+**Delivery**: Independent PR against trunk, cut from `main` at v0.202.0. No stack: slice 4 (`chmod`)
+touches the write path, which nothing here goes near.
+
+**Required implementation skills**: `tdd`, `testing`, `refactoring`. Load `mutation-testing` at PR
+readiness for the accumulated scope.
+
+**Reduction program**: `N/A`.
+**Transition/terminal evidence**: `N/A`.
+
+### The three things this plan decides that the grill left open
+
+**1. `strings /bin/ls` currently prints NOTHING, and the epic says it prints one line.** This is a
+finding, not a preference. Decision 2 records the intended behaviour as *"`strings /bin/ls`
+therefore prints one stub line on every machine until the content work lands, and that is the
+correct amount of nothing."* Check it against the constant: `BINARY_STUB` is
+`'\x7fELF\x02\x01\x01\x03\x3e\x01'`, and with legacy's 4-character minimum its longest printable
+run is `ELF` — three characters. Every binary on every machine yields **zero lines**. The stub
+`workstationFs.test.ts` already describes as *"`cat`/`strings` show ELF-ish bytes"* shows `strings`
+nothing at all.
+
+That matters more than it sounds. `strings /bin/<anything>` is the first thing a player will try,
+because it is the only file on a fresh box that is not text — and silence is indistinguishable from
+a broken command. The tool would ship dark in the literal sense.
+
+**Recommendation: extend `BINARY_STUB` with the readable tail a real ELF binary carries** — the
+interpreter path and a glibc version, e.g. `/lib64/ld-linux-x86-64.so.2` and `GLIBC_2.2.5`. Three
+lines in `binaries.ts`, and it is explicitly *not* what decision 2 forbids: decision 2 forbids
+**loot** — content carrying a usable credential, which belongs to the postponed harvest route. A
+constant that is byte-identical on every machine and every `.so` carries no secret and rewards no
+search. The file's own comment already calls these bytes cosmetic. Blast radius is small and
+checked: nothing asserts the literal bytes (`grep.test.ts` keeps its own `ELF_STUB`), the
+`\x7fELF` prefix that `grep` skips binaries by is unchanged, and the NUL-free rule that
+`apt install`'s Postgres write depends on still holds.
+
+The alternative — ship `strings` printing nothing on binaries and correct decision 2's sentence to
+say so — is honest and cheaper, and it makes the slice's headline observable disappear.
+
+**CONFIRMED 2026-09-02: extend the stub.** Verified before deciding, by running legacy's extraction
+over the real constant: `runs (min 4)` is `[]` today; with the tail it is
+`["/lib64/ld-linux-x86-64.so.2", "GLIBC_2.2.5"]`, still NUL-free and still `\x7fELF`-prefixed. The
+epic's decision 2 has been amended with the finding, since it is the record the sentence was wrong
+in.
+
+**2. `find` decides from `list`, never from `stat` — because `stat` has no permissions.**
+`createFsView`'s `stat` is `resolve(path).node`, returned unconditionally: no walker, no tier check.
+That is right for what it is for, and it is a loaded gun for a command that walks a whole tree. A
+`find` that enumerated with `stat` would report the contents of directories the session cannot
+enter — turning a convenience tool into a permission oracle that tells a guest exactly what root is
+hiding and where.
+
+So the rule is: **a level is enumerated only if `env.fs.list` succeeds there**, and `stat` is used
+only for the `kind` and `owner` of children a successful `list` has already revealed — facts
+`ls -l` in that same directory would print anyway. This is `grep`'s `walkAndSearch` shape exactly,
+and reusing it is most of why this slice is cheap.
+
+**A correction to slice 2's close-out while it is fresh.** It said the invariant is *"what `find`
+reports and what `cat` will then open must not differ"*. That overstates it: an unreadable file
+inside a readable directory is visible to `ls` and refused by `cat`, and `find` naming it is
+correct Unix behaviour, not a leak. The invariant that actually holds — and the one the first test
+must pin — is narrower: **`find` reports nothing from behind a door the session cannot open.**
+
+**3. `strings` loses legacy's `minLength` positional, and with it an error.** The folded-in decision
+is *"legacy's fixed 4-character minimum and no `-n`"*. Legacy took an optional second positional and
+validated it (`strings: minimum length must be between 1 and 100`). Dropping the argument drops the
+error with it — worth writing down so it is not read later as an omission. `strings <file>` takes
+exactly one operand.
+
+### Acceptance criteria — CONFIRMED 2026-09-02, before any code
+
+- [ ] **AC-1** `find <path> <pattern>` walks `<path>` recursively and prints every entry whose
+      **name** matches, as an absolute path, one per line, **alphabetically**. Directories print
+      with a trailing `/`; files do not.
+- [ ] **AC-2** The pattern is a glob, not a regex: `*` is any run, `?` is one character, and every
+      other regex metacharacter is **literal** — `find / *.txt` must not match `axtxt`.
+- [ ] **AC-3** An optional third positional filters results by the file's `owner` string. It is a
+      **display filter, never an authorization input** (decision 14): it changes what is listed and
+      can never widen it.
+- [ ] **AC-4** **A directory the session cannot enter contributes nothing** — no descendant names,
+      no error, no exit-code change. What `find` shows at each level is exactly what `ls` there
+      would show; a `user`-tier session finds nothing inside a root-only directory, while the
+      directory's own name stays visible from its readable parent.
+- [ ] **AC-5** Errors, each exit **1**: fewer than two operands →
+      `find: usage: find <path> <pattern> [user]`; a start path that does not exist →
+      `find: '<path>': No such file or directory`; a start path that is a file →
+      `find: '<path>': Not a directory`.
+- [ ] **AC-6** Relative starts resolve against the session's cwd (`find . passwd` from `/home/alice`
+      searches `/home/alice`), and results are absolute regardless.
+- [ ] **AC-7** No matches is not an error: no output, exit **0**.
+- [ ] **AC-8** `strings <file>` prints every run of **four or more** printable characters, one
+      terminal line per line, with `\n` and `\t` counted as printable so a text file reads back
+      as itself.
+- [ ] **AC-9** `strings /bin/ls` prints the binary stub's readable strings on any machine — the
+      tool is demonstrable on a fresh box with no content work.
+- [ ] **AC-10** `strings` errors, each exit **1**: no operand → `strings: missing file operand`;
+      then `strings: <file>: No such file or directory`, `: Is a directory`, `: Permission denied`.
+- [ ] **AC-11** Both are gated by their binaries like every other real tool: `rm /bin/find` makes
+      `find` report `command not found`, and the same for `strings`. Neither joins `GAME_COMMANDS`.
+- [ ] **AC-12** Both compose: `find / '*.conf' | grep etc` filters `find`'s lines, and both run
+      inside a `node` script and from a no-tty backdoor session — unlike slice 2's pair, these are
+      ordinary tools with **no `withoutTty` and no `withoutScript`**.
+- [ ] **AC-13** `man find` and `man strings` render with a synopsis and examples that name the
+      command; `help` lists both under **filesystem**.
+
+### RED
+
+In this order. Each must fail for the right reason before any production change; where one passes
+on arrival, prove it with the mutant it exists to catch and record that in the close-out.
+
+1. **A locked directory leaks nothing** (AC-4). First, because it is the claim the command is most
+   able to get wrong invisibly. A tree with a root-only directory holding a file, a `user`-tier
+   session, `find / '*'` — the file's path must be absent and `find` must still succeed. RED is
+   `command not found`; the mutant it survives against later is swapping the `list` gate for `stat`.
+2. **`find` finds a file by name** (AC-1), then **directories carry the trailing `/` and results
+   sort** (AC-1).
+3. **Globs and their literals** (AC-2) — `*.txt`, `passw?`, and the negative that `*.txt` does not
+   match `axtxt`. The negative is the test; the positives are the demo.
+4. **The owner filter** (AC-3), including that a non-matching owner hides a file the session could
+   otherwise see, and that naming an owner never reveals one it could not.
+5. **The three `find` errors and the empty result** (AC-5, AC-7) — usage, missing, not-a-directory,
+   and no-match-is-exit-0.
+6. **Relative and `.` starts** (AC-6).
+7. **`strings` extracts runs of four or more** (AC-8): a synthetic buffer with a 3-character run
+   (dropped), a 4-character run (kept), and non-printable separators. RED is `command not found`.
+8. **`strings` on a real generated binary** (AC-9) — through `createBinaryEntries`/`BINARY_STUB`,
+   not a hand-typed literal, so the test tracks the constant rather than a copy of it. This is the
+   test that fails today for decision 1's reason, and the one that proves the fix.
+9. **`strings`' four errors** (AC-10).
+10. **Binary gating for both** (AC-11) — `/bin/find` removed → `command not found`.
+11. **Composition** (AC-12) — `find` into a pipe, and both from a script context.
+12. **`man` and `help`** (AC-13).
+
+### GREEN — the minimum, in dependency order
+
+1. `core/commands/find.ts` — glob→`RegExp` (escape, then expand `*`/`?`, anchored), the recursive
+   walk over `env.fs.list` + `env.fs.stat`, the owner filter, the three errors. Register it. **No
+   `availability.ts` change**: the binary is stamped and the command is not a game command, so the
+   existing wrapper gates it with no new entry anywhere.
+2. `core/commands/strings.ts` — printable-run extraction, `env.fs.read`, the error mapping.
+   Register it. Same non-change to `availability.ts`.
+3. `core/generation/binaries.ts` — extend `BINARY_STUB` (decision 1). Last, so the `strings` tests
+   that need it are already red for the right reason.
+
+### Three things GREEN must get right
+
+- **The glob must escape before it expands.** Escape the regex metacharacters, *then* turn `*` into
+  `.*` and `?` into `.`, then anchor `^…$`. In the other order the escaping eats the wildcards. And
+  the reason the positional shape works at all: **v2's shell does no glob expansion**, so `*.txt`
+  reaches the command as typed. Nothing else in the game relies on that; `find` will.
+- **`strings` must split its runs into lines.** With `\n` printable, a text file is one giant run,
+  and a single `TerminalLine` holding embedded newlines renders as one wrapped blob under
+  `whitespace-pre-wrap` and — worse — arrives at a piped `grep` as **one line**, so
+  `strings f | grep x` would return the whole file or nothing. Project each run through
+  `splitContentLines`, the same helper `cat` and `grep` use.
+- **Match each command's own error dialect, including the inconsistency.** Legacy quotes `find`'s
+  paths (`find: '/nope': ...`) and leaves `strings`' unquoted (`strings: /nope: ...`). v2 already
+  carries exactly this split — `grep` quotes, `cat` does not — so it is house style, not a bug to
+  tidy. Exit **1** for both, which is what real `find` and `strings` return and what `cat`, `rm`
+  and `touch` already use here (`ls` and `grep` use 2 to mirror their own GNU originals).
+
+### Deliberately not in slice 3
+
+`chmod` and `gpg` (slices 4 and 5). Real `find`'s `-name`/`-type`/`-maxdepth` parsing — decision 14
+locked the positional shape and named the pre-release realism pass that owns the question. A `-n`
+minimum length for `strings`. Any per-machine content that would make either tool find something
+interesting — decision 2, and it belongs to the loot route. `strings` reading a file it cannot read
+by asking the server: it uses the same view every other read command uses, and a denial is a
+denial.
+
+### REFACTOR
+
+**One candidate, and it is a real one: the recursive walk.** `find` will hold a walk that is
+structurally `grep`'s `walkAndSearch` — `list`, sort, `stat` each child, recurse into directories,
+flat-map results — differing only in what it collects. Two implementations of a
+permission-respecting tree walk is exactly the duplication that lets one of them quietly grow a
+`stat`-based shortcut later. Judge it **after both are green**, with the shared shape visible: if
+the extraction is a `walkTree(env, dir, visit)` that both call, it is worth it; if it needs options
+to reconcile grep's binary-skipping with find's name-matching, it is not. Do not pre-extract.
+
+Second candidate, smaller: `find` and `strings` each map an `FsReadResult`/`FsListResult` error to
+a message, which `cat`, `cd` and `grep` already do four different ways — and `cat.ts` carries a
+note from PR #175 saying to extract `fsReadHelpers.ts` "when `tail`/`grep` arrive". `grep` arrived
+and it was not extracted, because the dialects genuinely differ (quoting, exit codes, which errors
+are even reachable). Two more commands is the moment to either do it or delete the note. **Deleting
+the stale note is a valid outcome** and is probably the right one.
+
+### PRE-PR MUTATION
+
+Focused on `core/commands/find.ts`, `core/commands/strings.ts`, and the `BINARY_STUB` constant.
+Read survivors from `reports/mutation/mutation.json`, never the console, and never with the dev
+server running (conventions §4). Expect the manual pages to dominate the count as always, and
+expect two survivor families worth real attention rather than classification:
+
+- **The glob translation.** Dropping the `^`/`$` anchors, or the metacharacter escape, both leave
+  most tests green — AC-2's negative case is the one that kills them, which is why it is a test and
+  not an example.
+- **The minimum-length boundary.** `>=` → `>` in the run collector survives anything that does not
+  assert a run of exactly four characters.
+
+### Browser close-out
+
+`vercel dev` + local supabase, banner version checked before driving anything. The beat worth
+targeting is a box that is **not** the player's own, because that is where these tools are for:
+`ssh` into the AP gateway, then `find / '*.conf'` and `find /etc passwd` from a root session, and
+the same commands from a `user`-tier session on the workstation to see the walk stop at doors it
+cannot open. Then `strings /bin/ls` on both boxes, `cat /bin/ls` beside it for contrast, and
+`find / '*.log' | grep var` to prove the pipe. Finish with `rm /bin/find` and run it again — the
+promise-in-`ls /bin` closing the loop.
+
+### PR-ready when
+
+- All 13 ACs met, each by a test that has been seen to fail.
+- `npm run typecheck`, `npm run lint`, and the full non-watch suite pass from `v2/`.
+- Mutation gate closed: every survivor killed or classified in the close-out.
+- Wire-check **`N/A`** — no `api/` path changes; both commands read through the existing `FsView`
+  (epic "Forced rather than chosen").
+- Browser close-out run and written up, including the remote-box beat.
+- Version bumped in **both** `v2/package.json` and `v2/package-lock.json`.
 
 ---
 *Delete this file at D10 close-out and fold the durable rules into
