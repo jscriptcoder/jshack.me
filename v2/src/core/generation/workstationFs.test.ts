@@ -238,6 +238,18 @@ describe('buildWorkstationBaseFs', () => {
       required.forEach((name) => expect(binKeys).toContain(name));
     });
 
+    it('stamps no binary for the game commands, which no rm can take away', () => {
+      // The other half of the rule `clear` and `whoami` are here for: a real
+      // Linux tool has a binary and is gated by it, a game command does not.
+      // Without this, the easiest way to "fix" a game command is to copy what
+      // slice 1 did for the real ones and stamp it into /bin, which would hand
+      // players a way to delete the terminal's own controls.
+      const binKeys = [...dirAt(baseFs(), 'bin').entries.keys()];
+      ['author', 'xterm', 'theme', 'identity', 'new-game'].forEach((name) =>
+        expect(binKeys).not.toContain(name),
+      );
+    });
+
     it('makes binaries root-owned and world-executable by default', () => {
       const lsBin = dirAt(baseFs(), 'bin').entries.get('ls');
       if (lsBin?.kind !== 'file') throw new Error('missing /bin/ls');

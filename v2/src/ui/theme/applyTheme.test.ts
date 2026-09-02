@@ -3,11 +3,16 @@ import { applyTheme } from './applyTheme';
 import { THEME_IDS } from '../../core/theme/themes';
 
 /**
- * The eight custom properties `index.css` actually reads. Written out rather
- * than derived from `ThemeColors`, deliberately: this is the contract BETWEEN
- * the palette and the stylesheet, so renaming a field in `themes.ts` without
- * renaming the token in the CSS has to fail here. Deriving the list from the
- * same object under test would agree with any rename and prove nothing.
+ * Every custom property the app actually reads. Written out rather than derived
+ * from `ThemeColors`, deliberately: this is the contract BETWEEN the palette and
+ * the things that paint from it, so renaming a field in `themes.ts` without
+ * renaming the token at the other end has to fail here. Deriving the list from
+ * the same object under test would agree with any rename and prove nothing.
+ *
+ * The list grows only when something starts painting a token — a colour nothing
+ * reads is a value free to drift from the design forever without a test noticing.
+ * The last two arrived with the author card, which is the only thing that shows a
+ * link or an avatar.
  */
 const PAINTED_TOKENS = [
   '--theme-bg',
@@ -18,6 +23,8 @@ const PAINTED_TOKENS = [
   '--theme-caret',
   '--theme-scroll-thumb',
   '--theme-scroll-thumb-hover',
+  '--theme-link',
+  '--theme-avatar-border',
 ] as const;
 
 describe('applyTheme', () => {

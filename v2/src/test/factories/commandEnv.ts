@@ -302,6 +302,7 @@ export const mockCommandEnv = (overrides: Partial<CommandEnv> = {}): CommandEnv 
   clearScreen: () => undefined,
   currentTheme: () => DEFAULT_THEME_ID,
   setTheme: () => undefined,
+  openTerminal: () => undefined,
   setChildCommand: () => undefined,
   sleep: () => Promise.resolve(),
   signal: new AbortController().signal,

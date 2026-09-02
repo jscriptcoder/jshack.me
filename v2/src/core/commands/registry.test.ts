@@ -102,6 +102,8 @@ describe('commandRegistry', () => {
     // swapped-label regression is caught, not just a missing field.
     expect(commandRegistry.get('echo')?.category).toBe('general');
     expect(commandRegistry.get('identity')?.category).toBe('general');
+    expect(commandRegistry.get('author')?.category).toBe('general');
+    expect(commandRegistry.get('xterm')?.category).toBe('general');
     expect(commandRegistry.get('ls')?.category).toBe('filesystem');
     expect(commandRegistry.get('cat')?.category).toBe('filesystem');
   });

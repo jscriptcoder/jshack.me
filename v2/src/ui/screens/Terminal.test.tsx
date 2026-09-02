@@ -1,4 +1,4 @@
-import { describe, expect, it, onTestFinished, vi } from 'vitest';
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { fireEvent, render, screen } from '@solidjs/testing-library';
 import { Terminal } from './Terminal';
 import {
@@ -28,6 +28,15 @@ const renderTerminal = () => {
   startGame(SEED_CONFIG);
   return render(() => <Terminal />);
 };
+
+/** Close whatever full-screen app a test left open. `startGame` does not touch the
+ *  overlay and should not: no player can start a game from inside one, because the
+ *  app holds the keyboard and there is no prompt to type into. So the reset belongs
+ *  to the harness — and it goes here rather than in `renderTerminal` because the
+ *  tests that hand-roll their own `startGame` need it just as much. Without it, a
+ *  test that leaves an app open hands the NEXT one a terminal with no input field,
+ *  which reads as that test's own failure. */
+afterEach(() => setOverlayMode(null));
 
 const runCommand = (value: string) => {
   const field = screen.getByRole('textbox', { name: /terminal input/i });
@@ -848,6 +857,94 @@ describe('Terminal full-screen apps', () => {
     expect(await screen.findByRole('textbox', { name: /terminal input/i })).toBe(
       document.activeElement,
     );
+  });
+  it('opens the author card when a player runs `author`', async () => {
+    renderTerminal();
+
+    runCommand('author');
+
+    // Driven through the shell rather than by setting the overlay directly: what
+    // is being claimed is that TYPING the command reaches the card, which is the
+    // whole of what a player does. And the card's own CONTENT is what proves it
+    // arrived — reading the overlay signal would pass with a blank screen.
+    expect(await screen.findByText('Francisco Ramos (jscriptcoder)')).toBeInTheDocument();
+    expect(screen.getByText(/fullstack engineer with 20\+ years/)).toBeInTheDocument();
+    // Real anchors rather than styled text: the links are the one thing on the
+    // card a player is meant to leave by, so they carry an href or they are
+    // decoration.
+    expect(screen.getByRole('link', { name: 'LinkedIn' })).toHaveAttribute(
+      'href',
+      'https://www.linkedin.com/in/jscriptcoder',
+    );
+    expect(screen.getByRole('link', { name: 'GitHub' })).toHaveAttribute(
+      'href',
+      'https://github.com/jscriptcoder',
+    );
+  });
+  it('hands the terminal back on ESC or q, having left no line behind', async () => {
+    renderTerminal();
+    runCommand('pwd');
+    await screen.findByText('/home/alice');
+    const beforeTheCard = scrollback().length;
+
+    // Both keys in one body because they are one question — a card is not a place
+    // a player should be able to get stuck in, and which finger they used to leave
+    // is not a second behaviour.
+    for (const quitKey of ['Escape', 'q']) {
+      runCommand('author');
+      await screen.findByText('Francisco Ramos (jscriptcoder)');
+      expect(screen.queryByRole('textbox', { name: /terminal input/i })).not.toBeInTheDocument();
+
+      fireEvent.keyDown(screen.getByRole('main'), { key: quitKey });
+
+      expect(await screen.findByRole('textbox', { name: /terminal input/i })).toBeInTheDocument();
+      expect(screen.queryByText('Francisco Ramos (jscriptcoder)')).not.toBeInTheDocument();
+      // What the player was reading before the card is still underneath it: the
+      // card covered the terminal, it did not replace what was on it.
+      expect(screen.getByText('/home/alice')).toBeInTheDocument();
+    }
+
+    // And the card contributed nothing of its own: two openings, two echoed
+    // command lines, no output. It was a screen, not a line — a card that printed
+    // even "opening…" would leave that in the scrollback forever.
+    expect(scrollback().length).toBe(beforeTheCard + 2);
+  });
+  it('takes the keyboard as it opens, so a player can leave without clicking first', async () => {
+    renderTerminal();
+
+    runCommand('author');
+    await screen.findByText('Francisco Ramos (jscriptcoder)');
+
+    expect(screen.getByRole('main')).toBe(document.activeElement);
+    // Sent at whatever holds focus rather than at the card, because that is where
+    // a real keystroke lands. A card that is merely focusABLE leaves focus on the
+    // body, and a keydown there never reaches a handler further down the tree —
+    // so this is the assertion a forgotten `focus()` fails.
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+
+    expect(await screen.findByRole('textbox', { name: /terminal input/i })).toBeInTheDocument();
+  });
+  it('paints its links and avatar border from the palette, not a colour of its own', async () => {
+    renderTerminal();
+
+    runCommand('author');
+    await screen.findByText('Francisco Ramos (jscriptcoder)');
+
+    // These two tokens exist FOR this card — it is the only screen in the game
+    // that shows a link or an avatar — and a token nothing paints is dead data.
+    // So the card naming them is the whole reason they were added, and a card
+    // that hard-coded a colour or borrowed a token meaning something else would
+    // leave two values free to drift from the design forever.
+    //
+    // Asserted on the declared value rather than a resolved colour: jsdom loads
+    // no stylesheet, and the declaration is the contract in any case — the card
+    // names a token, the palette decides the shade.
+    expect(screen.getByRole('link', { name: 'LinkedIn' }).getAttribute('class')).toContain(
+      'var(--theme-link)',
+    );
+    expect(
+      screen.getByRole('img', { name: 'Francisco Ramos (jscriptcoder)' }).getAttribute('class'),
+    ).toContain('var(--theme-avatar-border)');
   });
 });
 

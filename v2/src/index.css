@@ -14,6 +14,8 @@
   --theme-caret: #fbbf24;
   --theme-scroll-thumb: rgba(120, 53, 15, 0.5);
   --theme-scroll-thumb-hover: rgba(146, 64, 14, 0.7);
+  --theme-link: #fbbf24;
+  --theme-avatar-border: #f59e0b;
 }
 
 * {

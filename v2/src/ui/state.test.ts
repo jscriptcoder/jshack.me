@@ -19,7 +19,14 @@ import { HTTP_DEFAULT_PORT } from '../core/network/http';
 import { BINARY_STUB } from '../core/generation/binaries';
 import { serializeTree } from '../core/filesystem/treeCodec';
 import { buildDirectory, buildFile } from '../test/factories/filesystem';
-import type { PublicFetchResult } from '../core/commands/types';
+import type { ModeChange, PublicFetchResult } from '../core/commands/types';
+
+/** The buffer of whichever full-screen app is open. `author` is a screen with no
+ *  content of its own, so reading `.content` straight off the open overlay stopped
+ *  type-checking the moment that variant existed — this narrows to the apps that
+ *  actually carry one, instead of the assertions quietly widening to `unknown`. */
+const overlayContent = (mode: ModeChange | null): string | undefined =>
+  mode !== null && 'content' in mode ? mode.content : undefined;
 
 /**
  * Regression guard for the module-top-level init bug (see intro-screen plan).
@@ -133,6 +140,113 @@ describe('adopting the stored theme at boot', () => {
     state.adoptStoredTheme();
 
     expect(setItem).not.toHaveBeenCalled();
+  });
+});
+/**
+ * A second terminal is a second TAB, and it has to come up standing on the
+ * player's own box rather than inside whatever this one is ssh'd into. A flag on
+ * the URL is how the new tab is told, and this is the only test that knows how
+ * that flag is spelled — everything else asks for the behaviour, not the
+ * mechanism.
+ */
+describe('opening another terminal', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('opens a tab at the game, told to come up fresh', async () => {
+    const openTab = vi.fn();
+    vi.stubGlobal('open', openTab);
+    vi.resetModules();
+    const state = await import('./state');
+
+    state.openTerminal();
+
+    // `_blank` rather than a reused name: two `xterm`s are two terminals, and a
+    // named target would have the second one replace the first.
+    expect(openTab).toHaveBeenCalledWith(`${window.location.origin}?fresh`, '_blank');
+  });
+});
+/**
+ * A second terminal opened with `xterm` boots on the player's OWN box, whatever
+ * the server says they are holding. An ordinary boot does the opposite, and must
+ * keep doing it: rebuilding the hop chain is what makes a `su` elevation or an
+ * `ssh` hop survive a refresh.
+ *
+ * Both halves live here together because they are one decision seen from two
+ * sides, and the second is the regression the first can most easily cause.
+ */
+describe('booting a terminal fresh', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const ESSID = 'ferro-cafe';
+  const LAN = generateHomeLan(ESSID);
+  const HOP_HOST = LAN.hosts.find((host) => host.kind === 'machine');
+  if (HOP_HOST === undefined) throw new Error(`no ordinary host generated on ${ESSID}`);
+
+  /** The player is root on another box, according to the server. A boot that
+   *  rehydrates lands here; a fresh one never asks. */
+  const hopSessionRow = {
+    session_id: 'ssh-hop-1',
+    machine_id: machineIdForLanHost(HOP_HOST, ESSID),
+    credentials: { username: 'root', userType: 'root' },
+    parent_session_id: null,
+    source_ip: null,
+    kind: 'ssh',
+    created_at: '2026-01-01T00:00:00.000Z',
+  };
+
+  const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
+  const boot = async (options?: { readonly fresh: boolean }) => {
+    vi.resetModules();
+    const store = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => store.set(key, value),
+      removeItem: (key: string) => store.delete(key),
+    };
+    storage.setItem(CONNECTED_ESSID_KEY, ESSID);
+    lanLeaseCacheIn(storage).remember(ESSID, `${LAN.subnet}.77`);
+    vi.stubGlobal('localStorage', storage);
+
+    const askedForSessions = vi.fn();
+    const json = (body: unknown) => ({ ok: true, status: 200, json: async () => body });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: { body?: string }) => {
+        const fields = JSON.parse(JSON.parse(init?.body ?? '{}').payload) as Record<string, unknown>;
+        if (fields.action === 'listSessions') {
+          askedForSessions();
+          return json({ sessions: [hopSessionRow] });
+        }
+        return json({ patches: [], sessions: [] });
+      }),
+    );
+
+    const state = await import('./state');
+    state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' }, options);
+    return { state, askedForSessions };
+  };
+
+  it('stands a fresh terminal on the player own box, whatever sessions the server holds', async () => {
+    const { state, askedForSessions } = await boot({ fresh: true });
+    await settle();
+
+    // Standing at home as themselves, not root on somebody else's box.
+    expect(state.promptUsername()).toBe('tester');
+    expect(state.promptTier()).toBe('user');
+    // And it never asked. Without this the assertion above could pass for free by
+    // running before an answer that was always going to arrive — an absence has to
+    // be proven, not merely observed early.
+    expect(askedForSessions).not.toHaveBeenCalled();
+  });
+
+  it('rebuilds the hop chain on an ordinary boot, so an elevation survives a refresh', async () => {
+    const { state } = await boot();
+
+    // The default, and the one that must not move: every existing caller passes
+    // no options at all, and this is the behaviour they have always had.
+    await vi.waitFor(() => expect(state.promptUsername()).toBe('root'));
+    expect(state.promptTier()).toBe('root');
   });
 });
 
@@ -1756,7 +1870,7 @@ describe('nano editor mode', () => {
     // full-screen app to hand the screen to.
     expect(state.overlayMode()).toMatchObject({ kind: 'nano', path: '/etc/passwd' });
     // The buffer is the file's real content (the seed passwd has a root row).
-    expect(state.overlayMode()?.content).toContain('root:');
+    expect(overlayContent(state.overlayMode())).toContain('root:');
   });
 
   it('leaves the editor closed for a non-editor command', async () => {
@@ -1798,7 +1912,7 @@ describe('nano editor mode', () => {
     const { state, lastWrite } = await startEditorGame();
     state.setInput('nano /etc/passwd');
     await state.runInput();
-    const opened = state.overlayMode()?.content ?? '';
+    const opened = overlayContent(state.overlayMode()) ?? '';
 
     await state.saveEditor('root:x:0:0::/root:/bin/sh\n');
 
@@ -1830,7 +1944,7 @@ describe('nano editor mode', () => {
     const { state, lastWrite } = await startEditorGame({ refuseWrites: true });
     state.setInput('nano /etc/passwd');
     await state.runInput();
-    const opened = state.overlayMode()?.content ?? '';
+    const opened = overlayContent(state.overlayMode()) ?? '';
 
     await state.saveEditor('first attempt\n');
     await state.saveEditor('second attempt\n');
@@ -2031,7 +2145,7 @@ describe('full-screen apps a command opens', () => {
 
     expect(outcome).toEqual({ ok: true });
     expect(state.overlayMode()).toMatchObject({ url: 'http://localhost/missing.html' });
-    expect(state.overlayMode()?.content).toContain('404');
+    expect(overlayContent(state.overlayMode())).toContain('404');
   });
 
   /** A free address that is NOT the player's own: `unoccupiedIp` is the one this
