@@ -1,6 +1,10 @@
 @import 'tailwindcss';
 
-/* Amber phosphor terminal theme — mirrors the legacy app's CSS variables. */
+/* The PRE-JS fallback palette, and nothing else: it paints the frame before any
+   script runs, and `adoptStoredTheme()` takes over from the first render onward.
+   Amber deliberately, so it matches the default and a player who has chosen
+   nothing sees no change. This is NOT where the palette lives — change a colour
+   in `core/theme/themes.ts`, which is what every theme is painted from. */
 :root {
   --theme-bg: #000000;
   --theme-text: #f59e0b;

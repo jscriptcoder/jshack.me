@@ -22,6 +22,7 @@ import type { WifiNetwork } from '../network/wifi';
 import type { OpenPort } from '../services/pidfile';
 import type { SnmpIdentity, SnmpPortTable } from '../snmp/walk';
 import type { SnmpSetRefusal } from '../snmp/set';
+import type { ThemeId } from '../theme/themes';
 import type { FlagSpec } from '../shell/bindFlags';
 
 // ---- Identity & session (read-only snapshots in CommandEnv) ----
@@ -1149,6 +1150,25 @@ export type CommandEnv = {
    *  knows there's a trigger. Fire-once: the reload is deferred a beat so the
    *  command's `Resetting game...` line renders before the page tears down. */
   readonly resetGame: () => void;
+
+  /** Empty the screen — `clear`'s seam. The UI owns what "the screen" is (the
+   *  scrollback, and the boot banner standing above it) because `core/` has no
+   *  notion of either. It deliberately does NOT touch the command history: a
+   *  cleared screen is not a forgotten one, and ↑ still recalls the line typed
+   *  before the clear, exactly as it does in bash. */
+  readonly clearScreen: () => void;
+
+  /** The theme the terminal is wearing — `theme`'s listing marks it, and its
+   *  refusal leaves it standing. A getter rather than a value because `env` is
+   *  built per submitted line: a value would be a snapshot of the palette as it
+   *  was when the line was typed. */
+  readonly currentTheme: () => ThemeId;
+
+  /** Switch the terminal's theme — `theme <name>`'s seam. The UI owns both
+   *  halves of what switching means (painting the custom properties and
+   *  remembering the choice), and does them in ONE place, so the screen and the
+   *  stored value cannot disagree. `core/` only knows a valid id went out. */
+  readonly setTheme: (id: ThemeId) => void;
 
   /** Name the command running INSIDE another one, or `null` when none is —
    *  sibling to `setCwd`/`setInterface`, and the UI owns the signal as it does

@@ -39,6 +39,8 @@ const WORLD_EXECUTABLE: readonly UserType[] = ['root', 'user', 'guest'];
 export const SYSTEM_UTILITY_NAMES = [
   'ls',
   'cat',
+  'clear',
+  'whoami',
   'find',
   'grep',
   'su',

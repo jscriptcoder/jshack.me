@@ -38,6 +38,7 @@ import type {
 } from '../core/commands/types';
 import type { Directory } from '../core/filesystem/types';
 import type { WifiNetwork } from '../core/network/wifi';
+import type { ThemeId } from '../core/theme/themes';
 import { createFsView } from '../core/filesystem/fsView';
 import {
   isOnline,
@@ -266,6 +267,16 @@ export type BuildCommandEnvArgs = {
    *  client-persisted state and reload to the intro screen. Optional: only `reset`
    *  fires it, so other setups leave it unwired (a stray call hits the loud stub). */
   readonly onResetGame?: () => void;
+  /** The screen-clearing seam — backs `env.clearScreen`. The UI wires it to empty
+   *  the scrollback and take the banner down. Optional: only `clear` fires it, so
+   *  other setups leave it unwired (a stray call hits the loud stub). */
+  readonly onClearScreen?: () => void;
+  /** The active-theme reader — backs `env.currentTheme`. Optional: only `theme`
+   *  asks, so other setups leave it unwired (a stray read hits the loud stub). */
+  readonly onCurrentTheme?: () => ThemeId;
+  /** The theme-switching seam — backs `env.setTheme`. The UI wires it to paint the
+   *  palette AND remember the choice, in one place. Optional, same reason. */
+  readonly onSetTheme?: (id: ThemeId) => void;
   readonly onChildCommand?: (name: string | null) => void;
 };
 
@@ -455,6 +466,9 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   pushSession: args.onPushSession,
   popSession: args.onPopSession,
   resetGame: args.onResetGame ?? notWired('resetGame'),
+  clearScreen: args.onClearScreen ?? notWired('clearScreen'),
+  currentTheme: args.onCurrentTheme ?? notWired('currentTheme'),
+  setTheme: args.onSetTheme ?? notWired('setTheme'),
   // A no-op default rather than `notWired`: the label is cosmetic, so an env
   // built without it should simply show no child, not throw part-way through
   // somebody's script.

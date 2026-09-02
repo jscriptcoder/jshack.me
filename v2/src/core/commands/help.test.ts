@@ -137,4 +137,22 @@ describe('help', () => {
     expect(contents.some((line) => line.includes('help'))).toBe(true);
     expect(contents.some((line) => line.includes('ls'))).toBe(true);
   });
+
+  it('files the terminal commands under General and whoami under Filesystem', async () => {
+    const result = await help.execute(mockCommandEnv(), [], NO_FLAGS);
+    if (result.kind !== 'sync') throw new Error('help answers synchronously');
+    const contents = contentsOf(result.lines);
+
+    const rowOf = (name: string) => contents.findIndex((line) => line.startsWith(`   ${name} `));
+    const general = contents.indexOf(' General');
+    const filesystem = contents.indexOf(' Filesystem');
+
+    // Clearing and colouring the terminal are things the SHELL does, wherever
+    // you are standing; asking who you are is a question about the box.
+    expect(rowOf('clear')).toBeGreaterThan(general);
+    expect(rowOf('clear')).toBeLessThan(filesystem);
+    expect(rowOf('theme')).toBeGreaterThan(general);
+    expect(rowOf('theme')).toBeLessThan(filesystem);
+    expect(rowOf('whoami')).toBeGreaterThan(filesystem);
+  });
 });

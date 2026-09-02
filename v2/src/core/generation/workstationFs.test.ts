@@ -215,11 +215,15 @@ describe('buildWorkstationBaseFs', () => {
     });
 
     it('includes the binaries every currently-gated v2 command needs', () => {
-      // The gated v2 commands (cat/grep/ls/man/mkdir/rm/touch) plus the
-      // connectivity tools the arc depends on (ifconfig/nmcli) and apt itself.
+      // The gated v2 commands (cat/grep/ls/man/mkdir/rm/touch/clear/whoami) plus
+      // the connectivity tools the arc depends on (ifconfig/nmcli) and apt itself.
+      // Named individually on purpose: the golden above compares /bin against the
+      // utility list itself, so it agrees with any list — including one a name
+      // has been dropped from.
       const binKeys = [...dirAt(baseFs(), 'bin').entries.keys()];
       const required = [
         'cat',
+        'clear',
         'grep',
         'ls',
         'man',
@@ -229,6 +233,7 @@ describe('buildWorkstationBaseFs', () => {
         'ifconfig',
         'nmcli',
         'apt',
+        'whoami',
       ];
       required.forEach((name) => expect(binKeys).toContain(name));
     });

@@ -53,6 +53,90 @@ describe('state.ts module import', () => {
 });
 
 /**
+ * The stored theme has to be on the document BEFORE the first render, or the
+ * player watches the terminal come up amber and turn green a frame later. That
+ * is why it is an explicit boot step `main.tsx` calls ahead of `render`, rather
+ * than an effect: an effect runs after the first paint by definition.
+ */
+describe('adopting the stored theme at boot', () => {
+  const stubStorageHolding = (stored: string | null) => {
+    const setItem = vi.fn();
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => (key === 'jshack:theme' ? stored : null),
+      setItem,
+      removeItem: vi.fn(),
+    });
+    return { setItem };
+  };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    document.documentElement.removeAttribute('style');
+  });
+
+  it('paints the stored palette, synchronously, with nothing awaited', async () => {
+    stubStorageHolding('green');
+    vi.resetModules();
+    const state = await import('./state');
+
+    state.adoptStoredTheme();
+
+    // Asserted on the very next line: no flush, no microtask, no effect. Anything
+    // that made this asynchronous would put a frame of the wrong colour on screen.
+    expect(document.documentElement.style.getPropertyValue('--theme-text')).toBe('#22c55e');
+    expect(state.currentTheme()).toBe('green');
+  });
+
+  it('comes up in the default palette when the stored value names no theme', async () => {
+    // A hand-edited origin must not be able to brick the boot: no throw, and a
+    // painted palette rather than an unstyled page.
+    stubStorageHolding('chartreuse');
+    vi.resetModules();
+    const state = await import('./state');
+
+    state.adoptStoredTheme();
+
+    expect(document.documentElement.style.getPropertyValue('--theme-text')).toBe('#f59e0b');
+    expect(state.currentTheme()).toBe('amber');
+  });
+
+  it('comes back in the default palette once the origin has been wiped', async () => {
+    // `new-game` clears the WHOLE origin rather than picking out game keys, so
+    // the remembered theme goes with everything else and the fresh game boots
+    // amber. Nothing here special-cases the theme — that is exactly the point,
+    // and it is why a selective reset would silently strand a player in the
+    // colour of a game they no longer have.
+    const store = new Map<string, string>([['jshack:theme', 'cyan']]);
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => store.set(key, value),
+      removeItem: (key: string) => store.delete(key),
+      clear: () => store.clear(),
+    });
+    vi.resetModules();
+    const state = await import('./state');
+    state.adoptStoredTheme();
+    expect(state.currentTheme()).toBe('cyan');
+
+    localStorage.clear();
+    state.adoptStoredTheme();
+
+    expect(state.currentTheme()).toBe('amber');
+    expect(document.documentElement.style.getPropertyValue('--theme-text')).toBe('#f59e0b');
+  });
+
+  it('writes nothing back, because reading a choice is not making one', async () => {
+    const { setItem } = stubStorageHolding('cyan');
+    vi.resetModules();
+    const state = await import('./state');
+
+    state.adoptStoredTheme();
+
+    expect(setItem).not.toHaveBeenCalled();
+  });
+});
+
+/**
  * A shell runs ONE command at a time. The terminal must not start a second
  * command while one is still in flight (including its async server refresh) —
  * otherwise the second command snapshots a stale FS view mid-refresh (e.g. a

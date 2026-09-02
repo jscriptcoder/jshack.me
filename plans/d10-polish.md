@@ -1,8 +1,8 @@
 # Plan: D10 — polish + the long tail
 
-**Branch**: `feat/d10-the-terminal-is-yours` (slice 1) — **not cut yet**
+**Branch**: `feat/d10-the-terminal-is-yours` (slice 1) — cut from `main` at `d39dcc34`
 **Status**: Active — **slice 1 PLANNED and its acceptance criteria CONFIRMED by the owner
-2026-09-02. NO CODE WRITTEN YET; nothing is in flight and the tree is clean.** The next action is
+2026-09-02. NO CODE WRITTEN YET; the branch is cut and the tree is clean.** The next action is
 RED step 1 (below). Trunk is at **v0.200.0**; slice 1 bumps to **v0.201.0**.
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D10 — resolved scope & decisions
 (grill-me, 2026-09-02)", fifteen locked decisions.

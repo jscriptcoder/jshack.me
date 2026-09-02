@@ -18,6 +18,7 @@ import { airmonNg } from './airmonNg';
 import { apt } from './apt';
 import { cat } from './cat';
 import { cd } from './cd';
+import { clear } from './clear';
 import { curl } from './curl';
 import { apache2, mysqld, nginx, redisServer, sshd, vsftpd } from './daemon';
 import { echo } from './echo';
@@ -54,7 +55,9 @@ import { scp } from './scp';
 import { ssh } from './ssh';
 import { su } from './su';
 import { systemctl } from './systemctl';
+import { theme } from './theme';
 import { touch } from './touch';
+import { whoami } from './whoami';
 import { isAlwaysAvailable, wrapWithBinaryCheck } from './availability';
 import { wrapWithLibraryCheck } from './libraryDeps';
 import type { Command } from './types';
@@ -67,6 +70,7 @@ const builtins: readonly Command[] = [
   apt,
   cat,
   cd,
+  clear,
   curl,
   echo,
   exit,
@@ -107,7 +111,9 @@ const builtins: readonly Command[] = [
   vsftpd,
   su,
   systemctl,
+  theme,
   touch,
+  whoami,
 ];
 
 /** Gate a command behind its binary + linked libraries, unless it's a

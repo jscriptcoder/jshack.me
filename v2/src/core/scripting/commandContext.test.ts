@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildCommandContext, scriptIdentifier } from './commandContext';
 import { cat } from '../commands/cat';
+import { clear } from '../commands/clear';
+import { theme } from '../commands/theme';
 import { echo } from '../commands/echo';
 import { ls } from '../commands/ls';
 import { nc } from '../commands/nc';
@@ -342,6 +344,19 @@ describe('a script calling the machine commands', () => {
     );
 
     expect(events).toEqual([]);
+  });
+
+  it.each([
+    [clear, 'clear: cannot be run from a script'],
+    [theme, 'theme: cannot be run from a script'],
+  ])('refuses to let a script act on a terminal nobody is watching: %#', async (command, refusal) => {
+    // A DIFFERENT fact from needing a tty. A script run from a real terminal has
+    // one — but the player is watching the script's output scroll past, and a
+    // line that wiped the screen or repainted it mid-run would be acting on a
+    // terminal they are reading rather than driving.
+    const { context } = contextOf([command]);
+
+    await expect(context[command.name]()).rejects.toThrow(refusal);
   });
 
   it("carries a failed command's own exit code, so a sweep can branch on it", async () => {

@@ -68,6 +68,9 @@ import type {
   ModeChange,
   TerminalLine,
 } from '../core/commands/types';
+import { DEFAULT_THEME_ID, type ThemeId } from '../core/theme/themes';
+import { applyTheme } from './theme/applyTheme';
+import { readStoredTheme, storeTheme } from './themePersistence';
 import type { GameConfig } from '../core/gameConfig/gameConfig';
 import type { Directory } from '../core/filesystem/types';
 import { applyPatches, type Patch } from '../core/filesystem/applyPatches';
@@ -187,6 +190,18 @@ const [sessionStack, setSessionStack] = createSignal<readonly Session[]>([]);
 const [returnCwdStack, setReturnCwdStack] = createSignal<readonly AbsPath[]>([]);
 
 const [scrollback, setScrollback] = createSignal<readonly TerminalLine[]>([]);
+// Whether the boot banner is still up. It is chrome rather than a scrollback
+// line — modelling it as one would make "the banner" a renderable line kind that
+// every consumer of the scrollback then has to know about. `clear` takes it down
+// for the rest of the session; a reload paints it again, because a player who
+// cleared once should still meet the game's name on the next boot.
+const [bannerVisible, setBannerVisible] = createSignal(true);
+
+// The palette the terminal is wearing — what the `theme` listing marks. It starts
+// at the default and `adoptStoredTheme` replaces it at boot; seeding it from
+// storage HERE would make importing this module read storage, which is the
+// import-time side effect the tests above pin against.
+const [currentTheme, setCurrentTheme] = createSignal<ThemeId>(DEFAULT_THEME_ID);
 const [input, setInput] = createSignal('');
 const [cwd, setCwd] = createSignal<AbsPath>(asAbsPath('/'));
 const [patches, setPatches] = createSignal<readonly Patch[]>([]);
@@ -403,7 +418,9 @@ const [runningCommand, setRunningCommand] = createSignal<string | null>(null);
 const [childCommand, setChildCommand] = createSignal<string | null>(null);
 
 export {
+  bannerVisible,
   childCommand,
+  currentTheme,
   cwd,
   input,
   overlayMode,
@@ -1378,6 +1395,7 @@ export const startGame = (gameConfig: GameConfig): void => {
 
   setCwd(homePathFor(gameConfig.username));
   setScrollback([]);
+  setBannerVisible(true);
   setPatches([]);
   setCommandHistory([]);
   setHistoryNav(idleNav());
@@ -1422,13 +1440,33 @@ export const historyDown = (): void => {
   setInput(step.value);
 };
 
-/** Clear the terminal. Doubles as the backing for a future `clear` command. */
-export const resetTerminal = (): void => {
+/** Adopt the player's stored choice at boot: paint it and seed the signal, in one
+ *  synchronous step so `main.tsx` can call it BEFORE the first render and the
+ *  terminal never appears in the default palette first. Deliberately does not
+ *  write back — reading a choice is not making one, and a write here would put a
+ *  second author on the stored value. */
+export const adoptStoredTheme = (): void => {
+  const stored = readStoredTheme(localStorage);
+  setCurrentTheme(stored);
+  applyTheme(stored);
+};
+
+/** Switch the terminal's theme (backs `env.setTheme`). Paints the palette and
+ *  remembers the choice in ONE place: the moment two callers own either half, a
+ *  reload can come up in a colour the screen never showed. */
+export const setTheme = (id: ThemeId): void => {
+  setCurrentTheme(id);
+  applyTheme(id);
+  storeTheme(localStorage, id);
+};
+
+/** Empty the screen (backs `env.clearScreen`, and Ctrl-L straight from the key
+ *  handler). Takes the banner down with the scrollback because they occupy the
+ *  same screen, and leaves the command history and cwd alone: `clear` in bash
+ *  forgets nothing, it only stops showing it. */
+export const clearScreen = (): void => {
   setScrollback([]);
-  setInput('');
-  setCwd(config === undefined ? asAbsPath('/') : homePathFor(config.username));
-  setCommandHistory([]);
-  setHistoryNav(idleNav());
+  setBannerVisible(false);
 };
 
 /** Build a completion adapter over the current FS view + command registry.
@@ -1636,6 +1674,9 @@ const executeLine = async (line: string): Promise<void> => {
     hopChain: sessionStack().slice(0, -1),
     onPopSession: popSession,
     onResetGame: resetGame,
+    onClearScreen: clearScreen,
+    onCurrentTheme: currentTheme,
+    onSetTheme: setTheme,
     // `reset` prints its danger warning mid-command via `env.output`, before the
     // confirm prompt — append it straight to scrollback.
     onOutputLine: (line) => setScrollback((previous) => [...previous, line]),

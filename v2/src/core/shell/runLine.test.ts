@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { runCommandLine } from './runLine';
 import { cat } from '../commands/cat';
+import { clear } from '../commands/clear';
 import { echo } from '../commands/echo';
 import { ftp } from '../commands/ftp';
 import { grep } from '../commands/grep';
@@ -9,6 +10,7 @@ import { nano } from '../commands/nano';
 import { scp } from '../commands/scp';
 import { ssh } from '../commands/ssh';
 import { su } from '../commands/su';
+import { theme } from '../commands/theme';
 import type {
   Command,
   CommandEnv,
@@ -674,7 +676,7 @@ describe('a shell with no terminal behind it', () => {
 
   it('says so in each real command’s own voice', async () => {
     const refusals = await Promise.all(
-      [su, nano, ssh, scp, ftp, lynx].map(async (command) =>
+      [su, nano, ssh, scp, ftp, lynx, clear, theme].map(async (command) =>
         contentOf(
           expectSync(await runCommandLine(throughABackdoor(aliceEnv()), command.name, only(command)))
             .lines,
@@ -689,6 +691,10 @@ describe('a shell with no terminal behind it', () => {
       'scp: must be run from a terminal',
       'ftp: must be run from a terminal',
       'lynx: must be run from a terminal',
+      // Acting on a terminal needs one to exist: a backdoor has no screen to
+      // clear and no colours to change.
+      'clear: must be run from a terminal',
+      'theme: must be run from a terminal',
     ]);
   });
 });
