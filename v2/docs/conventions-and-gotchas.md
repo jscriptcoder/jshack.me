@@ -601,6 +601,14 @@ as-built), then the cross-player architecture doc if the work touches cross-play
   one to pass for the wrong reason.** Mutation testing is what catches it — a guard that
   survives deletion usually means the path was never reached. Before trusting such a test,
   prove the setup reaches the code by asserting the matching PRESENCE with the same inputs.
+- **Every gate runs from `v2/`, and parallel tool calls share ONE shell.** Two Bash calls issued
+  together run in the same working directory, so a `cd ..` in one leaks into the other — and the
+  gates then run the FROZEN root app's suite instead of v2's. It fails, and it reads exactly like
+  your own change breaking things. **The tell is the counts**: v2 is ~198 files / ~4200 tests, the
+  root app ~651 files / ~12290. `npm run typecheck` also simply does not exist at the root. Prefer
+  an absolute `cd` at the start of each gate call over relying on where the shell happens to be.
+  Same family as the `v2/node_modules/.bin` fallback below: from the wrong directory, the failure
+  looks like your code and is not.
 
 ---
 
@@ -1091,6 +1099,16 @@ of errors in instrumented copies of your own files, `@ts-nocheck` first among th
 `reports` to the eslint ignores would retire the trap for good; left undone deliberately, as a
 config change riding along on an unrelated slice.
 
+**A script that applies a mutant by hand MUST revert in a `finally`, and must decode the subprocess
+explicitly.** Proving a passed-on-arrival test means editing a source file, running vitest, and
+putting the file back — and on Windows the middle step is what breaks. Python's `subprocess.run`
+with `text=True` decodes using the console codepage (`cp1252`), and vitest's output carries UTF-8
+box-drawing and em-dashes, so the reader thread dies with `UnicodeDecodeError` and takes the script
+down **between the edit and the restore**. Hit at D10 slice 2: it left `author.ts` with its
+`withoutTty` deleted, which the next full run would have reported as a real failure. Pass
+`encoding='utf-8', errors='replace'`, wrap the edit in `try/finally`, and check the tree afterwards
+(`git diff` on each mutated file) before believing the verdicts.
+
 ---
 
 ### Porting a renderer: capture the oracle, do not retype it
@@ -1206,6 +1224,15 @@ steps passed the moment they were written, because the minimum implementation fo
 had already satisfied them — which is the honest outcome, not a reason to skip them. Each was
 proven by applying the mutant it exists to catch, watching it fail, and reverting. Write that down
 in the close-out rather than reporting a green test as if it had driven anything.
+
+**A test that leaves a full-screen app open hands the NEXT test a terminal with no input field.**
+`overlayMode` is a module signal and `startGame` does not reset it — nor should it, because no
+player can start a game from inside an overlay: the app holds the keyboard and there is no prompt
+to type into. So the reset belongs to the harness, and it goes in an `afterEach` rather than in the
+`renderTerminal` helper, because the tests that hand-roll their own `startGame` need it just as
+much — the one that broke at D10 slice 2 was exactly that kind. The failure surfaces in an
+unrelated test, several `describe`s later, as `Unable to find role="textbox"`, so it reads as that
+test's own bug. Applies to any module-level signal a test can leave set.
 
 ## 5. Operational gotchas
 

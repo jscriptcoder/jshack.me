@@ -1,11 +1,10 @@
 # Plan: D10 — polish + the long tail
 
-**Status**: Active — **slice 1 is SHIPPED**: `dd1cc5cf` (PR #481) at **v0.201.0**, all thirteen
-acceptance criteria met, every gate passed, and its close-out written up below it. **Slice 2 is
-planned and not started**: twelve acceptance criteria confirmed 2026-09-02, twelve RED steps, and
-three implementation choices the grill left open, resolved and confirmed at the top of its
-section. Trunk is at
-v0.201.0 and level with origin; the slice 2 branch is not cut yet.
+**Status**: Active — **two of five slices SHIPPED**. Slice 1: `dd1cc5cf` (PR #481) at
+**v0.201.0**, thirteen acceptance criteria. Slice 2: `dc1e294c` (PR #482) at **v0.202.0**, twelve
+acceptance criteria and ten hand-applied mutants, all killed. Both close-outs are written up below
+their sections. Trunk is at v0.202.0 and level with origin. **The next action is to plan slice 3**
+(`find` + `strings`) — pure command work, both binaries already stamped.
 **Epic**: [`legacy-parity-epic.md`](legacy-parity-epic.md) → "D10 — resolved scope & decisions
 (grill-me, 2026-09-02)", fifteen locked decisions.
 
@@ -13,13 +12,12 @@ v0.201.0 and level with origin; the slice 2 branch is not cut yet.
 
 1. Read the epic's D10 section — the fifteen decisions, the four forced-rather-than-chosen entries,
    and the "Deliberately NOT built" list. **`bash` is refused, not deferred**; do not port it.
-2. **Slice 1 is shipped and merged.** Read its close-out before starting slice 2 — it records the
-   seam slice 2 builds on, the three tests that passed on arrival and how they were proven, what
-   the mutation gate found, and one gap left open on purpose.
-3. **The next action is to build slice 2** (`author` + `xterm`), planned at the bottom of this
-   file. Its twelve acceptance criteria and its three implementation resolutions are confirmed, so
-   cut the branch and start at RED 1. The product decisions are locked in the epic; do not
-   re-grill the door.
+2. **Slices 1 and 2 are shipped and merged.** Read slice 2's close-out before planning slice 3 —
+   it settles the `env.ui.*` question for good, records what the mutation gate found, and names the
+   one thing slice 3's RED order should start from.
+3. **The next action is to plan slice 3** (`find` + `strings`) with `/plan`. Both binaries are
+   already stamped, so it has no generation half — it is pure command work against seams that
+   exist. Its decisions are locked in the epic; do not re-grill the door.
 4. Cut a fresh `feat/…` branch per slice off an up-to-date `main` — check `git status -sb` for
    ahead/behind, per conventions §8, which distinguishes ahead from level where
    `git pull --ff-only` does not.
@@ -52,12 +50,12 @@ want found — nine commands that legacy had and v2 has been missing since the r
 | # | Slice | Observable | Status |
 |---|-------|-----------|--------|
 | 1 | the terminal is yours | `clear` + Ctrl-L, four themes that survive a reload, `whoami` | ✅ **shipped** — `dd1cc5cf` (PR #481), v0.201.0 |
-| 2 | the card and the second window | `author` opens the card; `xterm` opens a FRESH tab | 📋 **planned** — not started |
+| 2 | the card and the second window | `author` opens the card; `xterm` opens a FRESH tab | ✅ **shipped** — `dc1e294c` (PR #482), v0.202.0 |
 | 3 | the box answers questions | `find / passwd` finds it; `strings /bin/ls` reads the stub | not planned |
 | 4 | permissions change hands | `chmod o+r` opens a file to a tier that could not read it | not planned |
 | 5 | a file nobody else can read | `gpg -c` then `-d` round-trips; a wrong passphrase fails clean | not planned |
 
-Slice 1 is built; slice 2 is planned and not started. Plan each remaining slice when its
+Slices 1 and 2 are built. Plan each remaining slice when its
 predecessor lands — D7, D8 and D9 all found later slices cost far less than their plans assumed,
 because the seams they needed had already generalized.
 
@@ -485,32 +483,32 @@ different shade of one we have — in four palettes, forever, with a test pinnin
 
 ### Acceptance criteria — CONFIRMED 2026-09-02, before any code
 
-- [ ] **AC-1** `author` opens a full-screen card carrying the author's name, the bio paragraphs and
+- [x] **AC-1** `author` opens a full-screen card carrying the author's name, the bio paragraphs and
       the avatar image, plus **real anchors** for LinkedIn and GitHub — each with its `href`,
       `target="_blank"` and `rel="noopener noreferrer"`.
-- [ ] **AC-2** ESC or `q` closes the card and hands back the terminal with the scrollback intact.
+- [x] **AC-2** ESC or `q` closes the card and hands back the terminal with the scrollback intact.
       The card leaves **no line behind** — like `nano` and `lynx`, it was a screen, not output.
-- [ ] **AC-3** The card takes the keyboard the moment it opens: a player can quit without clicking
+- [x] **AC-3** The card takes the keyboard the moment it opens: a player can quit without clicking
       into it first.
-- [ ] **AC-4** The copy is legacy's, verbatim — name, six paragraphs, avatar URL and both links.
-- [ ] **AC-5** `--theme-link` and `--theme-avatar-border` are painted on `document.documentElement`
+- [x] **AC-4** The copy is legacy's, verbatim — name, six paragraphs, avatar URL and both links.
+- [x] **AC-5** `--theme-link` and `--theme-avatar-border` are painted on `document.documentElement`
       for **all four** palettes, and the card's links and avatar border read them: `theme green`
       while the card is open recolours it.
-- [ ] **AC-6** `xterm` opens a new browser tab at the game's origin, prints one line saying so, and
+- [x] **AC-6** `xterm` opens a new browser tab at the game's origin, prints one line saying so, and
       exits **0**.
-- [ ] **AC-7** The new tab boots at the player's **own workstation as their own user**, even when
+- [x] **AC-7** The new tab boots at the player's **own workstation as their own user**, even when
       the opening tab is inside an `ssh` hop or holding a `su` elevation — hop rehydration is
       skipped for that boot.
-- [ ] **AC-8** The flag is one-shot: after the fresh tab boots, the URL no longer carries it, so a
+- [x] **AC-8** The flag is one-shot: after the fresh tab boots, the URL no longer carries it, so a
       **reload of that tab rehydrates normally**.
-- [ ] **AC-9** An ordinary boot — no flag — still rehydrates. A `su` elevation surviving a refresh
+- [x] **AC-9** An ordinary boot — no flag — still rehydrates. A `su` elevation surviving a refresh
       is existing behaviour and this slice must not cost it.
-- [ ] **AC-10** From a backdoor session (`nc`, no tty) **and** from inside a `node` script, `author`
+- [x] **AC-10** From a backdoor session (`nc`, no tty) **and** from inside a `node` script, `author`
       and `xterm` each refuse in their own words at exit **1** (decision 12: an act on a terminal
       needs one that exists and one the player is looking at).
-- [ ] **AC-11** Both are **ungated game commands**: no `/bin/author` or `/bin/xterm` exists on a
+- [x] **AC-11** Both are **ungated game commands**: no `/bin/author` or `/bin/xterm` exists on a
       generated machine, and both work anyway — there is nothing to `rm`.
-- [ ] **AC-12** `man author` and `man xterm` render; `help` lists both under **general**.
+- [x] **AC-12** `man author` and `man xterm` render; `help` lists both under **general**.
 
 ### RED
 
@@ -636,6 +634,168 @@ tab in play). Two sessions via `--session`, per the E2E runbook, so both tabs st
   than chosen").
 - Browser close-out run and written up, including the two-tab beat.
 - Version bumped in **both** `v2/package.json` and `v2/package-lock.json`.
+
+---
+
+## Slice 2 close-out — SHIPPED `dc1e294c` (PR #482), v0.202.0
+
+### What actually went RED, and what did not
+
+Nine of the twelve planned RED steps failed first, each for the reason the plan predicted. Three
+passed the moment they were written, because the production code they describe had already been
+written to satisfy an earlier step — `withoutTty`/`withoutScript` and the manuals both ride into
+GREEN with the command that declares them. Each was proven by applying the mutant it exists to
+catch, watching it fail, and reverting. **Ten mutants applied, ten killed.**
+
+| Test | First run | How it was proven |
+|---|---|---|
+| an ordinary boot still rehydrates | green | `startGame` never rehydrating → ✗ `expected 'tester' to be 'root'` |
+| `author`/`xterm` refuse without a tty | green | `withoutTty` removed from each, separately → ✗ ×2 |
+| `author`/`xterm` refuse inside a script | green | `withoutScript` removed from each, separately → ✗ ×2 |
+| `help`/`man` pick both up | green | each command's `manual` renamed away → ✗ ×2; `author.category` → `'filesystem'` → ✗ |
+| neither is stamped into `/bin` | green | `author` added to `SYSTEM_UTILITY_NAMES` → ✗ |
+| both work with no binary present | green | `author`/`xterm` dropped from `GAME_COMMANDS` → ✗ ×2 |
+
+The sharpest REDs were the two module-resolution failures (`Failed to resolve import "./xterm"`,
+`"./freshTab"`) and the one that named the actual bug the slice exists to prevent: a fresh boot
+that rehydrated anyway, `expected 'root' to be 'tester'`.
+
+**The compile-time tripwire fired as advertised.** Adding `{ kind: 'author' }` to `ModeChange`
+broke the build at `ui/state.ts` before anything else was touched, because `OverlayMode` narrowed
+to nano/lynx. That comment claimed a third variant would "fail to compile here rather than opening
+a blank overlay"; it does, and it is now the second variant to have proven it.
+
+### The three decisions the plan made, and how they held
+
+All three were argued before code and none needed revisiting.
+
+- **The flag is one-shot.** Proven live: the fresh tab's URL carries no `?fresh`, and reloading it
+  brings it back at `root@ap-gw` — rehydrated, exactly as decision 13's recorded residual says.
+- **The `author` mode carries no payload.** Nothing wanted one. `author.test.ts` would have had
+  nothing to assert but "a constant travelled", and the browser proves the copy far better.
+- **Two palette tokens, not three.** The hover borrows `--theme-text-bright`, and no test or beat
+  missed the third.
+
+### What GREEN cost, and what it did not
+
+`author` needed **no new capability at all** — the plan predicted this and it held. A `mode_change`
+travels the road `nano` and `lynx` already use, so the slice added exactly one seam, `openTerminal`,
+in the shape `resetGame` established. The `CommandEnv` → UI family is now five.
+
+**The type system found four assertions reading past a union.** `author` has no `content`, so
+`overlayMode()?.content` stopped narrowing in `state.test.ts`. Rather than assert past it with a
+cast, those go through an `overlayContent` helper that narrows to the apps which actually carry a
+buffer.
+
+**A test-isolation hole that had been latent since the first overlay shipped.** This slice's tests
+are the first to leave a full-screen app open — the lynx tests close theirs with a keypress — and
+`startGame` does not reset `overlayMode`. Nor should it: no player can start a game from inside an
+overlay, because the app holds the keyboard and there is no prompt to type into. So the reset is
+harness hygiene, and it is an `afterEach` rather than a line in `renderTerminal`, because the test
+that broke hand-rolls its own `startGame` and a fix inside the helper would have missed it. Left
+alone, a test that leaves an app open hands the NEXT one a terminal with no input field, which
+reads as that test's own failure.
+
+### What the mutation gate found
+
+Focused on the four changed production files. `startGame`'s new condition was covered by the manual
+mutant already applied at RED 9 rather than by mutating all two thousand lines of `state.ts`.
+
+| File | Before | After |
+|---|---|---|
+| `ui/freshTab.ts` | — | **100%** |
+| `core/theme/themes.ts` | — | **98.5%** |
+| `core/commands/author.ts` | 52.2% | **65.2%** |
+| `core/commands/xterm.ts` | 51.9% | **63.0%** |
+
+**One real hole, in a test this slice had just extended.** `synopsis: ''` and the example object →
+`{}` both survived, because `man.test.ts` asserted only that the `SYNOPSIS` and `EXAMPLES` HEADINGS
+rendered. A page with a blank synopsis and one empty example passed as "a written manual, not a
+generated stub" — which is precisely what you get when a command is added by copying another. Both
+sections must now name the command they document. Six mutants died, and the same claim got stronger
+for `clear`, `theme` and `whoami`.
+
+The rest are the two families already classified:
+
+| Survivor | Verdict |
+|---|---|
+| manual prose, the `help` one-liner, an example's hanging description | The expected family — conventions §4: a command's mutation score is mostly its manual |
+| `tier: 'guest'`, `availability` ×2 per command | The repo-wide family in conventions §9. Nothing reads `Command.tier`; `AvailabilityRule` is declared but never enforced. Pre-existing |
+| `typeof value === 'string'` in `isValidThemeId` | The equivalent mutant slice 1 documented in the code itself. Unchanged |
+
+### REFACTOR — one candidate declined for good, one deferred
+
+**The grouped `env.ui.*` is settled, not deferred again.** Slice 1 declined it at four members on a
+counting argument and said to judge again at five or six. With the code in front of us the argument
+is not about counting: **the set has no boundary that is not arbitrary.** `CommandEnv` carries
+eleven flat members that all mean "the command asks the UI to do something" — `setCwd`,
+`setInterface`, `prompt`, `pushSession`, `popSession` and `setChildCommand` sit right beside the
+five this would gather. Grouping five of eleven carves the set along *"capabilities added since D10
+slice 1"*, which is a fact about our git history. And every existing sub-API (`fs`, `patches`,
+`scan`, `hydra`, `su`) is named for a DOMAIN; `ui` would name a LAYER, which is a different kind of
+grouping with no natural edge. Grouping all eleven is large churn for no behaviour change, and
+`env.prompt(...)` reads better than `env.ui.prompt(...)`. **Do not reopen this without a new
+argument.**
+
+**The duplicated `quits()` waits for a third.** `Author` and `Lynx` hold identical three-line
+predicates. `Nano` was checked and does not make it three: its `declines` answers a y/n prompt and
+merely happens to include `Escape`. Real nano exits on `^X`, so a shared helper would invite the
+third screen to conform when it should not.
+
+### Browser close-out — the two-tab beat
+
+Against `vercel dev` + local supabase, banner checked at **v0.202.0** before driving anything.
+
+| Beat | Result |
+|---|---|
+| `ls /bin` | no `author`, no `xterm` — and both run anyway |
+| `author` | card takes the screen; `document.activeElement` is **MAIN**; the terminal input is **gone**, not covered |
+| the card under amber | avatar border `#f59e0b`, links `#fbbf24` |
+| ESC | terminal back, scrollback intact — the echo runs straight into the next prompt, **no line between** |
+| `theme cyan`, reopen | border `#06b6d4`, links `#22d3ee` |
+| three sessions deep | `alice@workstation` → `su root` → `ssh root@192.168.167.1` → `root@ap-gw:/root#` |
+| **`xterm` from there** | second tab opens; tab 1 prints `Opening new terminal...` and **stays at `root@ap-gw`** |
+| **the fresh tab** | `alice@workstation:/home/alice$` — own box, own user, hop chain skipped |
+| its URL | `location.search` is `""` — the flag was spent at boot |
+| its theme | inherited cyan (`jshack:theme` = `cyan`) |
+| **reload it** | back at `root@ap-gw:/root#` — it rehydrates, so the flag really was one-shot; cyan survives |
+| `help` | both listed under **General** with their descriptions |
+
+The reload is the beat that matters: it proves AC-8 by CHANGING behaviour. Had the flag survived in
+the URL, that tab would have come up at `alice@workstation` a second time.
+
+### Recorded rather than papered over
+
+**AC-10 was not re-run in the browser.** Driving the refusals live needs `apt install nodejs` plus a
+script on disk, and they are pure `core/` logic with no UI involvement — the vantage a browser adds
+is nil. They rest on tests at both seams (`runLine`'s tty arm, `commandContext`'s script arm) with
+four killed mutants behind them. Stated here so nobody reads the beat table as covering it.
+
+**The two-tab reload residual is by design, not a defect.** Once the fresh tab has its own
+elevation, a reload of either tab rebuilds ONE stack from both tabs' rows. Epic decision 13 accepted
+this knowingly; it is the same lossiness `sessionRehydrate` already documents for a refresh.
+
+### PR-ready checklist
+
+- [x] All 12 ACs met, every one by a test that has been seen to fail.
+- [x] `npm run typecheck`, `npm run lint`, full non-watch suite: **4201 passed**, from `v2/`.
+- [x] Mutation gate closed; every survivor killed or classified above.
+- [x] Wire-check `N/A` — no `api/` path changes; both commands are pure client.
+- [x] Browser close-out run and written up, including the two-tab beat.
+- [x] Version bumped in both files to **0.202.0**.
+- [x] Squash-merged as `dc1e294c` (PR #482); branch deleted, trunk level with origin.
+
+### For slice 3
+
+`find` and `strings`, and both binaries are **already stamped** into `SYSTEM_UTILITY_NAMES` — so
+unlike slices 1 and 2 there is no generation half at all. It is pure command work against seams
+that exist: `env.fs.read`, `env.fs.list` and the walker, exactly as `cat`, `ls` and `grep` use them.
+No `CommandEnv` capability, no UI screen, no boot step.
+
+Two things carry forward. The `env.ui.*` question is **settled above** — do not spend slice 3
+re-deriving it. And `find`'s rule that it walks only what the session can traverse and read (epic
+decision 14) means its RED order should start from the disagreement it exists to prevent: what
+`find` reports and what `cat` will then open must not differ.
 
 ---
 *Delete this file at D10 close-out and fold the durable rules into
