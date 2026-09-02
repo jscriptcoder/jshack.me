@@ -89,6 +89,14 @@ daemon, no port, no placement, no cross-player half, no `api/` change), and its 
 refusal: the row's **programmatic auth cannot port**, because `CommandEnv` is a per-line snapshot
 and a script that hopped would go on answering about the box it left.
 
+**D10 🔍 GRILLED 2026-09-02, not yet planned** — fifteen locked decisions and a five-slice spine in
+"D10 — resolved scope & decisions". It **grew and shrank at once**: locked decision 9's whole long
+tail folds in (nothing ever "first needed" `find`, `strings`, `chmod` or `gpg`, so without D10 they
+never ship), while **`bash` is refused rather than ported** — it existed to run binaries by path in
+a PATH-less NC shell, and v2 has neither. Its sharpest finding is that a second tab currently
+rehydrates the SAME server-side session stack, so `xterm` ships as a genuinely fresh terminal
+rather than as a `window.open`.
+
 **Ship gate**: **all doors + hydra + discovery + the CVE system, minus missions.** Missions are
 a **post-ship epic** — the infrastructure this epic builds is what makes them cheap.
 
@@ -239,6 +247,13 @@ heavy data doors follow, then snmp, then node as a force multiplier over everyth
 `theme`, `author`, `xterm`, `bash`) becomes **one** small polish slice near ship. No "port the
 remaining commands" story — that is the component split this epic exists to avoid.
 
+**AMENDED 2026-09-02 at D10's grill.** The first half never fired: only `ping` (D1) ever landed
+in a slice that needed it, so `find`, `whoami`, `strings`, `chmod` and `gpg` reached the end of
+Phase 1 unclaimed — without D10 they would simply never ship. **D10 takes the whole tail**, and
+the polish set loses `bash` (refused outright — see D10 decision 1). What survives of this decision
+is its real point: there is still no "port the remaining commands" story, because the tail arrives
+as five observable slices, not as a component sweep.
+
 ---
 
 ## What v2 already has (verified 2026-07-29 — do NOT re-port)
@@ -359,7 +374,12 @@ PHASE 1 — THE DOORS  (near-term focus)
       D9 slice 2b a script speaks while it works      ✔ SHIPPED v0.198.0 (#477)
       D9 slice 3 a script keeps what it found         ✔ SHIPPED v0.199.0 (#478)
       D9 slice 4 a script is reusable and can be stopped  ✔ SHIPPED v0.200.0 (#480)
-  D10 polish (long-tail comfort commands)
+  D10 polish (comfort commands + the whole long tail)  🔍 GRILLED 2026-09-02 (15 decisions)
+      D10 slice 1 the terminal is yours               — clear + Ctrl-L, theme, whoami (+ binaries)
+      D10 slice 2 the card and the second window      — author overlay, fresh-tab xterm
+      D10 slice 3 the box answers questions           — find, strings
+      D10 slice 4 permissions change hands            — chmod
+      D10 slice 5 a file nobody else can read         — gpg -c / -d
 PHASE 2 — DISCOVERY
   X1  DNS + nslookup / dig
   X2  findit.io + common website-bearing networks
@@ -390,7 +410,7 @@ POST-SHIP — MISSIONS
 | **D7** ✅ | **A player reads a machine's key-value store** — **SHIPPED v0.174.0-v0.182.0 (#452-#461)**; twelve locked decisions in ["D7 — resolved scope & decisions"](#d7--resolved-scope--decisions-grill-me-2026-08-24) | `redis` catalog row + placement (flat 0.05, webserver 0.35, database 0.3); generated data (`generateRedisData.ts`, `pools/redis.ts`); `rediscli <host> [pw]` → `redis>` sub-shell, seven verbs; `requirepass` as an md5 in the root-only datadir; hydra `redis` service against the 60% that are locked | Redis 6 ACLs (they arrive as a VERSION difference in Phase 3, not as a door decision); `FLUSHALL`; `CONFIG GET`; `TYPE`/`SCAN`/`INFO` | B `rediscli <host>` → `KEYS *` / `GET` on the 40% that are open; `hydra <host> redis` → password (no login field) on the rest; an open store's arrival line is the defender's whole view |
 | **D8** ✅ | **A player reconfigures a device without holding a shell on it** — **SHIPPED v0.185.0-v0.193.0 (#465-#473)**; eleven locked decisions in ["D8 — resolved scope & decisions"](#d8--resolved-scope--decisions-grill-me-2026-08-27), as-built in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §7/§9 | `snmp` catalog row at `161/udp` (a new `protocol` column) placed on routers + switches only; `snmpwalk <host> [community]` (public = identity, RW = + the port table); `snmpset <host> <community> <oid=value>` with parity to `nano`; **the OIDs are a VIEW over the `rules.v4` / `acl.conf` v2 already parses**, never a second copy; the RW community as an md5 in a root-only file, swept by `hydra snmp` via `secretOn`; its own `/var/log/snmpd.log`; `snmpd` installable, planting a `deny <port>` local firewall on a workstation | legacy's `snmpFirewallParser` / `snmpAclParser` and the `firewall*`/`acl*` OIDs inside `snmpd.conf` — REFUSED, not deferred: they are a third and fourth authority over a fact v2 already owns; `nmap -sU`; NAT on a workstation | B `snmpwalk` with `public` → identity only; B cracks the RW community → the forward table renders as OIDs → `snmpset` opens a port **without B ever logging in**, and A's `snmpd.log` names B |
 | **D9** ✅ | **A player automates an attack with a script** — **SHIPPED v0.196.0-v0.200.0 (#475-#480)** as slices 1, 2a, 2b, 3 and 4; eleven locked decisions in ["D9 — resolved scope & decisions"](#d9--resolved-scope--decisions-grill-me-2026-09-01) plus six more made at slice 4, as-built in [`conventions-and-gotchas.md`](../v2/docs/conventions-and-gotchas.md) §2/§4/§7/§9 | `apt install node` → `node <path> [args]`; ONE always-async mode (`execute` returns a promise, so legacy's sync mode cannot port); every command as a camelCase global returning `string[]` with `.exitCode`; a trailing flags object with dashed keys; ambient `fs` (`readFile`/`writeFile`/`appendFile`); `console.log`; real `process.argv`; `sleep(ms)`; Ctrl-C at every await | **programmatic auth — REFUSED, not deferred** (`env` is a per-line snapshot, so a script that hopped would answer about the box it left); `chmod`; world content and an example script; an `sh()` escape hatch; a Web Worker sandbox; `script_exec` as a CVE effect (Phase 3) | A writes `/root/sweep.js` chaining `hydra` across many hosts, runs `node /root/sweep.js`, and captures the results to a file; `ssh(…)` from a script refuses in the same words the prompt would |
-| **D10** | **The terminal feels like legacy's** | `clear`, `theme`, `author`, `xterm`, `bash`, `whoami` — one polish slice | — | Each command behaves as legacy's did |
+| **D10** 🔍 | **The terminal feels like legacy's** — **GRILLED 2026-09-02**, fifteen locked decisions in ["D10 — resolved scope & decisions"](#d10--resolved-scope--decisions-grill-me-2026-09-02); five slices, not one | `clear` (banner + scrollback, Ctrl-L) via a new `env.clearScreen()`; `theme` — legacy's four palettes over the eight tokens v2 paints, `localStorage`-persisted and applied pre-render; `author` as a third `ModeChange` overlay; `xterm` opening a genuinely FRESH tab (skips hop rehydration); `whoami`; **plus locked decision 9's whole long tail** — `find` (legacy's positional shape), `strings`, `chmod` (read-modify-write, write-tier authz, no `-R`) and `gpg -c`/`-d` (legacy's codec keyed by md5, masked prompt, `.gpg`). `clear`/`whoami` join `SYSTEM_UTILITY_NAMES` | **`bash` — REFUSED, not deferred** (it ran binaries by path for a PATH-less NC shell v2 does not have, and `availability.ts` already resolves the search path and the execute bit); world content for `strings`/`gpg` (the loot rule owns it); a perms-only patch state; `chmod -R`; legacy's five unpainted theme tokens; a renderable `TerminalLine` kind | A player clears the screen, switches to green phosphor and it survives a reload; `author` opens the card and ESC returns; `xterm` from inside an ssh hop lands on the player's OWN box; `chmod` opens a root-only file to their tier and the change survives a reload; `gpg -c` leaves an intruder holding root with nothing readable |
 
 ## Phase 2 — discovery
 
@@ -2357,6 +2377,308 @@ covers it; `chmod`; world content and the example script (decision 11); a Web Wo
 - **Whether `withoutScript`'s predicate form earns a second user** beyond `nc`. If nothing else
   ever needs it, collapsing back to a plain string is a cheap later reduction.
 
+## D10 — resolved scope & decisions (grill-me, 2026-09-02)
+
+Fifteen locked decisions. The row above was written in July as *"one polish slice"* over five
+comfort commands; this section **supersedes it wherever the two disagree**. It grew in one
+direction and shrank in another: locked decision 9's whole long tail folds in here (nothing ever
+"first needed" `find`, `strings`, `chmod` or `gpg`, so without D10 they never ship), while `bash`
+is **refused rather than ported** — it existed in legacy to run binaries by path inside a PATH-less
+NC shell, and v2 has neither.
+
+### Grounding that reshaped the scope before any decision
+
+- **Three of these binaries already exist with no command behind them.** `find`, `strings` and
+  `chmod` are stamped into `/bin` on every generated machine (`generation/binaries.ts`
+  `SYSTEM_UTILITY_NAMES`), and `gpg` is already a row in `APT_PACKAGES`. `ls /bin` lists tools that
+  answer `command not found` — D10 closes three of the six phantoms. The other three are spoken
+  for: `ldd` by V4, `nslookup`/`dig` by X1.
+- **The client-comfort commands need capabilities that do not exist yet, and the precedent for
+  adding one is shipped.** `env.resetGame()` (`ui/state.ts`) is a UI act reached from `core/`
+  through the env; `ModeChange` (`nano`, `lynx`) is a screen reached the same way. `clear`,
+  `theme` and `xterm` are the same shape.
+- **v2 already paints from CSS variables, but only eight of them.** `index.css` defines
+  `--theme-{bg,text,text-bright,text-dim,error,caret,scroll-thumb,scroll-thumb-hover}` and every
+  `var(--theme-*)` in the tree reads one of those eight. Legacy's palette carries fourteen; the
+  other six exist purely for nano chrome, links and the author avatar.
+- **A second tab does NOT open a fresh terminal.** `startGame` calls `rehydrateSessions`
+  (`ui/state.ts`), which rebuilds the hop stack from the server's active session rows — so a new
+  tab lands inside the box the first tab is ssh'd into, and `exit` in one ends a row the other
+  still believes it holds. Legacy's `?fresh` param existed to prevent exactly this by clearing the
+  per-tab sessionStorage. **The hazard pre-exists `xterm`; without decision 12 the command would
+  advertise it.**
+- **A node's `owner` is display-only.** `filesystem/types.ts` says it outright: *"the walker
+  doesn't read this; permissions are tier-based via `perms`"*. Legacy's chmod rule — only the owner
+  or root — has no v2 equivalent that would not make `owner` a second authority over permissions.
+- **"Change the permissions, keep the content" is not expressible today.** A patch row is
+  `(machine_id, path, writer_key)` carrying `content: string | null`, where `null` **already
+  means deleted**. A perms-only patch would need a third state — a migration, an `applyPatches`
+  change, an `api/patches` change and a wire-check.
+- **The house style for argument surfaces is already settled, and it is not realism.** Every v2
+  synopsis simplifies: `hydra [-p port] <host> [service] [user]` (real hydra is `-l`/`-P`/`-t`),
+  `john <file>`, `snmpwalk <host> [community]`, `redis-cli [-p port] <host> [password]` (real
+  redis-cli is `-a`). #464 bought realism in the binary NAMES, not in the arguments.
+- **The masked prompt is shipped and used.** `mysql`, `ftp` and `scp` all ask for a secret through
+  `env.prompt({ masked: true })`, which echoes the label and never the value.
+- **Only the mission generator ever produced an encrypted file.** Legacy's `attackChain.ts` called
+  `encryptContent` and planted the key on a DIFFERENT machine; nothing else in legacy ever wrote
+  ciphertext. Missions are post-ship by owner decision, so `gpg` arrives with no producer unless it
+  brings one.
+- **Two categories and one gate already decide where these land.** `COMMAND_CATEGORIES` is
+  `general | filesystem | mission | network | wifi`, and `availability.ts`'s own comments name the
+  absentees: *"legacy also had exit/clear/whoami/bash"* (builtins) and *"legacy also had
+  missions/accept/abort/mail/author/theme/xterm — re-add each as it ships"* (game commands).
+
+### Locked decisions
+
+#### 1. Nine commands ship; `bash` is REFUSED, not deferred
+
+`clear`, `theme`, `author`, `xterm`, `whoami`, `find`, `strings`, `chmod`, `gpg`. Locked decision
+9 split the long tail into "lands in the slice that first needs it" and "one polish slice" — but
+nothing ever needed `find`, `strings`, `chmod` or `gpg`, so the first half never fired. D10 takes
+the whole tail.
+
+`bash` is the one subtraction. Legacy's `executeBash` resolved a path to a binary, checked the
+execute bit and dispatched — machinery that existed because legacy's NC shell had no PATH. v2's
+`availability.ts` already resolves `/bin`, `/usr/bin` and `/usr/sbin` and reads each binary's own
+`perms.execute` on every command, and v2's backdoor shell is an ordinary session minus what needs
+a tty. A `bash <path>` would be a second way to run what the shell already runs.
+
+#### 2. Tools only — D10 generates no world content
+
+`strings` and `gpg` ship ahead of the content that makes them interesting, and that is accepted.
+The parking lot's **believable per-machine content** item is what fills them, and it inherits
+D2.6b's rule: content carrying a usable credential is **loot**, and loot arrives through the
+postponed harvest route. A polish slice planting a credential in a binary, or an `.enc` file with
+its key on a neighbouring box, would be building that route ahead of its owner. `strings /bin/ls`
+therefore prints one stub line on every machine until the content work lands, and that is the
+correct amount of nothing.
+
+#### 3. `gpg` is the real CLI, and it ships BOTH halves
+
+`gpg -c <file> [passphrase]` encrypts to `<file>.gpg`; `gpg -d <file> [passphrase]` decrypts to
+stdout. The passphrase omitted means the masked prompt (`mysql`/`ftp`/`scp`'s seam); supplied means
+no prompt, which is what makes the command usable from a pipeline or a `node` script. The trailing
+positional is `redis-cli`'s shape, not real gpg's `--passphrase`, per the house style; `-c`/`-d`
+survive as flags because they name two different operations, exactly as `nc -l` does.
+
+The encrypt half is what stops the command shipping dark: it gives the format ONE implementation
+**with a producer inside the game**, so the tool is provable end-to-end on day one, a player can
+hide something from whoever roots them, and the later content generator reuses this codec instead
+of inventing a second one. Legacy's decrypt-only `gpg <file> <64-hex-key>` does not port.
+
+#### 4. The cipher is legacy's codec, keyed by md5 — and a wrong passphrase says so
+
+`base64( FNV-1a(plaintext)[4] ⊕ key[0..3] ‖ XOR(plaintext, key) )`, ported from legacy
+`utils/crypto.ts`, with the key derived from the passphrase through v2's existing `md5`
+(`generation/md5.ts`). Three things fall out of it, all wanted:
+
+- the 4-byte checksum makes a wrong passphrase a clean `decryption failed`, not a screen of garbage;
+- base64 output is NUL-free by construction, so the patch store's TEXT column takes it — the same
+  constraint `BINARY_STUB` already documents;
+- it stays honest with the game's md5-is-deliberately-weak stance, which leaves a future
+  `john`-cracks-a-`.gpg` arc reachable instead of shipping the one secret in the game that cannot
+  be cracked.
+
+WebCrypto AES-GCM was the alternative and was refused for that last reason as much as for the
+async-everywhere cost.
+
+#### 5. `chmod` is a read-modify-write against the MACHINE
+
+`chmod` re-reads the file through the `env.fs.reload()` seam v0.172.0 shipped for exactly this
+hazard, then writes ONE patch carrying the same content and the new permissions. No patch-model
+change, no migration, no `api/` change — the wire-check stays `N/A` and D10 stays polish.
+
+Two consequences, both accepted and both documented in the manual:
+
+- **chmod refuses a file it cannot read** (`Permission denied`). It never bites root, which reads
+  everything, and never bites a player on their own file; it bites a guest-tier caller on a file
+  they could not have opened anyway.
+- **A directory carries no content**, so a directory chmod is exact rather than a rewrite.
+
+The alternative — a third patch state beside content-and-null — is the clean model and is written
+down in the grounding above, so a later slice that needs perms-only writes knows what it costs
+rather than rediscovering it.
+
+#### 6. Whoever may WRITE a node may chmod it
+
+Authorization reads the node's `write` tier allowlist — the same walker decision `nano`, `rm` and
+`touch` already make, and the same L1/L2 rule that governs a cross-player write. Legacy's
+owner-or-root rule would make the display-only `owner` string load-bearing for the first time: a
+SECOND authority over permissions beside the tier allowlists, which is the exact shape D8 refused
+when it made the SNMP OIDs a view over `rules.v4` rather than a second copy.
+
+An intruder holding root on your box can therefore chmod anything on it — which is no new power,
+since they can already overwrite it.
+
+#### 7. No `-R`
+
+Under decision 5, a recursive chmod copies every descendant's content into the caller's writer
+rows: a patch storm where each row is a whole-file write carrying the clobber hazard §7 names. D9
+shipped the right tool for bulk work three weeks ago — a loop in a `node` script — so `-R` is
+**refused in the manual** rather than silently ignored.
+
+#### 8. Four themes, over the eight tokens v2 actually paints
+
+Amber (default), green phosphor, cyan and light, ported from legacy `theme/themes.ts`. The palette
+is the **eight** `--theme-*` variables v2 renders today, plus whatever the author card introduces
+(a link colour and an avatar border). Legacy's other five tokens paint nothing in v2 and are not
+ported: this is the `SERVICE_CATALOG` discipline the epic has kept for nine doors — rows arrive
+when the thing ships, columns when a slice consumes them — and a token nothing paints is dead data
+that still has to be right in four places.
+
+#### 9. The theme lives in `localStorage`, applied before the first paint
+
+Its own key, read synchronously in `main.tsx` ahead of `render` so there is no flash of amber —
+legacy solved the same problem from its IndexedDB cache. Four consequences, all matching legacy:
+
+- `new-game` resets you to amber, because it clears the whole origin;
+- an `xterm` tab inherits the theme, because it reads the same key at boot;
+- an already-open tab keeps its colours until reload (no `storage`-event listener — one more
+  mechanism for a cosmetic sync);
+- nothing reaches a server, so a cosmetic preference does not become a server-authoritative fact.
+
+#### 10. `author` is a screen, not a line
+
+A third `ModeChange` beside `nano` and `lynx`: a full overlay card with the avatar, the bio and
+real clickable links, ESC or `q` back to the terminal. v2's scrollback is a list of plain
+`{ kind, content }` strings and cannot hold a component; the alternative was teaching
+`TerminalLine` a renderable kind, which would make pipes, redirects, `node`'s capture and the log
+writers all answer what a non-string line means — six subsystems changed for one command.
+
+The copy is **legacy's, verbatim**, including the avatar URL and the LinkedIn/GitHub links. It is
+the owner's own text; edits arrive as data during the slice, not as a rewrite.
+
+#### 11. `clear` clears the banner too, and Ctrl-L does the same thing
+
+Scrollback and banner both go; **command history survives**, so ↑ still walks it — legacy's
+documented behaviour and what a real `clear` does. Mechanism: a new `env.clearScreen()` capability
+in the shape of the shipped `env.resetGame()`, with the banner becoming a signal that starts true
+and returns on reload. **Ctrl-L is bound to the same capability**, because every terminal a player
+has used does that and it costs one branch in the handler that already owns ↑/↓/Tab.
+
+#### 12. The client-comfort four need a real terminal — `withoutTty` AND `withoutScript`
+
+`clear`, `theme`, `author` and `xterm` all declare both refusals. The principle is one sentence:
+**these are acts ON a terminal, so they need one that exists and one the player is looking at.** A
+backdoor is a pipe with no screen to clear — `clear` on a pty-less shell authentically errors — and
+a script's output is CAPTURED (D9 decision 4), so there is no screen for it to clear or take over,
+while a loop calling `xterm` is a popup storm.
+
+This is a DIFFERENT rule from D9's *"refuse what would lie about where the script is standing"* —
+a theme change lies about nothing — and it is recorded as its own principle so a later slice does
+not try to derive one from the other.
+
+#### 13. `xterm` opens a FRESH terminal
+
+The new tab boots at the player's own workstation, as their own user, and **skips hop
+rehydration** — v2's equivalent of legacy's `?fresh`, keeping legacy's documented promise that
+*"each tab runs an independent session with its own user, machine, path, and command history"*
+while the filesystem and wifi state stay shared.
+
+Without this, `xterm` would ship the two-tabs-one-session-stack desync described in the grounding
+as a feature. Residual, recorded rather than solved: if the fresh tab later elevates, a RELOAD of
+either tab rebuilds one stack from both tabs' rows — the same lossiness `sessionRehydrate` already
+documents for a refresh.
+
+#### 14. `find` keeps legacy's positional shape — and the realism debt gets a name
+
+`find <path> <pattern> [user]`, globbing `*`/`?` as legacy did, walking only what the session can
+traverse and read so that what `find` reports and what `cat` will open cannot disagree. `-user`
+filters the display-only owner string — a report, never an authorization input.
+
+A `-name`-parsed find would be the strictest-parsed command in the game and the outlier among
+`hydra`/`john`/`snmpwalk`/`redis-cli`. The realism-versus-simplicity tension is real and is
+**deferred deliberately, not lost**: a *pre-release realism pass over every command's argument
+surface* is now a named parking-lot item, so the whole set gets tweaked together, once, with a
+player's muscle memory in view — rather than one command at a time.
+
+#### 15. `clear` and `whoami` become stamped binaries
+
+Both join `SYSTEM_UTILITY_NAMES`, so every machine carries `/bin/clear` and `/bin/whoami` and the
+existing availability gate applies — consistent with `find`, `strings` and `chmod` sitting right
+there, and keeping ONE rule about what a binary means. Legacy classed both as shell builtins;
+v2's rule is *"real Linux tools have a binary and are gated by it; game commands don't"*, and these
+are real tools.
+
+Consequences: `rm /bin/whoami` breaks whoami on that box, as it does for every other tool; and
+while ssh'd into a box that lacks `/bin/clear`, your screen does not clear — which is exactly what
+real ssh does. The cost is near zero — the workstation/remote/router `/bin` tests assert against
+`SYSTEM_UTILITY_NAMES` itself rather than a typed-out list — but **the stamping must land in the
+same slice as the commands** (slice 1), or `whoami` ships answering `command not found`.
+`theme`, `author` and `xterm` stay ungated game commands (no binary), joining `identity` and
+`new-game` in `GAME_COMMANDS`.
+
+### Forced rather than chosen (planning should not re-litigate)
+
+- **No `api/` change in any slice — wire-check `N/A` throughout, with reasons.** Nothing here
+  reaches a server that is not already reached: `chmod` writes through `env.patches.write`, the
+  same call `nano`, `touch` and `>` use and that is already proven cross-player; `gpg` reads and
+  writes files through the same seam; the other seven are pure client or pure filesystem. Every
+  close-out proof is a browser run — the vantage conventions §7 warns a green wire-check cannot
+  see.
+- **`clear`, `theme` and `xterm` cannot be pure `core/` commands.** They act on the browser, so
+  each needs a `CommandEnv` capability; `core/` never reaches into UI state. That is the shape
+  `env.resetGame()` already has, not a new idea to weigh.
+- **`author` cannot feed a pipe.** No `mode_change` can (`runLine.ts`), so `author | grep` is a
+  shell-level fact, not an author-level decision.
+- **`gpg` stays apt-installed.** `{ name: 'gpg' }` is already in `APT_PACKAGES` and deliberately
+  out of `LOCALHOST_PREINSTALLED_TOOLS` (`binaries.ts`: *"a fresh box ships neither a JS runtime
+  nor GPG… Don't 'restore' them here"*). A package with no `binaries` list ships one binary named
+  after itself, so `apt install gpg` already stamps `/usr/bin/gpg`.
+
+### Folded in as routine (recorded so they are not re-decided)
+
+- `strings <file>` with legacy's fixed 4-character minimum and no `-n`, per the house style.
+- `gpg -c` **keeps** the plaintext and writes `<file>.gpg`; legacy's `.enc` is dropped, so the
+  later content generator emits `.gpg` too. `gpg -d` decrypts whatever it is handed, extension or
+  not.
+- `whoami` prints the ACTIVE session's username only — `root` after `su`, the remote user after an
+  `ssh` hop.
+- Categories, from legacy's own placement: `clear`/`theme`/`author`/`xterm` → `general`;
+  `whoami`/`find`/`strings`/`chmod`/`gpg` → `filesystem`.
+- `theme` with no argument lists the four with `*` on the current one; an unknown name errors and
+  names the four.
+- Every command ships a `manual` page — `help` and `man` pick them up from the registry.
+- Version bump per feature slice in both `v2/package.json` and `v2/package-lock.json`.
+
+### Slice spine (each vertical + observable)
+
+D10 is not a door either — no daemon, no port, no placement, no cross-player half — so the spine is
+the **comfort surface**, ordered so the two slices carrying real mechanism land last and alone.
+
+| # | Slice | Observable |
+|---|---|---|
+| **1** | **The terminal is yours** | `clear` (banner + scrollback, history intact) via `env.clearScreen()`, Ctrl-L on the same seam, the four themes with pre-render `localStorage` persistence, `whoami`, and `/bin/clear` + `/bin/whoami` joining `SYSTEM_UTILITY_NAMES` (decision 15 — the stamping rides with the commands it gates). A player clears the screen, switches to green phosphor, reloads and it is still green |
+| **2** | **The card and the second window** | `author` as the third `ModeChange` overlay; `xterm` opening a fresh tab that skips hop rehydration. `author` shows the card and ESC returns; `xterm` from inside an ssh hop opens a tab standing on the player's OWN workstation |
+| **3** | **The box answers questions** | `find` and `strings` — both binaries already stamped, so this slice is pure command work. `find / passwd` finds the file across a box the session can traverse; `strings /bin/ls` reads the ELF stub; a stripped `/bin` makes each say `command not found` |
+| **4** | **Permissions change hands** | `chmod` — symbolic modes, write-tier authorization, the reload-then-write seam, `-R` refused. A player opens a root-only file to their own tier and then reads it; a guest is refused; the change survives a reload because it is a patch |
+| **5** | **A file nobody else can read** | `gpg -c` / `-d`, the md5-keyed codec, the masked prompt and the positional passphrase. A player encrypts a file, `cat`s it and sees base64, decrypts it back; a wrong passphrase fails cleanly; an intruder holding root finds nothing readable |
+
+**The close-out is a browser run with a beat worth targeting**: `ssh` into a box already rooted,
+`gpg -c` something there, then read it back from the OWNER's side — the encrypted file is a patch
+like any other, so the defender sees ciphertext on their own machine.
+
+### Deliberately NOT built (recorded so nobody re-opens them)
+
+`bash` (decision 1); world content for `strings`/`gpg` (decision 2); a perms-only patch state
+(decision 5); `chmod -R` (decision 7); legacy's five unpainted theme tokens (decision 8);
+server-side theme persistence (decision 9); a renderable `TerminalLine` kind (decision 10); a
+cross-tab theme `storage` listener (decision 9); `-name`-parsed find (decision 14).
+
+### Open for planning (named, deliberately not decided)
+
+- **Whether `clear`'s banner-hidden state survives a `new-game`-less reload.** It is one signal
+  either way; slice 1 picks, and the answer only shows when a player reloads mid-session.
+- **The exact wording of the four `withoutTty` / `withoutScript` refusals**, and whether `clear`'s
+  no-tty message borrows the real one (`TERM environment variable not set`). Player-facing strings,
+  so the mutation gate will treat them as such (conventions §4).
+- **Whether the author overlay reuses `Lynx`'s scroll/keyboard chrome or gets its own.** A shared
+  screen shell may or may not exist by slice 2; the card is static content either way.
+- **Whether `chmod`'s symbolic parser is worth sharing with anything.** Nothing else parses
+  `[ugoa][+-][rwx]` today, so it starts private to the command and only moves if a second caller
+  appears.
+
 ## Open branches (named, not yet decided)
 
 1. ~~**`nc -l` semantics (D5)**~~ — **RESOLVED 2026-08-16 at D5's grill.** A session with no
@@ -2406,6 +2728,13 @@ covers it; `chmod`; world content and the example script (decision 11); a Web Wo
   its own later work, not any door's. **It inherits D2.6b's rule**: content that carries a
   usable credential is loot, and loot arrives through the postponed harvest route, not as
   scenery.
+- **A pre-release realism pass over every command's argument surface.** Named at D10's grill
+  (2026-09-02) when `find` chose legacy's positional shape over real find's `-name`. v2's house
+  style is deliberate — `hydra [-p port] <host> [service] [user]`, `john <file>`,
+  `snmpwalk <host> [community]`, `redis-cli <host> [password]` all simplify what the real tool
+  spells with flags — and #464 bought realism in the binary NAMES, not in the arguments. The
+  realism-versus-simplicity tension is real, so the whole set gets tweaked **together, once,
+  before release**, with a player's muscle memory in view, rather than one command at a time.
 - **Tutorials dropped into the player's home folder** — readable in-game files explaining the
   mechanics, landing before release. Owner intent, stated 2026-09-01; shape still to be
   decided. **D9 routed its example-script idea here** rather than shipping one via
@@ -2967,10 +3296,17 @@ are now resolved. **A door is not proven by its wire-checks alone** — the wire
 green and could not see any of this, because the defects live in the one vantage no endpoint
 answers. One session's browsing produced four findings, three of them invisible to a green suite.
 
-**➡️ NEXT: D10 — the terminal feels like legacy's.** One polish slice (`clear`, `theme`, `author`,
-`xterm`, `bash`, `whoami`) and **Phase 1 is complete**: every other door — web, hydra, ftp, scp,
-daemons, nc, machine kinds, mysql, redis, snmp and node — has shipped. After it, Phase 2
-(discovery: DNS/`nslookup`/`dig`, then `findit.io` and networks a player was never told about).
+**➡️ NEXT: D10 — the terminal feels like legacy's. GRILLED 2026-09-02, ready to plan.** Fifteen
+locked decisions and **five slices**, not the one the row promised: the terminal comforts (`clear`
++ Ctrl-L, `theme`, `whoami`), the card and the second window (`author`, `xterm`), the box's own
+tools (`find`, `strings`), `chmod`, and `gpg`. It absorbs locked decision 9's entire long tail —
+which nothing else was ever going to claim — and **refuses `bash`**. After it **Phase 1 is
+complete**: every door — web, hydra, ftp, scp, daemons, nc, machine kinds, mysql, redis, snmp and
+node — has shipped. Then Phase 2 (discovery: DNS/`nslookup`/`dig`, then `findit.io` and networks a
+player was never told about).
+
+**Plan D10 slice 1 next** (`/plan`), then implement RED-first. No `api/` change anywhere in the
+door, so the wire-check is `N/A` across all five slices and every close-out proof is a browser run.
 
 **D9 SHIPPED COMPLETE at v0.200.0 (#480)** — the seventh and last door in the locked order
 (ftp → daemons → nc → mysql → redis → snmp → node), across five slices
